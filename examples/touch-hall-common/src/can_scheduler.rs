@@ -1,18 +1,15 @@
-//! CAN TX scheduling — all timing lives here (Rust). Rhai supplies `can_tx` only.
+//! CAN TX scheduling — Rust defines WHEN; Rhai defines WHAT (`can_tx`).
 //!
-//! | Trigger        | Rust schedule                            |
-//! |----------------|------------------------------------------|
-//! | Idle           | `idle_refresh_button` every 1 s, no touch |
-//! | CAN RX changed | `on_can_rx` once per changed frame       |
-//! | Touch hold     | `cycle_output` every `command_repeat_ms` (no CAN) |
-//! | Touch press/release/switch | `cycle_output` only (no CAN)       |
+//! | Trigger              | Rust schedule                                      |
+//! |----------------------|----------------------------------------------------|
+//! | Periodic (1 s)       | `cycle()` then TX                                  |
+//! | CAN RX (new data)    | `cycle()` then TX immediately                      |
+//! | Touch press/hold     | `cycle()` then TX (`command_repeat_ms` while hold) |
+//! | Touch release        | `cycle()` then TX immediately                      |
 //!
-//! Touch: GUI + Rhai `cycle()` only — **no CAN TX** (CAN TX = Rhai `can_tx` on RX + idle refresh).
+//! Every bus frame is sent only after `plc.cycle()` — payload is always Rhai `can_tx`.
 
-use core::sync::atomic::{AtomicU8, Ordering};
-
-use crate::can_bridge::{button_token, set_active_button};
-use crate::can_refresh;
+use crate::can_bridge::{button_token, payload_is_release, set_active_button, TX_PAYLOAD_LEN};
 use crate::input_state;
 use crate::touch_hold;
 use crate::BUTTON_COUNT;
@@ -22,12 +19,10 @@ use crate::button_status;
 #[cfg(feature = "rhai")]
 use crate::rhai_state::Plc;
 
-/// Sentinel: no PLC command transmitted yet.
-const LAST_SENT_UNSET: u8 = 254;
+/// Rhai `can_tx` payload length on the bus.
+pub type PlcCanTx = [u8; TX_PAYLOAD_LEN];
 
-static LAST_SENT: AtomicU8 = AtomicU8::new(LAST_SENT_UNSET);
-
-/// Tracks last transmitted Rhai `can_tx` (CAN RX / idle dedupe).
+/// PLC TX arm — every scheduled send goes on the bus (no payload dedupe).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PlcTxState;
 
@@ -36,35 +31,19 @@ impl PlcTxState {
         Self
     }
 
-    fn last_sent() -> Option<u8> {
-        match LAST_SENT.load(Ordering::Relaxed) {
-            LAST_SENT_UNSET => None,
-            cmd => Some(cmd),
-        }
-    }
-
-    fn set_last_sent(cmd: u8) {
-        LAST_SENT.store(cmd, Ordering::Relaxed);
-    }
-
-    pub fn note_sent(&self, cmd: u8) {
-        Self::set_last_sent(cmd);
-    }
-
-    /// Rhai `can_tx` dedupe (CAN RX / release paths only).
-    pub fn arm_send_rhai(&self, cmd: Option<u8>) -> Option<u8> {
-        let cmd = cmd?;
-        if Self::last_sent() == Some(cmd) {
-            return None;
-        }
-        Self::set_last_sent(cmd);
-        Some(cmd)
+    fn arm_send_repeat(&self, payload: Option<PlcCanTx>) -> Option<PlcCanTx> {
+        payload
     }
 }
 
-fn ui_unchanged(before: &[u8], after: &[u8]) -> bool {
-    let count = before.len().min(after.len()).min(BUTTON_COUNT);
-    before[..count] == after[..count]
+/// Snapshot `ui[]`, run one PLC scan, return Rhai `can_tx`.
+#[cfg(feature = "rhai")]
+fn scan_plc_cycle(plc: &mut Plc, scratch: &mut [u8]) -> (Option<PlcCanTx>, [u8; 64], bool) {
+    let minp_event = crate::can_input::any_minp_pending();
+    let mut before = [0u8; 64];
+    button_status::snapshot(&mut before, BUTTON_COUNT);
+    let payload = cycle_output(plc, scratch);
+    (payload, before, minp_event)
 }
 
 #[cfg(feature = "rhai")]
@@ -126,113 +105,128 @@ fn log_plc_ui_slice(scratch: &[u8]) {
 #[cfg(all(feature = "rhai", not(any(feature = "log", feature = "defmt"))))]
 fn log_plc_ui_slice(_scratch: &[u8]) {}
 
-/// Idle keepalive button index (`255` = release), or `None` if touch blocks refresh.
-pub fn idle_refresh_button() -> Option<u8> {
-    can_refresh::idle_refresh_button()
+/// Periodic — `cycle()` then TX every `CAN_REFRESH_MS`.
+#[cfg(feature = "rhai")]
+pub fn on_periodic_refresh(plc: &mut Plc, scratch: &mut [u8], tx_state: &PlcTxState) -> Option<PlcCanTx> {
+    tx_state.arm_send_repeat(cycle_output(plc, scratch))
 }
 
-/// Run one PLC scan, update Rhai `ui[]`. Returns Rhai `can_tx` (CAN/minp only).
+/// CAN RX — `cycle()` then immediate TX (CanRx only fires when RX data changed).
 #[cfg(feature = "rhai")]
-pub fn cycle_output(plc: &mut Plc, scratch: &mut [u8]) -> Option<u8> {
+pub fn on_can_rx(plc: &mut Plc, scratch: &mut [u8], tx_state: &PlcTxState) -> Option<PlcCanTx> {
+    let (payload, before, minp_event) = scan_plc_cycle(plc, scratch);
+    let count = BUTTON_COUNT.min(scratch.len()).min(before.len());
+    log_minp_changes(&before[..count], &scratch[..count]);
+    if minp_event {
+        log_plc_ui_info(scratch);
+    }
+    tx_state.arm_send_repeat(payload)
+}
+
+/// Run one PLC scan, update Rhai `ui[]`. Returns Rhai `can_tx` payload.
+#[cfg(feature = "rhai")]
+pub fn cycle_output(plc: &mut Plc, scratch: &mut [u8]) -> Option<PlcCanTx> {
     if plc.cycle().is_err() {
         log_cycle_failed();
         return None;
     }
-    let cmd = plc.can_tx();
+    let payload = plc.can_tx_payload();
     button_status::apply_from_plc(plc, scratch);
     log_plc_ui(scratch);
-    log_rhai_can_tx(cmd);
-    cmd
+    log_rhai_can_tx(&payload);
+    Some(payload)
 }
 
 #[cfg(feature = "rhai")]
-fn log_rhai_can_tx(cmd: Option<u8>) {
-    log_rhai_can_tx_inner(cmd);
+fn log_rhai_can_tx(payload: &PlcCanTx) {
+    log_rhai_can_tx_inner(payload);
 }
 
 #[cfg(all(feature = "rhai", feature = "log"))]
-fn log_rhai_can_tx_inner(cmd: Option<u8>) {
-    match cmd {
-        None => log::debug!("Rhai can_tx = none"),
-        Some(255) => log::debug!("Rhai can_tx = RELEASE"),
-        Some(btn) => log::debug!("Rhai can_tx = {btn} ({})", button_token(btn as usize)),
+fn log_rhai_can_tx_inner(payload: &PlcCanTx) {
+    if payload_is_release(payload) {
+        log::debug!("Rhai can_tx = RELEASE");
+    } else {
+        log::debug!("Rhai can_tx = {:02x?}", payload);
     }
 }
 
 #[cfg(all(feature = "rhai", feature = "defmt", not(feature = "log")))]
-fn log_rhai_can_tx_inner(cmd: Option<u8>) {
-    match cmd {
-        None => defmt::debug!("Rhai can_tx none"),
-        Some(255) => defmt::debug!("Rhai can_tx RELEASE"),
-        Some(btn) => defmt::debug!("Rhai can_tx {}", btn),
+fn log_rhai_can_tx_inner(payload: &PlcCanTx) {
+    if payload_is_release(payload) {
+        defmt::debug!("Rhai can_tx RELEASE");
+    } else {
+        defmt::debug!("Rhai can_tx {:?}", payload);
     }
 }
 
 #[cfg(all(feature = "rhai", not(any(feature = "log", feature = "defmt"))))]
-fn log_rhai_can_tx_inner(_cmd: Option<u8>) {}
+fn log_rhai_can_tx_inner(_payload: &PlcCanTx) {}
 
-/// CAN RX changed — one scan; TX only when PLC `ui[]` changed.
+/// Touch press — latch inputs, one scan, send Rhai `can_tx` once.
 #[cfg(feature = "rhai")]
-pub fn on_can_rx(plc: &mut Plc, scratch: &mut [u8], tx_state: &PlcTxState) -> Option<u8> {
-    let mut before = [0u8; 64];
-    button_status::snapshot(&mut before, BUTTON_COUNT);
-    let cmd = cycle_output(plc, scratch);
-    log_minp_changes(&before[..BUTTON_COUNT], &scratch[..BUTTON_COUNT]);
-    if ui_unchanged(&before[..BUTTON_COUNT], &scratch[..BUTTON_COUNT]) {
-        return None;
-    }
-    log_plc_ui_info(scratch);
-    tx_state.arm_send_rhai(cmd)
-}
-
-/// Touch: run PLC scan for GUI / Rhai inputs — no CAN TX.
-#[cfg(feature = "rhai")]
-fn touch_cycle(plc: &mut Plc, scratch: &mut [u8]) {
-    let _ = cycle_output(plc, scratch);
-}
-
-/// Touch press — latch inputs, one scan (no CAN).
-#[cfg(feature = "rhai")]
-pub fn on_touch_press(plc: &mut Plc, scratch: &mut [u8], index: u8) {
+pub fn on_touch_press(
+    plc: &mut Plc,
+    scratch: &mut [u8],
+    tx_state: &PlcTxState,
+    index: u8,
+) -> Option<PlcCanTx> {
     touch_begin(index);
-    touch_cycle(plc, scratch);
+    let (payload, _, _) = scan_plc_cycle(plc, scratch);
+    tx_state.arm_send_repeat(payload)
 }
 
-/// Touch release — clear inputs, one scan (no CAN).
+/// Touch release — clear inputs, `cycle()`, send Rhai `can_tx` immediately.
 #[cfg(feature = "rhai")]
-pub fn on_touch_release(plc: &mut Plc, scratch: &mut [u8], held: u8, long_fired: bool) {
+pub fn on_touch_release(
+    plc: &mut Plc,
+    scratch: &mut [u8],
+    tx_state: &PlcTxState,
+    held: u8,
+    long_fired: bool,
+) -> Option<PlcCanTx> {
     touch_end(held, long_fired);
-    touch_cycle(plc, scratch);
+    let (payload, _, _) = scan_plc_cycle(plc, scratch);
+    tx_state.arm_send_repeat(payload)
 }
 
-/// Switch held button — one scan (no CAN).
+/// Switch held button — one scan, send Rhai `can_tx` once.
 #[cfg(feature = "rhai")]
-pub fn on_touch_switch(plc: &mut Plc, scratch: &mut [u8], from: u8, to: u8) {
+pub fn on_touch_switch(
+    plc: &mut Plc,
+    scratch: &mut [u8],
+    tx_state: &PlcTxState,
+    from: u8,
+    to: u8,
+) -> Option<PlcCanTx> {
     touch_switch(from, to);
-    touch_cycle(plc, scratch);
+    let (payload, _, _) = scan_plc_cycle(plc, scratch);
+    tx_state.arm_send_repeat(payload)
 }
 
-/// Hold tick — long-press pulse + PLC scan every `command_repeat_ms` (no CAN).
+/// Hold tick — long-press pulse + `cycle()` + TX at touch repeat interval.
 #[cfg(feature = "rhai")]
 pub fn on_touch_hold_tick(
     plc: &mut Plc,
     scratch: &mut [u8],
+    tx_state: &PlcTxState,
     held: u8,
     press_elapsed_ms: u64,
     long_fired: &mut bool,
-) {
+) -> Option<PlcCanTx> {
     touch_maybe_long(held, press_elapsed_ms, long_fired);
-    touch_cycle(plc, scratch);
+    let (payload, _, _) = scan_plc_cycle(plc, scratch);
+    tx_state.arm_send_repeat(payload)
 }
 
 /// Release outside active hold loop.
 #[cfg(feature = "rhai")]
-pub fn on_idle_release(plc: &mut Plc, scratch: &mut [u8], tx_state: &PlcTxState) -> Option<u8> {
+pub fn on_idle_release(plc: &mut Plc, scratch: &mut [u8], tx_state: &PlcTxState) -> Option<PlcCanTx> {
     if touch_hold::is_latched() || input_state::any_held() {
         return None;
     }
     set_active_button(None);
-    tx_state.arm_send_rhai(cycle_output(plc, scratch))
+    tx_state.arm_send_repeat(cycle_output(plc, scratch))
 }
 
 pub fn touch_begin(index: u8) {
@@ -307,7 +301,7 @@ fn log_minp_btn(i: usize, prev: bool, next: bool) {
         i,
         button_token(i),
         prev,
-        next,
+        next
     );
 }
 

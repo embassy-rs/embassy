@@ -1,7 +1,6 @@
-// Rhai: WHAT (can_tx, ui). Rust: WHEN (touch repeat, CAN RX once, idle refresh).
+// Rhai: WHAT (can_tx via natives). Rust: WHEN (touch repeat, CAN RX once, idle refresh).
 
 let ui = [];
-let can_tx = CAN_TX_RELEASE;
 
 fn init() {
     for i in button_indices() {
@@ -10,17 +9,17 @@ fn init() {
 }
 
 fn cycle() {
-    can_tx = CAN_TX_RELEASE;
+    can_tx_clear();
     for (v, i) in ui {
         if i%2 != 0 {
             ui[i] = minp_in(i);
             if btn_held(i) {
-                can_tx = i;
+                can_tx_on(i);
             }
         } else {
             ui[i] ^= minp_in(i);
             if ui[i] {
-                can_tx = i;
+                can_tx_on(i);
             }
         }
     }

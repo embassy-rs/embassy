@@ -183,6 +183,7 @@ pub fn generate_touch_config(manifest_dir: &Path, out_dir: &Path) {
     let touch_websocket_enabled = can_json["touch_websocket_enabled"].as_bool().unwrap_or(false);
     let touch_websocket_port = can_json["touch_websocket_port"].as_u64().unwrap_or(63151) as u16;
     let minp = can_json["minp"].as_array().expect("minp array");
+    let minp_level_on_even = can_json["minp_level_on_even"].as_bool().unwrap_or(true);
     let state_script_name = can_json["state_script"].as_str().unwrap_or("");
     let state_script_path = project.join(state_script_name);
     let (state_script_enabled, state_script) = if state_script_name.is_empty() {
@@ -204,6 +205,7 @@ pub fn generate_touch_config(manifest_dir: &Path, out_dir: &Path) {
     writeln!(rust, "pub const CAN_RECV_TIMEOUT_MS: u64 = {recv_timeout_ms};").unwrap();
     writeln!(rust, "pub const CAN_RX_DEBOUNCE_MS: u64 = {rx_debounce_ms};").unwrap();
     writeln!(rust, "pub const CAN_RX_POLL_MS: u64 = {rx_poll_ms};").unwrap();
+    writeln!(rust, "pub const MINP_LEVEL_ON_EVEN: bool = {minp_level_on_even};").unwrap();
     writeln!(rust, "pub const CAN_WEBSOCKET_ENABLED: bool = {websocket_enabled};").unwrap();
     writeln!(rust, "pub const CAN_WEBSOCKET_PORT: u16 = {websocket_port};").unwrap();
     writeln!(rust, "pub const CAN_TOUCH_WEBSOCKET_ENABLED: bool = {touch_websocket_enabled};").unwrap();

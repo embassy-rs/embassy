@@ -16,6 +16,14 @@ pub fn plc_active(index: usize) -> bool {
         .unwrap_or(false)
 }
 
+/// True when any Rhai `ui[]` slot is active.
+pub fn any_plc_active() -> bool {
+    BUTTON_STATUS
+        .iter()
+        .take(BUTTON_COUNT)
+        .any(|slot| slot.load(Ordering::Relaxed) != 0)
+}
+
 /// Copy current Rhai-driven highlights into `out`.
 pub fn snapshot(out: &mut [u8], count: usize) {
     let count = count.min(BUTTON_COUNT).min(out.len());

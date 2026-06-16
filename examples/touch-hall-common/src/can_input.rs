@@ -102,9 +102,10 @@ fn poll_minp_edges() -> bool {
 }
 
 /// Advance the debounce clock and evaluate minp edges.
-pub fn advance_time_ms(now_ms: u32) {
+/// Returns `true` when a minp one-shot pulse was raised.
+pub fn advance_time_ms(now_ms: u32) -> bool {
     TIME_MS.store(now_ms, Ordering::Relaxed);
-    let _ = poll_minp_edges();
+    poll_minp_edges()
 }
 
 fn frame_data_changed(slot: usize, data: &[u8]) -> bool {
@@ -153,6 +154,16 @@ pub fn frame_bit(id: u16, byte_index: usize, bit_index: u8) -> bool {
         return false;
     }
     (frame_byte(id, byte_index) >> bit_index) & 1 != 0
+}
+
+/// Current minp bit level from the last RX frame (sustained, not an edge).
+pub fn minp_raw(index: usize) -> bool {
+    raw_minp_bit(index).unwrap_or(false)
+}
+
+/// True while any minp one-shot pulse is pending (before `minp_in` consumes it).
+pub fn any_minp_pending() -> bool {
+    MINP_PULSE.iter().any(|pulse| pulse.load(Ordering::Relaxed) != 0)
 }
 
 /// One-shot minp pulse: `true` only on raw `0→1` after debounced `00`.

@@ -7,7 +7,7 @@ use std::time::{Duration as StdDuration, Instant};
 use log::{debug, info, warn};
 use socketcan::{CanFrame, CanSocket, EmbeddedFrame, Socket, StandardId};
 use touch_hall_common::button_status;
-use touch_hall_common::can_bridge::{button_token, handle_minp_frame, tx_payload};
+use touch_hall_common::can_bridge::{handle_minp_frame, payload_is_release, tx_payload};
 use touch_hall_common::can_input;
 use touch_hall_common::can_refresh::CAN_REFRESH_MS;
 use touch_hall_common::can_scheduler;
@@ -49,26 +49,30 @@ pub fn button_status(index: usize) -> bool {
     button_status::plc_active(index)
 }
 
-fn send_plc_cmd(socket: &CanSocket, button_index: u8, refresh: bool) -> bool {
-    if button_index == 255
+fn send_plc_payload(socket: &CanSocket, payload: &[u8; 6], refresh: bool) -> bool {
+    if payload_is_release(payload)
         && !refresh
         && (touch_hold::is_latched() || input_state::any_held())
     {
         return false;
     }
-    write_frame(socket, button_index, &tx_payload(button_index), refresh)
+    write_frame(socket, payload, refresh)
 }
 
-fn send_cycle_output(socket: &CanSocket, cmd: Option<u8>) {
-    if let Some(btn) = cmd {
-        if !send_plc_cmd(socket, btn, false) {
-            warn!("CAN output failed for button {btn}");
+fn send_plc_cmd(socket: &CanSocket, button_index: u8, refresh: bool) -> bool {
+    send_plc_payload(socket, &tx_payload(button_index), refresh)
+}
+
+fn send_cycle_output(socket: &CanSocket, payload: Option<[u8; 6]>, refresh: bool) {
+    if let Some(p) = payload {
+        if !send_plc_payload(socket, &p, refresh) {
+            warn!("CAN output failed data={:02x?}", p);
         }
     }
 }
 
-fn write_frame(socket: &CanSocket, button_index: u8, payload: &[u8; 6], refresh: bool) -> bool {
-    log_tx_payload(button_index, payload, refresh);
+fn write_frame(socket: &CanSocket, payload: &[u8; 6], refresh: bool) -> bool {
+    log_tx_payload_bytes(payload, refresh);
     let Some(id) = StandardId::new(CAN_TX_ID) else {
         return false;
     };
@@ -77,27 +81,25 @@ fn write_frame(socket: &CanSocket, button_index: u8, payload: &[u8; 6], refresh:
     };
     let ok = socket.write_frame(&frame).is_ok();
     if ok {
-        touch_hall_common::can_refresh::note_tx(button_index);
+        touch_hall_common::can_refresh::note_tx_payload(payload);
     }
     ok
 }
 
-fn log_tx_payload(button_index: u8, payload: &[u8; 6], refresh: bool) {
+fn log_tx_payload_bytes(payload: &[u8; 6], refresh: bool) {
     if refresh {
         info!(
-            "CAN TX id=0x{CAN_TX_ID:03x} btn={button_index} token={} refresh data={:02x?}",
-            button_token(button_index as usize),
+            "CAN TX id=0x{CAN_TX_ID:03x} refresh data={:02x?}",
             &payload[..payload.len().min(6)],
         );
-    } else if button_index == 255 {
+    } else if payload_is_release(payload) {
         info!(
             "CAN TX id=0x{CAN_TX_ID:03x} release data={:02x?}",
             &payload[..payload.len().min(6)],
         );
     } else {
         info!(
-            "CAN TX id=0x{CAN_TX_ID:03x} btn={button_index} token={} data={:02x?}",
-            button_token(button_index as usize),
+            "CAN TX id=0x{CAN_TX_ID:03x} data={:02x?}",
             &payload[..payload.len().min(6)],
         );
     }
@@ -107,81 +109,129 @@ fn log_rx_frame(id: u16, data: &[u8]) {
     debug!("CAN RX id=0x{id:03x} len={} data={:02x?}", data.len(), data);
 }
 
-fn spawn_refresh_thread() {
-    let tx_state = can_scheduler::PlcTxState::new();
-    thread::spawn(move || {
-        let Ok(socket) = CanSocket::open(CAN_CHANNEL) else {
-            warn!("failed to open CAN channel {CAN_CHANNEL} for refresh");
-            return;
-        };
-        info!("CAN TX refresh every {CAN_REFRESH_MS}ms idle (00×6) on {CAN_CHANNEL}");
-        let interval = StdDuration::from_millis(CAN_REFRESH_MS as u64);
-        loop {
-            thread::sleep(interval);
-            if let Some(btn) = can_scheduler::idle_refresh_button() {
-                if send_plc_cmd(&socket, btn, true) {
-                    tx_state.note_sent(btn);
-                }
-            }
-        }
-    });
-}
-
 fn spawn_plc_tx_loop(rx: mpsc::Receiver<Action>, socket: CanSocket, mut plc: Plc) {
     let touch_tick = StdDuration::from_millis(CAN_COMMAND_REPEAT_MS);
+    let refresh_every = StdDuration::from_millis(CAN_REFRESH_MS as u64);
     let mut scratch = [0u8; MAX_BUTTONS];
     let tx_state = can_scheduler::PlcTxState::new();
 
-    while let Ok(first) = rx.recv() {
-        match first {
-            Action::CanRx => {
-                send_cycle_output(&socket, can_scheduler::on_can_rx(&mut plc, &mut scratch, &tx_state));
-            }
-            Action::Press(index) => {
-                can_scheduler::on_touch_press(&mut plc, &mut scratch, index);
+    loop {
+        match rx.recv_timeout(refresh_every) {
+            Ok(first) => match first {
+                Action::CanRx => {
+                    send_cycle_output(
+                        &socket,
+                        can_scheduler::on_can_rx(&mut plc, &mut scratch, &tx_state),
+                        false,
+                    );
+                }
+                Action::Press(index) => {
+                    send_cycle_output(
+                        &socket,
+                        can_scheduler::on_touch_press(&mut plc, &mut scratch, &tx_state, index),
+                        false,
+                    );
 
-                let mut press_start = Instant::now();
-                let mut long_fired = false;
-                let mut held = index;
+                    let mut press_start = Instant::now();
+                    let mut long_fired = false;
+                    let mut held = index;
+                    let mut next_refresh = Instant::now() + refresh_every;
 
-                loop {
-                    match rx.recv_timeout(touch_tick) {
-                        Ok(Action::CanRx) => {
-                            send_cycle_output(
-                                &socket,
-                                can_scheduler::on_can_rx(&mut plc, &mut scratch, &tx_state),
-                            );
+                    loop {
+                        let until_refresh = next_refresh.saturating_duration_since(Instant::now());
+                        let wait = until_refresh.min(touch_tick);
+                        let wait = if wait.is_zero() {
+                            StdDuration::from_nanos(1)
+                        } else {
+                            wait
+                        };
+
+                        match rx.recv_timeout(wait) {
+                            Ok(Action::CanRx) => {
+                                send_cycle_output(
+                                    &socket,
+                                    can_scheduler::on_can_rx(&mut plc, &mut scratch, &tx_state),
+                                    false,
+                                );
+                            }
+                            Ok(Action::Release) => {
+                                send_cycle_output(
+                                    &socket,
+                                    can_scheduler::on_touch_release(
+                                        &mut plc,
+                                        &mut scratch,
+                                        &tx_state,
+                                        held,
+                                        long_fired,
+                                    ),
+                                    true,
+                                );
+                                break;
+                            }
+                            Ok(Action::Press(new_index)) => {
+                                let prev = held;
+                                held = new_index;
+                                press_start = Instant::now();
+                                long_fired = false;
+                                send_cycle_output(
+                                    &socket,
+                                    can_scheduler::on_touch_switch(
+                                        &mut plc,
+                                        &mut scratch,
+                                        &tx_state,
+                                        prev,
+                                        new_index,
+                                    ),
+                                    false,
+                                );
+                            }
+                            Err(mpsc::RecvTimeoutError::Timeout) => {
+                                if Instant::now() >= next_refresh {
+                                    send_cycle_output(
+                                        &socket,
+                                        can_scheduler::on_periodic_refresh(
+                                            &mut plc,
+                                            &mut scratch,
+                                            &tx_state,
+                                        ),
+                                        false,
+                                    );
+                                    next_refresh = Instant::now() + refresh_every;
+                                } else {
+                                    send_cycle_output(
+                                        &socket,
+                                        can_scheduler::on_touch_hold_tick(
+                                            &mut plc,
+                                            &mut scratch,
+                                            &tx_state,
+                                            held,
+                                            press_start.elapsed().as_millis() as u64,
+                                            &mut long_fired,
+                                        ),
+                                        false,
+                                    );
+                                }
+                            }
+                            Err(mpsc::RecvTimeoutError::Disconnected) => return,
                         }
-                        Ok(Action::Release) => {
-                            can_scheduler::on_touch_release(&mut plc, &mut scratch, held, long_fired);
-                            break;
-                        }
-                        Ok(Action::Press(new_index)) => {
-                            let prev = held;
-                            held = new_index;
-                            press_start = Instant::now();
-                            long_fired = false;
-                            can_scheduler::on_touch_switch(&mut plc, &mut scratch, prev, new_index);
-                        }
-                        Err(mpsc::RecvTimeoutError::Timeout) => {
-                            can_scheduler::on_touch_hold_tick(
-                                &mut plc,
-                                &mut scratch,
-                                held,
-                                press_start.elapsed().as_millis() as u64,
-                                &mut long_fired,
-                            );
-                        }
-                        Err(mpsc::RecvTimeoutError::Disconnected) => return,
                     }
                 }
-            }
-            Action::Release => {
+                Action::Release => {
+                    send_cycle_output(
+                        &socket,
+                        can_scheduler::on_idle_release(&mut plc, &mut scratch, &tx_state),
+                        false,
+                    );
+                }
+            },
+            Err(mpsc::RecvTimeoutError::Timeout) => {
                 send_cycle_output(
                     &socket,
-                    can_scheduler::on_idle_release(&mut plc, &mut scratch, &tx_state),
+                    can_scheduler::on_periodic_refresh(&mut plc, &mut scratch, &tx_state),
+                    true,
                 );
             }
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
         }
     }
 }
@@ -269,7 +319,9 @@ fn spawn_plc_rx_loop(socket: CanSocket, action_tx: mpsc::Sender<Action>) {
 
     loop {
         let now_ms = started.elapsed().as_millis() as u32;
-        can_input::advance_time_ms(now_ms);
+        if can_input::advance_time_ms(now_ms) {
+            let _ = action_tx.send(Action::CanRx);
+        }
 
         match socket.read_frame_timeout(timeout) {
             Ok(frame) => {
@@ -351,7 +403,6 @@ pub fn start() {
 
     let (action_tx, action_rx) = mpsc::channel();
     let _ = ACTION_TX.set(action_tx.clone());
-    spawn_refresh_thread();
     spawn_tx_thread(action_rx);
     spawn_rx_thread(action_tx);
 }

@@ -7,6 +7,9 @@ use core::sync::atomic::{AtomicU8, Ordering};
 
 use crate::{BUTTON_COUNT, MINP_COUNT};
 
+/// CAN TX data length (one-hot bitmask across six bytes).
+pub const TX_PAYLOAD_LEN: usize = 6;
+
 /// Highest button index currently held (255 = none).
 pub static ACTIVE_BUTTON: AtomicU8 = AtomicU8::new(255);
 
@@ -31,8 +34,50 @@ pub fn command_payload(button_index: u8) -> [u8; 6] {
 }
 
 /// Release frame payload: six zero bytes.
-pub fn release_payload() -> [u8; 6] {
+pub fn release_payload() -> [u8; TX_PAYLOAD_LEN] {
     [0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+}
+
+/// Byte and bit position for a button index in the TX bitmask.
+pub fn button_byte_bit(index: usize) -> Option<(usize, u8)> {
+    if index >= 48 {
+        return None;
+    }
+    if crate::CAN_TX_LITTLE_ENDIAN {
+        Some((index / 8, (index % 8) as u8))
+    } else {
+        let be_bit = 47 - index;
+        let be_byte = be_bit / 8;
+        let be_bit_in_byte = 7 - (be_bit % 8);
+        Some((be_byte, be_bit_in_byte as u8))
+    }
+}
+
+/// Set or clear one bit in a payload byte.
+pub fn set_bit_in_byte(byte: u8, bit_index: u8, active: bool) -> u8 {
+    if bit_index >= 8 {
+        return byte;
+    }
+    let mask = 1 << bit_index;
+    if active {
+        byte | mask
+    } else {
+        byte & !mask
+    }
+}
+
+/// Set or clear the one-hot bit for `index` in `payload`.
+pub fn apply_button_bit(payload: &mut [u8; TX_PAYLOAD_LEN], index: usize, active: bool) {
+    if let Some((byte, bit)) = button_byte_bit(index) {
+        if byte < TX_PAYLOAD_LEN {
+            payload[byte] = set_bit_in_byte(payload[byte], bit, active);
+        }
+    }
+}
+
+/// True when every TX byte is zero (release / idle keepalive).
+pub fn payload_is_release(payload: &[u8; TX_PAYLOAD_LEN]) -> bool {
+    payload.iter().all(|&b| b == 0)
 }
 
 /// Map PLC/Rust TX index to CAN data (255 = release).
@@ -44,12 +89,12 @@ pub fn tx_payload(button_index: u8) -> [u8; 6] {
     }
 }
 
-/// Apply debounced `minp` feedback into `button_status`.
+/// Apply minp feedback bits into `button_status` (sustained CAN RX levels).
 pub fn handle_minp_frame(can_id: u16, data: &[u8], button_status: &mut [u8]) {
     crate::can_input::store_rx(can_id, data);
     let count = button_status.len().min(MINP_COUNT).min(BUTTON_COUNT);
     for (i, slot) in button_status.iter_mut().enumerate().take(count) {
-        *slot = crate::can_input::minp_active(i) as u8;
+        *slot = crate::can_input::minp_raw(i) as u8;
     }
 }
 

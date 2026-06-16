@@ -1,8 +1,8 @@
 {
   "enabled": true,
   "interface": "socketcan",
-  "channel": "vcan0",
-  "baud": 50000,
+  "channel": "can0",
+  "baud": 500000,
   "tx_id": 645,
   "tx_endian": "little",
   "command_repeat_ms": 25,
@@ -14,6 +14,7 @@
   "touch_websocket_enabled": true,
   "touch_websocket_port": 63151,
   "state_script": "state.rhai",
+  "minp_level_on_even": true,
   "minp": [
     [512, 1, 0, 0],
     [512, 1, 0, 1],
