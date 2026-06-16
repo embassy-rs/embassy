@@ -221,6 +221,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
 
 impl<R: AdcRegs> Drop for RingBufferedAdc<'_, R> {
     fn drop(&mut self) {
+        self.regs.stop();
         self.regs.power_down();
 
         compiler_fence(Ordering::SeqCst);

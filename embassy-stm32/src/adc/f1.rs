@@ -72,7 +72,6 @@ impl AdcRegs for crate::pac::adc::Adc {
     }
 
     fn power_down(&self) {
-        self.stop();
         self.cr2().modify(|reg| reg.set_adon(false));
     }
 

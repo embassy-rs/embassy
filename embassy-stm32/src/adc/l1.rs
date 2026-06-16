@@ -124,7 +124,6 @@ impl AdcRegs for crate::pac::adc::Adc {
     }
 
     fn power_down(&self) {
-        self.stop();
         while !self.sr().read().adons() {}
         self.cr2().modify(|w| w.set_adon(false));
     }
