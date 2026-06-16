@@ -292,7 +292,6 @@ impl AdcRegs for crate::pac::adc::Adc4 {
     }
 
     fn power_down(&self) {
-        self.stop();
         if self.cr().read().aden() {
             self.cr().modify(|w| w.set_addis(true));
             while self.cr().read().aden() {}

@@ -72,7 +72,6 @@ impl AdcRegs for crate::pac::adc::Adc {
     }
 
     fn power_down(&self) {
-        self.stop();
         self.cr().modify(|w| w.set_advregen(Advregen::Intermediate));
         self.cr().modify(|w| w.set_advregen(Advregen::Disabled));
     }

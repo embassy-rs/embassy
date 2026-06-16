@@ -221,7 +221,6 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 
     fn power_down(&self) {
-        self.stop();
         if self.cr().read().aden() {
             self.cr().modify(|reg| reg.set_addis(true));
             while self.cr().read().aden() {}

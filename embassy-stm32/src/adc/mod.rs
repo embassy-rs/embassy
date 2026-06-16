@@ -703,6 +703,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
 #[cfg(not(adc_f3v3))]
 impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
+        T::regs().stop();
         T::regs().power_down();
 
         rcc::disable::<T>();
