@@ -44,13 +44,7 @@ pub mod mode {
     impl_mode!(Async);
 }
 
-#[cfg(stm32c5)]
-macro_rules! dma_channel_impl {
-    ($channel_peri:ident, $irq:ty) => {};
-}
-
 // Always-present hardware
-#[cfg(not(stm32c5))]
 pub mod dma;
 pub mod gpio;
 pub mod rcc;
@@ -360,7 +354,6 @@ pub mod low_power {
     }
 }
 
-#[cfg(not(stm32c5))]
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
@@ -447,7 +440,7 @@ pub struct Config {
     /// GPDMA interrupt priority.
     ///
     /// Defaults to P0 (highest).
-    #[cfg(gpdma)]
+    #[cfg(any(gpdma, lpdma))]
     pub gpdma_interrupt_priority: Priority,
 
     /// MDMA interrupt priority.
@@ -497,7 +490,7 @@ impl Default for Config {
             bdma_interrupt_priority: Priority::P0,
             #[cfg(dma)]
             dma_interrupt_priority: Priority::P0,
-            #[cfg(gpdma)]
+            #[cfg(any(gpdma, lpdma))]
             gpdma_interrupt_priority: Priority::P0,
             #[cfg(mdma)]
             mdma_interrupt_priority: Priority::P0,
@@ -923,14 +916,13 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(stm32f1)]
             crate::pac::AFIO.mapr().modify(|w| w.set_swj_cfg(config.swj.into()));
 
-            #[cfg(not(stm32c5))]
             dma::init(
                 cs,
                 #[cfg(bdma)]
                 config.bdma_interrupt_priority,
                 #[cfg(dma)]
                 config.dma_interrupt_priority,
-                #[cfg(gpdma)]
+                #[cfg(any(gpdma, lpdma))]
                 config.gpdma_interrupt_priority,
                 #[cfg(mdma)]
                 config.mdma_interrupt_priority,
