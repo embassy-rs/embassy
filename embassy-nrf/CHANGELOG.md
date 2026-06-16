@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.11.0 - 2026-06-16
+
 - added: support for the SQSPI peripheral for nRF54.
 - added: support for the nRF54 VPR coprocessor, including loading and running programs and issuing bare opcodes
 - added: USB support for nRF54LM20A (via embassy-usb-synopsys-otg)
