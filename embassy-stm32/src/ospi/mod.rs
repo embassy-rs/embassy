@@ -286,6 +286,11 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
     /// Quit from memory mapped mode
     pub fn disable_memory_mapped_mode(&mut self) {
+        // Ensure memory transactions have completed.
+        // If this is called immediately after writing to memory mapped memory a BusFault of type
+        // 'Imprecise data access error' could occur.
+        cortex_m::asm::dsb();
+
         let reg = T::REGS;
 
         reg.cr().modify(|r| {
