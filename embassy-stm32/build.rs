@@ -2547,16 +2547,9 @@ fn main() {
         let dma_info = match bi.kind {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
-            "gpdma" => quote!(crate::pac::#dma),
+            "gpdma" => quote!(crate::dma::DmaInfo::Gpdma(crate::pac::#dma)),
             "mdma" => quote!(crate::dma::DmaInfo::Mdma(crate::pac::#dma)),
-            "lpdma" => {
-                if METADATA.family == "STM32U5" {
-                    // STM32U5 has both GPDMA and LPDMA where LPDMA is strict subset of GPDMA
-                    quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())})
-                } else {
-                    quote!(crate::pac::#dma)
-                }
-            }
+            "lpdma" => quote!(crate::dma::DmaInfo::Lpdma(crate::pac::#dma)),
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
 
