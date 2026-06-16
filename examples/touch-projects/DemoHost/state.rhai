@@ -16,9 +16,16 @@ fn init() {
 fn cycle() {
     can_tx = CAN_TX_RELEASE;
     for (v, i) in ui {
-        ui[i] ^= minp_in(i);
-        if ui[i] {
-            can_tx = i;
+        if i%2 == 0 {
+            ui[i] = minp_in(i);
+            if btn_held(i) {
+                can_tx = i;
+            }
+        } else {
+            ui[i] ^= minp_in(i);
+            if ui[i] {
+                can_tx = i;
+            }
         }
     }
 }
