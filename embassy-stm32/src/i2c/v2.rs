@@ -596,28 +596,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    ///
-    /// # Example
-    ///
-    /// Performing an I2C bus scan using zero-length writes to check device presence:
-    ///
-    /// ```rust,no_run
-    /// use embassy_stm32::i2c::I2c;
-    /// use embedded_hal_1::i2c::Operation;
-    ///
-    /// # macro_rules! host_code { () => {
-    /// let mut i2c: I2c<'_, _, _> = ...;
-    ///
-    /// for addr in 0x08..0x78 {
-    ///     // A zero-length write transaction will send the address and check for ACK/NACK
-    ///     // without transferring any data bytes.
-    ///     let mut ops = [Operation::Write(&[])];
-    ///     if i2c.blocking_transaction(addr, &mut ops).is_ok() {
-    ///         defmt::info!("Device found at address 0x{:02x}", addr);
-    ///     }
-    /// }
-    /// # } }
-    /// ```
     pub fn blocking_transaction(
         &mut self,
         addr: impl Into<Address>,
@@ -1256,28 +1234,6 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    ///
-    /// # Example
-    ///
-    /// Performing an I2C bus scan using zero-length writes to check device presence:
-    ///
-    /// ```rust,no_run
-    /// use embassy_stm32::i2c::I2c;
-    /// use embedded_hal_1::i2c::Operation;
-    ///
-    /// # macro_rules! host_code { () => {
-    /// let mut i2c: I2c<'_, _, _> = ...;
-    ///
-    /// for addr in 0x08..0x78 {
-    ///     // A zero-length write transaction will send the address and check for ACK/NACK
-    ///     // without transferring any data bytes.
-    ///     let mut ops = [Operation::Write(&[])];
-    ///     if i2c.transaction(addr, &mut ops).await.is_ok() {
-    ///         defmt::info!("Device found at address 0x{:02x}", addr);
-    ///     }
-    /// }
-    /// # } }
-    /// ```
     pub async fn transaction(
         &mut self,
         addr: impl Into<Address>,
