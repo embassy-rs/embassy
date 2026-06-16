@@ -254,6 +254,14 @@ impl<'a> TcpWriter<'a> {
     pub fn can_send(&self) -> bool {
         self.io.with(|s, _| s.can_send())
     }
+
+    /// Return whether the receive half of the full-duplex connection is open.
+    /// This function returns true if it’s possible for the corresponding [`TcpWriter`]
+    /// to receive data from the remote endpoint.
+    /// It will return true as long as the remote endpoint has not closed the connection.
+    pub fn may_recv(&self) -> bool {
+        self.io.with(|s, _| s.may_recv())
+    }
 }
 
 impl<'a> TcpSocket<'a> {
