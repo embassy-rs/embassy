@@ -11,6 +11,10 @@
 //! # Limitations
 //! - Device mode only (no host / OTG role switching).
 //! - Forced full speed; high-speed operation is not exposed.
+//! - No hardware VBUS detection yet; the bus reports power detected at startup.
+//! - Remote wakeup is not implemented.
+//! - Isochronous endpoints and packet sizes greater than 64 bytes are not
+//!   supported.
 //! - One transfer descriptor in flight per endpoint direction at a time.
 //!
 //! # Register access
@@ -111,6 +115,11 @@ unsafe impl<T> Sync for DmaCell<T> {}
 // If this driver is reused on a target with data-cacheable SRAM, these
 // descriptors and bounce buffers must either be placed in a non-cacheable
 // section or wrapped with explicit cache clean/invalidate operations.
+//
+// The MCXA5xx family exposes one USBHS controller. These DMA structures,
+// wakers, and flags are therefore module-static; the `Instance` trait keeps the
+// public API aligned with Embassy's interrupt-binding style, not multi-instance
+// USBHS support.
 
 /// The device queue-head list. Must be 2 KiB aligned and contain `2 * EP_COUNT`
 /// entries (OUT at even indices, IN at odd indices).
@@ -180,6 +189,7 @@ impl EndpointSlot {
     }
 
     #[inline]
+    #[cfg_attr(not(feature = "defmt"), allow(dead_code))]
     fn dir_num(self) -> u8 {
         self.dir_index() as u8
     }
@@ -470,7 +480,11 @@ impl<'d, T: Instance> Driver<'d, T> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Endpoint<D>, EndpointAllocError> {
-        if ep_type == EndpointType::Control || max_packet_size == 0 || max_packet_size > FS_MAX_PACKET {
+        if ep_type == EndpointType::Control
+            || ep_type == EndpointType::Isochronous
+            || max_packet_size == 0
+            || max_packet_size > FS_MAX_PACKET
+        {
             return Err(EndpointAllocError);
         }
 
@@ -611,6 +625,8 @@ fn init_control_qh(mps: u16) {
     // SAFETY: exclusive access during start-up; QH list is owned by the driver.
     unsafe {
         let qh = qh_ptr();
+        // Disable automatic ZLP termination. `embassy-usb` requests status/ZLP
+        // packets explicitly via the control pipe and endpoint transfers.
         // OUT QH[0]: interrupt-on-setup so SETUP packets notify us.
         (*qh)[0].capabilities = ((mps as u32) << QH_CAP_MAXLEN_SHIFT) | QH_CAP_IOS | QH_CAP_ZLT;
         (*qh)[0].next_dtd = DTD_NEXT_TERMINATE;
@@ -644,6 +660,8 @@ fn configure_endpoint(addr: EndpointAddress, ep_type: EndpointType, mps: u16) {
     // SAFETY: queue-head list is owned by the driver; exclusive access here.
     unsafe {
         let qh = qh_ptr();
+        // Disable automatic ZLP termination. The USB stack explicitly requests
+        // short/ZLP packets when the class transfer needs one.
         (*qh)[qhi].capabilities = ((mps as u32) << QH_CAP_MAXLEN_SHIFT) | QH_CAP_ZLT;
         (*qh)[qhi].next_dtd = DTD_NEXT_TERMINATE;
         (*qh)[qhi].token = 0;
@@ -724,7 +742,7 @@ async fn ep_transfer(
         let base = buf_ptr as u32;
         (*dtd)[dtd_i].buffer[0] = base;
         for page in 1..5 {
-            (*dtd)[dtd_i].buffer[page] = (base & !0xFFF) + (page as u32) * 0x1000;
+            (*dtd)[dtd_i].buffer[page] = (base & !DTD_BUFFER_PAGE_MASK) + (page as u32) * DTD_BUFFER_PAGE_SIZE;
         }
 
         // Link it into the queue head overlay and clear status.
@@ -738,7 +756,8 @@ async fn ep_transfer(
 
     dma_write_barrier();
 
-    // Prime the endpoint.
+    // Prime the endpoint. We allow only one outstanding dTD per endpoint
+    // direction, so there is no need to use the add-dTD tripwire (ATDTW).
     r.set_endptprime(prime_bit);
     // Wait until the controller has acknowledged the prime.
     while r.endptprime() & prime_bit != 0 {}
@@ -774,7 +793,7 @@ async fn ep_transfer(
             return Poll::Ready(Err(EndpointError::Disabled));
         }
         // Remaining bytes are in token[30:16]; transferred = requested - remaining.
-        let remaining = (token >> DTD_TOKEN_TOTAL_SHIFT) & 0x7FFF;
+        let remaining = (token >> DTD_TOKEN_TOTAL_SHIFT) & DTD_TOKEN_TOTAL_MASK;
         Poll::Ready(Ok(len - remaining as usize))
     })
     .await?;
@@ -893,6 +912,9 @@ impl embassy_usb_driver::ControlPipe for ControlPipe {
 
     async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
         // EP0 OUT owned by the control pipe.
+        // `embassy-usb-driver` chunks multi-packet control OUT transfers by
+        // `max_packet_size()`, so the EP0 bounce buffer only has to hold one
+        // full-speed control packet.
         ep_read_control(buf).await
     }
 
@@ -946,6 +968,22 @@ pub struct Bus<T: Instance> {
     _phantom: PhantomData<T>,
     inited: bool,
     control_max_packet_size: u16,
+}
+
+impl<T: Instance> Drop for Bus<T> {
+    fn drop(&mut self) {
+        let r = regs();
+        r.modify_usbcmd(|v| v & !USBCMD_RS);
+        r.set_usbintr(0);
+        r.clear_usbsts(ALL_USBSTS);
+        T::Interrupt::disable();
+
+        // SAFETY: dropping the bus is the terminal owner path for the USBHS
+        // peripheral; no further register access should occur after this.
+        unsafe {
+            clock::deinit_clocks_and_phy();
+        }
+    }
 }
 
 impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
