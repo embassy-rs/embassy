@@ -12,7 +12,7 @@ use crate::clocks::VddLevel;
 #[cfg(feature = "mcxa5xx")]
 use crate::pac::mrcc::FlexspiClkselMux;
 use crate::pac::mrcc::{
-    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux,
+    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, DacClkselMux, FclkClkselMux, Lpi2cClkselMux,
     LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 
@@ -207,18 +207,6 @@ impl SPConfHelper for Clk1MConfig {
     }
 }
 
-/// Placeholder configuration for the DAC peripheral.
-///
-/// The DAC HAL driver is not yet implemented, but the PAC metadata
-/// declares the gate config type, so we provide a stub here. Replace
-/// with the real implementation when the DAC driver is added.
-pub struct DacConfig;
-impl SPConfHelper for DacConfig {
-    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
-        Ok(PreEnableParts::empty())
-    }
-}
-
 //
 // Adc
 //
@@ -355,6 +343,38 @@ impl SPConfHelper for AdcConfig {
                 reason: "exceeds max rating",
             });
         }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
+    }
+}
+
+pub enum DacInstance {
+    Dac0,
+    #[cfg(feature = "mcxa5xx")]
+    Dac1,
+}
+
+pub struct DacConfig {
+    pub div: Div4,
+    pub power: PoweredClock,
+    pub instance: DacInstance,
+}
+
+impl SPConfHelper for DacConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let mrcc0 = crate::pac::MRCC0;
+
+        let (clksel, clkdiv) = match self.instance {
+            DacInstance::Dac0 => (mrcc0.mrcc_dac0_clksel(), mrcc0.mrcc_dac0_clkdiv()),
+            #[cfg(feature = "mcxa5xx")]
+            DacInstance::Dac1 => (mrcc0.mrcc_dac1_clksel(), mrcc0.mrcc_dac1_clkdiv()),
+        };
+        #[cfg(feature = "mcxa5xx")]
+        let variant = DacClkselMux::I2ClkrootFunc2;
+        #[cfg(feature = "mcxa2xx")]
+        let variant = DacClkselMux::ClkrootFunc2;
+
+        let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }
