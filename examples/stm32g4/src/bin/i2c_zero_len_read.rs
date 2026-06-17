@@ -46,16 +46,17 @@ async fn slave_task(mut dev: i2c::I2c<'static, Async, i2c::MultiMaster>) -> ! {
                 kind: SlaveCommandKind::Read,
                 address: Address::SevenBit(DEV_ADDR),
             }) => {
-                // Pass a 1-byte dummy: the master reads 0 bytes (NBYTES=0) so it
-                // generates RESTART before any data clock edges, aborting the DMA.
-                // respond_to_read(&[]) would panic — DMA requires mem_len > 0.
-                match dev.respond_to_read(&[0u8]).await {
-                    Ok(_) => {}
-                    Err(e) => {
-                        error!("[slave] respond_to_read failed: {:?}", e);
-                        continue;
-                    }
+                // Dummy byte: DMA requires mem_len > 0, so &[] would panic.
+                // Use 0xFF (all bits = 1 = SDA released) so the slave does not
+                // pull SDA low while the master is generating the RESTART condition.
+                // 0x00 would drive SDA low on the first bit, causing ARLO on master.
+                // The RESTART aborts this DMA mid-transfer; the resulting error is expected.
+                if let Err(e) = dev.respond_to_read(&[0xFFu8]).await {
+                    info!("[slave] respond_to_read aborted by RESTART (expected): {:?}", e);
                 }
+                // Fall through to step 2 — do NOT restart the loop here.
+                // The master's RESTART is already in flight; the next listen() call
+                // will catch the Write that follows.
             }
             Ok(i2c::SlaveCommand { kind, .. }) => {
                 // Bug symptom: direction corrupted — Write arrived instead of Read.
