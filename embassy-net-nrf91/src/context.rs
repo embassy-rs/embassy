@@ -275,13 +275,17 @@ impl<'a> Control<'a> {
 
         let mut dns = Vec::new();
         if let Some(ip) = dns1 {
-            dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
-                .unwrap();
+            if !ip.is_empty() {
+                dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
+                    .unwrap();
+            }
         }
 
         if let Some(ip) = dns2 {
-            dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
-                .unwrap();
+            if !ip.is_empty() {
+                dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
+                    .unwrap();
+            }
         }
 
         Ok(Status {
