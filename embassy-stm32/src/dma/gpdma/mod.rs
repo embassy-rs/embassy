@@ -1098,7 +1098,6 @@ impl<'a> Transfer<'a> {
         core::mem::forget(self);
     }
 
-    #[cfg(not(stm32c5))]
     pub(crate) unsafe fn unchecked_extend_lifetime(self) -> Transfer<'static> {
         unsafe { core::mem::transmute(self) }
     }

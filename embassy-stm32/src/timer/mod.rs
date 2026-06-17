@@ -13,11 +13,9 @@ pub mod low_level;
 pub mod one_pulse;
 pub mod pwm_input;
 pub mod qei;
-#[cfg(not(stm32c5))]
 pub mod ringbuffered;
 pub mod simple_pwm;
 
-#[cfg(not(stm32c5))]
 use crate::dma::word::Word;
 use crate::fmt::Debuggable;
 use crate::interrupt;
@@ -160,16 +158,6 @@ trait SealedInstance: RccPeripheral + PeripheralType {
     /// Async state for this timer
     fn state() -> &'static State;
 }
-
-#[cfg(stm32c5)]
-trait Word: Sized {
-    fn bits() -> usize {
-        size_of::<Self>()
-    }
-}
-
-#[cfg(stm32c5)]
-impl<T: Sized> Word for T {}
 
 /// Core timer instance.
 #[allow(private_bounds)]
