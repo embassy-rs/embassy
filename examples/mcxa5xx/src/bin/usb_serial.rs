@@ -16,7 +16,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_mcxa::clocks::config::{SoscConfig, SoscMode};
 use embassy_mcxa::clocks::{PoweredClock, VddLevel};
-use embassy_mcxa::usb::{Config as UsbDriverConfig, Driver, Instance, InterruptHandler};
+use embassy_mcxa::usb::{Config as UsbDriverConfig, Driver, InterruptHandler};
 use embassy_mcxa::{bind_interrupts, peripherals};
 use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -94,7 +94,7 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, T>>) -> Result<(), Disconnected> {
+async fn echo<'d>(class: &mut CdcAcmClass<'d, Driver<'d>>) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
         let n = class.read_packet(&mut buf).await?;

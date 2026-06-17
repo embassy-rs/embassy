@@ -385,6 +385,8 @@ impl Instance for crate::peripherals::USB1 {
     type Interrupt = crate::interrupt::typelevel::USB1_HS;
 }
 
+type UsbInterrupt = crate::interrupt::typelevel::USB1_HS;
+
 /// Marker for OUT endpoints.
 pub enum Out {}
 /// Marker for IN endpoints.
@@ -439,19 +441,19 @@ impl EndpointConfig {
 // =========================================================================
 
 /// USB device driver.
-pub struct Driver<'d, T: Instance> {
-    _phantom: PhantomData<&'d mut T>,
+pub struct Driver<'d> {
+    _phantom: PhantomData<&'d mut crate::peripherals::USB1>,
     alloc_out: u8,
     alloc_in: u8,
 }
 
-impl<'d, T: Instance> Driver<'d, T> {
+impl<'d> Driver<'d> {
     /// Create a new USB device driver, forced to full speed.
     ///
     /// This enables the USB clocks, brings up the PHY, and resets the controller
     /// into device mode. The controller starts detached; the `embassy-usb` stack
     /// attaches it via [`embassy_usb_driver::Bus::enable`].
-    pub fn new(
+    pub fn new<T: Instance>(
         _usb: Peri<'d, T>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         config: impl Into<Config>,
@@ -550,11 +552,11 @@ impl<'d, T: Instance> Driver<'d, T> {
     }
 }
 
-impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
+impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
     type EndpointOut = Endpoint<Out>;
     type EndpointIn = Endpoint<In>;
     type ControlPipe = ControlPipe;
-    type Bus = Bus<T>;
+    type Bus = Bus;
 
     fn alloc_endpoint_out(
         &mut self,
@@ -581,7 +583,6 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
         init_control_qh(control_max_packet_size);
 
         let bus = Bus {
-            _phantom: PhantomData,
             inited: false,
             control_max_packet_size,
         };
@@ -970,19 +971,18 @@ impl embassy_usb_driver::ControlPipe for ControlPipe {
 // =========================================================================
 
 /// USB bus control.
-pub struct Bus<T: Instance> {
-    _phantom: PhantomData<T>,
+pub struct Bus {
     inited: bool,
     control_max_packet_size: u16,
 }
 
-impl<T: Instance> Drop for Bus<T> {
+impl Drop for Bus {
     fn drop(&mut self) {
         let r = regs();
         r.modify_usbcmd(|v| v & !USBCMD_RS);
         r.set_usbintr(0);
         r.clear_usbsts(ALL_USBSTS);
-        T::Interrupt::disable();
+        UsbInterrupt::disable();
 
         // SAFETY: dropping the bus is the terminal owner path for the USBHS
         // peripheral. Embassy's USB device graph drops endpoint/class handles
@@ -994,7 +994,7 @@ impl<T: Instance> Drop for Bus<T> {
     }
 }
 
-impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
+impl embassy_usb_driver::Bus for Bus {
     async fn enable(&mut self) {
         let r = regs();
         // Enable the interrupt sources we handle.
@@ -1004,8 +1004,8 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
 
         // SAFETY: enabling the controller interrupt.
         unsafe {
-            T::Interrupt::unpend();
-            T::Interrupt::enable();
+            UsbInterrupt::unpend();
+            UsbInterrupt::enable();
         }
 
         // Attach: set Run/Stop.
@@ -1019,7 +1019,7 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
         defmt::trace!("usb: bus disable");
         r.modify_usbcmd(|v| v & !USBCMD_RS);
         r.set_usbintr(0);
-        T::Interrupt::disable();
+        UsbInterrupt::disable();
     }
 
     async fn poll(&mut self) -> Event {
