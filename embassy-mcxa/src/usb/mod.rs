@@ -8,6 +8,12 @@
 //! It implements the [`embassy_usb_driver`] traits so it can be used directly
 //! with `embassy-usb` (e.g. the HID class).
 //!
+//! # Board clocking
+//! The MCXA577 USBHS PHY expects the board clock tree to match the SDK/Zephyr
+//! profile used by FRDM-MCXA577: over-drive voltage mode with the 24 MHz SOSC
+//! crystal enabled. [`Driver::new`] asserts if the USBPHY PLL does not lock, so
+//! a missing board-level clock/voltage setup fails loudly during initialization.
+//!
 //! # Limitations
 //! - Device mode only (no host / OTG role switching).
 //! - Forced full speed; high-speed operation is not exposed.
@@ -979,7 +985,9 @@ impl<T: Instance> Drop for Bus<T> {
         T::Interrupt::disable();
 
         // SAFETY: dropping the bus is the terminal owner path for the USBHS
-        // peripheral; no further register access should occur after this.
+        // peripheral. Embassy's USB device graph drops endpoint/class handles
+        // with the bus, so no further endpoint transfer should touch the gated
+        // controller registers after this point.
         unsafe {
             clock::deinit_clocks_and_phy();
         }
