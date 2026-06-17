@@ -77,6 +77,9 @@ const EP_COUNT: usize = 8;
 /// Maximum packet size for a full-speed endpoint.
 const FS_MAX_PACKET: u16 = 64;
 const ENDPOINT_TYPE_UNALLOCATED: u8 = 0xFF;
+const ALL_USBSTS: u32 = 0xFFFF_FFFF;
+const ALL_ENDPOINT_BITS: u32 = 0xFFFF_FFFF;
+const DEFAULT_BURST_SIZE: u32 = (0x10 << 8) | 0x10;
 
 /// Static DMA memory cell.
 ///
@@ -165,11 +168,20 @@ impl EndpointSlot {
 
     #[inline]
     fn array_index(self) -> usize {
-        let dir = match self.dir {
+        self.index * 2 + self.dir_index()
+    }
+
+    #[inline]
+    fn dir_index(self) -> usize {
+        match self.dir {
             Direction::Out => 0,
             Direction::In => 1,
-        };
-        self.index * 2 + dir
+        }
+    }
+
+    #[inline]
+    fn dir_num(self) -> u8 {
+        self.dir_index() as u8
     }
 
     #[inline]
@@ -182,16 +194,53 @@ impl EndpointSlot {
 
     #[inline]
     fn is_enabled(self, r: UsbHs) -> bool {
-        let v = r.endptctrl(self.index);
-        match self.dir {
-            Direction::Out => v & EPCTRL_RXE != 0,
-            Direction::In => v & EPCTRL_TXE != 0,
-        }
+        r.endptctrl(self.index) & endpoint_enable_bit(self) != 0
     }
 
     #[inline]
     fn waker(self) -> &'static AtomicWaker {
         &EP_WAKERS[self.array_index()]
+    }
+}
+
+#[inline]
+fn endpoint_type_bits(ep_type: EndpointType) -> u32 {
+    match ep_type {
+        EndpointType::Control => 0b00,
+        EndpointType::Isochronous => 0b01,
+        EndpointType::Bulk => 0b10,
+        EndpointType::Interrupt => 0b11,
+    }
+}
+
+#[inline]
+fn endpoint_ctrl_enable_bits(slot: EndpointSlot, ep_type: EndpointType) -> (u32, u32) {
+    let ty = endpoint_type_bits(ep_type);
+    match slot.dir {
+        Direction::Out => (
+            0b11 << EPCTRL_RXT_SHIFT,
+            (ty << EPCTRL_RXT_SHIFT) | EPCTRL_RXE | EPCTRL_RXR,
+        ),
+        Direction::In => (
+            0b11 << EPCTRL_TXT_SHIFT,
+            (ty << EPCTRL_TXT_SHIFT) | EPCTRL_TXE | EPCTRL_TXR,
+        ),
+    }
+}
+
+#[inline]
+fn endpoint_stall_bit(slot: EndpointSlot) -> u32 {
+    match slot.dir {
+        Direction::Out => EPCTRL_RXS,
+        Direction::In => EPCTRL_TXS,
+    }
+}
+
+#[inline]
+fn endpoint_enable_bit(slot: EndpointSlot) -> u32 {
+    match slot.dir {
+        Direction::Out => EPCTRL_RXE,
+        Direction::In => EPCTRL_TXE,
     }
 }
 
@@ -392,6 +441,14 @@ impl<'d, T: Instance> Driver<'d, T> {
         config: impl Into<Config>,
     ) -> Self {
         let config = config.into();
+        #[cfg(feature = "defmt")]
+        defmt::trace!(
+            "usb: init phy pll_div={=u32} d_cal={=u32} txcal45dp={=u32} txcal45dm={=u32}",
+            config.phy.pll_div_sel,
+            config.phy.d_cal,
+            config.phy.txcal45dp,
+            config.phy.txcal45dm
+        );
         // SAFETY: we own the USB peripheral and bring up its clocks/PHY once.
         unsafe {
             clock::init_clocks_and_phy(&config.phy);
@@ -450,6 +507,16 @@ impl<'d, T: Instance> Driver<'d, T> {
             max_packet_size,
         }
         .store(slot);
+
+        #[cfg(feature = "defmt")]
+        defmt::trace!(
+            "usb: alloc ep{=usize} dir={=u8} type={=u8} mps={=u16} interval={=u8}",
+            index,
+            slot.dir_num(),
+            endpoint_type_bits(ep_type) as u8,
+            max_packet_size,
+            interval_ms
+        );
 
         Ok(Endpoint {
             _phantom: PhantomData,
@@ -528,11 +595,14 @@ fn reset_controller() {
     let qh_addr = QH_LIST.as_ptr() as u32;
     r.set_endptlistaddr(qh_addr);
 
+    #[cfg(feature = "defmt")]
+    defmt::trace!("usb: controller reset id=0x{=u32:08x} qh=0x{=u32:08x}", r.id(), qh_addr);
+
     // Reasonable default burst size.
-    r.set_burstsize((0x10 << 8) | 0x10);
+    r.set_burstsize(DEFAULT_BURST_SIZE);
 
     // Clear any pending status, leave interrupts disabled until `enable`.
-    r.clear_usbsts(0xFFFF_FFFF);
+    r.clear_usbsts(ALL_USBSTS);
     r.set_usbintr(0);
 }
 
@@ -568,7 +638,6 @@ pub struct Endpoint<D> {
 /// Configure an endpoint's queue head and control register.
 fn configure_endpoint(addr: EndpointAddress, ep_type: EndpointType, mps: u16) {
     let index = addr.index();
-    let is_in = addr.is_in();
     let slot = EndpointSlot::from_addr(addr);
     let qhi = slot.array_index();
 
@@ -581,16 +650,18 @@ fn configure_endpoint(addr: EndpointAddress, ep_type: EndpointType, mps: u16) {
     }
 
     let r = regs();
-    let ty = ep_type as u32;
+    let (type_mask, enable_bits) = endpoint_ctrl_enable_bits(slot, ep_type);
+    #[cfg(feature = "defmt")]
+    defmt::trace!(
+        "usb: configure ep{=usize} dir={=u8} type={=u8} mps={=u16}",
+        index,
+        slot.dir_num(),
+        endpoint_type_bits(ep_type) as u8,
+        mps
+    );
     r.modify_endptctrl(index, |v| {
-        if is_in {
-            // Reset the data toggle and enable the TX side.
-            let cleared = v & !(0b11 << EPCTRL_TXT_SHIFT);
-            cleared | (ty << EPCTRL_TXT_SHIFT) | EPCTRL_TXE | EPCTRL_TXR
-        } else {
-            let cleared = v & !(0b11 << EPCTRL_RXT_SHIFT);
-            cleared | (ty << EPCTRL_RXT_SHIFT) | EPCTRL_RXE | EPCTRL_RXR
-        }
+        // Reset the data toggle and enable the requested direction.
+        (v & !type_mask) | enable_bits
     });
 }
 
@@ -693,6 +764,13 @@ async fn ep_transfer(
             return Poll::Pending;
         }
         if token & DTD_TOKEN_ERROR_MASK != 0 {
+            #[cfg(feature = "defmt")]
+            defmt::warn!(
+                "usb: transfer error ep{=usize} dir={=u8} token=0x{=u32:08x}",
+                slot.index,
+                slot.dir_num(),
+                token
+            );
             return Poll::Ready(Err(EndpointError::Disabled));
         }
         // Remaining bytes are in token[30:16]; transferred = requested - remaining.
@@ -875,6 +953,8 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
         let r = regs();
         // Enable the interrupt sources we handle.
         r.set_usbintr(USBSTS_UI | USBSTS_UEI | USBSTS_PCI | USBSTS_URI | USBSTS_SLI);
+        #[cfg(feature = "defmt")]
+        defmt::trace!("usb: bus enable");
 
         // SAFETY: enabling the controller interrupt.
         unsafe {
@@ -889,6 +969,8 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
 
     async fn disable(&mut self) {
         let r = regs();
+        #[cfg(feature = "defmt")]
+        defmt::trace!("usb: bus disable");
         r.modify_usbcmd(|v| v & !USBCMD_RS);
         r.set_usbintr(0);
         T::Interrupt::disable();
@@ -905,6 +987,8 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
             }
 
             if FLAG_RESET.swap(false, Ordering::Relaxed) {
+                #[cfg(feature = "defmt")]
+                defmt::trace!("usb: bus reset");
                 // Re-initialize endpoint 0 and clear setup/complete state.
                 let r = regs();
                 let setup = r.endptsetupstat();
@@ -913,15 +997,19 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
                 let complete = r.endptcomplete();
                 r.clear_endptcomplete(complete);
                 while r.endptprime() != 0 {}
-                r.set_endptflush(0xFFFF_FFFF);
+                r.set_endptflush(ALL_ENDPOINT_BITS);
                 r.set_deviceaddr(0);
                 init_control_qh(self.control_max_packet_size);
                 return Poll::Ready(Event::Reset);
             }
             if FLAG_RESUME.swap(false, Ordering::Relaxed) {
+                #[cfg(feature = "defmt")]
+                defmt::trace!("usb: resume");
                 return Poll::Ready(Event::Resume);
             }
             if FLAG_SUSPEND.swap(false, Ordering::Relaxed) {
+                #[cfg(feature = "defmt")]
+                defmt::trace!("usb: suspend");
                 return Poll::Ready(Event::Suspend);
             }
             Poll::Pending
@@ -934,8 +1022,6 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
     }
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
-        let index = ep_addr.index();
-        let is_in = ep_addr.is_in();
         let slot = EndpointSlot::from_addr(ep_addr);
         if enabled {
             if let Some(config) = EndpointConfig::load(slot) {
@@ -943,29 +1029,31 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
             }
         } else {
             let r = regs();
-            r.modify_endptctrl(index, |v| if is_in { v & !EPCTRL_TXE } else { v & !EPCTRL_RXE });
+            #[cfg(feature = "defmt")]
+            defmt::trace!("usb: disable ep{=usize} dir={=u8}", slot.index, slot.dir_num());
+            r.modify_endptctrl(slot.index, |v| v & !endpoint_enable_bit(slot));
         }
         slot.waker().wake();
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
-        let index = ep_addr.index();
-        let is_in = ep_addr.is_in();
+        let slot = EndpointSlot::from_addr(ep_addr);
         let r = regs();
-        r.modify_endptctrl(index, |v| {
-            let bit = if is_in { EPCTRL_TXS } else { EPCTRL_RXS };
+        #[cfg(feature = "defmt")]
+        defmt::trace!(
+            "usb: stall ep{=usize} dir={=u8} stalled={=u8}",
+            slot.index,
+            slot.dir_num(),
+            stalled as u8
+        );
+        r.modify_endptctrl(slot.index, |v| {
+            let bit = endpoint_stall_bit(slot);
             if stalled { v | bit } else { v & !bit }
         });
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        let index = ep_addr.index();
-        let is_in = ep_addr.is_in();
-        let v = regs().endptctrl(index);
-        if is_in {
-            v & EPCTRL_TXS != 0
-        } else {
-            v & EPCTRL_RXS != 0
-        }
+        let slot = EndpointSlot::from_addr(ep_addr);
+        regs().endptctrl(slot.index) & endpoint_stall_bit(slot) != 0
     }
 }
