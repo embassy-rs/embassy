@@ -134,6 +134,7 @@ static CLOCKS: Clocks = Clocks {
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PeriClkSrc {
     /// SYS.
     Sys = ClkPeriCtrlAuxsrc::ClkSys as _,
@@ -273,6 +274,7 @@ impl CoreVoltage {
 
 /// Clock configuration.
 #[non_exhaustive]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClockConfig {
     /// Ring oscillator configuration.
     pub rosc: Option<RoscConfig>,
@@ -633,6 +635,7 @@ pub enum RoscRange {
 }
 
 /// On-chip ring oscillator configuration.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RoscConfig {
     /// Final frequency of the oscillator, after the divider has been applied.
     /// The oscillator has a nominal frequency of 6.5MHz at medium range with
@@ -648,6 +651,7 @@ pub struct RoscConfig {
 }
 
 /// Crystal oscillator configuration.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct XoscConfig {
     /// Final frequency of the oscillator.
     pub hz: u32,
@@ -661,6 +665,7 @@ pub struct XoscConfig {
 
 /// PLL configuration.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PllConfig {
     /// Reference divisor.
     pub refdiv: u8,
@@ -717,6 +722,7 @@ impl PllConfig {
 }
 
 /// Reference clock config.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RefClkConfig {
     /// Reference clock source.
     pub src: RefClkSrc,
@@ -761,6 +767,7 @@ pub enum SysClkSrc {
 }
 
 /// SYS clock config.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SysClkConfig {
     /// SYS clock source.
     pub src: SysClkSrc,
@@ -798,6 +805,7 @@ pub enum UsbClkSrc {
 }
 
 /// USB clock config.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct UsbClkConfig {
     /// USB clock source.
     pub src: UsbClkSrc,
@@ -827,6 +835,7 @@ pub enum AdcClkSrc {
 }
 
 /// ADC clock config.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AdcClkConfig {
     /// ADC clock source.
     pub src: AdcClkSrc,
@@ -858,6 +867,7 @@ pub enum RtcClkSrc {
 
 /// RTC clock config.
 #[cfg(feature = "rp2040")]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RtcClkConfig {
     /// RTC clock source.
     pub src: RtcClkSrc,
@@ -1647,6 +1657,7 @@ impl_gpoutpin!(PIN_25, 3);
 
 /// Gpout clock source.
 #[repr(u8)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum GpoutSrc {
     /// Sys PLL.
     PllSys = ClkGpoutCtrlAuxsrc::ClksrcPllSys as _,
