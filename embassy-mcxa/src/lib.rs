@@ -73,6 +73,9 @@ pub mod sgi;
 pub mod spi;
 #[cfg(mcxa_trng)]
 pub mod trng;
+/// USB 2.0 full-speed device driver (MCXA5xx USBHS controller).
+#[cfg(feature = "mcxa5xx")]
+pub mod usb;
 #[cfg(mcxa_wwdt)]
 pub mod wwdt;
 
