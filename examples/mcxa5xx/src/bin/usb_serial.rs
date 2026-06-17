@@ -11,7 +11,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::{panic, *};
+use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_mcxa::clocks::config::{SoscConfig, SoscMode};
