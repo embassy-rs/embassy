@@ -50,6 +50,9 @@ embedded-storage = "0.3.1"
 # Custom executor support
 embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
 
+# USB device driver trait layer
+embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
+
 # `time` dependencies
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", features = ["tick-hz-1_000_000"] }
