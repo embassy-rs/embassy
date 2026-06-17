@@ -5,7 +5,7 @@ use std::process::Command;
 use std::{env, fs};
 
 use build_common::CfgSet;
-use convert_case::ccase;
+use convert_case::{Casing, ccase};
 use indexmap::IndexMap;
 use nxp_pac::metadata::METADATA;
 use proc_macro2::TokenStream;
@@ -394,18 +394,18 @@ fn generate_flexspi_pin_impls() -> TokenStream {
     for flexspi in METADATA.peripherals.iter().filter(|p| flexspi_regex.is_match(p.name)) {
         let flexspi_name = format_ident!("{}", flexspi.name);
 
-        let mut emitted_pins = std::collections::HashSet::new();
         for signal in flexspi.signals {
+            let mut name_split = signal.name.split("_");
+            let port = format_ident!("{}", name_split.next().unwrap());
+            let signal_name = format_ident!("{}", name_split.next().unwrap().to_case(convert_case::Case::Pascal));
+
             for pin in signal.pins {
-                if !emitted_pins.insert(pin.pin) {
-                    continue;
-                }
                 let pin_name = format_ident!("{}", pin.pin);
                 let feature_gate = pin_feature_gate(pin.pin);
 
                 generated.extend(quote! {
                     #feature_gate
-                    crate::impl_flexspi_pin!(#pin_name, #flexspi_name);
+                    crate::impl_flexspi_pin!(#pin_name, #flexspi_name, #port, #signal_name);
                 });
             }
         }

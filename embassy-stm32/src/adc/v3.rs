@@ -8,6 +8,8 @@ use pac::adc::vals::Dmacfg;
 use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 #[cfg(adc_g0)]
 pub use pac::adc::vals::{Ovsr, Ovss, Presc};
+#[cfg(any(adc_h5, adc_h7rs))]
+use pac::adccommon::vals::Presc;
 
 #[allow(unused_imports)]
 use crate::adc::SealedAdcChannel;
@@ -146,6 +148,9 @@ pub struct AdcConfig {
     pub oversampling_mode: Option<(Rovsm, Trovs, bool)>,
     #[cfg(adc_g0)]
     pub clock: Option<Clock>,
+    #[cfg(any(adc_h5, adc_h7rs))]
+    /// Clock prescaler for the ker_ck_input clock
+    pub prescaler: Option<Presc>,
     pub resolution: Option<Resolution>,
     pub averaging: Option<Averaging>,
 }
@@ -460,14 +465,27 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
-        #[cfg(not(adc_g0))]
-        let s = Self::new(adc);
+        #[cfg(any(adc_h5, adc_h7rs))]
+        let s = {
+            Self::init_regulator();
+            // Configure the prescaler before running the calibration
+            if let Some(prescaler) = config.prescaler {
+                T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
+            }
+
+            Self::init_calibrate();
+
+            Self { adc }
+        };
 
         #[cfg(adc_g0)]
         let s = match config.clock {
             Some(clock) => Self::new_with_clock(adc, clock),
             None => Self::new(adc),
         };
+
+        #[cfg(not(any(adc_g0, adc_h5, adc_h7rs)))]
+        let s = Self::new(adc);
 
         #[cfg(any(adc_g0, adc_u0, adc_v3))]
         if let Some(shift) = config.oversampling_shift {
