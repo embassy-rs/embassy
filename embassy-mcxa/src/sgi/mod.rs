@@ -1,25 +1,22 @@
-// SGI (Secure Generic Interface) driver for MCXA
-// Provides hashing, AES encryption/decryption, and HMAC primitives.
-// Currently focused on hashing (SHA-384 and SHA-512) use cases, with AES and HMAC planned for future additions.
+//! SGI (Secure Generic Interface) driver for MCXA
+//! Provides hashing, AES encryption/decryption, and HMAC primitives.
+//! Currently focused on hashing (SHA-384 and SHA-512) use cases, with AES and HMAC planned for future additions.
 
 use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 use embassy_time::Instant;
+use hash::{ByteOrder, HashInit, HashMode, HashOptions, HashReload, HashSize, MAX_BLOCK_SIZE, SGI_HASH_OUTPUT_SIZE};
 use maitake_sync::WaitCell;
-pub mod hash;
-pub use hash::{
-    BlockingHasher, ByteOrder, HashInit, HashMode, HashOptions as SgiHashOptions, HashReload, HashSize, MAX_BLOCK_SIZE,
-    SGI_HASH_OUTPUT_SIZE, StreamingHasher,
-};
 
-use self::hash::HashOptions;
 use crate::clocks::periph_helpers::Clk1MConfig;
 use crate::clocks::{ClockError, WakeGuard, enable_and_reset};
 use crate::dma::{DmaChannel, Transfer, TransferOptions};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt as _};
-use crate::pac::sgi as pac_sgi;
 use crate::peripherals;
+use crate::sgi::hash::{BlockingHasher, DmaHasher, StreamingHasher};
+
+pub mod hash;
 
 trait SealedInstance: crate::clocks::Gate<MrccPeriphConfig = Clk1MConfig> {
     fn info() -> &'static Info;
@@ -38,14 +35,14 @@ pub trait Instance: SealedInstance + embassy_hal_internal::PeripheralType + 'sta
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
-pub(crate) struct Info {
-    regs: pac_sgi::Sgi,
+struct Info {
+    regs: nxp_pac::sgi::Sgi,
     wait_cell: WaitCell,
 }
 
 impl Info {
     #[inline(always)]
-    fn regs(&self) -> pac_sgi::Sgi {
+    fn regs(&self) -> nxp_pac::sgi::Sgi {
         self.regs
     }
 
@@ -55,7 +52,7 @@ impl Info {
     }
 }
 
-// SAFETY: pac_sgi::Sgi is a zero-sized register block accessor (pointer), and WaitCell is Sync.
+// SAFETY: nxp_pac::sgi::Sgi is a zero-sized register block accessor (pointer), and WaitCell is Sync.
 unsafe impl Sync for Info {}
 
 impl SealedInstance for peripherals::SGI0 {
@@ -102,7 +99,7 @@ pub trait Mode: sealed::SealedMode {}
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 enum CryptoOp {
-    // TODO: Implement other operations (e.g. AES) as needed. For now we only support SHA2, so this is the only variant.
+    // TODO: Implement other operations (e.g. AES) as needed
     // Aes = 0,
     // Des = 1,
     // Tdes = 2,
@@ -150,7 +147,7 @@ pub enum SgiError {
 }
 
 /// SGI (Secure Generic Interface) hardware abstraction.
-pub struct Sgi<'d, M: Mode = Blocking> {
+pub struct Sgi<'d, M: Mode> {
     info: &'static Info,
     _phantom: PhantomData<&'d mut M>,
     _wake_guard: Option<WakeGuard>,
@@ -172,7 +169,7 @@ impl<M: Mode> Drop for Sgi<'_, M> {
     }
 }
 
-pub(crate) fn is_expired(start: Instant, timeout: u64) -> bool {
+fn is_expired(start: Instant, timeout: u64) -> bool {
     Instant::now().duration_since(start).as_micros() > timeout
 }
 
@@ -199,11 +196,21 @@ impl<'d> Sgi<'d, Async> {
         Ok(sgi)
     }
 
+    pub async fn sha2_start_and_finalize(
+        &mut self,
+        dma_ch: &mut DmaChannel<'_>,
+        hash_size: HashSize,
+        input: &[u8],
+        hash_result: &mut [u8],
+    ) -> Result<(), SgiError> {
+        DmaHasher::start_and_finalize(self, dma_ch, hash_size, input, hash_result).await
+    }
+
     /// Await SHA2 completion via the SGI operation-done interrupt.
     ///
     /// Hardware error paths may deassert busy without generating an interrupt;
     /// this function treats that as completion and returns the decoded error.
-    pub(crate) async fn wait_sha2_complete_irq(&mut self) -> Result<(), SgiError> {
+    async fn wait_sha2_complete_irq(&mut self) -> Result<(), SgiError> {
         self.info
             .wait_cell()
             .wait_for_value(|| {
@@ -228,17 +235,29 @@ impl<'d> Sgi<'d, Blocking> {
     pub fn new_blocking(peri: Peri<'d, peripherals::SGI0>) -> Result<Self, SetupError> {
         Self::new_inner(peri)
     }
+
+    pub fn hasher(self) -> BlockingHasher<'d> {
+        BlockingHasher::new(self)
+    }
+
+    pub fn streaming_hasher(
+        self,
+        hash_size: HashSize,
+        hash_mode: Option<HashMode>,
+    ) -> Result<StreamingHasher<'d>, SgiError> {
+        StreamingHasher::new(self, hash_size, hash_mode)
+    }
 }
 
 impl<'d, M: Mode> Sgi<'d, M> {
     /// Reads SGI status register.
     #[inline(always)]
-    fn status(&self) -> pac_sgi::SgiStatus {
+    fn status(&self) -> nxp_pac::sgi::SgiStatus {
         self.info.regs().sgi_status().read()
     }
 
     /// Enables DMA handshake for datain/dataout registers.
-    pub(crate) fn set_auto_dma_handshake(&mut self, input_fifo_enable: bool, output_fifo_enable: Option<bool>) {
+    fn set_auto_dma_handshake(&mut self, input_fifo_enable: bool, output_fifo_enable: Option<bool>) {
         let output_enable = output_fifo_enable.unwrap_or(false); // Default to false if not provided
 
         // Reserved bits are written as 0.
@@ -249,7 +268,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     }
 
     /// Configures the appropriate hash operation parameters (e.g. auto vs. normal mode, hash size, byte order) and enables the hash engine.
-    pub(crate) fn init_sgi_sha(&mut self, options: HashOptions) -> Result<(), SgiError> {
+    fn init_sgi_sha(&mut self, options: HashOptions) -> Result<(), SgiError> {
         self.sgi_byte_order_big(options.byte_order)?; // Set byte order for input data.
         let mut fifo_low_lim = 0u8;
         let mut fifo_high_lim = 0u8;
@@ -281,7 +300,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     }
 
     /// Configures byte order for SGI IO.
-    pub(crate) fn sgi_byte_order_big(&self, byte_order: ByteOrder) -> Result<(), SgiError> {
+    fn sgi_byte_order_big(&self, byte_order: ByteOrder) -> Result<(), SgiError> {
         if self.is_busy() || self.is_sha2_busy() {
             return Err(SgiError::Busy);
         }
@@ -298,7 +317,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     }
 
     /// Give command to start SGI hash operation. Fills buffer if normal mode.
-    pub(crate) fn start_sgi_hash(&mut self, options: HashOptions, data: &[u8]) -> Result<(), SgiError> {
+    fn start_sgi_hash(&mut self, options: HashOptions, data: &[u8]) -> Result<(), SgiError> {
         if self.is_busy() || self.is_sha2_busy() {
             return Err(SgiError::Busy);
         }
@@ -355,7 +374,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     }
 
     /// Wrapper for normal/auto mode FIFO filling. Normal mode requires FIFO be filled prior to SHA2 operation start.
-    pub(crate) fn fill_sha2_fifo(&mut self, options: HashOptions, data: &[u8], length: usize) -> Result<(), SgiError> {
+    fn fill_sha2_fifo(&mut self, options: HashOptions, data: &[u8], length: usize) -> Result<(), SgiError> {
         if options.op_mode == HashMode::Auto {
             self.fill_sha2_fifo_auto(data, length)?;
         }
@@ -381,7 +400,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
 
     /// Fills SHAFIFO register using DMA in software start mode, handles misalignment and awaits completion in async manner.
     /// Returns immediately after starting the DMA transfer; caller should await completion and check for errors.
-    pub(crate) fn fill_sha2_fifo_dma_start<'a, 'd_dma>(
+    fn fill_sha2_fifo_dma_start<'a, 'd_dma>(
         &mut self,
         dma_ch: &'a mut DmaChannel<'d_dma>,
         data: &[u8],
@@ -433,7 +452,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
 
     /// Checks for SGI peripheral errors (SHA2, key read, key unwrap). This should be called after checking that the operation is done,
     /// since some errors only get latched/reported once busy is de-asserted. Clears any errors after reading.
-    pub(crate) fn sgi_operation_error(&self) -> Result<(), SgiError> {
+    fn sgi_operation_error(&self) -> Result<(), SgiError> {
         let status = self.status();
         if status.sha_error() {
             return Err(SgiError::ShaError);
@@ -448,9 +467,9 @@ impl<'d, M: Mode> Sgi<'d, M> {
     }
 
     /// SGI instance error (encompasses internal (e.g. PRNG) errors and usage errors like invalid commands or data).
-    pub(crate) fn sgi_error(&self) -> Result<(), SgiError> {
+    fn sgi_error(&self) -> Result<(), SgiError> {
         let status = self.status();
-        if status.error() != pac_sgi::Error::NoError {
+        if status.error() != nxp_pac::sgi::Error::NoError {
             self.clear_errors(); // Clear errors after reading
             return Err(SgiError::HardwareError);
         }
@@ -469,7 +488,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     }
 
     /// busy-waits with deterministic timeout for SHA2 completion, and returns a timeout error if it takes too long.
-    pub(crate) fn wait_until_sha2_not_busy(&mut self) -> Result<(), SgiError> {
+    fn wait_until_sha2_not_busy(&mut self) -> Result<(), SgiError> {
         let start_time = Instant::now();
         const MAX_WAIT_TIME_USEC: u64 = 1000; // 1 millisecond timeout for normal SHA2 operations.
         while self.is_sha2_busy() {
@@ -515,7 +534,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     /// This clears any stale pending state and enables the SGI peripheral interrupt source.
     ///
     /// Call this *before* starting the SHA2 operation you intend to await.
-    pub(crate) fn enable_operation_done_interrupt(&self) {
+    fn enable_operation_done_interrupt(&self) {
         self.clear_operation_interrupt();
         self.enable_sgi_interrupt();
     }
@@ -526,7 +545,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     }
 
     /// Issue stop command to halt the SHA2 operation.
-    pub(crate) fn sgi_stop_sha2_cmd(&self) {
+    fn sgi_stop_sha2_cmd(&self) {
         self.info
             .regs()
             .sgi_sha2_ctrl()
@@ -535,7 +554,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
 
     /// Reads the hash output from the SGI dataout registers into the provided buffer. This should be called after confirming operation completion,
     /// and it checks for errors before reading. It handles both normal and auto mode completion, including triggering additional reads for the larger SHA-512 outputs.
-    pub(crate) fn read_hash_output(&mut self, options: HashOptions, output: &mut [u8]) -> Result<(), SgiError> {
+    fn read_hash_output(&mut self, options: HashOptions, output: &mut [u8]) -> Result<(), SgiError> {
         if options.hash_size == HashSize::Sha384 && output.len() < 48 {
             return Err(SgiError::BufferTooSmall);
         } else if options.hash_size == HashSize::Sha512 && output.len() < 64 {
@@ -587,7 +606,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     }
 
     /// To be used with partial modes. This function reads the current hash output (64 bytes for SHA2) and it can be stored in Ctx and reloaded later.
-    pub(crate) fn update_partial_output(&mut self, options: HashOptions, output: &mut [u8]) -> Result<(), SgiError> {
+    fn update_partial_output(&mut self, options: HashOptions, output: &mut [u8]) -> Result<(), SgiError> {
         if output.len() < 64 {
             return Err(SgiError::BufferTooSmall);
         }
@@ -634,11 +653,7 @@ impl<'d, M: Mode> Sgi<'d, M> {
     }
 
     /// Reloads a previously computed partial hash result back into SGI internal hash registers.
-    pub(crate) fn sgi_hash_reload(
-        &mut self,
-        mut options: HashOptions,
-        prev_hash_result: &[u8],
-    ) -> Result<(), SgiError> {
+    fn sgi_hash_reload(&mut self, mut options: HashOptions, prev_hash_result: &[u8]) -> Result<(), SgiError> {
         // Reload the internal hash state using the DATIN path (NORMAL mode) with HASH_RELOAD enabled.
         // This must NOT auto-init, otherwise the hardware IV would overwrite the provided state.
         options.byte_order = ByteOrder::BigEndian; // Hash state is always in big-endian order, so set byte order accordingly for reloading the hash state.
