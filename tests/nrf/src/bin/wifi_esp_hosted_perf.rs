@@ -66,8 +66,11 @@ async fn main(spawner: Spawner) {
     let iface = hosted::SpiInterface::new(spi, handshake, ready);
 
     static STATE: StaticCell<embassy_net_esp_hosted::State> = StaticCell::new();
-    let (device, mut control, runner) =
-        embassy_net_esp_hosted::new(STATE.init(embassy_net_esp_hosted::State::new()), iface, reset).await;
+    let embassy_net_esp_hosted::HostedResources {
+        net_device,
+        mut control,
+        runner,
+    } = embassy_net_esp_hosted::new(STATE.init(embassy_net_esp_hosted::State::new()), iface, reset).await;
 
     spawner.spawn(unwrap!(wifi_task(runner)));
 
@@ -83,7 +86,7 @@ async fn main(spawner: Spawner) {
     // Init network stack
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(
-        device,
+        net_device,
         Config::dhcpv4(Default::default()),
         RESOURCES.init(StackResources::new()),
         seed,

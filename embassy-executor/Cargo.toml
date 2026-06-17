@@ -123,6 +123,9 @@ js-sys = { version = "0.3", optional = true }
 # platform-avr dependencies
 avr-device = { version = "0.8.1", optional = true }
 
+# platform-z7 dependencies
+zynq7000 = { version = "0.4", optional = true }
+arbitrary-int = { version = "2", optional = true }
 
 [dependencies.cordyceps]
 version = "0.3.4"
@@ -166,6 +169,8 @@ platform-cortex-m = ["_platform", "dep:cortex-m"]
 ## - Only usable on **bare-metal**. Do not use this if you want to run the executor inside an RTOS thread, you must use RTOS primitives to sleep/notify the thread instead.
 ## - Only usable on **privileged mode**. 
 platform-cortex-ar = ["_platform", "dep:aarch32-cpu", "dep:arm-targets"]
+# Zynq7000 Platform, Extension of the Cortex-A platform with interrupt executor support.
+platform-z7 = ["_platform", "dep:aarch32-cpu", "dep:arm-targets", "dep:zynq7000", "dep:arbitrary-int"]
 ## RISC-V 32-bit platform. Uses WFI for the thread executor. Interrupt executor is not supported.
 ##
 ## - Only usable on **single-core chips**.

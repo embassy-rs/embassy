@@ -3,17 +3,24 @@
 use core::marker::PhantomData;
 
 pub use super::low_level::FilterValue;
+#[cfg(timer_v2)]
+use super::low_level::OcrefClearSource;
 use super::low_level::{CountingMode, OutputPolarity, RoundTo, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
+#[cfg(not(stm32c5))]
 use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, OutputType};
+#[cfg(timer_v2)]
+pub use crate::pac::timer::vals::{Bkbid as BreakBidirectionalMode, Bkdsrm as BreakDisarmMode};
 pub use crate::pac::timer::vals::{
     Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity, Ccds, Ckd, Mms2, Ossi, Ossr,
 };
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
+#[cfg(timer_v2)]
+use crate::timer::low_level::DitheringConfig;
 use crate::timer::low_level::OutputCompareMode;
 use crate::timer::simple_pwm::PwmPinConfig;
 
@@ -233,6 +240,12 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_moe(enable);
     }
 
+    #[cfg(timer_v2)]
+    /// Select OCREF clear source.
+    pub fn set_ocref_clear_source(&mut self, source: OcrefClearSource) {
+        self.inner.set_ocref_clear_source(source);
+    }
+
     /// Get Master Output Enable
     pub fn get_master_output_enable(&self) -> bool {
         self.inner.get_moe()
@@ -275,6 +288,30 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.get_break_filter()
     }
 
+    #[cfg(timer_v2)]
+    /// Set break input 1 disarm mode.
+    pub fn set_break_disarm_mode(&mut self, mode: BreakDisarmMode) {
+        self.inner.set_break_disarm_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 disarm mode.
+    pub fn get_break_disarm_mode(&self) -> BreakDisarmMode {
+        self.inner.get_break_disarm_mode()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 1 bidirectional mode.
+    pub fn set_break_bidirectional_mode(&mut self, mode: BreakBidirectionalMode) {
+        self.inner.set_break_bidirectional_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 bidirectional mode.
+    pub fn get_break_bidirectional_mode(&self) -> BreakBidirectionalMode {
+        self.inner.get_break_bidirectional_mode()
+    }
+
     /// Enable/disable break input 2.
     pub fn set_break2_enable(&mut self, enable: bool) {
         self.inner.set_break2_enable(enable);
@@ -303,6 +340,30 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get break input 2 digital filter.
     pub fn get_break2_filter(&self) -> FilterValue {
         self.inner.get_break2_filter()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 disarm mode.
+    pub fn set_break2_disarm_mode(&mut self, mode: BreakDisarmMode) {
+        self.inner.set_break2_disarm_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 disarm mode.
+    pub fn get_break2_disarm_mode(&self) -> BreakDisarmMode {
+        self.inner.get_break2_disarm_mode()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 bidirectional mode.
+    pub fn set_break2_bidirectional_mode(&mut self, mode: BreakBidirectionalMode) {
+        self.inner.set_break2_bidirectional_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 bidirectional mode.
+    pub fn get_break2_bidirectional_mode(&self) -> BreakBidirectionalMode {
+        self.inner.get_break2_bidirectional_mode()
     }
 
     /// Enable/disable automatic output enable (AOE).
@@ -499,12 +560,29 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         }
     }
 
+    #[cfg(timer_v2)]
+    /// Configure timer dithering mode and ARR fractional nibble.
+    pub fn set_dithering(&mut self, config: DitheringConfig) {
+        self.inner.set_dithering(config);
+    }
+
+    #[cfg(timer_v2)]
+    /// Set CCR fractional nibble for one channel.
+    pub fn set_channel_dither(&mut self, channel: Channel, dither: u8) {
+        self.inner.set_compare_dither_value(channel, dither);
+    }
+
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         assert!(duty <= self.get_max_duty());
         self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
+    }
+
+    /// Enable/disable OCREF clear for a given channel.
+    pub fn set_output_compare_clear_enable(&mut self, channel: Channel, enable: bool) {
+        self.inner.set_output_compare_clear_enable(channel, enable);
     }
 
     /// Set the output polarity for a given channel.
@@ -531,6 +609,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_dead_time_value(value);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -551,6 +630,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -569,6 +649,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.enable_update_dma(false);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
     ///
     /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers

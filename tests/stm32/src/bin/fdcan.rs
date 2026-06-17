@@ -79,7 +79,7 @@ fn options() -> (Config, TestOptions) {
 fn options() -> (Config, TestOptions) {
     use embassy_stm32::rcc;
     let mut c = config();
-    c.rcc.mux.fdcansel = rcc::mux::Fdcansel::HSE;
+    c.rcc.mux.fdcansel = rcc::mux::Fdcansel::Hse;
     (
         c,
         TestOptions {

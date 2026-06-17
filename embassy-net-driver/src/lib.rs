@@ -5,6 +5,30 @@
 
 use core::task::Context;
 
+/// Metadata associated with a packet.
+///
+/// The packet metadata is a set of attributes associated to network packets
+/// as they travel up or down the stack. The metadata is get/set by the
+/// [`Driver`] implementations or by the user when sending/receiving packets
+/// from a socket.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
+#[non_exhaustive]
+pub struct PacketMeta {
+    /// An identifier associated with a transmitted or received
+    /// packet.
+    #[cfg(feature = "packetmeta-id")]
+    pub id: u32,
+}
+
+impl PacketMeta {
+    /// Empty packet metadata.
+    pub const EMPTY: Self = Self {
+        #[cfg(feature = "packetmeta-id")]
+        id: 0,
+    };
+}
+
 /// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -119,6 +143,11 @@ pub trait RxToken {
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R;
+
+    /// The Packet metadata associated with the frame received by this [`RxToken`]
+    fn meta(&self) -> PacketMeta {
+        PacketMeta::default()
+    }
 }
 
 /// A token to transmit a single network packet.
@@ -132,6 +161,11 @@ pub trait TxToken {
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R;
+
+    /// The Packet metadata to be associated with the frame to be transmitted by
+    /// this [`TxToken`].
+    #[allow(unused_variables)]
+    fn set_meta(&mut self, meta: PacketMeta) {}
 }
 
 /// A description of device capabilities.

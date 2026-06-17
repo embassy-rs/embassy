@@ -34,6 +34,7 @@ impl TryFrom<u8> for TlPacketType {
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
+            0x00 => Ok(TlPacketType::MacCmd),
             0x01 => Ok(TlPacketType::BleCmd),
             0x02 => Ok(TlPacketType::AclData),
             0x04 => Ok(TlPacketType::BleEvt),

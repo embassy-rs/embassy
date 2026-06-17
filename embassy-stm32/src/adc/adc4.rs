@@ -25,7 +25,7 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance<Regs = crate::pac::adc::Adc4>> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance<Regs = crate::pac::adc::Adc4>> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -275,22 +275,27 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
     }
 
-    fn stop(&self, _disable: bool) {
-        let cr = self.cr().read();
-        if cr.adstart() {
+    fn stop(&self) {
+        // Stop any ongoing regular conversion via ADSTP (self-clearing).
+        // Must be done before ADDIS per RM: software shall not set ADDIS while
+        // ADSTART=1 or JADSTART=1.
+        if self.cr().read().adstart() {
             self.cr().modify(|w| w.set_adstp(true));
             while self.cr().read().adstart() {}
         }
 
-        if cr.aden() || cr.adstart() {
-            self.cr().modify(|w| w.set_addis(true));
-            while self.cr().read().aden() {}
-        }
-
-        // Reset configuration.
+        // Clear DMAEN so a stale DMA request is not serviced while the DMA
+        // channel is reconfigured after stop().
         self.cfgr1().modify(|reg| {
             reg.set_dmaen(false);
         });
+    }
+
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|w| w.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
@@ -311,8 +316,9 @@ impl AdcRegs for crate::pac::adc::Adc4 {
             reg.set_chselrmod(false);
 
             #[cfg(stm32wba)]
-            if let ConversionMode::Repeated(Some((trigger, _edge))) = conversion_mode {
+            if let ConversionMode::Repeated(Some((trigger, edge))) = conversion_mode {
                 reg.set_extsel(Extsel::from(trigger));
+                reg.set_exten(edge);
             }
         });
     }
@@ -519,6 +525,39 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
             w.set_ovss(right_shift);
             w.set_ovse(enable)
         })
+    }
+
+    /// Enable auto-off mode.
+    ///
+    /// When enabled the ADC powers itself off at the end of every conversion and
+    /// powers back up automatically before the next one.  This eliminates static
+    /// bias current between conversions, which is especially useful when the ADC
+    /// is triggered at low duty-cycle rates (e.g. from LPTIM running on LSE).
+    ///
+    /// Auto-off operates transparently with external triggers: the ADC wakes,
+    /// converts, then powers off again without software intervention.  The
+    /// additional startup latency is accounted for by the hardware before the
+    /// conversion sample window begins.
+    ///
+    /// Should be cleared before switching back to continuous or high-rate
+    /// triggered operation where the startup overhead would reduce throughput.
+    #[cfg(stm32wba)]
+    pub fn set_autoff(&mut self, enable: bool) {
+        T::regs().pwr().modify(|w| w.set_autoff(enable));
+    }
+
+    /// Enable low-frequency trigger mode.
+    ///
+    /// Must be set when the ADC external trigger rate is below approximately
+    /// 1 kHz (e.g. LPTIM clocked from LSI or LSE at a multi-second period).
+    /// Without this bit the ADC sampling window may start before the analog
+    /// input has had sufficient time to settle after the trigger edge.
+    ///
+    /// Has no effect when the ADC is running in continuous or software-triggered
+    /// mode; only relevant when `EXTEN != DISABLED`.
+    #[cfg(stm32wba)]
+    pub fn set_lftrig(&mut self, enable: bool) {
+        T::regs().cfgr2().modify(|w| w.set_lftrig(enable));
     }
 
     /// Enable an analog watchdog and return a guard.

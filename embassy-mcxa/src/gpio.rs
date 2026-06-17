@@ -599,6 +599,10 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Put the pin into output mode.
     pub fn set_as_output(&mut self) {
         self.set_pull(Pull::Disabled);
+        // Clear PIDR in case this pin was previously disabled.
+        self.gpio()
+            .pidr()
+            .modify(|w| w.set_pid(self.pin.pin_index() as usize, Pid::Pid0));
         self.gpio()
             .pddr()
             .modify(|w| w.set_pdd(self.pin.pin_index() as usize, Pdd::Pdd1));

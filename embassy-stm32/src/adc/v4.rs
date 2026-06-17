@@ -122,7 +122,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, _disable: bool) {
+    fn stop(&self) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
                 reg.set_adstp(Adstp::Stop);
@@ -135,6 +135,13 @@ impl AdcRegs for crate::pac::adc::Adc {
             reg.set_cont(false);
             reg.set_dmngt(Dmngt::from_bits(0));
         });
+    }
+
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     fn wait_done(&self) -> bool {
@@ -165,9 +172,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         let mut smpr2 = self.smpr(1).read();
 
         // Set sequence length
-        self.sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
+        sqr1.set_l(sequence.len() as u8 - 1);
 
         // Configure channels and ranks
         for (i, ((channel, _), sample_time)) in sequence.enumerate() {

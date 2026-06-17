@@ -89,16 +89,26 @@ impl Config {
         Config {
             hsi: true,
             hse: None,
-            pll1: None,
-            sys: Sysclk::Hsi,
+            // Match the common WBA6 example baseline:
+            // HSI 16 MHz -> PLL1 (x30 /5) -> SYSCLK 96 MHz, PLL1P 16 MHz.
+            pll1: Some(Pll {
+                source: PllSource::Hsi,
+                prediv: PllPreDiv::Div1,
+                mul: PllMul::Mul30,
+                divp: Some(PllDiv::Div30),
+                divq: None,
+                divr: Some(PllDiv::Div5),
+                frac: Some(0),
+            }),
+            sys: Sysclk::Pll1R,
             ahb_pre: AHBPrescaler::Div1,
-            ahb5_pre: AHB5Prescaler::Div1,
+            ahb5_pre: AHB5Prescaler::Div4,
             apb1_pre: APBPrescaler::Div1,
             apb2_pre: APBPrescaler::Div1,
             apb7_pre: APBPrescaler::Div1,
             ls: crate::rcc::LsConfig::new(),
             // lsi2: crate::rcc::LsConfig::new(),
-            voltage_scale: VoltageScale::Range2,
+            voltage_scale: VoltageScale::Range1,
             mux: super::mux::ClockMux::default(),
         }
     }
@@ -119,6 +129,30 @@ impl Config {
             lse: None,
         };
         rcc.mux.radiostsel = mux::Radiostsel::Lsi;
+
+        rcc
+    }
+
+    /// BLE radio config for boards that have HSE but no LSE crystal.
+    ///
+    /// Identical to [`new_wpan`](Self::new_wpan) except the BLE radio sleep timer
+    /// is sourced from `HSE / 1000` (≈32 kHz) instead of LSE, and the RTC peripheral
+    /// falls back to LSI (since no LSE is available).
+    ///
+    /// Prefer this over [`new_wpan_lsi`](Self::new_wpan_lsi) when HSE is available:
+    /// the HSE crystal is much more accurate than LSI (~50 ppm vs ~1–2 %), which
+    /// keeps BLE sleep-clock tolerance tight and reduces wake-up margin overhead.
+    ///
+    /// RADIOSTSEL is set to `Hse` (hardware bit value 0x03).
+    pub const fn new_wpan_hse() -> Self {
+        let mut rcc = Self::new_wpan();
+
+        rcc.ls = LsConfig {
+            rtc: RtcClockSource::Lsi,
+            lsi: true,
+            lse: None,
+        };
+        rcc.mux.radiostsel = mux::Radiostsel::Hse;
 
         rcc
     }

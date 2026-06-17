@@ -25,15 +25,17 @@ async fn main(_spawner: Spawner) {
     let mut p = embassy_stm32::init(config);
 
     let adc = Adc::new(p.ADC1);
-    let adc_pin0 = p.PA0.degrade_adc();
-    let adc_pin1 = p.PA1.degrade_adc();
     let mut adc_dma_buf = [0u16; DMA_BUF_LEN];
     let mut measurements = [0u16; DMA_BUF_LEN / 2];
     let mut ring_buffered_adc = adc.into_ring_buffered(
         p.DMA1_CH1,
         &mut adc_dma_buf,
         Irqs,
-        [(adc_pin0, SampleTime::Cycles6405), (adc_pin1, SampleTime::Cycles6405)].into_iter(),
+        [
+            (p.PA0.reborrow_adc(), SampleTime::Cycles6405),
+            (p.PA1.reborrow_adc(), SampleTime::Cycles6405),
+        ]
+        .into_iter(),
         None,
     );
 

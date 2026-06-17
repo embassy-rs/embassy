@@ -29,7 +29,7 @@ const USB_MAX_PIPES: usize = 8;
 
 /// Interrupt handler.
 pub struct USBHostInterruptHandler<I: Instance> {
-    _phantom: PhantomData<I>,
+    _marker: PhantomData<I>,
 }
 
 impl<I: Instance> interrupt::typelevel::Handler<I::Interrupt> for USBHostInterruptHandler<I> {
@@ -189,7 +189,7 @@ mod btable {
 struct EndpointBuffer<I: Instance> {
     addr: u16,
     len: u16,
-    _phantom: PhantomData<I>,
+    _marker: PhantomData<I>,
 }
 
 impl<I: Instance> EndpointBuffer<I> {
@@ -197,7 +197,7 @@ impl<I: Instance> EndpointBuffer<I> {
         EndpointBuffer {
             addr,
             len,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 
@@ -387,7 +387,7 @@ impl<'d, I: SealedHostInstance> UsbHost<'d, I> {
 
 /// USB endpoint. Only implements single buffer mode.
 pub struct Channel<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> {
-    _phantom: PhantomData<(&'d mut I, D, T)>,
+    _marker: PhantomData<(&'d mut I, D, T)>,
     /// Register index (there are 8 in total)
     index: usize,
     max_packet_size_in: u16,
@@ -406,7 +406,7 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
         max_packet_size_out: u16,
     ) -> Self {
         Self {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             index,
             max_packet_size_in,
             max_packet_size_out,
@@ -683,7 +683,7 @@ impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> Drop for Chan
 
 /// Pipe allocator handle for [`UsbHost`].
 pub struct Allocator<'d, I: Instance> {
-    _phantom: PhantomData<&'d I>,
+    _marker: PhantomData<&'d I>,
 }
 
 impl<'d, I: Instance> Clone for Allocator<'d, I> {
@@ -790,7 +790,7 @@ impl<'d, I: SealedHostInstance> UsbHostController<'d> for UsbHost<'d, I> {
     type Allocator = Allocator<'d, I>;
 
     fn allocator(&self) -> Self::Allocator {
-        Allocator { _phantom: PhantomData }
+        Allocator { _marker: PhantomData }
     }
 
     async fn bus_reset(&mut self) {

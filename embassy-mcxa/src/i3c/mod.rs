@@ -10,6 +10,7 @@ use crate::gpio::GpioPin;
 use crate::{interrupt, pac};
 
 pub mod controller;
+pub mod target;
 
 pub(crate) mod sealed {
     /// Seal a trait
@@ -23,6 +24,12 @@ pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = I3cConfig> {
     const PERF_INT_WAKE_INCR: fn();
     const TX_DMA_REQUEST: DmaRequest;
     const RX_DMA_REQUEST: DmaRequest;
+
+    fn bbq_state() -> &'static crate::i3c::target::BbqState;
+
+    /// DMA-completion callback for the per-instance RX DMA channel.
+    /// Pends the I3C interrupt so the IRQ rotates BBQ grants.
+    fn dma_rx_complete_cb();
 }
 
 /// I3C Instance
@@ -69,6 +76,20 @@ macro_rules! impl_i3c_instance {
                 const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<I3C $n Rx>];
                 const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n>];
                 const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
+
+                fn bbq_state() -> &'static crate::i3c::target::BbqState {
+                    static STATE: crate::i3c::target::BbqState = crate::i3c::target::BbqState::new();
+                    &STATE
+                }
+
+                fn dma_rx_complete_cb() {
+                    use crate::_generated::interrupt::typelevel::Interrupt;
+                    use core::sync::atomic::Ordering;
+                    Self::bbq_state()
+                        .state
+                        .fetch_or(crate::i3c::target::STATE_RXDMA_COMPLETE, Ordering::AcqRel);
+                    <Self as crate::i3c::Instance>::Interrupt::pend();
+                }
             }
 
             impl crate::i3c::Instance for crate::peripherals::[<I3C $n>] {
@@ -151,7 +172,7 @@ macro_rules! impl_i3c_pin {
                     use crate::gpio::SealedPin;
                     self.set_pull(crate::gpio::Pull::Disabled);
                     self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-                    self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
+                    self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
                     self.set_function(crate::pac::port::Mux::$fn);
                     self.set_enable_input_buffer(true);
                 }

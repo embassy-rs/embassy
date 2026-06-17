@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+CAN:
+- fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
+
 DMA:
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
 - fix: stm32/dma: defer read_index advance until after copy in read_raw to avoid partial-advance on overrun
@@ -24,15 +27,26 @@ DMA:
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
 
+RNG:
+- feat: stm32/rng: add configurable initialization policy (`RngConfig`) with `new_with_config` and health-test profile control
+
 COMP:
 - feat: stm32/comp: add support for comp_v1 (used on G0)
 
 Timer:
 - feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
+- feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
+- feat: stm32/timer: add low-level timer status helpers for UIF remap control and counting direction (`is_counting_up`/`is_counting_down`)
+
+PKA:
+- feat: stm32/pka: extend ECC point buffer support to 640-bit operands (80-byte coordinates) in public point types and Jacobian conversion paths
 
 CRYP:
 - feat: stm32/cryp: batch full-block DMA in payload and use 4-beat bursts on GPDMA
 - perf: stm32/cryp: aad/payload async API takes a faster path when user buffers are 4-byte aligned
+
+SAES:
+- feat: stm32/saes: expose explicit key-mode starters (`start_with_mode`, `start_wrapped_key`, `start_shared_key`) and async `aad`/`payload`/`finish` parity methods
 
 ## 0.6.0 - 2026-03-10
 
@@ -578,3 +592,4 @@ Misc:
 ## 0.1.0 - 2024-01-12
 
 First release.
+

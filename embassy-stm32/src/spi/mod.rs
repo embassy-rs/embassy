@@ -3,6 +3,7 @@
 
 use core::marker::PhantomData;
 use core::ptr;
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
@@ -214,7 +215,7 @@ pub struct Spi<'d, M: PeriMode, CM: CommunicationMode> {
     nss: Option<Flex<'d>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<(M, CM)>,
+    _marker: PhantomData<(M, CM)>,
     current_word_size: word_impl::Config,
     gpio_speed: Speed,
 }
@@ -240,7 +241,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             tx_dma,
             rx_dma,
             current_word_size: <u8 as SealedWord>::CONFIG,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             gpio_speed: config.gpio_speed,
         };
         this.enable_and_init(config);
@@ -295,10 +296,13 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_ssm(ssm);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::Unidirectional);
-                // we're doing "fake rxonly", by actually writing one
-                // byte to TXDR for each byte we want to receive. if we
-                // set OUTPUTDISABLED here, this hangs.
-                w.set_rxonly(vals::Rxonly::FullDuplex);
+                w.set_rxonly(match (&self.rx_dma, &self.tx_dma) {
+                    (Some(_), None) => vals::Rxonly::OutputDisabled,
+                    // we're doing "fake rxonly", by actually writing one
+                    // byte to TXDR for each byte we want to receive. if we
+                    // set OUTPUTDISABLED here, this hangs.
+                    _ => vals::Rxonly::FullDuplex,
+                });
                 w.set_dff(<u8 as SealedWord>::CONFIG)
             });
         }
@@ -557,14 +561,18 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
     /// Blocking write.
     pub fn blocking_write<W: Word>(&mut self, words: &[W]) -> Result<(), Error> {
-        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        // needed in spi_v4+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
+
+        // Memory barrier after flush RX fifo to ensure register writes complete
+        fence(Ordering::SeqCst);
+
         for word in words.iter() {
-            // this cannot use `transfer_word` because on SPIv2 and higher,
+            // this cannot use `transfer_word` because on spi_v3 and higher,
             // the SPI RX state machine hangs if no physical pin is connected to the SCK AF.
             // This is the case when the SPI has been created with `new_(blocking_?)txonly_nosck`.
             // See https://github.com/embassy-rs/embassy/issues/2902
@@ -573,17 +581,17 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             write_word(self.info.regs, *word)?;
 
             // if we're doing tx only, after writing the last byte to FIFO we have to wait
-            // until it's actually sent. On SPIv1 you're supposed to use the BSY flag for this
+            // until it's actually sent. On spi_v1 and spi_v2 you're supposed to use the BSY flag for this
             // but apparently it's broken, it clears too soon. Workaround is to wait for RXNE:
             // when it gets set you know the transfer is done, even if you don't care about rx.
-            // Luckily this doesn't affect SPIv2+.
+            // Luckily this doesn't affect spi_v3+.
             // See http://efton.sk/STM32/gotcha/g68.html
             // ST doesn't seem to document this in errata sheets (?)
             #[cfg(any(spi_v1, spi_v2))]
             transfer_word(self.info.regs, *word)?;
         }
 
-        // wait until last word is transmitted. (except on v1, see above)
+        // wait until last word is transmitted. (except on spi_v1 and spi_v2, see above)
         #[cfg(not(any(spi_v1, spi_v2, spi_v3)))]
         while !self.info.regs.sr().read().txc() {}
         #[cfg(spi_v3)]
@@ -594,32 +602,34 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
     /// Blocking read.
     pub fn blocking_read<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
-        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        // needed in spi_v4+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
-        for word in words.iter_mut() {
-            *word = transfer_word(self.info.regs, W::default())?;
-        }
-        Ok(())
+
+        // Memory barrier after flush RX fifo to ensure register writes complete
+        fence(Ordering::SeqCst);
+
+        transfer_words(self.info.regs, words, &[])
     }
 
     /// Blocking in-place bidirectional transfer.
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
     pub fn blocking_transfer_in_place<W: Word>(&mut self, words: &mut [W]) -> Result<(), Error> {
-        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        // needed in spi_v4+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
-        for word in words.iter_mut() {
-            *word = transfer_word(self.info.regs, *word)?;
-        }
-        Ok(())
+
+        // Memory barrier after flush RX fifo to ensure register writes complete
+        fence(Ordering::SeqCst);
+
+        transfer_words(self.info.regs, words, words)
     }
 
     /// Blocking bidirectional transfer.
@@ -629,21 +639,17 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
     /// If `write` is shorter it is padded with zero bytes.
     pub fn blocking_transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
-        // needed in v3+ to avoid overrun causing the SPI RX state machine to get stuck...?
+        // needed in spi_v4+ to avoid overrun causing the SPI RX state machine to get stuck...?
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.info.regs.cr1().modify(|w| w.set_spe(false));
         self.set_word_size(W::CONFIG);
         self.info.regs.cr1().modify(|w| w.set_spe(true));
         flush_rx_fifo(self.info.regs);
-        let len = read.len().max(write.len());
-        for i in 0..len {
-            let wb = write.get(i).copied().unwrap_or_default();
-            let rb = transfer_word(self.info.regs, wb)?;
-            if let Some(r) = read.get_mut(i) {
-                *r = rb;
-            }
-        }
-        Ok(())
+
+        // Memory barrier after flush RX fifo to ensure register writes complete
+        fence(Ordering::SeqCst);
+
+        transfer_words(self.info.regs, read, write)
     }
 }
 
@@ -772,6 +778,28 @@ impl<'d> Spi<'d, Async, Slave> {
             new_pin!(miso, AfType::input(config.miso_pull)),
             new_pin!(cs, AfType::input(Pull::None)),
             new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
+            config,
+        )
+    }
+
+    /// Create a new SPI slave driver in RX-only mode (only MOSI pin, no MISO).
+    pub fn new_rxonly_slave<T: Instance, D1: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        cs: Peri<'d, if_afio!(impl CsPin<T, A>)>,
+        rx_dma: Peri<'d, D1>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(sck, config.sck_af()),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            new_pin!(cs, AfType::input(Pull::None)),
+            None,
             new_dma!(rx_dma, _irq),
             config,
         )
@@ -969,6 +997,10 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
         let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
 
         set_txdmaen(self.info.regs, true);
+
+        // Memory barrier after DMA setup to ensure register writes complete before command
+        fence(Ordering::SeqCst);
+
         self.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
@@ -1026,7 +1058,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         let rx_src = regs.rx_ptr();
 
-        for mut chunk in data.chunks_mut(u16::max_value().into()) {
+        for mut chunk in data.chunks_mut(u16::MAX.into()) {
             set_rxdmaen(regs, true);
 
             let tsize = chunk.len();
@@ -1041,6 +1073,9 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
             regs.cr2().modify(|w| {
                 w.set_tsize(tsize as u16);
             });
+
+            // Memory barrier after DMA setup to ensure register writes complete before command
+            fence(Ordering::SeqCst);
 
             regs.cr1().modify(|w| {
                 w.set_spe(true);
@@ -1074,6 +1109,9 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
             });
         }
 
+        // Memory barrier after DMA setup to ensure register writes complete before command
+        fence(Ordering::Acquire);
+
         Ok(())
     }
 
@@ -1091,8 +1129,6 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         self.set_word_size(W::CONFIG);
 
-        // SPIv3 clears rxfifo on SPE=0
-        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
         flush_rx_fifo(self.info.regs);
 
         set_rxdmaen(self.info.regs, true);
@@ -1104,25 +1140,39 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         let tx_dst = self.info.regs.tx_ptr();
         let clock_byte = W::default();
-        let tx_f = unsafe {
-            self.tx_dma
-                .as_mut()
-                .unwrap()
-                .write_repeated(&clock_byte, clock_byte_count, tx_dst, Default::default())
-        };
+        let tx_f = self
+            .tx_dma
+            .as_mut()
+            .map(|tx_dma| unsafe { tx_dma.write_repeated(&clock_byte, clock_byte_count, tx_dst, Default::default()) });
 
-        set_txdmaen(self.info.regs, true);
+        if tx_f.is_some() {
+            set_txdmaen(self.info.regs, true);
+        }
+
+        // Memory barrier after DMA setup to ensure register writes complete before command
+        fence(Ordering::SeqCst);
+
         self.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        self.info.regs.cr1().modify(|w| {
-            w.set_cstart(true);
-        });
 
-        join(tx_f, rx_f).await;
+        if let Some(tx_f) = tx_f {
+            join(tx_f, rx_f).await;
 
-        finish_dma(self.info.regs);
+            finish_dma(self.info.regs);
+        } else {
+            rx_f.await;
+            // In receiving mode RXNE flag should be prefered over BSY flag.
+            // When using DMA the RXNE flag is cleared after DMA reads data.
+            // Since DMA has already finished reading previously specified
+            // amount of data, then there is no need to check for RXNE flag.
+
+            // The peripheral automatically disables the DMA stream on completion without error,
+            // but it does not clear the RXDMAEN flag in CR2.
+            self.info.regs.cr2().modify(|w| {
+                w.set_rxdmaen(false);
+            });
+        }
 
         Ok(())
     }
@@ -1140,7 +1190,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         self.set_word_size(W::CONFIG);
 
-        // SPIv3 clears rxfifo on SPE=0
+        // spi_v4 clears rxfifo on SPE=0
         #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
         flush_rx_fifo(self.info.regs);
 
@@ -1158,6 +1208,10 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
         };
 
         set_txdmaen(self.info.regs, true);
+
+        // Memory barrier after DMA setup to ensure register writes complete before command
+        fence(Ordering::SeqCst);
+
         self.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
@@ -1291,35 +1345,52 @@ fn check_error_flags(sr: regs::Sr, ovr: bool) -> Result<(), Error> {
     Ok(())
 }
 
+fn check_tx_ready(regs: Regs, ovr: bool) -> Result<bool, Error> {
+    let sr = regs.sr().read();
+
+    check_error_flags(sr, ovr)?;
+
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    if sr.txe() {
+        return Ok(true);
+    }
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    if sr.txp() {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 fn spin_until_tx_ready(regs: Regs, ovr: bool) -> Result<(), Error> {
     loop {
-        let sr = regs.sr().read();
-
-        check_error_flags(sr, ovr)?;
-
-        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-        if sr.txe() {
-            return Ok(());
-        }
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        if sr.txp() {
+        if check_tx_ready(regs, ovr)? {
             return Ok(());
         }
     }
 }
 
+fn check_rx_ready(regs: Regs) -> Result<bool, Error> {
+    let sr = regs.sr().read();
+
+    check_error_flags(sr, true)?;
+
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    if sr.rxne() {
+        return Ok(true);
+    }
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    if sr.rxp() {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+#[cfg(any(spi_v1, spi_v2))]
 fn spin_until_rx_ready(regs: Regs) -> Result<(), Error> {
     loop {
-        let sr = regs.sr().read();
-
-        check_error_flags(sr, true)?;
-
-        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-        if sr.rxne() {
-            return Ok(());
-        }
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        if sr.rxp() {
+        if check_rx_ready(regs)? {
             return Ok(());
         }
     }
@@ -1390,6 +1461,72 @@ fn finish_dma(regs: Regs) {
     });
 }
 
+#[inline]
+fn transfer_words<W: Word>(regs: Regs, read: *mut [W], write: *const [W]) -> Result<(), Error> {
+    unsafe {
+        let ndt = read.len().max(write.len());
+        let mut read = read.as_mut().unwrap().iter_mut();
+        let mut write = write.as_ref().unwrap().iter();
+
+        let mut w = 0usize;
+        let mut r = 0usize;
+
+        if ndt == 0 {
+            return Ok(());
+        }
+
+        spin_until_tx_ready(regs, true)?;
+
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        while w < ndt && check_tx_ready(regs, true)? {
+            if let Some(word_out) = write.next() {
+                ptr::write_volatile(regs.tx_ptr(), *word_out);
+            } else {
+                ptr::write_volatile(regs.tx_ptr(), W::default());
+            }
+
+            w += 1;
+        }
+
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        regs.cr1().modify(|reg| reg.set_cstart(true));
+
+        #[cfg(any(spi_v1, spi_v2))]
+        let fifo_size = 1;
+
+        #[cfg(spi_v3)]
+        let fifo_size = 4 / size_of::<W>();
+
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        let fifo_size = w;
+
+        while w < ndt || r < ndt {
+            if w < ndt && (w - r) < fifo_size && check_tx_ready(regs, true)? {
+                if let Some(word_out) = write.next() {
+                    ptr::write_volatile(regs.tx_ptr(), *word_out);
+                } else {
+                    ptr::write_volatile(regs.tx_ptr(), W::default());
+                }
+
+                w += 1;
+            }
+
+            if r < ndt && r < w && check_rx_ready(regs)? {
+                if let Some(word_in) = read.next() {
+                    *word_in = ptr::read_volatile(regs.rx_ptr());
+                } else {
+                    ptr::read_volatile::<W>(regs.rx_ptr());
+                }
+
+                r += 1;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(any(spi_v1, spi_v2))]
 fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     spin_until_tx_ready(regs, true)?;
 
@@ -1406,7 +1543,7 @@ fn transfer_word<W: Word>(regs: Regs, tx_word: W) -> Result<W, Error> {
     Ok(rx_word)
 }
 
-#[allow(unused)] // unused in SPIv1
+#[cfg(any(spi_v3, spi_v4, spi_v5, spi_v6))]
 fn write_word<W: Word>(regs: Regs, tx_word: W) -> Result<(), Error> {
     // for write, we intentionally ignore the rx fifo, which will cause
     // overrun errors that we have to ignore.

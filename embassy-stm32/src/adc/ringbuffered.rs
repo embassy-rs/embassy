@@ -30,21 +30,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
         dma_buf: &'d mut [u16],
         sequence_len: usize,
     ) -> Self {
-        // DMA side setup - configuration differs between DMA/BDMA and GPDMA
-        // For DMA/BDMA: use circular mode via TransferOptions
-        // For GPDMA: circular mode is achieved via linked-list ping-pong
-        #[cfg(not(gpdma))]
-        let opts = TransferOptions {
-            half_transfer_ir: true,
-            circular: true,
-            ..Default::default()
-        };
-
-        #[cfg(gpdma)]
-        let opts = TransferOptions {
-            half_transfer_ir: true,
-            ..Default::default()
-        };
+        let opts = Default::default();
 
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
@@ -65,6 +51,9 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
     }
 
     /// Turns on ADC if it is not already turned on and starts continuous DMA transfer.
+    ///
+    /// Can be called after [`stop`] to resume a suspended scan without repeating the
+    /// full channel/DMA configuration — the ring buffer and sequence are preserved.
     pub fn start(&mut self) {
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
@@ -72,7 +61,24 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
         self.regs.start();
     }
 
+    /// Suspend the continuous DMA scan.
+    ///
+    /// Issues ADSTP on the ADC hardware (leaving the ADC *enabled* and fully
+    /// configured) and pauses the DMA ring buffer.  The channel sequence, DMA
+    /// buffer, and all ADC register settings are preserved; call [`start`] to
+    /// resume from where the scan left off.
+    ///
+    /// This is intended as a lightweight suspend/resume pair for cases such as
+    /// low-power sleep modes where the caller needs to temporarily halt the scan
+    /// and optionally reconfigure the ADC (e.g. change trigger source, enable an
+    /// analog watchdog) before resuming.  It does **not** disable the ADC, so
+    /// CFGR1 and other configuration registers can be written immediately after
+    /// this call without going through the enable sequence again.
     pub fn stop(&mut self) {
+        // Stop ADC hardware first (ADSTP, leave ADEN=1) so it stops issuing DMA
+        // requests before we pause the DMA channel.
+        self.regs.stop();
+
         self.ring_buf.request_pause();
 
         compiler_fence(Ordering::SeqCst);
@@ -107,15 +113,13 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
     /// use embassy_stm32::adc::{Adc, AdcChannel}
     ///
     /// let mut adc = Adc::new(p.ADC1);
-    /// let mut adc_pin0 = p.PA0.degrade_adc();
-    /// let mut adc_pin1 = p.PA1.degrade_adc();
     /// let adc_dma_buf = [0u16; DMA_BUF_LEN];
     ///
     /// let mut ring_buffered_adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
     ///     p.DMA2_CH0,
     ///      adc_dma_buf, [
-    ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
-    ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
+    ///         (p.PA0.reborrow_adc(), SampleTime::CYCLES160_5),
+    ///         (p.PA1.reborrow_adc(), SampleTime::CYCLES160_5),
     ///     ].into_iter());
     ///
     ///
@@ -217,7 +221,8 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
 
 impl<R: AdcRegs> Drop for RingBufferedAdc<'_, R> {
     fn drop(&mut self) {
-        self.regs.stop(true);
+        self.regs.stop();
+        self.regs.power_down();
 
         compiler_fence(Ordering::SeqCst);
 

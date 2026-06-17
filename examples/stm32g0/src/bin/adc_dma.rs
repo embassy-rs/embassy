@@ -26,16 +26,14 @@ async fn main(_spawner: Spawner) {
 
     let mut dma = p.DMA1_CH1;
     let mut vrefint = adc.enable_vrefint();
-    let mut vrefint_channel = vrefint.degrade_adc();
-    let mut pa0 = p.PA0.degrade_adc();
 
     loop {
         adc.read(
             dma.reborrow(),
             Irqs,
             [
-                (&mut vrefint_channel, SampleTime::Cycles1605),
-                (&mut pa0, SampleTime::Cycles1605),
+                (vrefint.reborrow_adc(), SampleTime::Cycles1605),
+                (p.PA0.reborrow_adc(), SampleTime::Cycles1605),
             ]
             .into_iter(),
             None,

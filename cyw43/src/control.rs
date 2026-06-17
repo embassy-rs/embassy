@@ -592,6 +592,22 @@ impl<'a> Control<'a> {
         i32::from_ne_bytes(rssi_buf)
     }
 
+    /// Arm the firmware's offloaded MAC-layer keepalive (`mkeep_alive`).
+    /// The chip emits a periodic null-data frame to the AP every
+    /// `period_ms` with no host wakeups, preventing AP idle-station reaping.
+    /// `id` selects one of the firmware's keepalive slots.
+    pub async fn keepalive(&mut self, id: u8, period_ms: u32) {
+        // wl_mkeep_alive_pkt { version, length, period_msec,
+        //                      len_bytes, keep_alive_id, data[] }
+        let mut pkt = [0u8; 11];
+        pkt[0..2].copy_from_slice(&1u16.to_le_bytes()); // version = WL_MKEEP_ALIVE_VERSION
+        pkt[2..4].copy_from_slice(&11u16.to_le_bytes()); // length = WL_MKEEP_ALIVE_FIXED_LEN
+        pkt[4..8].copy_from_slice(&period_ms.to_le_bytes()); // period_msec
+        pkt[8..10].copy_from_slice(&0u16.to_le_bytes()); // len_bytes = 0 → null frame
+        pkt[10] = id; // keep_alive_id
+        self.set_iovar("mkeep_alive", &pkt).await;
+    }
+
     async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {
         let mut buf = [0; 8];
         buf[0..4].copy_from_slice(&val1.to_le_bytes());

@@ -17,11 +17,13 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 #[cfg(feature = "bt-hci")]
 use embassy_sync::waitqueue::AtomicWaker;
+use embedded_io::Write;
 
+use crate::evt::ProtectedChannel;
 use crate::sub::mm;
 use crate::util::Flag;
 use crate::wb::channels::cpu1::IPCC_HCI_ACL_DATA_CHANNEL;
-use crate::wb::cmd::CmdPacket;
+use crate::wb::cmd::{CmdSerialStub, VolatileWriter};
 use crate::wb::consts::{TL_BLEEVT_CC_OPCODE, TL_BLEEVT_CS_OPCODE, TlPacketType};
 use crate::wb::evt;
 use crate::wb::evt::{EvtBox, EvtPacket};
@@ -48,18 +50,18 @@ static ACL_EVT_OUT: Flag = Flag::new(false);
 /// # let p = embassy_stm32::init(embassy_stm32::Config::default());
 /// # let mut mbox = embassy_stm32_wpan::TlMbox::init(p.IPCC, Irqs, embassy_stm32::ipcc::Config::default());
 /// #
-/// # let sys_event = mbox.sys_subsystem.read().await;
-/// # let _command_status = mbox.sys_subsystem.shci_c2_ble_init(Default::default());
+/// # let sys_event = mbox.sys.read().await;
+/// # let _command_status = mbox.sys.shci_c2_ble_init(Default::default());
 /// # // BLE commands may now be sent
 /// #
-/// # mbox.ble_subsystem.reset().await;
-/// # let _reset_response = mbox.ble_subsystem.read().await;
+/// # mbox.ble.reset().await;
+/// # let _reset_response = mbox.ble.read().await;
 /// ```
 pub struct Ble<'a> {
     hw_ipcc_ble_cmd_channel: IpccTxChannel<'a>,
     ipcc_ble_event_channel: IpccRxChannel<'a>,
     ipcc_hci_acl_tx_data_channel: IpccTxChannel<'a>,
-    ipcc_hci_acl_rx_data_channel: IpccRxChannel<'a>,
+    ipcc_hci_acl_rx_data_channel: ProtectedChannel<'a>,
 }
 
 impl<'a> Ble<'a> {
@@ -87,7 +89,7 @@ impl<'a> Ble<'a> {
             hw_ipcc_ble_cmd_channel,
             ipcc_ble_event_channel,
             ipcc_hci_acl_tx_data_channel,
-            ipcc_hci_acl_rx_data_channel,
+            ipcc_hci_acl_rx_data_channel: ProtectedChannel::new(&ACL_EVT_OUT, ipcc_hci_acl_rx_data_channel),
         }
     }
 
@@ -110,7 +112,16 @@ impl<'a> Ble<'a> {
     pub async fn tl_write(&mut self, opcode: u16, payload: &[u8]) {
         self.hw_ipcc_ble_cmd_channel
             .send(|| unsafe {
-                CmdPacket::write_into(BLE_CMD_BUFFER.as_mut_ptr(), TlPacketType::BleCmd, opcode, payload);
+                VolatileWriter::with_stub(
+                    BLE_CMD_BUFFER.as_mut_ptr(),
+                    CmdSerialStub {
+                        ty: TlPacketType::BleCmd as u8,
+                        cmd_code: opcode as u16,
+                        payload_len: payload.len().try_into().unwrap(),
+                    },
+                )
+                .write_all(payload)
+                .unwrap();
             })
             .await;
     }
@@ -119,20 +130,25 @@ impl<'a> Ble<'a> {
     pub async fn acl_write(&mut self, handle: u16, payload: &[u8]) {
         self.ipcc_hci_acl_tx_data_channel
             .send_exclusive(|| unsafe {
-                CmdPacket::write_into(
+                VolatileWriter::with_stub(
                     HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _,
-                    TlPacketType::AclData,
-                    handle,
-                    payload,
-                );
+                    CmdSerialStub {
+                        ty: TlPacketType::AclData as u8,
+                        cmd_code: handle,
+                        payload_len: payload.len().try_into().unwrap(),
+                    },
+                )
+                .write_all(payload)
+                .unwrap();
             })
             .await;
     }
 
     /// `TL_BLE_AclNot`
     pub async fn acl_read(&mut self) -> EvtBox<Self> {
-        ACL_EVT_OUT.wait_for_low().await;
         self.ipcc_hci_acl_rx_data_channel
+            .lock()
+            .await
             .receive(|| unsafe { Some(EvtBox::new(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _)) })
             .await
     }
@@ -154,7 +170,7 @@ impl<'a> evt::MemoryManager for Ble<'a> {
             return;
         }
 
-        let stub = unsafe { EvtBox::read_stub(evt) };
+        let stub = unsafe { EvtPacket::read_stub(evt) };
         if !(stub.evt_code == TL_BLEEVT_CS_OPCODE || stub.evt_code == TL_BLEEVT_CC_OPCODE) {
             mm::MemoryManager::drop_event_packet(evt);
         }
@@ -166,7 +182,7 @@ pub struct ControllerAdapter<'d> {
     hw_ipcc_ble_cmd_channel: Mutex<NoopRawMutex, IpccTxChannel<'d>>,
     ipcc_ble_event_channel: Mutex<NoopRawMutex, IpccRxChannel<'d>>,
     ipcc_hci_acl_tx_data_channel: Mutex<NoopRawMutex, IpccTxChannel<'d>>,
-    ipcc_hci_acl_rx_data_channel: Mutex<NoopRawMutex, IpccRxChannel<'d>>,
+    ipcc_hci_acl_rx_data_channel: Mutex<NoopRawMutex, ProtectedChannel<'d>>,
     slot: blocking_mutex::NoopMutex<RefCell<Option<bt_hci::cmd::Opcode>>>,
     signal: Signal<NoopRawMutex, Option<EvtBox<Ble<'d>>>>,
     waker: AtomicWaker,
@@ -246,8 +262,6 @@ impl<'d> ControllerAdapter<'d> {
     async fn read_pkt(
         &self,
     ) -> Result<(EvtBox<Ble<'d>>, bt_hci::ControllerToHostPacket<'static>), embedded_io::ErrorKind> {
-        use core::slice;
-
         use bt_hci::{ControllerToHostPacket, FromHciBytes};
 
         use crate::util::to_err;
@@ -267,14 +281,13 @@ impl<'d> ControllerAdapter<'d> {
             })
             .await;
 
-        let evt_serial = unsafe { slice::from_raw_parts(evt.serial() as *const _ as *const u8, evt.serial().len()) };
-
-        Ok((
-            evt,
-            ControllerToHostPacket::from_hci_bytes(evt_serial)
+        let pkt = unsafe {
+            ControllerToHostPacket::from_hci_bytes(evt.serial_unchecked())
                 .map_err(to_err)
-                .map(|(pkt, _)| pkt)?,
-        ))
+                .map(|(pkt, _)| pkt)?
+        };
+
+        Ok((evt, pkt))
     }
 
     async fn exec_cmd<C: bt_hci::WriteHci + bt_hci::cmd::Cmd, R>(
@@ -298,7 +311,7 @@ impl<'d> ControllerAdapter<'d> {
             .await
             .send(|| unsafe {
                 WithIndicator::new(cmd)
-                    .write_hci(CmdPacket::writer(BLE_CMD_BUFFER.as_mut_ptr()))
+                    .write_hci(VolatileWriter::from_serial(BLE_CMD_BUFFER.as_mut_ptr()))
                     .map_err(CmdError::Io)
             })
             .await?;
@@ -327,7 +340,8 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
             .lock()
             .await
             .send_exclusive(|| unsafe {
-                WithIndicator::new(packet).write_hci(CmdPacket::writer(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _))
+                WithIndicator::new(packet)
+                    .write_hci(VolatileWriter::from_serial(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _))
             })
             .await
     }
@@ -340,22 +354,22 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
         todo!()
     }
 
-    async fn read<'a>(&self, buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
+    async fn read<'a>(&self, _buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
         use bt_hci::event::{CommandComplete, CommandStatus, EventKind};
         use bt_hci::{ControllerToHostPacket, FromHciBytes};
         use embassy_futures::select::{Either, select};
 
         use crate::util::to_err;
 
+        // Drop the pending evt so that the memory manager can clean it up
+        self.pending_evt.borrow().borrow_mut().take();
+        if self.cc_no_status.swap(false, Ordering::AcqRel) {
+            self.waker.wake();
+        }
+
         match select(
             async {
                 loop {
-                    // Drop the pending evt so that the memory manager can clean it up
-                    self.pending_evt.borrow().borrow_mut().take();
-                    if self.cc_no_status.swap(false, Ordering::AcqRel) {
-                        self.waker.wake();
-                    }
-
                     let (evt, pkt) = self.read_pkt().await?;
 
                     match pkt {
@@ -396,26 +410,27 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
                 }
             },
             async {
-                self.ipcc_hci_acl_rx_data_channel
+                let (evt, pkt) = self
+                    .ipcc_hci_acl_rx_data_channel
+                    .lock()
+                    .await
                     .lock()
                     .await
                     .receive(|| unsafe {
-                        // We must copy out the event immediately so that it is not trashed by a pending command.
-
-                        let buf = core::slice::from_raw_parts_mut(buf as *mut _ as *mut u8, buf.len());
                         let evt: EvtBox<Ble<'d>> = EvtBox::new(HCI_ACL_DATA_BUFFER.as_mut_ptr() as *mut _);
-                        let serial = evt.serial();
-                        buf[..serial.len()].copy_from_slice(serial);
-
-                        // rx will be cleared by evt box drop
 
                         Some(
-                            ControllerToHostPacket::from_hci_bytes(buf)
-                                .map(|(pkt, _)| pkt)
+                            ControllerToHostPacket::from_hci_bytes(evt.serial_unchecked())
+                                .map(|(pkt, _)| (evt, pkt))
                                 .map_err(to_err),
                         )
                     })
-                    .await
+                    .await?;
+
+                // Store the pending event so that it isn't dropped until the next read
+                self.pending_evt.borrow().borrow_mut().replace(evt);
+
+                return Ok(pkt);
             },
         )
         .await

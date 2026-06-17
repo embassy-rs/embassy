@@ -230,7 +230,7 @@ pub struct Ospi<'d, T: Instance, M: PeriMode> {
     _nss: Option<Flex<'d>>,
     _dqs: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
     config: Config,
     width: OspiWidth,
 }
@@ -592,7 +592,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             _nss: nss,
             _dqs: dqs,
             dma,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config,
             width,
         }

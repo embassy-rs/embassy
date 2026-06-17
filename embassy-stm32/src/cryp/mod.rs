@@ -19,7 +19,7 @@ static CRYP_WAKER: AtomicWaker = AtomicWaker::new();
 
 /// CRYP interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -991,7 +991,7 @@ pub enum Direction {
 /// Crypto Accelerator Driver
 pub struct Cryp<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
     indma: Option<ChannelAndRequest<'d>>,
     outdma: Option<ChannelAndRequest<'d>>,
 }
@@ -1005,7 +1005,7 @@ impl<'d, T: Instance> Cryp<'d, T, Blocking> {
         rcc::enable_and_reset::<T>();
         let instance = Self {
             _peripheral: peri,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             indma: None,
             outdma: None,
         };
@@ -1091,6 +1091,9 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         T::regs().cr().modify(|w| w.set_fflush(true));
 
         ctx.cipher.init_phase_blocking(T::regs(), self);
+
+        #[cfg(any(cryp_v3, cryp_v4))]
+        T::regs().cr().modify(|w| w.set_npblb(0));
 
         self.store_context(&mut ctx);
 
@@ -1476,7 +1479,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         rcc::enable_and_reset::<T>();
         let instance = Self {
             _peripheral: peri,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             indma: new_dma!(indma, _irq),
             outdma: new_dma!(outdma, _irq),
         };
@@ -1560,6 +1563,9 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         T::regs().cr().modify(|w| w.set_fflush(true));
 
         ctx.cipher.init_phase(T::regs(), self).await;
+
+        #[cfg(any(cryp_v3, cryp_v4))]
+        T::regs().cr().modify(|w| w.set_npblb(0));
 
         self.store_context(&mut ctx);
 

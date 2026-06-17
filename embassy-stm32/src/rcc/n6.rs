@@ -1,16 +1,18 @@
 use stm32_metapac::pwr::vals::{
-    Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv,
+    Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv, Vos,
 };
-use stm32_metapac::rcc::vals::{Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Pllmodssdis, Syssw, Syssws, Timpre};
+use stm32_metapac::rcc::vals::{
+    Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Persel, Pllmodssdis, Syssw, Syssws, Timpre,
+};
 pub use stm32_metapac::rcc::vals::{
     Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel, Plldivm, Pllpdiv, Pllsel,
     Ppre as ApbPrescaler, Xspisel as XspiClkSrc,
 };
 use stm32_metapac::syscfg::vals::{Vddio2cccrCs, Vddio3cccrCs, Vddio4cccrCs};
 
-use crate::pac::{GPDMA1, HPDMA1, PWR, RCC, RIFSC, RISAF3, SYSCFG};
+use crate::pac::{GPDMA1, HPDMA1, PWR, RCC, RISAF3, SYSCFG};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
-
 pub const HSI_FREQ: Hertz = Hertz(64_000_000);
 pub const LSE_FREQ: Hertz = Hertz(32_768);
 
@@ -42,6 +44,12 @@ pub struct Hsi {
 pub enum SupplyConfig {
     Smps,
     External,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum VoltageScale {
+    Scale0,
+    Scale1,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -121,11 +129,11 @@ pub struct Config {
     pub hsi: Option<Hsi>,
     pub hse: Option<Hse>,
     pub msi: Option<Msi>,
-    pub lsi: bool,
-    pub lse: bool,
+    pub ls: super::LsConfig,
 
     pub cpu: CpuClk,
     pub sys: SysClk,
+    pub per: Persel,
 
     pub pll1: Option<Pll>,
     pub pll2: Option<Pll>,
@@ -160,6 +168,7 @@ pub struct Config {
     pub apb5: ApbPrescaler,
 
     pub supply_config: SupplyConfig,
+    pub voltage_scale: VoltageScale,
 
     /// VddIO2 voltage range (Ports O/P, XSPI1)
     /// true = 1.8V, false = 3.3V (default)
@@ -181,11 +190,11 @@ impl Config {
             }),
             hse: None,
             msi: None,
-            lsi: true,
-            lse: false,
+            ls: crate::rcc::LsConfig::new(),
 
             cpu: CpuClk::Hsi,
             sys: SysClk::Hsi,
+            per: Persel::Hsi,
 
             pll1: Some(Pll::Bypass { source: Pllsel::Hsi }),
             pll2: Some(Pll::Bypass { source: Pllsel::Hsi }),
@@ -220,6 +229,7 @@ impl Config {
             apb5: ApbPrescaler::Div1,
 
             supply_config: SupplyConfig::Smps,
+            voltage_scale: VoltageScale::Scale0,
 
             vddio2_1v8: false, // Default to 3.3V
             vddio3_1v8: false, // Default to 3.3V
@@ -233,6 +243,7 @@ impl Config {
 struct ClocksOutput {
     cpuclk: Hertz,
     sysclk: Hertz,
+    perclk: Hertz,
     pclk_tim: Hertz,
     ahb: Hertz,
     apb1: Hertz,
@@ -409,6 +420,17 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         SysClk::Ic2 => unwrap!(input.ic2),
     };
 
+    let perclk = match config.per {
+        Persel::Hsi => unwrap!(input.hsi),
+        Persel::Msi => unwrap!(input.msi),
+        Persel::Hse => unwrap!(input.hse),
+        Persel::Ic19 => unwrap!(input.ic19),
+        Persel::Ic5 => unwrap!(input.ic5),
+        Persel::Ic10 => unwrap!(input.ic10),
+        Persel::Ic15 => unwrap!(input.ic15),
+        Persel::Ic20 => unwrap!(input.ic20),
+    };
+
     let timpre: u32 = match RCC.cfgr2().read().timpre() {
         Timpre::Div1 => 1,
         Timpre::Div2 => 2,
@@ -433,6 +455,7 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
     ClocksOutput {
         cpuclk,
         sysclk,
+        perclk,
         pclk_tim: sysclk / timpre,
         ahb: Hertz(sysclk.0 / hpre as u32),
         apb1: sysclk / hpre / ppre1,
@@ -652,8 +675,8 @@ impl Default for Config {
     }
 }
 
-fn power_supply_config(supply_config: SupplyConfig) {
-    // power supply config
+fn power_supply_config(supply_config: SupplyConfig, voltage_scale: VoltageScale) {
+    // Power supply config
     PWR.cr1().modify(|w| {
         w.set_sden(match supply_config {
             SupplyConfig::External => false,
@@ -663,6 +686,17 @@ fn power_supply_config(supply_config: SupplyConfig) {
 
     // Validate supply configuration
     while !PWR.voscr().read().actvosrdy() {}
+
+    // Voltage scale setting
+    PWR.voscr().modify(|w| {
+        w.set_vos(match voltage_scale {
+            VoltageScale::Scale0 => Vos::B0x1,
+            VoltageScale::Scale1 => Vos::B0x0,
+        });
+    });
+
+    // Validate voltage scale configuration
+    while !PWR.voscr().read().vosrdy() {}
 }
 
 struct PllInput {
@@ -837,9 +871,11 @@ struct OscOutput {
     /// HSI block, equal to `hsi_ck / HSIDIV`. Present whenever HSI is on.
     hsi_div: Option<Hertz>,
     hse: Option<Hertz>,
+    hse_rtc: Option<Hertz>,
     msi: Option<Hertz>,
     lsi: Option<Hertz>,
     lse: Option<Hertz>,
+    rtc: Option<Hertz>,
     pll1: Option<Hertz>,
     pll2: Option<Hertz>,
     pll3: Option<Hertz>,
@@ -914,6 +950,8 @@ fn init_osc(config: Config) -> OscOutput {
 
         None
     };
+    // hse rtc configuration
+    let hse_rtc = hse.map(|freq| freq / (RCC.ccipr7().read().rtcpre().to_bits() + 1));
 
     // hsi configuration
     //
@@ -987,29 +1025,14 @@ fn init_osc(config: Config) -> OscOutput {
         None
     };
 
-    // lsi configuration
-    debug!("configuring LSI");
-    let lsi = if config.lsi {
-        RCC.csr().write(|w| w.set_lsions(true));
-        while !RCC.sr().read().lsirdy() {}
-        Some(super::LSI_FREQ)
-    } else {
-        RCC.ccr().write(|w| w.set_lsionc(true));
-        while RCC.sr().read().lsirdy() {}
-        None
-    };
-
+    // rtc configuration
+    let rtc = config.ls.init();
     // lse configuration
     debug!("configuring LSE");
-    let lse = if config.lse {
-        RCC.csr().write(|w| w.set_lseons(true));
-        while !RCC.sr().read().lserdy() {}
-        Some(LSE_FREQ)
-    } else {
-        RCC.ccr().write(|w| w.set_lseonc(true));
-        while RCC.sr().read().lserdy() {}
-        None
-    };
+    let lse = config.ls.lse.map(|l| l.frequency);
+    // lsi configuration
+    debug!("configuring LSI");
+    let lsi = config.ls.lsi.then_some(LSI_FREQ);
 
     let pll_input = PllInput {
         hse,
@@ -1093,9 +1116,11 @@ fn init_osc(config: Config) -> OscOutput {
         hsi,
         hsi_div,
         hse,
+        hse_rtc,
         msi,
         lsi,
         lse,
+        rtc,
         pll1: pll_outputs[0].output,
         pll2: pll_outputs[1].output,
         pll3: pll_outputs[2].output,
@@ -1222,7 +1247,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     debug!("setting power supply config");
 
-    power_supply_config(config.supply_config);
+    power_supply_config(config.supply_config, config.voltage_scale);
 
     // VddIO power domain configuration per STM32N6 errata ES0620
     // This must be done early in boot - set SV bits and wait for RDY
@@ -1358,7 +1383,9 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: clock_inputs.hsi,
         hsi_div: clock_inputs.hsi_div,
         hse: clock_inputs.hse,
+        hse_rtc: osc.hse_rtc,
         msi: clock_inputs.msi,
+        lsi: osc.lsi,
         lse: None,
         hclk1: Some(clocks.ahb),
         hclk2: Some(clocks.ahb),
@@ -1376,8 +1403,8 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim: Some(clocks.pclk_tim),
         pclk4: Some(clocks.apb4),
         pclk5: Some(clocks.apb5),
-        per: None,
-        rtc: None,
+        per: Some(clocks.perclk),
+        rtc: osc.rtc,
         i2s_ckin: None,
         ic1: clock_inputs.ic1,
         ic2: clock_inputs.ic2,
@@ -1400,81 +1427,6 @@ pub(crate) unsafe fn init(config: Config) {
         ic19: clock_inputs.ic19,
         ic20: clock_inputs.ic20,
     );
-}
-
-// ===== RIFSC AXI-master promotion =====
-//
-// Without this, transactions from these masters hit RISAF with
-// `MCID=0, MSEC=0, MPRIV=0` and read back as zero (silent — no fault, no
-// log). Each helper writes `RIMC_ATTR[M] = {MCID=1, MSEC=1, MPRIV=1}` plus
-// the matching secure-guard RISUP entry per RM0486 §6.3.4 Table 22.
-//
-// Call these after [`embassy_stm32::init`] returns and after enabling any
-// SRAM clocks the masters will access. Doing the writes from inside
-// `init()` was observed to corrupt the LTDC framebuffer path, so it's
-// always an explicit step.
-//
-// HPDMA1/GPDMA1 are RIF-aware and configured via their own per-channel
-// SECCFGR/PRIVCFGR — they don't appear here.
-
-fn promote_master(master: usize, group: usize, bit: usize) {
-    RIFSC.risc_seccfgr(group).modify(|w| w.set_cfg(bit, true));
-    RIFSC.risc_privcfgr(group).modify(|w| w.set_cfg(bit, true));
-    RIFSC.rimc_attr(master).modify(|w| {
-        w.set_mcid(1);
-        w.set_msec(true);
-        w.set_mpriv(true);
-    });
-}
-
-/// Convenience wrapper: promote both DMA2D and LTDC (the LCD framebuffer path).
-/// Equivalent to calling [`promote_dma2d`] + [`promote_ltdc`].
-pub fn promote_axi_masters_to_secure() {
-    promote_dma2d();
-    promote_ltdc();
-}
-
-/// Promote SDMMC1 IDMA (M=2, RISUP=53).
-pub fn promote_sdmmc1() {
-    promote_master(2, 1, 21);
-}
-
-/// Promote SDMMC2 IDMA (M=3, RISUP=54).
-pub fn promote_sdmmc2() {
-    promote_master(3, 1, 22);
-}
-
-/// Promote OTG1 USB host/device controller (M=4, RISUP=56).
-pub fn promote_otg1() {
-    promote_master(4, 1, 24);
-}
-
-/// Promote OTG2 USB host/device controller (M=5, RISUP=57).
-pub fn promote_otg2() {
-    promote_master(5, 1, 25);
-}
-
-/// Promote the Ethernet GMAC (M=6, RISUP=60).
-pub fn promote_eth1() {
-    promote_master(6, 1, 28);
-}
-
-/// Promote DMA2D Chrom-ART (M=8, RISUP=101).
-pub fn promote_dma2d() {
-    promote_master(8, 3, 5);
-}
-
-/// Promote DCMIPP camera pipeline (M=9, RISUP=93).
-pub fn promote_dcmipp() {
-    promote_master(9, 2, 29);
-}
-
-/// Promote both LTDC layers (M=10/11, RISUP=103/104). The embassy LTDC driver
-/// always uses both layers from the same peripheral instance, so they're
-/// promoted together.
-pub fn promote_ltdc() {
-    promote_master(10, 3, 7);
-    promote_master(11, 3, 8);
 }
 
 // ===== HPDMA1 / GPDMA1 per-channel security =====

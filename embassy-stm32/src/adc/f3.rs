@@ -15,7 +15,7 @@ pub const VREF_INT: u32 = 1230;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -62,20 +62,18 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, disable: bool) {
+    fn stop(&self) {
+        // F3 RM requires ADEN=0 before reconfiguring most registers; always do
+        // ADSTP then ADDIS so callers can safely write config after stop().
         self.cr().modify(|w| w.set_adstp(true));
-
         while self.cr().read().adstp() {}
-
         self.cr().modify(|w| w.set_addis(true));
-
         while self.cr().read().aden() {}
+    }
 
-        // Disable the adc regulator
-        if disable {
-            self.cr().modify(|w| w.set_advregen(Advregen::Intermediate));
-            self.cr().modify(|w| w.set_advregen(Advregen::Disabled));
-        }
+    fn power_down(&self) {
+        self.cr().modify(|w| w.set_advregen(Advregen::Intermediate));
+        self.cr().modify(|w| w.set_advregen(Advregen::Disabled));
     }
 
     fn wait_done(&self) -> bool {

@@ -3,7 +3,9 @@
 use core::convert::Infallible;
 
 use embedded_io_async::{ErrorType, Read, Write};
+use fixed::FixedU32;
 use fixed::traits::ToFixed;
+use fixed::types::extra::U8;
 
 use crate::Peri;
 use crate::clocks::clk_sys_freq;
@@ -76,6 +78,16 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
     /// Write a single u8
     pub async fn write_u8(&mut self, data: u8) {
         self.sm_tx.tx().wait_push(data as u32).await;
+    }
+
+    /// Change baud rate on run time  
+    pub fn set_baudrate(&mut self, baud: u32) {
+        let clock_divider: FixedU32<U8> = (clk_sys_freq() / (8 * baud)).to_fixed();
+        self.sm_tx.set_enable(false);
+        self.sm_tx.clear_fifos();
+        self.sm_tx.restart();
+        self.sm_tx.set_clock_divider(clock_divider);
+        self.sm_tx.set_enable(true);
     }
 }
 
@@ -171,6 +183,16 @@ impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
     /// Wait for a single u8
     pub async fn read_u8(&mut self) -> u8 {
         self.sm_rx.rx().wait_pull().await as u8
+    }
+
+    /// Change Baud rate on runtime
+    pub fn set_baudrate(&mut self, baud: u32) {
+        let clock_divider: FixedU32<U8> = (clk_sys_freq() / (8 * baud)).to_fixed();
+        self.sm_rx.set_enable(false);
+        self.sm_rx.clear_fifos();
+        self.sm_rx.restart();
+        self.sm_rx.set_clock_divider(clock_divider);
+        self.sm_rx.set_enable(true);
     }
 }
 

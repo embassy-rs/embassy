@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - Add `write_all` as a method to `pipe::Writer`, trait import not strictly necessary anymore.
+- `AtomicWaker` is now lockless: `register()` and `wake()` no longer enter a critical section,
+  using a small atomic state machine (ported from `futures::task::AtomicWaker`).
+- `AtomicWaker`: document that callers must re-register the waker on every `poll()`.  The new
+  implementation may consume the stored waker as part of resolving a `register`/`wake` race
+  (the consumed waker is always woken, never dropped), so a caller that relied on a one-shot
+  registration surviving multiple polls without re-registering will need to re-register. This
+  matches the `Future::poll` contract ("on multiple calls to poll, only the `Waker` from the
+  most recent `Context` should be scheduled to receive a wakeup") and the pattern used by every
+  in-tree waker site, so no in-tree caller is affected; out-of-tree callers that worked by
+  accident on the previous lock-based implementation may need to adjust.
+- Added `CriticalSectionWaker`, a non-generic convenience wrapper around
+  `GenericAtomicWaker<CriticalSectionRawMutex>` for callers that want the previous
+  critical-section-based semantics without spelling out the mutex parameter.
 - Added `Pipe::try_write_all` method which repeatedly calls `Pipe::try_write` until all
   bytes were written.
 - Implement `core::error::Error` for `channel::TryReceiveError` and `channel::TrySendError`.

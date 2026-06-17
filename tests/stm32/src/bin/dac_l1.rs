@@ -11,7 +11,7 @@ use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
-use embassy_stm32::dac::{DacChannel, Value};
+use embassy_stm32::dac::DacChannel;
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use micromath::F32Ext;
@@ -48,7 +48,7 @@ async fn main(_spawner: Spawner) {
     ))]
     let normalization_factor: i32 = 16;
 
-    dac.set(Value::Bit8(0));
+    dac.set(0);
     // Now wait a little to obtain a stable value
     Timer::after_millis(30).await;
     let offset = adc.irq_read(&mut adc_pin, SampleTime::from_bits(0)).await;
@@ -56,7 +56,7 @@ async fn main(_spawner: Spawner) {
     for v in 0..=255 {
         // First set the DAC output value
         let dac_output_val = to_sine_wave(v);
-        dac.set(Value::Bit8(dac_output_val));
+        dac.set(dac_output_val);
 
         // Now wait a little to obtain a stable value
         Timer::after_millis(30).await;

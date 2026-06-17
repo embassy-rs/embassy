@@ -4,3 +4,5 @@ pub mod ble;
 pub mod mac;
 pub mod mm;
 pub mod sys;
+#[cfg(feature = "wb-thread")]
+pub mod thread;

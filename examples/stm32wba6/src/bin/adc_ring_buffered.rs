@@ -23,9 +23,6 @@ use defmt::*;
 use embassy_stm32::adc::adc4::Calibration;
 use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, adc4};
 use embassy_stm32::peripherals::GPDMA1_CH1;
-use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
-};
 use embassy_stm32::{Config, bind_interrupts, dma};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -41,25 +38,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
     // Configure RCC with PLL1 - required for ADC4 clock
-    let mut config = Config::default();
-    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::Hsi,
-        prediv: PllPreDiv::Div1,  // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::Mul30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::Div5), // PLLR = 5 → 96 MHz (Sysclk)
-        divq: None,
-        divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (ADC4 clock source)
-        frac: Some(0),
-    });
-
-    config.rcc.ahb_pre = AHBPrescaler::Div1;
-    config.rcc.apb1_pre = APBPrescaler::Div1;
-    config.rcc.apb2_pre = APBPrescaler::Div1;
-    config.rcc.apb7_pre = APBPrescaler::Div1;
-    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
-    config.rcc.voltage_scale = VoltageScale::Range1;
-    config.rcc.sys = Sysclk::Pll1R;
-
+    let config = Config::default();
     let p = embassy_stm32::init(config);
 
     info!("STM32WBA6 ADC4 Ring Buffered Example - Circular DMA with Calibrated Temperature");
@@ -87,11 +66,6 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Degrade to AnyAdcChannel for use with DMA
     // IMPORTANT: Order matters for ADC4 - must be ascending channel numbers
     // VrefInt: Channel 0, VCORE: Channel 12, Temperature: Channel 13
-
-    let vrefint_ch = vrefint.degrade_adc();
-    let vcore_ch = vcore.degrade_adc();
-    let temp_ch = temperature.degrade_adc();
-
     info!("Internal channels enabled, setting up ring buffer...");
 
     // Create DMA buffer - must be static for ring-buffered operation
@@ -105,9 +79,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
         unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) },
         Irqs,
         [
-            (vrefint_ch, adc4::SampleTime::Cycles795), // Channel 0 - VREFINT
-            (vcore_ch, adc4::SampleTime::Cycles795),   // Channel 12 - VCORE
-            (temp_ch, adc4::SampleTime::Cycles795),    // Channel 13 - Temperature
+            (vrefint.reborrow_adc(), adc4::SampleTime::Cycles795), // Channel 0 - VREFINT
+            (vcore.reborrow_adc(), adc4::SampleTime::Cycles795),   // Channel 12 - VCORE
+            (temperature.reborrow_adc(), adc4::SampleTime::Cycles795), // Channel 13 - Temperature
         ]
         .into_iter(),
         None,

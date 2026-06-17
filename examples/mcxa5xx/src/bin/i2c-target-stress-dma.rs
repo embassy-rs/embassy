@@ -50,16 +50,8 @@ async fn main(_spawner: Spawner) {
     let mut t_cfg = target::Config::default();
     t_cfg.address = target::Address::Single(ADDR);
 
-    let mut tgt = target::I2c::new_async_with_dma(
-        p.LPI2C3,
-        p.P3_21,
-        p.P3_20,
-        p.DMA0_CH0,
-        p.DMA0_CH1,
-        Irqs,
-        t_cfg,
-    )
-    .unwrap();
+    let mut tgt =
+        target::I2c::new_async_with_dma(p.LPI2C3, p.P3_21, p.P3_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, t_cfg).unwrap();
 
     let mut regs = [0u8; REG_LEN];
     for (i, b) in regs.iter_mut().enumerate() {
@@ -90,7 +82,13 @@ async fn main(_spawner: Spawner) {
 
         match req {
             target::Request::Write(_) => match tgt.async_respond_to_write(&mut wbuf).await {
-                Ok(n) => {
+                Ok(status) => {
+                    let n = match status {
+                        target::WriteStatus::Stopped(n)
+                        | target::WriteStatus::Restarted(n)
+                        | target::WriteStatus::BufferFull(n) => n,
+                        _ => 0,
+                    };
                     n_w = n_w.wrapping_add(1);
                     bytes_w = bytes_w.wrapping_add(n as u64);
                     if n >= 1 {
@@ -112,7 +110,13 @@ async fn main(_spawner: Spawner) {
                     rbuf[k] = regs[off];
                 }
                 match tgt.async_respond_to_read(&rbuf).await {
-                    Ok(n) => {
+                    Ok(status) => {
+                        let n = match status {
+                            target::ReadStatus::Complete(n)
+                            | target::ReadStatus::NeedMore(n)
+                            | target::ReadStatus::EarlyStop(n) => n,
+                            _ => 0,
+                        };
                         n_r = n_r.wrapping_add(1);
                         bytes_r = bytes_r.wrapping_add(n as u64);
                     }

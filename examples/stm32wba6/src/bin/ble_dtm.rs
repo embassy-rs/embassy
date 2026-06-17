@@ -50,12 +50,6 @@ bind_interrupts!(struct Irqs {
     HASH => LowInterruptHandler;
 });
 
-/// RNG runner task
-#[embassy_executor::task]
-async fn rng_runner_task(platform: &'static Platform) {
-    platform.run_rng().await
-}
-
 /// BLE runner task - drives the BLE stack sequencer
 #[embassy_executor::task]
 async fn ble_runner_task(platform: &'static Platform) {
@@ -85,9 +79,6 @@ async fn main(spawner: Spawner) {
     let (platform, runtime) = new_platform!(Rng::new(p.RNG, Irqs), 8);
 
     info!("Hardware peripherals initialized (RNG, AES, PKA)");
-
-    // Spawn the RNG runner task
-    spawner.spawn(rng_runner_task(platform).expect("Failed to spawn rng runner"));
 
     // Spawn the BLE runner task (required for proper BLE operation)
     spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));

@@ -3,9 +3,6 @@
 
 use defmt::*;
 use embassy_stm32::adc::{Adc, AdcChannel, SampleTime, adc4};
-use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
-};
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -15,30 +12,10 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
-    let mut config = Config::default();
+    let config = Config::default();
     // Fine-tune PLL1 dividers/multipliers
-    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::Hsi,
-        prediv: PllPreDiv::Div1,  // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::Mul30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::Div5), // PLLR = 5 → 96 MHz (Sysclk)
-        // divq: Some(PllDiv::DIV10), // PLLQ = 10 → 48 MHz (NOT USED)
-        divq: None,
-        divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (USBOTG)
-        frac: Some(0),             // Fractional part (enabled)
-    });
-
-    config.rcc.ahb_pre = AHBPrescaler::Div1;
-    config.rcc.apb1_pre = APBPrescaler::Div1;
-    config.rcc.apb2_pre = APBPrescaler::Div1;
-    config.rcc.apb7_pre = APBPrescaler::Div1;
-    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
-
     // voltage scale for max performance
-    config.rcc.voltage_scale = VoltageScale::Range1;
     // route PLL1_P into the USB‐OTG‐HS block
-    config.rcc.sys = Sysclk::Pll1R;
-
     let mut p = embassy_stm32::init(config);
 
     // **** ADC4 init ****
@@ -59,8 +36,6 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("Read adc4 pin 2 {}", volt);
 
     // **** ADC4 async read ****
-    let mut degraded41 = adc4_pin1.degrade_adc();
-    let mut degraded42 = adc4_pin2.degrade_adc();
     let mut measurements = [0u16; 2];
 
     // The channels must be in ascending order and can't repeat for ADC4
@@ -68,8 +43,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
         p.GPDMA1_CH1.reborrow(),
         Irqs,
         [
-            (&mut degraded42, SampleTime::Cycles125),
-            (&mut degraded41, SampleTime::Cycles125),
+            (adc4_pin2.reborrow_adc(), SampleTime::Cycles125),
+            (adc4_pin1.reborrow_adc(), SampleTime::Cycles125),
         ]
         .into_iter(),
         None,
