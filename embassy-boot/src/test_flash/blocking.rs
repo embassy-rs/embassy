@@ -32,21 +32,21 @@ where
         }
     }
 
-    pub fn active(&self) -> BlockingPartition<NoopRawMutex, ACTIVE> {
+    pub fn active(&self) -> BlockingPartition<'_, NoopRawMutex, ACTIVE> {
         Self::create_partition(&self.active)
     }
 
-    pub fn dfu(&self) -> BlockingPartition<NoopRawMutex, DFU> {
+    pub fn dfu(&self) -> BlockingPartition<'_, NoopRawMutex, DFU> {
         Self::create_partition(&self.dfu)
     }
 
-    pub fn state(&self) -> BlockingPartition<NoopRawMutex, STATE> {
+    pub fn state(&self) -> BlockingPartition<'_, NoopRawMutex, STATE> {
         Self::create_partition(&self.state)
     }
 
     pub fn create_partition<T: NorFlash>(
         mutex: &Mutex<NoopRawMutex, RefCell<T>>,
-    ) -> BlockingPartition<NoopRawMutex, T> {
+    ) -> BlockingPartition<'_, NoopRawMutex, T> {
         BlockingPartition::new(mutex, 0, mutex.lock(|f| f.borrow().capacity()) as u32)
     }
 }
