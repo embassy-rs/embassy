@@ -349,8 +349,12 @@ pub struct A;
 /// Flexspi port B
 pub struct B;
 
+pub(crate) trait SealedPort {}
+impl SealedPort for A {}
+impl SealedPort for B {}
 /// Marker trait indicating a type is a port
-pub trait Port {}
+#[allow(private_bounds)]
+pub trait Port: SealedPort {}
 impl Port for A {}
 impl Port for B {}
 
