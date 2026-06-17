@@ -7,7 +7,6 @@ publish = false
 
 [dependencies]
 # Configured for NUCLEO-C092RC. For other C0 chips change stm32c092rc accordingly.
-# Note: C092RC lacks PC13; examples using that pin (button, button_exti) need a pin update.
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "time-driver-any", "stm32c092rc", "memory-x", "unstable-pac", "exti", "chrono"]  }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
