@@ -256,11 +256,9 @@ pin_trait!(BreakInputPin, AdvancedInstance4Channel, BreakInput, @A);
 pin_trait!(BreakInputComparator1Pin, AdvancedInstance4Channel, BreakInput, @A);
 pin_trait!(BreakInputComparator2Pin, AdvancedInstance4Channel, BreakInput, @A);
 
-#[cfg(not(stm32c5))]
 // Update Event trigger DMA for every timer
 dma_trait!(UpDma, BasicInstance);
 
-#[cfg(not(stm32c5))]
 dma_trait!(Dma, GeneralInstance4Channel, TimerChannel);
 
 #[allow(unused)]
