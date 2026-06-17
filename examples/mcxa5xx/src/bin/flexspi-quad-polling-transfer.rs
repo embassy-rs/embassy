@@ -2,13 +2,11 @@
 #![no_main]
 
 use defmt::{assert, assert_eq, info, panic, unwrap};
-use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_mcxa as hal;
 use embassy_time::Timer;
 use hal::config::Config;
 use hal::flexspi::{ClockConfig as FlexspiClockConfig, Flexspi, NorFlash};
-use panic_probe as _;
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[path = "../flexspi_common.rs"]
 mod flexspi_common;

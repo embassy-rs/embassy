@@ -157,6 +157,5 @@ async fn main(_spawner: Spawner) {
                 n_err
             );
         }
-
     }
 }

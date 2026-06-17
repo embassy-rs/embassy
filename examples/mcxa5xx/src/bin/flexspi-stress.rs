@@ -79,14 +79,12 @@
 #![no_main]
 
 use defmt::{error, info, unwrap};
-use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_mcxa as hal;
 use embassy_mcxa::flexspi::{Async, Blocking, Flexspi};
 use embassy_mcxa::{Peripherals, bind_interrupts, peripherals};
 use hal::config::Config;
 use hal::flexspi::{self, ClockConfig as FlexspiClockConfig, IoError, NorFlash};
-use panic_probe as _;
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[path = "../flexspi_common.rs"]
 mod flexspi_common;
