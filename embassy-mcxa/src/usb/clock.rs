@@ -53,7 +53,9 @@ fn phy_w(off: usize, v: u32) {
 
 /// PHY trim parameters for the high-speed transmit drivers. Taken from the
 /// FRDM-MCXA577 board support (`BOARD_USB_PHY_*`).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub struct PhyConfig {
     /// `D_CAL` trim value.
     pub d_cal: u32,
@@ -67,7 +69,13 @@ pub struct PhyConfig {
 
 impl Default for PhyConfig {
     fn default() -> Self {
-        // FRDM-MCXA577 board defaults; 24 MHz crystal reference.
+        Self::frdm_mcxa577()
+    }
+}
+
+impl PhyConfig {
+    /// FRDM-MCXA577 board defaults, using the 24 MHz crystal reference.
+    pub const fn frdm_mcxa577() -> Self {
         Self {
             d_cal: 0x04,
             txcal45dp: 0x07,

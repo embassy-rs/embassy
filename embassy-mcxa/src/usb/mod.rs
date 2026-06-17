@@ -21,6 +21,7 @@
 mod clock;
 mod registers;
 
+use core::cell::UnsafeCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
@@ -40,6 +41,34 @@ use crate::interrupt::typelevel::{Binding, Interrupt};
 
 use registers::*;
 
+/// USBHS device-driver configuration.
+///
+/// The controller is currently always placed in device mode and forced to
+/// full-speed operation. The configuration carries board-specific PHY trim and
+/// PLL settings so applications can use the FRDM-MCXA577 defaults or provide
+/// calibrated values from their board support package.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct Config {
+    /// USBPHY trim and PLL settings.
+    pub phy: PhyConfig,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            phy: PhyConfig::default(),
+        }
+    }
+}
+
+impl From<PhyConfig> for Config {
+    fn from(phy: PhyConfig) -> Self {
+        Self { phy }
+    }
+}
+
 /// Number of bidirectional endpoint pairs supported (EP0..EP{N-1}).
 ///
 /// The MCXA577 USBHS controller exposes eight bidirectional endpoint pairs.
@@ -47,6 +76,31 @@ const EP_COUNT: usize = 8;
 
 /// Maximum packet size for a full-speed endpoint.
 const FS_MAX_PACKET: u16 = 64;
+const ENDPOINT_TYPE_UNALLOCATED: u8 = 0xFF;
+
+/// Static DMA memory cell.
+///
+/// The USBHS controller reads and writes these objects directly. This wrapper
+/// keeps the global mutability localized and makes all access sites spell out
+/// their raw-pointer safety instead of exposing `static mut` items throughout
+/// the driver.
+struct DmaCell<T>(UnsafeCell<T>);
+
+impl<T> DmaCell<T> {
+    const fn new(value: T) -> Self {
+        Self(UnsafeCell::new(value))
+    }
+
+    #[inline]
+    fn as_ptr(&self) -> *mut T {
+        self.0.get()
+    }
+}
+
+// SAFETY: USB driver ownership plus per-endpoint transfer ownership serialize
+// mutable access. The controller may access the memory concurrently as DMA, so
+// all synchronization with hardware is done with explicit barriers.
+unsafe impl<T> Sync for DmaCell<T> {}
 
 // ---- DMA-visible controller structures (statically allocated) ----
 //
@@ -68,12 +122,12 @@ struct DtdList {
     dtd: [TransferDescriptor; EP_COUNT * 2],
 }
 
-static mut QH_LIST: QhList = QhList {
+static QH_LIST: DmaCell<QhList> = DmaCell::new(QhList {
     qh: [QueueHead::new(); EP_COUNT * 2],
-};
-static mut DTD_LIST: DtdList = DtdList {
+});
+static DTD_LIST: DmaCell<DtdList> = DmaCell::new(DtdList {
     dtd: [TransferDescriptor::new(); EP_COUNT * 2],
-};
+});
 
 /// Per-endpoint-direction transfer-complete wakers (index = `2*ep + dir`).
 static EP_WAKERS: [AtomicWaker; EP_COUNT * 2] = [const { AtomicWaker::new() }; EP_COUNT * 2];
@@ -89,26 +143,75 @@ static FLAG_SETUP: AtomicBool = AtomicBool::new(false);
 /// Per-endpoint-direction configuration captured at allocation time and applied
 /// by [`Bus::endpoint_set_enabled`] (index = `2*ep + dir`).
 static EP_MAX_PACKET: [AtomicU16; EP_COUNT * 2] = [const { AtomicU16::new(0) }; EP_COUNT * 2];
-static EP_TYPE: [AtomicU8; EP_COUNT * 2] = [const { AtomicU8::new(0) }; EP_COUNT * 2];
+static EP_TYPE: [AtomicU8; EP_COUNT * 2] = [const { AtomicU8::new(ENDPOINT_TYPE_UNALLOCATED) }; EP_COUNT * 2];
 
-#[inline]
-fn waker_index(addr: EndpointAddress) -> usize {
-    let dir = if addr.is_in() { 1 } else { 0 };
-    addr.index() * 2 + dir
+#[derive(Clone, Copy)]
+struct EndpointSlot {
+    index: usize,
+    dir: Direction,
 }
 
-#[inline]
-fn qh_index(index: usize, dir: Direction) -> usize {
-    let d = if dir == Direction::In { 1 } else { 0 };
-    index * 2 + d
-}
-
-#[inline]
-fn endpoint_bit(index: usize, dir: Direction) -> u32 {
-    match dir {
-        Direction::Out => 1 << index,
-        Direction::In => 1 << (index + 16),
+impl EndpointSlot {
+    #[inline]
+    fn new(index: usize, dir: Direction) -> Self {
+        Self { index, dir }
     }
+
+    #[inline]
+    fn from_addr(addr: EndpointAddress) -> Self {
+        let dir = if addr.is_in() { Direction::In } else { Direction::Out };
+        Self::new(addr.index(), dir)
+    }
+
+    #[inline]
+    fn array_index(self) -> usize {
+        let dir = match self.dir {
+            Direction::Out => 0,
+            Direction::In => 1,
+        };
+        self.index * 2 + dir
+    }
+
+    #[inline]
+    fn endpoint_bit(self) -> u32 {
+        match self.dir {
+            Direction::Out => 1 << self.index,
+            Direction::In => 1 << (self.index + 16),
+        }
+    }
+
+    #[inline]
+    fn is_enabled(self, r: UsbHs) -> bool {
+        let v = r.endptctrl(self.index);
+        match self.dir {
+            Direction::Out => v & EPCTRL_RXE != 0,
+            Direction::In => v & EPCTRL_TXE != 0,
+        }
+    }
+
+    #[inline]
+    fn waker(self) -> &'static AtomicWaker {
+        &EP_WAKERS[self.array_index()]
+    }
+}
+
+#[inline]
+fn qh_ptr() -> *mut [QueueHead; EP_COUNT * 2] {
+    // SAFETY: only constructs a raw pointer to DMA-owned static memory.
+    unsafe { core::ptr::addr_of_mut!((*QH_LIST.as_ptr()).qh) }
+}
+
+#[inline]
+fn dtd_ptr() -> *mut [TransferDescriptor; EP_COUNT * 2] {
+    // SAFETY: only constructs a raw pointer to DMA-owned static memory.
+    unsafe { core::ptr::addr_of_mut!((*DTD_LIST.as_ptr()).dtd) }
+}
+
+#[inline]
+fn ep_buffer_ptr(slot: EndpointSlot) -> *mut u8 {
+    // SAFETY: only constructs a raw pointer to the endpoint's dedicated bounce
+    // buffer. The endpoint future owns that slot while the transfer is active.
+    unsafe { core::ptr::addr_of_mut!((*EP_BUFFERS.as_ptr()).buf[slot.array_index()]) as *mut u8 }
 }
 
 /// Controller handle.
@@ -121,6 +224,22 @@ fn regs() -> UsbHs {
 #[inline]
 fn control_setup_pending() -> bool {
     FLAG_SETUP.load(Ordering::Relaxed) || regs().endptsetupstat() & 1 != 0
+}
+
+#[inline]
+fn dma_write_barrier() {
+    // The SDK either places USB data in non-cacheable memory or performs cache
+    // maintenance around transfers. MCXA577's current Embassy memory map does
+    // not enable a data cache for these buffers, so a memory barrier is enough
+    // to order descriptor/buffer writes before the controller fetches them.
+    asm::dsb();
+}
+
+#[inline]
+fn dma_read_barrier() {
+    // Order CPU reads after controller DMA writes. If this driver is ported to
+    // a cacheable memory region, cache invalidation belongs next to this call.
+    asm::dsb();
 }
 
 // =========================================================================
@@ -167,12 +286,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 r.clear_endptcomplete(complete);
             }
             for ep in 0..EP_COUNT {
-                // OUT (RX) bit `ep`, IN (TX) bit `ep+16`.
-                if setup & (1 << ep) != 0 || complete & (1 << ep) != 0 {
-                    EP_WAKERS[ep * 2].wake();
+                let out = EndpointSlot::new(ep, Direction::Out);
+                let in_ = EndpointSlot::new(ep, Direction::In);
+                if setup & (1 << ep) != 0 || complete & out.endpoint_bit() != 0 {
+                    out.waker().wake();
                 }
-                if complete & (1 << (ep + 16)) != 0 {
-                    EP_WAKERS[ep * 2 + 1].wake();
+                if complete & in_.endpoint_bit() != 0 {
+                    in_.waker().wake();
                 }
             }
         }
@@ -200,6 +320,55 @@ impl Instance for crate::peripherals::USB1 {
     type Interrupt = crate::interrupt::typelevel::USB1_HS;
 }
 
+/// Marker for OUT endpoints.
+pub enum Out {}
+/// Marker for IN endpoints.
+pub enum In {}
+
+trait EndpointDir {
+    const DIR: Direction;
+}
+
+impl EndpointDir for Out {
+    const DIR: Direction = Direction::Out;
+}
+
+impl EndpointDir for In {
+    const DIR: Direction = Direction::In;
+}
+
+#[derive(Clone, Copy)]
+struct EndpointConfig {
+    ep_type: EndpointType,
+    max_packet_size: u16,
+}
+
+impl EndpointConfig {
+    #[inline]
+    fn store(self, slot: EndpointSlot) {
+        let i = slot.array_index();
+        EP_MAX_PACKET[i].store(self.max_packet_size, Ordering::Relaxed);
+        EP_TYPE[i].store(self.ep_type as u8, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn load(slot: EndpointSlot) -> Option<Self> {
+        let i = slot.array_index();
+        let ep_type = match EP_TYPE[i].load(Ordering::Relaxed) {
+            0 => EndpointType::Control,
+            1 => EndpointType::Isochronous,
+            2 => EndpointType::Bulk,
+            3 => EndpointType::Interrupt,
+            _ => return None,
+        };
+        let max_packet_size = EP_MAX_PACKET[i].load(Ordering::Relaxed);
+        (max_packet_size != 0).then_some(Self {
+            ep_type,
+            max_packet_size,
+        })
+    }
+}
+
 // =========================================================================
 // Driver
 // =========================================================================
@@ -220,11 +389,12 @@ impl<'d, T: Instance> Driver<'d, T> {
     pub fn new(
         _usb: Peri<'d, T>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
-        phy_config: PhyConfig,
+        config: impl Into<Config>,
     ) -> Self {
+        let config = config.into();
         // SAFETY: we own the USB peripheral and bring up its clocks/PHY once.
         unsafe {
-            clock::init_clocks_and_phy(&phy_config);
+            clock::init_clocks_and_phy(&config.phy);
         }
         reset_controller();
 
@@ -236,20 +406,24 @@ impl<'d, T: Instance> Driver<'d, T> {
         }
     }
 
-    fn alloc_endpoint<D>(
+    fn alloc_endpoint<D: EndpointDir>(
         &mut self,
         ep_type: EndpointType,
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
-        is_in: bool,
     ) -> Result<Endpoint<D>, EndpointAllocError> {
+        if ep_type == EndpointType::Control || max_packet_size == 0 || max_packet_size > FS_MAX_PACKET {
+            return Err(EndpointAllocError);
+        }
+
+        let is_in = D::DIR == Direction::In;
         let alloc = if is_in { &mut self.alloc_in } else { &mut self.alloc_out };
 
         let index = match ep_addr {
             Some(addr) => {
                 let i = addr.index();
-                if i >= EP_COUNT || (*alloc & (1 << i)) != 0 {
+                if addr.is_in() != is_in || i == 0 || i >= EP_COUNT || (*alloc & (1 << i)) != 0 {
                     return Err(EndpointAllocError);
                 }
                 i
@@ -269,22 +443,20 @@ impl<'d, T: Instance> Driver<'d, T> {
 
         *alloc |= 1 << index;
 
-        let dir = if is_in { Direction::In } else { Direction::Out };
-        let addr = EndpointAddress::from_parts(index, dir);
-        let mps = max_packet_size.min(FS_MAX_PACKET);
-
-        // Record the configuration so the bus can program the queue head and
-        // endpoint control register when the endpoint is enabled.
-        let wi = waker_index(addr);
-        EP_MAX_PACKET[wi].store(mps, Ordering::Relaxed);
-        EP_TYPE[wi].store(ep_type as u8, Ordering::Relaxed);
+        let addr = EndpointAddress::from_parts(index, D::DIR);
+        let slot = EndpointSlot::from_addr(addr);
+        EndpointConfig {
+            ep_type,
+            max_packet_size,
+        }
+        .store(slot);
 
         Ok(Endpoint {
             _phantom: PhantomData,
             info: EndpointInfo {
                 addr,
                 ep_type,
-                max_packet_size: mps,
+                max_packet_size,
                 interval_ms,
             },
         })
@@ -304,7 +476,7 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms, false)
+        self.alloc_endpoint::<Out>(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_in(
@@ -314,7 +486,7 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms, true)
+        self.alloc_endpoint::<In>(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -353,7 +525,7 @@ fn reset_controller() {
     r.modify_portsc1(|v| v | PORTSC1_PFSC);
 
     // Program the endpoint list base.
-    let qh_addr = core::ptr::addr_of!(QH_LIST) as u32;
+    let qh_addr = QH_LIST.as_ptr() as u32;
     r.set_endptlistaddr(qh_addr);
 
     // Reasonable default burst size.
@@ -368,7 +540,7 @@ fn reset_controller() {
 fn init_control_qh(mps: u16) {
     // SAFETY: exclusive access during start-up; QH list is owned by the driver.
     unsafe {
-        let qh = core::ptr::addr_of_mut!(QH_LIST.qh);
+        let qh = qh_ptr();
         // OUT QH[0]: interrupt-on-setup so SETUP packets notify us.
         (*qh)[0].capabilities = ((mps as u32) << QH_CAP_MAXLEN_SHIFT) | QH_CAP_IOS | QH_CAP_ZLT;
         (*qh)[0].next_dtd = DTD_NEXT_TERMINATE;
@@ -387,11 +559,6 @@ fn init_control_qh(mps: u16) {
 // Endpoint
 // =========================================================================
 
-/// Marker for OUT endpoints.
-pub enum Out {}
-/// Marker for IN endpoints.
-pub enum In {}
-
 /// A USB endpoint.
 pub struct Endpoint<D> {
     _phantom: PhantomData<D>,
@@ -402,11 +569,12 @@ pub struct Endpoint<D> {
 fn configure_endpoint(addr: EndpointAddress, ep_type: EndpointType, mps: u16) {
     let index = addr.index();
     let is_in = addr.is_in();
-    let qhi = qh_index(index, if is_in { Direction::In } else { Direction::Out });
+    let slot = EndpointSlot::from_addr(addr);
+    let qhi = slot.array_index();
 
     // SAFETY: queue-head list is owned by the driver; exclusive access here.
     unsafe {
-        let qh = core::ptr::addr_of_mut!(QH_LIST.qh);
+        let qh = qh_ptr();
         (*qh)[qhi].capabilities = ((mps as u32) << QH_CAP_MAXLEN_SHIFT) | QH_CAP_ZLT;
         (*qh)[qhi].next_dtd = DTD_NEXT_TERMINATE;
         (*qh)[qhi].token = 0;
@@ -432,17 +600,15 @@ impl<D> embassy_usb_driver::Endpoint for Endpoint<D> {
     }
 
     async fn wait_enabled(&mut self) {
-        let index = self.info.addr.index();
-        let is_in = self.info.addr.is_in();
+        let slot = EndpointSlot::from_addr(self.info.addr);
         poll_fn(|cx| {
-            EP_WAKERS[waker_index(self.info.addr)].register(cx.waker());
+            slot.waker().register(cx.waker());
             let r = regs();
-            let en = if is_in {
-                r.endptctrl(index) & EPCTRL_TXE != 0
+            if slot.is_enabled(r) {
+                Poll::Ready(())
             } else {
-                r.endptctrl(index) & EPCTRL_RXE != 0
-            };
-            if en { Poll::Ready(()) } else { Poll::Pending }
+                Poll::Pending
+            }
         })
         .await
     }
@@ -469,20 +635,19 @@ impl embassy_usb_driver::EndpointIn for Endpoint<In> {
 /// Prime a transfer descriptor on the given endpoint/direction and wait for it
 /// to complete, returning the number of bytes transferred.
 async fn ep_transfer(
-    index: usize,
-    dir: Direction,
+    slot: EndpointSlot,
     buf_ptr: *mut u8,
     len: usize,
     abort_on_setup: bool,
 ) -> Result<usize, EndpointError> {
-    let dtd_i = qh_index(index, dir);
+    let dtd_i = slot.array_index();
     let qhi = dtd_i;
 
     // SAFETY: the descriptor/queue-head for this endpoint direction is owned by
     // the caller for the duration of the transfer.
     unsafe {
         // Build the transfer descriptor.
-        let dtd = core::ptr::addr_of_mut!(DTD_LIST.dtd);
+        let dtd = dtd_ptr();
         (*dtd)[dtd_i].next = DTD_NEXT_TERMINATE;
         (*dtd)[dtd_i].token = ((len as u32) << DTD_TOKEN_TOTAL_SHIFT) | DTD_TOKEN_IOC | DTD_TOKEN_ACTIVE;
         let base = buf_ptr as u32;
@@ -492,17 +657,15 @@ async fn ep_transfer(
         }
 
         // Link it into the queue head overlay and clear status.
-        let qh = core::ptr::addr_of_mut!(QH_LIST.qh);
+        let qh = qh_ptr();
         (*qh)[qhi].next_dtd = core::ptr::addr_of!((*dtd)[dtd_i]) as u32;
         (*qh)[qhi].token = 0;
     }
 
     let r = regs();
-    let prime_bit = endpoint_bit(index, dir);
+    let prime_bit = slot.endpoint_bit();
 
-    // Ensure descriptor and buffer writes complete before the controller fetches
-    // the dTD. This mirrors the MCUX EHCI driver's barrier before EPPRIME.
-    asm::dsb();
+    dma_write_barrier();
 
     // Prime the endpoint.
     r.set_endptprime(prime_bit);
@@ -511,17 +674,19 @@ async fn ep_transfer(
 
     // Wait for completion via the waker, re-checking the descriptor status.
     let n = poll_fn(|cx| {
-        EP_WAKERS[dtd_i].register(cx.waker());
+        slot.waker().register(cx.waker());
+        if !slot.is_enabled(r) {
+            return Poll::Ready(Err(EndpointError::Disabled));
+        }
         if abort_on_setup && (FLAG_SETUP.load(Ordering::Relaxed) || r.endptsetupstat() & 1 != 0) {
             r.set_endptflush(prime_bit);
             while r.endptflush() & prime_bit != 0 {}
             return Poll::Ready(Err(EndpointError::Disabled));
         }
-        // Ensure CPU loads below see descriptor/buffer writes completed by the controller.
-        asm::dsb();
+        dma_read_barrier();
         // SAFETY: reading the (volatile) hardware-updated descriptor token.
         let token = unsafe {
-            let dtd = core::ptr::addr_of!(DTD_LIST.dtd);
+            let dtd = dtd_ptr();
             core::ptr::read_volatile(core::ptr::addr_of!((*dtd)[dtd_i].token))
         };
         if token & DTD_TOKEN_ACTIVE != 0 {
@@ -545,16 +710,15 @@ async fn ep_transfer(
 struct EpBuffers {
     buf: [[u8; FS_MAX_PACKET as usize]; EP_COUNT * 2],
 }
-static mut EP_BUFFERS: EpBuffers = EpBuffers {
+static EP_BUFFERS: DmaCell<EpBuffers> = DmaCell::new(EpBuffers {
     buf: [[0; FS_MAX_PACKET as usize]; EP_COUNT * 2],
-};
+});
 
 async fn ep_read(index: usize, buf: &mut [u8]) -> Result<usize, EndpointError> {
-    let dtd_i = qh_index(index, Direction::Out);
-    // SAFETY: each endpoint direction owns its dedicated bounce buffer.
-    let bounce = unsafe { core::ptr::addr_of_mut!(EP_BUFFERS.buf[dtd_i]) as *mut u8 };
+    let slot = EndpointSlot::new(index, Direction::Out);
+    let bounce = ep_buffer_ptr(slot);
     let cap = FS_MAX_PACKET as usize;
-    let n = ep_transfer(index, Direction::Out, bounce, cap, false).await?;
+    let n = ep_transfer(slot, bounce, cap, false).await?;
     if n > buf.len() {
         return Err(EndpointError::BufferOverflow);
     }
@@ -567,21 +731,19 @@ async fn ep_write(index: usize, buf: &[u8], abort_on_setup: bool) -> Result<(), 
     if buf.len() > FS_MAX_PACKET as usize {
         return Err(EndpointError::BufferOverflow);
     }
-    let dtd_i = qh_index(index, Direction::In);
-    // SAFETY: each endpoint direction owns its dedicated bounce buffer.
-    let bounce = unsafe { core::ptr::addr_of_mut!(EP_BUFFERS.buf[dtd_i]) as *mut u8 };
+    let slot = EndpointSlot::new(index, Direction::In);
+    let bounce = ep_buffer_ptr(slot);
     // SAFETY: copying caller data into the owned bounce buffer.
     unsafe { core::ptr::copy_nonoverlapping(buf.as_ptr(), bounce, buf.len()) };
-    ep_transfer(index, Direction::In, bounce, buf.len(), abort_on_setup).await?;
+    ep_transfer(slot, bounce, buf.len(), abort_on_setup).await?;
     Ok(())
 }
 
 async fn ep_read_control(buf: &mut [u8]) -> Result<usize, EndpointError> {
-    let dtd_i = qh_index(0, Direction::Out);
-    // SAFETY: EP0 OUT owns its dedicated bounce buffer while the control pipe is active.
-    let bounce = unsafe { core::ptr::addr_of_mut!(EP_BUFFERS.buf[dtd_i]) as *mut u8 };
+    let slot = EndpointSlot::new(0, Direction::Out);
+    let bounce = ep_buffer_ptr(slot);
     let cap = FS_MAX_PACKET as usize;
-    let n = ep_transfer(0, Direction::Out, bounce, cap, true).await?;
+    let n = ep_transfer(slot, bounce, cap, true).await?;
     if n > buf.len() {
         return Err(EndpointError::BufferOverflow);
     }
@@ -591,11 +753,11 @@ async fn ep_read_control(buf: &mut [u8]) -> Result<usize, EndpointError> {
 }
 
 async fn ep_zlp(index: usize, dir: Direction, abort_on_setup: bool) -> Result<(), EndpointError> {
-    let dtd_i = qh_index(index, dir);
+    let slot = EndpointSlot::new(index, dir);
     // EHCI should not dereference buffer pointers for zero-length transfers, but
     // giving it a real aligned address avoids relying on null-pointer behavior.
-    let bounce = unsafe { core::ptr::addr_of_mut!(EP_BUFFERS.buf[dtd_i]) as *mut u8 };
-    ep_transfer(index, dir, bounce, 0, abort_on_setup).await?;
+    let bounce = ep_buffer_ptr(slot);
+    ep_transfer(slot, bounce, 0, abort_on_setup).await?;
     Ok(())
 }
 
@@ -616,7 +778,7 @@ impl embassy_usb_driver::ControlPipe for ControlPipe {
     async fn setup(&mut self) -> [u8; 8] {
         let r = regs();
         poll_fn(|cx| {
-            EP_WAKERS[0].register(cx.waker());
+            EndpointSlot::new(0, Direction::Out).waker().register(cx.waker());
             let stat = r.endptsetupstat();
             if stat & 1 == 0 {
                 return Poll::Pending;
@@ -628,9 +790,9 @@ impl embassy_usb_driver::ControlPipe for ControlPipe {
                 r.modify_usbcmd(|v| v | USBCMD_SUTW);
                 // SAFETY: control OUT queue head holds the latest setup bytes.
                 let bytes = unsafe {
-                    let qh = core::ptr::addr_of!(QH_LIST.qh[0]);
-                    let w0 = core::ptr::read_volatile(core::ptr::addr_of!((*qh).setup[0]));
-                    let w1 = core::ptr::read_volatile(core::ptr::addr_of!((*qh).setup[1]));
+                    let qh = qh_ptr();
+                    let w0 = core::ptr::read_volatile(core::ptr::addr_of!((*qh)[0].setup[0]));
+                    let w1 = core::ptr::read_volatile(core::ptr::addr_of!((*qh)[0].setup[1]));
                     let mut b = [0u8; 8];
                     b[0..4].copy_from_slice(&w0.to_le_bytes());
                     b[4..8].copy_from_slice(&w1.to_le_bytes());
@@ -774,21 +936,16 @@ impl<T: Instance> embassy_usb_driver::Bus for Bus<T> {
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         let index = ep_addr.index();
         let is_in = ep_addr.is_in();
+        let slot = EndpointSlot::from_addr(ep_addr);
         if enabled {
-            let wi = waker_index(ep_addr);
-            let mps = EP_MAX_PACKET[wi].load(Ordering::Relaxed);
-            let ty = match EP_TYPE[wi].load(Ordering::Relaxed) {
-                0 => EndpointType::Control,
-                1 => EndpointType::Isochronous,
-                2 => EndpointType::Bulk,
-                _ => EndpointType::Interrupt,
-            };
-            configure_endpoint(ep_addr, ty, mps);
+            if let Some(config) = EndpointConfig::load(slot) {
+                configure_endpoint(ep_addr, config.ep_type, config.max_packet_size);
+            }
         } else {
             let r = regs();
             r.modify_endptctrl(index, |v| if is_in { v & !EPCTRL_TXE } else { v & !EPCTRL_RXE });
         }
-        EP_WAKERS[waker_index(ep_addr)].wake();
+        slot.waker().wake();
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {

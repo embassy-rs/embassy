@@ -16,7 +16,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_mcxa::clocks::config::{SoscConfig, SoscMode};
 use embassy_mcxa::clocks::{PoweredClock, VddLevel};
-use embassy_mcxa::usb::{Driver, InterruptHandler, PhyConfig};
+use embassy_mcxa::usb::{Config as UsbDriverConfig, Driver, InterruptHandler};
 use embassy_mcxa::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use embassy_usb::class::hid::{HidBootProtocol, HidSubclass, HidWriter, ReportId, RequestHandler, State};
@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
 
     // Create the USB device driver (full speed).
     info!("Creating USB driver");
-    let driver = Driver::new(p.USB1, Irqs, PhyConfig::default());
+    let driver = Driver::new(p.USB1, Irqs, UsbDriverConfig::default());
     info!("USB driver created");
 
     // Configure the USB device descriptors.
