@@ -3,6 +3,7 @@
 
 use defmt::{assert, assert_eq, info, panic, unwrap};
 use embassy_executor::Spawner;
+use embassy_mcxa::flexspi::Flexspi;
 use embassy_mcxa::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use hal::config::Config;
@@ -29,12 +30,11 @@ async fn main(_spawner: Spawner) {
 
     info!("FlexSPI interrupt async self-test");
 
-    let mut flash = unwrap!(NorFlash::new_async(
+    let mut flash = NorFlash::new(unwrap!(Flexspi::new_async(
         p.FLEXSPI0,
         p.P3_0,
-        p.P3_1,
-        p.P3_6,
         p.P3_7,
+        p.P3_6,
         p.P3_8,
         p.P3_9,
         p.P3_10,
@@ -42,7 +42,7 @@ async fn main(_spawner: Spawner) {
         Irqs,
         FlexspiClockConfig::default(),
         FLASH_CONFIG,
-    ));
+    )));
 
     // 1) Vendor ID is idempotent.
     let id_a = unwrap!(flash.read_vendor_id_async().await);
