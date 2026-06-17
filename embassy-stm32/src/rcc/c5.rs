@@ -24,6 +24,9 @@ pub struct Config {
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub apb3_pre: APBPrescaler,
+
+    /// Per-peripheral kernel clock selection muxes
+    pub mux: super::mux::ClockMux,
 }
 
 impl Config {
@@ -36,6 +39,7 @@ impl Config {
             apb1_pre: APBPrescaler::Div1,
             apb2_pre: APBPrescaler::Div1,
             apb3_pre: APBPrescaler::Div1,
+            mux: super::mux::ClockMux::default(),
         }
     }
 }
@@ -118,7 +122,13 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2: Some(apb2),
         pclk2_tim: Some(hclk),
 
+        pclk3: Some(apb3),
+
         hsi: hsi,
+        hsik: None,
+        hse: None,
+        psi: None,
+        psik: None,
 
         // TODO
         lsi: None,

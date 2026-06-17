@@ -33,6 +33,7 @@ impl<'d> ChannelAndRequest<'d> {
         self.channel.read(self.request, peri_addr, buf, options)
     }
 
+    #[cfg(not(stm32c5))]
     pub unsafe fn read_raw<'a, MW: Word, PW: Word>(
         &'a mut self,
         peri_addr: *mut PW,
@@ -51,6 +52,7 @@ impl<'d> ChannelAndRequest<'d> {
         self.channel.write(self.request, buf, peri_addr, options)
     }
 
+    #[cfg(not(stm32c5))]
     pub unsafe fn write_raw<'a, MW: Word, PW: Word>(
         &'a mut self,
         buf: *const [MW],
