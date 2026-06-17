@@ -273,7 +273,10 @@ impl QueueHead {
     }
 }
 
-/// Capability field: ZLT disable (set to disable automatic zero-length termination).
+/// Capability field: ZLT disable.
+///
+/// The driver sets this because `embassy-usb` drives zero-length packets and
+/// control status stages explicitly; the controller should not synthesize them.
 pub(crate) const QH_CAP_ZLT: u32 = 1 << 29;
 /// Capability field: interrupt-on-setup (control OUT QH).
 pub(crate) const QH_CAP_IOS: u32 = 1 << 15;
@@ -309,13 +312,24 @@ impl TransferDescriptor {
 pub(crate) const DTD_NEXT_TERMINATE: u32 = 1 << 0;
 /// dTD token: total bytes shift (bits 30:16).
 pub(crate) const DTD_TOKEN_TOTAL_SHIFT: u32 = 16;
+/// dTD token: remaining byte-count mask after shifting by [`DTD_TOKEN_TOTAL_SHIFT`].
+pub(crate) const DTD_TOKEN_TOTAL_MASK: u32 = 0x7FFF;
 /// dTD token: interrupt on complete.
 pub(crate) const DTD_TOKEN_IOC: u32 = 1 << 15;
 /// dTD token: active status bit.
 pub(crate) const DTD_TOKEN_ACTIVE: u32 = 1 << 7;
 /// dTD token: halted status bit.
 pub(crate) const DTD_TOKEN_HALTED: u32 = 1 << 6;
+/// dTD token: data-buffer error status bit.
+pub(crate) const DTD_TOKEN_DATA_BUFFER_ERROR: u32 = 1 << 5;
+/// dTD token: transaction error status bit.
+pub(crate) const DTD_TOKEN_TRANSACTION_ERROR: u32 = 1 << 3;
 /// dTD token: transfer status bits that indicate a completed transfer failed.
-pub(crate) const DTD_TOKEN_ERROR_MASK: u32 = DTD_TOKEN_HALTED | (1 << 5) | (1 << 3);
+pub(crate) const DTD_TOKEN_ERROR_MASK: u32 =
+    DTD_TOKEN_HALTED | DTD_TOKEN_DATA_BUFFER_ERROR | DTD_TOKEN_TRANSACTION_ERROR;
 /// dTD token mask of error/status bits.
 pub(crate) const DTD_TOKEN_STATUS_MASK: u32 = 0xFF;
+/// dTD buffer pointer page size. Each dTD carries five page pointers.
+pub(crate) const DTD_BUFFER_PAGE_SIZE: u32 = 0x1000;
+/// dTD buffer pointer page mask.
+pub(crate) const DTD_BUFFER_PAGE_MASK: u32 = DTD_BUFFER_PAGE_SIZE - 1;
