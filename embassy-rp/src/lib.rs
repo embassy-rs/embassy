@@ -597,6 +597,7 @@ pub mod config {
 
     /// HAL configuration passed when initializing.
     #[non_exhaustive]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Config {
         /// Clock configuration.
         pub clocks: ClockConfig,
