@@ -44,17 +44,22 @@ impl Default for Config {
 impl defmt::Format for Config {
     fn format(&self, f: defmt::Formatter) {
         let phase = match self.phase {
-            Phase::CaptureOnFirstTransition => "CaptureOnFirstTransition",
-            Phase::CaptureOnSecondTransition => "CaptureOnSecondTransition",
+            Phase::CaptureOnFirstTransition => {
+                defmt::intern!("CaptureOnFirstTransition")
+            }
+            Phase::CaptureOnSecondTransition => {
+                defmt::intern!("CaptureOnSecondTransition")
+            }
         };
+
         let polarity = match self.polarity {
-            Polarity::IdleLow => "IdleLow",
-            Polarity::IdleHigh => "IdleHigh",
+            Polarity::IdleLow => defmt::intern!("IdleLow"),
+            Polarity::IdleHigh => defmt::intern!("IdleHigh"),
         };
 
         defmt::write!(
             f,
-            "Config {{ frequency: {=u32}, phase: {}, polarity: {} }}",
+            "Config {{ frequency: {=u32}, phase: {=istr}, polarity: {=istr} }}",
             self.frequency,
             phase,
             polarity,
