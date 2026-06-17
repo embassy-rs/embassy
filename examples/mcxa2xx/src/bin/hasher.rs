@@ -1,16 +1,14 @@
 #![no_std]
 #![no_main]
 
-use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_mcxa as hal;
 use hal::bind_interrupts;
 use hal::config::Config;
 use hal::dma::DmaChannel;
 use hal::peripherals::SGI0;
 use hal::sgi::hash::HashSize;
 use hal::sgi::{InterruptHandler, Sgi};
-use panic_probe as _;
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SGI => InterruptHandler<SGI0>;
