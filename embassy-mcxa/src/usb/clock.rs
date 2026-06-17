@@ -149,7 +149,7 @@ pub(crate) unsafe fn init_clocks_and_phy(cfg: &PhyConfig) {
         }
         cortex_m::asm::nop();
     }
-    assert!(locked);
+    assert!(locked, "USB PHY PLL did not lock");
 
     // 4. Finish normal EHCI PHY init, matching `USB_EhciPhyInit`.
     phy_w(phy_off::TRIM_OVERRIDE_EN, 0x001F);

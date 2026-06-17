@@ -103,6 +103,14 @@ fn qh_index(index: usize, dir: Direction) -> usize {
     index * 2 + d
 }
 
+#[inline]
+fn endpoint_bit(index: usize, dir: Direction) -> u32 {
+    match dir {
+        Direction::Out => 1 << index,
+        Direction::In => 1 << (index + 16),
+    }
+}
+
 /// Controller handle.
 #[inline]
 fn regs() -> UsbHs {
@@ -469,7 +477,6 @@ async fn ep_transfer(
 ) -> Result<usize, EndpointError> {
     let dtd_i = qh_index(index, dir);
     let qhi = dtd_i;
-    let is_in = dir == Direction::In;
 
     // SAFETY: the descriptor/queue-head for this endpoint direction is owned by
     // the caller for the duration of the transfer.
@@ -491,7 +498,7 @@ async fn ep_transfer(
     }
 
     let r = regs();
-    let prime_bit = if is_in { 1 << (index + 16) } else { 1 << index };
+    let prime_bit = endpoint_bit(index, dir);
 
     // Ensure descriptor and buffer writes complete before the controller fetches
     // the dTD. This mirrors the MCUX EHCI driver's barrier before EPPRIME.
@@ -520,7 +527,7 @@ async fn ep_transfer(
         if token & DTD_TOKEN_ACTIVE != 0 {
             return Poll::Pending;
         }
-        if token & DTD_TOKEN_HALTED != 0 || (token & 0x68) != 0 {
+        if token & DTD_TOKEN_ERROR_MASK != 0 {
             return Poll::Ready(Err(EndpointError::Disabled));
         }
         // Remaining bytes are in token[30:16]; transferred = requested - remaining.

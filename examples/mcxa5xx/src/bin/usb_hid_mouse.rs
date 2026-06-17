@@ -32,6 +32,8 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut hal_config = hal::config::Config::default();
+    // Match the SDK/Zephyr board profile; the USBHS PHY PLL needs this voltage
+    // mode to lock reliably on FRDM-MCXA577.
     hal_config.clock_cfg.vdd_power.active_mode.level = VddLevel::OverDriveMode;
     hal_config.clock_cfg.vdd_power.low_power_mode.level = VddLevel::OverDriveMode;
     hal_config.clock_cfg.sosc = Some(SoscConfig {

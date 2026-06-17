@@ -315,5 +315,7 @@ pub(crate) const DTD_TOKEN_IOC: u32 = 1 << 15;
 pub(crate) const DTD_TOKEN_ACTIVE: u32 = 1 << 7;
 /// dTD token: halted status bit.
 pub(crate) const DTD_TOKEN_HALTED: u32 = 1 << 6;
+/// dTD token: transfer status bits that indicate a completed transfer failed.
+pub(crate) const DTD_TOKEN_ERROR_MASK: u32 = DTD_TOKEN_HALTED | (1 << 5) | (1 << 3);
 /// dTD token mask of error/status bits.
 pub(crate) const DTD_TOKEN_STATUS_MASK: u32 = 0xFF;
