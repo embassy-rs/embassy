@@ -87,12 +87,13 @@ pub(crate) unsafe fn init(config: Config) {
         while !RCC.cr().read().hsidiv3rdy() {}
     }
 
+    // Use the HSI/3 clock as system clock during the actual clock setup
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsidiv3));
+    while RCC.cfgr().read().sws() != Sysclk::Hsidiv3 {}
+
     // Configure HSI
     let hsi = config.hsi.then_some(HSI_FREQ);
     let hsi_div3 = config.hsi_div3.then_some(Hertz(HSI_FREQ.0 / 3));
-
-    RCC.cfgr().modify(|w| w.set_sw(config.sys));
-    while RCC.cfgr().read().sws() != config.sys {}
 
     // Turn off unused clock sources
     RCC.cr().modify(|w| {
@@ -154,6 +155,9 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre3(config.apb3_pre);
     });
 
+    RCC.cfgr().modify(|w| w.set_sw(config.sys));
+    while RCC.cfgr().read().sws() != config.sys {}
+
     config.mux.init();
 
     set_clocks!(
@@ -168,7 +172,7 @@ pub(crate) unsafe fn init(config: Config) {
 
         hsi: hsi,
         hsik: None,
-        hse: None,
+        hse: hse,
         psi: None,
         psik: None,
 
