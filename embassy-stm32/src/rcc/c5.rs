@@ -1,4 +1,5 @@
 use stm32_metapac::FLASH;
+use stm32_metapac::rcc::vals::Hseext;
 
 use crate::pac::RCC;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler, Sw as Sysclk};
@@ -6,6 +7,24 @@ use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(144_000_000);
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub enum HseMode {
+    /// crystal/ceramic oscillator (HSEBYP=0)
+    Oscillator,
+    /// external analog clock (low swing) (HSEBYP=1, HSEEXT=0)
+    Bypass,
+    /// external digital clock (full swing) (HSEBYP=1, HSEEXT=1)
+    BypassDigital,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub struct Hse {
+    /// HSE frequency.
+    pub freq: Hertz,
+    /// HSE mode.
+    pub mode: HseMode,
+}
 
 /// Configuration of the core clocks
 #[non_exhaustive]
@@ -16,6 +35,8 @@ pub struct Config {
 
     /// Enable HSI Div 3 tap (48MHz)
     pub hsi_div3: bool,
+
+    pub hse: Option<Hse>,
 
     /// System Clock Configuration
     pub sys: Sysclk,
@@ -34,6 +55,7 @@ impl Config {
         Self {
             hsi: false,
             hsi_div3: true,
+            hse: None,
             sys: Sysclk::Hsidiv3,
             ahb_pre: AHBPrescaler::Div1,
             apb1_pre: APBPrescaler::Div1,
@@ -78,13 +100,31 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_hsidiv3on(config.hsi_div3);
     });
 
-    // TODO: Configure HSE
+    // Configure HSE
+    let hse = match config.hse {
+        None => {
+            RCC.cr().modify(|w| w.set_hseon(false));
+            None
+        }
+        Some(hse) => {
+            RCC.cr().modify(|w| {
+                w.set_hsebyp(hse.mode != HseMode::Oscillator);
+                w.set_hseext(match hse.mode {
+                    HseMode::Oscillator | HseMode::Bypass => Hseext::Analog,
+                    HseMode::BypassDigital => Hseext::Digital,
+                });
+            });
+            RCC.cr().modify(|w| w.set_hseon(true));
+            while !RCC.cr().read().hserdy() {}
+            Some(hse.freq)
+        }
+    };
 
     // Configure sysclk
     let sys = match config.sys {
         Sysclk::Hsidiv3 => unwrap!(hsi_div3),
         Sysclk::Hsi => unwrap!(hsi),
-        Sysclk::Hse => unimplemented!(),
+        Sysclk::Hse => unwrap!(hse),
         Sysclk::Psi => unimplemented!(),
     };
     assert!(max::SYSCLK.contains(&sys));
@@ -113,6 +153,8 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
         w.set_ppre3(config.apb3_pre);
     });
+
+    config.mux.init();
 
     set_clocks!(
         sys: Some(sys),
