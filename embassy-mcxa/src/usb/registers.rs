@@ -1,45 +1,12 @@
-//! Minimal register and DMA-structure definitions for the NXP "USBHS" controller
-//! (a Chipidea/EHCI USB-OTG core) as found on the MCXA5xx (e.g. MCX-A577).
+//! EHCI device-mode DMA structures and bit masks for the MCXA5xx USBHS
+//! controller.
 //!
-//! The `nxp-pac` crate does not yet expose a register block for this peripheral on
-//! MCXA577, so we define the device-mode subset locally here using volatile MMIO
-//! access. The layout matches `PERI_USBHS.h` from the NXP MCUXpresso SDK and is the
-//! same Chipidea core already described by `nxp-pac` for the i.MX RT parts.
-//!
-//! When a USB register block is added to `nxp-pac` for this chip, this module can be
-//! replaced by the generated types with no change to the driver logic.
+//! The MMIO register blocks come from `nxp-pac`; the queue heads and transfer
+//! descriptors are RAM data structures consumed directly by the controller.
 
-// This is a register/structure-definition module; not every accessor or bit
-// constant is used by the current driver, but they document the hardware.
+// Some masks document hardware paths not exercised by the current full-speed
+// device driver.
 #![allow(dead_code)]
-
-use core::ptr::{read_volatile, write_volatile};
-
-/// Base address of the USBHS1 controller (non-secure alias) on MCXA577.
-pub(crate) const USBHS1_BASE: usize = 0x4002_E000;
-/// Base address of the USBPHY (USBHS1_PHY, non-secure alias) on MCXA577.
-pub(crate) const USBPHY_BASE: usize = 0x4002_F000;
-
-/// Register offsets within the USBHS controller (device-mode relevant subset).
-mod offset {
-    pub const ID: usize = 0x000;
-    pub const USBCMD: usize = 0x140;
-    pub const USBSTS: usize = 0x144;
-    pub const USBINTR: usize = 0x148;
-    pub const FRINDEX: usize = 0x14C;
-    pub const DEVICEADDR: usize = 0x154;
-    pub const ENDPTLISTADDR: usize = 0x158;
-    pub const BURSTSIZE: usize = 0x160;
-    pub const PORTSC1: usize = 0x184;
-    pub const USBMODE: usize = 0x1A8;
-    pub const ENDPTSETUPSTAT: usize = 0x1AC;
-    pub const ENDPTPRIME: usize = 0x1B0;
-    pub const ENDPTFLUSH: usize = 0x1B4;
-    pub const ENDPTSTAT: usize = 0x1B8;
-    pub const ENDPTCOMPLETE: usize = 0x1BC;
-    /// `ENDPTCTRL0`; subsequent endpoint control registers are at `+4*n`.
-    pub const ENDPTCTRL0: usize = 0x1C0;
-}
 
 // ---- USBCMD bits ----
 /// Run/Stop.
@@ -87,135 +54,6 @@ pub(crate) const PORTSC1_PSPD_MASK: u32 = 0b11 << PORTSC1_PSPD_SHIFT;
 pub(crate) const DEVICEADDR_USBADRA: u32 = 1 << 24;
 /// Shift for the 7-bit device address.
 pub(crate) const DEVICEADDR_USBADR_SHIFT: u32 = 25;
-
-/// Thin volatile accessor over the USBHS controller register file.
-#[derive(Clone, Copy)]
-pub(crate) struct UsbHs {
-    base: usize,
-}
-
-impl UsbHs {
-    /// Create an accessor for the USBHS controller at `base`.
-    ///
-    /// # Safety
-    /// `base` must be the address of a USBHS register block and the caller must
-    /// ensure exclusive access for the duration of use.
-    pub(crate) const unsafe fn new(base: usize) -> Self {
-        Self { base }
-    }
-
-    #[inline(always)]
-    fn r(&self, off: usize) -> u32 {
-        // SAFETY: `off` is a valid register offset within the block.
-        unsafe { read_volatile((self.base + off) as *const u32) }
-    }
-
-    #[inline(always)]
-    fn w(&self, off: usize, val: u32) {
-        // SAFETY: `off` is a valid register offset within the block.
-        unsafe { write_volatile((self.base + off) as *mut u32, val) }
-    }
-
-    #[inline(always)]
-    fn modify(&self, off: usize, f: impl FnOnce(u32) -> u32) {
-        let v = self.r(off);
-        self.w(off, f(v));
-    }
-
-    pub(crate) fn id(&self) -> u32 {
-        self.r(offset::ID)
-    }
-
-    pub(crate) fn usbcmd(&self) -> u32 {
-        self.r(offset::USBCMD)
-    }
-    pub(crate) fn set_usbcmd(&self, v: u32) {
-        self.w(offset::USBCMD, v)
-    }
-    pub(crate) fn modify_usbcmd(&self, f: impl FnOnce(u32) -> u32) {
-        self.modify(offset::USBCMD, f)
-    }
-
-    pub(crate) fn usbsts(&self) -> u32 {
-        self.r(offset::USBSTS)
-    }
-    /// Write-1-to-clear the given status bits.
-    pub(crate) fn clear_usbsts(&self, bits: u32) {
-        self.w(offset::USBSTS, bits)
-    }
-
-    pub(crate) fn usbintr(&self) -> u32 {
-        self.r(offset::USBINTR)
-    }
-    pub(crate) fn set_usbintr(&self, v: u32) {
-        self.w(offset::USBINTR, v)
-    }
-
-    pub(crate) fn set_deviceaddr(&self, v: u32) {
-        self.w(offset::DEVICEADDR, v)
-    }
-
-    pub(crate) fn set_endptlistaddr(&self, addr: u32) {
-        self.w(offset::ENDPTLISTADDR, addr)
-    }
-
-    pub(crate) fn set_burstsize(&self, v: u32) {
-        self.w(offset::BURSTSIZE, v)
-    }
-
-    pub(crate) fn portsc1(&self) -> u32 {
-        self.r(offset::PORTSC1)
-    }
-    pub(crate) fn modify_portsc1(&self, f: impl FnOnce(u32) -> u32) {
-        self.modify(offset::PORTSC1, f)
-    }
-
-    pub(crate) fn set_usbmode(&self, v: u32) {
-        self.w(offset::USBMODE, v)
-    }
-
-    pub(crate) fn endptsetupstat(&self) -> u32 {
-        self.r(offset::ENDPTSETUPSTAT)
-    }
-    pub(crate) fn clear_endptsetupstat(&self, bits: u32) {
-        self.w(offset::ENDPTSETUPSTAT, bits)
-    }
-
-    pub(crate) fn endptprime(&self) -> u32 {
-        self.r(offset::ENDPTPRIME)
-    }
-    pub(crate) fn set_endptprime(&self, bits: u32) {
-        self.w(offset::ENDPTPRIME, bits)
-    }
-
-    pub(crate) fn set_endptflush(&self, bits: u32) {
-        self.w(offset::ENDPTFLUSH, bits)
-    }
-    pub(crate) fn endptflush(&self) -> u32 {
-        self.r(offset::ENDPTFLUSH)
-    }
-
-    pub(crate) fn endptstat(&self) -> u32 {
-        self.r(offset::ENDPTSTAT)
-    }
-
-    pub(crate) fn endptcomplete(&self) -> u32 {
-        self.r(offset::ENDPTCOMPLETE)
-    }
-    pub(crate) fn clear_endptcomplete(&self, bits: u32) {
-        self.w(offset::ENDPTCOMPLETE, bits)
-    }
-
-    pub(crate) fn endptctrl(&self, ep: usize) -> u32 {
-        self.r(offset::ENDPTCTRL0 + ep * 4)
-    }
-    pub(crate) fn set_endptctrl(&self, ep: usize, v: u32) {
-        self.w(offset::ENDPTCTRL0 + ep * 4, v)
-    }
-    pub(crate) fn modify_endptctrl(&self, ep: usize, f: impl FnOnce(u32) -> u32) {
-        self.modify(offset::ENDPTCTRL0 + ep * 4, f)
-    }
-}
 
 // ---- ENDPTCTRLn bit fields (per direction) ----
 /// RX endpoint enable.
