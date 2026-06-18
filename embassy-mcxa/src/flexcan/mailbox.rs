@@ -7,6 +7,10 @@
 //! RX/incoming messages are handeled by the chip's Enhanced RX FIFO (see page 1556 of the datasheet).
 //! This FIFO can store 12 messages, which are filled automatically by the hardware as they come in.
 //! Messages can be dequeued from this FIFO by reading the 2000h - 2048h memory area as a message buffer, and then setting the erfda flag (to tell the hardware that the memory area is ready to be filled with the next message from the FIFO).
+//! 
+//! The only RX messages that don't go through the FIFO are RTR messages. When you send out one of these messages, the TX buffer will 
+//! stay activated to catch the response to your RTR reqest. In other words, RTR response messages will be received in the same buffer they were
+//! sent from, rather than going through the FIFO.
 
 use nxp_pac::can as pac;
 
@@ -19,47 +23,67 @@ struct Message {
     pub payload: [u8; 8],
 }
 
-/// "Manager" for the message buffer memory area (80h - 27Fh), which this HAL uses for dispatching TX messages.
-mod buffer {
+mod tx {
     use super::Message;
     use super::pac;
 
-    /// Writes a `Message` into one of the 32 message buffers.
-    /// * `can` - The CAN peripheral to write in (e.g., CAN0, CAN1).
-    /// * `message` - The Message to write.
-    /// * `n` - The message buffer element to write (0 through 31).
-    fn write(can: pac::Can, message: &Message, n: usize) {
-        // Write in the payload
-        let [b0, b1, b2, b3, b4, b5, b6, b7] = message.payload;
-        let word0 = u32::from_be_bytes([b0, b1, b2, b3]);
-        let word1 = u32::from_be_bytes([b4, b5, b6, b7]);
-        can.word0(n).write(|w| { *w = word0 });
-        can.word1(n).write(|w| { *w = word1 });
+    /// Represents the message buffer memory area (80h - 27Fh), which this HAL uses for dispatching TX messages.
+    mod buffer {
+        use super::Message;
+        use super::pac;
+        use super::TxMessage;
 
-        can.id(n).write(|w| { w.0 = message.id.0 });
-        can.cs(n).write(|w| { w.0 = message.cs.0 }); // Need to write in CS last because this is when we update CODE (which could trigger a TX dispatch)
+        /// Writes a `TxMessage` into one of the 32 message buffers.
+        /// * `can` - The CAN peripheral to write in (e.g., CAN0, CAN1).
+        /// * `message` - The TxMessage to write.
+        /// * `n` - The message buffer element to write (0 through 31).
+        pub fn write(can: pac::Can, message: &TxMessage, n: usize) {
+            // Write in the payload
+            let [b0, b1, b2, b3, b4, b5, b6, b7] = message.inner.payload;
+            let word0 = u32::from_be_bytes([b0, b1, b2, b3]);
+            let word1 = u32::from_be_bytes([b4, b5, b6, b7]);
+            can.word0(n).write(|w| { *w = word0 });
+            can.word1(n).write(|w| { *w = word1 });
+
+            can.id(n).write(|w| { w.0 = message.inner.id.0 });
+            can.cs(n).write(|w| { w.0 = message.inner.cs.0 }); // Need to write in CS last because this is when we update CODE (which could trigger a TX dispatch)
+        }
+
+        /// Reads one of the 32 message buffers into a `TxMessage`.
+        /// * `can` - The CAN peripheral to read from (e.g., CAN0, CAN1).
+        /// * `n` - The message buffer element to read (0 through 31).
+        pub fn read(can: pac::Can, n: usize) -> TxMessage {
+            let cs = can.cs(n).read();
+            let id = can.id(n).read();
+
+            // Read out the payload
+            let word0 = can.word0(n).read();
+            let word1 = can.word1(n).read();
+            let [b0, b1, b2, b3] = word0.to_be_bytes();
+            let [b4, b5, b6, b7] = word1.to_be_bytes();
+            let payload = [b0, b1, b2, b3, b4, b5, b6, b7];
+
+            TxMessage { inner: Message { cs, id, payload } }
+        }
+
+        /// Returns whether the interrupt flag for message buffer `n` is set in the IFLAG1 register.
+        /// For a TX buffer, the hardware sets this bit once the frame has finished transmitting.
+        /// * `can` - The CAN peripheral to read from (e.g., CAN0, CAN1).
+        /// * `n` - The message buffer element to check (0 through 31).
+        pub fn is_tx_done(can: pac::Can, n: usize) -> bool {
+            (can.iflag1().read().0 & (1 << n)) != 0
+        }
+
+        /// Clears the interrupt flag for message buffer `n` in the IFLAG1 register, marking the
+        /// completed transmission as acknowledged so the buffer can be reused.
+        /// * `can` - The CAN peripheral to write to (e.g., CAN0, CAN1).
+        /// * `n` - The message buffer element to clear (0 through 31).
+        pub fn set_tx_complete(can: pac::Can, n: usize) {
+            can.iflag1().write(|w| { w.0 = 1 << n });
+        }
+
+        // u_Note: datasheet notes to trasmit CAN frame are on page 1407
     }
-
-    /// Reads ibe if the 32 message buffers into a `Message`.
-    /// * `can` - The CAN peripheral to read from (e.g., CAN0, CAN1).
-    /// * `n` - The message buffer element to read (0 through 31).
-    fn read(can: pac::Can, n: usize) -> Message {
-        let cs = can.cs(n).read();
-        let id = can.id(n).read();
-
-        // Read out the payload
-        let word0 = can.word0(n).read();
-        let word1 = can.word1(n).read();
-        let [b0, b1, b2, b3] = word0.to_be_bytes();
-        let [b4, b5, b6, b7] = word1.to_be_bytes();
-        let payload = [b0, b1, b2, b3, b4, b5, b6, b7];
-
-        Message { cs, id, payload }
-    }
-}
-
-mod tx {
-    use super::Message;
 
     /// Possible errors from mailbox::tx
     enum TxError {
@@ -94,12 +118,12 @@ mod tx {
     const TX_REMOTE_CODE: u8 = 0b1100;
     const TX_TANSWER_CODE: u8 = 0b1110;
 
-    struct TxMessage{message: Message}
+    struct TxMessage{inner: Message}
     impl TxMessage {
         /// Gets the current reading of this message's `CODE` field.
         fn code(&self) -> Result<TxMessageCode, TxError> {
-            let code: u8 = self.message.cs.code();
-            let rtr: bool = self.message.cs.rtr();
+            let code: u8 = self.inner.cs.code();
+            let rtr: bool = self.inner.cs.rtr();
             match (code, rtr) {
                 (TX_INACTIVE_CODE, _) =>  Ok(TxMessageCode::TxInactive),
                 (TX_ABORT_CODE, _) =>     Ok(TxMessageCode::TxAbort),
@@ -115,14 +139,21 @@ mod tx {
         /// TxData requires RTR = 0 and TxRemote requires RTR = 1.
         fn set_code(&mut self, code: TxMessageCode) {
             match code {
-                TxMessageCode::TxInactive => self.message.cs.set_code(TX_INACTIVE_CODE),
-                TxMessageCode::TxAbort =>    self.message.cs.set_code(TX_ABORT_CODE),
-                TxMessageCode::TxData =>   { self.message.cs.set_code(TX_DATA_CODE); self.message.cs.set_rtr(false); }
-                TxMessageCode::TxRemote => { self.message.cs.set_code(TX_REMOTE_CODE); self.message.cs.set_rtr(true); }
-                TxMessageCode::TxTanswer =>  self.message.cs.set_code(TX_TANSWER_CODE),
+                TxMessageCode::TxInactive => self.inner.cs.set_code(TX_INACTIVE_CODE),
+                TxMessageCode::TxAbort =>    self.inner.cs.set_code(TX_ABORT_CODE),
+                TxMessageCode::TxData =>   { self.inner.cs.set_code(TX_DATA_CODE); self.inner.cs.set_rtr(false); }
+                TxMessageCode::TxRemote => { self.inner.cs.set_code(TX_REMOTE_CODE); self.inner.cs.set_rtr(true); }
+                TxMessageCode::TxTanswer =>  self.inner.cs.set_code(TX_TANSWER_CODE),
             }
         }
+
+        /// Finds an available space in the message buffer, 
+        fn dispatch(&self) -> Result<(), TxError> {
+
+        }
     }
+
+    
 }
 
 struct TxMessage{message: Message}
