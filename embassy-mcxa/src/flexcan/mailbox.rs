@@ -7,10 +7,9 @@
 //! RX/incoming messages are handeled by the chip's Enhanced RX FIFO (see page 1556 of the datasheet).
 //! This FIFO can store 12 messages, which are filled automatically by the hardware as they come in.
 //! Messages can be dequeued from this FIFO by reading the 2000h - 2048h memory area as a message buffer, and then setting the erfda flag (to tell the hardware that the memory area is ready to be filled with the next message from the FIFO).
-//! 
-//! The only RX messages that don't go through the FIFO are RTR messages. When you send out one of these messages, the TX buffer will 
-//! stay activated to catch the response to your RTR reqest. In other words, RTR response messages will be received in the same buffer they were
-//! sent from, rather than going through the FIFO.
+
+// u_Note: eventually when an init function exists, set CTRL2[RRS] = 1 to treat RTR response frames as normal RX frames. This puts them in the standard RX FIFO rather than putting them in the memory buffer area, which will be less jank.
+// u_Note: also need to write IMASK1 to all 1s at boot time, since we're dedicating the whole 32 message buffers to TX
 
 use nxp_pac::can as pac;
 
@@ -81,8 +80,6 @@ mod tx {
         pub fn set_tx_complete(can: pac::Can, n: usize) {
             can.iflag1().write(|w| { w.0 = 1 << n });
         }
-
-        // u_Note: datasheet notes to trasmit CAN frame are on page 1407
     }
 
     /// Possible errors from mailbox::tx
@@ -149,7 +146,12 @@ mod tx {
 
         /// Finds an available space in the message buffer, 
         fn dispatch(&self) -> Result<(), TxError> {
+            // Note: The process for transmitting a frame is described on page 1407 of the datasheet.
 
+            // First, loop through the 32 message buffers to find one that's available.
+            for i in 0..32 {
+
+            }
         }
     }
 
