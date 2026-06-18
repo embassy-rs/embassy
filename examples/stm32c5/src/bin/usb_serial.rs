@@ -26,8 +26,7 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Oscillator,
         });
         config.rcc.sys = Sysclk::Hse;
-        config.rcc.voltage_scale = VoltageScale::Scale0;
-        config.rcc.mux.usbsel = mux::Usbsel::Hsi48;
+        config.rcc.mux.clk48sel = mux::Clksel::Hse;
     }
     let p = embassy_stm32::init(config);
 
