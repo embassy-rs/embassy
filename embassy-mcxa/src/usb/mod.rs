@@ -36,18 +36,13 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
 use core::task::Poll;
 
+pub use clock::PhyConfig;
 use cortex_m::asm;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
-
-pub use clock::PhyConfig;
-
-use crate::interrupt;
-use crate::interrupt::typelevel::{Binding, Interrupt};
-
 use registers::{
     DEVICEADDR_USBADR_SHIFT, DEVICEADDR_USBADRA, DTD_BUFFER_PAGE_MASK, DTD_BUFFER_PAGE_SIZE, DTD_NEXT_TERMINATE,
     DTD_TOKEN_ACTIVE, DTD_TOKEN_ERROR_MASK, DTD_TOKEN_IOC, DTD_TOKEN_TOTAL_MASK, DTD_TOKEN_TOTAL_SHIFT, EPCTRL_RXE,
@@ -55,6 +50,9 @@ use registers::{
     QH_CAP_IOS, QH_CAP_MAXLEN_SHIFT, QH_CAP_ZLT, QueueHead, TransferDescriptor, USBCMD_RS, USBCMD_RST, USBCMD_SUTW,
     USBMODE_CM_DEVICE, USBMODE_SLOM, USBSTS_PCI, USBSTS_SLI, USBSTS_UEI, USBSTS_UI, USBSTS_URI,
 };
+
+use crate::interrupt;
+use crate::interrupt::typelevel::{Binding, Interrupt};
 
 /// USBHS device-driver configuration.
 ///
