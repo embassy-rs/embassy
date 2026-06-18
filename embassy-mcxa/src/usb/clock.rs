@@ -1,29 +1,11 @@
 //! USB clock gating and USBPHY bring-up for the MCXA5xx USBHS controller.
 //!
 //! This mirrors the NXP MCUXpresso SDK `USB_DeviceClockInit` / `USB_EhciPhyInit`
-//! sequence, reduced to what a full-speed device needs. Register layout matches
-//! `PERI_USBPHY.h` from the SDK.
+//! sequence, reduced to what a full-speed device needs.
 
 // Some bit constants and the deinit path document the hardware but are not all
 // exercised by the current full-speed device bring-up.
 #![allow(dead_code)]
-
-use core::ptr::{read_volatile, write_volatile};
-
-use super::registers::USBPHY_BASE;
-
-mod phy_off {
-    pub const PWD: usize = 0x00;
-    pub const TX: usize = 0x10;
-    pub const CTRL: usize = 0x30;
-    pub const CTRL_SET: usize = 0x34;
-    pub const CTRL_CLR: usize = 0x38;
-    pub const PLL_SIC: usize = 0xA0;
-    pub const PLL_SIC_SET: usize = 0xA4;
-    pub const PLL_SIC_CLR: usize = 0xA8;
-    pub const ANACTRL_SET: usize = 0x104;
-    pub const TRIM_OVERRIDE_EN: usize = 0x130;
-}
 
 // USBPHY CTRL bits (standard MXS/i.MX USB PHY).
 const CTRL_SFTRST: u32 = 1 << 31;
@@ -40,15 +22,16 @@ const PLL_DIV_SEL_SHIFT: u32 = 22;
 const PLL_LOCK: u32 = 0x8000_0000;
 const ANACTRL_LVI_EN: u32 = 0x2;
 
-#[inline(always)]
-fn phy_r(off: usize) -> u32 {
-    // SAFETY: valid USBPHY register offset.
-    unsafe { read_volatile((USBPHY_BASE + off) as *const u32) }
+macro_rules! phy_read {
+    ($reg:ident) => {
+        crate::pac::USB1_HS_PHY.$reg().read().0
+    };
 }
-#[inline(always)]
-fn phy_w(off: usize, v: u32) {
-    // SAFETY: valid USBPHY register offset.
-    unsafe { write_volatile((USBPHY_BASE + off) as *mut u32, v) }
+
+macro_rules! phy_write {
+    ($reg:ident, $value:expr) => {
+        crate::pac::USB1_HS_PHY.$reg().write(|w| w.0 = $value)
+    };
 }
 
 /// PHY trim parameters for the high-speed transmit drivers. Taken from the
@@ -132,26 +115,26 @@ pub(crate) unsafe fn init_clocks_and_phy(cfg: &PhyConfig) {
     });
 
     // 3. Bring up the USBPHY PLL, matching `CLOCK_EnableUsbhsPhyPllClock`.
-    phy_w(phy_off::CTRL_CLR, CTRL_SFTRST);
-    phy_w(phy_off::ANACTRL_SET, ANACTRL_LVI_EN);
-    phy_w(phy_off::PLL_SIC_SET, PLL_REG_ENABLE);
+    phy_write!(CTRL_CLR, CTRL_SFTRST);
+    phy_write!(ANACTRL_SET, ANACTRL_LVI_EN);
+    phy_write!(PLL_SIC_SET, PLL_REG_ENABLE);
     // SDK waits at least 15 us for the PLL regulator to stabilize. This is
     // deliberately conservative in cycles because the CPU clock varies by app.
     cortex_m::asm::delay(15_000);
-    phy_w(phy_off::PLL_SIC_SET, PLL_POWER);
+    phy_write!(PLL_SIC_SET, PLL_POWER);
 
-    let sic = phy_r(phy_off::PLL_SIC);
+    let sic = phy_read!(PLL_SIC);
     let sic = (sic & !(0b111 << PLL_DIV_SEL_SHIFT)) | ((cfg.pll_div_sel & 0b111) << PLL_DIV_SEL_SHIFT);
-    phy_w(phy_off::PLL_SIC, sic);
-    phy_w(phy_off::PLL_SIC_CLR, PLL_BYPASS);
-    phy_w(phy_off::PLL_SIC_SET, PLL_EN_USB_CLKS);
+    phy_write!(PLL_SIC, sic);
+    phy_write!(PLL_SIC_CLR, PLL_BYPASS);
+    phy_write!(PLL_SIC_SET, PLL_EN_USB_CLKS);
 
-    phy_w(phy_off::CTRL_CLR, CTRL_CLKGATE);
-    phy_w(phy_off::PWD, 0);
+    phy_write!(CTRL_CLR, CTRL_CLKGATE);
+    phy_write!(PWD, 0);
 
     let mut locked = false;
     for _ in 0..4_000_000 {
-        if phy_r(phy_off::PLL_SIC) & PLL_LOCK != 0 {
+        if phy_read!(PLL_SIC) & PLL_LOCK != 0 {
             locked = true;
             break;
         }
@@ -160,16 +143,16 @@ pub(crate) unsafe fn init_clocks_and_phy(cfg: &PhyConfig) {
     assert!(locked, "USB PHY PLL did not lock");
 
     // 4. Finish normal EHCI PHY init, matching `USB_EhciPhyInit`.
-    phy_w(phy_off::TRIM_OVERRIDE_EN, 0x001F);
-    phy_w(phy_off::CTRL_SET, CTRL_ENUTMILEVEL2 | CTRL_ENUTMILEVEL3);
-    phy_w(phy_off::PWD, 0);
+    phy_write!(TRIM_OVERRIDE_EN, 0x001F);
+    phy_write!(CTRL_SET, CTRL_ENUTMILEVEL2 | CTRL_ENUTMILEVEL3);
+    phy_write!(PWD, 0);
 
     // 5. Apply the transmit calibration trims.
-    let tx = phy_r(phy_off::TX);
+    let tx = phy_read!(TX);
     // D_CAL occupies bits 3:0, TXCAL45DP bits 19:16, TXCAL45DM bits 11:8.
     let tx = tx & !(0x000F | 0x0F00 | 0x000F_0000);
     let tx = tx | (cfg.d_cal & 0xF) | ((cfg.txcal45dm & 0xF) << 8) | ((cfg.txcal45dp & 0xF) << 16);
-    phy_w(phy_off::TX, tx);
+    phy_write!(TX, tx);
 }
 
 /// Power down the USBPHY and gate the USB clocks.
@@ -180,11 +163,11 @@ pub(crate) unsafe fn deinit_clocks_and_phy() {
     use crate::pac::MRCC0;
 
     // Power down PHY (all bits set powers everything down).
-    phy_w(phy_off::PWD, 0xFFFF_FFFF);
+    phy_write!(PWD, 0xFFFF_FFFF);
     // Power down PLL.
-    phy_w(phy_off::PLL_SIC_CLR, PLL_EN_USB_CLKS | PLL_POWER | PLL_REG_ENABLE);
+    phy_write!(PLL_SIC_CLR, PLL_EN_USB_CLKS | PLL_POWER | PLL_REG_ENABLE);
     // Gate the PHY clock.
-    phy_w(phy_off::CTRL_SET, CTRL_CLKGATE);
+    phy_write!(CTRL_SET, CTRL_CLKGATE);
 
     MRCC0.mrcc_glb_cc2().modify(|w| {
         w.set_usb1(false);
