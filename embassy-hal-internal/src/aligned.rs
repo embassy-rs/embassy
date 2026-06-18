@@ -3,57 +3,6 @@
 use core::mem;
 
 use aligned::{Aligned, Alignment};
-use as_slice::{AsMutSlice, AsSlice};
-
-/// Create an aligned slice from an aligned array
-pub trait AsAligned {
-    /// Slice element
-    type Element;
-    /// Slice alignment
-    type Alignment: Alignment;
-
-    /// Create the slice
-    fn as_aligned(&self) -> &Aligned<Self::Alignment, [Self::Element]>;
-}
-
-/// Create an aligned slice from an aligned array
-pub trait AsMutAligned {
-    /// Slice element
-    type Element;
-    /// Slice alignment
-    type Alignment: Alignment;
-
-    /// Create the slice
-    fn as_mut_aligned(&mut self) -> &mut Aligned<Self::Alignment, [Self::Element]>;
-}
-
-impl<A, T> AsAligned for Aligned<A, T>
-where
-    A: Alignment,
-    T: AsSlice,
-{
-    type Element = T::Element;
-    type Alignment = A;
-
-    #[inline]
-    fn as_aligned(&self) -> &Aligned<A, [T::Element]> {
-        unsafe { mem::transmute(T::as_slice(&**self)) }
-    }
-}
-
-impl<A, T> AsMutAligned for Aligned<A, T>
-where
-    A: Alignment,
-    T: AsMutSlice,
-{
-    type Element = T::Element;
-    type Alignment = A;
-
-    #[inline]
-    fn as_mut_aligned(&mut self) -> &mut Aligned<A, [T::Element]> {
-        unsafe { mem::transmute(T::as_mut_slice(&mut **self)) }
-    }
-}
 
 /// Create an aligned value from a non-aligned value
 pub trait ToAligned {
