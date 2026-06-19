@@ -28,8 +28,8 @@ use crate::gpio::{DriveStrength, GpioPin, Pull, SlewRate};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 pub use crate::pac::flexspi::Flexspi as Regs;
 use crate::pac::flexspi::{
-    Ahbcr, Ahbrxbuf0cr0, Flshcr0, Flshcr1, Flshcr2, Flshcr4, Intr, Ipcmd, Ipcr0, Ipcr1, Iprxfcr, Iptxfcr, Lut, Lutcr,
-    Lutkey, Mcr0, Tfdr,
+    Ahbcr, Ahbrxbuf0cr0, Dllcr, Flshcr0, Flshcr1, Flshcr2, Flshcr4, Intr, Ipcmd, Ipcr0, Ipcr1, Iprxfcr, Iptxfcr, Lut,
+    Lutcr, Lutkey, Mcr0, Tfdr,
 };
 use crate::{interrupt, pac};
 
@@ -693,6 +693,17 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         });
         self.info.regs.iptxfcr().modify(|r: &mut Iptxfcr| r.set_txwmrk(0));
         self.info.regs.iprxfcr().modify(|r: &mut Iprxfcr| r.set_rxwmrk(0));
+
+        // Read-strobe (sample clock) delay line. For the loopback RXCLKSRC modes
+        // this driver uses (RXCLKSRC = loopback-from-DQS-pad), the SDK programs
+        // DLLCR to FLEXSPI_DLLCR_DEFAULT == OVRDEN=1, OVRDVAL=0 -- a fixed,
+        // minimal delay -- regardless of the serial clock; only the
+        // external-DQS path uses the frequency-dependent DLL. The reset value 0
+        // leaves the override path disabled. DLLCR is per port (A = 0, B = 1).
+        self.info
+            .regs
+            .dllcr((self.chip_index >> 1) as usize)
+            .write(|r: &mut Dllcr| r.set_ovrden(pac::flexspi::Ovrden::Value1));
 
         self.load_lut(self.flash.lookup_table);
         self.software_reset();
