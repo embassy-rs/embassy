@@ -664,9 +664,14 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             .flshcr2(self.chip_index as usize)
             .write(|r: &mut Flshcr2| {
                 r.set_ardseqid(self.flash.read_seq);
-                r.set_ardseqnum(1);
+                // ARDSEQNUM/AWRSEQNUM are encoded as (sequence count - 1): the
+                // controller runs `field + 1` LUT sequences for an AHB-triggered
+                // read/write. We define a single sequence per operation, so the
+                // field must be 0. The SDK writes `ARDSeqNumber - 1` with
+                // ARDSeqNumber == 1, i.e. 0; writing 1 requested two sequences.
+                r.set_ardseqnum(0);
                 r.set_awrseqid(self.flash.page_program_seq);
-                r.set_awrseqnum(1);
+                r.set_awrseqnum(0);
                 r.set_awrwait(0);
                 r.set_awrwaitunit(pac::flexspi::Awrwaitunit::Val0);
                 r.set_clrinstrptr(false);
