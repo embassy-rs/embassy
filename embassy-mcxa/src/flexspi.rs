@@ -616,6 +616,15 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         self.info.regs.mcr0().write(|r: &mut Mcr0| {
             r.set_mdis(pac::flexspi::Mdis::Val0);
             r.set_rxclksrc(pac::flexspi::Rxclksrc::Val1);
+            // Match the SDK's arbitration / low-power defaults. IPGRANTWAIT and
+            // AHBGRANTWAIT bound how many (1024-serial-clock) cycles an IP- or
+            // AHB-triggered command waits for the sequence-engine grant before a
+            // grant-timeout error; the reset value 0 is the shortest window.
+            // DOZEEN lets the controller halt when the SoC asserts doze (deep
+            // low power). A bare `write` would otherwise leave all three at 0.
+            r.set_ipgrantwait(0xff);
+            r.set_ahbgrantwait(0xff);
+            r.set_dozeen(pac::flexspi::Dozeen::Val1);
         });
         self.info.regs.ahbcr().write(|r: &mut Ahbcr| {
             r.set_aparen(pac::flexspi::Aparen::Individual);
