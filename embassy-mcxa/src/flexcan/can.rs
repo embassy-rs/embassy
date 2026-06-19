@@ -1,12 +1,45 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
+use core::convert::Infallible;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
+use embassy_hal_internal::Peri;
 
 use crate::flexcan::mailbox::tx;
+use crate::flexcan::frame::Frame;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use nxp_pac::can as pac;
+
+/// FlexCAN driver bound to a single instance (CAN0/CAN1).
+pub struct Can<'d, T: Instance> {
+    info: &'static Info,
+    _peri: Peri<'d, T>,
+}
+
+impl<'d, T: Instance> Can<'d, T> {
+    pub fn new(peri: Peri<'d, T>, /* rx/tx pins, Config, irq binding */) -> Self {
+        // enable_and_reset clocks, then the init steps your mailbox.rs notes call out:
+        //   CTRL2[RRS] = 1, IMASK1 = all 1s, tx_available = all 1s, etc.
+        Self { info: T::info(), _peri: peri }
+    }
+
+    pub async fn send(&mut self, frame: Frame) {
+        use core::future::poll_fn;
+        use nb::Error::{WouldBlock, Other};
+        use core::task::Poll;
+
+        let message = tx::TxMessage::from(frame);
+        poll_fn(|cx| {
+            self.info.tx_waker.register(cx.waker());
+            match tx::dispatch::<T>(&message) {
+                Ok(()) => Poll::Ready(()),
+                Err(WouldBlock) => Poll::Pending,
+                Err(Other(e)) => match e {},
+            }
+        }).await
+    }
+}
 
 /// Info and state for a single FlexCAN instance.
 pub(crate) struct Info {
@@ -25,6 +58,9 @@ pub(crate) struct Info {
     /// 
     /// TLDR: These bits are set by `dispatch()` for REMOTE frames, and cleared by the ISR once the buffer has been neutralized back to TX-INACTIVE.
     pub tx_remote: AtomicU32,
+
+    /// Waker used to wake tasks awaiting on a CAN send() call.
+    pub tx_waker: AtomicWaker,
 }
 
 impl Info {
@@ -81,6 +117,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             // Actually clear the interrupt flag
             can.iflag1().write(|w| w.0 = tx_fired); // IFLAG1 is a "write 1 to clear" register. So, doing this basically just acknowledges that these interrupts fired, and clears them back to zero (so they can fire again in the future).
             info.tx_available.fetch_or(tx_fired, Ordering::Release); // Update the `tx_available` tracker accordingly.
+            info.tx_waker.wake(); // Tell sleepers that there's an available TX buffer now
         }
 
         // u_TODO: when RX (Enhanced RX FIFO: erfsr/erfier) and error/bus-off (esr1/ctrl1) handling are added, demux them here
@@ -98,6 +135,7 @@ macro_rules! impl_flexcan_instance {
                         regs: crate::pac::[<CAN $n>],
                         tx_available: core::sync::atomic::AtomicU32::new(0),
                         tx_remote: core::sync::atomic::AtomicU32::new(0),
+                        tx_waker: embassy_sync::waitqueue::AtomicWaker::new(),
                     };
                     &INFO
                 }

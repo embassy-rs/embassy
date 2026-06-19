@@ -113,7 +113,7 @@ pub(in crate::flexcan) mod tx {
         pub(in crate::flexcan) const TANSWER:  u8 = Self::TxTanswer as u8;
     }
 
-    struct TxMessage{inner: Message}
+    pub(in crate::flexcan) struct TxMessage{inner: Message}
     impl TxMessage {
         /// Gets the current reading of this message's `CODE` field.
         const fn code(&self) -> Result<TxCode, TxError> {
