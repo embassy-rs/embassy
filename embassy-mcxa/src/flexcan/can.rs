@@ -4,6 +4,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::flexcan::mailbox::tx;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use nxp_pac::can as pac;
 
@@ -14,8 +15,16 @@ pub(crate) struct Info {
     /// Each bit indicates the if that message buffer (one of the 32) is available for TX use.
     /// If `1`, the message buffer can be used to transmit a new TX message.
     /// If `0`, the message buffer is currently claimed and in-use.
-    /// These bits get set by the ISR, and cleared by the TX future.
     pub tx_available: AtomicU32,
+
+    /// Each bit indicates whether that message buffer was last used to transmit a REMOTE
+    /// (RTR = 1) frame. This is needed because after a REMOTE frame is transmitted, the hardware automatically
+    /// flips the message buffer to RX-EMPTY instead of TX-INACTIVE (see page 1548 of the datasheet). Because of that,
+    /// we need the ISR to manually write TX-INACTIVE back to any message buffer where an REMOTE message was sent. These bits
+    /// let the ISR track what buffers it needs to do this for.
+    /// 
+    /// TLDR: These bits are set by `dispatch()` for REMOTE frames, and cleared by the ISR once the buffer has been neutralized back to TX-INACTIVE.
+    pub tx_remote: AtomicU32,
 }
 
 impl Info {
@@ -53,6 +62,23 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 
         // If any TX buffers have fired, we can reset them and mark them as available for re-use now.
         if tx_fired != 0 {
+
+            // For more context about this following block, see the comment above `tx_remote`. TLDR: This block of code
+            // is only relavent when we transmit REMOTE frames.
+            let remote_fired = tx_fired & info.tx_remote.load(Ordering::Relaxed);
+            if remote_fired != 0 {
+                let mut bits = remote_fired;
+                while bits != 0 {
+                    let n = bits.trailing_zeros() as usize;
+                    tx::buffer::deactivate::<T>(n); // INACTIVE
+                    bits &= bits - 1; // Clear the lowest set bit.
+                }
+                // Clear the remote markings before the buffers are advertised as available, so
+                // that `dispatch()` never observes a free buffer that is still flagged remote.
+                info.tx_remote.fetch_and(!remote_fired, Ordering::Relaxed);
+            }
+
+            // Actually clear the interrupt flag
             can.iflag1().write(|w| w.0 = tx_fired); // IFLAG1 is a "write 1 to clear" register. So, doing this basically just acknowledges that these interrupts fired, and clears them back to zero (so they can fire again in the future).
             info.tx_available.fetch_or(tx_fired, Ordering::Release); // Update the `tx_available` tracker accordingly.
         }
@@ -70,8 +96,8 @@ macro_rules! impl_flexcan_instance {
                 fn info() -> &'static crate::flexcan::can::Info {
                     static INFO: crate::flexcan::can::Info = crate::flexcan::can::Info {
                         regs: crate::pac::[<CAN $n>],
-                        tx_done: core::sync::atomic::AtomicU32::new(0),
-                        tx_waker: embassy_sync::waitqueue::AtomicWaker::new(),
+                        tx_available: core::sync::atomic::AtomicU32::new(0),
+                        tx_remote: core::sync::atomic::AtomicU32::new(0),
                     };
                     &INFO
                 }
