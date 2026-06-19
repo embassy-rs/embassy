@@ -889,6 +889,25 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     fn prepare_ip_transfer(&mut self) {
+        // Recover from a previous async operation that was cancelled (its future
+        // dropped) mid-command -- e.g. the caller wrapped it in `with_timeout`
+        // and it elapsed. That can leave the sequence engine non-idle (CS
+        // asserted, TX-FIFO underrun), after which a plain `wait_idle()` would
+        // spin forever. A software reset forces idle, de-asserts CS, resets the
+        // instruction pointer, and flushes the FIFOs; the LUT and controller
+        // config survive it (the init path relies on exactly this). A single
+        // SEQIDLE sample is authoritative: SEQIDLE only deasserts on a fresh
+        // IPCMD trigger and none is pending here, so a still-draining command
+        // holds it low rather than reading idle mid-sequence.
+        //
+        // This is cancel-safety (correctness), not a timeout: *how long* to wait
+        // for an operation, and whether to give up, is policy left to the caller
+        // (wrap the async op in `with_timeout` with an application-specific
+        // budget). The driver only guarantees that a cancelled op does not wedge
+        // the next one.
+        if self.info.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {
+            self.software_reset();
+        }
         self.wait_idle();
         self.info.pending_events().store(0, Ordering::Release);
 
