@@ -417,14 +417,32 @@ impl<'a> Rtc<'a> {
     }
 
     fn disable_write_protect(&mut self) {
-        self.info.regs().status8().write_value(0b00);
-        self.info.regs().status8().write_value(0b01);
-        self.info.regs().status8().write_value(0b11);
-        self.info.regs().status8().write_value(0b10);
+        // The Write Enable (WE) state machine is STATUS bits [7:6], NOT [1:0].
+        // Unlocking requires writing WE = 0b00, 0b01, 0b11, 0b10 in sequence,
+        // i.e. full-byte values 0x00, 0x40, 0xC0, 0x80. The previous code wrote
+        // 0x00,0x01,0x03,0x02 which targets bits [1:0], leaving WE = 00 forever,
+        // so write protection was never actually cleared. Once the RTC auto-locks
+        // after the power-on grace window, register writes fault (precise BusFault).
+        //
+        // CRITICAL: the WE sequence must only be run when protection is currently
+        // ENGAGED. Replaying it from an already-unlocked state re-arms protection
+        // (observed: write_prot_en false -> true), which then faults the very next
+        // register write. Guard on write_prot_en so the no-op case (already
+        // unlocked, e.g. at POR during set_configuration) leaves the RTC writable.
+        if self.info.regs().status().read().write_prot_en() {
+            self.info.regs().status8().write_value(0x00);
+            self.info.regs().status8().write_value(0x40);
+            self.info.regs().status8().write_value(0xC0);
+            self.info.regs().status8().write_value(0x80);
+        }
     }
 
     fn enable_write_protect(&mut self) {
-        self.info.regs().status8().write_value(0b10);
+        // Re-engage write protection with a single out-of-sequence WE write
+        // (WE = 0b10 -> full-byte 0x80). This is safe at the end of any write
+        // path because the preceding register writes have already completed; only
+        // replaying the full unlock sequence from an unlocked state is dangerous.
+        self.info.regs().status8().write_value(0x80);
     }
 
     fn is_valid_datetime(&self, t: DateTime) -> Result<(), RtcError> {
@@ -611,13 +629,28 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         T::PERF_INT_INCR();
 
+        let regs = T::info().regs();
+
         // Check if this is actually a time alarm interrupt
-        let status = T::info().regs().isr().read();
+        let status = regs.isr().read();
 
         if status.alm_is() {
-            T::info().regs().ier().modify(|w| w.set_alm_ie(false));
+            // The RTC re-engages write protection on its own grace timer, which can
+            // elapse during the wait between arming the alarm and it firing. Clearing
+            // ALM_IE below is a protected register write, so re-run the WE unlock
+            // sequence first if protection re-armed — otherwise this faults
+            // (escalated BusFault at the IER register). The sequence must only run
+            // when actually locked; replaying it from an unlocked state re-locks.
+            if regs.status().read().write_prot_en() {
+                regs.status8().write_value(0x00);
+                regs.status8().write_value(0x40);
+                regs.status8().write_value(0xC0);
+                regs.status8().write_value(0x80);
+            }
+            regs.ier().modify(|w| w.set_alm_ie(false));
             T::PERF_INT_WAKE_INCR();
             T::info().wait_cell().wake();
+
         }
     }
 }
