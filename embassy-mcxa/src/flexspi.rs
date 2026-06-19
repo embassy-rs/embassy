@@ -627,7 +627,14 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             r.set_readaddropt(pac::flexspi::Readaddropt::Val0);
             r.set_resumedisable(pac::flexspi::Resumedisable::Val0);
             r.set_readszalign(pac::flexspi::Readszalign::Val0);
-            r.set_aflashbase(0x8);
+            // AFLASHBASE (AHBCR[31:28], 256 MB-granular) must stay 0 on MCXA577.
+            // The SoC bus matrix strips the AHB window base (secure 0x9000_0000 /
+            // non-secure 0x8000_0000) and presents the controller a window-relative
+            // offset, so there is no base to subtract here. Any non-zero value folds
+            // high bits into the internal flash address that then exceed
+            // FLSHCR0.FLSHSZ, making every memory-mapped (AHB/XIP) access bus-fault.
+            // The NXP SDK likewise never programs this field on this part.
+            r.set_aflashbase(0);
         });
         self.info.regs.ahbrxbuf0cr0().write(|r: &mut Ahbrxbuf0cr0| {
             r.set_bufsz(0xff);
