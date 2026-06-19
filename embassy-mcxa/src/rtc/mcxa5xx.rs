@@ -650,7 +650,6 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             regs.ier().modify(|w| w.set_alm_ie(false));
             T::PERF_INT_WAKE_INCR();
             T::info().wait_cell().wake();
-
         }
     }
 }
