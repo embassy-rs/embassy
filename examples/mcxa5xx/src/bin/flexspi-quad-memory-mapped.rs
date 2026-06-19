@@ -68,7 +68,10 @@ async fn main(_spawner: Spawner) {
     let mut flash = NorFlash::new(flexspi);
 
     // Program a known pattern into one sector using IP commands.
-    info!("Programming sector at flash offset 0x{=u32:08x} via IP commands", FLASH_OFFSET);
+    info!(
+        "Programming sector at flash offset 0x{=u32:08x} via IP commands",
+        FLASH_OFFSET
+    );
     unwrap!(flash.blocking_erase_sector(FLASH_OFFSET));
     let mut page = [0u8; FLASH_PAGE_SIZE];
     for pg in 0..(FLASH_SECTOR_SIZE / FLASH_PAGE_SIZE) as u32 {
@@ -79,7 +82,10 @@ async fn main(_spawner: Spawner) {
 
     // Read the whole sector back through the memory-mapped window only.
     let window_addr = FLEXSPI_AMBA_BASE + FLASH_OFFSET;
-    info!("Reading it back through the memory-mapped window at 0x{=u32:08x}", window_addr);
+    info!(
+        "Reading it back through the memory-mapped window at 0x{=u32:08x}",
+        window_addr
+    );
     let mut readback = [0u8; FLASH_SECTOR_SIZE];
     memory_mapped_read(FLASH_OFFSET, &mut readback);
 
