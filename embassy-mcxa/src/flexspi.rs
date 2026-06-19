@@ -28,8 +28,8 @@ use crate::gpio::{DriveStrength, GpioPin, Pull, SlewRate};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 pub use crate::pac::flexspi::Flexspi as Regs;
 use crate::pac::flexspi::{
-    Ahbcr, Ahbrxbuf0cr0, Flshcr0, Flshcr1, Flshcr2, Flshcr4, Intr, Ipcmd, Ipcr0, Ipcr1, Iprxfcr, Iptxfcr, Lut, Lutcr,
-    Lutkey, Mcr0, Tfdr,
+    Ahbcr, Ahbrxbuf0cr0, Dllcr, Flshcr0, Flshcr1, Flshcr2, Flshcr4, Intr, Ipcmd, Ipcr0, Ipcr1, Iprxfcr, Iptxfcr, Lut,
+    Lutcr, Lutkey, Mcr0, Tfdr,
 };
 use crate::{interrupt, pac};
 
@@ -616,6 +616,15 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         self.info.regs.mcr0().write(|r: &mut Mcr0| {
             r.set_mdis(pac::flexspi::Mdis::Val0);
             r.set_rxclksrc(pac::flexspi::Rxclksrc::Val1);
+            // Match the SDK's arbitration / low-power defaults. IPGRANTWAIT and
+            // AHBGRANTWAIT bound how many (1024-serial-clock) cycles an IP- or
+            // AHB-triggered command waits for the sequence-engine grant before a
+            // grant-timeout error; the reset value 0 is the shortest window.
+            // DOZEEN lets the controller halt when the SoC asserts doze (deep
+            // low power). A bare `write` would otherwise leave all three at 0.
+            r.set_ipgrantwait(0xff);
+            r.set_ahbgrantwait(0xff);
+            r.set_dozeen(pac::flexspi::Dozeen::Val1);
         });
         self.info.regs.ahbcr().write(|r: &mut Ahbcr| {
             r.set_aparen(pac::flexspi::Aparen::Individual);
@@ -627,7 +636,14 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             r.set_readaddropt(pac::flexspi::Readaddropt::Val0);
             r.set_resumedisable(pac::flexspi::Resumedisable::Val0);
             r.set_readszalign(pac::flexspi::Readszalign::Val0);
-            r.set_aflashbase(0x8);
+            // AFLASHBASE (AHBCR[31:28], 256 MB-granular) must stay 0 on MCXA577.
+            // The SoC bus matrix strips the AHB window base (secure 0x9000_0000 /
+            // non-secure 0x8000_0000) and presents the controller a window-relative
+            // offset, so there is no base to subtract here. Any non-zero value folds
+            // high bits into the internal flash address that then exceed
+            // FLSHCR0.FLSHSZ, making every memory-mapped (AHB/XIP) access bus-fault.
+            // The NXP SDK likewise never programs this field on this part.
+            r.set_aflashbase(0);
         });
         self.info.regs.ahbrxbuf0cr0().write(|r: &mut Ahbrxbuf0cr0| {
             r.set_bufsz(0xff);
@@ -657,9 +673,14 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
             .flshcr2(self.chip_index as usize)
             .write(|r: &mut Flshcr2| {
                 r.set_ardseqid(self.flash.read_seq);
-                r.set_ardseqnum(1);
+                // ARDSEQNUM/AWRSEQNUM are encoded as (sequence count - 1): the
+                // controller runs `field + 1` LUT sequences for an AHB-triggered
+                // read/write. We define a single sequence per operation, so the
+                // field must be 0. The SDK writes `ARDSeqNumber - 1` with
+                // ARDSeqNumber == 1, i.e. 0; writing 1 requested two sequences.
+                r.set_ardseqnum(0);
                 r.set_awrseqid(self.flash.page_program_seq);
-                r.set_awrseqnum(1);
+                r.set_awrseqnum(0);
                 r.set_awrwait(0);
                 r.set_awrwaitunit(pac::flexspi::Awrwaitunit::Val0);
                 r.set_clrinstrptr(false);
@@ -672,6 +693,17 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         });
         self.info.regs.iptxfcr().modify(|r: &mut Iptxfcr| r.set_txwmrk(0));
         self.info.regs.iprxfcr().modify(|r: &mut Iprxfcr| r.set_rxwmrk(0));
+
+        // Read-strobe (sample clock) delay line. For the loopback RXCLKSRC modes
+        // this driver uses (RXCLKSRC = loopback-from-DQS-pad), the SDK programs
+        // DLLCR to FLEXSPI_DLLCR_DEFAULT == OVRDEN=1, OVRDVAL=0 -- a fixed,
+        // minimal delay -- regardless of the serial clock; only the
+        // external-DQS path uses the frequency-dependent DLL. The reset value 0
+        // leaves the override path disabled. DLLCR is per port (A = 0, B = 1).
+        self.info
+            .regs
+            .dllcr((self.chip_index >> 1) as usize)
+            .write(|r: &mut Dllcr| r.set_ovrden(pac::flexspi::Ovrden::Value1));
 
         self.load_lut(self.flash.lookup_table);
         self.software_reset();
