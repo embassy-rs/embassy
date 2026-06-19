@@ -494,12 +494,22 @@ impl From<IoError> for SetupError {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum IoError {
-    Command { error_code: pac::flexspi::Ipcmderrcode },
+    Command {
+        error_code: pac::flexspi::Ipcmderrcode,
+    },
     CommandGrantTimeout,
     Dma(crate::dma::TransferErrors),
     InterruptWait,
     InvalidDmaParameters,
     InvalidTransferLength,
+    /// A `page_program` address or length is not 8-byte aligned, or the write
+    /// would cross a page boundary. The FlexSPI IP write path corrupts the byte
+    /// before a non-8-aligned start address, so writes must be 8-byte aligned
+    /// (the same granularity the DMA path requires); and a program that crosses
+    /// a page wraps the column address within that page.
+    Misaligned,
+    /// The requested access extends past the configured flash size.
+    OutOfBounds,
 }
 
 impl From<crate::dma::InvalidParameters> for IoError {
@@ -762,6 +772,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     pub fn erase_sector(&mut self, address: u32) -> Result<(), IoError> {
+        self.check_in_bounds(address, 1)?;
         self.write_enable()?;
         self.issue_ip_command(address, self.flash.erase_sector_seq as usize, 0, None)?;
         self.wait_bus_busy()?;
@@ -769,6 +780,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     pub fn read(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), IoError> {
+        self.check_in_bounds(address, buffer.len())?;
         let mut offset = 0;
 
         while offset < buffer.len() {
@@ -788,9 +800,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     pub fn page_program(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
-        if data.is_empty() || data.len() > self.flash.page_size {
-            return Err(IoError::InvalidTransferLength);
-        }
+        self.check_program(address, data.len())?;
 
         self.write_enable()?;
 
@@ -798,6 +808,36 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
 
         self.wait_bus_busy()?;
         Ok(())
+    }
+
+    /// Total addressable flash size in bytes.
+    fn flash_size_bytes(&self) -> u64 {
+        self.flash.flash_size_kbytes as u64 * 1024
+    }
+
+    /// Reject a read/erase access that runs past the end of the device.
+    fn check_in_bounds(&self, address: u32, len: usize) -> Result<(), IoError> {
+        if address as u64 + len as u64 > self.flash_size_bytes() {
+            return Err(IoError::OutOfBounds);
+        }
+        Ok(())
+    }
+
+    /// Validate a page-program request: non-empty and no larger than a page,
+    /// 8-byte aligned (the FlexSPI IP-write granularity; a non-aligned start
+    /// corrupts the preceding byte), not crossing a page boundary, and within
+    /// the device.
+    fn check_program(&self, address: u32, len: usize) -> Result<(), IoError> {
+        if len == 0 || len > self.flash.page_size {
+            return Err(IoError::InvalidTransferLength);
+        }
+        if address % 8 != 0 || len % 8 != 0 {
+            return Err(IoError::Misaligned);
+        }
+        if (address as usize % self.flash.page_size) + len > self.flash.page_size {
+            return Err(IoError::Misaligned);
+        }
+        self.check_in_bounds(address, len)
     }
 
     fn write_enable(&mut self) -> Result<(), IoError> {
@@ -1013,6 +1053,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
     }
 
     pub async fn erase_sector_async(&mut self, address: u32) -> Result<(), IoError> {
+        self.check_in_bounds(address, 1)?;
         self.write_enable_async().await?;
         self.issue_ip_command_async(address, self.flash.erase_sector_seq as usize, 0, None)
             .await?;
@@ -1022,6 +1063,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
     }
 
     pub async fn read_async(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), IoError> {
+        self.check_in_bounds(address, buffer.len())?;
         let mut offset = 0;
 
         while offset < buffer.len() {
@@ -1057,9 +1099,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
     }
 
     pub async fn page_program_async(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
-        if data.is_empty() || data.len() > self.flash.page_size {
-            return Err(IoError::InvalidTransferLength);
-        }
+        self.check_program(address, data.len())?;
 
         self.write_enable_async().await?;
 
