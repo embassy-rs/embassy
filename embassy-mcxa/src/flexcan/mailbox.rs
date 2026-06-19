@@ -24,10 +24,11 @@ struct Message {
     pub payload: [u8; 8],
 }
 
-pub(crate) mod tx {
+pub(in crate::flexcan) mod tx {
     use super::Message;
     use super::pac;
     use crate::flexcan::can::Instance;
+    use crate::flexcan::frame::{Frame, Id};
     use core::sync::atomic::Ordering;
     use core::convert::Infallible;
 
@@ -91,7 +92,7 @@ pub(crate) mod tx {
     /// Represents the possible values of the `CODE` field inside a TX message.
     /// See pages 1546 - 1548 of the datasheet.
     #[repr(u8)]
-    pub(crate) enum TxCode {
+    pub(in crate::flexcan) enum TxCode {
         /// TX: INACTIVE - Message buffer is not active.
         TxInactive = 0b1000,
 
@@ -106,16 +107,16 @@ pub(crate) mod tx {
     }
 
     impl TxCode {
-        pub(crate) const INACTIVE: u8 = Self::TxInactive as u8;
-        pub(crate) const ABORT:    u8 = Self::TxAbort as u8;
-        pub(crate) const READY:    u8 = Self::TxReady as u8;
-        pub(crate) const TANSWER:  u8 = Self::TxTanswer as u8;
+        pub(in crate::flexcan) const INACTIVE: u8 = Self::TxInactive as u8;
+        pub(in crate::flexcan) const ABORT:    u8 = Self::TxAbort as u8;
+        pub(in crate::flexcan) const READY:    u8 = Self::TxReady as u8;
+        pub(in crate::flexcan) const TANSWER:  u8 = Self::TxTanswer as u8;
     }
 
     struct TxMessage{inner: Message}
     impl TxMessage {
         /// Gets the current reading of this message's `CODE` field.
-        fn code(&self) -> Result<TxCode, TxError> {
+        const fn code(&self) -> Result<TxCode, TxError> {
             let code: u8 = self.inner.cs.code();
             match code {
                 TxCode::INACTIVE => Ok(TxCode::TxInactive),
@@ -127,9 +128,7 @@ pub(crate) mod tx {
         }
 
         /// Sets this message's `CODE` field.
-        /// Note: Passing in `TxData` or `TxRemote` may also impact the status of the `RTR` bit, since
-        /// TxData requires RTR = 0 and TxRemote requires RTR = 1.
-        fn set_code(&mut self, code: TxCode) {
+        const fn set_code(&mut self, code: TxCode) {
             match code {
                 TxCode::TxInactive => self.inner.cs.set_code(TxCode::INACTIVE),
                 TxCode::TxAbort =>    self.inner.cs.set_code(TxCode::ABORT),
@@ -139,8 +138,40 @@ pub(crate) mod tx {
         }
     }
 
+    // Converts a generic `Frame` into a hardware-specific `TxMessage`.
+    // Lets you do stuff like `let frame: TxMessage = frame.into()` (where `frame` starts as a `Frame`)
+    impl From<Frame> for TxMessage {
+        fn from(frame: Frame) -> Self {
+            use embedded_can::Frame;
+
+            let mut message = TxMessage { inner: Message { cs: pac::Cs(0), id: pac::Id(0), payload: frame.data } };
+
+            message.inner.cs.set_edl(false);
+            message.inner.cs.set_rtr(frame.is_remote_frame());
+            message.inner.cs.set_dlc(frame.dlc() as u8);
+
+            match frame.id() {
+                Id::Standard(sid)  => { 
+                    message.inner.cs.set_ide(false);
+                    message.inner.id.set_std(sid.as_raw());
+                }
+
+                Id::Extended(eid)  => { 
+                    message.inner.cs.set_ide(true);
+                    message.inner.cs.set_srr(true);
+                    message.inner.id.set_std(eid.standard_id().as_raw());
+                    message.inner.id.set_ext(eid.as_raw());
+                }
+            }
+
+            message.set_code(TxCode::TxReady);
+
+            message
+        }
+    }
+
     /// Finds an available space in the message buffer, 
-    pub(crate) fn dispatch<T: Instance>(message: &TxMessage) -> nb::Result<(), Infallible> {
+    pub(in crate::flexcan) fn dispatch<T: Instance>(message: &TxMessage) -> nb::Result<(), Infallible> {
         let info = T::info();
 
         // This loop exists to prevent races to claim a buffer if multiple
