@@ -1,11 +1,13 @@
+//! This module contains a bunch of random helpers for controlling/configuring the FlexCAN peripheral.
+
 use crate::flexcan::can::Info;
 use core::marker::PhantomData;
 use embassy_time::Duration;
 use nxp_pac::can as pac;
 
-/// Allows you to configure the CAN peripheral.
+/// Contains a bunch of random helpers for controlling/configuring the FlexCAN peripheral.
 #[allow(dead_code)]
-pub(in crate::flexcan) struct Config<'a> {
+pub(in crate::flexcan) struct Control<'a> {
     info: &'static Info,
     _lt: PhantomData<&'a mut ()>,
 }
@@ -13,7 +15,7 @@ pub(in crate::flexcan) struct Config<'a> {
 // u_Note: default MCR for CAN0: 11011000100100000000000000001111
 // u_Note: default MCR for CAN1: 11011000100100000000010000001111
 
-impl<'a> Config<'a> {
+impl<'a> Control<'a> {
     pub(in crate::flexcan) fn new(info: &'static Info) -> Self {
         Self { info, _lt: PhantomData }
     }
@@ -29,7 +31,7 @@ impl<'a> Config<'a> {
     /// Takes the FlexCAN out of Disable (low-power) mode.
     /// WARNING: This function is blocking! It doesn't return until the hardware confirms that the module has left low-power mode.
     /// Pass `None` as the timeout to wait indefinitely.
-    pub(in crate::flexcan) fn enable(&mut self, timeout: Option<Duration>) -> Result<(), ConfigError> {
+    pub(in crate::flexcan) fn enable(&mut self, timeout: Option<Duration>) -> Result<(), ControlError> {
         use embassy_time::Instant;
 
         // Request module enable by clearing MCR[MDIS].
@@ -40,7 +42,7 @@ impl<'a> Config<'a> {
         while self.info.regs.mcr().read().lpmack() != pac::Lpmack::LowPowerNo {
             if let Some(deadline) = deadline {
                 if Instant::now() >= deadline {
-                    return Err(ConfigError::EnableTimeout);
+                    return Err(ControlError::EnableTimeout);
                 }
             }
         }
@@ -51,7 +53,7 @@ impl<'a> Config<'a> {
     /// Puts the FlexCAN into Freeze mode.
     /// WARNING: This function is blocking! It doesn't return until the hardware confirms that we have entered freeze mode. 
     /// Pass `None` as the timeout to wait indefinitely.
-    pub(in crate::flexcan) fn freeze(&mut self, timeout: Option<Duration>) -> Result<(), ConfigError> {
+    pub(in crate::flexcan) fn freeze(&mut self, timeout: Option<Duration>) -> Result<(), ControlError> {
         use embassy_time::Instant;
 
         // Request Freeze via MCR[FRZ]=1 and MCR[HALT]=1
@@ -65,7 +67,7 @@ impl<'a> Config<'a> {
         while self.info.regs.mcr().read().frzack() != pac::Frzack::FreezeModeYes {
             if let Some(deadline) = deadline {
                 if Instant::now() >= deadline {
-                    return Err(ConfigError::FreezeTimeout);
+                    return Err(ControlError::FreezeTimeout);
                 }
             }
         }
@@ -83,11 +85,11 @@ impl<'a> Config<'a> {
     }
 }
 
-/// Errors that can occur when configuring stuff.
+/// Errors that can occur when controlling stuff via the `Control` module.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(in crate::flexcan) enum ConfigError {
+pub(in crate::flexcan) enum ControlError {
     /// The hardware did not assert `MCR[FRZACK]` within the requested time bound.
     FreezeTimeout,
 

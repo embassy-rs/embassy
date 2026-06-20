@@ -6,7 +6,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_hal_internal::Peri;
 
 use crate::flexcan::mailbox::tx;
-use crate::flexcan::config::{Config, ConfigError};
+use crate::flexcan::control::{Control, ControlError};
 use crate::flexcan::frame::Frame;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use nxp_pac::can as pac;
@@ -23,31 +23,30 @@ pub struct Can<'d> {
 }
 
 impl<'d> Can<'d> {
-    pub fn new<T: Instance>(_peri: Peri<'d, T>, /* rx/tx pins, Config, irq binding */) -> Result<Self, ConfigError> {
+    pub fn new<T: Instance>(_peri: Peri<'d, T>, /* rx/tx pins, Config, irq binding */) -> Result<Self, ControlError> {
         use embassy_time::Duration;
 
         let info = T::info();
         let mut can = Self { info, _phantom: PhantomData };
 
-        can.config().enable(Some(Duration::from_millis(10)))?;
+        can.control().enable(Some(Duration::from_millis(10)))?;
 
         // As of right now, the whole HAL is based around us having 32 message buffers.
         // So, this isn't something the user should be able to configure.
         const NUM_MESSAGE_BUFFERS: u8 = 32; 
-        can.config().set_number_of_message_buffers(NUM_MESSAGE_BUFFERS);
+        can.control().set_number_of_message_buffers(NUM_MESSAGE_BUFFERS);
 
         // enable_and_reset clocks, then the init steps from the u_Notes:
         //   CTRL2[RRS] = 1, IMASK1 = all 1s, tx_available = all 1s, etc.
 
-        can.config().unfreeze();
-        can
+        can.control().unfreeze();
+        Ok(can)
     }
 
-    /// Access the configuration sub-handler. Borrows the driver mutably so that
-    /// configuration can't run concurrently with other operations.
+    /// Access the `Control` sub-handler, which contains a bunch of random helpers for controlling/configuring the FlexCAN peripheral.
     #[allow(dead_code)]
-    fn config(&mut self) -> Config<'_> {
-        Config::new(self.info)
+    fn control(&mut self) -> Control<'_> {
+        Control::new(self.info)
     }
 
     /// Sends a CAN message.
