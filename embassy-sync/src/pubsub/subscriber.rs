@@ -35,7 +35,8 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Sub<'a, PSB, T> {
 
     /// Poll for the next published message, preserving lag results.
     pub fn poll_next_message(&mut self, cx: &mut Context<'_>) -> Poll<WaitResult<T>> {
-        self.channel.get_message_with_context(&mut self.next_message_id, Some(cx))
+        self.channel
+            .get_message_with_context(&mut self.next_message_id, Some(cx))
     }
 
     /// Wait for a published message (ignoring lag results)
