@@ -1,29 +1,58 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
-use core::convert::Infallible;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_hal_internal::Peri;
 
 use crate::flexcan::mailbox::tx;
+use crate::flexcan::config::{Config, ConfigError};
 use crate::flexcan::frame::Frame;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use nxp_pac::can as pac;
 
+// u_Note: eventually when an init function exists, set CTRL2[RRS] = 1
+// u_Note: also need to write IMASK1 to all 1s at boot time, since we're dedicating the whole 32 message buffers to TX
+// u_Note: also need to write all 1s to tx_available in init
+// u_Note: eventually, when handling BusOff, im basically just going to reset the TX state (so set all 32 MBs back to INACTIVE, clear all IFLAG1 bits, clear all the bits in tx_remote, and set all the bits in tx_available).
+
 /// FlexCAN driver bound to a single instance (CAN0/CAN1).
-pub struct Can<'d, T: Instance> {
+pub struct Can<'d> {
     info: &'static Info,
-    _peri: Peri<'d, T>,
+    _phantom: PhantomData<&'d mut ()>,
 }
 
-impl<'d, T: Instance> Can<'d, T> {
-    pub fn new(peri: Peri<'d, T>, /* rx/tx pins, Config, irq binding */) -> Self {
-        // enable_and_reset clocks, then the init steps your mailbox.rs notes call out:
+impl<'d> Can<'d> {
+    pub fn new<T: Instance>(_peri: Peri<'d, T>, /* rx/tx pins, Config, irq binding */) -> Result<Self, ConfigError> {
+        use embassy_time::Duration;
+
+        let info = T::info();
+        let mut can = Self { info, _phantom: PhantomData };
+
+        can.config().enable(Some(Duration::from_millis(10)))?;
+
+        // As of right now, the whole HAL is based around us having 32 message buffers.
+        // So, this isn't something the user should be able to configure.
+        const NUM_MESSAGE_BUFFERS: u8 = 32; 
+        can.config().set_number_of_message_buffers(NUM_MESSAGE_BUFFERS);
+
+        // enable_and_reset clocks, then the init steps from the u_Notes:
         //   CTRL2[RRS] = 1, IMASK1 = all 1s, tx_available = all 1s, etc.
-        Self { info: T::info(), _peri: peri }
+
+        can.config().unfreeze();
+        can
     }
 
+    /// Access the configuration sub-handler. Borrows the driver mutably so that
+    /// configuration can't run concurrently with other operations.
+    #[allow(dead_code)]
+    fn config(&mut self) -> Config<'_> {
+        Config::new(self.info)
+    }
+
+    /// Sends a CAN message.
+    /// If there's no space left in the TX buffers, this
+    /// call asynchronously waits for space to free up, and then tries again.
     pub async fn send(&mut self, frame: Frame) {
         use core::future::poll_fn;
         use nb::Error::{WouldBlock, Other};
@@ -32,7 +61,7 @@ impl<'d, T: Instance> Can<'d, T> {
         let message = tx::TxMessage::from(frame);
         poll_fn(|cx| {
             self.info.tx_waker.register(cx.waker());
-            match tx::dispatch::<T>(&message) {
+            match tx::dispatch(self.info, &message) {
                 Ok(()) => Poll::Ready(()),
                 Err(WouldBlock) => Poll::Pending,
                 Err(Other(e)) => match e {},
@@ -82,9 +111,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 
 /// FlexCAN interrupt handler.
 /// Construct this in a `bind_interrupts!` block to route an IRQ (e.g., CAN0, CAN1) here.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
-}
+pub struct InterruptHandler<T: Instance> { _phantom: PhantomData<T> }
 
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
@@ -106,7 +133,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
                 let mut bits = remote_fired;
                 while bits != 0 {
                     let n = bits.trailing_zeros() as usize;
-                    tx::buffer::deactivate::<T>(n); // INACTIVE
+                    tx::buffer::deactivate(info, n); // INACTIVE
                     bits &= bits - 1; // Clear the lowest set bit.
                 }
                 // Clear the remote markings before the buffers are advertised as available, so

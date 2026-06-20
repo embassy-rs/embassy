@@ -8,11 +8,6 @@
 //! This FIFO can store 12 messages, which are filled automatically by the hardware as they come in.
 //! Messages can be dequeued from this FIFO by reading the 2000h - 2048h memory area as a message buffer, and then setting the erfda flag (to tell the hardware that the memory area is ready to be filled with the next message from the FIFO).
 
-// u_Note: eventually when an init function exists, set CTRL2[RRS] = 1
-// u_Note: also need to write IMASK1 to all 1s at boot time, since we're dedicating the whole 32 message buffers to TX
-// u_Note: also need to write all 1s to tx_available in init
-// u_Note: eventually, when handling BusOff, im basically just going to reset the TX state (so set all 32 MBs back to INACTIVE, clear all IFLAG1 bits, clear all the bits in tx_remote, and set all the bits in tx_available).
-
 use nxp_pac::can as pac;
 
 /// The "raw" data structure of a FlexCAN message described in the datasheet.
@@ -27,7 +22,7 @@ struct Message {
 pub(in crate::flexcan) mod tx {
     use super::Message;
     use super::pac;
-    use crate::flexcan::can::Instance;
+    use crate::flexcan::can::Info;
     use crate::flexcan::frame::{Frame, Id};
     use core::sync::atomic::Ordering;
     use core::convert::Infallible;
@@ -36,16 +31,14 @@ pub(in crate::flexcan) mod tx {
     pub mod buffer {
         use super::Message;
         use super::TxMessage;
-        use super::Instance;
-        use super::Ordering;
+        use super::Info;
         use super::TxCode;
 
         /// Writes a `TxMessage` into one of the 32 message buffers.
+        /// * `info` - The type-erased instance handle.
         /// * `message` - The TxMessage to write.
         /// * `n` - The message buffer element to write (0 through 31).
-        pub fn write<T: Instance>(message: &TxMessage, n: usize) {
-            let info = T::info();
-
+        pub fn write(info: &Info, message: &TxMessage, n: usize) {
             // Write in the payload
             let [b0, b1, b2, b3, b4, b5, b6, b7] = message.inner.payload;
             let word0 = u32::from_be_bytes([b0, b1, b2, b3]);
@@ -58,10 +51,9 @@ pub(in crate::flexcan) mod tx {
         }
 
         /// Reads one of the 32 message buffers into a `TxMessage`.
+        /// * `info` - The type-erased instance handle.
         /// * `n` - The message buffer element to read (0 through 31).
-        pub fn read<T: Instance>(n: usize) -> TxMessage {
-            let info = T::info();
-
+        pub fn read(info: &Info, n: usize) -> TxMessage {
             let cs = info.regs.cs(n).read();
             let id = info.regs.id(n).read();
 
@@ -76,9 +68,9 @@ pub(in crate::flexcan) mod tx {
         }
 
         /// Sets a buffer to its `INACTIVE` state. Only the CS register is affected.
+        /// * `info` - The type-erased instance handle.
         /// * `n` - The buffer to reset (0 through 31).
-        pub fn deactivate<T: Instance>(n: usize) {
-            let info = T::info();
+        pub fn deactivate(info: &Info, n: usize) {
             info.regs.cs(n).write(|w| w.set_code(TxCode::INACTIVE));
         }
     }
@@ -171,9 +163,7 @@ pub(in crate::flexcan) mod tx {
     }
 
     /// Finds an available space in the message buffer, 
-    pub(in crate::flexcan) fn dispatch<T: Instance>(message: &TxMessage) -> nb::Result<(), Infallible> {
-        let info = T::info();
-
+    pub(in crate::flexcan) fn dispatch(info: &Info, message: &TxMessage) -> nb::Result<(), Infallible> {
         // This loop exists to prevent races to claim a buffer if multiple
         // senders call dispatch() at the same time. In practice though,
         // this loop will never run more than once unless there's multiple
@@ -196,7 +186,7 @@ pub(in crate::flexcan) mod tx {
                 if message.inner.cs.rtr() {
                     info.tx_remote.fetch_or(mask, Ordering::Release);
                 }
-                buffer::write::<T>(message, n as usize);
+                buffer::write(info, message, n as usize);
                 return Ok(());
             }
             // Another sender claimed the buffer first, so loop and try a different buffer.

@@ -1,4 +1,5 @@
-pub mod frame_old;
-pub mod mailbox;
 pub mod can;
 pub mod frame;
+mod config;
+mod frame_old;
+mod mailbox;
