@@ -14,7 +14,10 @@ use nxp_pac::can as pac;
 // u_Note: eventually when an init function exists, set CTRL2[RRS] = 1
 // u_Note: also need to write IMASK1 to all 1s at boot time, since we're dedicating the whole 32 message buffers to TX
 // u_Note: also need to write all 1s to tx_available in init
+
 // u_Note: eventually, when handling BusOff, im basically just going to reset the TX state (so set all 32 MBs back to INACTIVE, clear all IFLAG1 bits, clear all the bits in tx_remote, and set all the bits in tx_available).
+// ^^^^ probably make a mailbox::init() function or maybe even tx::init() to handle this stuff
+// (this way, can call those functions in both new() and whatever the busoff handling ends up looking like so i dont need to repeat that code)
 
 /// FlexCAN driver bound to a single instance (CAN0/CAN1).
 pub struct Can<'d> {
@@ -29,7 +32,8 @@ impl<'d> Can<'d> {
         let info = T::info();
         let mut can = Self { info, _phantom: PhantomData };
 
-        can.control().enable(Some(Duration::from_millis(10)))?;
+        const ENABLE_TIMEOUT: u64 = 10; // Timeout for the `.enable()` call in ms
+        can.control().enable(Some(Duration::from_millis(ENABLE_TIMEOUT)))?;
 
         // As of right now, the whole HAL is based around us having 32 message buffers.
         // So, this isn't something the user should be able to configure.
@@ -38,6 +42,7 @@ impl<'d> Can<'d> {
 
         // enable_and_reset clocks, then the init steps from the u_Notes:
         //   CTRL2[RRS] = 1, IMASK1 = all 1s, tx_available = all 1s, etc.
+
 
         can.control().unfreeze();
         Ok(can)

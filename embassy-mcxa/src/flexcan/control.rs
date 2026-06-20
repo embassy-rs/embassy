@@ -85,7 +85,8 @@ impl<'a> Control<'a> {
     }
 }
 
-/// Errors that can occur when controlling stuff via the `Control` module.
+/// Errors that can occur when controlling/configuring the FlexCAN,
+/// ususally during init-time or when modifying its core operating mode(s).
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
