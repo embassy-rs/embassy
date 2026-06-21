@@ -1,7 +1,7 @@
 //! Serial Peripheral Interface (SPI)
 #![macro_use]
 
-#[cfg(exti)]
+#[cfg(feature = "exti")]
 mod ringbuffered;
 use core::marker::PhantomData;
 use core::ptr;
@@ -10,7 +10,7 @@ use core::sync::atomic::{Ordering, fence};
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
-#[cfg(exti)]
+#[cfg(feature = "exti")]
 pub use ringbuffered::RingBufferedSpiRx;
 
 use crate::Peri;
