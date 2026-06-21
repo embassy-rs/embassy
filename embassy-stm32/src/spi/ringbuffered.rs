@@ -12,7 +12,7 @@ use futures_util::future::select;
 use super::{Config, Error, Info, RegsExt, Spi, Word, check_error_flags, mode::Slave, reconfigure, set_rxdmaen};
 use crate::dma::ReadableRingBuffer;
 use crate::exti::{Channel, ExtiInput, InterruptHandler};
-use crate::gpio::Flex;
+use crate::gpio::{Flex, Pin};
 use crate::interrupt::typelevel::Binding;
 use crate::mode::Async;
 use crate::rcc::WakeGuard;
@@ -97,6 +97,8 @@ impl<'d> Spi<'d, Async, Slave> {
         let miso = unsafe { self.miso.as_ref().map(|x| x.clone_unchecked()) };
         let nss = unsafe { self.nss.as_ref().unwrap().clone_unchecked() };
 
+        // verify at runtime whether given EXTI channel is associated with NSS pin
+        assert_eq!(nss.pin.pin(), ch.number());
         // EXTI can be used on alternate function pins
         // this feature seems to be undocumented though
         let nss = unsafe { ExtiInput::from_flex(nss, ch, irq) };
