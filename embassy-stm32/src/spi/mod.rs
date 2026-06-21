@@ -1,8 +1,9 @@
 //! Serial Peripheral Interface (SPI)
 #![macro_use]
 
+#[cfg(exti)]
 mod ringbuffered;
-
+#[cfg(exti)]
 pub use ringbuffered::RingBufferedSpiRx;
 
 use core::marker::PhantomData;
