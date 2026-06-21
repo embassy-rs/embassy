@@ -173,6 +173,11 @@ path = "src/bin/hash.rs"
 required-features = [ "hash",]
 
 [[bin]]
+name = "hash_dma"
+path = "src/bin/hash_dma.rs"
+required-features = [ "hash-v34",]
+
+[[bin]]
 name = "rng"
 path = "src/bin/rng.rs"
 required-features = [ "rng",]
