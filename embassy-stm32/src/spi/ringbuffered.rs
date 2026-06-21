@@ -16,6 +16,8 @@ use crate::gpio::{Flex, Pin};
 use crate::interrupt::typelevel::Binding;
 use crate::mode::Async;
 use crate::rcc::WakeGuard;
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+use crate::spi::SlaveSelectPolarity;
 use crate::time::Hertz;
 
 /// Rx-only Ring-buffered SPI Driver
@@ -33,11 +35,12 @@ use crate::time::Hertz;
 /// the behavior of the sender, the size of the buffer passed
 /// to the function:
 ///
-/// - If the sender pull NSS level high, then any bytes in the ring buffer
+/// - If the slave is deselected (either rising or falling edge on NSS pin
+/// depending on SPI configuration), then any bytes in the ring buffer
 /// will be returned. If there are no bytes in the buffer, the check will
-/// be repeated each time the NSS rising edge is detected, so if the
+/// be repeated each time the NSS deselect edge is detected, so if the
 /// sender sends just a single byte, it will be returned once the NSS
-/// rising edge is detected.
+/// deselect edge is detected.
 ///
 /// - If the sender sends continuously, the call will wait until
 /// the DMA controller indicates that it has written to either the
@@ -54,6 +57,8 @@ pub struct RingBufferedSpiRx<'d, W: Word> {
     _mosi: Option<Flex<'d>>,
     _miso: Option<Flex<'d>>,
     nss: ExtiInput<'d, Async>,
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    nss_polarity: SlaveSelectPolarity,
     ring_buf: ReadableRingBuffer<'d, W>,
 }
 
@@ -105,6 +110,13 @@ impl<'d> Spi<'d, Async, Slave> {
 
         let wake_guard = self.info.rcc.wake_guard();
 
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        let nss_polarity = if self.info.regs.cfg2().read().ssiop() == super::vals::Ssiop::ActiveLow {
+            SlaveSelectPolarity::ActiveLow
+        } else {
+            SlaveSelectPolarity::ActiveHigh
+        };
+
         // Don't disable the clock
         mem::forget(self);
 
@@ -120,6 +132,8 @@ impl<'d> Spi<'d, Async, Slave> {
             _mosi: mosi,
             _miso: miso,
             nss,
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            nss_polarity,
             ring_buf,
         }
     }
@@ -128,6 +142,10 @@ impl<'d> Spi<'d, Async, Slave> {
 impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ()> {
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        {
+            self.nss_polarity = config.nss_polarity;
+        }
         #[cfg(gpio_v2)]
         super::set_speed(&self._sck, &self._mosi, config.gpio_speed);
         reconfigure(self.info, self.kernel_clock, config)
@@ -198,12 +216,16 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
                 }
             }
 
-            self.wait_for_data_or_nss_rising().await;
+            self.wait_for_data_or_nss_deselect_edge().await;
         }
     }
 
-    /// Wait for NSS rising edge or dma half-full or full
-    async fn wait_for_data_or_nss_rising(&mut self) {
+    /// Wait for NSS deselect edge or dma half-full or full.
+    ///
+    /// NSS deselect edge is:
+    /// spi_v1, spi_v2, spi_v3 - not configurable, always rising edge
+    /// spi_v4, spi_v5, spi_v6 - configurable, matches slave select polarity
+    async fn wait_for_data_or_nss_deselect_edge(&mut self) {
         compiler_fence(Ordering::SeqCst);
 
         let mut dma_init = false;
@@ -221,11 +243,29 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
             status
         });
 
-        // Future which completes when NSS rising edge is detected
-        let exti = self.nss.wait_for_rising_edge();
-        let exti = pin!(exti);
+        // Future which completes when NSS deselect edge is detected
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        match self.nss_polarity {
+            SlaveSelectPolarity::ActiveHigh => {
+                let exti = self.nss.wait_for_falling_edge();
+                let exti = pin!(exti);
 
-        select(exti, dma).await;
+                select(exti, dma).await;
+            }
+            SlaveSelectPolarity::ActiveLow => {
+                let exti = self.nss.wait_for_rising_edge();
+                let exti = pin!(exti);
+
+                select(exti, dma).await;
+            }
+        };
+        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+        {
+            let exti = self.nss.wait_for_rising_edge();
+            let exti = pin!(exti);
+
+            select(exti, dma).await;
+        }
     }
 
     /// Read bytes that are readily available in the ring buffer.
