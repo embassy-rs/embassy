@@ -9,7 +9,8 @@ use embassy_hal_internal::Peri;
 use embedded_io_async::ReadReady;
 use futures_util::future::select;
 
-use super::{Config, Error, Info, RegsExt, Spi, Word, check_error_flags, mode::Slave, reconfigure, set_rxdmaen};
+use super::mode::Slave;
+use super::{Config, Error, Info, RegsExt, Spi, Word, check_error_flags, reconfigure, set_rxdmaen};
 use crate::dma::ReadableRingBuffer;
 use crate::exti::{Channel, ExtiInput, InterruptHandler};
 use crate::gpio::{Flex, Pin};

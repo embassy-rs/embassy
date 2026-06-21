@@ -3,9 +3,6 @@
 
 #[cfg(exti)]
 mod ringbuffered;
-#[cfg(exti)]
-pub use ringbuffered::RingBufferedSpiRx;
-
 use core::marker::PhantomData;
 use core::ptr;
 use core::sync::atomic::{Ordering, fence};
@@ -13,6 +10,8 @@ use core::sync::atomic::{Ordering, fence};
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
+#[cfg(exti)]
+pub use ringbuffered::RingBufferedSpiRx;
 
 use crate::Peri;
 use crate::dma::{ChannelAndRequest, word};
