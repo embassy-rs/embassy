@@ -6,7 +6,7 @@ use pac::adc::vals::{Adcaldif, Boost};
 use pac::adc::vals::Adcaldif;
 #[allow(unused)]
 use pac::adc::vals::{Adstp, Dmngt, Exten, Pcsel};
-#[cfg(not(any(stm32u3, stm32n6)))]f
+#[cfg(not(any(stm32u3, stm32n6)))]
 use pac::adccommon::vals::Presc;
 
 #[cfg(any(stm32u5, stm32u3, stm32n6))]
