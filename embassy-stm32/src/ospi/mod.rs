@@ -269,7 +269,9 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_ddtr(write_config.ddtr);
 
             w.set_abmode(PhaseMode::from_bits(write_config.abwidth.into()));
-            w.set_dqse(write_config.dqse);
+            // Always Enable DQS bit - without this bit set every write request returns an error
+            // See "ES0491 - Rev 9 - 2.8.6 - Memory-mapped write error response when DQS output is disabled"
+            w.set_dqse(true);
         });
 
         reg.wtcr().modify(|w| w.set_dcyc(write_config.dummy.into()));
@@ -284,6 +286,11 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
     /// Quit from memory mapped mode
     pub fn disable_memory_mapped_mode(&mut self) {
+        // Ensure memory transactions have completed.
+        // If this is called immediately after writing to memory mapped memory a BusFault of type
+        // 'Imprecise data access error' could occur.
+        cortex_m::asm::dsb();
+
         let reg = T::REGS;
 
         reg.cr().modify(|r| {
