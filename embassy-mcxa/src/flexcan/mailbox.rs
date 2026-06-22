@@ -8,7 +8,9 @@
 //! This FIFO can store 12 messages, which are filled automatically by the hardware as they come in.
 //! Messages can be dequeued from this FIFO by reading the 2000h - 2048h memory area as a message buffer, and then setting the erfda flag (to tell the hardware that the memory area is ready to be filled with the next message from the FIFO).
 
+use cortex_m::register::control::Control;
 use nxp_pac::can as pac;
+use crate::flexcan::can::Info;
 
 /// The "raw" data structure of a FlexCAN message described in the datasheet.
 /// For Classic CAN, this is the CS Register (4 bytes), the Id Register (4 bytes), and the 8-byte message payload.
@@ -19,16 +21,26 @@ struct Message {
     pub payload: [u8; 8],
 }
 
+/// Possible errors that may occur during mailbox operations.
+pub(in crate::flexcan) enum MailboxError {
+    /// During a mailbox operation, hardware failed to respond within a reasonable timeframe.
+    Timeout,
+
+    /// When trying to read the `CODE` field of a TX message, no known `TxCode` variant matched.
+    UnknownTxCode,
+}
+
 pub(in crate::flexcan) mod tx {
     use super::Message;
     use super::pac;
     use crate::flexcan::can::Info;
     use crate::flexcan::frame::{Frame, Id};
+    use crate::flexcan::mailbox::MailboxError;
     use core::sync::atomic::Ordering;
     use core::convert::Infallible;
 
     /// Represents the message buffer memory area (80h - 27Fh), which this HAL uses for dispatching TX messages.
-    pub mod buffer {
+    pub(in crate::flexcan) mod buffer {
         use super::Message;
         use super::TxMessage;
         use super::Info;
@@ -70,15 +82,62 @@ pub(in crate::flexcan) mod tx {
         /// Sets a buffer to its `INACTIVE` state. Only the CS register is affected.
         /// * `info` - The type-erased instance handle.
         /// * `n` - The buffer to reset (0 through 31).
-        pub fn deactivate(info: &Info, n: usize) {
+        pub fn set_inactive(info: &Info, n: usize) {
             info.regs.cs(n).write(|w| w.set_code(TxCode::INACTIVE));
         }
     }
 
-    /// Possible errors from mailbox::tx
-    enum TxError {
-        /// When trying to read the `CODE` field of a TX message, no known `TxCode` variant matched.
-        UnknownCodeReading,
+    /// Sets up the the FlexCAN mailbox for TX.
+    /// This function resets the TX message buffers and our state tracking for what buffers are available.
+    pub(in crate::flexcan) fn setup(info: &Info) -> Result<(), MailboxError> {
+        use core::sync::atomic::Ordering;
+        use embassy_time::{Duration, Instant};
+
+        let mut control = crate::flexcan::control::Control::new(info);
+
+        // Make sure we're frozen before continuing.
+        const FREEZE_TIMEOUT: u64 = 10; // ms
+        match control.freeze(Some(Duration::from_millis(FREEZE_TIMEOUT))) {
+            Ok(_) => (),
+            Err(_) => { return Err(MailboxError::Timeout); }
+        }
+
+        // Disable all 32 interrupts via the IMASK1 register
+        const IMASK1_DISABLED: u32 = 0x0000_0000;
+        info.regs.imask1().write(|w| w.0 = IMASK1_DISABLED);
+
+        // Clear all IFLAG1 bits (this register is "write 1 to clear", so writing all 1s will clear the whole register)
+        const IFLAG1_INIT: u32 = 0xFFFF_FFFF;
+        info.regs.iflag1().write(|w| w.0 = IFLAG1_INIT);
+
+        // Make sure IFLAG1 register actually clears before moving forward
+        const IFLAG1_TIMEOUT: u64 = 10; // Timeout for IFLAG1 readback, in ms.
+        const IFLAG1_CLEARED: u32 = 0x0000_0000; // IFLAG1 register with all bits cleared
+        let deadline = Instant::now() + Duration::from_millis(IFLAG1_TIMEOUT);
+        while info.regs.iflag1().read().0 != IFLAG1_CLEARED {
+            if Instant::now() >= deadline {
+                return Err(MailboxError::Timeout);
+            }
+        }
+
+        // Initialize tx_available so all bits are set, indicating that all 32 message buffers are available for use.
+        const TX_AVAILABLE_INIT: u32 = 0xFFFF_FFFF;
+        info.tx_available.store(TX_AVAILABLE_INIT, Ordering::SeqCst);
+
+        // Initialize tx_remote so all bits are cleared, indicating that no message buffers were last used to send REMOTE frames (which is true because we just initialized and haven't sent ~any~ messages in this session yet).
+        const TX_REMOTE_INIT: u32 = 0x0000_0000;
+        info.tx_remote.store(TX_REMOTE_INIT, Ordering::SeqCst);
+
+        // Set all 32 TX message buffers to INACTIVE
+        for i in 0..32 {
+            buffer::set_inactive(info, i);
+        }
+
+        // Re-enable interrupts. Set all 32 IMASK1 bits, since we want all 32 message buffers to have an interrupt in IFLAG1
+        const IMASK1_INIT: u32 = 0xFFFF_FFFF;
+        info.regs.imask1().write(|w| w.0 = IMASK1_INIT);
+
+        Ok(())
     }
 
     /// Represents the possible values of the `CODE` field inside a TX message.
@@ -108,14 +167,14 @@ pub(in crate::flexcan) mod tx {
     pub(in crate::flexcan) struct TxMessage{inner: Message}
     impl TxMessage {
         /// Gets the current reading of this message's `CODE` field.
-        const fn code(&self) -> Result<TxCode, TxError> {
+        const fn code(&self) -> Result<TxCode, MailboxError> {
             let code: u8 = self.inner.cs.code();
             match code {
                 TxCode::INACTIVE => Ok(TxCode::TxInactive),
                 TxCode::ABORT => Ok(TxCode::TxAbort),
                 TxCode::READY => Ok(TxCode::TxReady),
                 TxCode::TANSWER => Ok(TxCode::TxTanswer),
-                _ => Err(TxError::UnknownCodeReading)
+                _ => Err(MailboxError::UnknownTxCode)
             }
         }
 

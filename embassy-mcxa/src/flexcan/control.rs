@@ -8,7 +8,7 @@ use nxp_pac::can as pac;
 /// Contains a bunch of random helpers for controlling/configuring the FlexCAN peripheral.
 #[allow(dead_code)]
 pub(in crate::flexcan) struct Control<'a> {
-    info: &'static Info,
+    info: &'a Info,
     _lt: PhantomData<&'a mut ()>,
 }
 
@@ -16,7 +16,7 @@ pub(in crate::flexcan) struct Control<'a> {
 // u_Note: default MCR for CAN1: 11011000100100000000010000001111
 
 impl<'a> Control<'a> {
-    pub(in crate::flexcan) fn new(info: &'static Info) -> Self {
+    pub(in crate::flexcan) fn new(info: &'a Info) -> Self {
         Self { info, _lt: PhantomData }
     }
 
@@ -50,11 +50,17 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
-    /// Puts the FlexCAN into Freeze mode.
+    /// Puts the FlexCAN into Freeze mode. If the FlexCAN is already in Freeze mode, returns Ok(()).
+    /// 
     /// WARNING: This function is blocking! It doesn't return until the hardware confirms that we have entered freeze mode. 
     /// Pass `None` as the timeout to wait indefinitely.
     pub(in crate::flexcan) fn freeze(&mut self, timeout: Option<Duration>) -> Result<(), ControlError> {
         use embassy_time::Instant;
+
+        // If we're already frozen, don't need to do anything.
+        if self.is_frozen() {
+            return Ok(());
+        }
 
         // Request Freeze via MCR[FRZ]=1 and MCR[HALT]=1
         self.info.regs.mcr().modify(|m| {
@@ -64,7 +70,7 @@ impl<'a> Control<'a> {
 
         // Busy-wait for the freeze acknowledge
         let deadline = timeout.map(|t| Instant::now() + t);
-        while self.info.regs.mcr().read().frzack() != pac::Frzack::FreezeModeYes {
+        while !self.is_frozen() {
             if let Some(deadline) = deadline {
                 if Instant::now() >= deadline {
                     return Err(ControlError::FreezeTimeout);
@@ -82,6 +88,12 @@ impl<'a> Control<'a> {
             m.set_halt(pac::Halt::HaltDisable); 
             m.set_frz(pac::Frz::FreezeModeDisabled);
         })
+    }
+
+    /// Checks whether or not FlexCAN is actively in Freeze mode.
+    pub(in crate::flexcan) fn is_frozen(&self) -> bool {
+        let mcr = self.info.regs.mcr().read();
+        (mcr.halt() == pac::Halt::HaltEnable) && (mcr.frz() == pac::Frz::FreezeModeEnabled) && (mcr.frzack() == pac::Frzack::FreezeModeYes)
     }
 }
 

@@ -28,6 +28,7 @@ pub struct Can<'d> {
 impl<'d> Can<'d> {
     pub fn new<T: Instance>(_peri: Peri<'d, T>, /* rx/tx pins, Config, irq binding */) -> Result<Self, ControlError> {
         use embassy_time::Duration;
+        use crate::flexcan::mailbox;
 
         let info = T::info();
         let mut can = Self { info, _phantom: PhantomData };
@@ -42,6 +43,7 @@ impl<'d> Can<'d> {
 
         // enable_and_reset clocks, then the init steps from the u_Notes:
         //   CTRL2[RRS] = 1, IMASK1 = all 1s, tx_available = all 1s, etc.
+        mailbox::tx::setup(info);
 
 
         can.control().unfreeze();
@@ -76,6 +78,7 @@ impl<'d> Can<'d> {
 
 /// Info and state for a single FlexCAN instance.
 pub(crate) struct Info {
+    /// Raw FlexCAN registers.
     pub regs: pac::Can,
 
     /// Each bit indicates the if that message buffer (one of the 32) is available for TX use.
@@ -137,7 +140,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
                 let mut bits = remote_fired;
                 while bits != 0 {
                     let n = bits.trailing_zeros() as usize;
-                    tx::buffer::deactivate(info, n); // INACTIVE
+                    tx::buffer::set_inactive(info, n); // INACTIVE
                     bits &= bits - 1; // Clear the lowest set bit.
                 }
                 // Clear the remote markings before the buffers are advertised as available, so
@@ -147,6 +150,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 
             // Actually clear the interrupt flag
             can.iflag1().write(|w| w.0 = tx_fired); // IFLAG1 is a "write 1 to clear" register. So, doing this basically just acknowledges that these interrupts fired, and clears them back to zero (so they can fire again in the future).
+            let _ = can.iflag1().read(); // read back from the register so we make sure the write finished before we return from the ISR
             info.tx_available.fetch_or(tx_fired, Ordering::Release); // Update the `tx_available` tracker accordingly.
             info.tx_waker.wake(); // Tell sleepers that there's an available TX buffer now
         }
