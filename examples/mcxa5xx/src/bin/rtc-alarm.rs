@@ -33,8 +33,8 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Time set to: 2026-03-11 14:30:10");
     rtc.set_datetime(now).unwrap();
 
-    Timer::after_secs(15).await;
     defmt::info!("Wait for 15 seconds");
+    Timer::after_secs(15).await;
 
     let mut alarm = now;
     alarm.second += 20;
