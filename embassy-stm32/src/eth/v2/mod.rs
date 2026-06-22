@@ -7,7 +7,7 @@ use core::sync::atomic::{Ordering, fence};
 pub(crate) use descriptors::{RDes, RDesRing, TDes, TDesRing};
 use embassy_hal_internal::Peri;
 #[cfg(feature = "ptp")]
-pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement};
+pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement, PtpTimeProvider};
 #[cfg(eth_v2)]
 use stm32_metapac::syscfg::vals::EthSelPhy;
 
@@ -94,13 +94,13 @@ enum Pins<'d> {
 
 macro_rules! config_pins {
     ($($pin:ident),*) => {
+        config_pins!(@speed Speed::VeryHigh; $($pin),*)
+    };
+    (@speed $speed:expr; $($pin:ident),*) => {
         critical_section::with(|_| {
             $(
                 // TODO: shouldn't some pins be configured as inputs?
-                #[cfg(eth_v2)]
-                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-                #[cfg(eth_v2a)]
-                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::Low));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, $speed));
             )*
         })
     };
@@ -320,9 +320,12 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         mac_addr: [u8; 6],
         phy: P,
     ) -> Self {
+        // ST's example configures every ETH pin at VERY_HIGH speed
         config_pins!(
-            gtx_clk, tx_ctl, tx_d0, tx_d1, tx_d2, tx_d3, rx_clk, rx_ctl, rx_d0, rx_d1, rx_d2, rx_d3, clk125
+            tx_ctl, tx_d0, tx_d1, tx_d2, tx_d3, rx_clk, rx_ctl, rx_d0, rx_d1, rx_d2, rx_d3, clk125
         );
+        // GTX_CLK uses MEDIUM speed in ST's example
+        config_pins!(@speed Speed::Medium; gtx_clk);
 
         let pins = Pins::Rgmii([
             Flex::new(gtx_clk),

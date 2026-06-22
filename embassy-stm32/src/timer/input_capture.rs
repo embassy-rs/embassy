@@ -483,12 +483,20 @@ impl<T: GeneralInstance4Channel> Future for InputCaptureFuture<T> {
     type Output = T::Word;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        #[cfg(stm32l0)]
+        use crate::pac::timer::TimGp16 as timer;
+        #[cfg(not(stm32l0))]
+        use crate::pac::timer::TimGp32 as timer;
+
         T::state().cc_waker[self.channel.index()].register(cx.waker());
 
-        let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
+        let regs = unsafe { timer::from_ptr(T::regs()) };
 
         let dier = regs.dier().read();
         if !dier.ccie(self.channel.index()) {
+            #[cfg(not(stm32l0))]
+            let val = unwrap!(regs.ccr(self.channel.index()).read().try_into());
+            #[cfg(stm32l0)]
             let val = unwrap!(regs.ccr(self.channel.index()).read().ccr().try_into());
             Poll::Ready(val)
         } else {

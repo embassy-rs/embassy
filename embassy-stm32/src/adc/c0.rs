@@ -61,7 +61,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, _disable: bool) {
+    fn stop(&self) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
                 reg.set_adstp(Adstp::Stop);
@@ -75,6 +75,13 @@ impl AdcRegs for crate::pac::adc::Adc {
             reg.set_dmacfg(Dmacfg::from_bits(0));
             reg.set_dmaen(false);
         });
+    }
+
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {

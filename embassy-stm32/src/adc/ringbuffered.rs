@@ -77,7 +77,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
     pub fn stop(&mut self) {
         // Stop ADC hardware first (ADSTP, leave ADEN=1) so it stops issuing DMA
         // requests before we pause the DMA channel.
-        self.regs.stop(false);
+        self.regs.stop();
 
         self.ring_buf.request_pause();
 
@@ -221,7 +221,8 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
 
 impl<R: AdcRegs> Drop for RingBufferedAdc<'_, R> {
     fn drop(&mut self) {
-        self.regs.stop(true);
+        self.regs.stop();
+        self.regs.power_down();
 
         compiler_fence(Ordering::SeqCst);
 

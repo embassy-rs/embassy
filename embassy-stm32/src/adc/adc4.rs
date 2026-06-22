@@ -275,38 +275,27 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
     }
 
-    fn stop(&self, disable: bool) {
-        let cr = self.cr().read();
-
+    fn stop(&self) {
         // Stop any ongoing regular conversion via ADSTP (self-clearing).
         // Must be done before ADDIS per RM: software shall not set ADDIS while
         // ADSTART=1 or JADSTART=1.
-        if cr.adstart() {
+        if self.cr().read().adstart() {
             self.cr().modify(|w| w.set_adstp(true));
             while self.cr().read().adstart() {}
         }
 
-        // Disable only when the caller requests it (disable=true).  Keeping the
-        // ADC enabled (disable=false) after ADSTP leaves it in a suspended state
-        // where CFGR1/CHSELR/AWD registers can be safely reconfigured, and a
-        // subsequent `start()` call restarts conversion without the ADEN startup
-        // sequence.  This is the correct mode for RingBufferedAdc::stop() /
-        // start() used as a suspend/resume pair.
-        //
-        // TODO: align `disable` flag semantics with other ADC impls (c0, f1, l1,
-        // g4, v1-v4, f3 all handle this differently); ideally all impls expose a
-        // consistent enable/disable API so callers aren't surprised when porting.
-        if disable && cr.aden() {
-            // ADSTART=1 implies ADEN=1, so checking aden() alone is sufficient.
-            self.cr().modify(|w| w.set_addis(true));
-            while self.cr().read().aden() {}
-        }
-
-        // Always clear DMAEN so a stale DMA request is not serviced if the ADC
-        // is left enabled (disable=false) and the DMA channel is reconfigured.
+        // Clear DMAEN so a stale DMA request is not serviced while the DMA
+        // channel is reconfigured after stop().
         self.cfgr1().modify(|reg| {
             reg.set_dmaen(false);
         });
+    }
+
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|w| w.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {

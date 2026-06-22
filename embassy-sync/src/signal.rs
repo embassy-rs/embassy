@@ -86,7 +86,8 @@ where
         self.try_take();
     }
 
-    fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
+    /// Poll for state changes of this Signal.
+    pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
         self.state.lock(|cell| {
             let state = cell.replace(State::None);
             match state {

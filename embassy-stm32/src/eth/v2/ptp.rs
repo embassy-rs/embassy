@@ -1,3 +1,4 @@
+use core::fmt;
 use core::marker::PhantomData;
 
 use super::Instance;
@@ -91,6 +92,34 @@ pub struct PtpClock<T: Instance> {
     _peri: PhantomData<T>,
 }
 
+/// Read-only provider for the Ethernet MAC PTP time.
+pub struct PtpTimeProvider<T: Instance> {
+    _peri: PhantomData<T>,
+}
+
+impl<T: Instance> Clone for PtpTimeProvider<T> {
+    fn clone(&self) -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Instance> fmt::Debug for PtpTimeProvider<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PtpTimeProvider").finish()
+    }
+}
+
+impl<T: Instance> PtpTimeProvider<T> {
+    const fn new() -> Self {
+        Self { _peri: PhantomData }
+    }
+
+    /// Read the current MAC PTP time.
+    pub fn now(&self) -> PtpTimestamp {
+        read_timestamp::<T>()
+    }
+}
+
 impl<T: Instance> PtpClock<T> {
     pub(crate) fn start(config: PtpClockConfig) -> Self {
         let hclk = unwrap!(unsafe { crate::rcc::get_freqs() }.hclk1.to_hertz());
@@ -120,16 +149,14 @@ impl<T: Instance> PtpClock<T> {
         self.rate.nominal_addend
     }
 
+    /// Return a read-only provider for the MAC PTP time.
+    pub fn time_provider(&self) -> PtpTimeProvider<T> {
+        PtpTimeProvider::new()
+    }
+
     /// Read the current MAC PTP time.
     pub fn now(&self) -> PtpTimestamp {
-        let mac = T::regs().ethernet_mac();
-        loop {
-            let seconds = mac.macstsr().read().tss();
-            let nanos = mac.macstnr().read().tsss();
-            if seconds == mac.macstsr().read().tss() {
-                return PtpTimestamp { seconds, nanos };
-            }
-        }
+        read_timestamp::<T>()
     }
 
     /// Set the MAC PTP time.
@@ -175,6 +202,17 @@ impl<T: Instance> PtpClock<T> {
             w.set_snaptypsel(0b01);
             w.set_txtsstsm(true);
         });
+    }
+}
+
+fn read_timestamp<T: Instance>() -> PtpTimestamp {
+    let mac = T::regs().ethernet_mac();
+    loop {
+        let seconds = mac.macstsr().read().tss();
+        let nanos = mac.macstnr().read().tsss();
+        if seconds == mac.macstsr().read().tss() {
+            return PtpTimestamp { seconds, nanos };
+        }
     }
 }
 

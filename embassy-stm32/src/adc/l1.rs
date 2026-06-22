@@ -113,7 +113,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, disable: bool) {
+    fn stop(&self) {
         if self.cr2().read().adon() {
             while !self.csr().read().adons1() {}
         }
@@ -121,12 +121,11 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.cr2().modify(|w| w.set_adon(false));
 
         while self.csr().read().adons1() {}
+    }
 
-        if disable {
-            while !self.sr().read().adons() {}
-
-            self.cr2().modify(|w| w.set_adon(false));
-        }
+    fn power_down(&self) {
+        while !self.sr().read().adons() {}
+        self.cr2().modify(|w| w.set_adon(false));
     }
 
     fn wait_done(&self) -> bool {
@@ -223,7 +222,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
     }
 
     pub async fn set_resolution(&mut self, res: Resolution) {
-        T::regs().stop(false);
+        T::regs().stop();
         T::regs().cr1().modify(|w| w.set_res(res.into()));
     }
 
