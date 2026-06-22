@@ -171,6 +171,9 @@ pub struct TransferConfig {
     /// Data strobe (DQS) management enable
     pub dqse: bool,
     /// Send instruction only once (SIOO) mode enable
+    /// Enable this to improve memory-mapped latency. Ensure your device supports this mode.
+    /// Some manufacturers call this 'Continuous Read' mode and require specific bits to be set
+    /// in alternate bytes (e.g. Winbound W25Q) and specific disable sequences.
     pub sioo: bool,
 }
 
@@ -198,7 +201,7 @@ impl Default for TransferConfig {
             dummy: DummyCycles::_0,
 
             dqse: false,
-            sioo: true,
+            sioo: false,
         }
     }
 }
