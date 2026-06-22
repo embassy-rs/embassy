@@ -599,7 +599,6 @@ fn main() {
         g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
 
         g.extend(quote! {
-            #[cfg(not(stm32c5))]
             pub mod flash_regions { #flash_regions }
         });
     }
