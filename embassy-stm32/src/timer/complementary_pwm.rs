@@ -785,16 +785,31 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
             _ => unreachable!(),
         };
 
-        // 127
-        // 128
-        // ..
-        // 254
-        // 256
-        // ..
-        // 504
-        // 512
-        // ..
-        // 1008
+        // since DTG[7:5]=0xx => DT=DTG[7:0]x tdtg with tdtg=tDTS
+        // then DT/tDTS = DTG[7:0] (where DTG[7] is always 0)
+        // so DT/tDTS = 0..127
+        // also DTG[7:0] = DT/tDTS
+
+        // since DTG[7:5]=10x => DT=(64+DTG[5:0])xtdtg with Tdtg=2xtDTS
+        // then DT/tDTS = (64 + DTG[5:0]) * 2
+        // so DT/tDTS = (64 + 0..63) * 2 = 128..254
+        // also DTG[5:0] = DT/tDTS / 2 - 64
+        // and DTG[7:0] = (DT/tDTS / 2 - 64) | 128
+
+        // since DTG[7:5]=110 => DT=(32+DTG[4:0])xtdtg with Tdtg=8xtDTS
+        // then DT/tDTS = (32 + DTG[4:0]) * 8
+        // so DT/tDTS = (32 + 0..31) * 8 = 256..504
+        // also DTG[5:0] = DT/tDTS / 8 - 32
+        // and DTG[7:0] = (DT/tDTS / 8 - 32) | 192
+
+        // since DTG[7:5]=111 => DT=(32+DTG[4:0])xtdtg with Tdtg=16xtDTS
+        // then DT/tDTS = (32 + DTG[4:0]) * 16
+        // so DT/tDTS = (32 + 0..31) * 16 = 512..1008
+        // also DTG[5:0] = DT/tDTS / 16 - 32
+        // and DTG[7:0] = (DT/tDTS / 16 - 32) | 224
+
+        // because ranges do not cover all values they were
+        // extended such that values fall into nearest one
 
         let target = value / outdiv;
         let (these_bits, result) = if target < 128 {
