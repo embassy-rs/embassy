@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use embassy_time::Timer;
 use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
 use hal::peripherals::RTC0;
@@ -32,10 +33,13 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Time set to: 2026-03-11 14:30:10");
     rtc.set_datetime(now).unwrap();
 
+    Timer::after_secs(15).await;
+    defmt::info!("Wait for 15 seconds");
+
     let mut alarm = now;
     alarm.second += 20;
 
-    defmt::info!("Alarm set for: 2026-03-11 14:30:52 (+20 seconds)");
+    defmt::info!("Alarm set for: 2026-03-11 14:30:45 (+20 seconds)");
     rtc.wait_for_alarm(alarm).await.unwrap();
 
     defmt::info!("Example complete - Test PASSED!");
