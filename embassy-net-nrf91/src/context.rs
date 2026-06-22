@@ -24,6 +24,41 @@ pub struct Config<'a> {
     pub auth: Option<(&'a [u8], &'a [u8])>,
     /// SIM pin
     pub pin: Option<&'a [u8]>,
+    /// Desired radio system mode (`%XSYSTEMMODE`). Applied while the modem is
+    /// deactivated during [`configure`]. `None` leaves the modem's stored setting
+    /// unchanged.
+    pub system_mode: Option<SystemMode>,
+}
+
+/// Radio access technology selection, as set by `%XSYSTEMMODE`.
+///
+/// This must be configured while the modem is deactivated (CFUN=0), which
+/// [`Control::configure`] takes care of.
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct SystemMode {
+    /// Enable LTE-M (Cat-M1).
+    pub ltem: bool,
+    /// Enable NB-IoT.
+    pub nbiot: bool,
+    /// Enable GNSS.
+    pub gnss: bool,
+    /// Preferred access technology when more than one is enabled.
+    pub preference: SystemModePreference,
+}
+
+/// LTE preference for [`SystemMode`] (the `<LTE_preference>` parameter of
+/// `%XSYSTEMMODE`).
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum SystemModePreference {
+    /// No preference; selection is based on history and USIM.
+    None = 0,
+    /// LTE-M preferred.
+    Ltem = 1,
+    /// NB-IoT preferred.
+    Nbiot = 2,
 }
 
 /// Authentication protocol.
@@ -111,6 +146,18 @@ impl<'a> Control<'a> {
             .map_err(|_| Error::BufferTooSmall)?;
         let n = self.control.at_command(op, &mut buf).await;
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
+
+        if let Some(sm) = config.system_mode {
+            let op = CommandBuilder::create_set(&mut cmd, true)
+                .named("%XSYSTEMMODE")
+                .with_int_parameter(sm.ltem as i32)
+                .with_int_parameter(sm.nbiot as i32)
+                .with_int_parameter(sm.gnss as i32)
+                .with_int_parameter(sm.preference as i32)
+                .finish()
+                .map_err(|_| Error::BufferTooSmall)?;
+            let _ = self.control.at_command(op, &mut buf).await;
+        }
 
         let op = CommandBuilder::create_set(&mut cmd, true)
             .named("+CGDCONT")
