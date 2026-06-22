@@ -151,7 +151,10 @@ trait AdcRegs: BasicAdcRegs {
     fn wait_done(&self) -> bool;
     fn configure_dma(&self, conversion_mode: ConversionMode);
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
+    #[cfg(not(stm32n6))]
     fn data(&self) -> *mut u16;
+    #[cfg(stm32n6)]
+    fn data(&self) -> *mut u32;
 }
 
 #[cfg(any(adc_v2, adc_g4))]
