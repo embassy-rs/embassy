@@ -1,14 +1,13 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# defmt via RTT — logs appear in this terminal while probe-rs run is attached
-runner = "probe-rs run --chip RP235x --preverify"
+#runner = "probe-rs run --chip RP235x"
 #runner = "elf2uf2-rs -d"
-#runner = "picotool load -u -v -x -t elf"
+runner = "picotool load -u -v -x -t elf"
 
 [build]
 target = "thumbv8m.main-none-eabihf"
 
 [env]
-DEFMT_LOG = "debug"
+DEFMT_LOG = "info"
 # CAN baud from touch project: DemoHost=50k, Demo=500k (override: TOUCH_PROJECT=Demo)
 TOUCH_PROJECT = "DemoHost"
 DEP_LV_CONFIG_PATH = { value = "conf", relative = true }

@@ -13,7 +13,6 @@ embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-rp = { version = "0.10.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xb", "binary-info"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-usb = { version = "0.5.1", features = ["defmt"] }
 touch-hall-common = { path = "../touch-hall-common", features = ["rhai", "defmt"] }
 
 defmt = "1.0.1"
@@ -60,7 +59,6 @@ serde_json = "1.0"
 embassy-time = { path = "../../embassy-time" }
 embassy-sync = { path = "../../embassy-sync" }
 embassy-futures = { path = "../../embassy-futures" }
-embassy-usb-driver = { path = "../../embassy-usb-driver" }
 oxivgl = { path = "../rvt50hqsnwc00-b/vendor/oxivgl" }
 oxivgl-sys = { path = "../rvt50hqsnwc00-b/vendor/oxivgl-sys" }
 

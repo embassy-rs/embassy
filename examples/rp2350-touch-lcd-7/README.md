@@ -49,10 +49,16 @@ cargo build --bin oxivgl_widget_demo --features oxivgl
 cargo build --bin oxivgl_touch_can --features oxivgl
 ```
 
-Flash with probe-rs (default `.cargo/config.toml` runner), or switch the runner to `picotool` / `elf2uf2-rs` (see commented lines in `.cargo/config.toml`). UF2 also works — hold BOOT, copy `.uf2`:
+Flash and stream logs with **probe-rs** (default runner in `.cargo/config.toml`):
 
 ```bash
 cargo run --bin oxivgl_touch_can --features oxivgl
+```
+
+Attach to firmware that is already running:
+
+```bash
+probe-rs attach --chip RP235x
 ```
 
 Default touch project: [`DemoHost`](../touch-projects/DemoHost/) (**50 kbit/s** CAN, tx id `0x285`).
@@ -64,24 +70,17 @@ TOUCH_PROJECT=Demo cargo run --bin oxivgl_touch_can --features oxivgl
 
 CAN bitrate comes from `touch-projects/<name>/can_config.json` (`baud` field). XL2515 supports 5k–1M (see `xl2515.rs`).
 
-## USB monitor
+## Logging (probe-rs + defmt-rtt)
 
-Two CDC ports on the Type-C cable:
+defmt logs over SWD/RTT (same as `examples/rvt50hqsnwc00-b`):
 
-| Port | sysfs | Content |
-|------|-------|---------|
-| `if00` | Plain text (`usb_monitor::line`) |
-| `if01` or `if02` | `defmt` (Linux may skip `if01`) |
+| Command | Effect |
+|---------|--------|
+| `cargo run --bin gt911_touch` | Flash + logs |
+| `cargo run --bin oxivgl_touch_can --features oxivgl` | Flash hall/CAN demo + logs |
+| `probe-rs attach --chip RP235x` | Logs only (board already running) |
 
-**Do not assume `ttyACM0`** — numbering varies (`ttyACM1`/`ttyACM2` is common). Always use `./usb-monitor.sh` or `/dev/serial/by-id/...`.
-
-```bash
-./usb-monitor.sh text              # if00
-./usb-monitor.sh can_raw           # defmt decode for can_raw on if01
-./usb-monitor.sh defmt oxivgl_touch_can
-```
-
-`DEFMT_LOG` in `.cargo/config.toml` controls defmt level (default `info`).
+`DEFMT_LOG` in `.cargo/config.toml` sets the log level (default `debug`).
 
 ## Architecture notes
 
