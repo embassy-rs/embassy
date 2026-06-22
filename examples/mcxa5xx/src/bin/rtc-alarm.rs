@@ -1,9 +1,9 @@
 #![no_std]
 #![no_main]
 
-use embassy_time::Timer;
 use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
+use embassy_time::Timer;
 use hal::peripherals::RTC0;
 use hal::rtc::{DateTime, InterruptHandler, Month, Rtc, Weekday};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
