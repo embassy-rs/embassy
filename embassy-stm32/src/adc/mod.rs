@@ -52,6 +52,12 @@ use crate::{peripherals, rcc};
 
 dma_trait!(RxDma, Instance);
 
+
+#[cfg(not(stm32n6))]
+pub type DataSize = u16;
+#[cfg(stm32n6)]
+pub type DataSize = u32;
+
 #[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1)))]
 /// Trigger edge stub.
 pub struct Exten;
@@ -151,10 +157,7 @@ trait AdcRegs: BasicAdcRegs {
     fn wait_done(&self) -> bool;
     fn configure_dma(&self, conversion_mode: ConversionMode);
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
-    #[cfg(not(stm32n6))]
-    fn data(&self) -> *mut u16;
-    #[cfg(stm32n6)]
-    fn data(&self) -> *mut u32;
+    fn data(&self) -> *mut DataSize;
 }
 
 #[cfg(any(adc_v2, adc_g4))]
@@ -163,7 +166,7 @@ trait InjectedRegs: AdcRegs {
     fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool);
     fn start_injected(&self);
     fn stop_injected(&self);
-    fn read_injected(&self, data: &mut [u16]);
+    fn read_injected(&self, data: &mut [DataSize]);
 }
 
 #[cfg(any(adc_v2, adc_g4))]
@@ -273,7 +276,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         &mut self,
         channel: impl BorrowedChannel<'a, T>,
         sample_time: <T::Regs as BasicAdcRegs>::SampleTime,
-    ) -> u16 {
+    ) -> DataSize {
         use core::sync::atomic::{Ordering, compiler_fence};
         use core::task::Poll;
 
@@ -309,7 +312,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         &mut self,
         channel: impl BorrowedChannel<'a, T>,
         sample_time: <T::Regs as BasicAdcRegs>::SampleTime,
-    ) -> u16 {
+    ) -> DataSize {
         let channel = channel.reborrow_adc();
 
         T::regs().stop(false);
@@ -369,7 +372,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         trigger: Option<RegularAdcTrigger<T>>,
-        readings: &mut [u16],
+        readings: &mut [DataSize],
     ) {
         let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
 
@@ -563,7 +566,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn into_ring_buffered<'a, 'ch, D: RxDma<T>>(
         self,
         dma: embassy_hal_internal::Peri<'a, D>,
-        dma_buf: &'a mut [u16],
+        dma_buf: &'a mut [DataSize],
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         trigger: Option<RegularAdcTrigger<T>>,
@@ -673,7 +676,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize, D: RxDma<T>>(
         self,
         dma: embassy_hal_internal::Peri<'a, D>,
-        dma_buf: &'a mut [u16],
+        dma_buf: &'a mut [DataSize],
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         regular_sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         regular_trigger: Option<RegularAdcTrigger<T>>,
@@ -748,7 +751,7 @@ impl VrefInt {
         stm32wl
     ))]
     /// The value that vref would be if vdda was at the factory calibration voltage `VREF_CALIB_MV`.
-    pub fn calibrated_value(&self) -> u16 {
+    pub fn calibrated_value(&self) -> DataSize {
         crate::pac::VREFINTCAL.data().read()
     }
 }
