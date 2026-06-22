@@ -118,7 +118,7 @@ pub mod dts;
 pub mod eth;
 #[cfg(feature = "exti")]
 pub mod exti;
-#[cfg(all(flash, not(stm32c5)))]
+#[cfg(flash)]
 pub mod flash;
 #[cfg(fmac)]
 pub mod fmac;
