@@ -876,4 +876,20 @@ mod tests {
             assert_eq!(bits, test_run.bits);
         }
     }
+
+    #[test]
+    fn test_dtg_with_reference() {
+        for dtg in 0u8..=255u8 {
+            let dt = match ((dtg >> 7) & 1, (dtg >> 6) & 1, (dtg >> 5) & 1) {
+                (0, _, _) => dtg as u16,
+                (1, 0, _) => (64 + (dtg & 0b111111)) as u16 * 2,
+                (1, 1, 0) => (32 + (dtg & 0b11111)) as u16 * 8,
+                (1, 1, 1) => (32 + (dtg & 0b11111)) as u16 * 16,
+                _ => unreachable!()
+            };
+            let (ckd, bits) = compute_dead_time_value(dt);
+            assert_eq!(ckd, Ckd::Div1);
+            assert_eq!(bits, dtg);
+        }
+    }
 }
