@@ -26,16 +26,16 @@ async fn main(_spawner: Spawner) {
         day: 11,
         hour: 14,
         minute: 30,
-        second: 42,
+        second: 10,
     };
 
-    defmt::info!("Time set to: 2026-03-11 14:30:42");
+    defmt::info!("Time set to: 2026-03-11 14:30:10");
     rtc.set_datetime(now).unwrap();
 
     let mut alarm = now;
-    alarm.second += 10;
+    alarm.second += 20;
 
-    defmt::info!("Alarm set for: 2026-03-11 14:30:52 (+10 seconds)");
+    defmt::info!("Alarm set for: 2026-03-11 14:30:52 (+20 seconds)");
     rtc.wait_for_alarm(alarm).await.unwrap();
 
     defmt::info!("Example complete - Test PASSED!");
