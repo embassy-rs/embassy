@@ -38,6 +38,10 @@ const MAX_PAGE_WORDS: usize = MAX_PAGE_SIZE / 4;
 const LUT_KEY_VALUE: u32 = 0x5AF0_5AF0;
 const LUT_WORD_COUNT: usize = 64;
 const DMA_FIFO_WINDOW_BYTES: usize = 8;
+/// FlexSPI IP write granularity. The IP write path corrupts the byte before a
+/// non-aligned start address, so page programs must be aligned to this many
+/// bytes; it is the same granularity the DMA FIFO window requires.
+const WRITE_GRANULARITY: usize = DMA_FIFO_WINDOW_BYTES;
 const TEMP_SEQUENCE_INDEX: u8 = 15;
 const IP_FIFO_DEPTH_WORDS: usize = 32;
 const IP_FIFO_CAPACITY_BYTES: usize = IP_FIFO_DEPTH_WORDS * 4;
@@ -831,7 +835,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
         if len == 0 || len > self.flash.page_size {
             return Err(IoError::InvalidTransferLength);
         }
-        if address % 8 != 0 || len % 8 != 0 {
+        if address as usize % WRITE_GRANULARITY != 0 || len % WRITE_GRANULARITY != 0 {
             return Err(IoError::Misaligned);
         }
         if (address as usize % self.flash.page_size) + len > self.flash.page_size {
