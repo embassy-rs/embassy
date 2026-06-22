@@ -137,7 +137,7 @@ async fn main(_spawner: Spawner) {
     // 6) Partial-page write.
     let last_sector = FLASH_BASE + (SELF_TEST_SECTORS - 1) * FLASH_SECTOR_SIZE as u32;
     unwrap!(flash.erase_sector_async(last_sector).await);
-    let partial_len = 100usize;
+    let partial_len = 96usize; // 8-byte aligned (driver write-size contract)
     let mut partial = [0u8; FLASH_PAGE_SIZE];
     fill_pattern(last_sector, &mut partial);
     unwrap!(flash.page_program_async(last_sector, &partial[..partial_len]).await);
