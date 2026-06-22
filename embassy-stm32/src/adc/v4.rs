@@ -340,7 +340,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             // 3. Select the calibration input mode by clearing ADCALDIF (single-ended input).
             T::regs().cr().modify(|w| w.set_adcaldif(Adcaldif::SingleEnded));
 
-            let data = [0u64; 8];
+            let mut data = [0u64; 8];
             let mut average: u64 = 0;
             for i in 0..2 {
                 for reading in &mut data {
@@ -377,7 +377,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             // 12. Keep the same CALADDOS setting as the one obtained during the single-end 
             // calibration.
             // 13. Repeat steps 4 to 8.
-            let data = [0u64; 8];
+            let mut data = [0u64; 8];
             let mut average: u64 = 0;
             for i in 0..2 {
                 for reading in &mut data {
@@ -412,7 +412,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             
             // 16. CALADDOS is now set, so clear ADCALDIF, and repeat steps 4 to 8..
             T::regs().cr().modify(|w| w.set_adcaldif(Adcaldif::SingleEnded));
-            let data = [0u64; 8];
+            let mut data = [0u64; 8];
             let mut average: u64 = 0;
             for reading in &mut data {
                 // 4. Set the ADSTART bit in the ADC_CR register.
