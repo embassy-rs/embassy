@@ -3,7 +3,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 #[allow(unused_imports)]
 use embassy_hal_internal::Peri;
 
-use super::AdcRegs;
+use super::{AdcRegs, DataSize};
 #[allow(unused_imports)]
 use crate::adc::{Instance, RxDma};
 use crate::dma::Channel;
@@ -18,7 +18,7 @@ pub struct OverrunError;
 pub struct RingBufferedAdc<'d, R: AdcRegs> {
     regs: R,
     info: RccInfo,
-    ring_buf: ReadableRingBuffer<'d, u16>,
+    ring_buf: ReadableRingBuffer<'d, DataSize>,
     _wake_guard: WakeGuard,
 }
 
@@ -27,7 +27,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
     pub(crate) fn new<T: Instance<Regs = R>, D: RxDma<T>>(
         dma: Peri<'d, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
-        dma_buf: &'d mut [u16],
+        dma_buf: &'d mut [DataSize],
         sequence_len: usize,
     ) -> Self {
         // DMA side setup - configuration differs between DMA/BDMA and GPDMA
@@ -133,7 +133,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
     ///
     /// [`teardown_adc`]: #method.teardown_adc
     /// [`start_continuous_sampling`]: #method.start_continuous_sampling
-    pub async fn read(&mut self, measurements: &mut [u16]) -> Result<usize, OverrunError> {
+    pub async fn read(&mut self, measurements: &mut [DataSize]) -> Result<usize, OverrunError> {
         assert_eq!(
             self.ring_buf.capacity() / 2,
             measurements.len(),
@@ -166,7 +166,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
     ///
     /// This is ideal for use cases like ADC oversampling where the consumer only cares about
     /// the latest values and stale data can be safely ignored.
-    pub fn read_latest(&mut self, measurements: &mut [u16]) -> usize {
+    pub fn read_latest(&mut self, measurements: &mut [DataSize]) -> usize {
         if !self.ring_buf.is_running() {
             self.start();
         }
@@ -182,7 +182,7 @@ impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
     ///
     /// Receive in the background is terminated if an error is returned.
     /// It must then manually be started again by calling `start_continuous_sampling()` or by re-calling `blocking_read()`.
-    pub fn blocking_read(&mut self, buf: &mut [u16]) -> Result<usize, OverrunError> {
+    pub fn blocking_read(&mut self, buf: &mut [DataSize]) -> Result<usize, OverrunError> {
         if !self.ring_buf.is_running() {
             self.start();
         }
