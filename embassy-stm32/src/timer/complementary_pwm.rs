@@ -892,19 +892,47 @@ mod tests {
         }
     }
 
+    fn reference_dtg_to_dt(dtg: u8) -> u16 {
+        match ((dtg >> 7) & 1, (dtg >> 6) & 1, (dtg >> 5) & 1) {
+            (0, _, _) => dtg as u16,
+            (1, 0, _) => (64 + (dtg & 0b111111)) as u16 * 2,
+            (1, 1, 0) => (32 + (dtg & 0b11111)) as u16 * 8,
+            (1, 1, 1) => (32 + (dtg & 0b11111)) as u16 * 16,
+            _ => unreachable!()
+        }
+    }
+
     #[test]
-    fn test_dtg_with_reference() {
+    fn test_div1_dtg_with_reference() {
         for dtg in 0u8..=255u8 {
-            let dt = match ((dtg >> 7) & 1, (dtg >> 6) & 1, (dtg >> 5) & 1) {
-                (0, _, _) => dtg as u16,
-                (1, 0, _) => (64 + (dtg & 0b111111)) as u16 * 2,
-                (1, 1, 0) => (32 + (dtg & 0b11111)) as u16 * 8,
-                (1, 1, 1) => (32 + (dtg & 0b11111)) as u16 * 16,
-                _ => unreachable!()
-            };
+            let dt = reference_dtg_to_dt(dtg);
             let (ckd, bits) = compute_dead_time_value(dt);
             assert_eq!(ckd, Ckd::Div1);
             assert_eq!(bits, dtg);
+        }
+    }
+
+    #[test]
+    fn test_div2_dtg_with_reference() {
+        for dtg in 0u8..=255u8 {
+            let dt = reference_dtg_to_dt(dtg);
+            if dt * 2 > 1008 {
+                let (ckd, bits) = compute_dead_time_value(dt * 2);
+                assert_eq!(ckd, Ckd::Div2);
+                assert_eq!(bits, dtg);
+            }
+        }
+    }
+
+    #[test]
+    fn test_div4_dtg_with_reference() {
+        for dtg in 0u8..=255u8 {
+            let dt = reference_dtg_to_dt(dtg);
+            if dt * 4 > 1008 * 2 {
+                let (ckd, bits) = compute_dead_time_value(dt * 4);
+                assert_eq!(ckd, Ckd::Div4);
+                assert_eq!(bits, dtg);
+            }
         }
     }
 }
