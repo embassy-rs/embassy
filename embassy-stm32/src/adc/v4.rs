@@ -111,8 +111,13 @@ pub struct AdcConfig {
 }
 
 impl AdcRegs for crate::pac::adc::Adc {
+    #[cfg(not(stm32n6))]
     fn data(&self) -> *mut u16 {
         crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
+    }
+    #[cfg(stm32n6)]
+    fn data(&self) -> *mut u32 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u32
     }
 
     fn enable(&self) {
