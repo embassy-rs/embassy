@@ -358,7 +358,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
                 
                 // 8. Average the data stored in memory by dividing the accumulated data by the number of 
                 // the conversions 
-                average = data.iter().sum() / data.len();
+                average = data.iter().sum::<u64>() / data.len();
                 
                 // 9. If the averaged data is zero, set CALADDOS. Repeat all steps from step 4.
                 if i == 0 && average == 0 {
@@ -395,7 +395,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
                 
                 // 8. Average the data stored in memory by dividing the accumulated data by the number of 
                 // the conversions 
-                average = data.iter().sum() / data.len();
+                average = data.iter().sum::<u64>() / data.len();
                 
                 // 14. Subtract 0x7FF from the averaged data. If the result is positive, store it in the 
                 // CALFACT_D[8:0] bitfield. If it is negative, set CALADDOS, then repeat steps from 4 to 
@@ -429,7 +429,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             
             // 8. Average the data stored in memory by dividing the accumulated data by the number of 
             // the conversions 
-            average = data.iter().sum() / data.len();
+            average = data.iter().sum::<u64>() / data.len();
             
             // 17. Store the averaged data in CALFACT_S[8:0].
             T::regs().calfact().modify(|w| w.set_calfact_s(average as u16));
