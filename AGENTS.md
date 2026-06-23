@@ -16,6 +16,10 @@ Install once on a fresh VM (system package + cargo binaries):
 - `libssl-dev` and `pkg-config` — needed to build `cargo-batch` from source.
 - `cargo-embassy-devtool` — pinned in `.github/ci/build.sh`:
   `cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 1cc6a2c6d2ec06607499df33e147310095b1afd5`
+  Note: its `aws-lc-sys` dependency passes a clang-style `--target` flag to the C
+  compiler, which fails if `cc` is gcc. Install it with `CC=clang CXX=clang++` (a
+  one-time install; the resulting binary persists and later `embassy-devtool`
+  runs do not rebuild `aws-lc-sys`).
 - `cargo-batch` — required by `./ci.sh`:
   `cargo install --git https://github.com/embassy-rs/cargo-batch cargo --bin cargo-batch --locked`
 
