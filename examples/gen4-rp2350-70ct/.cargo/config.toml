@@ -1,0 +1,10 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "probe-rs run --chip RP235x"
+
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[env]
+DEFMT_LOG = "info"
+DEP_LV_CONFIG_PATH = { value = "conf", relative = true }
+LVGL_FONTS_DIR = { value = "../rvt50hqsnwc00-b/fonts", relative = true }

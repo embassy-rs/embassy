@@ -9,6 +9,7 @@
       <sourceFolder url="file://$MODULE_DIR$/examples/stm32wb/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/stm32wb-can/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/examples/rvt50hqsnwc00-b/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/examples/gen4-rp2350-70ct/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/examples/stm32h503RB/target" />
       <excludeFolder url="file://$MODULE_DIR$/examples/stm32u575ZI/target" />
       <excludeFolder url="file://$MODULE_DIR$/examples/stm32f746zg/target" />
@@ -16,6 +17,7 @@
       <excludeFolder url="file://$MODULE_DIR$/examples/stm32wb/target" />
       <excludeFolder url="file://$MODULE_DIR$/examples/stm32wb-can/target" />
       <excludeFolder url="file://$MODULE_DIR$/examples/rvt50hqsnwc00-b/target" />
+      <excludeFolder url="file://$MODULE_DIR$/examples/gen4-rp2350-70ct/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
