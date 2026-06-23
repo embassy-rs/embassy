@@ -892,13 +892,23 @@ mod tests {
         }
     }
 
+    fn reference_ckd_dtg_to_dt(ckd: Ckd, dtg: u8) -> u16 {
+        let div = match ckd {
+            Ckd::Div1 => 1,
+            Ckd::Div2 => 2,
+            Ckd::Div4 => 4,
+            _ => unreachable!(),
+        };
+        reference_dtg_to_dt(dtg) * div
+    }
+
     fn reference_dtg_to_dt(dtg: u8) -> u16 {
         match ((dtg >> 7) & 1, (dtg >> 6) & 1, (dtg >> 5) & 1) {
             (0, _, _) => dtg as u16,
             (1, 0, _) => (64 + (dtg & 0b111111)) as u16 * 2,
             (1, 1, 0) => (32 + (dtg & 0b11111)) as u16 * 8,
             (1, 1, 1) => (32 + (dtg & 0b11111)) as u16 * 16,
-            _ => unreachable!()
+            _ => unreachable!(),
         }
     }
 
@@ -933,6 +943,42 @@ mod tests {
                 assert_eq!(ckd, Ckd::Div4);
                 assert_eq!(bits, dtg);
             }
+        }
+    }
+
+    #[test]
+    fn test_all_dead_time_cases_min_error() {
+        let mut lut = [None; 4032 + 1]; // max possible dt is 4032
+        // fill lut with all possible dt values that have exact ckd and dtg
+        for ckd in [Ckd::Div4, Ckd::Div2, Ckd::Div1] {
+            for dtg in 0u8..=255u8 {
+                let dt = reference_ckd_dtg_to_dt(ckd, dtg);
+                lut[dt as usize] = Some((ckd, dtg));
+            }
+        }
+        // for given dt return min error to nearest dt that has exact ckd and dtg
+        let min_error = |dt: u16| -> u16 {
+            // fast path
+            if dt >= 4032 {
+                return dt - 4032;
+            }
+            // slow path
+            let mut i = 0;
+            loop {
+                let less = lut.get(dt.saturating_sub(i) as usize).and_then(|x| *x);
+                let more = lut.get(dt.saturating_add(i) as usize).and_then(|x| *x);
+                if less.is_some() || more.is_some() {
+                    return i;
+                }
+                i += 1;
+            }
+        };
+        // test all dt values and check if dt represented by
+        // the returned ckd and dgt is within min error
+        for dt in 0..=65535 {
+            let (ckd, dgt) = compute_dead_time_value(dt);
+            let exact_dt = reference_ckd_dtg_to_dt(ckd, dgt);
+            assert!(dt.abs_diff(exact_dt) <= min_error(dt));
         }
     }
 }
