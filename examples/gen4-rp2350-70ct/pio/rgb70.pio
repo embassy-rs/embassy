@@ -1,0 +1,290 @@
+
+; =====================================================================================
+;
+; HSync for RGB driver
+;
+; =====================================================================================
+
+; Program name
+.program hsync
+.side_set 2 opt
+
+; frontporch: 2 clks
+; sync pulse: 44 clks
+; back porch: 31 clks
+; active for: 800 clks
+
+pull block              
+.wrap_target
+
+; FRONTPORCH
+set x, 4 side 0b01
+frontporch:
+   nop side 0b11
+   jmp x-- frontporch side 0b01
+;*** irq set 1 here
+nop side 0b11           ; keep clock even - might be cause of lost pixel ** todo **
+mov x, osr side 0b01    ; Copy ACTIVE width to x
+
+; ACTIVE
+activeporch:
+   nop  side 0b11
+   jmp x-- activeporch side 0b01 ; keep high in active
+
+; SYNC PULSE
+pulse:
+    set x, 20 side 0b10
+    pw1:
+      nop side 0b00
+      nop side 0b10
+      nop side 0b00
+      jmp x-- pw1 side 0b10
+
+; BACKPORCH
+set x, 31 side 0b01
+backporch:
+    nop side 0b11
+    jmp x-- backporch side 0b01
+    irq set 0 side 0b11
+
+.wrap
+
+% c-sdk {
+static inline void hsync_program_init(PIO pio, uint sm, uint offset, uint pin, float div) {
+
+    // creates state machine configuration object c, sets
+    // to default configurations. I believe this function is auto-generated
+    // and gets a name of <program name>_program_get_default_config
+    pio_sm_config c = hsync_program_get_default_config(offset);
+
+    // Map the state machine's SET pin group to one pin, namely the `pin`
+    // parameter to this function.
+    sm_config_set_sideset_pins(&c, pin);
+
+    // Set clock division (div by 5 for 25 MHz state machine)
+    sm_config_set_clkdiv(&c, div) ;
+
+    // Set this pin's GPIO function (connect PIO to the pad)
+    pio_gpio_init(pio, pin);
+    pio_gpio_init(pio, pin+1);
+    
+    // Set the pin direction to output at the PIO
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 2, true);
+
+    // Load our configuration, and jump to the start of the program
+    pio_sm_init(pio, sm, offset, &c);
+
+    // Set the state machine running (commented out so can be synchronized w/ vsync)
+    // pio_sm_set_enabled(pio, sm, true);
+}
+%}
+
+
+; =====================================================================================
+;
+; VSync for RGB driver
+;
+; =====================================================================================
+
+; Program name
+.program vsync
+.side_set 1 opt
+
+; frontporch: 1   line
+; sync pulse: 1   line
+; back porch: 31  lines
+; active for: 480 lines
+
+pull block
+.wrap_target
+
+; ACTIVE
+mov x, osr                      ; Copy active height to x
+;set pins, 1 
+activefront:
+    wait 1 irq 0                ; Wait for hsync
+    irq set 1                   ; Set IRQ for active
+    jmp x-- activefront ;side 1
+
+; FRONTPORCH
+;set x, 1
+;frontporch:
+    wait 1 irq 0
+;    jmp x-- frontporch
+
+; SYNC PULSE                    ; ** might be an issue if vsync is ever more than 1. 4.3, 5, 7, 9 seem happy with this
+set pins, 0                     
+;set x, 4
+;vsync:
+    wait 1 irq 0                    ; one line
+;    jmp x-- vsync
+
+; BACKPORCH
+set y, 31
+backporch:
+    wait 1 irq 0 side 1
+    jmp y-- backporch
+
+.wrap
+
+% c-sdk {
+static inline void vsync_program_init(PIO pio, uint sm, uint offset, uint pin, float div) {
+
+    // creates state machine configuration object c, sets
+    // to default configurations. I believe this function is auto-generated
+    // and gets a name of <program name>_program_get_default_config
+    pio_sm_config c = vsync_program_get_default_config(offset);
+
+    // Map the state machine's SET pin group to one pin, namely the `pin`
+    // parameter to this function.
+    sm_config_set_set_pins(&c, pin, 1);
+    sm_config_set_sideset_pins(&c, pin);
+
+    // Set clock division (div by 5 for 25 MHz state machine)
+    sm_config_set_clkdiv(&c, div) ;
+
+    // Set this pin's GPIO function (connect PIO to the pad)
+    pio_gpio_init(pio, pin);
+    // pio_gpio_init(pio, pin+1);
+    
+    // Set the pin direction to output at the PIO
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+
+    // Load our configuration, and jump to the start of the program
+    pio_sm_init(pio, sm, offset, &c);
+
+    // Set the state machine running (commented out so can be synchronized with hsync)
+    // pio_sm_set_enabled(pio, sm, true);
+}
+%}
+
+
+
+; =====================================================================================
+;
+; RGB generation
+;
+; =====================================================================================
+
+; Program name
+.program rgb
+
+pull block
+mov y, osr
+wait 1 pin 3
+.wrap_target
+
+;nop ;set pins, 0            ; ** maybe not necessary
+mov x, y
+;pull block
+wait 1 pin 2
+colorout:
+	pull block	
+    wait 0 pin 5
+    out pins, 16
+    wait 1 pin 5
+	jmp x-- colorout
+
+.wrap
+
+
+% c-sdk {
+static inline void rgb_program_init(PIO pio, uint sm, uint offset, uint pin, float div) {
+
+    // creates state machine configuration object c, sets
+    // to default configurations. I believe this function is auto-generated
+    // and gets a name of <program name>_program_get_default_config
+    pio_sm_config c = rgb_program_get_default_config(offset);
+    
+    // Map the state machine's SET and OUT pin group to 16 pins, the `pin`
+    // parameter to this function is the lowest one. These groups overlap.
+    sm_config_set_set_pins(&c, pin, 16);
+    sm_config_set_out_pins(&c, pin, 16);
+
+    // Set clock division (Commented out, this one runs at full speed)
+    sm_config_set_clkdiv(&c, div) ;
+
+    // Set this pin's GPIO function (connect PIO to the pad)
+    pio_gpio_init(pio, pin);    
+    pio_gpio_init(pio, pin+1);
+    pio_gpio_init(pio, pin+2);
+    pio_gpio_init(pio, pin+3);    
+    pio_gpio_init(pio, pin+4);
+    pio_gpio_init(pio, pin+5);
+    pio_gpio_init(pio, pin+6);
+    pio_gpio_init(pio, pin+7);
+    pio_gpio_init(pio, pin+8);
+    pio_gpio_init(pio, pin+9);
+    pio_gpio_init(pio, pin+10);
+    pio_gpio_init(pio, pin+11);
+    pio_gpio_init(pio, pin+12);
+    pio_gpio_init(pio, pin+13);
+    pio_gpio_init(pio, pin+14);
+    pio_gpio_init(pio, pin+15);
+    
+    // Set the pin direction to output at the PIO (4 pins)
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 16, true);
+
+    pio_set_irq0_source_enabled(pio, (enum pio_interrupt_source) ((uint) pis_interrupt0 + sm), false);
+    pio_set_irq1_source_enabled(pio, (enum pio_interrupt_source) ((uint) pis_interrupt0 + sm), false);
+    pio_interrupt_clear(pio, sm);
+
+    // Load our configuration, and jump to the start of the program
+    pio_sm_init(pio, sm, offset, &c);
+
+    // Set the state machine running (commented out, I'll start this in the C)
+    // pio_sm_set_enabled(pio, sm, true);
+}
+%}
+
+
+; =====================================================================================
+;
+; RGB Frame
+;
+; =====================================================================================
+
+.program RGBframe
+.side_set 1 opt
+
+; DEn control
+; 
+pull block
+
+.wrap_target
+  mov y, osr ;side 1
+  wait 1 irq 1 side 0
+  
+  den:
+    ;wait 1 gpio 21 side 1
+    jmp y-- den side 1
+
+.wrap
+
+% c-sdk {
+
+// Helper function (for use in C program) to initialize this PIO program
+void RGBframe_program_init(PIO pio, uint sm, uint offset, uint pin, float div) {
+
+    // Sets up state machine and wrap target. This function is automatically
+    // generated in RGBframe.pio.h.
+    pio_sm_config c = RGBframe_program_get_default_config(offset);
+
+    // Allow PIO to control GPIO pin (as output)
+    sm_config_set_set_pins(&c, pin, 1);
+    sm_config_set_sideset_pins(&c, pin);
+
+    // Connect pin to SET pin (control with 'set' instruction)
+    pio_gpio_init(pio, pin);
+
+    // Set the pin direction to output (in PIO)
+    pio_sm_set_consecutive_pindirs(pio, sm, pin, 1, true);
+    
+    // Set the clock divider for the state machine
+    sm_config_set_clkdiv(&c, div);
+
+    // Load configuration and jump to start of the program
+    pio_sm_init(pio, sm, offset, &c);
+}
+
+%}
