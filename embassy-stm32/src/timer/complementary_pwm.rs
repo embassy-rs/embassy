@@ -747,6 +747,10 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 }
 
+fn div_round(a: u16, b: u16) -> u16 {
+    (a + b / 2) / b
+}
+
 fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
     /*
         Dead-time = T_clk * T_dts * T_dtg
@@ -815,11 +819,14 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
         let (these_bits, result) = if target < 128 {
             (target as u8, target)
         } else if target < 255 {
-            (((target / 2) as u8).saturating_sub(64) | 128, (target - target % 2))
+            let tmp = div_round(value, outdiv * 2);
+            ((tmp as u8 - 64) | 128, tmp * 2)
         } else if target < 508 {
-            (((target / 8) as u8).saturating_sub(32) | 192, (target - target % 8))
+            let tmp = div_round(value, outdiv * 8);
+            ((tmp as u8 - 32) | 192, tmp * 8)
         } else if target < 1008 {
-            (((target / 16) as u8).saturating_sub(32) | 224, (target - target % 16))
+            let tmp = div_round(value, outdiv * 16);
+            ((tmp as u8 - 32) | 224, tmp * 16)
         } else {
             (u8::MAX, 1008)
         };
