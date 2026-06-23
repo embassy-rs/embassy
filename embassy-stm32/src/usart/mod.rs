@@ -1128,6 +1128,32 @@ impl<'d, M: Mode> UartRx<'d, M> {
         Ok(sr.rxne())
     }
 
+    /// Returns `true` if at least one byte is available to read right now.
+    ///
+    /// When this returns `true`, a subsequent single-byte read (e.g. the first byte of a
+    /// [`blocking_read`](Self::blocking_read)) will not block. This is a non-destructive peek
+    /// of the RX-not-empty flag: it does not consume any data, and it does not clear any
+    /// pending error flags (parity/framing/noise/overrun), so those are still surfaced by the
+    /// next read.
+    #[cfg(any(usart_v1, usart_v2))]
+    pub fn has_rx_data(&mut self) -> bool {
+        // A byte may already be latched in `buffered_sr` from a previous `check_rx_flags` call
+        // that is still draining error flags, or live in the status register.
+        self.buffered_sr.rxne() || self.info.regs.sr().read().rxne()
+    }
+
+    /// Returns `true` if at least one byte is available to read right now.
+    ///
+    /// When this returns `true`, a subsequent single-byte read (e.g. the first byte of a
+    /// [`blocking_read`](Self::blocking_read)) will not block. This is a non-destructive peek
+    /// of the RX-not-empty flag: it does not consume any data, and it does not clear any
+    /// pending error flags (parity/framing/noise/overrun), so those are still surfaced by the
+    /// next read.
+    #[cfg(any(usart_v3, usart_v4))]
+    pub fn has_rx_data(&mut self) -> bool {
+        self.info.regs.isr().read().rxne()
+    }
+
     /// Read a single u8 if there is one available, otherwise return WouldBlock
     pub(crate) fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
         let r = self.info.regs;
@@ -1593,6 +1619,15 @@ impl<'d, M: Mode> Uart<'d, M> {
     /// Block until transmission complete
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         self.tx.blocking_flush()
+    }
+
+    /// Returns `true` if at least one byte is available to read right now.
+    ///
+    /// When this returns `true`, a subsequent single-byte read (e.g. the first byte of a
+    /// [`blocking_read`](Self::blocking_read)) will not block. This is a non-destructive peek:
+    /// it does not consume any data, and it does not clear any pending error flags.
+    pub fn has_rx_data(&mut self) -> bool {
+        self.rx.has_rx_data()
     }
 
     /// Read a single `u8` or return `WouldBlock`
