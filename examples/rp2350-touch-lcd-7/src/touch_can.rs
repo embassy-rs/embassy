@@ -317,7 +317,6 @@ async fn plc_tx_loop(mut plc: Plc) {
 async fn legacy_tx_loop() {
     let tick = Duration::from_millis(CAN_COMMAND_REPEAT_MS);
     let refresh_every = Duration::from_millis(CAN_REFRESH_MS as u64);
-    let tx_state = can_scheduler::PlcTxState::new();
 
     loop {
         match select(ACTIONS.receive(), Timer::after(refresh_every)).await {

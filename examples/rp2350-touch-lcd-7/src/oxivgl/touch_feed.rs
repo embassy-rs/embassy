@@ -40,7 +40,7 @@ pub fn receiver()
 #[embassy_executor::task]
 pub async fn run_touch_int_task(
     mut i2c: BoardI2c,
-    mut touch_int: embassy_rp::gpio::Input<'static>,
+    mut touch_int: embassy_rp::gpio::Flex<'static>,
 ) -> ! {
     let sender = TOUCH_CHAN.sender();
     let mut last_x = 0i32;

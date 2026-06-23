@@ -85,9 +85,31 @@ Two CDC ports on the Type-C cable:
 
 ## Architecture notes
 
-- **Display**: LVGL partial flush → PSRAM double buffers (same pattern as RVT50 LTDC). PIO RGB **scan-out** is stubbed in `pio_rgb.rs`; LVGL rendering and buffer management work — full DMA/PIO port follows Waveshare `pio_rgb.pio`.
+- **Display**: Full-screen LVGL refresh into PSRAM double buffers, then PIO RGB DMA scan-out (ported from Waveshare `pio_rgb.c` / `RP2350-Touch-7-Exp` LVGL C port). GT911 touch and XL2515 CAN unchanged.
 - **Touch**: Same INT-driven task + channel queue as RVT50 (`touch_feed.rs`), GT911 register protocol from Waveshare `bsp_gt911.c`.
 - **CAN**: On-chip FDCAN is **not** available on RP2350; Waveshare uses **XL2515** over SPI. Application protocol reuses `touch-hall-common` unchanged.
+
+### PIO RGB + GT911 fixes (feature branch)
+
+The fixes live on branch `cursor/rp2350-pio-rgb-oxivgl-f557` ([PR #18](https://github.com/protronic/embassy/pull/18)), **not** on `main` yet.
+
+If the log shows `PIO RGB scan-out stub` or `GT911 not detected on I2C @ 0x5d` without a retry at `0x14`, you are still running `main`.
+
+```bash
+git fetch origin
+git checkout cursor/rp2350-pio-rgb-oxivgl-f557
+cd examples/rp2350-touch-lcd-7
+cargo clean
+cargo build --bin oxivgl_widget_demo --features oxivgl
+cargo run --bin oxivgl_widget_demo --features oxivgl
+```
+
+The first log line must include `firmware=cursor/rp2350-pio-rgb-oxivgl-f557@…`. On the correct build you should see:
+
+- `GT911 ready @ 0x5d`
+- `PIO RGB scan-out started (800x480 @ 16 MHz pclk)`
+
+**Not** `PIO RGB scan-out stub`.
 
 ## Target
 

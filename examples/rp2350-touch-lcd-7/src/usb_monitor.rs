@@ -1,11 +1,11 @@
-//! USB monitoring: plain-text CDC (`if00`) + defmt CDC (`if01`/`if02`).
+//! USB plain-text CDC monitor (`if00`).
 //!
-//! Use `line()` for ASCII on the text port (`./usb-monitor.sh text`).
-//! `defmt` macros use the other CDC (`./usb-monitor.sh defmt <binary>`).
+//! `defmt` logs go via RTT — visible in the same terminal as `cargo run` / `probe-rs run`
+//! when flashing over SWD. Use `./usb-monitor.sh text` for ASCII milestones only.
 
 use defmt::unwrap;
 use embassy_executor::Spawner;
-use embassy_futures::join::join3;
+use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
@@ -24,7 +24,6 @@ bind_interrupts!(struct Irqs {
 
 static TEXT_LINES: Channel<CriticalSectionRawMutex, &'static str, 16> = Channel::new();
 
-static DEFMT_STATE: StaticCell<State> = StaticCell::new();
 static TEXT_STATE: StaticCell<State> = StaticCell::new();
 static CONFIG_DESC: StaticCell<[u8; 256]> = StaticCell::new();
 static BOS_DESC: StaticCell<[u8; 256]> = StaticCell::new();
@@ -39,14 +38,10 @@ fn usb_config() -> Config<'static> {
     c.serial_number = Some("rp2350-lcd7");
     c.max_power = 100;
     c.max_packet_size_0 = 64;
-    c.composite_with_iads = true;
-    c.device_class = 0xEF;
-    c.device_sub_class = 0x02;
-    c.device_protocol = 0x01;
     c
 }
 
-/// Plain-text line on the **text** CDC (`if00`). Safe from any task.
+/// Plain-text line on the text CDC. Safe from any task.
 pub fn line(msg: &'static str) {
     let _ = TEXT_LINES.try_send(msg);
 }
@@ -71,7 +66,7 @@ async fn write_text(sender: &mut embassy_usb::class::cdc_acm::Sender<'static, Dr
 async fn text_port(mut sender: embassy_usb::class::cdc_acm::Sender<'static, Driver<'static, USB>>) {
     loop {
         sender.wait_connection().await;
-        write_text(&mut sender, "text port ready (if00) — defmt on if01/if02").await;
+        write_text(&mut sender, "text port ready — defmt via probe-rs RTT (cargo run)").await;
         loop {
             while let Ok(msg) = TEXT_LINES.try_receive() {
                 write_text(&mut sender, msg).await;
@@ -100,19 +95,10 @@ async fn run(usb: Peri<'static, USB>) -> ! {
     );
 
     let text_state = TEXT_STATE.init(State::new());
-    let defmt_state = DEFMT_STATE.init(State::new());
-
     let text_class = CdcAcmClass::new(&mut builder, text_state, PACKET);
-    let defmt_class = CdcAcmClass::new(&mut builder, defmt_state, PACKET);
-
     let mut usb = builder.build();
-
     let (text_tx, _) = text_class.split();
-    let defmt_fut = async {
-        let (sender, _) = defmt_class.split();
-        defmt_embassy_usbserial::logger(sender).await;
-    };
 
-    join3(usb.run(), text_port(text_tx), defmt_fut).await;
+    join(usb.run(), text_port(text_tx)).await;
     defmt::panic!("USB monitor exited");
 }

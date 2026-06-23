@@ -8,7 +8,7 @@ use embassy_rp2350_touch_lcd_7_examples::can_driver;
 use embassy_rp2350_touch_lcd_7_examples::usb_monitor;
 use embassy_rp2350_touch_lcd_7_examples::xl2515::CanSpi;
 use embassy_time::{Duration, Timer};
-use {panic_probe as _};
+use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {

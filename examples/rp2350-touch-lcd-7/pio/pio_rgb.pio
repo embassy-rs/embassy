@@ -1,0 +1,130 @@
+
+; FrontPorch:   10 clock 
+; PulseWidth:   10 clock 
+; BackPorch:    10 clock
+
+.program vsync
+.side_set 1 opt 
+.define public T1 31    ; FrontPorch
+.define public T2 31    ; PulseWidth
+.define public T3 31    ; BackPorch
+; side pins ---> LCD_VSYNC_PIN(bit0)
+
+pull block side 1 ; Pull the height to osr
+
+.wrap_target
+
+; FrontPorch
+set x, T1 side 1
+FrontPorch:
+    wait 1 irq 2 side 1
+    jmp x-- FrontPorch side 1
+
+; SyncPulse
+set x, T2 side 0
+SyncPulse:
+    wait 1 irq 2 side 0
+    jmp x-- SyncPulse side 0
+
+; BackPorch
+set x, T3 side 1
+BackPorch:
+    wait 1 irq 2 side 1
+    jmp x-- BackPorch side 1
+
+mov x, osr side 1
+
+ActiveFor:
+    wait 1 irq 2 side 1
+    jmp x--, ActiveFor side 1
+.wrap
+
+; ActiveFor
+.program hsync
+; side pins ---> LCD_PCLK_PIN(bit1) LCD_HSYNC_PIN(bit0)
+.side_set 2 opt
+.define public T1 31    ; FrontPorch
+.define public T2 31    ; PulseWidth
+.define public T3 31    ; BackPorch
+pull block  ; Pull the width to osr
+mov y, osr 
+.wrap_target
+
+; FrontPorch
+set x, T1 side 0b11
+FrontPorch:
+   nop side 0b01
+   jmp x-- FrontPorch side 0b11
+
+; SyncPulse
+irq set 2 side 0b01
+set x, T2 side 0b10
+SyncPulse:
+    nop side 0b00
+    jmp x-- SyncPulse side 0b10
+
+; BackPorch
+set x, T3 side 0b01
+BackPorch:
+    nop side 0b11
+    jmp x-- BackPorch side 0b01
+
+mov x, y side 0b11
+ActiveFor:
+    nop side 0b01
+    jmp x--, ActiveFor side 0b11
+.wrap
+
+
+.program rgb
+
+pull block
+mov y, osr
+.wrap_target
+
+
+mov x, y side 0  ; Save width to x
+wait 1 pin 4     ; Wait for LCD_DE to be high
+ColorOut: 
+	pull block	 ; get data
+    wait 0 pin 7 ; pclk == 0
+    out pins, 16 ; send rgb data
+    wait 1 pin 7 ; pclk == 1
+    jmp x--, ColorOut
+irq set 0        ; Tell program rgb_de that a row of data has been flushed
+.wrap
+
+
+.program rgb_de
+.side_set 1 opt
+.define public T1 31  ; vsync BackPorch
+.define public T2 31  ; hsync BackPorch
+
+
+pull block side 0
+
+.wrap_target
+mov y, osr side 0   ; Save width to y
+set x, T1 side 0
+wait 0 pin 5 side 0 ; Wait for vsync to go low
+wait 1 pin 5 side 0 ; Wait for vsync to go high
+vBackPorch:
+    wait 0 pin 6 side 0
+    wait 1 pin 6 side 0
+    jmp x--, vBackPorch side 0
+ActiveFor:
+    wait 0 pin 6 side 0
+    wait 1 pin 6 side 0  ; Wait for hsync to go high
+    set x, T2 side 0
+    hBackPorch:
+        wait 0 pin 7 side 0 ; Wait for pclk to go low
+        wait 1 pin 7 side 0 ; Wait for pclk to go hgh
+        jmp x--, hBackPorch side 0
+
+    wait 1 pin 7 side 0  ; Wait for pclk to go hgh
+
+    wait 1 irq 0 side 1  ; Wait for program rgb to finish sending a line of data
+    jmp y--, ActiveFor side 0
+.wrap
+
+

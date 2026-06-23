@@ -27,7 +27,6 @@ use crate::oxivgl::fonts::{MONTSERRAT_14, MONTSERRAT_16};
 use crate::touch_can::{self, on_button_press, on_button_release};
 
 const EVENT_RELEASED: EventCode = EventCode(oxivgl_sys::lv_event_code_t_LV_EVENT_RELEASED);
-const EVENT_PRESS_LOST: EventCode = EventCode(oxivgl_sys::lv_event_code_t_LV_EVENT_PRESS_LOST);
 
 const SCREEN_BG: u32 = 0xE7DCC8;
 const SURFACE: u32 = 0xFFFDF8;

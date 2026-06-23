@@ -17,12 +17,13 @@ embassy-usb = { version = "0.5.1", features = ["defmt"] }
 touch-hall-common = { path = "../touch-hall-common", features = ["rhai", "defmt"] }
 
 defmt = "1.0.1"
-defmt-embassy-usbserial = { version = "0.2.1", default-features = false, features = ["buffersize-64"] }
+defmt-rtt = "1.0.0"
 cortex-m = { version = "0.7.6", features = ["inline-asm"] }
 cortex-m-rt = "0.7.0"
 embedded-can = "0.4"
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+fixed = "1.28.0"
 static_cell = "2"
 
 oxivgl = { version = "0.1.2", default-features = false, optional = true }

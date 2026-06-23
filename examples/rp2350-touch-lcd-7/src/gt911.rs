@@ -1,14 +1,25 @@
 //! GT911 capacitive touch controller (I2C).
 
-use defmt::{debug, warn};
-use embassy_rp::gpio::Output;
+use defmt::{info, warn};
+use embassy_rp::gpio::{Flex, Output, Pull};
 use embassy_time::{Duration, Timer};
 
 use crate::board::{BoardI2c, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
-pub const I2C_ADDR: u8 = 0x5D;
+pub const I2C_ADDR_5D: u8 = 0x5D;
+pub const I2C_ADDR_14: u8 = 0x14;
 const REG_PRODUCT_ID: u16 = 0x8140;
 const REG_STATUS: u16 = 0x814E;
+
+static mut ACTIVE_ADDR: u8 = I2C_ADDR_5D;
+
+fn active_addr() -> u8 {
+    unsafe { ACTIVE_ADDR }
+}
+
+fn set_active_addr(addr: u8) {
+    unsafe { ACTIVE_ADDR = addr };
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TouchPoint {
@@ -18,7 +29,12 @@ pub struct TouchPoint {
     pub i2c_ok: bool,
 }
 
-pub async fn init(i2c: &mut BoardI2c, rst: &mut Output<'static>) {
+pub async fn init(i2c: &mut BoardI2c, rst: &mut Output<'static>, int: &mut Flex<'static>) {
+    // Match Waveshare `bsp_gt911_init`: INT driven low during reset → address 0x5D.
+    int.set_pull(Pull::None);
+    int.set_low();
+    int.set_as_output();
+
     rst.set_high();
     Timer::after(Duration::from_millis(50)).await;
     rst.set_low();
@@ -26,28 +42,58 @@ pub async fn init(i2c: &mut BoardI2c, rst: &mut Output<'static>) {
     rst.set_high();
     Timer::after(Duration::from_millis(250)).await;
 
+    if let Some((addr, id)) = probe_product_id(i2c, I2C_ADDR_5D).await {
+        set_active_addr(addr);
+        int.set_as_input();
+        int.set_pull(Pull::Up);
+        info!("GT911 ready @ 0x{:02x}, product id: {:a}", addr, &id);
+        return;
+    }
+
+    warn!("GT911 not at 0x{:02x}, retrying reset with INT high (0x{:02x})", I2C_ADDR_5D, I2C_ADDR_14);
+    int.set_pull(Pull::None);
+    int.set_high();
+    int.set_as_output();
+
+    rst.set_high();
+    Timer::after(Duration::from_millis(50)).await;
+    rst.set_low();
+    Timer::after(Duration::from_millis(50)).await;
+    rst.set_high();
+    Timer::after(Duration::from_millis(250)).await;
+
+    if let Some((addr, id)) = probe_product_id(i2c, I2C_ADDR_14).await {
+        set_active_addr(addr);
+        int.set_as_input();
+        int.set_pull(Pull::Up);
+        info!("GT911 ready @ 0x{:02x}, product id: {:a}", addr, &id);
+        return;
+    }
+
+    warn!("GT911 not detected on I2C (tried 0x{:02x} and 0x{:02x})", I2C_ADDR_5D, I2C_ADDR_14);
+}
+
+async fn probe_product_id(i2c: &mut BoardI2c, addr: u8) -> Option<(u8, [u8; 4])> {
     let mut id = [0u8; 4];
     for attempt in 0..10 {
-        match i2c.blocking_write_read(I2C_ADDR, &reg16_be(REG_PRODUCT_ID), &mut id) {
-            Ok(()) if id[0] == b'9' && id[1] == b'1' && id[2] == b'1' => {
-                debug!("GT911 product id: {:a}", &id[..4]);
-                return;
-            }
+        match i2c.blocking_write_read(addr, &reg16_be(REG_PRODUCT_ID), &mut id) {
+            Ok(()) if id[0] == b'9' && id[1] == b'1' && id[2] == b'1' => return Some((addr, id)),
             Ok(()) => warn!(
-                "GT911 unexpected id attempt {}: {:02x}{:02x}{:02x}{:02x}",
-                attempt, id[0], id[1], id[2], id[3]
+                "GT911 @ 0x{:02x} unexpected id attempt {}: {:02x}{:02x}{:02x}{:02x}",
+                addr, attempt, id[0], id[1], id[2], id[3]
             ),
-            Err(e) => warn!("GT911 id read failed attempt {}: {:?}", attempt, e),
+            Err(e) => warn!("GT911 @ 0x{:02x} id read failed attempt {}: {:?}", addr, attempt, e),
         }
         Timer::after(Duration::from_millis(100)).await;
     }
-    warn!("GT911 not detected on I2C @ 0x{:02x}", I2C_ADDR);
+    None
 }
 
 pub fn read_touch(i2c: &mut BoardI2c) -> TouchPoint {
+    let addr = active_addr();
     let mut status = [0u8; 1];
     if i2c
-        .blocking_write_read(I2C_ADDR, &reg16_be(REG_STATUS), &mut status)
+        .blocking_write_read(addr, &reg16_be(REG_STATUS), &mut status)
         .is_err()
     {
         return TouchPoint {
@@ -56,7 +102,7 @@ pub fn read_touch(i2c: &mut BoardI2c) -> TouchPoint {
         };
     }
 
-    let _ = i2c.blocking_write(I2C_ADDR, &write_reg16_be(REG_STATUS, 0));
+    let _ = i2c.blocking_write(addr, &write_reg16_be(REG_STATUS, 0));
 
     if status[0] & 0x80 == 0 {
         return TouchPoint {
@@ -68,7 +114,7 @@ pub fn read_touch(i2c: &mut BoardI2c) -> TouchPoint {
 
     let mut data = [0u8; 8];
     if i2c
-        .blocking_write_read(I2C_ADDR, &reg16_be(REG_STATUS + 1), &mut data)
+        .blocking_write_read(addr, &reg16_be(REG_STATUS + 1), &mut data)
         .is_err()
     {
         return TouchPoint {
