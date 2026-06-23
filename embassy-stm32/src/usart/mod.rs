@@ -1190,6 +1190,33 @@ impl<'d, M: Mode> UartRx<'d, M> {
         Ok(())
     }
 
+    /// Perform a blocking read into `buffer`, stopping early at a delimiter byte.
+    ///
+    /// Reads one byte at a time until either the delimiter `delim` is received or `buffer`
+    /// is full, whichever comes first, and returns the number of bytes written into `buffer`.
+    ///
+    /// When `delim` is found, it is stored in `buffer` and included in the returned count, so
+    /// the read bytes are always `&buffer[..n]` for the returned `n`. The returned count is
+    /// therefore in `0..=buffer.len()`.
+    ///
+    /// Note that a return value equal to `buffer.len()` is ambiguous: it occurs both when the
+    /// buffer filled up without seeing the delimiter and when the delimiter happened to be the
+    /// final byte. If a caller needs to tell these apart, inspect `buffer[n - 1]`.
+    ///
+    /// Like [`blocking_read`](Self::blocking_read), this blocks until each byte arrives and
+    /// returns an [`Error`] on a parity/framing/noise/overrun condition; the bytes read before
+    /// the error are lost. There is no timeout — see [`read_until_idle`](Self::read_until_idle)
+    /// for an async read that returns early on a hardware-detected idle line instead.
+    pub fn blocking_read_until(&mut self, buffer: &mut [u8], delim: u8) -> Result<usize, Error> {
+        for (i, out) in buffer.iter_mut().enumerate() {
+            self.blocking_read(core::slice::from_mut(out))?;
+            if *out == delim {
+                return Ok(i + 1);
+            }
+        }
+        Ok(buffer.len())
+    }
+
     /// Set baudrate
     pub fn set_baudrate(&self, baudrate: u32) -> Result<(), ConfigError> {
         set_baudrate(self.info, self.kernel_clock, baudrate)
@@ -1638,6 +1665,15 @@ impl<'d, M: Mode> Uart<'d, M> {
     /// Perform a blocking read into `buffer`
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
+    }
+
+    /// Perform a blocking read into `buffer`, stopping early at a delimiter byte.
+    ///
+    /// Reads one byte at a time until either the delimiter `delim` is received or `buffer`
+    /// is full, whichever comes first, and returns the number of bytes written into `buffer`.
+    /// See [`UartRx::blocking_read_until`] for the full semantics.
+    pub fn blocking_read_until(&mut self, buffer: &mut [u8], delim: u8) -> Result<usize, Error> {
+        self.rx.blocking_read_until(buffer, delim)
     }
 
     /// Split the Uart into a transmitter and receiver, which is
