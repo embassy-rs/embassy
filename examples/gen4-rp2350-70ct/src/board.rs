@@ -34,10 +34,11 @@ pub mod pins {
 
 pub type BoardI2c = I2c<'static, peripherals::I2C1, Blocking>;
 
-/// Initialise the RP2350 with a 240 MHz system clock (headroom for the PIO RGB
-/// scan-out divider).
+/// Initialise the RP2350 with a 230 MHz system clock to match the vendor
+/// `Graphics4D` firmware (`set_sys_clock_khz(230000)`), from which the PIO RGB
+/// scan-out dividers (sync = sys/36 MHz) are derived.
 pub fn init() -> Peripherals {
-    let clock = ClockConfig::system_freq(240_000_000).unwrap();
+    let clock = ClockConfig::system_freq(230_000_000).unwrap();
     embassy_rp::init(Config::new(clock))
 }
 

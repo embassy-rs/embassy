@@ -22,7 +22,13 @@ use embedded_alloc::LlffHeap as Heap;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-const HEAP_SIZE: usize = 256 * 1024;
+const HEAP_SIZE: usize = 248 * 1024;
+
+/// Diagnostic flag: when `true`, bypass LVGL/touch and drive the PIO RGB
+/// scan-out with a cycling solid color (red → green → blue → white → black).
+/// Use this to verify that pixel data is latched by the panel and that the
+/// RGB565 data-line bit order is correct, then set back to `false`.
+const SOLID_COLOR_TEST: bool = true;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
@@ -86,6 +92,28 @@ async fn main(spawner: Spawner) -> ! {
         p.PIN_36,
         p.PIN_37,
     );
+
+    if SOLID_COLOR_TEST {
+        // Diagnostic path: drive the PIO RGB scan-out with solid colors only.
+        // RGB565 test values: red=0xF800, green=0x07E0, blue=0x001F.
+        const COLORS: [(&str, u16); 5] = [
+            ("RED 0xF800", 0xF800),
+            ("GREEN 0x07E0", 0x07E0),
+            ("BLUE 0x001F", 0x001F),
+            ("WHITE 0xFFFF", 0xFFFF),
+            ("BLACK 0x0000", 0x0000),
+        ];
+        let mut idx = 0usize;
+        display::fill_all(COLORS[0].1);
+        loop {
+            let (name, px) = COLORS[idx % COLORS.len()];
+            display::fill_draw(px);
+            pio_rgb::present_swap();
+            info!("solid-color test: {} ({=u16:#x})", name, px);
+            idx += 1;
+            embassy_time::Timer::after_secs(2).await;
+        }
+    }
 
     let mut i2c = board::init_i2c(p.I2C1, p.PIN_39, p.PIN_46);
     let mut touch_pins = board::init_touch_pins(p.PIN_47, p.PIN_38);

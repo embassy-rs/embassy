@@ -22,12 +22,15 @@ use static_cell::StaticCell;
 
 use crate::board::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
-// gen4-RP2350-70CT panel pixel clock (board header `LCD_CLK_FREQ`).
-const PCLK_FREQ: u32 = 25_000_000;
-const TRANSFER_LINES: usize = 80;
+// gen4-RP2350-70CT timing-SM clock. The vendor `Graphics4D` drives the
+// HSYNC/VSYNC/DE generators at sys_clk / 36 MHz and the RGB pixel SM at
+// `sync_div / 7 * 2.7` (see `rgb70.pio` init). `LCD_CLK_FREQ` (25 MHz) is the
+// resulting nominal panel pixel clock.
+const SYNC_PIO_FREQ: u32 = 36_000_000;
+pub const TRANSFER_LINES: usize = 60;
 const TRANSFER_SIZE: usize = DISPLAY_WIDTH * TRANSFER_LINES;
 const TRANSFER_INDEX_MAX: u16 = (DISPLAY_WIDTH * DISPLAY_HEIGHT / TRANSFER_SIZE) as u16;
-const PIO2_RGB_SM: u8 = 1;
+const PIO2_RGB_SM: u8 = 0;
 
 bind_interrupts!(pub struct ScanOutIrqs {
     PIO1_IRQ_0 => embassy_rp::pio::InterruptHandler<peripherals::PIO1>;
@@ -105,8 +108,12 @@ impl Handler<embassy_rp::interrupt::typelevel::DMA_IRQ_0> for ScanOutDmaHandler 
 
 fn pio_freq_divider() -> FixedU32<U8> {
     let sys_clk = clk_sys_freq();
-    let div = sys_clk as f32 / (PCLK_FREQ as f32 * 2.0);
-    FixedU32::from_num(div)
+    FixedU32::from_num(sys_clk as f32 / SYNC_PIO_FREQ as f32)
+}
+
+fn rgb_freq_divider() -> FixedU32<U8> {
+    let sync_div = clk_sys_freq() as f32 / SYNC_PIO_FREQ as f32;
+    FixedU32::from_num(sync_div / 7.0 * 2.7)
 }
 
 fn set_gpio_base(pio: pac::pio::Pio) {
@@ -115,21 +122,39 @@ fn set_gpio_base(pio: pac::pio::Pio) {
 
 fn apply_wait_pin_map(pio: pac::pio::Pio, sm: usize) {
     let sm = pio.sm(sm);
-    // gpio_base=16 → IN pin index = GPIO - 16. gen4 sync pins:
+    // gpio_base=16 → PIO pin index = GPIO - 16. gen4 sync pins:
     //   DE=GPIO18→2, VSYNC=GPIO19→3, HSYNC=GPIO20→4, PCLK=GPIO21→5.
-    sm.pinctrl().write(|w| w.set_in_base(16));
+    // Preserve OUT_BASE/OUT_COUNT from Config::set_out_pins; overwriting the
+    // full PINCTRL register here would move RGB data away from GPIO22..37.
+    sm.pinctrl().modify(|w| w.set_in_base(0));
     sm.shiftctrl().modify(|w| w.set_in_count(8));
 }
 
-fn prime_scanout_dma(state: &mut ScanOutState) {
-    unsafe {
-        ptr::copy_nonoverlapping(state.active_framebuffer, state.transfer_buffer1, state.transfer_size);
+fn transfer_buffer_for(state: &ScanOutState, index: u16) -> *mut u16 {
+    if index & 1 == 0 {
+        state.transfer_buffer1
+    } else {
+        state.transfer_buffer2
     }
+}
+
+fn copy_transfer_chunk(state: &ScanOutState, index: u16) {
+    let chunk = index as usize * state.transfer_size;
+    let transfer_src = unsafe { state.active_framebuffer.add(chunk) };
+    let transfer_dst = transfer_buffer_for(state, index);
+    unsafe {
+        ptr::copy_nonoverlapping(transfer_src, transfer_dst, state.transfer_size);
+    }
+}
+
+fn prime_scanout_dma(state: &mut ScanOutState) {
+    copy_transfer_chunk(state, 0);
+    copy_transfer_chunk(state, 1);
     state.transfer_index = 0;
     dma_start_read(
         state.dma_channel,
         PIO2_RGB_SM,
-        state.transfer_buffer1,
+        transfer_buffer_for(state, 0),
         state.transfer_size,
     );
 }
@@ -170,18 +195,7 @@ fn dma_complete_handler(state: &mut ScanOutState) {
     }
 
     let next_index = (state.transfer_index + 1) % TRANSFER_INDEX_MAX;
-    let chunk = next_index as usize * state.transfer_size;
-    let transfer_src = unsafe { state.active_framebuffer.add(chunk) };
-
-    let dma_buf = if next_index % 2 == 0 {
-        state.transfer_buffer1
-    } else {
-        state.transfer_buffer2
-    };
-
-    unsafe {
-        ptr::copy_nonoverlapping(transfer_src, dma_buf, state.transfer_size);
-    }
+    let dma_buf = transfer_buffer_for(state, next_index);
     dma_start_read(state.dma_channel, PIO2_RGB_SM, dma_buf, state.transfer_size);
     state.transfer_index = next_index;
 
@@ -198,6 +212,9 @@ fn dma_complete_handler(state: &mut ScanOutState) {
             state.flush_disp = ptr::null_mut();
         }
     }
+
+    let fill_index = (state.transfer_index + 1) % TRANSFER_INDEX_MAX;
+    copy_transfer_chunk(state, fill_index);
 }
 
 /// Call from the LVGL task after DMA scan-out completes (not from the DMA ISR).
@@ -222,7 +239,7 @@ pub fn bind_framebuffers(fb0: *mut u16, fb1: *mut u16) {
     }
 }
 
-/// Register PSRAM/SRAM DMA staging buffers (`width × 80` RGB565 pixels each).
+/// Register PSRAM/SRAM DMA staging buffers (`width × TRANSFER_LINES` RGB565 pixels each).
 pub fn bind_transfer_buffers(tb0: *mut u16, tb1: *mut u16) {
     let state = unsafe { &mut *scanout_mut() };
     state.transfer_buffer1 = tb0;
@@ -336,22 +353,22 @@ pub fn init_scanout(
         select_program("vsync"),
         options(max_program_size = 64)
     );
-    let rgb_de_file = pio_file!(
+    let de_file = pio_file!(
         "pio/pio_rgb.pio",
-        select_program("rgb_de"),
+        select_program("rgb_frame"),
         options(max_program_size = 64)
     );
     let rgb_file = pio_file!("pio/pio_rgb.pio", select_program("rgb"), options(max_program_size = 64));
 
     let hsync_loaded = pio1_dev.common.load_program(&hsync_file.program);
     let vsync_loaded = pio1_dev.common.load_program(&vsync_file.program);
-    let rgb_de_loaded = pio2_dev.common.load_program(&rgb_de_file.program);
+    let de_loaded = pio1_dev.common.load_program(&de_file.program);
     let rgb_loaded = pio2_dev.common.load_program(&rgb_file.program);
 
     let pin_hsync = pio1_dev.common.make_pio_pin(hsync);
     let pin_pclk = pio1_dev.common.make_pio_pin(pclk);
     let pin_vsync = pio1_dev.common.make_pio_pin(vsync);
-    let pin_de = pio2_dev.common.make_pio_pin(de);
+    let pin_de = pio1_dev.common.make_pio_pin(de);
 
     let mut d0 = pio2_dev.common.make_pio_pin(data0);
     let mut d1 = pio2_dev.common.make_pio_pin(data1);
@@ -388,38 +405,42 @@ pub fn init_scanout(
 
     let mut vsync_cfg = Config::default();
     vsync_cfg.fifo_join = FifoJoin::TxOnly;
+    vsync_cfg.clock_divider = pio_freq;
     vsync_cfg.use_program(&vsync_loaded, &[&pin_vsync]);
+    vsync_cfg.set_set_pins(&[&pin_vsync]);
 
-    let mut rgb_de_cfg = Config::default();
-    rgb_de_cfg.fifo_join = FifoJoin::TxOnly;
-    rgb_de_cfg.use_program(&rgb_de_loaded, &[&pin_de]);
+    let mut de_cfg = Config::default();
+    de_cfg.fifo_join = FifoJoin::TxOnly;
+    de_cfg.clock_divider = pio_freq;
+    de_cfg.use_program(&de_loaded, &[&pin_de]);
 
     let mut rgb_cfg = Config::default();
     rgb_cfg.fifo_join = FifoJoin::TxOnly;
-    rgb_cfg.clock_divider = pio_freq;
+    rgb_cfg.clock_divider = rgb_freq_divider();
     rgb_cfg.use_program(&rgb_loaded, &[]);
     rgb_cfg.set_out_pins(&data_pins);
 
+    // pio1: sm0=hsync(+pclk), sm1=vsync, sm2=DE; pio2: sm0=rgb pixel stream.
     pio1_dev.sm0.set_config(&hsync_cfg);
     pio1_dev.sm1.set_config(&vsync_cfg);
-    pio2_dev.sm0.set_config(&rgb_de_cfg);
-    pio2_dev.sm1.set_config(&rgb_cfg);
+    pio1_dev.sm2.set_config(&de_cfg);
+    pio2_dev.sm0.set_config(&rgb_cfg);
     apply_wait_pin_map(pac::PIO2, 0);
-    apply_wait_pin_map(pac::PIO2, 1);
 
     pio1_dev.sm0.set_pin_dirs(Direction::Out, &[&pin_hsync, &pin_pclk]);
     pio1_dev.sm1.set_pin_dirs(Direction::Out, &[&pin_vsync]);
-    pio2_dev.sm0.set_pin_dirs(Direction::Out, &[&pin_de]);
-    pio2_dev.sm1.set_pin_dirs(Direction::Out, &data_pins);
+    pio1_dev.sm2.set_pin_dirs(Direction::Out, &[&pin_de]);
+    pio2_dev.sm0.set_pin_dirs(Direction::Out, &data_pins);
 
     pio1_dev.sm0.tx().push(DISPLAY_WIDTH as u32 - 1);
     pio1_dev.sm1.tx().push(DISPLAY_HEIGHT as u32 - 1);
-    pio2_dev.sm0.tx().push(DISPLAY_HEIGHT as u32 - 1);
-    pio2_dev.sm1.tx().push(DISPLAY_WIDTH as u32 - 1);
+    pio1_dev.sm2.tx().push((DISPLAY_WIDTH as u32 * 2) - 1);
+    pio2_dev.sm0.tx().push(DISPLAY_WIDTH as u32 - 1);
 
-    // Start all scan-out state machines together (Waveshare `pio_enable_sm_mask_in_sync`).
-    pac::PIO1.ctrl().modify(|w| w.set_sm_enable(w.sm_enable() | 0b0011));
-    pac::PIO2.ctrl().modify(|w| w.set_sm_enable(w.sm_enable() | 0b0011));
+    // Park the RGB pixel SM on its pin waits first, then start the PIO1 sync
+    // generators (hsync/vsync/DE) together (vendor `pio_enable_sm_mask_in_sync`).
+    pac::PIO2.ctrl().modify(|w| w.set_sm_enable(w.sm_enable() | 0b0001));
+    pac::PIO1.ctrl().modify(|w| w.set_sm_enable(w.sm_enable() | 0b0111));
 
     // Keep PIO peripherals alive — dropping `Pio` disables all state machines.
     SCANOUT_PIO1.init(pio1_dev);
@@ -431,10 +452,10 @@ pub fn init_scanout(
 
     prime_scanout_dma(state);
     info!(
-        "PIO RGB scan-out started ({}x{} @ {} MHz pclk)",
+        "PIO RGB scan-out started ({}x{}, sync SM @ {} MHz)",
         DISPLAY_WIDTH,
         DISPLAY_HEIGHT,
-        PCLK_FREQ / 1_000_000
+        SYNC_PIO_FREQ / 1_000_000
     );
 }
 
