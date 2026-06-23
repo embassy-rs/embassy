@@ -789,24 +789,24 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
             _ => unreachable!(),
         };
 
-        // since DTG[7:5]=0xx => DT=DTG[7:0]x tdtg with tdtg=tDTS
+        // 0xx case DTG[7:5]=0xx => DT=DTG[7:0]x tdtg with tdtg=tDTS
         // then DT/tDTS = DTG[7:0] (where DTG[7] is always 0)
         // so DT/tDTS = 0..127
         // also DTG[7:0] = DT/tDTS
 
-        // since DTG[7:5]=10x => DT=(64+DTG[5:0])xtdtg with Tdtg=2xtDTS
+        // 10x case DTG[7:5]=10x => DT=(64+DTG[5:0])xtdtg with Tdtg=2xtDTS
         // then DT/tDTS = (64 + DTG[5:0]) * 2
         // so DT/tDTS = (64 + 0..63) * 2 = 128..254
         // also DTG[5:0] = DT/tDTS / 2 - 64
         // and DTG[7:0] = (DT/tDTS / 2 - 64) | 128
 
-        // since DTG[7:5]=110 => DT=(32+DTG[4:0])xtdtg with Tdtg=8xtDTS
+        // 110 case DTG[7:5]=110 => DT=(32+DTG[4:0])xtdtg with Tdtg=8xtDTS
         // then DT/tDTS = (32 + DTG[4:0]) * 8
         // so DT/tDTS = (32 + 0..31) * 8 = 256..504
         // also DTG[5:0] = DT/tDTS / 8 - 32
         // and DTG[7:0] = (DT/tDTS / 8 - 32) | 192
 
-        // since DTG[7:5]=111 => DT=(32+DTG[4:0])xtdtg with Tdtg=16xtDTS
+        // 111 case DTG[7:5]=111 => DT=(32+DTG[4:0])xtdtg with Tdtg=16xtDTS
         // then DT/tDTS = (32 + DTG[4:0]) * 16
         // so DT/tDTS = (32 + 0..31) * 16 = 512..1008
         // also DTG[5:0] = DT/tDTS / 16 - 32
@@ -862,32 +862,32 @@ mod tests {
             TestRun {
                 value: 1,
                 ckd: Ckd::Div1,
-                bits: 1,
+                bits: 0b000_000001, // case 0xx: 1 * 1 = 1, error = 0
             },
             TestRun {
                 value: 125,
                 ckd: Ckd::Div1,
-                bits: 125,
+                bits: 0b011_11101, // case 0xx: 125 * 1 = 125, error = 0
             },
             TestRun {
                 value: 245,
                 ckd: Ckd::Div1,
-                bits: 64 + 245 / 2,
+                bits: 0b101_11011, // case 10x: (64 + 59) * 2 * 1 = 246, error = 1
             },
             TestRun {
                 value: 255,
-                ckd: Ckd::Div2,
-                bits: 127,
+                ckd: Ckd::Div1,
+                bits: 0b110_00000, // case 110: (32 + 0) * 8 * 1 = 256, error = 1
             },
             TestRun {
                 value: 400,
                 ckd: Ckd::Div1,
-                bits: 210,
+                bits: 0b110_10010, // case 110: (32 + 18) * 8 * 1 = 400, error = 0
             },
             TestRun {
                 value: 600,
                 ckd: Ckd::Div4,
-                bits: 64 + (600u16 / 8) as u8,
+                bits: 0b100_01011, // case 10x: (64 + 11) * 2 * 4 = 600, error = 0
             },
         ];
 
