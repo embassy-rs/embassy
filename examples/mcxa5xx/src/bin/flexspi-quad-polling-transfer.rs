@@ -27,9 +27,8 @@ async fn main(_spawner: Spawner) {
     let flexspi = unwrap!(Flexspi::new_blocking(
         p.FLEXSPI0,
         p.P3_0,
-        p.P3_1,
-        p.P3_6,
         p.P3_7,
+        p.P3_6,
         p.P3_8,
         p.P3_9,
         p.P3_10,
@@ -38,7 +37,7 @@ async fn main(_spawner: Spawner) {
         FLASH_CONFIG,
     ));
 
-    let mut flash = NorFlash::from_flexspi(flexspi);
+    let mut flash = NorFlash::new(flexspi);
 
     // 1) Vendor ID is idempotent.
     let id_a = unwrap!(flash.blocking_vendor_id());
@@ -137,7 +136,7 @@ async fn main(_spawner: Spawner) {
     //    the page (and rest of the sector) stays at 0xFF.
     let last_sector = FLASH_BASE + (SELF_TEST_SECTORS - 1) * FLASH_SECTOR_SIZE as u32;
     unwrap!(flash.blocking_erase_sector(last_sector));
-    let partial_len = 100usize;
+    let partial_len = 96usize; // 8-byte aligned (driver write-size contract)
     let mut partial = [0u8; FLASH_PAGE_SIZE];
     fill_pattern(last_sector, &mut partial);
     unwrap!(flash.blocking_page_program(last_sector, &partial[..partial_len]));

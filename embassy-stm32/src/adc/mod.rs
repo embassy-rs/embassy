@@ -147,7 +147,10 @@ trait AdcRegs: BasicAdcRegs {
     const HAS_ERRATA: bool = false;
     fn enable(&self);
     fn start(&self);
-    fn stop(&self, disable: bool);
+    /// Stop any ongoing conversion, leaving the ADC enabled and ready to restart.
+    fn stop(&self);
+    /// Stop conversions and fully power down the ADC hardware.
+    fn power_down(&self);
     fn wait_done(&self) -> bool;
     fn configure_dma(&self, conversion_mode: ConversionMode);
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
@@ -282,7 +285,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
         let channel = channel.reborrow_adc();
 
-        T::regs().stop(false);
+        T::regs().stop();
         T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
 
         T::regs().enable();
@@ -312,7 +315,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     ) -> u16 {
         let channel = channel.reborrow_adc();
 
-        T::regs().stop(false);
+        T::regs().stop();
         T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
 
         T::regs().enable();
@@ -376,7 +379,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         check_dma_len(sequence.len(), Some(readings.len()), false);
 
         // Ensure no conversions are ongoing
-        T::regs().stop(false);
+        T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
@@ -391,7 +394,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, Default::default()) };
 
         // Ensure conversions are finished, even in the event of dropping the future
-        let _stop_adc = OnDrop::new(|| T::regs().stop(false));
+        let _stop_adc = OnDrop::new(|| T::regs().stop());
         T::regs().start();
 
         // Wait for conversion sequence to finish.
@@ -441,7 +444,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         'ch: 'adc,
     {
         // Ensure no conversions are ongoing
-        T::regs().stop(false);
+        T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
@@ -521,7 +524,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         let len = sequence.len();
 
         // Ensure no conversions are ongoing
-        T::regs().stop(false);
+        T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
@@ -573,7 +576,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         check_dma_len(sequence_len, Some(dma_buf.len()), false);
 
         // Ensure no conversions are ongoing
-        T::regs().stop(false);
+        T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
@@ -703,7 +706,8 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
 #[cfg(not(adc_f3v3))]
 impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
-        T::regs().stop(true);
+        T::regs().stop();
+        T::regs().power_down();
 
         rcc::disable::<T>();
     }

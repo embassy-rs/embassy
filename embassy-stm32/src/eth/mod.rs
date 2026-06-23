@@ -1,21 +1,31 @@
 //! Ethernet (ETH)
 #![macro_use]
 
+#[cfg(all(feature = "ptp", not(eth_v2), not(eth_v2a)))]
+compile_error!("The 'ptp' feature is only supported on STM32 Ethernet MAC v2/v2a peripherals.");
+
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]
 #[cfg_attr(any(eth_v2, eth_v2a), path = "v2/mod.rs")]
 mod _version;
 mod generic_phy;
+mod packet_state;
+mod ptp;
 mod sma;
 
 use core::mem::MaybeUninit;
+use core::ptr::addr_of_mut;
 use core::task::Context;
 
 use embassy_hal_internal::PeripheralType;
-use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
+use embassy_net_driver::{Capabilities, HardwareAddress, LinkState, PacketMeta};
 use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::_version::{InterruptHandler, *};
 pub use self::generic_phy::*;
+use self::packet_state::PacketState;
+use self::ptp::PtpTimestampSink;
+#[cfg(feature = "ptp")]
+pub use self::ptp::{PtpTimestamp, PtpTimestampStore};
 pub use self::sma::{Instance as SmaInstance, Sma, StationManagement};
 use crate::rcc::RccPeripheral;
 
@@ -41,16 +51,36 @@ pub struct PacketQueue<const TX: usize, const RX: usize> {
     rx_desc: [RDes; RX],
     tx_buf: [Packet<TX_BUFFER_SIZE>; TX],
     rx_buf: [Packet<RX_BUFFER_SIZE>; RX],
+    packet_state: PacketState<TX, RX>,
 }
 
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     /// Create a new packet queue.
     pub const fn new() -> Self {
+        Self::new_inner(PtpTimestampSink::new())
+    }
+
+    /// Create a new packet queue with Ethernet PTP packet timestamps.
+    ///
+    /// The queue records hardware RX/TX timestamps in `timestamps`. Use the
+    /// [`PacketMeta`] supplied by `embassy-net` to retrieve them from the store.
+    ///
+    /// The MAC PTP clock and timestamping registers must be configured
+    /// separately before the hardware will produce timestamps.
+    #[cfg(feature = "ptp")]
+    pub const fn new_with_ptp<const PTP_TX: usize, const PTP_RX: usize>(
+        timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,
+    ) -> Self {
+        Self::new_inner(PtpTimestampSink::from_store(timestamps))
+    }
+
+    const fn new_inner(ptp: PtpTimestampSink) -> Self {
         Self {
             tx_desc: [const { TDes::new() }; TX],
             rx_desc: [const { RDes::new() }; RX],
             tx_buf: [Packet([0; TX_BUFFER_SIZE]); TX],
             rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
+            packet_state: PacketState::new(ptp),
         }
     }
 
@@ -69,6 +99,24 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     pub fn init(this: &mut MaybeUninit<Self>) {
         unsafe {
             this.as_mut_ptr().write_bytes(0u8, 1);
+            addr_of_mut!((*this.as_mut_ptr()).packet_state).write(PacketState::new(PtpTimestampSink::new()));
+        }
+    }
+
+    /// Initialize a packet queue in-place with Ethernet PTP packet timestamps.
+    ///
+    /// This is the PTP equivalent of [`PacketQueue::init`]. It avoids a
+    /// temporary stack allocation of the full packet queue while still attaching
+    /// the timestamp store used for packet timestamp lookup.
+    #[cfg(feature = "ptp")]
+    pub fn init_with_ptp<const PTP_TX: usize, const PTP_RX: usize>(
+        this: &mut MaybeUninit<Self>,
+        timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,
+    ) {
+        unsafe {
+            this.as_mut_ptr().write_bytes(0u8, 1);
+            addr_of_mut!((*this.as_mut_ptr()).packet_state)
+                .write(PacketState::new(PtpTimestampSink::from_store(timestamps)));
         }
     }
 }
@@ -87,6 +135,7 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         WAKER.register(cx.waker());
+        self.tx.collect_completed();
         if self.rx.available().is_some() && self.tx.available().is_some() {
             Some((RxToken { rx: &mut self.rx }, TxToken { tx: &mut self.tx }))
         } else {
@@ -139,6 +188,10 @@ pub struct RxToken<'a, 'd> {
 }
 
 impl<'a, 'd> embassy_net_driver::RxToken for RxToken<'a, 'd> {
+    fn meta(&self) -> PacketMeta {
+        self.rx.meta()
+    }
+
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
@@ -157,6 +210,10 @@ pub struct TxToken<'a, 'd> {
 }
 
 impl<'a, 'd> embassy_net_driver::TxToken for TxToken<'a, 'd> {
+    fn set_meta(&mut self, meta: PacketMeta) {
+        self.tx.set_meta(meta);
+    }
+
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,

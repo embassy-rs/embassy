@@ -54,6 +54,8 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f479zi", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f730i8", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h753zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "ptp", "stm32h753zi"]},
+    {target = "thumbv7em-none-eabi", features = ["exti", "log", "ptp", "stm32h753zi"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h735zg", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "split-pc2", "split-pc3", "stm32h755zi-cm7", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h725re", "time", "time-driver-any"]},
@@ -211,11 +213,11 @@ heapless = "0.9.1"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-be62608f8f93a21fe76c8f70c0fa9d30c9ab2503" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c10ceb15eeaf49d04dd38fd1b1fce82380f90a12" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-be62608f8f93a21fe76c8f70c0fa9d30c9ab2503", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c10ceb15eeaf49d04dd38fd1b1fce82380f90a12", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
@@ -249,6 +251,8 @@ defmt = [
 ]
 ## Use log for logging
 log = ["dep:log"]
+## Enable Ethernet PTP hardware timestamping.
+ptp = ["embassy-net-driver/packetmeta-id"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
 ## Enable cyw

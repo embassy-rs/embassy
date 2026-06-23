@@ -48,8 +48,8 @@ async fn main(_spawner: Spawner) {
     // route PLL1_P into the USB‐OTG‐HS block
     // let p = embassy_stm32::init(config);
 
-    // config.rcc.sys = Sysclk::HSI;
-    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    // config.rcc.sys = Sysclk::Hsi;
+    config.rcc.mux.rngsel = mux::Rngsel::Hsi;
 
     let _p = embassy_stm32::init(config);
     info!("Hello World!");

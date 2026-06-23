@@ -60,21 +60,19 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, _disable: bool) {
-        // Stop ADC
+    fn stop(&self) {
         self.cr2().modify(|reg| {
-            // Stop ADC
             reg.set_swstart(false);
-            // Stop ADC
-            reg.set_adon(false);
-            // Stop DMA
             reg.set_dma(false);
         });
 
         self.cr1().modify(|w| {
-            // Disable interrupt for end of conversion
             w.set_eocie(false);
         });
+    }
+
+    fn power_down(&self) {
+        self.cr2().modify(|reg| reg.set_adon(false));
     }
 
     fn wait_done(&self) -> bool {

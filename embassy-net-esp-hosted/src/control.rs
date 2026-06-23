@@ -1,10 +1,11 @@
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
-use heapless::String;
-use micropb::{MessageDecode, MessageEncode, PbEncoder};
+use heapless::{String, Vec};
 
 use crate::ioctl::Shared;
-use crate::proto::{self, CtrlMsg};
+use crate::rpc::ioctl_ctx::IoctlMessage;
+use crate::rpc::{IoctlCtx, RpcBackend};
+use crate::{Backend, MAX_IOCTL_SIZE};
 
 /// Errors reported by control.
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -18,28 +19,56 @@ pub enum Error {
     Internal,
 }
 
+/// WiFi security mode.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Security {
+    /// Open network.
+    Open,
+    /// WEP.
+    Wep,
+    /// WPA-PSK.
+    WpaPsk,
+    /// WPA2-PSK.
+    Wpa2Psk,
+    /// WPA/WPA2-PSK.
+    WpaWpa2Psk,
+    /// Wi-Fi EAP security, treated the same as Wpa2Enterprise
+    Enterprise,
+    /// Wi-Fi EAP security, Authenticate mode : WPA2-Enterprise security
+    Wpa2Enterprise,
+    /// WPA3-PSK.
+    Wpa3Psk,
+    /// WPA2/WPA3-PSK.
+    Wpa2Wpa3Psk,
+    /// WAPI-PSK.
+    WapiPsk,
+    /// Opportunistic Wireless Encryption.
+    Owe,
+    /// WPA‑EAP‑Suite‑B‑192.
+    Wpa3Ent192,
+    /// This authentication mode will yield same result as Wpa3Psk and not recommended to be used. It will be deprecated in future, please use Wpa3Psk instead.
+    Wpa3ExtPsk,
+    /// This authentication mode will yield same result as Wpa3Psk and not recommended to be used. It will be deprecated in future, please use Wpa3Psk instead.
+    Wpa3ExtPskMixedMode,
+    /// Device Provisioning Protocol.
+    Dpp,
+    /// WPA3-Enterprise Only Mode.
+    Wpa3Enterprise,
+    /// WPA3-Enterprise Transition Mode.
+    Wpa2Wpa3Enterprise,
+    /// WPA-Enterprise security.
+    WpaEnterprise,
+    /// Unknown security mode reported by firmware.
+    Unknown(i32),
+}
+
 /// Handle for managing the network and WiFI state.
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
-    shared: &'a Shared,
+    ioctl: IoctlCtx<'a>,
+    backend: Backend,
 }
-
-/// WiFi mode.
-#[allow(unused)]
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum WifiMode {
-    /// No mode.
-    None = 0,
-    /// Client station.
-    Sta = 1,
-    /// Access point mode.
-    Ap = 2,
-    /// Repeater mode.
-    ApSta = 3,
-}
-
-pub use proto::Ctrl_WifiSecProt as Security;
 
 /// WiFi status.
 #[derive(Clone, Debug)]
@@ -57,45 +86,97 @@ pub struct Status {
     pub security: Security,
 }
 
-macro_rules! ioctl {
-    ($self:ident, $req_variant:ident, $resp_variant:ident, $req:ident, $resp:ident) => {
-        let mut msg = proto::CtrlMsg {
-            msg_id: proto::CtrlMsgId::$req_variant,
-            msg_type: proto::CtrlMsgType::Req,
-            payload: Some(proto::CtrlMsg_::Payload::$req_variant($req)),
-            req_resp_type: 0,
-            uid: 0,
-        };
-        $self.ioctl(&mut msg).await?;
-        #[allow(unused_mut)]
-        let Some(proto::CtrlMsg_::Payload::$resp_variant(mut $resp)) = msg.payload else {
-            warn!("unexpected response variant");
-            return Err(Error::Internal);
-        };
-        if $resp.resp != 0 {
-            return Err(Error::Failed($resp.resp as u32));
-        }
-    };
+/// WiFi network information.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Network {
+    /// Service Set Identifier.
+    pub ssid: String<32>,
+    /// Basic Service Set Identifier.
+    pub bssid: [u8; 6],
+    /// Security mode.
+    pub security: Security,
+}
+
+/// Firmware version.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum FwVersion {
+    /// esp-hosted-fg version
+    #[cfg(feature = "esp-hosted-fg")]
+    Fg {
+        /// First major version component.
+        major1: u32,
+        /// Second major version component.
+        major2: u32,
+        /// Minor version component.
+        minor: u32,
+        /// First patch version component.
+        rev_patch1: u32,
+        /// Second patch version component.
+        rev_patch2: u32,
+    },
+
+    /// esp-hosted-mcu version
+    #[cfg(feature = "esp-hosted-mcu")]
+    Mcu {
+        /// Major version component.
+        major: u32,
+        /// Minor version component.
+        minor: u32,
+        /// Patch version component.
+        patch: u32,
+    },
+}
+
+#[expect(unused)]
+pub(crate) enum WifiMode {
+    None = 0,
+    Sta = 1,
+    Ap = 2,
+    ApSta = 3,
 }
 
 impl<'a> Control<'a> {
-    pub(crate) fn new(state_ch: ch::StateRunner<'a>, shared: &'a Shared) -> Self {
-        Self { state_ch, shared }
+    pub(crate) fn new(
+        state_ch: ch::StateRunner<'a>,
+        shared: &'a Shared,
+        ioctl_buffer: &'a mut [u8; MAX_IOCTL_SIZE],
+        msg_buffer: &'a mut IoctlMessage,
+    ) -> Self {
+        Self {
+            state_ch,
+            ioctl: IoctlCtx::new(shared, ioctl_buffer, msg_buffer),
+            backend: Backend::default(),
+        }
+    }
+
+    fn shared(&self) -> &'a Shared {
+        self.ioctl.shared
     }
 
     /// Initialize device.
     pub async fn init(&mut self) -> Result<(), Error> {
         debug!("wait for init event...");
-        self.shared.init_wait().await;
+        self.backend = self.shared().init_wait().await;
 
         debug!("set heartbeat");
-        self.set_heartbeat(10).await?;
+        self.backend.config_heartbeat(&mut self.ioctl, 10).await?;
+
+        debug!("init_radio");
+        self.backend.init_radio(&mut self.ioctl).await?;
 
         debug!("set wifi mode");
-        self.set_wifi_mode(WifiMode::Sta as _).await?;
+        self.backend.set_mode(&mut self.ioctl, WifiMode::Sta).await?;
 
-        let mac_addr = self.get_mac_addr().await?;
-        debug!("mac addr: {:02x}", mac_addr);
+        debug!("start wifi");
+        self.backend.start_wifi(&mut self.ioctl).await?;
+
+        let mac_addr = self.backend.get_mac_addr(&mut self.ioctl).await?;
+        #[cfg(feature = "log")]
+        debug!("mac addr: {:02x?}", mac_addr);
+        #[cfg(feature = "defmt")]
+        debug!("mac addr: {=[u8]:02x}", mac_addr);
         self.state_ch.set_hardware_address(HardwareAddress::Ethernet(mac_addr));
 
         Ok(())
@@ -103,54 +184,40 @@ impl<'a> Control<'a> {
 
     /// Get the current status.
     pub async fn get_status(&mut self) -> Result<Status, Error> {
-        let req = proto::CtrlMsg_Req_GetAPConfig {};
-        ioctl!(self, ReqGetApConfig, RespGetApConfig, req, resp);
-        let ssid = core::str::from_utf8(&resp.ssid).map_err(|_| Error::Internal)?;
-        let ssid = String::try_from(ssid.trim_end_matches('\0')).map_err(|_| Error::Internal)?;
-        let bssid_str = core::str::from_utf8(&resp.bssid).map_err(|_| Error::Internal)?;
-        Ok(Status {
-            ssid,
-            bssid: parse_mac(bssid_str)?,
-            rssi: resp.rssi as _,
-            channel: resp.chnl as u32,
-            security: resp.sec_prot,
-        })
+        self.backend.get_status(&mut self.ioctl).await
+    }
+
+    /// Scan for available networks.
+    pub async fn scan<const N: usize>(&mut self, result: &mut Vec<Network, N>) -> Result<(), Error> {
+        self.backend.scan(&mut self.ioctl, result).await
     }
 
     /// Connect to the network identified by ssid using the provided password.
     pub async fn connect(&mut self, ssid: &str, password: &str) -> Result<(), Error> {
-        const WIFI_BAND_MODE_AUTO: i32 = 3; // 2.4GHz + 5GHz
+        self.shared().connect_begin();
 
-        let req = proto::CtrlMsg_Req_ConnectAP {
-            ssid: unwrap!(String::try_from(ssid)),
-            pwd: unwrap!(String::try_from(password)),
-            bssid: String::new(),
-            listen_interval: 3,
-            is_wpa3_supported: true,
-            band_mode: WIFI_BAND_MODE_AUTO,
-        };
-        ioctl!(self, ReqConnectAp, RespConnectAp, req, resp);
+        self.backend.connect_ap(&mut self.ioctl, ssid, password).await?;
 
-        // TODO: in newer esp-hosted firmwares that added EventStationConnectedToAp
-        // the connect ioctl seems to be async, so we shouldn't immediately set LinkState::Up here.
-        self.state_ch.set_link_state(LinkState::Up);
+        self.shared().connect_wait().await.map_err(Error::Failed)?;
 
         Ok(())
     }
 
     /// Disconnect from any currently connected network.
     pub async fn disconnect(&mut self) -> Result<(), Error> {
-        let req = proto::CtrlMsg_Req_GetStatus {};
-        ioctl!(self, ReqDisconnectAp, RespDisconnectAp, req, resp);
+        self.backend.disconnect_ap(&mut self.ioctl).await?;
         self.state_ch.set_link_state(LinkState::Down);
         Ok(())
     }
 
+    /// Return the firmware version of the device.
+    pub async fn get_fw_version(&mut self) -> Result<FwVersion, Error> {
+        self.backend.get_fw_version(&mut self.ioctl).await
+    }
+
     /// Initiate a firmware update.
     pub async fn ota_begin(&mut self) -> Result<(), Error> {
-        let req = proto::CtrlMsg_Req_OTABegin {};
-        ioctl!(self, ReqOtaBegin, RespOtaBegin, req, resp);
-        Ok(())
+        self.backend.ota_begin(&mut self.ioctl).await
     }
 
     /// Write slice of firmware to a device.
@@ -161,10 +228,7 @@ impl<'a> Control<'a> {
     /// the ioctl protocol to the wifi adapter.
     pub async fn ota_write(&mut self, data: &[u8]) -> Result<(), Error> {
         for chunk in data.chunks(256) {
-            let req = proto::CtrlMsg_Req_OTAWrite {
-                ota_data: heapless::Vec::from_slice(chunk).unwrap(),
-            };
-            ioctl!(self, ReqOtaWrite, RespOtaWrite, req, resp);
+            self.backend.ota_write(&mut self.ioctl, chunk).await?;
         }
         Ok(())
     }
@@ -175,107 +239,9 @@ impl<'a> Control<'a> {
     ///
     /// NOTE: Will reset the wifi adapter after 5 seconds.
     pub async fn ota_end(&mut self) -> Result<(), Error> {
-        let req = proto::CtrlMsg_Req_OTAEnd {};
-        ioctl!(self, ReqOtaEnd, RespOtaEnd, req, resp);
-        self.shared.ota_done();
+        self.backend.ota_end(&mut self.ioctl).await?;
+        self.shared().ota_done();
         // Wait for re-init
-        self.init().await?;
-        Ok(())
+        self.init().await
     }
-
-    /// duration in seconds, clamped to [10, 3600]
-    async fn set_heartbeat(&mut self, duration: u32) -> Result<(), Error> {
-        let req = proto::CtrlMsg_Req_ConfigHeartbeat {
-            enable: true,
-            duration: duration as i32,
-        };
-        ioctl!(self, ReqConfigHeartbeat, RespConfigHeartbeat, req, resp);
-        Ok(())
-    }
-
-    async fn get_mac_addr(&mut self) -> Result<[u8; 6], Error> {
-        let req = proto::CtrlMsg_Req_GetMacAddress {
-            mode: WifiMode::Sta as _,
-        };
-        ioctl!(self, ReqGetMacAddress, RespGetMacAddress, req, resp);
-        let mac_str = core::str::from_utf8(&resp.mac).map_err(|_| Error::Internal)?;
-        parse_mac(mac_str)
-    }
-
-    async fn set_wifi_mode(&mut self, mode: u32) -> Result<(), Error> {
-        let req = proto::CtrlMsg_Req_SetMode { mode: mode as i32 };
-        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
-
-        Ok(())
-    }
-
-    async fn ioctl(&mut self, msg: &mut CtrlMsg) -> Result<(), Error> {
-        debug!("ioctl req: {:?}", &msg);
-
-        // Theoretical max overhead is 29 bytes. Biggest message is OTA write with 256 bytes.
-        let mut buf = [0u8; 256 + 29];
-        let buf_len = buf.len();
-
-        let mut encoder = PbEncoder::new(&mut buf[..]);
-        msg.encode(&mut encoder).map_err(|_| {
-            warn!("failed to serialize control request");
-            Error::Internal
-        })?;
-        let remaining = encoder.into_writer();
-        let req_len = buf_len - remaining.len();
-
-        struct CancelOnDrop<'a>(&'a Shared);
-
-        impl CancelOnDrop<'_> {
-            fn defuse(self) {
-                core::mem::forget(self);
-            }
-        }
-
-        impl Drop for CancelOnDrop<'_> {
-            fn drop(&mut self) {
-                self.0.ioctl_cancel();
-            }
-        }
-
-        let ioctl = CancelOnDrop(self.shared);
-
-        let resp_len = ioctl.0.ioctl(&mut buf, req_len).await;
-
-        ioctl.defuse();
-
-        msg.decode_from_bytes(&buf[..resp_len]).map_err(|_| {
-            warn!("failed to deserialize control response");
-            Error::Internal
-        })?;
-        debug!("ioctl resp: {:?}", msg);
-
-        Ok(())
-    }
-}
-
-// WHY IS THIS A STRING? WHYYYY
-fn parse_mac(mac: &str) -> Result<[u8; 6], Error> {
-    fn nibble_from_hex(b: u8) -> Result<u8, Error> {
-        match b {
-            b'0'..=b'9' => Ok(b - b'0'),
-            b'a'..=b'f' => Ok(b + 0xa - b'a'),
-            b'A'..=b'F' => Ok(b + 0xa - b'A'),
-            _ => {
-                warn!("invalid hex digit {}", b);
-                Err(Error::Internal)
-            }
-        }
-    }
-
-    let mac = mac.as_bytes();
-    let mut res = [0; 6];
-    if mac.len() != 17 {
-        warn!("unexpected MAC length");
-        return Err(Error::Internal);
-    }
-    for (i, b) in res.iter_mut().enumerate() {
-        *b = (nibble_from_hex(mac[i * 3])? << 4) | nibble_from_hex(mac[i * 3 + 1])?
-    }
-    Ok(res)
 }

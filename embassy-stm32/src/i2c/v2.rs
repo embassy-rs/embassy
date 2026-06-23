@@ -139,9 +139,14 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         self.info.regs.cr2().write(|w| w.set_stop(true));
     }
 
+    /// Resets the I2C peripheral state machine while preserving configuration.
+    ///
+    /// This can be used to recover from a spurious start condition that leaves the BUSY flag set
+    /// as well as recovering from other error conditions.
+    ///
     /// Toggle PE off/on to reset the I2C peripheral state machine.
     /// TIMINGR and other config registers are preserved across this.
-    fn soft_reset(&self) {
+    pub fn soft_reset(&self) {
         self.info.regs.cr1().modify(|w| w.set_pe(false));
         // PE needs a few APB cycles to actually clear
         while self.info.regs.cr1().read().pe() {}

@@ -669,6 +669,18 @@ impl<'d> Sqspi<'d> {
         self.blocking_wait_wip()
     }
 
+    /// Send a single bare opcode (no address, no data) on a single line,
+    /// *without* issuing WREN first or polling WIP afterwards.
+    ///
+    /// Unlike [`custom_instruction`](Self::custom_instruction) this does not
+    /// touch the status register, which is what makes it usable for power-state
+    /// commands such as deep power-down (`0xB9`): once the flash is in DPD it
+    /// stops answering RDSR, so the usual trailing WIP poll would hang forever.
+    pub fn blocking_custom_opcode(&mut self, opcode: u8) -> Result<(), Error> {
+        self.start(opcode, 0, 0, 0, 0, 0, Dir::Tx, Lines::Single);
+        self.blocking_wait_done()
+    }
+
     /// Raw read: no bounds check against the configured capacity.
     pub async fn read_raw(&mut self, address: u32, data: &mut [u8]) -> Result<(), Error> {
         if data.is_empty() {
