@@ -798,19 +798,19 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
         // then DT/tDTS = (64 + DTG[5:0]) * 2
         // so DT/tDTS = (64 + 0..63) * 2 = 128..254
         // also DTG[5:0] = DT/tDTS / 2 - 64
-        // and DTG[7:0] = (DT/tDTS / 2 - 64) | 128
+        // and DTG[7:0] = (DT/tDTS / 2 - 64) | 0b100_00000
 
         // 110 case DTG[7:5]=110 => DT=(32+DTG[4:0])xtdtg with Tdtg=8xtDTS
         // then DT/tDTS = (32 + DTG[4:0]) * 8
         // so DT/tDTS = (32 + 0..31) * 8 = 256..504
-        // also DTG[5:0] = DT/tDTS / 8 - 32
-        // and DTG[7:0] = (DT/tDTS / 8 - 32) | 192
+        // also DTG[4:0] = DT/tDTS / 8 - 32
+        // and DTG[7:0] = (DT/tDTS / 8 - 32) | 0b110_00000
 
         // 111 case DTG[7:5]=111 => DT=(32+DTG[4:0])xtdtg with Tdtg=16xtDTS
         // then DT/tDTS = (32 + DTG[4:0]) * 16
         // so DT/tDTS = (32 + 0..31) * 16 = 512..1008
-        // also DTG[5:0] = DT/tDTS / 16 - 32
-        // and DTG[7:0] = (DT/tDTS / 16 - 32) | 224
+        // also DTG[4:0] = DT/tDTS / 16 - 32
+        // and DTG[7:0] = (DT/tDTS / 16 - 32) | 0b111_00000
 
         // because ranges do not cover all values they were
         // extended such that values fall into nearest one
