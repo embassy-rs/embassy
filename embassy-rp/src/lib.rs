@@ -37,6 +37,7 @@ mod float;
 pub mod gpio;
 pub mod i2c;
 pub mod i2c_slave;
+pub mod interpolator;
 pub mod multicore;
 #[cfg(feature = "_rp235x")]
 pub mod otp;
@@ -310,6 +311,9 @@ embassy_hal_internal::peripherals! {
 
     WATCHDOG,
     BOOTSEL,
+
+    INTERP0,
+    INTERP1,
 }
 
 #[cfg(feature = "_rp235x")]
@@ -447,7 +451,10 @@ embassy_hal_internal::peripherals! {
     BOOTSEL,
 
     POWMAN,
-    TRNG
+    TRNG,
+
+    INTERP0,
+    INTERP1,
 }
 
 #[cfg(all(not(feature = "boot2-none"), feature = "rp2040"))]
