@@ -50,7 +50,6 @@ fn moving_mask(interp: &mut Interpolator<'_, impl Instance>) {
         config.mask_lsb = i * 4;
         config.mask_msb = i * 4 + 3;
         lane0.set_ctrl(config);
-        // Reading from ACCUMx_ADD returns the raw lane shift and mask value, without BASEx added
         info!("Nibble {}: {:08x}", i, lane0.peek());
     }
 
