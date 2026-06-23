@@ -9,6 +9,7 @@ use embassy_hal_internal::Peri;
 
 use crate::flexcan::classic::mailbox::tx;
 use crate::flexcan::classic::frame::Frame;
+use crate::flexcan::common::{FilterConfig, FilterConfigError};
 use crate::flexcan::control::{Control, ControlError};
 use crate::interrupt::typelevel::Handler;
 use nxp_pac::can as pac;
@@ -48,26 +49,38 @@ pub(in crate::flexcan) struct Info {
     pub tx_waker: AtomicWaker,
 }
 
+/// Errors that can return when initializing
+/// a `FlexCan` instance.
+#[non_exhaustive]
+pub enum InitError {
+    /// This error indicates that the hardware didn't response
+    /// within a reasonable timeframe to a request the HAL made.
+    Timeout,
+
+    /// This error indicates an invalid FilterConfig. See the `FilterConfigError`
+    /// enum for the specific possible errors.
+    Filter(FilterConfigError),
+}
+
 impl<'d> FlexCan<'d> {
-    pub fn new<T: Instance>(_peri: Peri<'d, T>, /* rx/tx pins, Config, irq binding */) -> Result<Self, ControlError> {
+    pub fn new<T: Instance>(_peri: Peri<'d, T>, filter_config: FilterConfig, /* rx/tx pins, Config, irq binding */) -> Result<Self, InitError> {
         use embassy_time::Duration;
+
+        filter_config.validate().map_err(|e| InitError::Filter(e))?;
 
         let info = T::info();
 
         const ENABLE_TIMEOUT: u64 = 10; // Timeout for the `.enable()` call in ms
-        info.control.enable(Some(Duration::from_millis(ENABLE_TIMEOUT)))?;
+        info.control.enable(Some(Duration::from_millis(ENABLE_TIMEOUT))).map_err(|_| InitError::Timeout)?;
 
         // As of right now, the whole HAL is based around us having 32 message buffers.
         // So, this isn't something the user should be able to configure.
         const NUM_MESSAGE_BUFFERS: u8 = 32;
         info.control.set_number_of_message_buffers(NUM_MESSAGE_BUFFERS);
 
-        // Store incoming REMOTE frames instead of auto-generating a response frame.
-        info.control.regs().ctrl2().write(|w| w.set_rrs(pac::Rrs::RemoteResponseFrameNotGenerated));
-
         // Reset the TX message buffers and the software state tracking. `setup()` enters
         // Freeze mode itself, then we leave Freeze once everything is configured.
-        mailbox::tx::setup(info).map_err(|_| ControlError::FreezeTimeout)?;
+        mailbox::tx::setup(info).map_err(|_| InitError::Timeout)?;
 
         info.control.unfreeze();
         Ok(Self { info, _phantom: PhantomData })

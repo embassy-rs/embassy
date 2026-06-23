@@ -18,7 +18,8 @@ impl Control {
     }
 
     /// Access the raw FlexCAN registers
-    pub(in crate::flexcan) fn regs(&self) -> pac::Can {
+    #[inline(always)]
+    pub(in crate::flexcan) const fn regs(&self) -> pac::Can {
         self.regs
     }
 

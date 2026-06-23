@@ -1,4 +1,5 @@
 pub mod classic;
+pub mod common;
 mod control;
 
 pub use control::ControlError;

@@ -28,6 +28,7 @@ pub(in crate::flexcan) enum MailboxError {
     UnknownTxCode,
 }
 
+/// The TX subsystem (for transmitting messages).
 pub(in crate::flexcan) mod tx {
     use super::Message;
     use super::pac;
@@ -85,7 +86,7 @@ pub(in crate::flexcan) mod tx {
         }
     }
 
-    /// Sets up the the FlexCAN mailbox for TX.
+    /// Sets up the TX subsystem.
     /// This function resets the TX message buffers and our state tracking for what buffers are available.
     pub(in crate::flexcan) fn setup(info: &Info) -> Result<(), MailboxError> {
         use core::sync::atomic::Ordering;
@@ -249,4 +250,79 @@ pub(in crate::flexcan) mod tx {
     }
 
     
+}
+
+/// The RX subsystem (for recieving messages)
+pub(in crate::flexcan) mod rx {
+    use super::MailboxError;
+    use crate::flexcan::classic::Info;
+    use crate::flexcan::common::FilterConfig;
+    use super::pac;
+
+    /// Sets up the RX subsystem.
+    /// This function requires `filter_config` to have been validated prior to being passed in here.
+    pub(in crate::flexcan) fn setup(info: &Info, filter_config: &FilterConfig) -> Result<(), MailboxError> {
+        use embassy_time::{Duration};
+
+        // Make sure we're frozen before continuing.
+        const FREEZE_TIMEOUT: u64 = 10; // ms
+        match info.control.freeze(Some(Duration::from_millis(FREEZE_TIMEOUT))) {
+            Ok(_) => (),
+            Err(_) => { return Err(MailboxError::Timeout); }
+        }
+
+        // Misc basic setup
+        info.control.regs().mcr().modify(|m| m.set_rfen(pac::Rfen::Id1)); // Turn off the Legacy FIFO
+        info.control.regs().ctrl2().modify(|m| m.set_rrs(pac::Rrs::RemoteResponseFrameNotGenerated)); // Store incoming REMOTE frames instead of auto-generating a response frame.
+        info.control.regs().erfcr().modify(|m| m.set_erfen(true)); // Enable the Enhanced FIFO
+        info.control.regs().erfsr().modify(|m| m.set_erfclr(pac::Erfclr::Clear)); // Clear the Enhanced FIFO
+        info.control.regs().erfsr().write(|w| {
+            w.set_erfufw(true);                      // Clear the Enhanced FIFO Underflow Flag (write-1-to-clear)
+            w.set_erfovf(true);                      // Clear the Enhanced FIFO Overflow Flag (write-1-to-clear)
+            w.set_erfwmi(pac::Erfwmi::WatermarkYes); // Clear the Enhanced FIFO Watermark Indication Flag (write-1-to-clear)
+            w.set_erfda(true);                       // Clear the Enhanced FIFO Data Available Flag (write-1-to-clear)
+        });
+
+        // Make it so every RX triggers an interrupt rather than batching them
+        info.control.regs().erfier().modify(|m| {
+            m.set_erfdaie(true);    // Enable the Enhanced FIFO Data Available Interrupt
+            m.set_erfwmiie(false);  // Disable the Enhanced RX FIFO Watermark Indication Interrupt (since we're not batching)
+            m.set_erfovfie(true);   // Enable the Enhanced RX FIFO Overflow Interrupt Enable
+        });
+
+        // Set up the ID filteres
+        let num_extended = filter_config.extended_ids.len();
+        let num_standard = filter_config.standard_ids.len();
+        let standard_slots = num_standard.next_multiple_of(2); // Round up to a pair of two since hardware needs it
+
+        let nexif = num_extended; // NEXIF means the number of extended filter elements (see datasheet page 1538)
+        let nfe = nexif + standard_slots / 2 - 1; // Also see datasheet page 1538
+        info.control.regs().erfcr().modify(|m| {
+            m.set_nexif(nexif as u8);
+            m.set_nfe(nfe as u8);
+        });
+
+        // Extended filters are registers 0 through 2*num_extended, with each being 2 words.
+        // Filter Word: extended ID in bits 0 through 28, then 0b000 for the last three
+        // Mask Word: RTR Mask = 0, extended ID mask = 0x1FFF_FFFF (so IDs need to be an exact match, and RTR response messages are treated like normal RX messages)
+        for(i, &id) in filter_config.extended_ids.iter().enumerate() {
+            const MASK: u32 = 0x1FFF_FFFF;
+            info.control.regs().erffel(2*i).write_value(pac::Erffel(id & MASK));
+            info.control.regs().erffel(2*i + 1).write_value(pac::Erffel(MASK));
+        }
+
+        // Standard filters are after the extended filters, and are one register each
+        // Standard ID in bits 26::16, standard ID mask in bits 10:0.
+        let standard_base = 2 * num_extended;
+        for slot in 0..standard_slots {
+            // Pad the odd slot by replacing the last real ID (a duplicate will never win any matches since the earlier element gets found first)
+            let id = filter_config.standard_ids[if slot < num_standard { slot } else { num_standard - 1}];
+            const MASK: u32 = 0x7FF;
+            info.control.regs().erffel(standard_base + slot).write_value(pac::Erffel(((id & MASK) << 16) | MASK));
+        }
+
+        Ok(())
+
+
+    }
 }
