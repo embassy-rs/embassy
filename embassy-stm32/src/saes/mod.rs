@@ -295,6 +295,39 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         self.start_with_key_mode(cipher, dir, KeyMode::Normal, Some(key_source))
     }
 
+    /// Starts a new cipher operation with an explicit SAES key mode.
+    ///
+    /// This enables wrapped-key/shared-key workflows in addition to normal mode.
+    /// When `hw_key` is provided, SAES selects a hardware key source.
+    pub fn start_with_mode<'c, C>(
+        &mut self,
+        key_mode: KeyMode,
+        hw_key: Option<HardwareKeySource>,
+        cipher: &'c C,
+        dir: Direction,
+    ) -> Context<'c, C>
+    where
+        C: Cipher<'c> + CipherSized + IVSized,
+    {
+        self.start_with_key_mode(cipher, dir, key_mode, hw_key)
+    }
+
+    /// Starts a new cipher operation in wrapped-key mode.
+    pub fn start_wrapped_key<'c, C>(&mut self, cipher: &'c C, dir: Direction) -> Context<'c, C>
+    where
+        C: Cipher<'c> + CipherSized + IVSized,
+    {
+        self.start_with_key_mode(cipher, dir, KeyMode::WrappedKey, None)
+    }
+
+    /// Starts a new cipher operation in shared-key mode.
+    pub fn start_shared_key<'c, C>(&mut self, cipher: &'c C, dir: Direction) -> Context<'c, C>
+    where
+        C: Cipher<'c> + CipherSized + IVSized,
+    {
+        self.start_with_key_mode(cipher, dir, KeyMode::SharedKey, None)
+    }
+
     /// Internal start method with full control over key mode.
     fn start_with_key_mode<'c, C>(
         &mut self,
@@ -733,6 +766,38 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         p.icr().write(|w| w.0 = 0xFFFF_FFFF);
 
         Ok(())
+    }
+}
+
+impl<'d, T: Instance> Saes<'d, T, Async> {
+    /// Process authenticated additional data (AAD) for GCM/CCM modes (async facade).
+    pub async fn aad<'c, C>(&mut self, ctx: &mut Context<'c, C>, aad: &[u8], last: bool) -> Result<(), Error>
+    where
+        C: Cipher<'c> + CipherAuthenticated<16>,
+    {
+        self.aad_blocking(ctx, aad, last)
+    }
+
+    /// Process payload data (async facade).
+    pub async fn payload<'c, C>(
+        &mut self,
+        ctx: &mut Context<'c, C>,
+        input: &[u8],
+        output: &mut [u8],
+        last: bool,
+    ) -> Result<(), Error>
+    where
+        C: Cipher<'c>,
+    {
+        self.payload_blocking(ctx, input, output, last)
+    }
+
+    /// Finish cipher operation and return authentication tag for authenticated modes (async facade).
+    pub async fn finish<'c, C>(&mut self, ctx: Context<'c, C>) -> Result<Option<[u8; 16]>, Error>
+    where
+        C: Cipher<'c>,
+    {
+        self.finish_blocking(ctx)
     }
 }
 

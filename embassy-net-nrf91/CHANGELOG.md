@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- changed: update to nrf-pac 0.4.0
+
 ## 0.2.0 - 2026-03-10
 
 - Signal link state based on link attach to prevent too early transmit confusing LTE modem.

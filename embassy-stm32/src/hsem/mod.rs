@@ -2,7 +2,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use critical_section::CriticalSection;
@@ -10,14 +10,14 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use interrupt::typelevel::Interrupt;
 
-// TODO: This code works for all HSEM implemenations except for the STM32WBA52/4/5xx MCUs.
-// Those MCUs have a different HSEM implementation (Secure semaphore lock support,
-// Privileged / unprivileged semaphore lock support, Semaphore lock protection via semaphore attribute),
-// which is not yet supported by this code.
+// NOTE: STM32WBA5/6 expose additional secure/privileged HSEM features.
+// The nonsecure lock/listen flow used here is compatible with the common
+// semaphore interface and remains usable across WBA52/54/55/65 families.
 use crate::Peri;
 use crate::cpu::CoreId;
 use crate::peripherals::HSEM;
 use crate::rcc::RccPeripheral;
+use crate::reg::AtomicModify;
 use crate::{interrupt, pac};
 
 /// HSEM error.
@@ -27,9 +27,20 @@ pub enum HsemError {
     LockFailed,
 }
 
+#[cfg(stm32wba)]
+const CHANNELS: usize = 16;
+#[cfg(not(stm32wba))]
 const CHANNELS: usize = 6;
 
-#[cfg(all(not(all(stm32wb, feature = "low-power")), not(all(stm32wl5x, feature = "low-power"))))]
+#[cfg(all(stm32wba, not(feature = "low-power")))]
+const PUB_CHANNELS: usize = 16;
+#[cfg(all(stm32wba, feature = "low-power"))]
+const PUB_CHANNELS: usize = 16;
+#[cfg(all(
+    not(stm32wba),
+    not(all(stm32wb, feature = "low-power")),
+    not(all(stm32wl5x, feature = "low-power"))
+))]
 const PUB_CHANNELS: usize = 6;
 
 #[cfg(all(stm32wl5x, feature = "low-power"))]
@@ -49,7 +60,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HardwareSemaph
         // Get pending semaphore bits from masked ISR for the current core
         let mut pending = T::regs().misr(core.to_index().into()).read().0;
 
-        T::regs().icr(core.to_index().into()).write(|w| {
+        T::regs().ier(core.to_index().into()).modify(|w| {
             while pending != 0 {
                 // Index of lowest set bit
                 let n = pending.trailing_zeros() as u8;
@@ -58,8 +69,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HardwareSemaph
                 // Safe when pending != 0 enforced by while predicate
                 pending &= pending - 1;
 
-                w.set_isc(n.into(), true);
-                T::state().flag_for(n).store(true, Ordering::Release);
+                w.set_ise(n.into(), false);
                 T::state().waker_for(n).wake();
             }
         });
@@ -76,7 +86,7 @@ impl<T: Instance> ActiveInterrupt<T> {
     pub fn new(core: CoreId, index: u8) -> Self {
         T::regs()
             .ier(core.to_index().into())
-            .modify(|w| w.set_ise(index.into(), true));
+            .set_bits(|w| w.set_ise(index.into(), true));
 
         Self {
             core,
@@ -90,7 +100,7 @@ impl<T: Instance> Drop for ActiveInterrupt<T> {
     fn drop(&mut self) {
         T::regs()
             .ier(self.core.to_index().into())
-            .modify(|w| w.set_ise(self.index.into(), false));
+            .clear_bits(|w| w.set_ise(self.index.into(), false));
     }
 }
 
@@ -202,19 +212,19 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
     pub fn blocking_listen(&mut self) {
         let core = CoreId::current();
 
-        T::state().flag_for(self.index).store(false, Ordering::Release);
+        // Clear the interupt
+        T::regs()
+            .icr(core.to_index().into())
+            .write(|w| w.set_isc(self.index.into(), true));
 
-        let _irq = self.clear_and_enable_interupt(core);
         // Wait for the semaphore interrupt flag
-        while !T::state().flag_for(self.index).load(Ordering::Relaxed) {}
+        while !T::regs().isr(core.to_index().into()).read().isf(self.index.into()) {}
     }
 
     /// Asynchronous listen for a notification interrupt when this semaphore channel is unlocked
     pub async fn listen(&mut self) {
         let _scoped_wake_guard = T::RCC_INFO.wake_guard();
         let core = CoreId::current();
-
-        T::state().flag_for(self.index).store(false, Ordering::Release);
 
         let _irq = self.clear_and_enable_interupt(core);
         // Wait for the semaphore interrupt flag
@@ -223,7 +233,11 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
 
             compiler_fence(Ordering::SeqCst);
 
-            if T::state().flag_for(self.index).load(Ordering::Acquire) {
+            if T::regs().misr(core.to_index().into()).read().misf(self.index.into()) {
+                T::regs()
+                    .icr(core.to_index().into())
+                    .write(|w| w.set_isc(self.index.into(), true));
+
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -367,6 +381,28 @@ impl<T: Instance> HardwareSemaphore<T> {
     ///
     /// If using low-power mode, channels 3 and 4 will not be returned
     pub const fn split<'a>(self) -> [HardwareSemaphoreChannel<'a, T>; PUB_CHANNELS] {
+        #[cfg(stm32wba)]
+        {
+            [
+                HardwareSemaphoreChannel::new(1),
+                HardwareSemaphoreChannel::new(2),
+                HardwareSemaphoreChannel::new(3),
+                HardwareSemaphoreChannel::new(4),
+                HardwareSemaphoreChannel::new(5),
+                HardwareSemaphoreChannel::new(6),
+                HardwareSemaphoreChannel::new(7),
+                HardwareSemaphoreChannel::new(8),
+                HardwareSemaphoreChannel::new(9),
+                HardwareSemaphoreChannel::new(10),
+                HardwareSemaphoreChannel::new(11),
+                HardwareSemaphoreChannel::new(12),
+                HardwareSemaphoreChannel::new(13),
+                HardwareSemaphoreChannel::new(14),
+                HardwareSemaphoreChannel::new(15),
+                HardwareSemaphoreChannel::new(16),
+            ]
+        }
+        #[cfg(not(stm32wba))]
         [
             HardwareSemaphoreChannel::new(1),
             HardwareSemaphoreChannel::new(2),
@@ -418,7 +454,6 @@ pub(crate) const fn get_hsem<'a>(index: usize) -> HardwareSemaphoreChannel<'a, c
 }
 
 struct State {
-    flags: [AtomicBool; CHANNELS],
     wakers: [AtomicWaker; CHANNELS],
 }
 
@@ -426,16 +461,11 @@ impl State {
     const fn new() -> Self {
         Self {
             wakers: [const { AtomicWaker::new() }; CHANNELS],
-            flags: [const { AtomicBool::new(false) }; CHANNELS],
         }
     }
 
     const fn waker_for(&self, index: u8) -> &AtomicWaker {
         &self.wakers[index as usize]
-    }
-
-    const fn flag_for(&self, index: u8) -> &AtomicBool {
-        &self.flags[index as usize]
     }
 }
 

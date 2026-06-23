@@ -9,79 +9,70 @@ use core::task::{Context, Poll};
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputCaptureSelection, Timer};
 use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2, Ch3, Ch4};
+use crate::Peri;
+#[cfg(not(stm32c5))]
+use crate::dma;
 use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::timer::{TimerChannel, TimerInputTrigger};
-use crate::{Peri, dma};
 
-/// Capture pin wrapper.
-///
-/// This wraps a pin to make it usable with capture.
-pub struct CapturePin<'d, T, C, #[cfg(afio)] A> {
-    pin: Flex<'d>,
-    _marker: PhantomData<if_afio!((T, C, A))>,
-}
-impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(CapturePin<'d, T, C, A>) {
-    /// Create a new capture pin instance.
-    pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> if_afio!(TimerInputType<'d, T, C, A>) {
-        set_as_af!(pin, AfType::input(pull));
-        TimerInputType::Pin(CapturePin {
-            pin: Flex::new(pin),
-            _marker: PhantomData,
-        })
-    }
-}
-
-/// Trigger wrapper.
-///
-/// This wraps a trigger to make it usable with capture.
-pub struct CaptureInput<T, C> {
-    trigger: u8,
-    _marker: PhantomData<(T, C)>,
-}
-
-impl<T: GeneralInstance4Channel, C: TimerChannel> CaptureInput<T, C> {
-    /// Create a new capture input instance.
-    pub fn from<'d, #[cfg(afio)] A>(trigger: impl TimerInputTrigger<T, C>) -> if_afio!(TimerInputType<'d, T, C, A>) {
-        TimerInputType::Trigger(Self {
-            trigger: trigger.signal(),
-            _marker: PhantomData,
-        })
-    }
-}
-
-/// Trigger or pin wrapper.
-pub enum TimerInputType<'d, T, C, #[cfg(afio)] A> {
-    /// Pin type
-    Pin(if_afio!(CapturePin<'d, T, C, A>)),
-    /// Trigger type
-    Trigger(CaptureInput<T, C>),
-}
-
-enum PinTrigger<'d> {
+enum InputType<'d> {
     #[allow(dead_code)]
     Pin(Flex<'d>),
     #[allow(dead_code)]
     Trigger(u8),
 }
 
-impl<'d, T, C, #[cfg(afio)] A> From<if_afio!(TimerInputType<'d, T, C, A>)> for PinTrigger<'d> {
-    fn from(tinput: if_afio!(TimerInputType<'d, T, C, A>)) -> Self {
-        match tinput {
-            TimerInputType::Pin(pin) => Self::Pin(pin.pin),
-            TimerInputType::Trigger(trigger) => Self::Trigger(trigger.trigger),
-        }
+/// Capture pin wrapper.
+pub struct CapturePin {
+    _private: (),
+}
+
+impl CapturePin {
+    /// Create a new capture pin instance.
+    #[deprecated = "use `CaptureInput::from_pin`"]
+    pub fn new<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A>(
+        pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>,
+        pull: Pull,
+    ) -> if_afio!(CaptureInput<'d, T, C, A>) {
+        CaptureInput::from_pin(pin, pull).unwrap()
+    }
+}
+
+/// Capture pin wrapper.
+///
+/// This wraps a pin or trigger to make it usable with capture.
+pub struct CaptureInput<'d, T, C, #[cfg(afio)] A> {
+    input: InputType<'d>,
+    _marker: PhantomData<if_afio!((T, C, A))>,
+}
+impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(CaptureInput<'d, T, C, A>) {
+    /// Create a new capture pin instance.
+    pub fn from_pin(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Option<Self> {
+        set_as_af!(pin, AfType::input(pull));
+        Some(Self {
+            input: InputType::Pin(Flex::new(pin)),
+            _marker: PhantomData,
+        })
+    }
+
+    /// Create a new capture pin instance.
+    pub fn from_trigger(trigger: impl TimerInputTrigger<T, C>) -> Option<Self> {
+        Some(Self {
+            input: InputType::Trigger(trigger.signal()),
+            _marker: PhantomData,
+        })
     }
 }
 
 /// Input capture driver.
 pub struct InputCapture<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
-    _ch1: Option<PinTrigger<'d>>,
-    _ch2: Option<PinTrigger<'d>>,
-    _ch3: Option<PinTrigger<'d>>,
-    _ch4: Option<PinTrigger<'d>>,
+    _ch1: Option<InputType<'d>>,
+    _ch2: Option<InputType<'d>>,
+    _ch3: Option<InputType<'d>>,
+    _ch4: Option<InputType<'d>>,
 }
 
 impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
@@ -89,20 +80,20 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     #[allow(unused)]
     pub fn new<#[cfg(afio)] A>(
         tim: Peri<'d, T>,
-        ch1: Option<if_afio!(TimerInputType<'d, T, Ch1, A>)>,
-        ch2: Option<if_afio!(TimerInputType<'d, T, Ch2, A>)>,
-        ch3: Option<if_afio!(TimerInputType<'d, T, Ch3, A>)>,
-        ch4: Option<if_afio!(TimerInputType<'d, T, Ch4, A>)>,
+        ch1: Option<if_afio!(CaptureInput<'d, T, Ch1, A>)>,
+        ch2: Option<if_afio!(CaptureInput<'d, T, Ch2, A>)>,
+        ch3: Option<if_afio!(CaptureInput<'d, T, Ch3, A>)>,
+        ch4: Option<if_afio!(CaptureInput<'d, T, Ch4, A>)>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
         Self::new_inner(
             tim,
-            ch1.map(|pin| pin.into()),
-            ch2.map(|pin| pin.into()),
-            ch3.map(|pin| pin.into()),
-            ch4.map(|pin| pin.into()),
+            ch1.map(|input| input.input),
+            ch2.map(|input| input.input),
+            ch3.map(|input| input.input),
+            ch4.map(|input| input.input),
             freq,
             counting_mode,
         )
@@ -110,10 +101,10 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
 
     fn new_inner(
         tim: Peri<'d, T>,
-        _ch1: Option<PinTrigger<'d>>,
-        _ch2: Option<PinTrigger<'d>>,
-        _ch3: Option<PinTrigger<'d>>,
-        _ch4: Option<PinTrigger<'d>>,
+        _ch1: Option<InputType<'d>>,
+        _ch2: Option<InputType<'d>>,
+        _ch3: Option<InputType<'d>>,
+        _ch4: Option<InputType<'d>>,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
@@ -134,8 +125,8 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
             #[cfg(not(stm32l0))]
             if let Some(pin_trigger) = _pin_trigger {
                 let tisel = match pin_trigger {
-                    PinTrigger::Pin(_) => 0,
-                    PinTrigger::Trigger(trigger) => *trigger,
+                    InputType::Pin(_) => 0,
+                    InputType::Trigger(trigger) => *trigger,
                 };
 
                 this.inner.set_input_ti_seletion(*ch, tisel);
@@ -300,6 +291,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         }
     }
 
+    #[cfg(not(stm32c5))]
     /// Capture a sequence of timer input edges into a buffer using DMA.
     ///
     /// Note: DMA capture is only available on `InputCapture`, not on the per-channel
@@ -369,7 +361,7 @@ pub struct InputCaptureChannels<'d, T: GeneralInstance4Channel> {
 pub struct InputCaptureChannel<'d, T: GeneralInstance4Channel> {
     inner: ManuallyDrop<Timer<'d, T>>,
     channel: Channel,
-    _pin: Option<PinTrigger<'d>>,
+    _pin: Option<InputType<'d>>,
 }
 
 impl<'d, T: GeneralInstance4Channel> InputCaptureChannel<'d, T> {
@@ -491,12 +483,20 @@ impl<T: GeneralInstance4Channel> Future for InputCaptureFuture<T> {
     type Output = T::Word;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        #[cfg(stm32l0)]
+        use crate::pac::timer::TimGp16 as timer;
+        #[cfg(not(stm32l0))]
+        use crate::pac::timer::TimGp32 as timer;
+
         T::state().cc_waker[self.channel.index()].register(cx.waker());
 
-        let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
+        let regs = unsafe { timer::from_ptr(T::regs()) };
 
         let dier = regs.dier().read();
         if !dier.ccie(self.channel.index()) {
+            #[cfg(not(stm32l0))]
+            let val = unwrap!(regs.ccr(self.channel.index()).read().try_into());
+            #[cfg(stm32l0)]
             let val = unwrap!(regs.ccr(self.channel.index()).read().ccr().try_into());
             Poll::Ready(val)
         } else {

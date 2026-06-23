@@ -126,7 +126,7 @@ async fn main(spawner: Spawner) {
     let user_button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
     spawner.spawn(user_button_task(user_button, green_led).unwrap());
 
-    let pe0_exti = ExtiInput::from_input(pe0, p.EXTI0, Irqs);
+    let pe0_exti = unsafe { ExtiInput::from_input(pe0, p.EXTI0, Irqs) };
     spawner.spawn(mark_booted_task(pe0_exti).unwrap());
 
     info!("Blinking red LED. Hold PE0 3s to confirm boot.");

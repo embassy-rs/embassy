@@ -4,6 +4,7 @@
 pub mod ringbuffered;
 
 use core::marker::PhantomData;
+use core::slice;
 
 #[cfg(stm32g4)]
 use dac::vals;
@@ -11,7 +12,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub use ringbuffered::RingBufferedDacChannel;
 
-use crate::dma::ChannelAndRequest;
+use crate::dma::{ChannelAndRequest, word as dma};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
@@ -116,46 +117,6 @@ impl Mode {
             Mode::SampleHoldInternalUnbuffered => dac::vals::Mode::SampholdIntBufdis,
         }
     }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Single 8 or 12 bit value that can be output by the DAC.
-///
-/// 12-bit values outside the permitted range are silently truncated.
-pub enum Value {
-    /// 8 bit value
-    Bit8(u8),
-    /// 12 bit value stored in a u16, left-aligned
-    Bit12Left(u16),
-    /// 12 bit value stored in a u16, right-aligned
-    Bit12Right(u16),
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Dual 8 or 12 bit values that can be output by the DAC channels 1 and 2 simultaneously.
-///
-/// 12-bit values outside the permitted range are silently truncated.
-pub enum DualValue {
-    /// 8 bit value
-    Bit8(u8, u8),
-    /// 12 bit value stored in a u16, left-aligned
-    Bit12Left(u16, u16),
-    /// 12 bit value stored in a u16, right-aligned
-    Bit12Right(u16, u16),
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Array variant of [`Value`].
-pub enum ValueArray<'a> {
-    /// 8 bit values
-    Bit8(&'a [u8]),
-    /// 12 bit value stored in a u16, left-aligned
-    Bit12Left(&'a [u16]),
-    /// 12 bit values stored in a u16, right-aligned
-    Bit12Right(&'a [u16]),
 }
 
 #[derive(Debug)]
@@ -312,12 +273,11 @@ impl<'d> DacChannel<'d, Async> {
 
     /// Convert this channel into a ring-buffered DAC channel using 8-bit output (DHR8Rx).
     ///
-    /// Each element of `dma_buf` holds one 8-bit sample in bits [7:0]. DMA transfers are
-    /// 32-bit wide as required by the DAC peripheral, so the upper bits are ignored by hardware.
+    /// Each element of `dma_buf` holds one 8-bit sample in bits [7:0].
     /// The DMA runs in circular mode so output is uninterrupted between writes.
     /// Use [`RingBufferedDacChannel::write_immediate`] to pre-fill the buffer before
     /// calling [`RingBufferedDacChannel::start`].
-    pub fn into_ring_buffered_8bit(self, dma_buf: &'d mut [u32]) -> RingBufferedDacChannel<'d, u32> {
+    pub fn into_ring_buffered<W: Word>(self, dma_buf: &'d mut [W]) -> RingBufferedDacChannel<'d, W> {
         let info = self.info;
         let state = self.state;
         let idx = self.idx;
@@ -330,45 +290,13 @@ impl<'d> DacChannel<'d, Async> {
             w.set_en(idx, true);
             w.set_dmaen(idx, true);
         });
+
         let ring_buf = unsafe {
             crate::dma::WritableRingBuffer::new(
                 channel,
                 request,
-                info.regs.dhr8r(idx).as_ptr() as *mut u32,
-                dma_buf,
-                Default::default(),
-            )
-        };
-        RingBufferedDacChannel::new(ring_buf, info, state, idx)
-    }
-
-    /// Convert this channel into a ring-buffered DAC channel using 12-bit right-aligned output
-    /// (DHR12Rx).
-    ///
-    /// Each element of `dma_buf` holds one 12-bit sample in bits [11:0]. DMA transfers are
-    /// 32-bit wide as required by the DAC peripheral, so bits [31:12] are ignored by hardware.
-    /// The DMA runs in circular mode so output is uninterrupted between writes.
-    /// Use [`RingBufferedDacChannel::write_immediate`] to pre-fill the buffer before
-    /// calling [`RingBufferedDacChannel::start`].
-    pub fn into_ring_buffered_12right(self, dma_buf: &'d mut [u32]) -> RingBufferedDacChannel<'d, u32> {
-        let info = self.info;
-        let state = self.state;
-        let idx = self.idx;
-        // Safety: self is forgotten below so the ChannelAndRequest won't be dropped twice.
-        let dma = unsafe { self.dma.as_ref().unwrap().clone_unchecked() };
-        core::mem::forget(self);
-
-        let crate::dma::ChannelAndRequest { channel, request } = dma;
-        info.regs.cr().modify(|w| {
-            w.set_en(idx, true);
-            w.set_dmaen(idx, true);
-        });
-        let ring_buf = unsafe {
-            crate::dma::WritableRingBuffer::new(
-                channel,
-                request,
-                info.regs.dhr12r(idx).as_ptr() as *mut u32,
-                dma_buf,
+                W::dma_ptr(info.regs, idx),
+                W::dma_buf_mut(dma_buf),
                 Default::default(),
             )
         };
@@ -382,7 +310,7 @@ impl<'d> DacChannel<'d, Async> {
     /// `data`. Note that for performance reasons in circular mode the transfer-complete
     /// interrupt is disabled.
     #[cfg(not(gpdma))]
-    pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) {
+    pub async fn write<W: Word>(&mut self, data: &[W], circular: bool) {
         // Enable DAC and DMA
         self.info.regs.cr().modify(|w| {
             w.set_en(self.idx, true);
@@ -399,17 +327,7 @@ impl<'d> DacChannel<'d, Async> {
         };
 
         // Initiate the correct type of DMA transfer depending on what data is passed
-        let tx_f = match data {
-            ValueArray::Bit8(buf) => unsafe {
-                dma.write_raw(buf, self.info.regs.dhr8r(self.idx).as_ptr() as *mut u32, tx_options)
-            },
-            ValueArray::Bit12Left(buf) => unsafe {
-                dma.write_raw(buf, self.info.regs.dhr12l(self.idx).as_ptr() as *mut u32, tx_options)
-            },
-            ValueArray::Bit12Right(buf) => unsafe {
-                dma.write_raw(buf, self.info.regs.dhr12r(self.idx).as_ptr() as *mut u32, tx_options)
-            },
-        };
+        let tx_f = unsafe { dma.write_raw(W::dma_buf(data), W::dma_ptr(self.info.regs, self.idx), tx_options) };
 
         tx_f.await;
 
@@ -652,12 +570,8 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     ///
     /// If triggering is not enabled, the new value is immediately output; otherwise,
     /// it will be output after the next trigger.
-    pub fn set(&mut self, value: Value) {
-        match value {
-            Value::Bit8(v) => self.info.regs.dhr8r(self.idx).write(|reg| reg.set_dhr(v)),
-            Value::Bit12Left(v) => self.info.regs.dhr12l(self.idx).write(|reg| reg.set_dhr(v)),
-            Value::Bit12Right(v) => self.info.regs.dhr12r(self.idx).write(|reg| reg.set_dhr(v)),
-        }
+    pub fn set<W: Word>(&mut self, value: W) {
+        W::set_value(self.info.regs, self.idx, value);
     }
 
     /// Read the current output value of the DAC.
@@ -1107,21 +1021,155 @@ impl<'d, M: PeriMode> Dac<'d, M> {
     ///
     /// If triggering is not enabled, the new values are immediately output;
     /// otherwise, they will be output after the next trigger.
-    pub fn set(&mut self, values: DualValue) {
-        match values {
-            DualValue::Bit8(v1, v2) => self.info.regs.dhr8rd().write(|reg| {
-                reg.set_dhr(0, v1);
-                reg.set_dhr(1, v2);
-            }),
-            DualValue::Bit12Left(v1, v2) => self.info.regs.dhr12ld().write(|reg| {
-                reg.set_dhr(0, v1);
-                reg.set_dhr(1, v2);
-            }),
-            DualValue::Bit12Right(v1, v2) => self.info.regs.dhr12rd().write(|reg| {
-                reg.set_dhr(0, v1);
-                reg.set_dhr(1, v2);
-            }),
+    pub fn set<W: Word>(&mut self, values: (W, W)) {
+        W::set_values(self.info.regs, values);
+    }
+}
+
+trait SealedCast<T: ?Sized> {}
+
+/// Convert between slice types
+#[allow(private_bounds)]
+pub trait Cast<T: ?Sized>: SealedCast<T> {
+    /// Cast the object
+    fn cast(&self) -> &T;
+
+    /// Cast the mut object
+    fn cast_mut(&mut self) -> &mut T;
+}
+
+macro_rules! impl_word_type {
+    ($a:ident, $b:ident) => {
+        #[allow(non_camel_case_types)]
+        #[repr(transparent)]
+        #[doc = concat!(stringify!($a), " integer type.")]
+        #[derive(Clone, Copy, Debug)]
+        pub struct $a(pub $b);
+
+        impl_word_type!($a, $b, INTO_SLICE);
+        impl_word_type!($b, $a, INTO_SLICE);
+    };
+    ($a:ident, $b:ident, INTO_SLICE) => {
+        impl SealedCast<[$a]> for [$b] {}
+        impl Cast<[$a]> for [$b] {
+            fn cast(&self) -> &[$a] {
+                unsafe { slice::from_raw_parts(self.as_ptr() as *const $a, self.len()) }
+            }
+
+            fn cast_mut(&mut self) -> &mut [$a] {
+                unsafe { slice::from_raw_parts_mut(self.as_mut_ptr() as *mut $a, self.len()) }
+            }
         }
+
+        impl<const N: usize> SealedCast<[$a; N]> for [$b; N] {}
+        impl<const N: usize> Cast<[$a; N]> for [$b; N] {
+            fn cast(&self) -> &[$a; N] {
+                unsafe { &*(self.as_ptr() as *const u8 as *const [$a; N]) }
+            }
+
+            fn cast_mut(&mut self) -> &mut [$a; N] {
+                unsafe { &mut *(self.as_mut_ptr() as *mut u8 as *mut [$a; N]) }
+            }
+        }
+    };
+}
+
+impl_word_type!(u12r, u16);
+impl_word_type!(u12l, u16);
+
+trait SealedWord: Sized {
+    type Word: dma::Word;
+
+    fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word];
+    fn dma_buf(buf: &[Self]) -> &[Self::Word];
+    fn dma_ptr(regs: Regs, idx: usize) -> *mut u32;
+    fn set_value(regs: Regs, idx: usize, value: Self);
+    fn set_values(regs: Regs, values: (Self, Self));
+}
+
+trait_set::trait_set! {
+    /// The dac word type
+    pub trait Word = SealedWord;
+}
+
+impl SealedWord for u8 {
+    type Word = u8;
+
+    fn dma_buf(buf: &[Self]) -> &[Self::Word] {
+        buf
+    }
+
+    fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word] {
+        buf
+    }
+
+    fn dma_ptr(regs: Regs, idx: usize) -> *mut u32 {
+        regs.dhr8r(idx).as_ptr() as *mut u32
+    }
+
+    fn set_value(regs: Regs, idx: usize, value: Self) {
+        regs.dhr8r(idx).write(|reg| reg.set_dhr(value))
+    }
+
+    fn set_values(regs: Regs, values: (Self, Self)) {
+        regs.dhr8rd().write(|reg| {
+            reg.set_dhr(0, values.0);
+            reg.set_dhr(1, values.1);
+        })
+    }
+}
+
+impl SealedWord for u12r {
+    type Word = u16;
+
+    fn dma_buf(buf: &[Self]) -> &[Self::Word] {
+        buf.cast()
+    }
+
+    fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word] {
+        buf.cast_mut()
+    }
+
+    fn dma_ptr(regs: Regs, idx: usize) -> *mut u32 {
+        regs.dhr12r(idx).as_ptr() as *mut u32
+    }
+
+    fn set_value(regs: Regs, idx: usize, value: Self) {
+        regs.dhr12r(idx).write(|reg| reg.set_dhr(value.0))
+    }
+
+    fn set_values(regs: Regs, values: (Self, Self)) {
+        regs.dhr12rd().write(|reg| {
+            reg.set_dhr(0, values.0.0);
+            reg.set_dhr(1, values.1.0);
+        })
+    }
+}
+
+impl SealedWord for u12l {
+    type Word = u16;
+
+    fn dma_buf(buf: &[Self]) -> &[Self::Word] {
+        buf.cast()
+    }
+
+    fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word] {
+        buf.cast_mut()
+    }
+
+    fn dma_ptr(regs: Regs, idx: usize) -> *mut u32 {
+        regs.dhr12l(idx).as_ptr() as *mut u32
+    }
+
+    fn set_value(regs: Regs, idx: usize, value: Self) {
+        regs.dhr12l(idx).write(|reg| reg.set_dhr(value.0))
+    }
+
+    fn set_values(regs: Regs, values: (Self, Self)) {
+        regs.dhr12ld().write(|reg| {
+            reg.set_dhr(0, values.0.0);
+            reg.set_dhr(1, values.1.0);
+        })
     }
 }
 

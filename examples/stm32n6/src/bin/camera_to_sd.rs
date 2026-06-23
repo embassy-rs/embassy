@@ -30,6 +30,7 @@ use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
 use embassy_stm32::peripherals::DCMIPP;
 use embassy_stm32::rcc::mux::{Dcmippsel, Ltdcsel};
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
+use embassy_stm32::rif::{RifMaster, RifMasterAttributes, RifPeripheral, RifPeripheralAttributes};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::sdmmc::sd::{Addressable, Card, CmdBlock, DataBlock, StorageDevice};
 use embassy_stm32::time::Hertz;
@@ -608,27 +609,21 @@ fn enable_all_sram() {
 }
 
 fn promote_axi_masters_to_secure() {
-    pac::RIFSC.risc_seccfgr(2).modify(|w| {
-        w.set_cfg(29, true);
-    });
-    pac::RIFSC.risc_privcfgr(2).modify(|w| {
-        w.set_cfg(29, true);
-    });
-    pac::RIFSC.risc_seccfgr(3).modify(|w| {
-        w.set_cfg(5, true);
-        w.set_cfg(7, true);
-        w.set_cfg(8, true);
-    });
-    pac::RIFSC.risc_privcfgr(3).modify(|w| {
-        w.set_cfg(5, true);
-        w.set_cfg(7, true);
-        w.set_cfg(8, true);
-    });
-    for master in [8usize, 9, 10, 11] {
-        pac::RIFSC.rimc_attr(master).modify(|w| {
-            w.set_mcid(1);
-            w.set_msec(true);
-            w.set_mpriv(true);
-        });
+    for rif_master in [
+        RifMaster::Dma2d,
+        RifMaster::Dcmipp,
+        RifMaster::LtdcL1,
+        RifMaster::LtdcL2,
+    ] {
+        rif_master.set_attributes(&RifMasterAttributes::new(1, true, true));
+    }
+
+    for rif_periph in [
+        RifPeripheral::Dma2d,
+        RifPeripheral::Dcmipp,
+        RifPeripheral::LtdcL1,
+        RifPeripheral::LtdcL2,
+    ] {
+        rif_periph.set_attributes(&RifPeripheralAttributes::new(true, true));
     }
 }

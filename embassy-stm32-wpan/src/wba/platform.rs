@@ -53,7 +53,7 @@
 //! }
 //! ```
 
-use core::cell::{RefCell, UnsafeCell};
+use core::cell::UnsafeCell;
 use core::future::poll_fn;
 use core::pin::pin;
 use core::task::Poll;
@@ -61,13 +61,13 @@ use core::task::Poll;
 use embassy_futures::join::join3;
 use embassy_futures::select::select;
 use embassy_stm32::aes::Aes;
+use embassy_stm32::low_power::ResumablePeripheral;
 use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
 use embassy_stm32::pka::Pka;
 use embassy_stm32::rng::Rng;
-use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::{Mutex, MutexGuard};
+use embassy_sync::mutex::Mutex;
 use embassy_sync::pipe::Pipe;
 use embassy_sync::signal::Signal;
 use embassy_sync::zerocopy_channel::Channel;
@@ -83,13 +83,13 @@ pub struct Platform {
     p256_req: Signal<CriticalSectionRawMutex, ([u32; 8], [u32; 8], [u32; 8])>,
     p256_resp: Signal<CriticalSectionRawMutex, ([u32; 8], [u32; 8])>,
     ble_init: Flag,
-    rng: Mutex<CriticalSectionRawMutex, Rng<'static, RNG>>,
-    pka: Mutex<CriticalSectionRawMutex, Option<Pka<'static, PkaPeriph, Async>>>,
-    aes: Option<CriticalSectionMutex<RefCell<Aes<'static, AesPeriph, Blocking>>>>,
+    rng: Mutex<CriticalSectionRawMutex, ResumablePeripheral<Rng<'static, RNG>>>,
+    pka: Mutex<CriticalSectionRawMutex, Option<ResumablePeripheral<Pka<'static, PkaPeriph, Async>>>>,
+    aes: Mutex<CriticalSectionRawMutex, Option<Aes<'static, AesPeriph, Blocking>>>,
 }
 
 impl Platform {
-    pub const fn new_basic<const N: usize>(
+    pub fn new_basic<const N: usize>(
         buf: &'static mut [ChannelPacket; N],
         rng: Rng<'static, RNG>,
     ) -> (Self, BasicRuntime) {
@@ -100,15 +100,15 @@ impl Platform {
                 p256_req: Signal::new(),
                 p256_resp: Signal::new(),
                 ble_init: Flag::new(false),
-                rng: Mutex::new(rng),
+                rng: Mutex::new(ResumablePeripheral::new(rng)),
                 pka: Mutex::new(None),
-                aes: None,
+                aes: Mutex::new(None),
             },
             BasicRuntime { _private: () },
         )
     }
 
-    pub const fn new_full<const N: usize>(
+    pub fn new_full<const N: usize>(
         buf: &'static mut [ChannelPacket; N],
         rng: Rng<'static, RNG>,
         pka: Pka<'static, PkaPeriph, Async>,
@@ -121,9 +121,9 @@ impl Platform {
                 p256_req: Signal::new(),
                 p256_resp: Signal::new(),
                 ble_init: Flag::new(false),
-                rng: Mutex::new(rng),
-                pka: Mutex::new(Some(pka)),
-                aes: Some(CriticalSectionMutex::new(RefCell::new(aes))),
+                rng: Mutex::new(ResumablePeripheral::new(rng)),
+                pka: Mutex::new(Some(ResumablePeripheral::new(pka))),
+                aes: Mutex::new(Some(aes)),
             },
             FullRuntime { _private: () },
         )
@@ -189,29 +189,24 @@ impl Platform {
         }
     }
 
-    /// Lock the shared PKA peripheral for computation. Users must drop the `MutexGuard` after they are done
-    /// using it so that the BLE stack can continue to use it again.
-    pub async fn lock_pka(
-        &'static self,
-    ) -> MutexGuard<'static, CriticalSectionRawMutex, Option<Pka<'static, PkaPeriph, Async>>> {
-        self.pka.lock().await
+    /// Borrow the shared PKA peripheral for the duration of `f`.
+    ///
+    /// Panics if the platform was built with [`Self::new_basic`] (no PKA).
+    pub async fn borrow_pka<R>(&self, f: impl AsyncFnOnce(&mut Pka<'static, PkaPeriph, Async>) -> R) -> R {
+        let mut guard = self.pka.lock().await;
+        let pka = guard.as_mut().unwrap();
+
+        f(&mut *pka.borrow()).await
     }
 
     /// Borrow the shared AES peripheral for the duration of `f`.
     ///
     /// Panics if the platform was built with [`Self::new_basic`] (no AES).
-    /// Held under a critical section, so `f` should be short.
     pub fn borrow_aes<R>(&self, f: impl FnOnce(&mut Aes<'static, AesPeriph, Blocking>) -> R) -> R {
-        critical_section::with(|cs| {
-            let mut aes = self
-                .aes
-                .as_ref()
-                .expect("hardware aes not initialized")
-                .borrow(cs)
-                .borrow_mut();
+        let mut guard = self.aes.try_lock().unwrap();
+        let aes = guard.as_mut().unwrap();
 
-            f(&mut aes)
-        })
+        f(&mut *aes)
     }
 
     pub async fn run_ble(&'static self) -> ! {
@@ -219,13 +214,13 @@ impl Platform {
             async {
                 loop {
                     let (k, px, py) = self.p256_req.wait().await;
-                    let mut guard = self.lock_pka().await;
-                    let mut pka = guard.as_mut().unwrap();
+                    let mut guard = self.pka.lock().await;
+                    let pka = guard.as_mut().unwrap();
 
                     let mut rx = [0u32; 8];
                     let mut ry = [0u32; 8];
 
-                    linklayer_plat::pka_p256_mul(&mut pka, &k, &px, &py, &mut rx, &mut ry).await;
+                    linklayer_plat::pka_p256_mul(&mut *pka.borrow(), &k, &px, &py, &mut rx, &mut ry).await;
 
                     self.p256_resp.signal((rx, ry));
 
@@ -261,13 +256,29 @@ impl Platform {
 
                 loop {
                     let mut buf = [0u8; 64];
-                    if let Err(e) = rng.async_fill_bytes(&mut buf).await {
-                        warn!("rng: err during fill bytes: {}", e);
+                    let mut n;
+                    {
+                        #[allow(unused_mut)]
+                        let mut guard = rng.borrow();
+                        'outer: loop {
+                            n = 0;
+                            if let Err(e) = guard.async_fill_bytes(&mut buf).await {
+                                warn!("rng: err during fill bytes: {}", e);
 
-                        continue;
+                                continue;
+                            }
+
+                            while n < buf.len() {
+                                if let Ok(len) = self.rng_pipe.try_write(&buf) {
+                                    n += len;
+                                } else {
+                                    break 'outer;
+                                }
+                            }
+                        }
                     }
 
-                    self.rng_pipe.write_all(&buf).await;
+                    self.rng_pipe.write_all(&buf[n..]).await;
                 }
             },
         )

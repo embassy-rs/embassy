@@ -29,6 +29,7 @@ use embassy_stm32::dma2d::{self, Dma2d};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
 use embassy_stm32::rcc::mux::Ltdcsel;
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
+use embassy_stm32::rif::{RifMaster, RifMasterAttributes, RifPeripheral, RifPeripheralAttributes};
 use embassy_stm32::{Config, bind_interrupts, pac, peripherals};
 use embassy_time::Instant;
 use embedded_graphics::mono_font::ascii::{FONT_6X10, FONT_10X20};
@@ -517,22 +518,12 @@ fn enable_all_sram() {
 ///   - LTDC_L1 → RIMU master 10, RISUP 103 → SECCFGR3 bit 7
 ///   - LTDC_L2 → RIMU master 11, RISUP 104 → SECCFGR3 bit 8 (in SECCFGR3)
 fn promote_ltdc_and_dma2d_masters_to_secure() {
-    pac::RIFSC.risc_seccfgr(3).modify(|w| {
-        w.set_cfg(5, true); // RISUP 101 — DMA2D
-        w.set_cfg(7, true); // RISUP 103 — LTDC_L1
-        w.set_cfg(8, true); // RISUP 104 — LTDC_L2
-    });
-    pac::RIFSC.risc_privcfgr(3).modify(|w| {
-        w.set_cfg(5, true);
-        w.set_cfg(7, true);
-        w.set_cfg(8, true);
-    });
-    for master in [8usize, 10, 11] {
-        pac::RIFSC.rimc_attr(master).modify(|w| {
-            w.set_mcid(1);
-            w.set_msec(true);
-            w.set_mpriv(true);
-        });
+    for rif_master in [RifMaster::Dma2d, RifMaster::LtdcL1, RifMaster::LtdcL2] {
+        rif_master.set_attributes(&RifMasterAttributes::new(1, true, true));
+    }
+
+    for rif_periph in [RifPeripheral::Dma2d, RifPeripheral::LtdcL1, RifPeripheral::LtdcL2] {
+        rif_periph.set_attributes(&RifPeripheralAttributes::new(true, true));
     }
 }
 

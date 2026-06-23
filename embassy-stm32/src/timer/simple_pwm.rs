@@ -13,6 +13,8 @@ use crate::gpio::Pull;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::pac::timer::vals::Ccds;
 use crate::time::Hertz;
+#[cfg(timer_v2)]
+use crate::timer::low_level::DitheringConfig;
 
 /// PWM pin wrapper.
 ///
@@ -164,6 +166,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     /// Set the output compare mode for a given channel.
     pub fn set_output_compare_mode(&mut self, mode: OutputCompareMode) {
         self.timer.set_output_compare_mode(self.channel, mode);
+    }
+
+    /// Enable/disable OCREF clear for this channel.
+    pub fn set_output_compare_clear_enable(&mut self, enable: bool) {
+        self.timer.set_output_compare_clear_enable(self.channel, enable);
     }
 
     /// Convert this PWM channel into a ring-buffered PWM channel.
@@ -445,6 +452,18 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
     pub fn max_duty_cycle(&self) -> u32 {
         self.inner.get_max_compare_value().into() + 1
+    }
+
+    #[cfg(timer_v2)]
+    /// Configure timer dithering mode and ARR fractional nibble.
+    pub fn set_dithering(&mut self, config: DitheringConfig) {
+        self.inner.set_dithering(config);
+    }
+
+    #[cfg(timer_v2)]
+    /// Set CCR fractional nibble for one channel.
+    pub fn set_channel_dither(&mut self, channel: Channel, dither: u8) {
+        self.inner.set_compare_dither_value(channel, dither);
     }
 
     /// Generate a sequence of PWM waveform

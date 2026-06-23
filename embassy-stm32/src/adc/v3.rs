@@ -8,12 +8,12 @@ use pac::adc::vals::Dmacfg;
 use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 #[cfg(adc_g0)]
 pub use pac::adc::vals::{Ovsr, Ovss, Presc};
+#[cfg(any(adc_h5, adc_h7rs))]
+use pac::adccommon::vals::Presc;
 
 #[allow(unused_imports)]
 use crate::adc::SealedAdcChannel;
-use crate::adc::{
-    Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
-};
+use crate::adc::{Adc, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt};
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
@@ -148,6 +148,9 @@ pub struct AdcConfig {
     pub oversampling_mode: Option<(Rovsm, Trovs, bool)>,
     #[cfg(adc_g0)]
     pub clock: Option<Clock>,
+    #[cfg(any(adc_h5, adc_h7rs))]
+    /// Clock prescaler for the ker_ck_input clock
+    pub prescaler: Option<Presc>,
     pub resolution: Option<Resolution>,
     pub averaging: Option<Averaging>,
 }
@@ -200,7 +203,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, _disable: bool) {
+    fn stop(&self) {
         // Ensure conversions are finished.
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
@@ -220,6 +223,13 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             reg.set_cont(false);
             reg.set_dmaen(false);
         });
+    }
+
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     /// Perform a single conversion.
@@ -455,14 +465,27 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
-        #[cfg(not(adc_g0))]
-        let s = Self::new(adc);
+        #[cfg(any(adc_h5, adc_h7rs))]
+        let s = {
+            Self::init_regulator();
+            // Configure the prescaler before running the calibration
+            if let Some(prescaler) = config.prescaler {
+                T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
+            }
+
+            Self::init_calibrate();
+
+            Self { adc }
+        };
 
         #[cfg(adc_g0)]
         let s = match config.clock {
             Some(clock) => Self::new_with_clock(adc, clock),
             None => Self::new(adc),
         };
+
+        #[cfg(not(any(adc_g0, adc_h5, adc_h7rs)))]
+        let s = Self::new(adc);
 
         #[cfg(any(adc_g0, adc_u0, adc_v3))]
         if let Some(shift) = config.oversampling_shift {
@@ -555,21 +578,6 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Self::init_calibrate();
 
         Self { adc }
-    }
-
-    /// Power down the ADC.
-    ///
-    /// This stops ADC operation and may reduce power consumption.
-    /// A later read will enable it automatically.
-    pub fn power_down(&mut self) {
-        T::regs().stop(false);
-
-        if T::regs().cr().read().aden() {
-            T::regs().cr().modify(|reg| {
-                reg.set_addis(true);
-            });
-            while T::regs().cr().read().aden() {}
-        }
     }
 
     #[cfg(adc_u0)]

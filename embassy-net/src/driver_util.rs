@@ -126,7 +126,7 @@ where
 
 #[allow(unused, reason = "meta isn't used if no features are enabled")]
 pub(crate) fn into_smoltcp_meta(meta: PacketMeta) -> phy::PacketMeta {
-    let out_meta = phy::PacketMeta::default();
+    let mut out_meta = phy::PacketMeta::default();
     #[cfg(feature = "packetmeta-id")]
     {
         out_meta.id = meta.id;
@@ -136,7 +136,7 @@ pub(crate) fn into_smoltcp_meta(meta: PacketMeta) -> phy::PacketMeta {
 
 #[allow(unused, reason = "meta isn't used if no features are enabled")]
 pub(crate) fn into_embassy_net_meta(meta: phy::PacketMeta) -> PacketMeta {
-    let out_meta = PacketMeta::default();
+    let mut out_meta = PacketMeta::default();
     #[cfg(feature = "packetmeta-id")]
     {
         out_meta.id = meta.id;

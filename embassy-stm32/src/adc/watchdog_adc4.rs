@@ -140,7 +140,7 @@ impl<T: Instance<Regs = crate::pac::adc::Adc4>> AnalogWatchdog<T> {
 
         channel.setup();
 
-        T::regs().stop(false);
+        T::regs().stop();
         T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::NoDma);
@@ -170,7 +170,7 @@ impl<T: Instance<Regs = crate::pac::adc::Adc4>> AnalogWatchdog<T> {
         .await;
 
         // Normal completion: stop here so Drop does not do a redundant stop.
-        T::regs().stop(false);
+        T::regs().stop();
         T::regs().cfgr1().modify(|w| w.set_cont(false));
         self.stop_on_drop = false;
         sample
@@ -383,7 +383,7 @@ impl<T: Instance<Regs = crate::pac::adc::Adc4>> Drop for AnalogWatchdog<T> {
         // If monitor() started a continuous conversion that was not stopped normally (i.e. the
         // future was cancelled), stop the ADC and clear continuous mode now.
         if self.stop_on_drop {
-            T::regs().stop(false);
+            T::regs().stop();
             T::regs().cfgr1().modify(|w| w.set_cont(false));
         }
     }

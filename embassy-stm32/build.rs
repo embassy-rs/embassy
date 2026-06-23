@@ -598,7 +598,10 @@ fn main() {
 
         g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
 
-        g.extend(quote! { pub mod flash_regions { #flash_regions } });
+        g.extend(quote! {
+            #[cfg(not(stm32c5))]
+            pub mod flash_regions { #flash_regions }
+        });
     }
 
     // ========
@@ -1140,6 +1143,7 @@ fn main() {
         (("rcc", "MCO_1"), quote!(crate::rcc::McoPin)),
         (("rcc", "MCO_2"), quote!(crate::rcc::McoPin)),
         (("rcc", "MCO"), quote!(crate::rcc::McoPin)),
+        (("comp", "OUT"), quote!(crate::comp::OutputPin)),
         (("dcmi", "D0"), quote!(crate::dcmi::D0Pin)),
         (("dcmi", "D1"), quote!(crate::dcmi::D1Pin)),
         (("dcmi", "D2"), quote!(crate::dcmi::D2Pin)),
@@ -1221,6 +1225,19 @@ fn main() {
         (("eth", "TXD2"), quote!(crate::eth::TXD2Pin)),
         (("eth", "TXD3"), quote!(crate::eth::TXD3Pin)),
         (("eth", "TX_EN"), quote!(crate::eth::TXEnPin)),
+        (("eth", "RGMII_GTX_CLK"), quote!(crate::eth::RGMIIGTXClkPin)),
+        (("eth", "RGMII_RX_CLK"), quote!(crate::eth::RGMIIRXClkPin)),
+        (("eth", "RGMII_RX_CTL"), quote!(crate::eth::RGMIIRXCtlPin)),
+        (("eth", "RGMII_TX_CTL"), quote!(crate::eth::RGMIITXCtlPin)),
+        (("eth", "RGMII_RXD0"), quote!(crate::eth::RGMIIRXD0Pin)),
+        (("eth", "RGMII_RXD1"), quote!(crate::eth::RGMIIRXD1Pin)),
+        (("eth", "RGMII_RXD2"), quote!(crate::eth::RGMIIRXD2Pin)),
+        (("eth", "RGMII_RXD3"), quote!(crate::eth::RGMIIRXD3Pin)),
+        (("eth", "RGMII_TXD0"), quote!(crate::eth::RGMIITXD0Pin)),
+        (("eth", "RGMII_TXD1"), quote!(crate::eth::RGMIITXD1Pin)),
+        (("eth", "RGMII_TXD2"), quote!(crate::eth::RGMIITXD2Pin)),
+        (("eth", "RGMII_TXD3"), quote!(crate::eth::RGMIITXD3Pin)),
+        (("eth", "RGMII_CLK125"), quote!(crate::eth::RGMIICLK125Pin)),
         (("fmc", "A0"), quote!(crate::fmc::A0Pin)),
         (("fmc", "A1"), quote!(crate::fmc::A1Pin)),
         (("fmc", "A2"), quote!(crate::fmc::A2Pin)),
@@ -1698,12 +1715,6 @@ fn main() {
     cfgs.declare("usb_alternate_function");
 
     for (p, regs) in &peripheral_list {
-        #[cfg(not(feature = "stm32-hrtim"))]
-        if regs.kind == "hrtim" {
-            // Only enable the hrtim peripheral if the stm32-hrtim feature is active
-            continue;
-        }
-
         let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
         let mut seen_lcd_seg_pins = HashSet::new();
 
@@ -2267,6 +2278,9 @@ fn main() {
                         return Ok(f.simplify());
                     }
                 }
+                if n.contains("Disabled") {
+                    return Ok(Frac { num: 1, denom: 0 });
+                }
                 Err(())
             }
 
@@ -2533,11 +2547,9 @@ fn main() {
         let dma_info = match bi.kind {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
-            "gpdma" => quote!(crate::pac::#dma),
+            "gpdma" => quote!(crate::dma::DmaInfo::Gpdma(crate::pac::#dma)),
             "mdma" => quote!(crate::dma::DmaInfo::Mdma(crate::pac::#dma)),
-            "lpdma" => {
-                quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())})
-            }
+            "lpdma" => quote!(crate::dma::DmaInfo::Lpdma(crate::pac::#dma)),
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
 

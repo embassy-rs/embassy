@@ -7,11 +7,11 @@ mod dma_bdma;
 #[cfg(any(bdma, dma, mdma))]
 pub use dma_bdma::*;
 
-#[cfg(gpdma)]
+#[cfg(any(gpdma, lpdma))]
 pub(crate) mod gpdma;
-#[cfg(gpdma)]
+#[cfg(any(gpdma, lpdma))]
 pub use gpdma::ringbuffered::*;
-#[cfg(gpdma)]
+#[cfg(any(gpdma, lpdma))]
 pub use gpdma::*;
 
 #[cfg(dmamux)]
@@ -59,10 +59,10 @@ pub enum Increment {
 }
 
 /// DMA request type alias. (also known as DMA channel number in some chips)
-#[cfg(any(dma_v2, bdma_v2, gpdma, dmamux))]
+#[cfg(any(dma_v2, bdma_v2, gpdma, dmamux, lpdma))]
 pub type Request = u8;
 /// DMA request type alias. (also known as DMA channel number in some chips)
-#[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux)))]
+#[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux, lpdma)))]
 pub type Request = ();
 
 /// DMA channel driver
@@ -146,7 +146,7 @@ pub(crate) unsafe fn init(
     cs: critical_section::CriticalSection,
     #[cfg(bdma)] bdma_priority: interrupt::Priority,
     #[cfg(dma)] dma_priority: interrupt::Priority,
-    #[cfg(gpdma)] gpdma_priority: interrupt::Priority,
+    #[cfg(any(gpdma, lpdma))] gpdma_priority: interrupt::Priority,
     #[cfg(mdma)] mdma_priority: interrupt::Priority,
 ) {
     #[cfg(any(dma, bdma))]
@@ -159,7 +159,7 @@ pub(crate) unsafe fn init(
         #[cfg(mdma)]
         mdma_priority,
     );
-    #[cfg(gpdma)]
+    #[cfg(any(gpdma, lpdma))]
     gpdma::init(cs, gpdma_priority);
     #[cfg(dmamux)]
     dmamux::init(cs);

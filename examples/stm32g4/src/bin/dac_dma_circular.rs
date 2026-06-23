@@ -16,7 +16,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::dac::DacChannel;
+use embassy_stm32::dac::{Cast, DacChannel, u12r};
 use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer};
 use embassy_stm32::triggers::TIM8_TRGO;
@@ -30,14 +30,14 @@ use {defmt_rtt as _, panic_probe as _};
 // u32 elements are required because the DAC DMA uses 32-bit peripheral transfers;
 // only bits [11:0] of each word are used by the DHR12R register.
 const N: usize = 64;
-const SINE: [u32; N] = [
+const SINE: [u16; N] = [
     2048, 2244, 2438, 2629, 2813, 2991, 3159, 3317, 3462, 3594, 3711, 3812, 3896, 3962, 4010, 4038, 4048, 4038, 4010,
     3962, 3896, 3812, 3711, 3594, 3462, 3317, 3159, 2991, 2813, 2629, 2438, 2244, 2048, 1852, 1658, 1467, 1283, 1105,
     937, 779, 634, 502, 385, 284, 200, 134, 86, 58, 48, 58, 86, 134, 200, 284, 385, 502, 634, 779, 937, 1105, 1283,
     1467, 1658, 1852,
 ];
 
-static DMA_BUF: StaticCell<[u32; N]> = StaticCell::new();
+static DMA_BUF: StaticCell<[u12r; N]> = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL5 => dma::InterruptHandler<peripherals::DMA1_CH5>;
@@ -74,7 +74,7 @@ async fn main(_spawner: Spawner) {
 
     // Pre-populate the DMA buffer with the sine table before handing it to the ring buffer.
     // No write_immediate needed — DMA reads the pre-filled data from the first trigger.
-    let mut ring = dac_ch1.into_ring_buffered_12right(DMA_BUF.init(SINE));
+    let mut ring = dac_ch1.into_ring_buffered(DMA_BUF.init(*SINE.cast()));
 
     ring.start();
 

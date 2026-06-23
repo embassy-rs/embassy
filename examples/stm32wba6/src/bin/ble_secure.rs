@@ -31,11 +31,11 @@ use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::bluetooth::security::{IoCapability, SecureConnectionsSupport, SecurityParams};
+use embassy_stm32_wpan::bluetooth::security::{IoCapability, SecureConnectionsSupport, SecurityEvent, SecurityParams};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use stm32wb_hci::Event;
 use stm32wb_hci::event::EncryptionChange;
-use stm32wb_hci::vendor::event::{GapNumericComparisonValue, GapPairingComplete, GapPairingStatus, VendorEvent};
+use stm32wb_hci::vendor::event::VendorEvent;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -223,70 +223,72 @@ async fn main(spawner: Spawner) {
         }
 
         // Process security events
-        match &event {
-            Event::Vendor(VendorEvent::GapPairingComplete(GapPairingComplete { conn_handle, status })) => {
-                info!("=== PAIRING COMPLETE ===");
-                info!("  Connection: 0x{:04X}", conn_handle.0);
-
-                match status {
-                    GapPairingStatus::Success => {
-                        info!("  Status: SUCCESS");
+        if let Some(security_event) = ble.process_security_event(&event) {
+            match security_event {
+                SecurityEvent::PairingComplete {
+                    conn_handle,
+                    status,
+                    reason,
+                } => {
+                    info!("=== PAIRING COMPLETE ===");
+                    info!("  Connection: 0x{:04X}", conn_handle);
+                    info!("  Status: {:?}, Reason: 0x{:02X}", status, reason);
+                    if matches!(status, embassy_stm32_wpan::bluetooth::security::PairingStatus::Success) {
                         info!("  Device is now bonded and can access secure characteristics");
                     }
-                    GapPairingStatus::Timeout(reason) => {
-                        info!("  Status: TIMEOUT (reason: {:?})", reason);
-                    }
-                    GapPairingStatus::Failed(reason) => {
-                        info!("  Status: FAILED (reason: {:?})", reason);
-                    }
-                    GapPairingStatus::EncryptionFailed(reason) => {
-                        info!("  Status: ENCRYPTION FAILED (reason: {:?})", reason);
+                }
+                SecurityEvent::PasskeyRequest { conn_handle } => {
+                    info!("=== PASSKEY REQUEST ===");
+                    info!("  Connection: 0x{:04X}", conn_handle);
+                    let passkey: u32 = 123456;
+                    info!("  Passkey: {:06}", passkey);
+                    if let Err(e) = security.pass_key_response(conn_handle, passkey) {
+                        error!("Failed to send passkey response: {:?}", e);
                     }
                 }
-            }
-            Event::Vendor(VendorEvent::GapPassKeyRequest(conn_handle)) => {
-                info!("=== PASSKEY REQUEST ===");
-                info!("  Connection: 0x{:04X}", conn_handle.0);
-
-                // Generate a random passkey (in production, display this to user)
-                // For this example, we use a fixed passkey
-                let passkey: u32 = 123456;
-                info!("  Passkey: {:06}", passkey);
-                info!("  Enter this passkey on your phone/device!");
-
-                if let Err(e) = security.pass_key_response(conn_handle.0, passkey) {
-                    error!("Failed to send passkey response: {:?}", e);
+                SecurityEvent::NumericComparisonRequest {
+                    conn_handle,
+                    numeric_value,
+                } => {
+                    info!("=== NUMERIC COMPARISON ===");
+                    info!("  Connection: 0x{:04X}", conn_handle);
+                    info!("  Displayed value: {:06}", numeric_value);
+                    let confirm = true;
+                    if let Err(e) = security.numeric_comparison_response(conn_handle, confirm) {
+                        error!("Failed to send numeric comparison response: {:?}", e);
+                    }
+                }
+                SecurityEvent::BondLost { conn_handle } => {
+                    info!("=== BOND LOST ===");
+                    info!("  Connection: 0x{:04X}", conn_handle);
+                    if let Err(e) = security.allow_rebond(conn_handle) {
+                        warn!("Failed to allow rebond: {:?}", e);
+                    }
+                }
+                SecurityEvent::PairingRequest { .. } => {}
+                SecurityEvent::AuthorizationRequest { conn_handle } => {
+                    info!("=== AUTHORIZATION REQUEST ===");
+                    info!("  Connection: 0x{:04X}", conn_handle);
+                }
+                SecurityEvent::PeripheralSecurityInitiated => {
+                    info!("=== PERIPHERAL SECURITY INITIATED ===");
+                }
+                SecurityEvent::AddressNotResolved { conn_handle } => {
+                    warn!("=== ADDRESS NOT RESOLVED ===");
+                    warn!("  Connection: 0x{:04X}", conn_handle);
+                }
+                SecurityEvent::KeypressNotification {
+                    conn_handle,
+                    notification_type,
+                } => {
+                    info!("=== KEYPRESS NOTIFICATION ===");
+                    info!("  Connection: 0x{:04X}", conn_handle);
+                    info!("  Notification: {:?}", notification_type);
                 }
             }
+        }
 
-            Event::Vendor(VendorEvent::GapNumericComparisonValue(GapNumericComparisonValue {
-                connection_handle,
-                numeric_value,
-            })) => {
-                info!("=== NUMERIC COMPARISON ===");
-                info!("  Connection: 0x{:04X}", connection_handle.0);
-                info!("  Displayed value: {:06}", numeric_value);
-                info!("  Confirm this matches the value on your phone!");
-
-                // Auto-confirm for this example (in production, wait for user input)
-                // Set to true to accept, false to reject
-                let confirm = true;
-                info!("  Auto-confirming: {}", if confirm { "YES" } else { "NO" });
-
-                if let Err(e) = security.numeric_comparison_response(connection_handle.0, confirm) {
-                    error!("Failed to send numeric comparison response: {:?}", e);
-                }
-            }
-            Event::Vendor(VendorEvent::GapBondLost) => {
-                info!("=== BOND LOST ===");
-                //                info!("  Connection: 0x{:04X}", conn_handle.0);
-                //                info!("  Previous bond invalid, allowing rebond...");
-                //
-                //                if let Err(e) = security.allow_rebond(conn_handle.as_u16()) {
-                //                    error!("Failed to allow rebond: {:?}", e);
-                //                }
-            }
-
+        match &event {
             // TODO: Not currently implemented
 
             //            EventParams::GapPairingRequest { conn_handle, is_bonded } => {

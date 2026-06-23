@@ -692,7 +692,7 @@ fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
 }
 
 #[inline(never)]
-#[cfg(gpio_v2)]
+#[cfg(all(gpio_v2, not(stm32c5)))]
 fn set_speed(pin_port: PinNumber, speed: Speed) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -722,6 +722,7 @@ pub(crate) fn set_as_analog(pin_port: PinNumber) {
 }
 
 #[inline(never)]
+#[cfg(not(stm32c5))]
 fn get_pull(pin_port: PinNumber) -> Pull {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -803,7 +804,7 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
-    #[cfg(gpio_v2)]
+    #[cfg(all(gpio_v2, not(stm32c5)))]
     fn set_speed(&self, speed: Speed) {
         set_speed(self.pin_port(), speed)
     }
@@ -827,6 +828,7 @@ pub(crate) trait SealedPin {
 
     /// Get the pull-up configuration.
     #[inline]
+    #[cfg(not(stm32c5))]
     fn pull(&self) -> Pull {
         critical_section::with(|_| get_pull(self.pin_port()))
     }

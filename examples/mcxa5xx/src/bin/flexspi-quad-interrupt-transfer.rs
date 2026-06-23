@@ -3,10 +3,11 @@
 
 use defmt::{assert, assert_eq, info, panic, unwrap};
 use embassy_executor::Spawner;
+use embassy_mcxa::flexspi::Flexspi;
 use embassy_mcxa::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use hal::config::Config;
-use hal::flexspi::{self, ClockConfig as FlexspiClockConfig, Flexspi, NorFlash};
+use hal::flexspi::{self, ClockConfig as FlexspiClockConfig, NorFlash};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[path = "../flexspi_common.rs"]
@@ -27,26 +28,21 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let p = hal::init(Config::default());
 
-    info!("FlexSPI EDMA self-test");
+    info!("FlexSPI interrupt async self-test");
 
-    let flexspi = unwrap!(Flexspi::new_with_dma(
+    let mut flash = NorFlash::new(unwrap!(Flexspi::new_async(
         p.FLEXSPI0,
         p.P3_0,
-        p.P3_1,
-        p.P3_6,
         p.P3_7,
+        p.P3_6,
         p.P3_8,
         p.P3_9,
         p.P3_10,
         p.P3_11,
-        p.DMA0_CH0,
-        p.DMA0_CH1,
         Irqs,
         FlexspiClockConfig::default(),
         FLASH_CONFIG,
-    ));
-
-    let mut flash = NorFlash::from_flexspi(flexspi);
+    )));
 
     // 1) Vendor ID is idempotent.
     let id_a = unwrap!(flash.read_vendor_id_async().await);
@@ -54,7 +50,7 @@ async fn main(_spawner: Spawner) {
     assert_eq!(id_a, id_b, "vendor id changed between back-to-back reads");
     info!("Vendor ID: 0x{:02x}", id_a);
 
-    // 2) Erase the test span.
+    // 2) Erase the test span sector by sector.
     info!(
         "Erasing {=u32} sectors at 0x{=u32:08x} ({=u32} bytes)",
         SELF_TEST_SECTORS, FLASH_BASE, SELF_TEST_BYTES
@@ -64,7 +60,7 @@ async fn main(_spawner: Spawner) {
         unwrap!(flash.erase_sector_async(addr).await);
     }
 
-    // 3) Verify all-0xFF.
+    // 3) Verify all-0xFF using a sector-sized read, repeated for the whole span.
     let mut sector = [0u8; FLASH_SECTOR_SIZE];
     for s in 0..SELF_TEST_SECTORS {
         let addr = FLASH_BASE + s * FLASH_SECTOR_SIZE as u32;
@@ -75,7 +71,7 @@ async fn main(_spawner: Spawner) {
         }
     }
 
-    // 3a) Varied read lengths.
+    // 3a) Read with a variety of small/odd lengths, all 0xFF.
     let mut probe = [0u8; 1024];
     for &len in READ_LEN_PROBES {
         probe[..len].fill(0);
@@ -85,7 +81,7 @@ async fn main(_spawner: Spawner) {
         }
     }
 
-    // 3b) Unaligned offsets.
+    // 3b) Read at unaligned offsets within the span.
     for &off in &[1u32, 3, 17, 255, 256, 257, 4095, 4096, 4097] {
         let addr = FLASH_BASE + off;
         probe[..64].fill(0);
@@ -96,7 +92,7 @@ async fn main(_spawner: Spawner) {
     }
     info!("Erase verified across {=u32} bytes", SELF_TEST_BYTES);
 
-    // 4) Program every page.
+    // 4) Program every page in the span with a deterministic pattern.
     info!("Programming {=u32} pages", SELF_TEST_PAGES);
     let mut page = [0u8; FLASH_PAGE_SIZE];
     for p_idx in 0..SELF_TEST_PAGES {
@@ -105,7 +101,7 @@ async fn main(_spawner: Spawner) {
         unwrap!(flash.page_program_async(addr, &page).await);
     }
 
-    // 5) Verify pattern.
+    // 5) Read back the entire span sector by sector and verify the pattern.
     for s in 0..SELF_TEST_SECTORS {
         let addr = FLASH_BASE + s * FLASH_SECTOR_SIZE as u32;
         sector.fill(0);
@@ -120,7 +116,7 @@ async fn main(_spawner: Spawner) {
         }
     }
 
-    // 5a) Re-read with varied lengths after programming.
+    // 5a) Re-read with the same length probes after programming.
     for &len in READ_LEN_PROBES {
         probe[..len].fill(0);
         unwrap!(flash.read_async(FLASH_BASE, &mut probe[..len]).await);
@@ -138,10 +134,10 @@ async fn main(_spawner: Spawner) {
     }
     info!("Pattern verified across {=u32} bytes", SELF_TEST_BYTES);
 
-    // 6) Partial-page program.
+    // 6) Partial-page write.
     let last_sector = FLASH_BASE + (SELF_TEST_SECTORS - 1) * FLASH_SECTOR_SIZE as u32;
     unwrap!(flash.erase_sector_async(last_sector).await);
-    let partial_len = 100usize;
+    let partial_len = 96usize; // 8-byte aligned (driver write-size contract)
     let mut partial = [0u8; FLASH_PAGE_SIZE];
     fill_pattern(last_sector, &mut partial);
     unwrap!(flash.page_program_async(last_sector, &partial[..partial_len]).await);
@@ -155,7 +151,7 @@ async fn main(_spawner: Spawner) {
         panic!("partial-page tail not erased at 0x{:08x}", bad);
     }
 
-    // 7) Selective erase.
+    // 7) Selective erase: only sector 1.
     let middle = FLASH_BASE + FLASH_SECTOR_SIZE as u32;
     unwrap!(flash.erase_sector_async(middle).await);
     sector.fill(0);
@@ -178,10 +174,10 @@ async fn main(_spawner: Spawner) {
         "sector 2 corrupted after erasing sector 1"
     );
 
-    info!("FlexSPI EDMA self-test PASSED");
+    info!("FlexSPI interrupt async self-test PASSED");
 
     loop {
         Timer::after_secs(1).await;
-        info!("FlexSPI EDMA demo heartbeat");
+        info!("FlexSPI interrupt async demo heartbeat");
     }
 }

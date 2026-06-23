@@ -15,8 +15,18 @@ use core::task::Context;
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
 #[non_exhaustive]
 pub struct PacketMeta {
+    /// An identifier associated with a transmitted or received
+    /// packet.
     #[cfg(feature = "packetmeta-id")]
     pub id: u32,
+}
+
+impl PacketMeta {
+    /// Empty packet metadata.
+    pub const EMPTY: Self = Self {
+        #[cfg(feature = "packetmeta-id")]
+        id: 0,
+    };
 }
 
 /// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.

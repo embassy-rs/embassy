@@ -7,20 +7,54 @@ use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::AtomicWaker;
 use linked_list::Table;
+#[cfg(not(lpdma))]
+use pac::gpdma::{Channel as BaseChannel, Gpdma as BaseRegs, vals};
+#[cfg(lpdma)]
+use pac::lpdma::{Channel as BaseChannel, Lpdma as BaseRegs, vals};
 
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Request, STATE};
 use crate::_generated::DmaChannel;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
-use crate::pac::gpdma::vals;
 use crate::rcc::WakeGuard;
 
 pub mod linked_list;
 pub mod ringbuffered;
 
+pub(crate) enum DmaInfo {
+    #[cfg(gpdma)]
+    Gpdma(pac::gpdma::Gpdma),
+    #[cfg(lpdma)]
+    Lpdma(pac::lpdma::Lpdma),
+}
+
+impl DmaInfo {
+    const fn cast(&self) -> BaseRegs {
+        unsafe {
+            match self {
+                #[cfg(gpdma)]
+                Self::Gpdma(regs) => BaseRegs::from_ptr(regs.as_ptr()),
+                #[cfg(lpdma)]
+                Self::Lpdma(regs) => BaseRegs::from_ptr(regs.as_ptr()),
+            }
+        }
+    }
+
+    const fn ch(&self, n: usize) -> BaseChannel {
+        unsafe {
+            match self {
+                #[cfg(gpdma)]
+                Self::Gpdma(regs) => BaseChannel::from_ptr(regs.ch(n).as_ptr()),
+                #[cfg(lpdma)]
+                Self::Lpdma(regs) => BaseChannel::from_ptr(regs.ch(n).as_ptr()),
+            }
+        }
+    }
+}
+
 pub(crate) struct ChannelInfo {
-    pub(crate) dma: pac::gpdma::Gpdma,
+    pub(crate) dma: DmaInfo,
     pub(crate) num: usize,
     #[cfg(feature = "_dual-core")]
     pub(crate) irq: pac::Interrupt,
@@ -51,15 +85,90 @@ pub enum Priority {
     VeryHigh,
 }
 
-impl From<Priority> for pac::gpdma::vals::Prio {
+impl From<Priority> for vals::Prio {
     fn from(value: Priority) -> Self {
         match value {
-            Priority::Low => pac::gpdma::vals::Prio::LowWithLowhWeight,
-            Priority::Medium => pac::gpdma::vals::Prio::LowWithMidWeight,
-            Priority::High => pac::gpdma::vals::Prio::LowWithHighWeight,
-            Priority::VeryHigh => pac::gpdma::vals::Prio::High,
+            Priority::Low => vals::Prio::LowWithLowhWeight,
+            Priority::Medium => vals::Prio::LowWithMidWeight,
+            Priority::High => vals::Prio::LowWithHighWeight,
+            Priority::VeryHigh => vals::Prio::High,
         }
     }
+}
+
+/// GPDMA hardware request granularity.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum RequestMode {
+    /// Peripheral handshakes at burst level (`BREQ=Burst`).
+    Burst,
+    /// Peripheral handshakes at block level (`BREQ=Block`).
+    Block,
+}
+
+impl From<RequestMode> for vals::Breq {
+    fn from(value: RequestMode) -> Self {
+        match value {
+            RequestMode::Burst => vals::Breq::Burst,
+            RequestMode::Block => vals::Breq::Block,
+        }
+    }
+}
+
+/// Input-trigger polarity for GPDMA triggered transfers.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TriggerPolarity {
+    /// Trigger on rising edge.
+    RisingEdge,
+    /// Trigger on falling edge.
+    FallingEdge,
+}
+
+impl From<TriggerPolarity> for vals::Trigpol {
+    fn from(value: TriggerPolarity) -> Self {
+        match value {
+            TriggerPolarity::RisingEdge => vals::Trigpol::RisingEdge,
+            TriggerPolarity::FallingEdge => vals::Trigpol::FallingEdge,
+        }
+    }
+}
+
+/// GPDMA transfer trigger mode.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TriggerMode {
+    /// Trigger-gate each block transfer.
+    Block,
+    /// Trigger-gate each repeated/2D block transfer.
+    TwoDBlock,
+    /// Trigger-gate linked-list item (link transfer).
+    LinkedListItem,
+    /// Trigger-gate each programmed burst transfer.
+    Burst,
+}
+
+impl From<TriggerMode> for vals::Trigm {
+    fn from(value: TriggerMode) -> Self {
+        match value {
+            TriggerMode::Block => vals::Trigm::Block,
+            TriggerMode::TwoDBlock => vals::Trigm::from_bits(1),
+            TriggerMode::LinkedListItem => vals::Trigm::LinkedListItem,
+            TriggerMode::Burst => vals::Trigm::Burst,
+        }
+    }
+}
+
+/// Optional hardware trigger input for a GPDMA channel.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TriggerConfig {
+    /// Trigger input selector (`TRIGSEL` raw value from the device RM).
+    pub signal: u8,
+    /// Trigger edge polarity.
+    pub polarity: TriggerPolarity,
+    /// Trigger gating mode.
+    pub mode: TriggerMode,
 }
 
 /// GPDMA burst length (beats per burst on a port).
@@ -230,7 +339,12 @@ pub struct TransferOptions {
     /// threshold (notably the JPEG codec on N6), and some require multi-beat
     /// bursts to handshake correctly under `BREQ=Burst` (e.g. CRYP wants
     /// 4-beat bursts, matching one AES block per peripheral request).
+    #[cfg(not(stm32c5))]
     pub burst_length: Burst,
+    /// Select whether peripheral handshaking is done at burst or block level.
+    pub request_mode: RequestMode,
+    /// Optional trigger-gated transfer configuration.
+    pub trigger: Option<TriggerConfig>,
 }
 
 impl Default for TransferOptions {
@@ -241,12 +355,17 @@ impl Default for TransferOptions {
             complete_transfer_ir: true,
             #[cfg(stm32n6)]
             secure: false,
+
+            #[cfg(not(stm32c5))]
             burst_length: Burst::_1Beats,
+            request_mode: RequestMode::Burst,
+            trigger: None,
         }
     }
 }
 
-impl From<WordSize> for vals::Dw {
+#[cfg(gpdma)]
+impl From<WordSize> for pac::gpdma::vals::Dw {
     fn from(raw: WordSize) -> Self {
         match raw {
             WordSize::OneByte => Self::Byte,
@@ -257,12 +376,37 @@ impl From<WordSize> for vals::Dw {
     }
 }
 
-impl From<vals::Dw> for WordSize {
-    fn from(raw: vals::Dw) -> Self {
+#[cfg(gpdma)]
+impl From<pac::gpdma::vals::Dw> for WordSize {
+    fn from(raw: pac::gpdma::vals::Dw) -> Self {
         match raw {
-            vals::Dw::Byte => Self::OneByte,
-            vals::Dw::HalfWord => Self::TwoBytes,
-            vals::Dw::Word => Self::FourBytes,
+            pac::gpdma::vals::Dw::Byte => Self::OneByte,
+            pac::gpdma::vals::Dw::HalfWord => Self::TwoBytes,
+            pac::gpdma::vals::Dw::Word => Self::FourBytes,
+            _ => panic!("Invalid word size"),
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<WordSize> for pac::lpdma::vals::Dw {
+    fn from(raw: WordSize) -> Self {
+        match raw {
+            WordSize::OneByte => Self::Byte,
+            WordSize::TwoBytes => Self::HalfWord,
+            WordSize::FourBytes => Self::Word,
+            _ => panic!("Invalid word size"),
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<pac::lpdma::vals::Dw> for WordSize {
+    fn from(raw: pac::lpdma::vals::Dw) -> Self {
+        match raw {
+            pac::lpdma::vals::Dw::Byte => Self::OneByte,
+            pac::lpdma::vals::Dw::HalfWord => Self::TwoBytes,
+            pac::lpdma::vals::Dw::Word => Self::FourBytes,
             _ => panic!("Invalid word size"),
         }
     }
@@ -298,10 +442,20 @@ impl ChannelState {
 
 /// safety: must be called only once
 pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: crate::interrupt::Priority) {
+    #[cfg(gpdma)]
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
             #[cfg(not(feature = "_dual-core"))]
+            crate::interrupt::typelevel::$irq::enable();
+        };
+    }
+
+    // Only LPDMA available
+    #[cfg(not(gpdma))]
+    foreach_interrupt! {
+        ($peri:ident, lpdma, $block:ident, $signal_name:ident, $irq:ident) => {
+            crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
             crate::interrupt::typelevel::$irq::enable();
         };
     }
@@ -318,27 +472,27 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
 
     let state = &STATE[channel as usize];
 
-    let ch = info.dma.ch(info.num);
+    let ch = info.dma.cast().ch(info.num);
     let sr = ch.sr().read();
 
     if sr.dtef() {
         panic!(
             "DMA: data transfer error on DMA@{:08x} channel {}",
-            info.dma.as_ptr() as u32,
+            info.dma.cast().as_ptr() as u32,
             info.num
         );
     }
     if sr.usef() {
         panic!(
             "DMA: user settings error on DMA@{:08x} channel {}",
-            info.dma.as_ptr() as u32,
+            info.dma.cast().as_ptr() as u32,
             info.num
         );
     }
     if sr.ulef() {
         panic!(
             "DMA: link transfer error on DMA@{:08x} channel {}",
-            info.dma.as_ptr() as u32,
+            info.dma.cast().as_ptr() as u32,
             info.num
         );
     }
@@ -436,44 +590,79 @@ impl<'d> Channel<'d> {
             w.set_usef(true);
         });
         ch.llr().write(|_| {}); // no linked list
-        ch.tr1().write(|w| {
-            w.set_sdw(data_size.into());
-            w.set_ddw(dst_size.into());
-            w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
-            w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
-            // Pack/unpack through the channel FIFO when source and destination
-            // widths differ. The default (zero-extend / left-truncate) sends
-            // one source beat per destination beat, which silently corrupts
-            // mixed-width transfers.
-            if data_size != dst_size {
-                w.set_pam(vals::Pam::Pack);
+
+        match info.dma {
+            #[cfg(gpdma)]
+            DmaInfo::Gpdma(regs) => {
+                use crate::pac::gpdma::vals;
+
+                regs.ch(info.num).tr1().write(|w| {
+                    w.set_sdw(data_size.into());
+                    w.set_ddw(dst_size.into());
+                    w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
+                    w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+                    // Pack/unpack through the channel FIFO when source and destination
+                    // widths differ. The default (zero-extend / left-truncate) sends
+                    // one source beat per destination beat, which silently corrupts
+                    // mixed-width transfers.
+                    if data_size != dst_size {
+                        w.set_pam(vals::Pam::Pack);
+                    }
+                    w.set_dap(match dir {
+                        Dir::MemoryToPeripheral => vals::Ap::Port1, // Destination is peripheral on AHB for HPDMA
+                        Dir::PeripheralToMemory => vals::Ap::Port0, // Destination is memory on AXI for HPDMA
+                        Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
+                    });
+                    w.set_sap(match dir {
+                        Dir::MemoryToPeripheral => vals::Ap::Port0, // Source is memory on AXI for HPDMA
+                        Dir::PeripheralToMemory => vals::Ap::Port1, // Source is peripheral on AHB for HPDMA
+                        Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
+                    });
+
+                    let bl: u8 = options.burst_length.into();
+                    w.set_sbl_1(bl);
+                    w.set_dbl_1(bl);
+
+                    #[cfg(stm32n6)]
+                    {
+                        w.set_ssec(options.secure);
+                        w.set_dsec(options.secure);
+                    }
+                });
             }
-            w.set_dap(match dir {
-                Dir::MemoryToPeripheral => vals::Ap::Port1, // Destination is peripheral on AHB for HPDMA
-                Dir::PeripheralToMemory => vals::Ap::Port0, // Destination is memory on AXI for HPDMA
-                Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
-            });
-            w.set_sap(match dir {
-                Dir::MemoryToPeripheral => vals::Ap::Port0, // Source is memory on AXI for HPDMA
-                Dir::PeripheralToMemory => vals::Ap::Port1, // Source is peripheral on AHB for HPDMA
-                Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
-            });
-            let bl: u8 = options.burst_length.into();
-            w.set_sbl_1(bl);
-            w.set_dbl_1(bl);
-            #[cfg(stm32n6)]
-            {
-                w.set_ssec(options.secure);
-                w.set_dsec(options.secure);
+            #[cfg(lpdma)]
+            DmaInfo::Lpdma(regs) => {
+                use crate::pac::lpdma::vals;
+
+                regs.ch(info.num).tr1().write(|w| {
+                    w.set_sdw(data_size.into());
+                    w.set_ddw(dst_size.into());
+                    w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
+                    w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+                    // Pack/unpack through the channel FIFO when source and destination
+                    // widths differ. The default (zero-extend / left-truncate) sends
+                    // one source beat per destination beat, which silently corrupts
+                    // mixed-width transfers.
+                    if data_size != dst_size {
+                        w.set_pam(vals::Pam::Pack);
+                    }
+                });
             }
-        });
+        }
+
         ch.tr2().write(|w| {
             w.set_dreq(match dir {
                 Dir::MemoryToPeripheral => vals::Dreq::DestinationPeripheral,
                 Dir::PeripheralToMemory => vals::Dreq::SourcePeripheral,
                 Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
+            w.set_breq(options.request_mode.into());
             w.set_reqsel(request);
+            if let Some(trigger) = options.trigger {
+                w.set_trigsel(trigger.signal);
+                w.set_trigpol(trigger.polarity.into());
+                w.set_trigm(trigger.mode.into());
+            }
         });
         ch.tr3().write(|_| {}); // no address offsets.
         ch.br1().write(|w| w.set_bndt(bndt));

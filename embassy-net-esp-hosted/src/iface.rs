@@ -1,4 +1,4 @@
-use embassy_time::Timer;
+use embassy_futures::join::join;
 use embedded_hal::digital::InputPin;
 use embedded_hal_async::digital::Wait;
 use embedded_hal_async::spi::SpiDevice;
@@ -11,8 +11,8 @@ pub trait Interface {
     /// Wait for the READY signal indicating the ESP has data to send.
     async fn wait_for_ready(&mut self);
 
-    /// Perform a SPI transfer, exchanging data with the ESP chip.
-    async fn transfer(&mut self, rx: &mut [u8], tx: &[u8]);
+    /// Perform a transfer, exchanging data with the ESP chip.
+    async fn transfer(&mut self, buffer: &mut [u8]);
 }
 
 /// Standard SPI interface.
@@ -51,12 +51,17 @@ where
         self.ready.wait_for_high().await.unwrap();
     }
 
-    async fn transfer(&mut self, rx: &mut [u8], tx: &[u8]) {
-        self.spi.transfer(rx, tx).await.unwrap();
+    async fn transfer(&mut self, buffer: &mut [u8]) {
+        let (a, b) = join(
+            // The esp-hosted firmware deasserts the HANDSHAKE pin a few us AFTER ending the SPI transfer
+            // If we check it again too fast, we'll see it's high from the previous transfer, and if we send it
+            // data it will get lost.
+            self.handshake.wait_for_low(),
+            self.spi.transfer_in_place(buffer),
+        )
+        .await;
 
-        // The esp-hosted firmware deasserts the HANDSHAKE pin a few us AFTER ending the SPI transfer
-        // If we check it again too fast, we'll see it's high from the previous transfer, and if we send it
-        // data it will get lost.
-        Timer::after_micros(100).await;
+        a.unwrap();
+        b.unwrap();
     }
 }

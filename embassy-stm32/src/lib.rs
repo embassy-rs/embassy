@@ -64,8 +64,20 @@ pub mod backup_sram;
 pub mod can;
 #[cfg(any(comp_u5, comp_v1, comp_v2))]
 pub mod comp;
-#[cfg(cordic)]
+#[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
+
+#[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
+pub mod comp {
+    //! Comp stub module to provide consistent API
+
+    trait_set::trait_set! {
+        /// Comp stub peripheral type
+        pub trait Instance = embassy_hal_internal::PeripheralType + 'static;
+    }
+
+    pin_trait!(OutputPin, Instance);
+}
 
 // Stub macros for COMP pin implementations when comp module is not compiled.
 // These are needed because build.rs generates macro calls for all chips with COMP,
@@ -106,7 +118,7 @@ pub mod dts;
 pub mod eth;
 #[cfg(feature = "exti")]
 pub mod exti;
-#[cfg(flash)]
+#[cfg(all(flash, not(stm32c5)))]
 pub mod flash;
 #[cfg(fmac)]
 pub mod fmac;
@@ -114,7 +126,7 @@ pub mod fmac;
 pub mod fmc;
 #[cfg(hash)]
 pub mod hash;
-#[cfg(all(hrtim, feature = "stm32-hrtim"))]
+#[cfg(hrtim)]
 pub mod hrtim;
 #[cfg(hsem)]
 pub mod hsem;
@@ -147,6 +159,8 @@ pub mod ospi;
 pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
+#[cfg(rifsc)]
+pub mod rif;
 #[cfg(rng)]
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
@@ -287,6 +301,59 @@ pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use stm32_metapac as pac;
 
+#[cfg(not(feature = "low-power"))]
+pub mod low_power {
+    //! Low-power stub module to provide consistent API
+
+    trait_set::trait_set! {
+        /// Peripheral that can be suspended
+        #[allow(private_bounds)]
+        pub trait SuspendablePeripheral = SealedSuspendablePeripheral;
+    }
+
+    pub(crate) trait SealedSuspendablePeripheral {}
+
+    /// A mutex-like object to resume a peripheral. Does nothing when `low-power` is not enabled.
+    pub struct ResumablePeripheral<T: SuspendablePeripheral>(T);
+
+    impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
+        /// Create the object. Will suspend the peripheral as soon as it is passed.
+        pub fn new(peripheral: T) -> Self {
+            Self(peripheral)
+        }
+
+        /// Suspend the peripheral, if it is resumed
+        pub fn suspend(&mut self) {}
+
+        /// Resume the peripheral and get a mutable reference to it
+        pub fn resume(&mut self) -> &mut T {
+            &mut self.0
+        }
+
+        /// Get the resumable peripheral guard
+        pub fn borrow(&mut self) -> ResumablePeripheralGuard<'_, T> {
+            ResumablePeripheralGuard(&mut self.0)
+        }
+    }
+
+    /// A mutex-like object guard, that when held, activates the peripheral
+    pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral>(&'a mut T);
+
+    impl<'a, T: SuspendablePeripheral> core::ops::Deref for ResumablePeripheralGuard<'a, T> {
+        type Target = T;
+
+        fn deref(&self) -> &T {
+            self.0
+        }
+    }
+
+    impl<'a, T: SuspendablePeripheral> core::ops::DerefMut for ResumablePeripheralGuard<'a, T> {
+        fn deref_mut(&mut self) -> &mut T {
+            &mut self.0
+        }
+    }
+}
+
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
 pub use crate::pac::NVIC_PRIO_BITS;
@@ -373,7 +440,7 @@ pub struct Config {
     /// GPDMA interrupt priority.
     ///
     /// Defaults to P0 (highest).
-    #[cfg(gpdma)]
+    #[cfg(any(gpdma, lpdma))]
     pub gpdma_interrupt_priority: Priority,
 
     /// MDMA interrupt priority.
@@ -423,7 +490,7 @@ impl Default for Config {
             bdma_interrupt_priority: Priority::P0,
             #[cfg(dma)]
             dma_interrupt_priority: Priority::P0,
-            #[cfg(gpdma)]
+            #[cfg(any(gpdma, lpdma))]
             gpdma_interrupt_priority: Priority::P0,
             #[cfg(mdma)]
             mdma_interrupt_priority: Priority::P0,
@@ -651,6 +718,9 @@ fn init_hw(config: Config) -> Peripherals {
 
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
+            #[cfg(stm32c5)]
+            let _ = cr;
+
             #[cfg(dbgmcu_h5)]
             {
                 cr.set_stop(config.enable_debug_during_sleep);
@@ -685,11 +755,14 @@ fn init_hw(config: Config) -> Peripherals {
         #[cfg(any(stm32h7rs))]
         // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
         rcc::enable_with_cs::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs)))]
+        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5)))]
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
+        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5)))]
         rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);
-        #[cfg(all(flash, not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs))))]
+        #[cfg(all(
+            flash,
+            not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs, stm32c5))
+        ))]
         rcc::enable_and_reset_with_cs::<peripherals::FLASH>(cs);
 
         // Enable the VDDIO2 power supply on chips that have it.
@@ -849,7 +922,7 @@ fn init_hw(config: Config) -> Peripherals {
                 config.bdma_interrupt_priority,
                 #[cfg(dma)]
                 config.dma_interrupt_priority,
-                #[cfg(gpdma)]
+                #[cfg(any(gpdma, lpdma))]
                 config.gpdma_interrupt_priority,
                 #[cfg(mdma)]
                 config.mdma_interrupt_priority,
