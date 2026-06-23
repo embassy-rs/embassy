@@ -182,7 +182,7 @@ impl Driver for OsTimer {
 }
 
 #[allow(non_snake_case)]
-#[crate::pac::interrupt]
+#[interrupt]
 fn OS_EVENT() {
     DRIVER.on_interrupt()
 }

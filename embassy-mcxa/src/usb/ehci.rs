@@ -1,77 +1,7 @@
-//! EHCI device-mode DMA structures and bit masks for the MCXA5xx USBHS
-//! controller.
+//! EHCI device-mode DMA structures for the MCXA5xx USBHS controller.
 //!
 //! The MMIO register blocks come from `nxp-pac`; the queue heads and transfer
 //! descriptors are RAM data structures consumed directly by the controller.
-
-// Some masks document hardware paths not exercised by the current full-speed
-// device driver.
-#![allow(dead_code)]
-
-// ---- USBCMD bits ----
-/// Run/Stop.
-pub(crate) const USBCMD_RS: u32 = 1 << 0;
-/// Controller reset.
-pub(crate) const USBCMD_RST: u32 = 1 << 1;
-/// Setup tripwire.
-pub(crate) const USBCMD_SUTW: u32 = 1 << 13;
-/// Add dTD tripwire.
-pub(crate) const USBCMD_ATDTW: u32 = 1 << 14;
-
-// ---- USBSTS / USBINTR bits (shared layout) ----
-/// USB interrupt (transaction complete).
-pub(crate) const USBSTS_UI: u32 = 1 << 0;
-/// USB error interrupt.
-pub(crate) const USBSTS_UEI: u32 = 1 << 1;
-/// Port change detect.
-pub(crate) const USBSTS_PCI: u32 = 1 << 2;
-/// USB reset received.
-pub(crate) const USBSTS_URI: u32 = 1 << 6;
-/// SOF received.
-pub(crate) const USBSTS_SRI: u32 = 1 << 7;
-/// DCSuspend (suspend) interrupt.
-pub(crate) const USBSTS_SLI: u32 = 1 << 8;
-
-// ---- USBMODE ----
-/// Controller mode = device.
-pub(crate) const USBMODE_CM_DEVICE: u32 = 0b10;
-/// Setup lockout off (use tripwire semantics instead).
-pub(crate) const USBMODE_SLOM: u32 = 1 << 3;
-
-// ---- PORTSC1 ----
-/// Force full-speed (disable high-speed chirp); makes the device enumerate at FS.
-pub(crate) const PORTSC1_PFSC: u32 = 1 << 24;
-/// Current connect status.
-pub(crate) const PORTSC1_CCS: u32 = 1 << 0;
-/// Port reset.
-pub(crate) const PORTSC1_PR: u32 = 1 << 8;
-/// Port speed mask (bits 27:26): 0=FS, 1=LS, 2=HS.
-pub(crate) const PORTSC1_PSPD_SHIFT: u32 = 26;
-pub(crate) const PORTSC1_PSPD_MASK: u32 = 0b11 << PORTSC1_PSPD_SHIFT;
-
-// ---- DEVICEADDR ----
-/// Device address advance: apply the new address after the status stage completes.
-pub(crate) const DEVICEADDR_USBADRA: u32 = 1 << 24;
-/// Shift for the 7-bit device address.
-pub(crate) const DEVICEADDR_USBADR_SHIFT: u32 = 25;
-
-// ---- ENDPTCTRLn bit fields (per direction) ----
-/// RX endpoint enable.
-pub(crate) const EPCTRL_RXE: u32 = 1 << 7;
-/// RX data toggle reset.
-pub(crate) const EPCTRL_RXR: u32 = 1 << 6;
-/// RX endpoint stall.
-pub(crate) const EPCTRL_RXS: u32 = 1 << 0;
-/// RX endpoint type shift (bits 3:2).
-pub(crate) const EPCTRL_RXT_SHIFT: u32 = 2;
-/// TX endpoint enable.
-pub(crate) const EPCTRL_TXE: u32 = 1 << 23;
-/// TX data toggle reset.
-pub(crate) const EPCTRL_TXR: u32 = 1 << 22;
-/// TX endpoint stall.
-pub(crate) const EPCTRL_TXS: u32 = 1 << 16;
-/// TX endpoint type shift (bits 19:18).
-pub(crate) const EPCTRL_TXT_SHIFT: u32 = 18;
 
 /// Device queue head (dQH). One per endpoint and direction (so `2 * N` total),
 /// aligned to 64 bytes and laid out as a contiguous array in RAM.
@@ -165,8 +95,6 @@ pub(crate) const DTD_TOKEN_TRANSACTION_ERROR: u32 = 1 << 3;
 /// dTD token: transfer status bits that indicate a completed transfer failed.
 pub(crate) const DTD_TOKEN_ERROR_MASK: u32 =
     DTD_TOKEN_HALTED | DTD_TOKEN_DATA_BUFFER_ERROR | DTD_TOKEN_TRANSACTION_ERROR;
-/// dTD token mask of error/status bits.
-pub(crate) const DTD_TOKEN_STATUS_MASK: u32 = 0xFF;
 /// dTD buffer pointer page size. Each dTD carries five page pointers.
 pub(crate) const DTD_BUFFER_PAGE_SIZE: u32 = 0x1000;
 /// dTD buffer pointer page mask.

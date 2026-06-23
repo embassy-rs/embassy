@@ -11,13 +11,13 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, warn};
+use defmt::{info, panic, warn};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::{SoscConfig, SoscMode};
 use embassy_mcxa::clocks::{PoweredClock, VddLevel};
-use embassy_mcxa::usb::{Config as UsbDriverConfig, Driver, InterruptHandler};
-use embassy_mcxa::{bind_interrupts, peripherals};
+use embassy_mcxa::usb::{Config as UsbDriverConfig, Driver, InterruptHandler, PhyConfig};
 use embassy_time::Timer;
 use embassy_usb::class::hid::{HidBootProtocol, HidSubclass, HidWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
@@ -26,7 +26,7 @@ use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    USB1_HS => InterruptHandler<peripherals::USB1>;
+    USB1_HS => InterruptHandler;
 });
 
 #[embassy_executor::main]
@@ -46,7 +46,12 @@ async fn main(_spawner: Spawner) {
 
     // Create the USB device driver (full speed).
     info!("Creating USB driver");
-    let driver = Driver::new(p.USB1, Irqs, UsbDriverConfig::default());
+    let mut driver_config = UsbDriverConfig::default();
+    driver_config.phy = PhyConfig::frdm_mcxa577();
+    let driver = match Driver::new(p.USB1, Irqs, driver_config) {
+        Ok(driver) => driver,
+        Err(e) => panic!("USB init failed: {:?}", e),
+    };
     info!("USB driver created");
 
     // Configure the USB device descriptors.

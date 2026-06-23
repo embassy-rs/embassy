@@ -14,17 +14,17 @@
 use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::{SoscConfig, SoscMode};
 use embassy_mcxa::clocks::{PoweredClock, VddLevel};
-use embassy_mcxa::usb::{Config as UsbDriverConfig, Driver, InterruptHandler};
-use embassy_mcxa::{bind_interrupts, peripherals};
+use embassy_mcxa::usb::{Config as UsbDriverConfig, Driver, InterruptHandler, PhyConfig};
 use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    USB1_HS => InterruptHandler<peripherals::USB1>;
+    USB1_HS => InterruptHandler;
 });
 
 #[embassy_executor::main]
@@ -42,7 +42,12 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(hal_config);
     info!("=== USB CDC-ACM serial example ===");
 
-    let driver = Driver::new(p.USB1, Irqs, UsbDriverConfig::default());
+    let mut driver_config = UsbDriverConfig::default();
+    driver_config.phy = PhyConfig::frdm_mcxa577();
+    let driver = match Driver::new(p.USB1, Irqs, driver_config) {
+        Ok(driver) => driver,
+        Err(e) => panic!("USB init failed: {:?}", e),
+    };
 
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafd);
     config.manufacturer = Some("Embassy");
