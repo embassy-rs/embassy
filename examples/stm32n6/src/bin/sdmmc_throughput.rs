@@ -62,6 +62,7 @@ async fn main(_spawner: Spawner) {
     let mut cmd_block = CmdBlock::new();
     // 110 MHz triggers SDR104 negotiation (>100 MHz). With the default
     // 100 MHz kernel + CLKDIV bypass the wire stays at 100 MHz.
+    #[allow(deprecated)]
     let storage = match StorageDevice::new_sd_card(&mut sd, &mut cmd_block, Hertz(110_000_000)).await {
         Ok(s) => s,
         Err(e) => {
