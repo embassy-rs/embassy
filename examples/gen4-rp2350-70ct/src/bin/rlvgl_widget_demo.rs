@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_gen4_rp2350_70ct_examples::board::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use embassy_gen4_rp2350_70ct_examples::firmware_id::FIRMWARE_ID;
 use embassy_gen4_rp2350_70ct_examples::pio_rgb::{self, ScanOutIrqs};
-use embassy_gen4_rp2350_70ct_examples::rlvgl::{DemoUi, DirtyWidgets, render_tree};
+use embassy_gen4_rp2350_70ct_examples::rlvgl::{DemoUi, DirtyWidgets, TILE_LINES, render_tree_tiled};
 use embassy_gen4_rp2350_70ct_examples::touch_feed;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_alloc::LlffHeap as Heap;
@@ -24,6 +24,7 @@ const HEAP_SIZE: usize = 256 * 1024;
 static HEAP: Heap = Heap::empty();
 
 static mut HEAP_MEM: MaybeUninit<[u8; HEAP_SIZE]> = MaybeUninit::uninit();
+static mut TILE_MEM: MaybeUninit<[u16; DISPLAY_WIDTH * TILE_LINES]> = MaybeUninit::uninit();
 static UI: StaticCell<DemoUi> = StaticCell::new();
 
 fn init_heap() {
@@ -97,10 +98,16 @@ async fn main(spawner: Spawner) -> ! {
     );
 
     let ui = UI.init(DemoUi::new());
-    // Paint the initial full frame into the framebuffer that is being scanned out.
+    let tile = unsafe { &mut *TILE_MEM.as_mut_ptr() };
+    // Paint the initial full frame through an SRAM tile, then copy each tile to
+    // the framebuffer that is being scanned out. This keeps widget drawing off
+    // the QMI/PSRAM bus and leaves only linear full-width PSRAM writes.
     let render_start = Instant::now();
-    render_tree(fb, ui.root());
-    info!("initial full rlvgl render: {} us", render_start.elapsed().as_micros());
+    render_tree_tiled(fb, tile, ui.root());
+    info!(
+        "initial tiled full rlvgl render: {} us",
+        render_start.elapsed().as_micros()
+    );
 
     spawner.spawn(unwrap!(ui_task(fb, ui)));
 
