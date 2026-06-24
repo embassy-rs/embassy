@@ -9,7 +9,7 @@ use embassy_hal_internal::Peri;
 
 use crate::flexcan::classic::mailbox::tx;
 use crate::flexcan::classic::frame::Frame;
-use crate::flexcan::common::{FilterConfig, FilterConfigError};
+use crate::flexcan::filter::{FilterConfig, FilterConfigError};
 use crate::flexcan::control::{Control, ControlError};
 use crate::interrupt::typelevel::Handler;
 use nxp_pac::can as pac;
@@ -47,6 +47,19 @@ pub(in crate::flexcan) struct Info {
 
     /// Waker used to wake tasks awaiting on a CAN send() call.
     pub tx_waker: AtomicWaker,
+
+    /// This flag indicates whether or not Protocol Exception is supported
+    /// by the FlexCAN peripheral. Protocol Exception allows a FlexCAN in
+    /// Classic mode (MCR[FDEN] = 0) to coexist on an FD-enabled bus without
+    /// throwing a bunch of error frames. In other words, it allows the FlexCAN
+    /// to recognize that a frame is FD and ignore it, even when not in FD mode.
+    /// See page 1492 of the datasheet.
+    /// 
+    /// This feature is supported by CAN0, but not CAN1. This flag allows the HAL
+    /// to specify this constraint internally via `impl_flexcan_instance!()`. This way,
+    /// if a user tries to enable this feature in their config on an unsupported peripheral,
+    /// they'll get an error at init-time.
+    pub prexcen_supported: bool,
 }
 
 /// Errors that can return when initializing
@@ -60,27 +73,70 @@ pub enum InitError {
     /// This error indicates an invalid FilterConfig. See the `FilterConfigError`
     /// enum for the specific possible errors.
     Filter(FilterConfigError),
+
+    /// This error indicates that you attempted enabling the
+    /// `protocol_exception` feature in `FlexCanConfig` on a
+    /// peripheral where it is not supported.
+    /// 
+    /// Note: Protocol Exception is only supported on CAN0.
+    ProtocolExceptionUnsupported,
+}
+
+/// Configuration settings for a Classic-mode FlexCAN driver instance.
+pub struct FlexCanConfig<'a> {
+    /// This setting allows you to enable/disable the
+    /// FlexCAN's Protocol Exception feature. This may be
+    /// useful if you want this FlexCAN to coexist on a FD-enabled
+    /// bus while staying in Classic mode.
+    /// 
+    /// Note: This feature is only available on CAN0. If you attempt to enable this
+    /// feature on an instance where it isn't supported, you will get an error
+    /// when calling `FlexCan::new()`.
+    pub protocol_exception: bool,
+
+    /// This setting allows you to configure your peripheral's RX filters.
+    /// See the `FilterConfig` struct docs for more information.
+    pub filters: FilterConfig<'a>,
 }
 
 impl<'d> FlexCan<'d> {
-    pub fn new<T: Instance>(_peri: Peri<'d, T>, filter_config: FilterConfig, /* rx/tx pins, Config, irq binding */) -> Result<Self, InitError> {
+    /// Constructs a new FlexCAN driver instance, in Classic mode.
+    /// 
+    /// 
+    pub fn new<T: Instance>(_peri: Peri<'d, T>, config: FlexCanConfig, /* rx/tx pins, Config, irq binding */) -> Result<Self, InitError> {
         use embassy_time::Duration;
-
-        filter_config.validate().map_err(|e| InitError::Filter(e))?;
 
         let info = T::info();
 
+        // Software-only error checks to make sure stuff was configured correctly
+        if config.protocol_exception && !info.prexcen_supported {return Err(InitError::ProtocolExceptionUnsupported);}
+        config.filters.validate().map_err(|e| InitError::Filter(e))?;
+
+        // Enable and freeze
         const ENABLE_TIMEOUT: u64 = 10; // Timeout for the `.enable()` call in ms
         info.control.enable(Some(Duration::from_millis(ENABLE_TIMEOUT))).map_err(|_| InitError::Timeout)?;
+        const FREEZE_TIMEOUT: u64 = 10; // Timeout for the `.freeze()` call in ms
+        info.control.freeze(Some(Duration::from_millis(FREEZE_TIMEOUT))).map_err(|_| InitError::Timeout)?;
+
+        // If protocol_exception is supported, write whatever config value was passed in
+        // Couldn't do this at the first protocol_exception check since this involves actually writing to a register
+        if info.prexcen_supported {
+            info.control.regs().ctrl2().modify(|m| m.set_prexcen(config.protocol_exception));
+        }
+
+        // Disable FDCAN
+        info.control.regs().mcr().modify(|m| m.set_fden(pac::Fden::CanFdDisabled));
 
         // As of right now, the whole HAL is based around us having 32 message buffers.
         // So, this isn't something the user should be able to configure.
         const NUM_MESSAGE_BUFFERS: u8 = 32;
         info.control.set_number_of_message_buffers(NUM_MESSAGE_BUFFERS);
 
-        // Reset the TX message buffers and the software state tracking. `setup()` enters
-        // Freeze mode itself, then we leave Freeze once everything is configured.
+        // Reset/setup the TX message buffers and the software state tracking.
         mailbox::tx::setup(info).map_err(|_| InitError::Timeout)?;
+
+        // Reset/setup the Enhanced RX FIFO.
+        mailbox::rx::setup(info, &config.filters).map_err(|_| InitError::Timeout)?;
 
         info.control.unfreeze();
         Ok(Self { info, _phantom: PhantomData })
@@ -115,6 +171,8 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
         let info = T::info();
         let can = info.control.regs();
 
+        /* TX STUFF: */
+
         // Check what TX buffers have fired
         let tx_flags = can.iflag1().read().0;
         let tx_enabled = can.imask1().read().0;
@@ -143,6 +201,13 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             let _ = can.iflag1().read(); // read back from the register so we make sure the write finished before we return from the ISR
             info.tx_available.fetch_or(tx_fired, Ordering::Release); // Update the `tx_available` tracker accordingly.
             info.tx_waker.wake(); // Tell sleepers that there's an available TX buffer now
+        }
+
+        /* RX STUFF: */
+
+        // Check if any RX messages can be dequeued, and if so, dequeue them.
+        while let Some(message) = mailbox::rx::fifo::get(info) {
+            // uhh do this tomorrow
         }
 
         // u_TODO: when RX (Enhanced RX FIFO: erfsr/erfier) and error/bus-off (esr1/ctrl1) handling are added, demux them here

@@ -1,5 +1,5 @@
 pub mod classic;
-pub mod common;
+pub mod filter;
 mod control;
 
 pub use control::ControlError;
@@ -31,6 +31,7 @@ macro_rules! impl_flexcan_instance {
                         tx_available: core::sync::atomic::AtomicU32::new(0),
                         tx_remote: core::sync::atomic::AtomicU32::new(0),
                         tx_waker: embassy_sync::waitqueue::AtomicWaker::new(),
+                        prexcen_supported: $n == 0, // Protocol Exception is only supported on CAN0.
                     };
                     &INFO
                 }

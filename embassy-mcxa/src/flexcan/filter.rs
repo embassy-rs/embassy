@@ -1,5 +1,4 @@
-//! This module contains various types and implementations that are common to
-//! both Classic CAN and FDCAN.
+//! This module contains filter definitions and configuration that is common to both Classic CAN and FDCAN.
 
 /// Possible errors when configuring a RX filter.
 pub enum FilterConfigError {

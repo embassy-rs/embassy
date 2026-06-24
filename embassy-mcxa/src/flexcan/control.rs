@@ -99,6 +99,34 @@ impl Control {
         let mcr = self.regs.mcr().read();
         (mcr.halt() == pac::Halt::HaltEnable) && (mcr.frz() == pac::Frz::FreezeModeEnabled) && (mcr.frzack() == pac::Frzack::FreezeModeYes)
     }
+
+    /// PAC extension function: Accesses the CS area inside the Enhanced RX FIFO.
+    /// 
+    /// `CS` is a 32-bit region starting at 2000h.
+    pub(in crate::flexcan) const fn pac_fifocs(&self) -> crate::pac::common::Reg<pac::Cs, crate::pac::common::R> {
+        let can = self.regs();
+        unsafe { crate::pac::common::Reg::from_ptr((pac::Can::as_ptr(&can) as *mut u8).wrapping_add(0x2000usize) as _) }
+    }
+
+    /// PAC extension function: Accesses the ID area inside the Enhanced RX FIFO.
+    /// 
+    /// `ID` is a 32-bit region starting at 2004h.
+    pub(in crate::flexcan) const fn pac_fifoid(&self) -> crate::pac::common::Reg<pac::Id, crate::pac::common::R> {
+        let can = self.regs();
+        unsafe { crate::pac::common::Reg::from_ptr((pac::Can::as_ptr(&can) as *mut u8).wrapping_add(0x2004usize) as _) }
+    }
+
+    /// PAC extension function: Accesses the Data area inside the Enhanced RX FIFO.
+    /// 
+    /// This entire area spans from 2008h - 2047h, consiting of 16 32-bit regions.
+    /// `n` allows you to specify which of these 32-bit regions you want to read. So, `n=0` would correspond
+    /// to the first 4 data bytes of a frame, `n=1` would correspond to the next 4, and so on.
+    /// 
+    /// Note: This means that the valid range for `n` is 0 to 15 (inclusive on both ends).
+    pub(in crate::flexcan) const fn pac_fifodata(&self, n: usize) -> crate::pac::common::Reg<u32, crate::pac::common::R> {
+        let can = self.regs();
+        unsafe { crate::pac::common::Reg::from_ptr((pac::Can::as_ptr(&can) as *mut u8).wrapping_add(0x2008usize + 4*n) as _) }
+    }
 }
 
 /// Errors that can occur when controlling/configuring the FlexCAN,

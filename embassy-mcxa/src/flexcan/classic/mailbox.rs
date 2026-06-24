@@ -6,7 +6,7 @@
 //! 
 //! RX/incoming messages are handeled by the chip's Enhanced RX FIFO (see page 1556 of the datasheet).
 //! This FIFO can store 12 messages, which are filled automatically by the hardware as they come in.
-//! Messages can be dequeued from this FIFO by reading the 2000h - 2048h memory area as a message buffer, and then setting the erfda flag (to tell the hardware that the memory area is ready to be filled with the next message from the FIFO).
+//! Messages can be dequeued from this FIFO by reading the 2000h - 2047h memory area as a message buffer, and then setting the erfda flag (to tell the hardware that the memory area is ready to be filled with the next message from the FIFO).
 
 use nxp_pac::can as pac;
 
@@ -161,6 +161,11 @@ pub(in crate::flexcan) mod tx {
         pub(in crate::flexcan) const TANSWER:  u8 = Self::TxTanswer as u8;
     }
 
+    /// Struct representing a TX message.
+    /// 
+    /// This is just a thin wrapper around the `Message` type that is generic to both TX and RX messages.
+    /// The reason we need explicit `TxMessage` and `RxMessage` structs is because the CODE field
+    /// inside `Message` has different meanings depending on TX or RX.
     pub(in crate::flexcan) struct TxMessage{inner: Message}
     impl TxMessage {
         /// Gets the current reading of this message's `CODE` field.
@@ -256,8 +261,77 @@ pub(in crate::flexcan) mod tx {
 pub(in crate::flexcan) mod rx {
     use super::MailboxError;
     use crate::flexcan::classic::Info;
-    use crate::flexcan::common::FilterConfig;
+    use crate::flexcan::filter::FilterConfig;
     use super::pac;
+    use super::Message;
+
+    /// Represents the Enhanced RX FIFO memory area.
+    pub(in crate::flexcan) mod fifo {
+        use super::Info;
+        use super::pac;
+        use super::RxMessage;
+        use super::Message;
+        use super::MailboxError;
+
+        /// Gets the oldest unread message from the Enhanced RX FIFO and places it into a `RxMessage`.
+        /// If a message is available to return, this function will return it and automatically flag
+        /// the FIFO to pop to the next message.
+        /// 
+        /// If the FIFO is empty, returns `None`.
+        pub(in crate::flexcan) fn get(info: &Info) -> Option<RxMessage> {
+            /// Converts a length/index in bytes to a length/index in words.
+            const fn to_words(bytes: usize) -> usize { bytes.div_ceil(4) }
+
+            // If ERFDA is `0`, then there's no data to read (FIFO is empty).
+            if !info.control.regs().erfsr().read().erfda() {
+                return None;
+            }
+
+            let cs = info.control.pac_fifocs().read();
+            let id = info.control.pac_fifoid().read();
+
+            // Get the length and clamp it to 8 bytes
+            let len = (cs.dlc() as usize).min(8);
+
+            /// The maximum number of words we may need to read in this function.
+            /// This is defined as the number of words for MAX_PAYLOAD, plus one extra word for ID_HIT.
+            /// For Classic CAN, where MAX_PAYLOAD = 8 bytes, MAX_WORDS will equal 3 (first two for payload data, and the last one for ID_HIT)
+            const MAX_WORDS: usize = const {to_words(8) + 1}; // 3
+            
+            // Read the FIFO words
+            let mut words = [0u32; MAX_WORDS];
+            let last_word_index = to_words(len); // The index of the last word for this specific `len`. The word at this index will contain ID_HIT.
+            for i in 0..=last_word_index {
+                words[i] = info.control.pac_fifodata(i).read();
+            }
+
+            // At this point we've read all the FIFO data we need, so flag the FIFO to start re-filling.
+            // This way, it can get started in the background while we finish up this function call
+            info.control.regs().erfsr().write(|w| w.set_erfda(true)); // write 1 to pop the FIFO and get it to load the next frame
+
+            // Get ID_HIT (always one word after the last payload word)
+            const SEVEN_BITS: u32 = 0b00000000_00000000_00000000_01111111; // `id_hit` lives in the first 7 bits of the word
+            let _id_hit = words[last_word_index] & SEVEN_BITS; // not actually using id_hit for anything yet, but this logic is here in case someone wants to use it for something later
+
+            // Build payload
+            let mut payload = [0u8; 8];
+            let mut copied = 0;
+            while copied < len {
+                let n = (len - copied).min(4);
+                payload[copied..copied + n].copy_from_slice(&words[copied / 4].to_be_bytes()[..n]);
+                copied += n;
+            }
+
+            Some(RxMessage { inner: Message { cs, id, payload } })
+        }
+    }
+
+    /// Struct representing a RX message.
+    /// 
+    /// This is just a thin wrapper around the `Message` type that is generic to both TX and RX messages.
+    /// The reason we need explicit `TxMessage` and `RxMessage` structs is because the CODE field
+    /// inside `Message` has different meanings depending on TX or RX.
+    pub(in crate::flexcan) struct RxMessage{inner: Message}
 
     /// Sets up the RX subsystem.
     /// This function requires `filter_config` to have been validated prior to being passed in here.
@@ -322,7 +396,5 @@ pub(in crate::flexcan) mod rx {
         }
 
         Ok(())
-
-
     }
 }
