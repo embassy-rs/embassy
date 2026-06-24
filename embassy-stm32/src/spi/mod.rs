@@ -1,6 +1,8 @@
 //! Serial Peripheral Interface (SPI)
 #![macro_use]
 
+#[cfg(feature = "exti")]
+mod ringbuffered;
 use core::marker::PhantomData;
 use core::ptr;
 use core::sync::atomic::{Ordering, fence};
@@ -8,6 +10,8 @@ use core::sync::atomic::{Ordering, fence};
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
+#[cfg(feature = "exti")]
+pub use ringbuffered::RingBufferedSpiRx;
 
 use crate::Peri;
 use crate::dma::{ChannelAndRequest, word};
@@ -45,6 +49,12 @@ impl core::fmt::Display for Error {
 }
 
 impl core::error::Error for Error {}
+
+impl embedded_io::Error for Error {
+    fn kind(&self) -> embedded_io::ErrorKind {
+        embedded_io::ErrorKind::Other
+    }
+}
 
 /// SPI bit order
 #[derive(Copy, Clone)]
@@ -366,63 +376,10 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
     /// Reconfigures it with the supplied config.
     pub fn set_config(&mut self, config: &Config) -> Result<(), ()> {
-        let cpha = config.raw_phase();
-        let cpol = config.raw_polarity();
-
-        let lsbfirst = config.raw_byte_order();
-
-        let br = compute_baud_rate(self.kernel_clock, config.frequency);
-
+        self.gpio_speed = config.gpio_speed;
         #[cfg(gpio_v2)]
-        {
-            self.gpio_speed = config.gpio_speed;
-            if let Some(sck) = self._sck.as_ref() {
-                sck.pin.set_speed(config.gpio_speed);
-            }
-            if let Some(mosi) = self._mosi.as_ref() {
-                mosi.pin.set_speed(config.gpio_speed);
-            }
-        }
-
-        #[cfg(any(spi_v1, spi_v2, spi_v3))]
-        {
-            self.info.regs.cr1().modify(|w| {
-                w.set_spe(false);
-            });
-            self.info.regs.cr1().modify(|w| {
-                w.set_cpha(cpha);
-                w.set_cpol(cpol);
-                w.set_br(br);
-                w.set_lsbfirst(lsbfirst);
-            });
-            self.info.regs.cr1().modify(|w| {
-                w.set_spe(true);
-            });
-        }
-
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        {
-            let ssiop = config.raw_nss_polarity();
-
-            self.info.regs.cr1().modify(|w| {
-                w.set_spe(false);
-            });
-
-            self.info.regs.cfg2().modify(|w| {
-                w.set_cpha(cpha);
-                w.set_cpol(cpol);
-                w.set_lsbfirst(lsbfirst);
-                w.set_ssiop(ssiop);
-            });
-            self.info.regs.cfg1().modify(|w| {
-                w.set_mbr(br);
-            });
-
-            self.info.regs.cr1().modify(|w| {
-                w.set_spe(true);
-            });
-        }
-        Ok(())
+        set_speed(&self._sck, &self._mosi, config.gpio_speed);
+        reconfigure(self.info, self.kernel_clock, config)
     }
 
     /// Set SPI direction for bidirectional mode.
@@ -1289,6 +1246,65 @@ fn compute_frequency(kernel_clock: Hertz, br: Br) -> Hertz {
     };
 
     kernel_clock / div
+}
+
+#[cfg(gpio_v2)]
+fn set_speed(sck: &Option<Flex<'_>>, mosi: &Option<Flex<'_>>, gpio_speed: Speed) {
+    if let Some(sck) = sck.as_ref() {
+        sck.pin.set_speed(gpio_speed);
+    }
+    if let Some(mosi) = mosi.as_ref() {
+        mosi.pin.set_speed(gpio_speed);
+    }
+}
+
+fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), ()> {
+    let cpha = config.raw_phase();
+    let cpol = config.raw_polarity();
+
+    let lsbfirst = config.raw_byte_order();
+
+    let br = compute_baud_rate(kernel_clock, config.frequency);
+
+    #[cfg(any(spi_v1, spi_v2, spi_v3))]
+    {
+        info.regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+        info.regs.cr1().modify(|w| {
+            w.set_cpha(cpha);
+            w.set_cpol(cpol);
+            w.set_br(br);
+            w.set_lsbfirst(lsbfirst);
+        });
+        info.regs.cr1().modify(|w| {
+            w.set_spe(true);
+        });
+    }
+
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    {
+        let ssiop = config.raw_nss_polarity();
+
+        info.regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+
+        info.regs.cfg2().modify(|w| {
+            w.set_cpha(cpha);
+            w.set_cpol(cpol);
+            w.set_lsbfirst(lsbfirst);
+            w.set_ssiop(ssiop);
+        });
+        info.regs.cfg1().modify(|w| {
+            w.set_mbr(br);
+        });
+
+        info.regs.cr1().modify(|w| {
+            w.set_spe(true);
+        });
+    }
+    Ok(())
 }
 
 pub(crate) trait RegsExt {

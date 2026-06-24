@@ -4,13 +4,15 @@
 #[path = "../common.rs"]
 mod common;
 
+use aligned::Aligned;
+use block_device_driver::BlockDevice as _;
 use common::*;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::sdmmc::sd::{CmdBlock, DataBlock, StorageDevice};
-use embassy_stm32::time::mhz;
 use embassy_stm32::{bind_interrupts, peripherals, sdmmc};
+use embassy_time::Delay;
+use sdio::BlockDevice;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -34,16 +36,16 @@ async fn main(_spawner: Spawner) {
     // Arbitrary block index
     let block_idx = 16;
 
-    let mut pattern1 = DataBlock::new();
-    let mut pattern2 = DataBlock::new();
+    let mut pattern1 = Aligned([0u8; 512]);
+    let mut pattern2 = Aligned([0u8; 512]);
     for i in 0..512 {
         pattern1[i] = i as u8;
         pattern2[i] = !i as u8;
     }
     let patterns = [pattern1.clone(), pattern2.clone()];
 
-    let mut block = DataBlock::new();
-    let mut blocks = [DataBlock::new(), DataBlock::new()];
+    let mut block = [Aligned([0u8; 512])];
+    let mut blocks = [Aligned([0u8; 512]), Aligned([0u8; 512])];
     {
         // ======== Try 4bit. ==============
         info!("initializing in 4-bit mode...");
@@ -61,10 +63,8 @@ async fn main(_spawner: Spawner) {
         );
 
         {
-            let mut cmd_block = CmdBlock::new();
-
             let mut storage = loop {
-                if let Ok(storage) = StorageDevice::new_sd_card(&mut s, &mut cmd_block, mhz(24)).await {
+                if let Ok(storage) = BlockDevice::new_sd_card(&mut s, 24_000_000, Delay).await {
                     break storage;
                 }
             };
@@ -116,32 +116,32 @@ async fn main(_spawner: Spawner) {
             defmt::assert!(card.scr.bus_width_four());
 
             info!("writing pattern1...");
-            storage.write_block(block_idx, &pattern1).await.unwrap();
+            storage.write(block_idx, &[pattern1]).await.unwrap();
 
             info!("reading...");
-            storage.read_block(block_idx, &mut block).await.unwrap();
-            assert_eq!(block, pattern1);
+            storage.read(block_idx, &mut block).await.unwrap();
+            assert_eq!(*block[0], *pattern1);
 
             info!("writing pattern2...");
-            storage.write_block(block_idx, &pattern2).await.unwrap();
+            storage.write(block_idx, &[pattern2]).await.unwrap();
 
             info!("reading...");
-            storage.read_block(block_idx, &mut block).await.unwrap();
-            assert_eq!(block, pattern2);
+            storage.read(block_idx, &mut block).await.unwrap();
+            assert_eq!(*block[0], *pattern2);
 
             info!("writing blocks [pattern1, pattern2]...");
-            storage.write_blocks(block_idx, &patterns).await.unwrap();
+            storage.write(block_idx, &patterns).await.unwrap();
 
             info!("reading blocks...");
-            storage.read_blocks(block_idx, &mut blocks).await.unwrap();
-            assert_eq!(&blocks, &patterns);
+            storage.read(block_idx, &mut blocks).await.unwrap();
+
+            for (block, pattern) in blocks.iter().zip(patterns) {
+                assert_eq!(**block, *pattern);
+            }
         }
     }
 
     {
-        // FIXME: this hangs on Rust 1.86 and higher.
-        // I haven't been able to figure out why.
-
         // ======== Try 1bit. ==============
         info!("initializing in 1-bit mode...");
         let mut s = Sdmmc::new_1bit(
@@ -155,10 +155,8 @@ async fn main(_spawner: Spawner) {
         );
 
         {
-            let mut cmd_block = CmdBlock::new();
-
             let mut storage = loop {
-                if let Ok(storage) = StorageDevice::new_sd_card(&mut s, &mut cmd_block, mhz(15)).await {
+                if let Ok(storage) = BlockDevice::new_sd_card(&mut s, 15_000_000, Delay).await {
                     break storage;
                 }
             };
@@ -210,25 +208,28 @@ async fn main(_spawner: Spawner) {
             defmt::assert!(card.scr.bus_width_four());
 
             info!("writing pattern1...");
-            storage.write_block(block_idx, &pattern1).await.unwrap();
+            storage.write(block_idx, &[pattern1]).await.unwrap();
 
             info!("reading...");
-            storage.read_block(block_idx, &mut block).await.unwrap();
-            assert_eq!(block, pattern1);
+            storage.read(block_idx, &mut block).await.unwrap();
+            assert_eq!(*block[0], *pattern1);
 
             info!("writing pattern2...");
-            storage.write_block(block_idx, &pattern2).await.unwrap();
+            storage.write(block_idx, &[pattern2]).await.unwrap();
 
             info!("reading...");
-            storage.read_block(block_idx, &mut block).await.unwrap();
-            assert_eq!(block, pattern2);
+            storage.read(block_idx, &mut block).await.unwrap();
+            assert_eq!(*block[0], *pattern2);
 
             info!("writing blocks [pattern1, pattern2]...");
-            storage.write_blocks(block_idx, &patterns).await.unwrap();
+            storage.write(block_idx, &patterns).await.unwrap();
 
             info!("reading blocks...");
-            storage.read_blocks(block_idx, &mut blocks).await.unwrap();
-            assert_eq!(&blocks, &patterns);
+            storage.read(block_idx, &mut blocks).await.unwrap();
+
+            for (block, pattern) in blocks.iter().zip(patterns) {
+                assert_eq!(**block, *pattern);
+            }
         }
     }
 

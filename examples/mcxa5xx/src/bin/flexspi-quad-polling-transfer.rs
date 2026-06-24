@@ -136,7 +136,7 @@ async fn main(_spawner: Spawner) {
     //    the page (and rest of the sector) stays at 0xFF.
     let last_sector = FLASH_BASE + (SELF_TEST_SECTORS - 1) * FLASH_SECTOR_SIZE as u32;
     unwrap!(flash.blocking_erase_sector(last_sector));
-    let partial_len = 100usize;
+    let partial_len = 96usize; // 8-byte aligned (driver write-size contract)
     let mut partial = [0u8; FLASH_PAGE_SIZE];
     fill_pattern(last_sector, &mut partial);
     unwrap!(flash.blocking_page_program(last_sector, &partial[..partial_len]));
