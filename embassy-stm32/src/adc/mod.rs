@@ -49,6 +49,7 @@ pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
 #[allow(unused_imports)]
 use crate::{peripherals, rcc};
+use crate::dma::TransferOptions;
 
 dma_trait!(RxDma, Instance);
 
@@ -393,8 +394,12 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         let request = rx_dma.request();
         let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
-        let mut options = Default::default();
-        options.secure = true;
+        let options = TransferOptions {
+            // DMA will read 0 unless it is marked as secure along with RISUP 64 (ADC12)
+            #[cfg(stm32n6)]
+            secure: true,
+            ..Default::default()
+        };
         let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, options) };
 
         // Ensure conversions are finished, even in the event of dropping the future
