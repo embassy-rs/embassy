@@ -23,11 +23,20 @@ fixed = "1.28.0"
 static_cell = "2"
 embedded-alloc = { version = "0.6.0", features = ["llff"] }
 
-rlvgl = { version = "0.2.4", default-features = false }
+rlvgl = { version = "0.2.4", default-features = false, optional = true }
+
+[features]
+# The rlvgl UI demo (widget tree, partial render, DemoUi) is gated behind this
+# feature so the rest of the board support (PIO RGB scan-out, FT5446 touch, DMA
+# self-test) can be built without pulling in the rlvgl dependency. Enabled by
+# default so `cargo run --bin rlvgl_widget_demo` keeps working out of the box.
+default = ["rlvgl-demo"]
+rlvgl-demo = ["dep:rlvgl"]
 
 [[bin]]
 name = "rlvgl_widget_demo"
 path = "src/bin/rlvgl_widget_demo.rs"
+required-features = ["rlvgl-demo"]
 
 [[bin]]
 name = "dma_selftest"

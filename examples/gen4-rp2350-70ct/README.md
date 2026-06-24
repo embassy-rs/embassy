@@ -46,6 +46,23 @@ cargo run --release --bin rlvgl_widget_demo
 
 Flash with probe-rs (configured in `.cargo/config.toml`).
 
+## Cargo features
+
+The rlvgl UI is separated behind the `rlvgl-demo` feature (enabled by default),
+so the rest of the board support (PIO RGB scan-out, FT5446 touch, DMA self-test)
+can be built without pulling in the `rlvgl` dependency:
+
+```bash
+# default: includes the rlvgl widget demo
+cargo build --release --bin rlvgl_widget_demo
+
+# board support only, no rlvgl dependency
+cargo build --release --no-default-features --bin dma_selftest
+```
+
+The `rlvgl_widget_demo` binary declares `required-features = ["rlvgl-demo"]`, so
+it is automatically skipped when the feature is disabled.
+
 ## Known limitations
 
 - **Full-frame refresh is still somewhat slow.** The display uses a single
