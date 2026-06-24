@@ -1,6 +1,9 @@
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_net_driver::PacketMeta;
+#[cfg(not(any(feature = "log", feature = "defmt")))]
+use stm32_metapac::RISAF2;
+use stm32_metapac::{RISAF1, RISAF2};
 use vcell::VolatileCell;
 
 use crate::eth::packet_state::{RxPacketStateRing, TxPacketStateRing};
@@ -129,7 +132,8 @@ impl<'a> TDesRing<'a> {
         // Initialize the pointers in the DMA engine. (There will be a memory barrier later
         // before the DMA engine is enabled.)
         let dma = ETH.ethernet_dma();
-        dma_ch0!(dma, dmac_tx_dlar).write(|w| w.0 = descriptors.as_mut_ptr() as u32);
+
+        dma.dmac_tx_dlar(0).write(|w| w.0 = descriptors.as_mut_ptr() as u32);
         dma_ch0!(dma, dmac_tx_rlr).write(|w| w.set_tdrl((descriptors.len() as u16) - 1));
         dma_ch0!(dma, dmac_tx_dtpr).write(|w| w.0 = 0);
 
@@ -204,8 +208,12 @@ impl<'a> TDesRing<'a> {
         assert!(td.available());
         assert!(len as u32 <= EMAC_TDES2_B1L);
 
+        let s = &self.buffers[self.index].0[..len];
+        trace!("Transmitting data: {:?}", s);
+
         // Read format
         td.tdes0.set(self.buffers[self.index].0.as_ptr() as u32);
+        trace!("0");
         let mut tdes2 = len as u32 & EMAC_TDES2_B1L;
         tdes2 |= EMAC_TDES2_IOC;
         #[cfg(feature = "ptp")]
@@ -220,7 +228,11 @@ impl<'a> TDesRing<'a> {
             );
         }
         td.tdes2.set(tdes2);
+
         self.state.commit(self.index);
+
+        let d = ETH.ethernet_dma().dmacca_tx_dr(0).read().0;
+        trace!("Before: {:#010x}", d);
 
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
@@ -238,9 +250,50 @@ impl<'a> TDesRing<'a> {
 
         // signal DMA it can try again.
         // See issue #2129
-        dma_ch0!(ETH.ethernet_dma(), dmac_tx_dtpr).write(|w| w.0 = &td as *const _ as u32);
 
+        let td_ptr = td as *const _ as u32;
+        //let tail_ptr = unsafe { (&self.descriptors[0] as *const TDes).add(self.index) } as u32;
+
+        let tail_ptr = td_ptr; //.saturating_sub(self.descriptors.as_ptr() as u32);
+        //let tail_ptr = &td as *const _ as u32;
+        trace!("idx: {}", self.index);
+        trace!(
+            "{:#010x} - {:#010x} = {:#010x}",
+            td_ptr,
+            self.descriptors.as_ptr() as u32,
+            tail_ptr
+        );
+
+        ETH.ethernet_dma().dmac_tx_dtpr(0).write(|w| w.0 = tail_ptr);
+
+        let i = self.index;
         self.index = (self.index + 1) % self.descriptors.len();
+        let dma = ETH.ethernet_dma();
+
+        let d = unsafe { (dma.dmacca_tx_dr(0).read().0 as *const TDes).read() };
+
+        trace!("DMACSR   = {:#010x}", dma.dmacsr(0).read().0);
+        trace!("DMADSR   = {:#010x}", dma.dmadsr().read().0);
+        trace!("CATxDR   = {:#010x}", dma.dmacca_tx_dr(0).read().0);
+        trace!("CATxBR   = {:#010x}", dma.dmacca_tx_br(0).read().0);
+        trace!("TDES3    = {:#010x}", self.descriptors[i].tdes3.get());
+
+        if !self.descriptors[i].available() {
+            ETH.ethernet_dma().dmac_tx_dtpr(0).write(|w| w.0 = tail_ptr);
+            info!("available!");
+        } else {
+            info!("Not Available");
+        }
+        trace!("DMACSR   = {:#010x}", dma.dmacsr(0).read().0);
+        trace!("DMADSR   = {:#010x}", dma.dmadsr().read().0);
+        trace!("CATxDR   = {:#010x}", dma.dmacca_tx_dr(0).read().0);
+        trace!("CATxBR   = {:#010x}", dma.dmacca_tx_br(0).read().0);
+        trace!("TDES0    = {:#010x}", self.descriptors[i].tdes0.get());
+        trace!("TDES1    = {:#010x}", self.descriptors[i].tdes1.get());
+        trace!("TDES2    = {:#010x}", self.descriptors[i].tdes2.get());
+        trace!("TDES3    = {:#010x}", self.descriptors[i].tdes3.get());
+        //while !self.descriptors[i].available() {}
+        // trace!("Available again");
     }
 }
 
@@ -250,7 +303,7 @@ impl<'a> TDesRing<'a> {
 /// * rdes1:
 /// * rdes2:
 /// * rdes3: OWN and Status
-#[repr(C)]
+#[repr(C, align(32))]
 pub(crate) struct RDes {
     rdes0: VolatileCell<u32>,
     rdes1: VolatileCell<u32>,
