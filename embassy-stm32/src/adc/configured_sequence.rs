@@ -2,7 +2,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 
 use embassy_hal_internal::Peri;
 
-use super::AdcRegs;
+use super::{AdcRegs, DataSize};
 use crate::adc::{Instance, RxDma, check_dma_len};
 use crate::dma::ChannelAndRequest;
 use crate::rcc::RccInfo;
@@ -49,7 +49,7 @@ impl<'adc, R: AdcRegs> ConfiguredSequence<'adc, R> {
     /// [`Adc::configure_sequence`]. The hardware is configured so that
     /// DMA stays armed between calls while the ADC runs only one sequence per
     /// [`start`](AdcRegs::start) call.
-    pub async fn read(&mut self, buf: &mut [u16]) {
+    pub async fn read(&mut self, buf: &mut [DataSize]) {
         let _scoped_wake_guard = self.info.wake_guard();
 
         check_dma_len(self.len, Some(buf.len()), true);

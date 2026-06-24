@@ -12,7 +12,7 @@
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
-#[cfg_attr(any(adc_v4, adc_u5, adc_u3), path = "v4.rs")]
+#[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
@@ -49,8 +49,14 @@ pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
 #[allow(unused_imports)]
 use crate::{peripherals, rcc};
+use crate::dma::TransferOptions;
 
 dma_trait!(RxDma, Instance);
+
+#[cfg(not(stm32n6))]
+pub type DataSize = u16;
+#[cfg(stm32n6)]
+pub type DataSize = u32;
 
 #[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5)))]
 /// Trigger edge stub.
@@ -154,7 +160,7 @@ trait AdcRegs: BasicAdcRegs {
     fn wait_done(&self) -> bool;
     fn configure_dma(&self, conversion_mode: ConversionMode);
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
-    fn data(&self) -> *mut u16;
+    fn data(&self) -> *mut DataSize;
 }
 
 #[cfg(any(adc_v2, adc_g4))]
@@ -163,7 +169,7 @@ trait InjectedRegs: AdcRegs {
     fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool);
     fn start_injected(&self);
     fn stop_injected(&self);
-    fn read_injected(&self, data: &mut [u16]);
+    fn read_injected(&self, data: &mut [DataSize]);
 }
 
 #[cfg(any(adc_v2, adc_g4))]
@@ -199,7 +205,7 @@ pub(crate) trait SealedAdcChannel<T> {
     }
 }
 
-#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3))]
+#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_n6))]
 /// Number of samples used for averaging.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -213,9 +219,9 @@ pub enum Averaging {
     Samples64,
     Samples128,
     Samples256,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
     Samples512,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
     Samples1024,
 }
 
@@ -273,7 +279,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         &mut self,
         channel: impl BorrowedChannel<'a, T>,
         sample_time: <T::Regs as BasicAdcRegs>::SampleTime,
-    ) -> u16 {
+    ) -> DataSize {
         use core::sync::atomic::{Ordering, compiler_fence};
         use core::task::Poll;
 
@@ -309,7 +315,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         &mut self,
         channel: impl BorrowedChannel<'a, T>,
         sample_time: <T::Regs as BasicAdcRegs>::SampleTime,
-    ) -> u16 {
+    ) -> DataSize {
         let channel = channel.reborrow_adc();
 
         T::regs().stop();
@@ -369,7 +375,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         trigger: Option<RegularAdcTrigger<T>>,
-        readings: &mut [u16],
+        readings: &mut [DataSize],
     ) {
         let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();
 
@@ -388,7 +394,13 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         let request = rx_dma.request();
         let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
-        let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, Default::default()) };
+        let options = TransferOptions {
+            // DMA will read 0 unless it is marked as secure along with RISUP 64 (ADC12)
+            #[cfg(stm32n6)]
+            secure: true,
+            ..Default::default()
+        };
+        let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, options) };
 
         // Ensure conversions are finished, even in the event of dropping the future
         let _stop_adc = OnDrop::new(|| T::regs().stop());
@@ -563,7 +575,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn into_ring_buffered<'a, 'ch, D: RxDma<T>>(
         self,
         dma: embassy_hal_internal::Peri<'a, D>,
-        dma_buf: &'a mut [u16],
+        dma_buf: &'a mut [DataSize],
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'ch, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         trigger: Option<RegularAdcTrigger<T>>,
@@ -673,7 +685,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize, D: RxDma<T>>(
         self,
         dma: embassy_hal_internal::Peri<'a, D>,
-        dma_buf: &'a mut [u16],
+        dma_buf: &'a mut [DataSize],
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         regular_sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         regular_trigger: Option<RegularAdcTrigger<T>>,
@@ -744,13 +756,12 @@ impl VrefInt {
         stm32l4,
         stm32l4_plus,
         stm32l5,
-        stm32n6,
         stm32l5,
         stm32wb,
         stm32wl
     ))]
     /// The value that vref would be if vdda was at the factory calibration voltage `VREF_CALIB_MV`.
-    pub fn calibrated_value(&self) -> u16 {
+    pub fn calibrated_value(&self) -> DataSize {
         crate::pac::VREFINTCAL.data().read()
     }
 }
@@ -986,7 +997,7 @@ macro_rules! impl_adc_pin {
         impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
             #[cfg(any(
-                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
+                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, adc_n6
             ))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(self);
@@ -1016,7 +1027,7 @@ macro_rules! impl_adc_pair {
             )
         {
             #[cfg(any(
-                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
+                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, adc_n6
             ))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(&mut self.0);
