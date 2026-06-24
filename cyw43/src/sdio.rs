@@ -1,5 +1,5 @@
 use aligned::{A4, Aligned};
-use embassy_hal_internal::aligned::{AsAligned, AsMutAligned, ToAligned, ToMutAligned};
+use embassy_hal_internal::aligned::{ToAligned, ToMutAligned};
 use embassy_time::{Delay, Duration, Timer};
 
 use crate::WithContext;
@@ -145,18 +145,7 @@ where
         self.backplane_window = new_window;
     }
 
-    async fn cmd52(&mut self, write: bool, func: u32, addr: u32, val: u8) -> u8 {
-        // default is zero, which will block try_until loops with a != 0 condition
-        if write {
-            let _ = self.sdio.cmd52_write(func as u8, addr, val).await;
-
-            0
-        } else {
-            self.sdio.cmd52_read(func as u8, addr).await.unwrap_or_default()
-        }
-    }
-
-    async fn cmd53_write(&mut self, func: u32, mut addr: u32, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
+    async fn cmd53_write(&mut self, func: u8, mut addr: u32, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
         // Use buf.len() (Deref to [u8]) not size_of_val, which rounds up to 4 bytes.
         let byte_part = buf.len() % BLOCK_SIZE;
         let block_part = buf.len() - byte_part;
@@ -186,7 +175,7 @@ where
         Ok(())
     }
 
-    async fn cmd53_read(&mut self, func: u32, mut addr: u32, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
+    async fn cmd53_read(&mut self, func: u8, mut addr: u32, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         // Use buf.len() (Deref to [u8]) not size_of_val, which rounds up to 4 bytes.
         let byte_part = buf.len() % BLOCK_SIZE;
         let block_part = buf.len() - byte_part;
@@ -404,36 +393,36 @@ where
         self.backplane_writen(addr, val, Word::U32).await
     }
 
-    async fn read8(&mut self, func: u32, addr: u32) -> u8 {
-        self.cmd52(false, func, addr, 0).await.into()
+    async fn read8(&mut self, func: u8, addr: u32) -> u8 {
+        self.sdio.cmd52_read(func as u8, addr).await.unwrap_or_default()
     }
 
-    async fn write8(&mut self, func: u32, addr: u32, val: u8) {
-        self.cmd52(true, func, addr, val).await;
+    async fn write8(&mut self, func: u8, addr: u32, val: u8) {
+        let _ = self.sdio.cmd52_write(func as u8, addr, val).await;
     }
 
-    async fn read16(&mut self, func: u32, addr: u32) -> u16 {
+    async fn read16(&mut self, func: u8, addr: u32) -> u16 {
         let mut val: Aligned<A4, [u8; _]> = Aligned([0u8; 2]);
-        let _ = self.cmd53_read(func, addr, val.as_mut_aligned()).await;
+        let _ = self.cmd53_read(func, addr, &mut val).await;
 
         u16::from_le_bytes(*val)
     }
 
-    async fn write16(&mut self, func: u32, addr: u32, val: u16) {
+    async fn write16(&mut self, func: u8, addr: u32, val: u16) {
         let val: Aligned<A4, [u8; 2]> = Aligned(val.to_le_bytes().into());
-        let _ = self.cmd53_write(func, addr, val.as_aligned()).await;
+        let _ = self.cmd53_write(func, addr, &val).await;
     }
 
-    async fn read32(&mut self, func: u32, addr: u32) -> u32 {
+    async fn read32(&mut self, func: u8, addr: u32) -> u32 {
         let mut val: Aligned<A4, [u8; _]> = Aligned([0u8; 4]);
-        let _ = self.cmd53_read(func, addr, val.as_mut_aligned()).await;
+        let _ = self.cmd53_read(func, addr, &mut val).await;
 
         u32::from_le_bytes(*val)
     }
 
-    async fn write32(&mut self, func: u32, addr: u32, val: u32) {
+    async fn write32(&mut self, func: u8, addr: u32, val: u32) {
         let val: Aligned<A4, [u8; 4]> = Aligned(val.to_le_bytes().into());
-        let _ = self.cmd53_write(func, addr, val.as_aligned()).await;
+        let _ = self.cmd53_write(func, addr, &val).await;
     }
 
     async fn wait_for_event(&mut self) {
