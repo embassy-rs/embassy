@@ -6,7 +6,7 @@ Embassy is a **Rust embedded async framework** monorepo (no root `Cargo.toml` wo
 
 ### Toolchain
 
-- Rust **1.92** is pinned in `rust-toolchain.toml` (with cross-compile targets and `rust-src`, `rustfmt`, `llvm-tools`).
+- Rust **1.96.0** is pinned in `rust-toolchain.toml` (with cross-compile targets and `rust-src`, `rustfmt`, `llvm-tools`).
 - Running any `cargo` command in the repo auto-selects that toolchain via rustup.
 
 ### Required dev tools (beyond rustup)

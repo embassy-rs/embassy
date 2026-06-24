@@ -1,37 +1,65 @@
-# gen4-RP2350-70CT — OxivGL widget demo
+# gen4-RP2350-70CT rlvgl demo
 
-A clean [OxivGL](https://crates.io/crates/oxivgl) (Rust LVGL v9.5) demo for the
-[4D Systems gen4-RP2350-70CT](https://4dsystems.com.au/) — an RP2350B driving a
-7" 800×480 RGB panel with an FT5446 capacitive touch controller and external
-APS6404 PSRAM.
+Embassy + **[rlvgl](https://github.com/protronic/rlvgl)** (pure Rust LVGL reimplementation) for the **4D Systems gen4-RP2350-70CT** 7" 800×480 capacitive touch display.
 
-It is a focused port of the `rp2350-touch-lcd-7` example, stripped of the CAN /
-hall-sensor projects, retargeted to the gen4 board pin-out and touch controller.
+Hardware template: [`~/work/pio/gen4_rp2350_lvgl`](../../pio/gen4_rp2350_lvgl) (Pico SDK + Graphics4D PIO RGB).  
+UI: [`rlvgl`](https://crates.io/crates/rlvgl) **0.2.4** from crates.io (`cargo add rlvgl`).
 
 ## Hardware
 
-Pin assignments follow the vendor board header `gen4_rp2350_70ct.h`:
+| Feature | Detail |
+|---------|--------|
+| MCU | RP2350B, 16 MiB flash, 8 MiB PSRAM |
+| Display | 800×480 RGB565, PIO parallel RGB (`rgb70.pio`) |
+| PSRAM | APS6404L on QMI CS1 (GPIO 0) — scan-out framebuffer |
+| Touch | FT5446 on I2C1 (SDA=46, SCL=39, INT=38, RST=47) |
+| Backlight | GPIO 17 (PWM, `Contrast(15)` in Graphics4D) |
 
-| Function            | GPIO            |
-|---------------------|-----------------|
-| Backlight           | 17              |
-| DE / VSYNC / HSYNC / PCLK | 18 / 19 / 20 / 21 |
-| RGB565 DATA0..DATA15 | 22..=37 (DATA0 = blue LSB) |
-| Touch INT / SCL / SDA / RST | 38 / 39 / 46 / 47 (I2C1, FT5446 @ 0x38) |
-| PSRAM CS            | 0 (QMI CS1)     |
+Pin map from `boards/gen4_rp2350_70ct.h` in the gen4 PIO LVGL repo.
 
-The pixel clock is 25 MHz (`LCD_CLK_FREQ`). Two full-screen framebuffers and the
-DMA staging buffers live in PSRAM; the panel is scanned out continuously by PIO1
-(HSYNC/VSYNC) + PIO2 (DE + 16-bit RGB) with DMA, and LVGL renders full frames
-into the back buffer which is swapped on scan-out completion.
+## Architecture
 
-## Build & run
-
-Requires the pinned nightly toolchain (`rust-toolchain.toml`) and the vendored
-`oxivgl` / `oxivgl-sys` crates (under `../rvt50hqsnwc00-b/vendor`).
-
-```sh
-cargo build --release --bin oxivgl_widget_demo
-# flash + defmt-rtt logs over a probe:
-cargo run --release --bin oxivgl_widget_demo
+```text
+rlvgl WidgetNode + BlitterRenderer (RGB565)
+    └─ draw into PSRAM framebuffer
+PIO1: HSYNC / VSYNC / DE  +  PIO2: RGB565 pixel stream @ ~36 MHz
+    └─ DMA bounce buffers (60 lines) → continuous panel scan-out
+FT5446 INT task → touch channel → PressDown / PressRelease events
 ```
+
+Constants match the gen4 C port (`main.cpp` / `Graphics4D.cpp`):
+
+| Parameter | gen4 C | This example |
+|-----------|--------|--------------|
+| System clock | 230 MHz | 230 MHz |
+| PIO bounce buffer | 60 lines | 60 lines |
+| PCLK target | 36 MHz | 36 MHz |
+| Touch | FT5446 @ 0x38, swap XY | same |
+
+## Build
+
+```bash
+cd examples/gen4-rp2350-70ct
+cargo build --release --bin rlvgl_widget_demo
+cargo run --release --bin rlvgl_widget_demo
+```
+
+Flash with probe-rs (configured in `.cargo/config.toml`).
+
+## Known limitations
+
+- **Full-frame refresh is still somewhat slow.** The display uses a single
+  persistent PSRAM framebuffer with partial re-rendering: only the few widgets
+  that actually change each frame are redrawn, which keeps animations smooth and
+  flicker-free. A *complete* repaint of the whole 800×480 frame (e.g. after a
+  touch that changes static widgets) writes the full ~768 KiB over the shared
+  QMI/PSRAM bus and is therefore noticeably slower. Full repaints are rare, so
+  this is acceptable for the demo, but a fully dynamic UI that redraws large
+  areas every frame would need additional optimization (e.g. dirty-region
+  tracking, more bounce-buffer slack, or rendering into an off-PSRAM backbuffer).
+
+## Related
+
+- `examples/rp2350-touch-lcd-7` — Waveshare 7" (OxivGL / C LVGL path)
+- `~/work/pio/gen4_rp2350_lvgl` — original Pico SDK C++ reference
+- [rlvgl on crates.io](https://crates.io/crates/rlvgl) — pure Rust LVGL reimplementation

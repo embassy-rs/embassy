@@ -1,24 +1,12 @@
-//! FT5446 capacitive touch controller (FocalTech FT5x06 family, I2C).
-//!
-//! The gen4-RP2350-70CT wires the controller to I2C1 (SCL=GPIO39, SDA=GPIO46)
-//! with INT=GPIO38 and RST=GPIO47. The panel is mounted in landscape, so the
-//! native (portrait) coordinates are swapped to match the 800x480 framebuffer
-//! (`LCD_TOUCH_SWAP_XY` in the vendor board header).
+//! FocalTech FT5446 capacitive touch (I2C), from the gen4 Graphics4D port.
 
-use defmt::{info, warn};
+use defmt::info;
 use embassy_rp::gpio::{Flex, Output, Pull};
 use embassy_time::{Duration, Timer};
 
 use crate::board::{BoardI2c, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
-/// 7-bit I2C address of the FT5x06/FT5446 family.
 pub const I2C_ADDR: u8 = 0x38;
-
-const REG_TD_STATUS: u8 = 0x02;
-const REG_CHIP_ID: u8 = 0xA3;
-
-/// Swap X/Y to map the portrait-native panel onto the landscape framebuffer.
-const SWAP_XY: bool = true;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TouchPoint {
@@ -28,39 +16,38 @@ pub struct TouchPoint {
     pub i2c_ok: bool,
 }
 
-/// Reset the controller and probe its chip id.
 pub async fn init(i2c: &mut BoardI2c, rst: &mut Output<'static>, int: &mut Flex<'static>) {
-    // Hardware reset (FocalTech datasheet: hold RST low >5 ms, release, wait ~300 ms).
     int.set_pull(Pull::Up);
     int.set_as_input();
 
-    rst.set_high();
-    Timer::after(Duration::from_millis(10)).await;
     rst.set_low();
-    Timer::after(Duration::from_millis(20)).await;
+    Timer::after(Duration::from_millis(100)).await;
     rst.set_high();
-    Timer::after(Duration::from_millis(300)).await;
+    Timer::after(Duration::from_millis(100)).await;
 
-    let mut id = [0u8; 1];
-    match i2c.blocking_write_read(I2C_ADDR, &[REG_CHIP_ID], &mut id) {
-        Ok(()) => info!("FT5446 ready @ 0x{:02x}, chip id 0x{:02x}", I2C_ADDR, id[0]),
-        Err(e) => warn!("FT5446 chip-id read failed: {:?}", e),
-    }
+    // Keep active mode even when no touch event (Graphics4D FT5446 init).
+    let _ = i2c.blocking_write(I2C_ADDR, &[0x86]);
+    let _ = i2c.blocking_write(I2C_ADDR, &[0x00]);
+
+    info!("FT5446 ready @ 0x{:02x}", I2C_ADDR);
 }
 
-/// Read a single touch point (first contact) from the controller.
 pub fn read_touch(i2c: &mut BoardI2c) -> TouchPoint {
-    // TD_STATUS + first touch register block (TD_STATUS, P1_XH, P1_XL, P1_YH, P1_YL).
-    let mut buf = [0u8; 5];
-    if i2c.blocking_write_read(I2C_ADDR, &[REG_TD_STATUS], &mut buf).is_err() {
+    let mut count = [0u8; 1];
+    if i2c.blocking_write_read(I2C_ADDR, &[0x02], &mut count).is_err() {
         return TouchPoint {
             i2c_ok: false,
             ..Default::default()
         };
     }
 
-    let touches = buf[0] & 0x0F;
-    if touches == 0 {
+    let mut points = count[0];
+    if points == 0xff {
+        points = 0;
+    }
+    points &= 0x0f;
+
+    if points == 0 {
         return TouchPoint {
             i2c_ok: true,
             pressed: false,
@@ -68,10 +55,19 @@ pub fn read_touch(i2c: &mut BoardI2c) -> TouchPoint {
         };
     }
 
-    let raw_x = (u16::from(buf[1] & 0x0F) << 8) | u16::from(buf[2]);
-    let raw_y = (u16::from(buf[3] & 0x0F) << 8) | u16::from(buf[4]);
+    let mut data = [0u8; 6];
+    if i2c.blocking_write_read(I2C_ADDR, &[0x03], &mut data).is_err() {
+        return TouchPoint {
+            i2c_ok: false,
+            ..Default::default()
+        };
+    }
 
-    let (x, y) = if SWAP_XY { (raw_y, raw_x) } else { (raw_x, raw_y) };
+    let mut x = u16::from(data[1]) << 8 | u16::from(data[0]);
+    let mut y = u16::from(data[3]) << 8 | u16::from(data[2]);
+
+    // LCD_TOUCH_SWAP_XY from gen4 board header.
+    core::mem::swap(&mut x, &mut y);
 
     TouchPoint {
         x: x.min(DISPLAY_WIDTH as u16 - 1),
