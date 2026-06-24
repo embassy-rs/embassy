@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32h743bi to your chip name, if necessary.
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32h743bi", "time-driver-tim2", "exti", "memory-x", "unstable-pac", "chrono", "cyw43"] }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32h743bi", "time-driver-tim2", "exti", "memory-x", "unstable-pac", "chrono"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../../embassy-embedded-hal" }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
