@@ -23,7 +23,8 @@ use crate::board::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
 
 /// Effective RGB dot clock target used by the gen4 70" PIO programs.
 const PCLK_TARGET_HZ: f32 = 36_000_000.0;
-const BOUNCE_BUFFER_LINES: usize = 40;
+/// Match `BOUNCE_BUFFER_LINES` in `Graphics4D.cpp` (gen4_rp2350_lvgl).
+const BOUNCE_BUFFER_LINES: usize = 60;
 const BOUNCE_BUFFER_PIXELS: usize = DISPLAY_WIDTH * BOUNCE_BUFFER_LINES;
 const BOUNCE_BUFFER_COUNT: u16 = (DISPLAY_HEIGHT / BOUNCE_BUFFER_LINES) as u16;
 const PIO2_RGB_SM: u8 = 0;

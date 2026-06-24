@@ -6,5 +6,3 @@ target = "thumbv8m.main-none-eabihf"
 
 [env]
 DEFMT_LOG = "debug"
-DEP_LV_CONFIG_PATH = { value = "conf", relative = true }
-LVGL_FONTS_DIR = { value = "../rvt50hqsnwc00-b/fonts", relative = true }

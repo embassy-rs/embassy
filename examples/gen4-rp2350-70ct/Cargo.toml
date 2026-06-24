@@ -5,7 +5,7 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 publish = false
 
-description = "OxivGL + FT5446 touch for 4D Systems gen4-RP2350-70CT (PIO RGB from gen4_rp2350_lvgl)"
+description = "rlvgl + FT5446 touch for 4D Systems gen4-RP2350-70CT (PIO RGB from gen4_rp2350_lvgl)"
 
 [dependencies]
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
@@ -21,18 +21,13 @@ cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 fixed = "1.28.0"
 static_cell = "2"
+embedded-alloc = { version = "0.6.0", features = ["llff"] }
 
-oxivgl = { version = "0.1.2", default-features = false, optional = true }
-oxivgl-sys = { version = "0.1.2", default-features = false, optional = true }
-embedded-alloc = { version = "0.6.0", features = ["llff"], optional = true }
-
-[features]
-default = []
-oxivgl = ["dep:oxivgl", "dep:oxivgl-sys", "dep:embedded-alloc"]
+rlvgl = { version = "0.2.4", default-features = false }
 
 [[bin]]
-name = "oxivgl_widget_demo"
-required-features = ["oxivgl"]
+name = "rlvgl_widget_demo"
+path = "src/bin/rlvgl_widget_demo.rs"
 
 [profile.release]
 debug = 2
@@ -43,8 +38,6 @@ debug = 2
 embassy-time = { path = "../../embassy-time" }
 embassy-sync = { path = "../../embassy-sync" }
 embassy-futures = { path = "../../embassy-futures" }
-oxivgl = { path = "../rvt50hqsnwc00-b/vendor/oxivgl" }
-oxivgl-sys = { path = "../rvt50hqsnwc00-b/vendor/oxivgl-sys" }
 
 [package.metadata.embassy]
 build = [

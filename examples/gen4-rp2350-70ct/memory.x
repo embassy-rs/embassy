@@ -1,6 +1,6 @@
 MEMORY {
     /*
-     * Waveshare RP2350-Touch-LCD-7: 16 MiB external flash.
+     * 4D Systems gen4-RP2350-70CT: 16 MiB external flash.
      */
     FLASH : ORIGIN = 0x10000000, LENGTH = 16384K
     RAM : ORIGIN = 0x20000000, LENGTH = 512K

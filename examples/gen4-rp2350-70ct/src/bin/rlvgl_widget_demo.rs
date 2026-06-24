@@ -10,22 +10,21 @@ use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_gen4_rp2350_70ct_examples::board::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use embassy_gen4_rp2350_70ct_examples::firmware_id::FIRMWARE_ID;
-use embassy_gen4_rp2350_70ct_examples::oxivgl::display::LVGL_BUF_BYTES;
-use embassy_gen4_rp2350_70ct_examples::oxivgl::platform;
-use embassy_gen4_rp2350_70ct_examples::oxivgl::touch_feed;
 use embassy_gen4_rp2350_70ct_examples::pio_rgb::{self, ScanOutIrqs};
-use embassy_time::Timer;
+use embassy_gen4_rp2350_70ct_examples::rlvgl::{render_tree, DemoUi};
+use embassy_gen4_rp2350_70ct_examples::touch_feed;
+use embassy_time::{Duration, Timer};
 use embedded_alloc::LlffHeap as Heap;
-use oxivgl::display::LvglBuffers;
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-const HEAP_SIZE: usize = 48 * 1024;
+const HEAP_SIZE: usize = 256 * 1024;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
 static mut HEAP_MEM: MaybeUninit<[u8; HEAP_SIZE]> = MaybeUninit::uninit();
-static mut LVGL_BUFS: LvglBuffers<{ LVGL_BUF_BYTES }> = LvglBuffers::new();
+static UI: StaticCell<DemoUi> = StaticCell::new();
 
 fn init_heap() {
     unsafe {
@@ -38,7 +37,7 @@ async fn main(spawner: Spawner) -> ! {
     init_heap();
 
     info!(
-        "gen4-RP2350-70CT OxivGL widget demo ({}x{}) firmware={:a}",
+        "gen4-RP2350-70CT rlvgl demo ({}x{}) firmware={:a}",
         DISPLAY_WIDTH,
         DISPLAY_HEIGHT,
         FIRMWARE_ID.as_bytes()
@@ -48,8 +47,8 @@ async fn main(spawner: Spawner) -> ! {
     Timer::after_millis(100).await;
     board::log_board_info();
 
-    let psram = board::init_psram(p.QMI_CS1, p.PIN_0).expect("PSRAM required for display");
-    let fb = psram.base_address().cast::<u16>();
+    let _psram = board::init_psram(p.QMI_CS1, p.PIN_0).expect("PSRAM required for display");
+    let fb = _psram.base_address().cast::<u16>();
     pio_rgb::fill_framebuffer(fb, 0x001F);
 
     let mut backlight = board::init_backlight(p.PWM_SLICE0, p.PIN_17);
@@ -89,15 +88,33 @@ async fn main(spawner: Spawner) -> ! {
         fb,
     );
 
-    let bufs = unsafe { &mut LVGL_BUFS };
-    spawner.spawn(unwrap!(ui_task(fb, bufs)));
+    let ui = UI.init(DemoUi::new());
+    render_tree(fb, ui.root());
+
+    spawner.spawn(unwrap!(ui_task(fb, ui)));
 
     loop {
-        embassy_time::Timer::after_secs(60).await;
+        Timer::after_secs(60).await;
     }
 }
 
 #[embassy_executor::task]
-async fn ui_task(fb: *mut u16, bufs: &'static mut LvglBuffers<{ LVGL_BUF_BYTES }>) -> ! {
-    platform::run_widget_demo(fb, bufs).await
+async fn ui_task(fb: *mut u16, ui: &'static mut DemoUi) -> ! {
+    let touch_rx = touch_feed::receiver();
+    let mut anim_tick: u32 = 0;
+
+    loop {
+        while let Ok(sample) = touch_rx.try_receive() {
+            ui.handle_touch(sample.x, sample.y, sample.pressed);
+            render_tree(fb, ui.root());
+        }
+
+        anim_tick = anim_tick.wrapping_add(1);
+        if anim_tick % 40 == 0 {
+            ui.tick_bar();
+            render_tree(fb, ui.root());
+        }
+
+        Timer::after(Duration::from_millis(16)).await;
+    }
 }

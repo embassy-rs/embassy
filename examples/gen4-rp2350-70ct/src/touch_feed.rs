@@ -2,7 +2,6 @@
 
 use crate::board;
 use crate::board::BoardI2c;
-use crate::oxivgl::indev::TouchSample;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer};
@@ -12,16 +11,6 @@ pub struct TouchBoardSample {
     pub x: i32,
     pub y: i32,
     pub pressed: bool,
-}
-
-impl From<TouchBoardSample> for TouchSample {
-    fn from(s: TouchBoardSample) -> Self {
-        Self {
-            x: s.x,
-            y: s.y,
-            pressed: s.pressed,
-        }
-    }
 }
 
 const TOUCH_ACTIVE_POLL_MS: u64 = 5;
