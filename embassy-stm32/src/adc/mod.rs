@@ -393,6 +393,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         let request = rx_dma.request();
         let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
+        let mut options = Default::default();
+        options.secure = true;
         let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, Default::default()) };
 
         // Ensure conversions are finished, even in the event of dropping the future
