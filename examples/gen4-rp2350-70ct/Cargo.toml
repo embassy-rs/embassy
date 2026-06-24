@@ -36,6 +36,7 @@ oxivgl-sys = { version = "0.2.2", default-features = false, optional = true }
 # LVGL dependency. The pure-Rust rlvgl demo stays on by default so
 # `cargo run --bin rlvgl_widget_demo` keeps working out of the box; the OxivGL
 # (C LVGL) demo is opt-in because it compiles the LVGL C sources.
+default = ["rlvgl-demo"]
 rlvgl-demo = ["dep:rlvgl"]
 oxivgl-demo = ["dep:oxivgl", "dep:oxivgl-sys"]
 

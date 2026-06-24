@@ -11,9 +11,9 @@ use embassy_executor::Spawner;
 use embassy_gen4_rp2350_70ct_examples::board::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use embassy_gen4_rp2350_70ct_examples::firmware_id::FIRMWARE_ID;
 use embassy_gen4_rp2350_70ct_examples::pio_rgb::{self, ScanOutIrqs};
-use embassy_gen4_rp2350_70ct_examples::rlvgl::{render_tree, DemoUi};
+use embassy_gen4_rp2350_70ct_examples::rlvgl::{DemoUi, DirtyWidgets, render_tree};
 use embassy_gen4_rp2350_70ct_examples::touch_feed;
-use embassy_time::{Duration, Timer};
+use embassy_time::{Duration, Instant, Timer};
 use embedded_alloc::LlffHeap as Heap;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -98,7 +98,9 @@ async fn main(spawner: Spawner) -> ! {
 
     let ui = UI.init(DemoUi::new());
     // Paint the initial full frame into the framebuffer that is being scanned out.
+    let render_start = Instant::now();
     render_tree(fb, ui.root());
+    info!("initial full rlvgl render: {} us", render_start.elapsed().as_micros());
 
     spawner.spawn(unwrap!(ui_task(fb, ui)));
 
@@ -113,12 +115,15 @@ async fn ui_task(fb: *mut u16, ui: &'static mut DemoUi) -> ! {
     let mut anim_tick: u32 = 0;
 
     loop {
-        let mut touched = false;
+        let mut dirty = DirtyWidgets::None;
         let mut animated = false;
 
         while let Ok(sample) = touch_rx.try_receive() {
-            ui.handle_touch(sample.x, sample.y, sample.pressed);
-            touched = true;
+            match ui.handle_touch(sample.x, sample.y, sample.pressed) {
+                DirtyWidgets::None => {}
+                DirtyWidgets::Dynamic => dirty = DirtyWidgets::Dynamic,
+                DirtyWidgets::Touch => dirty = DirtyWidgets::Touch,
+            }
         }
 
         anim_tick = anim_tick.wrapping_add(1);
@@ -127,12 +132,13 @@ async fn ui_task(fb: *mut u16, ui: &'static mut DemoUi) -> ! {
             animated = true;
         }
 
-        if touched {
-            // A touch can change static widgets (button press state, status
-            // label text), so repaint the whole tree into the single live
-            // framebuffer. Touches are rare, so the occasional full write is
-            // cheap relative to doing it every animation tick.
-            render_tree(fb, ui.root());
+        if dirty != DirtyWidgets::None {
+            // Touch/button interaction changes only the button/status/bar/LED
+            // cluster. Redraw those widgets instead of doing a 768 KiB full
+            // framebuffer rewrite.
+            let render_start = Instant::now();
+            ui.render_dirty(fb, dirty);
+            info!("dirty rlvgl render: {} us", render_start.elapsed().as_micros());
         } else if animated {
             // Frequent animation: redraw only the changing widgets (bar + LED)
             // directly into the persistent framebuffer. This writes a few KiB
