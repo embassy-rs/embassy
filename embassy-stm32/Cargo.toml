@@ -166,7 +166,6 @@ embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
-cyw43 = { version = "0.7.0", path = "../cyw43", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -187,6 +186,7 @@ log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
+sdio = { version = "0.2.4", git = "https://github.com/embassy-rs/sdio.git", rev ="d023c1c" }
 sdio-host = "0.9.0"
 dsp-fixedpoint = { version = "0.1.0", default-features = false }
 critical-section = { version = "1.1", default-features = false }
@@ -213,11 +213,11 @@ heapless = "0.9.1"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-73a6a114d5093f1d7678cf33b3946bf1ea29be6a" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c10ceb15eeaf49d04dd38fd1b1fce82380f90a12" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-73a6a114d5093f1d7678cf33b3946bf1ea29be6a", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c10ceb15eeaf49d04dd38fd1b1fce82380f90a12", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
@@ -255,8 +255,6 @@ log = ["dep:log"]
 ptp = ["embassy-net-driver/packetmeta-id"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
-## Enable cyw
-cyw43 = ["dep:cyw43"]
 
 stm32-hrtim = ["dep:stm32-hrtim"]
 

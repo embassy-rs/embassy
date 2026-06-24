@@ -1,8 +1,6 @@
-use core::slice;
-
 use aligned::{A4, Aligned};
 use embassy_hal_internal::aligned::{AsAligned, AsMutAligned, ToAligned, ToMutAligned};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Delay, Duration, Timer};
 
 use crate::WithContext;
 use crate::consts::*;
@@ -24,14 +22,6 @@ use crate::util::try_until;
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg_attr(feature = "log", derive(derive_more::Display))]
-enum Mode {
-    Block,
-    Byte,
-}
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg_attr(feature = "log", derive(derive_more::Display))]
 enum Word {
     U8,
     U16,
@@ -40,78 +30,22 @@ enum Word {
 
 const BLOCK_SIZE: usize = BACKPLANE_MAX_TRANSFER_SIZE;
 
-fn cmd53_arg(write: bool, func: u32, addr: u32, mode: Mode, len: usize) -> u32 {
-    let (len, block_mode) = match mode {
-        Mode::Block => (len / BLOCK_SIZE, 1u32),
-        Mode::Byte => (len, 0u32),
-    };
+fn to_blocks<const BLOCK_SIZE: usize>(bytes: &Aligned<A4, [u8]>) -> &[Aligned<A4, [u8; BLOCK_SIZE]>] {
+    assert!(bytes.len() % BLOCK_SIZE == 0);
 
-    let op_code = 1;
+    let ptr = bytes.as_ptr() as *const Aligned<A4, [u8; BLOCK_SIZE]>;
+    let len = bytes.len() / BLOCK_SIZE;
 
-    (write as u32) << 31 | func << 28 | block_mode << 27 | op_code << 26 | (addr & 0x1ffff) << 9 | len as u32
+    unsafe { core::slice::from_raw_parts(ptr, len) }
 }
 
-/// Custom Spi Trait that _only_ supports the bus operation of the cyw43
-/// Implementors are expected to hold the CS pin low during an operation.
-pub trait SdioBusCyw43<const SIZE: usize> {
-    /// The error type for the BlockDevice implementation.
-    type Error: core::fmt::Debug;
+fn to_blocks_mut<const BLOCK_SIZE: usize>(bytes: &mut Aligned<A4, [u8]>) -> &mut [Aligned<A4, [u8; BLOCK_SIZE]>] {
+    assert!(bytes.len() % BLOCK_SIZE == 0);
 
-    /// Set the bus to high speed 4-bit frequency
-    fn set_bus_to_high_speed(&mut self, frequency: u32) -> Result<(), Self::Error>;
+    let ptr = bytes.as_mut_ptr() as *mut Aligned<A4, [u8; BLOCK_SIZE]>;
+    let len = bytes.len() / BLOCK_SIZE;
 
-    /// Issue CMD52
-    async fn cmd52(&mut self, arg: u32) -> Result<u16, Self::Error>;
-
-    /// Issue CMD53 in block read mode
-    async fn cmd53_block_read(&mut self, arg: u32, blocks: &mut [Aligned<A4, [u8; SIZE]>]) -> Result<(), Self::Error>;
-
-    /// Issue CMD53 in byte read mode
-    async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut Aligned<A4, [u8]>) -> Result<(), Self::Error>;
-
-    /// Issue CMD53 in block write mode
-    async fn cmd53_block_write(&mut self, arg: u32, blocks: &[Aligned<A4, [u8; SIZE]>]) -> Result<(), Self::Error>;
-
-    /// Issue CMD53 in byte write mode
-    async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Self::Error>;
-
-    /// Wait for events from the Device. A typical implementation would wait for the IRQ pin to be high.
-    /// The default implementation always reports ready, resulting in active polling of the device.
-    async fn wait_for_event(&mut self) {
-        Timer::after_millis(800).await;
-    }
-}
-
-impl<const SIZE: usize, T: SdioBusCyw43<SIZE>> SdioBusCyw43<SIZE> for &mut T {
-    type Error = T::Error;
-
-    fn set_bus_to_high_speed(&mut self, frequency: u32) -> Result<(), Self::Error> {
-        T::set_bus_to_high_speed(self, frequency)
-    }
-
-    async fn cmd52(&mut self, arg: u32) -> Result<u16, Self::Error> {
-        T::cmd52(self, arg).await
-    }
-
-    async fn cmd53_block_read(&mut self, arg: u32, blocks: &mut [Aligned<A4, [u8; SIZE]>]) -> Result<(), Self::Error> {
-        T::cmd53_block_read(self, arg, blocks).await
-    }
-
-    async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut Aligned<A4, [u8]>) -> Result<(), Self::Error> {
-        T::cmd53_byte_read(self, arg, buffer).await
-    }
-
-    async fn cmd53_block_write(&mut self, arg: u32, blocks: &[Aligned<A4, [u8; SIZE]>]) -> Result<(), Self::Error> {
-        T::cmd53_block_write(self, arg, blocks).await
-    }
-
-    async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Self::Error> {
-        T::cmd53_byte_write(self, arg, buffer).await
-    }
-
-    async fn wait_for_event(&mut self) {
-        T::wait_for_event(self).await
-    }
+    unsafe { core::slice::from_raw_parts_mut(ptr, len) }
 }
 
 pub struct Config {
@@ -120,19 +54,22 @@ pub struct Config {
 }
 
 /// Doc
-pub struct SdioBus<SDIO> {
+pub struct SdioBus<SDIO>
+where
+    SDIO: ::sdio::MmcBus,
+{
     backplane_window: u32,
-    sdio: SDIO,
+    sdio: ::sdio::sdio::SdioCard<SDIO, Delay>,
 }
 
 impl<SDIO> SdioBus<SDIO>
 where
-    SDIO: SdioBusCyw43<BLOCK_SIZE>,
+    SDIO: ::sdio::MmcBus,
 {
     pub(crate) fn new(sdio: SDIO) -> Self {
         Self {
             backplane_window: 0xAAAA_AAAA,
-            sdio,
+            sdio: ::sdio::sdio::SdioCard::new_uninit(sdio, Delay),
         }
     }
 
@@ -209,11 +146,14 @@ where
     }
 
     async fn cmd52(&mut self, write: bool, func: u32, addr: u32, val: u8) -> u8 {
-        let arg: u32 = (write as u32) << 31 | func << 28 | (addr & 0x1ffff) << 9 | (val as u32 & 0xff);
-
         // default is zero, which will block try_until loops with a != 0 condition
+        if write {
+            let _ = self.sdio.cmd52_write(func as u8, addr, val).await;
 
-        self.sdio.cmd52(arg).await.unwrap_or_default() as u8
+            0
+        } else {
+            self.sdio.cmd52_read(func as u8, addr).await.unwrap_or_default()
+        }
     }
 
     async fn cmd53_write(&mut self, func: u32, mut addr: u32, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
@@ -225,9 +165,7 @@ where
             let buf = &buf[..block_part];
 
             self.sdio
-                .cmd53_block_write(cmd53_arg(true, func, addr, Mode::Block, buf.len()), unsafe {
-                    slice::from_raw_parts(buf.as_ptr() as *mut _, size_of_val(buf) / BLOCK_SIZE)
-                })
+                .cmd53_write_blocks(func as u8, true, addr, to_blocks::<BLOCK_SIZE>(buf))
                 .await
                 .map_err(|_| crate::Error)
                 .ctx("cmd53 block write failed")?;
@@ -239,7 +177,7 @@ where
             let buf = &buf[block_part..];
 
             self.sdio
-                .cmd53_byte_write(cmd53_arg(true, func, addr, Mode::Byte, buf.len()), buf)
+                .cmd53_write_bytes(func as u8, true, addr, buf)
                 .await
                 .map_err(|_| crate::Error)
                 .ctx("cmd53 byte write failed")?;
@@ -257,12 +195,10 @@ where
             let buf = &mut buf[..block_part];
 
             self.sdio
-                .cmd53_block_read(cmd53_arg(false, func, addr, Mode::Block, block_part), unsafe {
-                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, block_part / BLOCK_SIZE)
-                })
+                .cmd53_read_blocks(func as u8, true, addr, to_blocks_mut::<BLOCK_SIZE>(buf))
                 .await
                 .map_err(|_| crate::Error)
-                .ctx("cmd53 block read failed")?;
+                .ctx("cmd53 block write failed")?;
 
             addr += block_part as u32;
         }
@@ -271,10 +207,10 @@ where
             let buf = &mut buf[block_part..];
 
             self.sdio
-                .cmd53_byte_read(cmd53_arg(false, func, addr, Mode::Byte, buf.len()), buf)
+                .cmd53_read_bytes(func as u8, true, addr, buf)
                 .await
                 .map_err(|_| crate::Error)
-                .ctx("cmd53 byte read failed")?;
+                .ctx("cmd53 byte write failed")?;
         }
 
         Ok(())
@@ -283,12 +219,15 @@ where
 
 impl<SDIO> SealedBus for SdioBus<SDIO>
 where
-    SDIO: SdioBusCyw43<64>,
+    SDIO: ::sdio::MmcBus,
 {
     const TYPE: BusType = BusType::Sdio;
     type Config = Config;
 
     async fn init<'a>(&mut self, _bluetooth_enabled: bool, config: &'a Config) -> crate::Result<BusConfig<'a>> {
+        // acquire the bus
+        self.sdio.reacquire(config.max_f).await.map_err(|_| crate::Error)?;
+
         // whd_bus_sdio_init
 
         // set up backplane
@@ -304,16 +243,6 @@ where
         .ctx("timeout while setting up the backplane")?;
 
         debug!("backplane is up");
-
-        // Read the bus width and set to 4 bits (1-bit bus is not currently supported)
-        let reg = self.read8(FUNC_BUS, SDIOD_CCCR_BICTRL).await as u32;
-
-        self.write8(
-            FUNC_BUS,
-            SDIOD_CCCR_BICTRL,
-            ((reg & !BUS_SD_DATA_WIDTH_MASK) | BUS_SD_DATA_WIDTH_4BIT) as u8,
-        )
-        .await;
 
         // Set the block size
         try_until(
@@ -341,23 +270,6 @@ where
             (INTR_CTL_MASTER_EN | INTR_CTL_FUNC1_EN | INTR_CTL_FUNC2_EN) as u8,
         )
         .await;
-
-        self.sdio
-            .set_bus_to_high_speed(config.max_f.clamp(0, 25_000_000))
-            .unwrap();
-
-        if config.max_f > 25_000_000 {
-            // enable more than 25MHz bus
-            let reg = self.read8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL).await as u32;
-            if reg & 1 != 0 {
-                self.write8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL, (reg | SDIO_SPEED_EHS) as u8)
-                    .await;
-
-                self.sdio
-                    .set_bus_to_high_speed(config.max_f.clamp(0, 50_000_000))
-                    .unwrap();
-            }
-        }
 
         // Wait till the backplane is ready
         try_until(
