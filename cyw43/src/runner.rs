@@ -102,8 +102,16 @@ async fn wake_bus(bus: &mut impl Bus) -> crate::Result<()> {
     Ok(())
 }
 
-async fn wlan_read(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>, start: usize, len: usize) -> crate::Result<()> {
-    wake_bus(bus).await?;
+async fn wlan_read(
+    bus: &mut impl Bus,
+    buf: &mut Aligned<A4, [u8]>,
+    wake: bool,
+    start: usize,
+    len: usize,
+) -> crate::Result<()> {
+    if wake {
+        wake_bus(bus).await?;
+    }
     bus.wlan_read(&mut buf[start..][..len]).await.ctx("wlan_read failed")
 }
 
@@ -926,7 +934,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {
                         let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        if wlan_read(&mut self.bus, buf, 0, len as usize).await.is_err() {
+                        if wlan_read(&mut self.bus, buf, true, 0, len as usize).await.is_err() {
                             debug!("spi wlan_read failed");
                             break;
                         }
@@ -937,7 +945,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     }
                 }
                 BusType::Sdio => {
-                    if wlan_read(&mut self.bus, buf, 0, INITIAL_READ).await.is_err() {
+                    if wlan_read(&mut self.bus, buf, true, 0, INITIAL_READ).await.is_err() {
                         debug!("failed to read sdio hwtag");
                         break;
                     }
@@ -958,7 +966,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     trace!("pkt ready...");
                     let len = len as usize;
                     if len > INITIAL_READ as usize {
-                        if wlan_read(&mut self.bus, buf, INITIAL_READ, len - INITIAL_READ)
+                        if wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
                             .await
                             .is_err()
                         {
