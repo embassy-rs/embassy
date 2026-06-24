@@ -48,6 +48,11 @@ async fn main(spawner: Spawner) -> ! {
     board::log_board_info();
 
     let _psram = board::init_psram(p.QMI_CS1, p.PIN_0).expect("PSRAM required for display");
+    // Single persistent RGB565 framebuffer in PSRAM (matches the C reference's
+    // single-framebuffer + partial-flush strategy). The background and static
+    // widgets stay resident, so only the few changing widgets are redrawn each
+    // frame — no full-frame 768 KiB rewrite and no double-buffer swap competing
+    // with scan-out on the QMI bus.
     let fb = _psram.base_address().cast::<u16>();
     pio_rgb::fill_framebuffer(fb, 0x001F);
 
@@ -64,6 +69,8 @@ async fn main(spawner: Spawner) -> ! {
         p.PIO1,
         p.PIO2,
         p.DMA_CH0,
+        p.DMA_CH1,
+        p.DMA_CH2,
         ScanOutIrqs,
         p.PIN_18,
         p.PIN_19,
@@ -85,10 +92,12 @@ async fn main(spawner: Spawner) -> ! {
         p.PIN_35,
         p.PIN_36,
         p.PIN_37,
+        // scan-out displays the single persistent framebuffer
         fb,
     );
 
     let ui = UI.init(DemoUi::new());
+    // Paint the initial full frame into the framebuffer that is being scanned out.
     render_tree(fb, ui.root());
 
     spawner.spawn(unwrap!(ui_task(fb, ui)));
@@ -104,15 +113,32 @@ async fn ui_task(fb: *mut u16, ui: &'static mut DemoUi) -> ! {
     let mut anim_tick: u32 = 0;
 
     loop {
+        let mut touched = false;
+        let mut animated = false;
+
         while let Ok(sample) = touch_rx.try_receive() {
             ui.handle_touch(sample.x, sample.y, sample.pressed);
-            render_tree(fb, ui.root());
+            touched = true;
         }
 
         anim_tick = anim_tick.wrapping_add(1);
         if anim_tick % 40 == 0 {
             ui.tick_bar();
+            animated = true;
+        }
+
+        if touched {
+            // A touch can change static widgets (button press state, status
+            // label text), so repaint the whole tree into the single live
+            // framebuffer. Touches are rare, so the occasional full write is
+            // cheap relative to doing it every animation tick.
             render_tree(fb, ui.root());
+        } else if animated {
+            // Frequent animation: redraw only the changing widgets (bar + LED)
+            // directly into the persistent framebuffer. This writes a few KiB
+            // instead of the full 768 KiB frame, keeping the QMI bus free for
+            // the scan-out refill DMA.
+            ui.render_dynamic(fb);
         }
 
         Timer::after(Duration::from_millis(16)).await;

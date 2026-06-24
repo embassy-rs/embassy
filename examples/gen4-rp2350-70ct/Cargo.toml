@@ -29,6 +29,10 @@ rlvgl = { version = "0.2.4", default-features = false }
 name = "rlvgl_widget_demo"
 path = "src/bin/rlvgl_widget_demo.rs"
 
+[[bin]]
+name = "dma_selftest"
+path = "src/bin/dma_selftest.rs"
+
 [profile.release]
 debug = 2
 

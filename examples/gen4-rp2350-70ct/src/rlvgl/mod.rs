@@ -4,4 +4,4 @@ pub mod demo;
 pub mod render;
 
 pub use demo::DemoUi;
-pub use render::render_tree;
+pub use render::{render_node, render_tree};

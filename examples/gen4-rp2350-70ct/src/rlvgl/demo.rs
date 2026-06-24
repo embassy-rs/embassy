@@ -64,7 +64,7 @@ impl DemoUi {
             width: 400,
             height: 32,
         });
-        title.text_color = TEXT;
+        title.set_text_color(TEXT);
 
         let mut subtitle = Label::new("rlvgl widget demo — PIO RGB + FT5446", Rect {
             x: 32,
@@ -72,7 +72,7 @@ impl DemoUi {
             width: 520,
             height: 24,
         });
-        subtitle.text_color = MUTED;
+        subtitle.set_text_color(MUTED);
 
         let bar = Rc::new(RefCell::new(Bar::new(
             Rect {
@@ -98,7 +98,7 @@ impl DemoUi {
             width: 400,
             height: 24,
         })));
-        status.borrow_mut().text_color = TEXT;
+        status.borrow_mut().set_text_color(TEXT);
 
         let led = Rc::new(RefCell::new(Led::new(Rect {
             x: 720,
@@ -145,7 +145,7 @@ impl DemoUi {
             width: 700,
             height: 24,
         });
-        hint.text_color = MUTED;
+        hint.set_text_color(MUTED);
 
         let root = WidgetNode {
             widget: Rc::new(RefCell::new(ScreenBackground::new(screen, BG))),
@@ -166,7 +166,7 @@ impl DemoUi {
                 WidgetNode {
                     widget: led.clone(),
                     children: alloc::vec![],
-                    tag: None,
+                    tag: Some("led"),
                 },
                 WidgetNode {
                     widget: button,
@@ -188,6 +188,20 @@ impl DemoUi {
 
     pub fn root(&self) -> &WidgetNode {
         &self.root
+    }
+
+    /// Partially re-render only the widgets that change every animation tick
+    /// (the progress bar and the LED) into the single live framebuffer.
+    ///
+    /// The static background, card, labels and button already reside in the
+    /// persistent framebuffer, so we avoid re-writing the whole 800×480 frame
+    /// each tick — only a few small widget bounds are touched.
+    pub fn render_dynamic(&self, fb: *mut u16) {
+        for child in &self.root.children {
+            if matches!(child.tag, Some("bar") | Some("led")) {
+                crate::rlvgl::render::render_node(fb, child);
+            }
+        }
     }
 
     pub fn root_mut(&mut self) -> &mut WidgetNode {

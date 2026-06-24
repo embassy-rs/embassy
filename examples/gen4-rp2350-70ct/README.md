@@ -46,6 +46,18 @@ cargo run --release --bin rlvgl_widget_demo
 
 Flash with probe-rs (configured in `.cargo/config.toml`).
 
+## Known limitations
+
+- **Full-frame refresh is still somewhat slow.** The display uses a single
+  persistent PSRAM framebuffer with partial re-rendering: only the few widgets
+  that actually change each frame are redrawn, which keeps animations smooth and
+  flicker-free. A *complete* repaint of the whole 800×480 frame (e.g. after a
+  touch that changes static widgets) writes the full ~768 KiB over the shared
+  QMI/PSRAM bus and is therefore noticeably slower. Full repaints are rare, so
+  this is acceptable for the demo, but a fully dynamic UI that redraws large
+  areas every frame would need additional optimization (e.g. dirty-region
+  tracking, more bounce-buffer slack, or rendering into an off-PSRAM backbuffer).
+
 ## Related
 
 - `examples/rp2350-touch-lcd-7` — Waveshare 7" (OxivGL / C LVGL path)

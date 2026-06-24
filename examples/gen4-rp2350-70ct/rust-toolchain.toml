@@ -1,4 +1,4 @@
 [toolchain]
-channel = "1.92"
+channel = "1.96.0"
 components = ["rust-src", "rustfmt"]
 targets = ["thumbv8m.main-none-eabihf"]
