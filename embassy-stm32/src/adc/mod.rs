@@ -981,14 +981,13 @@ foreach_adc!(
     };
 );
 
-#[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
 pub(crate) trait AnalogPin {
     fn set_as_analog(&self) {}
 }
 
-#[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
 impl<T: crate::gpio::SealedPin> AnalogPin for T {
     fn set_as_analog(&self) {
+        #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
         T::set_as_analog(self);
     }
 }
@@ -996,9 +995,6 @@ impl<T: crate::gpio::SealedPin> AnalogPin for T {
 #[allow(unused_macros)]
 macro_rules! impl_analog_pin {
     ($pin:ident) => {
-        #[cfg(any(
-            adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
-        ))]
         impl crate::adc::AnalogPin for crate::peripherals::$pin {}
     };
 }
@@ -1007,9 +1003,6 @@ macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
         impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
-            #[cfg(any(
-                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
-            ))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::adc::AnalogPin>::set_as_analog(self);
             }
@@ -1037,9 +1030,6 @@ macro_rules! impl_adc_pair {
                 crate::Peri<'_, crate::peripherals::$npin>,
             )
         {
-            #[cfg(any(
-                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
-            ))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::adc::AnalogPin>::set_as_analog(&mut self.0);
                 <crate::peripherals::$npin as crate::adc::AnalogPin>::set_as_analog(&mut self.1);
