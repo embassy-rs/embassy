@@ -81,7 +81,6 @@ pub struct Ethernet<'d, T: Instance, P: Phy> {
 
 /// Pins of ethernet driver.
 enum Pins<'d> {
-    #[cfg(eth_v2)]
     #[allow(unused)]
     Rmii([Flex<'d>; 7]),
     #[cfg(eth_v2)]
@@ -220,6 +219,38 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
             clk125, mac_addr, phy,
         )
     }
+
+    /// Create a new RMII ethernet driver using 7 pins.
+    ///
+    /// This function uses a [`GenericPhy::new_auto`] as PHY, created using the
+    /// provided [`SMA`](sma::Instance), and MDIO and MDC pins.
+    ///
+    /// See [`Ethernet::new_with_phy`] for creating an RMII ethernet
+    /// river with a non-standard PHY.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_rmii<const TX: usize, const RX: usize>(
+        queue: &'d mut PacketQueue<TX, RX>,
+        peri: Peri<'d, T>,
+        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        ref_clk: Peri<'d, impl RefClkPin<T>>,
+        crs: Peri<'d, impl CRSPin<T>>,
+        rx_d0: Peri<'d, impl RXD0Pin<T>>,
+        rx_d1: Peri<'d, impl RXD1Pin<T>>,
+        tx_d0: Peri<'d, impl TXD0Pin<T>>,
+        tx_d1: Peri<'d, impl TXD1Pin<T>>,
+        tx_en: Peri<'d, impl TXEnPin<T>>,
+        mac_addr: [u8; 6],
+        sma: Peri<'d, SMA>,
+        mdio: Peri<'d, impl MDIOPin<SMA>>,
+        mdc: Peri<'d, impl MDCPin<SMA>>,
+    ) -> Self {
+        let sma = Sma::new(sma, mdio, mdc);
+        let phy = GenericPhy::new_auto(sma);
+
+        Self::new_rmii_with_phy(
+            queue, peri, irq, ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en, mac_addr, phy,
+        )
+    }
 }
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
@@ -295,6 +326,37 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         ]);
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::MiiGmii)
+    }
+    /// Create a new RMII ethernet driver using 7 pins.
+    #[cfg(eth_v2a)]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_rmii_with_phy<const TX: usize, const RX: usize>(
+        queue: &'d mut PacketQueue<TX, RX>,
+        peri: Peri<'d, T>,
+        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        ref_clk: Peri<'d, impl RefClkPin<T>>,
+        crs: Peri<'d, impl CRSPin<T>>,
+        rx_d0: Peri<'d, impl RXD0Pin<T>>,
+        rx_d1: Peri<'d, impl RXD1Pin<T>>,
+        tx_d0: Peri<'d, impl TXD0Pin<T>>,
+        tx_d1: Peri<'d, impl TXD1Pin<T>>,
+        tx_en: Peri<'d, impl TXEnPin<T>>,
+        mac_addr: [u8; 6],
+        phy: P,
+    ) -> Self {
+        config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
+
+        let pins = Pins::Rmii([
+            Flex::new(ref_clk),
+            Flex::new(crs),
+            Flex::new(rx_d0),
+            Flex::new(rx_d1),
+            Flex::new(tx_d0),
+            Flex::new(tx_d1),
+            Flex::new(tx_en),
+        ]);
+
+        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
     }
 
     /// Create a new RGMII ethernet driver using 13 pins.
@@ -372,14 +434,17 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
                 w.set_eth1rxen(true);
             });
 
-            const ETH1SEL_RGMII: u8 = 0b001;
+            let eth1sel: u8 = match pins {
+                Pins::Rmii(_) => 0b100,
+                Pins::Rgmii(_) => 0b001,
+            };
 
-            // Select the RGMII PHY interface (ETH1SEL: 0b000 = MII, 0b001 = RGMII,
+            // Select the PHY interface (ETH1SEL: 0b000 = MII, 0b001 = RGMII,
             // 0b100 = RMII). The ETH1 kernel clock (ETH1CLKSEL = HCLK) and the
             // TX/RX reference clock sources (ETH1GTXCLKSEL/ETH1REFCLKSEL = external,
             // i.e. the GTX clock comes from the PHY's CLK125 output) are left at
             // their reset values.
-            crate::pac::RCC.ccipr2().modify(|w| w.set_eth1sel(ETH1SEL_RGMII));
+            crate::pac::RCC.ccipr2().modify(|w| w.set_eth1sel(eth1sel));
         });
 
         let dma = T::regs().ethernet_dma();
@@ -453,6 +518,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_txlpiuscim(true);
             w.set_txlpitrcim(true);
         });
+
+        //mtl.mtlomr().modify(|w| w.set_schalg(0b11));
 
         ch0!(mtl, mtl_rx_qomr).modify(|w| {
             w.set_rsf(true);
