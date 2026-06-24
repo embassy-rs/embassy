@@ -3,7 +3,6 @@ use core::sync::atomic::Ordering::Relaxed;
 
 use aligned::{A4, Aligned};
 use embassy_futures::select::{Either4, select4};
-use embassy_hal_internal::aligned::AsMutAligned;
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::Duration;
@@ -17,7 +16,7 @@ use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::try_until;
+use crate::util::{aligned_mut, try_until};
 use crate::{Chip, ChipId, Core, MTU, WithContext, events, sdio};
 
 #[cfg(feature = "firmware-logs")]
@@ -808,7 +807,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        let _ = wlan_write(&mut self.bus, &mut buf.as_mut_aligned()[..4 + total_len]).await;
+                        let _ = wlan_write(&mut self.bus, &mut aligned_mut(&mut buf)[..4 + total_len]).await;
                         packet.tx_done();
                         self.check_status(&mut buf).await;
                     }
@@ -918,7 +917,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     }
 
     /// Handle F2 events while status register is set
-    async fn check_status(&mut self, buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
+    async fn check_status(&mut self, mut buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
         loop {
             match self.bus.bus_type() {
                 BusType::Spi => {
@@ -927,7 +926,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {
                         let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        if wlan_read(&mut self.bus, &mut buf.as_mut_aligned()[..len as usize])
+                        if wlan_read(&mut self.bus, &mut aligned_mut(&mut buf)[..len as usize])
                             .await
                             .is_err()
                         {
@@ -941,7 +940,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     }
                 }
                 BusType::Sdio => {
-                    if wlan_read(&mut self.bus, &mut buf.as_mut_aligned()[..4]).await.is_err() {
+                    if wlan_read(&mut self.bus, &mut aligned_mut(&mut buf)[..4]).await.is_err() {
                         debug!("failed to read sdio hwtag");
                         break;
                     }
@@ -964,7 +963,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     if len > INITIAL_READ as usize {
                         if self
                             .bus
-                            .wlan_read(&mut buf.as_mut_aligned()[4..][..len - INITIAL_READ as usize])
+                            .wlan_read(&mut aligned_mut(&mut buf)[4..][..len - INITIAL_READ as usize])
                             .await
                             .is_err()
                         {
@@ -1210,7 +1209,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         cmd: Ioctl,
         iface: u32,
         data: &[u8],
-        buf: &mut Aligned<A4, [u8; 4 + 2048]>,
+        mut buf: &mut Aligned<A4, [u8; 4 + 2048]>,
     ) {
         let buf8 = &mut buf[4..];
 
@@ -1249,6 +1248,6 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        let _ = wlan_write(&mut self.bus, &mut buf.as_mut_aligned()[..4 + total_len]).await;
+        let _ = wlan_write(&mut self.bus, &mut aligned_mut(&mut buf)[..4 + total_len]).await;
     }
 }

@@ -1,11 +1,11 @@
 use aligned::{A4, Aligned};
-use embassy_hal_internal::aligned::{AsAligned, AsMutAligned, ToAligned, ToMutAligned};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_hal_internal::aligned::{ToAligned, ToMutAligned};
+use embassy_time::{Duration, Timer};
 
 use crate::WithContext;
 use crate::consts::*;
 use crate::runner::{BusConfig, BusType, SealedBus};
-use crate::util::try_until;
+use crate::util::{aligned_mut, aligned_ref, try_until};
 
 // macro_rules! ALIGN_UINT {
 //     ($val:expr, $align:expr) => {
@@ -403,26 +403,26 @@ where
 
     async fn read16(&mut self, func: u8, addr: u32) -> u16 {
         let mut val: Aligned<A4, [u8; _]> = Aligned([0u8; 2]);
-        let _ = self.cmd53_read(func, addr, val.as_mut_aligned()).await;
+        let _ = self.cmd53_read(func, addr, aligned_mut(&mut val)).await;
 
         u16::from_le_bytes(*val)
     }
 
     async fn write16(&mut self, func: u8, addr: u32, val: u16) {
         let val: Aligned<A4, [u8; 2]> = Aligned(val.to_le_bytes().into());
-        let _ = self.cmd53_write(func, addr, val.as_aligned()).await;
+        let _ = self.cmd53_write(func, addr, aligned_ref(&val)).await;
     }
 
     async fn read32(&mut self, func: u8, addr: u32) -> u32 {
         let mut val: Aligned<A4, [u8; _]> = Aligned([0u8; 4]);
-        let _ = self.cmd53_read(func, addr, val.as_mut_aligned()).await;
+        let _ = self.cmd53_read(func, addr, aligned_mut(&mut val)).await;
 
         u32::from_le_bytes(*val)
     }
 
     async fn write32(&mut self, func: u8, addr: u32, val: u32) {
         let val: Aligned<A4, [u8; 4]> = Aligned(val.to_le_bytes().into());
-        let _ = self.cmd53_write(func, addr, val.as_aligned()).await;
+        let _ = self.cmd53_write(func, addr, aligned_ref(&val)).await;
     }
 
     async fn wait_for_event(&mut self) {
