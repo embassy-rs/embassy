@@ -62,14 +62,6 @@ pub(crate) fn round_up(x: u32, a: u32) -> u32 {
     ((x + a - 1) / a) * a
 }
 
-pub(crate) const fn aligned_mut<A, T, const N: usize>(slice: &mut Aligned<A, [T; N]>) -> &mut Aligned<A, [T]> {
-    &mut *slice
-}
-
-pub(crate) const fn aligned_ref<A, T, const N: usize>(slice: &Aligned<A, [T; N]>) -> &Aligned<A, [T]> {
-    &*slice
-}
-
 pub(crate) async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Duration) -> crate::Result<()> {
     let tick = Duration::from_millis(1);
     let mut ticker = Ticker::every(tick);

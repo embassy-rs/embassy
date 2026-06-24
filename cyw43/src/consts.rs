@@ -35,7 +35,7 @@ pub(crate) const DATA_ERR_CHK_EN: u32 = 0x40;
 
 // SPI_STATUS_REGISTER bits
 pub(crate) const SPI_STATUS_REGISTER: u32 = 0x00000008;
-pub(crate) const INITIAL_READ: u32 = 0x04;
+pub(crate) const INITIAL_READ: usize = 0x04;
 
 pub(crate) const STATUS_DATA_NOT_AVAILABLE: u32 = 0x00000001;
 pub(crate) const STATUS_UNDERFLOW: u32 = 0x00000002;
