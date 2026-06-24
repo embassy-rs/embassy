@@ -1,6 +1,6 @@
 use aligned::{A4, Aligned};
 use embassy_hal_internal::aligned::{ToAligned, ToMutAligned};
-use embassy_time::{Duration, Timer};
+use embassy_time::{Delay, Duration, Timer};
 
 use crate::WithContext;
 use crate::consts::*;
