@@ -69,13 +69,13 @@ pub(crate) trait SealedBus {
     #[allow(unused)]
     async fn bp_read32(&mut self, addr: u32) -> u32;
     async fn bp_write32(&mut self, addr: u32, val: u32);
-    async fn read8(&mut self, func: u32, addr: u32) -> u8;
-    async fn write8(&mut self, func: u32, addr: u32, val: u8);
-    async fn read16(&mut self, func: u32, addr: u32) -> u16;
-    async fn write16(&mut self, func: u32, addr: u32, val: u16);
-    async fn read32(&mut self, func: u32, addr: u32) -> u32;
+    async fn read8(&mut self, func: u8, addr: u32) -> u8;
+    async fn write8(&mut self, func: u8, addr: u32, val: u8);
+    async fn read16(&mut self, func: u8, addr: u32) -> u16;
+    async fn write16(&mut self, func: u8, addr: u32, val: u16);
+    async fn read32(&mut self, func: u8, addr: u32) -> u32;
     #[allow(unused)]
-    async fn write32(&mut self, func: u32, addr: u32, val: u32);
+    async fn write32(&mut self, func: u8, addr: u32, val: u32);
     async fn wait_for_event(&mut self);
 
     fn bus_type(&self) -> BusType {

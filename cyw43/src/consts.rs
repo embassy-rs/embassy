@@ -1,9 +1,9 @@
 #![allow(unused)]
 
-pub(crate) const FUNC_BUS: u32 = 0;
-pub(crate) const FUNC_BACKPLANE: u32 = 1;
-pub(crate) const FUNC_WLAN: u32 = 2;
-pub(crate) const FUNC_BT: u32 = 3;
+pub(crate) const FUNC_BUS: u8 = 0;
+pub(crate) const FUNC_BACKPLANE: u8 = 1;
+pub(crate) const FUNC_WLAN: u8 = 2;
+pub(crate) const FUNC_BT: u8 = 3;
 
 // Register addresses
 pub(crate) const REG_BUS_CTRL: u32 = 0x0;
