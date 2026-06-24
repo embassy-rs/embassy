@@ -25,18 +25,29 @@ embedded-alloc = { version = "0.6.0", features = ["llff"] }
 
 rlvgl = { version = "0.2.4", default-features = false, optional = true }
 
+# oxivgl — safe Rust bindings over C LVGL v9.5 (compiled from source via
+# oxivgl-sys with `conf/lv_conf.h`). Gated behind the `oxivgl-demo` feature.
+oxivgl = { version = "0.5.0", default-features = false, optional = true }
+oxivgl-sys = { version = "0.2.2", default-features = false, optional = true }
+
 [features]
-# The rlvgl UI demo (widget tree, partial render, DemoUi) is gated behind this
-# feature so the rest of the board support (PIO RGB scan-out, FT5446 touch, DMA
-# self-test) can be built without pulling in the rlvgl dependency. Enabled by
-# default so `cargo run --bin rlvgl_widget_demo` keeps working out of the box.
-default = ["rlvgl-demo"]
+# Each UI demo is gated behind its own feature so the rest of the board support
+# (PIO RGB scan-out, FT5446 touch, DMA self-test) builds without pulling in any
+# LVGL dependency. The pure-Rust rlvgl demo stays on by default so
+# `cargo run --bin rlvgl_widget_demo` keeps working out of the box; the OxivGL
+# (C LVGL) demo is opt-in because it compiles the LVGL C sources.
 rlvgl-demo = ["dep:rlvgl"]
+oxivgl-demo = ["dep:oxivgl", "dep:oxivgl-sys"]
 
 [[bin]]
 name = "rlvgl_widget_demo"
 path = "src/bin/rlvgl_widget_demo.rs"
 required-features = ["rlvgl-demo"]
+
+[[bin]]
+name = "oxivgl_widget_demo"
+path = "src/bin/oxivgl_widget_demo.rs"
+required-features = ["oxivgl-demo"]
 
 [[bin]]
 name = "dma_selftest"
@@ -51,6 +62,14 @@ debug = 2
 embassy-time = { path = "../../embassy-time" }
 embassy-sync = { path = "../../embassy-sync" }
 embassy-futures = { path = "../../embassy-futures" }
+# Vendored oxivgl 0.5.0 with the example PNG-asset conversion removed (it relies
+# on LVGL's LVGLImage.py + a pypng version that broke `asRGBA8`); the demo uses
+# none of those images.
+oxivgl = { path = "vendor/oxivgl" }
+# Vendored oxivgl-sys 0.2.2 patched for bare-metal thumb cross-compilation:
+# link SDL2 only on the native host and point bindgen at the arm-none-eabi
+# newlib headers. The upstream crates.io 0.2.2 only supports host/ESP builds.
+oxivgl-sys = { path = "vendor/oxivgl-sys" }
 
 [package.metadata.embassy]
 build = [

@@ -1,44 +1,53 @@
 #![no_std]
 #![no_main]
+#![allow(static_mut_refs)]
 
-//! Clean OxivGL widget demo for the 4D Systems gen4-RP2350-70CT.
+//! OxivGL (C LVGL v9.5) multi-widget demo on the gen4-RP2350-70CT.
 //!
-//! Brings up PSRAM double framebuffers, the PIO RGB scan-out for the 800x480
-//! panel, and the FT5446 touch controller, then runs an LVGL widget view.
+//! Real LVGL compiled via [`oxivgl-sys`] (`conf/lv_conf.h`), rendered into the
+//! single persistent PSRAM scan-out framebuffer driven by the PIO + DMA RGB
+//! engine (`pio_rgb`). This is the OxivGL counterpart to `rlvgl_widget_demo`,
+//! reusing the same board bring-up (PSRAM, backlight, FT5446 touch, scan-out)
+//! but driving the UI with the C LVGL stack instead of the pure-Rust `rlvgl`.
+//!
+//! Capacitive touch runs in a dedicated interrupt-driven Embassy task
+//! ([`touch_feed::run_touch_int_task`]); the UI task owns LVGL.
+//!
+//! ```bash
+//! cargo run --release --bin oxivgl_widget_demo --features oxivgl-demo
+//! ```
 
 extern crate alloc;
 
 use core::mem::MaybeUninit;
-use core::slice;
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_gen4_rp2350_70ct_examples::board::{self, DISPLAY_HEIGHT, DISPLAY_WIDTH};
 use embassy_gen4_rp2350_70ct_examples::firmware_id::FIRMWARE_ID;
-use embassy_gen4_rp2350_70ct_examples::oxivgl::display::{self, PanelMemory};
-use embassy_gen4_rp2350_70ct_examples::oxivgl::{platform, touch_feed};
-use embassy_gen4_rp2350_70ct_examples::pio_rgb;
+use embassy_gen4_rp2350_70ct_examples::oxivgl::platform::{self, LVGL_BUF_BYTES};
+use embassy_gen4_rp2350_70ct_examples::pio_rgb::{self, ScanOutIrqs};
+use embassy_gen4_rp2350_70ct_examples::touch_feed;
+use embassy_time::Timer;
 use embedded_alloc::LlffHeap as Heap;
-use static_cell::StaticCell;
+use oxivgl::display::LvglBuffers;
 use {defmt_rtt as _, panic_probe as _};
 
-const HEAP_SIZE: usize = 248 * 1024;
-
-/// Diagnostic flag: when `true`, bypass LVGL/touch and drive the PIO RGB
-/// scan-out with a cycling solid color (red → green → blue → white → black).
-/// Use this to verify that pixel data is latched by the panel and that the
-/// RGB565 data-line bit order is correct, then set back to `false`.
-const SOLID_COLOR_TEST: bool = true;
+// LVGL has its own builtin pool (`LV_MEM_SIZE`); the Rust global allocator only
+// backs the small widget Vecs in the view, so a modest heap is plenty and keeps
+// SRAM free for the LVGL pool and the PIO scan-out bounce buffers.
+const HEAP_SIZE: usize = 32 * 1024;
 
 #[global_allocator]
 static HEAP: Heap = Heap::empty();
 
 static mut HEAP_MEM: MaybeUninit<[u8; HEAP_SIZE]> = MaybeUninit::uninit();
-static PANEL_MEM: StaticCell<PanelMemory> = StaticCell::new();
+static mut LVGL_BUFS: LvglBuffers<{ LVGL_BUF_BYTES }> = LvglBuffers::new();
 
 fn init_heap() {
+    // SAFETY: called once before any allocation.
     unsafe {
-        HEAP.init(core::ptr::addr_of_mut!(HEAP_MEM) as usize, HEAP_SIZE);
+        HEAP.init(HEAP_MEM.as_mut_ptr() as usize, HEAP_SIZE);
     }
 }
 
@@ -47,34 +56,44 @@ async fn main(spawner: Spawner) -> ! {
     init_heap();
 
     info!(
-        "gen4-RP2350-70CT OxivGL widget demo ({}x{}) [{}]",
-        DISPLAY_WIDTH, DISPLAY_HEIGHT, FIRMWARE_ID
+        "gen4-RP2350-70CT OxivGL demo ({}x{}) firmware={:a}",
+        DISPLAY_WIDTH,
+        DISPLAY_HEIGHT,
+        FIRMWARE_ID.as_bytes()
     );
 
     let p = board::init();
+    Timer::after_millis(100).await;
     board::log_board_info();
 
-    // PSRAM holds the two full-screen framebuffers plus the DMA staging buffers.
-    let psram = board::init_psram(p.QMI_CS1, p.PIN_0).expect("PSRAM required for framebuffers");
-    let base = psram.base_address();
-    let size = psram.size() as usize;
-    let psram_slice = unsafe { slice::from_raw_parts_mut(base, size) };
-    let panel_mem =
-        display::init_psram_memory(psram_slice.as_mut_ptr(), size).expect("PSRAM too small for framebuffers");
-    let panel_mem: &'static PanelMemory = PANEL_MEM.init(panel_mem);
+    let _psram = board::init_psram(p.QMI_CS1, p.PIN_0).expect("PSRAM required for display");
+    // Single persistent RGB565 framebuffer in PSRAM. LVGL renders in PARTIAL
+    // mode and flushes dirty regions straight into this live framebuffer, so the
+    // background and static widgets stay resident and only the changed pixels
+    // are rewritten each frame (no full-frame rewrite, no double-buffer swap).
+    let fb = _psram.base_address().cast::<u16>();
+    pio_rgb::fill_framebuffer(fb, 0x001F);
 
-    let mut lcd = board::init_lcd_pins(p.PIN_17);
-    lcd.set_backlight(true);
+    let mut backlight = board::init_backlight(p.PWM_SLICE0, p.PIN_17);
+    backlight.set_level(15);
+
+    let mut i2c = board::init_i2c(p.I2C1, p.PIN_39, p.PIN_46);
+    let mut touch_pins = board::init_touch_pins(p.PIN_47, p.PIN_38);
+    board::init_ft5446(&mut i2c, &mut touch_pins).await;
+    let touch_int = touch_pins.int;
+    spawner.spawn(unwrap!(touch_feed::run_touch_int_task(i2c, touch_int)));
 
     pio_rgb::init_scanout(
         p.PIO1,
         p.PIO2,
         p.DMA_CH0,
-        pio_rgb::ScanOutIrqs, // DE / VSYNC / HSYNC / PCLK
+        p.DMA_CH1,
+        p.DMA_CH2,
+        ScanOutIrqs,
         p.PIN_18,
         p.PIN_19,
         p.PIN_20,
-        p.PIN_21, // RGB565 data lines DATA0..DATA15 (GPIO22..=37)
+        p.PIN_21,
         p.PIN_22,
         p.PIN_23,
         p.PIN_24,
@@ -91,44 +110,20 @@ async fn main(spawner: Spawner) -> ! {
         p.PIN_35,
         p.PIN_36,
         p.PIN_37,
+        // scan-out displays the single persistent framebuffer
+        fb,
     );
 
-    if SOLID_COLOR_TEST {
-        // Diagnostic path: drive the PIO RGB scan-out with solid colors only.
-        // RGB565 test values: red=0xF800, green=0x07E0, blue=0x001F.
-        const COLORS: [(&str, u16); 5] = [
-            ("RED 0xF800", 0xF800),
-            ("GREEN 0x07E0", 0x07E0),
-            ("BLUE 0x001F", 0x001F),
-            ("WHITE 0xFFFF", 0xFFFF),
-            ("BLACK 0x0000", 0x0000),
-        ];
-        let mut idx = 0usize;
-        display::fill_all(COLORS[0].1);
-        loop {
-            let (name, px) = COLORS[idx % COLORS.len()];
-            display::fill_draw(px);
-            pio_rgb::present_swap();
-            info!("solid-color test: {} ({=u16:#x})", name, px);
-            idx += 1;
-            embassy_time::Timer::after_secs(2).await;
-        }
-    }
-
-    let mut i2c = board::init_i2c(p.I2C1, p.PIN_39, p.PIN_46);
-    let mut touch_pins = board::init_touch_pins(p.PIN_47, p.PIN_38);
-    board::init_ft5446(&mut i2c, &mut touch_pins).await;
-    let touch_int = touch_pins.int;
-    spawner.spawn(unwrap!(touch_feed::run_touch_int_task(i2c, touch_int)));
-
-    spawner.spawn(unwrap!(ui_task(panel_mem)));
+    // SAFETY: static LVGL stripe buffers are only used from the UI task.
+    let bufs = unsafe { &mut LVGL_BUFS };
+    spawner.spawn(unwrap!(ui_task(fb, bufs)));
 
     loop {
-        embassy_time::Timer::after_secs(60).await;
+        Timer::after_secs(60).await;
     }
 }
 
 #[embassy_executor::task]
-async fn ui_task(panel_mem: &'static PanelMemory) -> ! {
-    platform::run_widget_demo(panel_mem).await
+async fn ui_task(fb: *mut u16, bufs: &'static mut LvglBuffers<{ LVGL_BUF_BYTES }>) -> ! {
+    platform::run_widget_demo(fb, bufs).await
 }

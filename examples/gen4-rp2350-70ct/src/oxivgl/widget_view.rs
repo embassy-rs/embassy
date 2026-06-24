@@ -7,10 +7,11 @@ use alloc::vec::Vec;
 use defmt::info;
 use oxivgl::enums::{EventCode, ObjFlag};
 use oxivgl::event::Event;
-use crate::oxivgl::fonts::{MONTSERRAT_14, MONTSERRAT_16};
 use oxivgl::style::{GradDir, Selector};
 use oxivgl::view::{NavAction, View, register_event_on};
 use oxivgl::widgets::{AsLvHandle, Button, Label, Obj, RADIUS_MAX, Screen, TextAlign, WidgetError};
+
+use crate::oxivgl::fonts::{MONTSERRAT_14, MONTSERRAT_16};
 
 fn on_demo_button_click(_event: &Event) {
     info!("oxivgl light scene direct button CLICKED");
@@ -149,8 +150,15 @@ impl View for WidgetView {
             .push(make_label(&badge, "Demo Halle", 0, 6, 110, MUTED, LabelKind::Body)?);
         self.objects.push(badge);
 
-        self.labels
-            .push(make_label(&shell, "protronic", SHELL_W - 128, 16, 105, LOGO, LabelKind::Logo)?);
+        self.labels.push(make_label(
+            &shell,
+            "protronic",
+            SHELL_W - 128,
+            16,
+            105,
+            LOGO,
+            LabelKind::Logo,
+        )?);
         let logo_dot = Obj::new(&shell)?;
         logo_dot
             .size(9, 9)
@@ -172,11 +180,9 @@ impl View for WidgetView {
         Ok(())
     }
 
-    fn register_events(&mut self) {
-        // Screen-level handler catches bubbled events from children.
-        if let Some(screen) = Screen::active() {
-            register_event_on(self, screen.handle());
-        }
+    fn register_events_on(&mut self, container: &Obj<'static>) {
+        // Container-level handler catches bubbled events from children.
+        register_event_on(self, container.lv_handle());
 
         for idx in 0..self.buttons.len() {
             register_event_on(self, self.buttons[idx].handle());

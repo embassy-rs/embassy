@@ -1,0 +1,17 @@
+[target.xtensa-esp32-none-elf]
+runner = "espflash flash --monitor --chip esp32 --baud 1000000 --flash-freq 80mhz"
+linker = "xtensa-esp32-elf-gcc"
+rustflags = [
+]
+
+[target.xtensa-esp32s3-none-elf]
+runner = "probe-rs run --chip=esp32s3 --preverify --always-print-stacktrace --no-location --catch-hardfault --idf-flash-freq 80mhz"
+linker = "xtensa-esp32s3-elf-gcc"
+rustflags = [
+  "-C", "force-frame-pointers=yes",
+  "-C", "link-arg=-nostartfiles",
+]
+
+[env]
+DEP_LV_CONFIG_PATH = { value = "examples/conf", relative = true }
+ESP_LOG            = "info"

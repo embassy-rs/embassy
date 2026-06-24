@@ -26,6 +26,10 @@
 #define LV_USE_STDLIB_STRING    LV_STDLIB_BUILTIN
 #define LV_USE_STDLIB_SPRINTF   LV_STDLIB_BUILTIN
 
+/* LVGL built-in heap pool size. Kept modest so it fits alongside the 2×96 KiB
+ * PIO scan-out bounce buffers within the RP2350B's 520 KiB SRAM. */
+#define LV_MEM_SIZE (128 * 1024U)
+
 /*====================
    HAL SETTINGS
  *====================*/
@@ -95,7 +99,9 @@
  * Logging
  *-----------*/
 
-#define LV_USE_LOG 0
+/* Enabled so oxivgl's driver can register its log print callback
+ * (`lv_log_register_print_cb`); oxivgl 0.5.0 calls it unconditionally. */
+#define LV_USE_LOG 1
 #if LV_USE_LOG
     #define LV_LOG_LEVEL LV_LOG_LEVEL_WARN
     #define LV_LOG_PRINTF 0

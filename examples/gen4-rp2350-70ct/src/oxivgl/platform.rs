@@ -1,74 +1,61 @@
-//! RP2350 platform glue for OxivGL (PSRAM framebuffers + PIO RGB present).
+//! Embassy + PIO-RGB platform glue for the gen4-RP2350-70CT OxivGL demo.
+//!
+//! Much simpler than an LTDC port: the PIO/DMA scan-out engine continuously
+//! refreshes the single PSRAM framebuffer for us, so there is **no buffer swap
+//! and no `present()`** — LVGL just flushes dirty regions straight into the live
+//! framebuffer. The UI task owns LVGL, drains the FT5446 touch queue into the
+//! pointer indev, and drives `lv_timer_handler` on a fixed tick.
 
 extern crate alloc;
 
-use embassy_time::{Duration, Instant, Timer};
-use oxivgl::display::DISPLAY_READY;
+use embassy_time::{Duration, Timer};
+use oxivgl::display::{DISPLAY_READY, LvglBuffers};
 use oxivgl::driver::LvglDriver;
-use oxivgl::view::{register_view_events, View};
+use oxivgl::view::{View, register_view_events};
 use oxivgl::widgets::{Obj, Screen};
 use oxivgl_sys::LV_DEF_REFR_PERIOD;
 use static_cell::StaticCell;
 
-use crate::board::DISPLAY_WIDTH;
-use crate::oxivgl::display::{prefill_background, PanelDisplay, PanelMemory};
+use crate::board::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
+use crate::oxivgl::display::ScanOutDisplay;
 use crate::oxivgl::indev::{TouchInput, TouchSample};
-use crate::oxivgl::touch_feed::{self, TouchBoardSample};
 use crate::oxivgl::widget_view::WidgetView;
-use crate::pio_rgb;
+use crate::touch_feed::{self, TouchBoardSample};
 
+/// LVGL timer tick — run the handler ~4× per LVGL refresh period.
 const LVGL_TICK_MS: u64 = LV_DEF_REFR_PERIOD as u64 / 4;
-const PRESENT_PERIOD_MS: u64 = 33;
-const UI_TICK_MS: u64 = 5;
-const PRESENT_LVGL_TICKS: usize = 4;
+
+/// Number of display lines covered by each LVGL partial stripe buffer.
+///
+/// Two of these stripe buffers are allocated; 16 lines (≈25 KiB each) keeps the
+/// pair small enough to fit beside the LVGL pool and the PIO scan-out bounce
+/// buffers in the RP2350B's 520 KiB SRAM, while still giving LVGL a decent
+/// partial-render chunk.
+pub const COLOR_BUF_LINES: usize = 16;
+/// Byte size of one LVGL partial stripe buffer (RGB565).
+pub const LVGL_BUF_BYTES: usize = DISPLAY_WIDTH * COLOR_BUF_LINES * 2;
 
 static VIEW: StaticCell<WidgetView> = StaticCell::new();
 
-fn drain_touch_queue(
-    rx: &mut embassy_sync::channel::Receiver<
-        'static,
-        embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
-        TouchBoardSample,
-        16,
-    >,
-    touch: &TouchInput,
-) -> bool {
-    let mut had_touch = false;
-    while let Ok(board) = rx.try_receive() {
-        had_touch = true;
-        touch.feed(TouchSample::from(board));
+impl From<TouchBoardSample> for TouchSample {
+    fn from(b: TouchBoardSample) -> Self {
+        TouchSample {
+            x: b.x,
+            y: b.y,
+            pressed: b.pressed,
+        }
     }
-    had_touch
 }
 
-async fn lvgl_present_batch(
-    driver: &LvglDriver,
-    view: &mut WidgetView,
-    touch_rx: &mut embassy_sync::channel::Receiver<
-        'static,
-        embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex,
-        TouchBoardSample,
-        16,
-    >,
-    touch: &TouchInput,
-) {
-    for _ in 0..PRESENT_LVGL_TICKS {
-        let _ = drain_touch_queue(touch_rx, touch);
-        pio_rgb::poll_flush_ready();
-        driver.timer_handler();
-        Timer::after(Duration::from_millis(LVGL_TICK_MS)).await;
-    }
-    let _ = view.update();
-}
-
-/// Run the OxivGL widget demo.
-pub async fn run_widget_demo(panel_mem: &'static PanelMemory) -> ! {
-    defmt::info!("oxivgl ui task starting");
-    let driver = LvglDriver::init(DISPLAY_WIDTH as i32, crate::board::DISPLAY_HEIGHT as i32);
-    let _display = PanelDisplay::init(DISPLAY_WIDTH as i32, crate::board::DISPLAY_HEIGHT as i32, panel_mem);
+/// Run the OxivGL widget demo (LVGL UI task on the PIO-RGB framebuffer).
+///
+/// `fb` is the live PSRAM scan-out framebuffer already bound to
+/// [`crate::pio_rgb::init_scanout`].
+pub async fn run_widget_demo(fb: *mut u16, bufs: &'static mut LvglBuffers<{ LVGL_BUF_BYTES }>) -> ! {
+    let driver = LvglDriver::init(DISPLAY_WIDTH as i32, DISPLAY_HEIGHT as i32);
+    let _display = ScanOutDisplay::init(fb, bufs);
 
     DISPLAY_READY.wait().await;
-    prefill_background();
 
     let view = VIEW.init(WidgetView::default());
     let screen = Screen::active().expect("LVGL screen must exist after display init");
@@ -79,30 +66,22 @@ pub async fn run_widget_demo(panel_mem: &'static PanelMemory) -> ! {
             Timer::after(Duration::from_secs(60)).await;
         }
     }
-    register_view_events(view);
+    register_view_events(view, &container);
 
     let touch = TouchInput::register();
-    let mut touch_rx = touch_feed::receiver();
+    let touch_rx = touch_feed::receiver();
 
-    lvgl_present_batch(&driver, view, &mut touch_rx, &touch).await;
-
-    let mut next_present = Instant::now() + Duration::from_millis(PRESENT_PERIOD_MS);
-
+    // Paint the first full frame, then keep servicing LVGL: PARTIAL render only
+    // touches changed widgets, so each subsequent flush writes a few KiB into
+    // the persistent framebuffer instead of the whole 768 KiB screen.
     loop {
-        Timer::after(Duration::from_millis(UI_TICK_MS)).await;
-        pio_rgb::poll_flush_ready();
-
-        let had_touch = drain_touch_queue(&mut touch_rx, &touch);
-
-        if had_touch {
-            lvgl_present_batch(&driver, view, &mut touch_rx, &touch).await;
-            next_present = Instant::now() + Duration::from_millis(PRESENT_PERIOD_MS);
-        } else {
-            driver.timer_handler();
-            if Instant::now() >= next_present {
-                lvgl_present_batch(&driver, view, &mut touch_rx, &touch).await;
-                next_present = Instant::now() + Duration::from_millis(PRESENT_PERIOD_MS);
-            }
+        while let Ok(board) = touch_rx.try_receive() {
+            touch.feed(TouchSample::from(board));
         }
+
+        driver.timer_handler();
+        let _ = view.update();
+
+        Timer::after(Duration::from_millis(LVGL_TICK_MS)).await;
     }
 }

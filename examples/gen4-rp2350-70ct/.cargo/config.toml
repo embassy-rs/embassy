@@ -6,3 +6,7 @@ target = "thumbv8m.main-none-eabihf"
 
 [env]
 DEFMT_LOG = "debug"
+# Required by oxivgl-sys when building with `--features oxivgl-demo`:
+# location of `lv_conf.h` and the custom (latin) LVGL font sources.
+DEP_LV_CONFIG_PATH = { value = "conf", relative = true }
+LVGL_FONTS_DIR = { value = "fonts", relative = true }

@@ -16,10 +16,10 @@ use core::sync::atomic::{AtomicPtr, Ordering};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use oxivgl_sys::{
-    lv_display_get_screen_prev, lv_indev_create, lv_indev_data_t, lv_indev_enable, lv_indev_set_display,
-    lv_indev_set_mode, lv_indev_set_read_cb, lv_indev_set_type, lv_indev_state_t_LV_INDEV_STATE_PRESSED,
-    lv_indev_state_t_LV_INDEV_STATE_RELEASED, lv_indev_t, lv_indev_mode_t_LV_INDEV_MODE_EVENT,
-    lv_indev_type_t_LV_INDEV_TYPE_POINTER, lv_indev_read,
+    lv_display_get_screen_prev, lv_indev_create, lv_indev_data_t, lv_indev_enable, lv_indev_mode_t_LV_INDEV_MODE_EVENT,
+    lv_indev_read, lv_indev_set_display, lv_indev_set_mode, lv_indev_set_read_cb, lv_indev_set_type,
+    lv_indev_state_t_LV_INDEV_STATE_PRESSED, lv_indev_state_t_LV_INDEV_STATE_RELEASED, lv_indev_t,
+    lv_indev_type_t_LV_INDEV_TYPE_POINTER,
 };
 
 use crate::oxivgl::display::lvgl_display;

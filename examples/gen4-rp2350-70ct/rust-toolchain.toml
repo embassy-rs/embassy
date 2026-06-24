@@ -1,4 +1,7 @@
+# The OxivGL demo (C LVGL v9.5 via oxivgl-sys) requires a nightly toolchain
+# (`feature(type_alias_impl_trait)`); the rlvgl demo and board support build on
+# the same nightly. Pinned per-crate, matching the rvt50hqsnwc00-b example.
 [toolchain]
-channel = "1.96.0"
+channel = "nightly-2025-12-11"
 components = ["rust-src", "rustfmt"]
 targets = ["thumbv8m.main-none-eabihf"]

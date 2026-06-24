@@ -48,20 +48,48 @@ Flash with probe-rs (configured in `.cargo/config.toml`).
 
 ## Cargo features
 
-The rlvgl UI is separated behind the `rlvgl-demo` feature (enabled by default),
-so the rest of the board support (PIO RGB scan-out, FT5446 touch, DMA self-test)
-can be built without pulling in the `rlvgl` dependency:
+Two independent UI demos render into the same PIO RGB scan-out framebuffer, each
+behind its own Cargo feature, so the board support (PIO RGB scan-out, FT5446
+touch, DMA self-test) can be built without pulling in any UI dependency:
+
+- `rlvgl-demo` (**default**) — pure-Rust [`rlvgl`](https://crates.io/crates/rlvgl)
+  widget tree (`rlvgl_widget_demo`).
+- `oxivgl-demo` — real C LVGL v9.5 via [`oxivgl`](https://crates.io/crates/oxivgl)
+  0.5.0 / `oxivgl-sys` 0.2.2 (`oxivgl_widget_demo`).
 
 ```bash
 # default: includes the rlvgl widget demo
 cargo build --release --bin rlvgl_widget_demo
 
-# board support only, no rlvgl dependency
+# OxivGL (C LVGL) widget demo
+cargo run --release --no-default-features --features oxivgl-demo --bin oxivgl_widget_demo
+
+# board support only, no UI dependency
 cargo build --release --no-default-features --bin dma_selftest
 ```
 
-The `rlvgl_widget_demo` binary declares `required-features = ["rlvgl-demo"]`, so
-it is automatically skipped when the feature is disabled.
+Each demo binary declares its own `required-features`, so it is automatically
+skipped when the matching feature is disabled.
+
+### OxivGL notes
+
+The OxivGL demo compiles the LVGL C sources, so it has extra requirements:
+
+- **Nightly toolchain** — pinned in this crate's `rust-toolchain.toml`
+  (`oxivgl` needs `feature(type_alias_impl_trait)`); the rlvgl demo builds on it
+  too.
+- **`conf/lv_conf.h`** and **`fonts/`** (Montserrat 14/16 with Latin-1 / German
+  umlaut coverage) are wired in via `.cargo/config.toml`
+  (`DEP_LV_CONFIG_PATH`, `LVGL_FONTS_DIR`).
+- **Vendored crates** under `vendor/` (patched in via `[patch.crates-io]`):
+  - `vendor/oxivgl-sys` — `0.2.2` patched to cross-compile for bare-metal thumb
+    (link SDL2 only on the host, point bindgen at the `arm-none-eabi` newlib
+    headers). Needs `arm-none-eabi-gcc` + newlib headers on the host.
+  - `vendor/oxivgl` — `0.5.0` with the example PNG-asset conversion removed
+    (it relied on a `pypng` version that broke LVGL's `LVGLImage.py`).
+- Rendering uses LVGL `PARTIAL` mode: the flush callback blits each dirty region
+  straight into the single persistent PSRAM framebuffer (same anti-flicker
+  strategy as the rlvgl demo).
 
 ## Known limitations
 
