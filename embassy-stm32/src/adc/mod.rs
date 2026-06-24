@@ -395,7 +395,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
         let mut options = Default::default();
         options.secure = true;
-        let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, Default::default()) };
+        let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, options) };
 
         // Ensure conversions are finished, even in the event of dropping the future
         let _stop_adc = OnDrop::new(|| T::regs().stop());
