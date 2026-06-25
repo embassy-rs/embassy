@@ -121,7 +121,7 @@ where
         self.backplane_window = new_window;
     }
 
-    async fn readn(&mut self, func: u32, addr: u32, len: u32) -> u32 {
+    async fn readn(&mut self, func: u8, addr: u32, len: u32) -> u32 {
         let cmd = cmd_word(READ, INC_ADDR, func, addr, len);
         let mut buf = [0; 2];
         // if we are reading from the backplane, we need an extra word for the response delay
@@ -133,13 +133,13 @@ where
         if func == FUNC_BACKPLANE { buf[1] } else { buf[0] }
     }
 
-    async fn writen(&mut self, func: u32, addr: u32, val: u32, len: u32) {
+    async fn writen(&mut self, func: u8, addr: u32, val: u32, len: u32) {
         let cmd = cmd_word(WRITE, INC_ADDR, func, addr, len);
 
         self.status = self.spi.cmd_write(&[cmd, val]).await;
     }
 
-    async fn read32_swapped(&mut self, func: u32, addr: u32) -> u32 {
+    async fn read32_swapped(&mut self, func: u8, addr: u32) -> u32 {
         let cmd = cmd_word(READ, INC_ADDR, func, addr, 4);
         let cmd = swap16(cmd);
         let mut buf = [0; 1];
@@ -149,7 +149,7 @@ where
         swap16(buf[0])
     }
 
-    async fn write32_swapped(&mut self, func: u32, addr: u32, val: u32) {
+    async fn write32_swapped(&mut self, func: u8, addr: u32, val: u32) {
         let cmd = cmd_word(WRITE, INC_ADDR, func, addr, 4);
         let buf = [swap16(cmd), swap16(val)];
 
@@ -379,24 +379,24 @@ where
         self.backplane_writen(addr, val, 4).await
     }
 
-    async fn read8(&mut self, func: u32, addr: u32) -> u8 {
+    async fn read8(&mut self, func: u8, addr: u32) -> u8 {
         self.readn(func, addr, 1).await as u8
     }
 
-    async fn write8(&mut self, func: u32, addr: u32, val: u8) {
+    async fn write8(&mut self, func: u8, addr: u32, val: u8) {
         self.writen(func, addr, val as u32, 1).await
     }
 
-    async fn read16(&mut self, func: u32, addr: u32) -> u16 {
+    async fn read16(&mut self, func: u8, addr: u32) -> u16 {
         self.readn(func, addr, 2).await as u16
     }
 
     #[allow(unused)]
-    async fn write16(&mut self, func: u32, addr: u32, val: u16) {
+    async fn write16(&mut self, func: u8, addr: u32, val: u16) {
         self.writen(func, addr, val as u32, 2).await
     }
 
-    async fn read32(&mut self, func: u32, addr: u32) -> u32 {
+    async fn read32(&mut self, func: u8, addr: u32) -> u32 {
         if func == FUNC_BUS && addr == SPI_STATUS_REGISTER && self.status != 0 {
             let status = self.status;
             self.status = 0;
@@ -408,7 +408,7 @@ where
     }
 
     #[allow(unused)]
-    async fn write32(&mut self, func: u32, addr: u32, val: u32) {
+    async fn write32(&mut self, func: u8, addr: u32, val: u32) {
         self.writen(func, addr, val, 4).await
     }
 
@@ -421,6 +421,6 @@ fn swap16(x: u32) -> u32 {
     x.rotate_left(16)
 }
 
-fn cmd_word(write: bool, incr: bool, func: u32, addr: u32, len: u32) -> u32 {
-    (write as u32) << 31 | (incr as u32) << 30 | (func & 0b11) << 28 | (addr & 0x1FFFF) << 11 | (len & 0x7FF)
+fn cmd_word(write: bool, incr: bool, func: u8, addr: u32, len: u32) -> u32 {
+    (write as u32) << 31 | (incr as u32) << 30 | (func as u32 & 0b11) << 28 | (addr & 0x1FFFF) << 11 | (len & 0x7FF)
 }

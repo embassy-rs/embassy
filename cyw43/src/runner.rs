@@ -3,7 +3,6 @@ use core::sync::atomic::Ordering::Relaxed;
 
 use aligned::{A4, Aligned};
 use embassy_futures::select::{Either4, select4};
-use embassy_hal_internal::aligned::AsMutAligned;
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::Duration;
@@ -69,13 +68,13 @@ pub(crate) trait SealedBus {
     #[allow(unused)]
     async fn bp_read32(&mut self, addr: u32) -> u32;
     async fn bp_write32(&mut self, addr: u32, val: u32);
-    async fn read8(&mut self, func: u32, addr: u32) -> u8;
-    async fn write8(&mut self, func: u32, addr: u32, val: u8);
-    async fn read16(&mut self, func: u32, addr: u32) -> u16;
-    async fn write16(&mut self, func: u32, addr: u32, val: u16);
-    async fn read32(&mut self, func: u32, addr: u32) -> u32;
+    async fn read8(&mut self, func: u8, addr: u32) -> u8;
+    async fn write8(&mut self, func: u8, addr: u32, val: u8);
+    async fn read16(&mut self, func: u8, addr: u32) -> u16;
+    async fn write16(&mut self, func: u8, addr: u32, val: u16);
+    async fn read32(&mut self, func: u8, addr: u32) -> u32;
     #[allow(unused)]
-    async fn write32(&mut self, func: u32, addr: u32, val: u32);
+    async fn write32(&mut self, func: u8, addr: u32, val: u32);
     async fn wait_for_event(&mut self);
 
     fn bus_type(&self) -> BusType {
@@ -103,15 +102,23 @@ async fn wake_bus(bus: &mut impl Bus) -> crate::Result<()> {
     Ok(())
 }
 
-async fn wlan_read(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
-    wake_bus(bus).await?;
-    bus.wlan_read(buf).await.ctx("wlan_read failed")
+async fn wlan_read(
+    bus: &mut impl Bus,
+    buf: &mut Aligned<A4, [u8]>,
+    wake: bool,
+    start: usize,
+    len: usize,
+) -> crate::Result<()> {
+    if wake {
+        wake_bus(bus).await?;
+    }
+    bus.wlan_read(&mut buf[start..][..len]).await.ctx("wlan_read failed")
 }
 
 /// The first 4 bytes of this buffer are reserved for the cmd word
-async fn wlan_write(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
+async fn wlan_write(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>, len: usize) -> crate::Result<()> {
     wake_bus(bus).await?;
-    bus.wlan_write(buf).await.ctx("wlan_write failed")
+    bus.wlan_write(&mut buf[..4 + len]).await.ctx("wlan_write failed")
 }
 
 /// Driver communicating with the WiFi chip.
@@ -808,7 +815,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        let _ = wlan_write(&mut self.bus, &mut buf.as_mut_aligned()[..4 + total_len]).await;
+                        let _ = wlan_write(&mut self.bus, &mut buf, total_len).await;
                         packet.tx_done();
                         self.check_status(&mut buf).await;
                     }
@@ -927,10 +934,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {
                         let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        if wlan_read(&mut self.bus, &mut buf.as_mut_aligned()[..len as usize])
-                            .await
-                            .is_err()
-                        {
+                        if wlan_read(&mut self.bus, buf, true, 0, len as usize).await.is_err() {
                             debug!("spi wlan_read failed");
                             break;
                         }
@@ -941,7 +945,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     }
                 }
                 BusType::Sdio => {
-                    if wlan_read(&mut self.bus, &mut buf.as_mut_aligned()[..4]).await.is_err() {
+                    if wlan_read(&mut self.bus, buf, true, 0, INITIAL_READ).await.is_err() {
                         debug!("failed to read sdio hwtag");
                         break;
                     }
@@ -962,9 +966,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     trace!("pkt ready...");
                     let len = len as usize;
                     if len > INITIAL_READ as usize {
-                        if self
-                            .bus
-                            .wlan_read(&mut buf.as_mut_aligned()[4..][..len - INITIAL_READ as usize])
+                        if wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
                             .await
                             .is_err()
                         {
@@ -1249,6 +1251,6 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        let _ = wlan_write(&mut self.bus, &mut buf.as_mut_aligned()[..4 + total_len]).await;
+        let _ = wlan_write(&mut self.bus, buf, total_len).await;
     }
 }
