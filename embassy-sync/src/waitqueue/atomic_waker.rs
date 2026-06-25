@@ -50,6 +50,17 @@ impl<M: RawMutex> GenericAtomicWaker<M> {
             }
         })
     }
+
+    /// Schedule the waking of a waker.
+    #[cfg(feature = "schedule-wake")]
+    pub fn wake_at(&mut self, time: embassy_time::Instant) {
+        self.waker.lock(|cell| {
+            if let Some(w) = cell.replace(None) {
+                embassy_time_driver::schedule_wake(time.as_ticks(), &w);
+                cell.set(Some(w));
+            }
+        })
+    }
 }
 
 // Lockless single-slot waker, ported from `futures::task::AtomicWaker` and
@@ -376,5 +387,11 @@ mod tests {
         let aw = AtomicWaker::new();
         aw.wake();
         // Just checking we don't panic / UB.
+    }
+
+    /// Schedule the waking of a waker.
+    #[cfg(feature = "schedule-wake")]
+    pub fn wake_at(&mut self, time: embassy_time::Instant) {
+        self.waker.wake_at(time);
     }
 }
