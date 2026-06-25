@@ -42,6 +42,7 @@ enum ConnectState {
 pub(crate) enum ControlState {
     Init,
     Reboot,
+    WaitingForInit,
     Ready(Backend),
 }
 
@@ -118,6 +119,11 @@ impl Shared {
     pub fn ota_done(&self) {
         let mut this = self.0.borrow_mut();
         this.state = ControlState::Reboot;
+    }
+
+    pub fn interface_ready(&self) {
+        let mut this = self.0.borrow_mut();
+        this.state = ControlState::WaitingForInit;
     }
 
     // // // // // // // // // // // // // // // // // // // //
