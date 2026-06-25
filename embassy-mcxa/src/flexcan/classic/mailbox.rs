@@ -333,6 +333,46 @@ pub(in crate::flexcan) mod rx {
     /// inside `Message` has different meanings depending on TX or RX.
     pub(in crate::flexcan) struct RxMessage{inner: Message}
 
+    /// Possible errors that can occur when trying to convert
+    /// a `RxMessage` to a `Frame`.
+    pub(in crate::flexcan) enum RxMessageFromError {
+        /// Indicates that the std() field inside the `RxMessage`
+        /// contained a value larger than 11 bits (`> 0x7FF`).
+        StandardIdTooLong,
+
+        /// Indicates that the ext() field inside the `RxMessage`
+        /// contained a value larger than 29 bits (`> 0x1FFF_FFFF`)
+        ExtendedIdTooLong,
+    }
+
+    // Converts a hardware-specific `RxMessage` into a generic `Frame`.
+    // Lets you do `let frame: Frame = frame.into()` (where `frame` starts as a `RxMessage`)
+    impl TryFrom<RxMessage> for crate::flexcan::classic::frame::Frame {
+        type Error = RxMessageFromError;
+
+        fn try_from(message: RxMessage) -> Result<Self, Self::Error> {
+            use embedded_can::{Id, StandardId, ExtendedId};
+            use crate::flexcan::classic::frame::{FrameKind};
+
+            let kind: FrameKind = if message.inner.cs.rtr() {FrameKind::RemoteFrame} else {FrameKind::DataFrame};
+
+            let id: Id = if message.inner.cs.ide() {
+                // ide = true means Extended ID
+                let std: u16 = message.inner.id.std(); // the upper 11 bits (18 through 29)
+                let ext: u32 = message.inner.id.ext(); // the lower 18 bits (0 through 17)
+                let full: u32 = ext | ((std as u32) << 18);
+                Id::Extended(ExtendedId::new(full).ok_or(RxMessageFromError::ExtendedIdTooLong)?)
+            } else {
+                // ide = false means Standard ID
+                Id::Standard(StandardId::new(message.inner.id.std()).ok_or(RxMessageFromError::StandardIdTooLong)?)
+            };
+
+            let length: usize = (message.inner.cs.dlc() as usize).min(8);
+
+            Ok(crate::flexcan::classic::frame::Frame {kind, id, length, data: message.inner.payload})
+        }
+    }
+
     /// Sets up the RX subsystem.
     /// This function requires `filter_config` to have been validated prior to being passed in here.
     pub(in crate::flexcan) fn setup(info: &Info, filter_config: &FilterConfig) -> Result<(), MailboxError> {

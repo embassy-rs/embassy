@@ -2,7 +2,7 @@ pub use embedded_can::{Id, StandardId, ExtendedId};
 
 /// Represents the possible kinds of CAN frames.
 #[derive(PartialEq)]
-enum FrameKind {
+pub(in crate::flexcan) enum FrameKind {
     /// A "normal" CAN frame. Corresponds to RTR bit = 0.
     DataFrame,
 
@@ -12,9 +12,9 @@ enum FrameKind {
 
 /// A CAN frame.
 pub struct Frame {
-    kind: FrameKind,
-    id: Id,
-    length: usize,
+    pub(in crate::flexcan) kind: FrameKind,
+    pub(in crate::flexcan) id: Id,
+    pub(in crate::flexcan) length: usize,
     pub(in crate::flexcan) data: [u8; 8],
 }
 

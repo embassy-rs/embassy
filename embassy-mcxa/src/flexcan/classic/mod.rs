@@ -207,6 +207,13 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 
         // Check if any RX messages can be dequeued, and if so, dequeue them.
         while let Some(message) = mailbox::rx::fifo::get(info) {
+            let frame: Frame = match message.try_into() {
+                Ok(message) => message,
+
+                // The try_into() shouldn't actually be able to fail since the PAC already ensures std()/ext() can't
+                // exceed 11 bits/29 bits, but if it does somehow, just drop the frame.
+                Err(_) => { continue; }
+            };
             // uhh do this tomorrow
         }
 
