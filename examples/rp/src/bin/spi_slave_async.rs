@@ -1,5 +1,6 @@
 //! This example shows how to use SPI (Serial Peripheral Interface) master and slave in the RP2040 chip.
-//! Note: The SPI slave on the RP2040 requires CS to be toggled for each byte
+//! Note: By default the SPI slave on the RP2040 requires CS to be toggled for each byte
+//!
 //!
 //! No specific hardware is specified in this example.
 //! Connect the following pins:
@@ -58,6 +59,12 @@ async fn main(_spawner: Spawner) {
         Config::default(),
     );
 
+    // Pull down CS for every byte
+    let config = Config::default();
+    // If you need a single CS pulse for multiple bytes, use the following:
+    // let mut config = Config::default();
+    // config.phase = embassy_rp::spi::Phase::CaptureOnSecondTransition;
+    // config.polarity = embassy_rp::spi::Polarity::IdleHigh;
     let slave_spi = Spi::new_slave(
         p.SPI0,
         slave_clk,
@@ -67,6 +74,7 @@ async fn main(_spawner: Spawner) {
         p.DMA_CH2,
         p.DMA_CH3,
         Irqs,
+        config,
     );
 
     let master_fut = async move {

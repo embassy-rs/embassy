@@ -348,6 +348,7 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
         miso: Peri<'d, impl MisoPin<T> + 'd>,
         cs: Peri<'d, impl CsPin<T> + 'd>,
+        config: Config,
     ) -> Self {
         Self::new_inner(
             inner,
@@ -357,7 +358,7 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             Some(cs.into()),
             None,
             None,
-            Config::default(),
+            config,
             true,
         )
     }
@@ -368,6 +369,7 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
         clk: Peri<'d, impl ClkPin<T> + 'd>,
         miso: Peri<'d, impl MisoPin<T> + 'd>,
         cs: Peri<'d, impl CsPin<T> + 'd>,
+        config: Config,
     ) -> Self {
         Self::new_inner(
             inner,
@@ -377,7 +379,7 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             Some(cs.into()),
             None,
             None,
-            Config::default(),
+            config,
             true,
         )
     }
@@ -497,6 +499,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
         + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
         + 'd,
+        config: Config,
     ) -> Self {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         let rx_dma_ch = dma::Channel::new(rx_dma, irq);
@@ -508,7 +511,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             Some(cs.into()),
             Some(tx_dma_ch),
             Some(rx_dma_ch),
-            Config::default(),
+            config,
             true,
         )
     }
@@ -524,6 +527,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
         + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
         + 'd,
+        config: Config,
     ) -> Self {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         let rx_dma_ch = dma::Channel::new(rx_dma, irq);
@@ -535,7 +539,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             Some(cs.into()),
             Some(tx_dma_ch),
             Some(rx_dma_ch),
-            Config::default(),
+            config,
             true,
         )
     }
