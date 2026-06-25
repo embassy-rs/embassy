@@ -331,7 +331,7 @@ where
         self.cmd53_write(FUNC_WLAN, 0, &buf[4..]).await
     }
 
-    async fn bp_read(&mut self, mut addr: u32, data: &mut [u8]) -> crate::Result<()> {
+    async fn bp_read(&mut self, mut addr: u32, data: &mut [u8], _buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         trace!("bp_read addr = {:08x}, len = {}", addr, data.len());
 
         // It seems the HW force-aligns the addr
@@ -369,8 +369,7 @@ where
         Ok(())
     }
 
-    /// A.K.A. cyw43_download_resource
-    async fn bp_write(&mut self, mut addr: u32, data: &[u8]) -> crate::Result<()> {
+    async fn bp_write(&mut self, mut addr: u32, data: &[u8], _buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         trace!("bp_write addr = {:08x}, len = {}", addr, data.len());
 
         // It seems the HW force-aligns the addr
