@@ -26,7 +26,7 @@ embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
 derive_more = { version = "2.1.1", optional = true, default-features =false }
-sdio = { version = "0.2.4", git = "https://github.com/embassy-rs/sdio.git", rev ="d023c1c" }
+sdio = { version = "0.2.4", git = "https://github.com/embassy-rs/sdio.git", rev ="6924b63" }
 
 cortex-m = "0.7.6"
 cortex-m-rt = "0.7.0"
