@@ -1,5 +1,6 @@
 pub mod frame;
 mod mailbox;
+mod meta;
 
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
@@ -14,6 +15,7 @@ use crate::flexcan::classic::frame::Frame;
 use crate::flexcan::filter::{FilterConfig, FilterConfigError};
 use crate::flexcan::control::{Control};
 use crate::interrupt::typelevel::Handler;
+use crate::flexcan::classic::meta::rx_queue_size::{RX_QUEUE_SIZE, rx_queue_size_default, env_var_name};
 use nxp_pac::can as pac;
 
 /// FlexCAN driver instance, in Classic CAN mode.
@@ -64,7 +66,7 @@ pub(in crate::flexcan) struct Info {
     pub prexcen_supported: bool,
 
     /// Software queue that holds received RX frames.
-    pub rx_channel: Channel<CriticalSectionRawMutex, Frame, 8>,
+    pub rx_channel: Channel<CriticalSectionRawMutex, Frame, RX_QUEUE_SIZE>,
 }
 
 /// Errors that can return when initializing
@@ -171,6 +173,16 @@ impl<'d> FlexCan<'d> {
     /// 
     /// If there are no new messages, this call asynchronously
     /// waits for new messages to arrive.
+    /// 
+    /// Note: The size of the FlexCan classic-mode RX queue can be configured via the
+    #[doc = env_var_name!()] 
+    /// environment variable. For example, in your .cargo/config.toml, you could add
+    /// ```toml
+    /// [env]
+    #[doc = concat!(env_var_name!(), " = \"32\"")]
+    /// ```
+    /// if you wanted the queue to store 32 frames.
+    #[doc = concat!("If you don't specify anything, the queue will default to a size of ", rx_queue_size_default!(), " frames.")]
     pub async fn receive(&self) -> Frame {
         self.info.rx_channel.receive().await
     }
