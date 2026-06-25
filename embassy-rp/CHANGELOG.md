@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 
 ## Unreleased - ReleaseDate
+- Add `dma_push_ping_pong` for PIO to allow sending continuous double-buffered data ([#4784](https://github.com/embassy-rs/embassy/pull/4784))
 
 - DMA: clear channel `EN` bit before `chan_abort` on RP2350, per errata RP2350-E5 (see pico-sdk `dma_channel_abort` docs). Prevents the aborted channel from re-triggering.
 
