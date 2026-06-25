@@ -279,7 +279,12 @@ where
         Ok(())
     }
 
-    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) -> crate::Result<()> {
+    async fn bp_read(
+        &mut self,
+        mut addr: u32,
+        mut data: &mut [u8],
+        mut buf: &mut Aligned<A4, [u8]>,
+    ) -> crate::Result<()> {
         trace!("bp_read addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
@@ -287,9 +292,6 @@ where
         // to 4 if data.len() >= 4
         // To simplify, enforce 4-align for now.
         assert!(addr % 4 == 0);
-
-        // Backplane read buffer has one extra word for the response delay.
-        let mut buf: Aligned<A4, [u8; _]> = Aligned([0u8; 4 + BACKPLANE_MAX_TRANSFER_SIZE]);
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
@@ -319,7 +321,7 @@ where
         Ok(())
     }
 
-    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) -> crate::Result<()> {
+    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8], mut buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         trace!("bp_write addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
@@ -327,8 +329,6 @@ where
         // to 4 if data.len() >= 4
         // To simplify, enforce 4-align for now.
         assert!(addr % 4 == 0);
-
-        let mut buf: Aligned<A4, [u8; _]> = Aligned([0u8; 4 + BACKPLANE_MAX_TRANSFER_SIZE]);
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.

@@ -1,23 +1,12 @@
+use core::mem;
+
 use aligned::{A4, Aligned};
-use embassy_hal_internal::aligned::{ToAligned, ToMutAligned};
 use embassy_time::{Delay, Duration, Timer};
 
 use crate::WithContext;
 use crate::consts::*;
 use crate::runner::{BusConfig, BusType, SealedBus};
 use crate::util::try_until;
-
-// macro_rules! ALIGN_UINT {
-//     ($val:expr, $align:expr) => {
-//         ((($val) + ($align) - 1) & !(($align) - 1))
-//     };
-// }
-//
-// macro_rules! WRITE_BYTES_PAD {
-//     ($len:expr) => {
-//         ALIGN_UINT!($len, 64)
-//     };
-// }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -46,6 +35,35 @@ fn to_blocks_mut<const BLOCK_SIZE: usize>(bytes: &mut Aligned<A4, [u8]>) -> &mut
     let len = bytes.len() / BLOCK_SIZE;
 
     unsafe { core::slice::from_raw_parts_mut(ptr, len) }
+}
+
+fn to_aligned<'a>(data: &'a [u8], buf: &'a mut Aligned<A4, [u8]>) -> &'a Aligned<A4, [u8]> {
+    if (data.as_ptr() as usize) % mem::align_of::<A4>() == 0 {
+        unsafe { &*(data as *const [u8] as *const Aligned<A4, [u8]>) }
+    } else {
+        buf[..data.len()].copy_from_slice(data);
+
+        &buf[..data.len()]
+    }
+}
+
+async fn with_aligned<'a, R>(
+    data: &'a mut [u8],
+    buf: &'a mut Aligned<A4, [u8]>,
+    mut f: impl AsyncFnMut(&mut Aligned<A4, [u8]>) -> R,
+) -> R {
+    let ptr = data.as_mut_ptr();
+    let is_aligned = (ptr as usize) % align_of::<A4>() == 0;
+
+    if is_aligned {
+        // SAFETY: data is aligned to A4, and Aligned<A4, [u8]> is repr(transparent)
+        f(unsafe { &mut *(data as *mut [u8] as *mut Aligned<A4, [u8]>) }).await
+    } else {
+        let ret = f(&mut buf[..data.len()]).await;
+
+        data.copy_from_slice(&buf[..data.len()]);
+        ret
+    }
 }
 
 pub struct Config {
@@ -290,7 +308,7 @@ where
         self.cmd53_write(FUNC_WLAN, 0, &buf[4..]).await
     }
 
-    async fn bp_read(&mut self, mut addr: u32, data: &mut [u8]) -> crate::Result<()> {
+    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         trace!("bp_read addr = {:08x}, len = {}", addr, data.len());
 
         // It seems the HW force-aligns the addr
@@ -299,20 +317,19 @@ where
         // To simplify, enforce 4-align for now.
         assert!(addr % 4 == 0);
 
-        let mut data: &mut Aligned<A4, [u8]> = data.to_mut_aligned();
-
         loop {
             // Ensure transfer doesn't cross a window boundary.
             let window_offs = addr & BACKPLANE_ADDRESS_MASK;
             let window_remaining = BACKPLANE_WINDOW_SIZE - window_offs as usize;
-
             let len = data.len().min(BLOCK_BUFFER_SIZE).min(window_remaining);
-            let buf = &mut data[..len];
 
             self.backplane_set_window(addr).await;
 
-            self.cmd53_read(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK as u32, buf)
-                .await?;
+            with_aligned(&mut data[..len], buf, async |buf| {
+                self.cmd53_read(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK as u32, buf)
+                    .await
+            })
+            .await?;
 
             // Advance ptr.
             addr += len as u32;
@@ -328,8 +345,7 @@ where
         Ok(())
     }
 
-    /// A.K.A. cyw43_download_resource
-    async fn bp_write(&mut self, mut addr: u32, data: &[u8]) -> crate::Result<()> {
+    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         trace!("bp_write addr = {:08x}, len = {}", addr, data.len());
 
         // It seems the HW force-aligns the addr
@@ -338,20 +354,20 @@ where
         // To simplify, enforce 4-align for now.
         assert!(addr % 4 == 0);
 
-        let mut data: &Aligned<A4, [u8]> = data.to_aligned();
-
         loop {
             // Ensure transfer doesn't cross a window boundary.
             let window_offs = addr & BACKPLANE_ADDRESS_MASK;
             let window_remaining = BACKPLANE_WINDOW_SIZE - window_offs as usize;
-
             let len = data.len().min(BLOCK_BUFFER_SIZE).min(window_remaining);
-            let buf = &data[..len];
 
             self.backplane_set_window(addr).await;
 
-            self.cmd53_write(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK as u32, buf)
-                .await?;
+            self.cmd53_write(
+                FUNC_BACKPLANE,
+                addr & BACKPLANE_ADDRESS_MASK as u32,
+                to_aligned(&data[..len], buf),
+            )
+            .await?;
 
             // Advance ptr.
             addr += len as u32;
