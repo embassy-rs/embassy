@@ -27,11 +27,19 @@ const LVGL_TICK_MS: u64 = LV_DEF_REFR_PERIOD as u64 / 4;
 
 /// Number of display lines covered by each LVGL partial stripe buffer.
 ///
-/// Two of these stripe buffers are allocated; 16 lines (≈25 KiB each) keeps the
-/// pair small enough to fit beside the LVGL pool and the PIO scan-out bounce
-/// buffers in the RP2350B's 520 KiB SRAM, while still giving LVGL a decent
-/// partial-render chunk.
-pub const COLOR_BUF_LINES: usize = 16;
+/// This is the OxivGL tile height and mirrors the rlvgl demo's
+/// `render::TILE_LINES = 39`: LVGL renders each dirty area into one of these
+/// SRAM stripe buffers (the "tile"), and the flush callback copies that tile
+/// linearly into the live PSRAM framebuffer via `pio_rgb::blit_rgb565` — the
+/// same tile-rendering strategy used by the hand-rolled rlvgl renderer, just
+/// driven natively by LVGL's PARTIAL render mode instead of a custom
+/// `TileRenderer`.
+///
+/// `800 × 39 × RGB565 ≈ 62.4 KiB` per buffer; two of them are allocated, which
+/// still fits beside the LVGL pool and the PIO scan-out bounce buffers in the
+/// RP2350B's 520 KiB SRAM while giving LVGL a wide tile to minimise flush
+/// callback overhead and keep PSRAM writes sequential.
+pub const COLOR_BUF_LINES: usize = 39;
 /// Byte size of one LVGL partial stripe buffer (RGB565).
 pub const LVGL_BUF_BYTES: usize = DISPLAY_WIDTH * COLOR_BUF_LINES * 2;
 
