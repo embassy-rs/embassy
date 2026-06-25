@@ -20,7 +20,7 @@ enum Word {
 const BLOCK_SIZE: usize = BACKPLANE_MAX_TRANSFER_SIZE;
 
 fn to_blocks<const BLOCK_SIZE: usize>(bytes: &Aligned<A4, [u8]>) -> &[Aligned<A4, [u8; BLOCK_SIZE]>] {
-    assert!(bytes.len() % BLOCK_SIZE == 0);
+    assert!(bytes.len().is_multiple_of(BLOCK_SIZE));
 
     let ptr = bytes.as_ptr() as *const Aligned<A4, [u8; BLOCK_SIZE]>;
     let len = bytes.len() / BLOCK_SIZE;
@@ -29,7 +29,7 @@ fn to_blocks<const BLOCK_SIZE: usize>(bytes: &Aligned<A4, [u8]>) -> &[Aligned<A4
 }
 
 fn to_blocks_mut<const BLOCK_SIZE: usize>(bytes: &mut Aligned<A4, [u8]>) -> &mut [Aligned<A4, [u8; BLOCK_SIZE]>] {
-    assert!(bytes.len() % BLOCK_SIZE == 0);
+    assert!(bytes.len().is_multiple_of(BLOCK_SIZE));
 
     let ptr = bytes.as_mut_ptr() as *mut Aligned<A4, [u8; BLOCK_SIZE]>;
     let len = bytes.len() / BLOCK_SIZE;
@@ -38,7 +38,7 @@ fn to_blocks_mut<const BLOCK_SIZE: usize>(bytes: &mut Aligned<A4, [u8]>) -> &mut
 }
 
 fn to_aligned<'a>(data: &'a [u8], buf: &'a mut Aligned<A4, [u8]>) -> &'a Aligned<A4, [u8]> {
-    if (data.as_ptr() as usize) % mem::align_of::<A4>() == 0 {
+    if (data.as_ptr() as usize).is_multiple_of(mem::align_of::<A4>()) {
         unsafe { &*(data as *const [u8] as *const Aligned<A4, [u8]>) }
     } else {
         buf[..data.len()].copy_from_slice(data);
@@ -53,7 +53,7 @@ async fn with_aligned<'a, R>(
     mut f: impl AsyncFnMut(&mut Aligned<A4, [u8]>) -> R,
 ) -> R {
     let ptr = data.as_mut_ptr();
-    let is_aligned = (ptr as usize) % align_of::<A4>() == 0;
+    let is_aligned = (ptr as usize).is_multiple_of(align_of::<A4>());
 
     if is_aligned {
         // SAFETY: data is aligned to A4, and Aligned<A4, [u8]> is repr(transparent)
@@ -111,7 +111,7 @@ where
 
         self.backplane_set_window(CHIPCOMMON_BASE_ADDRESS).await;
 
-        return val;
+        val
     }
 
     async fn backplane_writen(&mut self, addr: u32, val: u32, word: Word) {
@@ -124,7 +124,7 @@ where
             bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
         }
 
-        let _ = match word {
+        match word {
             Word::U8 => self.write8(FUNC_BACKPLANE, bus_addr, val.try_into().unwrap()).await,
             Word::U16 => self.write16(FUNC_BACKPLANE, bus_addr, val.try_into().unwrap()).await,
             Word::U32 => self.write32(FUNC_BACKPLANE, bus_addr, val).await,
@@ -172,7 +172,7 @@ where
             let buf = &buf[..block_part];
 
             self.sdio
-                .cmd53_write_blocks(func as u8, true, addr, to_blocks::<BLOCK_SIZE>(buf))
+                .cmd53_write_blocks(func, true, addr, to_blocks::<BLOCK_SIZE>(buf))
                 .await
                 .map_err(|_| crate::Error)
                 .ctx("cmd53 block write failed")?;
@@ -184,7 +184,7 @@ where
             let buf = &buf[block_part..];
 
             self.sdio
-                .cmd53_write_bytes(func as u8, true, addr, buf)
+                .cmd53_write_bytes(func, true, addr, buf)
                 .await
                 .map_err(|_| crate::Error)
                 .ctx("cmd53 byte write failed")?;
@@ -202,7 +202,7 @@ where
             let buf = &mut buf[..block_part];
 
             self.sdio
-                .cmd53_read_blocks(func as u8, true, addr, to_blocks_mut::<BLOCK_SIZE>(buf))
+                .cmd53_read_blocks(func, true, addr, to_blocks_mut::<BLOCK_SIZE>(buf))
                 .await
                 .map_err(|_| crate::Error)
                 .ctx("cmd53 block write failed")?;
@@ -214,7 +214,7 @@ where
             let buf = &mut buf[block_part..];
 
             self.sdio
-                .cmd53_read_bytes(func as u8, true, addr, buf)
+                .cmd53_read_bytes(func, true, addr, buf)
                 .await
                 .map_err(|_| crate::Error)
                 .ctx("cmd53 byte write failed")?;
@@ -294,7 +294,7 @@ where
             buf.fill(0);
             // A timed-out partial F2 read leaves the same packet pending forever.
             // Mirror WHD's abort path so the device can reset its F2 read state.
-            self.write8(FUNC_BUS, SDIOD_CCCR_IOABORT, FUNC_WLAN as u8).await;
+            self.write8(FUNC_BUS, SDIOD_CCCR_IOABORT, FUNC_WLAN).await;
             self.write8(FUNC_BACKPLANE, REG_BACKPLANE_FRAME_CONTROL, SFC_RF_TERM)
                 .await;
 
@@ -315,7 +315,7 @@ where
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
         // To simplify, enforce 4-align for now.
-        assert!(addr % 4 == 0);
+        assert!(addr.is_multiple_of(4));
 
         loop {
             // Ensure transfer doesn't cross a window boundary.
@@ -326,7 +326,7 @@ where
             self.backplane_set_window(addr).await;
 
             with_aligned(&mut data[..len], buf, async |buf| {
-                self.cmd53_read(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK as u32, buf)
+                self.cmd53_read(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK, buf)
                     .await
             })
             .await?;
@@ -352,7 +352,7 @@ where
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
         // To simplify, enforce 4-align for now.
-        assert!(addr % 4 == 0);
+        assert!(addr.is_multiple_of(4));
 
         loop {
             // Ensure transfer doesn't cross a window boundary.
@@ -364,7 +364,7 @@ where
 
             self.cmd53_write(
                 FUNC_BACKPLANE,
-                addr & BACKPLANE_ADDRESS_MASK as u32,
+                addr & BACKPLANE_ADDRESS_MASK,
                 to_aligned(&data[..len], buf),
             )
             .await?;
@@ -410,11 +410,11 @@ where
     }
 
     async fn read8(&mut self, func: u8, addr: u32) -> u8 {
-        self.sdio.cmd52_read(func as u8, addr).await.unwrap_or_default()
+        self.sdio.cmd52_read(func, addr).await.unwrap_or_default()
     }
 
     async fn write8(&mut self, func: u8, addr: u32, val: u8) {
-        let _ = self.sdio.cmd52_write(func as u8, addr, val).await;
+        let _ = self.sdio.cmd52_write(func, addr, val).await;
     }
 
     async fn read16(&mut self, func: u8, addr: u32) -> u16 {
@@ -425,7 +425,7 @@ where
     }
 
     async fn write16(&mut self, func: u8, addr: u32, val: u16) {
-        let val: Aligned<A4, [u8; 2]> = Aligned(val.to_le_bytes().into());
+        let val: Aligned<A4, [u8; 2]> = Aligned(val.to_le_bytes());
         let _ = self.cmd53_write(func, addr, &val).await;
     }
 
@@ -437,7 +437,7 @@ where
     }
 
     async fn write32(&mut self, func: u8, addr: u32, val: u32) {
-        let val: Aligned<A4, [u8; 4]> = Aligned(val.to_le_bytes().into());
+        let val: Aligned<A4, [u8; 4]> = Aligned(val.to_le_bytes());
         let _ = self.cmd53_write(func, addr, &val).await;
     }
 
