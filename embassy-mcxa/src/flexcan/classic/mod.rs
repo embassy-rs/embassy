@@ -5,12 +5,14 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_sync::waitqueue::AtomicWaker;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
 use embassy_hal_internal::Peri;
 
 use crate::flexcan::classic::mailbox::tx;
 use crate::flexcan::classic::frame::Frame;
 use crate::flexcan::filter::{FilterConfig, FilterConfigError};
-use crate::flexcan::control::{Control, ControlError};
+use crate::flexcan::control::{Control};
 use crate::interrupt::typelevel::Handler;
 use nxp_pac::can as pac;
 
@@ -60,6 +62,9 @@ pub(in crate::flexcan) struct Info {
     /// if a user tries to enable this feature in their config on an unsupported peripheral,
     /// they'll get an error at init-time.
     pub prexcen_supported: bool,
+
+    /// Software queue that holds received RX frames.
+    pub rx_channel: Channel<CriticalSectionRawMutex, Frame, 8>,
 }
 
 /// Errors that can return when initializing
@@ -143,6 +148,7 @@ impl<'d> FlexCan<'d> {
     }
 
     /// Sends a CAN message.
+    /// 
     /// If there's no space left in the TX buffers, this
     /// call asynchronously waits for space to free up, and then tries again.
     pub async fn send(&mut self, frame: Frame) {
@@ -159,6 +165,14 @@ impl<'d> FlexCan<'d> {
                 Err(Other(e)) => match e {},
             }
         }).await
+    }
+
+    /// Receives a CAN message.
+    /// 
+    /// If there are no new messages, this call asynchronously
+    /// waits for new messages to arrive.
+    pub async fn receive(&self) -> Frame {
+        self.info.rx_channel.receive().await
     }
 }
 
@@ -207,6 +221,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 
         // Check if any RX messages can be dequeued, and if so, dequeue them.
         while let Some(message) = mailbox::rx::fifo::get(info) {
+            // Dequeue a frame from the hardware RX FIFO
             let frame: Frame = match message.try_into() {
                 Ok(message) => message,
 
@@ -214,7 +229,13 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
                 // exceed 11 bits/29 bits, but if it does somehow, just drop the frame.
                 Err(_) => { continue; }
             };
-            // uhh do this tomorrow
+            
+            // Push the frame into the software RX queue
+            if info.rx_channel.try_send(frame).is_err() {
+                // if the software queue is full, do nothing (i.e., drop the frame)
+                // eventually, it could be nice to increment a "dropped" counter or something that the
+                // user of the HAL can look at on their own time
+            }
         }
 
         // u_TODO: when RX (Enhanced RX FIFO: erfsr/erfier) and error/bus-off (esr1/ctrl1) handling are added, demux them here
