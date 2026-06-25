@@ -366,14 +366,14 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
     pub fn new_blocking_slave_rxonly(
         inner: Peri<'d, T>,
         clk: Peri<'d, impl ClkPin<T> + 'd>,
-        mosi: Peri<'d, impl MosiPin<T> + 'd>,
+        miso: Peri<'d, impl MisoPin<T> + 'd>,
         cs: Peri<'d, impl CsPin<T> + 'd>,
     ) -> Self {
         Self::new_inner(
             inner,
             Some(clk.into()),
-            Some(mosi.into()),
             None,
+            Some(miso.into()),
             Some(cs.into()),
             None,
             None,
@@ -517,7 +517,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     pub fn new_slave_rxonly<TxDma: ChannelInstance, RxDma: ChannelInstance>(
         inner: Peri<'d, T>,
         clk: Peri<'d, impl ClkPin<T> + 'd>,
-        mosi: Peri<'d, impl MosiPin<T> + 'd>,
+        miso: Peri<'d, impl MisoPin<T> + 'd>,
         cs: Peri<'d, impl CsPin<T> + 'd>,
         tx_dma: Peri<'d, TxDma>,
         rx_dma: Peri<'d, RxDma>,
@@ -530,8 +530,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         Self::new_inner(
             inner,
             Some(clk.into()),
-            Some(mosi.into()),
             None,
+            Some(miso.into()),
             Some(cs.into()),
             Some(tx_dma_ch),
             Some(rx_dma_ch),
