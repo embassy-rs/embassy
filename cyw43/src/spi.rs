@@ -31,12 +31,12 @@ pub trait SpiBusCyw43 {
 }
 
 const fn slice32_mut(x: &mut Aligned<A4, [u8]>) -> &mut [u32] {
-    let len = (size_of_val(x) + 3) / 4;
+    let len = size_of_val(x).div_ceil(4);
     unsafe { slice::from_raw_parts_mut(x as *mut Aligned<A4, [u8]> as *mut u32, len) }
 }
 
 const fn slice32_ref(x: &Aligned<A4, [u8]>) -> &[u32] {
-    let len = (size_of_val(x) + 3) / 4;
+    let len = size_of_val(x).div_ceil(4);
     unsafe { slice::from_raw_parts(x as *const Aligned<A4, [u8]> as *const u32, len) }
 }
 
@@ -76,7 +76,7 @@ where
 
         trace!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, len, val);
 
-        return val;
+        val
     }
 
     async fn backplane_writen(&mut self, addr: u32, val: u32, len: u32) {
@@ -251,7 +251,7 @@ where
             | IRQ_F2_PACKET_AVAILABLE
             | IRQ_F1_OVERFLOW;
         if bluetooth_enabled {
-            val = val | IRQ_F1_INTR;
+            val |= IRQ_F1_INTR;
         }
         self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, val).await;
 
@@ -263,7 +263,7 @@ where
         let buf = slice32_mut(buf);
 
         let cmd = cmd_word(READ, INC_ADDR, FUNC_WLAN, 0, len_in_u8);
-        let len_in_u32 = (len_in_u8 as usize + 3) / 4;
+        let len_in_u32 = (len_in_u8 as usize).div_ceil(4);
 
         self.status = self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
 
@@ -283,7 +283,7 @@ where
         &mut self,
         mut addr: u32,
         mut data: &mut [u8],
-        mut buf: &mut Aligned<A4, [u8]>,
+        buf: &mut Aligned<A4, [u8]>,
     ) -> crate::Result<()> {
         trace!("bp_read addr = {:08x}", addr);
 
@@ -291,7 +291,7 @@ where
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
         // To simplify, enforce 4-align for now.
-        assert!(addr % 4 == 0);
+        assert!(addr.is_multiple_of(4));
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
@@ -307,11 +307,11 @@ where
             // round `buf` to word boundary, add one extra word for the response delay
             self.status = self
                 .spi
-                .cmd_read(cmd, &mut slice32_mut(&mut buf)[..(len + 3) / 4 + 1])
+                .cmd_read(cmd, &mut slice32_mut(buf)[..len.div_ceil(4) + 1])
                 .await;
 
             // when writing out the data, we skip the response-delay byte
-            data[..len].copy_from_slice(&mut buf[4..][..len]);
+            data[..len].copy_from_slice(&buf[4..][..len]);
 
             // Advance ptr.
             addr += len as u32;
@@ -321,14 +321,14 @@ where
         Ok(())
     }
 
-    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8], mut buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
+    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         trace!("bp_write addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
         // To simplify, enforce 4-align for now.
-        assert!(addr % 4 == 0);
+        assert!(addr.is_multiple_of(4));
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
@@ -341,9 +341,9 @@ where
             self.backplane_set_window(addr).await;
 
             let cmd = cmd_word(WRITE, INC_ADDR, FUNC_BACKPLANE, window_offs, len as u32);
-            slice32_mut(&mut buf)[0] = cmd;
+            slice32_mut(buf)[0] = cmd;
 
-            self.status = self.spi.cmd_write(&slice32_ref(&buf)[..(len + 3) / 4 + 1]).await;
+            self.status = self.spi.cmd_write(&slice32_ref(buf)[..len.div_ceil(4) + 1]).await;
 
             // Advance ptr.
             addr += len as u32;
