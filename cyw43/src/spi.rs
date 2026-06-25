@@ -279,12 +279,7 @@ where
         Ok(())
     }
 
-    async fn bp_read(
-        &mut self,
-        mut addr: u32,
-        mut data: &mut [u8],
-        buf: &mut Aligned<A4, [u8]>,
-    ) -> crate::Result<()> {
+    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8], buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
         trace!("bp_read addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
