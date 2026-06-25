@@ -81,10 +81,16 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         tx_dma: Option<Channel<'d>>,
         rx_dma: Option<Channel<'d>>,
         config: Config,
+        slave: bool,
     ) -> Self {
-        Self::apply_config(&inner, &config);
-
         let p = inner.regs();
+
+        // disable (to ensure correct master/slave bit)
+        p.cr1().write(|w| w.set_sse(false));
+        // Its necessary to disable SPI before setting slave!
+        p.cr1().modify(|w| w.set_ms(slave));
+
+        Self::apply_config(&inner, &config);
 
         // Always enable DREQ signals -- harmless if DMA is not listening
         p.dmacr().write(|reg| {
@@ -92,8 +98,8 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             reg.set_txdmae(true);
         });
 
-        // finally, enable.
-        p.cr1().write(|w| w.set_sse(true));
+        // finally, enable (preserving MS bit)
+        p.cr1().modify(|w| w.set_sse(true));
 
         if let Some(pin) = &clk {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
@@ -240,8 +246,8 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     pub fn set_frequency(&mut self, freq: u32) {
         let (presc, postdiv) = calc_prescs(freq);
         let p = self.inner.regs();
-        // disable
-        p.cr1().write(|w| w.set_sse(false));
+        // disable (preserving MS bit)
+        p.cr1().modify(|w| w.set_sse(false));
 
         // change stuff
         p.cpsr().write(|w| w.set_cpsdvsr(presc));
@@ -249,22 +255,22 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             w.set_scr(postdiv);
         });
 
-        // enable
-        p.cr1().write(|w| w.set_sse(true));
+        // enable (preserving MS bit)
+        p.cr1().modify(|w| w.set_sse(true));
     }
 
     /// Set SPI config.
     pub fn set_config(&mut self, config: &Config) {
         let p = self.inner.regs();
 
-        // disable
-        p.cr1().write(|w| w.set_sse(false));
+        // disable (preserving MS bit)
+        p.cr1().modify(|w| w.set_sse(false));
 
         // change stuff
         Self::apply_config(&self.inner, config);
 
-        // enable
-        p.cr1().write(|w| w.set_sse(true));
+        // enable (preserving MS bit)
+        p.cr1().modify(|w| w.set_sse(true));
     }
 }
 
@@ -286,6 +292,7 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             None,
             None,
             config,
+            false,
         )
     }
 
@@ -305,12 +312,13 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             None,
             None,
             config,
+            false,
         )
     }
 
     /// Create an SPI driver in blocking mode supporting writes only, without SCK pin.
     pub fn new_blocking_txonly_nosck(inner: Peri<'d, T>, mosi: Peri<'d, impl MosiPin<T> + 'd>, config: Config) -> Self {
-        Self::new_inner(inner, None, Some(mosi.into()), None, None, None, None, config)
+        Self::new_inner(inner, None, Some(mosi.into()), None, None, None, None, config, false)
     }
 
     /// Create an SPI driver in blocking mode supporting reads only.
@@ -329,6 +337,48 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
             None,
             None,
             config,
+            false,
+        )
+    }
+
+    /// Create an SPI driver in blocking slave mode.
+    pub fn new_blocking_slave(
+        inner: Peri<'d, T>,
+        clk: Peri<'d, impl ClkPin<T> + 'd>,
+        mosi: Peri<'d, impl MosiPin<T> + 'd>,
+        miso: Peri<'d, impl MisoPin<T> + 'd>,
+        cs: Peri<'d, impl CsPin<T> + 'd>,
+    ) -> Self {
+        Self::new_inner(
+            inner,
+            Some(clk.into()),
+            Some(mosi.into()),
+            Some(miso.into()),
+            Some(cs.into()),
+            None,
+            None,
+            Config::default(),
+            true,
+        )
+    }
+
+    /// Create an SPI driver in blocking slave mode supporting reads only.
+    pub fn new_blocking_slave_rxonly(
+        inner: Peri<'d, T>,
+        clk: Peri<'d, impl ClkPin<T> + 'd>,
+        mosi: Peri<'d, impl MosiPin<T> + 'd>,
+        cs: Peri<'d, impl CsPin<T> + 'd>,
+    ) -> Self {
+        Self::new_inner(
+            inner,
+            Some(clk.into()),
+            Some(mosi.into()),
+            None,
+            Some(cs.into()),
+            None,
+            None,
+            Config::default(),
+            true,
         )
     }
 }
@@ -358,6 +408,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             Some(tx_dma_ch),
             Some(rx_dma_ch),
             config,
+            false,
         )
     }
 
@@ -380,6 +431,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             Some(tx_dma_ch),
             None,
             config,
+            false,
         )
     }
 
@@ -402,6 +454,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             Some(tx_dma_ch),
             None,
             config,
+            false,
         )
     }
 
@@ -428,6 +481,62 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             Some(tx_dma_ch),
             Some(rx_dma_ch),
             config,
+            false,
+        )
+    }
+
+    /// Create an SPI driver in async mode supporting DMA operations in slave mode.
+    pub fn new_slave<TxDma: ChannelInstance, RxDma: ChannelInstance>(
+        inner: Peri<'d, T>,
+        clk: Peri<'d, impl ClkPin<T> + 'd>,
+        mosi: Peri<'d, impl MosiPin<T> + 'd>,
+        miso: Peri<'d, impl MisoPin<T> + 'd>,
+        cs: Peri<'d, impl CsPin<T> + 'd>,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
+        irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
+        + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
+        + 'd,
+    ) -> Self {
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
+        let rx_dma_ch = dma::Channel::new(rx_dma, irq);
+        Self::new_inner(
+            inner,
+            Some(clk.into()),
+            Some(mosi.into()),
+            Some(miso.into()),
+            Some(cs.into()),
+            Some(tx_dma_ch),
+            Some(rx_dma_ch),
+            Config::default(),
+            true,
+        )
+    }
+
+    /// Create an SPI driver in async mode supporting DMA read operations only in slave mode.
+    pub fn new_slave_rxonly<TxDma: ChannelInstance, RxDma: ChannelInstance>(
+        inner: Peri<'d, T>,
+        clk: Peri<'d, impl ClkPin<T> + 'd>,
+        mosi: Peri<'d, impl MosiPin<T> + 'd>,
+        cs: Peri<'d, impl CsPin<T> + 'd>,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
+        irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
+        + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
+        + 'd,
+    ) -> Self {
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
+        let rx_dma_ch = dma::Channel::new(rx_dma, irq);
+        Self::new_inner(
+            inner,
+            Some(clk.into()),
+            Some(mosi.into()),
+            None,
+            Some(cs.into()),
+            Some(tx_dma_ch),
+            Some(rx_dma_ch),
+            Config::default(),
+            true,
         )
     }
 
