@@ -44,11 +44,12 @@ pub(crate) struct State {
 }
 
 /// UART error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Buffer Overrun
+    #[error("buffer overrun")]
     Overrun,
 }
 

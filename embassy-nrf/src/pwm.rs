@@ -35,15 +35,18 @@ pub struct SequencePwm<'d> {
 }
 
 /// PWM error
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Max Sequence size is 32767
+    #[error("sequence too long: max sequence size is 32767")]
     SequenceTooLong,
     /// Min Sequence count is 1
+    #[error("sequence must play at least once")]
     SequenceTimesAtLeastOne,
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
+    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
 }
 
