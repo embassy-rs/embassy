@@ -138,6 +138,8 @@ pub mod pdm;
 #[cfg(any(feature = "nrf52840", feature = "nrf9160-s", feature = "nrf9160-ns"))]
 pub mod power;
 pub mod ppi;
+#[cfg(feature = "_nrf54l")]
+pub mod ppib;
 #[cfg(not(any(
     feature = "_nrf51",
     feature = "nrf52805",
