@@ -1990,22 +1990,16 @@ impl<'d> MmcBus for Sdmmc<'d> {
     /// Wait for DAT1 to be pulled low.
     async fn wait_for_event(&mut self) -> Result<(), MmcError> {
         poll_fn(|cx| {
-            let (state, regs) = (self.state, self.info.regs);
-
-            state.it_waker.register(cx.waker());
+            self.state.it_waker.register(cx.waker());
 
             compiler_fence(Ordering::SeqCst);
 
-            let status = regs.star().read();
-            let icr = regs.icr();
-            let maskr = regs.maskr();
-
-            if status.sdioit() {
-                icr.write(|w| w.set_sdioitc(true));
+            if self.info.regs.star().read().sdioit() {
+                self.info.regs.icr().write(|w| w.set_sdioitc(true));
 
                 Poll::Ready(())
             } else {
-                maskr.set_bits(|w| w.set_sdioitie(true));
+                self.info.regs.maskr().set_bits(|w| w.set_sdioitie(true));
 
                 Poll::Pending
             }
