@@ -556,7 +556,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         }
 
         debug!("loading nvram");
-        let nvram_len = (nvram.len() + 3) / 4 * 4;
+        let nvram_len = nvram.len().div_ceil(4) * 4;
         let nvram_addr = ram_addr + self.chip.chip_ram_size() - 4 - nvram_len as u32;
         self.bus
             .bp_write(nvram_addr, nvram, &mut buf)
@@ -821,11 +821,11 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         trace!("tx {:?}", sdpcm_header);
                         trace!("    {:?}", bdc_header);
 
-                        buf8[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
+                        buf8[0..SdpcmHeader::SIZE].copy_from_slice(sdpcm_header.to_bytes());
                         buf8[SdpcmHeader::SIZE + PADDING_SIZE..][..BdcHeader::SIZE]
-                            .copy_from_slice(&bdc_header.to_bytes());
+                            .copy_from_slice(bdc_header.to_bytes());
                         buf8[SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE..][..packet.len()]
-                            .copy_from_slice(&*packet);
+                            .copy_from_slice(&packet);
 
                         let total_len = (total_len + 3) & !3; // round up to 4byte
 
@@ -954,7 +954,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                             debug!("spi wlan_read failed");
                             break;
                         }
-                        trace!("rx {:02x}", Bytes(&mut buf[..(len as usize).min(48)]));
+                        trace!("rx {:02x}", Bytes(&buf[..(len as usize).min(48)]));
                         self.rx(&mut buf[..len as usize]);
                     } else {
                         break;
@@ -981,7 +981,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
                     trace!("pkt ready...");
                     let len = len as usize;
-                    if len > INITIAL_READ as usize {
+                    if len > INITIAL_READ {
                         if wlan_read(&mut self.bus, buf, false, INITIAL_READ, len - INITIAL_READ)
                             .await
                             .is_err()
@@ -1001,7 +1001,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                             break;
                         };
 
-                        self.update_credit(&sdpcm_header);
+                        self.update_credit(sdpcm_header);
                     } else if len > SdpcmHeader::SIZE {
                         trace!("rx {:02x}", Bytes(&buf[..len.min(48)]));
                         self.rx(&mut buf[..len]);
@@ -1016,7 +1016,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             return;
         };
 
-        self.update_credit(&sdpcm_header);
+        self.update_credit(sdpcm_header);
 
         let channel = sdpcm_header.channel_and_flags & 0x0f;
 
@@ -1174,7 +1174,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                             let Some(bss_info) = BssInfo::parse(bss_info) else {
                                 return;
                             };
-                            events::Payload::BssInfo(*bss_info)
+                            events::Payload::BssInfo(bss_info.clone())
                         }
                         Event::ESCAN_RESULT => events::Payload::None,
                         _ => events::Payload::None,
@@ -1260,8 +1260,8 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         trace!("tx {:?}", sdpcm_header);
         trace!("    {:?}", cdc_header);
 
-        buf8[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
-        buf8[SdpcmHeader::SIZE..][..CdcHeader::SIZE].copy_from_slice(&cdc_header.to_bytes());
+        buf8[0..SdpcmHeader::SIZE].copy_from_slice(sdpcm_header.to_bytes());
+        buf8[SdpcmHeader::SIZE..][..CdcHeader::SIZE].copy_from_slice(cdc_header.to_bytes());
         buf8[SdpcmHeader::SIZE + CdcHeader::SIZE..][..data.len()].copy_from_slice(data);
 
         let total_len = (total_len + 3) & !3; // round up to 4byte,

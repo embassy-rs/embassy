@@ -27,12 +27,12 @@ mod fmt;
 #[cfg(feature = "bluetooth")]
 pub mod bluetooth;
 mod control;
-mod iface;
+pub mod iface;
 mod ioctl;
 mod rpc;
 
 pub use control::*;
-pub use iface::*;
+use iface::Interface;
 
 const MTU: usize = 1514;
 
@@ -240,14 +240,19 @@ where
         self.reset.set_high().unwrap();
         Timer::after_millis(1000).await;
 
+        self.iface.init(true).await;
+        self.shared.interface_ready();
+
         let mut buffer = [0u8; MAX_BUFFER_SIZE];
 
         loop {
-            self.iface.wait_for_handshake().await;
-
             if let ioctl::ControlState::Reboot = self.shared.state() {
                 self.backend = Backend::default();
+                self.iface.init(false).await;
+                self.shared.interface_ready();
             }
+
+            self.iface.wait_for_handshake().await;
 
             let ioctl = self.shared.ioctl_wait_pending();
             let tx = self.ch.tx_buf();
@@ -264,6 +269,7 @@ where
             )
             .await;
 
+            let mut tx_len = 0;
             match event {
                 EitherMany::First(PendingIoctl { buf, req_len }) => {
                     let if_type_and_num = unwrap!(self.backend.encode_iface_type(InterfaceType::Serial));
@@ -281,30 +287,38 @@ where
                     };
                     self.next_seq = self.next_seq.wrapping_add(1);
                     header.copy(&mut buffer);
+                    tx_len = PayloadHeader::SIZE + payload_len;
                 }
                 EitherMany::Second(packet) => {
+                    let packet_len = packet.len();
                     if let Some(if_type_and_num) = self.backend.encode_iface_type(InterfaceType::Sta) {
-                        buffer[PayloadHeader::SIZE..][..packet.len()].copy_from_slice(&packet);
+                        buffer[PayloadHeader::SIZE..][..packet_len].copy_from_slice(&packet);
 
                         let header = PayloadHeader {
                             if_type_and_num,
-                            len: packet.len() as _,
+                            len: packet_len as _,
                             offset: PayloadHeader::SIZE as _,
                             seq_num: self.next_seq,
                             ..Default::default()
                         };
                         self.next_seq = self.next_seq.wrapping_add(1);
                         header.copy(&mut buffer);
+                        tx_len = PayloadHeader::SIZE + packet_len;
+                    } else {
+                        // Backend doesn't support the requested interface type. Drop the
+                        // packet and send nothing this iteration.
+                        buffer[..PayloadHeader::SIZE].fill(0);
                     }
 
                     packet.tx_done();
                 }
                 EitherMany::Third(()) => {
                     buffer[..PayloadHeader::SIZE].fill(0);
+                    tx_len = 0;
                 }
                 EitherMany::Fourth(()) => {
                     // Extend the deadline if initializing
-                    if let ioctl::ControlState::Reboot = self.shared.state() {
+                    if let ioctl::ControlState::Reboot | ioctl::ControlState::WaitingForInit = self.shared.state() {
                         self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP;
                         continue;
                     }
@@ -332,6 +346,7 @@ where
                         };
                         self.next_seq = self.next_seq.wrapping_add(1);
                         header.copy(&mut buffer);
+                        tx_len = PayloadHeader::SIZE + body.len() as usize;
                     } else {
                         // Backend doesn't support HCI (e.g. not yet initialized). Drop the
                         // packet and send nothing this iteration.
@@ -348,7 +363,7 @@ where
                 trace!("tx: {=[u8]:02x}", &buffer[..40]);
             }
 
-            self.iface.transfer(&mut buffer).await;
+            self.iface.transfer(&mut buffer, tx_len).await;
 
             self.handle_rx(&mut buffer);
         }
