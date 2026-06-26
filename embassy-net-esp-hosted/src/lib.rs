@@ -27,12 +27,12 @@ mod fmt;
 #[cfg(feature = "bluetooth")]
 pub mod bluetooth;
 mod control;
-mod iface;
+pub mod iface;
 mod ioctl;
 mod rpc;
 
 pub use control::*;
-pub use iface::*;
+use iface::Interface;
 
 const MTU: usize = 1514;
 
