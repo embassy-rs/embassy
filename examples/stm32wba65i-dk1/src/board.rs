@@ -3,14 +3,12 @@
 //! Peripherals exposed to the Rhai playground:
 //! - LD6 green (PD8), LD5 red (PD9), LD3 blue (PB10) — active-low
 //! - Joystick via ADC4 IN6 (PA3)
-//! - 128×64 SSD1306 OLED on I2C1 (PB2=SCL, PB1=SDA, addr 0x3C)
+//! - 128×64 SSD1306 OLED on SPI3 (PA0=SCK, PB8=MOSI, CS=PE1, D/C=PE0, RST=PE3)
 
 use embassy_stm32::gpio::{Level, Output};
 
 pub const BOARD_NAME: &str = "STM32WBA65I-DK1";
 pub const BLE_ADV_NAME: &str = "RhaiPlay";
-pub const OLED_I2C_ADDR: u8 = 0x3C;
-
 /// User LED index (active-low on the board).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]

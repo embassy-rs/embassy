@@ -27,6 +27,9 @@ embedded-io-async = "0.7.0"
 stm32wb-hci = { version = "0.18.0", git = "https://github.com/embassy-rs/stm32wb-hci.git", rev = "37a8090" }
 
 ssd1306 = { version = "0.10.0", default-features = false, features = ["graphics"] }
+display-interface = "0.5.0"
+display-interface-spi = "0.5.0"
+embedded-hal-bus = "0.3.0"
 embedded-graphics-core = "0.4.0"
 embedded-graphics = "0.8.1"
 
@@ -71,6 +74,9 @@ required-features = ["ble"]
 [[bin]]
 name = "ble_dtm_runtime"
 required-features = ["ble"]
+
+[[bin]]
+name = "oled_hello"
 
 [[bin]]
 name = "ble_rhai"
