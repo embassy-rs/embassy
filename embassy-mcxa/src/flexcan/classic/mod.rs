@@ -17,7 +17,7 @@ use crate::flexcan::filter::{FilterConfig, FilterConfigError};
 use crate::flexcan::control::{Control};
 use crate::flexcan::{RxPin, TxPin};
 use crate::gpio::AnyPin;
-use crate::interrupt::typelevel::Handler;
+use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::flexcan::classic::meta::rx_queue_size::{RX_QUEUE_SIZE, rx_queue_size_default, env_var_name};
 use nxp_pac::can as pac;
 
@@ -200,7 +200,12 @@ impl<'d> FlexCan<'d> {
         // Reset/setup the Enhanced RX FIFO.
         mailbox::rx::setup(info, &config.filters).map_err(|_| InitError::Timeout)?;
 
+        // Setup the interrupts
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable(); }
+
         info.control.unfreeze();
+
         Ok(Self { info, _rx, _tx, _phantom: PhantomData })
     }
 
