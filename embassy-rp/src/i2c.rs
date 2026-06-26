@@ -61,6 +61,7 @@ pub enum ConfigError {
 /// I2C config.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Frequency.
     pub frequency: u32,
