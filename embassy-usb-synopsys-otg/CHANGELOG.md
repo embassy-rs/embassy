@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Fixed: Periodic IN transfer future can no longer park forever.
+- Fixed: Later events no longer override earlier ones.
+
 ## 0.4.0 - 2026-05-28
 
 - **Breaking:** type-erased `State`/`HostState`, non-generic `OtgInstance`/`OtgHostInstance`, endpoint allocation in `State`, const generics removed from device/host drivers. Static state now needs to be constructed as `StateStorage::new()`/`HostStateStorage::new()` and then `as_state()`/`as_host_state()` must be called to obtain the state reference.
