@@ -2,6 +2,7 @@
 //!
 //! Only supported by `esp-hosted-mcu`.
 
+use aligned::{A4, Aligned};
 use embassy_time::Timer;
 use embedded_hal::digital::InputPin;
 use embedded_hal_async::digital::Wait;
@@ -222,7 +223,7 @@ where
         self.data_ready.wait_for_high().await.unwrap();
     }
 
-    async fn transfer(&mut self, buffer: &mut [u8], tx_len: usize) {
+    async fn transfer(&mut self, buffer: &mut Aligned<A4, [u8]>, tx_len: usize) {
         if tx_len > 0 {
             self.write_frame(&buffer[..tx_len]).await;
         }
