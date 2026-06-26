@@ -1,5 +1,6 @@
 //! Full-duplex SPI interface.
 
+use aligned::{A4, Aligned};
 use embassy_futures::join::join;
 use embedded_hal::digital::InputPin;
 use embedded_hal_async::digital::Wait;
@@ -47,7 +48,7 @@ where
         self.ready.wait_for_high().await.unwrap();
     }
 
-    async fn transfer(&mut self, buffer: &mut [u8], _tx_len: usize) {
+    async fn transfer(&mut self, buffer: &mut Aligned<A4, [u8]>, _tx_len: usize) {
         let (a, b) = join(
             // The esp-hosted firmware deasserts the HANDSHAKE pin a few us AFTER ending the SPI transfer
             // If we check it again too fast, we'll see it's high from the previous transfer, and if we send it

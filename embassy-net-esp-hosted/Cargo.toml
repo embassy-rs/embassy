@@ -19,7 +19,7 @@ build = [
 ]
 
 [features]
-defmt = ["dep:defmt", "heapless/defmt", "bt-hci?/defmt", "embedded-io-async?/defmt"]
+defmt = ["dep:defmt", "heapless/defmt", "bt-hci?/defmt", "embedded-io-async?/defmt", "sdio/defmt"]
 log = ["dep:log"]
 
 ## Enable Bluetooth (BLE) support using `bt-hci`.
@@ -46,6 +46,9 @@ embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-
 
 embedded-hal = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
+
+aligned = "0.4.3"
+sdio = "0.4"
 
 delegate = "0.13"
 micropb = { version = "0.6.0", default-features = false, features = ["container-heapless-0-9", "encode", "decode", "enable-64bit"] }
