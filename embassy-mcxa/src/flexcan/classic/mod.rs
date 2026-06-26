@@ -9,6 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_hal_internal::Peri;
+use nxp_pac::lpuart::M;
 
 use crate::flexcan::classic::mailbox::tx;
 use crate::flexcan::classic::frame::Frame;
@@ -106,6 +107,32 @@ pub struct FlexCanConfig<'a> {
     pub filters: FilterConfig<'a>,
 }
 
+/// Bus error modes.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BusErrorMode {
+    /// Error active mode (default). Controller will transmit an 
+    /// active error frame upon protocol error.
+    ErrorActive,
+
+    /// Error passive mode. An error coutner exceeded 127. Controller will
+    /// transmit a passive error frame upon protocol error.
+    ErrorPassive,
+
+    /// Bus off mode. The transmit error counter exceeded 255. Controller is
+    /// not participating in bus traffic.
+    BusOff,
+}
+
+/// Errors that may occur when sending a CAN message.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SendError {
+    /// The TX mailbox is currently full.
+    TxMailboxFull,
+
+    /// The bus is currently in BusOff mode and cannot immediately dispatch a message.
+    BusOff,
+}
+
 impl<'d> FlexCan<'d> {
     /// Constructs a new FlexCAN driver instance, in Classic mode.
     /// 
@@ -134,6 +161,17 @@ impl<'d> FlexCan<'d> {
         // Disable FDCAN
         info.control.regs().mcr().modify(|m| m.set_fden(pac::Fden::CanFdDisabled));
 
+        // Route bus-off events to the ISR, and enable autorecovery.
+        info.control.regs().ctrl1().modify(|w| {
+            w.set_boffmsk(pac::Boffmsk::BusOffIntEnabled);
+            w.set_boffrec(pac::Boffrec::AutoRecoverEnabled);
+        });
+
+        // Enable BOFFDONE interrupt
+        info.control.regs().ctrl2().modify(|w| {
+            w.set_boffdonemsk(true);
+        });
+
         // As of right now, the whole HAL is based around us having 32 message buffers.
         // So, this isn't something the user should be able to configure.
         const NUM_MESSAGE_BUFFERS: u8 = 32;
@@ -153,6 +191,15 @@ impl<'d> FlexCan<'d> {
     /// 
     /// If there's no space left in the TX buffers, this
     /// call asynchronously waits for space to free up, and then tries again.
+    /// 
+    /// Note: During a BusOff event, this function will asynchronously wait until
+    /// the bus recovers. This is due to the behavior mentioned above: The TX mailbox
+    /// doesn't drain during BusOff (and will eventually fill up), causing this
+    /// function to wait until after recovery when buffers start becoming available again.
+    /// 
+    /// Unless explicitly disabled, FlexCAN will recover from BusOff automatically. However,
+    /// if you need to be notified immediately when a BusOff event occurs, see the `try_send()`
+    /// and `error_mode()` functions.
     pub async fn send(&mut self, frame: Frame) {
         use core::future::poll_fn;
         use nb::Error::{WouldBlock, Other};
@@ -167,6 +214,25 @@ impl<'d> FlexCan<'d> {
                 Err(Other(e)) => match e {},
             }
         }).await
+    }
+
+    /// Attempts to send a CAN message.
+    /// 
+    /// This function returns immediately upon being called, either with `Ok(())` or
+    /// a `SendError`. For this function's async counterpart, see `send()`.
+    pub fn try_send(&self, frame: Frame) -> Result<(), SendError> {
+        use nb::Error::{WouldBlock, Other};
+
+        if self.error_mode() == BusErrorMode::BusOff {
+            return Err(SendError::BusOff);
+        }
+
+        let message = tx::TxMessage::from(frame);
+        match tx::dispatch(self.info, &message) {
+            Ok(()) => Ok(()),
+            Err(WouldBlock) => Err(SendError::TxMailboxFull),
+            Err(Other(e)) => match e {},
+        }
     }
 
     /// Receives a CAN message.
@@ -185,6 +251,16 @@ impl<'d> FlexCan<'d> {
     #[doc = concat!("If you don't specify anything, the queue will default to a size of ", rx_queue_size_default!(), " frames.")]
     pub async fn receive(&self) -> Frame {
         self.info.rx_channel.receive().await
+    }
+
+    /// Returns the error mode the FlexCAN is currently in.
+    /// See `BusErrorMode`.
+    pub fn error_mode(&self) -> BusErrorMode {
+        match self.info.control.regs().esr1().read().fltconf() {
+            pac::Fltconf::ErrorActive => BusErrorMode::ErrorActive,
+            pac::Fltconf::ErrorPassive => BusErrorMode::ErrorPassive,
+            pac::Fltconf::BusOff | pac::Fltconf::_RESERVED_3 => BusErrorMode::BusOff,
+        }
     }
 }
 
@@ -250,6 +326,21 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             }
         }
 
-        // u_TODO: when RX (Enhanced RX FIFO: erfsr/erfier) and error/bus-off (esr1/ctrl1) handling are added, demux them here
+        /* BUSOFF STUFF: */
+        let esr1 = can.esr1().read();
+
+        // Handle when BusOff has triggered
+        if esr1.boffint() {
+            // Acknowledge the flag (write 1 to clear)
+            can.esr1().write(|w| w.set_boffint(true));
+            let _ = can.esr1().read(); // make sure the clear lands before returning
+        }
+
+        // Handle when BusOff autorecovery has finished
+        if esr1.boffdoneint() == pac::Boffdoneint::BusOffDone {
+            // Acknowledge the flag (write 1 to clear)
+            can.esr1().write(|w| w.set_boffdoneint(pac::Boffdoneint::BusOffDone));
+            let _ = can.esr1().read(); // Make surethe clear lands before returning
+        }
     }
 }

@@ -22,7 +22,7 @@ pub(in crate::flexcan::classic) mod rx_queue_size {
             let mut i = 0;
             while i < bytes.len() {
                 let b = bytes[i];
-                assert!(b >= b'0' && b <= b'9', concat!(env_var_name!(), " must be a decimal integer"));
+                assert!(b.is_ascii_digit(), concat!(env_var_name!(), " must be a decimal integer"));
                 assert!(num < usize::MAX / 10, concat!(env_var_name!(), " is too large"));
                 num = num * 10 + (b - b'0') as usize;
                 i += 1;
