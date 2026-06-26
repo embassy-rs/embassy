@@ -5,7 +5,7 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use super::raw;
-use crate::Metadata;
+use crate::{ExecutorId, MetadataRef, TaskId};
 
 /// Token to spawn a newly-created task in an executor.
 ///
@@ -37,13 +37,13 @@ impl<S> SpawnToken<S> {
 
     /// Returns the task ID.
     /// This can be used in combination with rtos-trace to match task names with IDs
-    pub fn id(&self) -> u32 {
+    pub fn id(&self) -> TaskId {
         self.raw_task.id()
     }
 
     /// Get the metadata for this task. You can use this to set metadata fields
     /// prior to spawning it.
-    pub fn metadata(&self) -> &Metadata {
+    pub fn metadata(&self) -> MetadataRef {
         self.raw_task.metadata()
     }
 }
@@ -173,7 +173,7 @@ impl Spawner {
     }
 
     /// Return the unique ID of this Spawner's Executor.
-    pub fn executor_id(&self) -> usize {
+    pub fn executor_id(&self) -> ExecutorId {
         self.executor.id()
     }
 }

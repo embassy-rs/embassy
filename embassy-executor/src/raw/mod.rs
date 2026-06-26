@@ -51,7 +51,7 @@ use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use self::waker::try_task_from_waker;
 use super::SpawnToken;
-use crate::{Metadata, SpawnError};
+use crate::{ExecutorId, Metadata, MetadataRef, SpawnError, TaskId};
 
 #[unsafe(no_mangle)]
 extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
@@ -145,14 +145,21 @@ impl TaskRef {
         unsafe { self.ptr.as_ref() }
     }
 
-    pub(crate) fn metadata(self) -> &'static Metadata {
-        unsafe { &self.ptr.as_ref().metadata }
+    /// Get the metadata of this task
+    pub fn metadata(self) -> MetadataRef {
+        MetadataRef::new(self)
     }
 
     /// Returns a reference to the executor that the task is currently running on.
     pub unsafe fn executor(self) -> Option<&'static Executor> {
         let executor = self.header().executor.load(Ordering::Relaxed);
         executor.as_ref().map(|e| Executor::wrap(e))
+    }
+
+    /// Get the id of the executor the task is currently running on.
+    /// None when the task is not running.
+    pub fn executor_id(self) -> Option<ExecutorId> {
+        unsafe { self.executor().map(|e| e.id()) }
     }
 
     /// Returns a mutable reference to the timer queue item.
@@ -170,9 +177,9 @@ impl TaskRef {
     }
 
     /// Returns the task ID.
-    /// This can be used in combination with rtos-trace to match task names with IDs
-    pub fn id(&self) -> u32 {
-        self.as_ptr() as u32
+    /// This can be used in combination with (rtos-)trace to match task names with IDs
+    pub fn id(&self) -> TaskId {
+        TaskId(self.as_ptr() as usize)
     }
 }
 
@@ -267,7 +274,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 this.raw.state.despawn();
 
                 #[cfg(feature = "_any_trace")]
-                trace::task_end(exec_ptr, &p);
+                trace::task_end(exec_ptr, p);
             }
             Poll::Pending => {}
         }
@@ -438,9 +445,9 @@ impl SyncExecutor {
     /// - `task` must be set up to run in this executor.
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
-    unsafe fn enqueue(&self, task: TaskRef, l: state::Token) {
+    unsafe fn enqueue(&'static self, task: TaskRef, l: state::Token) {
         #[cfg(feature = "_any_trace")]
-        trace::task_ready_begin(self, &task);
+        trace::task_ready_begin(self, task);
 
         if self.run_queue.enqueue(task, l) {
             self.pender.pend();
@@ -453,7 +460,7 @@ impl SyncExecutor {
             .store((self as *const Self).cast_mut(), Ordering::Relaxed);
 
         #[cfg(feature = "_any_trace")]
-        trace::task_new(self, &task);
+        trace::task_new(self, task);
 
         state::locked(|l| {
             self.enqueue(task, l);
@@ -471,17 +478,22 @@ impl SyncExecutor {
             let task = p.header();
 
             #[cfg(feature = "_any_trace")]
-            trace::task_exec_begin(self, &p);
+            trace::task_exec_begin(self, p);
 
             // Run the task
             task.poll_fn.get().unwrap_unchecked()(p);
 
             #[cfg(feature = "_any_trace")]
-            trace::task_exec_end(self, &p);
+            trace::task_exec_end(self, p);
         });
 
         #[cfg(feature = "_any_trace")]
         trace::executor_idle(self)
+    }
+
+    /// Get a unique ID for this Executor.
+    pub fn id(&'static self) -> ExecutorId {
+        ExecutorId(self as *const Self as usize)
     }
 }
 
@@ -587,8 +599,8 @@ impl Executor {
     }
 
     /// Get a unique ID for this Executor.
-    pub fn id(&'static self) -> usize {
-        &self.inner as *const SyncExecutor as usize
+    pub fn id(&'static self) -> ExecutorId {
+        self.inner.id()
     }
 }
 

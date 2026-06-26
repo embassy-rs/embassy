@@ -126,7 +126,7 @@ async fn main(spawner: Spawner) {
         let start = Instant::now();
         // Set the deadline to ~2x the theoretical time. In practice, setting any deadline
         // here elevates the current task above all other worker tasks.
-        let meta = embassy_executor::Metadata::for_current_task().await;
+        let meta = embassy_executor::MetadataRef::for_current_task().await;
         meta.set_deadline_after(theoretical * 2);
 
         // Perform the trial
