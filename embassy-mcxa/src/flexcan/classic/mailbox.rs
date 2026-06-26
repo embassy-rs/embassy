@@ -289,11 +289,9 @@ pub(in crate::flexcan) mod rx {
 
             let cs = info.control.pac_fifocs().read();
             let id = info.control.pac_fifoid().read();
-
-            // Get the length and clamp it to 8 bytes
             let len = (cs.dlc() as usize).min(8);
 
-            /// The maximum number of words we may need to read in this function.
+            /// This const is the maximum number of words we may need to read in this function.
             /// This is defined as the number of words for MAX_PAYLOAD, plus one extra word for ID_HIT.
             /// For Classic CAN, where MAX_PAYLOAD = 8 bytes, MAX_WORDS will equal 3 (first two for payload data, and the last one for ID_HIT)
             const MAX_WORDS: usize = const {to_words(8) + 1}; // 3

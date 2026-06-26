@@ -5,7 +5,7 @@ use nxp_pac::can as pac;
 
 /// Contains a bunch of random helpers for controlling/configuring the FlexCAN peripheral.
 #[allow(dead_code)]
-pub(in crate::flexcan) struct Control {
+pub(crate) struct Control {
     regs: pac::Can,
 }
 
@@ -13,7 +13,7 @@ pub(in crate::flexcan) struct Control {
 // u_Note: default MCR for CAN1: 11011000100100000000010000001111
 
 impl Control {
-    pub(in crate::flexcan) const fn new(regs: pac::Can) -> Self {
+    pub(crate) const fn new(regs: pac::Can) -> Self {
         Self { regs }
     }
 

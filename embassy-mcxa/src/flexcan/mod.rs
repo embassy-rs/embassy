@@ -1,10 +1,11 @@
 pub mod classic;
 pub mod filter;
-mod control;
+pub(crate) mod control;
 
 pub use control::ControlError;
 
 use embassy_hal_internal::PeripheralType;
+use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::Interrupt;
 
 /// Shared, mode-agnostic peripheral identity. Each FlexCAN instance implements this
@@ -13,9 +14,66 @@ pub trait Instance: PeripheralType + 'static + Send {
     type Interrupt: Interrupt;
 }
 
+pub(crate) mod sealed {
+    /// Seal the pin traits so only the HAL can implement them.
+    pub trait Sealed {}
+}
+
+// Every GPIO pin is allowed to be (potentially) sealed as a FlexCAN pin. The actual
+// `TxPin`/`RxPin` impls (generated in the build script) restrict which concrete pins
+// are valid for which CAN instance.
+impl<T: crate::gpio::SealedPin> sealed::Sealed for T {}
+
+/// CAN TX pin trait. Implemented (via codegen) for each pin that can be muxed to a
+/// given FlexCAN instance's TXD function.
+pub trait TxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
+    /// The port mux setting that selects the TXD function for this pin.
+    const MUX: crate::pac::port::Mux;
+    /// Configure the pin for FlexCAN TXD usage.
+    fn as_tx(&self);
+}
+
+/// CAN RX pin trait. Implemented (via codegen) for each pin that can be muxed to a
+/// given FlexCAN instance's RXD function.
+pub trait RxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
+    /// The port mux setting that selects the RXD function for this pin.
+    const MUX: crate::pac::port::Mux;
+    /// Configure the pin for FlexCAN RXD usage.
+    fn as_rx(&self);
+}
+
 #[doc(hidden)]
 #[macro_export]
-macro_rules! impl_flexcan_instance {
+macro_rules! impl_flexcan_pin {
+    ($inst:ident, $pin:ident, $alt:ident, TXD) => {
+        impl crate::flexcan::TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
+            fn as_tx(&self) {
+                use crate::gpio::SealedPin;
+                self.set_pull(crate::gpio::Pull::Disabled);
+                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
+                self.set_function(<Self as crate::flexcan::TxPin<crate::peripherals::$inst>>::MUX);
+                self.set_enable_input_buffer(false);
+            }
+        }
+    };
+    ($inst:ident, $pin:ident, $alt:ident, RXD) => {
+        impl crate::flexcan::RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
+            fn as_rx(&self) {
+                use crate::gpio::SealedPin;
+                self.set_pull(crate::gpio::Pull::Disabled);
+                self.set_function(<Self as crate::flexcan::RxPin<crate::peripherals::$inst>>::MUX);
+                self.set_enable_input_buffer(true);
+            }
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_can_instance {
     ($n:expr) => {
         paste::paste! {
             // mode-agnostic peripheral identity
@@ -53,6 +111,3 @@ macro_rules! impl_flexcan_instance {
         }
     };
 }
-
-crate::impl_flexcan_instance!(0); // u_Note: There is an interrrupt for CAN0, but none for CAN1 for some reason. Probably should look into the PAC crate again to see if it can be generated. If CAN1 is ever able to exist, implement it w/ `crate::impl_flexcan_instance!(1);`
-// u_Note: also, it seems like the other drivers (i.e., lpuart) get their impl_xxx_instance!() macros called in the codegen, so probably should look into doing that

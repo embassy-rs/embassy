@@ -60,7 +60,7 @@ grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", branch = "main", features = ["rt"] }
+nxp-pac = { git = "https://github.com/bjackson312006/nxp-pac.git", branch = "can-fixups", features = ["rt"] } # u_TODO - revert this once merged
 paste = "1.0.15"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
@@ -68,7 +68,7 @@ rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 [build-dependencies]
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", branch = "main", default-features = false, features = ["metadata"] }
+nxp-pac = { git = "https://github.com/bjackson312006/nxp-pac.git", branch = "can-fixups", default-features = false, features = ["metadata"] } # u_TODO - revert this once merged
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 regex = "1.12.3"

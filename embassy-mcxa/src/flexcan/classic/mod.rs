@@ -15,6 +15,8 @@ use crate::flexcan::classic::mailbox::tx;
 use crate::flexcan::classic::frame::Frame;
 use crate::flexcan::filter::{FilterConfig, FilterConfigError};
 use crate::flexcan::control::{Control};
+use crate::flexcan::{RxPin, TxPin};
+use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::Handler;
 use crate::flexcan::classic::meta::rx_queue_size::{RX_QUEUE_SIZE, rx_queue_size_default, env_var_name};
 use nxp_pac::can as pac;
@@ -22,15 +24,19 @@ use nxp_pac::can as pac;
 /// FlexCAN driver instance, in Classic CAN mode.
 pub struct FlexCan<'d> {
     info: &'static Info,
+    // Held for the lifetime of the driver so the pins stay reserved and muxed
+    // to the CAN function while this instance is alive.
+    _rx: Peri<'d, AnyPin>,
+    _tx: Peri<'d, AnyPin>,
     _phantom: PhantomData<&'d mut ()>,
 }
 
-pub(in crate::flexcan) trait SealedInstance { fn info() -> &'static Info; }
+pub(crate) trait SealedInstance { fn info() -> &'static Info; }
 #[allow(private_bounds)]
 pub trait Instance: crate::flexcan::Instance + SealedInstance {}
 
 /// Info and state for a single `classic::FlexCan` instance.
-pub(in crate::flexcan) struct Info {
+pub(crate) struct Info {
     /// Mode-agnostic hardware access.
     /// Lets you call `.regs()` to access individual hardware registers, plus contains
     /// some extra helper functions for random stuff.
@@ -61,7 +67,7 @@ pub(in crate::flexcan) struct Info {
     /// See page 1492 of the datasheet.
     /// 
     /// This feature is supported by CAN0, but not CAN1. This flag allows the HAL
-    /// to specify this constraint internally via `impl_flexcan_instance!()`. This way,
+    /// to specify this constraint internally via `impl_can_instance!()`. This way,
     /// if a user tries to enable this feature in their config on an unsupported peripheral,
     /// they'll get an error at init-time.
     pub prexcen_supported: bool,
@@ -136,8 +142,13 @@ pub enum SendError {
 impl<'d> FlexCan<'d> {
     /// Constructs a new FlexCAN driver instance, in Classic mode.
     /// 
-    /// 
-    pub fn new<T: Instance>(_peri: Peri<'d, T>, config: FlexCanConfig, /* rx/tx pins, Config, irq binding */) -> Result<Self, InitError> {
+    pub fn new<T: Instance>(
+        _peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
+        config: FlexCanConfig,
+        /* Config, irq binding */
+    ) -> Result<Self, InitError> {
         use embassy_time::Duration;
 
         let info = T::info();
@@ -145,6 +156,12 @@ impl<'d> FlexCan<'d> {
         // Software-only error checks to make sure stuff was configured correctly
         if config.protocol_exception && !info.prexcen_supported {return Err(InitError::ProtocolExceptionUnsupported);}
         config.filters.validate().map_err(|e| InitError::Filter(e))?;
+
+        // Mux the pins to their CAN function and take ownership for the driver's lifetime.
+        rx.as_rx();
+        tx.as_tx();
+        let _rx = rx.into();
+        let _tx = tx.into();
 
         // Enable and freeze
         const ENABLE_TIMEOUT: u64 = 10; // Timeout for the `.enable()` call in ms
@@ -184,7 +201,7 @@ impl<'d> FlexCan<'d> {
         mailbox::rx::setup(info, &config.filters).map_err(|_| InitError::Timeout)?;
 
         info.control.unfreeze();
-        Ok(Self { info, _phantom: PhantomData })
+        Ok(Self { info, _rx, _tx, _phantom: PhantomData })
     }
 
     /// Sends a CAN message.
