@@ -1128,6 +1128,32 @@ impl<'d, M: Mode> UartRx<'d, M> {
         Ok(sr.rxne())
     }
 
+    /// Returns `true` if at least one byte is available to read right now.
+    ///
+    /// When this returns `true`, a subsequent single-byte read (e.g. the first byte of a
+    /// [`blocking_read`](Self::blocking_read)) will not block. This is a non-destructive peek
+    /// of the RX-not-empty flag: it does not consume any data, and it does not clear any
+    /// pending error flags (parity/framing/noise/overrun), so those are still surfaced by the
+    /// next read.
+    #[cfg(any(usart_v1, usart_v2))]
+    pub fn has_rx_data(&mut self) -> bool {
+        // A byte may already be latched in `buffered_sr` from a previous `check_rx_flags` call
+        // that is still draining error flags, or live in the status register.
+        self.buffered_sr.rxne() || self.info.regs.sr().read().rxne()
+    }
+
+    /// Returns `true` if at least one byte is available to read right now.
+    ///
+    /// When this returns `true`, a subsequent single-byte read (e.g. the first byte of a
+    /// [`blocking_read`](Self::blocking_read)) will not block. This is a non-destructive peek
+    /// of the RX-not-empty flag: it does not consume any data, and it does not clear any
+    /// pending error flags (parity/framing/noise/overrun), so those are still surfaced by the
+    /// next read.
+    #[cfg(any(usart_v3, usart_v4))]
+    pub fn has_rx_data(&mut self) -> bool {
+        self.info.regs.isr().read().rxne()
+    }
+
     /// Read a single u8 if there is one available, otherwise return WouldBlock
     pub(crate) fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
         let r = self.info.regs;
@@ -1162,6 +1188,33 @@ impl<'d, M: Mode> UartRx<'d, M> {
             unsafe { *b = rdr(r).read_volatile() }
         }
         Ok(())
+    }
+
+    /// Perform a blocking read into `buffer`, stopping early at a delimiter byte.
+    ///
+    /// Reads one byte at a time until either the delimiter `delim` is received or `buffer`
+    /// is full, whichever comes first, and returns the number of bytes written into `buffer`.
+    ///
+    /// When `delim` is found, it is stored in `buffer` and included in the returned count, so
+    /// the read bytes are always `&buffer[..n]` for the returned `n`. The returned count is
+    /// therefore in `0..=buffer.len()`.
+    ///
+    /// Note that a return value equal to `buffer.len()` is ambiguous: it occurs both when the
+    /// buffer filled up without seeing the delimiter and when the delimiter happened to be the
+    /// final byte. If a caller needs to tell these apart, inspect `buffer[n - 1]`.
+    ///
+    /// Like [`blocking_read`](Self::blocking_read), this blocks until each byte arrives and
+    /// returns an [`Error`] on a parity/framing/noise/overrun condition; the bytes read before
+    /// the error are lost. There is no timeout — see [`read_until_idle`](Self::read_until_idle)
+    /// for an async read that returns early on a hardware-detected idle line instead.
+    pub fn blocking_read_until(&mut self, buffer: &mut [u8], delim: u8) -> Result<usize, Error> {
+        for (i, out) in buffer.iter_mut().enumerate() {
+            self.blocking_read(core::slice::from_mut(out))?;
+            if *out == delim {
+                return Ok(i + 1);
+            }
+        }
+        Ok(buffer.len())
     }
 
     /// Set baudrate
@@ -1595,6 +1648,15 @@ impl<'d, M: Mode> Uart<'d, M> {
         self.tx.blocking_flush()
     }
 
+    /// Returns `true` if at least one byte is available to read right now.
+    ///
+    /// When this returns `true`, a subsequent single-byte read (e.g. the first byte of a
+    /// [`blocking_read`](Self::blocking_read)) will not block. This is a non-destructive peek:
+    /// it does not consume any data, and it does not clear any pending error flags.
+    pub fn has_rx_data(&mut self) -> bool {
+        self.rx.has_rx_data()
+    }
+
     /// Read a single `u8` or return `WouldBlock`
     pub(crate) fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
         self.rx.nb_read()
@@ -1603,6 +1665,15 @@ impl<'d, M: Mode> Uart<'d, M> {
     /// Perform a blocking read into `buffer`
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
+    }
+
+    /// Perform a blocking read into `buffer`, stopping early at a delimiter byte.
+    ///
+    /// Reads one byte at a time until either the delimiter `delim` is received or `buffer`
+    /// is full, whichever comes first, and returns the number of bytes written into `buffer`.
+    /// See [`UartRx::blocking_read_until`] for the full semantics.
+    pub fn blocking_read_until(&mut self, buffer: &mut [u8], delim: u8) -> Result<usize, Error> {
+        self.rx.blocking_read_until(buffer, delim)
     }
 
     /// Split the Uart into a transmitter and receiver, which is

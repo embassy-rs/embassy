@@ -69,6 +69,52 @@ async fn main(_spawner: Spawner) {
         assert!(is_ok);
     }
 
+    // Test has_rx_data() reports availability without consuming the byte.
+    {
+        let config = Config::default();
+        let mut usart = Uart::new_blocking(usart.reborrow(), rx.reborrow(), tx.reborrow(), config).unwrap();
+
+        let test_has_rx_data = async |usart: &mut Uart<'_, Blocking>| -> Result<(), Error> {
+            // Nothing has been sent yet, so there should be no data to read.
+            assert!(!usart.has_rx_data());
+
+            let data = [0x42];
+            usart.blocking_write(&data)?;
+            usart.blocking_flush()?;
+
+            // Wait for the byte to be received in the RX register.
+            while !usart.has_rx_data() {}
+
+            // Peeking must not consume the byte: a second peek still reports data,
+            // and the following blocking_read still returns it.
+            assert!(usart.has_rx_data());
+
+            let mut buf = [0; 1];
+            usart.blocking_read(&mut buf)?;
+            assert_eq!(buf, data);
+
+            // The byte was consumed, so there should be nothing left.
+            assert!(!usart.has_rx_data());
+
+            Ok(())
+        };
+
+        let mut is_ok = false;
+        for _ in 0..3 {
+            match test_has_rx_data(&mut usart).await {
+                Ok(()) => is_ok = true,
+                Err(Error::Noise) => is_ok = false,
+                Err(e) => defmt::panic!("{}", e),
+            }
+
+            if is_ok {
+                break;
+            }
+        }
+
+        assert!(is_ok);
+    }
+
     // Test error handling with with an overflow error
     {
         let config = Config::default();
