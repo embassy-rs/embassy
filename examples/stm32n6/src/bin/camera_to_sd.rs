@@ -173,6 +173,7 @@ async fn main(_spawner: Spawner) {
     sd_cfg.data_transfer_timeout = 200_000_000;
     let mut sd = Sdmmc::new_4bit(p.SDMMC2, Irqs, p.PC2, p.PC3, p.PC4, p.PC5, p.PC0, p.PE4, sd_cfg);
     let mut cmd_block = CmdBlock::new();
+    #[allow(deprecated)]
     let mut sd_state = match StorageDevice::new_sd_card(&mut sd, &mut cmd_block, Hertz(24_000_000)).await {
         Ok(storage) => {
             info!("sd: card ready, {} blocks", storage.card().size());

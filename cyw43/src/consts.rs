@@ -1,9 +1,9 @@
 #![allow(unused)]
 
-pub(crate) const FUNC_BUS: u32 = 0;
-pub(crate) const FUNC_BACKPLANE: u32 = 1;
-pub(crate) const FUNC_WLAN: u32 = 2;
-pub(crate) const FUNC_BT: u32 = 3;
+pub(crate) const FUNC_BUS: u8 = 0;
+pub(crate) const FUNC_BACKPLANE: u8 = 1;
+pub(crate) const FUNC_WLAN: u8 = 2;
+pub(crate) const FUNC_BT: u8 = 3;
 
 // Register addresses
 pub(crate) const REG_BUS_CTRL: u32 = 0x0;
@@ -35,7 +35,7 @@ pub(crate) const DATA_ERR_CHK_EN: u32 = 0x40;
 
 // SPI_STATUS_REGISTER bits
 pub(crate) const SPI_STATUS_REGISTER: u32 = 0x00000008;
-pub(crate) const INITIAL_READ: u32 = 0x04;
+pub(crate) const INITIAL_READ: usize = 0x04;
 
 pub(crate) const STATUS_DATA_NOT_AVAILABLE: u32 = 0x00000001;
 pub(crate) const STATUS_UNDERFLOW: u32 = 0x00000002;
