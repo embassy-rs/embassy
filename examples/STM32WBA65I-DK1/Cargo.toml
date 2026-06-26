@@ -1,0 +1,89 @@
+[package]
+edition = "2024"
+name = "embassy-stm32wba65i-dk1-examples"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba65ri", "time-driver-any", "memory-x", "exti", "unstable-pac"]  }
+embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba65ri", "ble-stack-basic", "linklayer6-ble-basic"] }
+embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt", "udp", "proto-ipv6", "medium-ieee802154", ], optional = true }
+
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
+
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+embedded-hal = "1.0.0"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+heapless = { version = "0.9", default-features = false }
+static_cell = "2"
+embedded-io-async = "0.7.0"
+stm32wb-hci = { version = "0.18.0", git = "https://github.com/embassy-rs/stm32wb-hci.git", rev = "37a8090" }
+
+ssd1306 = { version = "0.10.0", default-features = false, features = ["graphics"] }
+embedded-graphics-core = "0.4.0"
+embedded-graphics = "0.8.1"
+
+rhai = { git = "https://github.com/rhaiscript/rhai.git", version = "1", optional = true, default-features = false, features = [
+    "no_std",
+    "no_optimize",
+    "no_custom_syntax",
+    "only_i32",
+    "f32_float",
+    "no_module",
+    "no_closure",
+    "no_position",
+] }
+embedded-alloc = { version = "0.7.0", optional = true }
+
+[features]
+default = ["ble"]
+mac = ["embassy-stm32-wpan/wba-mac", "dep:embassy-net"]
+ble = ["embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci"]
+scripting = ["dep:rhai", "dep:embedded-alloc"]
+
+[[bin]]
+name = "mac_ffd"
+required-features = ["mac"]
+
+[[bin]]
+name = "ble_advertiser"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_serial_com"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_gatt_server"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_dtm"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_dtm_runtime"
+required-features = ["ble"]
+
+[[bin]]
+name = "ble_rhai"
+required-features = ["ble", "scripting"]
+
+[[bin]]
+name = "usart_rhai"
+required-features = ["scripting"]
+
+[profile.release]
+debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/STM32WBA65I-DK1" }
+]
