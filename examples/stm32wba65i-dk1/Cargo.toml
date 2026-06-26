@@ -85,5 +85,5 @@ debug = 2
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/STM32WBA65I-DK1" }
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32wba65i-dk1" }
 ]

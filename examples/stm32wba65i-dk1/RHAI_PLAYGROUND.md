@@ -1,6 +1,6 @@
 # Rhai Playground — ideas & roadmap
 
-Ideas for the `ble_rhai` demo on **STM32WBA65I-DK1** (`examples/STM32WBA65I-DK1`).
+Ideas for the `ble_rhai` demo on **STM32WBA65I-DK1** (`examples/stm32wba65i-dk1`).
 
 Current baseline: BLE NUS shell, 256 KB heap, RGB LEDs, joystick ADC, SSD1306 OLED, interrupt-priority BLE + thread eval split (ported from `stm32wba5mm`).
 
@@ -122,4 +122,4 @@ let a = []; for i in 0..5000 { a += i; } len(a)
 - Board: [STM32WBA65I-DK1](https://www.st.com/en/evaluation-tools/stm32wba65i-dk1.html), schematics MB2130 + MB2143
 - Zephyr pin map: `boards/st/stm32wba65i_dk1/stm32wba65i_dk1.dts`
 - Origin demo: `examples/stm32wba5mm/src/bin/ble_rhai.rs`
-- Serial fallback: `examples/STM32WBA65I-DK1/src/bin/usart_rhai.rs`
+- Serial fallback: `examples/stm32wba65i-dk1/src/bin/usart_rhai.rs`
