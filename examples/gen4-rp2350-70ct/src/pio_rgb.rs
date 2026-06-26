@@ -563,19 +563,27 @@ pub fn init_scanout(
 
 /// Partial blit helper (LVGL flush copies into the PSRAM framebuffer).
 pub fn blit_rgb565(fb: *mut u16, x1: i32, y1: i32, w: usize, h: usize, src: &[u8]) {
-    if fb.is_null() {
+    if fb.is_null() || w == 0 || h == 0 {
         return;
     }
-    let stride = DISPLAY_WIDTH;
+
+    let stride_bytes = DISPLAY_WIDTH * 2;
     let row_bytes = w * 2;
+
     for row in 0..h {
-        let y = y1 as usize + row;
-        if y >= DISPLAY_HEIGHT {
-            break;
+        let y = y1 + row as i32;
+        if y < 0 || y as usize >= DISPLAY_HEIGHT {
+            continue;
         }
-        let x = (x1 as usize).min(DISPLAY_WIDTH);
-        let copy = row_bytes.min((DISPLAY_WIDTH - x) * 2);
-        let dst_off = y * stride + x;
+        let dst_x = x1.max(0) as usize;
+        if dst_x >= DISPLAY_WIDTH {
+            continue;
+        }
+        let copy = row_bytes.min((DISPLAY_WIDTH - dst_x) * 2);
+        if copy == 0 {
+            continue;
+        }
+        let dst_off = y as usize * stride_bytes + dst_x * 2;
         let src_off = row * row_bytes;
         if src_off + copy > src.len() {
             break;
@@ -583,7 +591,7 @@ pub fn blit_rgb565(fb: *mut u16, x1: i32, y1: i32, w: usize, h: usize, src: &[u8
         unsafe {
             ptr::copy_nonoverlapping(
                 src.as_ptr().add(src_off),
-                fb.add(dst_off).cast::<u8>(),
+                fb.cast::<u8>().add(dst_off),
                 copy,
             );
         }

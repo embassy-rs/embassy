@@ -12,6 +12,7 @@ use oxivgl::view::{NavAction, View, register_event_on};
 use oxivgl::widgets::{AsLvHandle, Button, Label, Obj, RADIUS_MAX, Screen, TextAlign, WidgetError};
 
 use crate::oxivgl::fonts::{MONTSERRAT_14, MONTSERRAT_16};
+use crate::oxivgl::touch_dbg;
 
 fn on_demo_button_click(_event: &Event) {
     info!("oxivgl light scene direct button CLICKED");
@@ -190,9 +191,12 @@ impl View for WidgetView {
     }
 
     fn on_event(&mut self, event: &Event) -> NavAction {
-        match event.code() {
+        touch_dbg::bump_lvgl_event();
+        let code = event.code();
+        match code {
             EventCode::CLICKED | EventCode::SHORT_CLICKED | EventCode::SINGLE_CLICKED => {
                 self.clicks += 1;
+                touch_dbg::bump_lvgl_click();
             }
             _ => {}
         }

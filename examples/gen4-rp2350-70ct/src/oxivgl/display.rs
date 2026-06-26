@@ -25,6 +25,7 @@ use oxivgl_sys::{
 };
 
 use crate::board::{DISPLAY_HEIGHT, DISPLAY_WIDTH};
+use crate::oxivgl::touch_dbg;
 use crate::pio_rgb;
 
 /// LVGL display handle, set once in [`ScanOutDisplay::init`].
@@ -109,6 +110,7 @@ unsafe extern "C" fn flush_callback(disp: *mut lv_display_t, area_p: *const lv_a
     // only the changed region (instead of a full 768 KiB frame) keeps the QMI
     // bus free for the scan-out refill DMA → no roll / flicker.
     pio_rgb::blit_rgb565(fb, area.x1, area.y1, w, h, src);
+    touch_dbg::bump_lvgl_flush();
 
     // SAFETY: `disp` is the valid LVGL display created during init.
     unsafe { lv_display_flush_ready(disp) };

@@ -1,5 +1,8 @@
 //! Async FT5446 sampling — INT wake, I2C poll, channel queue.
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
+use defmt::info;
 use crate::board;
 use crate::board::BoardI2c;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -19,6 +22,8 @@ const TOUCH_SETTLE_READS: u8 = 10;
 const TOUCH_QUEUE_DEPTH: usize = 16;
 
 static TOUCH_CHAN: Channel<CriticalSectionRawMutex, TouchBoardSample, TOUCH_QUEUE_DEPTH> = Channel::new();
+static TOUCH_TASK_STARTED: AtomicBool = AtomicBool::new(false);
+static TOUCH_FIRST_PRESS_LOGGED: AtomicBool = AtomicBool::new(false);
 
 pub fn receiver()
 -> embassy_sync::channel::Receiver<'static, CriticalSectionRawMutex, TouchBoardSample, TOUCH_QUEUE_DEPTH> {
@@ -33,6 +38,10 @@ pub async fn run_touch_int_task(
     let sender = TOUCH_CHAN.sender();
     let mut last_x = 0i32;
     let mut last_y = 0i32;
+
+    if !TOUCH_TASK_STARTED.swap(true, Ordering::Relaxed) {
+        info!("touch task started (FT5446 INT poll)");
+    }
 
     loop {
         if touch_int.is_high() {
@@ -75,6 +84,9 @@ pub async fn run_touch_int_task(
             if t.pressed {
                 was_pressed = true;
                 release_reads = 0;
+                if !TOUCH_FIRST_PRESS_LOGGED.swap(true, Ordering::Relaxed) {
+                    info!("touch first press x={} y={}", last_x, last_y);
+                }
                 sender.send(sample).await;
             } else if was_pressed {
                 release_reads += 1;
