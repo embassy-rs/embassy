@@ -33,12 +33,11 @@ default = ["rt"]
 
 ## Cortex-M runtime (enabled by default)
 rt = [
-    "mimxrt685s-pac?/rt",
-    "mimxrt633s-pac?/rt",
+    "nxp-pac?/rt",
 ]
 
 ## Enable defmt
-defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "mimxrt685s-pac?/defmt", "mimxrt633s-pac?/defmt"]
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "nxp-pac?/defmt"]
 
 ## Enable features requiring `embassy-time`
 time = ["dep:embassy-time", "embassy-embedded-hal/time"]
@@ -65,9 +64,9 @@ _espi = []
 
 #! ### Chip selection features
 ## MIMXRT685S
-mimxrt685s = ["mimxrt685s-pac", "_mimxrt685s"]
+mimxrt685s = ["nxp-pac/mimxrt685s_cm33", "_mimxrt685s"]
 ## MIMXRT633S
-mimxrt633s = ["mimxrt633s-pac", "_mimxrt633s"]
+mimxrt633s = ["nxp-pac/mimxrt685s_cm33", "_mimxrt633s"]
 
 [dependencies]
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
@@ -104,5 +103,4 @@ document-features = "0.2.7"
 paste = "1.0"
 
 # PACs
-mimxrt685s-pac = { version = "0.5.0", optional = true, features = ["rt", "critical-section"] }
-mimxrt633s-pac = { version = "0.5.0", optional = true, features = ["rt", "critical-section"] }
+nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "e259e278b91e26198b179ff326fe14c467188dcb", optional = true, features = ["rt"] }

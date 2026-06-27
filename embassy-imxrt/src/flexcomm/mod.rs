@@ -51,7 +51,7 @@ mod sealed {
 /// primary low-level flexcomm interface
 pub(crate) trait FlexcommLowLevel: sealed::Sealed + PeripheralType + SysconPeripheral + 'static + Send {
     // fetch the flexcomm register block for direct manipulation
-    fn reg() -> &'static pac::flexcomm0::RegisterBlock;
+    fn reg() -> pac::flexcomm::Flexcomm;
 
     // set the clock select for this flexcomm instance and remove from reset
     fn enable(clk: Clock);
@@ -64,45 +64,40 @@ macro_rules! impl_flexcomm {
 		impl sealed::Sealed for crate::peripherals::[<FLEXCOMM $idx>] {}
 
 		impl FlexcommLowLevel for crate::peripherals::[<FLEXCOMM $idx>] {
-		    fn reg() -> &'static crate::pac::flexcomm0::RegisterBlock {
-			// SAFETY: safe from single executor, enforce
-			// via peripheral reference lifetime tracking
-			unsafe {
-			    &*crate::pac::[<Flexcomm $idx>]::ptr()
-			}
+		    fn reg() -> crate::pac::flexcomm::Flexcomm {
+			crate::pac::[<FLEXCOMM $idx>]
 		    }
 
 		    fn enable(clk: Clock) {
-			// SAFETY: safe from single executor
-			let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+			use crate::pac::clkctl1::vals::{FcfclkselSel, FrgclkselSel};
 
-			clkctl1.flexcomm($idx).fcfclksel().write(|w| match clk {
-			    Clock::Sfro => w.sel().sfro_clk(),
-			    Clock::Ffro => w.sel().ffro_clk(),
-			    Clock::AudioPll => w.sel().audio_pll_clk(),
-			    Clock::Master => w.sel().master_clk(),
-			    Clock::FcnFrgMain => w.sel().fcn_frg_clk(),
-			    Clock::FcnFrgPll => w.sel().fcn_frg_clk(),
-			    Clock::FcnFrgSfro => w.sel().fcn_frg_clk(),
-			    Clock::FcnFrgFfro => w.sel().fcn_frg_clk(),
-			    Clock::None => w.sel().none(), // no clock? throw an error?
-			});
+			let clkctl1 = crate::pac::CLKCTL1;
 
-			clkctl1.flexcomm($idx).frgclksel().write(|w| match clk {
-			    Clock::FcnFrgMain => w.sel().main_clk(),
-			    Clock::FcnFrgPll => w.sel().frg_pll_clk(),
-			    Clock::FcnFrgSfro => w.sel().sfro_clk(),
-			    Clock::FcnFrgFfro => w.sel().ffro_clk(),
-			    _ => w.sel().none(),    // not using frg ...
-			});
+			clkctl1.flexcomm($idx).fcfclksel().write(|w| w.set_sel(match clk {
+			    Clock::Sfro => FcfclkselSel::SFRO_CLK,
+			    Clock::Ffro => FcfclkselSel::FFRO_CLK,
+			    Clock::AudioPll => FcfclkselSel::AUDIO_PLL_CLK,
+			    Clock::Master => FcfclkselSel::MASTER_CLK,
+			    Clock::FcnFrgMain => FcfclkselSel::FCN_FRG_CLK,
+			    Clock::FcnFrgPll => FcfclkselSel::FCN_FRG_CLK,
+			    Clock::FcnFrgSfro => FcfclkselSel::FCN_FRG_CLK,
+			    Clock::FcnFrgFfro => FcfclkselSel::FCN_FRG_CLK,
+			    Clock::None => FcfclkselSel::NONE, // no clock? throw an error?
+			}));
+
+			clkctl1.flexcomm($idx).frgclksel().write(|w| w.set_sel(match clk {
+			    Clock::FcnFrgMain => FrgclkselSel::MAIN_CLK,
+			    Clock::FcnFrgPll => FrgclkselSel::FRG_PLL_CLK,
+			    Clock::FcnFrgSfro => FrgclkselSel::SFRO_CLK,
+			    Clock::FcnFrgFfro => FrgclkselSel::FFRO_CLK,
+			    _ => FrgclkselSel::NONE,    // not using frg ...
+			}));
 
 			// todo: add support for frg div/mult
 			clkctl1
 			    .flexcomm($idx)
 			    .frgctl()
-			    .write(|w|
-				   // SAFETY: unsafe only used for .bits() call
-				   unsafe { w.mult().bits(0) });
+			    .write(|w| w.set_mult(0));
 
 			enable_and_reset::<[<FLEXCOMM $idx>]>();
 		    }
@@ -119,40 +114,41 @@ impl_flexcomm!(0, 1, 2, 3, 4, 5, 6, 7);
 impl sealed::Sealed for crate::peripherals::FLEXCOMM14 {}
 
 impl FlexcommLowLevel for crate::peripherals::FLEXCOMM14 {
-    fn reg() -> &'static crate::pac::flexcomm0::RegisterBlock {
-        // SAFETY: safe from single executor, enforce
-        // via peripheral reference lifetime tracking
-        unsafe { &*crate::pac::Flexcomm14::ptr() }
+    fn reg() -> crate::pac::flexcomm::Flexcomm {
+        crate::pac::FLEXCOMM14
     }
 
     fn enable(clk: Clock) {
-        // SAFETY: safe from single executor
-        let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+        use crate::pac::clkctl1::vals::{Fc14fclkselSel, Frg14clkselSel};
 
-        clkctl1.fc14fclksel().write(|w| match clk {
-            Clock::Sfro => w.sel().sfro_clk(),
-            Clock::Ffro => w.sel().ffro_clk(),
-            Clock::AudioPll => w.sel().audio_pll_clk(),
-            Clock::Master => w.sel().master_clk(),
-            Clock::FcnFrgMain => w.sel().fcn_frg_clk(),
-            Clock::FcnFrgPll => w.sel().fcn_frg_clk(),
-            Clock::FcnFrgSfro => w.sel().fcn_frg_clk(),
-            Clock::FcnFrgFfro => w.sel().fcn_frg_clk(),
-            Clock::None => w.sel().none(), // no clock? throw an error?
+        let clkctl1 = crate::pac::CLKCTL1;
+
+        clkctl1.fc14fclksel().write(|w| {
+            w.set_sel(match clk {
+                Clock::Sfro => Fc14fclkselSel::SFRO_CLK,
+                Clock::Ffro => Fc14fclkselSel::FFRO_CLK,
+                Clock::AudioPll => Fc14fclkselSel::AUDIO_PLL_CLK,
+                Clock::Master => Fc14fclkselSel::MASTER_CLK,
+                Clock::FcnFrgMain => Fc14fclkselSel::FCN_FRG_CLK,
+                Clock::FcnFrgPll => Fc14fclkselSel::FCN_FRG_CLK,
+                Clock::FcnFrgSfro => Fc14fclkselSel::FCN_FRG_CLK,
+                Clock::FcnFrgFfro => Fc14fclkselSel::FCN_FRG_CLK,
+                Clock::None => Fc14fclkselSel::NONE, // no clock? throw an error?
+            })
         });
 
-        clkctl1.frg14clksel().write(|w| match clk {
-            Clock::FcnFrgMain => w.sel().main_clk(),
-            Clock::FcnFrgPll => w.sel().frg_pll_clk(),
-            Clock::FcnFrgSfro => w.sel().sfro_clk(),
-            Clock::FcnFrgFfro => w.sel().ffro_clk(),
-            _ => w.sel().none(), // not using frg ...
+        clkctl1.frg14clksel().write(|w| {
+            w.set_sel(match clk {
+                Clock::FcnFrgMain => Frg14clkselSel::MAIN_CLK,
+                Clock::FcnFrgPll => Frg14clkselSel::FRG_PLL_CLK,
+                Clock::FcnFrgSfro => Frg14clkselSel::SFRO_CLK,
+                Clock::FcnFrgFfro => Frg14clkselSel::FFRO_CLK,
+                _ => Frg14clkselSel::NONE, // not using frg ...
+            })
         });
 
         // todo: add support for frg div/mult
-        clkctl1.frg14ctl().write(|w|
-                // SAFETY: unsafe only used for .bits() call
-                unsafe { w.mult().bits(0) });
+        clkctl1.frg14ctl().write(|w| w.set_mult(0));
 
         enable_and_reset::<FLEXCOMM14>();
     }
@@ -162,38 +158,39 @@ impl FlexcommLowLevel for crate::peripherals::FLEXCOMM14 {
 impl sealed::Sealed for crate::peripherals::FLEXCOMM15 {}
 
 impl FlexcommLowLevel for crate::peripherals::FLEXCOMM15 {
-    fn reg() -> &'static crate::pac::flexcomm0::RegisterBlock {
-        // SAFETY: safe from single executor, enforce
-        // via peripheral reference lifetime tracking
-        unsafe { &*crate::pac::Flexcomm15::ptr() }
+    fn reg() -> crate::pac::flexcomm::Flexcomm {
+        crate::pac::FLEXCOMM15
     }
 
     fn enable(clk: Clock) {
-        // SAFETY: safe from single executor
-        let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+        use crate::pac::clkctl1::vals::{Fc15fclkselSel, Frg15clkselSel};
 
-        clkctl1.fc15fclksel().write(|w| match clk {
-            Clock::Sfro => w.sel().sfro_clk(),
-            Clock::Ffro => w.sel().ffro_clk(),
-            Clock::AudioPll => w.sel().audio_pll_clk(),
-            Clock::Master => w.sel().master_clk(),
-            Clock::FcnFrgMain => w.sel().fcn_frg_clk(),
-            Clock::FcnFrgPll => w.sel().fcn_frg_clk(),
-            Clock::FcnFrgSfro => w.sel().fcn_frg_clk(),
-            Clock::FcnFrgFfro => w.sel().fcn_frg_clk(),
-            Clock::None => w.sel().none(), // no clock? throw an error?
+        let clkctl1 = crate::pac::CLKCTL1;
+
+        clkctl1.fc15fclksel().write(|w| {
+            w.set_sel(match clk {
+                Clock::Sfro => Fc15fclkselSel::SFRO_CLK,
+                Clock::Ffro => Fc15fclkselSel::FFRO_CLK,
+                Clock::AudioPll => Fc15fclkselSel::AUDIO_PLL_CLK,
+                Clock::Master => Fc15fclkselSel::MASTER_CLK,
+                Clock::FcnFrgMain => Fc15fclkselSel::FCN_FRG_CLK,
+                Clock::FcnFrgPll => Fc15fclkselSel::FCN_FRG_CLK,
+                Clock::FcnFrgSfro => Fc15fclkselSel::FCN_FRG_CLK,
+                Clock::FcnFrgFfro => Fc15fclkselSel::FCN_FRG_CLK,
+                Clock::None => Fc15fclkselSel::NONE, // no clock? throw an error?
+            })
         });
-        clkctl1.frg15clksel().write(|w| match clk {
-            Clock::FcnFrgMain => w.sel().main_clk(),
-            Clock::FcnFrgPll => w.sel().frg_pll_clk(),
-            Clock::FcnFrgSfro => w.sel().sfro_clk(),
-            Clock::FcnFrgFfro => w.sel().ffro_clk(),
-            _ => w.sel().none(), // not using frg ...
+        clkctl1.frg15clksel().write(|w| {
+            w.set_sel(match clk {
+                Clock::FcnFrgMain => Frg15clkselSel::MAIN_CLK,
+                Clock::FcnFrgPll => Frg15clkselSel::FRG_PLL_CLK,
+                Clock::FcnFrgSfro => Frg15clkselSel::SFRO_CLK,
+                Clock::FcnFrgFfro => Frg15clkselSel::FFRO_CLK,
+                _ => Frg15clkselSel::NONE, // not using frg ...
+            })
         });
         // todo: add support for frg div/mult
-        clkctl1.frg15ctl().write(|w|
-                // SAFETY: unsafe only used for .bits() call
-                unsafe { w.mult().bits(0) });
+        clkctl1.frg15ctl().write(|w| w.set_mult(0));
 
         enable_and_reset::<FLEXCOMM15>();
     }
@@ -210,7 +207,7 @@ macro_rules! into_mode {
             pub trait [<Into $mode:camel>]: [<SealedInto $mode:camel>] {
                 /// Set mode of operation
                 fn [<into_ $mode>]() {
-                    Self::reg().pselid().write(|w| w.persel().[<$mode>]());
+                    Self::reg().pselid().write(|w| w.set_persel(pac::flexcomm::vals::Persel::[<$mode:upper>]));
                 }
             }
         }
