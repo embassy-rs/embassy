@@ -3,6 +3,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::*;
+use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, can};
 use embassy_time::Timer;
 use static_cell::StaticCell;
@@ -18,9 +19,13 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = true;
-        config.rcc.mux.fdcansel = mux::Fdcansel::Psi;
-        config.rcc.sys = Sysclk::Hsi;
+        config.rcc.hsi_div3 = false;
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(48_000_000),
+            mode: HseMode::Oscillator,
+        });
+        config.rcc.mux.fdcansel = mux::Fdcansel::Pclk1;
+        config.rcc.sys = Sysclk::Hse;
     }
     let peripherals = embassy_stm32::init(config);
 
