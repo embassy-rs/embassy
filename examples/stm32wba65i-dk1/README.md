@@ -28,10 +28,23 @@ Advertises as **RhaiPlay**. Script dispatch happens after 500 ms idle or on disc
 | `heap_free()` | Free heap bytes |
 | `help()` | Print full API listing over BLE |
 
+Strings use Rhai's `MoreStringPackage` (method syntax on string values):
+
+| Method / op | Description |
+|-------------|-------------|
+| `s.len`, `s.is_empty` | Length in characters |
+| `s.contains(x)`, `s.starts_with(x)`, `s.ends_with(x)` | Search |
+| `s.index_of(x)` | Find substring/char, `-1` if missing |
+| `s.sub_string(i, n)`, `s.trim()`, `s.replace(a, b)` | Edit |
+| `s.to_upper()`, `s.to_lower()`, `s.split(",")` | Transform / split |
+
 Example session over BLE:
 
 ```text
 help()
+let s = "hello,world";
+print(s.split(","));
+print(s.to_upper());
 rgb(true, false, false)
 print("hello")
 oled_line(6, "hello")

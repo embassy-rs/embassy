@@ -9,7 +9,7 @@
 //! - 256 KB Rhai heap (512 KB SRAM on WBA65)
 //! - RGB user LEDs (PD8/PD9/PB10)
 //! - Joystick on ADC4/PA3 (`joy()`)
-//! - SSD1306 OLED on SPI3 (`oled_line()`, `oled_clear()`; `print()` mirrors to line 7)
+//! - SSD1306 OLED on SPI3 (`oled_line()`, `oled_clear()`; `print()` mirrors to line 7 live)
 //!
 //! ## Architecture
 //!
@@ -77,7 +77,7 @@ use embassy_stm32_wpan::bluetooth::gatt::{
 };
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::Timer;
-use rhai::{Dynamic, Engine, packages::BasicIteratorPackage, packages::BasicMathPackage, packages::BasicStringPackage, packages::Package};
+use rhai::{Dynamic, Engine, packages::BasicIteratorPackage, packages::BasicMathPackage, packages::BasicStringPackage, packages::MoreStringPackage, packages::Package};
 use static_cell::StaticCell;
 use stm32wb_hci::Event;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
@@ -138,14 +138,34 @@ static RESULT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 1> =
 static PRINT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 8> =
     Channel::new();
 
-// OLED line updates from Rhai scripts (line 0..7, text).
-static OLED_CHAN: Channel<CriticalSectionRawMutex, (u8, Vec<u8>), 4> =
-    Channel::new();
+/// Live OLED framebuffer + SPI bus, flushed synchronously from eval (on_print /
+/// oled_line) because engine.eval() monopolises the thread executor.
+struct OledScreen {
+    bus: OledBus,
+    lines: [heapless::String<22>; 8],
+}
 
-fn oled_queue_line(line: u8, text: &str) {
-    let mut v: Vec<u8> = Vec::with_capacity(text.len().min(21));
-    v.extend_from_slice(text.as_bytes().get(..21).unwrap_or(text.as_bytes()));
-    let _ = OLED_CHAN.try_send((line, v));
+static OLED_SCREEN: Mutex<CriticalSectionRawMutex, RefCell<Option<OledScreen>>> =
+    Mutex::new(RefCell::new(None));
+
+fn oled_apply_line(line: u8, text: &str) {
+    OLED_SCREEN.lock(|cell| {
+        let mut slot = cell.borrow_mut();
+        let Some(screen) = slot.as_mut() else {
+            return;
+        };
+        if line == 0xFF {
+            for l in screen.lines.iter_mut() {
+                l.clear();
+            }
+        } else if (line as usize) < screen.lines.len() {
+            screen.lines[line as usize].clear();
+            screen.lines[line as usize]
+                .push_str(text.get(..21).unwrap_or(text))
+                .ok();
+        }
+        let _ = screen.bus.render_lines(&screen.lines);
+    });
 }
 
 /// Forward one line to BLE notify (and OLED line 7 when `mirror_oled`).
@@ -154,7 +174,7 @@ fn script_print(line: &str, mirror_oled: bool) {
         return;
     }
     if mirror_oled {
-        oled_queue_line(PRINT_LINE, line);
+        oled_apply_line(PRINT_LINE, line);
     }
     let mut v: Vec<u8> = Vec::with_capacity(line.len() + 2);
     v.extend_from_slice(line.as_bytes());
@@ -183,6 +203,8 @@ const HELP_LINES: &[&str] = &[
     "Math: + - * / % ** abs min max",
     "Iterator: len, for-in, while, if",
     "String: +, ==, !=, <, >, substr",
+    "  .len .contains .trim .replace",
+    "  .split .sub_string .to_upper",
     "Arrays: [], +=, [i], max 4096 el",
     "Send idle 500ms or newline to eval",
 ];
@@ -370,6 +392,7 @@ async fn eval_task() {
     BasicMathPackage::new().register_into_engine(&mut engine);
     BasicIteratorPackage::new().register_into_engine(&mut engine);
     BasicStringPackage::new().register_into_engine(&mut engine);
+    MoreStringPackage::new().register_into_engine(&mut engine);
 
     engine.register_fn("led", |state: bool| -> bool {
         LED_BANK.lock(|cell| {
@@ -421,12 +444,12 @@ async fn eval_task() {
         if !(0..8).contains(&line) {
             return -1;
         }
-        oled_queue_line(line as u8, text);
+        oled_apply_line(line as u8, text);
         line
     });
 
     engine.register_fn("oled_clear", || -> i32 {
-        let _ = OLED_CHAN.try_send((0xFF, Vec::new()));
+        oled_apply_line(0xFF, "");
         0
     });
 
@@ -442,7 +465,7 @@ async fn eval_task() {
         for line in HELP_LINES {
             script_print(line, false);
         }
-        oled_queue_line(6, "help sent (BLE)");
+        oled_apply_line(6, "help sent (BLE)");
         HELP_LINES.len() as i32
     });
 
@@ -564,7 +587,7 @@ async fn eval_task() {
 }
 
 // ---------------------------------------------------------------------------
-// OLED task — owns SPI3 + SSD1306, renders status and script output
+// OLED task — init SPI3 + SSD1306, publish shared state for eval-time flush
 // ---------------------------------------------------------------------------
 
 #[embassy_executor::task]
@@ -583,19 +606,12 @@ async fn display_task(mut oled: OledBus) {
     lines[4].push_str(board::BLE_ADV_NAME).ok();
     let _ = oled.render_lines(&lines);
 
+    OLED_SCREEN.lock(|cell| {
+        *cell.borrow_mut() = Some(OledScreen { bus: oled, lines });
+    });
+
     loop {
-        let (line, data) = OLED_CHAN.receive().await;
-        if line == 0xFF {
-            for l in lines.iter_mut() {
-                l.clear();
-            }
-        } else if (line as usize) < lines.len() {
-            lines[line as usize].clear();
-            if let Ok(s) = core::str::from_utf8(&data) {
-                lines[line as usize].push_str(s).ok();
-            }
-        }
-        let _ = oled.render_lines(&lines);
+        Timer::after_secs(3600).await;
     }
 }
 
