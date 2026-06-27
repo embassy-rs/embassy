@@ -31,7 +31,7 @@ static_cell = "2"
 sha2 = { version = "0.10.8", default-features = false }
 hmac = "0.12.1"
 aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "heapless"] }
-sdio = "0.3.0"
+sdio = "0.4.0"
 aligned = "0.4.3"
 block-device-driver = "0.2.0"
 

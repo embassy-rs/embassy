@@ -19,24 +19,6 @@ enum Word {
 
 const BLOCK_SIZE: usize = BACKPLANE_MAX_TRANSFER_SIZE;
 
-fn to_blocks<const BLOCK_SIZE: usize>(bytes: &Aligned<A4, [u8]>) -> &[Aligned<A4, [u8; BLOCK_SIZE]>] {
-    assert!(bytes.len().is_multiple_of(BLOCK_SIZE));
-
-    let ptr = bytes.as_ptr() as *const Aligned<A4, [u8; BLOCK_SIZE]>;
-    let len = bytes.len() / BLOCK_SIZE;
-
-    unsafe { core::slice::from_raw_parts(ptr, len) }
-}
-
-fn to_blocks_mut<const BLOCK_SIZE: usize>(bytes: &mut Aligned<A4, [u8]>) -> &mut [Aligned<A4, [u8; BLOCK_SIZE]>] {
-    assert!(bytes.len().is_multiple_of(BLOCK_SIZE));
-
-    let ptr = bytes.as_mut_ptr() as *mut Aligned<A4, [u8; BLOCK_SIZE]>;
-    let len = bytes.len() / BLOCK_SIZE;
-
-    unsafe { core::slice::from_raw_parts_mut(ptr, len) }
-}
-
 fn to_aligned<'a>(data: &'a [u8], buf: &'a mut Aligned<A4, [u8]>) -> &'a Aligned<A4, [u8]> {
     if (data.as_ptr() as usize).is_multiple_of(mem::align_of::<A4>()) {
         unsafe { &*(data as *const [u8] as *const Aligned<A4, [u8]>) }
@@ -163,64 +145,20 @@ where
         self.backplane_window = new_window;
     }
 
-    async fn cmd53_write(&mut self, func: u8, mut addr: u32, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
-        // Use buf.len() (Deref to [u8]) not size_of_val, which rounds up to 4 bytes.
-        let byte_part = buf.len() % BLOCK_SIZE;
-        let block_part = buf.len() - byte_part;
-
-        if block_part > 0 {
-            let buf = &buf[..block_part];
-
-            self.sdio
-                .cmd53_write_blocks(func, true, addr, to_blocks::<BLOCK_SIZE>(buf))
-                .await
-                .map_err(|_| crate::Error)
-                .ctx("cmd53 block write failed")?;
-
-            addr += block_part as u32;
-        }
-
-        if byte_part > 0 {
-            let buf = &buf[block_part..];
-
-            self.sdio
-                .cmd53_write_bytes(func, true, addr, buf)
-                .await
-                .map_err(|_| crate::Error)
-                .ctx("cmd53 byte write failed")?;
-        }
-
-        Ok(())
+    async fn cmd53_write(&mut self, func: u8, addr: u32, buf: &Aligned<A4, [u8]>) -> crate::Result<()> {
+        self.sdio
+            .cmd53_write::<BLOCK_SIZE>(func, addr, buf)
+            .await
+            .map_err(|_| crate::Error)
+            .ctx("cmd53 write failed")
     }
 
-    async fn cmd53_read(&mut self, func: u8, mut addr: u32, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
-        // Use buf.len() (Deref to [u8]) not size_of_val, which rounds up to 4 bytes.
-        let byte_part = buf.len() % BLOCK_SIZE;
-        let block_part = buf.len() - byte_part;
-
-        if block_part > 0 {
-            let buf = &mut buf[..block_part];
-
-            self.sdio
-                .cmd53_read_blocks(func, true, addr, to_blocks_mut::<BLOCK_SIZE>(buf))
-                .await
-                .map_err(|_| crate::Error)
-                .ctx("cmd53 block write failed")?;
-
-            addr += block_part as u32;
-        }
-
-        if byte_part > 0 {
-            let buf = &mut buf[block_part..];
-
-            self.sdio
-                .cmd53_read_bytes(func, true, addr, buf)
-                .await
-                .map_err(|_| crate::Error)
-                .ctx("cmd53 byte write failed")?;
-        }
-
-        Ok(())
+    async fn cmd53_read(&mut self, func: u8, addr: u32, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {
+        self.sdio
+            .cmd53_read::<BLOCK_SIZE>(func, addr, buf)
+            .await
+            .map_err(|_| crate::Error)
+            .ctx("cmd53 read failed")
     }
 }
 
