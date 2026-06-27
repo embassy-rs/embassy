@@ -13,6 +13,8 @@ pub(crate) mod fmt;
 mod macros;
 
 pub mod adc;
+#[cfg(mspm0g350x)]
+pub mod clock;
 pub mod dma;
 pub mod gpio;
 // TODO: I2C unicomm
@@ -150,7 +152,14 @@ macro_rules! bind_interrupts {
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub struct Config {
-    // TODO: OSC configuration.
+    /// Clock-tree configuration. See [`clock::Config`].
+    ///
+    /// Only available on devices with a supported clock-tree driver
+    /// (currently MSPM0G350x). Defaults to leaving the chip on its
+    /// reset-state SYSOSC.
+    #[cfg(mspm0g350x)]
+    pub clock: clock::Config,
+
     /// The size of DMA block transfer burst.
     ///
     /// If this is set to a value
@@ -167,6 +176,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            #[cfg(mspm0g350x)]
+            clock: clock::Config::default(),
             dma_burst_size: dma::BurstSize::Complete,
             dma_round_robin: false,
         }
@@ -177,7 +188,12 @@ pub fn init(config: Config) -> Peripherals {
     critical_section::with(|cs| {
         let peripherals = Peripherals::take_with_cs(cs);
 
-        // TODO: Further clock configuration
+        // Bring up external oscillators and switch MCLK if requested.
+        // Must run before the MCLKCFG.MFCLK / borthreshold writes below
+        // so flash wait states are set before the CPU starts fetching at
+        // the higher rate.
+        #[cfg(mspm0g350x)]
+        clock::configure(&config.clock);
 
         pac::SYSCTL.mclkcfg().modify(|w| {
             // Enable MFCLK
