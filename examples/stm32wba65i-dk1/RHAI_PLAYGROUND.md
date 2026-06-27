@@ -99,6 +99,29 @@ if j == 2 { rgb(true,false,false) }
 if j == 5 { rgb(false,false,true) }
 if j == 1 { rgb(true,true,true) }
 
+// Joystick poll loop (OLED + RGB, switch)
+fn wait(ms){
+    let t=ms*32768 / 1000;
+    let s=ts();
+    while ts()-s<t{}
+}
+fn oled(s){
+    oled_line(5, s);
+}
+for i in 0..1000{
+    let j = joy();
+    switch j {
+    0 => { rgb(0, 0, 0); oled("none"); }
+    1 => { rgb(1, 1, 1); oled("select"); }
+    2 => { rgb(1, 0, 0); oled("left"); }
+    3 => { rgb(1, 1, 0); oled("down"); }
+    4 => { rgb(0, 1, 0); oled("up"); }
+    5 => { rgb(0, 0, 1); oled("right"); }
+    _ => { rgb(0, 0, 0); oled("?"); }
+    }
+    wait(300);
+}
+
 // Heap stress (should fail cleanly)
 let a = []; for i in 0..5000 { a += i; } len(a)
 ```

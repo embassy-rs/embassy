@@ -50,6 +50,7 @@ use core::cell::RefCell;
 // Import the macros we actually use explicitly instead of glob-importing.
 use defmt::{debug, error, info, warn, unwrap};
 use embassy_executor::{InterruptExecutor, Spawner};
+use embassy_futures::block_on;
 use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_stm32::aes::{self, Aes};
 use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering, Ordering as AtomicOrdering};
@@ -197,7 +198,9 @@ const HELP_LINES: &[&str] = &[
     "oled_line(n,text) OLED row 0..7",
     "oled_clear()      clear OLED rows",
     "ts()              uptime ticks (32768 Hz)",
+    "sleep(ms)         delay ms (use instead of spin)",
     "heap_free()       free heap bytes",
+    "diag()            joy poll count (debug)",
     "help()            this listing",
     "-- I/O --",
     "print(\"…\")        BLE + OLED line 7",
@@ -214,6 +217,11 @@ const HELP_LINES: &[&str] = &[
 
 // Latest joystick direction, updated by input_task (read by joy() in eval).
 static JOY_STATE: AtomicU8 = AtomicU8::new(JoyDir::None as u8);
+
+// #region agent log
+// Incremented by input_task each ADC poll; exposed via diag() for concurrency checks.
+static JOY_POLL_COUNT: AtomicU32 = AtomicU32::new(0);
+// #endregion
 
 // Set while engine.eval() is running; lets the BLE task detect an in-progress eval on disconnect.
 static EVAL_RUNNING: AtomicBool = AtomicBool::new(false);
@@ -356,9 +364,9 @@ static LED_BANK: Mutex<CriticalSectionRawMutex, RefCell<Option<LedBank>>> =
 static LED_CELL: StaticCell<LedBank> = StaticCell::new();
 
 // FullRuntime is stored inside new_platform!'s internal StaticCell — already 'static.
-// EXECUTOR_BLE: high-priority interrupt executor for ble_runner_task + ble_task.
-// Both run at Priority::P4 so they preempt eval_task (thread executor) during
-// engine.eval(), keeping the BLE connection and HCI runner alive.
+// EXECUTOR_BLE: high-priority interrupt executor for ble_runner_task, ble_task,
+// and input_task. All run at Priority::P4 so they preempt eval_task (thread
+// executor) during engine.eval(), keeping BLE alive and joy() up to date.
 //
 // ICACHE (IRQ 64) is used as a pure software-trigger interrupt.
 // On Cortex-M there is no dedicated software IRQ; borrowing a peripheral IRQ
@@ -473,6 +481,18 @@ async fn eval_task() {
     engine.register_fn("joy", || -> i32 {
         JOY_STATE.load(AtomicOrdering::Relaxed) as i32
     });
+
+    engine.register_fn("sleep", |ms: i32| -> i32 {
+        let ms = ms.clamp(0, 60_000) as u64;
+        block_on(Timer::after_millis(ms));
+        0
+    });
+
+    // #region agent log
+    engine.register_fn("diag", || -> i32 {
+        JOY_POLL_COUNT.load(AtomicOrdering::Relaxed) as i32
+    });
+    // #endregion
 
     engine.register_fn("oled_line", |line: i32, text: &str| -> i32 {
         if !(0..8).contains(&line) {
@@ -650,7 +670,8 @@ async fn display_task(mut oled: OledBus) {
 }
 
 // ---------------------------------------------------------------------------
-// Input task — polls joystick ADC and drives RGB LED feedback
+// Input task — polls joystick ADC on the interrupt executor so it keeps running
+// while eval_task monopolises the thread executor during engine.eval().
 // ---------------------------------------------------------------------------
 
 #[embassy_executor::task]
@@ -665,12 +686,18 @@ async fn input_task(
         let raw = adc.blocking_read(&mut joy_pin, adc4::SampleTime::Cycles15);
         let dir = JoyDir::from_raw(raw, max);
         JOY_STATE.store(dir as u8, AtomicOrdering::Relaxed);
-        LED_BANK.lock(|cell| {
-            if let Some(bank) = cell.borrow_mut().as_mut() {
-                bank.show_joy(dir);
-            }
-        });
-        embassy_time::Timer::after_millis(80).await;
+        // #region agent log
+        JOY_POLL_COUNT.fetch_add(1, AtomicOrdering::Relaxed);
+        // #endregion
+        // Script owns RGB while eval runs; live joy hints only when idle.
+        if !EVAL_RUNNING.load(AtomicOrdering::Relaxed) {
+            LED_BANK.lock(|cell| {
+                if let Some(bank) = cell.borrow_mut().as_mut() {
+                    bank.show_joy(dir);
+                }
+            });
+        }
+        Timer::after_millis(80).await;
     }
 }
 
@@ -998,7 +1025,6 @@ async fn main(spawner: Spawner) {
     let joy_pin = p.PA3;
 
     spawner.spawn(display_task(oled).expect("spawn display_task"));
-    spawner.spawn(input_task(adc, joy_pin).expect("spawn input_task"));
 
     let (platform, runtime) = new_platform!(
         Rng::new(p.RNG, Irqs),
@@ -1028,6 +1054,7 @@ async fn main(spawner: Spawner) {
     embassy_futures::yield_now().await;
 
     ble_spawner.spawn(unwrap!(ble_task(ble)));
+    ble_spawner.spawn(unwrap!(input_task(adc, joy_pin)));
 
     spawner.spawn(eval_task().expect("spawn eval_task"));
 

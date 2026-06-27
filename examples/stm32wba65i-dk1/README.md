@@ -21,6 +21,7 @@ Advertises as **RhaiPlay**. Script dispatch happens after 500 ms idle or on disc
 | `led_toggle(n)` | Toggle LED `n`; returns 1 if on, 0 if off |
 | `rgb(r, g, b)` | Set all three LEDs at once; each channel bool or 0/1 |
 | `joy()` | Joystick: 0=none, 1=select, 2=left, 3=down, 4=up, 5=right |
+| `sleep(ms)` | Async delay (use instead of a spin `wait()` loop) |
 | `oled_line(n, text)` | Write a line (0–7) on the 128×64 OLED |
 | `oled_clear()` | Clear the OLED line buffer |
 | `print("…")` | Send text over BLE **and** mirror to OLED line 7 |
