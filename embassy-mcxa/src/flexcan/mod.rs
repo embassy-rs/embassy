@@ -2,8 +2,6 @@ pub mod classic;
 pub mod filter;
 pub(crate) mod control;
 
-pub use control::ControlError;
-
 use embassy_hal_internal::PeripheralType;
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::Interrupt;

@@ -24,6 +24,12 @@ pub(in crate::flexcan) enum MailboxError {
     /// During a mailbox operation, hardware failed to respond within a reasonable timeframe.
     Timeout,
 
+    /// This error indicates an invalid filter config.
+    /// 
+    /// Note: The split of standard and extended filters must 
+    /// adhere to the constraint: 2*(num_extended) + (num_standard) ≤ 32
+    FilterConfigError,
+
     /// When trying to read the `CODE` field of a TX message, no known `TxCode` variant matched.
     UnknownTxCode,
 }
@@ -261,7 +267,7 @@ pub(in crate::flexcan) mod tx {
 pub(in crate::flexcan) mod rx {
     use super::MailboxError;
     use crate::flexcan::classic::Info;
-    use crate::flexcan::filter::FilterConfig;
+    use crate::flexcan::filter::{Filter, FilterConfig};
     use super::pac;
     use super::Message;
 
@@ -403,34 +409,54 @@ pub(in crate::flexcan) mod rx {
         });
 
         // Set up the ID filteres
-        let num_extended = filter_config.extended_ids.len();
-        let num_standard = filter_config.standard_ids.len();
-        let standard_slots = num_standard.next_multiple_of(2); // Round up to a pair of two since hardware needs it
-
-        let nexif = num_extended; // NEXIF means the number of extended filter elements (see datasheet page 1538)
+        let standard_slots = filter_config.num_standard.next_multiple_of(2); // Round up to a pair of two since hardware needs it
+        let nexif = filter_config.num_extended; // NEXIF means the number of extended filter elements (see datasheet page 1538)
         let nfe = nexif + standard_slots / 2 - 1; // Also see datasheet page 1538
         info.control.regs().erfcr().modify(|m| {
             m.set_nexif(nexif as u8);
             m.set_nfe(nfe as u8);
         });
 
-        // Extended filters are registers 0 through 2*num_extended, with each being 2 words.
-        // Filter Word: extended ID in bits 0 through 28, then 0b000 for the last three
-        // Mask Word: RTR Mask = 0, extended ID mask = 0x1FFF_FFFF (so IDs need to be an exact match, and RTR response messages are treated like normal RX messages)
-        for(i, &id) in filter_config.extended_ids.iter().enumerate() {
-            const MASK: u32 = 0x1FFF_FFFF;
-            info.control.regs().erffel(2*i).write_value(pac::Erffel(id & MASK));
-            info.control.regs().erffel(2*i + 1).write_value(pac::Erffel(MASK));
+        // Walk the declarative FilterConfig and put each filter in the correct area
+        const EXT_ID_MASK: u32 = 0x1FFF_FFFF;
+        const STD_ID_MASK: u32 = 0x7FF;
+        let standard_base = 2 * filter_config.num_extended;
+
+        let mut ext_idx = 0; // next free extended element index
+        let mut std_idx = 0; // next free standard slot (relative to standard_base)
+        let mut last_standard_word = 0u32; // remembered so we can pad an odd standard slot
+
+        for filter in filter_config.filters {
+            match filter {
+                Filter::Extended(id) => {
+                    info.control.regs().erffel(2 * ext_idx).write_value(pac::Erffel(id.as_raw() & EXT_ID_MASK));
+                    info.control.regs().erffel(2 * ext_idx + 1).write_value(pac::Erffel(EXT_ID_MASK));
+                    ext_idx += 1;
+                }
+                Filter::ExtendedMasked { id, mask } => {
+                    info.control.regs().erffel(2 * ext_idx).write_value(pac::Erffel(id.as_raw() & EXT_ID_MASK));
+                    info.control.regs().erffel(2 * ext_idx + 1).write_value(pac::Erffel(mask.as_raw() & EXT_ID_MASK));
+                    ext_idx += 1;
+                }
+                Filter::Standard(id) => {
+                    let word = ((id.as_raw() as u32 & STD_ID_MASK) << 16) | STD_ID_MASK;
+                    info.control.regs().erffel(standard_base + std_idx).write_value(pac::Erffel(word));
+                    last_standard_word = word;
+                    std_idx += 1;
+                }
+                Filter::StandardMasked { id, mask } => {
+                    let word = ((id.as_raw() as u32 & STD_ID_MASK) << 16) | (mask.as_raw() as u32 & STD_ID_MASK);
+                    info.control.regs().erffel(standard_base + std_idx).write_value(pac::Erffel(word));
+                    last_standard_word = word;
+                    std_idx += 1;
+                }
+            }
         }
 
-        // Standard filters are after the extended filters, and are one register each
-        // Standard ID in bits 26::16, standard ID mask in bits 10:0.
-        let standard_base = 2 * num_extended;
-        for slot in 0..standard_slots {
-            // Pad the odd slot by replacing the last real ID (a duplicate will never win any matches since the earlier element gets found first)
-            let id = filter_config.standard_ids[if slot < num_standard { slot } else { num_standard - 1}];
-            const MASK: u32 = 0x7FF;
-            info.control.regs().erffel(standard_base + slot).write_value(pac::Erffel(((id & MASK) << 16) | MASK));
+        // If we have an odd number of standard filters, pad the trailing slot by repeating the
+        // last standard word (a duplicate will never win any matches since the earlier element gets found first).
+        if std_idx < standard_slots {
+            info.control.regs().erffel(standard_base + std_idx).write_value(pac::Erffel(last_standard_word));
         }
 
         Ok(())

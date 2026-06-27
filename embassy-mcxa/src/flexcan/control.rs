@@ -134,7 +134,7 @@ impl Control {
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ControlError {
+pub(in crate::flexcan) enum ControlError {
     /// The hardware did not assert `MCR[FRZACK]` within the requested time bound.
     FreezeTimeout,
 

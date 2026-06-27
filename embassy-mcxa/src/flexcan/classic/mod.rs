@@ -13,7 +13,7 @@ use nxp_pac::lpuart::M;
 
 use crate::flexcan::classic::mailbox::tx;
 use crate::flexcan::classic::frame::Frame;
-use crate::flexcan::filter::{FilterConfig, FilterConfigError};
+use crate::flexcan::filter::FilterConfig;
 use crate::flexcan::control::{Control};
 use crate::flexcan::{RxPin, TxPin};
 use crate::gpio::AnyPin;
@@ -79,14 +79,12 @@ pub(crate) struct Info {
 /// Errors that can return when initializing
 /// a `FlexCan` instance.
 #[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InitError {
     /// This error indicates that the hardware didn't response
     /// within a reasonable timeframe to a request the HAL made.
     Timeout,
-
-    /// This error indicates an invalid FilterConfig. See the `FilterConfigError`
-    /// enum for the specific possible errors.
-    Filter(FilterConfigError),
 
     /// This error indicates that you attempted enabling the
     /// `protocol_exception` feature in `FlexCanConfig` on a
@@ -114,7 +112,9 @@ pub struct FlexCanConfig<'a> {
 }
 
 /// Bus error modes.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BusErrorMode {
     /// Error active mode (default). Controller will transmit an 
     /// active error frame upon protocol error.
@@ -147,7 +147,6 @@ impl<'d> FlexCan<'d> {
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         config: FlexCanConfig,
-        /* Config, irq binding */
     ) -> Result<Self, InitError> {
         use embassy_time::Duration;
 
@@ -155,7 +154,6 @@ impl<'d> FlexCan<'d> {
 
         // Software-only error checks to make sure stuff was configured correctly
         if config.protocol_exception && !info.prexcen_supported {return Err(InitError::ProtocolExceptionUnsupported);}
-        config.filters.validate().map_err(|e| InitError::Filter(e))?;
 
         // Mux the pins to their CAN function and take ownership for the driver's lifetime.
         rx.as_rx();
