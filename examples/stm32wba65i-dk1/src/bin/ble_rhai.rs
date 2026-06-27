@@ -125,6 +125,9 @@ const NUS_TX_CHAR_UUID: [u8; 16] = [
 // fits within both the stack's negotiated MTU and the ATT event buffer.
 const MAX_DATA_LEN: usize = 512;
 
+// Max accumulated script size from NUS RX (multiple 512-byte writes).
+const MAX_SCRIPT_BYTES: usize = 1024;
+
 // BLE task → eval task: raw script bytes
 static SCRIPT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 1> =
     Channel::new();
@@ -189,7 +192,7 @@ const HELP_LINES: &[&str] = &[
     "led(on)           green LED (same as led(0,on))",
     "led(n, on)        LED 0=gr 1=rd 2=bl",
     "led_toggle(n)     toggle LED, ret 0/1",
-    "rgb(r,g,b)        all RGB LEDs",
+    "rgb(r,g,b)        all RGB LEDs (0/1 or bool)",
     "joy()             0 none 1 sel 2 L 3 D 4 U 5 R",
     "oled_line(n,text) OLED row 0..7",
     "oled_clear()      clear OLED rows",
@@ -403,6 +406,16 @@ async fn eval_task() {
         state
     });
 
+    engine.register_fn("led", |state: i32| -> i32 {
+        let on = state != 0;
+        LED_BANK.lock(|cell| {
+            if let Some(bank) = cell.borrow_mut().as_mut() {
+                bank.set(LedId::Green, on);
+            }
+        });
+        if on { 1 } else { 0 }
+    });
+
     engine.register_fn("led", |index: i32, state: bool| -> bool {
         if let Some(id) = LedId::from_i32(index) {
             LED_BANK.lock(|cell| {
@@ -412,6 +425,18 @@ async fn eval_task() {
             });
         }
         state
+    });
+
+    engine.register_fn("led", |index: i32, state: i32| -> i32 {
+        let on = state != 0;
+        if let Some(id) = LedId::from_i32(index) {
+            LED_BANK.lock(|cell| {
+                if let Some(bank) = cell.borrow_mut().as_mut() {
+                    bank.set(id, on);
+                }
+            });
+        }
+        if on { 1 } else { 0 }
     });
 
     engine.register_fn("led_toggle", |index: i32| -> i32 {
@@ -431,6 +456,15 @@ async fn eval_task() {
         LED_BANK.lock(|cell| {
             if let Some(bank) = cell.borrow_mut().as_mut() {
                 bank.set_rgb(r, g, b);
+            }
+        });
+        0
+    });
+
+    engine.register_fn("rgb", |r: i32, g: i32, b: i32| -> i32 {
+        LED_BANK.lock(|cell| {
+            if let Some(bank) = cell.borrow_mut().as_mut() {
+                bank.set_rgb(r != 0, g != 0, b != 0);
             }
         });
         0
@@ -700,7 +734,7 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
 
     info!("Advertising as '{}' — connect and send Rhai expressions", board::BLE_ADV_NAME);
 
-    let mut input_buf: Vec<u8> = Vec::new();
+    let mut input_buf: Vec<u8> = Vec::with_capacity(MAX_SCRIPT_BYTES);
     let mut tx_notifications = false;
     let mut conn_handle: Option<u16> = None;
     let mut eval_pending = false;
@@ -884,8 +918,14 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                             }
                             info!("TX notifications {}", if tx_notifications { "on" } else { "off" });
                         } else if is_value_handle(rx_char_handle.0, attr.attr_handle.0) {
-                            input_buf.extend_from_slice(attr.data());
-                            debug!("buffered {} bytes total", input_buf.len());
+                            let data = attr.data();
+                            let room = MAX_SCRIPT_BYTES.saturating_sub(input_buf.len());
+                            if room == 0 {
+                                warn!("script buffer full ({} bytes)", MAX_SCRIPT_BYTES);
+                            } else {
+                                input_buf.extend_from_slice(&data[..data.len().min(room)]);
+                                debug!("buffered {} bytes total", input_buf.len());
+                            }
                         }
                     }
 

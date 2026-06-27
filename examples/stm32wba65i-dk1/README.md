@@ -10,16 +10,16 @@ Interactive BLE scripting demo — connect with a phone or nRF Connect, write to
 cargo run --release --bin ble_rhai --features scripting
 ```
 
-Advertises as **RhaiPlay**. Script dispatch happens after 500 ms idle or on disconnect (same as the WBA5MM module demo).
+Advertises as **RhaiPlay**. Script dispatch happens after 500 ms idle or on disconnect (same as the WBA5MM module demo). Input is buffered up to **1024 bytes** per script (multiple BLE writes).
 
 ### Rhai API
 
 | Function | Description |
 |----------|-------------|
-| `led(on)` | Green LED on/off (same as `led(0, on)`) |
-| `led(n, on)` | User LED `n`: 0=green, 1=red, 2=blue |
+| `led(on)` | Green LED on/off (same as `led(0, on)`); `on` is bool or 0/1 |
+| `led(n, on)` | User LED `n`: 0=green, 1=red, 2=blue; `on` is bool or 0/1 |
 | `led_toggle(n)` | Toggle LED `n`; returns 1 if on, 0 if off |
-| `rgb(r, g, b)` | Set all three LEDs at once |
+| `rgb(r, g, b)` | Set all three LEDs at once; each channel bool or 0/1 |
 | `joy()` | Joystick: 0=none, 1=select, 2=left, 3=down, 4=up, 5=right |
 | `oled_line(n, text)` | Write a line (0–7) on the 128×64 OLED |
 | `oled_clear()` | Clear the OLED line buffer |
@@ -45,6 +45,7 @@ help()
 let s = "hello,world";
 print(s.split(","));
 print(s.to_upper());
+rgb(1, 0, 0)
 rgb(true, false, false)
 print("hello")
 oled_line(6, "hello")
