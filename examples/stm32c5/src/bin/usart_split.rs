@@ -6,6 +6,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{Config, Uart, UartRx};
 use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::channel::Channel;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -13,6 +15,8 @@ bind_interrupts!(struct Irqs {
     LPDMA1_CH0 => dma::InterruptHandler<peripherals::LPDMA1_CH0>;
     LPDMA1_CH1 => dma::InterruptHandler<peripherals::LPDMA1_CH1>;
 });
+
+static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
@@ -25,13 +29,12 @@ async fn main(spawner: Spawner) -> ! {
 
     let (mut tx, rx) = usart.split();
 
-    //join
+    spawner.spawn(unwrap!(reader(rx)));
 
     loop {
-        //let buf = CHANNEL.receive().await;
-        
+        let buf = CHANNEL.receive().await;
         info!("writing...");
-        //unwrap!(tx.write(&buf).await);
+        unwrap!(tx.write(&buf).await);
     }
 }
 
@@ -41,6 +44,6 @@ async fn reader(mut rx: UartRx<'static, Async>) {
     loop {
         info!("reading...");
         unwrap!(rx.read(&mut buf).await);
-       // CHANNEL.send(buf).await;
+        CHANNEL.send(buf).await;
     }
 }
