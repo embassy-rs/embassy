@@ -14,10 +14,10 @@ use embassy_stm32::peripherals::{PA0, PB8, PE0, PE1, PE3, SPI3};
 use embassy_stm32::spi::mode::Master;
 use embassy_time::{Delay, Timer};
 use embedded_graphics::{
-    mono_font::{ascii::FONT_10X20, MonoTextStyle},
+    mono_font::{ascii::{FONT_5X8, FONT_10X20}, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    text::{Alignment, Text},
+    text::{Alignment, Baseline, Text, TextStyleBuilder},
 };
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use ssd1306::{mode::BufferedGraphicsMode, prelude::*, Ssd1306};
@@ -26,6 +26,12 @@ type OledSpi = Spi<'static, Blocking, Master>;
 type OledSpiDev = ExclusiveDevice<OledSpi, Output<'static>, NoDelay>;
 type OledInterface = SPIInterface<OledSpiDev, Output<'static>>;
 type OledDisplay = Ssd1306<OledInterface, DisplaySize128x64, BufferedGraphicsMode<DisplaySize128x64>>;
+
+/// Rhai `print()` mirror line (8 lines × 8 px font on 64 px height).
+pub const PRINT_LINE: u8 = 7;
+
+/// Vertical pitch for 8 text rows on a 64 px-tall panel.
+const LINE_PITCH: i32 = 8;
 
 pub struct OledBus {
     pub display: OledDisplay,
@@ -62,6 +68,25 @@ impl OledBus {
             return Err(DisplayError::RSError);
         }
         self.display.init()
+    }
+
+    /// Draw up to 8 centered lines (FONT_5X8, 8 px row pitch, top-aligned).
+    pub fn render_lines(&mut self, lines: &[heapless::String<22>; 8]) -> Result<(), DisplayError> {
+        self.display.clear_buffer();
+        let style = MonoTextStyle::new(&FONT_5X8, BinaryColor::On);
+        let text_style = TextStyleBuilder::new()
+            .alignment(Alignment::Center)
+            .baseline(Baseline::Top)
+            .build();
+        for (i, l) in lines.iter().enumerate() {
+            if l.is_empty() {
+                continue;
+            }
+            let y = i as i32 * LINE_PITCH;
+            let _ = Text::with_text_style(l.as_str(), Point::new(64, y), style, text_style)
+                .draw(&mut self.display);
+        }
+        self.display.flush()
     }
 
     pub fn show_hello(&mut self) -> Result<(), DisplayError> {

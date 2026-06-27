@@ -16,18 +16,24 @@ Advertises as **RhaiPlay**. Script dispatch happens after 500 ms idle or on disc
 
 | Function | Description |
 |----------|-------------|
+| `led(on)` | Green LED on/off (same as `led(0, on)`) |
 | `led(n, on)` | User LED `n`: 0=green, 1=red, 2=blue |
+| `led_toggle(n)` | Toggle LED `n`; returns 1 if on, 0 if off |
 | `rgb(r, g, b)` | Set all three LEDs at once |
 | `joy()` | Joystick: 0=none, 1=select, 2=left, 3=down, 4=up, 5=right |
 | `oled_line(n, text)` | Write a line (0–7) on the 128×64 OLED |
 | `oled_clear()` | Clear the OLED line buffer |
+| `print("…")` | Send text over BLE **and** mirror to OLED line 7 |
 | `ts()` | Uptime ticks (32768 Hz) |
 | `heap_free()` | Free heap bytes |
+| `help()` | Print full API listing over BLE |
 
 Example session over BLE:
 
 ```text
+help()
 rgb(true, false, false)
+print("hello")
 oled_line(6, "hello")
 joy()
 let x = 0; for i in 0..100 { x += i; } x
@@ -41,7 +47,7 @@ See [RHAI_PLAYGROUND.md](./RHAI_PLAYGROUND.md) for future API ideas, demo script
 
 - **LEDs**: active-low on PD8 (green), PD9 (red), PB10 (blue). LD3 needs R42 populated on some boards.
 - **Joystick**: analog ladder on PA3 / ADC4 ch6.
-- **OLED**: SSD1306 on I2C1 (PB2/PB1), address 0x3C.
+- **OLED**: SSD1306 on SPI3 (PA0 SCK, PB8 MOSI, PE1 CS, PE0 D/C, PE3 RST).
 - **Debug**: ST-LINK VCP on USART1 (PB12 TX, PA8 RX).
 
 ## Other examples

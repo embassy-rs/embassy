@@ -9,7 +9,7 @@
 //! - 256 KB Rhai heap (512 KB SRAM on WBA65)
 //! - RGB user LEDs (PD8/PD9/PB10)
 //! - Joystick on ADC4/PA3 (`joy()`)
-//! - SSD1306 OLED status (`oled_line()`, `oled_clear()`)
+//! - SSD1306 OLED on SPI3 (`oled_line()`, `oled_clear()`; `print()` mirrors to line 7)
 //!
 //! ## Architecture
 //!
@@ -56,8 +56,6 @@ use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering, Ordering as 
 
 use embassy_stm32::adc::{Adc, adc4};
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::i2c::{I2c, Master};
-use embassy_stm32::mode::Blocking;
 use embassy_stm32::Peri;
 use embassy_stm32::interrupt::{self, InterruptExt, Priority};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
@@ -66,13 +64,7 @@ use embassy_stm32::rcc;
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_stm32wba65i_dk1_examples::board::{self, JoyDir, LedBank, LedId};
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyle},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::{Alignment, Text},
-};
-use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
+use embassy_stm32wba65i_dk1_examples::oled::{OledBus, PRINT_LINE};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
@@ -84,6 +76,7 @@ use embassy_stm32_wpan::bluetooth::gatt::{
     is_cccd_handle, is_value_handle,
 };
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
+use embassy_time::Timer;
 use rhai::{Dynamic, Engine, packages::BasicIteratorPackage, packages::BasicMathPackage, packages::BasicStringPackage, packages::Package};
 use static_cell::StaticCell;
 use stm32wb_hci::Event;
@@ -148,6 +141,51 @@ static PRINT_CHAN: Channel<CriticalSectionRawMutex, Vec<u8>, 8> =
 // OLED line updates from Rhai scripts (line 0..7, text).
 static OLED_CHAN: Channel<CriticalSectionRawMutex, (u8, Vec<u8>), 4> =
     Channel::new();
+
+fn oled_queue_line(line: u8, text: &str) {
+    let mut v: Vec<u8> = Vec::with_capacity(text.len().min(21));
+    v.extend_from_slice(text.as_bytes().get(..21).unwrap_or(text.as_bytes()));
+    let _ = OLED_CHAN.try_send((line, v));
+}
+
+/// Forward one line to BLE notify (and OLED line 7 when `mirror_oled`).
+fn script_print(line: &str, mirror_oled: bool) {
+    if HEAP.free() < line.len() + 16 + MIN_HEAP_RESERVE {
+        return;
+    }
+    if mirror_oled {
+        oled_queue_line(PRINT_LINE, line);
+    }
+    let mut v: Vec<u8> = Vec::with_capacity(line.len() + 2);
+    v.extend_from_slice(line.as_bytes());
+    v.push(b'\r');
+    v.push(b'\n');
+    let _ = PRINT_CHAN.try_send(v);
+}
+
+const HELP_LINES: &[&str] = &[
+    "=== RhaiPlay STM32WBA65I-DK1 ===",
+    "-- board --",
+    "led(on)           green LED (same as led(0,on))",
+    "led(n, on)        LED 0=gr 1=rd 2=bl",
+    "led_toggle(n)     toggle LED, ret 0/1",
+    "rgb(r,g,b)        all RGB LEDs",
+    "joy()             0 none 1 sel 2 L 3 D 4 U 5 R",
+    "oled_line(n,text) OLED row 0..7",
+    "oled_clear()      clear OLED rows",
+    "ts()              uptime ticks (32768 Hz)",
+    "heap_free()       free heap bytes",
+    "help()            this listing",
+    "-- I/O --",
+    "print(\"…\")        BLE + OLED line 7",
+    "debug(\"…\")        same, debug channel",
+    "-- Rhai packages --",
+    "Math: + - * / % ** abs min max",
+    "Iterator: len, for-in, while, if",
+    "String: +, ==, !=, <, >, substr",
+    "Arrays: [], +=, [i], max 4096 el",
+    "Send idle 500ms or newline to eval",
+];
 
 // Latest joystick direction, updated by input_task (read by joy() in eval).
 static JOY_STATE: AtomicU8 = AtomicU8::new(JoyDir::None as u8);
@@ -333,6 +371,15 @@ async fn eval_task() {
     BasicIteratorPackage::new().register_into_engine(&mut engine);
     BasicStringPackage::new().register_into_engine(&mut engine);
 
+    engine.register_fn("led", |state: bool| -> bool {
+        LED_BANK.lock(|cell| {
+            if let Some(bank) = cell.borrow_mut().as_mut() {
+                bank.set(LedId::Green, state);
+            }
+        });
+        state
+    });
+
     engine.register_fn("led", |index: i32, state: bool| -> bool {
         if let Some(id) = LedId::from_i32(index) {
             LED_BANK.lock(|cell| {
@@ -342,6 +389,19 @@ async fn eval_task() {
             });
         }
         state
+    });
+
+    engine.register_fn("led_toggle", |index: i32| -> i32 {
+        if let Some(id) = LedId::from_i32(index) {
+            let mut on = false;
+            LED_BANK.lock(|cell| {
+                if let Some(bank) = cell.borrow_mut().as_mut() {
+                    on = bank.toggle(id);
+                }
+            });
+            return if on { 1 } else { 0 };
+        }
+        -1
     });
 
     engine.register_fn("rgb", |r: bool, g: bool, b: bool| -> i32 {
@@ -361,9 +421,7 @@ async fn eval_task() {
         if !(0..8).contains(&line) {
             return -1;
         }
-        let mut v: Vec<u8> = Vec::with_capacity(text.len().min(21));
-        v.extend_from_slice(text.as_bytes().get(..21).unwrap_or(text.as_bytes()));
-        let _ = OLED_CHAN.try_send((line as u8, v));
+        oled_queue_line(line as u8, text);
         line
     });
 
@@ -380,27 +438,24 @@ async fn eval_task() {
         HEAP.free() as i32
     });
 
+    engine.register_fn("help", || -> i32 {
+        for line in HELP_LINES {
+            script_print(line, false);
+        }
+        oled_queue_line(6, "help sent (BLE)");
+        HELP_LINES.len() as i32
+    });
+
     // Each print()/debug() call sends immediately to PRINT_CHAN.
     // ble_task runs at interrupt priority and will preempt eval_task to forward
     // the notification to the BLE client without waiting for eval to finish.
     engine.on_print(|s| {
-        // Guard: skip the Vec copy if allocating would exhaust the post-eval cleanup reserve.
-        if HEAP.free() < s.len() + 16 + MIN_HEAP_RESERVE { return; }
-        let mut v: Vec<u8> = Vec::with_capacity(s.len() + 2);
-        v.extend_from_slice(s.as_bytes());
-        v.push(b'\r');
-        v.push(b'\n');
         info!("print: {}", s);
-        let _ = PRINT_CHAN.try_send(v); // non-blocking; drops if channel full
+        script_print(s, true);
     });
     engine.on_debug(|s, _src, _pos| {
-        if HEAP.free() < s.len() + 16 + MIN_HEAP_RESERVE { return; }
-        let mut v: Vec<u8> = Vec::with_capacity(s.len() + 2);
-        v.extend_from_slice(s.as_bytes());
-        v.push(b'\r');
-        v.push(b'\n');
         info!("debug: {}", s);
-        let _ = PRINT_CHAN.try_send(v);
+        script_print(s, false);
     });
 
     // Rhai safety limits — enforced BEFORE the allocation attempt, so violations
@@ -509,35 +564,24 @@ async fn eval_task() {
 }
 
 // ---------------------------------------------------------------------------
-// OLED task — owns I2C1 + SSD1306, renders status and script output
+// OLED task — owns SPI3 + SSD1306, renders status and script output
 // ---------------------------------------------------------------------------
 
 #[embassy_executor::task]
-async fn display_task(i2c: I2c<'static, Blocking, Master>) {
-    let interface = I2CDisplayInterface::new(i2c);
-    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-        .into_buffered_graphics_mode();
-    if display.init().is_err() {
-        warn!("OLED init failed — check I2C wiring");
-        return;
+async fn display_task(mut oled: OledBus) {
+    loop {
+        if oled.try_init().is_ok() {
+            break;
+        }
+        warn!("OLED init failed, retrying…");
+        Timer::after_millis(500).await;
     }
-    let style = MonoTextStyle::new(&FONT_6X10, BinaryColor::On);
 
     let mut lines: [heapless::String<22>; 8] = Default::default();
     lines[0].push_str(board::BOARD_NAME).ok();
     lines[2].push_str("BLE Rhai Playground").ok();
     lines[4].push_str(board::BLE_ADV_NAME).ok();
-
-    display.clear_buffer();
-    for (i, l) in lines.iter().enumerate() {
-        if l.is_empty() {
-            continue;
-        }
-        let y = i as i32 * 12 + 2;
-        let _ = Text::with_alignment(l.as_str(), Point::new(64, y), style, Alignment::Center)
-            .draw(&mut display);
-    }
-    let _ = display.flush();
+    let _ = oled.render_lines(&lines);
 
     loop {
         let (line, data) = OLED_CHAN.receive().await;
@@ -551,16 +595,7 @@ async fn display_task(i2c: I2c<'static, Blocking, Master>) {
                 lines[line as usize].push_str(s).ok();
             }
         }
-        display.clear_buffer();
-        for (i, l) in lines.iter().enumerate() {
-            if l.is_empty() {
-                continue;
-            }
-            let y = i as i32 * 12 + 2;
-            let _ = Text::with_alignment(l.as_str(), Point::new(64, y), style, Alignment::Center)
-                .draw(&mut display);
-        }
-        let _ = display.flush();
+        let _ = oled.render_lines(&lines);
     }
 }
 
@@ -828,7 +863,7 @@ async fn ble_task(mut ble: HCI<'static, Normal>) {
                                             b"err: firmware panic (reset)\r\n");
                                     }
                                     let _ = gatt.notify(conn, service_handle, tx_char_handle,
-                                        b"Rhai Playground ready\r\n> led(n,on) rgb(r,g,b) joy() oled_line(n,text)\r\n> ");
+                                        b"Rhai Playground ready\r\n> help() for API list\r\n> ");
                                 }
                             }
                             info!("TX notifications {}", if tx_notifications { "on" } else { "off" });
@@ -902,11 +937,11 @@ async fn main(spawner: Spawner) {
 
     info!("{} BLE Rhai playground starting", board::BOARD_NAME);
 
-    let i2c = I2c::new_blocking(p.I2C1, p.PB2, p.PB1, Default::default());
+    let oled = OledBus::new(p.SPI3, p.PA0, p.PB8, p.PE1, p.PE0, p.PE3);
     let adc = Adc::new_adc4(p.ADC4);
     let joy_pin = p.PA3;
 
-    spawner.spawn(display_task(i2c).expect("spawn display_task"));
+    spawner.spawn(display_task(oled).expect("spawn display_task"));
     spawner.spawn(input_task(adc, joy_pin).expect("spawn input_task"));
 
     let (platform, runtime) = new_platform!(

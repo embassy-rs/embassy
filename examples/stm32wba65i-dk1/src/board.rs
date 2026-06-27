@@ -84,20 +84,35 @@ pub struct LedBank {
     green: Output<'static>,
     red: Output<'static>,
     blue: Output<'static>,
+    /// Logical on/off (not pin level).
+    state: [bool; 3],
 }
 
 impl LedBank {
     pub fn new(green: Output<'static>, red: Output<'static>, blue: Output<'static>) -> Self {
-        Self { green, red, blue }
+        Self {
+            green,
+            red,
+            blue,
+            state: [false; 3],
+        }
     }
 
     pub fn set(&mut self, id: LedId, on: bool) {
+        self.state[id as usize] = on;
         let level = if on { Level::Low } else { Level::High };
         match id {
             LedId::Green => self.green.set_level(level),
             LedId::Red => self.red.set_level(level),
             LedId::Blue => self.blue.set_level(level),
         }
+    }
+
+    /// Flip LED `id`; returns the new logical state (`true` = on).
+    pub fn toggle(&mut self, id: LedId) -> bool {
+        let on = !self.state[id as usize];
+        self.set(id, on);
+        on
     }
 
     pub fn set_rgb(&mut self, r: bool, g: bool, b: bool) {
