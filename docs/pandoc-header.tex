@@ -1,0 +1,72 @@
+%% --- Typography polish -----------------------------------------------------
+% Better justification, character protrusion, and font expansion.
+\usepackage{microtype}
+
+% Better line-breaking for URLs and long identifiers; avoid full-page vertical
+% stretching when a page can't be filled (common when a tall code block is
+% bumped to the next page).
+\setlength{\emergencystretch}{3em}
+\raggedbottom
+
+%% --- Sans-serif section headings -------------------------------------------
+% Headings render in the configured sans font, body stays in the serif font.
+\usepackage{titlesec}
+\titleformat{\chapter}[hang]
+  {\normalfont\sffamily\Huge\bfseries}{\thechapter}{1em}{}
+\titlespacing*{\chapter}{0pt}{-20pt}{18pt}
+\titleformat{\section}
+  {\normalfont\sffamily\Large\bfseries}{\thesection}{1em}{}
+\titleformat{\subsection}
+  {\normalfont\sffamily\large\bfseries}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}
+  {\normalfont\sffamily\normalsize\bfseries}{\thesubsubsection}{1em}{}
+
+%% --- Title page -----------------------------------------------------------
+% Override pandoc's default \maketitle for a cleaner cover. Uses whatever
+% title/author/date pandoc has already stashed in \@title etc.
+\makeatletter
+\renewcommand{\maketitle}{%
+  \begin{titlepage}
+    \centering
+    \vspace*{0.18\textheight}
+    {\sffamily\bfseries\fontsize{34pt}{40pt}\selectfont \@title \par}
+    \vfill
+    {\sffamily\Large \@author \par}
+    \vspace{0.6cm}
+    {\sffamily \@date \par}
+    \vspace{2cm}
+  \end{titlepage}
+}
+\makeatother
+
+%% --- Code-block frame ------------------------------------------------------
+% Replace pandoc's default gray-bg `Shaded` and bare `verbatim` with an
+% mdframed box: subtle left bar, light tint, and (nobreak=true) keep the
+% whole block on one page so listings don't split.
+\usepackage{xcolor}
+\usepackage{mdframed}
+\definecolor{codebg}{HTML}{F7F7F9}
+\definecolor{codebar}{HTML}{3F6FB5}
+
+\mdfdefinestyle{codeframe}{%
+  backgroundcolor=codebg,
+  linecolor=codebar,
+  linewidth=2.5pt,
+  topline=false, rightline=false, bottomline=false, leftline=true,
+  innerleftmargin=8pt, innerrightmargin=8pt,
+  innertopmargin=6pt, innerbottommargin=6pt,
+  skipabove=6pt, skipbelow=6pt,
+  nobreak=true,
+}
+
+% Replace pandoc's `Shaded` (highlighted code) with our frame. The default
+% `Shaded` wraps content in a gray `snugshade` box; we want only ours.
+\let\OldShaded\Shaded
+\let\endOldShaded\endShaded
+\renewenvironment{Shaded}
+  {\begin{mdframed}[style=codeframe]\small}
+  {\end{mdframed}}
+
+% Pandoc emits plain `verbatim` for unhighlighted code; wrap it too.
+\BeforeBeginEnvironment{verbatim}{\begin{mdframed}[style=codeframe]\small}
+\AfterEndEnvironment{verbatim}{\end{mdframed}}
