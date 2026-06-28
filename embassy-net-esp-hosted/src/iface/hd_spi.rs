@@ -91,6 +91,9 @@ pub struct HdSpiInterface<D, DR> {
     data_ready: DR,
     tx_buf_count: u32,
     rx_byte_count: u32,
+    /// Last buffer-grant count read from `RxBufLen`. Cached so TX doesn't read
+    /// the register on every packet; refreshed only when credits run out.
+    cached_granted: u32,
 }
 
 impl<D, DR> HdSpiInterface<D, DR>
@@ -103,7 +106,7 @@ where
     const TX_BUF_LEN_MASK: u32 = 0x00FF_FFFF;
     const MAX_WRITE_BUF_RETRIES: u8 = 25;
     const POLLING_READ: u8 = 3;
-    const COPROC_READY_FLAG: u32 = 0xEE;
+    const COPROC_READY_FLAG: [u8; 4] = [0xEE, 0, 0, 0];
     const CTRL_DATAPATH_ON: u32 = 1 << 0;
 
     /// Creates a new half-duplex SPI interface with the given SPI DMA driver and `Data_Ready` pin.
@@ -113,13 +116,14 @@ where
             data_ready,
             tx_buf_count: 0,
             rx_byte_count: 0,
+            cached_granted: 0,
         }
     }
 
-    async fn read_reg_once(&mut self, reg: HdRegister) -> u32 {
-        let mut buf = [0u8; 4];
+    async fn read_reg_once<const BYTES: usize>(&mut self, reg: HdRegister) -> [u8; BYTES] {
+        let mut buf = [0u8; BYTES];
         self.spi.read(HdCommand::ReadReg, reg as u32, &mut buf).await;
-        u32::from_le_bytes(buf)
+        buf
     }
 
     async fn write_reg(&mut self, reg: HdRegister, value: u32) {
@@ -134,10 +138,10 @@ where
     }
 
     // Re-read until two reads agree; the co-processor may update mid-read.
-    async fn read_reg(&mut self, reg: HdRegister) -> u32 {
-        let mut value = self.read_reg_once(reg).await;
+    async fn read_reg<const BYTES: usize>(&mut self, reg: HdRegister) -> [u8; BYTES] {
+        let mut value = self.read_reg_once::<BYTES>(reg).await;
         for _ in 0..Self::POLLING_READ {
-            let next = self.read_reg_once(reg).await;
+            let next = self.read_reg_once::<BYTES>(reg).await;
             if next == value {
                 break;
             }
@@ -146,16 +150,35 @@ where
         value
     }
 
+    // Read the adjacent `TxBufLen` and `RxBufLen` registers in one burst.
+    async fn read_status(&mut self) -> u32 {
+        let bytes = self.read_reg::<8>(HdRegister::TxBufLen).await;
+
+        let tx = u32::from_le_bytes(bytes[0..4].try_into().unwrap());
+        let rx = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+
+        self.cached_granted = rx;
+
+        tx.wrapping_sub(self.rx_byte_count) & Self::TX_BUF_LEN_MASK
+    }
+
+    fn has_credit(&self, buf_needed: u32) -> bool {
+        self.cached_granted.wrapping_sub(self.tx_buf_count) >= buf_needed
+    }
+
     async fn write_frame(&mut self, frame: &[u8]) {
-        let buffers_needed = frame.len().div_ceil(Self::MAX_SPI_HD_BUFFER_SIZE) as u32;
+        let buf_needed = frame.len().div_ceil(Self::MAX_SPI_HD_BUFFER_SIZE) as u32;
 
         let mut retries = Self::MAX_WRITE_BUF_RETRIES;
         loop {
-            let available = self
-                .read_reg(HdRegister::RxBufLen)
-                .await
-                .wrapping_sub(self.tx_buf_count);
-            if available >= buffers_needed {
+            // Common path: spend a cached credit without touching the bus.
+            if self.has_credit(buf_needed) {
+                break;
+            }
+            // Out of cached credits: refresh from the co-processor.
+            let bytes = self.read_reg::<4>(HdRegister::RxBufLen).await;
+            self.cached_granted = u32::from_le_bytes(bytes);
+            if self.has_credit(buf_needed) {
                 break;
             }
             retries -= 1;
@@ -169,28 +192,28 @@ where
         self.spi.write(HdCommand::WriteDma, 0, frame).await;
 
         self.command(HdCommand::WriteDone).await;
-        self.tx_buf_count = self.tx_buf_count.wrapping_add(buffers_needed);
+        self.tx_buf_count = self.tx_buf_count.wrapping_add(buf_needed);
     }
 
-    async fn read_frame(&mut self, buffer: &mut [u8]) -> usize {
-        let tx_buf_len = self.read_reg(HdRegister::TxBufLen).await;
+    async fn read_frame(&mut self, buffer: &mut [u8], data_available: u32) -> u32 {
+        if data_available == 0 {
+            return 0;
+        }
+
         self.command(HdCommand::Int1).await;
 
-        let total = tx_buf_len & Self::TX_BUF_LEN_MASK;
-        let size = (total.wrapping_sub(self.rx_byte_count) & Self::TX_BUF_LEN_MASK) as usize;
-        if size == 0 {
-            return 0;
-        }
-        if size > buffer.len() {
-            warn!("spi-hd: rx size {} exceeds buffer, dropping", size);
+        if data_available as usize > buffer.len() {
+            warn!("spi-hd: rx size {} exceeds buffer, dropping", data_available);
             return 0;
         }
 
-        self.spi.read(HdCommand::ReadDma, 0, &mut buffer[..size]).await;
+        self.spi
+            .read(HdCommand::ReadDma, 0, &mut buffer[..data_available as usize])
+            .await;
 
         self.command(HdCommand::ReadDone).await;
-        self.rx_byte_count = self.rx_byte_count.wrapping_add(size as u32) & Self::TX_BUF_LEN_MASK;
-        size
+        self.rx_byte_count = self.rx_byte_count.wrapping_add(data_available) & Self::TX_BUF_LEN_MASK;
+        data_available
     }
 }
 
@@ -207,8 +230,9 @@ where
 
         self.tx_buf_count = 0;
         self.rx_byte_count = 0;
+        self.cached_granted = 0;
 
-        while self.read_reg_once(HdRegister::CoprocessorReady).await != Self::COPROC_READY_FLAG {
+        while self.read_reg_once::<4>(HdRegister::CoprocessorReady).await != Self::COPROC_READY_FLAG {
             Timer::after_millis(100).await;
         }
         self.write_reg(HdRegister::CoprocessorControl, Self::CTRL_DATAPATH_ON)
@@ -224,15 +248,19 @@ where
     }
 
     async fn transfer(&mut self, buffer: &mut Aligned<A4, [u8]>, tx_len: usize) {
+        // Refresh counters, but only if data is ready. If not, the TX path will
+        // handle its own counter.
+        let data_available = if self.data_ready.is_high().unwrap() {
+            self.read_status().await
+        } else {
+            0
+        };
+
         if tx_len > 0 {
             self.write_frame(&buffer[..tx_len]).await;
         }
 
-        let received = if self.data_ready.is_high().unwrap_or(false) {
-            self.read_frame(buffer).await
-        } else {
-            0
-        };
+        let received = self.read_frame(buffer, data_available).await;
 
         if received == 0 {
             buffer[..Self::HEADER_LEN].fill(0);
