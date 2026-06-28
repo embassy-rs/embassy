@@ -91,6 +91,9 @@ pub struct HdSpiInterface<D, DR> {
     data_ready: DR,
     tx_buf_count: u32,
     rx_byte_count: u32,
+    /// Last buffer-grant count read from `RxBufLen`. Cached so TX doesn't read
+    /// the register on every packet; refreshed only when credits run out.
+    cached_granted: u32,
 }
 
 impl<D, DR> HdSpiInterface<D, DR>
@@ -113,6 +116,7 @@ where
             data_ready,
             tx_buf_count: 0,
             rx_byte_count: 0,
+            cached_granted: 0,
         }
     }
 
@@ -146,16 +150,22 @@ where
         value
     }
 
+    fn has_credit(&self, buf_needed: u32) -> bool {
+        self.cached_granted.wrapping_sub(self.tx_buf_count) >= buf_needed
+    }
+
     async fn write_frame(&mut self, frame: &[u8]) {
-        let buffers_needed = frame.len().div_ceil(Self::MAX_SPI_HD_BUFFER_SIZE) as u32;
+        let buf_needed = frame.len().div_ceil(Self::MAX_SPI_HD_BUFFER_SIZE) as u32;
 
         let mut retries = Self::MAX_WRITE_BUF_RETRIES;
         loop {
-            let available = self
-                .read_reg(HdRegister::RxBufLen)
-                .await
-                .wrapping_sub(self.tx_buf_count);
-            if available >= buffers_needed {
+            // Common path: spend a cached credit without touching the bus.
+            if self.has_credit(buf_needed) {
+                break;
+            }
+            // Out of cached credits: refresh from the co-processor.
+            self.cached_granted = self.read_reg(HdRegister::RxBufLen).await;
+            if self.has_credit(buf_needed) {
                 break;
             }
             retries -= 1;
@@ -169,7 +179,7 @@ where
         self.spi.write(HdCommand::WriteDma, 0, frame).await;
 
         self.command(HdCommand::WriteDone).await;
-        self.tx_buf_count = self.tx_buf_count.wrapping_add(buffers_needed);
+        self.tx_buf_count = self.tx_buf_count.wrapping_add(buf_needed);
     }
 
     async fn read_frame(&mut self, buffer: &mut [u8]) -> usize {
@@ -207,6 +217,7 @@ where
 
         self.tx_buf_count = 0;
         self.rx_byte_count = 0;
+        self.cached_granted = 0;
 
         while self.read_reg_once(HdRegister::CoprocessorReady).await != Self::COPROC_READY_FLAG {
             Timer::after_millis(100).await;
