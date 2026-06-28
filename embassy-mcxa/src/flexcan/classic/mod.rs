@@ -7,7 +7,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::channel::{Channel};
 use embassy_hal_internal::Peri;
 use nxp_pac::lpuart::M;
 
@@ -24,8 +24,6 @@ use nxp_pac::can as pac;
 /// FlexCAN driver instance, in Classic CAN mode.
 pub struct FlexCan<'d> {
     info: &'static Info,
-    // Held for the lifetime of the driver so the pins stay reserved and muxed
-    // to the CAN function while this instance is alive.
     _rx: Peri<'d, AnyPin>,
     _tx: Peri<'d, AnyPin>,
     _phantom: PhantomData<&'d mut ()>,
@@ -139,6 +137,13 @@ pub enum SendError {
     BusOff,
 }
 
+/// Errors that may occur when calling try_receive().
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReceiveError {
+    /// There were no new messages to be received.
+    NoMessages,
+}
+
 impl<'d> FlexCan<'d> {
     /// Constructs a new FlexCAN driver instance, in Classic mode.
     /// 
@@ -186,6 +191,9 @@ impl<'d> FlexCan<'d> {
         info.control.regs().ctrl2().modify(|w| {
             w.set_boffdonemsk(true);
         });
+
+        // Use expanded bit timing
+        info.control.regs().ctrl2().modify(|m| m.set_bte(true));
 
         // As of right now, the whole HAL is based around us having 32 message buffers.
         // So, this isn't something the user should be able to configure.
@@ -271,6 +279,11 @@ impl<'d> FlexCan<'d> {
     #[doc = concat!("If you don't specify anything, the queue will default to a size of ", rx_queue_size_default!(), " frames.")]
     pub async fn receive(&self) -> Frame {
         self.info.rx_channel.receive().await
+    }
+
+    /// Like `receive()`, but returns immediately if there are no new messages (rather than waiting for more to arrive).
+    pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
+        self.info.rx_channel.try_receive().map_err(|_| ReceiveError::NoMessages)
     }
 
     /// Returns the error mode the FlexCAN is currently in.
