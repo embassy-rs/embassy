@@ -8,24 +8,24 @@ use crate::flash::Error;
 use crate::pac;
 
 pub(crate) unsafe fn lock() {
-    if !pac::FLASH.cr().read().lock().to_bits() == 1 {
+    if !pac::FLASH.cr().read().lock() {
         pac::FLASH.cr().modify(|r| {
-            r.set_lock(1.into());
+            r.set_lock(true);
         });
     }
 }
 
 pub(crate) unsafe fn unlock() {
     // TODO: check locked first
-    while pac::FLASH.sr().read().bsy().to_bits() == 1 {
+    while pac::FLASH.sr().read().bsy() {
         #[cfg(feature = "defmt")]
         defmt::trace!("busy")
     }
 
     // only unlock if locked to begin with
-    if let vals::Lock::B0x1 = pac::FLASH.cr().read().lock() {
-        pac::FLASH.keyr().write_value( 0x4567_0123.into());
-        pac::FLASH.keyr().write_value(0xCDEF_89AB.into());
+    if pac::FLASH.cr().read().lock() {
+        pac::FLASH.keyr().write_value(0x4567_0123);
+        pac::FLASH.keyr().write_value(0xCDEF_89AB);
     }
 }
 
@@ -65,11 +65,11 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
             error!("write err");
             e
         }));
-        pac::FLASH.sr().modify(|w| {
-            if w.eop() {
-                w.set_eop(true);
-            }
-        });
+        if pac::FLASH.sr().read().eop() {
+            pac::FLASH.ccr().write(|w| {
+                w.set_clr_eop(true);
+            });
+        };
         if unwrap!(res).is_err() {
             break;
         }
@@ -102,12 +102,12 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     pac::FLASH.cr().modify(|r| {
         // TODO: later check bank swap
         r.set_bksel(match sector.bank {
-            crate::flash::FlashBank::Bank1 => stm32_metapac::flash::vals::NscrBksel::B0x0,
-            crate::flash::FlashBank::Bank2 => stm32_metapac::flash::vals::NscrBksel::B0x1,
+            crate::flash::FlashBank::Bank1 => vals::Bksel::Bank1,
+            crate::flash::FlashBank::Bank2 => vals::Bksel::Bank2,
             _ => unreachable!(),
         });
-        r.set_snb(sector.index_in_bank);
-        r.set_ser(true);
+        r.set_pnb(sector.index_in_bank);
+        r.set_per(true);
     });
 
     pac::FLASH.cr().modify(|r| {
@@ -123,13 +123,19 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         e
     });
 
-    pac::FLASH.cr().modify(|w| w.set_ser(false));
+    pac::FLASH.cr().modify(|w| w.set_per(false));
     clear_all_err();
     ret
 }
 
 pub(crate) unsafe fn clear_all_err() {
-    pac::FLASH.sr().modify(|_| {})
+    pac::FLASH.ccr().write(|w| {
+        w.set_clr_optchangeerr(true);
+        w.set_clr_incerr(true);
+        w.set_clr_strberr(true);
+        w.set_clr_pgserr(true);
+        w.set_clr_wrperr(true);
+    });
 }
 
 unsafe fn blocking_wait_ready() -> Result<(), Error> {
@@ -141,14 +147,6 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
                 error!("optchangeerr");
                 return Err(Error::Prog);
             }
-            if sr.obkwerr() {
-                error!("obkwerr");
-                return Err(Error::Seq);
-            }
-            if sr.obkerr() {
-                error!("obkerr");
-                return Err(Error::Seq);
-            }
             if sr.incerr() {
                 error!("incerr");
                 return Err(Error::Unaligned);
@@ -156,6 +154,10 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
             if sr.strberr() {
                 error!("strberr");
                 return Err(Error::Parallelism);
+            }
+            if sr.pgserr() {
+                error!("strberr");
+                return Err(Error::Seq);
             }
             if sr.wrperr() {
                 error!("protected");
