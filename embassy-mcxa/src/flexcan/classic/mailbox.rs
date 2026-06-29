@@ -194,9 +194,9 @@ pub(in crate::flexcan) mod tx {
     }
 
     // Converts a generic `Frame` into a hardware-specific `TxMessage`.
-    // Lets you do `let frame: TxMessage = frame.into()` (where `frame` starts as a `Frame`)
-    impl From<Frame> for TxMessage {
-        fn from(frame: Frame) -> Self {
+    // Lets you do `let frame: TxMessage = (&frame).into()` (where `frame` starts as a `Frame`)
+    impl From<&Frame> for TxMessage {
+        fn from(frame: &Frame) -> Self {
             use embedded_can::Frame;
 
             let mut message = TxMessage { inner: Message { cs: pac::Cs(0), id: pac::Id(0), payload: frame.data } };

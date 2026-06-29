@@ -78,7 +78,7 @@ impl Filter {
 /// 
 /// Notes: 
 /// - If you need to reconfigure your filters dynamically based on runtime values, see `FilterConfig::try_new()`.
-/// - If you don't care about filtering and just want to accept or reject all incoming messages, see `FilterConfig::accept_all()`.
+/// - If you don't care about filtering and just want to accept all incoming messages, see `FilterConfig::accept_all()`.
 /// You can also use `Filter::AcceptAllStandard` and `Filter::AcceptAllExtended` directly inside `filters!()`/`FilterConfig::try_new()` if you require a more specific configuration.
 pub struct FilterConfig<'a> {
     /// List of filters.

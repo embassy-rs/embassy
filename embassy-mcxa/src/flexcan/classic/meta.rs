@@ -33,3 +33,74 @@ pub(in crate::flexcan::classic) mod rx_queue_size {
         None => rx_queue_size_default!(),
     };
 }
+
+/// Shared rustdoc for the public TX/RX methods. These methods are exposed (with
+/// identical documentation) on `FlexCan`, `FlexCanTx`, and `FlexCanRx`, plus the
+/// `functions` module, so their doc comments are defined once here and applied
+/// via `#[doc = ...]`.
+pub(in crate::flexcan::classic) mod docs {
+    macro_rules! doc_send {
+        () => { concat!(
+            "Sends a CAN message.\n",
+            "\n",
+            "If there's no space left in the TX buffers, this\n",
+            "call asynchronously waits for space to free up, and then tries again.\n",
+            "\n",
+            "Note: During a BusOff event, this function will asynchronously wait until\n",
+            "the bus recovers. This is due to the behavior mentioned above: The TX mailbox\n",
+            "doesn't drain during BusOff (and will eventually fill up), causing this\n",
+            "function to wait until after recovery when buffers start becoming available again.\n",
+            "\n",
+            "Unless explicitly disabled, FlexCAN will recover from BusOff automatically. However,\n",
+            "if you need to be notified immediately when a BusOff event occurs, see the `try_send()`\n",
+            "and `error_mode()` functions.",
+        ) };
+    }
+    pub(in crate::flexcan::classic) use doc_send;
+
+    macro_rules! doc_try_send {
+        () => { concat!(
+            "Attempts to send a CAN message.\n",
+            "\n",
+            "This function returns immediately upon being called, either with `Ok(())` or\n",
+            "a `SendError`. For this function's async counterpart, see `send()`.",
+        ) };
+    }
+    pub(in crate::flexcan::classic) use doc_try_send;
+
+    macro_rules! doc_receive {
+        () => { concat!(
+            "Receives a CAN message.\n",
+            "\n",
+            "If there are no new messages, this call asynchronously\n",
+            "waits for new messages to arrive.\n",
+            "\n",
+            "Note: The size of the FlexCan classic-mode RX queue can be configured via the ",
+            $crate::flexcan::classic::meta::rx_queue_size::env_var_name!(),
+            " environment variable. For example, in your .cargo/config.toml, you could add\n",
+            "```toml\n",
+            "[env]\n",
+            $crate::flexcan::classic::meta::rx_queue_size::env_var_name!(), " = \"32\"\n",
+            "```\n",
+            "if you wanted the queue to store 32 frames.\n",
+            "\n",
+            "If you don't specify anything, the queue will default to a size of ",
+            $crate::flexcan::classic::meta::rx_queue_size::rx_queue_size_default!(),
+            " frames.",
+        ) };
+    }
+    pub(in crate::flexcan::classic) use doc_receive;
+
+    macro_rules! doc_try_receive {
+        () => { "Like `receive()`, but returns immediately if there are no new messages (rather than waiting for more to arrive)." };
+    }
+    pub(in crate::flexcan::classic) use doc_try_receive;
+
+    macro_rules! doc_error_mode {
+        () => { concat!(
+            "Returns the error mode the FlexCAN is currently in.\n",
+            "See `BusErrorMode`.",
+        ) };
+    }
+    pub(in crate::flexcan::classic) use doc_error_mode;
+}
