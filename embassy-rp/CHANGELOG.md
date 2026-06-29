@@ -6,7 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- next-header -->
+
 ## Unreleased - ReleaseDate
+
+- DMA: clear channel `EN` bit before `chan_abort` on RP2350, per errata RP2350-E5 (see pico-sdk `dma_channel_abort` docs). Prevents the aborted channel from re-triggering.
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes
@@ -32,8 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix chrono compilation
 - Update embassy-sync to 0.8.0
 - Update embassy-embedded-hal to 0.6.0
+- Add PIO NEC ir tx and rx
 
 ## 0.9.0 - 2025-11-27
+
 - Add documentation for pio `get_x` about autopush.
 - Fix several minor typos in documentation
 - Add PIO SPI
@@ -51,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.8.0 - 2025-08-26
 
 ## 0.7.1 - 2025-08-26
+
 - add `i2c` internal pullup options ([#4564](https://github.com/embassy-rs/embassy/pull/4564))
 
 ## 0.7.0 - 2025-08-04

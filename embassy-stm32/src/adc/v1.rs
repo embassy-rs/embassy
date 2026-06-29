@@ -5,10 +5,10 @@ use stm32_metapac::adc::vals::Ckmode;
 use stm32_metapac::adc::vals::Scandir;
 
 #[cfg(not(adc_l0))]
-use super::Vbat;
-use super::{Temperature, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Resolution, SampleTime};
+use crate::adc::Vbat;
+use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Resolution, SampleTime, Temperature, VrefInt};
 use crate::interrupt::typelevel::Interrupt;
+use crate::wait::block_for_us;
 use crate::{Peri, interrupt, rcc};
 
 mod watchdog_v1;
@@ -19,7 +19,7 @@ pub const VREF_INT: u32 = 1230;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: DefaultInstance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -99,7 +99,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.cr().modify(|reg| reg.set_adstart(true));
     }
 
-    fn stop(&self, _disable: bool) {
+    fn stop(&self) {
         // Stop conversion
         while self.cr().read().addis() {}
 
@@ -122,6 +122,13 @@ impl AdcRegs for crate::pac::adc::Adc {
         }
 
         self.cfgr1().modify(|w| w.set_awden(false));
+    }
+
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     fn wait_done(&self) -> bool {
@@ -181,6 +188,8 @@ impl AdcRegs for crate::pac::adc::Adc {
             "F0/L0 channels must be passed in order.",
         );
 
+        self.smpr().modify(|reg| reg.set_smp(sample_time.into()));
+
         self.cfgr1().modify(|w| {
             w.set_scandir(if is_ordered_up {
                 Scandir::Upward
@@ -202,7 +211,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         //
         // Table 57. ADC characteristics
         // tstab = 14 * 1/fadc
-        blocking_delay_us(1);
+        block_for_us(1);
 
         // set default PCKL/2 on L0s because HSI is disabled in the default clock config
         #[cfg(adc_l0)]
@@ -239,21 +248,6 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         s
     }
 
-    /// Power down the ADC.
-    ///
-    /// This stops ADC operation and powers down ADC-specific circuitry.
-    /// Later reads will enable the ADC again, but internal measurement paths
-    /// such as VREFINT or temperature sensing may need to be re-enabled.
-    pub fn power_down(&mut self) {
-        T::regs().stop(false);
-
-        let r = T::regs();
-        if r.cr().read().aden() {
-            r.cr().modify(|reg| reg.set_addis(true));
-            while r.cr().read().aden() {}
-        }
-    }
-
     #[cfg(not(adc_l0))]
     pub fn enable_vbat(&mut self) -> Vbat {
         // SMP must be ≥ 56 ADC clock cycles when using HSI14.
@@ -268,7 +262,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
         T::regs().ccr().modify(|reg| reg.set_vrefen(true));
-        blocking_delay_us(10);
+        block_for_us(10);
         VrefInt
     }
 
@@ -279,7 +273,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         // tstart ≤ 10μs
         // ts_temp ≥ 4μs
         T::regs().ccr().modify(|reg| reg.set_tsen(true));
-        blocking_delay_us(10);
+        block_for_us(10);
         Temperature
     }
 

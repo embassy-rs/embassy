@@ -83,8 +83,6 @@ async fn adc_task<'a, T, D, I>(
     I: interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + Copy,
 {
     let mut adc = Adc::new(adc);
-    let mut pin1 = pin1.degrade_adc();
-    let mut pin2 = pin2.degrade_adc();
 
     info!("adc init");
 
@@ -97,7 +95,11 @@ async fn adc_task<'a, T, D, I>(
         adc.read(
             dma.reborrow(),
             irq,
-            [(&mut pin1, SampleTime::Cycles25), (&mut pin2, SampleTime::Cycles25)].into_iter(),
+            [
+                (pin1.reborrow_adc(), SampleTime::Cycles25),
+                (pin2.reborrow_adc(), SampleTime::Cycles25),
+            ]
+            .into_iter(),
             None,
             &mut buffer[0..2],
         )

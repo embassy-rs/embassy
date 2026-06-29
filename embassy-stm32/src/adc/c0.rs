@@ -1,8 +1,8 @@
-use super::{Adc, Instance, Resolution, blocking_delay_us};
-use crate::adc::{AdcRegs, ConversionMode};
+use crate::adc::{Adc, AdcRegs, ConversionMode, Instance, Resolution};
 use crate::pac::adc::vals::{Adstp, Align, Ckmode, Dmacfg, Exten, Ovrmod, SampleTime, Scandir};
 use crate::pac::adccommon::vals::Presc;
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -61,7 +61,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, _disable: bool) {
+    fn stop(&self) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
                 reg.set_adstp(Adstp::Stop);
@@ -75,6 +75,13 @@ impl AdcRegs for crate::pac::adc::Adc {
             reg.set_dmacfg(Dmacfg::from_bits(0));
             reg.set_dmaen(false);
         });
+    }
+
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
@@ -197,7 +204,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         // "The software must wait for the ADC voltage regulator startup time."
         // See datasheet for the value.
-        blocking_delay_us(TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US as u64 + 1);
+        block_for_us(TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US as u64 + 1);
 
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution));
 

@@ -8,10 +8,10 @@ pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, T
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
-use super::{Adc, AnyAdcChannel, ConversionMode, Resolution, SampleTime, blocking_delay_us};
-use crate::adc::{AdcRegs, DefaultInstance, InjectedRegs};
+use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime};
 use crate::pac::adc::regs::{Jsqr, Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
 mod injected;
@@ -89,7 +89,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, _disable: bool) {
+    fn stop(&self) {
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
                 reg.set_adstp(Adstp::Stop);
@@ -104,8 +104,13 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             reg.set_cont(false);
             reg.set_dmaen(Dmaen::Disable);
         });
+    }
 
-        self.cr().modify(|w| w.set_aden(false));
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     fn wait_done(&self) -> bool {
@@ -297,7 +302,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
             reg.set_advregen(true);
         });
 
-        blocking_delay_us(20);
+        block_for_us(20);
 
         T::regs().difsel().modify(|w| {
             for n in 0..18 {
@@ -313,7 +318,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
         while T::regs().cr().read().adcal() {}
 
-        blocking_delay_us(20);
+        block_for_us(20);
 
         T::regs().cr().modify(|w| {
             w.set_adcaldif(Adcaldif::Differential);
@@ -323,7 +328,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
         while T::regs().cr().read().adcal() {}
 
-        blocking_delay_us(20);
+        block_for_us(20);
 
         T::regs().enable();
 

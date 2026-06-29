@@ -3,37 +3,27 @@
 //! This module provides the main `Ble` struct that manages the BLE stack lifecycle
 //! and provides access to GAP functionality including connection management.
 
+#[cfg(feature = "bt-hci")]
 use core::cell::RefCell;
 use core::ops::Deref;
-use core::sync::atomic::Ordering;
+#[cfg(feature = "bt-hci")]
+use core::sync::atomic::{AtomicBool, Ordering};
 
-use embassy_stm32::aes::Aes;
 use embassy_stm32::interrupt;
-use embassy_stm32::mode::Blocking;
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
-use embassy_stm32::pka::Pka;
-use embassy_stm32::rng::Rng;
-use embassy_sync::blocking_mutex::Mutex;
 #[cfg(feature = "bt-hci")]
 use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "bt-hci")]
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel;
-use stm32_bindings::ble::{BleStack_Process, BleStack_Request};
-use stm32wb_hci::event::Packet;
-use stm32wb_hci::host::HciHeader;
-use stm32wb_hci::vendor::CommandHeader;
-use stm32wb_hci::{Event, event};
+use stm32_bindings::ble::{BLE_SLEEPMODE_RUNNING, BleStack_Process, BleStack_Request};
 
-use crate::bluetooth::error::BleError;
-use crate::host_if::{MAX_BLE_PKT_SIZE, TASK_BLE_HOST_MASK, TASK_LINK_LAYER_MASK, TASK_PRIO_BLE_HOST};
-use crate::linklayer_plat::{
-    EVENT_CHANNEL, HARDWARE_AES, HARDWARE_PKA, HARDWARE_RNG, run_radio_high_isr, run_radio_sw_low_isr,
-};
-use crate::runner::{BLE_INIT, BLE_INIT_WAKER, BLE_SLEEPMODE_RUNNING};
-use crate::util_seq;
+use crate::Runtime;
+use crate::platform::Platform;
+use crate::wba::host_if::{MAX_BLE_PKT_SIZE, TASK_BLE_HOST_MASK, TASK_LINK_LAYER_MASK, TASK_PRIO_BLE_HOST};
+use crate::wba::linklayer_plat::{EVENT_CHANNEL, PLATFORM, run_radio_high_isr, run_radio_sw_low_isr};
 use crate::wba::ll_sys::init_ble_stack;
+use crate::wba::util_seq;
 
 /// High interrupt handler.
 pub struct HighInterruptHandler {}
@@ -67,7 +57,7 @@ unsafe extern "C" fn ble_stack_process_bg() {
 
     trace!("BleStack_Process called, result={}", result);
 
-    if result == BLE_SLEEPMODE_RUNNING {
+    if result == BLE_SLEEPMODE_RUNNING as u8 {
         // More work to do - re-queue
         util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);
     }
@@ -77,9 +67,10 @@ unsafe extern "C" fn ble_stack_process_bg() {
 pub struct ChannelPacket(pub [u8; MAX_BLE_PKT_SIZE], pub usize);
 
 impl ChannelPacket {
-    pub fn copy_from(&mut self, data: &[u8]) {
+    pub fn copy_from(&mut self, data: &[u8], ext_data: &[u8]) {
         self.0[..data.len()].copy_from_slice(data);
-        self.1 = data.len();
+        self.0[data.len()..][..ext_data.len()].copy_from_slice(ext_data);
+        self.1 = data.len() + ext_data.len();
     }
 }
 
@@ -97,72 +88,38 @@ impl Default for ChannelPacket {
     }
 }
 
-pub struct ControllerState {
-    channel: zerocopy_channel::Channel<'static, CriticalSectionRawMutex, ChannelPacket>,
-}
-
-impl ControllerState {
-    pub fn new<const N: usize>(buf: &'static mut [ChannelPacket; N]) -> Self {
-        Self {
-            channel: zerocopy_channel::Channel::new(buf),
-        }
-    }
-}
-
-#[macro_export]
-macro_rules! declare_controller_state {
-    ($buf:ident, $state:ident, $size:expr) => {
-        static $buf: ::static_cell::StaticCell<[::embassy_stm32_wpan::ChannelPacket; $size]> =
-            ::static_cell::StaticCell::new();
-        static $state: ::static_cell::StaticCell<::embassy_stm32_wpan::ControllerState> =
-            ::static_cell::StaticCell::new();
-    };
-}
-
-#[macro_export]
-macro_rules! use_controller_state {
-    ($buf:ident, $state:ident, $size:expr) => {{
-        $state.init(::embassy_stm32_wpan::ControllerState::new(
-            $buf.init([::embassy_stm32_wpan::ChannelPacket::default(); $size]),
-        ))
-    }};
-}
-
-#[macro_export]
-macro_rules! new_controller_state {
-    ($size:expr) => {{
-        ::embassy_stm32_wpan::declare_controller_state!(EVENT_BUFFER, EVENT_STATE, $size);
-        ::embassy_stm32_wpan::use_controller_state!(EVENT_BUFFER, EVENT_STATE, $size)
-    }};
-}
-
-pub struct Controller {
-    state_ptr: *mut ControllerState,
+pub struct Controller<'d, T: Runtime> {
+    _runtime: &'d mut T,
     receiver: zerocopy_channel::Receiver<'static, CriticalSectionRawMutex, ChannelPacket>,
     cmd_buf: ([u8; 255], usize),
 }
 
-impl Controller {
+impl<'d, T: Runtime> Controller<'d, T> {
     /// Create a new BLE instance
     ///
     /// Requires hardware peripheral instances for RNG, AES, and PKA.
     /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
     pub async fn new(
-        state: &'static mut ControllerState,
-        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
-        aes: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>>,
-        pka: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>>,
+        platform: &'static Platform,
+        runtime: &'d mut T,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
-    ) -> Result<Self, BleError> {
-        let state_ptr = state as *mut ControllerState;
-        let (sender, receiver) = state.channel.split();
-        unsafe {
+    ) -> Result<Self, ()> {
+        // SAFETY: Safe IFF we have a runtime token
+        let receiver = unsafe {
+            let (sender, receiver) = platform.get_channel().split();
+
             EVENT_CHANNEL.replace(sender);
-            HARDWARE_RNG.replace(rng);
-            aes.map(|aes| HARDWARE_AES.replace(aes));
-            pka.map(|pka| HARDWARE_PKA.replace(pka));
-        }
+            PLATFORM.replace(platform);
+
+            receiver
+        };
+
+        trace!("Waiting for rng to fill...");
+        // Wait for the rng buffer to fill
+        platform.wait_rng_ready().await;
+
+        trace!("Waiting for rng to fill...done!");
 
         // Set-up sequencer stack
         util_seq::seq_resume();
@@ -172,7 +129,7 @@ impl Controller {
         // which is required before ll_intf_init can work properly.
         init_ble_stack().map_err(|status| {
             error!("BLE stack initialization failed: 0x{:02X}", status);
-            BleError::InitializationFailed
+            ()
         })?;
 
         util_seq::UTIL_SEQ_RegTask(TASK_BLE_HOST_MASK, 0, Some(ble_stack_process_bg));
@@ -195,17 +152,16 @@ impl Controller {
         util_seq::seq_resume();
 
         // Run the sequencer once more to process any LL events from the enable
-        util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, 0);
+        util_seq::UTIL_SEQ_ResumeTask(TASK_LINK_LAYER_MASK);
         util_seq::seq_resume();
 
         // Wake the runner
-        BLE_INIT.store(true, Ordering::Release);
-        BLE_INIT_WAKER.wake();
+        platform.start_run_ble();
 
         Ok(Self {
-            state_ptr,
             receiver,
             cmd_buf: ([0u8; 255], 0),
+            _runtime: runtime,
         })
     }
 
@@ -226,79 +182,34 @@ impl Controller {
             }
         }
     }
-
-    /// Consume the controller and return the controller state so it can be
-    /// passed to the next `HCI::new()` or `HCI::new_dtm()` call.
-    pub(crate) fn release_state(self) -> &'static mut ControllerState {
-        let ptr = self.state_ptr;
-        // Drop self first — runs Drop (reset_ble_stack) and drops receiver —
-        // so no references into *ptr exist before we reconstruct the &'static mut.
-        drop(self);
-        unsafe { &mut *ptr }
-    }
-
-    pub async fn read_event(&mut self) -> Result<Event, event::Error> {
-        if let Some(buf) = self.pop_buf() {
-            Event::new(Packet(&buf[1..]))
-        } else {
-            let slot = self.receiver.receive().await;
-            // Parse and queue the event for processing.
-            // Skip byte 0 (0x04 HCI Event packet indicator) — the parser expects
-            // data starting at the event code byte.
-            let parse_data = if *&slot.len() >= 2 && *&slot[0] == 0x04 {
-                &slot[1..]
-            } else {
-                &slot
-            };
-
-            let event = Event::new(Packet(parse_data));
-
-            slot.receive_done();
-
-            event
-        }
-    }
-}
-
-impl stm32wb_hci::Controller for Controller {
-    async fn controller_read_into(&mut self, _buf: &mut [u8]) {
-        panic!("use `read_event` to read events")
-    }
-
-    async fn controller_write(&mut self, opcode: stm32wb_hci::Opcode, payload: &[u8]) {
-        self.exec(|buf| {
-            let (header, pkt) = buf.split_at_mut(CommandHeader::HEADER_LENGTH);
-
-            CommandHeader::new(opcode, payload.len()).copy_into_slice(header);
-            pkt[..payload.len()].copy_from_slice(payload);
-        });
-    }
 }
 
 #[cfg(feature = "bt-hci")]
 const ERR: bt_hci::cmd::Error<embedded_io::ErrorKind> = bt_hci::cmd::Error::Io(embedded_io::ErrorKind::InvalidData);
 
 #[cfg(feature = "bt-hci")]
-pub struct AtomicController {
-    controller: NoopMutex<RefCell<Controller>>,
+pub struct ControllerAdapter<'d, T: Runtime> {
+    controller: NoopMutex<RefCell<Controller<'d, T>>>,
+    pending_evt: AtomicBool,
 }
 
 #[cfg(feature = "bt-hci")]
-impl AtomicController {
-    pub const fn new(controller: Controller) -> Self {
+impl<'d, T: Runtime> ControllerAdapter<'d, T> {
+    pub const fn new(controller: Controller<'d, T>) -> Self {
         Self {
-            controller: Mutex::const_new(NoopRawMutex::new(), RefCell::new(controller)),
+            controller: NoopMutex::const_new(NoopRawMutex::new(), RefCell::new(controller)),
+            pending_evt: AtomicBool::new(false),
         }
     }
 }
 
 #[cfg(feature = "bt-hci")]
-impl embedded_io::ErrorType for AtomicController {
+impl<'d, T: Runtime> embedded_io::ErrorType for ControllerAdapter<'d, T> {
     type Error = embedded_io::ErrorKind;
 }
 
 #[cfg(feature = "bt-hci")]
-impl bt_hci::controller::Controller for AtomicController {
+impl<'d, T: Runtime> bt_hci::controller::Controller for ControllerAdapter<'d, T> {
     async fn write_acl_data(&self, packet: &bt_hci::data::AclPacket<'_>) -> Result<(), Self::Error> {
         use bt_hci::WriteHci;
         use bt_hci::transport::WithIndicator;
@@ -329,117 +240,90 @@ impl bt_hci::controller::Controller for AtomicController {
         })
     }
 
-    async fn read<'a>(&self, buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
+    async fn read<'a>(&self, _buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
         use core::future::poll_fn;
         use core::task::Poll;
 
         use bt_hci::{ControllerToHostPacket, FromHciBytes};
 
-        // TODO: install buffer so that Linklayer_Plat copies directly into buffer rather than going through the channel
-
-        let len = poll_fn(|cx| {
+        let buf = poll_fn(|cx| {
             let mut controller = self.controller.borrow().borrow_mut();
+
+            if self.pending_evt.swap(false, Ordering::AcqRel) {
+                // Advance the channel
+                controller.receiver.try_receive().unwrap().receive_done();
+            }
 
             let Poll::Ready(slot) = controller.receiver.poll_receive(cx) else {
                 return Poll::Pending;
             };
 
-            // Must copy to extend the lifetime
-            buf[..*&slot.len()].copy_from_slice(&slot);
+            self.pending_evt.store(true, Ordering::Release);
 
-            Poll::Ready(*&slot.len())
+            // Optimization depends on the assumption that the event is dropped before read is called again
+            Poll::Ready(unsafe { core::slice::from_raw_parts(&slot.0 as *const _ as *const u8, slot.1) })
         })
         .await;
 
-        ControllerToHostPacket::from_hci_bytes_complete(&buf[..len]).map_err(|_| embedded_io::ErrorKind::InvalidData)
+        ControllerToHostPacket::from_hci_bytes_complete(&buf).map_err(|_| embedded_io::ErrorKind::InvalidData)
     }
 }
 
 #[cfg(feature = "bt-hci")]
-impl<C> bt_hci::controller::ControllerCmdSync<C> for AtomicController
+impl<'d, T: Runtime, C> bt_hci::controller::ControllerCmdSync<C> for ControllerAdapter<'d, T>
 where
     C: bt_hci::cmd::SyncCmd,
 {
     async fn exec(&self, cmd: &C) -> Result<C::Return, bt_hci::cmd::Error<Self::Error>> {
-        use bt_hci::event::{CommandComplete, CommandCompleteWithStatus, EventKind};
         use bt_hci::transport::WithIndicator;
-        use bt_hci::{ControllerToHostPacket, FromHciBytes, WriteHci, cmd};
+        use bt_hci::{WriteHci, cmd};
+
+        use crate::util::make_cc_with_cs;
 
         let mut controller = self.controller.borrow().borrow_mut();
 
-        //info!("Executing command with opcode {}", C::OPCODE);
+        debug!("Executing command with opcode {}", C::OPCODE.0);
         controller.exec(|buf| WithIndicator::new(cmd).write_hci(&mut buf[..]).map_err(|_| ERR))?;
 
         let buf = controller.pop_buf().ok_or(ERR)?;
-        let pkt = ControllerToHostPacket::from_hci_bytes_complete(&buf[1..]).map_err(|_| ERR)?;
-
-        let ControllerToHostPacket::Event(ref event) = pkt else {
-            return Err(ERR);
-        };
-
-        if event.kind != EventKind::CommandComplete {
-            return Err(ERR);
-        }
-
-        let e = CommandComplete::from_hci_bytes_complete(event.data).map_err(|_| ERR)?;
-        let e: CommandCompleteWithStatus = e.try_into().map_err(|_| ERR)?;
+        let e = make_cc_with_cs(buf)?;
 
         let r = e.to_result::<C>().map_err(cmd::Error::Hci)?;
-        // info!("Done executing command with opcode {}", C::OPCODE);
+        debug!("Done executing command with opcode {}", C::OPCODE.0);
         Ok(r)
     }
 }
 
 #[cfg(feature = "bt-hci")]
-impl<C> bt_hci::controller::ControllerCmdAsync<C> for AtomicController
+impl<'d, T: Runtime, C> bt_hci::controller::ControllerCmdAsync<C> for ControllerAdapter<'d, T>
 where
     C: bt_hci::cmd::AsyncCmd,
 {
     async fn exec(&self, cmd: &C) -> Result<(), bt_hci::cmd::Error<Self::Error>> {
-        use bt_hci::event::{CommandStatus, EventKind};
+        use bt_hci::WriteHci;
         use bt_hci::transport::WithIndicator;
-        use bt_hci::{ControllerToHostPacket, FromHciBytes, WriteHci};
+
+        use crate::util::make_cc_with_cs;
 
         let mut controller = self.controller.borrow().borrow_mut();
 
-        //info!("Executing command with opcode {}", C::OPCODE);
+        debug!("Executing command with opcode {}", C::OPCODE.0);
         controller.exec(|buf| WithIndicator::new(cmd).write_hci(&mut buf[..]).map_err(|_| ERR))?;
 
         let buf = controller.pop_buf().ok_or(ERR)?;
-        let pkt = ControllerToHostPacket::from_hci_bytes_complete(&buf[1..]).map_err(|_| ERR)?;
-
-        let ControllerToHostPacket::Event(ref event) = pkt else {
-            return Err(ERR);
-        };
-
-        if event.kind != EventKind::CommandStatus {
-            return Err(ERR);
-        }
-
-        let e = CommandStatus::from_hci_bytes_complete(event.data).map_err(|_| ERR)?;
+        let e = make_cc_with_cs(buf)?;
 
         e.status.to_result()?;
 
-        // info!("Done executing command with opcode {}", C::OPCODE);
+        debug!("Done executing command with opcode {}", C::OPCODE.0);
         Ok(())
     }
 }
 
-impl Drop for Controller {
+impl<'d, T: Runtime> Drop for Controller<'d, T> {
     fn drop(&mut self) {
         // Zero host stack buffers and reset the one-time LL init guard so
         // init_ble_stack() → BleStack_Init() can run cleanly on next Ble::new().
         crate::wba::ll_sys::reset_ble_stack();
     }
-}
-
-/// Version information from the BLE controller
-#[derive(Debug, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct VersionInfo {
-    pub hci_version: u8,
-    pub hci_revision: u16,
-    pub lmp_version: u8,
-    pub manufacturer_name: u16,
-    pub lmp_subversion: u16,
 }

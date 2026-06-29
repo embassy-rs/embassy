@@ -65,7 +65,7 @@ impl<'d> Channel<'d> {
     }
 
     /// Get the channel number.
-    fn number(&self) -> u8 {
+    pub fn number(&self) -> u8 {
         self.number
     }
 
@@ -266,6 +266,11 @@ impl<'a> Transfer<'a> {
 impl<'a> Drop for Transfer<'a> {
     fn drop(&mut self) {
         let p = self.channel.regs();
+        // RP2350 errata RP2350-E5: clear the enable bit of the aborted channel
+        // before the abort to prevent re-triggering.
+        // See pico-sdk dma_channel_abort() docs.
+        #[cfg(feature = "_rp235x")]
+        p.ctrl_trig().modify(|w| w.set_en(false));
         pac::DMA
             .chan_abort()
             .modify(|m| m.set_chan_abort(1 << self.channel.number()));

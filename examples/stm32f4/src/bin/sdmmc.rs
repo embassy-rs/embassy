@@ -1,15 +1,18 @@
 #![no_std]
 #![no_main]
 
+use aligned::{A4, Aligned};
+use block_device_driver::BlockDevice as _;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::sdmmc::sd::{Card, CmdBlock, DataBlock, StorageDevice};
-use embassy_stm32::time::{Hertz, mhz};
+use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals, sdmmc};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_time::{Duration, Timer};
+use embassy_time::Delay;
+use sdio::sd::Card;
+use sdio::{BlockDevice, MmcBus};
 use {defmt_rtt as _, panic_probe as _};
 
 /// This is a safeguard to not overwrite any data on the SD card.
@@ -22,27 +25,24 @@ bind_interrupts!(struct Irqs {
 });
 
 pub enum StorageRequest {
-    WriteRequest(u32, &'static DataBlock),
+    WriteRequest(u32, &'static [Aligned<A4, [u8; 512]>]),
     ReadRequest,
 }
 
 pub async fn run_storage<'a>(mut sdmmc: Sdmmc<'a>, channel: &'static Channel<NoopRawMutex, StorageRequest, 3>) {
     loop {
         let storage = loop {
-            if let Ok(storage) = StorageDevice::new_sd_card(&mut sdmmc, &mut CmdBlock::new(), mhz(24)).await {
+            if let Ok(storage) = BlockDevice::new_sd_card(&mut sdmmc, 24_000_000, Delay).await {
                 break storage;
             }
-
-            // Wait 1/2 second to avoid saturating the core
-            Timer::after(Duration::from_millis(500)).await;
         };
 
         let _ = run_storage_inner(storage, channel).await;
     }
 }
 
-pub async fn run_storage_inner<'a, 'b>(
-    mut storage: StorageDevice<'a, 'b, Card>,
+pub async fn run_storage_inner<B: MmcBus>(
+    mut storage: BlockDevice<Card, B, Delay, 512>,
     channel: &'static Channel<NoopRawMutex, StorageRequest, 3>,
 ) -> Result<(), ()> {
     // Or, instead of receiving from a channel, you can read/write files here
@@ -50,7 +50,7 @@ pub async fn run_storage_inner<'a, 'b>(
     loop {
         match channel.receive().await {
             StorageRequest::WriteRequest(block_idx, buffer) => {
-                storage.write_block(block_idx, buffer).await.map_err(|_| ())?;
+                storage.write(block_idx, buffer).await.map_err(|_| ())?;
             }
             StorageRequest::ReadRequest => {}
         }
@@ -95,10 +95,8 @@ async fn main(_spawner: Spawner) {
         Default::default(),
     );
 
-    let mut cmd_block = CmdBlock::new();
-
     let mut storage = loop {
-        if let Ok(storage) = StorageDevice::new_sd_card(&mut sdmmc, &mut cmd_block, mhz(24)).await {
+        if let Ok(storage) = BlockDevice::new_sd_card(&mut sdmmc, 24_000_000, Delay).await {
             break storage;
         }
     };
@@ -111,10 +109,10 @@ async fn main(_spawner: Spawner) {
     let block_idx = 16;
 
     // SDMMC uses `DataBlock` instead of `&[u8]` to ensure 4 byte alignment required by the hardware.
-    let mut block = DataBlock::new();
+    let mut block = [Aligned([0u8; 512])];
 
-    storage.read_block(block_idx, &mut block).await.unwrap();
-    info!("Read: {=[u8]:X}...{=[u8]:X}", block[..8], block[512 - 8..]);
+    storage.read(block_idx, &mut block).await.unwrap();
+    info!("Read: {=[u8]:X}...{=[u8]:X}", block[0][..8], block[0][512 - 8..]);
 
     if !ALLOW_WRITES {
         info!("Writing is disabled.");
@@ -122,18 +120,18 @@ async fn main(_spawner: Spawner) {
     }
 
     info!("Filling block with 0x55");
-    block.fill(0x55);
-    storage.write_block(block_idx, &block).await.unwrap();
+    block[0].fill(0x55);
+    storage.write(block_idx, &block).await.unwrap();
     info!("Write done");
 
-    storage.read_block(block_idx, &mut block).await.unwrap();
-    info!("Read: {=[u8]:X}...{=[u8]:X}", block[..8], block[512 - 8..]);
+    storage.read(block_idx, &mut block).await.unwrap();
+    info!("Read: {=[u8]:X}...{=[u8]:X}", block[0][..8], block[0][512 - 8..]);
 
     info!("Filling block with 0xAA");
-    block.fill(0xAA);
-    storage.write_block(block_idx, &block).await.unwrap();
+    block[0].fill(0xAA);
+    storage.write(block_idx, &block).await.unwrap();
     info!("Write done");
 
-    storage.read_block(block_idx, &mut block).await.unwrap();
-    info!("Read: {=[u8]:X}...{=[u8]:X}", block[..8], block[512 - 8..]);
+    storage.read(block_idx, &mut block).await.unwrap();
+    info!("Read: {=[u8]:X}...{=[u8]:X}", block[0][..8], block[0][512 - 8..]);
 }

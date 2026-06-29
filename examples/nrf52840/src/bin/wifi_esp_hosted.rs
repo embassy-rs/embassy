@@ -12,6 +12,7 @@ use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
+use hosted::iface::spi::SpiInterface;
 use static_cell::StaticCell;
 use {defmt_rtt as _, embassy_net_esp_hosted as hosted, panic_probe as _};
 
@@ -27,7 +28,7 @@ bind_interrupts!(struct Irqs {
 async fn wifi_task(
     runner: hosted::Runner<
         'static,
-        hosted::SpiInterface<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Input<'static>>,
+        SpiInterface<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Input<'static>>,
         Output<'static>,
     >,
 ) -> ! {
@@ -58,11 +59,14 @@ async fn main(spawner: Spawner) {
     let spi = spim::Spim::new(p.SPI3, Irqs, sck, miso, mosi, config);
     let spi = ExclusiveDevice::new(spi, cs, Delay);
 
-    let iface = hosted::SpiInterface::new(spi, handshake, ready);
+    let iface = SpiInterface::new(spi, handshake, ready);
 
     static ESP_STATE: StaticCell<embassy_net_esp_hosted::State> = StaticCell::new();
-    let (device, mut control, runner) =
-        embassy_net_esp_hosted::new(ESP_STATE.init(embassy_net_esp_hosted::State::new()), iface, reset).await;
+    let embassy_net_esp_hosted::HostedResources {
+        net_device,
+        mut control,
+        runner,
+    } = embassy_net_esp_hosted::new(ESP_STATE.init(embassy_net_esp_hosted::State::new()), iface, reset).await;
 
     spawner.spawn(unwrap!(wifi_task(runner)));
 
@@ -84,7 +88,7 @@ async fn main(spawner: Spawner) {
 
     // Init network stack
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+    let (stack, runner) = embassy_net::new(net_device, config, RESOURCES.init(StackResources::new()), seed);
 
     spawner.spawn(unwrap!(net_task(runner)));
 

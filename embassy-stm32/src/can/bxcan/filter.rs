@@ -215,7 +215,7 @@ pub struct MasterFilters<'a> {
     ///
     /// On chips with splittable filter banks, this value can be dynamic.
     bank_count: u8,
-    _phantom: PhantomData<&'a ()>,
+    _marker: PhantomData<&'a ()>,
     info: &'static crate::can::Info,
 }
 
@@ -235,7 +235,7 @@ impl MasterFilters<'_> {
 
         Self {
             bank_count,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info,
         }
     }
@@ -306,7 +306,7 @@ impl MasterFilters<'_> {
         SlaveFilters {
             start_idx: self.bank_count,
             bank_count: self.info.num_filter_banks - self.bank_count,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: self.info,
         }
     }
@@ -324,7 +324,7 @@ impl Drop for MasterFilters<'_> {
 pub struct SlaveFilters<'a> {
     start_idx: u8,
     bank_count: u8,
-    _phantom: PhantomData<&'a ()>,
+    _marker: PhantomData<&'a ()>,
     info: &'static crate::can::Info,
 }
 

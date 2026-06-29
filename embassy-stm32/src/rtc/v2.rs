@@ -146,6 +146,11 @@ impl SealedInstance for crate::peripherals::RTC {
     #[cfg(all(feature = "low-power", stm32l0))]
     type WakeupInterrupt = crate::interrupt::typelevel::RTC;
 
+    #[cfg(not(rtc_v2_f2))]
+    fn shpf() -> bool {
+        Self::regs().isr().read().shpf()
+    }
+
     fn read_backup_register(rtc: Rtc, register: usize) -> Option<u32> {
         if register < Self::BACKUP_REGISTER_COUNT {
             Some(rtc.bkpr(register).read().bkp())

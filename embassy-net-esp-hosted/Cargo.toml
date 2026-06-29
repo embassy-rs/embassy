@@ -9,9 +9,31 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-net-esp-hosted"
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["esp-hosted-fg"]},
+    {target = "thumbv7em-none-eabi", features = ["esp-hosted-mcu"]},
+    {target = "thumbv7em-none-eabi", features = ["esp-hosted-fg", "esp-hosted-mcu"]},
+    {target = "thumbv7em-none-eabi", features = ["esp-hosted-fg", "esp-hosted-mcu", "bluetooth", "log"]},
+    {target = "thumbv7em-none-eabi", features = ["esp-hosted-fg", "esp-hosted-mcu", "bluetooth", "defmt"]},
+]
+
 [features]
-defmt = ["dep:defmt", "heapless/defmt"]
+defmt = ["dep:defmt", "heapless/defmt", "bt-hci?/defmt", "embedded-io-async?/defmt", "sdio/defmt"]
 log = ["dep:log"]
+
+## Enable Bluetooth (BLE) support using `bt-hci`.
+bluetooth = ["dep:bt-hci", "dep:embedded-io-async"]
+
+#! ### Hosted firmware support
+#! At least one of the following features must be enabled. When both are enabled,
+#! the active version will be detected during device initialization. Some features
+#! may only be available in one version or the other.
+
+## Enable esp-hosted-fg support
+esp-hosted-fg = []
+## Enable esp-hosted-mcu support
+esp-hosted-mcu = []
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
@@ -25,14 +47,23 @@ embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-
 embedded-hal = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 
-micropb = { version = "0.6.0", default-features = false, features = ["container-heapless-0-9", "encode", "decode"] }
+aligned = "0.4.3"
+sdio = "0.4"
+
+delegate = "0.13"
+micropb = { version = "0.6.0", default-features = false, features = ["container-heapless-0-9", "encode", "decode", "enable-64bit"] }
 heapless = "0.9"
+document-features = "0.2.7"
+
+# Bluetooth deps
+embedded-io-async = { version = "0.7.0", optional = true }
+bt-hci = { version = "0.9.0", optional = true }
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-esp-hosted-v$VERSION/embassy-net-esp-hosted/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-esp-hosted/src/"
 target = "thumbv7em-none-eabi"
-features = ["defmt"]
+features = ["defmt", "esp-hosted-fg", "esp-hosted-mcu", "bluetooth"]
 
 [package.metadata.docs.rs]
-features = ["defmt"]
+features = ["defmt", "esp-hosted-fg", "esp-hosted-mcu", "bluetooth"]

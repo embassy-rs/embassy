@@ -7,8 +7,6 @@ use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::sdmmc::sdio::SerialDataInterface;
-use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, bind_interrupts, exti, interrupt, peripherals, sdmmc};
 use embassy_time::Timer;
 use static_cell::StaticCell;
@@ -20,9 +18,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn cyw43_task(
-    runner: cyw43::Runner<'static, cyw43::SdioBus<SerialDataInterface<'static, 'static>>, Cyw43439>,
-) -> ! {
+async fn cyw43_task(runner: cyw43::Runner<'static, cyw43::SdioBus<&'static mut Sdmmc<'static>>, Cyw43439>) -> ! {
     runner.run().await
 }
 
@@ -141,11 +137,9 @@ async fn main(spawner: Spawner) {
     let sdmmc = SDMMC.init(sdmmc);
     let state = STATE.init(cyw43::State::new());
 
-    let sdio = SerialDataInterface::new(sdmmc, mhz(50)).await.unwrap();
-
     info!("new sdio");
 
-    let (_net_device, mut control, runner) = cyw43::new_43439_sdio(state, sdio, fw, nvram).await.unwrap();
+    let (_net_device, mut control, runner) = cyw43::new_43439_sdio(state, sdmmc, fw, nvram).await.unwrap();
 
     info!("spawn task");
 

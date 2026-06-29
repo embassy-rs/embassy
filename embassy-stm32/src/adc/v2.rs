@@ -1,10 +1,12 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
-use super::{AnyAdcChannel, ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, DefaultInstance, InjectedRegs, Resolution, SampleTime};
+use crate::adc::{
+    Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime, Temperature, Vbat, VrefInt,
+};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, rcc};
 
 mod injected;
@@ -92,7 +94,7 @@ impl AdcRegs for crate::pac::adc::Adc {
             reg.set_adon(true);
         });
 
-        blocking_delay_us(3);
+        block_for_us(3);
     }
 
     fn start(&self) {
@@ -102,29 +104,26 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, _disable: bool) {
+    fn stop(&self) {
         let r = self;
 
-        // Stop ADC
         r.cr2().modify(|reg| {
-            // Stop ADC
             reg.set_swstart(false);
-            // Stop ADC
-            reg.set_adon(false);
-            // Stop DMA
             reg.set_dma(false);
         });
 
         r.cr1().modify(|w| {
-            // Disable interrupt for end of conversion
             w.set_eocie(false);
-            // Disable interrupt for overrun
             w.set_ovrie(false);
         });
 
         clear_interrupt_flags(*r);
 
         compiler_fence(Ordering::SeqCst);
+    }
+
+    fn power_down(&self) {
+        self.cr2().modify(|reg| reg.set_adon(false));
     }
 
     fn wait_done(&self) -> bool {

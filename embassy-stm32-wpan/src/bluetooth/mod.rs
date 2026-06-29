@@ -7,50 +7,54 @@ pub mod gatt;
 pub mod hci;
 pub mod security;
 
-use core::cell::RefCell;
-
+use bt_hci::FromHciBytes;
+use bt_hci::param::{EventMask, LeEventMask};
 use embassy_futures::yield_now;
-use embassy_stm32::aes::Aes;
 use embassy_stm32::interrupt;
-use embassy_stm32::mode::Blocking;
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
-use embassy_stm32::pka::Pka;
-use embassy_stm32::rng::Rng;
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use stm32wb_hci::event::{
     DisconnectionComplete, LeConnectionComplete, LeConnectionUpdateComplete, LeDataLengthChangeEvent,
     LeEnhancedConnectionComplete, LePhyUpdateComplete,
 };
-use stm32wb_hci::{BdAddr, ConnectionHandle, Event, Status};
+use stm32wb_hci::host::HostHci;
+use stm32wb_hci::host::uart::Packet;
+use stm32wb_hci::{BdAddr, BdAddrType, ConnectionHandle, Event, Status};
 
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::gap::connection::{
     Connection, ConnectionInitParams, ConnectionManager, DisconnectReason, GapEvent, LePhy, MAX_CONNECTIONS,
 };
-use crate::bluetooth::gap::scanner::Scanner;
+use crate::bluetooth::gap::scanner::{ScanParams, ScanProcedure, Scanner};
 use crate::bluetooth::gap::types::{AdvData, AdvParams};
-use crate::bluetooth::gap_init::{GapInitParams, init_gap_and_hal};
-use crate::bluetooth::gatt::GattServer;
+use crate::bluetooth::gap_init::{GapInitParams, GapRole, init_gap_and_hal};
 use crate::bluetooth::gatt::server::init_gatt_layer;
+use crate::bluetooth::gatt::{
+    GattClient, GattClientEvent, GattEvent, GattServer, client_events_from_vendor_event, from_vendor_event,
+};
 use crate::bluetooth::hci::command::CommandSender;
 use crate::bluetooth::hci::types::DtmPacketPayload;
 use crate::bluetooth::hci::{DtmRxPhy, DtmTxPhy};
-use crate::bluetooth::security::SecurityManager;
-use crate::controller::Controller;
-use crate::{ControllerState, HighInterruptHandler, LowInterruptHandler};
+use crate::bluetooth::security::{SecurityEvent, SecurityManager, from_vendor_event as security_from_vendor_event};
+use crate::controller::{Controller, ControllerAdapter};
+use crate::{BasicRuntime, FullRuntime, HighInterruptHandler, LowInterruptHandler, Platform, Runtime};
 
 trait SealedMode {}
 #[allow(private_bounds)]
-pub trait Mode: SealedMode {}
-
-impl<T: SealedMode> Mode for T {}
+pub trait Mode: SealedMode {
+    type Runtime: Runtime;
+}
 
 pub struct Normal;
 pub struct Test;
 
 impl SealedMode for Normal {}
+impl Mode for Normal {
+    type Runtime = FullRuntime;
+}
+
 impl SealedMode for Test {}
+impl Mode for Test {
+    type Runtime = BasicRuntime;
+}
 
 /// Main BLE interface
 ///
@@ -81,76 +85,86 @@ impl SealedMode for Test {}
 ///     // Handle BLE events
 /// }
 /// ```
-pub struct HCI<M: Mode> {
-    controller: Controller,
+pub struct HCI<'d, M: Mode> {
+    controller: ControllerAdapter<'d, M::Runtime>,
     cmd_sender: CommandSender,
     connections: ConnectionManager<MAX_CONNECTIONS>,
     is_advertising: bool,
+    active_scan_proc: Option<ScanProcedure>,
     _mode: M,
 }
 
-impl HCI<Normal> {
+impl<'d> HCI<'d, Normal> {
     /// Create a new BLE instance
     ///
     /// Requires hardware peripheral instances for RNG, AES, and PKA.
     /// These are stored in statics so the BLE stack's `extern "C"` callbacks can access them.
     pub async fn new(
-        state: &'static mut ControllerState,
-        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
-        aes: &'static Mutex<CriticalSectionRawMutex, RefCell<Aes<'static, AesPeriph, Blocking>>>,
-        pka: &'static Mutex<CriticalSectionRawMutex, RefCell<Pka<'static, PkaPeriph>>>,
+        platform: &'static Platform,
+        runtime: &'d mut FullRuntime,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
-        let controller = Controller::new(state, rng, Some(aes), Some(pka), irq).await?;
+        Self::new_with_role(platform, runtime, irq, GapRole::Peripheral).await
+    }
+
+    /// Like `new`, but lets you specify the GAP role.
+    ///
+    /// Use `GapRole::Observer` for a scanner-only device (required for
+    /// `ACI_GAP_START_OBSERVATION_PROC` to succeed).
+    pub async fn new_with_role(
+        platform: &'static Platform,
+        runtime: &'d mut FullRuntime,
+        irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
+        role: GapRole,
+    ) -> Result<Self, BleError> {
+        let uid = embassy_stm32::uid::uid();
+        let mut gap_params = GapInitParams::default();
+        gap_params.role = role;
+        gap_params.bd_addr.copy_from_slice(&uid[0..6]);
+        Self::new_with_gap_params(platform, runtime, irq, gap_params).await
+    }
+
+    /// Like `new`, but accepts fully custom `GapInitParams`.
+    ///
+    /// Use this to override the address type, BD address, or any other GAP
+    /// init parameter — e.g. a fixed public address.
+    pub async fn new_with_gap_params(
+        platform: &'static Platform,
+        runtime: &'d mut FullRuntime,
+        irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
+        + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
+        gap_params: GapInitParams,
+    ) -> Result<Self, BleError> {
+        let controller = Controller::new(platform, runtime, irq)
+            .await
+            .map_err(|_| BleError::InitializationFailed)?;
 
         let mut this = Self {
             cmd_sender: CommandSender::new(),
             connections: ConnectionManager::new(),
             is_advertising: false,
-            controller,
+            active_scan_proc: None,
+            controller: ControllerAdapter::new(controller),
             _mode: Normal,
         };
 
-        this.init()?;
+        this.init_with_gap_params(gap_params).await?;
 
         yield_now().await;
 
         Ok(this)
     }
 
-    /// Initialize the BLE stack
-    ///
-    /// This function performs the following initialization steps:
-    /// 1. Initializes BLE host stack (BleStack_Init)
-    /// 2. Resets the BLE controller
-    /// 3. Reads and logs the local version information
-    /// 4. Reads the BD address
-    /// 5. Sets the event mask
-    /// 6. Reads buffer sizes
-    /// 7. Reads supported features
-    /// 8. Initializes GATT layer (aci_gatt_init) - MUST be before GAP!
-    /// 9. Initializes GAP and HAL (aci_gap_init, aci_hal_write_config_data, etc.)
-    ///
-    /// Must be called before any other BLE operations.
-    ///
-    /// # Initialization Order
-    ///
-    /// The order is critical: GATT initialization MUST happen before GAP initialization.
-    /// This matches ST's BLE_HeartRate example sequence.
-    ///
-    /// # Returns
-    ///
-    /// - `Ok(())` if initialization succeeded
-    /// - `Err(BleError)` if any initialization step failed
-    fn init(&mut self) -> Result<(), BleError> {
+    async fn init_with_gap_params(&mut self, mut gap_params: GapInitParams) -> Result<(), BleError> {
         info!("Ble::init: BLE stack initialized, sending HCI reset");
 
         // 1. Reset BLE controller
-        self.cmd_sender.reset()?;
+        self.controller.reset().await?;
 
         // 2. Read local version information
-        let version = self.cmd_sender.read_local_version()?;
+        let version = self.controller.read_local_version_information().await?;
 
         info!(
             "BLE Controller: HCI Version {}.{}, Revision: 0x{:04X}, LMP Version: {}.{}, Manufacturer: 0x{:04X}",
@@ -162,33 +176,27 @@ impl HCI<Normal> {
             version.manufacturer_name
         );
 
-        // 3. Read BD address
-        let bd_addr = self.cmd_sender.read_bd_addr()?;
-
-        info!(
-            "BD Address: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-            bd_addr[5], bd_addr[4], bd_addr[3], bd_addr[2], bd_addr[1], bd_addr[0]
-        );
-
-        // 4. Set event mask (enable all events)
+        // 3. Set event mask (enable all events)
         // Note: The ST BLE stack handles event masks internally, so these calls
         // may not be needed. Skip if they fail with UnknownCommand.
 
         info!("Calling set_event_mask...");
-        if let Err(e) = self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+        let event_mask = EventMask::from_hci_bytes(&[0xFF; 8]).expect("valid event mask").0;
+        if let Err(e) = self.controller.set_event_mask(event_mask.into()).await {
             warn!("set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("set_event_mask OK");
         }
 
         info!("Calling le_set_event_mask...");
-        if let Err(e) = self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+        let le_event_mask = LeEventMask::from_hci_bytes(&[0xFF; 8]).expect("valid LE event mask").0;
+        if let Err(e) = self.controller.le_set_event_mask(le_event_mask.into()).await {
             warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
         } else {
             info!("le_set_event_mask OK");
         }
 
-        // 5. Read buffer sizes (optional - skip if not available)
+        // 4. Read buffer sizes (optional - skip if not available)
         info!("Calling le_read_buffer_size...");
         match self.cmd_sender.le_read_buffer_size() {
             Ok((acl_len, acl_num, iso_len, iso_num)) => info!(
@@ -198,14 +206,14 @@ impl HCI<Normal> {
             Err(e) => warn!("le_read_buffer_size failed: {:?} (skipping)", e),
         }
 
-        // 6. Read supported features (optional - skip if not available)
+        // 5. Read supported features (optional - skip if not available)
         info!("Calling le_read_local_supported_features...");
         match self.cmd_sender.le_read_local_supported_features() {
             Ok(features) => info!("Supported LE features: {=[u8]:#02X}", features),
             Err(e) => warn!("le_read_local_supported_features failed: {:?} (skipping)", e),
         }
 
-        // 7. Initialize GATT layer (MUST be done BEFORE GAP initialization!)
+        // 6. Initialize GATT layer (MUST be done BEFORE GAP initialization!)
         // Per ST's BLE_HeartRate: aci_gatt_init() is called before aci_gap_init()
         info!("Initializing GATT layer...");
 
@@ -214,18 +222,13 @@ impl HCI<Normal> {
 
         info!("GATT layer initialized");
 
-        // 8. Initialize GAP and HAL (AFTER GATT!)
+        // 7. Initialize GAP and HAL (AFTER GATT!)
         // This is the critical step that ST's BLE_HeartRate does in Ble_Hci_Gap_Gatt_Init().
         // It configures BD address, IR/ER keys, TX power, PHY, and initializes the GAP layer.
 
         info!("Initializing GAP and HAL...");
 
-        // Derive a stable random static address from the chip's unique ID.
-        let uid = embassy_stm32::uid::uid();
-        let mut gap_params = GapInitParams::default();
-        gap_params.bd_addr.copy_from_slice(&uid[0..6]);
-
-        let _gap_handles = init_gap_and_hal(&gap_params)?;
+        let _gap_handles = init_gap_and_hal(&mut gap_params)?;
 
         info!("GAP and HAL initialized");
 
@@ -237,6 +240,11 @@ impl HCI<Normal> {
     /// Create a new GATT server instance
     pub fn gatt_server(&mut self) -> GattServer {
         GattServer::new()
+    }
+
+    /// Create a new minimal GATT client instance.
+    pub fn gatt_client(&self) -> GattClient {
+        GattClient::new()
     }
 
     /// Create a new security manager
@@ -272,6 +280,9 @@ impl HCI<Normal> {
 
         // Configure host-stack advertising parameters and data
         gap::advertiser::configure(&params, &adv_data, scan_rsp_data.as_ref())?;
+        if let Some(scan_rsp) = scan_rsp_data.as_ref() {
+            gap::advertiser::update_scan_rsp_data(&self.cmd_sender, scan_rsp)?;
+        }
 
         // Enable LL advertising
         self.cmd_sender.le_set_advertise_enable(true)?;
@@ -348,8 +359,69 @@ impl HCI<Normal> {
     /// The BLE stack must be initialized before creating a scanner.
     /// Advertising reports will be received through the main event loop
     /// as `LeAdvertisingReport` events.
-    pub fn scanner(&self) -> Scanner<'_> {
-        Scanner::new(&self.cmd_sender)
+    pub fn scanner(&self) -> Scanner {
+        Scanner::new()
+    }
+
+    /// Start observer scanning (observation procedure).
+    pub fn start_scan_observation(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_scan_proc.is_some() {
+            self.stop_scan()?;
+        }
+        gap::aci_gap::start_observation(
+            params.scan_interval,
+            params.scan_window,
+            params.scan_type as u8,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+            params.filter_policy as u8,
+        )?;
+        self.active_scan_proc = Some(ScanProcedure::Observation);
+        Ok(())
+    }
+
+    /// Start active general discovery procedure.
+    pub fn start_scan_general_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_scan_proc.is_some() {
+            self.stop_scan()?;
+        }
+        gap::aci_gap::start_general_discovery(
+            params.scan_interval,
+            params.scan_window,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+        )?;
+        self.active_scan_proc = Some(ScanProcedure::GeneralDiscovery);
+        Ok(())
+    }
+
+    /// Start active limited discovery procedure.
+    pub fn start_scan_limited_discovery(&mut self, params: ScanParams) -> Result<(), BleError> {
+        if self.active_scan_proc.is_some() {
+            self.stop_scan()?;
+        }
+        gap::aci_gap::start_limited_discovery(
+            params.scan_interval,
+            params.scan_window,
+            params.own_address_type as u8,
+            params.filter_duplicates,
+        )?;
+        self.active_scan_proc = Some(ScanProcedure::LimitedDiscovery);
+        Ok(())
+    }
+
+    /// Stop whichever GAP scanning/discovery procedure is currently active.
+    pub fn stop_scan(&mut self) -> Result<(), BleError> {
+        if let Some(proc) = self.active_scan_proc {
+            gap::aci_gap::terminate_gap_proc(proc as u8)?;
+            self.active_scan_proc = None;
+        }
+        Ok(())
+    }
+
+    /// Return whether a scan/discovery procedure is currently active.
+    pub fn is_scanning(&self) -> bool {
+        self.active_scan_proc.is_some()
     }
 
     // ===== Connection Management =====
@@ -451,6 +523,76 @@ impl HCI<Normal> {
         Ok((LePhy::from_u8(tx), LePhy::from_u8(rx)))
     }
 
+    // ===== Direction Finding / CTE Commands =====
+
+    /// Set CTE transmit parameters for a connection (peripheral/tag side).
+    ///
+    /// Call this after connecting, before `le_set_connection_cte_transmit_enable`.
+    ///
+    /// - `cte_types`: Bit field — bit 0=AoA, bit 1=AoD 1μs slots, bit 2=AoD 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern IDs (2–75 elements)
+    pub fn le_set_connection_cte_transmit_parameters(
+        &self,
+        handle: ConnectionHandle,
+        cte_types: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        self.cmd_sender
+            .le_set_connection_cte_transmit_parameters(handle.0, cte_types, antenna_ids)
+    }
+
+    /// Enable or disable CTE response for a connection (peripheral/tag side).
+    ///
+    /// BT spec 7.8.86 `HCI_LE_Connection_CTE_Response_Enable`. Call
+    /// `le_set_connection_cte_transmit_parameters` before enabling.
+    pub fn le_connection_cte_response_enable(&self, handle: ConnectionHandle, enable: bool) -> Result<(), BleError> {
+        self.cmd_sender.le_connection_cte_response_enable(handle.0, enable)
+    }
+
+    /// Set CTE receive (IQ sampling) parameters for a connection (central/locator side).
+    ///
+    /// - `slot_durations`: 0x01 = 1μs slots, 0x02 = 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern (2–75 elements; ignored if sampling disabled)
+    pub fn le_set_connection_cte_receive_parameters(
+        &self,
+        handle: ConnectionHandle,
+        sampling_enable: bool,
+        slot_durations: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        self.cmd_sender
+            .le_set_connection_cte_receive_parameters(handle.0, sampling_enable, slot_durations, antenna_ids)
+    }
+
+    /// Enable or disable CTE requests for a connection (central/locator side).
+    ///
+    /// - `request_interval`: 0 = request once; N = request every N connection events
+    /// - `requested_cte_length`: Requested CTE length in 8μs units (range: 2–20)
+    /// - `requested_cte_type`: 0x00=AoA, 0x01=AoD 1μs, 0x02=AoD 2μs
+    pub fn le_connection_cte_request_enable(
+        &self,
+        handle: ConnectionHandle,
+        enable: bool,
+        request_interval: u16,
+        requested_cte_length: u8,
+        requested_cte_type: u8,
+    ) -> Result<(), BleError> {
+        self.cmd_sender.le_connection_cte_request_enable(
+            handle.0,
+            enable,
+            request_interval,
+            requested_cte_length,
+            requested_cte_type,
+        )
+    }
+
+    /// Read antenna information from the controller.
+    ///
+    /// Returns `(switching_sampling_rates, num_antennae, max_pattern_length, max_cte_length)`.
+    pub fn le_read_antenna_information(&self) -> Result<(u8, u8, u8, u8), BleError> {
+        self.cmd_sender.le_read_antenna_information()
+    }
+
     /// Process an HCI event and update internal state
     ///
     /// This method processes connection-related events and updates the
@@ -502,10 +644,11 @@ impl HCI<Normal> {
                 let _ = central_clock_accuracy;
 
                 if matches!(status, Status::Success) {
+                    let peer_address = BdAddrType::from(*peer_bd_addr);
                     let conn = Connection::new_enhanced(
                         *conn_handle,
                         *role,
-                        *peer_bd_addr,
+                        peer_address,
                         *local_resolvable_private_address,
                         *peer_resolvable_private_address,
                         *conn_interval,
@@ -592,9 +735,41 @@ impl HCI<Normal> {
             _ => None,
         }
     }
+
+    /// Convert a raw HCI event into a high-level GATT event when applicable.
+    pub fn process_gatt_event(&self, event: &stm32wb_hci::Event) -> Option<GattEvent> {
+        match event {
+            Event::Vendor(v) => from_vendor_event(v),
+            _ => None,
+        }
+    }
+
+    /// Convert a raw HCI event into one or more high-level GATT client events.
+    pub fn process_gatt_client_events(&self, event: &stm32wb_hci::Event) -> heapless::Vec<GattClientEvent, 16> {
+        match event {
+            Event::Vendor(v) => client_events_from_vendor_event(v),
+            _ => heapless::Vec::new(),
+        }
+    }
+
+    /// Return the first terminal GATT client event for a procedure, if any.
+    ///
+    /// Useful for "start procedure + pump events until terminal" patterns.
+    pub fn process_gatt_client_terminal_event(&self, event: &stm32wb_hci::Event) -> Option<GattClientEvent> {
+        let events = self.process_gatt_client_events(event);
+        events.into_iter().find(|e| e.is_terminal())
+    }
+
+    /// Convert a raw HCI event into a high-level security event when applicable.
+    pub fn process_security_event(&self, event: &stm32wb_hci::Event) -> Option<SecurityEvent> {
+        match event {
+            Event::Vendor(v) => security_from_vendor_event(v),
+            _ => None,
+        }
+    }
 }
 
-impl HCI<Test> {
+impl<'d> HCI<'d, Test> {
     /// Create a BLE instance for Direct Test Mode (DTM) only.
     ///
     /// Only RNG is required; AES and PKA are left unset. Use this for FCC DTM
@@ -604,19 +779,22 @@ impl HCI<Test> {
     /// Performs the minimum initialization required before issuing DTM commands
     /// (HCI_LE_Transmitter_Test, HCI_LE_Receiver_Test, HCI_LE_Test_End).
     /// Does not initialize GATT or GAP — those layers are not used in DTM.
-    pub async fn new_dtm(
-        state: &'static mut ControllerState,
-        rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>,
+    pub async fn new_dtm<T: Runtime>(
+        platform: &'static Platform,
+        runtime: &'d mut T,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::RADIO, HighInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::HASH, LowInterruptHandler>,
     ) -> Result<Self, BleError> {
-        let controller = Controller::new(state, rng, None, None, irq).await?;
+        let controller = Controller::new(platform, runtime.to_basic(), irq)
+            .await
+            .map_err(|_| BleError::InitializationFailed)?;
 
         let mut this = Self {
             cmd_sender: CommandSender::new(),
             connections: ConnectionManager::new(),
             is_advertising: false,
-            controller,
+            active_scan_proc: None,
+            controller: ControllerAdapter::new(controller),
             _mode: Test,
         };
 
@@ -703,7 +881,7 @@ impl HCI<Test> {
     }
 }
 
-impl<M: Mode> HCI<M> {
+impl<'d, M: Mode> HCI<'d, M> {
     /// Fully tear down the BLE stack and return the controller state.
     ///
     /// Terminates all connections, resets the HCI controller (which resets the radio
@@ -718,7 +896,7 @@ impl<M: Mode> HCI<M> {
     ///
     /// - `Ok(&'static mut ControllerState)` on success
     /// - `Err(BleError)` if the HCI reset failed
-    pub fn deinit(mut self) -> Result<&'static mut ControllerState, BleError> {
+    pub fn deinit(mut self) -> Result<(), BleError> {
         // Terminate all active connections cleanly
         for conn in self.connections.iter() {
             // 0x16 = "local host terminated connection"
@@ -730,7 +908,8 @@ impl<M: Mode> HCI<M> {
         self.cmd_sender.reset()?;
 
         self.is_advertising = false;
-        Ok(self.controller.release_state())
+        self.active_scan_proc = None;
+        Ok(())
     }
 
     /// Read the next BLE event
@@ -749,8 +928,10 @@ impl<M: Mode> HCI<M> {
     /// and scanning. This is provided for applications that need to handle
     /// raw events (e.g., for connection management).
     pub async fn read_event(&mut self) -> stm32wb_hci::Event {
+        use stm32wb_hci::host::uart::UartHci;
+
         loop {
-            if let Ok(event) = self.controller.read_event().await {
+            if let Ok(Packet::Event(event)) = self.controller.read_packet().await {
                 return event;
             }
         }

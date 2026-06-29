@@ -485,10 +485,10 @@ fn get_ring_buffer<'d, T: Instance, W: word::Word>(
     };
     match tx_rx {
         TxRx::Transmitter => RingBuffer::Writable(unsafe {
-            WritableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
+            WritableRingBuffer::new(dma, request, dr(T::REGS, sub_block) as *mut W, dma_buf, opts)
         }),
         TxRx::Receiver => RingBuffer::Readable(unsafe {
-            ReadableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
+            ReadableRingBuffer::new(dma, request, dr(T::REGS, sub_block) as *mut W, dma_buf, opts)
         }),
     }
 }
@@ -513,7 +513,7 @@ fn update_synchronous_config(config: &mut Config) {
 /// SAI subblock instance.
 pub struct SubBlock<'d, T: Instance, S: SubBlockInstance> {
     peri: Peri<'d, T>,
-    _phantom: PhantomData<S>,
+    _marker: PhantomData<S>,
 }
 
 /// Split the main SAIx peripheral into the two subblocks.
@@ -525,11 +525,11 @@ pub fn split_subblocks<'d, T: Instance>(peri: Peri<'d, T>) -> (SubBlock<'d, T, A
     (
         SubBlock {
             peri: unsafe { peri.clone_unchecked() },
-            _phantom: PhantomData,
+            _marker: PhantomData,
         },
         SubBlock {
             peri,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         },
     )
 }

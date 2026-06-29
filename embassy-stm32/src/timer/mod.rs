@@ -7,6 +7,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
+pub mod hall;
 pub mod input_capture;
 pub mod low_level;
 pub mod one_pulse;
@@ -46,13 +47,13 @@ impl Channel {
 }
 
 /// Channel 1 marker type.
-pub enum Ch1 {}
+pub struct Ch1;
 /// Channel 2 marker type.
-pub enum Ch2 {}
+pub struct Ch2;
 /// Channel 3 marker type.
-pub enum Ch3 {}
+pub struct Ch3;
 /// Channel 4 marker type.
-pub enum Ch4 {}
+pub struct Ch4;
 
 /// Timer channel trait.
 #[allow(private_bounds)]
@@ -231,6 +232,8 @@ pub trait AdvancedInstance2Channel: BasicInstance + GeneralInstance2Channel + Ad
 /// Advanced 16-bit timer with 4 channels instance.
 pub trait AdvancedInstance4Channel: AdvancedInstance2Channel + GeneralInstance4Channel {}
 
+trigger_trait!(TimerInputTrigger, GeneralInstance4Channel, TimerChannel);
+
 pin_trait!(TimerPin, GeneralInstance4Channel, TimerChannel, @A);
 pin_trait!(ExternalTriggerPin, GeneralInstance4Channel, @A);
 
@@ -400,7 +403,7 @@ foreach_interrupt! {
 
 /// Update interrupt handler.
 pub struct UpdateInterruptHandler<T: CoreInstance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for UpdateInterruptHandler<T> {
@@ -425,7 +428,7 @@ impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for Upda
 
 /// Capture/Compare interrupt handler.
 pub struct CaptureCompareInterruptHandler<T: GeneralInstance1Channel> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: GeneralInstance1Channel> interrupt::typelevel::Handler<T::CaptureCompareInterrupt>

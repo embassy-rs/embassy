@@ -14,6 +14,61 @@ use crate::{Peri, interrupt, pac, peripherals, rcc};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
+#[cfg(not(rng_v1))]
+/// Health-test programming profile used during RNG conditioning reset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum HealthTestConfig {
+    /// Program the recommended threshold values from the reference manual.
+    Recommended,
+    /// Keep current HTCR values untouched.
+    KeepCurrent,
+}
+
+#[cfg(not(rng_v1))]
+/// RNG configuration knobs for reset/initialization policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct RngConfig {
+    /// NIST/custom conditioning mode selection.
+    pub nistc: pac::rng::vals::Nistc,
+    /// RNG clock divider before sampling.
+    pub clkdiv: pac::rng::vals::Clkdiv,
+    /// RNG configuration 1 profile.
+    pub rng_config1: pac::rng::vals::RngConfig1,
+    /// RNG configuration 2 profile.
+    pub rng_config2: pac::rng::vals::RngConfig2,
+    /// RNG configuration 3 profile.
+    pub rng_config3: pac::rng::vals::RngConfig3,
+    /// Enable clock error detector (CED bit, active-low semantics in HW).
+    pub clock_error_detector: bool,
+    /// Disable automatic reset on seed error when supported (ARDIS bit).
+    #[cfg(any(rng_v3, rng_wba6))]
+    pub auto_reset_disable: bool,
+    /// Lock RNG configuration after setup.
+    pub config_lock: bool,
+    /// Health-test threshold programming behavior.
+    pub health_test_config: HealthTestConfig,
+}
+
+#[cfg(not(rng_v1))]
+impl Default for RngConfig {
+    fn default() -> Self {
+        Self {
+            nistc: pac::rng::vals::Nistc::Custom,
+            clkdiv: pac::rng::vals::Clkdiv::NoDiv,
+            rng_config1: pac::rng::vals::RngConfig1::ConfigA,
+            rng_config2: pac::rng::vals::RngConfig2::ConfigAB,
+            rng_config3: pac::rng::vals::RngConfig3::ConfigA,
+            clock_error_detector: true,
+            #[cfg(any(rng_v3, rng_wba6))]
+            auto_reset_disable: false,
+            config_lock: false,
+            health_test_config: HealthTestConfig::Recommended,
+        }
+    }
+}
+
 /// WBA-specific health test configuration values for RNG
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
@@ -45,7 +100,7 @@ pub enum Error {
 
 /// RNG interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -69,6 +124,28 @@ impl<'d, T: Instance> Rng<'d, T> {
         inner: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
+        #[cfg(rng_v1)]
+        {
+            Self::new_inner(inner)
+        }
+        #[cfg(not(rng_v1))]
+        {
+            Self::new_inner(inner, RngConfig::default())
+        }
+    }
+
+    #[cfg(not(rng_v1))]
+    /// Create a new RNG driver with explicit configuration policy.
+    pub fn new_with_config(
+        inner: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: RngConfig,
+    ) -> Self {
+        Self::new_inner(inner, config)
+    }
+
+    #[cfg(rng_v1)]
+    fn new_inner(inner: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         // Verify clock is available
@@ -76,6 +153,22 @@ impl<'d, T: Instance> Rng<'d, T> {
 
         let mut random = Self { _inner: inner };
         random.reset();
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        random
+    }
+
+    #[cfg(not(rng_v1))]
+    fn new_inner(inner: Peri<'d, T>, config: RngConfig) -> Self {
+        rcc::enable_and_reset::<T>();
+
+        // Verify clock is available
+        T::frequency();
+
+        let mut random = Self { _inner: inner };
+        random.reset_with_config(config);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -103,47 +196,58 @@ impl<'d, T: Instance> Rng<'d, T> {
     /// Reset the RNG.
     #[cfg(not(rng_v1))]
     pub fn reset(&mut self) {
+        self.reset_with_config(RngConfig::default());
+    }
+
+    #[cfg(not(rng_v1))]
+    /// Reset the RNG with a caller-provided configuration policy.
+    pub fn reset_with_config(&mut self, config: RngConfig) {
         T::regs().cr().write(|reg| {
             reg.set_condrst(true);
-            reg.set_nistc(pac::rng::vals::Nistc::Custom);
+            reg.set_nistc(config.nistc);
             // set RNG config "A" according to reference manual
             // this has to be written within the same write access as setting the CONDRST bit
-            reg.set_rng_config1(pac::rng::vals::RngConfig1::ConfigA);
-            reg.set_clkdiv(pac::rng::vals::Clkdiv::NoDiv);
-            reg.set_rng_config2(pac::rng::vals::RngConfig2::ConfigAB);
-            reg.set_rng_config3(pac::rng::vals::RngConfig3::ConfigA);
-            reg.set_ced(true);
+            reg.set_rng_config1(config.rng_config1);
+            reg.set_clkdiv(config.clkdiv);
+            reg.set_rng_config2(config.rng_config2);
+            reg.set_rng_config3(config.rng_config3);
+            reg.set_ced(!config.clock_error_detector);
+            #[cfg(any(rng_v3, rng_wba6))]
+            reg.set_ardis(config.auto_reset_disable);
             reg.set_ie(false);
             reg.set_rngen(true);
-        });
-        T::regs().cr().modify(|reg| {
-            reg.set_ced(false);
         });
         // wait for CONDRST to be set
         while !T::regs().cr().read().condrst() {}
 
         // Set health test configuration values
-        #[cfg(not(rng_wba6))]
-        {
-            // magic number must be written immediately before every read or write access to HTCR
-            T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Magic));
-            // write recommended value according to reference manual
-            // note: HTCR can only be written during conditioning
-            T::regs()
-                .htcr()
-                .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Recommended));
-        }
-        #[cfg(rng_wba6)]
-        {
-            // For WBA6, set RNG_HTCR0 to the recommended value for configurations A, B, and C
-            // This value corresponds to the health test thresholds specified in the reference manual
-            T::regs().htcr(0).write(|w| w.0 = Htcfg::WbaRecommended.value());
+        match config.health_test_config {
+            HealthTestConfig::Recommended => {
+                #[cfg(not(rng_wba6))]
+                {
+                    // magic number must be written immediately before every read or write access to HTCR
+                    T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Magic));
+                    // write recommended value according to reference manual
+                    // note: HTCR can only be written during conditioning
+                    T::regs()
+                        .htcr()
+                        .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Recommended));
+                }
+                #[cfg(rng_wba6)]
+                {
+                    // For WBA6, set RNG_HTCR0 to the recommended value for configurations A, B, and C
+                    // This value corresponds to the health test thresholds specified in the reference manual
+                    T::regs().htcr(0).write(|w| w.0 = Htcfg::WbaRecommended.value());
+                }
+            }
+            HealthTestConfig::KeepCurrent => {}
         }
 
         // finish conditioning
         T::regs().cr().modify(|reg| {
             reg.set_rngen(true);
             reg.set_condrst(false);
+            reg.set_configlock(config.config_lock);
         });
 
         // According to reference manual for RNGv3: SEIS must be cleared manually.
@@ -262,6 +366,54 @@ impl<'d, T: Instance> Drop for Rng<'d, T> {
             reg.set_rngen(false);
         });
         rcc::disable::<T>();
+    }
+}
+
+impl<'d, T: Instance> crate::low_power::SealedSuspendablePeripheral for Rng<'d, T> {
+    #[cfg(all(feature = "low-power", rng_v1))]
+    type InternalState = Peri<'d, T>;
+
+    #[cfg(all(feature = "low-power", not(rng_v1)))]
+    type InternalState = (Peri<'d, T>, RngConfig);
+
+    #[cfg(feature = "low-power")]
+    fn suspend(self) -> Self::InternalState {
+        #[cfg(not(rng_v1))]
+        {
+            let cr = T::regs().cr().read();
+
+            let config = RngConfig {
+                nistc: cr.nistc(),
+                clkdiv: cr.clkdiv(),
+                rng_config1: cr.rng_config1(),
+                rng_config2: cr.rng_config2(),
+                rng_config3: cr.rng_config3(),
+                clock_error_detector: !cr.ced(),
+                #[cfg(any(rng_v3, rng_wba6))]
+                auto_reset_disable: cr.ardis(),
+                ..Default::default()
+            };
+
+            unsafe { (self._inner.clone_unchecked(), config) }
+        }
+
+        #[cfg(rng_v1)]
+        {
+            unsafe { self._inner.clone_unchecked() }
+        }
+    }
+
+    #[cfg(feature = "low-power")]
+    fn resume(state: Self::InternalState) -> Self {
+        #[cfg(not(rng_v1))]
+        {
+            Self::new_inner(state.0, state.1)
+        }
+
+        #[cfg(rng_v1)]
+        {
+            Self::new_inner(state)
+        }
     }
 }
 

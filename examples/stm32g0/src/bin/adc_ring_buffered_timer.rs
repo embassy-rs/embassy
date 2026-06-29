@@ -60,14 +60,11 @@ async fn main(_spawner: Spawner) {
     // Setup channels to measure
     let mut vrefint = adc.enable_vrefint();
     let mut temperature = adc.enable_temperature();
-    let vrefint_channel = vrefint.degrade_adc();
-    let temp_channel = temperature.degrade_adc();
-    let pa0 = p.PA0.degrade_adc();
 
     let sequence = [
-        (vrefint_channel, SampleTime::Cycles795),
-        (temp_channel, SampleTime::Cycles795),
-        (pa0, SampleTime::Cycles795),
+        (vrefint.reborrow_adc(), SampleTime::Cycles795),
+        (temperature.reborrow_adc(), SampleTime::Cycles795),
+        (p.PA0.reborrow_adc(), SampleTime::Cycles795),
     ]
     .into_iter();
 

@@ -21,8 +21,11 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
-#[cfg(feature = "wba")]
+#[cfg(all(feature = "wba", feature = "wb-hci"))]
 pub mod bluetooth;
+
+#[cfg(all(feature = "wb", feature = "wb-mac"))]
+pub mod net;
 
 #[cfg(feature = "wb")]
 mod wb;
@@ -35,3 +38,5 @@ mod wba;
 
 #[cfg(feature = "wba")]
 pub use wba::*;
+
+mod util;

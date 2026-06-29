@@ -1,5 +1,6 @@
 #![macro_use]
 
+#[cfg(not(stm32c5))]
 macro_rules! peri_trait {
     (
         $(irqs: [$($irq:ident),*],)?
@@ -23,6 +24,7 @@ macro_rules! peri_trait {
     };
 }
 
+#[cfg(not(stm32c5))]
 macro_rules! peri_trait_impl {
     ($instance:ident, $info:expr) => {
         #[allow(private_interfaces)]

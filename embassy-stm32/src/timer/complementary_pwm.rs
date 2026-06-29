@@ -3,17 +3,24 @@
 use core::marker::PhantomData;
 
 pub use super::low_level::FilterValue;
+#[cfg(timer_v2)]
+use super::low_level::OcrefClearSource;
 use super::low_level::{CountingMode, OutputPolarity, RoundTo, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
+#[cfg(not(stm32c5))]
 use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, OutputType};
+#[cfg(timer_v2)]
+pub use crate::pac::timer::vals::{Bkbid as BreakBidirectionalMode, Bkdsrm as BreakDisarmMode};
 pub use crate::pac::timer::vals::{
     Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity, Ccds, Ckd, Mms2, Ossi, Ossr,
 };
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
+#[cfg(timer_v2)]
+use crate::timer::low_level::DitheringConfig;
 use crate::timer::low_level::OutputCompareMode;
 use crate::timer::simple_pwm::PwmPinConfig;
 
@@ -167,6 +174,42 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         }
     }
 
+    /// Sets the idle state for the normal (OISx) channels only. OISxN is not modified.
+    ///
+    /// When OSSI is enabled (`set_off_state_selection_idle(Ossi::IdleLevel)`), the timer
+    /// drives outputs to the configured idle state whenever MOE=0, regardless of GPIO
+    /// push-pull configuration. This makes idle behavior deterministic across platforms.
+    ///
+    /// **Constraint**: OISx and OISxN must not both map to the active output state for the same
+    /// channel. After a break event the timer inserts a dead time before settling outputs to their
+    /// idle state, and the hardware prevents both complementary outputs from being active
+    /// simultaneously to avoid a shoot-through condition in half-bridge configurations.
+    ///
+    /// - `ois_active = true`:  normal outputs go active when idle (OISx=1)
+    /// - `ois_active = false`: normal outputs go inactive when idle (OISx=0)
+    pub fn set_normal_output_idle_state(&mut self, channels: &[Channel], ois_active: bool) {
+        for &channel in channels {
+            self.inner.set_ois(channel, ois_active);
+        }
+    }
+
+    /// Sets the idle state for the complementary (OISxN) channels only. OISx is not modified.
+    ///
+    /// When OSSI is enabled (`set_off_state_selection_idle(Ossi::IdleLevel)`), the timer
+    /// drives outputs to the configured idle state whenever MOE=0, regardless of GPIO
+    /// push-pull configuration. This makes idle behavior deterministic across platforms.
+    ///
+    /// **Constraint**: OISx and OISxN must not both map to the active output state for the same
+    /// channel. See [`set_normal_output_idle_state`] for details.
+    ///
+    /// - `oisn_active = true`:  complementary outputs go active when idle (OISxN=1)
+    /// - `oisn_active = false`: complementary outputs go inactive when idle (OISxN=0)
+    pub fn set_complementary_output_idle_state(&mut self, channels: &[Channel], oisn_active: bool) {
+        for &channel in channels {
+            self.inner.set_oisn(channel, oisn_active);
+        }
+    }
+
     /// Set state of OSSI-bit in BDTR register
     pub fn set_off_state_selection_idle(&mut self, val: Ossi) {
         self.inner.set_ossi(val);
@@ -195,6 +238,12 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Set Master Output Enable
     pub fn set_master_output_enable(&mut self, enable: bool) {
         self.inner.set_moe(enable);
+    }
+
+    #[cfg(timer_v2)]
+    /// Select OCREF clear source.
+    pub fn set_ocref_clear_source(&mut self, source: OcrefClearSource) {
+        self.inner.set_ocref_clear_source(source);
     }
 
     /// Get Master Output Enable
@@ -239,6 +288,30 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.get_break_filter()
     }
 
+    #[cfg(timer_v2)]
+    /// Set break input 1 disarm mode.
+    pub fn set_break_disarm_mode(&mut self, mode: BreakDisarmMode) {
+        self.inner.set_break_disarm_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 disarm mode.
+    pub fn get_break_disarm_mode(&self) -> BreakDisarmMode {
+        self.inner.get_break_disarm_mode()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 1 bidirectional mode.
+    pub fn set_break_bidirectional_mode(&mut self, mode: BreakBidirectionalMode) {
+        self.inner.set_break_bidirectional_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 bidirectional mode.
+    pub fn get_break_bidirectional_mode(&self) -> BreakBidirectionalMode {
+        self.inner.get_break_bidirectional_mode()
+    }
+
     /// Enable/disable break input 2.
     pub fn set_break2_enable(&mut self, enable: bool) {
         self.inner.set_break2_enable(enable);
@@ -267,6 +340,30 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get break input 2 digital filter.
     pub fn get_break2_filter(&self) -> FilterValue {
         self.inner.get_break2_filter()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 disarm mode.
+    pub fn set_break2_disarm_mode(&mut self, mode: BreakDisarmMode) {
+        self.inner.set_break2_disarm_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 disarm mode.
+    pub fn get_break2_disarm_mode(&self) -> BreakDisarmMode {
+        self.inner.get_break2_disarm_mode()
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 bidirectional mode.
+    pub fn set_break2_bidirectional_mode(&mut self, mode: BreakBidirectionalMode) {
+        self.inner.set_break2_bidirectional_mode(mode);
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 bidirectional mode.
+    pub fn get_break2_bidirectional_mode(&self) -> BreakBidirectionalMode {
+        self.inner.get_break2_bidirectional_mode()
     }
 
     /// Enable/disable automatic output enable (AOE).
@@ -463,12 +560,29 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         }
     }
 
+    #[cfg(timer_v2)]
+    /// Configure timer dithering mode and ARR fractional nibble.
+    pub fn set_dithering(&mut self, config: DitheringConfig) {
+        self.inner.set_dithering(config);
+    }
+
+    #[cfg(timer_v2)]
+    /// Set CCR fractional nibble for one channel.
+    pub fn set_channel_dither(&mut self, channel: Channel, dither: u8) {
+        self.inner.set_compare_dither_value(channel, dither);
+    }
+
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
     pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         assert!(duty <= self.get_max_duty());
         self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
+    }
+
+    /// Enable/disable OCREF clear for a given channel.
+    pub fn set_output_compare_clear_enable(&mut self, channel: Channel, enable: bool) {
+        self.inner.set_output_compare_clear_enable(channel, enable);
     }
 
     /// Set the output polarity for a given channel.
@@ -495,6 +609,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_dead_time_value(value);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -515,6 +630,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -533,6 +649,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.enable_update_dma(false);
     }
 
+    #[cfg(not(stm32c5))]
     /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
     ///
     /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
@@ -630,6 +747,10 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 }
 
+fn div_round(a: u16, b: u16) -> u16 {
+    (a + b / 2) / b
+}
+
 fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
     /*
         Dead-time = T_clk * T_dts * T_dtg
@@ -668,28 +789,48 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
             _ => unreachable!(),
         };
 
-        // 127
-        // 128
-        // ..
-        // 254
-        // 256
-        // ..
-        // 504
-        // 512
-        // ..
-        // 1008
+        // 0xx case DTG[7:5]=0xx => DT=DTG[7:0]x tdtg with tdtg=tDTS
+        // then DT/tDTS = DTG[7:0] (where DTG[7] is always 0)
+        // so DT/tDTS = 0..127
+        // also DTG[7:0] = DT/tDTS
+
+        // 10x case DTG[7:5]=10x => DT=(64+DTG[5:0])xtdtg with Tdtg=2xtDTS
+        // then DT/tDTS = (64 + DTG[5:0]) * 2
+        // so DT/tDTS = (64 + 0..63) * 2 = 128..254
+        // also DTG[5:0] = DT/tDTS / 2 - 64
+        // and DTG[7:0] = (DT/tDTS / 2 - 64) | 0b100_00000
+
+        // 110 case DTG[7:5]=110 => DT=(32+DTG[4:0])xtdtg with Tdtg=8xtDTS
+        // then DT/tDTS = (32 + DTG[4:0]) * 8
+        // so DT/tDTS = (32 + 0..31) * 8 = 256..504
+        // also DTG[4:0] = DT/tDTS / 8 - 32
+        // and DTG[7:0] = (DT/tDTS / 8 - 32) | 0b110_00000
+
+        // 111 case DTG[7:5]=111 => DT=(32+DTG[4:0])xtdtg with Tdtg=16xtDTS
+        // then DT/tDTS = (32 + DTG[4:0]) * 16
+        // so DT/tDTS = (32 + 0..31) * 16 = 512..1008
+        // also DTG[4:0] = DT/tDTS / 16 - 32
+        // and DTG[7:0] = (DT/tDTS / 16 - 32) | 0b111_00000
+
+        // because ranges do not cover all values they were
+        // extended such that values fall into nearest one
 
         let target = value / outdiv;
-        let (these_bits, result) = if target < 128 {
-            (target as u8, target)
-        } else if target < 255 {
-            ((64 + (target / 2) as u8) | 128, (target - target % 2))
-        } else if target < 508 {
-            ((32 + (target / 8) as u8) | 192, (target - target % 8))
-        } else if target < 1008 {
-            ((32 + (target / 16) as u8) | 224, (target - target % 16))
-        } else {
-            (u8::MAX, 1008)
+        let (these_bits, result) = match target {
+            0..127 | 127 => (target as u8, target),
+            128..254 | 254..256 => {
+                let tmp = div_round(value, outdiv * 2);
+                ((tmp as u8 - 64) | 0b100_00000, tmp * 2)
+            }
+            256..504 | 504..508 => {
+                let tmp = div_round(value, outdiv * 8);
+                ((tmp as u8 - 32) | 0b110_00000, tmp * 8)
+            }
+            508..512 | 512..1008 => {
+                let tmp = div_round(value, outdiv * 16);
+                ((tmp as u8 - 32) | 0b111_00000, tmp * 16)
+            }
+            1008.. => (u8::MAX, 1008),
         };
 
         let this_error = value.abs_diff(result * outdiv);
@@ -723,32 +864,32 @@ mod tests {
             TestRun {
                 value: 1,
                 ckd: Ckd::Div1,
-                bits: 1,
+                bits: 0b000_000001, // case 0xx: 1 * 1 = 1, error = 0
             },
             TestRun {
                 value: 125,
                 ckd: Ckd::Div1,
-                bits: 125,
+                bits: 0b011_11101, // case 0xx: 125 * 1 = 125, error = 0
             },
             TestRun {
                 value: 245,
                 ckd: Ckd::Div1,
-                bits: 64 + 245 / 2,
+                bits: 0b101_11011, // case 10x: (64 + 59) * 2 * 1 = 246, error = 1
             },
             TestRun {
                 value: 255,
-                ckd: Ckd::Div2,
-                bits: 127,
+                ckd: Ckd::Div1,
+                bits: 0b110_00000, // case 110: (32 + 0) * 8 * 1 = 256, error = 1
             },
             TestRun {
                 value: 400,
                 ckd: Ckd::Div1,
-                bits: 210,
+                bits: 0b110_10010, // case 110: (32 + 18) * 8 * 1 = 400, error = 0
             },
             TestRun {
                 value: 600,
                 ckd: Ckd::Div4,
-                bits: 64 + (600u16 / 8) as u8,
+                bits: 0b100_01011, // case 10x: (64 + 11) * 2 * 4 = 600, error = 0
             },
         ];
 
@@ -757,6 +898,96 @@ mod tests {
 
             assert_eq!(ckd.to_bits(), test_run.ckd.to_bits());
             assert_eq!(bits, test_run.bits);
+        }
+    }
+
+    fn reference_ckd_dtg_to_dt(ckd: Ckd, dtg: u8) -> u16 {
+        let div = match ckd {
+            Ckd::Div1 => 1,
+            Ckd::Div2 => 2,
+            Ckd::Div4 => 4,
+            _ => unreachable!(),
+        };
+        reference_dtg_to_dt(dtg) * div
+    }
+
+    fn reference_dtg_to_dt(dtg: u8) -> u16 {
+        match ((dtg >> 7) & 1, (dtg >> 6) & 1, (dtg >> 5) & 1) {
+            (0, _, _) => dtg as u16,
+            (1, 0, _) => (64 + (dtg & 0b111111)) as u16 * 2,
+            (1, 1, 0) => (32 + (dtg & 0b11111)) as u16 * 8,
+            (1, 1, 1) => (32 + (dtg & 0b11111)) as u16 * 16,
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_div1_dtg_with_reference() {
+        for dtg in 0u8..=255u8 {
+            let dt = reference_dtg_to_dt(dtg);
+            let (ckd, bits) = compute_dead_time_value(dt);
+            assert_eq!(ckd, Ckd::Div1);
+            assert_eq!(bits, dtg);
+        }
+    }
+
+    #[test]
+    fn test_div2_dtg_with_reference() {
+        for dtg in 0u8..=255u8 {
+            let dt = reference_dtg_to_dt(dtg);
+            if dt * 2 > 1008 {
+                let (ckd, bits) = compute_dead_time_value(dt * 2);
+                assert_eq!(ckd, Ckd::Div2);
+                assert_eq!(bits, dtg);
+            }
+        }
+    }
+
+    #[test]
+    fn test_div4_dtg_with_reference() {
+        for dtg in 0u8..=255u8 {
+            let dt = reference_dtg_to_dt(dtg);
+            if dt * 4 > 1008 * 2 {
+                let (ckd, bits) = compute_dead_time_value(dt * 4);
+                assert_eq!(ckd, Ckd::Div4);
+                assert_eq!(bits, dtg);
+            }
+        }
+    }
+
+    #[test]
+    fn test_all_dead_time_cases_min_error() {
+        let mut lut = [None; 4032 + 1]; // max possible dt is 4032
+        // fill lut with all possible dt values that have exact ckd and dtg
+        for ckd in [Ckd::Div4, Ckd::Div2, Ckd::Div1] {
+            for dtg in 0u8..=255u8 {
+                let dt = reference_ckd_dtg_to_dt(ckd, dtg);
+                lut[dt as usize] = Some((ckd, dtg));
+            }
+        }
+        // for given dt return min error to nearest dt that has exact ckd and dtg
+        let min_error = |dt: u16| -> u16 {
+            // fast path
+            if dt >= 4032 {
+                return dt - 4032;
+            }
+            // slow path
+            let mut i = 0;
+            loop {
+                let less = lut.get(dt.saturating_sub(i) as usize).and_then(|x| *x);
+                let more = lut.get(dt.saturating_add(i) as usize).and_then(|x| *x);
+                if less.is_some() || more.is_some() {
+                    return i;
+                }
+                i += 1;
+            }
+        };
+        // test all dt values and check if dt represented by
+        // the returned ckd and dgt is within min error
+        for dt in 0..=65535 {
+            let (ckd, dgt) = compute_dead_time_value(dt);
+            let exact_dt = reference_ckd_dtg_to_dt(ckd, dgt);
+            assert!(dt.abs_diff(exact_dt) <= min_error(dt));
         }
     }
 }

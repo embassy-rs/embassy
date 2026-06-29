@@ -168,8 +168,6 @@ impl From<BbqConfig> for super::Config {
 
 /// A `bbqueue` powered buffered Lpuart
 pub struct LpuartBbq {
-    // TODO: Don't just make these pub, we don't *really* handle dropping/recreation
-    // of separate parts at the moment.
     /// The TX half of the LPUART
     tx: LpuartBbqTx,
     /// The RX half of the LPUART
@@ -477,6 +475,11 @@ impl LpuartBbq {
         (rx, tx)
     }
 
+    /// Split the LpuartBbq into separate TX and RX halves
+    pub fn split(self) -> (LpuartBbqTx, LpuartBbqRx) {
+        (self.tx, self.rx)
+    }
+
     /// Teardown the LpuartBbq, retrieving the original parts
     pub fn teardown(self) -> BbqParts {
         let Self { tx, rx } = self;
@@ -497,6 +500,27 @@ impl LpuartBbq {
             state: tx_parts.state,
             vtable: tx_parts.vtable,
         }
+    }
+}
+
+impl embedded_io_async::ErrorType for LpuartBbq {
+    type Error = BbqError;
+}
+
+impl embedded_io_async::Write for LpuartBbq {
+    fn write(&mut self, buf: &[u8]) -> impl Future<Output = Result<usize, Self::Error>> {
+        self.write(buf)
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.flush().await;
+        Ok(())
+    }
+}
+
+impl embedded_io_async::Read for LpuartBbq {
+    fn read(&mut self, buf: &mut [u8]) -> impl Future<Output = Result<usize, Self::Error>> {
+        self.read(buf)
     }
 }
 
@@ -544,8 +568,11 @@ impl LpuartBbqTx {
 
     /// Create a new LpuartBbq with only the transmit half
     ///
-    /// NOTE: Dropping the `LpuartBbqTx` will *permanently* leak the TX buffer, DMA channel, and tx pin.
-    /// Call [LpuartBbqTx::teardown] to reclaim these resources.
+    /// NOTE: Dropping the `LpuartBbqTx` shuts down TX DMA and (if no other half is live)
+    /// disables the peripheral; the TX pin and clock gate are released via their own
+    /// destructors. However, the TX backing buffer cannot be returned by `Drop` and is
+    /// effectively leaked. Call [`LpuartBbqTx::teardown`] to reclaim the buffer along
+    /// with the DMA channel and pin.
     pub fn new(parts: BbqHalfParts, config: BbqConfig) -> Result<Self, BbqError> {
         // Are these the right parts?
         if parts.which != WhichHalf::Tx {
@@ -647,8 +674,14 @@ impl LpuartBbqTx {
         while (self.state.state.load(Ordering::Acquire) & STATE_TXGR_ACTIVE) != 0 {}
     }
 
-    /// Teardown the Tx handle, reclaiming the parts.
-    pub fn teardown(self) -> BbqHalfParts {
+    /// Stop the TX side: disable TCIE, halt TX DMA, drop the tx_queue in place,
+    /// and (if this was the last live half) disable the peripheral.
+    ///
+    /// Returns the reclaimed buffer pointer/length and DMA channel. The caller is
+    /// responsible for ensuring the side effects are not performed a second time
+    /// on the same instance (either by consuming `self` and calling `mem::forget`,
+    /// or by only invoking this from `Drop`, which by definition runs once).
+    fn teardown_inner(&mut self) -> (NonNull<u8>, usize, DmaChannel<'static>) {
         // First, disable relevant interrupts
         let state = critical_section::with(|_cs| {
             self.info.regs.ctrl().modify(|w| w.set_tcie(false));
@@ -704,13 +737,6 @@ impl LpuartBbqTx {
             dma
         };
 
-        // Re-magic the mut slice from the storage we have now reclaimed by dropping the
-        // tx_queue.
-        //
-        // SAFETY: We have unset TXDMA_PRESENT and disabled TCIE: we now have exclusive
-        // access to the shared tx resources.
-        let tx_buffer = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), len) };
-
         // Now, if this was the last part of the lpuart, we are responsible for peripheral
         // cleanup.
         if (state & !(STATE_TXGR_ACTIVE | STATE_TXDMA_PRESENT)) == STATE_INITED {
@@ -719,19 +745,57 @@ impl LpuartBbqTx {
             self.state.state.store(STATE_UNINIT, Ordering::Relaxed);
         }
 
-        let (tx_pin, _) = self._tx_pins.take();
+        (ptr, len, tx_dma)
+    }
 
-        BbqHalfParts {
+    /// Teardown the Tx handle, reclaiming the parts.
+    pub fn teardown(mut self) -> BbqHalfParts {
+        let (ptr, len, tx_dma) = self.teardown_inner();
+
+        // Re-magic the mut slice from the storage we have now reclaimed by dropping the
+        // tx_queue.
+        //
+        // SAFETY: teardown_inner has unset TXDMA_PRESENT and disabled TCIE: we now have
+        // exclusive access to the shared tx resources, including the backing buffer.
+        let tx_buffer = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), len) };
+
+        // Move out the non-Copy fields by value before we mem::forget self below, so that
+        // their destructors run normally (TxPins -> reclaims via take(), Option<WakeGuard>
+        // -> releases the clock at end of scope).
+        //
+        // SAFETY: We unconditionally `mem::forget(self)` before returning, so reading
+        // these fields here cannot cause a double-drop.
+        let tx_pins: TxPins<'static> = unsafe { core::ptr::read(&self._tx_pins) };
+        // SAFETY: see above.
+        let _wg: Option<WakeGuard> = unsafe { core::ptr::read(&self._wg) };
+
+        let parts = BbqHalfParts {
             buffer: tx_buffer,
             dma_ch: tx_dma,
-            pin: tx_pin,
+            pin: tx_pins.take().0,
             dma_req: self.state.txdma_num.load(Ordering::Relaxed),
             mux: self.mux,
             info: self.info,
             state: self.state,
             vtable: self.vtable,
             which: WhichHalf::Tx,
-        }
+        };
+
+        // Prevent Drop::drop from re-running teardown_inner (which would re-enter the
+        // already-completed cleanup, dropping the already-dropped tx_queue, etc.).
+        core::mem::forget(self);
+
+        parts
+    }
+}
+
+impl Drop for LpuartBbqTx {
+    fn drop(&mut self) {
+        // Halt TX DMA, drop the tx_queue in place, and (if this is the last live half
+        // of this LPUART) disable the peripheral. The returned DmaChannel is then
+        // dropped immediately, which releases the channel. _tx_pins and _wg fields
+        // are dropped automatically after this function returns.
+        let _ = self.teardown_inner();
     }
 }
 
@@ -836,8 +900,11 @@ impl LpuartBbqRx {
 
     /// Create a new LpuartBbq with only the receive half
     ///
-    /// NOTE: Dropping the `LpuartBbqRx` will *permanently* leak the TX buffer, DMA channel, and tx pin.
-    /// Call [LpuartBbqTx::teardown] to reclaim these resources.
+    /// NOTE: Dropping the `LpuartBbqRx` shuts down RX DMA and (if no other half is live)
+    /// disables the peripheral; the RX pin and clock gate are released via their own
+    /// destructors. However, the RX backing buffer cannot be returned by `Drop` and is
+    /// effectively leaked. Call [`LpuartBbqRx::teardown`] to reclaim the buffer along
+    /// with the DMA channel and pin.
     pub fn new(parts: BbqHalfParts, config: BbqConfig, mode: BbqRxMode) -> Result<Self, BbqError> {
         // Are these the right parts?
         if parts.which != WhichHalf::Rx {
@@ -947,8 +1014,14 @@ impl LpuartBbqRx {
         Ok(to_copy)
     }
 
-    /// Teardown the Rx handle, reclaiming the DMA channel, receive buffer, and Rx pin.
-    pub fn teardown(self) -> BbqHalfParts {
+    /// Stop the RX side: disable RX interrupts, halt RX DMA, drop the rx_queue in place,
+    /// and (if this was the last live half) disable the peripheral.
+    ///
+    /// Returns the reclaimed buffer pointer/length and DMA channel. The caller is
+    /// responsible for ensuring the side effects are not performed a second time
+    /// on the same instance (either by consuming `self` and calling `mem::forget`,
+    /// or by only invoking this from `Drop`, which by definition runs once).
+    fn teardown_inner(&mut self) -> (NonNull<u8>, usize, DmaChannel<'static>) {
         // First, mark the RXDMA as not present to halt the ISR from processing the state
         // machine
         let rx_state_bits = STATE_RXDMA_PRESENT
@@ -1014,13 +1087,6 @@ impl LpuartBbqRx {
             dma
         };
 
-        // Re-magic the mut slice from the storage we have now reclaimed by dropping the
-        // rx_queue.
-        //
-        // SAFETY: We have unset RXDMA_PRESENT and disabled all RX interrupts: we now have exclusive
-        // access to the shared rx resources.
-        let rx_buffer = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), len) };
-
         // Now, if this was the last part of the lpuart, we are responsible for peripheral
         // cleanup.
         if (state & !rx_state_bits) == STATE_INITED {
@@ -1028,18 +1094,58 @@ impl LpuartBbqRx {
             self.state.state.store(STATE_UNINIT, Ordering::Relaxed);
         }
 
-        let (rx_pin, _) = self._rx_pins.take();
-        BbqHalfParts {
+        (ptr, len, rx_dma)
+    }
+
+    /// Teardown the Rx handle, reclaiming the DMA channel, receive buffer, and Rx pin.
+    pub fn teardown(mut self) -> BbqHalfParts {
+        let (ptr, len, rx_dma) = self.teardown_inner();
+
+        // Re-magic the mut slice from the storage we have now reclaimed by dropping the
+        // rx_queue.
+        //
+        // SAFETY: teardown_inner has unset RXDMA_PRESENT and disabled all RX interrupts:
+        // we now have exclusive access to the shared rx resources, including the backing
+        // buffer.
+        let rx_buffer = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), len) };
+
+        // Move out the non-Copy fields by value before we mem::forget self below, so that
+        // their destructors run normally (RxPins -> reclaims via take(), Option<WakeGuard>
+        // -> releases the clock at end of scope).
+        //
+        // SAFETY: We unconditionally `mem::forget(self)` before returning, so reading
+        // these fields here cannot cause a double-drop.
+        let rx_pins: RxPins<'static> = unsafe { core::ptr::read(&self._rx_pins) };
+        // SAFETY: see above.
+        let _wg: Option<WakeGuard> = unsafe { core::ptr::read(&self._wg) };
+
+        let parts = BbqHalfParts {
             buffer: rx_buffer,
             dma_ch: rx_dma,
-            pin: rx_pin,
+            pin: rx_pins.take().0,
             dma_req: self.state.rxdma_num.load(Ordering::Relaxed),
             mux: self.mux,
             info: self.info,
             state: self.state,
             vtable: self.vtable,
             which: WhichHalf::Rx,
-        }
+        };
+
+        // Prevent Drop::drop from re-running teardown_inner (which would re-enter the
+        // already-completed cleanup, dropping the already-dropped rx_queue, etc.).
+        core::mem::forget(self);
+
+        parts
+    }
+}
+
+impl Drop for LpuartBbqRx {
+    fn drop(&mut self) {
+        // Halt RX DMA, drop the rx_queue in place, and (if this is the last live half
+        // of this LPUART) disable the peripheral. The returned DmaChannel is then
+        // dropped immediately, which releases the channel. _rx_pins and _wg fields
+        // are dropped automatically after this function returns.
+        let _ = self.teardown_inner();
     }
 }
 

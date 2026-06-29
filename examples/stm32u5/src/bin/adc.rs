@@ -37,7 +37,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // **** ADC4 init ****
     let mut adc4 = Adc::new_adc4(p.ADC4);
-    let mut adc4_pin1 = p.PC1.degrade_adc(); // A4
+    let mut adc4_pin1 = p.PC1; // A4
     let mut adc4_pin2 = p.PC0; // A5
     adc4.set_resolution_adc4(adc4::Resolution::Bits12);
     adc4.set_averaging_adc4(adc4::Averaging::Samples256);
@@ -71,16 +71,14 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("Read adc4 pin 2 {}", volt);
 
     // **** ADC1 async read ****
-    let mut degraded11 = adc1_pin1.degrade_adc();
-    let mut degraded12 = adc1_pin2.degrade_adc();
     let mut measurements = [0u16; 2];
 
     adc1.read(
         p.GPDMA1_CH0.reborrow(),
         Irqs,
         [
-            (&mut degraded11, adc::SampleTime::Cycles1605),
-            (&mut degraded12, adc::SampleTime::Cycles1605),
+            (adc1_pin1.reborrow_adc(), adc::SampleTime::Cycles1605),
+            (adc1_pin2.reborrow_adc(), adc::SampleTime::Cycles1605),
         ]
         .into_iter(),
         None,
@@ -96,8 +94,6 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // **** ADC2 does not support async read ****
 
     // **** ADC4 async read ****
-    let mut degraded41 = adc4_pin1.degrade_adc();
-    let mut degraded42 = adc4_pin2.degrade_adc();
     let mut measurements = [0u16; 2];
 
     // The channels must be in ascending order and can't repeat for ADC4
@@ -105,8 +101,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
         p.GPDMA1_CH1.reborrow(),
         Irqs,
         [
-            (&mut degraded42, adc4::SampleTime::Cycles15),
-            (&mut degraded41, adc4::SampleTime::Cycles15),
+            (adc4_pin1.reborrow_adc(), adc4::SampleTime::Cycles15),
+            (adc4_pin2.reborrow_adc(), adc4::SampleTime::Cycles15),
         ]
         .into_iter(),
         None,

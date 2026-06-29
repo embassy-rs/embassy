@@ -159,7 +159,7 @@ static AES_WAKER: AtomicWaker = AtomicWaker::new();
 
 /// AES interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -873,7 +873,7 @@ pub struct Context<'c, C: Cipher<'c>> {
 /// AES driver.
 pub struct Aes<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
     #[allow(dead_code)] // Reserved for future async/DMA implementation
     dma_in: Option<ChannelAndRequest<'d>>,
     #[allow(dead_code)] // Reserved for future async/DMA implementation
@@ -889,7 +889,7 @@ impl<'d, T: Instance> Aes<'d, T, Blocking> {
         rcc::enable_and_reset::<T>();
         let instance = Self {
             _peripheral: peripheral,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             dma_in: None,
             dma_out: None,
         };
@@ -916,7 +916,7 @@ impl<'d, T: Instance> Aes<'d, T, Async> {
 
         let instance = Self {
             _peripheral: peripheral,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             dma_in: new_dma!(dma_in, _irq),
             dma_out: new_dma!(dma_out, _irq),
         };

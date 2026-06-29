@@ -305,20 +305,20 @@ impl Events {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Status {
     pub event_type: Event,
     pub status: u32,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub enum Payload {
     None,
     BssInfo(BssInfo),
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 
 pub struct Message {
     pub header: Status,
@@ -339,7 +339,7 @@ struct EventMask {
 }
 
 impl EventMask {
-    const WORD_COUNT: usize = ((Event::LAST as u32 + (u32::BITS - 1)) / u32::BITS) as usize;
+    const WORD_COUNT: usize = (Event::LAST as u32).div_ceil(u32::BITS) as usize;
 
     const fn new() -> Self {
         Self {

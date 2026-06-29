@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_net::{Config, StackResources};
 use embassy_rp::dma::{self, Channel};
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::peripherals::{DMA_CH0, PIO0};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, rom_data};
 use static_cell::StaticCell;
@@ -17,7 +17,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
-    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });
 
 teleprobe_meta::timeout!(120);
@@ -70,6 +70,7 @@ async fn main(spawner: Spawner) {
         p.PIN_24,
         p.PIN_29,
         Channel::new(p.DMA_CH0, Irqs),
+        Channel::new(p.DMA_CH1, Irqs),
     );
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();

@@ -14,6 +14,8 @@ use crate::peripherals;
 /// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
     pub(crate) pin: Peri<'d, AnyPin>,
 }
@@ -690,7 +692,7 @@ fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
 }
 
 #[inline(never)]
-#[cfg(gpio_v2)]
+#[cfg(all(gpio_v2, not(stm32c5)))]
 fn set_speed(pin_port: PinNumber, speed: Speed) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -720,6 +722,7 @@ pub(crate) fn set_as_analog(pin_port: PinNumber) {
 }
 
 #[inline(never)]
+#[cfg(not(stm32c5))]
 fn get_pull(pin_port: PinNumber) -> Pull {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -801,7 +804,7 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
-    #[cfg(gpio_v2)]
+    #[cfg(all(gpio_v2, not(stm32c5)))]
     fn set_speed(&self, speed: Speed) {
         set_speed(self.pin_port(), speed)
     }
@@ -825,6 +828,7 @@ pub(crate) trait SealedPin {
 
     /// Get the pull-up configuration.
     #[inline]
+    #[cfg(not(stm32c5))]
     fn pull(&self) -> Pull {
         critical_section::with(|_| get_pull(self.pin_port()))
     }
@@ -863,6 +867,7 @@ pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
 }
 
 /// Type-erased GPIO pin.
+#[derive(Debug)]
 pub struct AnyPin {
     pin_port: PinNumber,
 }

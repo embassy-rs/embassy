@@ -12,6 +12,7 @@ pub use channel_direction::ChannelDirection;
 use prescaler::Prescaler;
 
 use super::Instance;
+use crate::pac::lptim::vals::{Filter, Trigen};
 use crate::rcc;
 use crate::time::Hertz;
 
@@ -76,6 +77,34 @@ impl<'d, T: Instance> Timer<'d, T> {
     /// Get the clock frequency of the timer (before prescaler is applied).
     pub fn get_clock_frequency(&self) -> Hertz {
         T::frequency()
+    }
+
+    /// Select the trigger source used when external trigger start is enabled.
+    ///
+    /// The source index maps to device-specific `lptim_ext_trigX` inputs (0..=7).
+    pub fn set_trigger_source(&self, source: u8) {
+        assert!(source < 8, "LPTIM trigger source must be in range 0..8");
+        T::regs().cfgr().modify(|r| r.set_trigsel(source));
+    }
+
+    /// Configure how trigger edges start the counter.
+    ///
+    /// Use [`Trigen::Software`] for software start. Any edge mode enables
+    /// external trigger start.
+    pub fn set_trigger_mode(&self, mode: Trigen) {
+        T::regs().cfgr().modify(|r| r.set_trigen(mode));
+    }
+
+    /// Configure the digital filter applied to trigger input transitions.
+    pub fn set_trigger_filter(&self, filter: Filter) {
+        T::regs().cfgr().modify(|r| r.set_trgflt(filter));
+    }
+
+    /// Convenience helper to enable external trigger start with source, edge and filter.
+    pub fn configure_external_trigger(&self, source: u8, edge: Trigen, filter: Filter) {
+        self.set_trigger_source(source);
+        self.set_trigger_filter(filter);
+        self.set_trigger_mode(edge);
     }
 
     /// Get max compare value. This depends on the timer frequency and the clock frequency from RCC.

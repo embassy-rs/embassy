@@ -35,7 +35,7 @@ use crate::{Peri, interrupt, rcc};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -211,6 +211,68 @@ pub struct ChannelGains {
 impl ChannelGains {
     /// Identity (1.0, 1.0, 1.0).
     pub const IDENTITY: Self = Self { r: 1.0, g: 1.0, b: 1.0 };
+}
+
+/// 3×3 colour-conversion matrix with per-row offsets, programmed into
+/// the DCMIPP Pipe1 ISP via [`Pipe1::set_color_matrix`].
+///
+/// Hardware applies `out = M · in + offset`, optionally clamped to
+/// 8-bit unsigned. Coefficients are encoded as 11-bit signed Q2.8
+/// (effective range `-4.0 ..= +3.996`, identity coefficient `1.0`);
+/// offsets are 10-bit signed integers (range `-512 ..= 511`) added to
+/// the matrix product before the optional clamp.
+///
+/// Typical use: write a colour-correction matrix derived from sensor
+/// characterisation against a Macbeth chart, plus zero offsets, plus
+/// `clamp = true` for 8-bit display output. For pass-through use
+/// [`ColorMatrix::IDENTITY`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ColorMatrix {
+    /// Row-major 3×3 coefficients. Element `[i][j]` multiplies input
+    /// channel `j` to contribute to output channel `i`, with rows in
+    /// R/G/B order.
+    pub coeffs: [[f32; 3]; 3],
+    /// Per-row offsets in 8-bit-output units, i.e. an offset of `+16.0`
+    /// shifts the corresponding output channel up by 16/255.
+    pub offsets: [f32; 3],
+    /// Clamp the output to `[0, 255]`. Recommended `true` for 8-bit
+    /// display / capture pipelines. Applies to the hardware's unsigned
+    /// 8-bit output mode (`P1CCCR.TYPE = 0`); the signed-output mode is
+    /// not exposed by this struct.
+    pub clamp: bool,
+}
+
+impl ColorMatrix {
+    /// Identity matrix with zero offsets and clamping enabled. Passing
+    /// this to [`Pipe1::set_color_matrix`] should produce a frame
+    /// pixel-identical to "no CCM applied" — a useful sanity check
+    /// that the encoding into the hardware Q-format is correct.
+    pub const IDENTITY: Self = Self {
+        coeffs: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+        offsets: [0.0, 0.0, 0.0],
+        clamp: true,
+    };
+}
+
+/// Round half away from zero. `f32::round` isn't in `core` and a libm
+/// dependency for this single use isn't worth it.
+fn round_half_away_from_zero(v: f32) -> i32 {
+    if v >= 0.0 { (v + 0.5) as i32 } else { (v - 0.5) as i32 }
+}
+
+/// Encode a Q2.8-format coefficient (range `-4.0 ..= +3.996`) as an
+/// 11-bit signed two's-complement field for the CCM coefficient registers.
+fn q28_to_reg11(v: f32) -> u16 {
+    let scaled = round_half_away_from_zero((v * 256.0).clamp(-1024.0, 1023.0));
+    (scaled as u16) & 0x07FF
+}
+
+/// Encode a CCM offset (range `-512.0 ..= +511.0`, units of 8-bit output
+/// channel) as a 10-bit signed two's-complement field.
+fn offset_to_reg10(v: f32) -> u16 {
+    let scaled = round_half_away_from_zero(v.clamp(-512.0, 511.0));
+    (scaled as u16) & 0x03FF
 }
 
 /// Pipe0 (raw dump) configuration.
@@ -782,25 +844,21 @@ impl<'d, T: Instance> Pipe1<'d, T> {
     /// enable it. Off-diagonal coefficients and the offset column are
     /// zeroed. Re-callable while streaming — the new matrix latches at
     /// the next frame boundary.
+    ///
+    /// This shares hardware with [`set_color_matrix`]; calling either
+    /// after the other replaces the previous CCM. Use [`set_color_matrix`]
+    /// for full 3×3 colour correction (and to keep WB+CCM separate by
+    /// applying WB at the sensor / via the demosaic stage instead).
+    ///
+    /// [`set_color_matrix`]: Self::set_color_matrix
     pub fn set_color_gains(&mut self, gains: ChannelGains) {
         let r = T::regs();
-        // BSP `To_CConv_Reg` encoding: scale by 256, store as 11-bit
-        // signed two's complement. Positive values clamp at +1023 so the
-        // sign bit (bit 10) stays clear; negative gains aren't useful for
-        // a WB diagonal so we floor at 0.
-        let encode = |g: f32| -> u16 {
-            let v = (g * 256.0 + 0.5) as i32;
-            v.clamp(0, 0x3FF) as u16
-        };
-        let rr = encode(gains.r);
-        let gg = encode(gains.g);
-        let bb = encode(gains.b);
-        // Diagonal coefficients live in different registers per row:
-        //   rr → P1CCRR1.rr   (row R, col R)
-        //   gg → P1CCGR1.gg   (row G, col G)
-        //   bb → P1CCBR2.bb   (row B, col B)
-        // The other six off-diagonals + three offset columns are zeroed
-        // by `write` to keep the matrix purely diagonal.
+        // White-balance gains are non-negative; saturate before reusing the
+        // signed CCM encoder. Diagonal-only: rr→P1CCRR1, gg→P1CCGR1,
+        // bb→P1CCBR2; the other registers are zeroed via `write`.
+        let rr = q28_to_reg11(gains.r.max(0.0));
+        let gg = q28_to_reg11(gains.g.max(0.0));
+        let bb = q28_to_reg11(gains.b.max(0.0));
         r.p1ccrr1().write(|w| w.set_rr(rr));
         r.p1ccrr2().write(|_| {});
         r.p1ccgr1().write(|w| w.set_gg(gg));
@@ -808,6 +866,71 @@ impl<'d, T: Instance> Pipe1<'d, T> {
         r.p1ccbr1().write(|_| {});
         r.p1ccbr2().write(|w| w.set_bb(bb));
         r.p1cccr().write(|w| w.set_enable(true));
+    }
+
+    /// Program the full 3×3 colour-conversion matrix and enable it.
+    ///
+    /// Hardware applies `out = M · in + offset`, optionally clamped to
+    /// 8-bit unsigned. Coefficients are encoded in 11-bit signed Q2.8
+    /// (range `-4.0 ..= +3.996`); offsets are 10-bit signed integers
+    /// (range `-512 ..= 511`) added to the matrix product.
+    ///
+    /// Re-callable while streaming — the new matrix latches at the next
+    /// frame boundary. Shares hardware with [`set_color_gains`]; the
+    /// last call wins.
+    ///
+    /// [`set_color_gains`]: Self::set_color_gains
+    pub fn set_color_matrix(&mut self, m: ColorMatrix) {
+        let r = T::regs();
+        let c = m.coeffs.map(|row| row.map(q28_to_reg11));
+        let o = m.offsets.map(offset_to_reg10);
+        r.p1ccrr1().write(|w| {
+            w.set_rr(c[0][0]);
+            w.set_rg(c[0][1]);
+        });
+        r.p1ccrr2().write(|w| {
+            w.set_rb(c[0][2]);
+            w.set_ra(o[0]);
+        });
+        r.p1ccgr1().write(|w| {
+            w.set_gr(c[1][0]);
+            w.set_gg(c[1][1]);
+        });
+        r.p1ccgr2().write(|w| {
+            w.set_gb(c[1][2]);
+            w.set_ga(o[1]);
+        });
+        r.p1ccbr1().write(|w| {
+            w.set_br(c[2][0]);
+            w.set_bg(c[2][1]);
+        });
+        r.p1ccbr2().write(|w| {
+            w.set_bb(c[2][2]);
+            w.set_ba(o[2]);
+        });
+        r.p1cccr().write(|w| {
+            w.set_enable(true);
+            w.set_clamp(m.clamp);
+            // type_ = false → unsigned 8-bit clip [0, 255] when CLAMP is on.
+            w.set_type_(false);
+        });
+    }
+
+    /// Disable the colour-conversion matrix entirely (skip the stage in
+    /// the ISP pipeline). After this call, neither [`set_color_gains`]
+    /// nor [`set_color_matrix`] state is applied until called again.
+    ///
+    /// [`set_color_gains`]: Self::set_color_gains
+    /// [`set_color_matrix`]: Self::set_color_matrix
+    pub fn disable_color_matrix(&mut self) {
+        T::regs().p1cccr().write(|_| {});
+    }
+
+    /// Enable / disable Pipe1's gamma stage (a fixed sRGB-2.2 curve in
+    /// hardware — there is no programmable LUT). Re-callable while
+    /// streaming.
+    pub fn set_gamma_enable(&mut self, enable: bool) {
+        T::regs().p1gmcr().write(|w| w.set_enable(enable));
     }
 
     /// Configure the three statistics extractors to compute the per-frame

@@ -41,7 +41,7 @@ use embassy_usb_driver::host::{PipeError, SplitInfo, UsbHostAllocator, UsbPipe, 
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::control::{ControlType, Recipient, RequestType, SetupPacket};
-use crate::descriptor::ConfigurationDescriptor;
+use crate::descriptor::ConfigurationDescriptorChain;
 use crate::handler::EnumerationInfo;
 
 // MSC BBB r1.0 §4.
@@ -351,7 +351,7 @@ pub struct MscInfo {
 
 /// Locate the first SCSI/BBB interface in `config_desc`.
 pub fn find_msc(config_desc: &[u8]) -> Option<MscInfo> {
-    let cfg = ConfigurationDescriptor::try_from_slice(config_desc).ok()?;
+    let cfg = ConfigurationDescriptorChain::try_from_slice(config_desc).ok()?;
 
     for iface in cfg.iter_interface() {
         if iface.interface_class != CLASS_MSC

@@ -18,23 +18,17 @@
 #![no_std]
 #![no_main]
 
-use core::cell::RefCell;
-
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
 use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, exti, interrupt};
+use embassy_stm32::{Config, bind_interrupts, exti, interrupt, rcc};
 use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
-use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, new_controller_state};
-use embassy_sync::blocking_mutex::Mutex;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::Timer;
-use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 // ---- Test configuration ----
@@ -56,53 +50,18 @@ bind_interrupts!(struct Irqs {
     HASH => LowInterruptHandler;
 });
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    let mut config = Config::default();
-    {
-        use embassy_stm32::rcc::*;
-        // Enable HSE (32 MHz external crystal) - REQUIRED for BLE radio
-        config.rcc.hse = Some(Hse {
-            prescaler: HsePrescaler::Div1,
-        });
+/// BLE runner task - drives the BLE stack sequencer
+#[embassy_executor::task]
+async fn ble_runner_task(platform: &'static Platform) {
+    platform.run_ble().await
+}
 
-        // Enable LSE (32.768 kHz external crystal) - REQUIRED for BLE radio sleep timer
-        config.rcc.ls = LsConfig {
-            rtc: RtcClockSource::Lse,
-            lsi: false,
-            lse: Some(LseConfig {
-                frequency: Hertz(32_768),
-                mode: LseMode::Oscillator(LseDrive::MediumLow),
-                peripherals_clocked: true,
-            }),
-        };
-        // Configure PLL1 (required on WBA)
-        config.rcc.pll1 = Some(Pll {
-            source: PllSource::Hsi,
-            prediv: PllPreDiv::Div1,
-            mul: PllMul::Mul30,
-            divr: Some(PllDiv::Div5),
-            divq: None,
-            divp: Some(PllDiv::Div30),
-            frac: Some(0),
-        });
-        config.rcc.ahb_pre = AHBPrescaler::Div1;
-        config.rcc.apb1_pre = APBPrescaler::Div1;
-        config.rcc.apb2_pre = APBPrescaler::Div1;
-        config.rcc.apb7_pre = APBPrescaler::Div1;
-        config.rcc.ahb5_pre = AHB5Prescaler::Div4;
-        config.rcc.voltage_scale = VoltageScale::Range1;
-        config.rcc.sys = Sysclk::Pll1R;
-        config.rcc.mux.rngsel = mux::Rngsel::Hsi;
-    }
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    let mut config = Config::default();
+    config.rcc = rcc::Config::new_wpan();
 
     let p = embassy_stm32::init(config);
-    // Configure radio sleep timer to use LSE
-    {
-        use embassy_stm32::pac::RCC;
-        use embassy_stm32::pac::rcc::vals::Radiostsel;
-        RCC.bdcr().modify(|w| w.set_radiostsel(Radiostsel::Lse));
-    }
 
     let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
 
@@ -116,13 +75,16 @@ async fn main(_spawner: Spawner) {
     button.wait_for_falling_edge().await;
     info!("Button pressed — initialising BLE");
 
-    static RNG_INST: StaticCell<Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = StaticCell::new();
-    let rng = RNG_INST.init(Mutex::new(RefCell::new(Rng::new(p.RNG, Irqs))));
+    // Initialize hardware peripherals required by BLE stack
+    let (platform, runtime) = new_platform!(Rng::new(p.RNG, Irqs), 8);
 
-    info!("Hardware peripherals initialized (RNG)");
+    info!("Hardware peripherals initialized (RNG, AES, PKA)");
+
+    // Spawn the BLE runner task (required for proper BLE operation)
+    spawner.spawn(ble_runner_task(platform).expect("Failed to spawn BLE runner"));
 
     // Initialize BLE stack
-    let mut dtm_ble = HCI::new_dtm(new_controller_state!(8), rng, Irqs)
+    let mut dtm_ble = HCI::new_dtm(platform, runtime, Irqs)
         .await
         .expect("BLE initialization failed");
 

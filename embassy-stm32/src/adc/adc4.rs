@@ -5,7 +5,6 @@ use pac::adc::vals::{Adc4Dmacfg as Dmacfg, Adc4Exten as Exten, Adc4OversamplingR
 #[cfg(stm32wba)]
 use pac::adc::vals::{Dmacfg, Exten, OversamplingRatio, Ovss, Smpsel};
 
-use super::blocking_delay_us;
 use crate::adc::{AdcRegs, ConversionMode, Instance};
 #[cfg(stm32u5)]
 pub use crate::pac::adc::regs::Adc4Chselrmod0 as Chselr;
@@ -16,6 +15,7 @@ pub use crate::pac::adc::vals::{Adc4Presc as Presc, Adc4Res as Resolution, Adc4S
 #[cfg(stm32wba)]
 pub use crate::pac::adc::vals::{Extsel, Presc, Res as Resolution, SampleTime};
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, interrupt, pac, rcc};
 
 mod watchdog_adc4;
@@ -25,7 +25,7 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance<Regs = crate::pac::adc::Adc4>> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance<Regs = crate::pac::adc::Adc4>> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -226,6 +226,21 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
     }
 }
 
+/// Number of bits to left-shift a right-aligned N-bit threshold into the 12-bit AWD register.
+///
+/// The AWD comparison is always performed on left-aligned 12-bit raw data (RM Table 158).
+/// DR returns right-aligned N-bit values; this shift converts them to 12-bit threshold space.
+pub const fn resolution_to_awd_left_shift(res: Resolution) -> u32 {
+    match res {
+        Resolution::Bits12 => 0,
+        Resolution::Bits10 => 2,
+        Resolution::Bits8 => 4,
+        Resolution::Bits6 => 6,
+        #[allow(unreachable_patterns)]
+        _ => 0,
+    }
+}
+
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
@@ -260,22 +275,27 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
     }
 
-    fn stop(&self, _disable: bool) {
-        let cr = self.cr().read();
-        if cr.adstart() {
+    fn stop(&self) {
+        // Stop any ongoing regular conversion via ADSTP (self-clearing).
+        // Must be done before ADDIS per RM: software shall not set ADDIS while
+        // ADSTART=1 or JADSTART=1.
+        if self.cr().read().adstart() {
             self.cr().modify(|w| w.set_adstp(true));
             while self.cr().read().adstart() {}
         }
 
-        if cr.aden() || cr.adstart() {
-            self.cr().modify(|w| w.set_addis(true));
-            while self.cr().read().aden() {}
-        }
-
-        // Reset configuration.
+        // Clear DMAEN so a stale DMA request is not serviced while the DMA
+        // channel is reconfigured after stop().
         self.cfgr1().modify(|reg| {
             reg.set_dmaen(false);
         });
+    }
+
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|w| w.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
@@ -296,8 +316,9 @@ impl AdcRegs for crate::pac::adc::Adc4 {
             reg.set_chselrmod(false);
 
             #[cfg(stm32wba)]
-            if let ConversionMode::Repeated(Some((trigger, _edge))) = conversion_mode {
+            if let ConversionMode::Repeated(Some((trigger, edge))) = conversion_mode {
                 reg.set_extsel(Extsel::from(trigger));
+                reg.set_exten(edge);
             }
         });
     }
@@ -387,7 +408,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
         while T::regs().cr().read().adcal() {}
         T::regs().isr().modify(|w| w.set_eocal(true));
 
-        blocking_delay_us(1);
+        block_for_us(1);
 
         T::regs().enable();
 
@@ -506,13 +527,70 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
         })
     }
 
+    /// Enable auto-off mode.
+    ///
+    /// When enabled the ADC powers itself off at the end of every conversion and
+    /// powers back up automatically before the next one.  This eliminates static
+    /// bias current between conversions, which is especially useful when the ADC
+    /// is triggered at low duty-cycle rates (e.g. from LPTIM running on LSE).
+    ///
+    /// Auto-off operates transparently with external triggers: the ADC wakes,
+    /// converts, then powers off again without software intervention.  The
+    /// additional startup latency is accounted for by the hardware before the
+    /// conversion sample window begins.
+    ///
+    /// Should be cleared before switching back to continuous or high-rate
+    /// triggered operation where the startup overhead would reduce throughput.
+    #[cfg(stm32wba)]
+    pub fn set_autoff(&mut self, enable: bool) {
+        T::regs().pwr().modify(|w| w.set_autoff(enable));
+    }
+
+    /// Enable low-frequency trigger mode.
+    ///
+    /// Must be set when the ADC external trigger rate is below approximately
+    /// 1 kHz (e.g. LPTIM clocked from LSI or LSE at a multi-second period).
+    /// Without this bit the ADC sampling window may start before the analog
+    /// input has had sufficient time to settle after the trigger edge.
+    ///
+    /// Has no effect when the ADC is running in continuous or software-triggered
+    /// mode; only relevant when `EXTEN != DISABLED`.
+    #[cfg(stm32wba)]
+    pub fn set_lftrig(&mut self, enable: bool) {
+        T::regs().cfgr2().modify(|w| w.set_lftrig(enable));
+    }
+
     /// Enable an analog watchdog and return a guard.
     ///
     /// `watchdog` selects which of the three hardware watchdogs to use. `channels` controls which
     /// ADC channels are monitored; see [`WatchdogChannels`] for which variants are valid for each
-    /// watchdog. `low_threshold` and `high_threshold` are raw ADC counts in `[0, 2^N − 1]` for
-    /// the currently configured resolution. The watchdog fires when a sample falls **outside**
-    /// `[low_threshold, high_threshold]`.
+    /// watchdog. `low_threshold` and `high_threshold` are raw ADC counts in the **same space as
+    /// `ADC_DR`** for the currently configured resolution (i.e. `[0, 2^N − 1]` for N-bit
+    /// resolution). The watchdog fires when a sample falls **outside** `[low_threshold,
+    /// high_threshold]`.
+    ///
+    /// ## Threshold scaling
+    ///
+    /// The hardware AWD comparison is always against a 12-bit register value, but the data
+    /// format and threshold encoding depend on whether oversampling is active and which watchdog
+    /// is selected.
+    ///
+    /// **Without oversampling (RM Table 158):** comparison is on left-aligned 12-bit raw data.
+    /// For N-bit resolution, `DR` returns a right-aligned N-bit value while the hardware
+    /// left-aligns it to 12 bits for comparison.  This method left-shifts caller thresholds by
+    /// `(12 - N)` automatically so you may pass values in the same range as `DR`.
+    ///
+    /// **With oversampling ([`Adc::set_averaging_adc4`]):** `RES` bits are ignored; all three
+    /// AWDs compare `ADC_DR[15:4]` against their threshold register.  With the matched
+    /// right-shift used by [`Adc::set_averaging_adc4`], `DR` holds a 12-bit result in
+    /// `DR[11:0]` and the effective comparison window is the upper 8 bits.  **Pass thresholds
+    /// in the same 12-bit space as `DR`** — this method handles the register encoding
+    /// difference transparently:
+    ///
+    /// - **AWD1** stores its comparison value in `HT1[7:0]`; this method right-shifts by 4.
+    /// - **AWD2/AWD3** store the comparison value in `HT[11:4]` (lower 4 bits are hardware-
+    ///   ignored); writing the raw threshold places `T>>4` in `HT[11:4]` automatically — no
+    ///   explicit shift is applied.
     ///
     /// The returned [`AnalogWatchdog`] does **not** borrow the ADC, so you may use the ADC for
     /// DMA or other operations while the watchdog is active.  Call [`AnalogWatchdog::wait`] to
@@ -538,8 +616,40 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
             low_threshold <= high_threshold,
             "low_threshold must be <= high_threshold"
         );
+
+        let (lt, ht) = if T::regs().cfgr2().read().ovse() {
+            // Under OVS all three AWDs compare ADC_DR[15:4] against the threshold register.
+            // With matched OVSS (log2 of ratio), DR holds a 12-bit result in DR[11:0], so
+            // the effective comparison window is DR[11:4] — 8 bits.
+            //
+            // However the threshold register bit layout differs between AWD1 and AWD2/AWD3:
+            //
+            //   AWD1  — comparison value in HT1[7:0]; HT1[11:8] must be zero.
+            //           Formula: write (T >> 4) so that HT1[7:0] holds the right value.
+            //
+            //   AWD2/AWD3 — 8-bit effective resolution; lower 4 threshold bits are hardware-
+            //           ignored; comparison is HT[11:4] vs DR[15:4].
+            //           Formula: write T as-is — HT[11:4] = T[11:4] = T>>4 naturally,
+            //           which is the right comparison value without an explicit shift.
+            //           Applying >>4 here would write (T>>4) into the register, making
+            //           HT[11:4] = T>>8 — 16× too low, causing instant false trips.
+            match watchdog {
+                WatchdogIndex::Awd1 => (low_threshold >> 4, high_threshold >> 4),
+                _ => (low_threshold, high_threshold),
+            }
+        } else {
+            // Without oversampling, comparison is on left-aligned 12-bit raw data (RM Table 158).
+            // DR returns N-bit right-aligned values; left-shift to 12-bit space so the lower
+            // (12-N) threshold bits are kept zero as the RM requires.
+            let shift = resolution_to_awd_left_shift(T::regs().cfgr1().read().res());
+            (
+                ((low_threshold as u32) << shift) as u16,
+                ((high_threshold as u32) << shift) as u16,
+            )
+        };
+
         let index = watchdog.index();
-        AnalogWatchdog::<T>::setup_awd(watchdog, channels, low_threshold, high_threshold);
+        AnalogWatchdog::<T>::setup_awd(watchdog, channels, lt, ht);
         AnalogWatchdog::new(index)
     }
 }

@@ -587,6 +587,11 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Put the pin into input mode.
     pub fn set_as_input(&mut self) {
         self.set_enable_input_buffer(true);
+        // Clear PIDR to enable pin input. set_as_disabled() sets PID=1
+        // which permanently disables input reads (always returns 0).
+        self.gpio()
+            .pidr()
+            .modify(|w| w.set_pid(self.pin.pin_index() as usize, Pid::Pid0));
         self.gpio()
             .pddr()
             .modify(|w| w.set_pdd(self.pin.pin_index() as usize, Pdd::Pdd0));
@@ -595,6 +600,10 @@ impl<'d, M: Mode> Flex<'d, M> {
     /// Put the pin into output mode.
     pub fn set_as_output(&mut self) {
         self.set_pull(Pull::Disabled);
+        // Clear PIDR in case this pin was previously disabled.
+        self.gpio()
+            .pidr()
+            .modify(|w| w.set_pid(self.pin.pin_index() as usize, Pid::Pid0));
         self.gpio()
             .pddr()
             .modify(|w| w.set_pdd(self.pin.pin_index() as usize, Pdd::Pdd1));

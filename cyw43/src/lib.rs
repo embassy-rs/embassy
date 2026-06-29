@@ -37,7 +37,7 @@ pub use crate::control::{
     AddMulticastAddressError, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
 };
 pub use crate::runner::Runner;
-pub use crate::sdio::{SdioBus, SdioBusCyw43};
+pub use crate::sdio::SdioBus;
 pub use crate::spi::{SpiBus, SpiBusCyw43};
 pub use crate::structs::BssInfo;
 
@@ -337,8 +337,14 @@ impl State {
     }
 }
 
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Power management modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PowerManagementMode {
     /// Custom, officially unsupported mode. Use at your own risk.
     /// All power-saving features set to their max at only a marginal decrease in power consumption
@@ -349,6 +355,7 @@ pub enum PowerManagementMode {
     Aggressive,
 
     /// The default mode.
+    #[default]
     PowerSave,
 
     /// Performance is prefered over power consumption but still some power is conserved as opposed to
@@ -361,12 +368,6 @@ pub enum PowerManagementMode {
 
     /// No power management is configured. This consumes the most power.
     None,
-}
-
-impl Default for PowerManagementMode {
-    fn default() -> Self {
-        Self::PowerSave
-    }
 }
 
 impl PowerManagementMode {
@@ -478,7 +479,7 @@ pub async fn new_sdio<'a, SDIO>(
     nvram: &Aligned<A4, [u8]>,
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>)
 where
-    SDIO: SdioBusCyw43<64>,
+    SDIO: ::sdio::MmcBus,
 {
     new_43439_sdio(state, sdio, firmware, nvram).await.unwrap()
 }
@@ -494,7 +495,7 @@ pub async fn new_43439_sdio<'a, SDIO>(
     nvram: &Aligned<A4, [u8]>,
 ) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>)>
 where
-    SDIO: SdioBusCyw43<64>,
+    SDIO: ::sdio::MmcBus,
 {
     let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
@@ -534,7 +535,7 @@ pub async fn new_4373_sdio<'a, SDIO>(
     nvram: &Aligned<A4, [u8]>,
 ) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw4373>)>
 where
-    SDIO: SdioBusCyw43<64>,
+    SDIO: ::sdio::MmcBus,
 {
     let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();

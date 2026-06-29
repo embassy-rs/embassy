@@ -23,11 +23,14 @@ embedded-hal = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 static_cell = "2"
+stm32wb-hci = { version = "0.18.0", git = "https://github.com/embassy-rs/stm32wb-hci.git", rev = "37a8090" }
+embassy-futures = "0.1.2"
 
 [features]
 default = ["ble", "mac"]
+thread = ["embassy-stm32-wpan/wb-thread"]
 mac = ["embassy-stm32-wpan/wb-mac", "dep:embassy-net"]
-ble = ["embassy-stm32-wpan/wb-ble"]
+ble = ["embassy-stm32-wpan/wb-ble", "embassy-stm32-wpan/wb-hci"]
 
 [[bin]] 
 name = "tl_mbox_ble"
@@ -39,6 +42,10 @@ required-features = ["mac"]
 
 [[bin]] 
 name = "mac_ffd"
+required-features = ["mac"]
+
+[[bin]] 
+name = "mac_rfd"
 required-features = ["mac"]
 
 [[bin]] 

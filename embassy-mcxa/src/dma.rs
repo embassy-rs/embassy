@@ -1421,20 +1421,63 @@ impl<'a> Transfer<'a> {
     }
 
     /// Abort the transfer.
+    ///
+    /// Runs the entire shutdown sequence under `critical_section` so that
+    /// the cancelled transfer's completion IRQ can never fire. This is
+    /// crucial because the IRQ handler unconditionally calls `wake()` on
+    /// this channel's `WaitCell` when `CH_CSR.DONE` is set, which would
+    /// leave the cell in the `WOKEN` state. The next `Transfer` future on
+    /// this channel would then have its first `poll_wait` consume that
+    /// stale wake and return `Ready` *without registering its waker*; the
+    /// next IRQ would have nothing to wake -- a deadlock.
+    ///
+    /// With IRQs masked we:
+    /// 1. Clear `ERQ`/`EARQ` so no further service requests are issued.
+    /// 2. Spin until `CH_CSR.ACTIVE` clears, so any in-flight minor loop
+    ///    or software-triggered transfer drains.
+    /// 3. Clear `CH_CSR.DONE` and `CH_INT.INT` (both W1C). After this,
+    ///    even if the IRQ does dispatch when masking is lifted, the
+    ///    handler will see `DONE=0` and skip the `wake()`.
+    /// 4. Unpend the channel's IRQ in the NVIC so a queued dispatch is
+    ///    dropped on the floor instead of running redundantly after CS
+    ///    exit.
+    ///
+    /// Because `wake()` is never called for the cancelled transfer, the
+    /// `WaitCell` is guaranteed to never enter the `WOKEN` state on
+    /// account of this cancellation, and there is nothing to "drain".
     fn abort(&mut self) {
         let t = self.channel.tcd();
+        let irq = self.channel.channel.interrupt();
 
-        // Disable channel requests
-        t.ch_csr().modify(|w| {
-            w.set_erq(false);
-            w.set_earq(false);
+        critical_section::with(|_| {
+            // 1. Stop accepting new requests.
+            t.ch_csr().modify(|w| {
+                w.set_erq(false);
+                w.set_earq(false);
+            });
+
+            // 2. Mask interrupts so we don't have to worry about the
+            // IRQ firing while we're in the middle of the shutdown
+            // sequence.
+            t.tcd_csr().modify(|w| {
+                w.set_intmajor(false);
+                w.set_inthalf(false)
+            });
+
+            // 3. Drop any IRQ the hardware queued in the NVIC while we
+            //    were masked.
+            cortex_m::peripheral::NVIC::unpend(irq);
         });
 
-        // Clear any pending interrupt
-        t.ch_int().write(|w| w.set_int(true));
+        // 4. Wait for any in-flight minor loop / SW-triggered transfer
+        //    to drain. Bounded by the size of one minor loop / SW
+        //    transfer this driver issues (microseconds at most).
+        while t.ch_csr().read().active() {
+            core::hint::spin_loop();
+        }
 
-        // Clear DONE flag
-        t.ch_csr().modify(|w| w.set_done(true));
+        // 5. Clear completion bookkeeping (W1C).
+        t.ch_int().write(|w| w.set_int(true));
 
         fence(Ordering::SeqCst);
     }
@@ -1444,7 +1487,7 @@ impl<'a> Transfer<'a> {
 ///
 /// Each error variant can be queried separately, or all errors can be iterated by using [TransferErrors::into_iter].
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct TransferErrors(u8);
 
 /// Iterator to extract all [TransferError]s using [TransferErrors::into_iter].
@@ -1586,38 +1629,42 @@ impl<'a> Future for Transfer<'a> {
     type Output = Result<(), TransferErrors>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let _ = STATES[self.channel.index()].waker.poll_wait(cx);
-
-        if self.channel.is_done() {
-            // Ensure all DMA writes are visible before returning
-            fence(Ordering::Acquire);
-
-            let es = self.channel.tcd().ch_es().read();
-            if es.err() {
-                // Currently, all error fields are in the lowest 8 bits, as-casting truncates
-                let errs = es.0 as u8;
-                Poll::Ready(Err(TransferErrors(errs)))
-            } else {
-                Poll::Ready(Ok(()))
+        // We must register our waker even if the WaitCell currently has a
+        // stale WOKEN bit set (e.g. from a previously-cancelled transfer's
+        // late completion IRQ). `poll_wait` only registers the waker when
+        // it would return `Pending`; if it consumes a stored wake it
+        // returns `Ready(_)` *without* registering. Loop until the waker
+        // is actually registered (poll_wait returns Pending) or until the
+        // hardware reports the transfer is complete.
+        loop {
+            if self.channel.is_done() {
+                // Ensure all DMA writes are visible before returning
+                fence(Ordering::Acquire);
+                let es = self.channel.tcd().ch_es().read();
+                return if es.err() {
+                    Poll::Ready(Err(TransferErrors(es.0 as u8)))
+                } else {
+                    Poll::Ready(Ok(()))
+                };
             }
-        } else {
-            Poll::Pending
+
+            match STATES[self.channel.index()].waker.poll_wait(cx) {
+                Poll::Pending => return Poll::Pending,
+                // Consumed a stale wake; loop and re-check is_done, then
+                // try registering the waker again on the next iteration.
+                Poll::Ready(_) => continue,
+            }
         }
     }
 }
 
 impl<'a> Drop for Transfer<'a> {
     fn drop(&mut self) {
-        // Only abort if the transfer is still running
-        // If already complete, no need to abort
-        if self.is_running() {
-            self.abort();
-
-            // Wait for abort to complete
-            while self.is_running() {
-                core::hint::spin_loop();
-            }
-        }
+        // `abort` leaves the channel quiescent and clears all completion
+        // bookkeeping (DONE/INT/NVIC/WaitCell) so the next user of this
+        // channel starts from a clean slate. Safe to call unconditionally;
+        // it's cheap when the transfer is already complete.
+        self.abort();
 
         fence(Ordering::Release);
     }

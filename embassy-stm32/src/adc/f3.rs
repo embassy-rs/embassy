@@ -3,10 +3,10 @@ use core::marker::PhantomData;
 use stm32_metapac::adc::regs::{Smpr1, Smpr2, Sqr1, Sqr2, Sqr3};
 use stm32_metapac::adc::vals::{Advregen, Dmacfg};
 
-use super::blocking_delay_us;
 use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, Instance, SampleTime, VrefInt};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
+use crate::wait::block_for_us;
 use crate::{Peri, interrupt, rcc};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
@@ -15,7 +15,7 @@ pub const VREF_INT: u32 = 1230;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -62,20 +62,18 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, disable: bool) {
+    fn stop(&self) {
+        // F3 RM requires ADEN=0 before reconfiguring most registers; always do
+        // ADSTP then ADDIS so callers can safely write config after stop().
         self.cr().modify(|w| w.set_adstp(true));
-
         while self.cr().read().adstp() {}
-
         self.cr().modify(|w| w.set_addis(true));
-
         while self.cr().read().aden() {}
+    }
 
-        // Disable the adc regulator
-        if disable {
-            self.cr().modify(|w| w.set_advregen(Advregen::Intermediate));
-            self.cr().modify(|w| w.set_advregen(Advregen::Disabled));
-        }
+    fn power_down(&self) {
+        self.cr().modify(|w| w.set_advregen(Advregen::Intermediate));
+        self.cr().modify(|w| w.set_advregen(Advregen::Disabled));
     }
 
     fn wait_done(&self) -> bool {
@@ -154,7 +152,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_advregen(Advregen::Enabled));
 
         // Wait for the regulator to stabilize
-        blocking_delay_us(10);
+        block_for_us(10);
 
         assert!(!T::regs().cr().read().aden());
 
@@ -165,7 +163,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         while T::regs().cr().read().adcal() {}
 
         // Wait more than 4 clock cycles after adcal is cleared (RM0364 p. 223).
-        blocking_delay_us((1_000_000 * 4) / Self::freq().0 as u64 + 1);
+        block_for_us((1_000_000 * 4) / Self::freq().0 as u64 + 1);
 
         // Enable the adc
         T::regs().enable();

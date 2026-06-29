@@ -171,13 +171,6 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
         })
     }
 
-    /// Clears all elements in the channel.
-    pub fn clear(&mut self) {
-        self.channel.state.lock(|s| {
-            s.borrow_mut().clear();
-        });
-    }
-
     /// Returns the number of elements currently in the channel.
     pub fn len(&self) -> usize {
         self.channel.state.lock(|s| s.borrow().len())

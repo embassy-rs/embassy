@@ -54,6 +54,8 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f479zi", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f730i8", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h753zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "ptp", "stm32h753zi"]},
+    {target = "thumbv7em-none-eabi", features = ["exti", "log", "ptp", "stm32h753zi"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h735zg", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "split-pc2", "split-pc3", "stm32h755zi-cm7", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h725re", "time", "time-driver-any"]},
@@ -126,6 +128,7 @@ flavors = [
     { regex_feature = "stm32f7[67]..[ig]", target = "thumbv7em-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32c5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32g0...c", target = "thumbv6m-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g4[78].*", target = "thumbv7em-none-eabi", features = ["low-power", "dual-bank"] },
@@ -160,10 +163,9 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
-embassy-usb-synopsys-otg = { version = "0.3.2", path = "../embassy-usb-synopsys-otg" }
+embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
+embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
-cyw43 = { version = "0.7.0", path = "../cyw43", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -184,9 +186,10 @@ log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
+sdio = "0.4.0"
 sdio-host = "0.9.0"
 dsp-fixedpoint = { version = "0.1.0", default-features = false }
-critical-section = "1.1"
+critical-section = { version = "1.1", default-features = false }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -207,13 +210,14 @@ bitflags = "2.10.0"
 block-device-driver = { version = "0.2" }
 aligned = "0.4.3"
 heapless = "0.9.1"
+once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-5261d86838979da64855b1860a6f3ea8ef90746f" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c10ceb15eeaf49d04dd38fd1b1fce82380f90a12" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-5261d86838979da64855b1860a6f3ea8ef90746f", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c10ceb15eeaf49d04dd38fd1b1fce82380f90a12", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
@@ -247,10 +251,10 @@ defmt = [
 ]
 ## Use log for logging
 log = ["dep:log"]
+## Enable Ethernet PTP hardware timestamping.
+ptp = ["embassy-net-driver/packetmeta-id"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
-## Enable cyw
-cyw43 = ["dep:cyw43"]
 
 stm32-hrtim = ["dep:stm32-hrtim"]
 
@@ -422,6 +426,86 @@ stm32c092kb = [ "stm32-metapac/stm32c092kb" ]
 stm32c092kc = [ "stm32-metapac/stm32c092kc" ]
 stm32c092rb = [ "stm32-metapac/stm32c092rb" ]
 stm32c092rc = [ "stm32-metapac/stm32c092rc" ]
+stm32c531cb = [ "stm32-metapac/stm32c531cb" ]
+stm32c531cc = [ "stm32-metapac/stm32c531cc" ]
+stm32c531eb = [ "stm32-metapac/stm32c531eb" ]
+stm32c531ec = [ "stm32-metapac/stm32c531ec" ]
+stm32c531fb = [ "stm32-metapac/stm32c531fb" ]
+stm32c531fc = [ "stm32-metapac/stm32c531fc" ]
+stm32c531kb = [ "stm32-metapac/stm32c531kb" ]
+stm32c531kc = [ "stm32-metapac/stm32c531kc" ]
+stm32c531rb = [ "stm32-metapac/stm32c531rb" ]
+stm32c531rc = [ "stm32-metapac/stm32c531rc" ]
+stm32c532cb = [ "stm32-metapac/stm32c532cb" ]
+stm32c532cc = [ "stm32-metapac/stm32c532cc" ]
+stm32c532eb = [ "stm32-metapac/stm32c532eb" ]
+stm32c532ec = [ "stm32-metapac/stm32c532ec" ]
+stm32c532fb = [ "stm32-metapac/stm32c532fb" ]
+stm32c532fc = [ "stm32-metapac/stm32c532fc" ]
+stm32c532kb = [ "stm32-metapac/stm32c532kb" ]
+stm32c532kc = [ "stm32-metapac/stm32c532kc" ]
+stm32c532rb = [ "stm32-metapac/stm32c532rb" ]
+stm32c532rc = [ "stm32-metapac/stm32c532rc" ]
+stm32c542cc = [ "stm32-metapac/stm32c542cc" ]
+stm32c542ec = [ "stm32-metapac/stm32c542ec" ]
+stm32c542fc = [ "stm32-metapac/stm32c542fc" ]
+stm32c542kc = [ "stm32-metapac/stm32c542kc" ]
+stm32c542rc = [ "stm32-metapac/stm32c542rc" ]
+stm32c551cc = [ "stm32-metapac/stm32c551cc" ]
+stm32c551ce = [ "stm32-metapac/stm32c551ce" ]
+stm32c551kc = [ "stm32-metapac/stm32c551kc" ]
+stm32c551ke = [ "stm32-metapac/stm32c551ke" ]
+stm32c551mc = [ "stm32-metapac/stm32c551mc" ]
+stm32c551me = [ "stm32-metapac/stm32c551me" ]
+stm32c551rc = [ "stm32-metapac/stm32c551rc" ]
+stm32c551re = [ "stm32-metapac/stm32c551re" ]
+stm32c551vc = [ "stm32-metapac/stm32c551vc" ]
+stm32c551ve = [ "stm32-metapac/stm32c551ve" ]
+stm32c552cc = [ "stm32-metapac/stm32c552cc" ]
+stm32c552ce = [ "stm32-metapac/stm32c552ce" ]
+stm32c552kc = [ "stm32-metapac/stm32c552kc" ]
+stm32c552ke = [ "stm32-metapac/stm32c552ke" ]
+stm32c552mc = [ "stm32-metapac/stm32c552mc" ]
+stm32c552me = [ "stm32-metapac/stm32c552me" ]
+stm32c552rc = [ "stm32-metapac/stm32c552rc" ]
+stm32c552re = [ "stm32-metapac/stm32c552re" ]
+stm32c552vc = [ "stm32-metapac/stm32c552vc" ]
+stm32c552ve = [ "stm32-metapac/stm32c552ve" ]
+stm32c562ce = [ "stm32-metapac/stm32c562ce" ]
+stm32c562ke = [ "stm32-metapac/stm32c562ke" ]
+stm32c562me = [ "stm32-metapac/stm32c562me" ]
+stm32c562re = [ "stm32-metapac/stm32c562re" ]
+stm32c562ve = [ "stm32-metapac/stm32c562ve" ]
+stm32c591ce = [ "stm32-metapac/stm32c591ce" ]
+stm32c591cg = [ "stm32-metapac/stm32c591cg" ]
+stm32c591ke = [ "stm32-metapac/stm32c591ke" ]
+stm32c591kg = [ "stm32-metapac/stm32c591kg" ]
+stm32c591me = [ "stm32-metapac/stm32c591me" ]
+stm32c591mg = [ "stm32-metapac/stm32c591mg" ]
+stm32c591re = [ "stm32-metapac/stm32c591re" ]
+stm32c591rg = [ "stm32-metapac/stm32c591rg" ]
+stm32c591ve = [ "stm32-metapac/stm32c591ve" ]
+stm32c591vg = [ "stm32-metapac/stm32c591vg" ]
+stm32c591ze = [ "stm32-metapac/stm32c591ze" ]
+stm32c591zg = [ "stm32-metapac/stm32c591zg" ]
+stm32c593ce = [ "stm32-metapac/stm32c593ce" ]
+stm32c593cg = [ "stm32-metapac/stm32c593cg" ]
+stm32c593ke = [ "stm32-metapac/stm32c593ke" ]
+stm32c593kg = [ "stm32-metapac/stm32c593kg" ]
+stm32c593me = [ "stm32-metapac/stm32c593me" ]
+stm32c593mg = [ "stm32-metapac/stm32c593mg" ]
+stm32c593re = [ "stm32-metapac/stm32c593re" ]
+stm32c593rg = [ "stm32-metapac/stm32c593rg" ]
+stm32c593ve = [ "stm32-metapac/stm32c593ve" ]
+stm32c593vg = [ "stm32-metapac/stm32c593vg" ]
+stm32c593ze = [ "stm32-metapac/stm32c593ze" ]
+stm32c593zg = [ "stm32-metapac/stm32c593zg" ]
+stm32c5a3cg = [ "stm32-metapac/stm32c5a3cg" ]
+stm32c5a3kg = [ "stm32-metapac/stm32c5a3kg" ]
+stm32c5a3mg = [ "stm32-metapac/stm32c5a3mg" ]
+stm32c5a3rg = [ "stm32-metapac/stm32c5a3rg" ]
+stm32c5a3vg = [ "stm32-metapac/stm32c5a3vg" ]
+stm32c5a3zg = [ "stm32-metapac/stm32c5a3zg" ]
 stm32f030c6 = [ "stm32-metapac/stm32f030c6" ]
 stm32f030c8 = [ "stm32-metapac/stm32f030c8" ]
 stm32f030cc = [ "stm32-metapac/stm32f030cc" ]

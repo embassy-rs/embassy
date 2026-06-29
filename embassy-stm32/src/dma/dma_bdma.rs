@@ -1038,6 +1038,35 @@ impl<'d> Channel<'d> {
         }
     }
 
+    /// Create a read DMA transfer (peripheral to memory), writing the same value repeatedly.
+    pub unsafe fn read_raw_repeated<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        repeated: *mut MW,
+        count: usize,
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        assert!(count > 0 && count <= 0xFFFF);
+
+        self.configure(
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const u32,
+            repeated as *const MW as *mut u32,
+            count,
+            Increment::None,
+            MW::size(),
+            PW::size(),
+            options,
+        );
+        self.start();
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
+
     /// Create a write DMA transfer (memory to peripheral).
     pub unsafe fn write<'a, MW: Word, PW: Word>(
         &'a mut self,
@@ -1229,10 +1258,10 @@ pub struct ReadableRingBuffer<'a, W: Word> {
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new ring buffer.
-    pub unsafe fn new(
+    pub unsafe fn new<PW: Word>(
         channel: Channel<'a>,
         _request: Request,
-        peri_addr: *mut W,
+        peri_addr: *mut PW,
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
@@ -1241,7 +1270,6 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let buffer_ptr = buffer.as_mut_ptr();
         let len = buffer.len();
         let dir = Dir::PeripheralToMemory;
-        let data_size = W::size();
 
         options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
@@ -1254,8 +1282,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             buffer_ptr as *mut u32,
             len,
             Increment::Memory,
-            data_size,
-            data_size,
+            W::size(),
+            PW::size(),
             options,
         );
 
@@ -1406,10 +1434,10 @@ pub struct WritableRingBuffer<'a, W: Word> {
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
-    pub unsafe fn new(
+    pub unsafe fn new<PW: Word>(
         channel: Channel<'a>,
         _request: Request,
-        peri_addr: *mut W,
+        peri_addr: *mut PW,
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
@@ -1417,7 +1445,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
         let len = buffer.len();
         let dir = Dir::MemoryToPeripheral;
-        let data_size = W::size();
         let buffer_ptr = buffer.as_mut_ptr();
 
         options.half_transfer_ir = true;
@@ -1431,8 +1458,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             buffer_ptr as *mut u32,
             len,
             Increment::Memory,
-            data_size,
-            data_size,
+            W::size(),
+            PW::size(),
             options,
         );
 

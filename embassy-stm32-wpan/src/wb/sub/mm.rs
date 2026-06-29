@@ -7,13 +7,13 @@ use aligned::{A4, Aligned};
 use embassy_stm32::ipcc::IpccTxChannel;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::consts::POOL_SIZE;
-use crate::evt;
-use crate::evt::EvtPacket;
+use crate::wb::consts::POOL_SIZE;
+use crate::wb::evt;
+use crate::wb::evt::EvtPacket;
 #[cfg(feature = "wb-ble")]
-use crate::tables::BLE_SPARE_EVT_BUF;
-use crate::tables::{EVT_POOL, FREE_BUF_QUEUE, MemManagerTable, SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE};
-use crate::unsafe_linked_list::LinkedListNode;
+use crate::wb::tables::BLE_SPARE_EVT_BUF;
+use crate::wb::tables::{EVT_POOL, FREE_BUF_QUEUE, MemManagerTable, SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE};
+use crate::wb::unsafe_linked_list::LinkedListNode;
 
 static MM_WAKER: AtomicWaker = AtomicWaker::new();
 static mut LOCAL_FREE_BUF_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::uninit());

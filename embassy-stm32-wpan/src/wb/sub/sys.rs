@@ -1,16 +1,17 @@
 use core::slice;
 
 use embassy_stm32::ipcc::{IpccRxChannel, IpccTxChannel};
+use embedded_io::Write;
 
-use crate::cmd::CmdPacket;
-use crate::consts::TlPacketType;
-use crate::evt::EvtBox;
 #[cfg(feature = "wb-ble")]
 use crate::shci::ShciBleInitCmdParam;
 use crate::shci::{SchiCommandStatus, SchiFromPacket, SchiSysEventReady, ShciFusGetStateErrorCode, ShciOpcode};
 use crate::sub::mm;
-use crate::tables::{SysTable, WirelessFwInfoTable};
-use crate::unsafe_linked_list::LinkedListNode;
+use crate::wb::cmd::{CmdSerialStub, VolatileWriter};
+use crate::wb::consts::TlPacketType;
+use crate::wb::evt::EvtBox;
+use crate::wb::tables::{SysTable, WirelessFwInfoTable};
+use crate::wb::unsafe_linked_list::LinkedListNode;
 use crate::wb::{SYS_CMD_BUF, SYSTEM_EVT_QUEUE, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
 
 const fn slice8_ref(x: &[u32]) -> &[u8] {
@@ -56,7 +57,16 @@ impl<'a> Sys<'a> {
     pub async fn write(&mut self, opcode: ShciOpcode, payload: &[u8]) {
         self.ipcc_system_cmd_rsp_channel
             .send(|| unsafe {
-                CmdPacket::write_into(SYS_CMD_BUF.as_mut_ptr(), TlPacketType::SysCmd, opcode as u16, payload);
+                VolatileWriter::with_stub(
+                    SYS_CMD_BUF.as_mut_ptr(),
+                    CmdSerialStub {
+                        ty: TlPacketType::SysCmd as u8,
+                        cmd_code: opcode as u16,
+                        payload_len: payload.len().try_into().unwrap(),
+                    },
+                )
+                .write_all(payload)
+                .unwrap();
             })
             .await;
     }
@@ -76,6 +86,11 @@ impl<'a> Sys<'a> {
     #[cfg(feature = "wb-mac")]
     pub async fn shci_c2_mac_802_15_4_init(&mut self) -> Result<SchiCommandStatus, ()> {
         self.write_and_get_response(ShciOpcode::Mac802_15_4Init, &[]).await
+    }
+
+    #[cfg(feature = "wb-thread")]
+    pub async fn shci_c2_thread_init(&mut self) -> Result<SchiCommandStatus, ()> {
+        self.write_and_get_response(ShciOpcode::ThreadInit, &[]).await
     }
 
     /// Send a request to CPU2 to initialise the BLE stack.
@@ -125,18 +140,15 @@ impl<'a> Sys<'a> {
     /// handles the event channels directly.
     pub async fn read(&mut self) -> EvtBox<mm::MemoryManager<'_>> {
         self.ipcc_system_event_channel
-            .receive(
-                || unsafe {
-                    if let Some(node_ptr) =
-                        critical_section::with(|cs| LinkedListNode::remove_head(cs, SYSTEM_EVT_QUEUE.as_mut_ptr()))
-                    {
-                        Some(EvtBox::new(node_ptr.cast()))
-                    } else {
-                        None
-                    }
-                },
-                false,
-            )
+            .receive(|| unsafe {
+                if let Some(node_ptr) =
+                    critical_section::with(|cs| LinkedListNode::remove_head(cs, SYSTEM_EVT_QUEUE.as_mut_ptr()))
+                {
+                    Some(EvtBox::new(node_ptr.cast()))
+                } else {
+                    None
+                }
+            })
             .await
     }
 }
