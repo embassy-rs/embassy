@@ -151,8 +151,8 @@ fn align_len_up(len: u16) -> u16 {
 /// `len_bits` should be placed on the upper 16 bits of the register value
 fn calc_receive_len_bits(len: u16) -> (u16, u16) {
     match len {
-        // NOTE: this could be 2..=62 with 16bit USBRAM, but not with 32bit. Limit it to 60 for simplicity.
-        2..=60 => (align_len_up(len), align_len_up(len) / 2 << 10),
+        // NOTE: this could be 1..=62 with 16bit USBRAM, but not with 32bit. Limit it to 60 for simplicity.
+        1..=60 => (align_len_up(len), align_len_up(len) / 2 << 10),
         61..=1024 => ((len + 31) / 32 * 32, (((len + 31) / 32 - 1) << 10) | 0x8000),
         _ => panic!("invalid OUT length {}", len),
     }
