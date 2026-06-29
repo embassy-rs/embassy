@@ -73,7 +73,7 @@ struct FlexcanTimingConfig {
 }
 
 /// Errors that may occur when configuring timing/baudrate.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TimingError {
     /// Source clock is not an integer multiple of the requested bit rate. The source clock must be an integer multiple of the requested bit rate.
     BaudrateIncompatibleWithClock,

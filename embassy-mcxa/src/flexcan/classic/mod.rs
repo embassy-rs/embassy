@@ -10,7 +10,6 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel};
 use embassy_hal_internal::Peri;
-use nxp_pac::lpuart::M;
 
 use crate::flexcan::classic::mailbox::tx;
 use crate::flexcan::classic::frame::Frame;
@@ -91,6 +90,10 @@ pub enum InitError {
     /// 
     /// Note: Protocol Exception is only supported on CAN0.
     ProtocolExceptionUnsupported,
+
+    /// You have attempted to configure an invalid baud_rate.
+    /// See the `TimingError` struct docs for more info.
+    TimingError(timing::TimingError),
 }
 
 /// Configuration settings for a Classic-mode FlexCAN driver instance.
@@ -108,6 +111,9 @@ pub struct FlexCanConfig<'a> {
     /// This setting allows you to configure your peripheral's RX filters.
     /// See the `FilterConfig` struct docs for more information.
     pub filters: FilterConfig<'a>,
+
+    /// Baud rate.
+    pub baud_rate: u32,
 }
 
 /// Bus error modes.
@@ -195,6 +201,8 @@ impl<'d> FlexCan<'d> {
 
         // Use expanded bit timing
         info.control.regs().ctrl2().modify(|m| m.set_bte(true));
+
+        timing::set_baudrate(info, src_clk_hz, config.baud_rate).map_err(|e| InitError::TimingError(e))?;
 
         // As of right now, the whole HAL is based around us having 32 message buffers.
         // So, this isn't something the user should be able to configure.

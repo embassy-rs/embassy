@@ -20,15 +20,10 @@ struct Message {
 }
 
 /// Possible errors that may occur during mailbox operations.
+#[allow(dead_code)]
 pub(in crate::flexcan) enum MailboxError {
     /// During a mailbox operation, hardware failed to respond within a reasonable timeframe.
     Timeout,
-
-    /// This error indicates an invalid filter config.
-    /// 
-    /// Note: The split of standard and extended filters must 
-    /// adhere to the constraint: 2*(num_extended) + (num_standard) ≤ 32
-    FilterConfigError,
 
     /// When trying to read the `CODE` field of a TX message, no known `TxCode` variant matched.
     UnknownTxCode,
@@ -175,6 +170,7 @@ pub(in crate::flexcan) mod tx {
     pub(in crate::flexcan) struct TxMessage{inner: Message}
     impl TxMessage {
         /// Gets the current reading of this message's `CODE` field.
+        #[warn(dead_code)]
         const fn code(&self) -> Result<TxCode, MailboxError> {
             let code: u8 = self.inner.cs.code();
             match code {
@@ -274,10 +270,8 @@ pub(in crate::flexcan) mod rx {
     /// Represents the Enhanced RX FIFO memory area.
     pub(in crate::flexcan) mod fifo {
         use super::Info;
-        use super::pac;
         use super::RxMessage;
         use super::Message;
-        use super::MailboxError;
 
         /// Gets the oldest unread message from the Enhanced RX FIFO and places it into a `RxMessage`.
         /// If a message is available to return, this function will return it and automatically flag
