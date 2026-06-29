@@ -72,27 +72,31 @@ struct FlexcanTimingConfig {
     pub(crate) prop_seg: u8,
 }
 
-/// Errors that may occur when configuring timing/baudrate.
+/// Errors that may occur when configuring timing/bitrate.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TimingError {
-    /// Source clock is not an integer multiple of the requested bit rate. The source clock must be an integer multiple of the requested bit rate.
-    BaudrateIncompatibleWithClock,
+    /// Source clock is not an integer multiple of the requested bitrate. The source clock must be an integer multiple of the requested bitrate.
+    BitrateIncompatibleWithClock,
 
-    /// Requested baudrate is too high. Your requested baudrate must be <= 1 Mbps.
-    BaudRateTooHigh,
+    /// Requested bitrate is too high. Your requested bitrate must be <= 1 Mbps.
+    BitrateTooHigh,
 
-    /// You have attempted to configure a baud rate of zero, which is not allowed.
-    ZeroBaudrate,
+    /// You have attempted to configure a bitrate of zero, which is not allowed.
+    ZeroBitrate,
 
     /// This error indicates that the hardware didn't response within a reasonable timeframe to a request the HAL made.
     Timeout,
 
     /// No combination of prescaler and segment values can produce the
-    /// requested bit rate from the given source clock within hardware limits.
+    /// requested bitrate from the given source clock within hardware limits.
     NoValidTimingFound,
 }
 
 /// Rust version of `FLEXCAN_SetBaudrate()` from the NXP Zephyr HAL.
+/// 
+/// This HAL publicly uses the term `bitrate` in FlexCanConfig, since that seems to be a more accurate term here. But,
+/// internally, this function (and everything else in the `timing` module) uses "baud rate" since that's what the functions
+/// from NXP's C HAL use.
 /// 
 /// Note: calling this function will put the FlexCAN into Freeze Mode, since it eventually calls `set_timing_config()`.
 pub(crate) fn set_baudrate(info: &Info, src_clk_hz: u32, baud_rate_bps: u32) -> Result<(), TimingError> {
@@ -188,13 +192,13 @@ fn calculate_improved_timing_values(baud_rate_bps: u32, src_clk_hz: u32) -> Resu
 
     /* Observe bit rate maximums and divisibility. */
     if baud_rate_bps == 0 {
-        return Err(TimingError::ZeroBaudrate);
+        return Err(TimingError::ZeroBitrate);
     }
     if baud_rate_bps > MAX_CAN_BITRATE {
-        return Err(TimingError::BaudRateTooHigh);
+        return Err(TimingError::BitrateTooHigh);
     }
     if (src_clk_hz % baud_rate_bps) != 0 {
-        return Err(TimingError::BaudrateIncompatibleWithClock);
+        return Err(TimingError::BitrateIncompatibleWithClock);
     }
 
     let mut best: Option<FlexcanTimingConfig> = None;

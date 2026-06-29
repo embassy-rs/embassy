@@ -20,7 +20,7 @@ pub enum FilterConfigError {
 /// Represents the different possible kinds of RX filters.
 ///
 /// A masked filter accepts any ID where every bit set in `mask` matches the
-/// corresponding bit of `id`; bits cleared in `mask` are "don't care". A plain
+/// corresponding bit of `id`. Bits cleared in `mask` are "don't care". A plain
 /// (unmasked) filter is just a masked filter whose mask is all-ones, i.e. an
 /// exact match.
 pub enum Filter {
@@ -35,12 +35,26 @@ pub enum Filter {
 
     /// Filter for an extended ID, with a mask.
     ExtendedMasked { id: ExtendedId, mask: ExtendedId },
+
+    /// Filter that accepts all standard IDs.
+    /// 
+    /// Note: Configuring this effectively makes any other
+    /// standard filters you configure redundant, since it causes all standard
+    /// IDs to be accepted.
+    AcceptAllStandard,
+
+    /// Filter that accepts all extended IDs.
+    /// 
+    /// Note: Configuring this effectively makes any other
+    /// extended filters you configure redundant, since it causes all extended
+    /// IDs to be accepted.
+    AcceptAllExtended,
 }
 
 impl Filter {
     /// Returns `true` if this filter targets an extended ID.
     pub(in crate::flexcan) const fn is_extended(&self) -> bool {
-        matches!(self, Filter::Extended(_) | Filter::ExtendedMasked { .. })
+        matches!(self, Filter::Extended(_) | Filter::ExtendedMasked { .. } | Filter::AcceptAllExtended)
     }
 }
 
@@ -62,7 +76,10 @@ impl Filter {
 /// ```
 /// Your config must adhere to the constraint: 2*(num_extended) + (num_standard) ≤ 32.
 /// 
-/// Note: If you need to reconfigure your filters dynamically based on runtime values, see `FilterConfig::try_new()`.
+/// Notes: 
+/// - If you need to reconfigure your filters dynamically based on runtime values, see `FilterConfig::try_new()`.
+/// - If you don't care about filtering and just want to accept or reject all incoming messages, see `FilterConfig::accept_all()`.
+/// You can also use `Filter::AcceptAllStandard` and `Filter::AcceptAllExtended` directly inside `filters!()`/`FilterConfig::try_new()` if you require a more specific configuration.
 pub struct FilterConfig<'a> {
     /// List of filters.
     pub(crate) filters: &'a [Filter],
@@ -122,7 +139,21 @@ impl<'a> FilterConfig<'a> {
         Ok(Self { filters, num_standard, num_extended })
     }
 
+    /// Returns a `FilterConfig` that accepts all IDs.
+    pub const fn accept_all() -> Self {
+        Self {
+            filters: &[Filter::AcceptAllStandard, Filter::AcceptAllExtended],
+            num_extended: 1,
+            num_standard: 1
+        }
+    }
+}
 
+impl Default for FilterConfig<'_> {
+    /// Returns a `FilterConfig` that accepts all IDs.
+    fn default() -> Self {
+        FilterConfig::accept_all()
+    }
 }
 
 /// Macro for constructing a `FilterConfig`. Can be used via this general syntax:

@@ -375,6 +375,7 @@ pub(in crate::flexcan) mod rx {
     /// This function requires `filter_config` to have been validated prior to being passed in here.
     pub(in crate::flexcan) fn setup(info: &Info, filter_config: &FilterConfig) -> Result<(), MailboxError> {
         use embassy_time::{Duration};
+        use embedded_can::{StandardId, ExtendedId};
 
         // Make sure we're frozen before continuing.
         const FREEZE_TIMEOUT: u64 = 10; // ms
@@ -443,6 +444,27 @@ pub(in crate::flexcan) mod rx {
                     info.control.regs().erffel(standard_base + std_idx).write_value(pac::Erffel(word));
                     last_standard_word = word;
                     std_idx += 1;
+                }
+                Filter::AcceptAllStandard => {
+                    // Just do the same thing as `StandardMasked` but where the mask and id 
+                    // are all zeros (since that's what "accept all Standard IDs" means under the hood)
+                    let mask = StandardId::ZERO;
+                    let id = StandardId::ZERO;
+
+                    let word = ((id.as_raw() as u32 & STD_ID_MASK) << 16) | (mask.as_raw() as u32 & STD_ID_MASK);
+                    info.control.regs().erffel(standard_base + std_idx).write_value(pac::Erffel(word));
+                    last_standard_word = word;
+                    std_idx += 1;
+                }
+                Filter::AcceptAllExtended => {
+                    // Just do the same thing as `ExtendedMasked` but where the mask and id 
+                    // are all zeros (since that's what "accept all Extended IDs" means under the hood)
+                    let mask = ExtendedId::ZERO;
+                    let id = ExtendedId::ZERO;
+
+                    info.control.regs().erffel(2 * ext_idx).write_value(pac::Erffel(id.as_raw() & EXT_ID_MASK));
+                    info.control.regs().erffel(2 * ext_idx + 1).write_value(pac::Erffel(mask.as_raw() & EXT_ID_MASK));
+                    ext_idx += 1;
                 }
             }
         }

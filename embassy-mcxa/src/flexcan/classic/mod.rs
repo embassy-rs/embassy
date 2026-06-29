@@ -102,7 +102,7 @@ pub enum InitError {
     /// Note: Protocol Exception is only supported on CAN0.
     ProtocolExceptionUnsupported,
 
-    /// You have attempted to configure an invalid baud_rate.
+    /// You have attempted to configure an invalid bitrate.
     /// See the `TimingError` struct docs for more info.
     TimingError(timing::TimingError),
 
@@ -129,12 +129,32 @@ pub struct FlexCanConfig<'a> {
     pub filters: FilterConfig<'a>,
 
     /// CAN bit rate, in bits per second (e.g. `500_000` for 500 kbit/s).
-    pub baud_rate: u32,
+    /// 
+    /// Your requested bitrate must conform to these constraints:
+    /// - `bitrate <= 1_000_000` (i.e., your bitrate can't be greater than 1Mbps).
+    /// - Your source clock rate must be an exact integer multiple of the bitrate.
+    /// - At least 8 source clocks per bit are required.
+    /// - Validity depends on clock divisibility, so prefer standard rates with a matching
+    ///   clock (or else you might get a `InitError::TimingError`).
+    /// 
+    /// Here are some common/standard rates people use (after applying `clock_div`):
+    /// #### 45 MHz Source Clock:
+    /// - `bitrate: 1_000_000` (1 Mbps)
+    /// - `bitrate: 500_000` (500 kbps)
+    /// - `bitrate: 250_000` (250 kbps)
+    /// - `bitrate: 125_000` (125 kbps)
+    ///  
+    /// #### 48 MHz Source Clock:
+    /// - `bitrate: 1_000_000` (1 Mbps)
+    /// - `bitrate: 500_000` (500 kbps)
+    /// - `bitrate: 250_000` (250 kbps)
+    /// - `bitrate: 125_000` (125 kbps)
+    pub bitrate: u32,
 
     /// Clock source feeding the FlexCAN protocol engine.
     ///
     /// The selected source, after applying `clock_div`, must
-    /// be an integer multiple of `baudrate`, or `FlexCan::new()`
+    /// be an integer multiple of `bitrate`, or `FlexCan::new()`
     /// returns a `InitError::TimingError`. See the docs for `CanClockSel`.
     pub clock_source: CanClockSel,
 
@@ -246,7 +266,9 @@ impl<'d> FlexCan<'d> {
         // Use expanded bit timing
         info.control.regs().ctrl2().modify(|m| m.set_bte(true));
 
-        timing::set_baudrate(info, src_clk_hz, config.baud_rate).map_err(|e| InitError::TimingError(e))?;
+        // Set the bit rate. The internal `timing::` functions use the term "baud rate" to keep parity
+        // with NXP's C FlexCAN timing code, but everything exposes publicly by this module uses the term "bitrate".
+        timing::set_baudrate(info, src_clk_hz, config.bitrate).map_err(|e| InitError::TimingError(e))?;
 
         // As of right now, the whole HAL is based around us having 32 message buffers.
         // So, this isn't something the user should be able to configure.
