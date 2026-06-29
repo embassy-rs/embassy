@@ -160,7 +160,7 @@ embassy-time = { version = "0.5.1", path = "../embassy-time", optional = true }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
-embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4", "aligned"] }
+embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
@@ -186,7 +186,7 @@ log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
-sdio = { version = "0.2.4", git = "https://github.com/embassy-rs/sdio.git", rev ="d023c1c" }
+sdio = "0.4.0"
 sdio-host = "0.9.0"
 dsp-fixedpoint = { version = "0.1.0", default-features = false }
 critical-section = { version = "1.1", default-features = false }
