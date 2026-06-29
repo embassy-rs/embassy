@@ -220,7 +220,6 @@ impl<'a> TDesRing<'a> {
             );
         }
         td.tdes2.set(tdes2);
-
         self.state.commit(self.index);
 
         // FD: Contains first buffer of packet
