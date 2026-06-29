@@ -2,7 +2,6 @@ use core::sync::atomic::{Ordering, fence};
 
 use embassy_net_driver::PacketMeta;
 
-use stm32_metapac::RISAF1;
 use vcell::VolatileCell;
 
 use crate::eth::packet_state::{RxPacketStateRing, TxPacketStateRing};
@@ -207,12 +206,11 @@ impl<'a> TDesRing<'a> {
         assert!(td.available());
         assert!(len as u32 <= EMAC_TDES2_B1L);
 
-        let s = &self.buffers[self.index].0[..len];
-        trace!("Transmitting data: {:?}", s);
+        // let s = &self.buffers[self.index].0[..len];
+        // trace!("Transmitting data: {:?}", s);
 
         // Read format
         td.tdes0.set(self.buffers[self.index].0.as_ptr() as u32);
-        trace!("0");
         let mut tdes2 = len as u32 & EMAC_TDES2_B1L;
         tdes2 |= EMAC_TDES2_IOC;
         #[cfg(feature = "ptp")]
@@ -230,8 +228,8 @@ impl<'a> TDesRing<'a> {
 
         self.state.commit(self.index);
 
-        let d = ETH.ethernet_dma().dmacca_tx_dr(0).read().0;
-        trace!("Before: {:#010x}", d);
+        // let d = ETH.ethernet_dma().dmacca_tx_dr(0).read().0;
+        // trace!("Before: {:#010x}", d);
 
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
@@ -250,134 +248,11 @@ impl<'a> TDesRing<'a> {
         // signal DMA it can try again.
         // See issue #2129
 
-        let td_ptr = td as *const _ as u32;
+        ETH.ethernet_dma()
+            .dmac_tx_dtpr(0)
+            .write(|w| w.0 = td as *const _ as u32);
 
-        ETH.ethernet_dma().dmac_tx_dtpr(0).write(|w| w.0 = td_ptr);
-
-        let i = self.index;
         self.index = (self.index + 1) % self.descriptors.len();
-        let dma = ETH.ethernet_dma();
-
-        let d = unsafe { (dma.dmacca_tx_dr(0).read().0 as *const TDes).read() };
-
-        trace!("DMACSR   = {:#010x}", dma.dmacsr(0).read().0);
-        trace!("DMADSR   = {:#010x}", dma.dmadsr().read().0);
-        trace!("CATxDR   = {:#010x}", dma.dmacca_tx_dr(0).read().0);
-        trace!("CATxBR   = {:#010x}", dma.dmacca_tx_br(0).read().0);
-        trace!("TDES3    = {:#010x}", self.descriptors[i].tdes3.get());
-
-        if !self.descriptors[i].available() {
-            ETH.ethernet_dma().dmac_tx_dtpr(0).write(|w| w.0 = td_ptr);
-            info!("available!");
-        } else {
-            info!("Not Available");
-        }
-        trace!("DMACSR   = {:#010x}", dma.dmacsr(0).read().0);
-        trace!("DMADSR   = {:#010x}", dma.dmadsr().read().0);
-        trace!("CATxDR   = {:#010x}", dma.dmacca_tx_dr(0).read().0);
-        trace!("CATxBR   = {:#010x}", dma.dmacca_tx_br(0).read().0);
-        trace!("TDES0    = {:#010x}", self.descriptors[i].tdes0.get());
-        trace!("TDES1    = {:#010x}", self.descriptors[i].tdes1.get());
-        trace!("TDES2    = {:#010x}", self.descriptors[i].tdes2.get());
-        trace!("TDES3    = {:#010x}", self.descriptors[i].tdes3.get());
-        macro_rules! log_risafs {
-            ($($risaf:expr),*) => {
-            $(
-                if stm32_metapac::$risaf.iasr().read().0 != 0 {
-                    defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::$risaf.iasr().read().0);
-                    defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::$risaf.iaesr().read().0);
-                    defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::$risaf.iaddr().read().0);
-                }
-            )*
-            };
-        }
-        if stm32_metapac::RISAF1.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF1.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF1.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF1.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF2.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF2.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF2.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF2.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF3.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF3.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF3.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF3.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF4.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF4.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF4.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF4.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF5.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF5.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF5.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF5.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF6.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF6.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF6.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF6.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF7.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF7.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF7.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF7.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF8.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF8.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF8.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF8.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF9.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF9.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF9.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF9.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF11.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF11.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF11.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF11.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF12.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF12.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF12.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF12.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF13.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF13.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF13.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF13.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF14.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF14.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF14.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF14.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF15.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF15.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF15.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF15.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF21.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF21.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF21.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF21.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF22.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF22.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF22.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF22.iaddr().read().0);
-        }
-        if stm32_metapac::RISAF23.iasr().read().0 != 0 {
-            defmt::trace!("RISAF IASR: {:#010x}", stm32_metapac::RISAF23.iasr().read().0);
-            defmt::trace!("RISAF IAESR: {:#010x}", stm32_metapac::RISAF23.iaesr().read().0);
-            defmt::trace!("RISAF IADDR: {:#010x}", stm32_metapac::RISAF23.iaddr().read().0);
-        };
-        //while !self.descriptors[i].available() {}
-        // trace!("Available again");
     }
 }
 
