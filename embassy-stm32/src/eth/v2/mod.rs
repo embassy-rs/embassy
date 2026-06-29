@@ -468,8 +468,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_txlpitrcim(true);
         });
 
-        //mtl.mtlomr().modify(|w| w.set_schalg(0b11));
-
         ch0!(mtl, mtl_rx_qomr).modify(|w| {
             w.set_rsf(true);
             // 4096-byte RX queue

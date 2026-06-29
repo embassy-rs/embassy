@@ -1,7 +1,6 @@
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_net_driver::PacketMeta;
-
 use vcell::VolatileCell;
 
 use crate::eth::packet_state::{RxPacketStateRing, TxPacketStateRing};
@@ -130,8 +129,7 @@ impl<'a> TDesRing<'a> {
         // Initialize the pointers in the DMA engine. (There will be a memory barrier later
         // before the DMA engine is enabled.)
         let dma = ETH.ethernet_dma();
-
-        dma.dmac_tx_dlar(0).write(|w| w.0 = descriptors.as_mut_ptr() as u32);
+        dma_ch0!(dma, dmac_tx_dlar).write(|w| w.0 = descriptors.as_mut_ptr() as u32);
         dma_ch0!(dma, dmac_tx_rlr).write(|w| w.set_tdrl((descriptors.len() as u16) - 1));
         dma_ch0!(dma, dmac_tx_dtpr).write(|w| w.0 = 0);
 
@@ -206,9 +204,6 @@ impl<'a> TDesRing<'a> {
         assert!(td.available());
         assert!(len as u32 <= EMAC_TDES2_B1L);
 
-        // let s = &self.buffers[self.index].0[..len];
-        // trace!("Transmitting data: {:?}", s);
-
         // Read format
         td.tdes0.set(self.buffers[self.index].0.as_ptr() as u32);
         let mut tdes2 = len as u32 & EMAC_TDES2_B1L;
@@ -228,9 +223,6 @@ impl<'a> TDesRing<'a> {
 
         self.state.commit(self.index);
 
-        // let d = ETH.ethernet_dma().dmacca_tx_dr(0).read().0;
-        // trace!("Before: {:#010x}", d);
-
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
         // Give the DMA engine ownership
@@ -247,10 +239,7 @@ impl<'a> TDesRing<'a> {
 
         // signal DMA it can try again.
         // See issue #2129
-
-        ETH.ethernet_dma()
-            .dmac_tx_dtpr(0)
-            .write(|w| w.0 = td as *const _ as u32);
+        dma_ch0!(ETH.ethernet_dma(), dmac_tx_dtpr).write(|w| w.0 = &td as *const _ as u32);
 
         self.index = (self.index + 1) % self.descriptors.len();
     }
@@ -262,7 +251,7 @@ impl<'a> TDesRing<'a> {
 /// * rdes1:
 /// * rdes2:
 /// * rdes3: OWN and Status
-#[repr(C, align(32))]
+#[repr(C)]
 pub(crate) struct RDes {
     rdes0: VolatileCell<u32>,
     rdes1: VolatileCell<u32>,
