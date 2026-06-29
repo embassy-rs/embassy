@@ -12,8 +12,8 @@ use crate::clocks::VddLevel;
 #[cfg(feature = "mcxa5xx")]
 use crate::pac::mrcc::FlexspiClkselMux;
 use crate::pac::mrcc::{
-    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux,
-    LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
+    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, FlexcanClkselMux,
+    Lpi2cClkselMux, LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 
 #[must_use]
@@ -1288,6 +1288,121 @@ impl SPConfHelper for CTimerConfig {
                 reason: "exceeds max rating",
             });
         }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
+    }
+}
+
+//
+// FlexCAN
+//
+
+/// Selectable clocks for `FlexCAN` peripherals.
+#[derive(Debug, Clone, Copy)]
+pub enum CanClockSel {
+    /// Gated FRO180M/FRO192M/FRO_HF/FIRC clock source ("fro_hf").
+    FroHf,
+    /// FRO_HF passed through its divider ("fro_hf_div").
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL external clock source.
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// PLL1 clock output ("pll1_clk").
+    Pll1Clk,
+
+    // NOTE: mcxa5xx also exposes a USB_PLL_CLK source, but there is no
+    // `ensure_usb_pll_clk_active()` helper yet, so it is omitted for now.
+    // So: going to mark this with u_TODO
+
+    /// Disabled.
+    None,
+}
+
+/// Which instance of the `FlexCAN` peripheral is this?
+///
+/// Should not be directly selectable by end-users.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum CanInstance {
+    /// Instance 0
+    Can0,
+    /// Instance 1
+    Can1,
+}
+
+/// Top level configuration for `FlexCAN` instances.
+pub struct CanConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: CanClockSel,
+    /// Clock divisor
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: CanInstance,
+}
+
+impl SPConfHelper for CanConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let mrcc0 = crate::pac::MRCC0;
+
+        let (clkdiv, clksel) = match self.instance {
+            CanInstance::Can0 => (mrcc0.mrcc_flexcan0_clkdiv(), mrcc0.mrcc_flexcan0_clksel()),
+            CanInstance::Can1 => (mrcc0.mrcc_flexcan1_clkdiv(), mrcc0.mrcc_flexcan1_clksel()),
+        };
+
+        let (freq, variant) = match self.source {
+            CanClockSel::FroHf => {
+                let freq = clocks.ensure_fro_hf_active(&self.power)?;
+                #[cfg(feature = "mcxa2xx")]
+                let mux = FlexcanClkselMux::ClkrootFircGated;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = FlexcanClkselMux::I1ClkrootFircGated;
+
+                (freq, mux)
+            }
+            CanClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+                #[cfg(feature = "mcxa2xx")]
+                let mux = FlexcanClkselMux::ClkrootFircDiv;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = FlexcanClkselMux::I2ClkrootFircDiv;
+
+                (freq, mux)
+            }
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            CanClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+                #[cfg(feature = "mcxa2xx")]
+                let mux = FlexcanClkselMux::ClkrootSosc;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = FlexcanClkselMux::I3ClkrootSosc;
+
+                (freq, mux)
+            }
+            CanClockSel::Pll1Clk => {
+                let freq = clocks.ensure_pll1_clk_active(&self.power)?;
+                #[cfg(feature = "mcxa2xx")]
+                let mux = FlexcanClkselMux::ClkrootSpll;
+                #[cfg(feature = "mcxa5xx")]
+                let mux = FlexcanClkselMux::I6ClkrootSpll;
+
+                (freq, mux)
+            }
+            CanClockSel::None => {
+                clksel.write(|w| w.set_mux(FlexcanClkselMux::_RESERVED_7));
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::On);
+                    w.set_halt(ClkdivHalt::On);
+                });
+                return Ok(PreEnableParts::empty());
+            }
+        };
+
+        // u_TODO: enforce the FlexCAN functional-clock maximum from the reference
+        // manual ("peripheral clock max functional clock limits"), the way the
+        // other helpers reject configs above `fmax`. Probably should look at the datasheet tomorrow
+        // and fill in the CAN value.
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }

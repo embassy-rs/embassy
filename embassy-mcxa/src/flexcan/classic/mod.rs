@@ -19,6 +19,8 @@ use crate::flexcan::{RxPin, TxPin};
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::flexcan::classic::meta::rx_queue_size::{RX_QUEUE_SIZE, rx_queue_size_default, env_var_name};
+use crate::clocks::{enable_and_reset, ClockError, PoweredClock, WakeGuard};
+use crate::clocks::periph_helpers::{CanClockSel, CanConfig, CanInstance, Div4};
 use nxp_pac::can as pac;
 
 /// FlexCAN driver instance, in Classic CAN mode.
@@ -26,10 +28,19 @@ pub struct FlexCan<'d> {
     info: &'static Info,
     _rx: Peri<'d, AnyPin>,
     _tx: Peri<'d, AnyPin>,
+
+    /// Inhibits deep sleep while this driver is alive, if the selected clock source does not survive deep sleep. `None` if no guard is required.
+    _wake_guard: Option<WakeGuard>,
     _phantom: PhantomData<&'d mut ()>,
 }
 
-pub(crate) trait SealedInstance { fn info() -> &'static Info; }
+pub(crate) trait SealedInstance: crate::clocks::Gate<MrccPeriphConfig = CanConfig> {
+    fn info() -> &'static Info;
+
+    /// Which MRCC clock instance this peripheral maps to. 
+    /// This is used to select the correct `MRCC_FLEXCANn_CLKSEL`/`CLKDIV` registers during clock setup.
+    const CLOCK_INSTANCE: CanInstance;
+}
 #[allow(private_bounds)]
 pub trait Instance: crate::flexcan::Instance + SealedInstance {}
 
@@ -94,6 +105,11 @@ pub enum InitError {
     /// You have attempted to configure an invalid baud_rate.
     /// See the `TimingError` struct docs for more info.
     TimingError(timing::TimingError),
+
+    /// Setting up the FlexCAN peripheral clock failed. This usually means the
+    /// requested clock source was not enabled/configured by `embassy_mcxa::init()`,
+    /// or the system clocks were never initialized. See the `ClockError` docs.
+    ClockSetup(ClockError),
 }
 
 /// Configuration settings for a Classic-mode FlexCAN driver instance.
@@ -112,8 +128,23 @@ pub struct FlexCanConfig<'a> {
     /// See the `FilterConfig` struct docs for more information.
     pub filters: FilterConfig<'a>,
 
-    /// Baud rate.
+    /// CAN bit rate, in bits per second (e.g. `500_000` for 500 kbit/s).
     pub baud_rate: u32,
+
+    /// Clock source feeding the FlexCAN protocol engine.
+    ///
+    /// The selected source, after applying `clock_div`, must
+    /// be an integer multiple of `baudrate`, or `FlexCan::new()`
+    /// returns a `InitError::TimingError`. See the docs for `CanClockSel`.
+    pub clock_source: CanClockSel,
+
+    /// Divider applied to `clock_source`.
+    /// Use `Div4::no_div()` for no division.
+    pub clock_div: Div4,
+
+    /// Deep-sleep behavior for the FlexCAN clock. Use
+    /// `PoweredClock::NormalEnabledDeepSleepDisabled` unless you want the FlexCAN to keep running through deep sleep.
+    pub power: PoweredClock,
 }
 
 /// Bus error modes.
@@ -173,6 +204,19 @@ impl<'d> FlexCan<'d> {
         let _rx = rx.into();
         let _tx = tx.into();
 
+        // Set up the FlexCAN clock (before messing w/ any registers)
+        let clock_cfg = CanConfig {
+            power: config.power,
+            source: config.clock_source,
+            div: config.clock_div,
+            instance: T::CLOCK_INSTANCE,
+        };
+
+        // SAFETY: `_peri` gives us exclusive ownership of this peripheral, and we haven't touched it yet, so we should be good here.
+        let parts = unsafe { enable_and_reset::<T>(&clock_cfg).map_err(InitError::ClockSetup)? };
+        let src_clk_hz = parts.freq;
+        let _wake_guard = parts.wake_guard;
+
         // Enable and freeze
         const ENABLE_TIMEOUT: u64 = 10; // Timeout for the `.enable()` call in ms
         info.control.enable(Some(Duration::from_millis(ENABLE_TIMEOUT))).map_err(|_| InitError::Timeout)?;
@@ -221,7 +265,7 @@ impl<'d> FlexCan<'d> {
 
         info.control.unfreeze();
 
-        Ok(Self { info, _rx, _tx, _phantom: PhantomData })
+        Ok(Self { info, _rx, _tx, _wake_guard, _phantom: PhantomData })
     }
 
     /// Sends a CAN message.
