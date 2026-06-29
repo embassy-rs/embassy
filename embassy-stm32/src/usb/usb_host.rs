@@ -779,7 +779,9 @@ impl<'d, I: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, I> {
         let mut epr = invariant(epr_reg.read());
         epr.set_devaddr(addr);
         epr.set_ep_type(convert_type(endpoint.ep_type));
-        epr.set_ea(new_index as _);
+        // EA is the device endpoint number, not the host channel slot
+        // (`new_index`); these differ once more than one device is attached.
+        epr.set_ea(endpoint.addr.index() as _);
         epr_reg.write_value(epr);
 
         Ok(channel)
