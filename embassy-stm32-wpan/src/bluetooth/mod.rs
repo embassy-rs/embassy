@@ -677,7 +677,7 @@ impl<'d> HCI<'d, Normal> {
 
                     Some(GapEvent::Disconnected {
                         handle: *conn_handle,
-                        reason: (*reason).into(),
+                        reason: DisconnectReason::from(u8::from(*reason)),
                     })
                 } else {
                     None
