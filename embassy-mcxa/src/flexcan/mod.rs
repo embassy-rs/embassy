@@ -93,8 +93,7 @@ macro_rules! impl_can_instance {
                     &INFO
                 }
 
-                const CLOCK_INSTANCE: crate::clocks::periph_helpers::CanInstance
-                    = crate::clocks::periph_helpers::CanInstance::[<Can $n>];
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::CanInstance = crate::clocks::periph_helpers::CanInstance::[<Can $n>];
             }
             impl crate::flexcan::classic::Instance for crate::peripherals::[<CAN $n>] {}
 
@@ -112,25 +111,3 @@ macro_rules! impl_can_instance {
         }
     };
 }
-
-// u_TODO: I still need to edit the PAC (just on my fork for now) to add the gates
-// according to Claude the changes would be somethnig like
-// ```
-// nxp-pac/src/chips/mcxa256/metadata.rs (CAN0 ~line 1130, CAN1 ~line 1216):
-
-
-// gate: Some(Gate {
-//     enable: "mrcc_glb_cc1",
-//     reset: Some("mrcc_glb_rst1"),
-//     config: Some("CanConfig"),
-// }),
-// nxp-pac/src/chips/mcxa577/metadata.rs (CAN0 ~line 1253, CAN1 ~line 1339) — note cc2/rst2 here, not cc1/rst1:
-
-
-// gate: Some(Gate {
-//     enable: "mrcc_glb_cc2",
-//     reset: Some("mrcc_glb_rst2"),
-//     config: Some("CanConfig"),
-// }),
-//```
-// so probably look into that tomorrow

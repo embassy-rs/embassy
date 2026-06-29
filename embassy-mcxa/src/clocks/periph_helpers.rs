@@ -1399,10 +1399,32 @@ impl SPConfHelper for CanConfig {
             }
         };
 
-        // u_TODO: enforce the FlexCAN functional-clock maximum from the reference
-        // manual ("peripheral clock max functional clock limits"), the way the
-        // other helpers reject configs above `fmax`. Probably should look at the datasheet tomorrow
-        // and fill in the CAN value.
+        // These values for MidDriveMode, NormalMode, and OverDriveMode come from table 21.3.2 on page 845 of the datasheet.
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        let power = match self.power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => clocks.active_power,
+            PoweredClock::AlwaysEnabled => clocks.lp_power,
+        };
+
+        #[cfg(feature = "mcxa2xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 45_000_000,
+            VddLevel::OverDriveMode => 90_000_000,
+        };
+
+        #[cfg(feature = "mcxa5xx")]
+        let fmax = match power {
+            VddLevel::MidDriveMode => 45_000_000,
+            VddLevel::NormalMode | VddLevel::OverDriveMode => 90_000_000,
+        };
+
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "flexcan fclk",
+                reason: "exceeds max rating",
+            });
+        }
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }
