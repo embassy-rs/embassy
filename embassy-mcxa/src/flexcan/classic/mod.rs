@@ -1,6 +1,7 @@
 pub mod frame;
 mod mailbox;
 mod meta;
+mod timing;
 
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
