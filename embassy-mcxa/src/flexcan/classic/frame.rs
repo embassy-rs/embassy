@@ -1,4 +1,4 @@
-pub use embedded_can::{Id, StandardId, ExtendedId};
+pub use crate::flexcan::id::{Id, StandardId, ExtendedId};
 
 /// Represents the possible kinds of CAN frames.
 #[derive(PartialEq)]
@@ -79,36 +79,12 @@ impl Frame {
     }
 }
 
-// `embedded_can::Frame` is still implemented so the type works with the wider
-// ecosystem and in code that's generic over `embedded_can::Frame`. Each method
-// just delegates to the inherent method of the same name above, so users who
-// don't need the trait never have to import it (or depend on `embedded_can`).
 impl embedded_can::Frame for Frame {
-    fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
-        Self::new(id, data)
-    }
-
-    fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
-        Self::new_remote(id, dlc)
-    }
-
-    fn is_extended(&self) -> bool {
-        Self::is_extended(self)
-    }
-
-    fn is_remote_frame(&self) -> bool {
-        Self::is_remote_frame(self)
-    }
-
-    fn id(&self) -> Id {
-        Self::id(self)
-    }
-
-    fn dlc(&self) -> usize {
-        Self::dlc(self)
-    }
-
-    fn data(&self) -> &[u8] {
-        Self::data(self)
-    }
+    fn new(id: impl Into<embedded_can::Id>, data: &[u8]) -> Option<Self> { Self::new(id.into(), data) }
+    fn new_remote(id: impl Into<embedded_can::Id>, dlc: usize) -> Option<Self> { Self::new_remote(id.into(), dlc) }
+    fn is_extended(&self) -> bool { Self::is_extended(self) }
+    fn is_remote_frame(&self) -> bool { Self::is_remote_frame(self) }
+    fn id(&self) -> embedded_can::Id { Self::id(self).into() }
+    fn dlc(&self) -> usize { Self::dlc(self) }
+    fn data(&self) -> &[u8] { Self::data(self) }
 }

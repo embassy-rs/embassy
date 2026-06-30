@@ -1,13 +1,13 @@
 pub mod classic;
 pub mod filter;
+pub mod id;
 pub(crate) mod control;
 
 use embassy_hal_internal::PeripheralType;
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::Interrupt;
 
-/// Shared, mode-agnostic peripheral identity. Each FlexCAN instance implements this
-/// regardless of whether it is used in Classic or (future) FD mode.
+/// Peripheral identity.
 pub trait Instance: PeripheralType + 'static + Send {
     type Interrupt: Interrupt;
 }
@@ -17,13 +17,15 @@ pub(crate) mod sealed {
     pub trait Sealed {}
 }
 
-// Every GPIO pin is allowed to be (potentially) sealed as a FlexCAN pin. The actual
+// Technically every GPIO pin is allowed to be (potentially) sealed as a FlexCAN pin. The actual
 // `TxPin`/`RxPin` impls (generated in the build script) restrict which concrete pins
 // are valid for which CAN instance.
 impl<T: crate::gpio::SealedPin> sealed::Sealed for T {}
 
-/// CAN TX pin trait. Implemented (via codegen) for each pin that can be muxed to a
+/// CAN TX pin trait. Implemented for each pin that can be muxed to a
 /// given FlexCAN instance's TXD function.
+/// 
+/// These implementations are generated automatically by `embassy-mcxa`'s `build.rs`.
 pub trait TxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// The port mux setting that selects the TXD function for this pin.
     const MUX: crate::pac::port::Mux;
@@ -31,8 +33,10 @@ pub trait TxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     fn as_tx(&self);
 }
 
-/// CAN RX pin trait. Implemented (via codegen) for each pin that can be muxed to a
+/// CAN RX pin trait. Implemented for each pin that can be muxed to a
 /// given FlexCAN instance's RXD function.
+/// 
+/// These implementations are generated automatically by `embassy-mcxa`'s `build.rs`.
 pub trait RxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// The port mux setting that selects the RXD function for this pin.
     const MUX: crate::pac::port::Mux;
@@ -74,12 +78,12 @@ macro_rules! impl_flexcan_pin {
 macro_rules! impl_can_instance {
     ($n:expr) => {
         paste::paste! {
-            // mode-agnostic peripheral identity
+            // Peripheral identity
             impl crate::flexcan::Instance for crate::peripherals::[<CAN $n>] {
                 type Interrupt = crate::interrupt::typelevel::[<CAN $n>];
             }
 
-            // stuff for classic CAN mode
+            // Stuff for classic CAN mode
             impl crate::flexcan::classic::SealedInstance for crate::peripherals::[<CAN $n>] {
                 fn info() -> &'static crate::flexcan::classic::Info {
                     static INFO: crate::flexcan::classic::Info = crate::flexcan::classic::Info {

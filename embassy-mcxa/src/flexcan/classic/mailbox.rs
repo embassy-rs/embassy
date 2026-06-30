@@ -65,6 +65,7 @@ pub(in crate::flexcan) mod tx {
         /// Reads one of the 32 message buffers into a `TxMessage`.
         /// * `info` - The type-erased instance handle.
         /// * `n` - The message buffer element to read (0 through 31).
+        #[allow(dead_code)]
         pub fn read(info: &Info, n: usize) -> TxMessage {
             let cs = info.control.regs().cs(n).read();
             let id = info.control.regs().id(n).read();
@@ -170,7 +171,7 @@ pub(in crate::flexcan) mod tx {
     pub(in crate::flexcan) struct TxMessage{inner: Message}
     impl TxMessage {
         /// Gets the current reading of this message's `CODE` field.
-        #[warn(dead_code)]
+        #[allow(dead_code)]
         const fn code(&self) -> Result<TxCode, MailboxError> {
             let code: u8 = self.inner.cs.code();
             match code {
@@ -347,7 +348,7 @@ pub(in crate::flexcan) mod rx {
         type Error = RxMessageFromError;
 
         fn try_from(message: RxMessage) -> Result<Self, Self::Error> {
-            use embedded_can::{Id, StandardId, ExtendedId};
+            use crate::flexcan::id::{Id, StandardId, ExtendedId};
             use crate::flexcan::classic::frame::{FrameKind};
 
             let kind: FrameKind = if message.inner.cs.rtr() {FrameKind::RemoteFrame} else {FrameKind::DataFrame};
@@ -373,7 +374,7 @@ pub(in crate::flexcan) mod rx {
     /// This function requires `filter_config` to have been validated prior to being passed in here.
     pub(in crate::flexcan) fn setup(info: &Info, filter_config: &FilterConfig) -> Result<(), MailboxError> {
         use embassy_time::{Duration};
-        use embedded_can::{StandardId, ExtendedId};
+        use crate::flexcan::id::{StandardId, ExtendedId};
 
         // Make sure we're frozen before continuing.
         const FREEZE_TIMEOUT: u64 = 10; // ms

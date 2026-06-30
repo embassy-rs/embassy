@@ -1,6 +1,6 @@
 //! This module contains filter definitions and configuration that is common to both Classic CAN and FDCAN.
 
-pub use embedded_can::{Id, StandardId, ExtendedId};
+pub use crate::flexcan::id::{Id, StandardId, ExtendedId};
 
 /// Possible errors when configuring a RX filter.
 pub enum FilterConfigError {

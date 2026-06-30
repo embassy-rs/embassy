@@ -1,7 +1,7 @@
 //! This module calculates ideal bit timing values for classic FlexCAN.
 //! 
 //! A lot of the code in this module was translated into Rust from the `fsl_flexcan.c` source file inside `hal_nxp` Zephyr module.
-//! As of June 2026, that source file is hosted here: https://github.com/zephyrproject-rtos/hal_nxp/blob/master/mcux/mcux-sdk-ng/drivers/flexcan/fsl_flexcan.c
+//! As of June 2026, that source file is hosted here: <https://github.com/zephyrproject-rtos/hal_nxp/blob/master/mcux/mcux-sdk-ng/drivers/flexcan/fsl_flexcan.c>
 //! 
 //! Here is the original copyright notice from that source file:
 //! 
@@ -74,6 +74,7 @@ struct FlexcanTimingConfig {
 
 /// Errors that may occur when configuring timing/bitrate.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TimingError {
     /// Source clock is not an integer multiple of the requested bitrate. The source clock must be an integer multiple of the requested bitrate.
     BitrateIncompatibleWithClock,
