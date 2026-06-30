@@ -144,6 +144,7 @@ impl<'d> FlashController<'d> {
             (addr as *mut u64).is_aligned(),
             "Address should be flash word (8 byte) aligned"
         );
+        self.disable_dyn_writeprotect();
 
         self.regs.cmdtype().write(|w| {
             w.set_command(vals::Command::PROGRAM);
@@ -163,6 +164,7 @@ impl<'d> FlashController<'d> {
 
     /// NOTE: this will enable all dynamic write-protects
     pub fn erase_page(&mut self, addr: *mut u8) -> impl Future<Output = Result<(), FlashError>> {
+        self.disable_dyn_writeprotect();
         self.regs.cmdtype().write(|w| {
             w.set_command(vals::Command::ERASE);
             w.set_size(vals::Size::SECTOR);
@@ -236,6 +238,8 @@ impl NorFlash for FlashRange<'_, '_> {
         }
 
         for page in (from..to).step_by(Self::ERASE_SIZE) {
+            #[cfg(feature = "defmt")]
+            defmt::debug!("Erasing page {}", page);
             self.flashctl.erase_page(self.start.wrapping_add(page as usize)).await?;
         }
 
@@ -254,9 +258,10 @@ impl NorFlash for FlashRange<'_, '_> {
         for (i, chunk) in bytes.chunks_exact(8).enumerate() {
             let val = u64::from_be_bytes(chunk.try_into().unwrap());
             // TODO: zip iter addr
-            self.flashctl
-                .program_word(self.start.wrapping_add(offset as usize + i * 8), val)
-                .await?;
+            let addr = self.start.wrapping_add(offset as usize + i * 8);
+            #[cfg(feature = "defmt")]
+            defmt::debug!("Writing word {} to addr {}", val, addr as u32);
+            self.flashctl.program_word(addr, val).await?;
         }
         Ok(())
     }
