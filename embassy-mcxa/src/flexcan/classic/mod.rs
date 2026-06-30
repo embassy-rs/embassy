@@ -107,6 +107,19 @@ pub struct FlexCanConfig<'a> {
     pub power: PoweredClock,
 }
 
+impl<'a> Default for FlexCanConfig<'a> {
+    fn default() -> Self {
+        FlexCanConfig {
+            protocol_exception: false,
+            filters: FilterConfig::default(),
+            bitrate: 500_000,
+            clock_source: CanClockSel::FroHf,
+            clock_div: Div4::no_div(),
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+        }
+    }
+}
+
 /// Bus error modes.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

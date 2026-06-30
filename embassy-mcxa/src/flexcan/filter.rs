@@ -41,14 +41,14 @@ pub enum Filter {
     /// Note: Configuring this effectively makes any other
     /// standard filters you configure redundant, since it causes all standard
     /// IDs to be accepted.
-    AcceptAllStandard,
+    AcceptAllStandard, // Internal note: This is equivalent to a `StandardMasked` but with a zeroed mask.
 
     /// Filter that accepts all extended IDs.
     /// 
     /// Note: Configuring this effectively makes any other
     /// extended filters you configure redundant, since it causes all extended
     /// IDs to be accepted.
-    AcceptAllExtended,
+    AcceptAllExtended, // Internal note: This is equivalent to a `ExtendedMasked` but with a zeroed mask.
 }
 
 impl Filter {
