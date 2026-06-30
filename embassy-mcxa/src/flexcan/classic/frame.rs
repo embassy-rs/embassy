@@ -18,8 +18,11 @@ pub struct Frame {
     pub(in crate::flexcan) data: [u8; 8],
 }
 
-impl embedded_can::Frame for Frame {
-    fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
+impl Frame {
+    /// Creates a new data frame.
+    ///
+    /// Returns `None` if `data` is longer than 8 bytes.
+    pub fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
         if data.len() > 8 { return None; } // Make sure we're the right size.
 
         let mut buf = [0u8; 8];
@@ -33,7 +36,10 @@ impl embedded_can::Frame for Frame {
         })
     }
 
-    fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
+    /// Creates a new remote frame.
+    ///
+    /// Returns `None` if `dlc` is greater than 8.
+    pub fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
         if dlc > 8 { return None; } // Make sure we're the right size.
 
         Some(Frame {
@@ -44,27 +50,65 @@ impl embedded_can::Frame for Frame {
         })
     }
 
-    fn is_extended(&self) -> bool {
+    /// Returns `true` if this frame uses an extended (29-bit) ID.
+    pub fn is_extended(&self) -> bool {
         matches!(self.id, Id::Extended(_))
     }
 
+    /// Returns `true` if this is a remote frame (RTR = 1).
+    pub fn is_remote_frame(&self) -> bool {
+        self.kind == FrameKind::RemoteFrame
+    }
+
+    /// Returns this frame's identifier.
+    pub fn id(&self) -> Id {
+        self.id
+    }
+
+    /// Returns this frame's data length code (number of data bytes).
+    pub fn dlc(&self) -> usize {
+        self.length
+    }
+
+    /// Returns this frame's payload bytes (empty for remote frames).
+    pub fn data(&self) -> &[u8] {
+        match self.kind {
+            FrameKind::RemoteFrame => &[],
+            FrameKind::DataFrame   => &self.data[..self.length],
+        }
+    }
+}
+
+// `embedded_can::Frame` is still implemented so the type works with the wider
+// ecosystem and in code that's generic over `embedded_can::Frame`. Each method
+// just delegates to the inherent method of the same name above, so users who
+// don't need the trait never have to import it (or depend on `embedded_can`).
+impl embedded_can::Frame for Frame {
+    fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
+        Self::new(id, data)
+    }
+
+    fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
+        Self::new_remote(id, dlc)
+    }
+
+    fn is_extended(&self) -> bool {
+        Self::is_extended(self)
+    }
+
     fn is_remote_frame(&self) -> bool {
-        return self.kind == FrameKind::RemoteFrame;
+        Self::is_remote_frame(self)
     }
 
     fn id(&self) -> Id {
-        return self.id;
+        Self::id(self)
     }
 
     fn dlc(&self) -> usize {
-        return self.length;
+        Self::dlc(self)
     }
 
     fn data(&self) -> &[u8] {
-        match self.kind {
-            FrameKind::RemoteFrame => return &[],
-            FrameKind::DataFrame   => return &self.data[..self.length],
-        }
+        Self::data(self)
     }
-
 }

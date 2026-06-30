@@ -108,6 +108,18 @@ pub struct FlexCanConfig<'a> {
 }
 
 impl<'a> Default for FlexCanConfig<'a> {
+    /// Returns a default `FlexCanConfig` instance
+    /// with this configuration:
+    /// ```rust
+    /// FlexCanConfig {
+    ///     protocol_exception: false,
+    ///     filters: FilterConfig::default(),
+    ///     bitrate: 500_000,
+    ///     clock_source: CanClockSel::FroHf,
+    ///     clock_div: Div4::no_div(),
+    ///     power: PoweredClock::NormalEnabledDeepSleepDisabled,
+    /// }
+    /// ```
     fn default() -> Self {
         FlexCanConfig {
             protocol_exception: false,
