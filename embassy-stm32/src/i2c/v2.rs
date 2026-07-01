@@ -606,10 +606,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         addr: impl Into<Address>,
         operations: &mut [Operation<'_>],
     ) -> Result<(), Error> {
-        if operations.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
-        }
-
         let address = addr.into();
         let timeout = self.timeout();
 
@@ -667,11 +663,13 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         if total_bytes == 0 {
             // Handle empty write group - just send address
-            if is_first_group {
-                Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
-            }
+            Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
             if is_last_group {
+                self.wait_tc(timeout)?;
                 self.master_stop();
+                self.wait_stop(timeout)?;
+            } else {
+                self.wait_tc(timeout)?;
             }
             return Ok(());
         }
@@ -741,19 +739,19 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         if total_bytes == 0 {
             // Handle empty read group
-            if is_first_group {
-                Self::master_read(
-                    self.info,
-                    address,
-                    0,
-                    if is_last_group { Stop::Automatic } else { Stop::Software },
-                    false, // reload
-                    !is_first_group,
-                    timeout,
-                )?;
-            }
+            Self::master_read(
+                self.info,
+                address,
+                0,
+                if is_last_group { Stop::Automatic } else { Stop::Software },
+                false, // reload
+                !is_first_group,
+                timeout,
+            )?;
             if is_last_group {
                 self.wait_stop(timeout)?;
+            } else {
+                self.wait_tc(timeout)?;
             }
             return Ok(());
         }
@@ -822,7 +820,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// The buffers are concatenated in a single write transaction.
     pub fn blocking_write_vectored(&mut self, address: u8, write: &[&[u8]]) -> Result<(), Error> {
         if write.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
+            return self.write_internal(address.into(), &[], true, self.timeout());
         }
 
         let timeout = self.timeout();
@@ -1170,7 +1168,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         let timeout = self.timeout();
 
         if write.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
+            return self.write_internal(address, &[], true, timeout);
         }
 
         let mut iter = write.iter();
@@ -1249,9 +1247,6 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         operations: &mut [Operation<'_>],
     ) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
-        if operations.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
-        }
 
         let address = addr.into();
         let timeout = self.timeout();
@@ -1312,11 +1307,13 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         if total_bytes == 0 {
             // Handle empty write group using blocking call
-            if is_first_group {
-                Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
-            }
+            Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
             if is_last_group {
+                self.wait_tc(timeout)?;
                 self.master_stop();
+                self.wait_stop(timeout)?;
+            } else {
+                self.wait_tc(timeout)?;
             }
             return Ok(());
         }
@@ -1369,19 +1366,19 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
         if total_bytes == 0 {
             // Handle empty read group using blocking call
-            if is_first_group {
-                Self::master_read(
-                    self.info,
-                    address,
-                    0,
-                    if is_last_group { Stop::Automatic } else { Stop::Software },
-                    false, // reload
-                    !is_first_group,
-                    timeout,
-                )?;
-            }
+            Self::master_read(
+                self.info,
+                address,
+                0,
+                if is_last_group { Stop::Automatic } else { Stop::Software },
+                false, // reload
+                !is_first_group,
+                timeout,
+            )?;
             if is_last_group {
                 self.wait_stop(timeout)?;
+            } else {
+                self.wait_tc(timeout)?;
             }
             return Ok(());
         }
@@ -2096,6 +2093,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 w.set_txdmaen(true);
                 w.set_stopie(true);
                 w.set_tcie(true);
+                w.set_addrie(true); // Enable to detect RESTART condition
             });
             let dst = regs.txdr().as_ptr() as *mut u8;
 
@@ -2108,6 +2106,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 w.set_txdmaen(false);
                 w.set_stopie(false);
                 w.set_tcie(false);
+                w.set_addrie(false);
             });
             regs.isr().write(|w| w.set_txe(true));
         });
@@ -2125,6 +2124,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 self.info.regs.cr1().modify(|w| {
                     w.set_tcie(true);
                     w.set_stopie(true);
+                    w.set_addrie(true);
                 });
                 Poll::Pending
             } else if isr.tcr() {
@@ -2142,8 +2142,39 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 self.info.regs.cr1().modify(|w| {
                     w.set_tcie(true);
                     w.set_stopie(true);
+                    w.set_addrie(true);
                 });
                 Poll::Pending
+            } else if isr.berr() {
+                // BERR: misplaced START — master issued RESTART while we were transmitting.
+                // Clear BERR but do NOT clear ADDR (set simultaneously) so that the
+                // next listen() call catches the new address that followed the RESTART.
+                self.info.regs.icr().modify(|w| w.set_berrcf(true));
+                let mut leftover = dma_transfer.get_remaining_transfers() as usize;
+                if !self.info.regs.isr().read().txe() {
+                    leftover = leftover.saturating_add(1);
+                }
+                remaining_len = remaining_len.saturating_add(leftover);
+                if remaining_len > 0 {
+                    dma_transfer.request_pause();
+                    Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len)))
+                } else {
+                    Poll::Ready(Ok(SendStatus::Done))
+                }
+            } else if isr.addr() {
+                // ADDR while transmitting: RESTART with new address (BERR may not have fired).
+                // Do NOT clear ADDR — let listen() handle the new transaction.
+                let mut leftover = dma_transfer.get_remaining_transfers() as usize;
+                if !self.info.regs.isr().read().txe() {
+                    leftover = leftover.saturating_add(1);
+                }
+                remaining_len = remaining_len.saturating_add(leftover);
+                if remaining_len > 0 {
+                    dma_transfer.request_pause();
+                    Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len)))
+                } else {
+                    Poll::Ready(Ok(SendStatus::Done))
+                }
             } else if isr.stopf() {
                 let mut leftover_bytes = dma_transfer.get_remaining_transfers();
                 if !self.info.regs.isr().read().txe() {
@@ -2166,6 +2197,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 self.info.regs.cr1().modify(|w| {
                     w.set_tcie(true);
                     w.set_stopie(true);
+                    w.set_addrie(true);
                 });
                 Poll::Pending
             }
