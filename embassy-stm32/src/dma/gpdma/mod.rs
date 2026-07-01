@@ -460,6 +460,7 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: c
         };
     }
     crate::_generated::init_gpdma();
+    crate::_generated::init_lpdma();
 }
 
 pub(crate) unsafe fn on_irq(channel: DmaChannel) {
