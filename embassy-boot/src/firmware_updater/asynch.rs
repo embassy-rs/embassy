@@ -103,7 +103,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             let public_key = VerifyingKey::from_bytes(_public_key).map_err(into_signature_error)?;
             let signature = Signature::from_bytes(_signature);
 
-            let mut chunk_buf = [0; 2];
+            let mut chunk_buf = [0; 64];
             let mut message = [0; 64];
             self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
 
@@ -124,7 +124,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             let signature = Signature::try_from(_signature).map_err(into_signature_error)?;
 
             let mut message = [0; 64];
-            let mut chunk_buf = [0; 2];
+            let mut chunk_buf = [0; 64];
             self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
 
             let r = public_key.verify(&message, &signature);
