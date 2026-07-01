@@ -541,8 +541,9 @@ impl<'d> Sqspi<'d> {
         self.vpr.tasks_trigger(regs::SP_VPR_TASK_DPPI_0_IDX).write_value(1);
     }
 
-    /// Tear down a finished transfer: clear the event, disable the core, ASB.
+    /// Tear down a finished transfer: clear the done-job event, disable the core, ASB.
     fn finish(&mut self) {
+        self.regs.events_dma().events_done().job().write_value(0);
         self.regs.core().sqspienr().write_value(0);
         self.asb();
     }
