@@ -23,7 +23,7 @@ use crate::clocks::{enable_and_reset, ClockError, PoweredClock, WakeGuard};
 use crate::clocks::periph_helpers::{CanClockSel, CanConfig, CanInstance, Div4};
 use nxp_pac::can as pac;
 
-use crate::flexcan::classic::meta::docs::{doc_send, doc_try_send, doc_receive, doc_try_receive, doc_error_mode, doc_rx_dropped};
+use crate::flexcan::classic::meta::docs::{doc_send, doc_try_send, doc_receive, doc_try_receive, doc_error_mode, doc_rx_dropped_count, doc_tx_mailbox_full_count};
 
 /// Errors that can return when initializing
 /// a `FlexCan` instance.
@@ -211,8 +211,11 @@ pub(crate) struct Info {
     /// Software queue that holds received RX frames.
     pub rx_channel: Channel<CriticalSectionRawMutex, Frame, RX_QUEUE_SIZE>,
 
-    /// Stores a count of the number of RX frames dropped due to the RX Channel being full.
-    pub rx_dropped: AtomicU32,
+    /// Stores a count of the number of RX frames dropped so far due to the RX Channel being full.
+    pub rx_dropped_count: AtomicU32,
+
+    /// Stores a count of the number of times the TX mailbox has filled up so far.
+    pub tx_mailbox_full_count: AtomicU32,
 }
 
 pub(crate) trait SealedInstance: crate::clocks::Gate<MrccPeriphConfig = CanConfig> {
@@ -245,8 +248,8 @@ impl<'d> FlexCanRx<'d> {
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> { functions::try_receive(self.info) }
     #[doc = doc_error_mode!()]
     pub fn error_mode(&self) -> BusErrorMode { functions::error_mode(self.info) }
-    #[doc = doc_rx_dropped!()]
-    pub fn rx_dropped(&self) -> u32 { functions::rx_dropped(self.info) }
+    #[doc = doc_rx_dropped_count!()]
+    pub fn rx_dropped_count(&self) -> u32 { functions::rx_dropped_count(self.info) }
 }
 
 /// TX-specific FlexCAN instance. Can be obtained by calling `.split()`
@@ -275,6 +278,8 @@ impl<'d> FlexCanTx<'d> {
     pub fn try_send(&mut self, frame: &Frame) -> Result<(), SendError> { functions::try_send(self.info, frame) }
     #[doc = doc_error_mode!()]
     pub fn error_mode(&self) -> BusErrorMode { functions::error_mode(self.info) }
+    #[doc = doc_tx_mailbox_full_count!()]
+    pub fn tx_mailbox_full_count(&self) -> u32 { functions::tx_mailbox_full_count(self.info) }
 }
 
 /// FlexCAN driver instance, in Classic CAN mode.
@@ -398,30 +403,36 @@ impl<'d> FlexCan<'d> {
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> { self.rx.try_receive() }
     #[doc = doc_error_mode!()]
     pub fn error_mode(&self) -> BusErrorMode { self.tx.error_mode() } 
-    #[doc = doc_rx_dropped!()]
-    pub fn rx_dropped(&self) -> u32 { self.rx.rx_dropped() } 
+    #[doc = doc_rx_dropped_count!()]
+    pub fn rx_dropped_count(&self) -> u32 { self.rx.rx_dropped_count() } 
+    #[doc = doc_tx_mailbox_full_count!()]
+    pub fn tx_mailbox_full_count(&self) -> u32 { self.tx.tx_mailbox_full_count() } 
 }
 
 /// This module contains the actual implementations of the functions used by
 /// `FlexCan`, `FlexCanTx`, and `FlexCanRx`. They're not implemented directly
 /// on those structs because some functions are common to more than one of them.
 mod functions {
-    use crate::flexcan::classic::doc_rx_dropped;
+    use crate::flexcan::classic::doc_rx_dropped_count;
     use super::{Frame, Info, tx, SendError, ReceiveError, BusErrorMode, pac};
-    use super::{doc_send, doc_try_send, doc_receive, doc_try_receive, doc_error_mode};
+    use super::{doc_send, doc_try_send, doc_receive, doc_try_receive, doc_error_mode, doc_tx_mailbox_full_count};
 
     #[doc = doc_send!()]
     pub async fn send(info: &Info, frame: &Frame) {
         use core::future::poll_fn;
         use nb::Error::{WouldBlock, Other};
         use core::task::Poll;
+        use core::sync::atomic::Ordering;
 
         let message = tx::TxMessage::from(frame);
         poll_fn(|cx| {
             info.tx_waker.register(cx.waker());
             match tx::dispatch(info, &message) {
                 Ok(()) => Poll::Ready(()),
-                Err(WouldBlock) => Poll::Pending,
+                Err(WouldBlock) => {
+                    info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire); 
+                    Poll::Pending 
+                },
                 Err(Other(e)) => match e {},
             }
         }).await
@@ -430,6 +441,7 @@ mod functions {
     #[doc = doc_try_send!()]
     pub fn try_send(info: &Info, frame: &Frame) -> Result<(), SendError> {
         use nb::Error::{WouldBlock, Other};
+        use core::sync::atomic::Ordering;
 
         if error_mode(info) == BusErrorMode::BusOff {
             return Err(SendError::BusOff);
@@ -438,7 +450,10 @@ mod functions {
         let message = tx::TxMessage::from(frame);
         match tx::dispatch(info, &message) {
             Ok(()) => Ok(()),
-            Err(WouldBlock) => Err(SendError::TxMailboxFull),
+            Err(WouldBlock) => {
+                info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
+                Err(SendError::TxMailboxFull) 
+            },
             Err(Other(e)) => match e {},
         }
     }
@@ -462,10 +477,16 @@ mod functions {
         }
     }
 
-    #[doc = doc_rx_dropped!()]
-    pub fn rx_dropped(info: &Info) -> u32 {
+    #[doc = doc_rx_dropped_count!()]
+    pub fn rx_dropped_count(info: &Info) -> u32 {
         use core::sync::atomic::Ordering;
-        info.rx_dropped.load(Ordering::Acquire)
+        info.rx_dropped_count.load(Ordering::Acquire)
+    }
+
+    #[doc = doc_tx_mailbox_full_count!()]
+    pub fn tx_mailbox_full_count(info: &Info) -> u32 {
+        use core::sync::atomic::Ordering;
+        info.tx_mailbox_full_count.load(Ordering::Acquire)
     }
 }
 
@@ -525,8 +546,8 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             
             // Push the frame into the software RX queue
             if info.rx_channel.try_send(frame).is_err() {
-                // if the software queue is full, drop the frame, and increment the `rx_dropped` counter.
-                info.rx_dropped.fetch_add(1, Ordering::Acquire);
+                // if the software queue is full, drop the frame, and increment the `rx_dropped_count` counter.
+                info.rx_dropped_count.fetch_add(1, Ordering::Acquire);
             }
         }
 

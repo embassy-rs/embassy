@@ -10,7 +10,7 @@ pub(in crate::flexcan::classic) mod rx_queue_size {
 
     // Default size of the queue, in messages/Frames. 
     // This is a macro instead of a `const`` so we can use it in docs.
-    macro_rules! rx_queue_size_default { () => { 64 } }
+    macro_rules! rx_queue_size_default { () => { 4 } }
     pub(in crate::flexcan::classic) use rx_queue_size_default;
 
     /// The size of the software queue flexcan::classic uses for RX messages, in Frames.
@@ -114,7 +114,7 @@ pub(in crate::flexcan::classic) mod docs {
     }
     pub(in crate::flexcan::classic) use doc_error_mode;
 
-    macro_rules! doc_rx_dropped {
+    macro_rules! doc_rx_dropped_count {
         () => { concat!(
             "Indicates the number of RX frames dropped so far due to the RX queue being full.",
             "If you're seeing this number increase, you are receiving messages faster than the RX queue can handle.",
@@ -124,5 +124,13 @@ pub(in crate::flexcan::classic) mod docs {
             $crate::flexcan::classic::meta::docs::doc_rx_queue_size_config_instructions!(),
         ) };
     }
-    pub(in crate::flexcan::classic) use doc_rx_dropped;
+    pub(in crate::flexcan::classic) use doc_rx_dropped_count;
+
+    macro_rules! doc_tx_mailbox_full_count {
+        () => { concat!(
+            "Indicates the number of times new transmissions have been blocked or deferred due to the TX mailbox being full so far.\n\n",
+            "Note: See the docs for `send()` and `try_send()` for each function's behavior when it encounters a full mailbox.",
+        )};
+    }
+    pub(in crate::flexcan::classic) use doc_tx_mailbox_full_count;
 }
