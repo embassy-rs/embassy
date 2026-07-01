@@ -2,17 +2,7 @@
 //!
 //! Also known as IO Pin Configuration (IOCON)
 
-use crate::pac::{Iopctl, iopctl};
-
-// A generic pin of any type.
-//
-// The actual pin type used here is arbitrary,
-// as all PioM_N types provide the same methods.
-//
-// Merely need some pin type to cast a raw pointer
-// to in order to access the provided methods.
-#[allow(non_camel_case_types)]
-type PioM_N = iopctl::Pio0_0;
+use crate::pac;
 
 /// Pin function number.
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -187,7 +177,7 @@ pub trait IopctlPin: SealedPin {
 /// Represents a pin peripheral created at run-time from given port and pin numbers.
 pub struct AnyPin {
     pin_port: u8,
-    reg: &'static PioM_N,
+    reg: pac::common::Reg<pac::iopctl::regs::Pio, pac::common::RW>,
 }
 
 impl AnyPin {
@@ -210,17 +200,10 @@ impl AnyPin {
     /// pin and port number combinations.
     #[must_use]
     pub unsafe fn steal(port: u8, pin: u8) -> Self {
-        // Calculates the offset from the beginning of the IOPCTL register block
-        // address to the register address representing the pin.
-        //
-        // See Table 297 in reference manual for how this offset is calculated.
-        let offset = ((port as usize) << 7) + ((pin as usize) << 2);
-
-        // SAFETY: This is safe assuming the caller of this function satisfies the safety requirements above.
-        let reg = unsafe { &*Iopctl::ptr().byte_offset(offset as isize).cast() };
+        let offset = (port as usize * 32 + pin as usize) * 4;
         Self {
             pin_port: port * 32 + pin,
-            reg,
+            reg: unsafe { pac::common::Reg::from_ptr((pac::IOPCTL.as_ptr() as *mut u8).wrapping_add(offset) as _) },
         }
     }
 
@@ -233,7 +216,7 @@ impl AnyPin {
 
 /// Represents a FC15 pin peripheral created at run-time from given pin number.
 pub struct FC15Pin {
-    reg: &'static PioM_N,
+    reg: pac::common::Reg<pac::iopctl::regs::Pio, pac::common::RW>,
 }
 
 impl FC15Pin {
@@ -256,13 +239,14 @@ impl FC15Pin {
     /// pin and port number combinations.
     #[must_use]
     pub unsafe fn steal(pin: u8) -> Self {
-        // Table 297:  FC15_I2C_SCL offset = 0x400, FC15_I2C_SCL offset = 0x404
-        let iopctl = unsafe { crate::pac::Iopctl::steal() };
+        let iopctl = pac::IOPCTL;
 
-        let reg = if pin == 0 {
-            &*iopctl.fc15_i2c_scl().as_ptr().cast()
+        // FC15 registers share the same memory layout as regular PIO pins,
+        // so we can safely construct a Reg<Pio> from their address.
+        let reg: pac::common::Reg<pac::iopctl::regs::Pio, pac::common::RW> = if pin == 0 {
+            unsafe { pac::common::Reg::from_ptr(iopctl.fc15_i2c_scl().as_ptr() as _) }
         } else {
-            &*iopctl.fc15_i2c_sda().as_ptr().cast()
+            unsafe { pac::common::Reg::from_ptr(iopctl.fc15_i2c_sda().as_ptr() as _) }
         };
 
         Self { reg }
@@ -284,50 +268,43 @@ macro_rules! impl_iopctlpin {
     ($pintype:ident) => {
         impl IopctlPin for $pintype {
             fn set_function(&self, function: Function) -> &Self {
-                critical_section::with(|_| match function {
-                    Function::F0 => {
-                        self.reg.modify(|_, w| w.fsel().function_0());
-                    }
-                    Function::F1 => {
-                        self.reg.modify(|_, w| w.fsel().function_1());
-                    }
-                    Function::F2 => {
-                        self.reg.modify(|_, w| w.fsel().function_2());
-                    }
-                    Function::F3 => {
-                        self.reg.modify(|_, w| w.fsel().function_3());
-                    }
-                    Function::F4 => {
-                        self.reg.modify(|_, w| w.fsel().function_4());
-                    }
-                    Function::F5 => {
-                        self.reg.modify(|_, w| w.fsel().function_5());
-                    }
-                    Function::F6 => {
-                        self.reg.modify(|_, w| w.fsel().function_6());
-                    }
-                    Function::F7 => {
-                        self.reg.modify(|_, w| w.fsel().function_7());
-                    }
-                    Function::F8 => {
-                        self.reg.modify(|_, w| w.fsel().function_8());
-                    }
+                use pac::iopctl::vals::Fsel;
+                critical_section::with(|_| {
+                    self.reg.modify(|w| {
+                        w.set_fsel(match function {
+                            Function::F0 => Fsel::FUNCTION_0,
+                            Function::F1 => Fsel::FUNCTION_1,
+                            Function::F2 => Fsel::FUNCTION_2,
+                            Function::F3 => Fsel::FUNCTION_3,
+                            Function::F4 => Fsel::FUNCTION_4,
+                            Function::F5 => Fsel::FUNCTION_5,
+                            Function::F6 => Fsel::FUNCTION_6,
+                            Function::F7 => Fsel::FUNCTION_7,
+                            Function::F8 => Fsel::FUNCTION_8,
+                        })
+                    });
                 });
                 self
             }
 
             fn set_pull(&self, pull: Pull) -> &Self {
+                use pac::iopctl::vals::Pupdsel;
                 critical_section::with(|_| {
                     match pull {
                         Pull::None => {
-                            self.reg.modify(|_, w| w.pupdena().disabled());
+                            self.reg.modify(|w| w.set_pupdena(false));
                         }
                         Pull::Up => {
-                            self.reg.modify(|_, w| w.pupdena().enabled().pupdsel().pull_up());
+                            self.reg.modify(|w| {
+                                w.set_pupdena(true);
+                                w.set_pupdsel(Pupdsel::PULL_UP);
+                            });
                         }
                         Pull::Down => {
-                            self.reg
-                                .modify(|_, w| w.pupdena().enabled().pupdsel().pull_down());
+                            self.reg.modify(|w| {
+                                w.set_pupdena(true);
+                                w.set_pupdsel(Pupdsel::PULL_DOWN);
+                            });
                         }
                     }
                     self
@@ -335,75 +312,77 @@ macro_rules! impl_iopctlpin {
             }
 
             fn enable_input_buffer(&self) -> &Self {
-                critical_section::with(|_| self.reg.modify(|_, w| w.ibena().enabled()));
+                critical_section::with(|_| self.reg.modify(|w| w.set_ibena(true)));
                 self
             }
 
             fn disable_input_buffer(&self) -> &Self {
-                critical_section::with(|_| self.reg.modify(|_, w| w.ibena().disabled()));
+                critical_section::with(|_| self.reg.modify(|w| w.set_ibena(false)));
                 self
             }
 
             fn set_slew_rate(&self, slew_rate: SlewRate) -> &Self {
-                critical_section::with(|_| match slew_rate {
-                    SlewRate::Standard => {
-                        self.reg.modify(|_, w| w.slewrate().normal());
-                    }
-                    SlewRate::Slow => {
-                        self.reg.modify(|_, w| w.slewrate().slow());
-                    }
+                use pac::iopctl::vals::Slewrate as PacSlewrate;
+                critical_section::with(|_| {
+                    self.reg.modify(|w| {
+                        w.set_slewrate(match slew_rate {
+                            SlewRate::Standard => PacSlewrate::NORMAL,
+                            SlewRate::Slow => PacSlewrate::SLOW,
+                        })
+                    });
                 });
                 self
             }
 
             fn set_drive_strength(&self, strength: DriveStrength) -> &Self {
-                critical_section::with(|_| match strength {
-                    DriveStrength::Normal => {
-                        self.reg.modify(|_, w| w.fulldrive().normal_drive());
-                    }
-                    DriveStrength::Full => {
-                        self.reg.modify(|_, w| w.fulldrive().full_drive());
-                    }
+                use pac::iopctl::vals::Fulldrive;
+                critical_section::with(|_| {
+                    self.reg.modify(|w| {
+                        w.set_fulldrive(match strength {
+                            DriveStrength::Normal => Fulldrive::NORMAL_DRIVE,
+                            DriveStrength::Full => Fulldrive::FULL_DRIVE,
+                        })
+                    });
                 });
                 self
             }
 
             fn enable_analog_multiplex(&self) -> &Self {
-                critical_section::with(|_| self.reg.modify(|_, w| w.amena().enabled()));
+                critical_section::with(|_| self.reg.modify(|w| w.set_amena(true)));
                 self
             }
 
             fn disable_analog_multiplex(&self) -> &Self {
-                critical_section::with(|_| self.reg.modify(|_, w| w.amena().disabled()));
+                critical_section::with(|_| self.reg.modify(|w| w.set_amena(false)));
                 self
             }
 
             fn set_drive_mode(&self, mode: DriveMode) -> &Self {
-                critical_section::with(|_| match mode {
-                    DriveMode::PushPull => {
-                        self.reg.modify(|_, w| w.odena().disabled());
-                    }
-                    DriveMode::OpenDrain => {
-                        self.reg.modify(|_, w| w.odena().enabled());
-                    }
+                critical_section::with(|_| {
+                    self.reg.modify(|w| {
+                        w.set_odena(match mode {
+                            DriveMode::PushPull => false,
+                            DriveMode::OpenDrain => true,
+                        })
+                    });
                 });
                 self
             }
 
             fn set_input_inverter(&self, inverter: Inverter) -> &Self {
-                critical_section::with(|_| match inverter {
-                    Inverter::Disabled => {
-                        self.reg.modify(|_, w| w.iiena().disabled());
-                    }
-                    Inverter::Enabled => {
-                        self.reg.modify(|_, w| w.iiena().enabled());
-                    }
+                critical_section::with(|_| {
+                    self.reg.modify(|w| {
+                        w.set_iiena(match inverter {
+                            Inverter::Disabled => false,
+                            Inverter::Enabled => true,
+                        })
+                    });
                 });
                 self
             }
 
             fn reset(&self) -> &Self {
-                self.reg.reset();
+                self.reg.write_value(Default::default());
                 self
             }
         }

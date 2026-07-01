@@ -459,15 +459,15 @@ impl LposcConfig {
     /// Initializes low-power oscillator.
     fn init_lposc() {
         // Enable low power oscillator
-        // SAFETY: unsafe needed to take pointer to Sysctl0, only happens once during init
-        let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
-        sysctl0.pdruncfg0_clr().write(|w| w.lposc_pd().clr_pdruncfg0());
+        let sysctl0 = crate::pac::SYSCTL0;
+        sysctl0
+            .pdruncfg0_clr()
+            .write(|w| w.set_lposc_pd(pac::sysctl0::vals::Pdruncfg0ClrLposcPd::CLR_PDRUNCFG0));
 
         // Wait for low-power oscillator to be ready (typically 64 us)
         // Busy loop seems better here than trying to shoe-in an async delay
-        // SAFETY: unsafe needed to take pointer to Clkctl0, needed to validate HW is ready
-        let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-        while clkctl0.lposcctl0().read().clkrdy().bit_is_clear() {}
+        let clkctl0 = crate::pac::CLKCTL0;
+        while !clkctl0.lposcctl0().read().clkrdy() {}
     }
 }
 impl ConfigurableClock for LposcConfig {
@@ -476,11 +476,12 @@ impl ConfigurableClock for LposcConfig {
         Ok(())
     }
     fn disable(&self) -> Result<(), ClockError> {
-        // SAFETY: unsafe needed to take pointer to Sysctl0, needed to power down the LPOSC HW
-        let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
-        sysctl0.pdruncfg0_set().write(|w| w.lposc_pd().set_pdruncfg0());
+        let sysctl0 = crate::pac::SYSCTL0;
+        sysctl0
+            .pdruncfg0_set()
+            .write(|w| w.set_lposc_pd(pac::sysctl0::vals::Pdruncfg0SetLposcPd::SET_PDRUNCFG0));
         // Wait until LPOSC disabled
-        while !sysctl0.pdruncfg0().read().lposc_pd().is_power_down() {}
+        while sysctl0.pdruncfg0().read().lposc_pd() != pac::sysctl0::vals::Pdruncfg0LposcPd::POWER_DOWN {}
         Ok(())
     }
     fn get_clock_rate(&self) -> Result<u32, ClockError> {
@@ -512,16 +513,18 @@ impl ConfigurableClock for LposcConfig {
 impl FfroConfig {
     /// Necessary register writes to initialize the FFRO clock
     pub fn init_ffro_clk() {
-        // SAFETY: unsafe needed to take pointer to Sysctl0, only to power up FFRO
-        let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
+        let sysctl0 = crate::pac::SYSCTL0;
 
         /* Power on FFRO (48/60MHz) */
-        sysctl0.pdruncfg0_clr().write(|w| w.ffro_pd().clr_pdruncfg0());
+        sysctl0
+            .pdruncfg0_clr()
+            .write(|w| w.set_ffro_pd(pac::sysctl0::vals::Pdruncfg0ClrFfroPd::CLR_PDRUNCFG0));
 
-        // SAFETY: unsafe needed to take pointer to Clkctl0, only to set proper ffro update mode
-        let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
+        let clkctl0 = crate::pac::CLKCTL0;
 
-        clkctl0.ffroctl1().write(|w| w.update().normal_mode());
+        clkctl0
+            .ffroctl1()
+            .write(|w| w.set_update(pac::clkctl0::vals::Update::NORMAL_MODE));
 
         // No FFRO enable/disable control in CLKCTL.
         // Delay enough for FFRO to be stable in case it was just powered on
@@ -531,18 +534,18 @@ impl FfroConfig {
 
 impl ConfigurableClock for FfroConfig {
     fn enable_and_reset(&self) -> Result<(), ClockError> {
-        // SAFETY: should be called once
         FfroConfig::init_ffro_clk();
         // default is 48 MHz
         Ok(())
     }
     fn disable(&self) -> Result<(), ClockError> {
-        // SAFETY: unsafe needed to take pointer to Sysctl0, only to power down FFRO
-        let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
-        sysctl0.pdruncfg0_set().write(|w| w.ffro_pd().set_pdruncfg0());
+        let sysctl0 = crate::pac::SYSCTL0;
+        sysctl0
+            .pdruncfg0_set()
+            .write(|w| w.set_ffro_pd(pac::sysctl0::vals::Pdruncfg0SetFfroPd::SET_PDRUNCFG0));
         delay_loop_clocks(30, 12_000_000);
         // Wait until FFRO disabled
-        while !sysctl0.pdruncfg0().read().ffro_pd().is_power_down() {}
+        while sysctl0.pdruncfg0().read().ffro_pd() != pac::sysctl0::vals::Pdruncfg0FfroPd::POWER_DOWN {}
         Ok(())
     }
     fn get_clock_rate(&self) -> Result<u32, ClockError> {
@@ -552,22 +555,32 @@ impl ConfigurableClock for FfroConfig {
         if let Ok(r) = <u32 as TryInto<FfroFreq>>::try_into(freq) {
             match r {
                 FfroFreq::Ffro48m => {
-                    // SAFETY: unsafe needed to take pointer to Clkctl0, needed to set the right HW frequency
-                    let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-                    clkctl0.ffroctl1().write(|w| w.update().update_safe_mode());
-                    clkctl0.ffroctl0().write(|w| w.trim_range().ffro_48mhz());
-                    clkctl0.ffroctl1().write(|w| w.update().normal_mode());
+                    let clkctl0 = crate::pac::CLKCTL0;
+                    clkctl0
+                        .ffroctl1()
+                        .write(|w| w.set_update(pac::clkctl0::vals::Update::UPDATE_SAFE_MODE));
+                    clkctl0
+                        .ffroctl0()
+                        .write(|w| w.set_trim_range(pac::clkctl0::vals::TrimRange::FFRO_48MHZ));
+                    clkctl0
+                        .ffroctl1()
+                        .write(|w| w.set_update(pac::clkctl0::vals::Update::NORMAL_MODE));
 
                     self.freq
                         .store(FfroFreq::Ffro48m as u32, core::sync::atomic::Ordering::Relaxed);
                     Ok(())
                 }
                 FfroFreq::Ffro60m => {
-                    // SAFETY: unsafe needed to take pointer to Clkctl0, needed to set the right HW frequency
-                    let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-                    clkctl0.ffroctl1().write(|w| w.update().update_safe_mode());
-                    clkctl0.ffroctl0().write(|w| w.trim_range().ffro_60mhz());
-                    clkctl0.ffroctl1().write(|w| w.update().normal_mode());
+                    let clkctl0 = crate::pac::CLKCTL0;
+                    clkctl0
+                        .ffroctl1()
+                        .write(|w| w.set_update(pac::clkctl0::vals::Update::UPDATE_SAFE_MODE));
+                    clkctl0
+                        .ffroctl0()
+                        .write(|w| w.set_trim_range(pac::clkctl0::vals::TrimRange::FFRO_60MHZ));
+                    clkctl0
+                        .ffroctl1()
+                        .write(|w| w.set_update(pac::clkctl0::vals::Update::NORMAL_MODE));
 
                     self.freq
                         .store(FfroFreq::Ffro60m as u32, core::sync::atomic::Ordering::Relaxed);
@@ -586,20 +599,22 @@ impl ConfigurableClock for FfroConfig {
 
 impl ConfigurableClock for SfroConfig {
     fn enable_and_reset(&self) -> Result<(), ClockError> {
-        // SAFETY: unsafe needed to take pointer to Sysctl0, only to power up SFRO
-        let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
-        sysctl0.pdruncfg0_clr().write(|w| w.sfro_pd().clr_pdruncfg0());
+        let sysctl0 = crate::pac::SYSCTL0;
+        sysctl0
+            .pdruncfg0_clr()
+            .write(|w| w.set_sfro_pd(pac::sysctl0::vals::Pdruncfg0ClrSfroPd::CLR_PDRUNCFG0));
         // wait until ready
-        while !sysctl0.pdruncfg0().read().sfro_pd().is_enabled() {}
+        while sysctl0.pdruncfg0().read().sfro_pd() != pac::sysctl0::vals::Pdruncfg0SfroPd::ENABLED {}
         Ok(())
     }
     fn disable(&self) -> Result<(), ClockError> {
-        // SAFETY: unsafe needed to take pointer to Sysctl0, only to power down SFRO
-        let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
-        sysctl0.pdruncfg0_set().write(|w| w.sfro_pd().set_pdruncfg0());
+        let sysctl0 = crate::pac::SYSCTL0;
+        sysctl0
+            .pdruncfg0_set()
+            .write(|w| w.set_sfro_pd(pac::sysctl0::vals::Pdruncfg0SetSfroPd::SET_PDRUNCFG0));
         delay_loop_clocks(30, 12_000_000);
         // Wait until SFRO disabled
-        while !sysctl0.pdruncfg0().read().sfro_pd().is_power_down() {}
+        while sysctl0.pdruncfg0().read().sfro_pd() != pac::sysctl0::vals::Pdruncfg0SfroPd::POWER_DOWN {}
         Ok(())
     }
     fn get_clock_rate(&self) -> Result<u32, ClockError> {
@@ -712,14 +727,14 @@ impl ConfigurableClock for MainPllClkConfig {
     }
     fn set_clock_rate(&mut self, div: u8, mult: u8, freq: u32) -> Result<(), ClockError> {
         if self.is_enabled() {
-            // SAFETY: unsafe needed to take pointers to Sysctl0 and Clkctl0
-            let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-            let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
+            let clkctl0 = crate::pac::CLKCTL0;
+            let sysctl0 = crate::pac::SYSCTL0;
 
             // Power down pll before changes
-            sysctl0
-                .pdruncfg0_set()
-                .write(|w| w.syspllldo_pd().set_pdruncfg0().syspllana_pd().set_pdruncfg0());
+            sysctl0.pdruncfg0_set().write(|w| {
+                w.set_syspllldo_pd(pac::sysctl0::vals::Pdruncfg0SetSyspllldoPd::SET_PDRUNCFG0);
+                w.set_syspllana_pd(pac::sysctl0::vals::Pdruncfg0SetSyspllanaPd::SET_PDRUNCFG0);
+            });
 
             let desired_freq: u64 = self.freq.load(Ordering::Relaxed).into();
 
@@ -728,18 +743,22 @@ impl ConfigurableClock for MainPllClkConfig {
                     let mut base_rate;
                     match c {
                         MainPllClkSrc::ClkIn => {
-                            clkctl0.syspll0clksel().write(|w| w.sel().sysxtal_clk());
+                            clkctl0
+                                .syspll0clksel()
+                                .write(|w| w.set_sel(pac::clkctl0::vals::Syspll0clkselSel::SYSXTAL_CLK));
                             let r = self.get_clock_rate()?;
                             base_rate = r;
                         }
                         MainPllClkSrc::FFRO => {
                             delay_loop_clocks(1000, desired_freq);
-                            match clkctl0.ffroctl0().read().trim_range().is_ffro_48mhz() {
+                            match clkctl0.ffroctl0().read().trim_range() == pac::clkctl0::vals::TrimRange::FFRO_48MHZ {
                                 true => base_rate = Into::into(FfroFreq::Ffro48m),
                                 false => base_rate = Into::into(FfroFreq::Ffro60m),
                             }
                             if div == 2 {
-                                clkctl0.syspll0clksel().write(|w| w.sel().ffro_div_2());
+                                clkctl0
+                                    .syspll0clksel()
+                                    .write(|w| w.set_sel(pac::clkctl0::vals::Syspll0clkselSel::FFRO_DIV_2));
                                 delay_loop_clocks(150, desired_freq);
                                 base_rate /= 2;
                             } else {
@@ -748,77 +767,100 @@ impl ConfigurableClock for MainPllClkConfig {
                         }
                         MainPllClkSrc::SFRO => {
                             base_rate = SFRO_FREQ;
-                            clkctl0.syspll0clksel().write(|w| w.sel().sfro_clk());
+                            clkctl0
+                                .syspll0clksel()
+                                .write(|w| w.set_sel(pac::clkctl0::vals::Syspll0clkselSel::SFRO_CLK));
                         }
                     };
                     base_rate *= u32::from(mult);
                     if base_rate != freq {
                         // make sure to power syspll back up before returning the error
                         // Clear System PLL reset
-                        clkctl0.syspll0ctl0().write(|w| w.reset().normal());
+                        clkctl0
+                            .syspll0ctl0()
+                            .write(|w| w.set_reset(pac::clkctl0::vals::Reset::NORMAL));
                         // Power up SYSPLL
-                        sysctl0
-                            .pdruncfg0_clr()
-                            .write(|w| w.syspllana_pd().clr_pdruncfg0().syspllldo_pd().clr_pdruncfg0());
+                        sysctl0.pdruncfg0_clr().write(|w| {
+                            w.set_syspllana_pd(pac::sysctl0::vals::Pdruncfg0ClrSyspllanaPd::CLR_PDRUNCFG0);
+                            w.set_syspllldo_pd(pac::sysctl0::vals::Pdruncfg0ClrSyspllldoPd::CLR_PDRUNCFG0);
+                        });
                         return Err(ClockError::InvalidFrequency);
                     }
-                    // SAFETY: unsafe needed to write the bits for the num and demon fields
-                    clkctl0.syspll0num().write(|w| unsafe { w.num().bits(0b0) });
-                    clkctl0.syspll0denom().write(|w| unsafe { w.denom().bits(0b1) });
+                    clkctl0.syspll0num().write(|w| w.set_num(0b0));
+                    clkctl0.syspll0denom().write(|w| w.set_denom(0b1));
                     delay_loop_clocks(30, desired_freq);
                     self.mult.store(mult, Ordering::Relaxed);
                     match mult {
                         16 => {
-                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_16());
+                            clkctl0
+                                .syspll0ctl0()
+                                .modify(|w| w.set_mult(pac::clkctl0::vals::Mult::DIV_16));
                         }
                         17 => {
-                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_17());
+                            clkctl0
+                                .syspll0ctl0()
+                                .modify(|w| w.set_mult(pac::clkctl0::vals::Mult::DIV_17));
                         }
                         20 => {
-                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_20());
+                            clkctl0
+                                .syspll0ctl0()
+                                .modify(|w| w.set_mult(pac::clkctl0::vals::Mult::DIV_20));
                         }
                         22 => {
-                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_22());
+                            clkctl0
+                                .syspll0ctl0()
+                                .modify(|w| w.set_mult(pac::clkctl0::vals::Mult::DIV_22));
                         }
                         27 => {
-                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_27());
+                            clkctl0
+                                .syspll0ctl0()
+                                .modify(|w| w.set_mult(pac::clkctl0::vals::Mult::DIV_27));
                         }
                         33 => {
-                            clkctl0.syspll0ctl0().modify(|_r, w| w.mult().div_33());
+                            clkctl0
+                                .syspll0ctl0()
+                                .modify(|w| w.set_mult(pac::clkctl0::vals::Mult::DIV_33));
                         }
                         _ => return Err(ClockError::InvalidMult),
                     }
                     // Clear System PLL reset
-                    clkctl0.syspll0ctl0().modify(|_r, w| w.reset().normal());
+                    clkctl0
+                        .syspll0ctl0()
+                        .modify(|w| w.set_reset(pac::clkctl0::vals::Reset::NORMAL));
                     // Power up SYSPLL
-                    sysctl0
-                        .pdruncfg0_clr()
-                        .write(|w| w.syspllana_pd().clr_pdruncfg0().syspllldo_pd().clr_pdruncfg0());
+                    sysctl0.pdruncfg0_clr().write(|w| {
+                        w.set_syspllana_pd(pac::sysctl0::vals::Pdruncfg0ClrSyspllanaPd::CLR_PDRUNCFG0);
+                        w.set_syspllldo_pd(pac::sysctl0::vals::Pdruncfg0ClrSyspllldoPd::CLR_PDRUNCFG0);
+                    });
 
                     // Set System PLL HOLDRINGOFF_ENA
-                    clkctl0.syspll0ctl0().modify(|_, w| w.holdringoff_ena().enable());
+                    clkctl0
+                        .syspll0ctl0()
+                        .modify(|w| w.set_holdringoff_ena(pac::clkctl0::vals::HoldringoffEna::ENABLE));
                     delay_loop_clocks(75, desired_freq);
 
                     // Clear System PLL HOLDRINGOFF_ENA
-                    clkctl0.syspll0ctl0().modify(|_, w| w.holdringoff_ena().dsiable());
+                    clkctl0
+                        .syspll0ctl0()
+                        .modify(|w| w.set_holdringoff_ena(pac::clkctl0::vals::HoldringoffEna::DSIABLE));
                     delay_loop_clocks(15, desired_freq);
 
                     // gate the output and clear bits.
-                    // SAFETY: unsafe needed to write the bits for pfd0
-                    clkctl0
-                        .syspll0pfd()
-                        .modify(|_, w| unsafe { w.pfd0_clkgate().gated().pfd0().bits(0x0) });
+                    clkctl0.syspll0pfd().modify(|w| {
+                        w.set_pfd0_clkgate(true);
+                        w.set_pfd0(0x0);
+                    });
                     // set pfd bits and un-gate the clock output
                     // output is multiplied by syspll * 18/pfd0_bits
-                    // SAFETY: unsafe needed to write the bits for pfd0
-                    clkctl0
-                        .syspll0pfd()
-                        .modify(|_r, w| unsafe { w.pfd0_clkgate().not_gated().pfd0().bits(0x12) });
+                    clkctl0.syspll0pfd().modify(|w| {
+                        w.set_pfd0_clkgate(false);
+                        w.set_pfd0(0x12);
+                    });
                     // wait for ready bit to be set
                     delay_loop_clocks(50, desired_freq);
-                    while clkctl0.syspll0pfd().read().pfd0_clkrdy().bit_is_clear() {}
+                    while !clkctl0.syspll0pfd().read().pfd0_clkrdy() {}
                     // clear by writing a 1
-                    clkctl0.syspll0pfd().modify(|_, w| w.pfd0_clkrdy().set_bit());
+                    clkctl0.syspll0pfd().modify(|w| w.set_pfd0_clkrdy(true));
 
                     Ok(())
                 }
@@ -837,7 +879,7 @@ impl MainPllClkConfig {
     /// Calculate the mult value of a desired frequency, return error if invalid
     pub(self) fn calc_mult(rate: u32, base_freq: u32) -> Result<u8, ClockError> {
         const VALIDMULTS: [u8; 6] = [16, 17, 20, 22, 27, 33];
-        if rate > base_freq && rate % base_freq == 0 {
+        if rate > base_freq && rate.is_multiple_of(base_freq) {
             let mult = (rate / base_freq) as u8;
             if VALIDMULTS.into_iter().any(|i| i == mult) {
                 Ok(mult)
@@ -849,115 +891,120 @@ impl MainPllClkConfig {
         }
     }
     pub(self) fn init_syspll() {
-        // SAFETY: unsafe needed to take pointers to Sysctl0 and Clkctl0
-        let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-        let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
+        let clkctl0 = crate::pac::CLKCTL0;
+        let sysctl0 = crate::pac::SYSCTL0;
 
         // Power down SYSPLL before change fractional settings
-        sysctl0
-            .pdruncfg0_set()
-            .write(|w| w.syspllldo_pd().set_pdruncfg0().syspllana_pd().set_pdruncfg0());
+        sysctl0.pdruncfg0_set().write(|w| {
+            w.set_syspllldo_pd(pac::sysctl0::vals::Pdruncfg0SetSyspllldoPd::SET_PDRUNCFG0);
+            w.set_syspllana_pd(pac::sysctl0::vals::Pdruncfg0SetSyspllanaPd::SET_PDRUNCFG0);
+        });
 
-        clkctl0.syspll0clksel().write(|w| w.sel().ffro_div_2());
-        // SAFETY: unsafe needed to write the bits for both num and denom
-        clkctl0.syspll0num().write(|w| unsafe { w.num().bits(0x0) });
-        clkctl0.syspll0denom().write(|w| unsafe { w.denom().bits(0x1) });
+        clkctl0
+            .syspll0clksel()
+            .write(|w| w.set_sel(pac::clkctl0::vals::Syspll0clkselSel::FFRO_DIV_2));
+        clkctl0.syspll0num().write(|w| w.set_num(0x0));
+        clkctl0.syspll0denom().write(|w| w.set_denom(0x1));
 
         // kCLOCK_SysPllMult22
-        clkctl0.syspll0ctl0().modify(|_, w| w.mult().div_22());
+        clkctl0
+            .syspll0ctl0()
+            .modify(|w| w.set_mult(pac::clkctl0::vals::Mult::DIV_22));
 
         // Clear System PLL reset
-        clkctl0.syspll0ctl0().modify(|_, w| w.reset().normal());
+        clkctl0
+            .syspll0ctl0()
+            .modify(|w| w.set_reset(pac::clkctl0::vals::Reset::NORMAL));
 
         // Power up SYSPLL
-        sysctl0
-            .pdruncfg0_clr()
-            .write(|w| w.syspllldo_pd().clr_pdruncfg0().syspllana_pd().clr_pdruncfg0());
+        sysctl0.pdruncfg0_clr().write(|w| {
+            w.set_syspllldo_pd(pac::sysctl0::vals::Pdruncfg0ClrSyspllldoPd::CLR_PDRUNCFG0);
+            w.set_syspllana_pd(pac::sysctl0::vals::Pdruncfg0ClrSyspllanaPd::CLR_PDRUNCFG0);
+        });
         delay_loop_clocks((150 & 0xFFFF) / 2, 12_000_000);
 
         // Set System PLL HOLDRINGOFF_ENA
-        clkctl0.syspll0ctl0().modify(|_, w| w.holdringoff_ena().enable());
+        clkctl0
+            .syspll0ctl0()
+            .modify(|w| w.set_holdringoff_ena(pac::clkctl0::vals::HoldringoffEna::ENABLE));
         delay_loop_clocks((150 & 0xFFFF) / 2, 12_000_000);
 
         // Clear System PLL HOLDRINGOFF_ENA
-        clkctl0.syspll0ctl0().modify(|_, w| w.holdringoff_ena().dsiable());
+        clkctl0
+            .syspll0ctl0()
+            .modify(|w| w.set_holdringoff_ena(pac::clkctl0::vals::HoldringoffEna::DSIABLE));
         delay_loop_clocks((15 & 0xFFFF) / 2, 12_000_000);
     }
     /// enables default settings for pfd2 bits
     pub(self) fn init_syspll_pfd2(config_bits: u8) {
-        // SAFETY: unsafe needed to take pointer to Clkctl0 and write specific bits
-        // needed to change the output of pfd0
-        unsafe {
-            let clkctl0 = crate::pac::Clkctl0::steal();
+        let clkctl0 = crate::pac::CLKCTL0;
 
-            // Disable the clock output first.
-            // SAFETY: unsafe needed to write the bits for pfd2
-            clkctl0
-                .syspll0pfd()
-                .modify(|_, w| w.pfd2_clkgate().gated().pfd2().bits(0x0));
+        // Disable the clock output first.
+        clkctl0.syspll0pfd().modify(|w| {
+            w.set_pfd2_clkgate(true);
+            w.set_pfd2(0x0);
+        });
 
-            // Set the new value and enable output.
-            // SAFETY: unsafe needed to write the bits for pfd2
-            clkctl0
-                .syspll0pfd()
-                .modify(|_, w| w.pfd2_clkgate().not_gated().pfd2().bits(config_bits));
+        // Set the new value and enable output.
+        clkctl0.syspll0pfd().modify(|w| {
+            w.set_pfd2_clkgate(false);
+            w.set_pfd2(config_bits);
+        });
 
-            // Wait for output becomes stable.
-            while clkctl0.syspll0pfd().read().pfd2_clkrdy().bit_is_clear() {}
+        // Wait for output becomes stable.
+        while !clkctl0.syspll0pfd().read().pfd2_clkrdy() {}
 
-            // Clear ready status flag.
-            clkctl0.syspll0pfd().modify(|_, w| w.pfd2_clkrdy().clear_bit());
-        }
+        // Clear ready status flag.
+        clkctl0.syspll0pfd().modify(|w| w.set_pfd2_clkrdy(false));
     }
     /// Enables default settings for pfd0
     pub(self) fn init_syspll_pfd0(config_bits: u8) {
-        // SAFETY: unsafe needed to take pointer to Clkctl0 and write specific bits
-        // needed to change the output of pfd0
-        unsafe {
-            let clkctl0 = crate::pac::Clkctl0::steal();
-            // Disable the clock output first
-            clkctl0
-                .syspll0pfd()
-                .modify(|_, w| w.pfd0_clkgate().gated().pfd0().bits(0x0));
+        let clkctl0 = crate::pac::CLKCTL0;
+        // Disable the clock output first
+        clkctl0.syspll0pfd().modify(|w| {
+            w.set_pfd0_clkgate(true);
+            w.set_pfd0(0x0);
+        });
 
-            // Set the new value and enable output
-            clkctl0
-                .syspll0pfd()
-                .modify(|_, w| w.pfd0_clkgate().not_gated().pfd0().bits(config_bits));
+        // Set the new value and enable output
+        clkctl0.syspll0pfd().modify(|w| {
+            w.set_pfd0_clkgate(false);
+            w.set_pfd0(config_bits);
+        });
 
-            // Wait for output becomes stable
-            while clkctl0.syspll0pfd().read().pfd0_clkrdy().bit_is_clear() {}
+        // Wait for output becomes stable
+        while !clkctl0.syspll0pfd().read().pfd0_clkrdy() {}
 
-            // Clear ready status flag
-            clkctl0.syspll0pfd().modify(|_, w| w.pfd0_clkrdy().clear_bit());
-        }
+        // Clear ready status flag
+        clkctl0.syspll0pfd().modify(|w| w.set_pfd0_clkrdy(false));
     }
 }
 
 impl MainClkConfig {
     fn init_main_clk() {
-        // SAFETY:: unsafe needed to take pointers to Clkctl0 and Clkctl1
         // used to set the right HW frequency
-        let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-        let clkctl1 = unsafe { crate::pac::Clkctl1::steal() };
+        let clkctl0 = crate::pac::CLKCTL0;
+        let clkctl1 = crate::pac::CLKCTL1;
 
-        clkctl0.mainclkselb().write(|w| w.sel().main_pll_clk());
+        clkctl0
+            .mainclkselb()
+            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselbSel::MAIN_PLL_CLK));
 
         // Set PFC0DIV divider to value 2, Subtract 1 since 0-> 1, 1-> 2, etc...
-        clkctl0.pfcdiv(0).modify(|_, w| w.reset().set_bit());
-        // SAFETY: unsafe needed to write the bits for pfcdiv
-        clkctl0
-            .pfcdiv(0)
-            .write(|w| unsafe { w.div().bits(2 - 1).halt().clear_bit() });
-        while clkctl0.pfcdiv(0).read().reqflag().bit_is_set() {}
+        clkctl0.pfcdiv(0).modify(|w| w.set_reset(true));
+        clkctl0.pfcdiv(0).write(|w| {
+            w.set_div(2 - 1);
+            w.set_halt(false);
+        });
+        while clkctl0.pfcdiv(0).read().reqflag() {}
 
         // Set FRGPLLCLKDIV divider to value 12, Subtract 1 since 0-> 1, 1-> 2, etc...
-        clkctl1.frgpllclkdiv().modify(|_, w| w.reset().set_bit());
-        // SAFETY: unsafe needed to write the bits for frgpllclkdiv
-        clkctl1
-            .frgpllclkdiv()
-            .write(|w| unsafe { w.div().bits(12 - 1).halt().clear_bit() });
-        while clkctl1.frgpllclkdiv().read().reqflag().bit_is_set() {}
+        clkctl1.frgpllclkdiv().modify(|w| w.set_reset(true));
+        clkctl1.frgpllclkdiv().write(|w| {
+            w.set_div(12 - 1);
+            w.set_halt(false);
+        });
+        while clkctl1.frgpllclkdiv().read().reqflag() {}
     }
 }
 impl MultiSourceClock for MainClkConfig {
@@ -968,15 +1015,15 @@ impl MultiSourceClock for MainClkConfig {
                 let converted_clock = Clocks::from(self.src);
                 match ConfigurableClock::get_clock_rate(self) {
                     Ok(_rate) => {
-                        // SAFETY: unsafe needed to take pointer to Clkctl0
                         // needed to calculate the clock rate from the bits written in the registers
-                        let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-                        if self.src == MainClkSrc::PllMain && clkctl0.syspll0ctl0().read().bypass().is_programmed_clk()
+                        let clkctl0 = crate::pac::CLKCTL0;
+                        if self.src == MainClkSrc::PllMain
+                            && clkctl0.syspll0ctl0().read().bypass() == pac::clkctl0::vals::Bypass::PROGRAMMED_CLK
                         {
                             let mut temp;
                             temp = self.freq.load(Ordering::Relaxed)
-                                * u32::from(clkctl0.syspll0ctl0().read().mult().bits());
-                            temp = (u64::from(temp) * 18 / u64::from(clkctl0.syspll0pfd().read().pfd0().bits())) as u32;
+                                * u32::from(clkctl0.syspll0ctl0().read().mult().to_bits());
+                            temp = (u64::from(temp) * 18 / u64::from(clkctl0.syspll0pfd().read().pfd0())) as u32;
                             return Ok((converted_clock, temp));
                         }
                         Ok((converted_clock, self.freq.load(Ordering::Relaxed) / div))
@@ -997,15 +1044,18 @@ impl MultiSourceClock for MainClkConfig {
             return Err(ClockError::ClockNotEnabled);
         }
         if let Ok(c) = <Clocks as TryInto<MainClkSrc>>::try_into(*clock_src) {
-            // SAFETY: unsafe needed to take pointer to Clkctl0
             // needed to change the clock source
-            let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
+            let clkctl0 = crate::pac::CLKCTL0;
             match c {
                 MainClkSrc::ClkIn => {
                     self.src = MainClkSrc::ClkIn;
 
-                    clkctl0.mainclksela().write(|w| w.sel().sysxtal_clk());
-                    clkctl0.mainclkselb().write(|w| w.sel().main_1st_clk());
+                    clkctl0
+                        .mainclksela()
+                        .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselaSel::SYSXTAL_CLK));
+                    clkctl0
+                        .mainclkselb()
+                        .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselbSel::MAIN_1ST_CLK));
                     Ok(())
                 }
                 // the following will yield the same result as if compared to FFROdiv4
@@ -1014,16 +1064,24 @@ impl MultiSourceClock for MainClkConfig {
                         self.src = MainClkSrc::FFROdiv4;
                         self.freq.store(div4, Ordering::Relaxed);
 
-                        clkctl0.mainclksela().write(|w| w.sel().ffro_div_4());
-                        clkctl0.mainclkselb().write(|w| w.sel().main_1st_clk());
+                        clkctl0
+                            .mainclksela()
+                            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselaSel::FFRO_DIV_4));
+                        clkctl0
+                            .mainclkselb()
+                            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselbSel::MAIN_1ST_CLK));
                         Ok(())
                     }
                     div1 if div1 == FfroFreq::Ffro60m as u32 || div1 == FfroFreq::Ffro48m as u32 => {
                         self.src = MainClkSrc::FFRO;
                         self.freq.store(div1, Ordering::Relaxed);
 
-                        clkctl0.mainclksela().write(|w| w.sel().ffro_clk());
-                        clkctl0.mainclkselb().write(|w| w.sel().main_1st_clk());
+                        clkctl0
+                            .mainclksela()
+                            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselaSel::FFRO_CLK));
+                        clkctl0
+                            .mainclkselb()
+                            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselbSel::MAIN_1ST_CLK));
                         Ok(())
                     }
                     _ => Err(ClockError::InvalidFrequency),
@@ -1035,8 +1093,12 @@ impl MultiSourceClock for MainClkConfig {
                                 self.src = MainClkSrc::Lposc;
                                 self.freq.store(rate, Ordering::Relaxed);
 
-                                clkctl0.mainclksela().write(|w| w.sel().lposc());
-                                clkctl0.mainclkselb().write(|w| w.sel().main_1st_clk());
+                                clkctl0
+                                    .mainclksela()
+                                    .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselaSel::LPOSC));
+                                clkctl0
+                                    .mainclkselb()
+                                    .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselbSel::MAIN_1ST_CLK));
                                 Ok(())
                             }
                             LposcFreq::Lp32k => Err(ClockError::InvalidFrequency),
@@ -1049,7 +1111,9 @@ impl MultiSourceClock for MainClkConfig {
                     if rate == SFRO_FREQ {
                         self.src = MainClkSrc::SFRO;
                         self.freq.store(rate, Ordering::Relaxed);
-                        clkctl0.mainclkselb().write(|w| w.sel().sfro_clk());
+                        clkctl0
+                            .mainclkselb()
+                            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselbSel::SFRO_CLK));
                         Ok(())
                     } else {
                         Err(ClockError::InvalidFrequency)
@@ -1061,7 +1125,9 @@ impl MultiSourceClock for MainClkConfig {
                     let pll_max = 572_000_000;
                     let pll_min = 80_000_000;
                     if pll_min <= r && r <= pll_max {
-                        clkctl0.mainclkselb().write(|w| w.sel().main_pll_clk());
+                        clkctl0
+                            .mainclkselb()
+                            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselbSel::MAIN_PLL_CLK));
                         self.src = MainClkSrc::PllMain;
                         self.freq.store(r, Ordering::Relaxed);
                         Ok(())
@@ -1073,7 +1139,9 @@ impl MultiSourceClock for MainClkConfig {
                     if rate == RtcFreq::SubSecond32kHz as u32 {
                         self.src = MainClkSrc::RTC32k;
                         self.freq.store(rate, Ordering::Relaxed);
-                        clkctl0.mainclkselb().write(|w| w.sel().rtc_32k_clk());
+                        clkctl0
+                            .mainclkselb()
+                            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselbSel::RTC_32K_CLK));
                         Ok(())
                     } else {
                         Err(ClockError::InvalidFrequency)
@@ -1134,27 +1202,29 @@ impl ConfigurableClock for ClkInConfig {
 impl RtcClkConfig {
     /// Register writes to initialize the RTC Clock
     fn init_rtc_clk() {
-        // SAFETY: unsafe needed to take pointer to Clkctl0, Clkctl1, and RTC
         // needed to enable the RTC HW
-        let cc0 = unsafe { pac::Clkctl0::steal() };
-        let cc1 = unsafe { pac::Clkctl1::steal() };
-        let r = unsafe { pac::Rtc::steal() };
+        let cc0 = pac::CLKCTL0;
+        let cc1 = pac::CLKCTL1;
+        let r = pac::RTC;
         // Enable the RTC peripheral clock
-        cc1.pscctl2_set().write(|w| w.rtc_lite_clk_set().set_clock());
+        cc1.pscctl2_set()
+            .write(|w| w.set_rtc_lite_clk_set(pac::clkctl1::vals::RtcLiteClkSet::SET_CLOCK));
         // Make sure the reset bit is cleared amd RTC OSC is powered up
-        r.ctrl().modify(|_, w| w.swreset().not_in_reset().rtc_osc_pd().enable());
+        r.ctrl().modify(|w| {
+            w.set_swreset(false);
+            w.set_rtc_osc_pd(pac::rtc::vals::RtcOscPd::ENABLE);
+        });
 
         // set initial match value, note that with a 15 bit count-down timer this would
         // typically be 0x8000, but we are "doing some clever things" in time-driver.rs,
         // read more about it in the comments there
-        // SAFETY: unsafe needed to write the bits
-        r.wake().write(|w| unsafe { w.bits(0xA) });
+        r.wake().write_value(pac::rtc::regs::Wake(0xA));
 
         // Enable 32K OSC
-        cc0.osc32khzctl0().write(|w| w.ena32khz().enabled());
+        cc0.osc32khzctl0().write(|w| w.set_ena32khz(true));
 
         // enable rtc clk
-        r.ctrl().modify(|_, w| w.rtc_en().enable());
+        r.ctrl().modify(|w| w.set_rtc_en(true));
     }
 }
 
@@ -1169,28 +1239,27 @@ impl ConfigurableClock for RtcClkConfig {
     }
     fn set_clock_rate(&mut self, _div: u8, _mult: u8, freq: u32) -> Result<(), ClockError> {
         if let Ok(r) = <u32 as TryInto<RtcFreq>>::try_into(freq) {
-            // SAFETY: unsafe needed to take pointer to RTC
             // needed to enable the HW for the different RTC frequencies, powered down by default
-            let rtc = unsafe { crate::pac::Rtc::steal() };
+            let rtc = crate::pac::RTC;
             match r {
                 RtcFreq::Default1Hz => {
-                    if rtc.ctrl().read().rtc_en().is_enable() {
+                    if rtc.ctrl().read().rtc_en() {
                     } else {
-                        rtc.ctrl().modify(|_r, w| w.rtc_en().enable());
+                        rtc.ctrl().modify(|w| w.set_rtc_en(true));
                     }
                     Ok(())
                 }
                 RtcFreq::HighResolution1khz => {
-                    if rtc.ctrl().read().rtc1khz_en().is_enable() {
+                    if rtc.ctrl().read().rtc1khz_en() {
                     } else {
-                        rtc.ctrl().modify(|_r, w| w.rtc1khz_en().enable());
+                        rtc.ctrl().modify(|w| w.set_rtc1khz_en(true));
                     }
                     Ok(())
                 }
                 RtcFreq::SubSecond32kHz => {
-                    if rtc.ctrl().read().rtc_subsec_ena().is_enable() {
+                    if rtc.ctrl().read().rtc_subsec_ena() {
                     } else {
-                        rtc.ctrl().modify(|_r, w| w.rtc_subsec_ena().enable());
+                        rtc.ctrl().modify(|w| w.set_rtc_subsec_ena(true));
                     }
                     Ok(())
                 }
@@ -1227,36 +1296,47 @@ impl ConfigurableClock for SysOscConfig {
             return Ok(());
         }
 
-        // SAFETY: unsafe needed to take pointers to Sysctl0 and Clkctl0, needed to modify clock HW
-        let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-        let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
+        let clkctl0 = crate::pac::CLKCTL0;
+        let sysctl0 = crate::pac::SYSCTL0;
 
         // Let CPU run on ffro for safe switching
-        clkctl0.mainclksela().write(|w| w.sel().ffro_clk());
-        clkctl0.mainclksela().write(|w| w.sel().ffro_div_4());
+        clkctl0
+            .mainclksela()
+            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselaSel::FFRO_CLK));
+        clkctl0
+            .mainclksela()
+            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselaSel::FFRO_DIV_4));
 
         // Power on SYSXTAL
-        sysctl0.pdruncfg0_clr().write(|w| w.sysxtal_pd().clr_pdruncfg0());
+        sysctl0
+            .pdruncfg0_clr()
+            .write(|w| w.set_sysxtal_pd(pac::sysctl0::vals::Pdruncfg0ClrSysxtalPd::CLR_PDRUNCFG0));
 
         // Enable system OSC
-        clkctl0
-            .sysoscctl0()
-            .write(|w| w.lp_enable().lp().bypass_enable().normal_mode());
+        clkctl0.sysoscctl0().write(|w| {
+            w.set_lp_enable(pac::clkctl0::vals::LpEnable::LP);
+            w.set_bypass_enable(pac::clkctl0::vals::BypassEnable::NORMAL_MODE);
+        });
 
         delay_loop_clocks(260, SYS_OSC_DEFAULT_FREQ.into());
         Ok(())
     }
     fn disable(&self) -> Result<(), ClockError> {
-        // SAFETY: unsafe needed to take pointers to Sysctl0 and Clkctl0, needed to modify clock HW
-        let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-        let sysctl0 = unsafe { crate::pac::Sysctl0::steal() };
+        let clkctl0 = crate::pac::CLKCTL0;
+        let sysctl0 = crate::pac::SYSCTL0;
 
         // Let CPU run on ffro for safe switching
-        clkctl0.mainclksela().write(|w| w.sel().ffro_clk());
-        clkctl0.mainclksela().write(|w| w.sel().ffro_div_4());
+        clkctl0
+            .mainclksela()
+            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselaSel::FFRO_CLK));
+        clkctl0
+            .mainclksela()
+            .write(|w| w.set_sel(pac::clkctl0::vals::MainclkselaSel::FFRO_DIV_4));
 
         // Power on SYSXTAL
-        sysctl0.pdruncfg0_set().write(|w| w.sysxtal_pd().set_pdruncfg0());
+        sysctl0
+            .pdruncfg0_set()
+            .write(|w| w.set_sysxtal_pd(pac::sysctl0::vals::Pdruncfg0SetSysxtalPd::SET_PDRUNCFG0));
         Ok(())
     }
     fn get_clock_rate(&self) -> Result<u32, ClockError> {
@@ -1286,31 +1366,23 @@ pub fn delay_loop_clocks(usec: u64, freq_mhz: u64) {
 
 /// Configure the pad voltage pmc registers for all 3 vddio ranges
 fn set_pad_voltage_range() {
-    // SAFETY: unsafe needed to take pointer to PNC as well as to write specific bits
-    unsafe {
-        let pmc = crate::pac::Pmc::steal();
-        // Set up IO voltages
-        // all 3 ranges need to be 1.71-1.98V which is 01
-        pmc.padvrange().write(|w| {
-            w.vddio_0range()
-                .bits(0b01)
-                .vddio_1range()
-                .bits(0b01)
-                .vddio_2range()
-                .bits(0b01)
-        });
-    }
+    let pmc = crate::pac::PMC;
+    // Set up IO voltages
+    // all 3 ranges need to be 1.71-1.98V which is 01
+    pmc.padvrange().write(|w| {
+        w.set_vddio_0range(pac::pmc::vals::Vddio0range::from_bits(0b01));
+        w.set_vddio_1range(pac::pmc::vals::Vddio1range::from_bits(0b01));
+        w.set_vddio_2range(pac::pmc::vals::Vddio2range::from_bits(0b01));
+    });
 }
 
 /// Initialize AHB clock
 fn init_syscpuahb_clk() {
-    // SAFETY: unsafe needed to take pointer to Clkctl0
-    let clkctl0 = unsafe { crate::pac::Clkctl0::steal() };
-    // SAFETY: unsafe needed to write the bits
+    let clkctl0 = crate::pac::CLKCTL0;
     // Set syscpuahbclkdiv to value 2, Subtract 1 since 0-> 1, 1-> 2, etc...
-    clkctl0.syscpuahbclkdiv().write(|w| unsafe { w.div().bits(2 - 1) });
+    clkctl0.syscpuahbclkdiv().write(|w| w.set_div(2 - 1));
 
-    while clkctl0.syscpuahbclkdiv().read().reqflag().bit_is_set() {}
+    while clkctl0.syscpuahbclkdiv().read().reqflag() {}
 }
 
 /// `ClockOut` config
@@ -1377,60 +1449,85 @@ impl ClockOutConfig {
 
     /// Set the source of the Clock Out pin
     fn set_clkout_source(&mut self, src: ClkOutSrc) -> Result<(), ClockError> {
-        // SAFETY: unsafe needed to take pointers to Clkctl1, needed to set source in HW
-        let cc1 = unsafe { pac::Clkctl1::steal() };
+        let cc1 = pac::CLKCTL1;
         match src {
             ClkOutSrc::None => {
-                cc1.clkoutsel0().write(|w| w.sel().none());
-                cc1.clkoutsel1().write(|w| w.sel().none());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::NONE));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::NONE));
             }
             ClkOutSrc::Sfro => {
-                cc1.clkoutsel0().write(|w| w.sel().sfro_clk());
-                cc1.clkoutsel1().write(|w| w.sel().clkoutsel0_output());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::SFRO_CLK));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::CLKOUTSEL0_OUTPUT));
             }
             ClkOutSrc::ClkIn => {
-                cc1.clkoutsel0().write(|w| w.sel().xtalin_clk());
-                cc1.clkoutsel1().write(|w| w.sel().clkoutsel0_output());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::XTALIN_CLK));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::CLKOUTSEL0_OUTPUT));
             }
             ClkOutSrc::Lposc => {
-                cc1.clkoutsel0().write(|w| w.sel().lposc());
-                cc1.clkoutsel1().write(|w| w.sel().clkoutsel0_output());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::LPOSC));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::CLKOUTSEL0_OUTPUT));
             }
             ClkOutSrc::Ffro => {
-                cc1.clkoutsel0().write(|w| w.sel().ffro_clk());
-                cc1.clkoutsel1().write(|w| w.sel().clkoutsel0_output());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::FFRO_CLK));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::CLKOUTSEL0_OUTPUT));
             }
             ClkOutSrc::MainClk => {
-                cc1.clkoutsel0().write(|w| w.sel().main_clk());
-                cc1.clkoutsel1().write(|w| w.sel().clkoutsel0_output());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::MAIN_CLK));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::CLKOUTSEL0_OUTPUT));
             }
             ClkOutSrc::DspMainClk => {
-                cc1.clkoutsel0().write(|w| w.sel().dsp_main_clk());
-                cc1.clkoutsel1().write(|w| w.sel().clkoutsel0_output());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::DSP_MAIN_CLK));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::CLKOUTSEL0_OUTPUT));
             }
             ClkOutSrc::MainPllClk => {
-                cc1.clkoutsel0().write(|w| w.sel().none());
-                cc1.clkoutsel1().write(|w| w.sel().main_pll_clk());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::NONE));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::MAIN_PLL_CLK));
             }
             ClkOutSrc::Aux0PllClk => {
-                cc1.clkoutsel0().write(|w| w.sel().none());
-                cc1.clkoutsel1().write(|w| w.sel().syspll0_aux0_pll_clk());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::NONE));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::SYSPLL0_AUX0_PLL_CLK));
             }
             ClkOutSrc::DspPllClk => {
-                cc1.clkoutsel0().write(|w| w.sel().none());
-                cc1.clkoutsel1().write(|w| w.sel().dsp_pll_clk());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::NONE));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::DSP_PLL_CLK));
             }
             ClkOutSrc::AudioPllClk => {
-                cc1.clkoutsel0().write(|w| w.sel().none());
-                cc1.clkoutsel1().write(|w| w.sel().audio_pll_clk());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::NONE));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::AUDIO_PLL_CLK));
             }
             ClkOutSrc::Aux1PllClk => {
-                cc1.clkoutsel0().write(|w| w.sel().none());
-                cc1.clkoutsel1().write(|w| w.sel().syspll0_aux1_pll_clk());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::NONE));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::SYSPLL0_AUX1_PLL_CLK));
             }
             ClkOutSrc::RTC32k => {
-                cc1.clkoutsel0().write(|w| w.sel().none());
-                cc1.clkoutsel1().write(|w| w.sel().rtc_clk_32khz());
+                cc1.clkoutsel0()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel0Sel::NONE));
+                cc1.clkoutsel1()
+                    .write(|w| w.set_sel(pac::clkctl1::vals::Clkoutsel1Sel::RTC_CLK_32KHZ));
             }
         }
         self.src = src;
@@ -1438,17 +1535,19 @@ impl ClockOutConfig {
     }
     /// set the clock out divider
     /// note that 1 will be added to div when mapping to the divider
-    /// so bits(0) -> divide by 1
+    /// so set_div(0) -> divide by 1
     /// ...
-    /// bits(255)-> divide by 256
+    /// set_div(255)-> divide by 256
     pub fn set_clkout_divider(&self, div: u8) -> Result<(), ClockError> {
         // don't wait for clock to be ready if there's no source
         if self.src != ClkOutSrc::None {
-            let cc1 = unsafe { pac::Clkctl1::steal() };
+            let cc1 = pac::CLKCTL1;
 
-            cc1.clkoutdiv()
-                .modify(|_, w| unsafe { w.div().bits(div).halt().clear_bit() });
-            while cc1.clkoutdiv().read().reqflag().bit_is_set() {}
+            cc1.clkoutdiv().modify(|w| {
+                w.set_div(div);
+                w.set_halt(false);
+            });
+            while cc1.clkoutdiv().read().reqflag() {}
         }
         Ok(())
     }
@@ -1464,47 +1563,29 @@ impl ClockOutConfig {
 
 /// Using the config, enables all desired clocks to desired clock rates
 fn init_clock_hw(config: ClockConfig) -> Result<(), ClockError> {
-    if let Err(e) = config.rtc.enable_and_reset() {
-        return Err(e);
-    }
-
-    if let Err(e) = config.lposc.enable_and_reset() {
-        return Err(e);
-    }
-
-    if let Err(e) = config.ffro.enable_and_reset() {
-        return Err(e);
-    }
-
-    if let Err(e) = config.sfro.enable_and_reset() {
-        return Err(e);
-    }
-
-    if let Err(e) = config.sys_osc.enable_and_reset() {
-        return Err(e);
-    }
-
-    if let Err(e) = config.main_pll_clk.enable_and_reset() {
-        return Err(e);
-    }
+    config.rtc.enable_and_reset()?;
+    config.lposc.enable_and_reset()?;
+    config.ffro.enable_and_reset()?;
+    config.sfro.enable_and_reset()?;
+    config.sys_osc.enable_and_reset()?;
+    config.main_pll_clk.enable_and_reset()?;
 
     // Move FLEXSPI clock source from main clock to FFRO to avoid instruction/data fetch issue in XIP when
     // updating PLL and main clock.
-    // SAFETY: unsafe needed to take pointers to Clkctl0
-    let cc0 = unsafe { pac::Clkctl0::steal() };
-    cc0.flexspifclksel().write(|w| w.sel().ffro_clk());
+    let cc0 = pac::CLKCTL0;
+    cc0.flexspifclksel()
+        .write(|w| w.set_sel(pac::clkctl0::vals::FlexspifclkselSel::FFRO_CLK));
 
     // Move ESPI clock source to FFRO
     #[cfg(feature = "_espi")]
     {
-        cc0.espiclksel().write(|w| w.sel().use_48_60m());
+        cc0.espifclksel0()
+            .write(|w| w.set_sel(pac::clkctl0::vals::Espifclksel0Sel::FFRO_CLK));
     }
 
     init_syscpuahb_clk();
 
-    if let Err(e) = config.main_clk.enable_and_reset() {
-        return Err(e);
-    }
+    config.main_clk.enable_and_reset()?;
 
     config.sys_clk.update_sys_core_clock();
     Ok(())
@@ -1561,32 +1642,26 @@ macro_rules! impl_perph_clk {
     ($peripheral:ident, $clkctl:ident, $clkreg:ident, $rstctl:ident, $rstreg:ident, $bit:expr) => {
         impl SealedSysconPeripheral for crate::peripherals::$peripheral {
             fn enable_perph_clock() {
-                // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
-                let cc1 = unsafe { pac::$clkctl::steal() };
+                let cc1 = pac::$clkctl;
 
                 paste! {
-                    // SAFETY: unsafe due to the use of bits()
-                    cc1.[<$clkreg _set>]().write(|w| unsafe { w.bits(1 << $bit) });
+                    cc1.[<$clkreg _set>]().write(|w| w.0 = 1 << $bit);
                 }
             }
 
             fn reset_perph() {
-                // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
-                let rc1 = unsafe { pac::$rstctl::steal() };
+                let rc1 = pac::$rstctl;
 
                 paste! {
-                    // SAFETY: unsafe due to the use of bits()
-                    rc1.[<$rstreg _clr>]().write(|w| unsafe { w.bits(1 << $bit) });
+                    rc1.[<$rstreg _clr>]().write(|w| w.0 = 1 << $bit);
                 }
             }
 
             fn disable_perph_clock() {
-                // SAFETY: unsafe needed to take pointers to Rstctl1 and Clkctl1
-                let cc1 = unsafe { pac::$clkctl::steal() };
+                let cc1 = pac::$clkctl;
 
                 paste! {
-                    // SAFETY: unsafe due to the use of bits()
-                    cc1.[<$clkreg _clr>]().write(|w| unsafe { w.bits(1 << $bit) });
+                    cc1.[<$clkreg _clr>]().write(|w| w.0 = 1 << $bit);
                 }
             }
         }
@@ -1596,66 +1671,66 @@ macro_rules! impl_perph_clk {
 }
 
 // These should enabled once the relevant peripherals are implemented.
-// impl_perph_clk!(GPIOINTCTL, Clkctl1, pscctl2, Rstctl1, prstctl2, 30);
-// impl_perph_clk!(OTP, Clkctl0, pscctl0, Rstctl0, prstctl0, 17);
+// impl_perph_clk!(GPIOINTCTL, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 30);
+// impl_perph_clk!(OTP, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 17);
 
-// impl_perph_clk!(ROM_CTL_128KB, Clkctl0, pscctl0, Rstctl0, prstctl0, 2);
-// impl_perph_clk!(USBHS_SRAM, Clkctl0, pscctl0, Rstctl0, prstctl0, 23);
+// impl_perph_clk!(ROM_CTL_128KB, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 2);
+// impl_perph_clk!(USBHS_SRAM, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 23);
 
-impl_perph_clk!(PIMCTL, Clkctl1, pscctl2, Rstctl1, prstctl2, 31);
-impl_perph_clk!(ACMP, Clkctl0, pscctl1, Rstctl0, prstctl1, 15);
-impl_perph_clk!(ADC0, Clkctl0, pscctl1, Rstctl0, prstctl1, 16);
-impl_perph_clk!(CASPER, Clkctl0, pscctl0, Rstctl0, prstctl0, 9);
-impl_perph_clk!(CRC, Clkctl1, pscctl1, Rstctl1, prstctl1, 16);
-impl_perph_clk!(CTIMER0_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 0);
-impl_perph_clk!(CTIMER1_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 1);
-impl_perph_clk!(CTIMER2_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 2);
-impl_perph_clk!(CTIMER3_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 3);
-impl_perph_clk!(CTIMER4_COUNT_CHANNEL0, Clkctl1, pscctl2, Rstctl1, prstctl2, 4);
-impl_perph_clk!(DMA0, Clkctl1, pscctl1, Rstctl1, prstctl1, 23);
-impl_perph_clk!(DMA1, Clkctl1, pscctl1, Rstctl1, prstctl1, 24);
-impl_perph_clk!(DMIC0, Clkctl1, pscctl0, Rstctl1, prstctl0, 24);
+impl_perph_clk!(PIMCTL, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 31);
+impl_perph_clk!(ACMP, CLKCTL0, pscctl1, RSTCTL0, prstctl1, 15);
+impl_perph_clk!(ADC0, CLKCTL0, pscctl1, RSTCTL0, prstctl1, 16);
+impl_perph_clk!(CASPER, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 9);
+impl_perph_clk!(CRC, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 16);
+impl_perph_clk!(CTIMER0_COUNT_CHANNEL0, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 0);
+impl_perph_clk!(CTIMER1_COUNT_CHANNEL0, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 1);
+impl_perph_clk!(CTIMER2_COUNT_CHANNEL0, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 2);
+impl_perph_clk!(CTIMER3_COUNT_CHANNEL0, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 3);
+impl_perph_clk!(CTIMER4_COUNT_CHANNEL0, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 4);
+impl_perph_clk!(DMA0, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 23);
+impl_perph_clk!(DMA1, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 24);
+impl_perph_clk!(DMIC0, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 24);
 
 #[cfg(feature = "_espi")]
-impl_perph_clk!(ESPI, Clkctl0, pscctl1, Rstctl0, prstctl1, 7);
+impl_perph_clk!(ESPI, CLKCTL0, pscctl1, RSTCTL0, prstctl1, 7);
 
-impl_perph_clk!(FLEXCOMM0, Clkctl1, pscctl0, Rstctl1, prstctl0, 8);
-impl_perph_clk!(FLEXCOMM1, Clkctl1, pscctl0, Rstctl1, prstctl0, 9);
-impl_perph_clk!(FLEXCOMM14, Clkctl1, pscctl0, Rstctl1, prstctl0, 22);
-impl_perph_clk!(FLEXCOMM15, Clkctl1, pscctl0, Rstctl1, prstctl0, 23);
-impl_perph_clk!(FLEXCOMM2, Clkctl1, pscctl0, Rstctl1, prstctl0, 10);
-impl_perph_clk!(FLEXCOMM3, Clkctl1, pscctl0, Rstctl1, prstctl0, 11);
-impl_perph_clk!(FLEXCOMM4, Clkctl1, pscctl0, Rstctl1, prstctl0, 12);
-impl_perph_clk!(FLEXCOMM5, Clkctl1, pscctl0, Rstctl1, prstctl0, 13);
-impl_perph_clk!(FLEXCOMM6, Clkctl1, pscctl0, Rstctl1, prstctl0, 14);
-impl_perph_clk!(FLEXCOMM7, Clkctl1, pscctl0, Rstctl1, prstctl0, 15);
-impl_perph_clk!(FLEXSPI, Clkctl0, pscctl0, Rstctl0, prstctl0, 16);
-impl_perph_clk!(FREQME, Clkctl1, pscctl1, Rstctl1, prstctl1, 31);
-impl_perph_clk!(HASHCRYPT, Clkctl0, pscctl0, Rstctl0, prstctl0, 10);
-impl_perph_clk!(HSGPIO0, Clkctl1, pscctl1, Rstctl1, prstctl1, 0);
-impl_perph_clk!(HSGPIO1, Clkctl1, pscctl1, Rstctl1, prstctl1, 1);
-impl_perph_clk!(HSGPIO2, Clkctl1, pscctl1, Rstctl1, prstctl1, 2);
-impl_perph_clk!(HSGPIO3, Clkctl1, pscctl1, Rstctl1, prstctl1, 3);
-impl_perph_clk!(HSGPIO4, Clkctl1, pscctl1, Rstctl1, prstctl1, 4);
-impl_perph_clk!(HSGPIO5, Clkctl1, pscctl1, Rstctl1, prstctl1, 5);
-impl_perph_clk!(HSGPIO6, Clkctl1, pscctl1, Rstctl1, prstctl1, 6);
-impl_perph_clk!(HSGPIO7, Clkctl1, pscctl1, Rstctl1, prstctl1, 7);
-impl_perph_clk!(I3C0, Clkctl1, pscctl2, Rstctl1, prstctl2, 16);
-impl_perph_clk!(MRT0, Clkctl1, pscctl2, Rstctl1, prstctl2, 8);
-impl_perph_clk!(MU_A, Clkctl1, pscctl1, Rstctl1, prstctl1, 28);
-impl_perph_clk!(OS_EVENT, Clkctl1, pscctl0, Rstctl1, prstctl0, 27);
-impl_perph_clk!(POWERQUAD, Clkctl0, pscctl0, Rstctl0, prstctl0, 8);
-impl_perph_clk!(PUF, Clkctl0, pscctl0, Rstctl0, prstctl0, 11);
-impl_perph_clk!(RNG, Clkctl0, pscctl0, Rstctl0, prstctl0, 12);
-impl_perph_clk!(RTC, Clkctl1, pscctl2, Rstctl1, prstctl2, 7);
-impl_perph_clk!(SCT0, Clkctl0, pscctl0, Rstctl0, prstctl0, 24);
-impl_perph_clk!(SECGPIO, Clkctl0, pscctl1, Rstctl0, prstctl1, 24);
-impl_perph_clk!(SEMA42, Clkctl1, pscctl1, Rstctl1, prstctl1, 29);
-impl_perph_clk!(USBHSD, Clkctl0, pscctl0, Rstctl0, prstctl0, 21);
-impl_perph_clk!(USBHSH, Clkctl0, pscctl0, Rstctl0, prstctl0, 22);
-impl_perph_clk!(USBPHY, Clkctl0, pscctl0, Rstctl0, prstctl0, 20);
-impl_perph_clk!(USDHC0, Clkctl0, pscctl1, Rstctl0, prstctl1, 2);
-impl_perph_clk!(USDHC1, Clkctl0, pscctl1, Rstctl0, prstctl1, 3);
-impl_perph_clk!(UTICK0, Clkctl0, pscctl2, Rstctl0, prstctl2, 0);
-impl_perph_clk!(WDT0, Clkctl0, pscctl2, Rstctl0, prstctl2, 1);
-impl_perph_clk!(WDT1, Clkctl1, pscctl2, Rstctl1, prstctl2, 10);
+impl_perph_clk!(FLEXCOMM0, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 8);
+impl_perph_clk!(FLEXCOMM1, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 9);
+impl_perph_clk!(FLEXCOMM14, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 22);
+impl_perph_clk!(FLEXCOMM15, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 23);
+impl_perph_clk!(FLEXCOMM2, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 10);
+impl_perph_clk!(FLEXCOMM3, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 11);
+impl_perph_clk!(FLEXCOMM4, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 12);
+impl_perph_clk!(FLEXCOMM5, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 13);
+impl_perph_clk!(FLEXCOMM6, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 14);
+impl_perph_clk!(FLEXCOMM7, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 15);
+impl_perph_clk!(FLEXSPI, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 16);
+impl_perph_clk!(FREQME, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 31);
+impl_perph_clk!(HASHCRYPT, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 10);
+impl_perph_clk!(HSGPIO0, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 0);
+impl_perph_clk!(HSGPIO1, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 1);
+impl_perph_clk!(HSGPIO2, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 2);
+impl_perph_clk!(HSGPIO3, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 3);
+impl_perph_clk!(HSGPIO4, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 4);
+impl_perph_clk!(HSGPIO5, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 5);
+impl_perph_clk!(HSGPIO6, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 6);
+impl_perph_clk!(HSGPIO7, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 7);
+impl_perph_clk!(I3C0, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 16);
+impl_perph_clk!(MRT0, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 8);
+impl_perph_clk!(MU_A, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 28);
+impl_perph_clk!(OS_EVENT, CLKCTL1, pscctl0, RSTCTL1, prstctl0, 27);
+impl_perph_clk!(POWERQUAD, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 8);
+impl_perph_clk!(PUF, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 11);
+impl_perph_clk!(RNG, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 12);
+impl_perph_clk!(RTC, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 7);
+impl_perph_clk!(SCT0, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 24);
+impl_perph_clk!(SECGPIO, CLKCTL0, pscctl1, RSTCTL0, prstctl1, 24);
+impl_perph_clk!(SEMA42, CLKCTL1, pscctl1, RSTCTL1, prstctl1, 29);
+impl_perph_clk!(USBHSD, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 21);
+impl_perph_clk!(USBHSH, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 22);
+impl_perph_clk!(USBPHY, CLKCTL0, pscctl0, RSTCTL0, prstctl0, 20);
+impl_perph_clk!(USDHC0, CLKCTL0, pscctl1, RSTCTL0, prstctl1, 2);
+impl_perph_clk!(USDHC1, CLKCTL0, pscctl1, RSTCTL0, prstctl1, 3);
+impl_perph_clk!(UTICK0, CLKCTL0, pscctl2, RSTCTL0, prstctl2, 0);
+impl_perph_clk!(WDT0, CLKCTL0, pscctl2, RSTCTL0, prstctl2, 1);
+impl_perph_clk!(WDT1, CLKCTL1, pscctl2, RSTCTL1, prstctl2, 10);

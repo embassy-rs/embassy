@@ -65,20 +65,19 @@ fn GPIO_INTA() {
 
 #[cfg(feature = "rt")]
 fn irq_handler(port_wakers: &[Option<&PortWaker>]) {
-    let reg = unsafe { crate::pac::Gpio::steal() };
+    let reg = crate::pac::GPIO;
 
     for (port, port_waker) in port_wakers.iter().enumerate() {
         let Some(port_waker) = port_waker else {
             continue;
         };
 
-        let stat = reg.intstata(port).read().bits();
+        let stat = reg.intstata(port).read().0;
         for pin in BitIter(stat) {
             // Clear the interrupt from this pin
-            reg.intstata(port).write(|w| unsafe { w.status().bits(1 << pin) });
+            reg.intstata(port).write(|w| w.0 = 1 << pin);
             // Disable interrupt from this pin
-            reg.intena(port)
-                .modify(|r, w| unsafe { w.int_en().bits(r.int_en().bits() & !(1 << pin)) });
+            reg.intena(port).modify(|w| w.0 &= !(1 << pin));
 
             let Some(waker) = port_waker.get_waker(pin as usize) else {
                 continue;
@@ -156,29 +155,26 @@ impl<S: Sense> Flex<'_, S> {
             .set_drive_strength(strength)
             .set_slew_rate(slew_rate);
 
-        self.pin.block().dirset(self.pin.port()).write(|w|
-            // SAFETY: Writing a 0 to bits in this register has no effect,
-            // however PAC has it marked unsafe due to using the bits() method.
-            // There is not currently a "safe" method for setting a single-bit.
-            unsafe { w.dirsetp().bits(1 << self.pin.pin()) });
+        self.pin
+            .block()
+            .dirset(self.pin.port())
+            .write(|w| w.0 = 1 << self.pin.pin());
     }
 
     /// Set high
     pub fn set_high(&mut self) {
-        self.pin.block().set(self.pin.port()).write(|w|
-            // SAFETY: Writing a 0 to bits in this register has no effect,
-            // however PAC has it marked unsafe due to using the bits() method.
-            // There is not currently a "safe" method for setting a single-bit.
-            unsafe { w.setp().bits(1 << self.pin.pin()) });
+        self.pin
+            .block()
+            .set(self.pin.port())
+            .write(|w| w.0 = 1 << self.pin.pin());
     }
 
     /// Set low
     pub fn set_low(&mut self) {
-        self.pin.block().clr(self.pin.port()).write(|w|
-            // SAFETY: Writing a 0 to bits in this register has no effect,
-            // however PAC has it marked unsafe due to using the bits() method.
-            // There is not currently a "safe" method for setting a single-bit.
-            unsafe { w.clrp().bits(1 << self.pin.pin()) });
+        self.pin
+            .block()
+            .clr(self.pin.port())
+            .write(|w| w.0 = 1 << self.pin.pin());
     }
 
     /// Set level
@@ -198,16 +194,15 @@ impl<S: Sense> Flex<'_, S> {
     /// Is the output level low?
     #[must_use]
     pub fn is_set_low(&self) -> bool {
-        (self.pin.block().set(self.pin.port()).read().setp().bits() & (1 << self.pin.pin())) == 0
+        (self.pin.block().set(self.pin.port()).read().0 & (1 << self.pin.pin())) == 0
     }
 
     /// Toggle
     pub fn toggle(&mut self) {
-        self.pin.block().not(self.pin.port()).write(|w|
-            // SAFETY: Writing a 0 to bits in this register has no effect,
-            // however PAC has it marked unsafe due to using the bits() method.
-            // There is not currently a "safe" method for setting a single-bit.
-            unsafe { w.notp().bits(1 << self.pin.pin()) });
+        self.pin
+            .block()
+            .not(self.pin.port())
+            .write(|w| w.0 = 1 << self.pin.pin());
     }
 }
 
@@ -237,11 +232,10 @@ impl<'d> Flex<'d, SenseEnabled> {
     pub fn set_as_input(&mut self, pull: Pull, inverter: Inverter) {
         self.pin.set_pull(pull).set_input_inverter(inverter);
 
-        self.pin.block().dirclr(self.pin.port()).write(|w|
-                    // SAFETY: Writing a 0 to bits in this register has no effect,
-                    // however PAC has it marked unsafe due to using the bits() method.
-                    // There is not currently a "safe" method for setting a single-bit.
-                    unsafe { w.dirclrp().bits(1 << self.pin.pin()) });
+        self.pin
+            .block()
+            .dirclr(self.pin.port())
+            .write(|w| w.0 = 1 << self.pin.pin());
     }
 
     /// Converts pin to special function pin
@@ -261,7 +255,7 @@ impl<'d> Flex<'d, SenseEnabled> {
     /// Is low?
     #[must_use]
     pub fn is_low(&self) -> bool {
-        self.pin.block().b(self.pin.port()).b_(self.pin.pin()).read() == 0
+        self.pin.block().b(self.pin.port()).b_(self.pin.pin()).read().0 == 0
     }
 
     /// Current level
@@ -411,25 +405,21 @@ impl<'d> InputFuture<'d> {
     fn new(pin: Peri<'d, impl GpioPin>, int_type: InterruptType, level: Level) -> Self {
         critical_section::with(|_| {
             // Clear any existing pending interrupt on this pin
-            pin.block()
-                .intstata(pin.port())
-                .write(|w| unsafe { w.status().bits(1 << pin.pin()) });
+            pin.block().intstata(pin.port()).write(|w| w.0 = 1 << pin.pin());
 
             /* Pin interrupt configuration */
-            pin.block().intedg(pin.port()).modify(|r, w| match int_type {
-                InterruptType::Edge => unsafe { w.bits(r.bits() | (1 << pin.pin())) },
-                InterruptType::Level => unsafe { w.bits(r.bits() & !(1 << pin.pin())) },
+            pin.block().intedg(pin.port()).modify(|w| match int_type {
+                InterruptType::Edge => w.0 |= 1 << pin.pin(),
+                InterruptType::Level => w.0 &= !(1 << pin.pin()),
             });
 
-            pin.block().intpol(pin.port()).modify(|r, w| match level {
-                Level::High => unsafe { w.bits(r.bits() & !(1 << pin.pin())) },
-                Level::Low => unsafe { w.bits(r.bits() | (1 << pin.pin())) },
+            pin.block().intpol(pin.port()).modify(|w| match level {
+                Level::High => w.0 &= !(1 << pin.pin()),
+                Level::Low => w.0 |= 1 << pin.pin(),
             });
 
             // Enable pin interrupt on GPIO INT A
-            pin.block()
-                .intena(pin.port())
-                .modify(|r, w| unsafe { w.int_en().bits(r.int_en().bits() | (1 << pin.pin())) });
+            pin.block().intena(pin.port()).modify(|w| w.0 |= 1 << pin.pin());
         });
 
         Self { pin: pin.into() }
@@ -462,7 +452,7 @@ impl Future for InputFuture<'_> {
         waker.unwrap().register(cx.waker());
 
         // Double check that the pin interrut has been disabled by IRQ handler
-        if self.pin.block().intena(self.pin.port()).read().bits() & (1 << self.pin.pin()) == 0 {
+        if self.pin.block().intena(self.pin.port()).read().0 & (1 << self.pin.pin()) == 0 {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -538,11 +528,8 @@ trait SealedPin: IopctlPin {
         self.pin_port() % 32
     }
 
-    fn block(&self) -> crate::pac::Gpio {
-        // SAFETY: Assuming GPIO pin specific registers are only accessed through this HAL,
-        // this is safe because the HAL ensures ownership or exclusive mutable references
-        // to pins.
-        unsafe { crate::pac::Gpio::steal() }
+    fn block(&self) -> crate::pac::gpio::Gpio {
+        crate::pac::GPIO
     }
 }
 
