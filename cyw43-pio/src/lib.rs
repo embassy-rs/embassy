@@ -187,7 +187,6 @@ where
         let mut pin_io: embassy_rp::pio::Pin<PIO> = common.make_pio_pin(dio);
         pin_io.set_pull(Pull::None);
         pin_io.set_schmitt(true);
-        pin_io.set_input_sync_bypass(true);
         pin_io.set_drive_strength(Drive::_12mA);
         pin_io.set_slew_rate(SlewRate::Fast);
 
@@ -209,6 +208,9 @@ where
         cfg.clock_divider = clock_divider;
 
         sm.set_config(&cfg);
+
+        // Must be applied after set_config establishes GPIOBASE.
+        pin_io.set_input_sync_bypass(true);
 
         sm.set_pin_dirs(Direction::Out, &[&pin_clk, &pin_io]);
         sm.set_pins(Level::Low, &[&pin_clk, &pin_io]);
