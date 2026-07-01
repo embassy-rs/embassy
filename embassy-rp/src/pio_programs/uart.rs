@@ -18,7 +18,7 @@ use crate::pio::{
 pub struct PioUart<'d, P: Instance, const RX_SM: usize, const TX_SM: usize> {
     ///Receiver half of the Pio Uart
     pub rx: PioUartRx<'d, P, RX_SM>,
-    ///Trnasmiter half of the Pio Uart
+    ///Transmiter half of the Pio Uart
     pub tx: PioUartTx<'d, P, TX_SM>,
 }
 
