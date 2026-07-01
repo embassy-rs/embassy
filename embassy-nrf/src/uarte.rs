@@ -85,21 +85,27 @@ impl ErrorSource {
 }
 
 /// UART error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Buffer was too long.
+    #[error("buffer was too long")]
     BufferTooLong,
     /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
     /// Framing Error
+    #[error("framing error")]
     Framing,
     /// Parity Error
+    #[error("parity error")]
     Parity,
     /// Buffer Overrun
+    #[error("buffer overrun")]
     Overrun,
     /// Break condition
+    #[error("break condition")]
     Break,
 }
 

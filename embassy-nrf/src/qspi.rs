@@ -111,11 +111,12 @@ impl Default for Config {
 }
 
 /// Error
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Operation address was out of bounds.
+    #[error("out of bounds")]
     OutOfBounds,
     // TODO add "not in data memory" error and check for it
 }

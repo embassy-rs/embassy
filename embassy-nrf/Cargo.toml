@@ -237,6 +237,7 @@ nrf-pac = "0.4.0"
 # nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "dcbec3723fa14fc81e004ab288c9b2e454dba802" }
 
 defmt = { version = "1.0.1", optional = true }
+thiserror = { version = "2", default-features = false }
 bitflags = "2.10.0"
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
