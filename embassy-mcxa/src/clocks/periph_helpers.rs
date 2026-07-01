@@ -15,6 +15,8 @@ use crate::pac::mrcc::{
     AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux,
     LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
+#[cfg(feature = "mcxa5xx")]
+use crate::pac::mrcc::{PhyClkselMux, UsbClkselMux};
 
 #[must_use]
 pub struct PreEnableParts {
@@ -204,6 +206,93 @@ impl SPConfHelper for Clk1MConfig {
             freq: 1_000_000,
             wake_guard: None,
         })
+    }
+}
+
+//
+// USBHS
+//
+
+/// Clock configuration for the MCXA5xx USBHS controller and PHY.
+#[cfg(feature = "mcxa5xx")]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct UsbhsConfig {
+    /// Power state required for the SOSC reference clock.
+    pub power: PoweredClock,
+    /// USB PHY reference clock divider.
+    pub phy_div: Div4,
+}
+
+#[cfg(feature = "mcxa5xx")]
+impl Default for UsbhsConfig {
+    fn default() -> Self {
+        Self {
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            phy_div: Div4::no_div(),
+        }
+    }
+}
+
+#[cfg(all(feature = "mcxa5xx", feature = "defmt"))]
+impl defmt::Format for UsbhsConfig {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(
+            f,
+            "UsbhsConfig {{ power: {:?}, phy_div: {=u32} }}",
+            self.power,
+            self.phy_div.into_divisor()
+        )
+    }
+}
+
+#[cfg(feature = "mcxa5xx")]
+impl SPConfHelper for UsbhsConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        #[cfg(feature = "sosc-as-gpio")]
+        {
+            let _ = clocks;
+            return Err(ClockError::BadConfig {
+                clock: "usbhs phy",
+                reason: "requires SOSC pins",
+            });
+        }
+
+        #[cfg(not(feature = "sosc-as-gpio"))]
+        {
+            let freq = clocks.ensure_clk_in_active(&self.power)?;
+            if freq != 24_000_000 {
+                return Err(ClockError::BadConfig {
+                    clock: "usbhs phy",
+                    reason: "requires a 24 MHz SOSC reference",
+                });
+            }
+
+            let mrcc0 = crate::pac::MRCC0;
+            mrcc0
+                .mrcc_usb1_clksel()
+                .write(|w| w.set_mux(UsbClkselMux::I2ClkUsbhs0PhyClkXtal));
+            mrcc0
+                .mrcc_usb1_phy_clksel()
+                .write(|w| w.set_mux(PhyClkselMux::I2ClkrootSosc));
+
+            let clkdiv = mrcc0.mrcc_usb1_phy_clkdiv();
+            clkdiv.modify(|w| {
+                w.set_div(self.phy_div.into_bits());
+                w.set_halt(ClkdivHalt::Off);
+                w.set_reset(ClkdivReset::Off);
+            });
+            clkdiv.modify(|w| {
+                w.set_halt(ClkdivHalt::On);
+                w.set_reset(ClkdivReset::On);
+            });
+            while clkdiv.read().unstab() == ClkdivUnstab::Off {}
+
+            Ok(PreEnableParts {
+                freq: freq / self.phy_div.into_divisor(),
+                wake_guard: WakeGuard::for_power(&self.power),
+            })
+        }
     }
 }
 
