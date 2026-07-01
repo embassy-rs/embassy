@@ -23,7 +23,7 @@ use crate::clocks::{enable_and_reset, ClockError, PoweredClock, WakeGuard};
 use crate::clocks::periph_helpers::{CanClockSel, CanConfig, CanInstance, Div4};
 use nxp_pac::can as pac;
 
-use crate::flexcan::classic::meta::docs::{doc_send, doc_try_send, doc_receive, doc_try_receive, doc_error_mode};
+use crate::flexcan::classic::meta::docs::{doc_send, doc_try_send, doc_receive, doc_try_receive, doc_error_mode, doc_rx_dropped};
 
 /// Errors that can return when initializing
 /// a `FlexCan` instance.
@@ -151,7 +151,9 @@ pub enum BusErrorMode {
 }
 
 /// Errors that may occur when sending a CAN message.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SendError {
     /// The TX mailbox is currently full.
     TxMailboxFull,
@@ -161,21 +163,12 @@ pub enum SendError {
 }
 
 /// Errors that may occur when calling try_receive().
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReceiveError {
     /// There were no new messages to be received.
     NoMessages,
-}
-
-/// Errors that may occur when attempting to join a `FlexCanRx` and
-/// `FlexCanTx` into a single `FlexCan`.
-pub enum JoinError<'d> {
-    /// You have tried to join together a `FlexCanRx` and `FlexCanTx`
-    /// that come from different peripherals (e.g., `FlexCanRx` is from CAN0 while
-    /// `FlexCanTx` is from CAN1). This is not valid.
-    ///
-    /// The original halves are returned unchanged so you can recover them and try again.
-    DifferentPeripherals(FlexCanTx<'d>, FlexCanRx<'d>),
 }
 
 /// Info and state for a single `classic::FlexCan` instance.
@@ -217,6 +210,9 @@ pub(crate) struct Info {
 
     /// Software queue that holds received RX frames.
     pub rx_channel: Channel<CriticalSectionRawMutex, Frame, RX_QUEUE_SIZE>,
+
+    /// Stores a count of the number of RX frames dropped due to the RX Channel being full.
+    pub rx_dropped: AtomicU32,
 }
 
 pub(crate) trait SealedInstance: crate::clocks::Gate<MrccPeriphConfig = CanConfig> {
@@ -249,6 +245,8 @@ impl<'d> FlexCanRx<'d> {
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> { functions::try_receive(self.info) }
     #[doc = doc_error_mode!()]
     pub fn error_mode(&self) -> BusErrorMode { functions::error_mode(self.info) }
+    #[doc = doc_rx_dropped!()]
+    pub fn rx_dropped(&self) -> u32 { functions::rx_dropped(self.info) }
 }
 
 /// TX-specific FlexCAN instance. Can be obtained by calling `.split()`
@@ -383,10 +381,10 @@ impl<'d> FlexCan<'d> {
 
     /// Recombines a `FlexCanTx` and `FlexCanRx` (previously obtained from `split()`) back into a `FlexCan`.
     ///
-    /// If the two halves come from different peripherals, this returns `Err(JoinError::DifferentPeripherals(tx, rx))`,
+    /// If the two halves come from different peripherals, this returns `Err((tx, rx))`,
     /// where `tx` and `rx` are the same `tx`/`rx` you passed in. This means you can try again if you need to.
-    pub fn join(tx: FlexCanTx<'d>, rx: FlexCanRx<'d>) -> Result<Self, JoinError<'d>> {
-        if !core::ptr::eq(tx.info, rx.info) { return Err(JoinError::DifferentPeripherals(tx, rx)); }
+    pub fn join(tx: FlexCanTx<'d>, rx: FlexCanRx<'d>) -> Result<Self, (FlexCanRx<'d>, FlexCanTx<'d>)> {
+        if !core::ptr::eq(tx.info, rx.info) { return Err((rx, tx)); }
         Ok(Self { tx, rx })
     }
 
@@ -400,12 +398,15 @@ impl<'d> FlexCan<'d> {
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> { self.rx.try_receive() }
     #[doc = doc_error_mode!()]
     pub fn error_mode(&self) -> BusErrorMode { self.tx.error_mode() } 
+    #[doc = doc_rx_dropped!()]
+    pub fn rx_dropped(&self) -> u32 { self.rx.rx_dropped() } 
 }
 
 /// This module contains the actual implementations of the functions used by
 /// `FlexCan`, `FlexCanTx`, and `FlexCanRx`. They're not implemented directly
 /// on those structs because some functions are common to more than one of them.
 mod functions {
+    use crate::flexcan::classic::doc_rx_dropped;
     use super::{Frame, Info, tx, SendError, ReceiveError, BusErrorMode, pac};
     use super::{doc_send, doc_try_send, doc_receive, doc_try_receive, doc_error_mode};
 
@@ -459,6 +460,12 @@ mod functions {
             pac::Fltconf::ErrorPassive => BusErrorMode::ErrorPassive,
             pac::Fltconf::BusOff | pac::Fltconf::_RESERVED_3 => BusErrorMode::BusOff,
         }
+    }
+
+    #[doc = doc_rx_dropped!()]
+    pub fn rx_dropped(info: &Info) -> u32 {
+        use core::sync::atomic::Ordering;
+        info.rx_dropped.load(Ordering::Acquire)
     }
 }
 
@@ -518,9 +525,8 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             
             // Push the frame into the software RX queue
             if info.rx_channel.try_send(frame).is_err() {
-                // if the software queue is full, do nothing (i.e., drop the frame)
-                // eventually, it could be nice to increment a "dropped" counter or something that the
-                // user of the HAL can look at on their own time
+                // if the software queue is full, drop the frame, and increment the `rx_dropped` counter.
+                info.rx_dropped.fetch_add(1, Ordering::Acquire);
             }
         }
 

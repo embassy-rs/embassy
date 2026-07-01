@@ -97,7 +97,8 @@ impl ExtendedId {
 }
 
 /// A CAN Identifier (standard or extended).
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Id {
     /// Standard 11-bit Identifier (0..=0x7FF).
     Standard(StandardId),

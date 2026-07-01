@@ -3,6 +3,9 @@
 pub use crate::flexcan::id::{Id, StandardId, ExtendedId};
 
 /// Possible errors when configuring a RX filter.
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FilterConfigError {
     /// This error indicates that you have attempted to configure
     /// too many filters, or that your split of filters was invalid.
@@ -23,6 +26,9 @@ pub enum FilterConfigError {
 /// corresponding bit of `id`. Bits cleared in `mask` are "don't care". A plain
 /// (unmasked) filter is just a masked filter whose mask is all-ones, i.e. an
 /// exact match.
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Filter {
     /// Filter for a single standard ID.
     Standard(StandardId),

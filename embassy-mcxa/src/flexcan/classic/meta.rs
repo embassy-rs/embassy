@@ -58,6 +58,27 @@ pub(in crate::flexcan::classic) mod docs {
     }
     pub(in crate::flexcan::classic) use doc_send;
 
+    macro_rules! doc_rx_queue_size_config_instructions {
+        () => { concat!(
+            "\n",
+            "#### Configuring the RX Queue Size\n",
+            "The size of the FlexCan classic-mode RX queue can be configured via the ",
+            $crate::flexcan::classic::meta::rx_queue_size::env_var_name!(),
+            " environment variable. For example, in your .cargo/config.toml, you could add\n",
+            "```toml\n",
+            "[env]\n",
+            $crate::flexcan::classic::meta::rx_queue_size::env_var_name!(), " = \"32\"\n",
+            "```\n",
+            "if you wanted the queue to store 32 frames.\n",
+            "\n",
+            "If you don't specify anything, the queue will default to a size of ",
+            $crate::flexcan::classic::meta::rx_queue_size::rx_queue_size_default!(),
+            " frames.",
+            "\n",
+        ) };
+    }
+    pub(in crate::flexcan::classic) use doc_rx_queue_size_config_instructions;
+
     macro_rules! doc_try_send {
         () => { concat!(
             "Attempts to send a CAN message.\n",
@@ -75,18 +96,7 @@ pub(in crate::flexcan::classic) mod docs {
             "If there are no new messages, this call asynchronously\n",
             "waits for new messages to arrive.\n",
             "\n",
-            "Note: The size of the FlexCan classic-mode RX queue can be configured via the ",
-            $crate::flexcan::classic::meta::rx_queue_size::env_var_name!(),
-            " environment variable. For example, in your .cargo/config.toml, you could add\n",
-            "```toml\n",
-            "[env]\n",
-            $crate::flexcan::classic::meta::rx_queue_size::env_var_name!(), " = \"32\"\n",
-            "```\n",
-            "if you wanted the queue to store 32 frames.\n",
-            "\n",
-            "If you don't specify anything, the queue will default to a size of ",
-            $crate::flexcan::classic::meta::rx_queue_size::rx_queue_size_default!(),
-            " frames.",
+            $crate::flexcan::classic::meta::docs::doc_rx_queue_size_config_instructions!(),
         ) };
     }
     pub(in crate::flexcan::classic) use doc_receive;
@@ -103,4 +113,16 @@ pub(in crate::flexcan::classic) mod docs {
         ) };
     }
     pub(in crate::flexcan::classic) use doc_error_mode;
+
+    macro_rules! doc_rx_dropped {
+        () => { concat!(
+            "Indicates the number of RX frames dropped so far due to the RX queue being full.",
+            "If you're seeing this number increase, you are receiving messages faster than the RX queue can handle.",
+            "This can be mitigated by increasing the size of the RX queue.\n",
+            "\nNote: This function tracks frames dropped specifically due to the RX queue being full. It doesn't track other
+            sources of dropped frames that may have occured at a lower level.\n",
+            $crate::flexcan::classic::meta::docs::doc_rx_queue_size_config_instructions!(),
+        ) };
+    }
+    pub(in crate::flexcan::classic) use doc_rx_dropped;
 }

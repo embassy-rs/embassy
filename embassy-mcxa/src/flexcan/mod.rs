@@ -93,6 +93,7 @@ macro_rules! impl_can_instance {
                         tx_waker: embassy_sync::waitqueue::AtomicWaker::new(),
                         prexcen_supported: $n == 0, // Protocol Exception is only supported on CAN0.
                         rx_channel: embassy_sync::channel::Channel::new(),
+                        rx_dropped: core::sync::atomic::AtomicU32::new(0),
                     };
                     &INFO
                 }
