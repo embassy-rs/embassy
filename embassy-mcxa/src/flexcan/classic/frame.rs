@@ -1,3 +1,7 @@
+//! Module containing the tools needed to define and configure CAN frames for Classic CAN.
+//! 
+//! The type(s) defined in this module are compatible with the `embedded-can` crate.
+
 pub use crate::flexcan::id::{Id, StandardId, ExtendedId};
 
 /// Represents the possible kinds of CAN frames.

@@ -1,4 +1,4 @@
-//! This module contains filter definitions and configuration that is common to both Classic CAN and FDCAN.
+//! Module for FlexCAN filters.
 
 pub use crate::flexcan::id::{Id, StandardId, ExtendedId};
 
@@ -66,7 +66,7 @@ impl Filter {
 
 /// Struct for configuring your RX ID filters. A `FilterConfig` can be constructed via 
 /// the `filters!()` macro, like this:
-/// ```rust
+/// ```rust,no_run
 /// use embassy_mcxa::flexcan::filter::{Filter, filters, StandardId, ExtendedId};
 /// 
 /// const EXAMPLE_MESSAGE_ONE: StandardId = StandardId::new(0x01).expect("Invalid ID (too large).");
@@ -163,7 +163,7 @@ impl Default for FilterConfig<'_> {
 }
 
 /// Macro for constructing a `FilterConfig`. Can be used via this general syntax:
-/// ```rust
+/// ```rust,no_run
 /// use embassy_mcxa::flexcan::filter::{Filter, FilterConfig, filters, StandardId, ExtendedId};
 /// 
 /// const EXAMPLE_MESSAGE_ONE: StandardId = StandardId::new(0x01).expect("Invalid ID (too large).");

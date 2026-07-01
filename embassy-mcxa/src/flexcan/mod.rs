@@ -1,3 +1,15 @@
+//! FlexCAN support.
+//! 
+//! This module provides an interface for interacting with the FlexCAN peripheral on MCXA chips.
+//! 
+//! ### Getting Started
+//! 
+//! #### Classic CAN
+//! See the [classic] module for docs/example code pertaining to getting everything set up for classic CAN.
+//! 
+//! #### CAN FD
+//! This HAL does not yet support FlexCAN's CAN FD mode.
+
 pub mod classic;
 pub mod filter;
 pub mod id;
@@ -22,10 +34,11 @@ pub(crate) mod sealed {
 // are valid for which CAN instance.
 impl<T: crate::gpio::SealedPin> sealed::Sealed for T {}
 
-/// CAN TX pin trait. Implemented for each pin that can be muxed to a
-/// given FlexCAN instance's TXD function.
+/// CAN TX pin.
 /// 
-/// These implementations are generated automatically by `embassy-mcxa`'s `build.rs`.
+/// This trait is implemented for each pin that can be muxed to a
+/// given FlexCAN instance's TXD function. These implementations are generated 
+/// automatically by `embassy-mcxa`'s `build.rs`.
 pub trait TxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// The port mux setting that selects the TXD function for this pin.
     const MUX: crate::pac::port::Mux;
@@ -33,10 +46,11 @@ pub trait TxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     fn as_tx(&self);
 }
 
-/// CAN RX pin trait. Implemented for each pin that can be muxed to a
-/// given FlexCAN instance's RXD function.
+/// CAN RX pin. 
 /// 
-/// These implementations are generated automatically by `embassy-mcxa`'s `build.rs`.
+/// This trait is implemented for each pin that can be muxed to a
+/// given FlexCAN instance's RXD function. These implementations are 
+/// generated automatically by `embassy-mcxa`'s `build.rs`.
 pub trait RxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// The port mux setting that selects the RXD function for this pin.
     const MUX: crate::pac::port::Mux;

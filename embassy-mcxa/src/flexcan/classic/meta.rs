@@ -61,23 +61,25 @@ pub(in crate::flexcan::classic) mod docs {
     macro_rules! doc_rx_queue_size_config_instructions {
         () => { concat!(
             "\n",
-            "#### Configuring the RX Queue Size\n",
-            "The size of the FlexCan classic-mode RX queue can be configured via the ",
+            "<details>\n",
+            "<summary><h4>Configuring the RX Queue Size</h4></summary>\n\n",
+            "The size of the FlexCan classic-mode RX queue can be configured via the `",
             $crate::flexcan::classic::meta::rx_queue_size::env_var_name!(),
-            " environment variable. For example, in your .cargo/config.toml, you could add\n",
+            "` environment variable. For example, in your `.cargo/config.toml`, you could add\n\n",
             "```toml\n",
             "[env]\n",
             $crate::flexcan::classic::meta::rx_queue_size::env_var_name!(), " = \"32\"\n",
-            "```\n",
-            "if you wanted the queue to store 32 frames.\n",
-            "\n",
+            "```\n\n",
+            "if you wanted the queue to store 32 frames.\n\n",
             "If you don't specify anything, the queue will default to a size of ",
             $crate::flexcan::classic::meta::rx_queue_size::rx_queue_size_default!(),
-            " frames.",
+            " frames.\n",
+            "</details>",
             "\n",
         ) };
     }
     pub(in crate::flexcan::classic) use doc_rx_queue_size_config_instructions;
+
 
     macro_rules! doc_try_send {
         () => { concat!(
@@ -102,7 +104,11 @@ pub(in crate::flexcan::classic) mod docs {
     pub(in crate::flexcan::classic) use doc_receive;
 
     macro_rules! doc_try_receive {
-        () => { "Like `receive()`, but returns immediately if there are no new messages (rather than waiting for more to arrive)." };
+        () => { concat!(
+            "Like `receive()`, but returns immediately if there are no new messages (rather than waiting for more to arrive).",
+            "\n",
+            $crate::flexcan::classic::meta::docs::doc_rx_queue_size_config_instructions!(),
+        ) };
     }
     pub(in crate::flexcan::classic) use doc_try_receive;
 

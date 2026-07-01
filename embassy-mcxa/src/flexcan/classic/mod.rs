@@ -1,3 +1,8 @@
+//! Module for Classic CAN.
+//! 
+//! This module allows you to initialize and configure a classic-mode `FlexCan` instance.
+#![doc = include_str!("example.md")]
+
 pub mod frame;
 mod mailbox;
 mod meta;
@@ -225,6 +230,8 @@ pub(crate) trait SealedInstance: crate::clocks::Gate<MrccPeriphConfig = CanConfi
     /// This is used to select the correct `MRCC_FLEXCANn_CLKSEL`/`CLKDIV` registers during clock setup.
     const CLOCK_INSTANCE: CanInstance;
 }
+
+/// Represents a hardware CAN instance (e.g., CAN0, CAN1).
 #[allow(private_bounds)]
 pub trait Instance: crate::flexcan::Instance + SealedInstance {}
 

@@ -1,4 +1,4 @@
-//! This module contains the ID types relavent to CAN.
+//! Module for CAN IDs.
 //! 
 //! The types in this module are just newtypes for the ID types exposed
 //! in the generic `embedded-can` crate, with the addition of `defmt` impls.
