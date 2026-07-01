@@ -1,0 +1,14 @@
+[target.thumbv8m.main-none-eabihf]
+runner = "probe-rs run --chip EFR32MG26B420F3200IM68"
+rustflags = [
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdevice.x",
+  "-C", "link-arg=-Tdefmt.x",
+  "-C", "link-arg=--nmagic",
+]
+
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[env]
+DEFMT_LOG = "info"
