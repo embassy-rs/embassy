@@ -40,6 +40,7 @@ impl Instance for TRNG {
 }
 
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(missing_docs)]
 /// TRNG ROSC Inverter chain length options.
 pub enum InverterChainLength {
@@ -88,6 +89,7 @@ impl From<InverterChainLength> for u8 {
 /// either hardware accelerated SHA256 (Bootrom) or xoroshiro128** (version 1.0!).
 #[non_exhaustive]
 #[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Bypass TRNG autocorrelation test
     pub disable_autocorrelation_test: bool,

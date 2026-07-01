@@ -23,6 +23,7 @@ pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Buffe
 
 /// Word length.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DataBits {
     /// 5 bits.
     DataBits5,
@@ -47,6 +48,7 @@ impl DataBits {
 
 /// Parity bit.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Parity {
     /// No parity.
     ParityNone,
@@ -58,6 +60,7 @@ pub enum Parity {
 
 /// Stop bits.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StopBits {
     #[doc = "1 stop bit"]
     STOP1,
@@ -68,6 +71,7 @@ pub enum StopBits {
 /// UART config.
 #[non_exhaustive]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Baud rate.
     pub baudrate: u32,
