@@ -511,10 +511,7 @@ where
         None,
     );
 
-    let config = sdio::Config {
-        max_f: 50_000_000,
-        out_of_band_irq: false,
-    };
+    let config = sdio::Config { max_f: 50_000_000 };
 
     runner.init(firmware, nvram, None, &config).await?;
     let control = Control::new(
@@ -551,10 +548,7 @@ where
         None,
     );
 
-    let config = sdio::Config {
-        max_f: 12_500_000,
-        out_of_band_irq: false,
-    };
+    let config = sdio::Config { max_f: 12_500_000 };
 
     runner.init(firmware, nvram, None, &config).await?;
     let control = Control::new(

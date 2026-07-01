@@ -5,7 +5,7 @@ use embassy_time::{Delay, Duration, Timer};
 
 use crate::WithContext;
 use crate::consts::*;
-use crate::runner::{BusConfig, BusType, SealedBus};
+use crate::runner::{BusType, SealedBus};
 use crate::util::try_until;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -50,7 +50,6 @@ async fn with_aligned<'a, R>(
 
 pub struct Config {
     pub max_f: u32,
-    pub out_of_band_irq: bool,
 }
 
 /// Doc
@@ -169,7 +168,7 @@ where
     const TYPE: BusType = BusType::Sdio;
     type Config = Config;
 
-    async fn init<'a>(&mut self, _bluetooth_enabled: bool, config: &'a Config) -> crate::Result<BusConfig<'a>> {
+    async fn init<'a>(&mut self, _bluetooth_enabled: bool, config: &'a Config) -> crate::Result<()> {
         // acquire the bus
         self.sdio.reacquire(config.max_f).await.map_err(|_| crate::Error)?;
 
@@ -224,7 +223,7 @@ where
         .await
         .ctx("timeout while waiting for backplane to be ready")?;
 
-        Ok(BusConfig::Sdio(config))
+        Ok(())
     }
 
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()> {

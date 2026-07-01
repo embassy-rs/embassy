@@ -5,7 +5,7 @@ use core::default::Default;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::{Ordering, fence};
+use core::sync::atomic::{Ordering, compiler_fence, fence};
 use core::task::Poll;
 
 use ::sdio::{MmcBus, MmcError};
@@ -30,6 +30,7 @@ use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
+use crate::reg::AtomicModify;
 use crate::time::Hertz;
 use crate::wait::block_for_us;
 #[cfg(sdmmc_uhs)]
@@ -1833,7 +1834,7 @@ impl<'d> Sdmmc<'d> {
             } {}
         }
 
-        if status.ctimeout() && cmd != 0 {
+        if status.ctimeout() {
             return Err(MmcError::Timeout);
         } else if R::CRC && status.ccrcfail() {
             return Err(MmcError::Crc);
@@ -1984,6 +1985,28 @@ impl<'d> MmcBus for Sdmmc<'d> {
 
     fn supports_mmc(&self) -> bool {
         true
+    }
+
+    /// Wait for DAT1 to be pulled low.
+    async fn wait_for_event(&mut self) -> Result<(), MmcError> {
+        poll_fn(|cx| {
+            self.state.it_waker.register(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            if self.info.regs.star().read().sdioit() {
+                self.info.regs.icr().write(|w| w.set_sdioitc(true));
+
+                Poll::Ready(())
+            } else {
+                self.info.regs.maskr().set_bits(|w| w.set_sdioitie(true));
+
+                Poll::Pending
+            }
+        })
+        .await;
+
+        Ok(())
     }
 
     async fn init_idle(&mut self, hz: u32) -> Result<(), ::sdio::MmcError> {
