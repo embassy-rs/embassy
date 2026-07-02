@@ -938,6 +938,8 @@ impl<'a> Control<'a> {
         assert!(msg.param_len >= 12);
         let status = u32::from_le_bytes(msg.param[8..12].try_into().unwrap());
         assert_eq!(status, 0);
+
+        self.state.borrow_mut().net_fd = None;
     }
 
     fn set_link_state(&self, state: ch::driver::LinkState) {

@@ -144,7 +144,6 @@ macro_rules! sel_trait_impl {
 
 // ====================
 
-#[cfg(not(stm32c5))]
 macro_rules! dma_trait {
     ($signal:ident, $instance:path$(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " DMA request trait")]
@@ -215,7 +214,6 @@ macro_rules! new_dma_nonopt {
     }};
 }
 
-#[cfg(not(stm32c5))]
 macro_rules! new_dma {
     ($name:ident, $irqs:expr) => {{
         let dma = $name;

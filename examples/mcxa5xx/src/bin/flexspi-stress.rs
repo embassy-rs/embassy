@@ -80,6 +80,7 @@
 
 use defmt::{error, info, unwrap};
 use embassy_executor::Spawner;
+use embassy_mcxa::flexspi::{Async, Blocking, Flexspi};
 use embassy_mcxa::{Peripherals, bind_interrupts, peripherals};
 use hal::config::Config;
 use hal::flexspi::{self, ClockConfig as FlexspiClockConfig, IoError, NorFlash};
@@ -128,11 +129,10 @@ const READ_OFFSETS: &[u32] = &[
     0, 1, 2, 3, 4, 5, 7, 16, 17, 64, 100, 127, 128, 129, 200, 255, 256, 257, 4095, 4096, 4097,
 ];
 
-/// Program sizes covering the DMA fast path (`>= 8 && % 8 == 0`) and the
-/// FIFO fallback (everything else).
-const PROGRAM_SIZES: &[usize] = &[
-    1, 2, 3, 4, 7, 8, 9, 15, 16, 17, 24, 31, 32, 33, 63, 64, 65, 100, 128, 200, 248, 255, 256,
-];
+/// Program sizes. The driver requires 8-byte-aligned writes (its write-size
+/// contract), so every entry is a multiple of 8; this still exercises both the
+/// DMA fast path (DMA mode) and the IP/FIFO path (blocking/interrupt mode).
+const PROGRAM_SIZES: &[usize] = &[8, 16, 24, 32, 40, 64, 96, 128, 192, 200, 248, 256];
 
 bind_interrupts!(struct Irqs {
     FLEXSPI0 => flexspi::InterruptHandler<peripherals::FLEXSPI0>;
@@ -149,9 +149,9 @@ trait FlashOps {
     async fn page_program(&mut self, addr: u32, data: &[u8]) -> Result<(), IoError>;
 }
 
-struct BlockingFlash<'d, T: flexspi::Instance>(NorFlash<'d, T>);
+struct BlockingFlash<'d>(NorFlash<'d, Blocking>);
 
-impl<'d, T: flexspi::Instance> FlashOps for BlockingFlash<'d, T> {
+impl<'d> FlashOps for BlockingFlash<'d> {
     async fn vendor_id(&mut self) -> Result<u8, IoError> {
         self.0.blocking_vendor_id()
     }
@@ -166,9 +166,9 @@ impl<'d, T: flexspi::Instance> FlashOps for BlockingFlash<'d, T> {
     }
 }
 
-struct AsyncFlash<'d, T: flexspi::Instance>(NorFlash<'d, T>);
+struct AsyncFlash<'d>(NorFlash<'d, Async>);
 
-impl<'d, T: flexspi::Instance> FlashOps for AsyncFlash<'d, T> {
+impl<'d> FlashOps for AsyncFlash<'d> {
     async fn vendor_id(&mut self) -> Result<u8, IoError> {
         self.0.read_vendor_id_async().await
     }
@@ -214,20 +214,19 @@ async fn main(_spawner: Spawner) {
 async fn blocking_phase(p: &mut Peripherals) -> u32 {
     info!("--- PHASE 1: BLOCKING ---");
 
-    let flash = NorFlash::new_blocking(
+    let flash = NorFlash::new(unwrap!(Flexspi::new_blocking(
         p.FLEXSPI0.reborrow(),
         p.P3_0.reborrow(),
-        p.P3_1.reborrow(),
-        p.P3_6.reborrow(),
         p.P3_7.reborrow(),
+        p.P3_6.reborrow(),
         p.P3_8.reborrow(),
         p.P3_9.reborrow(),
         p.P3_10.reborrow(),
         p.P3_11.reborrow(),
         FlexspiClockConfig::default(),
         FLASH_CONFIG,
-    );
-    let mut flash = BlockingFlash(unwrap!(flash));
+    )));
+    let mut flash = BlockingFlash(flash);
 
     let mut failures = Failures::new();
     run_stress("blocking", &mut flash, &mut failures).await;
@@ -242,12 +241,11 @@ async fn blocking_phase(p: &mut Peripherals) -> u32 {
 async fn interrupt_phase(p: &mut Peripherals) -> u32 {
     info!("--- PHASE 2: INTERRUPT (no DMA) ---");
 
-    let flash = NorFlash::new_async(
+    let flash = NorFlash::new(unwrap!(Flexspi::new_async(
         p.FLEXSPI0.reborrow(),
         p.P3_0.reborrow(),
-        p.P3_1.reborrow(),
-        p.P3_6.reborrow(),
         p.P3_7.reborrow(),
+        p.P3_6.reborrow(),
         p.P3_8.reborrow(),
         p.P3_9.reborrow(),
         p.P3_10.reborrow(),
@@ -255,8 +253,8 @@ async fn interrupt_phase(p: &mut Peripherals) -> u32 {
         Irqs,
         FlexspiClockConfig::default(),
         FLASH_CONFIG,
-    );
-    let mut flash = AsyncFlash(unwrap!(flash));
+    )));
+    let mut flash = AsyncFlash(flash);
 
     let mut failures = Failures::new();
     run_stress("interrupt", &mut flash, &mut failures).await;
@@ -271,12 +269,11 @@ async fn interrupt_phase(p: &mut Peripherals) -> u32 {
 async fn dma_phase(p: &mut Peripherals) -> u32 {
     info!("--- PHASE 3: DMA ---");
 
-    let flash = NorFlash::new_with_dma(
+    let flash = NorFlash::new(unwrap!(Flexspi::new_with_dma(
         p.FLEXSPI0.reborrow(),
         p.P3_0.reborrow(),
-        p.P3_1.reborrow(),
-        p.P3_6.reborrow(),
         p.P3_7.reborrow(),
+        p.P3_6.reborrow(),
         p.P3_8.reborrow(),
         p.P3_9.reborrow(),
         p.P3_10.reborrow(),
@@ -286,8 +283,8 @@ async fn dma_phase(p: &mut Peripherals) -> u32 {
         Irqs,
         FlexspiClockConfig::default(),
         FLASH_CONFIG,
-    );
-    let mut flash = AsyncFlash(unwrap!(flash));
+    )));
+    let mut flash = AsyncFlash(flash);
 
     let mut failures = Failures::new();
     run_stress("dma", &mut flash, &mut failures).await;
@@ -532,7 +529,7 @@ async fn run_stress<F: FlashOps>(mode: &'static str, flash: &mut F, fails: &mut 
     //     tail.  Distinct from the program-size matrix in that it lives
     //     in its own dedicated sector so we don't perturb earlier results.
     unwrap!(flash.erase_sector(overlay_sector).await);
-    let partial_len = 100usize;
+    let partial_len = 96usize; // 8-byte aligned (driver write-size contract)
     let mut partial = [0u8; FLASH_PAGE_SIZE];
     fill_pattern(overlay_sector, &mut partial);
     unwrap!(flash.page_program(overlay_sector, &partial[..partial_len]).await);

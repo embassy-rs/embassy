@@ -200,8 +200,8 @@ impl<'a> Control<'a> {
             };
             let mut buf = [0; 8 + 12 + CHUNK_SIZE];
             buf[0..8].copy_from_slice(b"clmload\x00");
-            buf[8..20].copy_from_slice(&header.to_bytes());
-            buf[20..][..chunk.len()].copy_from_slice(&chunk);
+            buf[8..20].copy_from_slice(header.to_bytes());
+            buf[20..][..chunk.len()].copy_from_slice(chunk);
             self.ioctl(IoctlType::Set, Ioctl::SetVar, 0, &mut buf[..8 + 12 + chunk.len()])
                 .await;
         }
@@ -212,7 +212,7 @@ impl<'a> Control<'a> {
 
     /// Initialize WiFi controller.
     pub async fn init(&mut self, clm: &[u8]) {
-        self.load_clm(&clm).await;
+        self.load_clm(clm).await;
 
         debug!("Configuring misc stuff...");
 
@@ -232,7 +232,7 @@ impl<'a> Control<'a> {
             country_code: [country.code[0], country.code[1], 0, 0],
             rev: if country.rev == 0 { -1 } else { country.rev as _ },
         };
-        self.set_iovar("country", &country_info.to_bytes()).await;
+        self.set_iovar("country", country_info.to_bytes()).await;
 
         // set country takes some time, next ioctls fail if we don't wait.
         Timer::after_millis(100).await;
@@ -267,7 +267,7 @@ impl<'a> Control<'a> {
         evts.unset(Event::PROBRESP_MSG);
         evts.unset(Event::ROAM);
 
-        self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
+        self.set_iovar("bsscfg:event_msgs", evts.to_bytes()).await;
 
         Timer::after_millis(100).await;
 
@@ -355,7 +355,7 @@ impl<'a> Control<'a> {
                 };
                 pfi.passphrase[..options.passphrase.len()].copy_from_slice(options.passphrase);
                 Timer::after_millis(3).await;
-                self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes())
+                self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes().clone())
                     .await;
             }
 
@@ -366,7 +366,7 @@ impl<'a> Control<'a> {
                 };
                 pfi.passphrase[..options.passphrase.len()].copy_from_slice(options.passphrase);
                 Timer::after_millis(3).await;
-                self.set_iovar("sae_password", &pfi.to_bytes()).await;
+                self.set_iovar("sae_password", pfi.to_bytes()).await;
             }
 
             self.ioctl_set_u32(Ioctl::SetInfra, 0, 1).await;
@@ -395,14 +395,15 @@ impl<'a> Control<'a> {
             }
         }
 
-        let _uod = UnsubscribeOnDrop(&self.events);
+        let _uod = UnsubscribeOnDrop(self.events);
 
         self.events.mask.enable(&[Event::SET_SSID, Event::AUTH, Event::PSK_SUP]);
         let mut subscriber = self.events.queue.subscriber().unwrap();
         // the actual join operation starts here
         // we make sure to enable events before so we don't miss any
 
-        self.ioctl(IoctlType::Set, Ioctl::SetSsid, 0, &mut i.to_bytes()).await;
+        self.ioctl(IoctlType::Set, Ioctl::SetSsid, 0, &mut i.to_bytes().clone())
+            .await;
 
         // To complete the join on an open network, we wait for a SET_SSID event with status SUCCESS
         // For secured networks, we wait for a PSK_SUP event with status 6 "UNSOLICITED"
@@ -457,9 +458,7 @@ impl<'a> Control<'a> {
     }
 
     async fn start_ap(&mut self, ssid: &str, passphrase: &str, security: Security, channel: u8) {
-        if security != Security::OPEN
-            && (passphrase.as_bytes().len() < MIN_PSK_LEN || passphrase.as_bytes().len() > MAX_PSK_LEN)
-        {
+        if security != Security::OPEN && (passphrase.len() < MIN_PSK_LEN || passphrase.len() > MAX_PSK_LEN) {
             panic!("Passphrase is too short or too long");
         }
 
@@ -482,12 +481,12 @@ impl<'a> Control<'a> {
         let mut i = SsidInfoWithIndex {
             index: 0,
             ssid_info: SsidInfo {
-                len: ssid.as_bytes().len() as _,
+                len: ssid.len() as _,
                 ssid: [0; 32],
             },
         };
-        i.ssid_info.ssid[..ssid.as_bytes().len()].copy_from_slice(ssid.as_bytes());
-        self.set_iovar("bsscfg:ssid", &i.to_bytes()).await;
+        i.ssid_info.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
+        self.set_iovar("bsscfg:ssid", i.to_bytes()).await;
 
         // Set channel number
         self.ioctl_set_u32(Ioctl::SetChannel, 0, channel as u32).await;
@@ -502,12 +501,12 @@ impl<'a> Control<'a> {
 
             // Set passphrase
             let mut pfi = PassphraseInfo {
-                len: passphrase.as_bytes().len() as _,
+                len: passphrase.len() as _,
                 flags: 1, // WSEC_PASSPHRASE
                 passphrase: [0; 64],
             };
-            pfi.passphrase[..passphrase.as_bytes().len()].copy_from_slice(passphrase.as_bytes());
-            self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes())
+            pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
+            self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes().clone())
                 .await;
         }
 
@@ -670,8 +669,8 @@ impl<'a> Control<'a> {
         if kind == IoctlType::Set {
             debug!("ioctl set {:?} iface {} = {:02x}", cmd, iface, Bytes(buf));
         }
-        let n = self.ioctl_inner(kind, cmd, iface, buf).await;
-        n
+
+        self.ioctl_inner(kind, cmd, iface, buf).await
     }
 
     async fn ioctl_inner(&mut self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
@@ -735,12 +734,12 @@ impl<'a> Control<'a> {
             version: 1,
             action: 1,
             sync_id: 1,
-            ssid_len: scan_opts.ssid.as_ref().map(|e| e.as_bytes().len() as u32).unwrap_or(0),
+            ssid_len: scan_opts.ssid.as_ref().map(|e| e.len() as u32).unwrap_or(0),
             ssid: scan_opts
                 .ssid
                 .map(|e| {
                     let mut ssid = [0; 32];
-                    ssid[..e.as_bytes().len()].copy_from_slice(e.as_bytes());
+                    ssid[..e.len()].copy_from_slice(e.as_bytes());
                     ssid
                 })
                 .unwrap_or([0; 32]),
@@ -757,11 +756,11 @@ impl<'a> Control<'a> {
 
         self.events.mask.enable(&[Event::ESCAN_RESULT]);
         let subscriber = self.events.queue.subscriber().unwrap();
-        self.set_iovar_v::<256>("escan", &scan_params.to_bytes()).await;
+        self.set_iovar_v::<256>("escan", scan_params.to_bytes()).await;
 
         Scanner {
             subscriber,
-            events: &self.events,
+            events: self.events,
         }
     }
     /// Leave the wifi, with which we are currently associated.

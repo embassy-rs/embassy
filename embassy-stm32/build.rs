@@ -1907,7 +1907,7 @@ fn main() {
                     adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
 
                     g.extend(quote! {
-                    impl_adc_pin!( #peri, #pin_name, #ch);
+                        impl_adc_pin!( #peri, #pin_name, #ch);
                     })
                 }
                 if let Some((ch, true)) = ch {
@@ -2003,7 +2003,7 @@ fn main() {
                 let sel: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
 
                 g.extend(quote! {
-                impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
+                    impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
                 })
             }
         }
@@ -2020,7 +2020,7 @@ fn main() {
                 };
 
                 g.extend(quote! {
-                impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
+                    impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
                 })
             }
         }
@@ -2417,13 +2417,11 @@ fn main() {
         #[cfg(feature = "_split-pins-enabled")]
         for split_feature in &split_features {
             if split_feature.pin_name_without_c == pin.name {
-                pins_table.push(vec![
-                    split_feature.pin_name_with_c.to_string(),
-                    p.name.to_string(),
-                    port_num.to_string(),
-                    pin_num.to_string(),
-                    format!("EXTI{}", pin_num),
-                ]);
+                let pin_name = format_ident!("{}", split_feature.pin_name_with_c);
+
+                g.extend(quote! {
+                    impl_analog_pin!(#pin_name);
+                });
             }
         }
     }
@@ -2547,11 +2545,9 @@ fn main() {
         let dma_info = match bi.kind {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
-            "gpdma" => quote!(crate::pac::#dma),
+            "gpdma" => quote!(crate::dma::DmaInfo::Gpdma(crate::pac::#dma)),
             "mdma" => quote!(crate::dma::DmaInfo::Mdma(crate::pac::#dma)),
-            "lpdma" => {
-                quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())})
-            }
+            "lpdma" => quote!(crate::dma::DmaInfo::Lpdma(crate::pac::#dma)),
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
 
@@ -2597,7 +2593,6 @@ fn main() {
     }
 
     g.extend(quote! {
-        #[cfg(not(stm32c5))]
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
     });
 

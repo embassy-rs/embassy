@@ -132,6 +132,7 @@ pub struct StorageDevice<'a, 'b, T: Addressable> {
 /// Card Storage Device
 impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     /// Create a new SD card
+    #[deprecated = "use the sdio crate"]
     pub async fn new_sd_card(sdmmc: &'a mut Sdmmc<'b>, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Self, Error> {
         let mut s = Self {
             info: Card::default(),
@@ -144,6 +145,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     }
 
     /// Create a new uninitialized card
+    #[deprecated = "use the sdio crate"]
     pub fn new_uninit_sd_card(sdmmc: &'a mut Sdmmc<'b>) -> Self {
         Self {
             info: Card::default(),
@@ -461,6 +463,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
 /// Emmc storage device
 impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     /// Create a new EMMC card
+    #[deprecated = "use the sdio crate"]
     pub async fn new_emmc(sdmmc: &'a mut Sdmmc<'b>, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Self, Error> {
         let mut s = Self {
             info: Emmc::default(),
@@ -473,6 +476,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     }
 
     /// Create a new uninitialized emmc
+    #[deprecated = "use the sdio crate"]
     pub fn new_uninit_emmc(sdmmc: &'a mut Sdmmc<'b>) -> Self {
         Self {
             info: Emmc::default(),
