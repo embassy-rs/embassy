@@ -812,7 +812,14 @@ impl<'d, I: SealedHostInstance> UsbHostController<'d> for UsbHost<'d, I> {
     }
 
     async fn wait_for_device_event(&mut self) -> embassy_usb_driver::host::DeviceEvent {
-        // TODO: which event do we expect?
-        self.wait_for_device_connect().await
+        let event = self.wait_for_device_connect().await;
+        if matches!(event, DeviceEvent::Connected(_)) {
+            // The UsbHostController contract requires driving a bus reset to
+            // completion on attach before returning.
+            self.bus_reset().await;
+            // USB 2.0 §7.1.7.5: reset recovery time before the device must respond.
+            Timer::after_millis(10).await;
+        }
+        event
     }
 }

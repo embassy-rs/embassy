@@ -10,25 +10,34 @@ use embassy_usb_driver::host::{
     DeviceEvent, HostError, PipeError, SplitInfo, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
-use portable_atomic::{AtomicBool, AtomicU8, Ordering};
+use portable_atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
 
 use crate::PhyType;
 use crate::otg_v1::{Otg, vals};
 
-// Channel transfer result codes stored atomically.
-const CH_RESULT_NONE: u8 = 0;
-const CH_RESULT_COMPLETE: u8 = 1;
-const CH_RESULT_STALL: u8 = 2;
-const CH_RESULT_NAK: u8 = 3;
-const CH_RESULT_TXERR: u8 = 4;
-const CH_RESULT_BBERR: u8 = 5;
-const CH_RESULT_FRMOR: u8 = 6;
-const CH_RESULT_DTERR: u8 = 7;
-const CH_RESULT_HALTED: u8 = 8;
-const CH_RESULT_NYET: u8 = 9;
+// Per-channel event flags, OR'd into an AtomicU16 mailbox by the ISR.
+const EV_XFRC: u16 = 1 << 0;
+const EV_STALL: u16 = 1 << 1;
+const EV_NAK: u16 = 1 << 2;
+const EV_NYET: u16 = 1 << 3;
+const EV_TXERR: u16 = 1 << 4;
+const EV_BBERR: u16 = 1 << 5;
+const EV_FRMOR: u16 = 1 << 6;
+const EV_DTERR: u16 = 1 << 7;
+const EV_CHH: u16 = 1 << 8;
+const EV_DISCONNECT: u16 = 1 << 9;
 
 /// HCINT.NYET bit (not exposed by the PAC struct).
 const HCINT_NYET_MASK: u32 = 1 << 6;
+
+enum ChannelEvent {
+    None,
+    Complete,
+    Nak,
+    Nyet,
+    Halted,
+    Error(PipeError),
+}
 
 // Port event bitflags (OR'd together, not mutually exclusive).
 const PORT_EVENT_CONNECTED: u8 = 1 << 0;
@@ -39,7 +48,8 @@ const PORT_EVENT_OVERCURRENT: u8 = 1 << 3;
 /// Per-channel state for interrupt communication.
 struct ChannelState {
     waker: AtomicWaker,
-    result: AtomicU8,
+    /// Accumulated `EV_*` event flags.
+    result: AtomicU16,
     /// Buffer pointer for RX FIFO reads.
     rx_buffer: UnsafeCell<*mut u8>,
     /// Number of bytes received into the buffer.
@@ -72,7 +82,7 @@ impl<const CH_COUNT: usize> HostStateStorage<CH_COUNT> {
             channels: [const {
                 ChannelState {
                     waker: AtomicWaker::new(),
-                    result: AtomicU8::new(CH_RESULT_NONE),
+                    result: AtomicU16::new(0),
                     rx_buffer: UnsafeCell::new(core::ptr::null_mut()),
                     rx_count: UnsafeCell::new(0),
                     rx_capacity: UnsafeCell::new(0),
@@ -307,36 +317,46 @@ pub unsafe fn on_host_interrupt(r: Otg, state: &HostState<'_>) {
             if haint & (1 << ch) != 0 {
                 let hcint = r.hcint(ch).read();
 
-                let nyet = hcint.0 & HCINT_NYET_MASK != 0;
-                let result = if hcint.xfrc() {
-                    CH_RESULT_COMPLETE
-                } else if hcint.stall() {
-                    CH_RESULT_STALL
-                } else if hcint.bberr() {
-                    CH_RESULT_BBERR
-                } else if hcint.txerr() {
-                    CH_RESULT_TXERR
-                } else if hcint.dterr() {
-                    CH_RESULT_DTERR
-                } else if hcint.frmor() {
-                    CH_RESULT_FRMOR
-                } else if nyet {
-                    CH_RESULT_NYET
-                } else if hcint.nak() {
-                    CH_RESULT_NAK
-                } else if hcint.chh() {
-                    CH_RESULT_HALTED
-                } else {
-                    CH_RESULT_NONE
-                };
+                // Accumulate every bit; NAK and the auto-halt CHH can co-occur.
+                let mut events: u16 = 0;
+                if hcint.xfrc() {
+                    events |= EV_XFRC;
+                }
+                if hcint.stall() {
+                    events |= EV_STALL;
+                }
+                if hcint.bberr() {
+                    events |= EV_BBERR;
+                }
+                if hcint.txerr() {
+                    events |= EV_TXERR;
+                }
+                if hcint.dterr() {
+                    events |= EV_DTERR;
+                }
+                if hcint.frmor() {
+                    events |= EV_FRMOR;
+                }
+                if hcint.0 & HCINT_NYET_MASK != 0 {
+                    events |= EV_NYET;
+                }
+                if hcint.nak() {
+                    events |= EV_NAK;
+                }
+                if hcint.chh() {
+                    events |= EV_CHH;
+                }
 
-                trace!("otg-host: hcint ch={} raw={:#010x} -> result={}", ch, hcint.0, result,);
+                trace!(
+                    "otg-host: hcint ch={} raw={:#010x} -> events={:#06x}",
+                    ch, hcint.0, events
+                );
 
                 // Clear all channel interrupts
                 r.hcint(ch).write_value(hcint);
 
-                if result != CH_RESULT_NONE {
-                    state.channels[ch].result.store(result, Ordering::Release);
+                if events != 0 {
+                    state.channels[ch].result.fetch_or(events, Ordering::Release);
                     state.channels[ch].waker.wake();
                 }
             }
@@ -564,7 +584,7 @@ impl<'d> UsbHostAllocator<'d> for OtgHostAllocator<'d> {
                 .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
                 .is_ok()
             {
-                self.state.channels[i].result.store(CH_RESULT_NONE, Ordering::Release);
+                self.state.channels[i].result.store(0, Ordering::Release);
 
                 return Ok(Channel {
                     regs: self.regs,
@@ -625,7 +645,7 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
                     // Wake all channels to signal disconnection
                     for ch in state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
-                            ch.result.store(CH_RESULT_HALTED, Ordering::Release);
+                            ch.result.fetch_or(EV_DISCONNECT, Ordering::Release);
                             ch.waker.wake();
                         }
                     }
@@ -670,7 +690,7 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
                         .fetch_and(!PORT_EVENT_DISCONNECTED, Ordering::AcqRel);
                     for ch in state.channels {
                         if ch.allocated.load(Ordering::Relaxed) {
-                            ch.result.store(CH_RESULT_HALTED, Ordering::Release);
+                            ch.result.fetch_or(EV_DISCONNECT, Ordering::Release);
                             ch.waker.wake();
                         }
                     }
@@ -832,7 +852,7 @@ impl<T: pipe::Type, D: pipe::Direction> Drop for Channel<'_, T, D> {
         // Clear any pending channel interrupts.
         r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
 
-        self.state.channels[ch].result.store(CH_RESULT_NONE, Ordering::Release);
+        self.state.channels[ch].result.store(0, Ordering::Release);
         self.state.channels[ch].allocated.store(false, Ordering::Release);
     }
 }
@@ -930,7 +950,7 @@ impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
         r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
 
         // Clear result
-        self.state.channels[ch].result.store(CH_RESULT_NONE, Ordering::Release);
+        self.state.channels[ch].result.store(0, Ordering::Release);
     }
 
     fn enable_channel(&self) {
@@ -942,13 +962,22 @@ impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
         });
     }
 
+    /// Halt and spin until CHENA clears. No-op if already disabled (no CHH would
+    /// be raised, so awaiting one would park forever). Drains any halt CHH.
     fn halt_channel(&self) {
         let r = self.regs;
         let ch = self.index;
-        r.hcchar(ch).modify(|w| {
-            w.set_chena(true);
-            w.set_chdis(true);
-        });
+        if r.hcchar(ch).read().chena() {
+            r.hcchar(ch).modify(|w| {
+                w.set_chena(true);
+                w.set_chdis(true);
+            });
+            while r.hcchar(ch).read().chena() {
+                core::hint::spin_loop();
+            }
+        }
+        r.hcint(ch).write_value(crate::otg_v1::regs::Hcint(0xFFFF_FFFF));
+        self.state.channels[ch].result.store(0, Ordering::Release);
     }
 
     fn write_fifo(&self, data: &[u8]) {
@@ -991,14 +1020,14 @@ impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
         unsafe { *self.state.channels[self.index].rx_count.get() }
     }
 
-    async fn wait_for_result(&self) -> u8 {
+    async fn wait_for_result(&self) -> u16 {
         poll_fn(|cx| {
             let ch_state = &self.state.channels[self.index];
             ch_state.waker.register(cx.waker());
 
-            let result = ch_state.result.swap(CH_RESULT_NONE, Ordering::AcqRel);
-            if result != CH_RESULT_NONE {
-                Poll::Ready(result)
+            let events = ch_state.result.swap(0, Ordering::AcqRel);
+            if events != 0 {
+                Poll::Ready(events)
             } else {
                 Poll::Pending
             }
@@ -1006,17 +1035,29 @@ impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
         .await
     }
 
-    fn result_to_error(result: u8) -> Result<(), PipeError> {
-        match result {
-            CH_RESULT_COMPLETE => Ok(()),
-            CH_RESULT_STALL => Err(PipeError::Stall),
-            CH_RESULT_NAK | CH_RESULT_NYET => Ok(()), // not errors; caller retries
-            CH_RESULT_TXERR => Err(PipeError::BadResponse),
-            CH_RESULT_BBERR => Err(PipeError::Babble),
-            CH_RESULT_FRMOR => Err(PipeError::BadResponse),
-            CH_RESULT_DTERR => Err(PipeError::DataToggleError),
-            CH_RESULT_HALTED => Err(PipeError::Disconnected),
-            _ => Err(PipeError::BadResponse),
+    /// Reduce an event mask to one action, by priority (errors/disconnect win
+    /// over NAK/CHH so a NAK|CHH combo retries instead of reporting disconnect).
+    fn classify_events(events: u16) -> ChannelEvent {
+        if events & EV_DISCONNECT != 0 {
+            ChannelEvent::Error(PipeError::Disconnected)
+        } else if events & EV_STALL != 0 {
+            ChannelEvent::Error(PipeError::Stall)
+        } else if events & EV_DTERR != 0 {
+            ChannelEvent::Error(PipeError::DataToggleError)
+        } else if events & EV_BBERR != 0 {
+            ChannelEvent::Error(PipeError::Babble)
+        } else if events & (EV_TXERR | EV_FRMOR) != 0 {
+            ChannelEvent::Error(PipeError::BadResponse)
+        } else if events & EV_XFRC != 0 {
+            ChannelEvent::Complete
+        } else if events & EV_NYET != 0 {
+            ChannelEvent::Nyet
+        } else if events & EV_NAK != 0 {
+            ChannelEvent::Nak
+        } else if events & EV_CHH != 0 {
+            ChannelEvent::Halted
+        } else {
+            ChannelEvent::None
         }
     }
 
@@ -1046,19 +1087,19 @@ impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
             self.enable_channel();
             self.write_fifo(data);
 
-            let result = self.wait_for_result().await;
-            match result {
-                CH_RESULT_COMPLETE => return Ok(()),
-                CH_RESULT_NAK => {
-                    yield_now().await;
-                    continue;
-                }
-                CH_RESULT_NYET => {
+            let events = self.wait_for_result().await;
+            match Self::classify_events(events) {
+                ChannelEvent::Complete => return Ok(()),
+                ChannelEvent::Nyet => {
                     do_ping = true;
                     yield_now().await;
                     continue;
                 }
-                _ => return Self::result_to_error(result),
+                ChannelEvent::Nak | ChannelEvent::Halted | ChannelEvent::None => {
+                    yield_now().await;
+                    continue;
+                }
+                ChannelEvent::Error(e) => return Err(e),
             }
         }
     }
@@ -1091,29 +1132,22 @@ impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
             self.configure_channel(true, ep_type, pktcnt, xfer_size, dpid);
             self.enable_channel();
 
-            let result = self.wait_for_result().await;
+            let events = self.wait_for_result().await;
             let count = self.rx_count();
             self.clear_rx_buffer();
 
-            if result == CH_RESULT_COMPLETE {
-                return Ok(count);
-            }
-
-            if result == CH_RESULT_NAK {
-                if is_periodic {
-                    // For periodic endpoints, the hardware may start halting the
-                    // channel after NAK. Explicitly halt and wait for completion
-                    // (CHH) before reconfiguring, otherwise the retry races with
-                    // the in-progress halt and the new transfer never starts.
-                    self.halt_channel();
-                    let _halt = self.wait_for_result().await; // expect CHH
+            match Self::classify_events(events) {
+                ChannelEvent::Complete => return Ok(count),
+                ChannelEvent::Nak | ChannelEvent::Nyet | ChannelEvent::Halted | ChannelEvent::None => {
+                    // Periodic channels auto-halt after NAK; settle before retry.
+                    if is_periodic {
+                        self.halt_channel();
+                    }
+                    yield_now().await;
+                    continue;
                 }
-                yield_now().await;
-                continue;
+                ChannelEvent::Error(e) => return Err(e),
             }
-
-            Self::result_to_error(result)?;
-            return Ok(count);
         }
     }
 

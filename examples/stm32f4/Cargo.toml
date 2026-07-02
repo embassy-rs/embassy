@@ -37,7 +37,7 @@ micromath = "2.0.0"
 usbd-hid = "0.10.0"
 static_cell = "2"
 chrono = { version = "^0.4", default-features = false}
-sdio = { version = "0.2.4", git = "https://github.com/embassy-rs/sdio.git", rev ="d023c1c" }
+sdio = "0.4.0"
 aligned = "0.4.3"
 block-device-driver = "0.2.0"
 

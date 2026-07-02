@@ -9,8 +9,8 @@ macro_rules! impl_bytes {
 
             /// Convert to byte array.
             #[allow(unused)]
-            pub fn to_bytes(&self) -> [u8; Self::SIZE] {
-                unsafe { core::mem::transmute(*self) }
+            pub fn to_bytes(&self) -> &[u8; Self::SIZE] {
+                unsafe { core::mem::transmute(self) }
             }
 
             /// Create from byte array.
@@ -58,7 +58,7 @@ pub struct SharedMemData {
 }
 impl_bytes!(SharedMemData);
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct SharedMemLog {
@@ -69,7 +69,7 @@ pub struct SharedMemLog {
 }
 impl_bytes!(SharedMemLog);
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct SdpcmHeader {
@@ -128,7 +128,7 @@ impl SdpcmHeader {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[repr(C, packed(2))]
 pub struct CdcHeader {
     pub cmd: u32,
@@ -176,7 +176,7 @@ impl CdcHeader {
 pub const BDC_VERSION: u8 = 2;
 pub const BDC_VERSION_SHIFT: u8 = 4;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct BdcHeader {
@@ -208,7 +208,7 @@ impl BdcHeader {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct EthernetHeader {
@@ -224,7 +224,7 @@ impl EthernetHeader {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct EventHeader {
@@ -243,7 +243,7 @@ impl EventHeader {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 // #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C, packed(2))]
 pub struct EventMessage {
@@ -323,7 +323,6 @@ impl EventMessage {
     }
 }
 
-#[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C, packed(2))]
 pub struct EventPacket {
@@ -332,6 +331,16 @@ pub struct EventPacket {
     pub msg: EventMessage,
 }
 impl_bytes!(EventPacket);
+
+impl Clone for EventPacket {
+    fn clone(&self) -> Self {
+        Self {
+            eth: self.eth.clone(),
+            hdr: self.hdr.clone(),
+            msg: self.msg.clone(),
+        }
+    }
+}
 
 impl EventPacket {
     pub fn parse(packet: &mut [u8]) -> Option<(&mut Self, &mut [u8])> {
@@ -356,7 +365,7 @@ impl EventPacket {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[repr(C)]
 pub struct DownloadHeader {
     pub flag: u16, //
@@ -375,7 +384,7 @@ pub const DOWNLOAD_FLAG_HANDLER_VER: u16 = 0x1000;
 // Country Locale Matrix (CLM)
 pub const DOWNLOAD_TYPE_CLM: u16 = 2;
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct CountryInfo {
@@ -385,7 +394,7 @@ pub struct CountryInfo {
 }
 impl_bytes!(CountryInfo);
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct SsidInfo {
@@ -394,7 +403,7 @@ pub struct SsidInfo {
 }
 impl_bytes!(SsidInfo);
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct PassphraseInfo {
@@ -404,7 +413,7 @@ pub struct PassphraseInfo {
 }
 impl_bytes!(PassphraseInfo);
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct SaePassphraseInfo {
@@ -413,7 +422,7 @@ pub struct SaePassphraseInfo {
 }
 impl_bytes!(SaePassphraseInfo);
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct SsidInfoWithIndex {
@@ -422,7 +431,7 @@ pub struct SsidInfoWithIndex {
 }
 impl_bytes!(SsidInfoWithIndex);
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct EventMask {
@@ -439,7 +448,7 @@ impl EventMask {
 }
 
 /// Parameters for a wifi scan
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct ScanParams {
@@ -461,7 +470,7 @@ pub struct ScanParams {
 impl_bytes!(ScanParams);
 
 /// Wifi Scan Results Header, followed by `bss_count` `BssInfo`
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 // #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C, packed(2))]
 pub struct ScanResults {
@@ -491,7 +500,7 @@ impl ScanResults {
 }
 
 /// Wifi Scan Result
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 // #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C, packed(2))]
 #[non_exhaustive]
