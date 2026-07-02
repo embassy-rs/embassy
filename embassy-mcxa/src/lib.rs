@@ -73,8 +73,8 @@ pub mod spi;
 pub mod trng;
 #[cfg(mcxa_wwdt)]
 pub mod wwdt;
-
-pub mod flexcan; // u_Note: should add a cfg here eventually
+#[cfg(mcxa_can)]
+pub mod flexcan;
 
 #[cfg(feature = "mcxa2xx")]
 pub use mcxa2xx_exclusive::*;
