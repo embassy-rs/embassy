@@ -1,8 +1,8 @@
 //! Module containing the tools needed to define and configure CAN frames for Classic CAN.
-//! 
+//!
 //! The type(s) defined in this module are compatible with the `embedded-can` crate.
 
-pub use crate::flexcan::id::{Id, StandardId, ExtendedId};
+pub use crate::flexcan::id::{ExtendedId, Id, StandardId};
 
 /// Represents the possible kinds of CAN frames.
 #[derive(PartialEq)]
@@ -27,7 +27,9 @@ impl Frame {
     ///
     /// Returns `None` if `data` is longer than 8 bytes.
     pub fn new(id: impl Into<Id>, data: &[u8]) -> Option<Self> {
-        if data.len() > 8 { return None; } // Make sure we're the right size.
+        if data.len() > 8 {
+            return None;
+        } // Make sure we're the right size.
 
         let mut buf = [0u8; 8];
         buf[..data.len()].copy_from_slice(data);
@@ -44,7 +46,9 @@ impl Frame {
     ///
     /// Returns `None` if `dlc` is greater than 8.
     pub fn new_remote(id: impl Into<Id>, dlc: usize) -> Option<Self> {
-        if dlc > 8 { return None; } // Make sure we're the right size.
+        if dlc > 8 {
+            return None;
+        } // Make sure we're the right size.
 
         Some(Frame {
             kind: FrameKind::RemoteFrame,
@@ -78,17 +82,31 @@ impl Frame {
     pub fn data(&self) -> &[u8] {
         match self.kind {
             FrameKind::RemoteFrame => &[],
-            FrameKind::DataFrame   => &self.data[..self.length],
+            FrameKind::DataFrame => &self.data[..self.length],
         }
     }
 }
 
 impl embedded_can::Frame for Frame {
-    fn new(id: impl Into<embedded_can::Id>, data: &[u8]) -> Option<Self> { Self::new(id.into(), data) }
-    fn new_remote(id: impl Into<embedded_can::Id>, dlc: usize) -> Option<Self> { Self::new_remote(id.into(), dlc) }
-    fn is_extended(&self) -> bool { Self::is_extended(self) }
-    fn is_remote_frame(&self) -> bool { Self::is_remote_frame(self) }
-    fn id(&self) -> embedded_can::Id { Self::id(self).into() }
-    fn dlc(&self) -> usize { Self::dlc(self) }
-    fn data(&self) -> &[u8] { Self::data(self) }
+    fn new(id: impl Into<embedded_can::Id>, data: &[u8]) -> Option<Self> {
+        Self::new(id.into(), data)
+    }
+    fn new_remote(id: impl Into<embedded_can::Id>, dlc: usize) -> Option<Self> {
+        Self::new_remote(id.into(), dlc)
+    }
+    fn is_extended(&self) -> bool {
+        Self::is_extended(self)
+    }
+    fn is_remote_frame(&self) -> bool {
+        Self::is_remote_frame(self)
+    }
+    fn id(&self) -> embedded_can::Id {
+        Self::id(self).into()
+    }
+    fn dlc(&self) -> usize {
+        Self::dlc(self)
+    }
+    fn data(&self) -> &[u8] {
+        Self::data(self)
+    }
 }

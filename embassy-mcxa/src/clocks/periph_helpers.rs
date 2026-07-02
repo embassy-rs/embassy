@@ -1313,7 +1313,6 @@ pub enum CanClockSel {
     // NOTE: mcxa5xx also exposes a USB_PLL_CLK source, but there is no
     // `ensure_usb_pll_clk_active()` helper yet, so it is omitted for now.
     // So: going to mark this with u_TODO
-
     /// Disabled.
     None,
 }

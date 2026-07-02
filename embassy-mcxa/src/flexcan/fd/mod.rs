@@ -1,9 +1,9 @@
 //! This is a stub module for CAN FD support.
-//! 
+//!
 //! The structure of this module probably shouldn't look all that different to `classic/`. Despite the protocol-level differences between Classic CAN and CAN FD, the high
 //! level design of this submodule (and its interfaces) should be able to take a lot of cues from `classic/`, since they share the same FlexCAN hardware at the end of the
 //! day.
-//! 
+//!
 //! Misc (and very non-exhaustive) notes about an eventual CAN FD implementation:
 //! - The RX side of the CAN FD mailbox can probably be nearly identical to `classic/mailbox.rs`'s RX subsystem, since CAN FD should be able to use the same
 //! Enhanced RX FIFO configuration as Classic CAN. The FIFO element sizes are fixed at 64 bytes (even for Classic CAN), so they don't need to be resized for CAN FD.

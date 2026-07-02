@@ -1,9 +1,9 @@
-//! This module models the FlexCAN mailbox for Classic CAN (not FD). 
-//! 
+//! This module models the FlexCAN mailbox for Classic CAN (not FD).
+//!
 //! TX/outgoing messages are handled in the FlexCAN message buffer, which uses the memory area 80h - 27Fh (see page 1545 of the datasheet). This memory area is 512 bytes in total.
 //! Each message consists of the CS Register (4 bytes), the Id Register (4 bytes), and the 8-byte message payload. So, each message buffer is 16 bytes in total.
 //! This means that the message buffer can hold a total of 512 / 16 = 32 messages.
-//! 
+//!
 //! RX/incoming messages are handeled by the chip's Enhanced RX FIFO (see page 1556 of the datasheet).
 //! This FIFO can store 12 messages, which are filled automatically by the hardware as they come in.
 //! Messages can be dequeued from this FIFO by reading the 2000h - 2047h memory area as a message buffer, and then setting the erfda flag (to tell the hardware that the memory area is ready to be filled with the next message from the FIFO).
@@ -31,20 +31,16 @@ pub(in crate::flexcan) enum MailboxError {
 
 /// The TX subsystem (for transmitting messages).
 pub(in crate::flexcan) mod tx {
-    use super::Message;
-    use super::pac;
+    use core::convert::Infallible;
+    use core::sync::atomic::Ordering;
+
+    use super::{MailboxError, Message, pac};
     use crate::flexcan::classic::Info;
     use crate::flexcan::classic::frame::{Frame, Id};
-    use super::MailboxError;
-    use core::sync::atomic::Ordering;
-    use core::convert::Infallible;
 
     /// Represents the message buffer memory area (80h - 27Fh), which this HAL uses for dispatching TX messages.
     pub(in crate::flexcan) mod buffer {
-        use super::Message;
-        use super::TxMessage;
-        use super::Info;
-        use super::TxCode;
+        use super::{Info, Message, TxCode, TxMessage};
 
         /// Writes a `TxMessage` into one of the 32 message buffers.
         /// * `info` - The type-erased instance handle.
@@ -55,11 +51,11 @@ pub(in crate::flexcan) mod tx {
             let [b0, b1, b2, b3, b4, b5, b6, b7] = message.inner.payload;
             let word0 = u32::from_be_bytes([b0, b1, b2, b3]);
             let word1 = u32::from_be_bytes([b4, b5, b6, b7]);
-            info.control.regs().word0(n).write(|w| { *w = word0 });
-            info.control.regs().word1(n).write(|w| { *w = word1 });
+            info.control.regs().word0(n).write(|w| *w = word0);
+            info.control.regs().word1(n).write(|w| *w = word1);
 
-            info.control.regs().id(n).write(|w| { w.0 = message.inner.id.0 });
-            info.control.regs().cs(n).write(|w| { w.0 = message.inner.cs.0 }); // Need to write in CS last because this is when we update CODE (which could trigger a TX dispatch)
+            info.control.regs().id(n).write(|w| w.0 = message.inner.id.0);
+            info.control.regs().cs(n).write(|w| w.0 = message.inner.cs.0); // Need to write in CS last because this is when we update CODE (which could trigger a TX dispatch)
         }
 
         /// Reads one of the 32 message buffers into a `TxMessage`.
@@ -77,7 +73,9 @@ pub(in crate::flexcan) mod tx {
             let [b4, b5, b6, b7] = word1.to_be_bytes();
             let payload = [b0, b1, b2, b3, b4, b5, b6, b7];
 
-            TxMessage { inner: Message { cs, id, payload } }
+            TxMessage {
+                inner: Message { cs, id, payload },
+            }
         }
 
         /// Sets a buffer to its `INACTIVE` state. Only the CS register is affected.
@@ -92,13 +90,16 @@ pub(in crate::flexcan) mod tx {
     /// This function resets the TX message buffers and our state tracking for what buffers are available.
     pub(in crate::flexcan) fn setup(info: &Info) -> Result<(), MailboxError> {
         use core::sync::atomic::Ordering;
+
         use embassy_time::{Duration, Instant};
 
         // Make sure we're frozen before continuing.
         const FREEZE_TIMEOUT: u64 = 10; // ms
         match info.control.freeze(Some(Duration::from_millis(FREEZE_TIMEOUT))) {
             Ok(_) => (),
-            Err(_) => { return Err(MailboxError::Timeout); }
+            Err(_) => {
+                return Err(MailboxError::Timeout);
+            }
         }
 
         // Disable all 32 interrupts via the IMASK1 register
@@ -158,17 +159,19 @@ pub(in crate::flexcan) mod tx {
 
     impl TxCode {
         pub(in crate::flexcan) const INACTIVE: u8 = Self::TxInactive as u8;
-        pub(in crate::flexcan) const ABORT:    u8 = Self::TxAbort as u8;
-        pub(in crate::flexcan) const READY:    u8 = Self::TxReady as u8;
-        pub(in crate::flexcan) const TANSWER:  u8 = Self::TxTanswer as u8;
+        pub(in crate::flexcan) const ABORT: u8 = Self::TxAbort as u8;
+        pub(in crate::flexcan) const READY: u8 = Self::TxReady as u8;
+        pub(in crate::flexcan) const TANSWER: u8 = Self::TxTanswer as u8;
     }
 
     /// Struct representing a TX message.
-    /// 
+    ///
     /// This is just a thin wrapper around the `Message` type that is generic to both TX and RX messages.
     /// The reason we need explicit `TxMessage` and `RxMessage` structs is because the CODE field
     /// inside `Message` has different meanings depending on TX or RX.
-    pub(in crate::flexcan) struct TxMessage{inner: Message}
+    pub(in crate::flexcan) struct TxMessage {
+        inner: Message,
+    }
     impl TxMessage {
         /// Gets the current reading of this message's `CODE` field.
         #[allow(dead_code)]
@@ -179,7 +182,7 @@ pub(in crate::flexcan) mod tx {
                 TxCode::ABORT => Ok(TxCode::TxAbort),
                 TxCode::READY => Ok(TxCode::TxReady),
                 TxCode::TANSWER => Ok(TxCode::TxTanswer),
-                _ => Err(MailboxError::UnknownTxCode)
+                _ => Err(MailboxError::UnknownTxCode),
             }
         }
 
@@ -187,9 +190,9 @@ pub(in crate::flexcan) mod tx {
         const fn set_code(&mut self, code: TxCode) {
             match code {
                 TxCode::TxInactive => self.inner.cs.set_code(TxCode::INACTIVE),
-                TxCode::TxAbort =>    self.inner.cs.set_code(TxCode::ABORT),
-                TxCode::TxReady =>    self.inner.cs.set_code(TxCode::READY),
-                TxCode::TxTanswer =>  self.inner.cs.set_code(TxCode::TANSWER),
+                TxCode::TxAbort => self.inner.cs.set_code(TxCode::ABORT),
+                TxCode::TxReady => self.inner.cs.set_code(TxCode::READY),
+                TxCode::TxTanswer => self.inner.cs.set_code(TxCode::TANSWER),
             }
         }
     }
@@ -198,19 +201,25 @@ pub(in crate::flexcan) mod tx {
     // Lets you do `let frame: TxMessage = (&frame).into()` (where `frame` starts as a `Frame`)
     impl From<&Frame> for TxMessage {
         fn from(frame: &Frame) -> Self {
-            let mut message = TxMessage { inner: Message { cs: pac::Cs(0), id: pac::Id(0), payload: frame.data } };
+            let mut message = TxMessage {
+                inner: Message {
+                    cs: pac::Cs(0),
+                    id: pac::Id(0),
+                    payload: frame.data,
+                },
+            };
 
             message.inner.cs.set_edl(false);
             message.inner.cs.set_rtr(frame.is_remote_frame());
             message.inner.cs.set_dlc(frame.dlc() as u8);
 
             match frame.id() {
-                Id::Standard(sid)  => { 
+                Id::Standard(sid) => {
                     message.inner.cs.set_ide(false);
                     message.inner.id.set_std(sid.as_raw());
                 }
 
-                Id::Extended(eid)  => { 
+                Id::Extended(eid) => {
                     message.inner.cs.set_ide(true);
                     message.inner.cs.set_srr(true);
                     message.inner.id.set_std(eid.standard_id().as_raw());
@@ -224,7 +233,7 @@ pub(in crate::flexcan) mod tx {
         }
     }
 
-    /// Finds an available space in the message buffer, 
+    /// Finds an available space in the message buffer,
     pub(in crate::flexcan) fn dispatch(info: &Info, message: &TxMessage) -> nb::Result<(), Infallible> {
         // This loop exists to prevent races to claim a buffer if multiple
         // senders call dispatch() at the same time. In practice though,
@@ -254,32 +263,28 @@ pub(in crate::flexcan) mod tx {
             // Another sender claimed the buffer first, so loop and try a different buffer.
         }
     }
-
-    
 }
 
 /// The RX subsystem (for recieving messages)
 pub(in crate::flexcan) mod rx {
-    use super::MailboxError;
+    use super::{MailboxError, Message, pac};
     use crate::flexcan::classic::Info;
     use crate::flexcan::filter::{Filter, FilterConfig};
-    use super::pac;
-    use super::Message;
 
     /// Represents the Enhanced RX FIFO memory area.
     pub(in crate::flexcan) mod fifo {
-        use super::Info;
-        use super::RxMessage;
-        use super::Message;
+        use super::{Info, Message, RxMessage};
 
         /// Gets the oldest unread message from the Enhanced RX FIFO and places it into a `RxMessage`.
         /// If a message is available to return, this function will return it and automatically flag
         /// the FIFO to pop to the next message.
-        /// 
+        ///
         /// If the FIFO is empty, returns `None`.
         pub(in crate::flexcan) fn get(info: &Info) -> Option<RxMessage> {
             /// Converts a length/index in bytes to a length/index in words.
-            const fn to_words(bytes: usize) -> usize { bytes.div_ceil(4) }
+            const fn to_words(bytes: usize) -> usize {
+                bytes.div_ceil(4)
+            }
 
             // If ERFDA is `0`, then there's no data to read (FIFO is empty).
             if !info.control.regs().erfsr().read().erfda() {
@@ -293,8 +298,8 @@ pub(in crate::flexcan) mod rx {
             /// This const is the maximum number of words we may need to read in this function.
             /// This is defined as the number of words for MAX_PAYLOAD, plus one extra word for ID_HIT.
             /// For Classic CAN, where MAX_PAYLOAD = 8 bytes, MAX_WORDS will equal 3 (first two for payload data, and the last one for ID_HIT)
-            const MAX_WORDS: usize = const {to_words(8) + 1}; // 3
-            
+            const MAX_WORDS: usize = const { to_words(8) + 1 }; // 3
+
             // Read the FIFO words
             let mut words = [0u32; MAX_WORDS];
             let last_word_index = to_words(len); // The index of the last word for this specific `len`. The word at this index will contain ID_HIT.
@@ -319,16 +324,20 @@ pub(in crate::flexcan) mod rx {
                 copied += n;
             }
 
-            Some(RxMessage { inner: Message { cs, id, payload } })
+            Some(RxMessage {
+                inner: Message { cs, id, payload },
+            })
         }
     }
 
     /// Struct representing a RX message.
-    /// 
+    ///
     /// This is just a thin wrapper around the `Message` type that is generic to both TX and RX messages.
     /// The reason we need explicit `TxMessage` and `RxMessage` structs is because the CODE field
     /// inside `Message` has different meanings depending on TX or RX.
-    pub(in crate::flexcan) struct RxMessage{inner: Message}
+    pub(in crate::flexcan) struct RxMessage {
+        inner: Message,
+    }
 
     /// Possible errors that can occur when trying to convert
     /// a `RxMessage` to a `Frame`.
@@ -348,10 +357,14 @@ pub(in crate::flexcan) mod rx {
         type Error = RxMessageFromError;
 
         fn try_from(message: RxMessage) -> Result<Self, Self::Error> {
-            use crate::flexcan::id::{Id, StandardId, ExtendedId};
-            use crate::flexcan::classic::frame::{FrameKind};
+            use crate::flexcan::classic::frame::FrameKind;
+            use crate::flexcan::id::{ExtendedId, Id, StandardId};
 
-            let kind: FrameKind = if message.inner.cs.rtr() {FrameKind::RemoteFrame} else {FrameKind::DataFrame};
+            let kind: FrameKind = if message.inner.cs.rtr() {
+                FrameKind::RemoteFrame
+            } else {
+                FrameKind::DataFrame
+            };
 
             let id: Id = if message.inner.cs.ide() {
                 // ide = true means Extended ID
@@ -366,40 +379,51 @@ pub(in crate::flexcan) mod rx {
 
             let length: usize = (message.inner.cs.dlc() as usize).min(8);
 
-            Ok(crate::flexcan::classic::frame::Frame {kind, id, length, data: message.inner.payload})
+            Ok(crate::flexcan::classic::frame::Frame {
+                kind,
+                id,
+                length,
+                data: message.inner.payload,
+            })
         }
     }
 
     /// Sets up the RX subsystem.
     /// This function requires `filter_config` to have been validated prior to being passed in here.
     pub(in crate::flexcan) fn setup(info: &Info, filter_config: &FilterConfig) -> Result<(), MailboxError> {
-        use embassy_time::{Duration};
-        use crate::flexcan::id::{StandardId, ExtendedId};
+        use embassy_time::Duration;
+
+        use crate::flexcan::id::{ExtendedId, StandardId};
 
         // Make sure we're frozen before continuing.
         const FREEZE_TIMEOUT: u64 = 10; // ms
         match info.control.freeze(Some(Duration::from_millis(FREEZE_TIMEOUT))) {
             Ok(_) => (),
-            Err(_) => { return Err(MailboxError::Timeout); }
+            Err(_) => {
+                return Err(MailboxError::Timeout);
+            }
         }
 
         // Misc basic setup
         info.control.regs().mcr().modify(|m| m.set_rfen(pac::Rfen::Id1)); // Turn off the Legacy FIFO
-        info.control.regs().ctrl2().modify(|m| m.set_rrs(pac::Rrs::RemoteResponseFrameNotGenerated)); // Store incoming REMOTE frames instead of auto-generating a response frame.
+        info.control
+            .regs()
+            .ctrl2()
+            .modify(|m| m.set_rrs(pac::Rrs::RemoteResponseFrameNotGenerated)); // Store incoming REMOTE frames instead of auto-generating a response frame.
         info.control.regs().erfcr().modify(|m| m.set_erfen(true)); // Enable the Enhanced FIFO
         info.control.regs().erfsr().modify(|m| m.set_erfclr(pac::Erfclr::Clear)); // Clear the Enhanced FIFO
         info.control.regs().erfsr().write(|w| {
-            w.set_erfufw(true);                      // Clear the Enhanced FIFO Underflow Flag (write-1-to-clear)
-            w.set_erfovf(true);                      // Clear the Enhanced FIFO Overflow Flag (write-1-to-clear)
+            w.set_erfufw(true); // Clear the Enhanced FIFO Underflow Flag (write-1-to-clear)
+            w.set_erfovf(true); // Clear the Enhanced FIFO Overflow Flag (write-1-to-clear)
             w.set_erfwmi(pac::Erfwmi::WatermarkYes); // Clear the Enhanced FIFO Watermark Indication Flag (write-1-to-clear)
-            w.set_erfda(true);                       // Clear the Enhanced FIFO Data Available Flag (write-1-to-clear)
+            w.set_erfda(true); // Clear the Enhanced FIFO Data Available Flag (write-1-to-clear)
         });
 
         // Make it so every RX triggers an interrupt rather than batching them
         info.control.regs().erfier().modify(|m| {
-            m.set_erfdaie(true);    // Enable the Enhanced FIFO Data Available Interrupt
-            m.set_erfwmiie(false);  // Disable the Enhanced RX FIFO Watermark Indication Interrupt (since we're not batching)
-            m.set_erfovfie(true);   // Enable the Enhanced RX FIFO Overflow Interrupt Enable
+            m.set_erfdaie(true); // Enable the Enhanced FIFO Data Available Interrupt
+            m.set_erfwmiie(false); // Disable the Enhanced RX FIFO Watermark Indication Interrupt (since we're not batching)
+            m.set_erfovfie(true); // Enable the Enhanced RX FIFO Overflow Interrupt Enable
         });
 
         // Set up the ID filteres
@@ -423,46 +447,73 @@ pub(in crate::flexcan) mod rx {
         for filter in filter_config.filters {
             match filter {
                 Filter::Extended(id) => {
-                    info.control.regs().erffel(2 * ext_idx).write_value(pac::Erffel(id.as_raw() & EXT_ID_MASK));
-                    info.control.regs().erffel(2 * ext_idx + 1).write_value(pac::Erffel(EXT_ID_MASK));
+                    info.control
+                        .regs()
+                        .erffel(2 * ext_idx)
+                        .write_value(pac::Erffel(id.as_raw() & EXT_ID_MASK));
+                    info.control
+                        .regs()
+                        .erffel(2 * ext_idx + 1)
+                        .write_value(pac::Erffel(EXT_ID_MASK));
                     ext_idx += 1;
                 }
                 Filter::ExtendedMasked { id, mask } => {
-                    info.control.regs().erffel(2 * ext_idx).write_value(pac::Erffel(id.as_raw() & EXT_ID_MASK));
-                    info.control.regs().erffel(2 * ext_idx + 1).write_value(pac::Erffel(mask.as_raw() & EXT_ID_MASK));
+                    info.control
+                        .regs()
+                        .erffel(2 * ext_idx)
+                        .write_value(pac::Erffel(id.as_raw() & EXT_ID_MASK));
+                    info.control
+                        .regs()
+                        .erffel(2 * ext_idx + 1)
+                        .write_value(pac::Erffel(mask.as_raw() & EXT_ID_MASK));
                     ext_idx += 1;
                 }
                 Filter::Standard(id) => {
                     let word = ((id.as_raw() as u32 & STD_ID_MASK) << 16) | STD_ID_MASK;
-                    info.control.regs().erffel(standard_base + std_idx).write_value(pac::Erffel(word));
+                    info.control
+                        .regs()
+                        .erffel(standard_base + std_idx)
+                        .write_value(pac::Erffel(word));
                     last_standard_word = word;
                     std_idx += 1;
                 }
                 Filter::StandardMasked { id, mask } => {
                     let word = ((id.as_raw() as u32 & STD_ID_MASK) << 16) | (mask.as_raw() as u32 & STD_ID_MASK);
-                    info.control.regs().erffel(standard_base + std_idx).write_value(pac::Erffel(word));
+                    info.control
+                        .regs()
+                        .erffel(standard_base + std_idx)
+                        .write_value(pac::Erffel(word));
                     last_standard_word = word;
                     std_idx += 1;
                 }
                 Filter::AcceptAllStandard => {
-                    // Just do the same thing as `StandardMasked` but where the mask and id 
+                    // Just do the same thing as `StandardMasked` but where the mask and id
                     // are all zeros (since that's what "accept all Standard IDs" means under the hood)
                     let mask = StandardId::ZERO;
                     let id = StandardId::ZERO;
 
                     let word = ((id.as_raw() as u32 & STD_ID_MASK) << 16) | (mask.as_raw() as u32 & STD_ID_MASK);
-                    info.control.regs().erffel(standard_base + std_idx).write_value(pac::Erffel(word));
+                    info.control
+                        .regs()
+                        .erffel(standard_base + std_idx)
+                        .write_value(pac::Erffel(word));
                     last_standard_word = word;
                     std_idx += 1;
                 }
                 Filter::AcceptAllExtended => {
-                    // Just do the same thing as `ExtendedMasked` but where the mask and id 
+                    // Just do the same thing as `ExtendedMasked` but where the mask and id
                     // are all zeros (since that's what "accept all Extended IDs" means under the hood)
                     let mask = ExtendedId::ZERO;
                     let id = ExtendedId::ZERO;
 
-                    info.control.regs().erffel(2 * ext_idx).write_value(pac::Erffel(id.as_raw() & EXT_ID_MASK));
-                    info.control.regs().erffel(2 * ext_idx + 1).write_value(pac::Erffel(mask.as_raw() & EXT_ID_MASK));
+                    info.control
+                        .regs()
+                        .erffel(2 * ext_idx)
+                        .write_value(pac::Erffel(id.as_raw() & EXT_ID_MASK));
+                    info.control
+                        .regs()
+                        .erffel(2 * ext_idx + 1)
+                        .write_value(pac::Erffel(mask.as_raw() & EXT_ID_MASK));
                     ext_idx += 1;
                 }
             }
@@ -471,7 +522,10 @@ pub(in crate::flexcan) mod rx {
         // If we have an odd number of standard filters, pad the trailing slot by repeating the
         // last standard word (a duplicate will never win any matches since the earlier element gets found first).
         if std_idx < standard_slots {
-            info.control.regs().erffel(standard_base + std_idx).write_value(pac::Erffel(last_standard_word));
+            info.control
+                .regs()
+                .erffel(standard_base + std_idx)
+                .write_value(pac::Erffel(last_standard_word));
         }
 
         Ok(())

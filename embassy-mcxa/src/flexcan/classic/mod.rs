@@ -1,5 +1,5 @@
 //! Module for Classic CAN.
-//! 
+//!
 //! This module allows you to initialize and configure a classic-mode `FlexCan` instance.
 #![doc = include_str!("example.md")]
 
@@ -11,24 +11,26 @@ mod timing;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use embassy_sync::waitqueue::AtomicWaker;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::{Channel};
 use embassy_hal_internal::Peri;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::channel::Channel;
+use embassy_sync::waitqueue::AtomicWaker;
+use nxp_pac::can as pac;
 
-use crate::flexcan::classic::mailbox::tx;
+use crate::clocks::periph_helpers::{CanClockSel, CanConfig, CanInstance, Div4};
+use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::flexcan::classic::frame::Frame;
+use crate::flexcan::classic::mailbox::tx;
+use crate::flexcan::classic::meta::docs::{
+    doc_error_mode, doc_receive, doc_rx_dropped_count, doc_send, doc_try_receive, doc_try_send,
+    doc_tx_mailbox_full_count,
+};
+use crate::flexcan::classic::meta::rx_queue_size::RX_QUEUE_SIZE;
+use crate::flexcan::control::Control;
 use crate::flexcan::filter::FilterConfig;
-use crate::flexcan::control::{Control};
 use crate::flexcan::{RxPin, TxPin};
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::{Handler, Interrupt};
-use crate::flexcan::classic::meta::rx_queue_size::RX_QUEUE_SIZE;
-use crate::clocks::{enable_and_reset, ClockError, PoweredClock, WakeGuard};
-use crate::clocks::periph_helpers::{CanClockSel, CanConfig, CanInstance, Div4};
-use nxp_pac::can as pac;
-
-use crate::flexcan::classic::meta::docs::{doc_send, doc_try_send, doc_receive, doc_try_receive, doc_error_mode, doc_rx_dropped_count, doc_tx_mailbox_full_count};
 
 /// Errors that can return when initializing
 /// a `FlexCan` instance.
@@ -43,7 +45,7 @@ pub enum InitError {
     /// This error indicates that you attempted enabling the
     /// `protocol_exception` feature in `FlexCanConfig` on a
     /// peripheral where it is not supported.
-    /// 
+    ///
     /// Note: Protocol Exception is only supported on CAN0.
     ProtocolExceptionUnsupported,
 
@@ -63,7 +65,7 @@ pub struct FlexCanConfig<'a> {
     /// FlexCAN's Protocol Exception feature. This may be
     /// useful if you want this FlexCAN to coexist on a FD-enabled
     /// bus while staying in Classic mode.
-    /// 
+    ///
     /// Note: This feature is only available on CAN0. If you attempt to enable this
     /// feature on an instance where it isn't supported, you will get an error
     /// when calling `FlexCan::new()`.
@@ -74,14 +76,14 @@ pub struct FlexCanConfig<'a> {
     pub filters: FilterConfig<'a>,
 
     /// CAN bit rate, in bits per second (e.g. `500_000` for 500 kbit/s).
-    /// 
+    ///
     /// Your requested bitrate must conform to these constraints:
     /// - `bitrate <= 1_000_000` (i.e., your bitrate can't be greater than 1Mbps).
     /// - Your source clock rate must be an exact integer multiple of the bitrate.
     /// - At least 8 source clocks per bit are required.
     /// - Validity depends on clock divisibility, so prefer standard rates with a matching
     ///   clock (or else you might get a `InitError::TimingError`).
-    /// 
+    ///
     /// Here are some common/standard rates people use (after applying `clock_div`):
     /// #### 45 MHz Source Clock:
     /// - `bitrate: 1_000_000` (1 Mbps)
@@ -142,7 +144,7 @@ impl<'a> Default for FlexCanConfig<'a> {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BusErrorMode {
-    /// Error active mode (default). Controller will transmit an 
+    /// Error active mode (default). Controller will transmit an
     /// active error frame upon protocol error.
     ErrorActive,
 
@@ -193,7 +195,7 @@ pub(crate) struct Info {
     /// flips the message buffer to RX-EMPTY instead of TX-INACTIVE (see page 1548 of the datasheet). Because of that,
     /// we need the ISR to manually write TX-INACTIVE back to any message buffer where an REMOTE message was sent. These bits
     /// let the ISR track what buffers it needs to do this for.
-    /// 
+    ///
     /// TLDR: These bits are set by `dispatch()` for REMOTE frames, and cleared by the ISR once the buffer has been neutralized back to TX-INACTIVE.
     pub tx_remote: AtomicU32,
 
@@ -206,7 +208,7 @@ pub(crate) struct Info {
     /// throwing a bunch of error frames. In other words, it allows the FlexCAN
     /// to recognize that a frame is FD and ignore it, even when not in FD mode.
     /// See page 1492 of the datasheet.
-    /// 
+    ///
     /// This feature is supported by CAN0, but not CAN1. This flag allows the HAL
     /// to specify this constraint internally via `impl_can_instance!()`. This way,
     /// if a user tries to enable this feature in their config on an unsupported peripheral,
@@ -226,7 +228,7 @@ pub(crate) struct Info {
 pub(crate) trait SealedInstance: crate::clocks::Gate<MrccPeriphConfig = CanConfig> {
     fn info() -> &'static Info;
 
-    /// Which MRCC clock instance this peripheral maps to. 
+    /// Which MRCC clock instance this peripheral maps to.
     /// This is used to select the correct `MRCC_FLEXCANn_CLKSEL`/`CLKDIV` registers during clock setup.
     const CLOCK_INSTANCE: CanInstance;
 }
@@ -250,13 +252,21 @@ impl<'d> FlexCanRx<'d> {
     }
 
     #[doc = doc_receive!()]
-    pub async fn receive(&self) -> Frame { functions::receive(self.info).await }
+    pub async fn receive(&self) -> Frame {
+        functions::receive(self.info).await
+    }
     #[doc = doc_try_receive!()]
-    pub fn try_receive(&self) -> Result<Frame, ReceiveError> { functions::try_receive(self.info) }
+    pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
+        functions::try_receive(self.info)
+    }
     #[doc = doc_error_mode!()]
-    pub fn error_mode(&self) -> BusErrorMode { functions::error_mode(self.info) }
+    pub fn error_mode(&self) -> BusErrorMode {
+        functions::error_mode(self.info)
+    }
     #[doc = doc_rx_dropped_count!()]
-    pub fn rx_dropped_count(&self) -> u32 { functions::rx_dropped_count(self.info) }
+    pub fn rx_dropped_count(&self) -> u32 {
+        functions::rx_dropped_count(self.info)
+    }
 }
 
 /// TX-specific FlexCAN instance. Can be obtained by calling `.split()`
@@ -276,17 +286,29 @@ impl<'d> FlexCanTx<'d> {
     /// Creates a new `FlexCanTx` instance.
     /// This isn't a public function, and should only be called via `.split()` in the `FlexCan` struct.
     fn new(info: &'static Info, tx: Peri<'d, AnyPin>, wake_guard: Option<WakeGuard>) -> Self {
-        Self { info, _tx: tx, _wake_guard: wake_guard }
+        Self {
+            info,
+            _tx: tx,
+            _wake_guard: wake_guard,
+        }
     }
 
     #[doc = doc_send!()]
-    pub async fn send(&mut self, frame: &Frame) { functions::send(self.info, frame).await }
+    pub async fn send(&mut self, frame: &Frame) {
+        functions::send(self.info, frame).await
+    }
     #[doc = doc_try_send!()]
-    pub fn try_send(&mut self, frame: &Frame) -> Result<(), SendError> { functions::try_send(self.info, frame) }
+    pub fn try_send(&mut self, frame: &Frame) -> Result<(), SendError> {
+        functions::try_send(self.info, frame)
+    }
     #[doc = doc_error_mode!()]
-    pub fn error_mode(&self) -> BusErrorMode { functions::error_mode(self.info) }
+    pub fn error_mode(&self) -> BusErrorMode {
+        functions::error_mode(self.info)
+    }
     #[doc = doc_tx_mailbox_full_count!()]
-    pub fn tx_mailbox_full_count(&self) -> u32 { functions::tx_mailbox_full_count(self.info) }
+    pub fn tx_mailbox_full_count(&self) -> u32 {
+        functions::tx_mailbox_full_count(self.info)
+    }
 }
 
 /// FlexCAN driver instance, in Classic CAN mode.
@@ -297,7 +319,7 @@ pub struct FlexCan<'d> {
 
 impl<'d> FlexCan<'d> {
     /// Constructs a new FlexCAN driver instance, in Classic mode.
-    /// 
+    ///
     pub fn new<T: Instance>(
         _peri: Peri<'d, T>,
         rx: Peri<'d, impl RxPin<T>>,
@@ -309,7 +331,9 @@ impl<'d> FlexCan<'d> {
         let info = T::info();
 
         // Software-only error checks to make sure stuff was configured correctly
-        if config.protocol_exception && !info.prexcen_supported {return Err(InitError::ProtocolExceptionUnsupported);}
+        if config.protocol_exception && !info.prexcen_supported {
+            return Err(InitError::ProtocolExceptionUnsupported);
+        }
 
         // Mux the pins to their CAN function and take ownership for the driver's lifetime.
         rx.as_rx();
@@ -332,18 +356,28 @@ impl<'d> FlexCan<'d> {
 
         // Enable and freeze
         const ENABLE_TIMEOUT: u64 = 10; // Timeout for the `.enable()` call in ms
-        info.control.enable(Some(Duration::from_millis(ENABLE_TIMEOUT))).map_err(|_| InitError::Timeout)?;
+        info.control
+            .enable(Some(Duration::from_millis(ENABLE_TIMEOUT)))
+            .map_err(|_| InitError::Timeout)?;
         const FREEZE_TIMEOUT: u64 = 10; // Timeout for the `.freeze()` call in ms
-        info.control.freeze(Some(Duration::from_millis(FREEZE_TIMEOUT))).map_err(|_| InitError::Timeout)?;
+        info.control
+            .freeze(Some(Duration::from_millis(FREEZE_TIMEOUT)))
+            .map_err(|_| InitError::Timeout)?;
 
         // If protocol_exception is supported, write whatever config value was passed in
         // Couldn't do this at the first protocol_exception check since this involves actually writing to a register
         if info.prexcen_supported {
-            info.control.regs().ctrl2().modify(|m| m.set_prexcen(config.protocol_exception));
+            info.control
+                .regs()
+                .ctrl2()
+                .modify(|m| m.set_prexcen(config.protocol_exception));
         }
 
         // Disable FDCAN
-        info.control.regs().mcr().modify(|m| m.set_fden(pac::Fden::CanFdDisabled));
+        info.control
+            .regs()
+            .mcr()
+            .modify(|m| m.set_fden(pac::Fden::CanFdDisabled));
 
         // Route bus-off events to the ISR, and enable autorecovery.
         info.control.regs().ctrl1().modify(|w| {
@@ -376,7 +410,9 @@ impl<'d> FlexCan<'d> {
 
         // Setup the interrupts
         T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable(); }
+        unsafe {
+            T::Interrupt::enable();
+        }
 
         info.control.unfreeze();
 
@@ -396,40 +432,59 @@ impl<'d> FlexCan<'d> {
     /// If the two halves come from different peripherals, this returns `Err((tx, rx))`,
     /// where `tx` and `rx` are the same `tx`/`rx` you passed in. This means you can try again if you need to.
     pub fn join(tx: FlexCanTx<'d>, rx: FlexCanRx<'d>) -> Result<Self, (FlexCanRx<'d>, FlexCanTx<'d>)> {
-        if !core::ptr::eq(tx.info, rx.info) { return Err((rx, tx)); }
+        if !core::ptr::eq(tx.info, rx.info) {
+            return Err((rx, tx));
+        }
         Ok(Self { tx, rx })
     }
 
     #[doc = doc_send!()]
-    pub async fn send(&mut self, frame: &Frame) { self.tx.send(frame).await }
+    pub async fn send(&mut self, frame: &Frame) {
+        self.tx.send(frame).await
+    }
     #[doc = doc_try_send!()]
-    pub fn try_send(&mut self, frame: &Frame) -> Result<(), SendError> { self.tx.try_send(frame) }
+    pub fn try_send(&mut self, frame: &Frame) -> Result<(), SendError> {
+        self.tx.try_send(frame)
+    }
     #[doc = doc_receive!()]
-    pub async fn receive(&self) -> Frame { self.rx.receive().await }
+    pub async fn receive(&self) -> Frame {
+        self.rx.receive().await
+    }
     #[doc = doc_try_receive!()]
-    pub fn try_receive(&self) -> Result<Frame, ReceiveError> { self.rx.try_receive() }
+    pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
+        self.rx.try_receive()
+    }
     #[doc = doc_error_mode!()]
-    pub fn error_mode(&self) -> BusErrorMode { self.tx.error_mode() } 
+    pub fn error_mode(&self) -> BusErrorMode {
+        self.tx.error_mode()
+    }
     #[doc = doc_rx_dropped_count!()]
-    pub fn rx_dropped_count(&self) -> u32 { self.rx.rx_dropped_count() } 
+    pub fn rx_dropped_count(&self) -> u32 {
+        self.rx.rx_dropped_count()
+    }
     #[doc = doc_tx_mailbox_full_count!()]
-    pub fn tx_mailbox_full_count(&self) -> u32 { self.tx.tx_mailbox_full_count() } 
+    pub fn tx_mailbox_full_count(&self) -> u32 {
+        self.tx.tx_mailbox_full_count()
+    }
 }
 
 /// This module contains the actual implementations of the functions used by
 /// `FlexCan`, `FlexCanTx`, and `FlexCanRx`. They're not implemented directly
 /// on those structs because some functions are common to more than one of them.
 mod functions {
+    use super::{
+        BusErrorMode, Frame, Info, ReceiveError, SendError, doc_error_mode, doc_receive, doc_send, doc_try_receive,
+        doc_try_send, doc_tx_mailbox_full_count, pac, tx,
+    };
     use crate::flexcan::classic::doc_rx_dropped_count;
-    use super::{Frame, Info, tx, SendError, ReceiveError, BusErrorMode, pac};
-    use super::{doc_send, doc_try_send, doc_receive, doc_try_receive, doc_error_mode, doc_tx_mailbox_full_count};
 
     #[doc = doc_send!()]
     pub async fn send(info: &Info, frame: &Frame) {
         use core::future::poll_fn;
-        use nb::Error::{WouldBlock, Other};
-        use core::task::Poll;
         use core::sync::atomic::Ordering;
+        use core::task::Poll;
+
+        use nb::Error::{Other, WouldBlock};
 
         let message = tx::TxMessage::from(frame);
         poll_fn(|cx| {
@@ -437,18 +492,20 @@ mod functions {
             match tx::dispatch(info, &message) {
                 Ok(()) => Poll::Ready(()),
                 Err(WouldBlock) => {
-                    info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire); 
-                    Poll::Pending 
-                },
+                    info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
+                    Poll::Pending
+                }
                 Err(Other(e)) => match e {},
             }
-        }).await
+        })
+        .await
     }
 
     #[doc = doc_try_send!()]
     pub fn try_send(info: &Info, frame: &Frame) -> Result<(), SendError> {
-        use nb::Error::{WouldBlock, Other};
         use core::sync::atomic::Ordering;
+
+        use nb::Error::{Other, WouldBlock};
 
         if error_mode(info) == BusErrorMode::BusOff {
             return Err(SendError::BusOff);
@@ -459,8 +516,8 @@ mod functions {
             Ok(()) => Ok(()),
             Err(WouldBlock) => {
                 info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
-                Err(SendError::TxMailboxFull) 
-            },
+                Err(SendError::TxMailboxFull)
+            }
             Err(Other(e)) => match e {},
         }
     }
@@ -499,7 +556,9 @@ mod functions {
 
 /// FlexCAN interrupt handler.
 /// Construct this in a `bind_interrupts!` block to route an IRQ (e.g., CAN0, CAN1) here.
-pub struct InterruptHandler<T: Instance> { _phantom: PhantomData<T> }
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
 
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
@@ -515,7 +574,6 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 
         // If any TX buffers have fired, we can reset them and mark them as available for re-use now.
         if tx_fired != 0 {
-
             // For more context about this following block, see the comment above `tx_remote`. TLDR: This block of code
             // is only relavent when we transmit REMOTE frames.
             let remote_fired = tx_fired & info.tx_remote.load(Ordering::Relaxed);
@@ -548,9 +606,11 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 
                 // The try_into() shouldn't actually be able to fail since the PAC already ensures std()/ext() can't
                 // exceed 11 bits/29 bits, but if it does somehow, just drop the frame.
-                Err(_) => { continue; }
+                Err(_) => {
+                    continue;
+                }
             };
-            
+
             // Push the frame into the software RX queue
             if info.rx_channel.try_send(frame).is_err() {
                 // if the software queue is full, drop the frame, and increment the `rx_dropped_count` counter.
