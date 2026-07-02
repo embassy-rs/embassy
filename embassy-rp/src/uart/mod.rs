@@ -337,11 +337,9 @@ impl<'d, M: Mode> UartRx<'d, M> {
         Ok(buffer.len())
     }
     // Returns True if the UART FIFO is not empty
-    fn has_rx_data(&mut self) -> bool
-    {
-        !self.info.regs.uartfr().read().rxfe()   
+    fn has_rx_data(&mut self) -> bool {
+        !self.info.regs.uartfr().read().rxfe()
     }
-
 }
 
 impl<'d, M: Mode> Drop for UartRx<'d, M> {
