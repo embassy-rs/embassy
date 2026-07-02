@@ -3,15 +3,16 @@ use core::ptr::write_volatile;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::{Ordering, fence};
 
+#[cfg(flash_g4c3)]
+use super::FlashBank;
+#[cfg(flash_g4c3)]
+use super::get_flash_regions;
+
 use cortex_m::interrupt;
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::flash::regs::Sr;
 
 use super::{FlashSector, WRITE_SIZE};
-#[cfg(flash_g4c3)]
-use super::FlashBank;
-#[cfg(flash_g4c3)]
-use super::get_flash_regions;
 use crate::flash::Error;
 use crate::pac;
 
