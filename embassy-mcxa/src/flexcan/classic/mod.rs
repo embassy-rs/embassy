@@ -242,13 +242,21 @@ pub trait Instance: crate::flexcan::Instance + SealedInstance {}
 pub struct FlexCanRx<'d> {
     info: &'static Info,
     _rx: Peri<'d, AnyPin>,
+
+    /// Inhibits deep sleep while this half is alive, if the selected clock source does not survive deep sleep.
+    /// `None` if no guard is required.
+    _wake_guard: Option<WakeGuard>,
 }
 
 impl<'d> FlexCanRx<'d> {
     /// Creates a new `FlexCanRx` instance.
     /// This isn't a public function, and should only be called via `.split()` in the `FlexCan` struct.
-    fn new(info: &'static Info, rx: Peri<'d, AnyPin>) -> Self {
-        Self { info, _rx: rx }
+    fn new(info: &'static Info, rx: Peri<'d, AnyPin>, wake_guard: Option<WakeGuard>) -> Self {
+        Self {
+            info,
+            _rx: rx,
+            _wake_guard: wake_guard,
+        }
     }
 
     #[doc = doc_receive!()]
@@ -275,10 +283,8 @@ pub struct FlexCanTx<'d> {
     info: &'static Info,
     _tx: Peri<'d, AnyPin>,
 
-    /// Inhibits deep sleep while this driver is alive, if the selected clock source does not survive deep sleep. `None` if no guard is required.
-    ///
-    /// Note: When a `FlexCan` is split, the wake guard travels with the TX half. Dropping the TX half therefore
-    /// releases the deep-sleep inhibition even if a `FlexCanRx` half is still alive.
+    /// Inhibits deep sleep while this half is alive, if the selected clock source does not survive deep sleep. 
+    /// `None` if no guard is required.
     _wake_guard: Option<WakeGuard>,
 }
 
@@ -416,8 +422,8 @@ impl<'d> FlexCan<'d> {
 
         info.control.unfreeze();
 
-        let tx = FlexCanTx::new(info, _tx, _wake_guard);
-        let rx = FlexCanRx::new(info, _rx);
+        let tx = FlexCanTx::new(info, _tx, _wake_guard.clone());
+        let rx = FlexCanRx::new(info, _rx, _wake_guard);
         Ok(Self { tx, rx })
     }
 
