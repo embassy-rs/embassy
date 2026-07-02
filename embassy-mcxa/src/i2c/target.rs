@@ -369,6 +369,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             });
 
             self.info.regs().scfgr1().modify(|w| {
+                w.set_adrstall(true);
                 w.set_rxstall(true);
                 w.set_txdstall(true);
                 w.set_gcen(config.general_call.into());
