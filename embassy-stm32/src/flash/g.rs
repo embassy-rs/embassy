@@ -11,7 +11,6 @@ use pac::flash::regs::Sr;
 use super::FlashBank;
 #[cfg(flash_g4c3)]
 use super::get_flash_regions;
-
 use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
