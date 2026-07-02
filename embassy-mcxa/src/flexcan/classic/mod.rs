@@ -14,7 +14,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use embassy_hal_internal::Peri;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
-use embassy_sync::waitqueue::AtomicWaker;
+use maitake_sync::WaitCell;
 use nxp_pac::can as pac;
 
 use crate::clocks::periph_helpers::{CanClockSel, CanConfig, CanInstance, Div4};
@@ -200,7 +200,7 @@ pub(crate) struct Info {
     pub tx_remote: AtomicU32,
 
     /// Waker used to wake tasks awaiting on a CAN send() call.
-    pub tx_waker: AtomicWaker,
+    pub tx_waker: WaitCell,
 
     /// This flag indicates whether or not Protocol Exception is supported
     /// by the FlexCAN peripheral. Protocol Exception allows a FlexCAN in
@@ -486,25 +486,22 @@ mod functions {
 
     #[doc = doc_send!()]
     pub async fn send(info: &Info, frame: &Frame) {
-        use core::future::poll_fn;
         use core::sync::atomic::Ordering;
-        use core::task::Poll;
 
         use nb::Error::{Other, WouldBlock};
 
         let message = tx::TxMessage::from(frame);
-        poll_fn(|cx| {
-            info.tx_waker.register(cx.waker());
-            match tx::dispatch(info, &message) {
-                Ok(()) => Poll::Ready(()),
+        let _ = info
+            .tx_waker
+            .wait_for(|| match tx::dispatch(info, &message) {
+                Ok(()) => true,
                 Err(WouldBlock) => {
                     info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
-                    Poll::Pending
+                    false
                 }
                 Err(Other(e)) => match e {},
-            }
-        })
-        .await
+            })
+            .await;
     }
 
     #[doc = doc_try_send!()]

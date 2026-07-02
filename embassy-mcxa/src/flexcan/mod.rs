@@ -106,7 +106,7 @@ macro_rules! impl_can_instance {
                         control: crate::flexcan::control::Control::new(crate::pac::[<CAN $n>]),
                         tx_available: core::sync::atomic::AtomicU32::new(0),
                         tx_remote: core::sync::atomic::AtomicU32::new(0),
-                        tx_waker: embassy_sync::waitqueue::AtomicWaker::new(),
+                        tx_waker: maitake_sync::WaitCell::new(),
                         prexcen_supported: $n == 0, // Protocol Exception is only supported on CAN0.
                         rx_channel: embassy_sync::channel::Channel::new(),
                         rx_dropped_count: core::sync::atomic::AtomicU32::new(0),
