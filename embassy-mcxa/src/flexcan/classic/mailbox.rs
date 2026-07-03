@@ -233,7 +233,7 @@ pub(in crate::flexcan) mod tx {
         }
     }
 
-    /// Finds an available space in the message buffer,
+    /// Finds an available space in the message buffer, and then puts the message in there.
     pub(in crate::flexcan) fn dispatch(info: &Info, message: &TxMessage) -> nb::Result<(), Infallible> {
         // This loop exists to prevent races to claim a buffer if multiple
         // senders call dispatch() at the same time. In practice though,
@@ -262,6 +262,42 @@ pub(in crate::flexcan) mod tx {
             }
             // Another sender claimed the buffer first, so loop and try a different buffer.
         }
+    }
+
+    /// Reclaims any TX message buffers that have finished transmitting, making them available for reuse.
+    pub(in crate::flexcan) fn reclaim_completed(info: &Info) -> bool {
+        let can = info.control.regs();
+
+        // Check what TX buffers have fired.
+        let tx_flags = can.iflag1().read().0;
+        let tx_enabled = can.imask1().read().0;
+        let tx_fired = tx_flags & tx_enabled; // Any TX buffers that have just fired and need to be reset are marked as `1` here.
+
+        if tx_fired == 0 {
+            return false;
+        }
+
+        // For more context about this following block, see the comment above `tx_remote`. TLDR: This block of code
+        // is only relavent when we transmit REMOTE frames.
+        let remote_fired = tx_fired & info.tx_remote.load(Ordering::Relaxed);
+        if remote_fired != 0 {
+            let mut bits = remote_fired;
+            while bits != 0 {
+                let n = bits.trailing_zeros() as usize;
+                buffer::set_inactive(info, n); // INACTIVE
+                bits &= bits - 1; // Clear the lowest set bit.
+            }
+            // Clear the remote markings before the buffers are advertised as available, so
+            // that `dispatch()` never observes a free buffer that is still flagged remote.
+            info.tx_remote.fetch_and(!remote_fired, Ordering::Relaxed);
+        }
+
+        // Actually clear the interrupt flag
+        can.iflag1().write(|w| w.0 = tx_fired); // IFLAG1 is a "write 1 to clear" register. So, doing this basically just acknowledges that these interrupts fired, and clears them back to zero (so they can fire again in the future).
+        let _ = can.iflag1().read(); // read back from the register so we make sure the write finished before we return
+        info.tx_available.fetch_or(tx_fired, Ordering::Release); // Update the `tx_available` tracker accordingly.
+
+        true
     }
 }
 

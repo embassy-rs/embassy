@@ -12,9 +12,8 @@
 
 pub mod classic;
 pub(crate) mod control;
-mod fd;
 pub mod filter;
-pub mod id; // u_TODO - this is currently a stub module. Should be made `pub mod` when CAN FD is implemented.
+pub mod id;
 
 use embassy_hal_internal::PeripheralType;
 
@@ -106,13 +105,19 @@ macro_rules! impl_can_instance {
                         control: crate::flexcan::control::Control::new(crate::pac::[<CAN $n>]),
                         tx_available: core::sync::atomic::AtomicU32::new(0),
                         tx_remote: core::sync::atomic::AtomicU32::new(0),
-                        tx_waker: maitake_sync::WaitCell::new(),
                         prexcen_supported: $n == 0, // Protocol Exception is only supported on CAN0.
-                        rx_sender: embassy_sync::blocking_mutex::Mutex::new(core::cell::Cell::new(None)),
-                        rx_dropped_count: core::sync::atomic::AtomicU32::new(0),
                         tx_mailbox_full_count: core::sync::atomic::AtomicU32::new(0),
                     };
                     &INFO
+                }
+
+                fn async_state() -> &'static crate::flexcan::classic::asynchronous::AsyncState {
+                    static STATE: crate::flexcan::classic::asynchronous::AsyncState = crate::flexcan::classic::asynchronous::AsyncState {
+                        tx_waker: maitake_sync::WaitCell::new(),
+                        rx_sender: embassy_sync::blocking_mutex::Mutex::new(core::cell::Cell::new(None)),
+                        rx_dropped_count: core::sync::atomic::AtomicU32::new(0),
+                    };
+                    &STATE
                 }
 
                 const CLOCK_INSTANCE: crate::clocks::periph_helpers::CanInstance = crate::clocks::periph_helpers::CanInstance::[<Can $n>];
