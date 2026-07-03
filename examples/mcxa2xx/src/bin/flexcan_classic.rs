@@ -1,10 +1,5 @@
-<details>
+//! Example for initializing classic-mode FlexCAN on MCXA266.
 
-<summary><h4>Example Setup</h4></summary>
-
-Here's a short example program that demonstrates how to set up a FlexCAN peripheral for Classic CAN using this HAL:
-
-```rust,no_run
 #![no_std]
 #![no_main]
 
@@ -78,5 +73,3 @@ async fn can0_rx(rx0: FlexCanRx<'static>) {
         defmt::info!("CAN0 RX id={:?} len={}", frame.id(), frame.dlc());
     }
 }
-```
-</details>

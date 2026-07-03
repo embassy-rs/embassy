@@ -1,7 +1,8 @@
 //! Module for Classic CAN.
 //!
 //! This module allows you to initialize and configure a classic-mode `FlexCan` instance.
-#![doc = include_str!("example.md")]
+//! 
+//! See the example code for setting up this driver at `embassy/examples/mcxa2xx/src/bin/flexcan_classic.rs`.
 
 pub mod frame;
 mod mailbox;
