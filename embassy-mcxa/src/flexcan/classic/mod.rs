@@ -285,11 +285,11 @@ impl<'d> FlexCanRx<'d> {
 
     #[doc = doc_receive!()]
     pub async fn receive(&self) -> Frame {
-        functions::receive(&self.rx_receiver).await
+        self.rx_receiver.receive().await
     }
     #[doc = doc_try_receive!()]
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
-        functions::try_receive(&self.rx_receiver)
+        self.rx_receiver.try_receive().map_err(|_| ReceiveError::NoMessages)
     }
     #[doc = doc_error_mode!()]
     pub fn error_mode(&self) -> BusErrorMode {
@@ -297,7 +297,7 @@ impl<'d> FlexCanRx<'d> {
     }
     #[doc = doc_rx_dropped_count!()]
     pub fn rx_dropped_count(&self) -> u32 {
-        functions::rx_dropped_count(self.info)
+        self.info.rx_dropped_count.load(Ordering::Acquire)
     }
 }
 
@@ -325,11 +325,39 @@ impl<'d> FlexCanTx<'d> {
 
     #[doc = doc_send!()]
     pub async fn send(&mut self, frame: &Frame) {
-        functions::send(self.info, frame).await
+        use nb::Error::{Other, WouldBlock};
+
+        let message = tx::TxMessage::from(frame);
+        let _ = self
+            .info
+            .tx_waker
+            .wait_for(|| match tx::dispatch(self.info, &message) {
+                Ok(()) => true,
+                Err(WouldBlock) => {
+                    self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
+                    false
+                }
+                Err(Other(e)) => match e {},
+            })
+            .await;
     }
     #[doc = doc_try_send!()]
     pub fn try_send(&mut self, frame: &Frame) -> Result<(), SendError> {
-        functions::try_send(self.info, frame)
+        use nb::Error::{Other, WouldBlock};
+
+        if self.error_mode() == BusErrorMode::BusOff {
+            return Err(SendError::BusOff);
+        }
+
+        let message = tx::TxMessage::from(frame);
+        match tx::dispatch(self.info, &message) {
+            Ok(()) => Ok(()),
+            Err(WouldBlock) => {
+                self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
+                Err(SendError::TxMailboxFull)
+            }
+            Err(Other(e)) => match e {},
+        }
     }
     #[doc = doc_error_mode!()]
     pub fn error_mode(&self) -> BusErrorMode {
@@ -337,7 +365,7 @@ impl<'d> FlexCanTx<'d> {
     }
     #[doc = doc_tx_mailbox_full_count!()]
     pub fn tx_mailbox_full_count(&self) -> u32 {
-        functions::tx_mailbox_full_count(self.info)
+        self.info.tx_mailbox_full_count.load(Ordering::Acquire)
     }
 }
 
@@ -504,66 +532,10 @@ impl<'d> FlexCan<'d> {
     }
 }
 
-/// This module contains the actual implementations of the functions used by
-/// `FlexCan`, `FlexCanTx`, and `FlexCanRx`. They're not implemented directly
-/// on those structs because some functions are common to more than one of them.
+/// This module contains implementations for functions that are needed on all three `FlexCan` structs,
+/// and can't be delegated to TX or RX specifically.
 mod functions {
-    use super::{
-        BusErrorMode, Frame, Info, ReceiveError, SendDynamicReceiver, SendError, doc_error_mode, doc_receive, doc_send,
-        doc_try_receive, doc_try_send, doc_tx_mailbox_full_count, pac, tx,
-    };
-    use crate::flexcan::classic::doc_rx_dropped_count;
-
-    #[doc = doc_send!()]
-    pub async fn send(info: &Info, frame: &Frame) {
-        use core::sync::atomic::Ordering;
-
-        use nb::Error::{Other, WouldBlock};
-
-        let message = tx::TxMessage::from(frame);
-        let _ = info
-            .tx_waker
-            .wait_for(|| match tx::dispatch(info, &message) {
-                Ok(()) => true,
-                Err(WouldBlock) => {
-                    info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
-                    false
-                }
-                Err(Other(e)) => match e {},
-            })
-            .await;
-    }
-
-    #[doc = doc_try_send!()]
-    pub fn try_send(info: &Info, frame: &Frame) -> Result<(), SendError> {
-        use core::sync::atomic::Ordering;
-
-        use nb::Error::{Other, WouldBlock};
-
-        if error_mode(info) == BusErrorMode::BusOff {
-            return Err(SendError::BusOff);
-        }
-
-        let message = tx::TxMessage::from(frame);
-        match tx::dispatch(info, &message) {
-            Ok(()) => Ok(()),
-            Err(WouldBlock) => {
-                info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
-                Err(SendError::TxMailboxFull)
-            }
-            Err(Other(e)) => match e {},
-        }
-    }
-
-    #[doc = doc_receive!()]
-    pub async fn receive(rx: &SendDynamicReceiver<'static, Frame>) -> Frame {
-        rx.receive().await
-    }
-
-    #[doc = doc_try_receive!()]
-    pub fn try_receive(rx: &SendDynamicReceiver<'static, Frame>) -> Result<Frame, ReceiveError> {
-        rx.try_receive().map_err(|_| ReceiveError::NoMessages)
-    }
+    use super::{BusErrorMode, Info, doc_error_mode, pac};
 
     #[doc = doc_error_mode!()]
     pub fn error_mode(info: &Info) -> BusErrorMode {
@@ -572,18 +544,6 @@ mod functions {
             pac::Fltconf::ErrorPassive => BusErrorMode::ErrorPassive,
             pac::Fltconf::BusOff | pac::Fltconf::_RESERVED_3 => BusErrorMode::BusOff,
         }
-    }
-
-    #[doc = doc_rx_dropped_count!()]
-    pub fn rx_dropped_count(info: &Info) -> u32 {
-        use core::sync::atomic::Ordering;
-        info.rx_dropped_count.load(Ordering::Acquire)
-    }
-
-    #[doc = doc_tx_mailbox_full_count!()]
-    pub fn tx_mailbox_full_count(info: &Info) -> u32 {
-        use core::sync::atomic::Ordering;
-        info.tx_mailbox_full_count.load(Ordering::Acquire)
     }
 }
 
