@@ -349,7 +349,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
     pub fn read_until_character_with_timeout(
         &mut self,
         buffer: &mut [u8],
-        target_byte: &[u8; 1],
+        target_byte: [u8; 1],
         timeout_micros: u64,
     ) -> Result<usize, Error> {
         let r = self.info.regs;
@@ -1145,6 +1145,21 @@ impl<'d, M: Mode> Uart<'d, M> {
         self.tx.send_break(bits).await
     }
 
+    /// Returns True if the UART FIFO is not empty
+    pub fn has_rx_data(&mut self) -> bool {
+        self.rx.has_rx_data()
+    }
+    /// Returns Ok(len) if no errors occured, and the bytes are passed to the buffer, in case the target byte is not found on the timeout Error::Timeout is returned
+    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned.
+    pub fn read_until_character_with_timeout(
+        &mut self,
+        buffer: &mut [u8],
+        target_byte: [u8; 1],
+        timeout_micros: u64,
+    ) -> Result<usize, Error> {
+        self.rx
+            .read_until_character_with_timeout(buffer, target_byte, timeout_micros)
+    }
     /// Split the Uart into a transmitter and receiver, which is particularly
     /// useful when having two tasks correlating to transmitting and receiving.
     pub fn split(self) -> (UartTx<'d, M>, UartRx<'d, M>) {
