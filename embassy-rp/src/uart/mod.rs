@@ -346,7 +346,12 @@ impl<'d, M: Mode> UartRx<'d, M> {
     }
     /// Returns Ok(len) if no errors occured, and the bytes are passed to the buffer, in case the target byte is not found on the timeout Error::Timeout is returned
     /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned.
-    pub fn read_until_character_with_timeout(&mut self, buffer: &mut [u8], target_byte: &[u8;1], timeout_micros: u64) -> Result<usize, Error> {
+    pub fn read_until_character_with_timeout(
+        &mut self,
+        buffer: &mut [u8],
+        target_byte: &[u8; 1],
+        timeout_micros: u64,
+    ) -> Result<usize, Error> {
         let r = self.info.regs;
         let start_time = Instant::now();
         let mut bytes_copied = 0;
