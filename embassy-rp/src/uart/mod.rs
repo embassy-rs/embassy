@@ -345,8 +345,8 @@ impl<'d, M: Mode> UartRx<'d, M> {
         !self.info.regs.uartfr().read().rxfe()
     }
     /// Returns Ok(len) if no errors occured, and the bytes are passed to the buffer, in case the target byte is not found on the timeout Error::Timeout is returned
-    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned.
-    pub fn read_until_character_with_timeout(
+    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned in both cases all bytes sent are allocated to the buffer.
+    pub fn blocking_read_until(
         &mut self,
         buffer: &mut [u8],
         target_byte: [u8; 1],
@@ -1150,15 +1150,14 @@ impl<'d, M: Mode> Uart<'d, M> {
         self.rx.has_rx_data()
     }
     /// Returns Ok(len) if no errors occured, and the bytes are passed to the buffer, in case the target byte is not found on the timeout Error::Timeout is returned
-    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned.
-    pub fn read_until_character_with_timeout(
+    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned in both cases all bytes sent are allocated to the buffer.
+    pub fn blocking_read_until(
         &mut self,
         buffer: &mut [u8],
         target_byte: [u8; 1],
         timeout_micros: u64,
     ) -> Result<usize, Error> {
-        self.rx
-            .read_until_character_with_timeout(buffer, target_byte, timeout_micros)
+        self.rx.blocking_read_until(buffer, target_byte, timeout_micros)
     }
     /// Split the Uart into a transmitter and receiver, which is particularly
     /// useful when having two tasks correlating to transmitting and receiving.
