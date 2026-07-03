@@ -1,50 +1,5 @@
 //! This module is intended for any metaprogramming, macros, or compile-time config stuff relavent to the flexcan::classic module.
 
-/// These macros/consts allow users to define custom sizes for the software RX queue
-/// this module uses, via an environment variable. The size defaults to `RX_QUEUE_SIZE_DEFAULT`
-/// if the env var is left unspecified by the user.
-pub(in crate::flexcan::classic) mod rx_queue_size {
-    // Name of the env var.
-    macro_rules! env_var_name {
-        () => {
-            "EMBASSY_MCXA_FLEXCAN_CLASSIC_RX_QUEUE_SIZE"
-        };
-    }
-    pub(in crate::flexcan::classic) use env_var_name;
-
-    // Default size of the queue, in messages/Frames.
-    // This is a macro instead of a `const`` so we can use it in docs.
-    macro_rules! rx_queue_size_default {
-        () => {
-            4
-        };
-    }
-    pub(in crate::flexcan::classic) use rx_queue_size_default;
-
-    /// The size of the software queue flexcan::classic uses for RX messages, in Frames.
-    /// This value can be configured by the user via an environment variable. Otherwise, it defaults to a default value.
-    pub(in crate::flexcan::classic) const RX_QUEUE_SIZE: usize = match option_env!(env_var_name!()) {
-        Some(val) => {
-            let bytes = val.as_bytes();
-            let mut num = 0usize;
-            let mut i = 0;
-            while i < bytes.len() {
-                let b = bytes[i];
-                assert!(
-                    b.is_ascii_digit(),
-                    concat!(env_var_name!(), " must be a decimal integer")
-                );
-                assert!(num < usize::MAX / 10, concat!(env_var_name!(), " is too large"));
-                num = num * 10 + (b - b'0') as usize;
-                i += 1;
-            }
-            assert!(num > 0, concat!(env_var_name!(), " must be greater than 0"));
-            num
-        }
-        None => rx_queue_size_default!(),
-    };
-}
-
 /// Shared rustdoc for the public TX/RX methods. These methods are exposed (with
 /// identical documentation) on `FlexCan`, `FlexCanTx`, and `FlexCanRx`, plus the
 /// `functions` module, so their doc comments are defined once here and applied
@@ -71,31 +26,6 @@ pub(in crate::flexcan::classic) mod docs {
     }
     pub(in crate::flexcan::classic) use doc_send;
 
-    macro_rules! doc_rx_queue_size_config_instructions {
-        () => {
-            concat!(
-                "\n",
-                "<details>\n",
-                "<summary><h4>Configuring the RX Queue Size</h4></summary>\n\n",
-                "The size of the FlexCan classic-mode RX queue can be configured via the `",
-                $crate::flexcan::classic::meta::rx_queue_size::env_var_name!(),
-                "` environment variable. For example, in your `.cargo/config.toml`, you could add\n\n",
-                "```toml\n",
-                "[env]\n",
-                $crate::flexcan::classic::meta::rx_queue_size::env_var_name!(),
-                " = \"32\"\n",
-                "```\n\n",
-                "if you wanted the queue to store 32 frames.\n\n",
-                "If you don't specify anything, the queue will default to a size of ",
-                $crate::flexcan::classic::meta::rx_queue_size::rx_queue_size_default!(),
-                " frames.\n",
-                "</details>",
-                "\n",
-            )
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_rx_queue_size_config_instructions;
-
     macro_rules! doc_try_send {
         () => {
             concat!(
@@ -115,8 +45,6 @@ pub(in crate::flexcan::classic) mod docs {
                 "\n",
                 "If there are no new messages, this call asynchronously\n",
                 "waits for new messages to arrive.\n",
-                "\n",
-                $crate::flexcan::classic::meta::docs::doc_rx_queue_size_config_instructions!(),
             )
         };
     }
@@ -125,8 +53,6 @@ pub(in crate::flexcan::classic) mod docs {
     macro_rules! doc_try_receive {
         () => { concat!(
             "Like `receive()`, but returns immediately if there are no new messages (rather than waiting for more to arrive).",
-            "\n",
-            $crate::flexcan::classic::meta::docs::doc_rx_queue_size_config_instructions!(),
         ) };
     }
     pub(in crate::flexcan::classic) use doc_try_receive;
@@ -148,7 +74,6 @@ pub(in crate::flexcan::classic) mod docs {
             "This can be mitigated by increasing the size of the RX queue.\n",
             "\nNote: This function tracks frames dropped specifically due to the RX queue being full. It doesn't track other
             sources of dropped frames that may have occured at a lower level.\n",
-            $crate::flexcan::classic::meta::docs::doc_rx_queue_size_config_instructions!(),
         ) };
     }
     pub(in crate::flexcan::classic) use doc_rx_dropped_count;

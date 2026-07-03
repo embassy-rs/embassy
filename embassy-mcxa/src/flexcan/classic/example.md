@@ -12,12 +12,13 @@ use panic_probe as _;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
+use static_cell::StaticCell;
 
 use embassy_mcxa::{
     bind_interrupts, config::Config, peripherals::CAN0,
     flexcan::filter::{filters, Filter,},
     flexcan::classic::{
-        FlexCan, FlexCanConfig, FlexCanRx, FlexCanTx, InterruptHandler,
+        FlexCan, FlexCanConfig, FlexCanRx, FlexCanTx, InterruptHandler, RxQueue,
         frame::{Frame, StandardId, ExtendedId},
     },
 };
@@ -38,8 +39,11 @@ const EXAMPLE_MESSAGE_FOUR: ExtendedId = ExtendedId::new(0x1232).unwrap();
 async fn main(spawner: Spawner) {
     let p = embassy_mcxa::init(Config::default());
 
+    static RX_QUEUE: StaticCell<RxQueue<16>> = StaticCell::new();
+    let rx_queue = RX_QUEUE.init(RxQueue::new());
+
     // Create and configure a `FlexCan` instance for CAN0.
-    let can0 = FlexCan::new(p.CAN0, p.P1_11, p.P1_2, FlexCanConfig {
+    let can0 = FlexCan::new(p.CAN0, p.P1_11, p.P1_2, rx_queue, FlexCanConfig {
         filters: filters!(
             Filter::Standard(EXAMPLE_MESSAGE_THREE), Filter::Extended(EXAMPLE_MESSAGE_FOUR),
         ),

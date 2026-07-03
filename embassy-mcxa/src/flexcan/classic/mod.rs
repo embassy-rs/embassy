@@ -8,12 +8,14 @@ mod mailbox;
 mod meta;
 mod timing;
 
+use core::cell::Cell;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_hal_internal::Peri;
+use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::channel::{Channel, SendDynamicReceiver, SendDynamicSender};
 use maitake_sync::WaitCell;
 use nxp_pac::can as pac;
 
@@ -25,7 +27,6 @@ use crate::flexcan::classic::meta::docs::{
     doc_error_mode, doc_receive, doc_rx_dropped_count, doc_send, doc_try_receive, doc_try_send,
     doc_tx_mailbox_full_count,
 };
-use crate::flexcan::classic::meta::rx_queue_size::RX_QUEUE_SIZE;
 use crate::flexcan::control::Control;
 use crate::flexcan::filter::FilterConfig;
 use crate::flexcan::{RxPin, TxPin};
@@ -178,6 +179,22 @@ pub enum ReceiveError {
     NoMessages,
 }
 
+/// A software queue for holding received CAN frames.
+pub struct RxQueue<const N: usize>(Channel<CriticalSectionRawMutex, Frame, N>);
+
+impl<const N: usize> RxQueue<N> {
+    /// Creates a new, empty `RxQueue`.
+    pub const fn new() -> Self {
+        Self(Channel::new())
+    }
+}
+
+impl<const N: usize> Default for RxQueue<N> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Info and state for a single `classic::FlexCan` instance.
 pub(crate) struct Info {
     /// Mode-agnostic hardware access.
@@ -215,8 +232,8 @@ pub(crate) struct Info {
     /// they'll get an error at init-time.
     pub prexcen_supported: bool,
 
-    /// Software queue that holds received RX frames.
-    pub rx_channel: Channel<CriticalSectionRawMutex, Frame, RX_QUEUE_SIZE>,
+    /// Handle to the RX queue.
+    pub rx_sender: Mutex<CriticalSectionRawMutex, Cell<Option<SendDynamicSender<'static, Frame>>>>,
 
     /// Stores a count of the number of RX frames dropped so far due to the RX Channel being full.
     pub rx_dropped_count: AtomicU32,
@@ -242,6 +259,7 @@ pub trait Instance: crate::flexcan::Instance + SealedInstance {}
 pub struct FlexCanRx<'d> {
     info: &'static Info,
     _rx: Peri<'d, AnyPin>,
+    rx_receiver: SendDynamicReceiver<'static, Frame>,
 
     /// Inhibits deep sleep while this half is alive, if the selected clock source does not survive deep sleep.
     /// `None` if no guard is required.
@@ -251,21 +269,27 @@ pub struct FlexCanRx<'d> {
 impl<'d> FlexCanRx<'d> {
     /// Creates a new `FlexCanRx` instance.
     /// This isn't a public function, and should only be called via `.split()` in the `FlexCan` struct.
-    fn new(info: &'static Info, rx: Peri<'d, AnyPin>, wake_guard: Option<WakeGuard>) -> Self {
+    fn new(
+        info: &'static Info,
+        rx: Peri<'d, AnyPin>,
+        wake_guard: Option<WakeGuard>,
+        rx_receiver: SendDynamicReceiver<'static, Frame>,
+    ) -> Self {
         Self {
             info,
             _rx: rx,
+            rx_receiver,
             _wake_guard: wake_guard,
         }
     }
 
     #[doc = doc_receive!()]
     pub async fn receive(&self) -> Frame {
-        functions::receive(self.info).await
+        functions::receive(&self.rx_receiver).await
     }
     #[doc = doc_try_receive!()]
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
-        functions::try_receive(self.info)
+        functions::try_receive(&self.rx_receiver)
     }
     #[doc = doc_error_mode!()]
     pub fn error_mode(&self) -> BusErrorMode {
@@ -325,11 +349,11 @@ pub struct FlexCan<'d> {
 
 impl<'d> FlexCan<'d> {
     /// Constructs a new FlexCAN driver instance, in Classic mode.
-    ///
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, const N: usize>(
         _peri: Peri<'d, T>,
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
+        rx_queue: &'static mut RxQueue<N>,
         config: FlexCanConfig,
     ) -> Result<Self, InitError> {
         use embassy_time::Duration;
@@ -414,6 +438,12 @@ impl<'d> FlexCan<'d> {
         // Reset/setup the Enhanced RX FIFO.
         mailbox::rx::setup(info, &config.filters).map_err(|_| InitError::Timeout)?;
 
+        // Take ownership of the user's RX queue.
+        let rx_queue: &'static RxQueue<N> = rx_queue;
+        let rx_sender: SendDynamicSender<'static, Frame> = rx_queue.0.sender().into();
+        let rx_receiver: SendDynamicReceiver<'static, Frame> = rx_queue.0.receiver().into();
+        info.rx_sender.lock(|c| c.set(Some(rx_sender)));
+
         // Setup the interrupts
         T::Interrupt::unpend();
         unsafe {
@@ -423,7 +453,7 @@ impl<'d> FlexCan<'d> {
         info.control.unfreeze();
 
         let tx = FlexCanTx::new(info, _tx, _wake_guard.clone());
-        let rx = FlexCanRx::new(info, _rx, _wake_guard);
+        let rx = FlexCanRx::new(info, _rx, _wake_guard, rx_receiver);
         Ok(Self { tx, rx })
     }
 
@@ -479,8 +509,8 @@ impl<'d> FlexCan<'d> {
 /// on those structs because some functions are common to more than one of them.
 mod functions {
     use super::{
-        BusErrorMode, Frame, Info, ReceiveError, SendError, doc_error_mode, doc_receive, doc_send, doc_try_receive,
-        doc_try_send, doc_tx_mailbox_full_count, pac, tx,
+        BusErrorMode, Frame, Info, ReceiveError, SendDynamicReceiver, SendError, doc_error_mode, doc_receive, doc_send,
+        doc_try_receive, doc_try_send, doc_tx_mailbox_full_count, pac, tx,
     };
     use crate::flexcan::classic::doc_rx_dropped_count;
 
@@ -526,13 +556,13 @@ mod functions {
     }
 
     #[doc = doc_receive!()]
-    pub async fn receive(info: &Info) -> Frame {
-        info.rx_channel.receive().await
+    pub async fn receive(rx: &SendDynamicReceiver<'static, Frame>) -> Frame {
+        rx.receive().await
     }
 
     #[doc = doc_try_receive!()]
-    pub fn try_receive(info: &Info) -> Result<Frame, ReceiveError> {
-        info.rx_channel.try_receive().map_err(|_| ReceiveError::NoMessages)
+    pub fn try_receive(rx: &SendDynamicReceiver<'static, Frame>) -> Result<Frame, ReceiveError> {
+        rx.try_receive().map_err(|_| ReceiveError::NoMessages)
     }
 
     #[doc = doc_error_mode!()]
@@ -602,6 +632,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
         /* RX STUFF: */
 
         // Check if any RX messages can be dequeued, and if so, dequeue them.
+        let rx_sender = info.rx_sender.lock(|c| c.get());
         while let Some(message) = mailbox::rx::fifo::get(info) {
             // Dequeue a frame from the hardware RX FIFO
             let frame: Frame = match message.try_into() {
@@ -614,8 +645,12 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
                 }
             };
 
-            // Push the frame into the software RX queue
-            if info.rx_channel.try_send(frame).is_err() {
+            // Push the frame into the software RX queue.
+            let dropped = match rx_sender {
+                Some(sender) => sender.try_send(frame).is_err(),
+                None => true,
+            };
+            if dropped {
                 // if the software queue is full, drop the frame, and increment the `rx_dropped_count` counter.
                 info.rx_dropped_count.fetch_add(1, Ordering::Acquire);
             }

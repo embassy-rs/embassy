@@ -108,7 +108,7 @@ macro_rules! impl_can_instance {
                         tx_remote: core::sync::atomic::AtomicU32::new(0),
                         tx_waker: maitake_sync::WaitCell::new(),
                         prexcen_supported: $n == 0, // Protocol Exception is only supported on CAN0.
-                        rx_channel: embassy_sync::channel::Channel::new(),
+                        rx_sender: embassy_sync::blocking_mutex::Mutex::new(core::cell::Cell::new(None)),
                         rx_dropped_count: core::sync::atomic::AtomicU32::new(0),
                         tx_mailbox_full_count: core::sync::atomic::AtomicU32::new(0),
                     };
