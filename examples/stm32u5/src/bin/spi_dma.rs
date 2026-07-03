@@ -8,18 +8,14 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{peripherals,bind_interrupts};
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
-
 use {defmt_rtt as _, panic_probe as _};
-
 
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH0>;
     GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
-
-
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -39,7 +35,7 @@ async fn main(_spawner: Spawner) {
     let dma_transfer = p.GPDMA1_CH0;
     let dma_receive = p.GPDMA1_CH1;
 
-    let mut spi = Spi::new(p.SPI1, sck, mosi, miso, dma_transfer, dma_receive,Irqs,spi_conf);
+    let mut spi = Spi::new(p.SPI1, sck, mosi, miso, dma_transfer, dma_receive, Irqs, spi_conf);
     let mut chip_select = Output::new(cs, Level::High, Speed::VeryHigh);
 
     info!("Starting sensor read!");
@@ -61,10 +57,7 @@ async fn main(_spawner: Spawner) {
         chip_select.set_high(); //Put sensor to sleep
 
         //Nice formatting for console output
-        info!(
-            "Raw buffer: {=[u8]:x} | BMP390 Chip ID: {=u8:#04x}",
-            rx_buf, rx_buf[2]
-        );
+        info!("Raw buffer: {=[u8]:x} | BMP390 Chip ID: {=u8:#04x}", rx_buf, rx_buf[2]);
 
         Timer::after_secs(1).await;
     }

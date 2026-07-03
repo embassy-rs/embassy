@@ -47,10 +47,7 @@ fn main() -> ! {
         chip_select.set_high(); // Put sensor to sleep
 
         //Nice formatting
-        info!(
-            "Raw buffer: {=[u8]:x} | BMP390 Chip ID: {=u8:#04x}",
-            buf, buf[2]
-        );
+        info!("Raw buffer: {=[u8]:x} | BMP390 Chip ID: {=u8:#04x}", buf, buf[2]);
 
         //Delay so we wont flood the console
         cortex_m::asm::delay(8_000_000);
