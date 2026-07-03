@@ -6,6 +6,7 @@
 #![warn(missing_docs)]
 #![allow(async_fn_in_trait)]
 
+use aligned::Aligned;
 #[cfg(not(feature = "bluetooth"))]
 use embassy_futures::select::{Either4 as EitherMany, select4 as select_many};
 #[cfg(feature = "bluetooth")]
@@ -27,12 +28,12 @@ mod fmt;
 #[cfg(feature = "bluetooth")]
 pub mod bluetooth;
 mod control;
-mod iface;
+pub mod iface;
 mod ioctl;
 mod rpc;
 
 pub use control::*;
-pub use iface::*;
+use iface::Interface;
 
 const MTU: usize = 1514;
 
@@ -243,7 +244,7 @@ where
         self.iface.init(true).await;
         self.shared.interface_ready();
 
-        let mut buffer = [0u8; MAX_BUFFER_SIZE];
+        let mut buffer = Aligned([0u8; MAX_BUFFER_SIZE]);
 
         loop {
             if let ioctl::ControlState::Reboot = self.shared.state() {
@@ -365,7 +366,7 @@ where
 
             self.iface.transfer(&mut buffer, tx_len).await;
 
-            self.handle_rx(&mut buffer);
+            self.handle_rx(&mut buffer[..]);
         }
     }
 

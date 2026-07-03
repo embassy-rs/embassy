@@ -41,7 +41,7 @@ embedded-fatfs = { git = "https://github.com/MabezDev/embedded-fatfs", default-f
 block-device-driver = { git = "https://github.com/MabezDev/embedded-fatfs" }
 block-device-adapters = { git = "https://github.com/MabezDev/embedded-fatfs" }
 aligned = "0.4.2"
-sdio = { version = "0.2.4", git = "https://github.com/embassy-rs/sdio.git", rev ="6924b63" }
+sdio = "0.4.0"
 
 
 # cargo build/run
