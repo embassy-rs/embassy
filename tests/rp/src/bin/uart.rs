@@ -220,7 +220,7 @@ async fn main(_spawner: Spawner) {
         let data = [0xC0, 0xDE, 0xAA, 0xBB];
 
         uart.blocking_write(&data).unwrap();
-        assert!(matches!(
+        defmt::assert!(matches!(
             uart.blocking_read_until(&mut buf, 0x00, 1000),
             Err(Error::Timeout(4))
         ));
