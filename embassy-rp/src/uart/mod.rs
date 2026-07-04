@@ -839,6 +839,20 @@ impl<'d> Uart<'d, Blocking> {
             },
         }
     }
+    /// Returns True if the UART FIFO is not empty
+    pub fn has_rx_data(&mut self) -> bool {
+        self.rx.has_rx_data()
+    }
+    /// Returns Ok(len) if no errors occured, and the bytes are passed to the buffer, in case the target byte is not found on the timeout Error::Timeout is returned
+    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned in both cases all bytes sent are allocated to the buffer.
+    pub fn blocking_read_until(
+        &mut self,
+        buffer: &mut [u8],
+        target_byte: [u8; 1],
+        timeout_micros: u64,
+    ) -> Result<usize, Error> {
+        self.rx.blocking_read_until(buffer, target_byte, timeout_micros)
+    }
 }
 
 impl<'d> Uart<'d, Async> {
@@ -1145,20 +1159,6 @@ impl<'d, M: Mode> Uart<'d, M> {
         self.tx.send_break(bits).await
     }
 
-    /// Returns True if the UART FIFO is not empty
-    pub fn has_rx_data(&mut self) -> bool {
-        self.rx.has_rx_data()
-    }
-    /// Returns Ok(len) if no errors occured, and the bytes are passed to the buffer, in case the target byte is not found on the timeout Error::Timeout is returned
-    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned in both cases all bytes sent are allocated to the buffer.
-    pub fn blocking_read_until(
-        &mut self,
-        buffer: &mut [u8],
-        target_byte: [u8; 1],
-        timeout_micros: u64,
-    ) -> Result<usize, Error> {
-        self.rx.blocking_read_until(buffer, target_byte, timeout_micros)
-    }
     /// Split the Uart into a transmitter and receiver, which is particularly
     /// useful when having two tasks correlating to transmitting and receiving.
     pub fn split(self) -> (UartTx<'d, M>, UartRx<'d, M>) {
