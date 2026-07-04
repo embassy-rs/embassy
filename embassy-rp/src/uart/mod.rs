@@ -117,8 +117,8 @@ pub enum Error {
     /// Triggered when the received character didn't have a valid stop bit.
     Framing,
     /// Triggered when the timeout is hit.
-    Timeout,
-    /// Triggered when buffer passed by the buffer is smaller then the byte amount received
+    Timeout(usize),
+    /// Triggered when buffer passed by the user is smaller then the byte amount received
     BufferOverflow,
 }
 
@@ -349,7 +349,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
     pub fn blocking_read_until(
         &mut self,
         buffer: &mut [u8],
-        target_byte: [u8; 1],
+        target_byte: u8,
         timeout_micros: u64,
     ) -> Result<usize, Error> {
         let r = self.info.regs;
@@ -359,7 +359,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         loop {
             while r.uartfr().read().rxfe() {
                 if start_time.elapsed().as_micros() > timeout_micros {
-                    return Err(Error::Timeout);
+                    return Err(Error::Timeout(bytes_copied));
                 }
             }
 
@@ -372,7 +372,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
             buffer[bytes_copied] = byte;
             bytes_copied += 1;
 
-            if byte == target_byte[0] {
+            if byte == target_byte {
                 return Ok(bytes_copied);
             }
         }
@@ -848,7 +848,7 @@ impl<'d> Uart<'d, Blocking> {
     pub fn blocking_read_until(
         &mut self,
         buffer: &mut [u8],
-        target_byte: [u8; 1],
+        target_byte: u8,
         timeout_micros: u64,
     ) -> Result<usize, Error> {
         self.rx.blocking_read_until(buffer, target_byte, timeout_micros)
@@ -1300,7 +1300,7 @@ impl embedded_hal_nb::serial::Error for Error {
             Self::Break => embedded_hal_nb::serial::ErrorKind::Other,
             Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
             Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
-            Self::Timeout => embedded_hal_nb::serial::ErrorKind::Other,
+            Self::Timeout(_) => embedded_hal_nb::serial::ErrorKind::Other,
             Self::BufferOverflow => embedded_hal_nb::serial::ErrorKind::Other,
         }
     }

@@ -192,7 +192,7 @@ async fn main(_spawner: Spawner) {
         let data = [0xC0, 0xDE, 0xAA, 0xBB];
 
         uart.blocking_write(&data).unwrap();
-        assert_eq!(uart.blocking_read_until(&mut buf, [0xAA], 10_000_000).unwrap(), 3);
+        assert_eq!(uart.blocking_read_until(&mut buf, 0xAA, 10_000_000).unwrap(), 3);
         assert_eq!(buf, [0xC0, 0xDE, 0xAA, 0x00])
     }
     info!("Test blocking_read_until buffer overflow");
@@ -206,7 +206,7 @@ async fn main(_spawner: Spawner) {
 
         uart.blocking_write(&data).unwrap();
         assert_eq!(
-            uart.blocking_read_until(&mut buf, [0xAA], 10_000_000).unwrap_err(),
+            uart.blocking_read_until(&mut buf, 0xAA, 10_000_000).unwrap_err(),
             Error::BufferOverflow
         );
     }
@@ -220,10 +220,10 @@ async fn main(_spawner: Spawner) {
         let data = [0xC0, 0xDE, 0xAA, 0xBB];
 
         uart.blocking_write(&data).unwrap();
-        assert_eq!(
-            uart.blocking_read_until(&mut buf, [0x00], 1000).unwrap_err(),
-            Error::Timeout
-        );
+        assert!(matches!(
+            uart.blocking_read_until(&mut buf, 0x00, 1000),
+            Err(Error::Timeout(4))
+        ));
         assert_eq!(buf, data)
     }
     info!("Test OK");
