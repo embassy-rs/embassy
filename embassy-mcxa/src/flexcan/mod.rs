@@ -26,7 +26,6 @@ pub trait Instance: PeripheralType + 'static + Send {
 }
 
 pub(crate) mod sealed {
-    /// Seal the pin traits so only the HAL can implement them.
     pub trait Sealed {}
 }
 

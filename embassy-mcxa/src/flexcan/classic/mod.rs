@@ -2,7 +2,15 @@
 //!
 //! This module allows you to initialize and configure a classic-mode `FlexCan` instance.
 //!
-//! See the example code for setting up this driver at `embassy/examples/mcxa2xx/src/bin/flexcan_classic.rs`.
+//! This module provides two modes for FlexCAN: `Async` and `Blocking`. The `Async` mode is interrupt-based and provides an `async` API
+//! for sending/receiving frames. The `Blocking` mode does not use any interrupts at all, and uses blocking polls on the hardware in place
+//! of async awaiting.
+//!
+//! For most cases, you should probably just use the `Async` mode, unless you specifically need Blocking functionality
+//! and are okay with accepting the risks.
+//!
+#![doc = asynchronous::docs::doc_async_example!()]
+#![doc = blocking::docs::doc_blocking_example!()]
 
 pub(crate) mod asynchronous;
 pub(crate) mod blocking;
@@ -247,6 +255,7 @@ pub struct FlexCanRx<'d, M: Mode> {
     mode: M,
 }
 
+/// General `FlexCanRx` functions (available for both `Async` and `Blocking` mode).
 impl<'d, M: Mode> FlexCanRx<'d, M> {
     /// Creates a new `FlexCanRx` instance.
     /// This isn't a public function, and should only be called via the mode-specific constructors.
@@ -274,6 +283,7 @@ pub struct FlexCanTx<'d, M: Mode> {
     mode: M,
 }
 
+/// General `FlexCanTx` functions (available for both `Async` and `Blocking` mode).
 impl<'d, M: Mode> FlexCanTx<'d, M> {
     /// Creates a new `FlexCanTx` instance.
     /// This isn't a public function, and should only be called via the mode-specific constructors.
@@ -302,6 +312,7 @@ pub struct FlexCan<'d, M: Mode> {
     rx: FlexCanRx<'d, M>,
 }
 
+/// General `FlexCan` functions (available for both `Async` and `Blocking` mode).
 impl<'d, M: Mode> FlexCan<'d, M> {
     /// Consumes this `FlexCan` and splits it into independent `FlexCanTx` and `FlexCanRx` halves. This is useful
     /// if you want to have separate dedicated tasks for CAN RX and CAN TX.
@@ -412,15 +423,13 @@ fn init<'d, T: Instance>(
     // with NXP's C FlexCAN timing code, but everything exposes publicly by this module uses the term "bitrate".
     timing::set_baudrate(info, src_clk_hz, config.bitrate).map_err(InitError::TimingError)?;
 
-    // As of right now, the whole HAL is based around us having 32 message buffers.
+    // As of rn this FlexCAN driver is based around the idea that all 32 message buffers are dedicated to TX.
     // So, this isn't something the user should be able to configure.
     const NUM_MESSAGE_BUFFERS: u8 = 32;
     info.control.set_number_of_message_buffers(NUM_MESSAGE_BUFFERS);
 
-    // Reset/setup the TX message buffers and the software state tracking.
+    // Setup rx and tx stuff
     mailbox::tx::setup(info).map_err(|_| InitError::Timeout)?;
-
-    // Reset/setup the Enhanced RX FIFO.
     mailbox::rx::setup(info, &config.filters).map_err(|_| InitError::Timeout)?;
 
     Ok((info, _rx, _tx, _wake_guard))

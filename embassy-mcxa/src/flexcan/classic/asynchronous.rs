@@ -28,6 +28,8 @@ pub(crate) struct AsyncState {
 }
 
 /// A software queue for holding received CAN frames.
+///
+/// `N` is the number of Frames you want the `RxQueue` to hold.
 pub struct RxQueue<const N: usize>(Channel<CriticalSectionRawMutex, Frame, N>);
 
 impl<const N: usize> RxQueue<N> {
@@ -43,11 +45,13 @@ impl<const N: usize> Default for RxQueue<N> {
     }
 }
 
-/// Async driver mode.
+/// Async driver mode. Use `FlexCan::new_async()` to construct a driver in
+/// this mode.
 ///
 /// This driver mode uses interrupts and provides `async` functions for
 /// interacting with FlexCAN.
 #[derive(Clone, Copy)]
+#[doc = docs::doc_async_example!()]
 pub struct Async {
     /// Async-specific state stuff.
     state: &'static AsyncState,
@@ -59,11 +63,13 @@ pub struct Async {
 impl sealed::Sealed for Async {}
 impl Mode for Async {}
 
+/// Functions for `FlexCan` that are specific to `Async` mode.
 impl<'d> FlexCan<'d, Async> {
     /// Constructs a new async FlexCAN driver instance, in Classic mode.
     ///
     /// You must also route this instance's interrupt to an `InterruptHandler` via `bind_interrupts!`,
     /// and provide a `'static` `RxQueue` for received frames to land in.
+    #[doc = docs::doc_async_example!()]
     pub fn new_async<T: Instance, const N: usize>(
         peri: Peri<'d, T>,
         rx: Peri<'d, impl RxPin<T>>,
@@ -118,6 +124,7 @@ impl<'d> FlexCan<'d, Async> {
     }
 }
 
+/// Functions for `FlexCanTx` that are specific to `Async` mode.
 impl<'d> FlexCanTx<'d, Async> {
     #[doc = docs::doc_send!()]
     pub async fn send(&mut self, frame: &Frame) {
@@ -157,6 +164,7 @@ impl<'d> FlexCanTx<'d, Async> {
     }
 }
 
+/// Functions for `FlexCanRx` that are specific to `Async` mode.
 impl<'d> FlexCanRx<'d, Async> {
     #[doc = docs::doc_receive!()]
     pub async fn receive(&self) -> Frame {
@@ -245,9 +253,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     }
 }
 
-/// Shared rustdoc for the async public TX/RX methods. These methods are exposed (with
-/// identical documentation) on `FlexCan`, `FlexCanTx`, and `FlexCanRx`, so their doc comments
-/// are defined once here and applied via `#[doc = ...]`.
+/// Shared rustdocs that are used multiple places.
 pub(in crate::flexcan::classic) mod docs {
     macro_rules! doc_send {
         () => {
@@ -311,4 +317,17 @@ pub(in crate::flexcan::classic) mod docs {
         ) };
     }
     pub(in crate::flexcan::classic) use doc_rx_dropped_count;
+
+    macro_rules! doc_async_example {
+        () => { concat!(
+            "<details>\n\n",
+            "<summary><h4>Async Example</h4></summary>\n\n",
+            "Here's a short example program that demonstrates how to set up a FlexCAN peripheral in Async mode for Classic CAN using this HAL:\n",
+            "```rust,no_run\n",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/mcxa2xx/src/bin/flexcan-classic-async.rs")),
+            "\n```\n",
+            "</details>",
+        ) };
+    }
+    pub(in crate::flexcan::classic) use doc_async_example;
 }

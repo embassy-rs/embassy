@@ -20,17 +20,20 @@ use crate::flexcan::{RxPin, TxPin};
 /// This mode doesn't use any interrupts. The `blocking_send()`/`blocking_receive()` functions just do a blocking poll
 /// the hardware until they can make progress. For most cases, you should probably just use the
 /// `Async` mode, unless you specifically need Blocking functionality and are okay with accepting the risks.
+#[doc = docs::doc_blocking_example!()]
 pub struct Blocking;
 
 impl sealed::Sealed for Blocking {}
 impl Mode for Blocking {}
 
+/// Functions for `FlexCan` that are specific to `Blocking` mode.
 impl<'d> FlexCan<'d, Blocking> {
     /// Constructs a new `Blocking` FlexCAN driver instance, in Classic mode.
     ///
     /// This mode doesn't use any interrupts. The `blocking_send()`/`blocking_receive()` functions just do a blocking poll
     /// the hardware until they can make progress. For most cases, you should probably just use the
     /// `Async` mode, unless you specifically need Blocking functionality and are okay with accepting the risks.
+    #[doc = docs::doc_blocking_example!()]
     pub fn new_blocking<T: Instance>(
         peri: Peri<'d, T>,
         rx: Peri<'d, impl RxPin<T>>,
@@ -64,6 +67,7 @@ impl<'d> FlexCan<'d, Blocking> {
     }
 }
 
+/// Functions for `FlexCanTx` that are specific to `Blocking` mode.
 impl<'d> FlexCanTx<'d, Blocking> {
     #[doc = docs::doc_blocking_send!()]
     pub fn blocking_send(&mut self, frame: &Frame) {
@@ -102,6 +106,7 @@ impl<'d> FlexCanTx<'d, Blocking> {
     }
 }
 
+/// Functions for `FlexCanRx` that are specific to `Blocking` mode.
 impl<'d> FlexCanRx<'d, Blocking> {
     #[doc = docs::doc_blocking_receive!()]
     pub fn blocking_receive(&self) -> Frame {
@@ -124,8 +129,8 @@ impl<'d> FlexCanRx<'d, Blocking> {
     }
 }
 
-/// Shared rustdocs for functions that are re-used for multiple structs.
-mod docs {
+/// Shared rustdocs that are re-used multiple places.
+pub(in crate::flexcan::classic) mod docs {
     macro_rules! doc_blocking_send {
         () => {
             concat!(
@@ -168,4 +173,17 @@ mod docs {
         };
     }
     pub(in crate::flexcan::classic) use doc_try_receive;
+
+    macro_rules! doc_blocking_example {
+        () => { concat!(
+            "<details>\n\n",
+            "<summary><h4>Blocking Example</h4></summary>\n\n",
+            "Here's a short example program that demonstrates how to set up a FlexCAN peripheral in Blocking mode for Classic CAN using this HAL:\n",
+            "```rust,no_run\n",
+            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/mcxa2xx/src/bin/flexcan-classic-blocking.rs")),
+            "\n```\n",
+            "</details>",
+        ) };
+    }
+    pub(in crate::flexcan::classic) use doc_blocking_example;
 }
