@@ -344,8 +344,9 @@ impl<'d, M: Mode> UartRx<'d, M> {
     pub fn has_rx_data(&mut self) -> bool {
         !self.info.regs.uartfr().read().rxfe()
     }
-    /// Returns Ok(len) if no errors occured, and the bytes are passed to the buffer, in case the target byte is not found on the timeout Error::Timeout is returned
-    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned in both cases all bytes sent are allocated to the buffer.
+    /// Returns Ok(len) if no errors occured, in case the target byte is not found on timeout Error::Timeout(len) is returned 
+    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned  
+    /// These method does not clean the fifo they read the fifo until the target is reached or until timeout is reached. 
     pub fn blocking_read_until(
         &mut self,
         buffer: &mut [u8],
@@ -355,8 +356,10 @@ impl<'d, M: Mode> UartRx<'d, M> {
         let r = self.info.regs;
         let start_time = Instant::now();
         let mut bytes_copied = 0;
-
         loop {
+            if bytes_copied >= buffer.len() {
+                return Err(Error::BufferOverflow);
+            }
             while r.uartfr().read().rxfe() {
                 if start_time.elapsed().as_micros() > timeout_micros {
                     return Err(Error::Timeout(bytes_copied));
@@ -364,10 +367,6 @@ impl<'d, M: Mode> UartRx<'d, M> {
             }
 
             let byte = r.uartdr().read().data();
-
-            if bytes_copied >= buffer.len() {
-                return Err(Error::BufferOverflow);
-            }
 
             buffer[bytes_copied] = byte;
             bytes_copied += 1;
