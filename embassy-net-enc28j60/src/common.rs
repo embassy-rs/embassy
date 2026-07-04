@@ -9,11 +9,11 @@ pub enum Register {
 }
 
 impl Register {
-    pub(crate) fn addr(&self) -> u8 {
+    pub(crate) const fn addr(&self) -> u8 {
         *self as u8
     }
 
-    pub(crate) fn is_eth_register(&self) -> bool {
+    pub(crate) const fn is_eth_register(&self) -> bool {
         match *self {
             Register::ECON1 => true,
             Register::ECON2 => true,

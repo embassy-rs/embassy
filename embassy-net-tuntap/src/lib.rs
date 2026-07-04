@@ -1,5 +1,6 @@
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
+#![deny(clippy::missing_const_for_fn)]
 use std::io;
 use std::io::{Read, Write};
 use std::os::fd::{AsFd, OwnedFd};

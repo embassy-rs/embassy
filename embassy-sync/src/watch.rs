@@ -411,7 +411,7 @@ impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Clone for Snd<'a, T, W> {
 
 impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Snd<'a, T, W> {
     /// Creates a new `Receiver` with a reference to the `Watch`.
-    fn new(watch: &'a W) -> Self {
+    const fn new(watch: &'a W) -> Self {
         Self {
             watch,
             _phantom: PhantomData,
@@ -540,7 +540,7 @@ pub struct Rcv<'a, T: Clone, W: WatchBehavior<T> + ?Sized> {
 
 impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Rcv<'a, T, W> {
     /// Creates a new `Receiver` with a reference to the `Watch`.
-    fn new(watch: &'a W, at_id: u64) -> Self {
+    const fn new(watch: &'a W, at_id: u64) -> Self {
         Self {
             watch,
             at_id,
@@ -635,7 +635,7 @@ pub struct AnonRcv<'a, T: Clone, W: WatchBehavior<T> + ?Sized> {
 
 impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> AnonRcv<'a, T, W> {
     /// Creates a new `Receiver` with a reference to the `Watch`.
-    fn new(watch: &'a W, at_id: u64) -> Self {
+    const fn new(watch: &'a W, at_id: u64) -> Self {
         Self {
             watch,
             at_id,

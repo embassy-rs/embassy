@@ -10,12 +10,12 @@ pub struct OnDrop<F: FnOnce()> {
 
 impl<F: FnOnce()> OnDrop<F> {
     /// Create a new instance.
-    pub fn new(f: F) -> Self {
+    pub const fn new(f: F) -> Self {
         Self { f: MaybeUninit::new(f) }
     }
 
     /// Prevent drop handler from running.
-    pub fn defuse(self) {
+    pub const fn defuse(self) {
         mem::forget(self)
     }
 }
@@ -39,12 +39,12 @@ pub struct DropBomb {
 
 impl DropBomb {
     /// Create a new instance.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { _private: () }
     }
 
     /// Defuses the bomb, rendering it safe to drop.
-    pub fn defuse(self) {
+    pub const fn defuse(self) {
         mem::forget(self)
     }
 }

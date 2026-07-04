@@ -32,7 +32,7 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Pub<'a, PSB, T> {
     }
 
     /// Publish a message. But if the message queue is full, wait for all subscribers to have read the last message
-    pub fn publish<'s>(&'s self, message: T) -> PublisherWaitFuture<'s, 'a, PSB, T> {
+    pub const fn publish<'s>(&'s self, message: T) -> PublisherWaitFuture<'s, 'a, PSB, T> {
         PublisherWaitFuture {
             message: Some(message),
             publisher: self,

@@ -8,7 +8,7 @@ impl<T> UninitCell<T> {
         Self(MaybeUninit::uninit())
     }
 
-    pub unsafe fn as_mut_ptr(&self) -> *mut T {
+    pub unsafe const fn as_mut_ptr(&self) -> *mut T {
         (*self.0.as_ptr()).get()
     }
 

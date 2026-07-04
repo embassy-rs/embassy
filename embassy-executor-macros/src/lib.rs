@@ -1,4 +1,5 @@
 #![doc = include_str!("../README.md")]
+#![deny(clippy::missing_const_for_fn)]
 extern crate proc_macro;
 
 use proc_macro::TokenStream;

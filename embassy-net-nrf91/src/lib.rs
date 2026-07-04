@@ -3,6 +3,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 #![deny(unused_must_use)]
+#![deny(clippy::missing_const_for_fn)]
 
 // must be first
 mod fmt;

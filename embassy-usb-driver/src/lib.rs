@@ -3,6 +3,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![deny(clippy::missing_const_for_fn)]
 
 pub mod host;
 
@@ -85,7 +86,7 @@ impl EndpointAddress {
 
     /// Constructs a new EndpointAddress with the given index and direction.
     #[inline]
-    pub fn from_parts(index: usize, dir: Direction) -> Self {
+    pub const fn from_parts(index: usize, dir: Direction) -> Self {
         let dir_u8 = match dir {
             Direction::Out => 0x00,
             Direction::In => Self::INBITS,
@@ -95,7 +96,7 @@ impl EndpointAddress {
 
     /// Gets the direction part of the address.
     #[inline]
-    pub fn direction(&self) -> Direction {
+    pub const fn direction(&self) -> Direction {
         if (self.0 & Self::INBITS) != 0 {
             Direction::In
         } else {
@@ -105,19 +106,19 @@ impl EndpointAddress {
 
     /// Returns true if the direction is IN, otherwise false.
     #[inline]
-    pub fn is_in(&self) -> bool {
+    pub const fn is_in(&self) -> bool {
         (self.0 & Self::INBITS) != 0
     }
 
     /// Returns true if the direction is OUT, otherwise false.
     #[inline]
-    pub fn is_out(&self) -> bool {
+    pub const fn is_out(&self) -> bool {
         (self.0 & Self::INBITS) == 0
     }
 
     /// Gets the index part of the endpoint address.
     #[inline]
-    pub fn index(&self) -> usize {
+    pub const fn index(&self) -> usize {
         (self.0 & !Self::INBITS) as usize
     }
 }

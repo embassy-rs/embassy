@@ -76,7 +76,7 @@ macro_rules! generate {
 
         impl<$($Fut: Future),*> $Join<$($Fut),*> {
             #[allow(non_snake_case)]
-            fn new($($Fut: $Fut),*) -> Self {
+            const fn new($($Fut: $Fut),*) -> Self {
                 Self {
                     $($Fut: MaybeDone::Future($Fut)),*
                 }
@@ -139,7 +139,7 @@ generate! {
 /// assert_eq!(pair, (1, 2));
 /// # });
 /// ```
-pub fn join<Fut1, Fut2>(future1: Fut1, future2: Fut2) -> Join<Fut1, Fut2>
+pub const fn join<Fut1, Fut2>(future1: Fut1, future2: Fut2) -> Join<Fut1, Fut2>
 where
     Fut1: Future,
     Fut2: Future,
@@ -168,7 +168,7 @@ where
 /// assert_eq!(res, (1, 2, 3));
 /// # });
 /// ```
-pub fn join3<Fut1, Fut2, Fut3>(future1: Fut1, future2: Fut2, future3: Fut3) -> Join3<Fut1, Fut2, Fut3>
+pub const fn join3<Fut1, Fut2, Fut3>(future1: Fut1, future2: Fut2, future3: Fut3) -> Join3<Fut1, Fut2, Fut3>
 where
     Fut1: Future,
     Fut2: Future,
@@ -199,7 +199,7 @@ where
 /// assert_eq!(res, (1, 2, 3, 4));
 /// # });
 /// ```
-pub fn join4<Fut1, Fut2, Fut3, Fut4>(
+pub const fn join4<Fut1, Fut2, Fut3, Fut4>(
     future1: Fut1,
     future2: Fut2,
     future3: Fut3,
@@ -237,7 +237,7 @@ where
 /// assert_eq!(res, (1, 2, 3, 4, 5));
 /// # });
 /// ```
-pub fn join5<Fut1, Fut2, Fut3, Fut4, Fut5>(
+pub const fn join5<Fut1, Fut2, Fut3, Fut4, Fut5>(
     future1: Fut1,
     future2: Fut2,
     future3: Fut3,

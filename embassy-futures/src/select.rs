@@ -16,12 +16,12 @@ pub enum Either<A, B> {
 
 impl<A, B> Either<A, B> {
     /// Did the first future complete first?
-    pub fn is_first(&self) -> bool {
+    pub const fn is_first(&self) -> bool {
         matches!(self, Either::First(_))
     }
 
     /// Did the second future complete first?
-    pub fn is_second(&self) -> bool {
+    pub const fn is_second(&self) -> bool {
         matches!(self, Either::Second(_))
     }
 }
@@ -32,7 +32,7 @@ impl<A, B> Either<A, B> {
 /// When one of them completes, it will complete with its result value.
 ///
 /// The other future is dropped.
-pub fn select<A, B>(a: A, b: B) -> Select<A, B>
+pub const fn select<A, B>(a: A, b: B) -> Select<A, B>
 where
     A: Future,
     B: Future,
@@ -87,23 +87,23 @@ pub enum Either3<A, B, C> {
 
 impl<A, B, C> Either3<A, B, C> {
     /// Did the first future complete first?
-    pub fn is_first(&self) -> bool {
+    pub const fn is_first(&self) -> bool {
         matches!(self, Either3::First(_))
     }
 
     /// Did the second future complete first?
-    pub fn is_second(&self) -> bool {
+    pub const fn is_second(&self) -> bool {
         matches!(self, Either3::Second(_))
     }
 
     /// Did the third future complete first?
-    pub fn is_third(&self) -> bool {
+    pub const fn is_third(&self) -> bool {
         matches!(self, Either3::Third(_))
     }
 }
 
 /// Same as [`select`], but with more futures.
-pub fn select3<A, B, C>(a: A, b: B, c: C) -> Select3<A, B, C>
+pub const fn select3<A, B, C>(a: A, b: B, c: C) -> Select3<A, B, C>
 where
     A: Future,
     B: Future,
@@ -165,28 +165,28 @@ pub enum Either4<A, B, C, D> {
 
 impl<A, B, C, D> Either4<A, B, C, D> {
     /// Did the first future complete first?
-    pub fn is_first(&self) -> bool {
+    pub const fn is_first(&self) -> bool {
         matches!(self, Either4::First(_))
     }
 
     /// Did the second future complete first?
-    pub fn is_second(&self) -> bool {
+    pub const fn is_second(&self) -> bool {
         matches!(self, Either4::Second(_))
     }
 
     /// Did the third future complete first?
-    pub fn is_third(&self) -> bool {
+    pub const fn is_third(&self) -> bool {
         matches!(self, Either4::Third(_))
     }
 
     /// Did the fourth future complete first?
-    pub fn is_fourth(&self) -> bool {
+    pub const fn is_fourth(&self) -> bool {
         matches!(self, Either4::Fourth(_))
     }
 }
 
 /// Same as [`select`], but with more futures.
-pub fn select4<A, B, C, D>(a: A, b: B, c: C, d: D) -> Select4<A, B, C, D>
+pub const fn select4<A, B, C, D>(a: A, b: B, c: C, d: D) -> Select4<A, B, C, D>
 where
     A: Future,
     B: Future,
@@ -257,33 +257,33 @@ pub enum Either5<A, B, C, D, E> {
 
 impl<A, B, C, D, E> Either5<A, B, C, D, E> {
     /// Did the first future complete first?
-    pub fn is_first(&self) -> bool {
+    pub const fn is_first(&self) -> bool {
         matches!(self, Either5::First(_))
     }
 
     /// Did the second future complete first?
-    pub fn is_second(&self) -> bool {
+    pub const fn is_second(&self) -> bool {
         matches!(self, Either5::Second(_))
     }
 
     /// Did the third future complete first?
-    pub fn is_third(&self) -> bool {
+    pub const fn is_third(&self) -> bool {
         matches!(self, Either5::Third(_))
     }
 
     /// Did the fourth future complete first?
-    pub fn is_fourth(&self) -> bool {
+    pub const fn is_fourth(&self) -> bool {
         matches!(self, Either5::Fourth(_))
     }
 
     /// Did the fifth future complete first?
-    pub fn is_fifth(&self) -> bool {
+    pub const fn is_fifth(&self) -> bool {
         matches!(self, Either5::Fifth(_))
     }
 }
 
 /// Same as [`select`], but with more futures.
-pub fn select5<A, B, C, D, E>(a: A, b: B, c: C, d: D, e: E) -> Select5<A, B, C, D, E>
+pub const fn select5<A, B, C, D, E>(a: A, b: B, c: C, d: D, e: E) -> Select5<A, B, C, D, E>
 where
     A: Future,
     B: Future,
@@ -363,38 +363,38 @@ pub enum Either6<A, B, C, D, E, F> {
 
 impl<A, B, C, D, E, F> Either6<A, B, C, D, E, F> {
     /// Did the first future complete first?
-    pub fn is_first(&self) -> bool {
+    pub const fn is_first(&self) -> bool {
         matches!(self, Either6::First(_))
     }
 
     /// Did the second future complete first?
-    pub fn is_second(&self) -> bool {
+    pub const fn is_second(&self) -> bool {
         matches!(self, Either6::Second(_))
     }
 
     /// Did the third future complete first?
-    pub fn is_third(&self) -> bool {
+    pub const fn is_third(&self) -> bool {
         matches!(self, Either6::Third(_))
     }
 
     /// Did the fourth future complete first?
-    pub fn is_fourth(&self) -> bool {
+    pub const fn is_fourth(&self) -> bool {
         matches!(self, Either6::Fourth(_))
     }
 
     /// Did the fifth future complete first?
-    pub fn is_fifth(&self) -> bool {
+    pub const fn is_fifth(&self) -> bool {
         matches!(self, Either6::Fifth(_))
     }
 
     /// Did the sixth future complete first?
-    pub fn is_sixth(&self) -> bool {
+    pub const fn is_sixth(&self) -> bool {
         matches!(self, Either6::Sixth(_))
     }
 }
 
 /// Same as [`select`], but with more futures.
-pub fn select6<A, B, C, D, E, F>(a: A, b: B, c: C, d: D, e: E, f: F) -> Select6<A, B, C, D, E, F>
+pub const fn select6<A, B, C, D, E, F>(a: A, b: B, c: C, d: D, e: E, f: F) -> Select6<A, B, C, D, E, F>
 where
     A: Future,
     B: Future,
@@ -520,7 +520,7 @@ pub struct SelectSlice<'a, Fut> {
 /// future that was ready.
 ///
 /// If the slice is empty, the resulting future will be Pending forever.
-pub fn select_slice<'a, Fut: Future>(slice: Pin<&'a mut [Fut]>) -> SelectSlice<'a, Fut> {
+pub const fn select_slice<'a, Fut: Future>(slice: Pin<&'a mut [Fut]>) -> SelectSlice<'a, Fut> {
     SelectSlice { inner: slice }
 }
 

@@ -5,6 +5,7 @@
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 #![warn(missing_docs)]
 #![allow(async_fn_in_trait)]
+#![deny(clippy::missing_const_for_fn)]
 
 use aligned::Aligned;
 #[cfg(not(feature = "bluetooth"))]

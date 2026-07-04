@@ -3,6 +3,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![deny(clippy::missing_const_for_fn)]
 
 // This must go FIRST so that all the other modules see its macros.
 mod fmt;

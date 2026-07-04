@@ -117,7 +117,7 @@ where
     /// If no bytes are currently available to read, this function waits until at least one byte is available.
     ///
     /// If the reader is at end-of-file (EOF), an empty slice is returned.
-    pub fn fill_buf(&mut self) -> FillBufFuture<'_, M, N> {
+    pub const fn fill_buf(&mut self) -> FillBufFuture<'_, M, N> {
         FillBufFuture { pipe: Some(self.pipe) }
     }
 
@@ -223,12 +223,12 @@ struct PipeState<const N: usize> {
 struct Buffer<const N: usize>(UnsafeCell<[u8; N]>);
 
 impl<const N: usize> Buffer<N> {
-    unsafe fn get<'a>(&self, r: Range<usize>) -> &'a [u8] {
+    unsafe const fn get<'a>(&self, r: Range<usize>) -> &'a [u8] {
         let p = self.0.get() as *const u8;
         core::slice::from_raw_parts(p.add(r.start), r.end - r.start)
     }
 
-    unsafe fn get_mut<'a>(&self, r: Range<usize>) -> &'a mut [u8] {
+    unsafe const fn get_mut<'a>(&self, r: Range<usize>) -> &'a mut [u8] {
         let p = self.0.get() as *mut u8;
         core::slice::from_raw_parts_mut(p.add(r.start), r.end - r.start)
     }
@@ -370,7 +370,7 @@ where
     /// implementing `BufRead` requires there is a single reader.
     ///
     /// The writer is cloneable, the reader is not.
-    pub fn split(&mut self) -> (Reader<'_, M, N>, Writer<'_, M, N>) {
+    pub const fn split(&mut self) -> (Reader<'_, M, N>, Writer<'_, M, N>) {
         (Reader { pipe: self }, Writer { pipe: self })
     }
 
@@ -388,7 +388,7 @@ where
     /// without writing all of `buf` (returning a number less than `buf.len()`) and still leave
     /// free space in the pipe buffer. You should always `write` in a loop, or use helpers like
     /// `write_all` from the `embedded-io` crate.
-    pub fn write<'a>(&'a self, buf: &'a [u8]) -> WriteFuture<'a, M, N> {
+    pub const fn write<'a>(&'a self, buf: &'a [u8]) -> WriteFuture<'a, M, N> {
         WriteFuture { pipe: self, buf }
     }
 
@@ -440,7 +440,7 @@ where
     /// without filling `buf` (returning a number less than `buf.len()`) and still leave bytes
     /// in the pipe buffer. You should always `read` in a loop, or use helpers like
     /// `read_exact` from the `embedded-io` crate.
-    pub fn read<'a>(&'a self, buf: &'a mut [u8]) -> ReadFuture<'a, M, N> {
+    pub const fn read<'a>(&'a self, buf: &'a mut [u8]) -> ReadFuture<'a, M, N> {
         ReadFuture { pipe: self, buf }
     }
 
@@ -490,7 +490,7 @@ where
     /// Total byte capacity.
     ///
     /// This is the same as the `N` generic param.
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         N
     }
 

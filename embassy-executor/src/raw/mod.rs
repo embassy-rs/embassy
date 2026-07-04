@@ -160,7 +160,7 @@ impl TaskRef {
     /// Safety
     ///
     /// This function must only be called in the context of the integrated timer queue.
-    pub unsafe fn timer_queue_item(mut self) -> &'static mut TimerQueueItem {
+    pub unsafe const fn timer_queue_item(mut self) -> &'static mut TimerQueueItem {
         unsafe { &mut self.ptr.as_mut().timer_queue_item }
     }
 
@@ -197,7 +197,7 @@ pub struct TaskStorage<F: Future + 'static> {
     future: UninitCell<F>, // Valid if STATE_SPAWNED
 }
 
-unsafe fn poll_exited(_p: TaskRef) {
+unsafe const fn poll_exited(_p: TaskRef) {
     // Nothing to do, the task is already !SPAWNED and dequeued.
 }
 

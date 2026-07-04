@@ -2,6 +2,7 @@
 #![allow(async_fn_in_trait)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
+#![deny(clippy::missing_const_for_fn)]
 
 pub mod adapter;
 pub mod flash;

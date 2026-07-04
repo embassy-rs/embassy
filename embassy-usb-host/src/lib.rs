@@ -2,6 +2,7 @@
 #![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![deny(clippy::missing_const_for_fn)]
 
 /// Get max value in const context.
 macro_rules! const_max {

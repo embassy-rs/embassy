@@ -19,6 +19,7 @@
 //! method. You can then use the [`as_ref`](TimerQueueItem::as_ref) and [`as_mut`](TimerQueueItem::as_mut)
 //! methods to reinterpret the data stored in the item as your custom item type.
 #![no_std]
+#![deny(clippy::missing_const_for_fn)]
 
 use core::task::Waker;
 
@@ -73,7 +74,7 @@ impl TimerQueueItem {
     ///
     /// - The type must be valid when zero-initialized.
     /// - The timer queue should only be interpreted as a single type `T` during its lifetime.
-    pub unsafe fn as_ref<T>(&self) -> &T {
+    pub unsafe const fn as_ref<T>(&self) -> &T {
         const { validate::<T>() }
         unsafe { &*(self.data.as_ptr() as *const T) }
     }

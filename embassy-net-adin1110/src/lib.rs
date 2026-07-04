@@ -6,6 +6,7 @@
 #![allow(clippy::missing_panics_doc)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![deny(clippy::missing_const_for_fn)]
 
 // must go first!
 mod fmt;

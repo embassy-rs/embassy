@@ -10,7 +10,7 @@ macro_rules! register {
 
         impl $REGISTER<super::traits::Mask> {
             #[allow(dead_code)]
-            pub(crate) fn mask() -> $REGISTER<super::traits::Mask> {
+            pub(crate) const fn mask() -> $REGISTER<super::traits::Mask> {
                 $REGISTER { bits: 0, _mode: ::core::marker::PhantomData }
             }
 
@@ -34,13 +34,13 @@ macro_rules! register {
 
         #[allow(non_snake_case)]
         #[allow(dead_code)]
-        pub(crate) fn $REGISTER(bits: $uxx) -> $REGISTER<super::traits::R> {
+        pub(crate) const fn $REGISTER(bits: $uxx) -> $REGISTER<super::traits::R> {
             $REGISTER { bits, _mode: ::core::marker::PhantomData }
         }
 
         impl $REGISTER<super::traits::R> {
             #[allow(dead_code)]
-            pub(crate) fn modify(self) -> $REGISTER<super::traits::W> {
+            pub(crate) const fn modify(self) -> $REGISTER<super::traits::W> {
                 $REGISTER { bits: self.bits, _mode: ::core::marker::PhantomData }
             }
 
@@ -61,7 +61,7 @@ macro_rules! register {
 
         impl $REGISTER<super::traits::W> {
             #[allow(dead_code)]
-            pub(crate) fn bits(self) -> $uxx {
+            pub(crate) const fn bits(self) -> $uxx {
                 self.bits
             }
 

@@ -50,7 +50,7 @@ impl WakerRegistration {
     }
 
     /// Returns true if a waker is currently registered
-    pub fn occupied(&self) -> bool {
+    pub const fn occupied(&self) -> bool {
         self.waker.is_some()
     }
 }

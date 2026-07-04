@@ -13,7 +13,7 @@ pub enum Register {
 }
 
 impl Register {
-    pub(crate) fn addr(&self) -> u8 {
+    pub(crate) const fn addr(&self) -> u8 {
         *self as u8
     }
 }

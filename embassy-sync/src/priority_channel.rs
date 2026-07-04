@@ -540,12 +540,12 @@ where
     }
 
     /// Get a sender for this channel.
-    pub fn sender(&self) -> Sender<'_, M, T, K, N> {
+    pub const fn sender(&self) -> Sender<'_, M, T, K, N> {
         Sender { channel: self }
     }
 
     /// Get a receiver for this channel.
-    pub fn receiver(&self) -> Receiver<'_, M, T, K, N> {
+    pub const fn receiver(&self) -> Receiver<'_, M, T, K, N> {
         Receiver { channel: self }
     }
 
@@ -553,7 +553,7 @@ where
     ///
     /// Sending completes when the value has been pushed to the channel's queue.
     /// This doesn't mean the value has been received yet.
-    pub fn send(&self, message: T) -> SendFuture<'_, M, T, K, N> {
+    pub const fn send(&self, message: T) -> SendFuture<'_, M, T, K, N> {
         SendFuture {
             channel: self,
             message: Some(message),
@@ -578,7 +578,7 @@ where
     ///
     /// If there are no messages in the channel's buffer, this method will
     /// wait until a message is sent.
-    pub fn receive(&self) -> ReceiveFuture<'_, M, T, K, N> {
+    pub const fn receive(&self) -> ReceiveFuture<'_, M, T, K, N> {
         ReceiveFuture { channel: self }
     }
 

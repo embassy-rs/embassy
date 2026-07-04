@@ -1,6 +1,7 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![deny(clippy::missing_const_for_fn)]
 
 // must go first.
 mod fmt;
@@ -194,7 +195,7 @@ where
     }
 
     /// Returns the device's MAC address
-    pub fn address(&self) -> [u8; 6] {
+    pub const fn address(&self) -> [u8; 6] {
         self.mac_addr
     }
 
@@ -569,7 +570,7 @@ enum Instruction {
 }
 
 impl Instruction {
-    fn opcode(&self) -> u8 {
+    const fn opcode(&self) -> u8 {
         *self as u8
     }
 }
@@ -584,7 +585,7 @@ enum Register {
 }
 
 impl Register {
-    fn addr(&self) -> u8 {
+    const fn addr(&self) -> u8 {
         match *self {
             Register::Bank0(r) => r.addr(),
             Register::Bank1(r) => r.addr(),
@@ -594,7 +595,7 @@ impl Register {
         }
     }
 
-    fn bank(&self) -> Option<Bank> {
+    const fn bank(&self) -> Option<Bank> {
         Some(match *self {
             Register::Bank0(_) => Bank::Bank0,
             Register::Bank1(_) => Bank::Bank1,
@@ -604,7 +605,7 @@ impl Register {
         })
     }
 
-    fn is_eth_register(&self) -> bool {
+    const fn is_eth_register(&self) -> bool {
         match *self {
             Register::Bank0(r) => r.is_eth_register(),
             Register::Bank1(r) => r.is_eth_register(),

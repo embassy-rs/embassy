@@ -8,6 +8,7 @@
 
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+#![deny(clippy::missing_const_for_fn)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;

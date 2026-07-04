@@ -5,6 +5,7 @@
 //
 // Allow functions with too many args - we have a lot of HAL constructors like this for now
 #![allow(clippy::too_many_arguments)]
+#![deny(clippy::missing_const_for_fn)]
 
 /// Module for MCXA2xx-specific HAL drivers
 ///

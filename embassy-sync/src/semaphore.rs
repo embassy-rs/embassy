@@ -60,14 +60,14 @@ impl<'a, S: Semaphore> Drop for SemaphoreReleaser<'a, S> {
 
 impl<'a, S: Semaphore> SemaphoreReleaser<'a, S> {
     /// The number of acquired permits.
-    pub fn permits(&self) -> usize {
+    pub const fn permits(&self) -> usize {
         self.permits
     }
 
     /// Prevent the acquired permits from being released on drop.
     ///
     /// Returns the number of acquired permits.
-    pub fn disarm(self) -> usize {
+    pub const fn disarm(self) -> usize {
         let permits = self.permits;
         core::mem::forget(self);
         permits
@@ -198,7 +198,7 @@ impl SemaphoreState {
         self.waker.register(w);
     }
 
-    fn take(&mut self, mut permits: usize, acquire_all: bool) -> Option<usize> {
+    const fn take(&mut self, mut permits: usize, acquire_all: bool) -> Option<usize> {
         if self.permits < permits {
             None
         } else {

@@ -139,7 +139,7 @@ impl Instant {
     /// Duration between this Instant and another Instant
     ///
     /// This is a panic-free [`Instant::duration_since()`].
-    pub fn checked_duration_since(&self, earlier: Instant) -> Option<Duration> {
+    pub const fn checked_duration_since(&self, earlier: Instant) -> Option<Duration> {
         if self.ticks < earlier.ticks {
             None
         } else {
@@ -153,7 +153,7 @@ impl Instant {
     /// If the "earlier" instant is in the future, the duration is set to zero.
     ///
     /// This is a panic-free alternative to [`Instant::duration_since()`].
-    pub fn saturating_duration_since(&self, earlier: Instant) -> Duration {
+    pub const fn saturating_duration_since(&self, earlier: Instant) -> Duration {
         Duration {
             ticks: if self.ticks < earlier.ticks {
                 0
@@ -183,13 +183,13 @@ impl Instant {
     }
 
     /// Adds a Duration to self. In case of overflow, the maximum value is returned.
-    pub fn saturating_add(mut self, duration: Duration) -> Self {
+    pub const fn saturating_add(mut self, duration: Duration) -> Self {
         self.ticks = self.ticks.saturating_add(duration.ticks);
         self
     }
 
     /// Subtracts a Duration from self. In case of overflow, the minimum value is returned.
-    pub fn saturating_sub(mut self, duration: Duration) -> Self {
+    pub const fn saturating_sub(mut self, duration: Duration) -> Self {
         self.ticks = self.ticks.saturating_sub(duration.ticks);
         self
     }

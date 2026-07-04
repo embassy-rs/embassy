@@ -86,7 +86,7 @@ impl RingBuffer {
     ///
     /// - Only one reader can exist at a time.
     /// - Ringbuffer must be initialized.
-    pub unsafe fn reader(&self) -> Reader<'_> {
+    pub unsafe const fn reader(&self) -> Reader<'_> {
         Reader(self)
     }
 
@@ -108,7 +108,7 @@ impl RingBuffer {
     ///
     /// - Only one writer can exist at a time.
     /// - Ringbuffer must be initialized.
-    pub unsafe fn writer(&self) -> Writer<'_> {
+    pub unsafe const fn writer(&self) -> Writer<'_> {
         Writer(self)
     }
 

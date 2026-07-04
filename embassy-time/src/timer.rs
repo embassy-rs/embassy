@@ -41,7 +41,7 @@ pub fn try_with_timeout<F: Future>(timeout: impl Into<Duration>, fut: F) -> Opti
 ///
 /// If the future completes before the deadline, its output is returned. Otherwise, on timeout,
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
-pub fn with_deadline<F: Future>(at: Instant, fut: F) -> TimeoutFuture<F> {
+pub const fn with_deadline<F: Future>(at: Instant, fut: F) -> TimeoutFuture<F> {
     TimeoutFuture {
         timer: Timer::at(at),
         fut,
@@ -133,7 +133,7 @@ pub struct Timer {
 impl Timer {
     /// Expire at specified [Instant](struct.Instant.html)
     /// Will expire immediately if the Instant is in the past.
-    pub fn at(expires_at: Instant) -> Self {
+    pub const fn at(expires_at: Instant) -> Self {
         Self {
             expires_at,
             yielded_once: false,

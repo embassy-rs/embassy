@@ -114,7 +114,7 @@ pub type NoopMutex<T> = Mutex<raw::NoopRawMutex, T>;
 
 impl<T> Mutex<raw::CriticalSectionRawMutex, T> {
     /// Borrows the data for the duration of the critical section
-    pub fn borrow<'cs>(&'cs self, _cs: critical_section::CriticalSection<'cs>) -> &'cs T {
+    pub const fn borrow<'cs>(&'cs self, _cs: critical_section::CriticalSection<'cs>) -> &'cs T {
         let ptr = self.data.get() as *const T;
         unsafe { &*ptr }
     }
@@ -123,7 +123,7 @@ impl<T> Mutex<raw::CriticalSectionRawMutex, T> {
 impl<T> Mutex<raw::NoopRawMutex, T> {
     /// Borrows the data
     #[allow(clippy::should_implement_trait)]
-    pub fn borrow(&self) -> &T {
+    pub const fn borrow(&self) -> &T {
         let ptr = self.data.get() as *const T;
         unsafe { &*ptr }
     }

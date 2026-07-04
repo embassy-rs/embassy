@@ -68,11 +68,11 @@ impl<const N: usize> RingBuffer<N> {
         self.full = false;
     }
 
-    pub fn is_full(&self) -> bool {
+    pub const fn is_full(&self) -> bool {
         self.full
     }
 
-    pub fn is_empty(&self) -> bool {
+    pub const fn is_empty(&self) -> bool {
         self.start == self.end && !self.full
     }
 
@@ -87,7 +87,7 @@ impl<const N: usize> RingBuffer<N> {
         }
     }
 
-    pub fn clear(&mut self) {
+    pub const fn clear(&mut self) {
         self.start = 0;
         self.end = 0;
         self.full = false;

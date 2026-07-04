@@ -12,7 +12,7 @@ unsafe fn wake(p: *const ()) {
     wake_task(TaskRef::from_ptr(p as *const TaskHeader))
 }
 
-unsafe fn drop(_: *const ()) {
+unsafe const fn drop(_: *const ()) {
     // nop
 }
 

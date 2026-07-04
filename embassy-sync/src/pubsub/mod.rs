@@ -420,7 +420,7 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
         }
     }
 
-    fn unregister_publisher(&mut self) {
+    const fn unregister_publisher(&mut self) {
         self.publisher_count -= 1;
     }
 
@@ -431,7 +431,7 @@ impl<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> PubSubSta
         self.queue.clear();
     }
 
-    fn len(&self) -> usize {
+    const fn len(&self) -> usize {
         self.queue.len()
     }
 

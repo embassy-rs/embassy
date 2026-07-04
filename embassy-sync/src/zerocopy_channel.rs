@@ -69,7 +69,7 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
     ///
     /// Further Senders and Receivers can be created through [`Sender::borrow`] and
     /// [`Receiver::borrow`] respectively.
-    pub fn split(&mut self) -> (Sender<'_, M, T>, Receiver<'_, M, T>) {
+    pub const fn split(&mut self) -> (Sender<'_, M, T>, Receiver<'_, M, T>) {
         (Sender { channel: self }, Receiver { channel: self })
     }
 
@@ -101,7 +101,7 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
 struct BufferPtr<T>(*mut T);
 
 impl<T> BufferPtr<T> {
-    unsafe fn add(&self, count: usize) -> *mut T {
+    unsafe const fn add(&self, count: usize) -> *mut T {
         self.0.add(count)
     }
 }
@@ -117,7 +117,7 @@ pub struct Sender<'a, M: RawMutex, T> {
 
 impl<'a, M: RawMutex, T> Sender<'a, M, T> {
     /// Creates one further [`Sender`] over the same channel.
-    pub fn borrow(&mut self) -> Sender<'_, M, T> {
+    pub const fn borrow(&mut self) -> Sender<'_, M, T> {
         Sender { channel: self.channel }
     }
 
@@ -224,7 +224,7 @@ pub struct Receiver<'a, M: RawMutex, T> {
 
 impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
     /// Creates one further [`Receiver`] over the same channel.
-    pub fn borrow(&mut self) -> Receiver<'_, M, T> {
+    pub const fn borrow(&mut self) -> Receiver<'_, M, T> {
         Receiver { channel: self.channel }
     }
 
@@ -349,7 +349,7 @@ struct State {
 }
 
 impl State {
-    fn increment(&self, i: usize) -> usize {
+    const fn increment(&self, i: usize) -> usize {
         if i + 1 == self.capacity { 0 } else { i + 1 }
     }
 
@@ -362,7 +362,7 @@ impl State {
         self.full = false;
     }
 
-    fn len(&self) -> usize {
+    const fn len(&self) -> usize {
         if !self.full {
             if self.back >= self.front {
                 self.back - self.front
@@ -374,11 +374,11 @@ impl State {
         }
     }
 
-    fn is_full(&self) -> bool {
+    const fn is_full(&self) -> bool {
         self.full
     }
 
-    fn is_empty(&self) -> bool {
+    const fn is_empty(&self) -> bool {
         self.front == self.back && !self.full
     }
 

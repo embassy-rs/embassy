@@ -451,7 +451,7 @@ impl<M: RawMutex, T, const S: usize> RpcService<M, T, S> {
     /// completion by the runner (with the return value discarded).
     /// Execution requires that [`run()`](Self::run) is eventually polled
     /// and the service is not dropped.
-    pub fn call<R, F>(&self, f: F) -> CallFuture<'_, M, T, R, F, S>
+    pub const fn call<R, F>(&self, f: F) -> CallFuture<'_, M, T, R, F, S>
     where
         F: FnOnce(&mut T) -> R + Send + 'static,
         R: Send + 'static,

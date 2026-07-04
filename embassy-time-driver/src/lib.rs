@@ -104,6 +104,7 @@
 
 //! ## Feature flags
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+#![deny(clippy::missing_const_for_fn)]
 
 use core::task::Waker;
 

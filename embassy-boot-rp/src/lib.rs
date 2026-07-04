@@ -2,6 +2,7 @@
 #![allow(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
+#![deny(clippy::missing_const_for_fn)]
 mod fmt;
 
 pub use embassy_boot::{
