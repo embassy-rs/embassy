@@ -173,7 +173,7 @@ async fn main(_spawner: Spawner) {
         let mut uart = Uart::new_blocking(uart.reborrow(), tx.reborrow(), rx.reborrow(), config);
 
         // No byte was sent to the FIFO should return False
-        assert_eq!(!uart.has_rx_data(),false); 
+        assert_eq!(!uart.has_rx_data(), false);
 
         // We can't send too many bytes, they have to fit in the FIFO.
         // This is because we aren't sending+receiving at the same time.
@@ -185,17 +185,15 @@ async fn main(_spawner: Spawner) {
 
     info!("Test blocking_read_until ");
     {
-
         let config = Config::default();
         let mut uart = Uart::new_blocking(uart.reborrow(), tx.reborrow(), rx.reborrow(), config);
         let mut buf = [0u8; 4];
 
         let data = [0xC0, 0xDE, 0xAA, 0xBB];
-        
-        uart.blocking_write(&data).unwrap();
-        assert_eq!(uart.blocking_read_until(&mut buf, [0xAA], 10_000_000).unwrap(),3);
-        assert_eq!(buf,[0xC0, 0xDE, 0xAA, 0x00])
 
+        uart.blocking_write(&data).unwrap();
+        assert_eq!(uart.blocking_read_until(&mut buf, [0xAA], 10_000_000).unwrap(), 3);
+        assert_eq!(buf, [0xC0, 0xDE, 0xAA, 0x00])
     }
     info!("Test blocking_read_until buffer overflow");
     {
@@ -205,10 +203,12 @@ async fn main(_spawner: Spawner) {
         let mut buf = [0u8; 4];
 
         let data = [0xC0, 0xDE, 0xAA, 0xBB];
-        
-        uart.blocking_write(&data).unwrap();
-        assert_eq!(uart.blocking_read_until(&mut buf, [0xAA], 10_000_000).unwrap_err(),Error::BufferOverflow);
 
+        uart.blocking_write(&data).unwrap();
+        assert_eq!(
+            uart.blocking_read_until(&mut buf, [0xAA], 10_000_000).unwrap_err(),
+            Error::BufferOverflow
+        );
     }
     info!("Test blocking_read_until timeout");
     {
@@ -218,11 +218,13 @@ async fn main(_spawner: Spawner) {
         let mut buf = [0u8; 4];
 
         let data = [0xC0, 0xDE, 0xAA, 0xBB];
-        
-        uart.blocking_write(&data).unwrap();
-        assert_eq!(uart.blocking_read_until(&mut buf, [0x00], 1000).unwrap_err(),Error::Timeout);
-        assert_eq!(buf, data)
 
+        uart.blocking_write(&data).unwrap();
+        assert_eq!(
+            uart.blocking_read_until(&mut buf, [0x00], 1000).unwrap_err(),
+            Error::Timeout
+        );
+        assert_eq!(buf, data)
     }
     info!("Test OK");
     cortex_m::asm::bkpt();
