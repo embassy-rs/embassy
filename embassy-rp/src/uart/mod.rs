@@ -344,9 +344,9 @@ impl<'d, M: Mode> UartRx<'d, M> {
     pub fn has_rx_data(&mut self) -> bool {
         !self.info.regs.uartfr().read().rxfe()
     }
-    /// Returns Ok(len) if no errors occured, in case the target byte is not found on timeout Error::Timeout(len) is returned 
+    /// Returns Ok(len) if no errors occured, in case the target byte is not found on timeout Error::Timeout(len) is returned
     /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned  
-    /// These method does not clean the fifo they read the fifo until the target is reached or until timeout is reached. 
+    /// These method does not clean the fifo they read the fifo until the target is reached or until timeout is reached.
     pub fn blocking_read_until(
         &mut self,
         buffer: &mut [u8],
