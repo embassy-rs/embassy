@@ -21,18 +21,18 @@ mod timing;
 use core::cell::Cell;
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use asynchronous::AsyncState;
 pub use asynchronous::{Async, InterruptHandler, RxQueue};
 pub use blocking::Blocking;
 use embassy_hal_internal::Peri;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::channel::{Channel, SendDynamicSender};
 use maitake_sync::WaitCell;
 use nxp_pac::can as pac;
 
 use crate::clocks::periph_helpers::{CanClockSel, CanConfig, CanInstance, Div4};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
+use crate::flexcan::classic::frame::Frame;
 use crate::flexcan::control::Control;
 use crate::flexcan::filter::FilterConfig;
 use crate::flexcan::{RxPin, TxPin};
@@ -193,8 +193,6 @@ pub enum ReceiveError {
 }
 
 /// Info and state for a single `classic::FlexCan` instance.
-///
-/// Note: This stuff is common to both blocking and async mode. The async-specific stuff's in `AsyncState`.
 pub(crate) struct Info {
     /// Mode-agnostic hardware access.
     /// Lets you call `.regs()` to access individual hardware registers, plus contains
@@ -230,13 +228,19 @@ pub(crate) struct Info {
 
     /// Stores a count of the number of times the TX mailbox has filled up so far.
     pub tx_mailbox_full_count: AtomicU32,
+
+    /// Waker used to wake tasks awaiting on a CAN send() call. Only relavent when in `Async` mode.
+    pub tx_waker: WaitCell,
+
+    /// Handle to the RX queue's sender. Only relavent when in `Async` mode.
+    pub rx_sender: Mutex<CriticalSectionRawMutex, Cell<Option<SendDynamicSender<'static, Frame>>>>,
+
+    /// Stores a count of the number of RX frames dropped so far due to the RX Channel being full. Only relavent when in `Async` mode.
+    pub rx_dropped_count: AtomicU32,
 }
 
 pub(crate) trait SealedInstance: crate::clocks::Gate<MrccPeriphConfig = CanConfig> {
     fn info() -> &'static Info;
-
-    /// Async-only per-instance state.
-    fn async_state() -> &'static AsyncState;
 
     /// This is used to select the correct `MRCC_FLEXCANn_CLKSEL`/`CLKDIV` registers during clock setup.
     const CLOCK_INSTANCE: CanInstance;
@@ -280,7 +284,7 @@ pub struct FlexCanTx<'d, M: Mode> {
     info: &'static Info,
     _tx: Peri<'d, AnyPin>,
     _wake_guard: Option<WakeGuard>,
-    mode: M,
+    _mode: M,
 }
 
 /// General `FlexCanTx` functions (available for both `Async` and `Blocking` mode).
@@ -292,7 +296,7 @@ impl<'d, M: Mode> FlexCanTx<'d, M> {
             info,
             _tx: tx,
             _wake_guard: wake_guard,
-            mode,
+            _mode: mode,
         }
     }
 

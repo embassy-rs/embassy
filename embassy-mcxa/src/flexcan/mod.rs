@@ -106,34 +106,16 @@ macro_rules! impl_can_instance {
                         tx_remote: core::sync::atomic::AtomicU32::new(0),
                         prexcen_supported: $n == 0, // Protocol Exception is only supported on CAN0.
                         tx_mailbox_full_count: core::sync::atomic::AtomicU32::new(0),
-                    };
-                    &INFO
-                }
-
-                fn async_state() -> &'static crate::flexcan::classic::asynchronous::AsyncState {
-                    static STATE: crate::flexcan::classic::asynchronous::AsyncState = crate::flexcan::classic::asynchronous::AsyncState {
                         tx_waker: maitake_sync::WaitCell::new(),
                         rx_sender: embassy_sync::blocking_mutex::Mutex::new(core::cell::Cell::new(None)),
                         rx_dropped_count: core::sync::atomic::AtomicU32::new(0),
                     };
-                    &STATE
+                    &INFO
                 }
 
                 const CLOCK_INSTANCE: crate::clocks::periph_helpers::CanInstance = crate::clocks::periph_helpers::CanInstance::[<Can $n>];
             }
             impl crate::flexcan::classic::Instance for crate::peripherals::[<CAN $n>] {}
-
-            // u_TODO FDCAN mode: uncomment this block once a `fdcan` module exists alongside `classic`
-            // impl crate::flexcan::fdcan::SealedInstance for crate::peripherals::[<CAN $n>] {
-            //     fn info() -> &'static crate::flexcan::fdcan::Info {
-            //         static INFO: crate::flexcan::fdcan::Info = crate::flexcan::fdcan::Info {
-            //             control: crate::flexcan::control::Control::new(crate::pac::[<CAN $n>]),
-            //             // other FDCAN stuff
-            //         };
-            //         &INFO
-            //     }
-            // }
-            // impl crate::flexcan::fdcan::Instance for crate::peripherals::[<CAN $n>] {}
         }
     };
 }

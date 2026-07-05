@@ -8,24 +8,12 @@ use embassy_sync::channel::{SendDynamicReceiver, SendDynamicSender};
 
 use super::mailbox::tx;
 use super::{
-    AtomicU32, BusErrorMode, Cell, Channel, CriticalSectionRawMutex, FlexCan, FlexCanConfig, FlexCanRx, FlexCanTx,
-    InitError, Instance, Mode, Mutex, ReceiveError, SendError, WaitCell, mailbox, sealed,
+    BusErrorMode, Cell, Channel, CriticalSectionRawMutex, FlexCan, FlexCanConfig, FlexCanRx, FlexCanTx, InitError,
+    Instance, Mode, ReceiveError, SendError, mailbox, sealed,
 };
 use crate::flexcan::classic::frame::Frame;
 use crate::flexcan::{RxPin, TxPin};
 use crate::interrupt::typelevel::{Handler, Interrupt};
-
-/// Async-only state for a single `classic::FlexCan` instance.
-pub(crate) struct AsyncState {
-    /// Waker used to wake tasks awaiting on a CAN send() call.
-    pub tx_waker: WaitCell,
-
-    /// Handle to the RX queue's sender.
-    pub rx_sender: Mutex<CriticalSectionRawMutex, Cell<Option<SendDynamicSender<'static, Frame>>>>,
-
-    /// Stores a count of the number of RX frames dropped so far due to the RX Channel being full.
-    pub rx_dropped_count: AtomicU32,
-}
 
 /// A software queue for holding received CAN frames.
 ///
@@ -53,9 +41,6 @@ impl<const N: usize> Default for RxQueue<N> {
 #[derive(Clone, Copy)]
 #[doc = docs::doc_async_example!()]
 pub struct Async {
-    /// Async-specific state stuff.
-    state: &'static AsyncState,
-
     /// Receiver for the queue the user provides.
     rx_receiver: SendDynamicReceiver<'static, Frame>,
 }
@@ -83,9 +68,7 @@ impl<'d> FlexCan<'d, Async> {
         let rx_queue: &'static RxQueue<N> = rx_queue;
         let rx_sender: SendDynamicSender<'static, Frame> = rx_queue.0.sender().into();
         let rx_receiver: SendDynamicReceiver<'static, Frame> = rx_queue.0.receiver().into();
-        let state = T::async_state();
-        state
-            .rx_sender
+        info.rx_sender
             .lock(|c: &Cell<Option<SendDynamicSender<'static, Frame>>>| c.set(Some(rx_sender)));
 
         // Setup the interrupts
@@ -96,7 +79,7 @@ impl<'d> FlexCan<'d, Async> {
 
         info.control.unfreeze();
 
-        let mode = Async { state, rx_receiver };
+        let mode = Async { rx_receiver };
         let tx = FlexCanTx::new(info, tx_pin, wake_guard.clone(), mode);
         let rx = FlexCanRx::new(info, rx_pin, wake_guard, mode);
         Ok(Self { tx, rx })
@@ -130,9 +113,9 @@ impl<'d> FlexCanTx<'d, Async> {
     pub async fn send(&mut self, frame: &Frame) {
         use nb::Error::{Other, WouldBlock};
 
-        let state = self.mode.state;
+        let info = self.info;
         let message = tx::TxMessage::from(frame);
-        let _ = state
+        let _ = info
             .tx_waker
             .wait_for(|| match tx::dispatch(self.info, &message) {
                 Ok(()) => true,
@@ -179,7 +162,7 @@ impl<'d> FlexCanRx<'d, Async> {
     }
     #[doc = docs::doc_rx_dropped_count!()]
     pub fn rx_dropped_count(&self) -> u32 {
-        self.mode.state.rx_dropped_count.load(Ordering::Acquire)
+        self.info.rx_dropped_count.load(Ordering::Acquire)
     }
 }
 
@@ -194,20 +177,19 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let info = T::info();
-        let async_state = T::async_state();
         let can = info.control.regs();
 
         /* TX STUFF: */
 
         // Reclaim any completed TX buffers. If any were reclaimed, wake tasks waiting in send().
         if mailbox::tx::reclaim_completed(info) {
-            async_state.tx_waker.wake(); // Tell sleepers that there's an available TX buffer now
+            info.tx_waker.wake(); // Tell sleepers that there's an available TX buffer now
         }
 
         /* RX STUFF: */
 
         // Check if any RX messages can be dequeued, and if so, dequeue them.
-        let rx_sender: Option<SendDynamicSender<'static, Frame>> = async_state
+        let rx_sender: Option<SendDynamicSender<'static, Frame>> = info
             .rx_sender
             .lock(|c: &Cell<Option<SendDynamicSender<'static, Frame>>>| c.get());
         while let Some(message) = mailbox::rx::fifo::get(info) {
@@ -229,7 +211,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             };
             if dropped {
                 // if the software queue is full, drop the frame, and increment the `rx_dropped_count` counter.
-                async_state.rx_dropped_count.fetch_add(1, Ordering::Acquire);
+                info.rx_dropped_count.fetch_add(1, Ordering::Acquire);
             }
         }
 
