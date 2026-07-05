@@ -177,7 +177,11 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 self.difsel().modify(|w| {
                     w.set_difsel(
                         ch.into(),
-                        if is_differential { Difsel::Differential } else { Difsel::SingleEnded },
+                        if is_differential {
+                            Difsel::Differential
+                        } else {
+                            Difsel::SingleEnded
+                        },
                     )
                 });
             }
@@ -225,7 +229,11 @@ impl InjectedRegs for crate::pac::adc::Adc {
                 self.difsel().modify(|w| {
                     w.set_difsel(
                         channel.into(),
-                        if is_differential { Difsel::Differential } else { Difsel::SingleEnded },
+                        if is_differential {
+                            Difsel::Differential
+                        } else {
+                            Difsel::SingleEnded
+                        },
                     )
                 });
             }
