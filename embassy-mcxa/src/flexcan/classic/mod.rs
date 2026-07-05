@@ -22,7 +22,7 @@ use core::cell::Cell;
 use core::sync::atomic::{AtomicU32, Ordering};
 
 pub use asynchronous::{Async, InterruptHandler, RxQueue};
-pub use blocking::Blocking;
+pub use blocking::{Blocking, ReceiveErrorWithTimeout, SendErrorWithTimeout};
 use embassy_hal_internal::Peri;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
