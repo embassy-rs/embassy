@@ -1193,7 +1193,9 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     }
                 });
 
-                st.ep_states[ep_addr.index()].out_enabled.store(enabled, Ordering::Release);
+                st.ep_states[ep_addr.index()]
+                    .out_enabled
+                    .store(enabled, Ordering::Release);
                 // Wake `Endpoint::wait_enabled()`
                 st.ep_states[ep_addr.index()].out_waker.wake();
             }
@@ -1230,7 +1232,9 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     }
                 });
 
-                st.ep_states[ep_addr.index()].in_enabled.store(enabled, Ordering::Release);
+                st.ep_states[ep_addr.index()]
+                    .in_enabled
+                    .store(enabled, Ordering::Release);
                 // Wake `Endpoint::wait_enabled()`
                 st.ep_states[ep_addr.index()].in_waker.wake();
             }
