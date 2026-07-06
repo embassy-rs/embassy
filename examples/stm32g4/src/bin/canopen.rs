@@ -78,15 +78,18 @@ async fn main(_spawner: Spawner) {
     };
 
     let node_id = NodeId::new(NODE_ID).unwrap();
+    // OD values survive a communication reset (like RAM values in the C
+    // stack), so SDO-written configuration - e.g. PDO event timers - takes
+    // effect in the re-created node. Factory defaults return with the
+    // system reset below.
+    let mut od = Od::new(node_id);
     loop {
-        // A fresh OD per communication reset restores the configured
-        // defaults, exactly like CO_CANopenInit in the C stack.
-        let mut node = Node::new(node_id, Od::new(node_id));
+        let mut node = Node::new(node_id, od.clone());
         info!("boot-up, entering pre-operational");
         match canopen_embassy::run(&mut node, &mut bus).await {
             ResetCommand::Communication => {
                 info!("NMT reset communication");
-                continue;
+                od = node.od().clone();
             }
             ResetCommand::Node => {
                 info!("NMT reset node -> system reset");
