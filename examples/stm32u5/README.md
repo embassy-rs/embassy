@@ -1,4 +1,4 @@
-# STM32 Examples
+# STM32U5 Examples
 
 # Spi (blocking & DMA) 
 These examples use the BMP390 barometric pressure sensor, we send a read request to register 0x00 and we wait for the chip ID response (0x60). 
