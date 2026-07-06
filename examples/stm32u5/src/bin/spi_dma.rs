@@ -50,7 +50,7 @@ async fn main(_spawner: Spawner) {
         let mut rx_buf: [u8; 3] = [0x00; 3];
 
         // Wake up sensor
-        chip_select.set_low(); 
+        chip_select.set_low();
 
         // .await puts the CPU to sleep while the DMA handles the transfer
         if let Err(e) = spi.transfer(&mut rx_buf, &tx_buf).await {

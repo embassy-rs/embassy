@@ -3,8 +3,8 @@
 #![no_std]
 #![no_main]
 
-use embassy_executor::Spawner;
 use defmt::*;
+use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner) {
     // Mutable spi configuration with default attributes
     let mut spi_config = Config::default();
     // The exact frequency does not matter for this example, change this as needed for your hardware
-    spi_config.frequency = Hertz(1_000_000); 
+    spi_config.frequency = Hertz(1_000_000);
 
     // PIN naming
     let sck = p.PA5;
@@ -46,7 +46,7 @@ async fn main(_spawner: Spawner) {
             error!("SPI Error: {:?}", e);
         }
 
-        // Put sensor to sleep 
+        // Put sensor to sleep
         chip_select.set_high();
 
         // Nice formatting
