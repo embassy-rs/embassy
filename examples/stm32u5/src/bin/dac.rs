@@ -4,9 +4,9 @@
 #![no_main]
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::dac::{DacChannel};
+use embassy_stm32::Config;
+use embassy_stm32::dac::DacChannel;
 use embassy_stm32::rcc::{LsConfig, mux};
-use embassy_stm32::{Config};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
     config.rcc.ls = LsConfig::default_lsi();
 
     // changing the mux to point to our clock(LSI)
-    config.rcc.mux.dac1sel = mux::Dacsel::Lsi; 
+    config.rcc.mux.dac1sel = mux::Dacsel::Lsi;
     let p = embassy_stm32::init(config);
 
     info!("Board connected!");
