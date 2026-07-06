@@ -1,5 +1,7 @@
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
+#[cfg(feature = "esp-hosted-fg")]
+use embassy_time::{Duration, with_timeout};
 use heapless::{String, Vec};
 
 use crate::ioctl::Shared;
@@ -63,11 +65,22 @@ pub enum Security {
     Unknown(i32),
 }
 
+/// How long the init-time version probe waits for a `GetFwVersion` response.
+/// Old esp-hosted-fg firmware (up to and including fg-v0.0.5) doesn't
+/// implement the request and never answers it, so the probe must be bounded.
+#[cfg(feature = "esp-hosted-fg")]
+const FW_VERSION_PROBE_TIMEOUT: Duration = Duration::from_secs(2);
+
 /// Handle for managing the network and WiFI state.
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     ioctl: IoctlCtx<'a>,
     backend: Backend,
+    /// The firmware answers `ConnectAP` only once the association attempt has
+    /// concluded and never sends `EventStationConnectedToAp`, so the response
+    /// itself is the connection result.
+    #[cfg(feature = "esp-hosted-fg")]
+    sync_connect: bool,
 }
 
 /// WiFi status.
@@ -148,6 +161,8 @@ impl<'a> Control<'a> {
             state_ch,
             ioctl: IoctlCtx::new(shared, ioctl_buffer, msg_buffer),
             backend: Backend::default(),
+            #[cfg(feature = "esp-hosted-fg")]
+            sync_connect: false,
         }
     }
 
@@ -179,6 +194,32 @@ impl<'a> Control<'a> {
         debug!("mac addr: {=[u8]:02x}", mac_addr);
         self.state_ch.set_hardware_address(HardwareAddress::Ethernet(mac_addr));
 
+        // esp-hosted-fg builds without GetFwVersion (releases up to and
+        // including fg-v0.0.5) also predate EventStationConnectedToAp,
+        // which `connect()` waits for: they answer ConnectAP only once
+        // the association attempt has concluded and never send the event.
+        // Use the version probe to detect such firmware and fall back to
+        // treating the ConnectAP response as the connection result.
+        #[cfg(feature = "esp-hosted-fg")]
+        {
+            let probe = with_timeout(
+                FW_VERSION_PROBE_TIMEOUT,
+                self.backend.get_fw_version(&mut self.ioctl),
+            )
+            .await
+            .unwrap_or(Err(Error::Timeout));
+            self.sync_connect = match probe {
+                Ok(version) => {
+                    debug!("fw version: {:?}", version);
+                    false
+                }
+                Err(e) => {
+                    info!("fw version probe failed ({:?}), assuming old esp-hosted-fg with synchronous connect", e);
+                    true
+                }
+            };
+        }
+
         Ok(())
     }
 
@@ -198,7 +239,21 @@ impl<'a> Control<'a> {
 
         self.backend.connect_ap(&mut self.ioctl, ssid, password).await?;
 
+        // The firmware never sends the connected event; a successful
+        // ConnectAP response already means we're associated. A disconnect
+        // event that raced us wins: connect_done() is a no-op once the
+        // connect attempt is no longer pending.
+        #[cfg(feature = "esp-hosted-fg")]
+        if self.sync_connect {
+            self.shared().connect_done();
+        }
+
         self.shared().connect_wait().await.map_err(Error::Failed)?;
+
+        #[cfg(feature = "esp-hosted-fg")]
+        if self.sync_connect {
+            self.state_ch.set_link_state(LinkState::Up);
+        }
 
         Ok(())
     }
