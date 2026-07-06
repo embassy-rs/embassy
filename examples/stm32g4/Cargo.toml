@@ -27,6 +27,17 @@ heapless = { version = "0.9", default-features = false }
 static_cell = "2.0.0"
 critical-section = "1.1"
 
+# CANopenNode Rust port (rust/ workspace in the CANopenNode repo).
+canopen-core = { git = "https://github.com/protronic/CANopenNode", branch = "claude/canopennode-rust-port-30sh0x" }
+canopen-embassy = { git = "https://github.com/protronic/CANopenNode", branch = "claude/canopennode-rust-port-30sh0x" }
+canopen-example-od = { git = "https://github.com/protronic/CANopenNode", branch = "claude/canopennode-rust-port-30sh0x" }
+
+# canopen-embassy depends on embassy-time/embassy-futures from crates.io;
+# unify them with the in-repo versions so only one embassy-time is linked.
+[patch.crates-io]
+embassy-time = { path = "../../embassy-time" }
+embassy-futures = { path = "../../embassy-futures" }
+
 [profile.release]
 debug = 2
 
@@ -34,3 +45,4 @@ debug = 2
 build = [
   { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32g4" }
 ]
+
