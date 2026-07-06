@@ -1,5 +1,5 @@
-//This example uses the BMP390 barometric pressure sensor, for simplicity we only read the chip ID
-
+//! This example uses the BMP390 barometric pressure sensor, for simplicity we only read the chip ID
+//! To read the chip ID of the BMP390, send a read request to register 0x00, it should return 0x60
 #![no_std]
 #![no_main]
 
@@ -20,14 +20,16 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     info!("Device started");
-    //Initialize peripherals
+    // Initialize peripherals
     let p = embassy_stm32::init(Default::default());
 
-    //Configure spi and its frequency
+    // Configure spi and its frequency
     let mut spi_conf = Config::default();
+
+    // The exact frequency does not matter for this example, change this as needed for your hardware
     spi_conf.frequency = Hertz(1_000_000);
 
-    //Naming the pins for clarity
+    // Naming the pins for clarity
     let sck = p.PA5;
     let miso = p.PA6;
     let mosi = p.PA7;
@@ -40,23 +42,25 @@ async fn main(_spawner: Spawner) {
 
     info!("Starting sensor read!");
     loop {
-        //BMP390 Chip ID read buffer:
-        //Byte 0: 0x80 (Read Register 0x00)
-        //Byte 1: 0x00 (Dummy Byte)
-        //Byte 2: 0x00 (Extra Dummy to receive the answer)
+        // BMP390 Chip ID read buffer:
+        // Byte 0: 0x80 (Read Register 0x00)
+        // Byte 1: 0x00 (Dummy Byte)
+        // Byte 2: 0x00 (Extra Dummy to receive the answer)
         let tx_buf: [u8; 3] = [0x80, 0x00, 0x00];
         let mut rx_buf: [u8; 3] = [0x00; 3];
 
-        chip_select.set_low(); //Wake up sensor
+        // Wake up sensor
+        chip_select.set_low(); 
 
-        //.await puts the CPU to sleep while the DMA handles the transfer
+        // .await puts the CPU to sleep while the DMA handles the transfer
         if let Err(e) = spi.transfer(&mut rx_buf, &tx_buf).await {
             error!("SPI Error: {:?}", e);
         }
 
-        chip_select.set_high(); //Put sensor to sleep
+        // Put sensor to sleep
+        chip_select.set_high();
 
-        //Nice formatting for console output
+        // Nice formatting for console output
         info!("Raw buffer: {=[u8]:x} | BMP390 Chip ID: {=u8:#04x}", rx_buf, rx_buf[2]);
 
         Timer::after_secs(1).await;
