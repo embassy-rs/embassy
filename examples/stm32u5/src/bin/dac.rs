@@ -24,8 +24,11 @@ async fn main(_spawner: Spawner) {
 
     info!("Board connected!");
 
+    // As per the reference manual for the STM32U5, the PINs PA4 and PA5 can be used as DACs
+    // PA4 is used for the channel 1 of the dac(p.DAC1), while PA5 is used for the second 
     let mut dac = DacChannel::new_blocking(p.DAC1, p.PA4);
-
+    
+    // The values accepted are between 0 and 255, 100 should make the LED half lit
     dac.set(100);
 
     loop {
