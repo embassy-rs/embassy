@@ -170,16 +170,7 @@ fn generate_cc_gates() -> TokenStream {
             .config
             .map(|config| format_ident!("{config}"))
             .unwrap_or_else(|| format_ident!("NoConfig"));
-
-        // Have to carve out a special case for FlexCAN stuff
-        // since they're named `flexcan0` and `flexcan1` even though
-        // by convention they should probably be `can0` and `can1`
-        let bit_name = match peripheral.name {
-            "CAN0" => "flexcan0".to_string(),
-            "CAN1" => "flexcan1".to_string(),
-            other => other.to_lowercase(),
-        };
-        let bit = format_ident!("{}", bit_name);
+        let bit = format_ident!("{}", gate.bit);
 
         match reset {
             Some(reset) => generated.extend(quote! {

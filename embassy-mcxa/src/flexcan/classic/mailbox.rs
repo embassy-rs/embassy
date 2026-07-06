@@ -327,8 +327,8 @@ pub(in crate::flexcan) mod rx {
                 return None;
             }
 
-            let cs = info.control.pac_fifocs().read();
-            let id = info.control.pac_fifoid().read();
+            let cs = info.control.regs().erfifo_cs().read();
+            let id = info.control.regs().erfifo_id().read();
             let len = (cs.dlc() as usize).min(8);
 
             /// This const is the maximum number of words we may need to read in this function.
@@ -340,7 +340,7 @@ pub(in crate::flexcan) mod rx {
             let mut words = [0u32; MAX_WORDS];
             let last_word_index = to_words(len); // The index of the last word for this specific `len`. The word at this index will contain ID_HIT.
             for i in 0..=last_word_index {
-                words[i] = info.control.pac_fifodata(i).read();
+                words[i] = info.control.regs().erfifo_data(i).read();
             }
 
             // At this point we've read all the FIFO data we need, so flag the FIFO to start re-filling.
