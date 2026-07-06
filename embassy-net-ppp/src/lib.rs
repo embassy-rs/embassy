@@ -111,8 +111,12 @@ impl<'d> Runner<'d> {
                         PPPoSAction::None => {}
                         PPPoSAction::Received(rg) => {
                             let pkt = &rx_buf[rg];
-                            buf[..pkt.len()].copy_from_slice(pkt);
-                            buf.rx_done(pkt.len());
+                            if pkt.len() > buf.len() {
+                                warn!("received packet len {} exceeds MTU {}, dropping", pkt.len(), buf.len());
+                            } else {
+                                buf[..pkt.len()].copy_from_slice(pkt);
+                                buf.rx_done(pkt.len());
+                            }
                         }
                         PPPoSAction::Transmit(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,
                     }
