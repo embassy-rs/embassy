@@ -334,6 +334,13 @@ fn get_singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
         }
     }
 
+    // TODO: Generate this more generally for other signals (e.g. FCC_IN, HFCLKIN, HFXIN, HFXOUT, etc)
+    // Generate CLK_OUT manually for SYSCTL.
+    singletons.push(Singleton {
+        name: String::from("CLK_OUT"),
+        cfg: None,
+    });
+
     // DMA channels get their own singletons
     for dma_channel in METADATA.dma_channels.iter() {
         singletons.push(Singleton {
@@ -721,6 +728,7 @@ fn generate_pin_trait_impls() -> TokenStream {
                 }
                 ("i2c", "SDA") => Some(quote! { impl_i2c_sda_pin!(#peri, #pin_name, #pf); }),
                 ("i2c", "SCL") => Some(quote! { impl_i2c_scl_pin!(#peri, #pin_name, #pf); }),
+                ("sysctl", "CLK_OUT") => Some(quote! { impl_clk_out_pin!(#pin_name, #pf); }),
                 ("tim", "CCP0") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, Ch0); }),
                 ("tim", "CCP1") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, Ch1); }),
                 ("tim", "CCP2") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, Ch2); }),
