@@ -62,11 +62,12 @@ grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-# TEMPORARY: pinned to the branch behind upstream PR embassy-rs/nxp-pac#108, which
-# adds the MCXA577 USBHS/USBPHY register blocks this driver needs. Those registers
-# only exist on that branch until the PR merges. Switch both nxp-pac entries back to
-# a released/main rev of `https://github.com/embassy-rs/nxp-pac.git` once #108 merges.
-nxp-pac = { git = "https://github.com/bogdan-petru/nxp-pac.git", rev = "1a3fd38855dc1d9c81c3ecdf7be2188e363180f0", features = ["rt"] }
+# TEMPORARY: pinned to the fork branch carrying the MCXA577 USBHS/USBPHY register
+# blocks (upstream PR embassy-rs/nxp-pac#108) plus the MCXA577 eSPI register block
+# (mcxa577-espi-pac, to be PR'd on top of #108). Switch both nxp-pac entries back
+# to a released/main rev of `https://github.com/embassy-rs/nxp-pac.git` once those
+# merge.
+nxp-pac = { git = "https://github.com/bogdan-petru/nxp-pac.git", rev = "4835d42036e706815c223654c0f85e5eeb974cdb", features = ["rt"] }
 paste = "1.0.15"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
@@ -75,8 +76,8 @@ rand-core-10 = { package = "rand_core", version = "0.10" }
 
 [build-dependencies]
 # TEMPORARY: see the note on the `[dependencies]` nxp-pac entry above. Switch back
-# to `https://github.com/embassy-rs/nxp-pac.git` once embassy-rs/nxp-pac#108 merges.
-nxp-pac = { git = "https://github.com/bogdan-petru/nxp-pac.git", rev = "1a3fd38855dc1d9c81c3ecdf7be2188e363180f0", default-features = false, features = ["metadata"] }
+# to `https://github.com/embassy-rs/nxp-pac.git` once the fork branches merge.
+nxp-pac = { git = "https://github.com/bogdan-petru/nxp-pac.git", rev = "4835d42036e706815c223654c0f85e5eeb974cdb", default-features = false, features = ["metadata"] }
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 regex = "1.12.3"
