@@ -1401,6 +1401,7 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2: Some(clocks.apb2),
         pclk1_tim: Some(clocks.pclk_tim),
         pclk2_tim: Some(clocks.pclk_tim),
+        timg: Some(clocks.pclk_tim),
         pclk4: Some(clocks.apb4),
         pclk5: Some(clocks.apb5),
         per: Some(clocks.perclk),
