@@ -141,6 +141,15 @@ fn main() {
         cfgs.enable("backup_sram")
     }
 
+    // Neural-ART NPU (ATON): not described in stm32-metapac, so the singleton
+    // and cfg are emitted by hand for the chips that have it. The register
+    // map lives in `src/npu/regs.rs`.
+    cfgs.declare("npu");
+    if chip_name.starts_with("stm32n6") {
+        singletons.push("NPU".to_string());
+        cfgs.enable("npu");
+    }
+
     // SDMMC v3 + `time` feature: enables UHS-I 1.8V signalling support.
     // Used in lieu of `cfg(all(sdmmc_v3, feature = "time"))` to keep the
     // SDMMC driver readable.
