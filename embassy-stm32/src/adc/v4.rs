@@ -334,7 +334,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             // See STM32N6 reference manual 32.4.8: Software procedure to calibrate the ADC
             const ADC_MIDPOINT: u64 = 0x7ff;
             // Steps 4 to 8
-            let mut sample_and_average = || -> u64 {
+            let sample_and_average = || -> u64 {
                 let mut data = [0u64; 8];
                 for reading in &mut data {
                     // 4. Set the ADSTART bit in the ADC_CR register.
