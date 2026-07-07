@@ -80,12 +80,7 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_hsidiv3on(true);
     });
 
-    if config.hsi {
-        while !RCC.cr().read().hsirdy() {}
-    }
-    if config.hsi_div3 {
-        while !RCC.cr().read().hsidiv3rdy() {}
-    }
+    while !RCC.cr().read().hsidiv3rdy() {}
 
     // Use the HSI/3 clock as system clock during the actual clock setup
     RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsidiv3));
@@ -95,11 +90,18 @@ pub(crate) unsafe fn init(config: Config) {
     let hsi = config.hsi.then_some(HSI_FREQ);
     let hsi_div3 = config.hsi_div3.then_some(Hertz(HSI_FREQ.0 / 3));
 
-    // Turn off unused clock sources
+    // Turn set the clock sources per the config
     RCC.cr().modify(|w| {
         w.set_hsion(config.hsi);
         w.set_hsidiv3on(config.hsi_div3);
     });
+
+    if config.hsi {
+        while !RCC.cr().read().hsirdy() {}
+    }
+    if config.hsi_div3 {
+        while !RCC.cr().read().hsidiv3rdy() {}
+    }
 
     // Configure HSE
     let hse = match config.hse {
