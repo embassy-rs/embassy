@@ -16,7 +16,7 @@ use crate::pac::mrcc::{
     LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 #[cfg(feature = "mcxa5xx")]
-use crate::pac::mrcc::{PhyClkselMux, UsbClkselMux};
+use crate::pac::mrcc::{EspiClkselMux, PhyClkselMux, UsbClkselMux};
 
 #[must_use]
 pub struct PreEnableParts {
@@ -293,6 +293,101 @@ impl SPConfHelper for UsbhsConfig {
                 wake_guard: WakeGuard::for_power(&self.power),
             })
         }
+    }
+}
+
+//
+// eSPI
+//
+
+/// Selectable functional clocks for the eSPI controller.
+#[cfg(feature = "mcxa5xx")]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum EspiClockSel {
+    /// Gated FRO_HF / FIRC clock (the FRDM-MCXA577 test-bench selection).
+    FroHf,
+    /// SOSC/XTAL/EXTAL clock source.
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// PLL1 clock after its divider.
+    Pll1ClkDiv,
+    /// Disabled.
+    None,
+}
+
+/// Clock configuration for the MCXA5xx eSPI controller.
+#[cfg(feature = "mcxa5xx")]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct EspiConfig {
+    /// Power state required for the selected source clock.
+    pub power: PoweredClock,
+    /// Selected clock source.
+    pub source: EspiClockSel,
+    /// Pre-divider applied to the source clock.
+    pub div: Div4,
+}
+
+#[cfg(all(feature = "mcxa5xx", feature = "defmt"))]
+impl defmt::Format for EspiConfig {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(
+            f,
+            "EspiConfig {{ power: {:?}, source: {:?}, div: {=u32} }}",
+            self.power,
+            self.source,
+            self.div.into_divisor()
+        )
+    }
+}
+
+#[cfg(feature = "mcxa5xx")]
+impl Default for EspiConfig {
+    fn default() -> Self {
+        Self {
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: EspiClockSel::FroHf,
+            div: Div4::no_div(),
+        }
+    }
+}
+
+#[cfg(feature = "mcxa5xx")]
+impl SPConfHelper for EspiConfig {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        let mrcc0 = crate::pac::MRCC0;
+        let clksel = mrcc0.mrcc_espi0_clksel();
+        let clkdiv = mrcc0.mrcc_espi0_clkdiv();
+
+        // NOTE: the eSPI bus clock is host-driven; this functional clock only
+        // feeds the controller core, which auto-divides internally unless
+        // MCTRL.CLK_DIV_DISABLE is set, so no fmax check is applied here.
+        let (freq, variant) = match self.source {
+            EspiClockSel::FroHf => {
+                let freq = clocks.ensure_fro_hf_active(&self.power)?;
+                (freq, EspiClkselMux::I1ClkrootFircGated)
+            }
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            EspiClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+                (freq, EspiClkselMux::I3ClkrootSosc)
+            }
+            EspiClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+                (freq, EspiClkselMux::I6ClkrootSpllDiv)
+            }
+            EspiClockSel::None => {
+                clksel.write(|w| w.set_mux(EspiClkselMux::_RESERVED_7));
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::On);
+                    w.set_halt(ClkdivHalt::On);
+                });
+                return Ok(PreEnableParts::empty());
+            }
+        };
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }
 

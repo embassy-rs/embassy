@@ -42,6 +42,9 @@ pub mod crc;
 pub mod ctimer;
 #[cfg(mcxa_dma)]
 pub mod dma;
+/// eSPI target (device) driver (MCXA5xx eSPI controller).
+#[cfg(feature = "mcxa5xx")]
+pub mod espi;
 #[cfg(feature = "executor-platform")]
 pub mod executor;
 #[cfg(mcxa_flexspi)]
