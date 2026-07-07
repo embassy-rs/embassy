@@ -251,6 +251,12 @@ const fn check_dma_len(sequence_len: usize, dma_len: Option<usize>, configured_s
     }
 }
 
+#[cfg(stm32n6)]
+type Word = u32;
+
+#[cfg(not(stm32n6))]
+type Word = u16;
+
 #[cfg(not(adc_f3v3))]
 /// An ADC with a pre-configured channel sequence for repeated DMA to peripheral reads.
 ///
@@ -391,19 +397,17 @@ impl<'d, T: Instance> Adc<'d, T> {
         // Use repeated mode and use the dma to stop the transfer
         T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))));
 
-        let request = rx_dma.request();
-        let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
-        #[cfg(not(stm32n6))]
-        let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, Default::default()) };
-        #[cfg(stm32n6)]
+        let mut dma_channel = new_dma_nonopt!(rx_dma, irq);
+
         let transfer = unsafe {
             dma_channel.read_raw(
-                request,
-                T::regs().data() as *mut u32,
+                T::regs().data() as *mut Word,
                 readings,
                 crate::dma::TransferOptions {
+                    #[cfg(stm32n6)]
                     // DMA will read 0 unless it is marked as secure along with RISUP 64 (ADC12)
                     secure: true,
+                    #[cfg(stm32n6)]
                     // Don't pack readings into buffer
                     packing: crate::pac::gpdma::vals::Pam::ZeroExtendOrLeftTruncate,
                     ..Default::default()
@@ -472,12 +476,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         // Configure DMA once, reused across all subsequent read() calls.
         T::regs().configure_dma(ConversionMode::Repeated(Some((trigger._trigger, trigger._edge))));
 
-        let dma_request = rx_dma.request();
-        let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
+        let mut dma_channel = new_dma_nonopt!(rx_dma, irq);
+
         let transfer = unsafe {
             dma_channel
                 .read_raw_repeated(
-                    dma_request,
                     dst,
                     1,
                     T::regs().data(),
