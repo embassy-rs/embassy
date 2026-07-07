@@ -14,7 +14,6 @@ mod sd_save;
 
 use block_device_driver::BlockDevice as _;
 use defmt::{error, info};
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
@@ -22,7 +21,7 @@ use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_time::{Delay, Instant};
 use embedded_io_async::{Seek as _, Write as _};
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 use crate::sd_save::{DefaultBlockDevice, mount as sd_mount};
 
