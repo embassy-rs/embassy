@@ -2,7 +2,7 @@
 #![allow(missing_docs)]
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
@@ -115,6 +115,16 @@ const USBRAM_SIZE: usize = 2048;
 const USBRAM_ALIGN: usize = 2;
 #[cfg(any(usbram_32_2048, usbram_32_1024))]
 const USBRAM_ALIGN: usize = 4;
+
+/// Endpoint buffer memory is allocated in fixed-size blocks tracked by the
+/// `HostState::used_blocks` bitmap, so it can be reclaimed on pipe drop. 64
+/// bytes is the full-speed maximum packet size and keeps the bitmap within a
+/// single `u32` for every supported USBRAM size (≤ 2048 bytes).
+const USBRAM_BLOCK_SIZE: usize = 64;
+/// First byte of endpoint buffer memory, after the BTABLE (EP_COUNT * 8 bytes).
+const USBRAM_BUFFER_BASE: usize = EP_COUNT * 8;
+/// Number of allocatable endpoint buffer blocks.
+const USBRAM_NUM_BLOCKS: usize = (USBRAM_SIZE - USBRAM_BUFFER_BASE) / USBRAM_BLOCK_SIZE;
 
 const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
@@ -230,8 +240,8 @@ impl<I: Instance> EndpointBuffer<I> {
 pub struct HostState {
     /// Bitmap of allocated channels. Bit 0 is reserved for the control pipe.
     allocated_pipes: AtomicU32,
-    /// First free address in the endpoint buffer memory, in bytes.
-    ep_mem_free: AtomicU16,
+    /// Bitmap of used endpoint-buffer blocks of `USBRAM_BLOCK_SIZE` bytes each.
+    used_blocks: AtomicU32,
 }
 
 impl HostState {
@@ -239,7 +249,7 @@ impl HostState {
     pub const fn new() -> Self {
         Self {
             allocated_pipes: AtomicU32::new(0),
-            ep_mem_free: AtomicU16::new(0),
+            used_blocks: AtomicU32::new(0),
         }
     }
 }
@@ -305,9 +315,7 @@ impl<'d, I: SealedHostInstance> UsbHost<'d, I> {
         #[cfg(stm32l1)]
         let _ = (dp, dm); // suppress "unused" warnings.
 
-        I::host_state()
-            .ep_mem_free
-            .store(EP_COUNT as u16 * 8, Ordering::Relaxed);
+        I::host_state().used_blocks.store(0, Ordering::Relaxed);
         Self {
             phantom: PhantomData,
             // ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
@@ -702,10 +710,19 @@ impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D>
 
 impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> Drop for Channel<'d, I, D, T> {
     fn drop(&mut self) {
+        let state = I::host_state();
         critical_section::with(|_| {
-            let pipes = &I::host_state().allocated_pipes;
+            let pipes = &state.allocated_pipes;
             pipes.store(pipes.load(Ordering::Relaxed) & !(1 << self.index), Ordering::Relaxed);
         });
+        // Reclaim the endpoint buffer memory so repeated plug/unplug cycles
+        // don't exhaust USBRAM.
+        if let Some(buf) = self.buf_in.as_ref() {
+            free_channel_mem(state, buf.addr, buf.len);
+        }
+        if let Some(buf) = self.buf_out.as_ref() {
+            free_channel_mem(state, buf.addr, buf.len);
+        }
     }
 }
 
@@ -722,19 +739,48 @@ impl<'d, I: Instance> Clone for Allocator<'d, I> {
 
 impl<'d, I: Instance> Copy for Allocator<'d, I> {}
 
+/// Number of `USBRAM_BLOCK_SIZE` blocks needed to hold `len` bytes.
+fn blocks_for(len: u16) -> usize {
+    (len as usize + USBRAM_BLOCK_SIZE - 1) / USBRAM_BLOCK_SIZE
+}
+
+/// Allocate `len` bytes of endpoint buffer memory, returning its byte address.
+///
+/// Memory is tracked as a bitmap of fixed-size blocks so it can be reclaimed on
+/// pipe drop (see [`free_channel_mem`]). The allocation spans `blocks_for(len)`
+/// contiguous free blocks, found first-fit under a critical section so
+/// concurrent allocations from copies of the allocator can't clobber each other.
 fn alloc_channel_mem(state: &HostState, len: u16) -> Result<u16, ()> {
     assert!(len as usize % USBRAM_ALIGN == 0);
-    // Bump-allocate a contiguous range under a critical section so concurrent
-    // allocations from copies of the allocator can't clobber each other.
+    let blocks = blocks_for(len);
+    if blocks == 0 || blocks > USBRAM_NUM_BLOCKS {
+        error!("Endpoint memory request too large");
+        return Err(());
+    }
+    let run = (1u32 << blocks) - 1;
     critical_section::with(|_| {
-        let addr = state.ep_mem_free.load(Ordering::Relaxed);
-        if addr + len > USBRAM_SIZE as _ {
-            error!("Endpoint memory full");
-            return Err(());
+        let used = state.used_blocks.load(Ordering::Relaxed);
+        for start in 0..=(USBRAM_NUM_BLOCKS - blocks) {
+            let mask = run << start;
+            if used & mask == 0 {
+                state.used_blocks.store(used | mask, Ordering::Relaxed);
+                return Ok((USBRAM_BUFFER_BASE + start * USBRAM_BLOCK_SIZE) as u16);
+            }
         }
-        state.ep_mem_free.store(addr + len, Ordering::Relaxed);
-        Ok(addr)
+        error!("Endpoint memory full");
+        Err(())
     })
+}
+
+/// Free endpoint buffer memory previously returned by [`alloc_channel_mem`].
+fn free_channel_mem(state: &HostState, addr: u16, len: u16) {
+    let blocks = blocks_for(len);
+    let start = (addr as usize - USBRAM_BUFFER_BASE) / USBRAM_BLOCK_SIZE;
+    let mask = ((1u32 << blocks) - 1) << start;
+    critical_section::with(|_| {
+        let used = state.used_blocks.load(Ordering::Relaxed);
+        state.used_blocks.store(used & !mask, Ordering::Relaxed);
+    });
 }
 
 impl<'d, I: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, I> {
