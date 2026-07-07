@@ -1,13 +1,15 @@
+#[cfg(stm32n6)]
+use pac::adc::vals::Adcaldif;
 #[cfg(not(stm32u3))]
 use pac::adc::vals::Difsel;
-#[cfg(not(any(stm32u5, stm32u3)))]
+#[cfg(not(any(stm32u5, stm32u3, stm32n6)))]
 use pac::adc::vals::{Adcaldif, Boost};
 #[allow(unused)]
 use pac::adc::vals::{Adstp, Dmngt, Exten, Pcsel};
-#[cfg(not(stm32u3))]
+#[cfg(not(any(stm32u3, stm32n6)))]
 use pac::adccommon::vals::Presc;
 
-#[cfg(any(stm32u5, stm32u3))]
+#[cfg(any(stm32u5, stm32u3, stm32n6))]
 use crate::adc::DefaultInstance;
 use crate::adc::{
     Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
@@ -31,6 +33,8 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 #[cfg(stm32u3)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
+#[cfg(stm32n6)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(70);
 
 #[cfg(stm32g4)]
 impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
@@ -51,7 +55,7 @@ impl<T: Instance> super::ConverterFor<super::Temperature> for T {
 }
 
 // TODO this should be 14 for H7a/b/35
-#[cfg(not(any(stm32u5, stm32u3)))]
+#[cfg(not(any(stm32u5, stm32u3, stm32n6)))]
 impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 17;
 }
@@ -69,7 +73,7 @@ impl<T: DefaultInstance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 18;
 }
 
-#[cfg(stm32u3)]
+#[cfg(any(stm32u3, stm32n6))]
 impl<T: DefaultInstance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 16;
 }
@@ -79,7 +83,12 @@ impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 17;
 }
 
-#[cfg(not(stm32u3))]
+#[cfg(stm32n6)]
+impl<T: DefaultInstance> super::ConverterFor<super::VrefInt> for T {
+    const CHANNEL: u8 = 17;
+}
+
+#[cfg(not(any(stm32u3, stm32n6)))]
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
@@ -183,7 +192,7 @@ impl AdcRegs for crate::pac::adc::Adc {
                 smpr2.set_smp((channel - 10) as _, sample_time);
             }
 
-            #[cfg(any(stm32h7, stm32u5, stm32u3))]
+            #[cfg(any(stm32h7, stm32u5, stm32u3, stm32n6))]
             {
                 self.cfgr2().modify(|w| w.set_lshift(0));
                 self.pcsel().modify(|w| w.set_pcsel(channel as _, Pcsel::Preselected));
@@ -254,14 +263,14 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
-        #[cfg(not(stm32u3))]
+        #[cfg(not(any(stm32u3, stm32n6)))]
         let prescaler = from_ker_ck(T::frequency());
-        #[cfg(not(stm32u3))]
+        #[cfg(not(any(stm32u3, stm32n6)))]
         T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
-        #[cfg(not(stm32u3))]
+        #[cfg(not(any(stm32u3, stm32n6)))]
         let frequency = T::frequency() / prescaler;
 
-        #[cfg(stm32u3)]
+        #[cfg(any(stm32u3, stm32n6))]
         let frequency = T::frequency();
 
         info!("ADC frequency set to {}", frequency);
@@ -289,6 +298,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         T::regs().cr().modify(|reg| {
             reg.set_deeppwd(false);
+            #[cfg(not(stm32n6))]
             reg.set_advregen(true);
         });
 
@@ -301,20 +311,88 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             }
         });
 
-        #[cfg(not(stm32u3))]
-        T::regs().cr().modify(|w| {
-            #[cfg(not(adc_u5))]
-            w.set_adcaldif(Adcaldif::SingleEnded);
-            w.set_adcallin(true);
-        });
+        #[cfg(not(stm32n6))]
+        {
+            #[cfg(not(stm32u3))]
+            T::regs().cr().modify(|w| {
+                #[cfg(not(adc_u5))]
+                w.set_adcaldif(Adcaldif::SingleEnded);
+                w.set_adcallin(true);
+            });
 
-        T::regs().cr().modify(|w| w.set_adcal(true));
+            T::regs().cr().modify(|w| w.set_adcal(true));
 
-        while T::regs().cr().read().adcal() {}
+            while T::regs().cr().read().adcal() {}
 
-        block_for_us(1);
+            block_for_us(1);
 
-        T::regs().enable();
+            T::regs().enable();
+        }
+
+        #[cfg(stm32n6)]
+        {
+            // See STM32N6 reference manual 32.4.8: Software procedure to calibrate the ADC
+            const ADC_MIDPOINT: u64 = 0x7ff;
+            // Steps 4 to 8
+            let sample_and_average = || -> u64 {
+                let mut data = [0u64; 8];
+                for reading in &mut data {
+                    // 4. Set the ADSTART bit in the ADC_CR register.
+                    T::regs().cr().modify(|w| w.set_adstart(true));
+                    // 5. Wait until the ADSTART bit is cleared or the EOC flag is set.
+                    while T::regs().cr().read().adstart() && !T::regs().isr().read().eoc() {}
+                    // 6. Read the ADC_DR register, then copy the converted data to the memory.
+                    *reading = T::regs().dr().read().rdata() as u64;
+                    // 7. Repeat from step 4 several times (for example eight times).
+                }
+                // 8. Average the data stored in memory by dividing the accumulated data by the
+                // number of the conversions
+                data.iter().sum::<u64>() / data.len() as u64
+            };
+            // 1. Ensure DEEPPWD = 0, ADEN = 1 and wait until the ADRDY bit is set.
+            T::regs().cr().modify(|reg| reg.set_deeppwd(false));
+            block_for_us(1);
+            T::regs().enable();
+            // 2. Set ADCAL and ensure CALADDOS = 0.
+            T::regs().cr().modify(|w| w.set_adcal(true));
+            T::regs().calfact().modify(|w| w.set_caladdos(false));
+            // 3. Select the calibration input mode by clearing ADCALDIF (single-ended input).
+            T::regs().cr().modify(|w| w.set_adcaldif(Adcaldif::SingleEnded));
+            // Steps 4 to 8
+            let mut average = sample_and_average();
+            // 9. If the averaged data is zero, set CALADDOS. Repeat all steps from step 4.
+            if average == 0 {
+                T::regs().calfact().modify(|w| w.set_caladdos(true));
+                average = sample_and_average();
+            }
+            // 10. Store the averaged data to CALFACT_S[8:0].
+            T::regs().calfact().modify(|w| w.set_calfact_s(average as u16));
+            // 11. Select the calibration input mode by setting ADCALDIF (differential input).
+            T::regs().cr().modify(|w| w.set_adcaldif(Adcaldif::Differential));
+            // 12. Keep the same CALADDOS setting as the one obtained during the single-end
+            // calibration.
+            // 13. Repeat steps 4 to 8.
+            average = sample_and_average();
+            // 14. Subtract 0x7FF from the averaged data. If the result is positive, store it in the
+            // CALFACT_D[8:0] bitfield. If it is negative, set CALADDOS, then repeat steps from 4 to
+            // 8.
+            if average < ADC_MIDPOINT {
+                T::regs().calfact().modify(|w| w.set_caladdos(true));
+                average = sample_and_average();
+            }
+            // 15. Subtract again 0x7FF from the new averaged data. The resulting value is positive.
+            // Store it in CALFACT_D[8:0].
+            let result = average.saturating_sub(ADC_MIDPOINT) as u16;
+            T::regs().calfact().modify(|w| w.set_calfact_d(result));
+            // 16. CALADDOS is now set, so clear ADCALDIF, and repeat steps 4 to 8..
+            T::regs().cr().modify(|w| w.set_adcaldif(Adcaldif::SingleEnded));
+            average = sample_and_average();
+            // 17. Store the averaged data in CALFACT_S[8:0].
+            T::regs().calfact().modify(|w| w.set_calfact_s(average as u16));
+            // 18. Clear ADCAL bit.
+            T::regs().cr().modify(|w| w.set_adcal(false));
+            block_for_us(1);
+        }
 
         // single conversion mode, software trigger
         T::regs().cfgr().modify(|w| {
@@ -336,6 +414,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
     /// Enable reading the temperature internal channel.
     pub fn enable_temperature(&mut self) -> Temperature {
+        #[cfg(not(stm32n6))]
         T::common_regs().ccr().modify(|reg| {
             reg.set_vsenseen(true);
         });

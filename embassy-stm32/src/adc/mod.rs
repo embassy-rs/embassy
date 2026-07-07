@@ -12,7 +12,7 @@
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
-#[cfg_attr(any(adc_v4, adc_u5, adc_u3), path = "v4.rs")]
+#[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
@@ -199,7 +199,7 @@ pub(crate) trait SealedAdcChannel<T> {
     }
 }
 
-#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3))]
+#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_n6))]
 /// Number of samples used for averaging.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -213,9 +213,9 @@ pub enum Averaging {
     Samples64,
     Samples128,
     Samples256,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
     Samples512,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
     Samples1024,
 }
 
@@ -325,7 +325,12 @@ impl<'d, T: Instance> Adc<'d, T> {
             while !T::regs().wait_done() {}
         }
 
-        unsafe { core::ptr::read_volatile(T::regs().data()) }
+        #[cfg(not(stm32n6))]
+        return unsafe { core::ptr::read_volatile(T::regs().data()) };
+        #[cfg(stm32n6)]
+        unsafe {
+            core::ptr::read_volatile(T::regs().data() as *mut u32) as u16
+        }
     }
 
     /// Read one or multiple ADC regular channels using DMA.
@@ -388,7 +393,23 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         let request = rx_dma.request();
         let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
+        #[cfg(not(stm32n6))]
         let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, Default::default()) };
+        #[cfg(stm32n6)]
+        let transfer = unsafe {
+            dma_channel.read_raw(
+                request,
+                T::regs().data() as *mut u32,
+                readings,
+                crate::dma::TransferOptions {
+                    // DMA will read 0 unless it is marked as secure along with RISUP 64 (ADC12)
+                    secure: true,
+                    // Don't pack readings into buffer
+                    packing: crate::pac::gpdma::vals::Pam::ZeroExtendOrLeftTruncate,
+                    ..Default::default()
+                },
+            )
+        };
 
         // Ensure conversions are finished, even in the event of dropping the future
         let _stop_adc = OnDrop::new(|| T::regs().stop());
@@ -744,7 +765,6 @@ impl VrefInt {
         stm32l4,
         stm32l4_plus,
         stm32l5,
-        stm32n6,
         stm32l5,
         stm32wb,
         stm32wl
@@ -987,7 +1007,9 @@ pub(crate) trait AnalogPin {
 
 impl<T: crate::gpio::SealedPin> AnalogPin for T {
     fn set_as_analog(&self) {
-        #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
+        #[cfg(any(
+            adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, stm32n6
+        ))]
         T::set_as_analog(self);
     }
 }

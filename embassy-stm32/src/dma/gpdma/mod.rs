@@ -334,6 +334,9 @@ pub struct TransferOptions {
     /// after partial progress. Default `false`.
     #[cfg(stm32n6)]
     pub secure: bool,
+    /// DMA packing configuration
+    #[cfg(any(gpdma, lpdma))]
+    pub packing: vals::Pam,
     /// Source/destination burst length, in beats. Default `_1Beats`. Some
     /// peripherals only assert their DMA request line for bursts above a
     /// threshold (notably the JPEG codec on N6), and some require multi-beat
@@ -355,6 +358,8 @@ impl Default for TransferOptions {
             complete_transfer_ir: true,
             #[cfg(stm32n6)]
             secure: false,
+            #[cfg(any(gpdma, lpdma))]
+            packing: vals::Pam::Pack,
 
             #[cfg(not(stm32c5))]
             burst_length: Burst::_1Beats,
@@ -606,7 +611,7 @@ impl<'d> Channel<'d> {
                     // one source beat per destination beat, which silently corrupts
                     // mixed-width transfers.
                     if data_size != dst_size {
-                        w.set_pam(vals::Pam::Pack);
+                        w.set_pam(vals::Pam::from(options.packing.to_bits()));
                     }
                     w.set_dap(match dir {
                         Dir::MemoryToPeripheral => vals::Ap::Port1, // Destination is peripheral on AHB for HPDMA
@@ -632,8 +637,6 @@ impl<'d> Channel<'d> {
             }
             #[cfg(lpdma)]
             DmaInfo::Lpdma(regs) => {
-                use crate::pac::lpdma::vals;
-
                 regs.ch(info.num).tr1().write(|w| {
                     w.set_sdw(data_size.into());
                     w.set_ddw(dst_size.into());
@@ -644,7 +647,7 @@ impl<'d> Channel<'d> {
                     // one source beat per destination beat, which silently corrupts
                     // mixed-width transfers.
                     if data_size != dst_size {
-                        w.set_pam(vals::Pam::Pack);
+                        w.set_pam(options.packing);
                     }
                 });
             }
