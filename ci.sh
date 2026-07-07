@@ -44,6 +44,15 @@ rm -rf out/tests/nrf51422-dk
 # disabled because these boards are not on the shelf
 rm -rf out/tests/mspm0g3507
 
+# temporarily disabled because of hub failure?
+rm -rf out/tests/stm32l053r8
+rm -rf out/tests/stm32f303ze
+rm -rf out/tests/stm32wba52cg
+rm -rf out/tests/stm32h753zi
+rm -rf out/tests/stm32h7a3zi
+rm -rf out/tests/stm32u5a5zj
+rm -rf out/tests/stm32h7s3l8
+
 # rm out/tests/stm32wb55rg/wpan_mac
 # rm out/tests/stm32wb55rg/wpan_ble
 
@@ -55,7 +64,7 @@ rm out/tests/stm32f207zg/usart_rx_ringbuffered
 rm out/tests/stm32l152re/usart_rx_ringbuffered
 
 # doesn't work, gives "noise error", no idea why. usart_dma does pass.
-rm out/tests/stm32u5a5zj/usart
+# rm out/tests/stm32u5a5zj/usart
 
 # probe-rs error: "multi-core ram flash start not implemented yet"
 # As of 2025-02-17 these tests work when run from flash
