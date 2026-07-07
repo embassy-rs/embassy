@@ -143,6 +143,8 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
         let mut sqr4 = Sqr4::default();
+        #[cfg(stm32g4)]
+        let mut difsel = self.difsel().read();
 
         // Set sequence length
         sqr1.set_l(sequence.len() as u8 - 1);
@@ -174,19 +176,19 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
             #[cfg(stm32g4)]
             if ch < 18 {
-                self.difsel().modify(|w| {
-                    w.set_difsel(
-                        ch.into(),
-                        if is_differential {
-                            Difsel::Differential
-                        } else {
-                            Difsel::SingleEnded
-                        },
-                    )
-                });
+                difsel.set_difsel(
+                    ch.into(),
+                    if is_differential {
+                        Difsel::Differential
+                    } else {
+                        Difsel::SingleEnded
+                    },
+                );
             }
         }
 
+        #[cfg(stm32g4)]
+        self.difsel().write_value(difsel);
         self.smpr().write_value(smpr);
         self.smpr2().write_value(smpr2);
         self.sqr1().write_value(sqr1);
@@ -200,6 +202,8 @@ impl InjectedRegs for crate::pac::adc::Adc {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
         let mut smpr1 = self.smpr().read();
         let mut smpr2 = self.smpr2().read();
+        #[cfg(stm32g4)]
+        let mut difsel = self.difsel().read();
 
         let mut jsqr = Jsqr::default();
 
@@ -226,19 +230,19 @@ impl InjectedRegs for crate::pac::adc::Adc {
 
             #[cfg(stm32g4)]
             if channel < 18 {
-                self.difsel().modify(|w| {
-                    w.set_difsel(
-                        channel.into(),
-                        if is_differential {
-                            Difsel::Differential
-                        } else {
-                            Difsel::SingleEnded
-                        },
-                    )
-                });
+                difsel.set_difsel(
+                    channel.into(),
+                    if is_differential {
+                        Difsel::Differential
+                    } else {
+                        Difsel::SingleEnded
+                    },
+                );
             }
         }
 
+        #[cfg(stm32g4)]
+        self.difsel().write_value(difsel);
         self.smpr().write_value(smpr1);
         self.smpr2().write_value(smpr2);
 
