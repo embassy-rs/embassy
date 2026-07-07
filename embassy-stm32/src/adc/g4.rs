@@ -1,5 +1,3 @@
-#[cfg(stm32g4)]
-use pac::adc::regs::Difsel as DifselReg;
 #[allow(unused)]
 #[cfg(stm32g4)]
 pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, Trovs};
@@ -139,8 +137,6 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        #[cfg(stm32g4)]
-        let mut difsel = DifselReg::default();
         let mut smpr = Smpr::default();
         let mut smpr2 = Smpr2::default();
         let mut sqr1 = Sqr1::default();
@@ -177,17 +173,17 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             }
 
             #[cfg(stm32g4)]
-            {
-                if ch < 18 {
-                    difsel.set_difsel(
+            if ch < 18 {
+                self.difsel().modify(|w| {
+                    w.set_difsel(
                         ch.into(),
                         if is_differential {
                             Difsel::Differential
                         } else {
                             Difsel::SingleEnded
                         },
-                    );
-                }
+                    )
+                });
             }
         }
 
@@ -197,8 +193,6 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         self.sqr2().write_value(sqr2);
         self.sqr3().write_value(sqr3);
         self.sqr4().write_value(sqr4);
-        #[cfg(stm32g4)]
-        self.difsel().write_value(difsel);
     }
 }
 
@@ -212,7 +206,7 @@ impl InjectedRegs for crate::pac::adc::Adc {
         let len: u8 = sequence.len().try_into().unwrap();
         jsqr.set_jl(len - 1);
 
-        for (n, ((channel, _), sample_time)) in sequence.enumerate() {
+        for (n, ((channel, is_differential), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.clone().into();
             if channel <= 9 {
                 smpr1.set_smp(channel as _, sample_time);
@@ -229,6 +223,20 @@ impl InjectedRegs for crate::pac::adc::Adc {
             };
 
             jsqr.set_jsq(idx, channel);
+
+            #[cfg(stm32g4)]
+            if channel < 18 {
+                self.difsel().modify(|w| {
+                    w.set_difsel(
+                        channel.into(),
+                        if is_differential {
+                            Difsel::Differential
+                        } else {
+                            Difsel::SingleEnded
+                        },
+                    )
+                });
+            }
         }
 
         self.smpr().write_value(smpr1);
