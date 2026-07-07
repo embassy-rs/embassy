@@ -202,19 +202,19 @@ impl<'a> Control<'a> {
         // treating the ConnectAP response as the connection result.
         #[cfg(feature = "esp-hosted-fg")]
         {
-            let probe = with_timeout(
-                FW_VERSION_PROBE_TIMEOUT,
-                self.backend.get_fw_version(&mut self.ioctl),
-            )
-            .await
-            .unwrap_or(Err(Error::Timeout));
+            let probe = with_timeout(FW_VERSION_PROBE_TIMEOUT, self.backend.get_fw_version(&mut self.ioctl))
+                .await
+                .unwrap_or(Err(Error::Timeout));
             self.sync_connect = match probe {
                 Ok(version) => {
                     debug!("fw version: {:?}", version);
                     false
                 }
                 Err(e) => {
-                    info!("fw version probe failed ({:?}), assuming old esp-hosted-fg with synchronous connect", e);
+                    info!(
+                        "fw version probe failed ({:?}), assuming old esp-hosted-fg with synchronous connect",
+                        e
+                    );
                     true
                 }
             };
