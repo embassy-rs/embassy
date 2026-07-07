@@ -209,8 +209,7 @@ macro_rules! new_dma_nonopt {
     ($name:ident, $irqs:expr) => {{
         let dma = $name;
         dma.remap();
-        let request = dma.request();
-        crate::dma::ChannelAndRequest::new(dma, $irqs, request)
+        crate::dma::ChannelAndRequest::new(dma.request(), dma, $irqs)
     }};
 }
 
@@ -218,8 +217,7 @@ macro_rules! new_dma {
     ($name:ident, $irqs:expr) => {{
         let dma = $name;
         dma.remap();
-        let request = dma.request();
-        Some(crate::dma::ChannelAndRequest::new(dma, $irqs, request))
+        Some(crate::dma::ChannelAndRequest::new(dma.request(), dma, $irqs))
     }};
 }
 
