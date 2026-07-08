@@ -18,6 +18,7 @@ use crate::peripherals;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
     pub(crate) pin: Peri<'d, AnyPin>,
+    borrowed: bool,
 }
 
 impl<'d> Flex<'d> {
@@ -29,7 +30,10 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         // Pin will be in disconnected state.
-        Self { pin: pin.into() }
+        Self {
+            pin: pin.into(),
+            borrowed: false,
+        }
     }
 
     /// Reborrow into a "child" Flex.
@@ -38,6 +42,7 @@ impl<'d> Flex<'d> {
     pub fn reborrow(&mut self) -> Flex<'_> {
         Flex {
             pin: self.pin.reborrow(),
+            borrowed: true,
         }
     }
 
@@ -45,6 +50,7 @@ impl<'d> Flex<'d> {
     pub unsafe fn clone_unchecked(&self) -> Flex<'d> {
         Flex {
             pin: self.pin.clone_unchecked(),
+            borrowed: self.borrowed,
         }
     }
 
@@ -251,6 +257,9 @@ impl<'d> Flex<'d> {
 impl<'d> Drop for Flex<'d> {
     #[inline]
     fn drop(&mut self) {
+        if self.borrowed {
+            return;
+        }
         trace!("gpio: dropping {}", self.pin);
         critical_section::with(|_| {
             self.pin.set_as_disconnected();
