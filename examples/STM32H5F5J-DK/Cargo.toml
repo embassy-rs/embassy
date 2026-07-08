@@ -7,7 +7,8 @@ publish = false
 
 [dependencies]
 # TODO: switch to stm32h5f5lj when embassy-stm32 adds H5F5 support (see IDEAS.md).
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32h563zi", "memory-x", "time-driver-any", "exti", "unstable-pac", "cyw43"] }
+# NOTE: embassy-stm32 has no "cyw43" feature (the cyw43 driver is its own crate below).
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32h563zi", "memory-x", "time-driver-any", "exti", "unstable-pac"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
@@ -34,6 +35,29 @@ stm32-fmc = "0.4.0"
 dsp-fixedpoint = { version = "0.1.0", default-features = false }
 embedded-storage = "0.3.1"
 static_cell = "2"
+embedded-can = "0.4"
+
+rhai = { git = "https://github.com/rhaiscript/rhai.git", version = "1", optional = true, default-features = false, features = [
+    "no_std",
+    "no_optimize",
+    "no_custom_syntax",
+    "only_i32",
+    "f32_float",
+    "no_module",
+    "no_closure",
+    "no_position",
+] }
+embedded-alloc = { version = "0.7.0", optional = true }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"], optional = true }
+serde_json = { version = "1", default-features = false, features = ["alloc"], optional = true }
+
+[features]
+scripting = ["dep:rhai", "dep:embedded-alloc"]
+json = ["dep:serde", "dep:serde_json"]
+
+[[bin]]
+name = "json_node"
+required-features = ["scripting", "json"]
 
 # cargo build/run
 [profile.dev]

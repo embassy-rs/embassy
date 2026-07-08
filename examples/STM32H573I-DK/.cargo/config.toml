@@ -1,0 +1,9 @@
+[target.thumbv8m.main-none-eabihf]
+# If probe-rs does not know this name, check `probe-rs chip list | grep -i H573`.
+runner = 'probe-rs run --chip STM32H573IIKxQ'
+
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[env]
+DEFMT_LOG = "trace"

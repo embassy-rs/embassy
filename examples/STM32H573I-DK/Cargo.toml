@@ -1,0 +1,55 @@
+[package]
+edition = "2024"
+name = "embassy-stm32h573i-dk-examples"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+# STM32H573I-DK Discovery kit: STM32H573IIK3Q (Cortex-M33, 2 MB flash, 640 KB SRAM).
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = ["defmt", "stm32h573ii", "memory-x", "time-driver-any", "exti", "unstable-pac"] }
+embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
+
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+embedded-hal = "1.0.0"
+embedded-can = "0.4"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+heapless = { version = "0.9", default-features = false }
+static_cell = "2"
+
+rhai = { git = "https://github.com/rhaiscript/rhai.git", version = "1", optional = true, default-features = false, features = [
+    "no_std",
+    "no_optimize",
+    "no_custom_syntax",
+    "only_i32",
+    "f32_float",
+    "no_module",
+    "no_closure",
+    "no_position",
+] }
+embedded-alloc = { version = "0.7.0", optional = true }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"], optional = true }
+serde_json = { version = "1", default-features = false, features = ["alloc"], optional = true }
+
+[features]
+scripting = ["dep:rhai", "dep:embedded-alloc"]
+json = ["dep:serde", "dep:serde_json"]
+
+[[bin]]
+name = "json_node"
+required-features = ["scripting", "json"]
+
+[profile.release]
+debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32h573i-dk" }
+]

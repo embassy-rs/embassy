@@ -1,0 +1,66 @@
+{
+  "_comment": "JSON-driven node PoC for CANbossTouch on the STM32H573I-DK: one CANopen-style node = object dictionary + Rhai scripts + CAN config. The firmware (json_node.rs) is generic; all node behaviour lives in this file. 'access' is the bus view (rw/wo writable via RPDO, ro/const not) — scripts are device-internal and may write 'ro' entries; only 'const' is rejected. CAN 'loopback' works standalone; switch to 'normal' for a real bus on the board's FDCAN1 (PA11/PA12).",
+  "node_id": 16,
+  "name": "IO-Modul",
+  "description": "Demo IO node on STM32H573I-DK: user button = digital input 0x6000, 4 LEDs = digital output 0x6200, OD changes go out as CAN 'PDO' frames",
+  "can": {
+    "mode": "loopback",
+    "bitrate": 250000,
+    "tpdo": "0x180",
+    "rpdo": "0x200"
+  },
+  "datapoints": [
+    { "index": "0x1000", "sub": 0, "name": "device_type", "type": "u32", "access": "const", "value": 0 },
+    { "index": "0x1008", "sub": 0, "name": "device_name", "type": "str", "access": "const", "value": "JSON-Rhai IO-Modul H573" },
+    { "index": "0x1017", "sub": 0, "name": "heartbeat_ms", "type": "u16", "access": "rw", "value": 2000 },
+    { "index": "0x2100", "sub": 0, "name": "cycle_counter", "type": "i32", "access": "ro", "value": 0 },
+    { "index": "0x2101", "sub": 0, "name": "blink_on", "type": "bool", "access": "rw", "value": true },
+    { "index": "0x6000", "sub": 1, "name": "din_button", "type": "u8", "access": "ro", "value": 0 },
+    { "index": "0x6200", "sub": 1, "name": "dout_leds", "type": "u8", "access": "rw", "value": 0 }
+  ],
+  "scripts": [
+    {
+      "name": "init",
+      "run": "once",
+      "script": [
+        "print(\"node '\" + node_name() + \"' (id \" + node_id() + \") started\");",
+        "print(\"device_name = \" + od_read(0x1008, 0));",
+        "od_dump();",
+        "leds(0);"
+      ]
+    },
+    {
+      "name": "io",
+      "run": "cyclic",
+      "period_ms": 100,
+      "script": [
+        "od_write(0x6000, 1, button());",
+        "leds(od_read(0x6200, 1));"
+      ]
+    },
+    {
+      "name": "logic",
+      "run": "cyclic",
+      "period_ms": 500,
+      "script": [
+        "let c = od_read(0x2100, 0) + 1;",
+        "od_write(0x2100, 0, c);",
+        "if get(\"din_button\") != 0 {",
+        "    set(\"dout_leds\", 15);",
+        "} else if get(\"blink_on\") {",
+        "    set(\"dout_leds\", 1 << (c % 4));",
+        "} else {",
+        "    set(\"dout_leds\", 0);",
+        "}"
+      ]
+    },
+    {
+      "name": "heartbeat",
+      "run": "cyclic",
+      "period_ms": 2000,
+      "script": [
+        "print(\"hb: uptime=\" + uptime_ms() / 1000 + \"s cycles=\" + get(\"cycle_counter\") + \" din=\" + get(\"din_button\") + \" dout=\" + get(\"dout_leds\"));"
+      ]
+    }
+  ]
+}

@@ -64,6 +64,19 @@ Board hat 3× FDCAN. Zephyr-Default für FDCAN1:
 - RX: PA11
 - TX: PA12
 
+## JSON-Knoten (`json_node`) — CANbossTouch-PoC
+
+`src/bin/json_node.rs` + `json_node.json`: Ein JSON beschreibt einen CANopen-artigen
+Knoten (Objektverzeichnis + Rhai-Skripte + CAN-Konfiguration); die Firmware ist
+generisch. Gleicher Stand wie `examples/STM32H573I-DK` (dort ist die README mit
+API-Tabelle und CAN-Framing dokumentiert). LEDs/Button sind hier noch
+**Nucleo-H563ZI-Platzhalter** (PB0/PF4/PG4, PC13) bis H5F5-Chipsupport da ist;
+CAN `"mode": "loopback"` (Default) läuft davon unabhängig.
+
+```bash
+cargo run --release --bin json_node --features scripting,json
+```
+
 Transceiver + Terminierung auf Custom-Board / Adapter. CAN-Logik und OxivGL-Touch-CAN
 von `rvt50hqsnwc00-b` als Vorlage (`can_raw.rs`, `oxivgl_touch_can.rs`).
 
