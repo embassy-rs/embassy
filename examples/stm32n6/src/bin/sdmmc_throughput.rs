@@ -16,7 +16,7 @@ use block_device_driver::BlockDevice as _;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
+use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_time::{Delay, Instant};
@@ -153,6 +153,8 @@ async fn main(_spawner: Spawner) {
 
 fn rcc_config() -> Config {
     let mut config = Config::default();
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    config.rcc.supply_config = SupplyConfig::External;
     config.rcc.pll1 = Some(Pll::Oscillator {
         source: Pllsel::Hsi,
         divm: Plldivm::Div4,

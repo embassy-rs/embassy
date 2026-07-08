@@ -28,7 +28,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::dma2d::{self, Dma2d};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
 use embassy_stm32::rcc::mux::Ltdcsel;
-use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
+use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
 use embassy_stm32::rif::{RifMaster, RifMasterAttributes, RifPeripheral, RifPeripheralAttributes};
 use embassy_stm32::{Config, bind_interrupts, pac, peripherals};
 use embassy_time::Instant;
@@ -178,6 +178,11 @@ fn dma2d_r2m_fill_rgb565(fb_ptr: *mut u16, stride: u16, x: u16, y: u16, width: u
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
+    // The STM32N6570-DK supplies VCORE from an external SMPS (board default, UM3300
+    // Table 6). The embassy default (SupplyConfig::Smps) enables the *internal* SMPS,
+    // so VOSRDY never reaches the selected VOS level and init() hangs in the voltage-
+    // scaling wait. Selecting External clears SDEN → VOSRDY/ACTVOSRDY read ready.
+    config.rcc.supply_config = SupplyConfig::External;
     // PLL1 oscillator: HSI 64 MHz / DIVM=4 = 16 MHz ref, × DIVN=50 → 800 MHz VCO.
     //   IC1 div1 → 800 MHz CPU (M55 max).
     //   IC2/6/11 div4 → 200 MHz system bus. The embassy N6 defaults of AHB=Div2 and
