@@ -1,10 +1,10 @@
 # STM32U5 Examples
 
-![Figure 1](/images/pinout1.png)
+![Figure 1](./images/pinout1.png)
 
-![Figure 2](/images/pinout2.png)
+![Figure 2](./images/pinout2.png)
 
-![Figure 3](/images/pinout3.png)
+![Figure 3](./images/pinout3.png)
 
 
 # Spi (blocking & DMA) 
