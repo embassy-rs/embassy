@@ -4,7 +4,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
@@ -25,7 +25,7 @@ use crate::pac::usart::Lpuart as Regs;
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
-use crate::reg::AtomicModify;
+use crate::reg::{AtomicClear, AtomicModify};
 use crate::time::Hertz;
 
 /// Interrupt handler.
@@ -678,7 +678,7 @@ async fn flush(info: &Info, state: &State) -> Result<(), Error> {
             state.tx_waker.register(cx.waker());
 
             let sr = sr(r).read();
-            if sr.tc() {
+            if sr.tc() || state.tc_flag.clear() {
                 // Transmission complete detected
                 return Poll::Ready(());
             }
@@ -2172,6 +2172,7 @@ enum Kind {
 struct State {
     rx_waker: AtomicWaker,
     tx_waker: AtomicWaker,
+    tc_flag: AtomicBool,
     tx_rx_refcount: AtomicU8,
     eager_reads: AtomicUsize,
 }
@@ -2181,6 +2182,7 @@ impl State {
         Self {
             rx_waker: AtomicWaker::new(),
             tx_waker: AtomicWaker::new(),
+            tc_flag: AtomicBool::new(false),
             tx_rx_refcount: AtomicU8::new(0),
             eager_reads: AtomicUsize::new(0),
         }
