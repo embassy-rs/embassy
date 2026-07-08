@@ -14,6 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::future::{Either, select};
 
 use crate::Peri;
+use crate::atomic::{AtomicClear, AtomicModify};
 use crate::dma::ChannelAndRequest;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
@@ -25,7 +26,6 @@ use crate::pac::usart::Lpuart as Regs;
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
-use crate::atomic::{AtomicClear, AtomicModify};
 use crate::time::Hertz;
 
 /// Interrupt handler.
