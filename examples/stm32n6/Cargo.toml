@@ -38,10 +38,10 @@ embedded-graphics-core = "0.4.0"
 embedded-graphics = "0.8.1"
 embedded-sdmmc = { version = "0.9.0", default-features = false }
 embedded-fatfs = { git = "https://github.com/MabezDev/embedded-fatfs", default-features = false, features = ["defmt"] }
-block-device-driver = { git = "https://github.com/MabezDev/embedded-fatfs" }
-block-device-adapters = { git = "https://github.com/MabezDev/embedded-fatfs" }
+block-device-driver = "0.2.0"
+block-device-adapters = "0.2.0"
 aligned = "0.4.2"
-sdio = "0.4.0"
+sdio = { version = "0.4.0", features = ["defmt"] }
 
 
 # cargo build/run
@@ -86,3 +86,9 @@ overflow-checks = false # <-
 build = [
   { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32n6" }
 ]
+
+
+[patch.crates-io]
+embedded-fatfs = { git = "https://github.com/MabezDev/embedded-fatfs" }
+block-device-driver = { git = "https://github.com/MabezDev/embedded-fatfs" }
+block-device-adapters = { git = "https://github.com/MabezDev/embedded-fatfs" }

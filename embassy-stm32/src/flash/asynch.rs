@@ -21,6 +21,10 @@ impl<'d> Flash<'d, Async> {
         p: Peri<'d, FLASH>,
         _irq: impl interrupt::typelevel::Binding<crate::interrupt::typelevel::FLASH, InterruptHandler> + 'd,
     ) -> Self {
+        #[cfg(bank_setup_configurable)]
+        // Check if the hardware bank mode matches the selected embassy feature.
+        super::check_bank_setup();
+
         crate::interrupt::FLASH.unpend();
         unsafe { crate::interrupt::FLASH.enable() };
 
