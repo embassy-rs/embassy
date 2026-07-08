@@ -230,7 +230,7 @@ proptest-state-machine = "0.3.0"
 
 
 [features]
-default = ["rt", "stm32n657x0"]
+default = ["rt"]
 
 ## Enable `stm32-metapac`'s `rt` feature
 rt = ["stm32-metapac/rt"]
