@@ -25,7 +25,7 @@ use crate::pac::usart::Lpuart as Regs;
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
-use crate::reg::{AtomicClear, AtomicModify};
+use crate::atomic::{AtomicClear, AtomicModify};
 use crate::time::Hertz;
 
 /// Interrupt handler.
