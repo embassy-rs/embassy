@@ -1,29 +1,39 @@
 #![no_std]
 #![no_main]
 #![macro_use]
-#![allow(static_mut_refs)]
 
-/// This example demonstrates the LTDC lcd display peripheral and was tested to run on an stm32h735g-dk (embassy-stm32 feature "stm32h735ig" and probe-rs chip "STM32H735IGKx")
-/// Even though the dev kit has 16MB of attached PSRAM this example uses the 320KB of internal AXIS RAM found on the mcu itself to make the example more standalone and portable.
-/// For this reason a 256 color lookup table had to be used to keep the memory requirement down to an acceptable level.
-/// The example bounces a ferris crab bitmap around the screen while blinking an led on another task
+/// Combines the OCTOSPI2 HyperRAM bring-up from `hyperram.rs` with the LTDC display
+/// pipeline from `ltdc.rs`: a full-width **RGB565** double-buffered framebuffer that
+/// lives in external HyperRAM instead of the 320 KiB internal AXI SRAM, animated the
+/// same way as `ltdc.rs` (bouncing ferris crab).
 ///
+/// No CLUT is needed this time: RGB565 is a first-class LTDC pixel format, so each
+/// pixel is written directly as a 16-bit value. The LTDC layer's pixel format and its
+/// framebuffer address are entirely orthogonal (`docs/embassy/understanding.md` §4):
+/// `CFBAR` is cast straight to a `u32` with no region restriction, so pointing it at
+/// the OCTOSPI2 window at `0x7000_0000` works exactly like pointing it at SRAM.
+///
+/// Panel enable pins (see `ltdc.rs` / `docs/embassy/ltdc-regression-diagnosis.md`):
+/// LCD_DISP (PD10) and LCD_BL_CTRL (PG15) must be driven high or the panel shows a
+/// blank white screen regardless of valid video output.
 use bouncy_box::BouncyBox;
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
+use embassy_stm32::ospi::{
+    AddressSize, ChipSelectHighTime, Config as OspiConfig, FIFOThresholdLevel, HyperbusConfig, HyperbusLatencyMode,
+    MemorySize, MemoryType, Ospi, OspiWidth, TransferConfig, WrapSize,
+};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::{Duration, Timer};
 use embedded_graphics::Pixel;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::geometry::{OriginDimensions, Point, Size};
 use embedded_graphics::image::Image;
-use embedded_graphics::pixelcolor::Rgb888;
-use embedded_graphics::pixelcolor::raw::RawU24;
+use embedded_graphics::pixelcolor::{Rgb565, Rgb888};
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::Rectangle;
-use heapless::index_map::{Entry, FnvIndexMap};
 use tinybmp::Bmp;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -31,21 +41,19 @@ const DISPLAY_WIDTH: usize = 480;
 const DISPLAY_HEIGHT: usize = 272;
 const MY_TASK_POOL_SIZE: usize = 2;
 
-// the following two display buffers consume 261120 bytes that just about fits into axis ram found on the mcu
-//
-// The LTDC frame-buffer address (CFBAR) must be bus-aligned: a plain `[u8; N]` array (align 1)
-// can land at an odd address, which starves the LTDC FIFO and reports FifoUnderrun on every
-// frame. Wrap the buffers so the linker aligns them to the AXI bus width.
-#[repr(C, align(32))]
-pub struct Framebuffer(pub [TargetPixelType; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
-pub static mut FB1: Framebuffer = Framebuffer([0; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
-pub static mut FB2: Framebuffer = Framebuffer([0; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
+/// HyperRAM (OCTOSPI2) memory-mapped window base (silicon-fixed, RM0468 memory map).
+const HYPERRAM_BASE: u32 = 0x7000_0000;
+/// One RGB565 frame: 480*272*2 = 261,120 bytes (~255 KiB).
+const FB_SIZE_PIXELS: usize = DISPLAY_WIDTH * DISPLAY_HEIGHT;
+/// 256 KiB spacing keeps both buffers far from the S70KL1281's 8 MiB die boundary
+/// (`0x7080_0000`) and leaves each buffer trivially bus-aligned - CFBAR must be
+/// bus-aligned, see the FifoUnderrun regression fixed in `ltdc.rs`.
+const FB1_ADDR: u32 = HYPERRAM_BASE;
+const FB2_ADDR: u32 = HYPERRAM_BASE + 0x4_0000;
 
 bind_interrupts!(struct Irqs {
     LTDC => ltdc::InterruptHandler<peripherals::LTDC>;
 });
-
-const NUM_COLORS: usize = 256;
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -55,12 +63,78 @@ async fn main(spawner: Spawner) {
     let led = Output::new(p.PC3, Level::High, Speed::Low);
     spawner.spawn(unwrap!(led_task(led)));
 
-    // The panel control pins are not part of the LTDC signal interface and must be driven
-    // separately: LCD_DISP (PD10) takes the panel out of standby, LCD_BL_CTRL (PG15) enables
-    // the backlight. Leaving either floating shows a blank/white panel regardless of the
-    // video content.
+    // Panel control pins, outside the LTDC signal interface (see ltdc.rs).
     let _lcd_disp = Output::new(p.PD10, Level::High, Speed::Low);
     let _lcd_backlight = Output::new(p.PG15, Level::High, Speed::Low);
+
+    info!("init HyperRAM (OCTOSPI2)");
+
+    // HyperBus device config for the S70KL1281 - identical to hyperram.rs; field
+    // derivation in docs/hal-oracle/octospi-hyperram.md §2.
+    let ospi_config = OspiConfig {
+        fifo_threshold: FIFOThresholdLevel::_4Bytes,
+        memory_type: MemoryType::HyperBusMemory,
+        device_size: MemorySize::_16MiB,
+        chip_select_high_time: ChipSelectHighTime::_4Cycle,
+        free_running_clock: false,
+        clock_mode: false,
+        wrap_size: WrapSize::None,
+        clock_prescaler: 1, // 200 MHz kernel / 2 = 100 MHz HyperBus clock
+        sample_shifting: false,
+        delay_hold_quarter_cycle: true,
+        chip_select_boundary: 23,
+        delay_block_bypass: false,
+        max_transfer: 0,
+        refresh: 400,
+    };
+
+    // Pin map: docs/HARDWARE.md "OCTOSPI2 <-> HyperRAM pin map".
+    // Kept alive for the program's lifetime: `Ospi::drop` disables the peripheral
+    // clock and its owned pins disconnect on drop, which would tear down the live
+    // memory-mapped window the LTDC layer below reads from.
+    let mut ospi = Ospi::new_blocking_octospi_with_dqs(
+        p.OCTOSPI2,
+        p.PF4,  // CLK
+        p.PF0,  // DQ0
+        p.PF1,  // DQ1
+        p.PF2,  // DQ2
+        p.PF3,  // DQ3
+        p.PG0,  // DQ4
+        p.PG1,  // DQ5
+        p.PG10, // DQ6
+        p.PG11, // DQ7
+        p.PG12, // NCS
+        p.PF12, // DQS
+        ospi_config,
+    );
+
+    // HyperBus latency (HLCR): fixed, initial latency 6 — see hyperram.rs.
+    ospi.configure_hyperbus(HyperbusConfig {
+        latency_mode: HyperbusLatencyMode::Fixed,
+        access_time: 6,
+        rw_recovery_time: 3,
+        write_zero_latency: false,
+    });
+
+    // Same 8-lane DTR address-only command as hyperram.rs; see its comment for why
+    // `enable_memory_mapped_mode` (written for NOR-flash commands) works unmodified.
+    let hyperbus_command = TransferConfig {
+        adwidth: OspiWidth::OCTO,
+        address: Some(0),
+        adsize: AddressSize::_32bit,
+        addtr: true,
+        dwidth: OspiWidth::OCTO,
+        ddtr: true,
+        dqse: true,
+        ..Default::default()
+    };
+    ospi.enable_memory_mapped_mode(hyperbus_command, hyperbus_command)
+        .expect("failed to enable HyperRAM memory-mapped mode");
+
+    info!(
+        "HyperRAM memory-mapped; FB1 @ 0x{:08x}, FB2 @ 0x{:08x}",
+        FB1_ADDR, FB2_ADDR
+    );
 
     // numbers from STMicroelectronics/STM32CubeH7 STM32H735G-DK C-based example
     const RK043FN48H_HSYNC: u16 = 41; // Horizontal synchronization
@@ -93,31 +167,24 @@ async fn main(spawner: Spawner) {
     ltdc.init(&ltdc_config);
 
     // we only need to draw on one layer for this example (not to be confused with the double buffer)
-    info!("enable bottom layer");
+    info!("enable bottom layer (RGB565, no CLUT)");
     let layer_config = LtdcLayerConfig {
-        pixel_format: ltdc::PixelFormat::L8, // 1 byte per pixel
+        pixel_format: ltdc::PixelFormat::Rgb565, // 2 bytes per pixel, no CLUT
         layer: LtdcLayer::Layer1,
         window_x0: 0,
         window_x1: DISPLAY_WIDTH as _,
         window_y0: 0,
         window_y1: DISPLAY_HEIGHT as _,
     };
+    ltdc.init_layer(&layer_config, None);
 
     let ferris_bmp: Bmp<Rgb888> = Bmp::from_slice(include_bytes!("./ferris.bmp")).unwrap();
-    let color_map = build_color_lookup_map(&ferris_bmp);
-    let clut = build_clut(&color_map);
 
-    // enable the bottom layer with a 256 color lookup table
-    ltdc.init_layer(&layer_config, Some(&clut));
-
-    // Safety: the DoubleBuffer controls access to the statically allocated frame buffers
-    // and it is the only thing that mutates their content
-    let mut double_buffer = DoubleBuffer::new(
-        unsafe { FB1.0.as_mut() },
-        unsafe { FB2.0.as_mut() },
-        layer_config,
-        color_map,
-    );
+    // Safety: FB1/FB2 are two disjoint regions of the OCTOSPI2 memory-mapped window
+    // (see FB1_ADDR/FB2_ADDR above); DoubleBuffer is the only thing that mutates them.
+    let fb1 = unsafe { core::slice::from_raw_parts_mut(FB1_ADDR as *mut TargetPixelType, FB_SIZE_PIXELS) };
+    let fb2 = unsafe { core::slice::from_raw_parts_mut(FB2_ADDR as *mut TargetPixelType, FB_SIZE_PIXELS) };
+    let mut double_buffer = DoubleBuffer::new(fb1, fb2, layer_config);
 
     // this allows us to perform some simple animation for every frame
     let mut bouncy_box = BouncyBox::new(
@@ -138,40 +205,6 @@ async fn main(spawner: Spawner) {
     }
 }
 
-/// builds the color look-up table from all unique colors found in the bitmap. This should be a 256 color indexed bitmap to work.
-fn build_color_lookup_map(bmp: &Bmp<Rgb888>) -> FnvIndexMap<u32, u8, NUM_COLORS> {
-    let mut color_map: FnvIndexMap<u32, u8, NUM_COLORS> = FnvIndexMap::new();
-    let mut counter: u8 = 0;
-
-    // add black to position 0
-    color_map.insert(Rgb888::new(0, 0, 0).into_storage(), counter).unwrap();
-    counter += 1;
-
-    for Pixel(_point, color) in bmp.pixels() {
-        let raw = color.into_storage();
-        if let Entry::Vacant(v) = color_map.entry(raw) {
-            v.insert(counter).expect("more than 256 colors detected");
-            counter += 1;
-        }
-    }
-    color_map
-}
-
-/// builds the color look-up table from the color map provided
-fn build_clut(color_map: &FnvIndexMap<u32, u8, NUM_COLORS>) -> [ltdc::RgbColor; NUM_COLORS] {
-    let mut clut = [ltdc::RgbColor::default(); NUM_COLORS];
-    for (color, index) in color_map.iter() {
-        let color = Rgb888::from(RawU24::new(*color));
-        clut[*index as usize] = ltdc::RgbColor {
-            red: color.r(),
-            green: color.g(),
-            blue: color.b(),
-        };
-    }
-
-    clut
-}
-
 #[embassy_executor::task(pool_size = MY_TASK_POOL_SIZE)]
 async fn led_task(mut led: Output<'static>) {
     let mut counter = 0;
@@ -189,15 +222,20 @@ async fn led_task(mut led: Output<'static>) {
     }
 }
 
-pub type TargetPixelType = u8;
+pub type TargetPixelType = u16;
 
-// A simple double buffer
+/// Truncating 8-bit -> 5/6/5-bit channel reduction (no dithering); embedded-graphics
+/// has no built-in Rgb888->Rgb565 conversion.
+fn rgb888_to_rgb565(c: Rgb888) -> Rgb565 {
+    Rgb565::new(c.r() >> 3, c.g() >> 2, c.b() >> 3)
+}
+
+// A simple double buffer, RGB565 pixels, no CLUT
 pub struct DoubleBuffer {
     buf0: &'static mut [TargetPixelType],
     buf1: &'static mut [TargetPixelType],
     is_buf0: bool,
     layer_config: LtdcLayerConfig,
-    color_map: FnvIndexMap<u32, u8, NUM_COLORS>,
 }
 
 impl DoubleBuffer {
@@ -205,40 +243,29 @@ impl DoubleBuffer {
         buf0: &'static mut [TargetPixelType],
         buf1: &'static mut [TargetPixelType],
         layer_config: LtdcLayerConfig,
-        color_map: FnvIndexMap<u32, u8, NUM_COLORS>,
     ) -> Self {
         Self {
             buf0,
             buf1,
             is_buf0: true,
             layer_config,
-            color_map,
         }
     }
 
-    pub fn current(&mut self) -> (&FnvIndexMap<u32, u8, NUM_COLORS>, &mut [TargetPixelType]) {
-        if self.is_buf0 {
-            (&self.color_map, self.buf0)
-        } else {
-            (&self.color_map, self.buf1)
-        }
+    pub fn current(&mut self) -> &mut [TargetPixelType] {
+        if self.is_buf0 { self.buf0 } else { self.buf1 }
     }
 
     pub async fn swap<T: ltdc::Instance>(&mut self, ltdc: &mut Ltdc<'_, T>) -> Result<(), ltdc::Error> {
-        let (_, buf) = self.current();
-        let frame_buffer = buf.as_ptr();
+        let frame_buffer = self.current().as_ptr();
         self.is_buf0 = !self.is_buf0;
         ltdc.set_buffer(self.layer_config.layer, frame_buffer as *const _).await
     }
 
     /// Clears the buffer
     pub fn clear(&mut self) {
-        let (color_map, buf) = self.current();
-        let black = Rgb888::new(0, 0, 0).into_storage();
-        let color_index = color_map.get(&black).expect("no black found in the color map");
-
-        for a in buf.iter_mut() {
-            *a = *color_index; // solid black
+        for pixel in self.current().iter_mut() {
+            *pixel = 0x0000; // solid black
         }
     }
 }
@@ -256,21 +283,14 @@ impl DrawTarget for DoubleBuffer {
         let size = self.size();
         let width = size.width as i32;
         let height = size.height as i32;
-        let (color_map, buf) = self.current();
+        let buf = self.current();
 
         for pixel in pixels {
             let Pixel(point, color) = pixel;
 
             if point.x >= 0 && point.y >= 0 && point.x < width && point.y < height {
                 let index = point.y * width + point.x;
-                let raw_color = color.into_storage();
-
-                match color_map.get(&raw_color) {
-                    Some(x) => {
-                        buf[index as usize] = *x;
-                    }
-                    None => panic!("color not found in color map: {}", raw_color),
-                };
+                buf[index as usize] = rgb888_to_rgb565(color).into_storage();
             } else {
                 // Ignore invalid points
             }
@@ -292,36 +312,16 @@ impl OriginDimensions for DoubleBuffer {
 
 mod rcc_setup {
 
+    use embassy_stm32::rcc::mux::Fmcsel;
     use embassy_stm32::rcc::{Hse, HseMode, *};
     use embassy_stm32::time::Hertz;
     use embassy_stm32::{Config, Peripherals};
 
-    /// Sets up clocks for the stm32h735g mcu
-    /// change this if you plan to use a different microcontroller
+    /// Clocks for the STM32H735G-DK: SYSCLK 520 MHz (PLL1), OCTOSPI kernel clock
+    /// 200 MHz (PLL2_R, routed via `mux.octospisel`), LTDC pixel clock ~9.64 MHz
+    /// (PLL3_R, hardwired - no mux). Numbers match `docs/hal-oracle/octospi-hyperram.md`
+    /// §1 and `docs/hal-oracle/ltdc-cmsis.md` §1 / `docs/HARDWARE.md`.
     pub fn stm32h735g_init() -> Peripherals {
-        /*
-         https://github.com/STMicroelectronics/STM32CubeH7/blob/master/Projects/STM32H735G-DK/Examples/GPIO/GPIO_EXTI/Src/main.c
-         @brief  System Clock Configuration
-            The system Clock is configured as follow :
-            System Clock source            = PLL (HSE)
-            SYSCLK(Hz)                     = 520000000 (CPU Clock)
-            HCLK(Hz)                       = 260000000 (AXI and AHBs Clock)
-            AHB Prescaler                  = 2
-            D1 APB3 Prescaler              = 2 (APB3 Clock  130MHz)
-            D2 APB1 Prescaler              = 2 (APB1 Clock  130MHz)
-            D2 APB2 Prescaler              = 2 (APB2 Clock  130MHz)
-            D3 APB4 Prescaler              = 2 (APB4 Clock  130MHz)
-            HSE Frequency(Hz)              = 25000000
-            PLL_M                          = 5
-            PLL_N                          = 104
-            PLL_P                          = 1
-            PLL_Q                          = 4
-            PLL_R                          = 2
-            VDD(V)                         = 3.3
-            Flash Latency(WS)              = 3
-        */
-
-        // setup power and clocks for an stm32h735g-dk run from an external 25 Mhz external oscillator
         let mut config = Config::default();
         config.rcc.hse = Some(Hse {
             freq: Hertz::mhz(25),
@@ -345,7 +345,7 @@ mod rcc_setup {
             mul: PllMul::Mul80,      // PLL_N
             divp: Some(PllDiv::Div5),
             divq: Some(PllDiv::Div2),
-            divr: Some(PllDiv::Div2),
+            divr: Some(PllDiv::Div2), // pll2_r = 200 MHz
         });
         // numbers adapted from Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_lcd.c
         // MX_LTDC_ClockConfig
@@ -365,6 +365,7 @@ mod rcc_setup {
         config.rcc.apb2_pre = APBPrescaler::Div2;
         config.rcc.apb3_pre = APBPrescaler::Div2;
         config.rcc.apb4_pre = APBPrescaler::Div2;
+        config.rcc.mux.octospisel = Fmcsel::Pll2R;
         embassy_stm32::init(config)
     }
 }

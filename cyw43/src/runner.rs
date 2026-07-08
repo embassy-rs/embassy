@@ -1,6 +1,7 @@
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::Relaxed;
 
+use ::sdio::sdio::CCCR_INT_ENABLE;
 use aligned::{A4, Aligned};
 use embassy_futures::select::{Either4, select4};
 use embassy_net_driver_channel as ch;
@@ -17,7 +18,7 @@ use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
 use crate::util::try_until;
-use crate::{Chip, ChipId, Core, MTU, WithContext, events, sdio};
+use crate::{Chip, ChipId, Core, MTU, WithContext, events};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -44,17 +45,11 @@ pub(crate) enum BusType {
     Sdio,
 }
 
-pub(crate) enum BusConfig<'a> {
-    #[allow(dead_code)]
-    Spi(&'a ()),
-    Sdio(&'a sdio::Config),
-}
-
 pub(crate) trait SealedBus {
     const TYPE: BusType;
     type Config;
 
-    async fn init<'a>(&mut self, bluetooth: bool, config: &'a Self::Config) -> crate::Result<BusConfig<'a>>;
+    async fn init<'a>(&mut self, bluetooth: bool, config: &'a Self::Config) -> crate::Result<()>;
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     /// The first 4 bytes of this buffer are reserved for the cmd word
     async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
@@ -299,15 +294,38 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         Ok(())
     }
 
-    async fn sdio_init_oob_intr(&mut self, config: &sdio::Config) {
-        if config.out_of_band_irq {
-            self.bus
-                .write8(FUNC_BUS, SDIOD_SEP_INT_CTL, SEP_INTR_CTL_MASK | SEP_INTR_CTL_EN)
-                .await;
-        }
+    /// Enable all SDIO in-band interrupts required for CYW43439.
+    /// This configures the SDIOD core, unmasks host-visible interrupt causes,
+    /// enables per-function interrupt routing, and enables separated interrupt mode.
+    async fn enable_sdio_interrupts(&mut self) {
+        // 1. Enable separated interrupt routing (required for mailbox + SDPCM)
+        self.bus
+            .write8(FUNC_BUS, SDIOD_SEP_INT_CTL, SEP_INTR_CTL_EN | SEP_INTR_CTL_MASK)
+            .await;
+
+        // 2. Unmask all host-visible SDIOD interrupt sources
+        //    (mailbox, F1 events, backplane events, errors)
+        self.bus
+            .write8(FUNC_BUS, SDIO_INT_HOST_MASK, SDIO_INT_HOST_MASK_ALL)
+            .await;
+
+        // 3. Unmask function-level interrupts (F1 = WLAN)
+        self.bus
+            .write8(FUNC_BUS, SDIO_FUNCTION_INT_MASK, SDIO_FUNC_INT_MASK_F1)
+            .await;
+
+        // 4. Enable SDIO CCCR interrupt signaling (F0 INT_ENABLE)
+        //    Bit 0 = master interrupt enable
+        self.bus
+            .write8(
+                0, // Function 0 (CCCR)
+                CCCR_INT_ENABLE,
+                CCCR_INT_ENABLE_MASTER,
+            )
+            .await;
     }
 
-    async fn read_chip_id_sdio(&mut self, config: &sdio::Config) -> u16 {
+    async fn read_chip_id_sdio(&mut self) -> u16 {
         // Disable the extra sdio pull-ups
         self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
 
@@ -324,7 +342,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             )
             .await;
 
-        self.sdio_init_oob_intr(config).await;
+        self.enable_sdio_interrupts().await;
 
         // TODO: remove this after investigation
         self.bus
@@ -473,13 +491,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             ChipId::C4373 => debug!("using cyw43437"),
         }
 
-        let bus_config = self.bus.init(bt_fw.is_some(), config).await?;
-
-        // Validate type consistency
-        assert!(
-            (matches!(self.bus.bus_type(), BusType::Sdio) && matches!(bus_config, BusConfig::Sdio(_)))
-                || (matches!(self.bus.bus_type(), BusType::Spi) && matches!(bus_config, BusConfig::Spi(_)))
-        );
+        self.bus.init(bt_fw.is_some(), config).await?;
 
         // Init ALP (Active Low Power) clock
         debug!("init alp");
@@ -523,9 +535,9 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         debug!("clear request for ALP");
         self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0).await;
 
-        let chip_id = match bus_config {
-            BusConfig::Spi(_) => self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await,
-            BusConfig::Sdio(config) => self.read_chip_id_sdio(config).await,
+        let chip_id = match BUS::TYPE {
+            BusType::Spi => self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await,
+            BusType::Sdio => self.read_chip_id_sdio().await,
         };
 
         debug!("chip ID: {}", chip_id);
