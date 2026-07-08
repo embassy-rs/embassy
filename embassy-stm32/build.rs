@@ -599,7 +599,6 @@ fn main() {
         g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
 
         g.extend(quote! {
-            #[cfg(not(stm32c5))]
             pub mod flash_regions { #flash_regions }
         });
     }
@@ -1060,7 +1059,7 @@ fn main() {
     // ========
     // Generate fns to enable GPIO, DMA in RCC
 
-    for kind in ["mdma", "dma", "bdma", "dmamux", "gpdma", "gpio"] {
+    for kind in ["mdma", "dma", "bdma", "dmamux", "gpdma", "lpdma", "gpio"] {
         let mut gg = TokenStream::new();
 
         for (p, r) in &peripheral_list {

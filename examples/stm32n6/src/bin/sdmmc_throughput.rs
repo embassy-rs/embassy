@@ -12,19 +12,18 @@
 #[path = "../sd_save.rs"]
 mod sd_save;
 
+use block_device_driver::BlockDevice as _;
 use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::sdmmc::sd::{Addressable, CmdBlock, StorageDevice};
-use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
-use embassy_time::Instant;
+use embassy_time::{Delay, Instant};
 use embedded_io_async::{Seek as _, Write as _};
 use {defmt_rtt as _, panic_probe as _};
 
-use crate::sd_save::mount as sd_mount;
+use crate::sd_save::{DefaultBlockDevice, mount as sd_mount};
 
 bind_interrupts!(struct Irqs {
     SDMMC2 => embassy_stm32::sdmmc::InterruptHandler<peripherals::SDMMC2>;
@@ -59,22 +58,19 @@ async fn main(_spawner: Spawner) {
         sd_cfg,
     );
 
-    let mut cmd_block = CmdBlock::new();
     // 110 MHz triggers SDR104 negotiation (>100 MHz). With the default
     // 100 MHz kernel + CLKDIV bypass the wire stays at 100 MHz.
-    #[allow(deprecated)]
-    let storage = match StorageDevice::new_sd_card(&mut sd, &mut cmd_block, Hertz(110_000_000)).await {
+    let mut storage = match DefaultBlockDevice::new_sd_card(&mut sd, 110_000_000, Delay).await {
         Ok(s) => s,
         Err(e) => {
             error!("sd init failed: {:?}", e);
             return;
         }
     };
-    info!(
-        "sd: card ready, {} bytes ({} MiB)",
-        storage.card().size(),
-        storage.card().size() / (1024 * 1024)
-    );
+
+    let size = storage.size().await.unwrap();
+
+    info!("sd: card ready, {} bytes ({} MiB)", size, size / (1024 * 1024));
 
     let fs = match sd_mount(storage).await {
         Ok(fs) => fs,

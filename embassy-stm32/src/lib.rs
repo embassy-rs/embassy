@@ -118,7 +118,7 @@ pub mod dts;
 pub mod eth;
 #[cfg(feature = "exti")]
 pub mod exti;
-#[cfg(all(flash, not(stm32c5)))]
+#[cfg(flash)]
 pub mod flash;
 #[cfg(fmac)]
 pub mod fmac;
@@ -718,10 +718,7 @@ fn init_hw(config: Config) -> Peripherals {
 
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
-            #[cfg(stm32c5)]
-            let _ = cr;
-
-            #[cfg(dbgmcu_h5)]
+            #[cfg(any(dbgmcu_h5, dbgmcu_c5))]
             {
                 cr.set_stop(config.enable_debug_during_sleep);
                 cr.set_standby(config.enable_debug_during_sleep);

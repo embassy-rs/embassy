@@ -252,7 +252,12 @@ async fn main(spawner: Spawner) {
                             state.indication_pending = false;
                         }
                         GapEvent::Disconnected { handle, reason } => {
-                            info!("Disconnected: 0x{:04X}, reason 0x{:02X}", handle.0, reason);
+                            info!(
+                                "Disconnected: 0x{:04X}, reason 0x{:02X} ({})",
+                                handle.0,
+                                reason.as_u8(),
+                                Display2Format(&reason)
+                            );
                             state.conn_handle = None;
                             state.indications_enabled = false;
                             state.interm_notifications_enabled = false;

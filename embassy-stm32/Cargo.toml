@@ -213,11 +213,11 @@ heapless = "0.9.1"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c10ceb15eeaf49d04dd38fd1b1fce82380f90a12" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-43d482dc249c6755fe990b67e86be4fdc9092909" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c10ceb15eeaf49d04dd38fd1b1fce82380f90a12", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-43d482dc249c6755fe990b67e86be4fdc9092909", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
@@ -1152,7 +1152,7 @@ stm32g471rc = [ "stm32-metapac/stm32g471rc" ]
 stm32g471re = [ "stm32-metapac/stm32g471re" ]
 stm32g471vc = [ "stm32-metapac/stm32g471vc" ]
 stm32g471ve = [ "stm32-metapac/stm32g471ve" ]
-stm32g473cb = [ "stm32-metapac/stm32g473cb" ]
+stm32g473cb = [ "stm32-metapac/stm32g473cb", "dual-bank" ]
 stm32g473cc = [ "stm32-metapac/stm32g473cc" ]
 stm32g473ce = [ "stm32-metapac/stm32g473ce" ]
 stm32g473mb = [ "stm32-metapac/stm32g473mb" ]
