@@ -44,12 +44,15 @@ rhai = { git = "https://github.com/rhaiscript/rhai.git", version = "1", optional
     "no_position",
 ] }
 embedded-alloc = { version = "0.7.0", optional = true }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"], optional = true }
+serde_json = { version = "1", default-features = false, features = ["alloc"], optional = true }
 
 [features]
 default = ["ble"]
 mac = ["embassy-stm32-wpan/wba-mac", "dep:embassy-net"]
 ble = ["embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci"]
 scripting = ["dep:rhai", "dep:embedded-alloc"]
+json = ["dep:serde", "dep:serde_json"]
 
 [[bin]]
 name = "mac_ffd"
@@ -85,6 +88,10 @@ required-features = ["ble", "scripting"]
 [[bin]]
 name = "usart_rhai"
 required-features = ["scripting"]
+
+[[bin]]
+name = "json_node"
+required-features = ["scripting", "json"]
 
 [profile.release]
 debug = 2

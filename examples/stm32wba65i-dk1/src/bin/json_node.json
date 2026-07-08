@@ -1,0 +1,64 @@
+{
+  "_comment": "JSON-driven node PoC for CANbossTouch: one CANopen-style node = object dictionary + Rhai scripts. The firmware (json_node.rs) is generic; all node behaviour lives in this file. 'access' describes the (future) bus view via SDO/PDO — scripts are device-internal and may write 'ro' entries (that is how inputs get updated); only 'const' is rejected.",
+  "node_id": 16,
+  "name": "IO-Modul",
+  "description": "Demo IO node on STM32WBA65I-DK1: joystick = digital input 0x6000, LEDs = digital output 0x6200",
+  "datapoints": [
+    { "index": "0x1000", "sub": 0, "name": "device_type", "type": "u32", "access": "const", "value": 0 },
+    { "index": "0x1008", "sub": 0, "name": "device_name", "type": "str", "access": "const", "value": "JSON-Rhai IO-Modul" },
+    { "index": "0x1017", "sub": 0, "name": "heartbeat_ms", "type": "u16", "access": "rw", "value": 2000 },
+    { "index": "0x2100", "sub": 0, "name": "cycle_counter", "type": "i32", "access": "ro", "value": 0 },
+    { "index": "0x2101", "sub": 0, "name": "blink_on", "type": "bool", "access": "rw", "value": true },
+    { "index": "0x6000", "sub": 1, "name": "din_joystick", "type": "u8", "access": "ro", "value": 0 },
+    { "index": "0x6200", "sub": 1, "name": "dout_leds", "type": "u8", "access": "rw", "value": 0 }
+  ],
+  "scripts": [
+    {
+      "name": "init",
+      "run": "once",
+      "script": [
+        "print(\"node '\" + node_name() + \"' (id \" + node_id() + \") started\");",
+        "print(\"device_name = \" + od_read(0x1008, 0));",
+        "od_dump();",
+        "rgb(0, 0, 0);"
+      ]
+    },
+    {
+      "name": "io",
+      "run": "cyclic",
+      "period_ms": 100,
+      "script": [
+        "od_write(0x6000, 1, joy());",
+        "let d = od_read(0x6200, 1);",
+        "led(0, d & 1);",
+        "led(1, (d >> 1) & 1);",
+        "led(2, (d >> 2) & 1);"
+      ]
+    },
+    {
+      "name": "logic",
+      "run": "cyclic",
+      "period_ms": 500,
+      "script": [
+        "let c = od_read(0x2100, 0) + 1;",
+        "od_write(0x2100, 0, c);",
+        "let j = get(\"din_joystick\");",
+        "if j != 0 {",
+        "    set(\"dout_leds\", j & 7);",
+        "} else if get(\"blink_on\") {",
+        "    set(\"dout_leds\", 1 << (c % 3));",
+        "} else {",
+        "    set(\"dout_leds\", 0);",
+        "}"
+      ]
+    },
+    {
+      "name": "heartbeat",
+      "run": "cyclic",
+      "period_ms": 2000,
+      "script": [
+        "print(\"hb: uptime=\" + uptime_ms() / 1000 + \"s cycles=\" + get(\"cycle_counter\") + \" din=\" + get(\"din_joystick\") + \" dout=\" + get(\"dout_leds\"));"
+      ]
+    }
+  ]
+}

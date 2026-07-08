@@ -65,6 +65,32 @@ See [RHAI_PLAYGROUND.md](./RHAI_PLAYGROUND.md) for future API ideas, demo script
 - **OLED**: SSD1306 on SPI3 (PA0 SCK, PB8 MOSI, PE1 CS, PE0 D/C, PE3 RST).
 - **Debug**: ST-LINK VCP on USART1 (PB12 TX, PA8 RX).
 
+## JSON node (`json_node`) — PoC for CANbossTouch
+
+A JSON file ([`src/bin/json_node.json`](./src/bin/json_node.json)) describes **one CANopen-style node** the same way CANbossTouch's `eds/network.json` describes the network: an **object dictionary** (index/subindex/type/access/initial value) plus **Rhai scripts** (`once` at boot, `cyclic` with a period). The firmware (`src/bin/json_node.rs`) is fully generic — it parses the JSON, builds the OD in RAM, registers the OD/board API in Rhai and schedules the scripts. Change the JSON, rebuild, get a different node; no Rust changes. No LVGL, no BLE — output goes to defmt/RTT, board I/O (LEDs, joystick) plays the role of process data.
+
+```bash
+cargo run --release --bin json_node --features scripting,json
+```
+
+### Rhai API
+
+| Function | Description |
+|----------|-------------|
+| `od_read(index, sub)` | Read an OD entry by index/subindex, e.g. `od_read(0x6200, 1)` |
+| `od_write(index, sub, v)` | Write an OD entry (i32/bool/f32/string; coerced + clamped to the declared type) |
+| `get("name")` / `set("name", v)` | Same, by datapoint name |
+| `od_dump()` | Log the whole object dictionary over defmt |
+| `node_id()`, `node_name()` | Identity from the JSON |
+| `uptime_ms()`, `sleep(ms)` | Time |
+| `led(n, on)`, `rgb(r, g, b)`, `joy()` | Board I/O (same semantics as `ble_rhai`) |
+
+Every OD value change is logged (`od 0x6200.01 dout_leds = 2 (was 0)`) — think of it as a simulated PDO. `access` describes the (future) bus view via SDO/PDO: scripts are device-internal and may write `ro` entries — that is how a device updates its own inputs — only `const` is rejected. Integer writes are clamped to the declared type's range (`u8`, `i16`, …), a runaway script is aborted after 500k Rhai operations, and script errors are logged without stopping the scheduler.
+
+The demo node (id 16, "IO-Modul") mirrors the joystick into `0x6000.01 din_joystick`, runs a light chaser on `0x6200.01 dout_leds` (joystick overrides it), counts cycles in `0x2100.00` and prints a heartbeat line every 2 s.
+
+Next steps: hook the OD up to real CANopen (SDO server / PDO mapping via CANopenNode), load the JSON at runtime (UART/BLE/flash) instead of `include_str!`, drive script periods from OD entries (e.g. `0x1017`).
+
 ## Other examples
 
 Copied from `stm32wba5mm` and retargeted to `stm32wba65ri`. Pin assignments may differ from the Discovery kit — check schematics before running peripheral demos other than `blinky` and `ble_rhai`.
