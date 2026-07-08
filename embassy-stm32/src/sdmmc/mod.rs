@@ -1828,9 +1828,16 @@ impl<'d> Sdmmc<'d> {
             return Err(MmcError::Crc);
         }
 
+        // The `sdio` crate's `Response::from_words` expects little-endian words
+        // (buf[0] = least-significant word). The STM32 RESPx registers are big-endian:
+        // for a long (R2/R136) response respr(0) = RESP1 = most-significant [127:96].
+        // Reverse the word order so multi-word responses (CID/CSD) assemble correctly —
+        // otherwise CSD_STRUCTURE/C_SIZE are mis-parsed and the reported card size is wrong.
+        // (Single-word R48 responses are unaffected: n = 1 → buf[0] = respr(0).)
         let mut buf = [0u32; 4];
-        for i in 0..R::LEN.words() {
-            buf[i] = self.info.regs.respr(i).read().cardstatus();
+        let n = R::LEN.words();
+        for i in 0..n {
+            buf[i] = self.info.regs.respr(n - 1 - i).read().cardstatus();
         }
 
         Ok(::sdio::Response::from_words(&buf))
@@ -1961,9 +1968,13 @@ impl<'d> MmcBus for Sdmmc<'d> {
     }
 
     fn supports_frequency(&self) -> u32 {
-        if self.uhs_active() && self.has_dlyb() {
+        // Report the bus *capability* (from the tuning hardware wired up at construction),
+        // not the runtime UHS state. The sdio layer clamps the requested frequency against
+        // this value BEFORE the 1.8 V UHS switch, so gating on `uhs_active()` (still false at
+        // that point) capped every request to 50 MHz and made SDR50/SDR104 unreachable.
+        if self.has_dlyb() {
             208_000_000
-        } else if self.uhs_active() && (self.has_ckin() || self.has_dlyb()) {
+        } else if self.has_ckin() {
             100_000_000
         } else {
             50_000_000

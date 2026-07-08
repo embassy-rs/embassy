@@ -15,8 +15,10 @@ mod sd_save;
 use block_device_driver::BlockDevice as _;
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::rcc::{
+    CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk, VoltageScale,
+};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_time::{Delay, Instant};
@@ -36,6 +38,13 @@ const CHUNK_BYTES: usize = 32 * 1024;
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(rcc_config());
+
+    // The DK gates the microSD power rail (VDD_SD) via PWR_SD_EN (PQ7), active-high — UM3300 §8.9.
+    // Drive it high so the card is definitely powered, then report card-detect (PN12, low=present).
+    let _pwr_sd = Output::new(p.PQ7, Level::High, Speed::Low);
+    let card_detect = Input::new(p.PN12, Pull::Up);
+    embassy_time::Timer::after_millis(10).await;
+    info!("uSD_Detect (PN12) low=present: {}", card_detect.is_low());
 
     let vswitch = Output::new(p.PO5, Level::Low, Speed::Low);
 
@@ -58,8 +67,8 @@ async fn main(_spawner: Spawner) {
         sd_cfg,
     );
 
-    // 110 MHz triggers SDR104 negotiation (>100 MHz). With the default
-    // 100 MHz kernel + CLKDIV bypass the wire stays at 100 MHz.
+    // 110 MHz negotiates UHS-I SDR104 (1.8 V switch + DLYB RX tuning). Needs the patched
+    // sdio crate with the correct 4-bit tuning pattern (see [patch.crates-io] in Cargo.toml).
     let mut storage = match DefaultBlockDevice::new_sd_card(&mut sd, 110_000_000, Delay).await {
         Ok(s) => s,
         Err(e) => {
@@ -153,6 +162,10 @@ async fn main(_spawner: Spawner) {
 
 fn rcc_config() -> Config {
     let mut config = Config::default();
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    config.rcc.supply_config = SupplyConfig::External;
+    // Test: force VOS low. Under External supply the VOS bit has no effect on VCORE per RM0486.
+    config.rcc.voltage_scale = VoltageScale::Scale0;
     config.rcc.pll1 = Some(Pll::Oscillator {
         source: Pllsel::Hsi,
         divm: Plldivm::Div4,

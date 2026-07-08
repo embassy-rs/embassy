@@ -29,7 +29,7 @@ use embassy_stm32::i2c::I2c;
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
 use embassy_stm32::peripherals::DCMIPP;
 use embassy_stm32::rcc::mux::{Dcmippsel, Ltdcsel};
-use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
+use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
 use embassy_stm32::rif::{RifMaster, RifMasterAttributes, RifPeripheral, RifPeripheralAttributes};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::sdmmc::sd::{Addressable, Card, CmdBlock, DataBlock, StorageDevice};
@@ -553,6 +553,11 @@ impl TimeSource for FixedTime {
 
 fn rcc_config() -> Config {
     let mut config = Config::default();
+    // The STM32N6570-DK supplies VCORE from an external SMPS (board default, UM3300
+    // Table 6). The embassy default (SupplyConfig::Smps) enables the *internal* SMPS,
+    // so VOSRDY never reaches the selected VOS level and init() hangs in the voltage-
+    // scaling wait. Selecting External clears SDEN → VOSRDY/ACTVOSRDY read ready.
+    config.rcc.supply_config = SupplyConfig::External;
     config.rcc.pll1 = Some(Pll::Oscillator {
         source: Pllsel::Hsi,
         divm: Plldivm::Div4,
