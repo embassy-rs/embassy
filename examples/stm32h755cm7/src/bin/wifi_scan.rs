@@ -127,7 +127,7 @@ async fn main(spawner: Spawner) {
     wl_reg.set_high();
     Timer::after_millis(500).await;
 
-    let (_net_device, mut control, runner) = cyw43::new_4373_sdio(state, sdmmc, fw, nvram).await.unwrap();
+    let (_net_device, mut control, runner) = cyw43::new_4373_sdio(state, sdmmc, fw, nvram, 12_500_000).await.unwrap();
 
     info!("spawn task");
     spawner.spawn(unwrap!(cyw43_task(runner)));
