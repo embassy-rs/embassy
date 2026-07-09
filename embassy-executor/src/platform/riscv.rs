@@ -69,6 +69,7 @@ mod thread {
                         }
                         // if not, wait for interrupt
                         else {
+                            self.inner.trace_system_idle();
                             core::arch::asm!("wfi");
                         }
                     });

@@ -142,6 +142,7 @@ mod thread {
                             SIGNAL_WORK_THREAD_MODE.store(false, core::sync::atomic::Ordering::SeqCst);
                         } else {
                             // if not, sleep waiting for interrupt
+                            self.inner.trace_system_idle();
                             crate::low_power::sleep(cs);
                         }
                     });
