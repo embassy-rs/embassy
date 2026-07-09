@@ -18,6 +18,7 @@ use sdio_host::sd::{CID, CSD, CardStatus};
 #[cfg(sdmmc_uhs)]
 use sdio_host::sd_cmd;
 
+use crate::atomic::AtomicModify;
 #[cfg(sdmmc_dlyb)]
 use crate::dlyb::DlybInstance;
 #[cfg(sdmmc_v1)]
@@ -30,7 +31,6 @@ use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
-use crate::reg::AtomicModify;
 use crate::time::Hertz;
 use crate::wait::block_for_us;
 #[cfg(sdmmc_uhs)]
