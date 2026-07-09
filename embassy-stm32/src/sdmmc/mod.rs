@@ -10,6 +10,7 @@ use core::task::Poll;
 
 use ::sdio::{MmcBus, MmcError};
 use aligned::{A4, Aligned};
+use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::Cmd;
@@ -1987,18 +1988,27 @@ impl<'d> MmcBus for Sdmmc<'d> {
 
     /// Wait for DAT1 to be pulled low.
     async fn wait_for_event(&mut self) -> Result<(), MmcError> {
+        if self._d1.is_none() || self._d1.as_ref().unwrap().is_low() {
+            return Ok(());
+        }
+
+        let _guard = OnDrop::new(|| {
+            self.info.regs.dctrl().modify(|w| w.set_sdioen(false));
+            self.info.regs.maskr().clear_bits(|w| w.set_sdioitie(false));
+        });
+
         poll_fn(|cx| {
             self.state.it_waker.register(cx.waker());
 
             compiler_fence(Ordering::SeqCst);
 
-            if self.info.regs.star().read().sdioit() {
-                self.info.regs.icr().write(|w| w.set_sdioitc(true));
+            self.info.regs.icr().write(|w| w.set_sdioitc(true));
+            self.info.regs.dctrl().modify(|w| w.set_sdioen(true));
+            self.info.regs.maskr().set_bits(|w| w.set_sdioitie(true));
 
+            if self._d1.as_ref().unwrap().is_low() {
                 Poll::Ready(())
             } else {
-                self.info.regs.maskr().set_bits(|w| w.set_sdioitie(true));
-
                 Poll::Pending
             }
         })
