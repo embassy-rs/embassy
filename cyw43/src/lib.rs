@@ -481,7 +481,7 @@ pub async fn new_sdio<'a, SDIO>(
 where
     SDIO: ::sdio::MmcBus,
 {
-    new_43439_sdio(state, sdio, firmware, nvram).await.unwrap()
+    new_43439_sdio(state, sdio, firmware, nvram, 50_000_000).await.unwrap()
 }
 
 /// Create a new instance of the CYW43 driver.
@@ -493,6 +493,7 @@ pub async fn new_43439_sdio<'a, SDIO>(
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
+    freq: u32,
 ) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>)>
 where
     SDIO: ::sdio::MmcBus,
@@ -511,9 +512,7 @@ where
         None,
     );
 
-    let config = sdio::Config { max_f: 50_000_000 };
-
-    runner.init(firmware, nvram, None, &config).await?;
+    runner.init(firmware, nvram, None, &sdio::Config { freq }).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -530,6 +529,7 @@ pub async fn new_4373_sdio<'a, SDIO>(
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
+    freq: u32,
 ) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw4373>)>
 where
     SDIO: ::sdio::MmcBus,
@@ -548,9 +548,7 @@ where
         None,
     );
 
-    let config = sdio::Config { max_f: 12_500_000 };
-
-    runner.init(firmware, nvram, None, &config).await?;
+    runner.init(firmware, nvram, None, &sdio::Config { freq }).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,

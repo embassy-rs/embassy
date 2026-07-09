@@ -2,6 +2,7 @@ use core::mem;
 
 use aligned::{A4, Aligned};
 use embassy_time::{Delay, Duration, Timer};
+use sdio::sdio::{CCCR_INT_ENABLE, CCCR_IO_ENABLE, CCCR_IO_READY};
 
 use crate::WithContext;
 use crate::consts::*;
@@ -49,7 +50,7 @@ async fn with_aligned<'a, R>(
 }
 
 pub struct Config {
-    pub max_f: u32,
+    pub freq: u32,
 }
 
 /// Doc
@@ -170,16 +171,20 @@ where
 
     async fn init<'a>(&mut self, _bluetooth_enabled: bool, config: &'a Config) -> crate::Result<()> {
         // acquire the bus
-        self.sdio.reacquire(config.max_f).await.map_err(|_| crate::Error)?;
+        self.sdio
+            .reacquire(config.freq)
+            .await
+            .map_err(|_| crate::Error)
+            .ctx("failed to acquire the bus")?;
 
         // whd_bus_sdio_init
 
         // set up backplane
         try_until(
             async || {
-                self.write8(FUNC_BUS, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8).await;
+                self.write8(FUNC_BUS, CCCR_IO_ENABLE, SDIO_FUNC_ENABLE_1 as u8).await;
 
-                self.read8(FUNC_BUS, SDIOD_CCCR_IOEN).await as u32 == SDIO_FUNC_ENABLE_1
+                self.read8(FUNC_BUS, CCCR_IO_ENABLE).await as u32 == SDIO_FUNC_ENABLE_1
             },
             Duration::from_millis(500),
         )
@@ -210,14 +215,14 @@ where
         // Enable/Disable Client interrupts
         self.write8(
             FUNC_BUS,
-            SDIOD_CCCR_INTEN,
+            CCCR_INT_ENABLE,
             (INTR_CTL_MASTER_EN | INTR_CTL_FUNC1_EN | INTR_CTL_FUNC2_EN) as u8,
         )
         .await;
 
         // Wait till the backplane is ready
         try_until(
-            async || self.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_1 != 0,
+            async || self.read8(FUNC_BUS, CCCR_IO_READY).await as u32 & SDIO_FUNC_READY_1 != 0,
             Duration::from_millis(500),
         )
         .await
