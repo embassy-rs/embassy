@@ -1,7 +1,7 @@
 use core::mem;
 
 use aligned::{A4, Aligned};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Duration};
 use sdio::sdio::{CCCR_INT_ENABLE, CCCR_IO_ENABLE, CCCR_IO_READY};
 
 use crate::WithContext;
@@ -384,7 +384,6 @@ where
     }
 
     async fn wait_for_event(&mut self) {
-        Timer::after(Duration::from_millis(10)).await;
-        // self.sdio.wait_for_event().await;
+        let _ = self.sdio.wait_for_event().await;
     }
 }
