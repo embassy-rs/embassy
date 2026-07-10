@@ -2,7 +2,7 @@
 #![allow(missing_docs)]
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
@@ -77,6 +77,7 @@ impl<I: Instance> interrupt::typelevel::Handler<I::Interrupt> for USBHostInterru
             regs.epr(index).write_value(epr_value);
 
             if rx_ready {
+                RX_COMPLETE[index].store(true, Ordering::Relaxed);
                 EP_IN_WAKERS[index].wake();
             }
             if tx_ready {
@@ -130,6 +131,11 @@ const NEW_AW: AtomicWaker = AtomicWaker::new();
 static BUS_WAKER: AtomicWaker = NEW_AW;
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
+/// Set on CTR_RX by the interrupt handler, consumed by [`Channel::read`].
+/// Disambiguates `STAT_RX == Disabled`: "packet received, data pending"
+/// vs "disabled by error recovery / never armed".
+const NEW_FLAG: AtomicBool = AtomicBool::new(false);
+static RX_COMPLETE: [AtomicBool; EP_COUNT] = [NEW_FLAG; EP_COUNT];
 
 fn convert_type(t: EndpointType) -> EpType {
     match t {
@@ -558,7 +564,16 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
 
         let timeout_ms = 1000;
 
-        self.activate_rx();
+        // A cancelled read leaves the channel armed and the packet may land
+        // (ACKed) unseen; re-arming over it would discard it, so only arm
+        // when neither armed nor holding an unread packet.
+        let stat = self.reg().read().stat_rx();
+        let armed_or_pending = matches!(stat, Stat::Valid)
+            || (matches!(stat, Stat::Disabled) && RX_COMPLETE[index].load(Ordering::Relaxed));
+        if !armed_or_pending {
+            RX_COMPLETE[index].store(false, Ordering::Relaxed);
+            self.activate_rx();
+        }
 
         let regs = I::regs();
 
@@ -584,6 +599,13 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
             let stat = self.reg().read().stat_rx();
             match stat {
                 Stat::Disabled => {
+                    if !RX_COMPLETE[index].load(Ordering::Relaxed) {
+                        // Disarmed without a completed reception (e.g. ISR error
+                        // recovery): re-arm instead of reading stale bytes.
+                        self.activate_rx();
+                        return Poll::Pending;
+                    }
+                    RX_COMPLETE[index].store(false, Ordering::Relaxed);
                     // Data available for read
                     let idest = &mut buf[count..];
                     let n = self.read_data(idest)?;
@@ -622,6 +644,11 @@ impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D>
         // Slot 0 is shared by all control pipes; re-point it at this device.
         self.restore_control_channel();
 
+        // SETUP starts a fresh transaction: discard leftovers from a
+        // cancelled earlier transfer.
+        self.disable_rx();
+        RX_COMPLETE[self.index].store(false, Ordering::Relaxed);
+
         let epr0 = I::regs().epr(0);
 
         // setup stage
@@ -650,6 +677,11 @@ impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D>
     {
         // Slot 0 is shared by all control pipes; re-point it at this device.
         self.restore_control_channel();
+
+        // SETUP starts a fresh transaction: discard leftovers from a
+        // cancelled earlier transfer.
+        self.disable_rx();
+        RX_COMPLETE[self.index].store(false, Ordering::Relaxed);
 
         let epr0 = I::regs().epr(0);
 
@@ -710,6 +742,14 @@ impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D>
 
 impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> Drop for Channel<'d, I, D, T> {
     fn drop(&mut self) {
+        if self.index != 0 {
+            // Disarm and clear stale state so the freed slot can be reused
+            // safely. Slot 0 is shared by all control pipes and is cleaned
+            // up per control transfer instead.
+            self.disable_rx();
+            self.disable_tx();
+            RX_COMPLETE[self.index].store(false, Ordering::Relaxed);
+        }
         let state = I::host_state();
         critical_section::with(|_| {
             let pipes = &state.allocated_pipes;
