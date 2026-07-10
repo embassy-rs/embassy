@@ -699,9 +699,9 @@ impl<'d> Channel<'d> {
     }
 
     /// Configure a linked-list transfer.
-    unsafe fn configure_linked_list<const ITEM_COUNT: usize>(
+    unsafe fn configure_linked_list<const N: usize>(
         &self,
-        table: &Table<ITEM_COUNT>,
+        table: &Table<N>,
         options: TransferOptions,
     ) {
         let info = self.info();
@@ -752,7 +752,7 @@ impl<'d> Channel<'d> {
         });
 
         let state = &STATE[self.channel as usize];
-        state.lli_state.count.store(ITEM_COUNT, Ordering::Relaxed);
+        state.lli_state.count.store(N, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
         state
             .lli_state
@@ -954,12 +954,12 @@ impl<'d> Channel<'d> {
     }
 
     /// Create a linked-list DMA transfer.
-    pub unsafe fn linked_list<'a, const ITEM_COUNT: usize>(
+    pub unsafe fn linked_list<'a, const N: usize>(
         &'a mut self,
-        table: Table<ITEM_COUNT>,
+        table: &'a Table<N>,
         options: TransferOptions,
-    ) -> LinkedListTransfer<'a, ITEM_COUNT> {
-        self.configure_linked_list(&table, options);
+    ) -> LinkedListTransfer<'a> {
+        self.configure_linked_list(table, options);
         self.start();
 
         LinkedListTransfer {
@@ -971,12 +971,12 @@ impl<'d> Channel<'d> {
 
 /// Linked-list DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
+pub struct LinkedListTransfer<'a> {
     channel: Channel<'a>,
     _wake_guard: WakeGuard,
 }
 
-impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> LinkedListTransfer<'a> {
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     ///
     /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
@@ -1023,7 +1023,7 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
     }
 }
 
-impl<'a, const ITEM_COUNT: usize> Drop for LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> Drop for LinkedListTransfer<'a> {
     fn drop(&mut self) {
         self.request_reset();
 
@@ -1032,8 +1032,8 @@ impl<'a, const ITEM_COUNT: usize> Drop for LinkedListTransfer<'a, ITEM_COUNT> {
     }
 }
 
-impl<'a, const ITEM_COUNT: usize> Unpin for LinkedListTransfer<'a, ITEM_COUNT> {}
-impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> Unpin for LinkedListTransfer<'a> {}
+impl<'a> Future for LinkedListTransfer<'a> {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let state = &STATE[self.channel.channel as usize];

@@ -126,7 +126,7 @@ impl LinearItem {
     /// Link to the next linear item at the given address.
     ///
     /// Enables channel update bits.
-    fn link_to(&mut self, next: u16) {
+    pub fn link_to(&mut self, next: u16) {
         let mut llr = regs::ChLlr(0);
 
         llr.set_ut1(true);
@@ -145,12 +145,12 @@ impl LinearItem {
     /// Unlink the next linear item.
     ///
     /// Disables channel update bits.
-    fn unlink(&mut self) {
+    pub fn unlink(&mut self) {
         self.llr = regs::ChLlr(0);
     }
 
     /// The item's transfer count in number of words.
-    fn transfer_count(&self) -> usize {
+    pub fn transfer_count(&self) -> usize {
         let word_size: WordSize = self.tr1.ddw().into();
         self.br1.bndt() as usize / word_size.bytes()
     }
