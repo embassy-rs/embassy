@@ -97,6 +97,24 @@ impl LinearItem {
         tr1.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
         tr1.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
 
+        // Set AHB port assignments for GPDMA (LPDMA does not have SAP/DAP).
+        // This matches the logic in Channel::configure() for non-linked-list
+        // transfers: memory is on Port0 (AXI), peripheral is on Port1 (AHB).
+        #[cfg(gpdma)]
+        {
+            use stm32_metapac::gpdma::vals::Ap;
+            tr1.set_sap(match dir {
+                Dir::MemoryToPeripheral => Ap::Port0, // Source is memory on AXI
+                Dir::PeripheralToMemory => Ap::Port1, // Source is peripheral on AHB
+                Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
+            });
+            tr1.set_dap(match dir {
+                Dir::MemoryToPeripheral => Ap::Port1, // Destination is peripheral on AHB
+                Dir::PeripheralToMemory => Ap::Port0, // Destination is memory on AXI
+                Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
+            });
+        }
+
         let mut tr2 = regs::ChTr2(0);
         tr2.set_dreq(match dir {
             Dir::MemoryToPeripheral => Dreq::DestinationPeripheral,
@@ -147,6 +165,16 @@ impl LinearItem {
     /// Disables channel update bits.
     pub fn unlink(&mut self) {
         self.llr = regs::ChLlr(0);
+    }
+
+    /// Set the transfer complete event mode (`TR2.TCEM`) for this item.
+    ///
+    /// In linked-list mode, the channel's TR2 register is overwritten by
+    /// each LLI when `UT2` is set, so TCEM must be configured per-item.
+    ///
+    /// See [`TransferCompleteMode`](super::TransferCompleteMode) for details.
+    pub fn set_transfer_complete_mode(&mut self, mode: super::TransferCompleteMode) {
+        self.tr2.set_tcem(mode.into());
     }
 
     /// The item's transfer count in number of words.

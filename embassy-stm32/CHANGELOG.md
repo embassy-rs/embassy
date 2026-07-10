@@ -23,6 +23,7 @@ DMA:
 - feat: stm32/dma: ungate `TransferOptions::burst_length` on GPDMA (was stm32n6-only)
 - fix: stm32/dma: auto-set `TR1.PAM = Pack` on GPDMA when source and destination widths differ, instead of silently zero-extending one beat per destination beat
 - fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
+- feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips

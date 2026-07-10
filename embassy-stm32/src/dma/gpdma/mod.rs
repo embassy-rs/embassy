@@ -117,6 +117,46 @@ impl From<RequestMode> for vals::Breq {
     }
 }
 
+/// Transfer complete event mode (`TR2.TCEM`).
+///
+/// Controls when the transfer-complete (and half-transfer) events are
+/// generated. For linked-list transfers, this is a per-item field loaded
+/// from each LLI when `UT2` is set.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TransferCompleteMode {
+    /// Generate TC/HT events at the end of each block transfer.
+    EachBlock,
+    /// Generate TC at the end of each LLI transfer (including loading the
+    /// next LLI). HT is generated at the half of the LLI data transfer.
+    EachLinkedListItem,
+    /// Generate TC only at the end of the last LLI transfer. HT is
+    /// generated at the half of the last LLI's data transfer.
+    LastLinkedListItem,
+}
+
+#[cfg(gpdma)]
+impl From<TransferCompleteMode> for pac::gpdma::vals::Tcem {
+    fn from(value: TransferCompleteMode) -> Self {
+        match value {
+            TransferCompleteMode::EachBlock => Self::EachBlock,
+            TransferCompleteMode::EachLinkedListItem => Self::EachLinkedListItem,
+            TransferCompleteMode::LastLinkedListItem => Self::LastLinkedListItem,
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<TransferCompleteMode> for pac::lpdma::vals::Tcem {
+    fn from(value: TransferCompleteMode) -> Self {
+        match value {
+            TransferCompleteMode::EachBlock => Self::EachBlock,
+            TransferCompleteMode::EachLinkedListItem => Self::EachLinkedListItem,
+            TransferCompleteMode::LastLinkedListItem => Self::LastLinkedListItem,
+        }
+    }
+}
+
 /// Input-trigger polarity for GPDMA triggered transfers.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -347,6 +387,12 @@ pub struct TransferOptions {
     pub burst_length: Burst,
     /// Select whether peripheral handshaking is done at burst or block level.
     pub request_mode: RequestMode,
+    /// Transfer complete event mode. Default `EachBlock`.
+    ///
+    /// For linked-list transfers, set this on each `LinearItem` via
+    /// [`LinearItem::set_transfer_complete_mode`](linked_list::LinearItem::set_transfer_complete_mode)
+    /// since the channel TR2 is overwritten by the first LLI when `UT2` is set.
+    pub transfer_complete_mode: TransferCompleteMode,
     /// Optional trigger-gated transfer configuration.
     pub trigger: Option<TriggerConfig>,
 }
@@ -364,6 +410,7 @@ impl Default for TransferOptions {
             #[cfg(not(stm32c5))]
             burst_length: Burst::_1Beats,
             request_mode: RequestMode::Burst,
+            transfer_complete_mode: TransferCompleteMode::EachBlock,
             trigger: None,
         }
     }
@@ -662,6 +709,7 @@ impl<'d> Channel<'d> {
             });
             w.set_breq(options.request_mode.into());
             w.set_reqsel(request);
+            w.set_tcem(options.transfer_complete_mode.into());
             if let Some(trigger) = options.trigger {
                 w.set_trigsel(trigger.signal);
                 w.set_trigpol(trigger.polarity.into());
@@ -699,11 +747,7 @@ impl<'d> Channel<'d> {
     }
 
     /// Configure a linked-list transfer.
-    unsafe fn configure_linked_list<const N: usize>(
-        &self,
-        table: &Table<N>,
-        options: TransferOptions,
-    ) {
+    unsafe fn configure_linked_list<const N: usize>(&self, table: &Table<N>, options: TransferOptions) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
 
@@ -966,6 +1010,23 @@ impl<'d> Channel<'d> {
             _wake_guard: self.info().wake_guard(),
             channel: self.reborrow(),
         }
+    }
+
+    /// Reconfigure and restart a linked-list transfer from item[0].
+    ///
+    /// Resets the channel, clears all flags, reconfigures LBAR/BR1/LLR/CR
+    /// from the table and options, and re-enables the channel. This is
+    /// intended for use cases that need to restart the same linked-list
+    /// chain from the beginning.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that no other code is concurrently accessing
+    /// the channel registers, and that the `table` remains valid for the
+    /// duration of the transfer.
+    pub unsafe fn restart_linked_list<const N: usize>(&self, table: &Table<N>, options: TransferOptions) {
+        self.configure_linked_list(table, options);
+        self.start();
     }
 }
 
