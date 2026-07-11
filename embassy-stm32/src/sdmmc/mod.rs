@@ -1780,7 +1780,7 @@ impl<'d> Sdmmc<'d> {
     where
         R: ::sdio::Response,
     {
-        debug!("(1) cmd arg: 0x{:x} 0x{:x}", cmd, arg);
+        trace!("cmd arg: 0x{:x} 0x{:x}", cmd, arg);
 
         self.clear_interrupt_flags();
         // CP state machine must be idle
@@ -2125,7 +2125,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
     where
         C: ::sdio::BlockReadCommand + 'a,
     {
-        debug!(
+        trace!(
             "read_blocks (cmd, block_size, block_count, buf len): {}, {}, {}, {}",
             C::INDEX,
             cmd.block_size().len(),
@@ -2145,7 +2145,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
             .map_err(|_| MmcError::Other)?;
 
         #[cfg(feature = "defmt")]
-        debug!("read_blocks buf: {}", **cmd.buf());
+        trace!("read_blocks buf: {}", **cmd.buf());
 
         resp
     }
@@ -2154,7 +2154,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
     where
         C: ::sdio::BlockWriteCommand + 'a,
     {
-        debug!(
+        trace!(
             "write_blocks (cmd, block_size, block_count, buf len): {}, {}, {}, {}",
             C::INDEX,
             cmd.block_size().len(),
@@ -2180,7 +2180,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
             .map_err(|_| MmcError::Other)?;
 
         #[cfg(feature = "defmt")]
-        debug!("write_blocks buf: {}", **cmd.buf());
+        trace!("write_blocks buf: {}", **cmd.buf());
 
         resp
     }
