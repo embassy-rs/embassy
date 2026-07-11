@@ -163,9 +163,8 @@ where
     SPI: SpiBusCyw43,
 {
     const TYPE: BusType = BusType::Spi;
-    type Config = ();
 
-    async fn init<'a>(&mut self, bluetooth_enabled: bool, _config: &'a ()) -> crate::Result<()> {
+    async fn init<'a>(&mut self, bluetooth_enabled: bool) -> crate::Result<()> {
         fn cmp<R: Eq>(left: R, right: R) -> Result<(), ()> {
             if left == right { Ok(()) } else { Err(()) }
         }

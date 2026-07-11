@@ -456,7 +456,7 @@ where
         None,
     );
 
-    runner.init(firmware, nvram, None, &()).await.unwrap();
+    runner.init(firmware, nvram, None).await.unwrap();
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -503,7 +503,7 @@ where
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio),
+        SdioBus::new(sdio, freq),
         Cyw43439,
         &state.ioctl_state,
         &state.net.events,
@@ -512,7 +512,7 @@ where
         None,
     );
 
-    runner.init(firmware, nvram, None, &sdio::Config { freq }).await?;
+    runner.init(firmware, nvram, None).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -539,7 +539,7 @@ where
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio),
+        SdioBus::new(sdio, freq),
         Cyw4373,
         &state.ioctl_state,
         &state.net.events,
@@ -548,7 +548,7 @@ where
         None,
     );
 
-    runner.init(firmware, nvram, None, &sdio::Config { freq }).await?;
+    runner.init(firmware, nvram, None).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -597,7 +597,7 @@ where
     );
 
     runner
-        .init(wifi_firmware, nvram, Some(bluetooth_firmware), &())
+        .init(wifi_firmware, nvram, Some(bluetooth_firmware))
         .await
         .unwrap();
     let control = Control::new(
@@ -615,7 +615,7 @@ where
 macro_rules! aligned_bytes {
     ($path:expr) => {{
         {
-            static BYTES: &cyw43::Aligned<cyw43::A4, [u8]> = &cyw43::Aligned(*include_bytes!($path));
+            static BYTES: &::cyw43::Aligned<cyw43::A4, [u8]> = &::cyw43::Aligned(*include_bytes!($path));
 
             BYTES
         }
