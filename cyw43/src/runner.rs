@@ -47,9 +47,8 @@ pub(crate) enum BusType {
 
 pub(crate) trait SealedBus {
     const TYPE: BusType;
-    type Config;
 
-    async fn init<'a>(&mut self, bluetooth: bool, config: &'a Self::Config) -> crate::Result<()>;
+    async fn init<'a>(&mut self, bluetooth: bool) -> crate::Result<()>;
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     /// The first 4 bytes of this buffer are reserved for the cmd word
     async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
@@ -476,7 +475,6 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         wifi_fw: &Aligned<A4, [u8]>,
         nvram: &Aligned<A4, [u8]>,
         bt_fw: Option<&[u8]>,
-        config: &BUS::Config,
     ) -> crate::Result<()> {
         let mut buf = Aligned([0u8; 4 + BLOCK_BUFFER_SIZE]);
 
@@ -485,7 +483,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             ChipId::C4373 => debug!("using cyw43437"),
         }
 
-        self.bus.init(bt_fw.is_some(), config).await?;
+        self.bus.init(bt_fw.is_some()).await?;
 
         // Init ALP (Active Low Power) clock
         debug!("init alp");
