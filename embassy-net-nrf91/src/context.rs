@@ -14,6 +14,109 @@ pub struct Control<'a> {
     cid: u8,
 }
 
+/// Set of LTE bands (1..=88) as a bitmap; bit 0 of byte 0 is band 1.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Bands([u8; 11]);
+
+impl Bands {
+    /// Highest band number supported by %XBANDLOCK.
+    pub const MAX_BAND: u8 = 88;
+
+    /// Empty set.
+    pub const fn new() -> Self {
+        Self([0; 11])
+    }
+
+    /// Set with the given band numbers enabled. Panics if a band is not 1..=88.
+    pub const fn from_slice(bands: &[u8]) -> Self {
+        let mut set = Self::new();
+        let mut i = 0;
+        while i < bands.len() {
+            set.set(bands[i], true);
+            i += 1;
+        }
+        set
+    }
+
+    /// Set from its raw bitmap.
+    pub const fn from_bytes(bytes: [u8; 11]) -> Self {
+        Self(bytes)
+    }
+
+    /// The raw bitmap.
+    pub const fn to_bytes(self) -> [u8; 11] {
+        self.0
+    }
+
+    /// Enable or disable a band. Panics if `band` is not 1..=88.
+    pub const fn set(&mut self, band: u8, enabled: bool) {
+        core::assert!(band >= 1 && band <= Self::MAX_BAND, "band must be 1..=88");
+        let bit = (band - 1) as usize;
+        if enabled {
+            self.0[bit / 8] |= 1 << (bit % 8);
+        } else {
+            self.0[bit / 8] &= !(1 << (bit % 8));
+        }
+    }
+
+    /// Whether a band is enabled. Panics if `band` is not 1..=88.
+    pub const fn is_enabled(&self, band: u8) -> bool {
+        core::assert!(band >= 1 && band <= Self::MAX_BAND, "band must be 1..=88");
+        let bit = (band - 1) as usize;
+        self.0[bit / 8] & (1 << (bit % 8)) != 0
+    }
+
+    /// Whether no band is enabled.
+    pub const fn is_empty(&self) -> bool {
+        let mut i = 0;
+        while i < self.0.len() {
+            if self.0[i] != 0 {
+                return false;
+            }
+            i += 1;
+        }
+        true
+    }
+}
+
+impl Default for Bands {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Bands {
+    fn format(&self, f: defmt::Formatter<'_>) {
+        defmt::write!(f, "[");
+        let mut first = true;
+        for band in 1..=Self::MAX_BAND {
+            if self.is_enabled(band) {
+                defmt::write!(f, "{}B{}", if first { "" } else { "," }, band);
+                first = false;
+            }
+        }
+        defmt::write!(f, "]");
+    }
+}
+
+/// Builds the %XBANDLOCK bit string: rightmost bit is band 1, leading zeroes omitted.
+fn band_mask(bands: Bands, buf: &mut [u8; Bands::MAX_BAND as usize]) -> Result<&[u8], Error> {
+    let mut max = 0;
+    for band in 1..=Bands::MAX_BAND {
+        if bands.is_enabled(band) {
+            max = band;
+        }
+    }
+    if max == 0 {
+        return Err(Error::EmptyBands);
+    }
+    for band in 1..=max {
+        buf[(max - band) as usize] = if bands.is_enabled(band) { b'1' } else { b'0' };
+    }
+    Ok(&buf[..max as usize])
+}
+
 /// Configuration for a given context
 pub struct Config<'a> {
     /// Desired APN address.
@@ -24,6 +127,20 @@ pub struct Config<'a> {
     pub auth: Option<(&'a [u8], &'a [u8])>,
     /// SIM pin
     pub pin: Option<&'a [u8]>,
+    /// LTE band lock; None leaves any existing lock unchanged.
+    pub band_lock: Option<BandLock>,
+}
+
+/// LTE band lock (AT%XBANDLOCK).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum BandLock {
+    /// Remove any existing band lock.
+    Remove,
+    /// Lock to the given bands until the next modem reset.
+    Runtime(Bands),
+    /// Lock to the given bands, persisted in modem flash across resets.
+    Permanent(Bands),
 }
 
 /// Authentication protocol.
@@ -49,6 +166,8 @@ pub enum Error {
     AtParseError,
     /// Error parsing IP addresses.
     AddrParseError,
+    /// Band lock requested with an empty band set.
+    EmptyBands,
 }
 
 impl From<at_commands::parser::ParseError> for Error {
@@ -112,6 +231,10 @@ impl<'a> Control<'a> {
         let n = self.control.at_command(op, &mut buf).await;
         CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
 
+        if let Some(band_lock) = config.band_lock {
+            self.set_band_lock(band_lock).await?;
+        }
+
         let op = CommandBuilder::create_set(&mut cmd, true)
             .named("+CGDCONT")
             .with_int_parameter(self.cid)
@@ -146,6 +269,31 @@ impl<'a> Control<'a> {
             // Ignore ERROR which means no pin required
         }
 
+        Ok(())
+    }
+
+    /// Set or remove the LTE band lock. Must be issued while the modem is
+    /// deactivated; [`configure()`] applies [`Config::band_lock`] automatically.
+    pub async fn set_band_lock(&self, band_lock: BandLock) -> Result<(), Error> {
+        let mut cmd: [u8; 128] = [0; 128];
+        let mut buf: [u8; 128] = [0; 128];
+
+        let builder = CommandBuilder::create_set(&mut cmd, true).named("%XBANDLOCK");
+        let op = match band_lock {
+            BandLock::Remove => builder.with_int_parameter(0).finish(),
+            BandLock::Permanent(bands) | BandLock::Runtime(bands) => {
+                let mut mask = [0u8; Bands::MAX_BAND as usize];
+                let mask = band_mask(bands, &mut mask)?;
+                let operation = match band_lock {
+                    BandLock::Permanent(_) => 1,
+                    _ => 2,
+                };
+                builder.with_int_parameter(operation).with_string_parameter(mask).finish()
+            }
+        }
+        .map_err(|_| Error::BufferTooSmall)?;
+        let n = self.control.at_command(op, &mut buf).await;
+        CommandParser::parse(&buf[..n]).expect_identifier(b"OK").finish()?;
         Ok(())
     }
 

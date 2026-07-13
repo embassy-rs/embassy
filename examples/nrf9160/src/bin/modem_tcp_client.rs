@@ -164,6 +164,7 @@ async fn main(spawner: Spawner) {
             auth_prot: context::AuthProt::Pap,
             auth: Some((b"orange", b"orange")),
             pin: None,
+            band_lock: None,
         },
         stack
     )));
