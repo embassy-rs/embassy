@@ -297,7 +297,11 @@ impl<'d> DacChannel<'d, Async> {
                 request,
                 W::dma_ptr(info.regs, idx),
                 W::dma_buf_mut(dma_buf),
-                Default::default(),
+                crate::dma::TransferOptions {
+                    #[cfg(any(bdma, dma, mdma))]
+                    packing: false,
+                    ..Default::default()
+                },
             )
         };
         RingBufferedDacChannel::new(ring_buf, info, state, idx)
@@ -323,6 +327,8 @@ impl<'d> DacChannel<'d, Async> {
             circular,
             half_transfer_ir: false,
             complete_transfer_ir: !circular,
+            #[cfg(any(bdma, dma, mdma))]
+            packing: false,
             ..Default::default()
         };
 
