@@ -75,7 +75,6 @@ impl<MODE: Mode> Flash<'_, MODE> {
         let mut config = qspi::Config::default();
 
         config.memory_size = MemorySize::_8MiB;
-        config.address_size = AddressSize::_24Bit;
         config.prescaler = 1;
         config.cs_high_time = ChipSelectHighTime::_2Cycle;
         config.fifo_threshold = FIFOThresholdLevel::_1Bytes;
@@ -91,6 +90,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
             dwidth: QspiWidth::QUAD,
             instruction: FAST_READ_QUAD_IO_CMD,
             address: Some(address),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_8,
         };
         self.qspi.blocking_read(buffer, transaction);
@@ -104,6 +104,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
             dwidth: QspiWidth::SING,
             instruction: 0x4B,
             address: Some(0x00),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_8,
         };
         self.qspi.blocking_read(&mut buffer, transaction);
@@ -131,6 +132,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
                 dwidth: QspiWidth::QUAD,
                 instruction: WRITE_CMD,
                 address: Some(address),
+                address_size: AddressSize::_24Bit,
                 dummy: DummyCycles::_0,
             };
 
@@ -164,6 +166,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
                 dwidth: QspiWidth::NONE,
                 instruction: SECTOR_ERASE_CMD,
                 address: Some(address),
+                address_size: AddressSize::_24Bit,
                 dummy: DummyCycles::_0,
             };
 
@@ -192,6 +195,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
             dwidth: QspiWidth::NONE,
             instruction: WRITE_ENABLE_CMD,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_command(transaction);
@@ -213,6 +217,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
             dwidth: QspiWidth::SING,
             instruction: READ_STATUS_REGISTER_CMD,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_read(&mut status, transaction);
@@ -226,6 +231,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
             dwidth: QspiWidth::NONE,
             instruction: RESET_ENABLE_CMD,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_command(transaction);
@@ -236,6 +242,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
             dwidth: QspiWidth::NONE,
             instruction: RESET_MEMORY_CMD,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_command(transaction);
@@ -252,6 +259,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
             dwidth: QspiWidth::SING,
             instruction: WRITE_STATUS_REGISTER_CMD,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_write(&[value], transaction);
@@ -268,6 +276,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
             dwidth: QspiWidth::SING,
             instruction: SET_READ_PARAMETERS_CMD,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_write(&[value], transaction);
@@ -333,6 +342,7 @@ impl<'a> Flash<'a, Async> {
             dwidth: QspiWidth::QUAD,
             instruction: FAST_READ_QUAD_IO_CMD,
             address: Some(address),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_8,
         };
         self.qspi.read_dma(buffer, transaction).await;
@@ -358,6 +368,7 @@ impl<'a> Flash<'a, Async> {
                 dwidth: QspiWidth::QUAD,
                 instruction: WRITE_CMD,
                 address: Some(address),
+                address_size: AddressSize::_24Bit,
                 dummy: DummyCycles::_0,
             };
 
@@ -392,6 +403,7 @@ impl<'a> Flash<'a, Async> {
                 dwidth: QspiWidth::NONE,
                 instruction: SECTOR_ERASE_CMD,
                 address: Some(address),
+                address_size: AddressSize::_24Bit,
                 dummy: DummyCycles::_0,
             };
             self.qspi.blocking_command(transaction);
@@ -420,6 +432,7 @@ impl<'a> Flash<'a, Async> {
             dwidth: QspiWidth::SING,
             instruction: READ_STATUS_REGISTER_CMD,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
 
