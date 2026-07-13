@@ -629,7 +629,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         let arr = regs.arr().read().arr();
         let psc = regs.psc().read();
 
-        timer_f / arr / (psc + 1)
+        timer_f / (arr + 1) / (psc + 1)
     }
 
     /// Get the clock frequency of the timer (before prescaler is applied).
