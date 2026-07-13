@@ -152,9 +152,6 @@ impl<'a> TDesRing<'a> {
 
     /// Return the next available packet buffer for transmitting, or None
     pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
-        #[cfg(feature = "ptp")]
-        self.collect_completed();
-
         let d = &mut self.descriptors[self.index];
         if d.available() {
             Some(&mut self.buffers[self.index].0)
@@ -424,7 +421,9 @@ impl<'a> RDesRing<'a> {
         let info = self.fast_forward()?;
 
         #[cfg(feature = "ptp")]
-        self.state.capture(self.index, self.timestamp(&info, self.index)?);
+        if !self.state.captured() {
+            self.state.capture(self.index, self.timestamp(&info, self.index)?);
+        }
 
         return Some(&mut self.buffers[self.index].0[..info.len() as usize]);
     }

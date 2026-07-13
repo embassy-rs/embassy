@@ -145,8 +145,19 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
         #[cfg(feature = "ptp")]
         self.tx.collect_completed();
 
-        if self.rx.available().is_some() && self.tx.available().is_some() {
-            Some((RxToken { rx: &mut self.rx }, TxToken { tx: &mut self.tx }))
+        if let Some(rx) = self.rx.available()
+            && let Some(tx) = self.tx.available()
+        {
+            Some((
+                RxToken {
+                    pkt: rx,
+                    rx: &mut self.rx,
+                },
+                TxToken {
+                    pkt: tx,
+                    tx: &mut self.tx,
+                },
+            ))
         } else {
             None
         }
@@ -154,8 +165,11 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
 
     fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
         WAKER.register(cx.waker());
-        if self.tx.available().is_some() {
-            Some(TxToken { tx: &mut self.tx })
+        if let Some(tx) = self.tx.available() {
+            Some(TxToken {
+                pkt: tx,
+                tx: &mut self.tx,
+            })
         } else {
             None
         }
@@ -193,6 +207,7 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
 
 /// `embassy-net` RX token.
 pub struct RxToken<'a, 'd> {
+    pkt: *mut [u8],
     rx: &'a mut RDesRing<'d>,
 }
 
@@ -202,13 +217,12 @@ impl<'a, 'd> embassy_net_driver::RxToken for RxToken<'a, 'd> {
         self.rx.meta()
     }
 
+    #[inline]
     fn consume<R, F>(self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        // NOTE(unwrap): we checked the queue wasn't full when creating the token.
-        let pkt = unwrap!(self.rx.available());
-        let r = f(pkt);
+        let r = f(unsafe { &mut *self.pkt });
         self.rx.pop_packet();
         r
     }
@@ -216,6 +230,7 @@ impl<'a, 'd> embassy_net_driver::RxToken for RxToken<'a, 'd> {
 
 /// `embassy-net` TX token.
 pub struct TxToken<'a, 'd> {
+    pkt: *mut [u8],
     tx: &'a mut TDesRing<'d>,
 }
 
@@ -225,12 +240,13 @@ impl<'a, 'd> embassy_net_driver::TxToken for TxToken<'a, 'd> {
         self.tx.set_meta(meta);
     }
 
+    #[inline]
     fn consume<R, F>(self, len: usize, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
     {
         // NOTE(unwrap): we checked the queue wasn't full when creating the token.
-        let pkt = unwrap!(self.tx.available());
+        let pkt = unsafe { &mut *self.pkt };
         let r = f(&mut pkt[..len]);
         self.tx.transmit(len);
         r

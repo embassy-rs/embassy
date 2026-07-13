@@ -33,6 +33,7 @@ impl<const TX: usize, const RX: usize> PacketState<TX, RX> {
                 ptp: self.ptp.rx(),
                 meta: &mut self.rx_meta,
                 next_rx_id: 1,
+                captured: false,
             },
         )
     }
@@ -87,12 +88,18 @@ pub(crate) struct RxPacketStateRing<'a> {
     ptp: RxPtpRing<'a>,
     meta: &'a mut [u32],
     next_rx_id: u32,
+    captured: bool,
 }
 
 impl RxPacketStateRing<'_> {
     pub(crate) fn capture(&mut self, index: usize, timestamp: Option<PtpTimestamp>) {
         let packet_id = self.ensure_rx(index);
         self.ptp.store(packet_id, timestamp);
+        self.captured = true;
+    }
+
+    pub(crate) fn captured(&self) -> bool {
+        self.captured
     }
 
     pub(crate) fn id(&self, index: usize) -> u32 {
@@ -101,6 +108,7 @@ impl RxPacketStateRing<'_> {
 
     pub(crate) fn clear(&mut self, index: usize) {
         self.meta[index] = 0u32;
+        self.captured = false;
     }
 
     fn ensure_rx(&mut self, index: usize) -> u32 {
