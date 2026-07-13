@@ -487,7 +487,10 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     /// The timer will count for `clocks` clock cycles before wrapping.
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
-    pub fn set_period_clocks(&self, clocks: u64, round: RoundTo) {
+    pub fn set_period_clocks(&self, mut clocks: u64, round: RoundTo) {
+        if T::is_center_aligned() {
+            clocks = clocks / 2;
+        }
         self.set_period_clocks_internal(clocks, round, T::Word::bits());
     }
 

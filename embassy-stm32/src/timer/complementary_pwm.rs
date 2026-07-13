@@ -473,14 +473,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Note: that the frequency will not be applied in the timer until an update event
     /// occurs.
     pub fn set_frequency(&mut self, freq: Hertz) {
-        let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
-            2u64
-        } else {
-            1u64
-        };
-        let timer_f = T::frequency().0 as u64;
-        let clocks = timer_f / (freq.0 as u64 * multiplier);
-        self.inner.set_period_clocks_internal(clocks, RoundTo::Slower, 16);
+        self.inner.set_frequency(freq, RoundTo::Slower);
     }
 
     /// Set the PWM period in milliseconds.
@@ -491,12 +484,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     pub fn set_period_ms(&mut self, ms: u32) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * ms as u64 / 1_000;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period_ms(ms, RoundTo::Slower);
     }
 
     /// Set the PWM period in microseconds.
@@ -507,12 +495,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     pub fn set_period_us(&mut self, us: u32) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * us as u64 / 1_000_000;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period_us(us, RoundTo::Slower);
     }
 
     /// Set the PWM period in seconds.
@@ -523,12 +506,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     pub fn set_period_secs(&mut self, secs: u32) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * secs as u64;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period_secs(secs, RoundTo::Slower);
     }
 
     /// Set the PWM period using an `embassy_time::Duration`.
@@ -540,12 +518,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// occurs.
     #[cfg(feature = "time")]
     pub fn set_period(&mut self, period: embassy_time::Duration) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * period.as_ticks() / embassy_time::TICK_HZ;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period(period, RoundTo::Slower);
     }
 
     /// Get max duty value.

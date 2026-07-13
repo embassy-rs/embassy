@@ -159,9 +159,13 @@ trait SealedInstance: RccPeripheral + PeripheralType {
     fn state() -> &'static State;
 }
 
+trait CenterAligned {
+    fn is_center_aligned() -> bool;
+}
+
 /// Core timer instance.
 #[allow(private_bounds)]
-pub trait CoreInstance: SealedInstance + 'static {
+pub trait CoreInstance: SealedInstance + CenterAligned + 'static {
     /// Update Interrupt for this timer.
     type UpdateInterrupt: interrupt::typelevel::Interrupt;
 
@@ -313,11 +317,35 @@ macro_rules! impl_general_4ch_blank_sealed {
     };
 }
 
+#[allow(unused)]
+macro_rules! impl_never_center_aligned {
+    ($inst:ident) => {
+        impl CenterAligned for crate::peripherals::$inst {
+            fn is_center_aligned() -> bool {
+                false
+            }
+        }
+    };
+}
+
+#[allow(unused)]
+macro_rules! impl_maybe_center_aligned {
+    ($inst:ident) => {
+        impl CenterAligned for crate::peripherals::$inst {
+            fn is_center_aligned() -> bool {
+                let cr1 = unsafe { crate::pac::timer::TimGp16::from_ptr(Self::regs()) }.cr1().read();
+                low_level::CountingMode::from((cr1.cms(), cr1.dir())).is_center_aligned()
+            }
+        }
+    };
+}
+
 foreach_interrupt! {
     ($inst:ident, timer, TIM_BASIC, UP, $irq:ident) => {
         impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
+        impl_never_center_aligned!($inst);
     };
 
     ($inst:ident, timer, TIM_1CH, UP, $irq:ident) => {
@@ -327,6 +355,7 @@ foreach_interrupt! {
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
 
@@ -337,6 +366,7 @@ foreach_interrupt! {
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
 
@@ -347,6 +377,7 @@ foreach_interrupt! {
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
 
@@ -357,6 +388,7 @@ foreach_interrupt! {
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl GeneralInstance32bit4Channel for crate::peripherals::$inst {}
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
@@ -368,6 +400,7 @@ foreach_interrupt! {
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl_general_4ch_blank_sealed!($inst);
         impl_advanced_1ch!($inst);
         impl AdvancedInstance2Channel for crate::peripherals::$inst {}
@@ -381,6 +414,7 @@ foreach_interrupt! {
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl_general_4ch_blank_sealed!($inst);
         impl_advanced_1ch!($inst);
         impl AdvancedInstance2Channel for crate::peripherals::$inst {}
@@ -394,6 +428,7 @@ foreach_interrupt! {
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl_general_4ch_blank_sealed!($inst);
         impl_advanced_1ch!($inst);
         impl AdvancedInstance2Channel for crate::peripherals::$inst {}
