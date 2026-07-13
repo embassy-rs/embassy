@@ -1,10 +1,11 @@
 use core::sync::atomic::{Ordering, fence};
 
+#[cfg(feature = "ptp")]
 use embassy_net_driver::PacketMeta;
 use vcell::VolatileCell;
 
-use crate::eth::packet_state::{RxPacketStateRing, TxPacketStateRing};
-use crate::eth::ptp::PtpTimestamp;
+#[cfg(feature = "ptp")]
+use crate::eth::ptp::{PtpTimestamp, RxPacketStateRing, TxPacketStateRing};
 use crate::eth::{Packet, RX_BUFFER_SIZE, TX_BUFFER_SIZE};
 #[cfg(eth_v2)]
 use crate::pac::ETH;
@@ -106,6 +107,7 @@ impl TDes {
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
     buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
+    #[cfg(feature = "ptp")]
     state: TxPacketStateRing<'a>,
     index: usize,
     #[cfg(feature = "ptp")]
@@ -117,7 +119,7 @@ impl<'a> TDesRing<'a> {
     pub fn new(
         descriptors: &'a mut [TDes],
         buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-        state: TxPacketStateRing<'a>,
+        #[cfg(feature = "ptp")] state: TxPacketStateRing<'a>,
     ) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
@@ -136,6 +138,7 @@ impl<'a> TDesRing<'a> {
         Self {
             descriptors,
             buffers,
+            #[cfg(feature = "ptp")]
             state,
             index: 0,
             #[cfg(feature = "ptp")]
@@ -149,6 +152,7 @@ impl<'a> TDesRing<'a> {
 
     /// Return the next available packet buffer for transmitting, or None
     pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
+        #[cfg(feature = "ptp")]
         self.collect_completed();
 
         let d = &mut self.descriptors[self.index];
@@ -159,8 +163,8 @@ impl<'a> TDesRing<'a> {
         }
     }
 
+    #[cfg(feature = "ptp")]
     pub(crate) fn collect_completed(&mut self) {
-        #[cfg(feature = "ptp")]
         while self.state.pending(self.completion_index) {
             let descriptor = &self.descriptors[self.completion_index];
             if !descriptor.available() {
@@ -194,8 +198,9 @@ impl<'a> TDesRing<'a> {
         }
     }
 
+    #[cfg(feature = "ptp")]
     pub(crate) fn set_meta(&mut self, meta: PacketMeta) {
-        self.state.set_meta(meta);
+        self.state.set_id(meta.id);
     }
 
     /// Transmit the packet written in a buffer returned by `available`.
@@ -220,6 +225,7 @@ impl<'a> TDesRing<'a> {
             );
         }
         td.tdes2.set(tdes2);
+        #[cfg(feature = "ptp")]
         self.state.commit(self.index);
 
         // FD: Contains first buffer of packet
@@ -312,6 +318,7 @@ impl RDes {
         self.rdes3.get() & (EMAC_DES3_OWN | EMAC_DES3_CTXT) == EMAC_DES3_CTXT
     }
 
+    #[cfg(feature = "ptp")]
     fn context_timestamp(&self) -> Option<PtpTimestamp> {
         let corrupted = self.rdes0.get() == u32::MAX && self.rdes1.get() == u32::MAX;
         (self.context_available() && !corrupted).then(|| PtpTimestamp {
@@ -325,8 +332,10 @@ impl RDes {
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
     buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
+    #[cfg(feature = "ptp")]
     state: RxPacketStateRing<'a>,
     index: usize,
+    #[cfg(feature = "ptp")]
     consume_context: bool,
 }
 
@@ -334,7 +343,7 @@ impl<'a> RDesRing<'a> {
     pub(crate) fn new(
         descriptors: &'a mut [RDes],
         buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
-        state: RxPacketStateRing<'a>,
+        #[cfg(feature = "ptp")] state: RxPacketStateRing<'a>,
     ) -> Self {
         assert!(descriptors.len() > 1);
         assert!(descriptors.len() == buffers.len());
@@ -352,8 +361,10 @@ impl<'a> RDesRing<'a> {
         Self {
             descriptors,
             buffers,
+            #[cfg(feature = "ptp")]
             state,
             index: 0,
+            #[cfg(feature = "ptp")]
             consume_context: false,
         }
     }
@@ -373,14 +384,14 @@ impl<'a> RDesRing<'a> {
             }
 
             if descriptor.context_available() {
-                self.pop_current(false);
+                self.pop_current();
                 continue;
             }
 
             // If packet is invalid, pop it and try again.
             if !descriptor.valid() {
                 warn!("invalid packet: {:08x}", descriptor.rdes0.get());
-                self.pop_current(false);
+                self.pop_current();
                 continue;
             }
 
@@ -388,14 +399,20 @@ impl<'a> RDesRing<'a> {
         }
 
         let len = (self.descriptors[self.index].rdes3.get() & EMAC_RDES3_PKTLEN) as usize;
-        let Some((timestamp, consume_context)) = self.timestamp(self.index) else {
-            return None;
-        };
-        self.consume_context = consume_context;
-        self.state.capture(self.index, timestamp);
+        #[cfg(feature = "ptp")]
+        {
+            let Some((timestamp, consume_context)) = self.timestamp(self.index) else {
+                return None;
+            };
+
+            self.consume_context = consume_context;
+            self.state.capture(self.index, timestamp);
+        }
+
         return Some(&mut self.buffers[self.index].0[..len]);
     }
 
+    #[cfg(feature = "ptp")]
     fn timestamp(&self, index: usize) -> Option<(Option<PtpTimestamp>, bool)> {
         let descriptor = &self.descriptors[index];
         // RDES1 write-back status is valid only when RS1V is set in RDES3.
@@ -422,28 +439,38 @@ impl<'a> RDesRing<'a> {
         }
     }
 
+    #[cfg(feature = "ptp")]
     pub(crate) fn meta(&self) -> PacketMeta {
-        self.state.meta(self.index)
+        let mut meta = PacketMeta::default();
+
+        meta.id = self.state.id(self.index);
+        meta
+    }
+
+    #[cfg(feature = "ptp")]
+    fn clear_state(&mut self) -> bool {
+        self.state.clear(self.index);
+
+        core::mem::replace(&mut self.consume_context, false)
     }
 
     /// Pop the packet previously returned by `available`.
     pub(crate) fn pop_packet(&mut self) {
-        let consume_context = self.consume_context;
-        self.consume_context = false;
+        #[cfg(feature = "ptp")]
+        let consume_context = self.clear_state();
 
-        self.pop_current(true);
+        self.pop_current();
+
+        #[cfg(feature = "ptp")]
         if consume_context {
-            self.pop_current(false);
+            self.pop_current();
         }
     }
 
-    fn pop_current(&mut self, state: bool) {
+    fn pop_current(&mut self) {
         let rd = &mut self.descriptors[self.index];
         assert!(rd.available());
 
-        if state {
-            self.state.clear(self.index);
-        }
         rd.set_ready(self.buffers[self.index].0.as_mut_ptr());
 
         // "Preceding reads and writes cannot be moved past subsequent writes."

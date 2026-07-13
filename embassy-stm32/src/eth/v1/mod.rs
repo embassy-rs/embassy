@@ -295,6 +295,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         // TODO MTU size setting not found for v1 ethernet, check if correct
 
+        #[cfg(feature = "ptp")]
         let (tx_state, rx_state) = queue.packet_state.split();
 
         let mut this = Self {
@@ -303,8 +304,18 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             phy: phy,
             mac_addr,
             link_state: LinkState::Down,
-            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf, tx_state),
-            rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf, rx_state),
+            tx: TDesRing::new(
+                &mut queue.tx_desc,
+                &mut queue.tx_buf,
+                #[cfg(feature = "ptp")]
+                tx_state,
+            ),
+            rx: RDesRing::new(
+                &mut queue.rx_desc,
+                &mut queue.rx_buf,
+                #[cfg(feature = "ptp")]
+                rx_state,
+            ),
         };
 
         fence(Ordering::SeqCst);
