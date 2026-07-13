@@ -302,6 +302,11 @@ impl RDes {
         true
     }
 
+    #[cfg(feature = "ptp")]
+    fn has_timestamp(&self) -> bool {
+        self.rdes3.get() & EMAC_RDES3_RS1V != 0 && self.rdes1.get() & EMAC_RDES1_TSA != 0
+    }
+
     /// Return true if this RDes is not currently owned by the DMA
     #[inline(always)]
     fn available(&self) -> bool {
@@ -335,8 +340,6 @@ pub(crate) struct RDesRing<'a> {
     #[cfg(feature = "ptp")]
     state: RxPacketStateRing<'a>,
     index: usize,
-    #[cfg(feature = "ptp")]
-    consume_context: bool,
 }
 
 impl<'a> RDesRing<'a> {
@@ -364,18 +367,10 @@ impl<'a> RDesRing<'a> {
             #[cfg(feature = "ptp")]
             state,
             index: 0,
-            #[cfg(feature = "ptp")]
-            consume_context: false,
         }
     }
 
-    /// Get a received packet if any, or None.
-    pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
-        // Not sure if the contents of the write buffer on the M7 can affects reads, so we are using
-        // a DMB here just in case, it also serves as a hint to the compiler that we're syncing the
-        // buffer (I think .-.)
-        fence(Ordering::SeqCst);
-
+    fn fast_forward(&mut self) -> Option<()> {
         // We might have to process many packets, in case some have been rx'd but are invalid.
         loop {
             let descriptor = &mut self.descriptors[self.index];
@@ -398,38 +393,42 @@ impl<'a> RDesRing<'a> {
             break;
         }
 
-        let len = (self.descriptors[self.index].rdes3.get() & EMAC_RDES3_PKTLEN) as usize;
-        #[cfg(feature = "ptp")]
-        {
-            let Some((timestamp, consume_context)) = self.timestamp(self.index) else {
-                return None;
-            };
+        Some(())
+    }
 
-            self.consume_context = consume_context;
-            self.state.capture(self.index, timestamp);
-        }
+    /// Get a received packet if any, or None.
+    pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
+        // Not sure if the contents of the write buffer on the M7 can affects reads, so we are using
+        // a DMB here just in case, it also serves as a hint to the compiler that we're syncing the
+        // buffer (I think .-.)
+        fence(Ordering::SeqCst);
+
+        self.fast_forward()?;
+
+        let len = (self.descriptors[self.index].rdes3.get() & EMAC_RDES3_PKTLEN) as usize;
+
+        #[cfg(feature = "ptp")]
+        self.state.capture(self.index, self.timestamp(self.index)?);
 
         return Some(&mut self.buffers[self.index].0[..len]);
     }
 
     #[cfg(feature = "ptp")]
-    fn timestamp(&self, index: usize) -> Option<(Option<PtpTimestamp>, bool)> {
+    fn timestamp(&self, index: usize) -> Option<Option<PtpTimestamp>> {
         let descriptor = &self.descriptors[index];
         // RDES1 write-back status is valid only when RS1V is set in RDES3.
         // Descriptors returned to DMA are not required to clear RDES1, so do
         // not interpret TSA unless the hardware says the status word is valid.
-        let has_timestamp =
-            descriptor.rdes3.get() & EMAC_RDES3_RS1V != 0 && descriptor.rdes1.get() & EMAC_RDES1_TSA != 0;
-        if !has_timestamp {
-            return Some((None, false));
+        if !descriptor.has_timestamp() {
+            return Some(None);
         }
 
         let next = (index + 1) % self.descriptors.len();
         let context = &self.descriptors[next];
         if context.context_available() {
-            Some((context.context_timestamp(), true))
+            Some(context.context_timestamp())
         } else if context.available() {
-            Some((None, false))
+            Some(None)
         } else {
             // Keep the packet queued until the following timestamp context
             // descriptor has been written back. If it becomes a normal packet
@@ -447,24 +446,13 @@ impl<'a> RDesRing<'a> {
         meta
     }
 
-    #[cfg(feature = "ptp")]
-    fn clear_state(&mut self) -> bool {
-        self.state.clear(self.index);
-
-        core::mem::replace(&mut self.consume_context, false)
-    }
-
     /// Pop the packet previously returned by `available`.
     pub(crate) fn pop_packet(&mut self) {
         #[cfg(feature = "ptp")]
-        let consume_context = self.clear_state();
+        self.state.clear(self.index);
 
         self.pop_current();
-
-        #[cfg(feature = "ptp")]
-        if consume_context {
-            self.pop_current();
-        }
+        self.fast_forward();
     }
 
     fn pop_current(&mut self) {
