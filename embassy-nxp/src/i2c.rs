@@ -64,10 +64,10 @@ pub unsafe extern "C" fn FLEXCOMM0() {
 // waits till master is ready mstpending goes 1 in stat table 623
 pub async fn wait_ready_async() {
     poll_fn(|cx| {
-    // register waker first before checking anything
-    // if we checked first and registered after theres a small gap
-    // hw could finish right in that window isr fires wake but nobody registered yet
-    // so the wake just gets dropped and we sit there stuck forever
+        // register waker first before checking anything
+        // if we checked first and registered after theres a small gap
+        // hw could finish right in that window isr fires wake but nobody registered yet
+        // so the wake just gets dropped and we sit there stuck forever
         I2C0_WAKER.register(cx.waker());
 
         // read the reg once then pull out mstpending bit
@@ -79,9 +79,7 @@ pub async fn wait_ready_async() {
             // 0 means still busy so we wait
             false => {
                 // turn on the interrupt so we get told when its done
-                I2C0.intenset().write(|w| {
-                    w.mstpendingen().set_bit()
-                });
+                I2C0.intenset().write(|w| w.mstpendingen().set_bit());
                 Poll::Pending
             }
         }
@@ -193,7 +191,7 @@ pub unsafe fn i2c0_init() {
         w.fc0().set_bit();
     });
 
-    // persel 3 (persel 0x3 -> i2c FROM Table 614 and ALSO pselid FROM Table 613) picks i2c function for flexcomm0 
+    // persel 3 (persel 0x3 -> i2c FROM Table 614 and ALSO pselid FROM Table 613) picks i2c function for flexcomm0
     FLEXCOMM0.pselid().modify(|_, w| {
         w.persel().bits(3);
     });
