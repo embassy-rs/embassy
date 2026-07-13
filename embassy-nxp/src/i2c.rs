@@ -2,10 +2,11 @@
 #![no_main]
 
 use core::future::poll_fn;
-use core::task::Poll;
 use core::panic::PanicInfo;
-use nxp_pac::*;
+use core::task::Poll;
+
 use embassy_sync::waitqueue::AtomicWaker;
+use nxp_pac::*;
 
 // waker for the i2c task
 // static so the isr can reach it and call wake on it
@@ -229,8 +230,7 @@ pub async unsafe fn i2c0_read_bytes_async(addr: u8, bytes: &mut [u8]) {
         // grab the byte from mstdat
         *b = I2C0.mstdat().read().data().bits() as u8;
 
-        if i == length - 1 
-        {
+        if i == length - 1 {
             // last one send stop after reading it to close things out
             I2C0.mstctl().write(|w| {
                 w.set_mststart(false);
@@ -238,8 +238,7 @@ pub async unsafe fn i2c0_read_bytes_async(addr: u8, bytes: &mut [u8]) {
                 w.set_mststop(true);
                 w
             });
-        } else 
-        {
+        } else {
             // more coming so send continue instead of stop
             I2C0.mstctl().write(|w| {
                 w.set_mststart(false);
