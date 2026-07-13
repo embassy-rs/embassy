@@ -467,8 +467,12 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Set PWM frequency.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around at the same frequency as is being set
+    /// In the center-aligned mode, its the frequency of the timer counting both up and down,
+    /// so wrap-around frequency is effectively halved.
+    ///
     /// The actual frequency may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the frequency will not be applied in the timer until an update event
     /// occurs.
@@ -478,8 +482,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Set the PWM period in milliseconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
@@ -489,8 +496,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Set the PWM period in microseconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
@@ -500,8 +510,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Set the PWM period in seconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
@@ -511,8 +524,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Set the PWM period using an `embassy_time::Duration`.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
