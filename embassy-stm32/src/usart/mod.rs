@@ -528,6 +528,14 @@ impl<'d> UartTx<'d, Async> {
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
 
+        // Discard any TC completion latched from a *previous* transmission
+        // (e.g. by the ring-buffered receiver's idle polling, which clears the
+        // ISR and latches TC into `tc_flag`). A stale latch here would make a
+        // subsequent `flush()` return while this transmission is still in
+        // flight — in half-duplex mode that re-enables the receiver mid-write
+        // and echoes the transmitted data.
+        self.state.tc_flag.clear();
+
         let ch = self.tx_dma.as_mut().unwrap();
         r.cr3().set_bits(|reg| {
             reg.set_dmat(true);
@@ -638,6 +646,9 @@ impl<'d, M: Mode> UartTx<'d, M> {
         let r = self.info.regs;
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
+
+        // See `write`: discard a TC latch left over from a previous transmission.
+        self.state.tc_flag.clear();
 
         for &b in buffer {
             while !sr(r).read().txe() {}
