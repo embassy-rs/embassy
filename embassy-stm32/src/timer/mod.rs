@@ -333,7 +333,9 @@ macro_rules! impl_maybe_center_aligned {
     ($inst:ident) => {
         impl CenterAligned for crate::peripherals::$inst {
             fn is_center_aligned() -> bool {
-                let cr1 = unsafe { crate::pac::timer::TimGp16::from_ptr(Self::regs()) }.cr1().read();
+                let cr1 = unsafe { crate::pac::timer::TimGp16::from_ptr(Self::regs()) }
+                    .cr1()
+                    .read();
                 low_level::CountingMode::from((cr1.cms(), cr1.dir())).is_center_aligned()
             }
         }
