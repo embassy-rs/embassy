@@ -1049,6 +1049,7 @@ macro_rules! impl_word_type {
         #[allow(non_camel_case_types)]
         #[repr(transparent)]
         #[doc = concat!(stringify!($a), " integer type.")]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
         #[derive(Clone, Copy, Debug)]
         pub struct $a(pub $b);
 
