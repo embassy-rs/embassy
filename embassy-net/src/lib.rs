@@ -884,16 +884,6 @@ impl Inner {
             }
         }
 
-        let timestamp = instant_to_smoltcp(Instant::now());
-        let mut smoldev = DriverAdapter {
-            cx: Some(cx),
-            inner: driver,
-            medium,
-            tx_exhausted: false,
-        };
-        self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
-        let tx_exhausted = smoldev.tx_exhausted;
-
         // Update link up
         let old_link_up = self.link_up;
         self.link_up = driver.link_state(cx) == LinkState::Up;
@@ -904,6 +894,25 @@ impl Inner {
             self.state_waker.wake();
         }
 
+        // Reset the DHCP socket on link-state change before polling, else a stale DISCOVER
+        // is sent by the poll below and discarded, causing a second DISCOVER on the next poll.
+        #[cfg(feature = "dhcpv4")]
+        if old_link_up != self.link_up
+            && let Some(dhcp_handle) = self.dhcp_socket
+        {
+            self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle).reset();
+        }
+
+        let timestamp = instant_to_smoltcp(Instant::now());
+        let mut smoldev = DriverAdapter {
+            cx: Some(cx),
+            inner: driver,
+            medium,
+            tx_exhausted: false,
+        };
+        self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
+        let tx_exhausted = smoldev.tx_exhausted;
+
         #[allow(unused_mut)]
         let mut configure = false;
 
@@ -913,9 +922,6 @@ impl Inner {
                 let socket = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
 
                 if self.link_up {
-                    if old_link_up != self.link_up {
-                        socket.reset();
-                    }
                     match socket.poll() {
                         None => false,
                         Some(dhcpv4::Event::Deconfigured) => {
@@ -932,7 +938,6 @@ impl Inner {
                         }
                     }
                 } else if old_link_up {
-                    socket.reset();
                     self.static_v4 = None;
                     true
                 } else {
