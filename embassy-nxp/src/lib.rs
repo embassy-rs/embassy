@@ -12,6 +12,8 @@ pub mod pint;
 #[cfg(lpc55)]
 pub mod pwm;
 #[cfg(lpc55)]
+pub mod rng;
+#[cfg(lpc55)]
 pub mod sct;
 #[cfg(lpc55)]
 pub mod usart;
@@ -30,7 +32,7 @@ mod time_driver;
 #[cfg_attr(feature = "mimxrt1062", path = "chips/mimxrt1062.rs")]
 mod chip;
 
-pub use chip::{Peripherals, interrupt, peripherals};
+pub use chip::{interrupt, peripherals, Peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use nxp_pac as pac;
@@ -161,6 +163,7 @@ pub fn init(_config: config::Config) -> Peripherals {
     {
         pint::init();
         pwm::Pwm::reset();
+        rng::init();
     }
 
     #[cfg(feature = "_time_driver")]
