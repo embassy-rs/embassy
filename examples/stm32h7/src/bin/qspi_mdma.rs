@@ -75,7 +75,7 @@ impl<MODE: Mode> Flash<'_, MODE> {
         let mut config = qspi::Config::default();
 
         config.memory_size = MemorySize::_8MiB;
-        config.address_size = AddressSize::_24bit;
+        config.address_size = AddressSize::_24Bit;
         config.prescaler = 1;
         config.cs_high_time = ChipSelectHighTime::_2Cycle;
         config.fifo_threshold = FIFOThresholdLevel::_1Bytes;
