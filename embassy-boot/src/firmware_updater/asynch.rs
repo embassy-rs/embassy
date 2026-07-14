@@ -115,6 +115,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             use salty::{PublicKey, Signature};
 
             use crate::digest_adapters::salty::Sha512;
+            use crate::fmt::Bytes;
 
             fn into_signature_error<E>(_: E) -> FirmwareUpdaterError {
                 FirmwareUpdaterError::Signature(signature::Error::default())
@@ -130,9 +131,9 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             let r = public_key.verify(&message, &signature);
             trace!(
                 "Verifying with public key {}, signature {} and message {} yields ok: {}",
-                public_key.to_bytes(),
-                signature.to_bytes(),
-                message,
+                Bytes(&public_key.to_bytes()),
+                Bytes(&signature.to_bytes()),
+                Bytes(&message),
                 r.is_ok()
             );
             r.map_err(into_signature_error)?;
