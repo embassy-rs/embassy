@@ -2042,14 +2042,14 @@ impl<'d> MmcBus for Sdmmc<'d> {
     }
 
     #[cfg(sdmmc_dlyb)]
-    async fn tune_bus<O>(&mut self, bus_width: ::sdio::BusWidth, hz: u32, op: &mut O) -> Result<(), MmcError>
+    async fn tune_bus<O>(&mut self, bus_width: ::sdio::BusWidth, hz: u32, mut op: O) -> Result<(), MmcError>
     where
         O: ::sdio::TuningOp,
     {
         let freq = hz;
 
         if self.dlyb_enable_lock().is_err() {
-            return Err(MmcError::SignalingSwitchFailed);
+            return Err(MmcError::Signaling);
         }
 
         self.set_dlyb_active(true);
@@ -2086,7 +2086,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
             self.clkcr_set_clkdiv(Hertz(freq), bus_width)
                 .map_err(|_| MmcError::Other)?;
 
-            return Err(MmcError::SignalingSwitchFailed);
+            return Err(MmcError::Signaling);
         }
 
         let chosen = best_start + best_len / 2;
@@ -2096,7 +2096,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
     }
 
     #[cfg(not(sdmmc_dlyb))]
-    async fn tune_bus<O>(&mut self, bus_width: ::sdio::BusWidth, hz: u32, _op: &mut O) -> Result<(), MmcError>
+    async fn tune_bus<O>(&mut self, bus_width: ::sdio::BusWidth, hz: u32, _op: O) -> Result<(), MmcError>
     where
         O: ::sdio::TuningOp,
     {
@@ -2124,10 +2124,14 @@ impl<'d> MmcBus for Sdmmc<'d> {
         }
     }
 
-    async fn read_blocks<'a, C>(&mut self, mut cmd: C) -> Result<C::Resp<'a>, ::sdio::MmcError>
+    async fn read_blocks<'a, C>(&mut self, mut cmd: C, auto_stop: bool) -> Result<C::Resp<'a>, ::sdio::MmcError>
     where
         C: ::sdio::BlockReadCommand + 'a,
     {
+        if auto_stop {
+            return Err(::sdio::MmcError::Unsupported);
+        }
+
         trace!(
             "read_blocks (cmd, block_size, block_count, buf len): {}, {}, {}, {}",
             C::INDEX,
@@ -2153,10 +2157,14 @@ impl<'d> MmcBus for Sdmmc<'d> {
         resp
     }
 
-    async fn write_blocks<'a, C>(&mut self, cmd: C) -> Result<C::Resp<'a>, ::sdio::MmcError>
+    async fn write_blocks<'a, C>(&mut self, cmd: C, auto_stop: bool) -> Result<C::Resp<'a>, ::sdio::MmcError>
     where
         C: ::sdio::BlockWriteCommand + 'a,
     {
+        if auto_stop {
+            return Err(::sdio::MmcError::Unsupported);
+        }
+
         trace!(
             "write_blocks (cmd, block_size, block_count, buf len): {}, {}, {}, {}",
             C::INDEX,
