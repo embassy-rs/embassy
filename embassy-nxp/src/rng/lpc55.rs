@@ -3,6 +3,7 @@
 use core::convert::Infallible;
 use core::future::poll_fn;
 use core::task::Poll;
+
 use embassy_hal_internal::{Peri, PeripheralType};
 use rand_core::{TryCryptoRng, TryRng};
 
