@@ -480,6 +480,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_frequency(freq, RoundTo::Slower);
     }
 
+    /// Get the PWM driver frequency.
+    pub fn get_frequency(&self) -> Hertz {
+        self.inner.get_frequency()
+    }
+
     /// Set the PWM period in milliseconds.
     ///
     /// In the edge-aligned mode, the timer will wrap-around in given period.
