@@ -645,7 +645,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         let arr = regs.arr().read().arr();
         let psc = regs.psc().read();
 
-        timer_f / (arr + 1) / (psc + 1)
+        let mut freq = timer_f / (arr + 1) / (psc + 1);
+        if T::is_center_aligned() {
+            freq = freq / 2_u32;
+        }
+        freq
     }
 
     /// Get the clock frequency of the timer (before prescaler is applied).
