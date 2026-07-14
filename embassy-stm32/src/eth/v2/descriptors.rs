@@ -45,7 +45,7 @@ mod emac_consts {
 
     // TX checksum insertion control (TDES3, read format), bits [17:16]. 0b11 =
     // insert IP header + payload checksums, with the pseudo-header computed by
-    // hardware (full offload). eth_v2a only.
+    // hardware (full offload).
     pub const EMAC_TDES3_CIC_FULL: u32 = 0x0003_0000;
     pub const EMAC_TDES3_TTSS: u32 = 0x0002_0000;
 
@@ -56,7 +56,7 @@ mod emac_consts {
     pub const EMAC_RDES3_RS1V: u32 = 0x0400_0000;
 
     // RX checksum status (RDES1, write-back format). These are NOT folded into
-    // the RDES3 error summary, so they must be inspected separately. eth_v2a only.
+    // the RDES3 error summary, so they must be inspected separately.
     pub const EMAC_RDES1_IPHE: u32 = 0x0000_0008; // IP header checksum error
     pub const EMAC_RDES1_IPCE: u32 = 0x0000_0080; // IP payload (TCP/UDP/ICMP) checksum error
     pub const EMAC_RDES1_PT: u32 = 0x0000_0003; // payload type
@@ -230,7 +230,6 @@ impl<'a> TDesRing<'a> {
         // Give the DMA engine ownership
         let tdes3 = EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_OWN;
         // CIC_FULL: let the MAC compute and insert the IP/TCP/UDP checksums.
-        #[cfg(eth_v2a)]
         let tdes3 = tdes3 | EMAC_TDES3_CIC_FULL;
         td.tdes3.set(tdes3);
 
@@ -262,7 +261,6 @@ pub(crate) struct RDes {
 }
 
 struct RDesInfo {
-    #[cfg(any(eth_v2a, feature = "ptp"))]
     rdes1: u32,
     rdes3: u32,
 }
@@ -276,17 +274,15 @@ impl RDesInfo {
             return false;
         }
 
-        // Hardware checksum offload (eth_v2a): the MAC verified the IPv4 header
+        // Hardware checksum offload: the MAC verified the IPv4 header
         // and the TCP/UDP payload checksums. smoltcp is told not to re-verify
         // these (see the driver `capabilities`), so a frame the MAC flagged as
         // bad must be dropped here.
-        #[cfg(eth_v2a)]
-        {
-            let pt = self.rdes1 & EMAC_RDES1_PT;
-            let tcp_or_udp = pt == EMAC_RDES1_PT_TCP || pt == EMAC_RDES1_PT_UDP;
-            if self.rdes1 & EMAC_RDES1_IPHE != 0 || (tcp_or_udp && self.rdes1 & EMAC_RDES1_IPCE != 0) {
-                return false;
-            }
+
+        let pt = self.rdes1 & EMAC_RDES1_PT;
+        let tcp_or_udp = pt == EMAC_RDES1_PT_TCP || pt == EMAC_RDES1_PT_UDP;
+        if self.rdes1 & EMAC_RDES1_IPHE != 0 || (tcp_or_udp && self.rdes1 & EMAC_RDES1_IPCE != 0) {
+            return false;
         }
 
         true
@@ -323,7 +319,6 @@ impl RDes {
 
     fn info(&self) -> RDesInfo {
         RDesInfo {
-            #[cfg(any(eth_v2a, feature = "ptp"))]
             rdes1: self.rdes1.get(),
             rdes3: self.rdes3.get(),
         }
