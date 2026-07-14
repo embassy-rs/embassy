@@ -19,6 +19,9 @@ pub struct PacketMeta {
     /// packet.
     #[cfg(feature = "packetmeta-id")]
     pub id: u32,
+    /// The vlan associated with this packet
+    #[cfg(feature = "packetmeta-vlan")]
+    pub vlan: u16,
 }
 
 impl PacketMeta {
@@ -26,6 +29,8 @@ impl PacketMeta {
     pub const EMPTY: Self = Self {
         #[cfg(feature = "packetmeta-id")]
         id: 0,
+        #[cfg(feature = "packetmeta-vlan")]
+        vlan: 0,
     };
 }
 

@@ -428,6 +428,14 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             // TODO: Carrier sense ? ECRSFD
         });
 
+        // Move incoming tags to the descriptor
+        #[cfg(feature = "vlan")]
+        mac.macvtr().modify(|w| w.set_evls(0b11));
+
+        // Move outgoing tags from the descriptor
+        #[cfg(feature = "vlan")]
+        mac.macvir().modify(|w| w.set_vlti(true));
+
         // Enable RX queue 0 for generic (non-AV) traffic.
         #[cfg(eth_v2a)]
         mac.macrxqc0r().modify(|w| w.set_rxq0en(0b10));

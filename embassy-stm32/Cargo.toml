@@ -253,6 +253,8 @@ defmt = [
 log = ["dep:log"]
 ## Enable Ethernet PTP hardware timestamping.
 ptp = ["embassy-net-driver/packetmeta-id"]
+## Enable Ethernet vlan hardware support.
+vlan = ["embassy-net-driver/packetmeta-vlan"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
 
