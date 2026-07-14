@@ -423,7 +423,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             // store-and-forward (set below). TX insertion is requested per-frame
             // via TDES3.CIC; together with the driver `Capabilities` this lets
             // smoltcp skip software checksums.
-            #[cfg(eth_v2a)]
             w.set_ipc(true);
             // TODO: Carrier sense ? ECRSFD
         });
