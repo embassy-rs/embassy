@@ -32,7 +32,7 @@ mod time_driver;
 #[cfg_attr(feature = "mimxrt1062", path = "chips/mimxrt1062.rs")]
 mod chip;
 
-pub use chip::{interrupt, peripherals, Peripherals};
+pub use chip::{Peripherals, interrupt, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use nxp_pac as pac;

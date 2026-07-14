@@ -1,12 +1,13 @@
 #![macro_use]
 
-use crate::pac::*;
-use crate::peripherals;
 use core::convert::Infallible;
 use core::future::poll_fn;
 use core::task::Poll;
 use embassy_hal_internal::{Peri, PeripheralType};
 use rand_core::{TryCryptoRng, TryRng};
+
+use crate::pac::*;
+use crate::peripherals;
 
 /// The RNG Driver struct.
 pub struct Rng<'d, T: Instance> {
