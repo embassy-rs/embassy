@@ -337,13 +337,17 @@ impl<'d> DacChannel<'d, Async> {
         });
     }
 
+    /// Write "data" to this channel using GPDMA
+    ///
+    /// It uses TIMx's trigger output (TSEL = 5 for TIM6) to pace each conversion.
+    /// Without a running trigger, the DAC never requests new data and this future hangs forever.
     #[cfg(gpdma)]
-    pub async fn write<W: Word>(&mut self, buffer: &[W]) {
+    pub async fn write<W: Word>(&mut self, buffer: &[W], trgo_timer: u8) {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         // tsel and ten needed to connect the timer to the GPDMA transfer
         self.info.regs.cr().modify(|w| {
-            w.set_tsel(self.idx, 5);
+            w.set_tsel(self.idx, trgo_timer);
             w.set_ten(self.idx, true);
             w.set_en(self.idx, true);
             w.set_dmaen(self.idx, true);
