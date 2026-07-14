@@ -336,6 +336,27 @@ impl<'d> DacChannel<'d, Async> {
             w.set_dmaen(self.idx, false);
         });
     }
+
+    #[cfg(gpdma)]
+    pub async fn write<W: Word>(&mut self, buffer: &[W]) {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
+        // tsel and ten needed to connect the timer to the GPDMA transfer
+        self.info.regs.cr().modify(|w| {
+            w.set_tsel(self.idx, 5);
+            w.set_ten(self.idx, true);
+            w.set_en(self.idx, true);
+            w.set_dmaen(self.idx, true);
+        });
+
+        let dma = self.dma.as_mut().unwrap();
+        let tx_options = crate::dma::TransferOptions { ..Default::default() };
+        let tx_dst = W::dma_ptr(self.info.regs, self.idx);
+
+        let tx_f = unsafe { dma.write_raw(W::dma_buf(buffer), tx_dst, tx_options) };
+
+        tx_f.await;
+    }
 }
 
 impl<'d> DacChannel<'d, Blocking> {
