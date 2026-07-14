@@ -247,7 +247,8 @@ defmt = [
     "embassy-net-driver/defmt",
     "embassy-time?/defmt",
     "embassy-usb-synopsys-otg/defmt",
-    "stm32-metapac/defmt"
+    "stm32-metapac/defmt",
+    "sdio/defmt"
 ]
 ## Use log for logging
 log = ["dep:log"]
