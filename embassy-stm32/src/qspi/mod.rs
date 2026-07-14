@@ -77,7 +77,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             memory_size: MemorySize::Other(0),
-            address_size: AddressSize::_24bit,
+            address_size: AddressSize::_24Bit,
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
             cs_high_time: ChipSelectHighTime::_5Cycle,
@@ -360,7 +360,13 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
 
         match (transaction.address, transaction.awidth) {
             (Some(_), QspiWidth::NONE) => panic!("QSPI address can't be sent with an address width of NONE"),
-            (Some(_), _) => {}
+            (Some(address), _) => {
+                // u32::bit_width was only stabilized in 1.97
+                let address_bit_width = u32::BITS - address.leading_zeros();
+                if address_bit_width > self.config.address_size.bit_width() as u32 {
+                    panic!("QSPI address too large to be represented with the given address size");
+                }
+            }
             (None, QspiWidth::NONE) => {}
             (None, _) => panic!("QSPI address is not set, so the address width should be NONE"),
         }

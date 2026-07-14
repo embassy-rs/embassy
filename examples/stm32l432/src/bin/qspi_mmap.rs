@@ -253,7 +253,7 @@ async fn main(_spawner: Spawner) {
 
     let mut config = qspi::Config::default();
     config.memory_size = MemorySize::_16MiB;
-    config.address_size = AddressSize::_24bit;
+    config.address_size = AddressSize::_24Bit;
     config.prescaler = 200;
     config.cs_high_time = ChipSelectHighTime::_1Cycle;
     config.fifo_threshold = FIFOThresholdLevel::_16Bytes;
