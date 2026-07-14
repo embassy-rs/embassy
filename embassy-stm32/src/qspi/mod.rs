@@ -32,6 +32,8 @@ pub struct TransferConfig {
     pub instruction: u8,
     /// Flash memory address
     pub address: Option<u32>,
+    /// Address size (8/16/24/32-bit)
+    pub address_size: AddressSize,
     /// Number of dummy cycles (DCYC)
     pub dummy: DummyCycles,
 }
@@ -44,6 +46,7 @@ impl Default for TransferConfig {
             dwidth: QspiWidth::NONE,
             instruction: 0,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         }
     }
@@ -57,8 +60,6 @@ pub struct Config {
     /// Flash memory size representend as 2^[0-32], as reasonable minimum 1KiB(9) was chosen.
     /// If you need other value the whose predefined use `Other` variant.
     pub memory_size: MemorySize,
-    /// Address size (8/16/24/32-bit)
-    pub address_size: AddressSize,
     /// Scalar factor for generating CLK [0-255]
     pub prescaler: u8,
     /// Number of bytes to trigger FIFO threshold flag.
@@ -77,7 +78,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             memory_size: MemorySize::Other(0),
-            address_size: AddressSize::_24Bit,
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
             cs_high_time: ChipSelectHighTime::_5Cycle,
@@ -280,7 +280,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
             v.set_imode(transaction.iwidth.into());
             v.set_instruction(transaction.instruction);
             v.set_admode(transaction.awidth.into());
-            v.set_adsize(self.config.address_size.into());
+            v.set_adsize(transaction.address_size.into());
             v.set_dmode(transaction.dwidth.into());
             v.set_abmode(QspiWidth::NONE.into());
             v.set_dcyc(transaction.dummy.into());
@@ -363,7 +363,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
             (Some(address), _) => {
                 // u32::bit_width was only stabilized in 1.97
                 let address_bit_width = u32::BITS - address.leading_zeros();
-                if address_bit_width > self.config.address_size.bit_width() as u32 {
+                if address_bit_width > transaction.address_size.bit_width() as u32 {
                     panic!("QSPI address too large to be represented with the given address size");
                 }
             }
@@ -397,7 +397,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
             v.set_imode(transaction.iwidth.into());
             v.set_instruction(transaction.instruction);
             v.set_admode(transaction.awidth.into());
-            v.set_adsize(self.config.address_size.into());
+            v.set_adsize(transaction.address_size.into());
             v.set_dmode(transaction.dwidth.into());
             v.set_abmode(QspiWidth::NONE.into());
             v.set_dcyc(transaction.dummy.into());
