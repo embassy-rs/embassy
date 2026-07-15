@@ -9,10 +9,11 @@ use core::slice;
 #[cfg(stm32g4)]
 use dac::vals;
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub use ringbuffered::RingBufferedDacChannel;
 
-use crate::dma::{ChannelAndRequest, word as dma};
+use crate::dma::{ChannelAndRequest, no_packing, word as dma};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
@@ -182,7 +183,7 @@ impl<'d> DacChannel<'d, Async> {
     ) -> Self {
         pin.set_as_analog();
         Self::new_inner::<T, C>(
-            peri,
+            Some(peri),
             None,
             new_dma!(dma, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
@@ -208,7 +209,7 @@ impl<'d> DacChannel<'d, Async> {
     ) -> Self {
         pin.set_as_analog();
         Self::new_inner::<T, C>(
-            peri,
+            Some(peri),
             Some(trigger.signal()),
             new_dma!(dma, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
@@ -234,7 +235,7 @@ impl<'d> DacChannel<'d, Async> {
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> Self {
         Self::new_inner::<T, C>(
-            peri,
+            Some(peri),
             None,
             new_dma!(dma, _irq),
             Mode::NormalInternalUnbuffered,
@@ -260,7 +261,7 @@ impl<'d> DacChannel<'d, Async> {
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> Self {
         Self::new_inner::<T, C>(
-            peri,
+            Some(peri),
             Some(trigger.signal()),
             new_dma!(dma, _irq),
             Mode::NormalInternalUnbuffered,
@@ -298,8 +299,7 @@ impl<'d> DacChannel<'d, Async> {
                 W::dma_ptr(info.regs, idx),
                 W::dma_buf_mut(dma_buf),
                 crate::dma::TransferOptions {
-                    #[cfg(any(bdma, dma, mdma))]
-                    packing: false,
+                    packing: no_packing(),
                     ..Default::default()
                 },
             )
@@ -308,27 +308,26 @@ impl<'d> DacChannel<'d, Async> {
     }
 
     /// Write `data` to this channel via DMA.
-    ///
-    /// To prevent delays or glitches when outputing a periodic waveform, the `circular`
-    /// flag can be set. This configures a circular DMA transfer that continually outputs
-    /// `data`. Note that for performance reasons in circular mode the transfer-complete
-    /// interrupt is disabled.
-    #[cfg(not(gpdma))]
-    pub async fn write<W: Word>(&mut self, data: &[W], circular: bool) {
+    pub async fn write<W: Word>(&mut self, data: &[W]) {
         // Enable DAC and DMA
         self.info.regs.cr().modify(|w| {
             w.set_en(self.idx, true);
             w.set_dmaen(self.idx, true);
         });
 
+        let _guard = OnDrop::new(|| {
+            self.info.regs.cr().modify(|w| {
+                w.set_en(self.idx, false);
+                w.set_dmaen(self.idx, false);
+            })
+        });
+
         let dma = self.dma.as_mut().unwrap();
 
         let tx_options = crate::dma::TransferOptions {
-            circular,
             half_transfer_ir: false,
-            complete_transfer_ir: !circular,
-            #[cfg(any(bdma, dma, mdma))]
-            packing: false,
+            complete_transfer_ir: true,
+            packing: no_packing(),
             ..Default::default()
         };
 
@@ -336,11 +335,42 @@ impl<'d> DacChannel<'d, Async> {
         let tx_f = unsafe { dma.write_raw(W::dma_buf(data), W::dma_ptr(self.info.regs, self.idx), tx_options) };
 
         tx_f.await;
+    }
 
+    #[cfg(any(bdma, dma, mdma))]
+    /// Write `data` to this channel via DMA.
+    ///
+    /// This configures a circular DMA transfer that continually outputs
+    /// `data`. Note that for performance reasons in circular mode the transfer-complete
+    /// interrupt is disabled.
+    pub async fn write_circular<W: Word>(&mut self, data: &[W]) {
+        // Enable DAC and DMA
         self.info.regs.cr().modify(|w| {
-            w.set_en(self.idx, false);
-            w.set_dmaen(self.idx, false);
+            w.set_en(self.idx, true);
+            w.set_dmaen(self.idx, true);
         });
+
+        let _guard = OnDrop::new(|| {
+            self.info.regs.cr().modify(|w| {
+                w.set_en(self.idx, false);
+                w.set_dmaen(self.idx, false);
+            })
+        });
+
+        let dma = self.dma.as_mut().unwrap();
+
+        let tx_options = crate::dma::TransferOptions {
+            circular: true,
+            half_transfer_ir: false,
+            complete_transfer_ir: false,
+            packing: no_packing(),
+            ..Default::default()
+        };
+
+        // Initiate the correct type of DMA transfer depending on what data is passed
+        let tx_f = unsafe { dma.write_raw(W::dma_buf(data), W::dma_ptr(self.info.regs, self.idx), tx_options) };
+
+        tx_f.await;
     }
 }
 
@@ -356,7 +386,7 @@ impl<'d> DacChannel<'d, Blocking> {
     pub fn new_blocking<T: Instance, C: Channel>(peri: Peri<'d, T>, pin: Peri<'d, impl DacPin<T, C>>) -> Self {
         pin.set_as_analog();
         Self::new_inner::<T, C>(
-            peri,
+            Some(peri),
             None,
             None,
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
@@ -443,14 +473,17 @@ impl<'d> DacChannel<'d, Blocking> {
 
 impl<'d, M: PeriMode> DacChannel<'d, M> {
     fn new_inner<T: Instance, C: Channel>(
-        _peri: Peri<'d, T>,
+        peri: Option<Peri<'d, T>>,
         trigger: Option<u8>,
         dma: Option<ChannelAndRequest<'d>>,
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
         #[cfg(stm32g4)] wave: dac::vals::Wave,
         #[cfg(stm32g4)] inc_trigger: Option<u8>,
     ) -> Self {
-        rcc::enable_and_reset::<T>();
+        if peri.is_some() {
+            rcc::enable_and_reset::<T>();
+        }
+
         let mut dac = Self {
             phantom: PhantomData,
             info: T::info(),
@@ -469,6 +502,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
         trigger.map(|idx| {
             dac.info.regs.cr().modify(|reg| {
                 reg.set_tsel(dac.idx, idx);
+                reg.set_ten(dac.idx, true);
             });
 
             // Set in case Sawtooth wave form is used
@@ -514,15 +548,6 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
     /// Disable this channel.
     pub fn disable(&mut self) {
         self.set_enable(false)
-    }
-
-    /// Enable or disable triggering for this channel.
-    pub fn set_triggering(&mut self, on: bool) {
-        critical_section::with(|_| {
-            self.info.regs.cr().modify(|reg| {
-                reg.set_ten(self.idx, on);
-            });
-        });
     }
 
     /// Software trigger this channel.
@@ -961,48 +986,22 @@ impl<'d, M: PeriMode> Dac<'d, M> {
     ) -> Self {
         rcc::enable_and_reset::<T>();
 
-        let mut ch1 = DacChannel {
-            phantom: PhantomData,
-            info: T::info(),
-            state: T::state(),
-            _ker_clk: T::frequency(),
-            idx: Ch1::IDX,
-            dma: dma_ch1,
-        };
-        #[cfg(any(dac_v5, dac_v6, dac_v7))]
-        ch1.set_hfsel();
-        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
-        ch1.set_mode(mode);
-        trigger_ch1.map(|idx| {
-            T::info().regs.cr().modify(|reg| {
-                reg.set_tsel(0, idx);
-            });
-        });
-        ch1.enable();
-
-        let mut ch2 = DacChannel {
-            phantom: PhantomData,
-            info: T::info(),
-            state: T::state(),
-            _ker_clk: T::frequency(),
-            idx: Ch2::IDX,
-            dma: dma_ch2,
-        };
-        #[cfg(any(dac_v5, dac_v6, dac_v7))]
-        ch2.set_hfsel();
-        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
-        ch2.set_mode(mode);
-        trigger_ch2.map(|idx| {
-            T::info().regs.cr().modify(|reg| {
-                reg.set_tsel(1, idx);
-            });
-        });
-        ch2.enable();
-
         Self {
             info: T::info(),
-            ch1,
-            ch2,
+            ch1: DacChannel::new_inner::<T, Ch1>(
+                None,
+                trigger_ch1,
+                dma_ch1,
+                #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+                mode,
+            ),
+            ch2: DacChannel::new_inner::<T, Ch2>(
+                None,
+                trigger_ch2,
+                dma_ch2,
+                #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+                mode,
+            ),
         }
     }
 

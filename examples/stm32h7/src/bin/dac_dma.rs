@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dac::DacChannel;
 use embassy_stm32::mode::Async;
@@ -13,7 +14,7 @@ use embassy_stm32::timer::low_level::Timer;
 use embassy_stm32::triggers::{TIM6_TRGO, TIM7_TRGO};
 use embassy_stm32::{Peri, bind_interrupts, dma};
 use micromath::F32Ext;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA1_STREAM3 => dma::InterruptHandler<DMA1_CH3>;
@@ -83,7 +84,6 @@ async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacChannel<'static, Async>
         error!("Reload value {} below threshold!", reload);
     }
 
-    dac.set_triggering(true);
     dac.enable();
 
     let tim = Timer::new(tim);
@@ -106,7 +106,7 @@ async fn dac_task1(tim: Peri<'static, TIM6>, mut dac: DacChannel<'static, Async>
     // Loop technically not necessary if DMA circular mode is enabled
     loop {
         info!("Loop DAC1");
-        dac.write(data, true).await;
+        dac.write_circular(data).await;
     }
 }
 
@@ -131,7 +131,6 @@ async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacChannel<'static, Async>
         w.set_cen(true);
     });
 
-    dac.set_triggering(true);
     dac.enable();
 
     debug!(
@@ -143,7 +142,7 @@ async fn dac_task2(tim: Peri<'static, TIM7>, mut dac: DacChannel<'static, Async>
         data.len()
     );
 
-    dac.write(data, true).await;
+    dac.write_circular(data).await;
 }
 
 fn to_sine_wave(v: u8) -> u8 {

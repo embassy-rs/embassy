@@ -408,8 +408,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                     // DMA will read 0 unless it is marked as secure along with RISUP 64 (ADC12)
                     secure: true,
                     #[cfg(stm32n6)]
-                    // Don't pack readings into buffer
-                    packing: crate::pac::gpdma::vals::Pam::ZeroExtendOrLeftTruncate,
+                    packing: crate::dma::no_packing(),
                     ..Default::default()
                 },
             )
