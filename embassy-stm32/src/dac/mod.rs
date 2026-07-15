@@ -12,7 +12,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub use ringbuffered::RingBufferedDacChannel;
 
-use crate::dma::{ChannelAndRequest, word as dma};
+use crate::dma::{ChannelAndRequest, no_packing, word as dma};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
@@ -342,19 +342,22 @@ impl<'d> DacChannel<'d, Async> {
     /// It uses TIMx's trigger output (TSEL = 5 for TIM6) to pace each conversion.
     /// Without a running trigger, the DAC never requests new data and this future hangs forever.
     #[cfg(gpdma)]
-    pub async fn write<W: Word>(&mut self, buffer: &[W], trgo_timer: u8) {
+    pub async fn write<W: Word>(&mut self, buffer: &[W]) {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         // tsel and ten needed to connect the timer to the GPDMA transfer
         self.info.regs.cr().modify(|w| {
-            w.set_tsel(self.idx, trgo_timer);
+            //w.set_tsel(self.idx, trgo_timer);
             w.set_ten(self.idx, true);
             w.set_en(self.idx, true);
             w.set_dmaen(self.idx, true);
         });
 
         let dma = self.dma.as_mut().unwrap();
-        let tx_options = crate::dma::TransferOptions { ..Default::default() };
+        let tx_options = crate::dma::TransferOptions {
+            packing: no_packing(),
+            ..Default::default()
+        };
         let tx_dst = W::dma_ptr(self.info.regs, self.idx);
 
         let tx_f = unsafe { dma.write_raw(W::dma_buf(buffer), tx_dst, tx_options) };
