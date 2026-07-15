@@ -1,6 +1,5 @@
 #![macro_use]
 
-#[cfg(not(stm32c5))]
 macro_rules! peri_trait {
     (
         $(irqs: [$($irq:ident),*],)?
