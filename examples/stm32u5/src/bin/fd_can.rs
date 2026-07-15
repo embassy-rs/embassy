@@ -5,12 +5,11 @@
 // Tested on a NUCLEO-U545RE-Q; builds under this directory's stm32u5g9zj feature.
 
 use defmt::{error, info};
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::can::{CanConfigurator, IT0InterruptHandler, IT1InterruptHandler, filter, frame};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_time::Timer;
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 // FDCAN1 has 2 interrupt lines which must be bound
 // Manual: rm0456, pg 3023/3651
