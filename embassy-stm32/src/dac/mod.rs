@@ -411,7 +411,7 @@ impl<'d> DacChannel<'d, Blocking> {
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
     pub fn new_internal_blocking<T: Instance, C: Channel>(peri: Peri<'d, T>) -> Self {
         Self::new_inner::<T, C>(
-            peri,
+            Some(peri),
             None,
             None,
             Mode::NormalInternalUnbuffered,
@@ -437,7 +437,7 @@ impl<'d> DacChannel<'d, Blocking> {
     ) -> Self {
         pin.set_as_analog();
         Self::new_inner::<T, C>(
-            peri,
+            Some(peri),
             Some(reset_trigger.signal()),
             None,
             Mode::NormalExternalBuffered,
@@ -461,7 +461,7 @@ impl<'d> DacChannel<'d, Blocking> {
         step_trigger: impl ChannelIncTrigger<T>,
     ) -> Self {
         Self::new_inner::<T, C>(
-            peri,
+            Some(peri),
             Some(reset_trigger.signal()),
             None,
             Mode::NormalInternalUnbuffered,
@@ -999,6 +999,10 @@ impl<'d, M: PeriMode> Dac<'d, M> {
                 dma_ch1,
                 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
                 mode,
+                #[cfg(stm32g4)]
+                vals::Wave::Disabled,
+                #[cfg(stm32g4)]
+                None,
             ),
             ch2: DacChannel::new_inner::<T, Ch2>(
                 None,
@@ -1006,6 +1010,10 @@ impl<'d, M: PeriMode> Dac<'d, M> {
                 dma_ch2,
                 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
                 mode,
+                #[cfg(stm32g4)]
+                vals::Wave::Disabled,
+                #[cfg(stm32g4)]
+                None,
             ),
         }
     }

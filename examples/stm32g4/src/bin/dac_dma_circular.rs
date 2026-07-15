@@ -15,6 +15,7 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dac::{Cast, DacChannel, u12r};
 use embassy_stm32::timer::Channel;
@@ -22,8 +23,8 @@ use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer};
 use embassy_stm32::triggers::TIM8_TRGO;
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Timer as EmbassyTimer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 // 64-sample 12-bit right-aligned sine table, centred at 2048, amplitude 2000 counts.
 // TIM8 at 170 MHz / 266 ≈ 639 kHz; 64 samples per period → output ≈ 10 kHz.
@@ -69,7 +70,7 @@ async fn main(_spawner: Spawner) {
     tim8.set_master_mode(MasterMode::ComparePulse);
 
     // DAC1 CH1: triggered by TIM8_TRGO, output on PA4.
-    let mut dac_ch1 = DacChannel::new_triggered(p.DAC1, p.DMA1_CH5, TIM8_TRGO, Irqs, p.PA4);
+    let dac_ch1 = DacChannel::new_triggered(p.DAC1, p.DMA1_CH5, TIM8_TRGO, Irqs, p.PA4);
 
     // Pre-populate the DMA buffer with the sine table before handing it to the ring buffer.
     // No write_immediate needed — DMA reads the pre-filled data from the first trigger.
