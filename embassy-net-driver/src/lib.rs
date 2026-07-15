@@ -70,6 +70,15 @@ pub trait Driver {
     where
         Self: 'a;
 
+    /// Poll the driver for timestamps and return a pair of (id, `Timestamp`)
+    ///
+    /// Ids may be reused, and therefore this method should be called before calling
+    /// `receive` or `transmit` to avoid deducing an incorrect association.
+    #[allow(unused_variables)]
+    fn poll_timestamp(&mut self, cx: &mut Context) -> Option<(u8, Timestamp)> {
+        None
+    }
+
     /// Construct a token pair consisting of one receive token and one transmit token.
     ///
     /// If there is a packet ready to be received, this function must return `Some`.
@@ -117,6 +126,10 @@ impl<T: ?Sized + Driver> Driver for &mut T {
     where
         Self: 'a;
 
+    fn poll_timestamp(&mut self, cx: &mut Context) -> Option<(u8, Timestamp)> {
+        T::poll_timestamp(self, cx)
+    }
+
     fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
         T::transmit(self, cx)
     }
@@ -134,15 +147,60 @@ impl<T: ?Sized + Driver> Driver for &mut T {
     }
 }
 
+/// Represents a packet timestamp
+pub struct Timestamp {
+    /// Seconds
+    pub seconds: u32,
+    /// Number of quarter-nanoseconds
+    pub quarter_nanos: u32,
+}
+
+impl Timestamp {
+    /// Construct a timestamp from seconds and nanoseconds
+    pub const fn from_seconds_and_nanos(seconds: u32, nanos: u32) -> Self {
+        Self {
+            seconds,
+            quarter_nanos: nanos << 2,
+        }
+    }
+}
+
 /// A token to receive a single network packet.
 pub trait RxToken {
+    /// Get the timestamp for this packet
+    fn timestamp(&self) -> Timestamp {
+        Timestamp {
+            seconds: 0,
+            quarter_nanos: 0,
+        }
+    }
+
+    /// Get the buffer for this packet.
+    fn buf(&mut self) -> &mut [u8] {
+        &mut []
+    }
+
+    /// Consumes the token to receive a single network packet.
+    fn consume_v2(self)
+    where
+        Self: Sized,
+    {
+    }
+
     /// Consumes the token to receive a single network packet.
     ///
     /// This method receives a packet and then calls the given closure `f` with the raw
     /// packet bytes as argument.
-    fn consume<R, F>(self, f: F) -> R
+    fn consume<R, F>(mut self, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> R;
+        F: FnOnce(&mut [u8]) -> R,
+        Self: Sized,
+    {
+        let r = f(self.buf());
+        self.consume_v2();
+
+        r
+    }
 
     /// The Packet metadata associated with the frame received by this [`RxToken`]
     fn meta(&self) -> PacketMeta {
@@ -152,6 +210,11 @@ pub trait RxToken {
 
 /// A token to transmit a single network packet.
 pub trait TxToken {
+    /// Get the ID for this packet that will be associated with `poll_timestamp`.
+    fn id(&self) -> u8 {
+        0
+    }
+
     /// Consumes the token to send a single network packet.
     ///
     /// This method constructs a transmit buffer of size `len` and calls the passed
@@ -204,6 +267,12 @@ pub struct Capabilities {
     /// If the network device is capable of verifying or computing checksums for some protocols,
     /// it can request that the stack not do so in software to improve performance.
     pub checksum: ChecksumCapabilities,
+
+    /// If set to true, the consume_v2 API is used.
+    pub consume_v2: bool,
+
+    /// If set to true, hardware timestamps are supported.
+    pub timestamp: bool,
 }
 
 /// A description of checksum behavior for every supported protocol.
