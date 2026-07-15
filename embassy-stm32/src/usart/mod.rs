@@ -525,6 +525,7 @@ impl<'d> UartTx<'d, Async> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         let r = self.info.regs;
+        let half_duplex = r.cr3().read().hdsel();
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
 
@@ -544,6 +545,24 @@ impl<'d> UartTx<'d, Async> {
         // is held across an await and makes the future non-Send.
         let transfer = unsafe { ch.write(buffer, tdr(r), Default::default()) };
         transfer.await;
+
+        if half_duplex {
+            // A concurrently running reader (e.g. a long-lived task parked in
+            // `RingBufferedUartRx::wait_for_data_or_idle`) has no way to
+            // notice that `RE` was just cleared for this write: the receiver
+            // only gets re-enabled at the top of a *new* `read()` call, and a
+            // task already parked inside one will never make it. Restore the
+            // receiver here instead of leaving it to the other side. Flush
+            // first so the last byte(s) have actually left the shift register
+            // before RE comes back, otherwise the tail of this transmission
+            // gets read back as incoming data.
+            flush(&self.info, &self.state).await?;
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
+        }
+
         Ok(())
     }
 
@@ -644,6 +663,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
     /// Perform a blocking UART write
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
+        let half_duplex = r.cr3().read().hdsel();
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
 
@@ -654,6 +674,17 @@ impl<'d, M: Mode> UartTx<'d, M> {
             while !sr(r).read().txe() {}
             unsafe { tdr(r).write_volatile(b) };
         }
+
+        if half_duplex {
+            // See `write`: restore the receiver ourselves rather than leaving
+            // it to a reader that may already be parked waiting for data.
+            blocking_flush(self.info)?;
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
+        }
+
         Ok(())
     }
 
