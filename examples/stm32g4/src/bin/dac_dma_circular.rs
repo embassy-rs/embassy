@@ -15,7 +15,6 @@
 #![no_main]
 
 use defmt::info;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dac::{Cast, DacChannel, u12r};
 use embassy_stm32::timer::Channel;
@@ -23,8 +22,8 @@ use embassy_stm32::timer::low_level::{MasterMode, RoundTo, Timer};
 use embassy_stm32::triggers::TIM8_TRGO;
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Timer as EmbassyTimer;
-use panic_probe as _;
 use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
 
 // 64-sample 12-bit right-aligned sine table, centred at 2048, amplitude 2000 counts.
 // TIM8 at 170 MHz / 266 ≈ 639 kHz; 64 samples per period → output ≈ 10 kHz.
