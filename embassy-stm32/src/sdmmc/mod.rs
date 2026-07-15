@@ -10,6 +10,7 @@ use core::task::Poll;
 
 use ::sdio::{MmcBus, MmcError};
 use aligned::{A4, Aligned};
+use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::Cmd;
@@ -18,6 +19,7 @@ use sdio_host::sd::{CID, CSD, CardStatus};
 #[cfg(sdmmc_uhs)]
 use sdio_host::sd_cmd;
 
+use crate::atomic::AtomicModify;
 #[cfg(sdmmc_dlyb)]
 use crate::dlyb::DlybInstance;
 #[cfg(sdmmc_v1)]
@@ -30,7 +32,6 @@ use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
-use crate::reg::AtomicModify;
 use crate::time::Hertz;
 use crate::wait::block_for_us;
 #[cfg(sdmmc_uhs)]
@@ -413,13 +414,16 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
+    packing: true,
 };
+
 #[cfg(all(sdmmc_v1, not(dma)))]
 const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOptions {
     priority: crate::dma::Priority::VeryHigh,
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
+    packing: true,
 };
 
 /// SDMMC configuration
@@ -1779,7 +1783,7 @@ impl<'d> Sdmmc<'d> {
     where
         R: ::sdio::Response,
     {
-        debug!("(1) cmd arg: 0x{:x} 0x{:x}", cmd, arg);
+        trace!("cmd arg: 0x{:x} 0x{:x}", cmd, arg);
 
         self.clear_interrupt_flags();
         // CP state machine must be idle
@@ -1987,18 +1991,27 @@ impl<'d> MmcBus for Sdmmc<'d> {
 
     /// Wait for DAT1 to be pulled low.
     async fn wait_for_event(&mut self) -> Result<(), MmcError> {
+        if self._d1.is_none() || self._d1.as_ref().unwrap().is_low() {
+            return Ok(());
+        }
+
+        let _guard = OnDrop::new(|| {
+            self.info.regs.dctrl().modify(|w| w.set_sdioen(false));
+            self.info.regs.maskr().clear_bits(|w| w.set_sdioitie(false));
+        });
+
         poll_fn(|cx| {
             self.state.it_waker.register(cx.waker());
 
             compiler_fence(Ordering::SeqCst);
 
-            if self.info.regs.star().read().sdioit() {
-                self.info.regs.icr().write(|w| w.set_sdioitc(true));
+            self.info.regs.icr().write(|w| w.set_sdioitc(true));
+            self.info.regs.dctrl().modify(|w| w.set_sdioen(true));
+            self.info.regs.maskr().set_bits(|w| w.set_sdioitie(true));
 
+            if self._d1.as_ref().unwrap().is_low() {
                 Poll::Ready(())
             } else {
-                self.info.regs.maskr().set_bits(|w| w.set_sdioitie(true));
-
                 Poll::Pending
             }
         })
@@ -2029,14 +2042,14 @@ impl<'d> MmcBus for Sdmmc<'d> {
     }
 
     #[cfg(sdmmc_dlyb)]
-    async fn tune_bus<O>(&mut self, bus_width: ::sdio::BusWidth, hz: u32, op: &mut O) -> Result<(), MmcError>
+    async fn tune_bus<O>(&mut self, bus_width: ::sdio::BusWidth, hz: u32, mut op: O) -> Result<(), MmcError>
     where
         O: ::sdio::TuningOp,
     {
         let freq = hz;
 
         if self.dlyb_enable_lock().is_err() {
-            return Err(MmcError::SignalingSwitchFailed);
+            return Err(MmcError::Signaling);
         }
 
         self.set_dlyb_active(true);
@@ -2073,7 +2086,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
             self.clkcr_set_clkdiv(Hertz(freq), bus_width)
                 .map_err(|_| MmcError::Other)?;
 
-            return Err(MmcError::SignalingSwitchFailed);
+            return Err(MmcError::Signaling);
         }
 
         let chosen = best_start + best_len / 2;
@@ -2083,7 +2096,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
     }
 
     #[cfg(not(sdmmc_dlyb))]
-    async fn tune_bus<O>(&mut self, bus_width: ::sdio::BusWidth, hz: u32, _op: &mut O) -> Result<(), MmcError>
+    async fn tune_bus<O>(&mut self, bus_width: ::sdio::BusWidth, hz: u32, _op: O) -> Result<(), MmcError>
     where
         O: ::sdio::TuningOp,
     {
@@ -2111,11 +2124,15 @@ impl<'d> MmcBus for Sdmmc<'d> {
         }
     }
 
-    async fn read_blocks<'a, C>(&mut self, mut cmd: C) -> Result<C::Resp<'a>, ::sdio::MmcError>
+    async fn read_blocks<'a, C>(&mut self, mut cmd: C, auto_stop: bool) -> Result<C::Resp<'a>, ::sdio::MmcError>
     where
         C: ::sdio::BlockReadCommand + 'a,
     {
-        debug!(
+        if auto_stop {
+            return Err(::sdio::MmcError::Unsupported);
+        }
+
+        trace!(
             "read_blocks (cmd, block_size, block_count, buf len): {}, {}, {}, {}",
             C::INDEX,
             cmd.block_size().len(),
@@ -2135,16 +2152,20 @@ impl<'d> MmcBus for Sdmmc<'d> {
             .map_err(|_| MmcError::Other)?;
 
         #[cfg(feature = "defmt")]
-        debug!("read_blocks buf: {}", **cmd.buf());
+        trace!("read_blocks buf: {}", **cmd.buf());
 
         resp
     }
 
-    async fn write_blocks<'a, C>(&mut self, cmd: C) -> Result<C::Resp<'a>, ::sdio::MmcError>
+    async fn write_blocks<'a, C>(&mut self, cmd: C, auto_stop: bool) -> Result<C::Resp<'a>, ::sdio::MmcError>
     where
         C: ::sdio::BlockWriteCommand + 'a,
     {
-        debug!(
+        if auto_stop {
+            return Err(::sdio::MmcError::Unsupported);
+        }
+
+        trace!(
             "write_blocks (cmd, block_size, block_count, buf len): {}, {}, {}, {}",
             C::INDEX,
             cmd.block_size().len(),
@@ -2170,7 +2191,7 @@ impl<'d> MmcBus for Sdmmc<'d> {
             .map_err(|_| MmcError::Other)?;
 
         #[cfg(feature = "defmt")]
-        debug!("write_blocks buf: {}", **cmd.buf());
+        trace!("write_blocks buf: {}", **cmd.buf());
 
         resp
     }

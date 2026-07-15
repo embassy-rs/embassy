@@ -423,7 +423,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             // store-and-forward (set below). TX insertion is requested per-frame
             // via TDES3.CIC; together with the driver `Capabilities` this lets
             // smoltcp skip software checksums.
-            #[cfg(eth_v2a)]
             w.set_ipc(true);
             // TODO: Carrier sense ? ECRSFD
         });
@@ -512,13 +511,24 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
+        #[cfg(feature = "ptp")]
         let (tx_state, rx_state) = queue.packet_state.split();
 
         let mut this = Self {
             _peri: peri,
             _wake_guard: T::RCC_INFO.wake_guard(),
-            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf, tx_state),
-            rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf, rx_state),
+            tx: TDesRing::new(
+                &mut queue.tx_desc,
+                &mut queue.tx_buf,
+                #[cfg(feature = "ptp")]
+                tx_state,
+            ),
+            rx: RDesRing::new(
+                &mut queue.rx_desc,
+                &mut queue.rx_buf,
+                #[cfg(feature = "ptp")]
+                rx_state,
+            ),
             _pins: pins,
             phy,
             mac_addr,

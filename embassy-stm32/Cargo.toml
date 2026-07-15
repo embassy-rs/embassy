@@ -186,7 +186,7 @@ log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
-sdio = "0.4.0"
+sdio = "0.5.0"
 sdio-host = "0.9.0"
 dsp-fixedpoint = { version = "0.1.0", default-features = false }
 critical-section = { version = "1.1", default-features = false }
@@ -247,7 +247,8 @@ defmt = [
     "embassy-net-driver/defmt",
     "embassy-time?/defmt",
     "embassy-usb-synopsys-otg/defmt",
-    "stm32-metapac/defmt"
+    "stm32-metapac/defmt",
+    "sdio/defmt"
 ]
 ## Use log for logging
 log = ["dep:log"]

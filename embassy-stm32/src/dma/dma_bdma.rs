@@ -160,6 +160,10 @@ pub struct TransferOptions {
     pub half_transfer_ir: bool,
     /// Enable transfer complete interrupt
     pub complete_transfer_ir: bool,
+    /// DMA packing configuration
+    ///
+    /// If false, psize may be adjusted based on the platform to acheive no packing.
+    pub packing: bool,
     #[cfg(mdma)]
     /// Max bytes to transfer at once, 1-64
     pub buffer_size: u8,
@@ -194,6 +198,7 @@ impl Default for TransferOptions {
             circular: false,
             half_transfer_ir: false,
             complete_transfer_ir: true,
+            packing: true,
             #[cfg(mdma)]
             buffer_size: MDMA_MAX_BUFFER,
             #[cfg(mdma)]
@@ -521,6 +526,9 @@ impl<'d> Channel<'d> {
 
                 state.complete_count.store(0, Ordering::Release);
                 self.clear_irqs();
+
+                #[cfg(any(stm32f2, stm32f4, stm32f7, stm32h7))]
+                let peri_size = if !options.packing { mem_size } else { peri_size };
 
                 // NDTR is the number of transfers in the *peripheral* word size.
                 // ex: if mem_size=1, peri_size=4 and ndtr=3 it'll do 12 mem transfers, 3 peri transfers.

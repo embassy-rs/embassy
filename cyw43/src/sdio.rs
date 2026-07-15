@@ -1,7 +1,7 @@
 use core::mem;
 
 use aligned::{A4, Aligned};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Duration};
 use sdio::sdio::{CCCR_INT_ENABLE, CCCR_IO_ENABLE, CCCR_IO_READY};
 
 use crate::WithContext;
@@ -49,10 +49,6 @@ async fn with_aligned<'a, R>(
     }
 }
 
-pub struct Config {
-    pub freq: u32,
-}
-
 /// Doc
 pub struct SdioBus<SDIO>
 where
@@ -60,16 +56,18 @@ where
 {
     backplane_window: u32,
     sdio: ::sdio::sdio::SdioCard<SDIO, Delay>,
+    freq: u32,
 }
 
 impl<SDIO> SdioBus<SDIO>
 where
     SDIO: ::sdio::MmcBus,
 {
-    pub(crate) fn new(sdio: SDIO) -> Self {
+    pub(crate) fn new(sdio: SDIO, freq: u32) -> Self {
         Self {
             backplane_window: 0xAAAA_AAAA,
             sdio: ::sdio::sdio::SdioCard::new_uninit(sdio, Delay),
+            freq,
         }
     }
 
@@ -167,12 +165,11 @@ where
     SDIO: ::sdio::MmcBus,
 {
     const TYPE: BusType = BusType::Sdio;
-    type Config = Config;
 
-    async fn init<'a>(&mut self, _bluetooth_enabled: bool, config: &'a Config) -> crate::Result<()> {
+    async fn init<'a>(&mut self, _bluetooth_enabled: bool) -> crate::Result<()> {
         // acquire the bus
         self.sdio
-            .reacquire(config.freq)
+            .reacquire(self.freq)
             .await
             .map_err(|_| crate::Error)
             .ctx("failed to acquire the bus")?;
@@ -384,7 +381,6 @@ where
     }
 
     async fn wait_for_event(&mut self) {
-        Timer::after(Duration::from_millis(10)).await;
-        // self.sdio.wait_for_event().await;
+        let _ = self.sdio.wait_for_event().await;
     }
 }
