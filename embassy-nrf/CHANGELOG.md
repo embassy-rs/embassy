@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- added: System OFF support for the nRF54L series.
+
 ## 0.11.0 - 2026-06-16
 
 - added: support for the SQSPI peripheral for nRF54.
