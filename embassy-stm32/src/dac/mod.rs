@@ -499,7 +499,7 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
 
         #[cfg(stm32g4)]
         dac.set_wave(wave);
-        trigger.map(|idx| {
+        if let Some(idx) = trigger {
             dac.info.regs.cr().modify(|reg| {
                 reg.set_tsel(dac.idx, idx);
                 reg.set_ten(dac.idx, true);
@@ -510,7 +510,12 @@ impl<'d, M: PeriMode> DacChannel<'d, M> {
             dac.info.regs.stmodr().modify(|reg| {
                 reg.set_strsttrigsel(dac.idx, idx);
             });
-        });
+        } else {
+            dac.info.regs.cr().modify(|reg| {
+                reg.set_ten(dac.idx, false);
+            });
+        }
+
         #[cfg(stm32g4)]
         inc_trigger.map(|idx| {
             dac.info.regs.stmodr().modify(|reg| {
