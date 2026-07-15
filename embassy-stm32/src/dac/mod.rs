@@ -12,7 +12,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub use ringbuffered::RingBufferedDacChannel;
 
-use crate::dma::{ChannelAndRequest, no_packing, word as dma};
+use crate::dma::{ChannelAndRequest, word as dma};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
@@ -355,7 +355,7 @@ impl<'d> DacChannel<'d, Async> {
 
         let dma = self.dma.as_mut().unwrap();
         let tx_options = crate::dma::TransferOptions {
-            packing: no_packing(),
+            packing: crate::dma::no_packing(),
             ..Default::default()
         };
         let tx_dst = W::dma_ptr(self.info.regs, self.idx);
