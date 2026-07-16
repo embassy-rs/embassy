@@ -124,6 +124,8 @@ use crate::pac::edma_tcd::{
     TcdNbytesMloffnoSmloe,
 };
 use crate::pac::{self, Interrupt};
+#[cfg(feature = "mcxa5xx")]
+use crate::peripherals::DMA1;
 use crate::peripherals::DMA0;
 
 /// Initialize DMA controller (clock enabled, reset released, controller configured).
@@ -144,6 +146,22 @@ pub(crate) fn init() {
         w.set_gclc(true);
         w.set_gmrc(true);
     });
+
+    // Enable DMA1 clock, release reset, and configure its management page.
+    // Without this, any access to the DMA1 TCD registers faults because the
+    // peripheral is unclocked and held in reset.
+    #[cfg(feature = "mcxa5xx")]
+    {
+        let _ = unsafe { enable_and_reset::<DMA1>(&NoConfig) };
+
+        pac::DMA1.mp_csr().modify(|w| {
+            w.set_edbg(true);
+            w.set_erca(true);
+            w.set_halt(Halt::NormalOperation);
+            w.set_gclc(true);
+            w.set_gmrc(true);
+        });
+    }
 
     // Enable all DMA request lines for non-secure access.
     #[cfg(all(feature = "mcxa5xx", feature = "dma-ipd-req"))]
