@@ -23,7 +23,6 @@ macro_rules! peri_trait {
     };
 }
 
-#[cfg(not(stm32c5))]
 macro_rules! peri_trait_impl {
     ($instance:ident, $info:expr) => {
         #[allow(private_interfaces)]

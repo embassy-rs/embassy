@@ -183,6 +183,8 @@ pub(crate) unsafe fn init(config: Config) {
         lse: None,
 
         rtc: None,
+
+        audioclk: None,
     );
 }
 

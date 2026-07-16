@@ -34,7 +34,6 @@ impl<'d> ChannelAndRequest<'d> {
         self.channel.read(self.request, peri_addr, buf, options)
     }
 
-    #[cfg(not(stm32c5))]
     /// Create a read DMA transfer (peripheral to memory), using raw pointers.
     pub unsafe fn read_raw<'a, MW: Word, PW: Word>(
         &'a mut self,
@@ -68,7 +67,6 @@ impl<'d> ChannelAndRequest<'d> {
         self.channel.write(self.request, buf, peri_addr, options)
     }
 
-    #[cfg(not(stm32c5))]
     /// Create a write DMA transfer (memory to peripheral), using raw pointers.
     pub unsafe fn write_raw<'a, MW: Word, PW: Word>(
         &'a mut self,
