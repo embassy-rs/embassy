@@ -990,6 +990,18 @@ impl<'d> embedded_io::Write for BufferedUartTx<'d> {
     }
 }
 
+impl<'d> embedded_io::WriteReady for BufferedUart<'d> {
+    fn write_ready(&mut self) -> Result<bool, Self::Error> {
+        embedded_io::WriteReady::write_ready(&mut self.tx)
+    }
+}
+
+impl<'d> embedded_io::WriteReady for BufferedUartTx<'d> {
+    fn write_ready(&mut self) -> Result<bool, Self::Error> {
+        Ok(!self.state.tx_buf.is_full())
+    }
+}
+
 impl<'d> embedded_hal_02::serial::Read<u8> for BufferedUartRx<'d> {
     type Error = Error;
 
