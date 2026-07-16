@@ -728,38 +728,31 @@ impl<'d> BufferedUartRx<'d> {
 impl<'d> BufferedUartTx<'d> {
     async fn write(&self, buf: &[u8]) -> Result<usize, Error> {
         poll_fn(move |cx| {
+            if buf.is_empty() {
+                return Poll::Ready(Ok(0));
+            }
+
             let state = self.state;
             state.tx_done.store(false, Ordering::Release);
 
             let empty = state.tx_buf.is_empty();
 
-            if state.tx_buf.len() < buf.len() {
-                return Poll::Ready(Err(Error::BufferTooLong));
-            }
-
-            if state.tx_buf.len() - state.tx_buf.available() < buf.len() {
+            let mut tx_writer = unsafe { state.tx_buf.writer() };
+            let data = tx_writer.push_slice();
+            if data.is_empty() {
+                state.tx_waker.register(cx.waker());
                 return Poll::Pending;
             }
 
-            let mut written: usize = 0;
-            let mut tx_writer = unsafe { state.tx_buf.writer() };
-            while written != buf.len() {
-                let data = tx_writer.push_slice();
-                if data.is_empty() {
-                    state.tx_waker.register(cx.waker());
-                    return Poll::Pending;
-                }
-                let n = data.len().min(buf.len() - written);
-                data[..n].copy_from_slice(&buf[written..written + n]);
-                written = written + n;
-                tx_writer.push_done(n);
-            }
+            let n = data.len().min(buf.len());
+            data[..n].copy_from_slice(&buf[..n]);
+            tx_writer.push_done(n);
 
             if empty {
                 self.info.interrupt.pend();
             }
 
-            Poll::Ready(Ok(written))
+            Poll::Ready(Ok(n))
         })
         .await
     }
@@ -779,29 +772,31 @@ impl<'d> BufferedUartTx<'d> {
     }
 
     fn blocking_write(&self, buf: &[u8]) -> Result<usize, Error> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
         loop {
             let state = self.state;
             state.tx_done.store(false, Ordering::Release);
 
             let empty = state.tx_buf.is_empty();
 
-            let mut written: usize = 0;
             let mut tx_writer = unsafe { state.tx_buf.writer() };
-            while written != buf.len() {
-                let data = tx_writer.push_slice();
-                if !data.is_empty() {
-                    let n = data.len().min(buf.len() - written);
-                    data[..n].copy_from_slice(&buf[written..written + n]);
-                    written = written + n;
-                    tx_writer.push_done(n);
-                }
+            let data = tx_writer.push_slice();
+            if data.is_empty() {
+                continue;
             }
+
+            let n = data.len().min(buf.len());
+            data[..n].copy_from_slice(&buf[..n]);
+            tx_writer.push_done(n);
 
             if empty {
                 self.info.interrupt.pend();
             }
 
-            return Ok(written);
+            return Ok(n);
         }
     }
 
