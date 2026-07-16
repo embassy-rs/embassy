@@ -1,0 +1,78 @@
+//! Example for FlexCAN Classic in Async mode.
+
+#![no_std]
+#![no_main]
+
+use embassy_executor::Spawner;
+use embassy_mcxa::bind_interrupts;
+use embassy_mcxa::config::Config;
+use embassy_mcxa::flexcan::classic::frame::{ExtendedId, Frame, StandardId};
+use embassy_mcxa::flexcan::classic::{Async, FlexCan, FlexCanConfig, FlexCanRx, FlexCanTx, InterruptHandler, RxQueue};
+use embassy_mcxa::flexcan::filter::{Filter, filters};
+use embassy_mcxa::peripherals::CAN0;
+use embassy_time::{Duration, Timer};
+use static_cell::ConstStaticCell;
+use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    CAN0 => InterruptHandler<CAN0>;
+});
+
+static RX_QUEUE: ConstStaticCell<RxQueue<16>> = ConstStaticCell::new(RxQueue::new());
+
+// Outgoing messages
+const EXAMPLE_MESSAGE_ONE: StandardId = StandardId::new(0x01).unwrap();
+const EXAMPLE_MESSAGE_TWO: ExtendedId = ExtendedId::new(0xFAF).unwrap();
+
+// Incoming messages
+const EXAMPLE_MESSAGE_THREE: StandardId = StandardId::new(0x02).unwrap();
+const EXAMPLE_MESSAGE_FOUR: ExtendedId = ExtendedId::new(0x1232).unwrap();
+
+#[embassy_executor::main]
+async fn main(spawner: Spawner) {
+    let p = embassy_mcxa::init(Config::default());
+
+    // Create and configure a `FlexCan` instance for CAN0.
+    let can0 = FlexCan::new_async(
+        p.CAN0,
+        p.P1_11,
+        p.P1_2,
+        RX_QUEUE.take(),
+        FlexCanConfig {
+            filters: filters!(
+                Filter::Standard(EXAMPLE_MESSAGE_THREE),
+                Filter::Extended(EXAMPLE_MESSAGE_FOUR),
+            ),
+            bitrate: 1_000_000,
+            ..FlexCanConfig::default()
+        },
+    )
+    .expect("Failed to init FlexCan!!");
+
+    // Split your `FlexCan` into separate `FlexCanTx` and `FlexCanRx` halves, and pass them to their respective tasks.
+    let (tx0, rx0) = can0.split();
+    spawner.spawn(can0_tx(tx0).expect("Failed to spawn `can0_tx()`."));
+    spawner.spawn(can0_rx(rx0).expect("Failed to spawn `can0_rx()`."));
+}
+
+#[embassy_executor::task]
+async fn can0_tx(mut tx0: FlexCanTx<'static, Async>) {
+    // Task for sending outgoing messages
+    loop {
+        let frame1 = Frame::new(EXAMPLE_MESSAGE_ONE, &[0, 1, 2]).expect("Message payload too long!");
+        let frame2 = Frame::new(EXAMPLE_MESSAGE_TWO, &[3, 4, 5, 6]).expect("Message payload too long!");
+        tx0.send(&frame1).await;
+        tx0.send(&frame2).await;
+
+        Timer::after(Duration::from_millis(500)).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn can0_rx(rx0: FlexCanRx<'static, Async>) {
+    // Task for receiving incoming messages
+    loop {
+        let frame = rx0.receive().await;
+        defmt::info!("CAN0 RX id={:?} len={}", frame.id(), frame.dlc());
+    }
+}

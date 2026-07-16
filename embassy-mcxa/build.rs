@@ -56,6 +56,7 @@ fn main() {
         generate_ctimer_pin_impls(),
         generate_lpuart_pin_impls(),
         generate_flexspi_pin_impls(),
+        generate_flexcan_pin_impls(),
     ];
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -169,7 +170,7 @@ fn generate_cc_gates() -> TokenStream {
             .config
             .map(|config| format_ident!("{config}"))
             .unwrap_or_else(|| format_ident!("NoConfig"));
-        let bit = format_ident!("{}", peripheral.name.to_lowercase());
+        let bit = format_ident!("{}", gate.bit);
 
         match reset {
             Some(reset) => generated.extend(quote! {
@@ -199,7 +200,7 @@ fn generate_instance_calls() -> TokenStream {
     let mut generated = TokenStream::new();
 
     const REQUIRES_INSTANCE: &[&str] = &[
-        "adc", "crc", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi",
+        "adc", "crc", "gpio", "trng", "wwdt", "ctimer", "lpi2c", "i3c", "lpuart", "lpspi", "flexspi", "can",
     ];
 
     let peripheral_regex = Regex::new(r"(^.*\D)(\d+)?").unwrap();
@@ -489,6 +490,31 @@ fn generate_lpuart_pin_impls() -> TokenStream {
                 generated.extend(quote! {
                     #feature_gate
                     crate::impl_lpuart_pin!(#lpuart_name, #pin_name, #mux, #signal_name);
+                });
+            }
+        }
+    }
+
+    generated
+}
+
+fn generate_flexcan_pin_impls() -> TokenStream {
+    let mut generated = TokenStream::new();
+    let can_regex = Regex::new(r"^CAN\d+").unwrap();
+    for can in METADATA.peripherals.iter().filter(|p| can_regex.is_match(p.name)) {
+        let can_name = format_ident!("{}", can.name);
+        for signal in can.signals {
+            // Signal names from the PAC metadata are `TXD` / `RXD`, which the
+            // `impl_flexcan_pin!` macro matches on to pick the right trait.
+            let signal_name = format_ident!("{}", signal.name);
+            for pin in signal.pins {
+                let pin_name = format_ident!("{}", pin.pin);
+                let mux = format_ident!("Mux{}", pin.alt);
+                let feature_gate = pin_feature_gate(pin.pin);
+
+                generated.extend(quote! {
+                    #feature_gate
+                    crate::impl_flexcan_pin!(#can_name, #pin_name, #mux, #signal_name);
                 });
             }
         }
