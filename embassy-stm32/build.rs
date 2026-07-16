@@ -1712,8 +1712,31 @@ fn main() {
         (("lcd", "VLCD"), quote!(crate::lcd::VlcdPin)),
         (("dac", "OUT1"), quote!(crate::dac::DacPin<Ch1>)),
         (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
+        (("adf", "CCK0"), quote!(crate::adf::CckPin)),
+        (("adf", "CCK1"), quote!(crate::adf::CckPin)),
+        (("adf", "SDI0"), quote!(crate::adf::SdiPin)),
+        (("mdf", "CCK0"), quote!(crate::mdf::CckPin)),
+        (("mdf", "CCK1"), quote!(crate::mdf::CckPin)),
+        (("mdf", "CKI0"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI1"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI2"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI3"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI4"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI5"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "SDI0"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI1"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI2"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI3"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI4"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI5"), quote!(crate::mdf::SdiPin)),
     ] {
         signals.entry(key).or_default().push(value);
+    }
+
+    // STM32U5 maps the external memory controller as kind "fsmc" (v5x1) but uses
+    // the same pin signals as FMC on other families.
+    for ((_, signal), traits) in signals.clone().into_iter().filter(|((kind, _), _)| *kind == "fmc") {
+        signals.entry(("fsmc", signal)).or_default().extend(traits);
     }
 
     // On some families the USB DM/DP signals are present as alternate functions,
@@ -2077,6 +2100,13 @@ fn main() {
         (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)),
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),
+        (("adf", "FLT0"), quote!(crate::adf::RxDma<Flt0>)),
+        (("mdf", "FLT0"), quote!(crate::mdf::RxDma<Flt0>)),
+        (("mdf", "FLT1"), quote!(crate::mdf::RxDma<Flt1>)),
+        (("mdf", "FLT2"), quote!(crate::mdf::RxDma<Flt2>)),
+        (("mdf", "FLT3"), quote!(crate::mdf::RxDma<Flt3>)),
+        (("mdf", "FLT4"), quote!(crate::mdf::RxDma<Flt4>)),
+        (("mdf", "FLT5"), quote!(crate::mdf::RxDma<Flt5>)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
     ]
@@ -2112,9 +2142,9 @@ fn main() {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     }
 
-    // JPEG HAL is currently N6-only; only emit dma_trait impls there.
+    // JPEG HAL: emit dma_trait impls on chips that use RX/TX DMA signal names.
     // ST naming: jpeg_rx_dma = mem→peri (input), jpeg_tx_dma = peri→mem (output).
-    if chip_name.starts_with("stm32n6") {
+    if chip_name.starts_with("stm32n6") || chip_name.starts_with("stm32u5f9") || chip_name.starts_with("stm32u5g9") {
         signals.insert(("jpeg", "RX"), quote!(crate::jpeg::DmaIn));
         signals.insert(("jpeg", "TX"), quote!(crate::jpeg::DmaOut));
     }

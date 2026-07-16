@@ -52,10 +52,14 @@ pub mod rcc;
 mod time_driver;
 pub mod timer;
 
+pub(crate) mod dflt;
+
 // Sometimes-present hardware
 
 #[cfg(adc)]
 pub mod adc;
+#[cfg(adf)]
+pub mod adf;
 #[cfg(aes_v3b)]
 pub mod aes;
 #[cfg(backup_sram)]
@@ -122,8 +126,14 @@ pub mod exti;
 pub mod flash;
 #[cfg(fmac)]
 pub mod fmac;
-#[cfg(fmc)]
+#[cfg(any(fmc, fsmc))]
 pub mod fmc;
+#[cfg(gfxmmu)]
+pub mod gfxmmu;
+#[cfg(gfxtim)]
+pub mod gfxtim;
+#[cfg(gpu2d)]
+pub mod gpu2d;
 #[cfg(hash)]
 pub mod hash;
 #[cfg(hrtim)]
@@ -138,19 +148,21 @@ pub mod i2c;
 pub mod i2s;
 #[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
-// Limited to N6 for now — on H7 the metapac entry for JPEG has `rcc: None`
-// (no RccPeripheral impl is generated), and the DMA signal names differ
-// (INFIFO/OUTFIFO vs N6's RX/TX). Broaden once stm32-data is updated.
-#[cfg(all(jpeg, stm32n6))]
+// JPEG is unavailable on some families (e.g. H7 uses different DMA signal names).
+#[cfg(jpeg)]
 pub mod jpeg;
 #[cfg(lcd)]
 pub mod lcd;
 #[cfg(feature = "low-power")]
 pub mod low_power;
+#[cfg(lpgpio)]
+pub mod lpgpio;
 #[cfg(lptim)]
 pub mod lptim;
 #[cfg(ltdc)]
 pub mod ltdc;
+#[cfg(mdf)]
+pub mod mdf;
 #[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
