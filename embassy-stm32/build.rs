@@ -42,6 +42,13 @@ fn main() {
     let mut cfgs = common::CfgSet::new();
     common::set_target_cfgs(&mut cfgs);
 
+    if std::env::var("CARGO_FEATURE_RT").is_err()
+        && std::env::var("CARGO_CFG_TARGET_OS") == Ok("none".to_string())
+        && std::env::var("CARGO_CFG_TARGET_ARCH") == Ok("arm".to_string())
+    {
+        println!("cargo::warning=Building for bare-metal ARM without `rt` feature: interrupts will loop forever.");
+    }
+
     let chip_name = match env::vars()
         .map(|(a, _)| a)
         .filter(|x| x.starts_with("CARGO_FEATURE_STM32") && x != "CARGO_FEATURE_STM32_HRTIM")
