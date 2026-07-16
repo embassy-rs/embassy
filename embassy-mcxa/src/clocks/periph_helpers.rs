@@ -219,6 +219,18 @@ impl SPConfHelper for DacConfig {
     }
 }
 
+/// Placeholder configuration for the FlexCAN peripheral.
+///
+/// The FlexCAN HAL driver is not yet implemented, but the PAC metadata
+/// declares the gate config type, so we provide a stub here. Replace
+/// with the real implementation when the CAN driver is added.
+pub struct CanConfig;
+impl SPConfHelper for CanConfig {
+    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        Ok(PreEnableParts::empty())
+    }
+}
+
 //
 // Adc
 //

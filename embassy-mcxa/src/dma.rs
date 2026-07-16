@@ -6,9 +6,9 @@
 //!
 //! # Architecture
 //!
-//! The MCXA276 has 8 DMA channels (0-7), each with its own interrupt vector.
-//! Each channel has a Transfer Control Descriptor (TCD) that defines the
-//! transfer parameters.
+//! DMA0 has 8 channels (0-7) on MCXA2xx and 12 channels (0-11) on MCXA5xx,
+//! each with its own interrupt vector. Each channel has a Transfer Control
+//! Descriptor (TCD) that defines the transfer parameters.
 //!
 //! # Choosing the Right API
 //!
@@ -397,6 +397,14 @@ impl_channel!(DMA0_CH4, 4, DMA0_CH4);
 impl_channel!(DMA0_CH5, 5, DMA0_CH5);
 impl_channel!(DMA0_CH6, 6, DMA0_CH6);
 impl_channel!(DMA0_CH7, 7, DMA0_CH7);
+#[cfg(feature = "mcxa5xx")]
+impl_channel!(DMA0_CH8, 8, DMA0_CH8);
+#[cfg(feature = "mcxa5xx")]
+impl_channel!(DMA0_CH9, 9, DMA0_CH9);
+#[cfg(feature = "mcxa5xx")]
+impl_channel!(DMA0_CH10, 10, DMA0_CH10);
+#[cfg(feature = "mcxa5xx")]
+impl_channel!(DMA0_CH11, 11, DMA0_CH11);
 
 /// Parameters used to configure a 'typical' DMA transfer in [DmaChannel::setup_typical].
 struct DmaTransferParameters<WSRC: Word, WDST: Word> {
@@ -1316,7 +1324,15 @@ impl State {
     }
 }
 
-static STATES: [State; 8] = [const { State::new() }; 8];
+/// Number of DMA0 channels backed by the `EDMA_0_TCD` array.
+///
+/// DMA0 exposes 8 channels on MCXA2xx and 12 channels on MCXA5xx.
+#[cfg(feature = "mcxa5xx")]
+pub(crate) const DMA0_CHANNELS: usize = 12;
+#[cfg(not(feature = "mcxa5xx"))]
+pub(crate) const DMA0_CHANNELS: usize = 8;
+
+static STATES: [State; DMA0_CHANNELS] = [const { State::new() }; DMA0_CHANNELS];
 
 pub(crate) fn waker(idx: usize) -> &'static WaitCell {
     &STATES[idx].waker
@@ -2249,8 +2265,16 @@ impl_dma_interrupt_handler!(DMA0_CH4, 4);
 impl_dma_interrupt_handler!(DMA0_CH5, 5);
 impl_dma_interrupt_handler!(DMA0_CH6, 6);
 impl_dma_interrupt_handler!(DMA0_CH7, 7);
+#[cfg(feature = "mcxa5xx")]
+impl_dma_interrupt_handler!(DMA0_CH8, 8);
+#[cfg(feature = "mcxa5xx")]
+impl_dma_interrupt_handler!(DMA0_CH9, 9);
+#[cfg(feature = "mcxa5xx")]
+impl_dma_interrupt_handler!(DMA0_CH10, 10);
+#[cfg(feature = "mcxa5xx")]
+impl_dma_interrupt_handler!(DMA0_CH11, 11);
 
 // TODO(AJM): This is a gross, gross hack. This implements optional callbacks
 // for DMA completion interrupts. This should go away once we switch to
 // "in-band" DMA interrupt binding with `bind_interrupts!`.
-static CALLBACKS: [AtomicPtr<()>; 8] = [const { AtomicPtr::new(core::ptr::null_mut()) }; 8];
+static CALLBACKS: [AtomicPtr<()>; DMA0_CHANNELS] = [const { AtomicPtr::new(core::ptr::null_mut()) }; DMA0_CHANNELS];

@@ -169,7 +169,15 @@ fn generate_cc_gates() -> TokenStream {
             .config
             .map(|config| format_ident!("{config}"))
             .unwrap_or_else(|| format_ident!("NoConfig"));
-        let bit = format_ident!("{}", peripheral.name.to_lowercase());
+        // The FlexCAN peripherals are named `CANn` in the peripheral metadata, but
+        // their MRCC clock-gate/reset register fields are named `flexcann`. Map the
+        // gate bit name accordingly; all other peripherals use their lowercased name.
+        let bit_name = match peripheral.name {
+            "CAN0" => "flexcan0".to_string(),
+            "CAN1" => "flexcan1".to_string(),
+            other => other.to_lowercase(),
+        };
+        let bit = format_ident!("{}", bit_name);
 
         match reset {
             Some(reset) => generated.extend(quote! {
