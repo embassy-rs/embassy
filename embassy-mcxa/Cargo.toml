@@ -50,6 +50,9 @@ embedded-storage = "0.3.1"
 # Custom executor support
 embassy-executor = { version = "0.10.0", path = "../embassy-executor" }
 
+# USB device driver trait layer
+embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
+
 # `time` dependencies
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", features = ["tick-hz-1_000_000"] }
@@ -59,7 +62,11 @@ grounded = { version = "0.2.1", features = ["cas", "critical-section"] }
 heapless = "0.9"
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"] }
 nb = "1.1.0"
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "a46946e7f5ba3b5d8136f2962400300d54a99d6c", features = ["rt"] }
+# TEMPORARY: pinned to the branch behind upstream PR embassy-rs/nxp-pac#108, which
+# adds the MCXA577 USBHS/USBPHY register blocks this driver needs. Those registers
+# only exist on that branch until the PR merges. Switch both nxp-pac entries back to
+# a released/main rev of `https://github.com/embassy-rs/nxp-pac.git` once #108 merges.
+nxp-pac = { git = "https://github.com/bogdan-petru/nxp-pac.git", rev = "1a3fd38855dc1d9c81c3ecdf7be2188e363180f0", features = ["rt"] }
 paste = "1.0.15"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
@@ -67,7 +74,9 @@ rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
 [build-dependencies]
-nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "a46946e7f5ba3b5d8136f2962400300d54a99d6c", default-features = false, features = ["metadata"] }
+# TEMPORARY: see the note on the `[dependencies]` nxp-pac entry above. Switch back
+# to `https://github.com/embassy-rs/nxp-pac.git` once embassy-rs/nxp-pac#108 merges.
+nxp-pac = { git = "https://github.com/bogdan-petru/nxp-pac.git", rev = "1a3fd38855dc1d9c81c3ecdf7be2188e363180f0", default-features = false, features = ["metadata"] }
 proc-macro2 = "1.0.106"
 quote = "1.0.45"
 regex = "1.12.3"
