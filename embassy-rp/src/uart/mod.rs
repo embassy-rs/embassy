@@ -932,6 +932,11 @@ impl<'d, M: Mode> Uart<'d, M> {
                 #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_ie(true);
+                if config.invert_rx {
+                    w.set_pde(true);
+                } else {
+                    w.set_pue(true);
+                }
             });
         }
         if let Some(pin) = &cts {
