@@ -39,11 +39,6 @@ fn main() {
         }
 
         cfgs.enable(&driver_to_cfg_name(peripheral.driver_name));
-
-        // Also enable cfgs for each peripheral
-        let peripheral_gate = format!("peripheral_{}", peripheral.name);
-        cfgs.declare(&peripheral_gate);
-        cfgs.enable(&peripheral_gate);
     }
 
     let generated = [

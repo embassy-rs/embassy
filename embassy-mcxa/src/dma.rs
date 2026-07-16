@@ -473,9 +473,8 @@ impl DmaChannel<'_> {
     #[inline]
     pub(crate) fn tcd(&self) -> pac::edma_tcd::Tcd {
         match self.dma() {
-            #[cfg(peripheral_EDMA_0_TCD)]
             0 => pac::EDMA_0_TCD.tcd(self.channel.channel()),
-            #[cfg(peripheral_EDMA_1_TCD)]
+            #[cfg(feature = "mcxa5xx")]
             1 => pac::EDMA_1_TCD.tcd(self.channel.channel()),
             _ => unreachable!(),
         }
@@ -2206,9 +2205,8 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
     crate::perf_counters::incr_interrupt_edma0();
 
     let t = match dma {
-        #[cfg(peripheral_EDMA_0_TCD)]
         0 => pac::EDMA_0_TCD.tcd(channel),
-        #[cfg(peripheral_EDMA_1_TCD)]
+        #[cfg(feature = "mcxa5xx")]
         1 => pac::EDMA_1_TCD.tcd(channel),
         _ => unreachable!(),
     };
