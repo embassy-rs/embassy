@@ -253,6 +253,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         regs.modify(|w| {
             w.set_discen(false);
             w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            #[cfg(not(any(adc_v3, adc_g0, adc_u0, adc_h5)))]
             w.set_cont(false);
             #[cfg(any(adc_v3, adc_g0, adc_u0, adc_h5))]
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
