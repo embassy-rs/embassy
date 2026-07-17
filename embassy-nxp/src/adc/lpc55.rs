@@ -30,8 +30,8 @@ pub enum Averaging {
 }
 
 pub struct Config {
-    pub resolution: Resolution;
-    pub averaging: Averaging;
+    pub resolution: Resolution,
+    pub averaging: Averaging,
 }
 
 pub struct Adc<'d, T: Instance> {
