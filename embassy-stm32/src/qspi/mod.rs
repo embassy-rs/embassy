@@ -210,9 +210,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
 
     /// Do a QSPI command.
     pub fn blocking_command(&mut self, transaction: TransferConfig) {
-        #[cfg(not(stm32h7))]
-        T::REGS.cr().modify(|v| v.set_dmaen(false));
-        self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
+        self.setup_command(transaction);
 
         while !T::REGS.sr().read().tcf() {}
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
@@ -353,6 +351,13 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         T::REGS.pir().write(|w| w.set_interval(interval));
 
         self.setup_transaction(QspiMode::AutoPolling, &transaction, Some(data_len));
+    }
+
+    fn setup_command(&mut self, transaction: TransferConfig) {
+        #[cfg(not(stm32h7))]
+        T::REGS.cr().modify(|v| v.set_dmaen(false));
+
+        self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
     }
 
     fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {
@@ -853,6 +858,21 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         }
         .await
     }
+
+    /// Do a QSPI command.
+    pub async fn command(&mut self, transaction: TransferConfig) {
+        T::REGS.cr().modify(|m| {
+            // Set Transfer Complete Interrupt Enable
+            m.set_tcie(true);
+        });
+
+        self.setup_command(transaction);
+
+        CommandFuture {
+            _peri: self._peri.reborrow(),
+        }
+        .await
+    }
 }
 
 /// QSPI error
@@ -961,6 +981,37 @@ impl From<MatchMode> for bool {
     }
 }
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+struct CommandFuture<'d, T: Instance> {
+    _peri: Peri<'d, T>,
+}
+
+impl<'d, T: Instance> Unpin for CommandFuture<'d, T> {}
+impl<'d, T: Instance> Drop for CommandFuture<'d, T> {
+    fn drop(&mut self) {
+        T::REGS.cr().modify(|m| {
+            // Unset Transfer Control Interrupt Enable
+            m.set_tcie(false);
+        });
+    }
+}
+
+impl<'d, T: Instance> Future for CommandFuture<'d, T> {
+    type Output = ();
+
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+        COMMAND_WAKER.register(cx.waker());
+
+        if T::REGS.sr().read().busy() {
+            core::task::Poll::Pending
+        } else {
+            core::task::Poll::Ready(())
+        }
+    }
+}
+
+static COMMAND_WAKER: AtomicWaker = AtomicWaker::new();
+
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _marker: PhantomData<T>,
@@ -972,6 +1023,12 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
             // clear status match flag
             T::REGS.fcr().modify(|m| m.set_csmf(true));
             AUTOPOLL_WAKER.wake();
+        }
+
+        if T::REGS.sr().read().tcf() {
+            // clear transfer complete flag
+            T::REGS.fcr().modify(|m| m.set_ctcf(true));
+            COMMAND_WAKER.wake();
         }
     }
 }
