@@ -129,7 +129,7 @@ pub mod flash;
 pub mod fmac;
 #[cfg(any(fmc, fsmc))]
 pub mod fmc;
-#[cfg(gfxmmu)]
+#[cfg(gfxmmu_v2)]
 pub mod gfxmmu;
 #[cfg(gfxtim)]
 pub mod gfxtim;

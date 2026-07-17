@@ -5,7 +5,7 @@ use embassy_hal_internal::PeripheralType;
 
 #[cfg(not(fsmc_v5x1))]
 use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::{rcc, Peri};
+use crate::{Peri, rcc};
 
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
