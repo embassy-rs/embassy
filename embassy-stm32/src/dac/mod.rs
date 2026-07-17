@@ -13,7 +13,7 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub use ringbuffered::RingBufferedDacChannel;
 
-use crate::dma::{ChannelAndRequest, no_packing, word as dma};
+use crate::dma::{ChannelAndRequest, Packing, word as dma};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
@@ -299,7 +299,7 @@ impl<'d> DacChannel<'d, Async> {
                 W::dma_ptr(info.regs, idx),
                 W::dma_buf_mut(dma_buf),
                 crate::dma::TransferOptions {
-                    packing: no_packing(),
+                    packing: Packing::ZeroExtendOrLeftTruncate,
                     ..Default::default()
                 },
             )
@@ -327,7 +327,7 @@ impl<'d> DacChannel<'d, Async> {
         let tx_options = crate::dma::TransferOptions {
             half_transfer_ir: false,
             complete_transfer_ir: true,
-            packing: no_packing(),
+            packing: Packing::ZeroExtendOrLeftTruncate,
             ..Default::default()
         };
 
@@ -363,7 +363,7 @@ impl<'d> DacChannel<'d, Async> {
             circular: true,
             half_transfer_ir: false,
             complete_transfer_ir: false,
-            packing: no_packing(),
+            packing: Packing::ZeroExtendOrLeftTruncate,
             ..Default::default()
         };
 
