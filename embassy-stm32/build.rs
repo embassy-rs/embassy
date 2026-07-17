@@ -184,6 +184,7 @@ fn main() {
     // generate one singleton per peripheral (with many exceptions...)
     for (p, r) in &peripheral_list {
         if r.kind == "adccommon"
+            || r.kind == "adc"
             || r.kind == "sai"
             || r.kind == "ucpd"
             || r.kind == "otg"
@@ -234,6 +235,11 @@ fn main() {
     }
 
     cfgs.declare_all(&[
+        "peri_adc1",
+        "peri_adc2",
+        "peri_adc3",
+        "peri_adc4",
+        "peri_adc5",
         "peri_adc1_common",
         "peri_adc3_common",
         "peri_adc12_common",
