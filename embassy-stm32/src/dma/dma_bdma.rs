@@ -178,6 +178,11 @@ pub struct TransferOptions {
     pub word_swap: bool,
 }
 
+/// Return the no packing value
+pub const fn no_packing() -> bool {
+    false
+}
+
 impl Default for TransferOptions {
     fn default() -> Self {
         Self {
