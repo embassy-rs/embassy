@@ -31,6 +31,14 @@ pub struct Flt5;
 pub trait Filter: SealedFilter {
     /// Filter index (0..5).
     const INDEX: u8;
+}
+
+/// A [`Filter`] whose interrupt is routed on the compiled chip.
+///
+/// Not every chip's MDF1 instance exposes all six filters (e.g. STM32U535/U545 only have
+/// FLT0/FLT1), so this is only implemented for filters that actually have an interrupt.
+#[allow(private_bounds)]
+pub trait FilterInterrupt: Filter {
     /// Interrupt for this filter.
     type Interrupt: Interrupt;
 }
@@ -38,21 +46,53 @@ pub trait Filter: SealedFilter {
 trait SealedFilter {}
 
 macro_rules! impl_filter {
-    ($flt:ident, $idx:literal, $int:ident) => {
+    ($flt:ident, $idx:literal) => {
         impl SealedFilter for $flt {}
         impl Filter for $flt {
             const INDEX: u8 = $idx;
-            type Interrupt = crate::_generated::peripheral_interrupts::MDF1::$int;
         }
     };
 }
 
-impl_filter!(Flt0, 0, FLT0);
-impl_filter!(Flt1, 1, FLT1);
-impl_filter!(Flt2, 2, FLT2);
-impl_filter!(Flt3, 3, FLT3);
-impl_filter!(Flt4, 4, FLT4);
-impl_filter!(Flt5, 5, FLT5);
+impl_filter!(Flt0, 0);
+impl_filter!(Flt1, 1);
+impl_filter!(Flt2, 2);
+impl_filter!(Flt3, 3);
+impl_filter!(Flt4, 4);
+impl_filter!(Flt5, 5);
+
+foreach_interrupt!(
+    ($inst:ident, mdf, MDF, FLT0, $irq:ident) => {
+        impl FilterInterrupt for Flt0 {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+    ($inst:ident, mdf, MDF, FLT1, $irq:ident) => {
+        impl FilterInterrupt for Flt1 {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+    ($inst:ident, mdf, MDF, FLT2, $irq:ident) => {
+        impl FilterInterrupt for Flt2 {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+    ($inst:ident, mdf, MDF, FLT3, $irq:ident) => {
+        impl FilterInterrupt for Flt3 {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+    ($inst:ident, mdf, MDF, FLT4, $irq:ident) => {
+        impl FilterInterrupt for Flt4 {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+    ($inst:ident, mdf, MDF, FLT5, $irq:ident) => {
+        impl FilterInterrupt for Flt5 {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+);
 
 /// MDF driver error.
 #[derive(Debug)]
@@ -138,6 +178,7 @@ impl<'d, T: Instance, F: Filter> Mdf<'d, T, F> {
     ) -> Self
     where
         D: RxDma<T, F>,
+        F: FilterInterrupt,
     {
         set_as_af!(cck, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         set_as_af!(sdi, AfType::input(Pull::None));
@@ -268,7 +309,7 @@ pub struct FilterInterruptHandler<T: Instance, F: Filter> {
     _marker: PhantomData<(T, F)>,
 }
 
-impl<T: Instance, F: Filter> interrupt::typelevel::Handler<F::Interrupt> for FilterInterruptHandler<T, F> {
+impl<T: Instance, F: FilterInterrupt> interrupt::typelevel::Handler<F::Interrupt> for FilterInterruptHandler<T, F> {
     unsafe fn on_interrupt() {
         let index = F::INDEX as usize;
         let isr = T::regs().dfltisr(index).read();
