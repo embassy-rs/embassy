@@ -3,8 +3,9 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
 
+#[cfg(not(fsmc_v5x1))]
 use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::{Peri, rcc};
+use crate::{rcc, Peri};
 
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
@@ -72,6 +73,7 @@ where
     }
 }
 
+#[cfg(not(fsmc_v5x1))]
 macro_rules! config_pins {
     ($($pin:ident),*) => {
                 $(
@@ -80,6 +82,7 @@ macro_rules! config_pins {
     };
 }
 
+#[cfg(not(fsmc_v5x1))]
 macro_rules! fmc_sdram_constructor {
     ($name:ident: (
         bank: $bank:expr,
@@ -280,10 +283,11 @@ trait SealedInstance: crate::rcc::RccPeripheral {
     const REGS: Regs;
 }
 
-/// Register block type for the external memory controller.
 #[cfg(fmc)]
+/// Register block type for the external memory controller.
 pub type Regs = crate::pac::fmc::Fmc;
 #[cfg(all(fsmc, not(fmc)))]
+/// Register block type for the external memory controller.
 pub type Regs = crate::pac::fsmc::Fsmc;
 
 /// FMC instance trait.

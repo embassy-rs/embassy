@@ -52,6 +52,7 @@ pub mod rcc;
 mod time_driver;
 pub mod timer;
 
+#[cfg(any(adf, mdf))]
 pub(crate) mod dflt;
 
 // Sometimes-present hardware
@@ -132,7 +133,7 @@ pub mod fmc;
 pub mod gfxmmu;
 #[cfg(gfxtim)]
 pub mod gfxtim;
-#[cfg(gpu2d)]
+#[cfg(all(gpu2d, stm32u5))]
 pub mod gpu2d;
 #[cfg(hash)]
 pub mod hash;
@@ -149,7 +150,7 @@ pub mod i2s;
 #[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
 // JPEG is unavailable on some families (e.g. H7 uses different DMA signal names).
-#[cfg(jpeg)]
+#[cfg(all(jpeg, any(stm32n6, stm32u5f9, stm32u5g9)))]
 pub mod jpeg;
 #[cfg(lcd)]
 pub mod lcd;
