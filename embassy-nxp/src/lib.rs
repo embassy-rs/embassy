@@ -4,6 +4,7 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+pub mod adc;
 #[cfg(lpc55)]
 pub mod dma;
 pub mod gpio;
