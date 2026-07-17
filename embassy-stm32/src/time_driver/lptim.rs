@@ -205,6 +205,28 @@ impl RtcDriver {
                     crate::pac::EXTI.imr(0).modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
                 }
             }
+
+            // U5/U3: the LP timer used as time driver must remain functional in
+            // STOP mode so it can wake the CPU. Two RCC bits are required:
+            //  - SRDAMR.*amen: autonomous mode enable, so the peripheral can
+            //    request its kernel clock (LSE/LSI) while in STOP.
+            //  - APB3SMENR.*smen: keep the APB bus clock available in STOP so
+            //    the NVIC interrupt reaches the CPU.
+            // Without these, the LPTIM keeps its registers but its interrupt
+            // cannot wake the core from STOP, hanging the executor.
+            #[cfg(any(stm32u5, stm32u3))]
+            {
+                #[cfg(time_driver_lptim1)]
+                {
+                    crate::pac::RCC.srdamr().modify(|w| w.set_lptim1amen(true));
+                    crate::pac::RCC.apb3smenr().modify(|w| w.set_lptim1smen(true));
+                }
+                #[cfg(time_driver_lptim3)]
+                {
+                    crate::pac::RCC.srdamr().modify(|w| w.set_lptim3amen(true));
+                    crate::pac::RCC.apb3smenr().modify(|w| w.set_lptim3smen(true));
+                }
+            }
         }
     }
 
