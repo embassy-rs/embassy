@@ -357,7 +357,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 // For ADC3: (only available on STM32H543/553 devices)
                 //   0: INP0 GPIO switch control disabled
                 //   1: INP0 GPIO switch control enabled
-                #[cfg(any(adc_h5, adc_h7rs))]
+                #[cfg(adc_h5)]
                 if channel == 0 {
                     if self.as_ptr() == stm32_metapac::ADC2.as_ptr() {
                         // when ADC2_INP0 should be enabled, set OP0 to 1 for ADC1
@@ -367,6 +367,10 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                         // when ADC3_INP0 should be enabled, set OP0 to 1 for ADC3
                         self.or().modify(|reg| reg.set_op0(true));
                     }
+                }
+                #[cfg(adc_h7rs)]
+                if channel == 0 {
+                    self.or().modify(|reg| reg.set_op0(true));
                 }
 
                 // Configure channel
