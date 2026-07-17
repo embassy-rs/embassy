@@ -211,18 +211,6 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             });
             while self.cr().read().adstart() {}
         }
-
-        // Reset configuration.
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        self.cfgr().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_dmaen(false);
-        });
-        #[cfg(any(adc_g0, adc_u0))]
-        self.cfgr1().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_dmaen(false);
-        });
     }
 
     fn power_down(&self) {
