@@ -124,9 +124,9 @@ use crate::pac::edma_tcd::{
     TcdNbytesMloffnoSmloe,
 };
 use crate::pac::{self, Interrupt};
+use crate::peripherals::DMA0;
 #[cfg(feature = "mcxa5xx")]
 use crate::peripherals::DMA1;
-use crate::peripherals::DMA0;
 
 /// Initialize DMA controller (clock enabled, reset released, controller configured).
 ///
