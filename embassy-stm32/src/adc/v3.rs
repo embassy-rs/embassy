@@ -335,8 +335,29 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             // Configure channels and ranks
             for (_i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
                 // RM0492, RM0481, etc.
-                // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-                #[cfg(any(adc_h5, adc_h7rs))]
+                // OP0: Option bit 0
+                // For ADC1:
+                //   0: INP0/INN1 GPIO switch control disabled (for both ADC1 and ADC2)
+                //   1: INP0/INN1 GPIO switch control enabled (for both ADC1 and ADC2)
+                //   Note: This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected.
+                // For ADC2:
+                //   0: VDDCORE channel disabled (for both ADC2 and ADC3)
+                //   1: VDDCORE channel enabled (for both ADC2 and ADC3)
+                // For ADC3: (only available on STM32H543/553 devices)
+                //   0: INP0 GPIO switch control disabled
+                //   1: INP0 GPIO switch control enabled
+                #[cfg(adc_h5)]
+                if channel == 0 {
+                    if self.as_ptr() == stm32_metapac::ADC2.as_ptr() {
+                        // when ADC2_INP0 should be enabled, set OP0 to 1 for ADC1
+                        stm32_metapac::ADC1.or().modify(|reg| reg.set_op0(true));
+                    } else {
+                        // when ADC1_INP0 should be enabled, set OP0 to 1 for ADC1
+                        // when ADC3_INP0 should be enabled, set OP0 to 1 for ADC3
+                        self.or().modify(|reg| reg.set_op0(true));
+                    }
+                }
+                #[cfg(adc_h7rs)]
                 if channel == 0 {
                     self.or().modify(|reg| reg.set_op0(true));
                 }
