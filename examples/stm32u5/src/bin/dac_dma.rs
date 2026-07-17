@@ -4,15 +4,12 @@
 #![no_main]
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::dac::DacChannel;
-use embassy_stm32::dma;
-use embassy_stm32::pac;
 use embassy_stm32::peripherals::GPDMA1_CH0;
 use embassy_stm32::rcc::{LsConfig, mux};
 use embassy_stm32::timer::low_level::RoundTo::Faster;
 use embassy_stm32::triggers::TIM6_TRGO;
+use embassy_stm32::{Config, bind_interrupts, dma, pac};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
