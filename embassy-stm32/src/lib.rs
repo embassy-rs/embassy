@@ -147,6 +147,8 @@ pub mod hspi;
 pub mod i2c;
 #[cfg(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))]
 pub mod i2s;
+#[cfg(icache)]
+pub mod icache;
 #[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
 // JPEG is unavailable on some families (e.g. H7 uses different DMA signal names).
@@ -172,6 +174,8 @@ pub mod ospi;
 pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
+#[cfg(ramcfg_wba)]
+pub mod ramcfg;
 #[cfg(rifsc)]
 pub mod rif;
 #[cfg(rng)]
