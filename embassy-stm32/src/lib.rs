@@ -188,7 +188,7 @@ pub mod sdmmc;
 pub mod spdifrx;
 #[cfg(spi)]
 pub mod spi;
-#[cfg(tamp)]
+#[cfg(any(tamp_u5, tamp_wba))]
 pub mod tamp;
 #[cfg(tsc)]
 pub mod tsc;
