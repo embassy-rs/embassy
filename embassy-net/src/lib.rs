@@ -101,6 +101,10 @@ pub struct StackResources<const SOCK: usize> {
     // undersized buffer never corrupts the IP configuration, it only drops the extra options.
     #[cfg(feature = "dhcpv4-ntp")]
     dhcp_rx_buffer: MaybeUninit<[u8; DHCP_RX_BUFFER_SIZE]>,
+    #[cfg(feature = "ptp")]
+    ids: MaybeUninit<[Option<u8>; SOCK]>,
+    #[cfg(feature = "ptp")]
+    times: MaybeUninit<[Option<embassy_net_driver::Timestamp>; SOCK]>,
 }
 
 #[cfg(feature = "dhcpv4-hostname")]
@@ -124,6 +128,10 @@ impl<const SOCK: usize> StackResources<SOCK> {
             },
             #[cfg(feature = "dhcpv4-ntp")]
             dhcp_rx_buffer: MaybeUninit::uninit(),
+            #[cfg(feature = "ptp")]
+            ids: MaybeUninit::uninit(),
+            #[cfg(feature = "ptp")]
+            times: MaybeUninit::uninit(),
         }
     }
 }
@@ -332,6 +340,10 @@ pub(crate) struct Inner {
     hostname: *mut HostnameResources,
     #[cfg(feature = "dhcpv4-ntp")]
     dhcp_rx_buffer: *mut [u8],
+    #[cfg(feature = "ptp")]
+    ids: &'static mut [Option<u8>],
+    #[cfg(feature = "ptp")]
+    times: &'static mut [Option<embassy_net_driver::Timestamp>],
 }
 
 fn _assert_covariant<'a, 'b: 'a>(x: Stack<'b>) -> Stack<'a> {
@@ -407,6 +419,10 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         hostname: &mut resources.hostname,
         #[cfg(feature = "dhcpv4-ntp")]
         dhcp_rx_buffer: resources.dhcp_rx_buffer.write([0; DHCP_RX_BUFFER_SIZE]) as *mut [u8],
+        #[cfg(feature = "ptp")]
+        ids: unsafe { &mut transmute_slice(resources.ids.write([None; SOCK]))[..] },
+        #[cfg(feature = "ptp")]
+        times: unsafe { &mut transmute_slice(resources.times.write([None; SOCK]))[..] },
     };
 
     #[cfg(feature = "proto-ipv4")]
@@ -939,6 +955,21 @@ impl Inner {
             };
             if do_set {
                 self.iface.set_hardware_addr(_hardware_addr);
+            }
+        }
+
+        #[cfg(feature = "ptp")]
+        while let Some((id, timestamp)) = driver.poll_timestamp(cx) {
+            if let Some(index) = self
+                .ids
+                .iter()
+                .enumerate()
+                .find(|x| x.1.is_some_and(|x| x == id))
+                .map(|x| x.0)
+            {
+                self.times[index] = Some(timestamp);
+
+                // TODO: wake socket waker
             }
         }
 
