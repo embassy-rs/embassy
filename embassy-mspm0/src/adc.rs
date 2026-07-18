@@ -1,16 +1,23 @@
+//! Analog to Digital Converter (ADC)
+
 #![macro_use]
 
 use core::future::poll_fn;
+use core::hint::unreachable_unchecked;
 use core::marker::PhantomData;
+use core::num::NonZeroU16;
 use core::task::Poll;
 
-use embassy_hal_internal::{PeripheralType, impl_peripheral};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
-use crate::pac::adc::{Adc as Regs, vals};
+use crate::pac::adc::{Adc as Regs, regs, vals};
 use crate::{Peri, interrupt};
+
+/// Maximum length allowed for [`Adc::irq_read_sequence`].
+pub const MAX_SEQUENCE_LEN: usize = ADC_MEMCTL as usize;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -19,48 +26,78 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        // Mis is cleared upon reading iidx
-        let iidx = T::info().regs.cpu_int(0).iidx().read().stat();
-        // TODO: Running in sequence mode, we get an interrupt per finished result. It would be
-        // nice to wake up only after all results are finished.
-        if vals::CpuIntIidxStat::MEMRESIFG0 <= iidx && iidx <= vals::CpuIntIidxStat::MEMRESIFG23 {
-            T::state().waker.wake();
+        let r = T::info().regs;
+        let state = T::state();
+
+        let mis = r.cpu_int(0).mis().read().0;
+
+        // Check if any MEMRES bits were set. irq reads will enable the IRQ for the last channel in use.
+        if mis >> 8 != 0 {
+            // Clear the MEMRES interrupt bits.
+            r.cpu_int(0).iclr().write_value(regs::CpuInt(mis & 0xFFFF_FF00));
+            state.waker.wake();
         }
     }
 }
 
-// Constants from the metapac crate
-const ADC_VRSEL: u8 = crate::_generated::ADC_VRSEL;
-const ADC_MEMCTL: u8 = crate::_generated::ADC_MEMCTL;
+/// Sample clock source for ADC.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SampleClock {
+    // TODO: ULPCLK after clock config
+    /// Source ADC clock from SYSOSC.
+    Sysosc,
+    // TODO: HFCLK after clock config (if available)
+}
 
+/// Conversion resolution of the ADC results.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Conversion resolution of the ADC results.
 pub enum Resolution {
     /// 12-bits resolution
-    BIT12,
+    Bits12,
 
     /// 10-bits resolution
-    BIT10,
+    Bits10,
 
     /// 8-bits resolution
-    BIT8,
+    Bits8,
 }
 
 impl Resolution {
     /// Number of bits of the resolution.
-    pub fn bits(&self) -> u8 {
+    #[inline]
+    pub const fn bits(&self) -> u8 {
         match self {
-            Resolution::BIT12 => 12,
-            Resolution::BIT10 => 10,
-            Resolution::BIT8 => 8,
+            Resolution::Bits12 => 12,
+            Resolution::Bits10 => 10,
+            Resolution::Bits8 => 8,
         }
+    }
+
+    /// Get the maximum reading value for this resolution.
+    ///
+    /// This is `2**n - 1`.
+    #[inline]
+    pub const fn max_count(&self) -> u32 {
+        (1 << self.bits()) - 1
     }
 }
 
+/// Hardware sample time comparator.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SampleTimeComparator {
+    /// Use simple time comparator 0.
+    Scomp0,
+
+    /// Use sample time comparator 1.
+    Scomp1,
+}
+
 /// Reference voltage (Vref) selection for the ADC channels.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Vrsel {
     /// VDDA reference
     VddaVssa = 0,
@@ -80,320 +117,434 @@ pub enum Vrsel {
     IntrefVrefm = 4,
 }
 
+/// Sample conversion parameters.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Conversion {
+    // TODO: Bitpack a regs::Memctl for smaller size?
+    /// Voltage reference selection.
+    pub vrsel: Vrsel,
+
+    /// Sample time period.
+    pub stime: SampleTimeComparator,
+    // TODO: AVG, BCS, TRIG, WINCOMP
+}
+
+impl Default for Conversion {
+    #[inline]
+    fn default() -> Self {
+        Self {
+            vrsel: Vrsel::VddaVssa,
+            stime: SampleTimeComparator::Scomp0,
+        }
+    }
+}
+
 /// ADC configuration.
 #[derive(Copy, Clone)]
 #[non_exhaustive]
 pub struct Config {
     /// Resolution of the ADC conversion. The number of bits used to represent an ADC measurement.
     pub resolution: Resolution,
-    /// ADC voltage reference selection.
+
+    /// Sample clock source.
+    pub sample_clk: SampleClock,
+
+    /// Length of the sample period 0 in ADC sample clock cycles.
     ///
-    /// This value is used when reading a single channel. When reading a sequence
-    /// the vr_select is provided per channel.
-    pub vr_select: Vrsel,
-    /// The sample time in number of ADC sample clock cycles.
-    pub sample_time: u16,
+    /// This is used when [`SampleTimeComparator::Scomp0`] is selected when sampling.
+    pub sample_period_0: NonZeroU16,
+
+    /// Length of the sample period 1 in ADC sample clock cycles.
+    ///
+    /// This is used when [`SampleTimeComparator::Scomp1`] is selected when sampling.
+    pub sample_period_1: NonZeroU16,
+}
+
+impl Config {
+    /// Maximum number of sample clocks that may be performed when sampling.
+    pub const MAX_SAMPLE_PERIOD: NonZeroU16 = NonZeroU16::new((1 << 9) - 1).unwrap();
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            resolution: Resolution::BIT12,
-            vr_select: Vrsel::VddaVssa,
-            sample_time: 50,
+            resolution: Resolution::Bits12,
+            sample_clk: SampleClock::Sysosc,
+            // TODO: What should these be by default?
+            sample_period_0: NonZeroU16::new(50).unwrap(),
+            sample_period_1: NonZeroU16::new(50).unwrap(),
         }
     }
 }
 
-/// ADC (Analog to Digial Converter) Driver.
+/// Analog to Digital driver.
 pub struct Adc<'d, T: Instance, M: Mode> {
     #[allow(unused)]
     adc: crate::Peri<'d, T>,
-    info: &'static Info,
-    state: &'static State,
-    config: Config,
-    _phantom: PhantomData<M>,
-}
-
-impl<'d, T: Instance> Adc<'d, T, Blocking> {
-    /// A new blocking ADC driver instance.
-    pub fn new_blocking(peri: Peri<'d, T>, config: Config) -> Self {
-        let mut this = Self {
-            adc: peri,
-            info: T::info(),
-            state: T::state(),
-            config,
-            _phantom: PhantomData,
-        };
-        this.setup();
-        this
-    }
-}
-
-impl<'d, T: Instance> Adc<'d, T, Async> {
-    /// A new asynchronous ADC driver instance.
-    pub fn new_async(
-        peri: Peri<'d, T>,
-        config: Config,
-        _irqs: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
-        let mut this = Self {
-            adc: peri,
-            info: T::info(),
-            state: T::state(),
-            config,
-            _phantom: PhantomData,
-        };
-        this.setup();
-        unsafe {
-            this.info.interrupt.enable();
-        }
-        this
-    }
+    _mode: PhantomData<M>,
 }
 
 impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
-    const SINGLE_CHANNEL: u8 = 0;
-
-    fn setup(&mut self) {
-        let config = &self.config;
-        assert!(
-            (config.vr_select as u8) < ADC_VRSEL,
-            "Reference voltage selection out of bounds"
-        );
-        // Reset adc
-        self.info.regs.gprcm(0).rstctl().write(|reg| {
-            reg.set_resetstkyclr(true);
-            reg.set_resetassert(true);
-            reg.set_key(vals::ResetKey::KEY);
-        });
-
-        // Power up adc
-        self.info.regs.gprcm(0).pwren().modify(|reg| {
-            reg.set_enable(true);
-            reg.set_key(vals::PwrenKey::KEY);
-        });
-
-        // Wait for cycles similar to TI power setup
-        cortex_m::asm::delay(16);
-
-        // Set clock config
-        self.info.regs.gprcm(0).clkcfg().modify(|reg| {
-            reg.set_key(vals::ClkcfgKey::KEY);
-            reg.set_sampclk(vals::Sampclk::SYSOSC);
-        });
-        self.info.regs.ctl0().modify(|reg| {
-            reg.set_sclkdiv(vals::Sclkdiv::DIV_BY_4);
-        });
-        self.info.regs.clkfreq().modify(|reg| {
-            reg.set_frange(vals::Frange::RANGE24TO32);
-        });
-
-        // Init single conversion with software trigger and auto sampling
-        //
-        // We use sequence to support sequence operation in the future, but only set up a single
-        // channel
-        self.info.regs.ctl1().modify(|reg| {
-            reg.set_conseq(vals::Conseq::SEQUENCE);
-            reg.set_sampmode(vals::Sampmode::AUTO);
-            reg.set_trigsrc(vals::Trigsrc::SOFTWARE);
-        });
-        let res = match config.resolution {
-            Resolution::BIT12 => vals::Res::BIT_12,
-            Resolution::BIT10 => vals::Res::BIT_10,
-            Resolution::BIT8 => vals::Res::BIT_8,
-        };
-        self.info.regs.ctl2().modify(|reg| {
-            // Startadd detemines the channel used in single mode.
-            reg.set_startadd(Self::SINGLE_CHANNEL);
-            reg.set_endadd(Self::SINGLE_CHANNEL);
-            reg.set_res(res);
-            reg.set_df(false);
-        });
-
-        // Set the sample time used by all channels for now
-        self.info.regs.scomp0().modify(|reg| {
-            reg.set_val(config.sample_time);
-        });
-    }
-
-    fn setup_blocking_channel(&mut self, channel: &Peri<'d, impl AdcChannel<T>>) {
-        channel.setup();
-
-        // CTL0.ENC must be 0 to write the MEMCTL register
-        while self.info.regs.ctl0().read().enc() {
-            // Wait until the ADC is not in conversion mode
+    pub fn new_blocking(peri: Peri<'d, T>, config: Config) -> Adc<'d, T, Blocking> {
+        Self::setup(config);
+        Adc {
+            adc: peri,
+            _mode: PhantomData,
         }
+    }
 
-        // Conversion mem config
-        let vrsel = vals::Vrsel::from_bits(self.config.vr_select as u8);
-        self.info.regs.memctl(Self::SINGLE_CHANNEL as usize).modify(|reg| {
-            reg.set_chansel(channel.channel());
-            reg.set_vrsel(vrsel);
-            reg.set_stime(vals::Stime::SEL_SCOMP0);
-            reg.set_avgen(false);
-            reg.set_bcsen(false);
-            reg.set_trig(vals::Trig::AUTO_NEXT);
-            reg.set_wincomp(false);
+    /// Read an ADC pin.
+    pub fn blocking_read<'a>(&mut self, channel: impl BorrowedChannel<'a, T>, conversion: Conversion) -> u16
+    where
+        'd: 'a,
+    {
+        let r = T::info().regs;
+        let channel = channel.reborrow_adc();
+
+        // Wait until ADC is not converting to start.
+        //
+        // This is needed a future which started sampling could have been dropped half way through.
+        while r.ctl0().read().enc() {}
+
+        Self::setup_sequence([(channel.get_hw_channel(), conversion)].into_iter());
+
+        r.ctl0().modify(|w| {
+            w.set_enc(true);
         });
-        self.info.regs.ctl2().modify(|reg| {
-            // Set end address to the number of used channels
-            reg.set_endadd(Self::SINGLE_CHANNEL);
+
+        r.ctl1().modify(|w| {
+            w.set_sc(vals::Sc::START);
+        });
+
+        // Wait for conversion
+        while r.ctl0().read().enc() {}
+        r.memres(0).read().data()
+    }
+
+    pub fn resolution(&self) -> Resolution {
+        let r = T::info().regs;
+        let ctl2 = r.ctl2().read();
+        from_res(ctl2.res())
+    }
+
+    pub fn set_resolution(&mut self, resolution: Resolution) {
+        let r = T::info().regs;
+
+        r.ctl2().modify(|w| {
+            w.set_res(to_res(resolution));
         });
     }
 
-    fn enable_conversion(&mut self) {
-        // Enable conversion
-        self.info.regs.ctl0().modify(|reg| {
-            reg.set_enc(true);
+    pub fn set_scomp0(&mut self, period: NonZeroU16) {
+        assert!(period <= Config::MAX_SAMPLE_PERIOD);
+        let r = T::info().regs;
+
+        r.scomp0().write(|w| {
+            w.set_val(period.get());
         });
     }
 
-    fn start_conversion(&mut self) {
-        // Start conversion
-        self.info.regs.ctl1().modify(|reg| {
-            reg.set_sc(vals::Sc::START);
+    pub fn scomp0(&self) -> u16 {
+        let r = T::info().regs;
+        r.scomp0().read().val()
+    }
+
+    pub fn set_scomp1(&mut self, period: NonZeroU16) {
+        assert!(period <= Config::MAX_SAMPLE_PERIOD);
+        let r = T::info().regs;
+
+        r.scomp1().write(|w| {
+            w.set_val(period.get());
         });
     }
 
-    fn conversion_result(&mut self, channel_id: usize) -> u16 {
-        // Read result
-        self.info.regs.memres(channel_id).read().data()
-    }
-
-    /// Read one ADC channel in blocking mode using the config provided at initialization.
-    pub fn blocking_read(&mut self, channel: &Peri<'d, impl AdcChannel<T>>) -> u16 {
-        self.setup_blocking_channel(channel);
-        self.enable_conversion();
-        self.start_conversion();
-
-        while self.info.regs.ctl0().read().enc() {}
-
-        self.conversion_result(Self::SINGLE_CHANNEL as usize)
+    pub fn scomp1(&self) -> u16 {
+        let r = T::info().regs;
+        r.scomp0().read().val()
     }
 }
 
 impl<'d, T: Instance> Adc<'d, T, Async> {
-    /// Maximum length allowed for [`Self::read_sequence`].
-    pub const MAX_SEQUENCE_LEN: usize = ADC_MEMCTL as usize;
-
-    async fn wait_for_conversion(&self) {
-        let info = self.info;
-        let state = self.state;
-        poll_fn(move |cx| {
-            state.waker.register(cx.waker());
-
-            if !info.regs.ctl0().read().enc() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
+    pub fn new_async(
+        peri: Peri<'d, T>,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::setup(config);
+        unsafe { T::info().interrupt.enable() };
+        Self {
+            adc: peri,
+            _mode: PhantomData,
+        }
     }
 
-    fn setup_async_channel(&self, id: usize, channel: &Peri<'d, impl AdcChannel<T>>, vrsel: Vrsel) {
-        let vrsel = vals::Vrsel::from_bits(vrsel as u8);
-        // Conversion mem config
-        self.info.regs.memctl(id).modify(|reg| {
-            reg.set_chansel(channel.channel());
-            reg.set_vrsel(vrsel);
-            reg.set_stime(vals::Stime::SEL_SCOMP0);
-            reg.set_avgen(false);
-            reg.set_bcsen(false);
-            reg.set_trig(vals::Trig::AUTO_NEXT);
-            reg.set_wincomp(false);
+    /// Read an ADC pin asynchronously using the irq handler.
+    pub async fn irq_read<'a>(&mut self, channel: impl BorrowedChannel<'a, T>, conversion: Conversion) -> u16
+    where
+        T: 'a,
+    {
+        let r = T::info().regs;
+        let channel = channel.reborrow_adc();
+
+        // Wait until ADC is not converting to start.
+        //
+        // This is needed a future which started sampling could have been dropped half way through.
+        Self::wait_for_conversion().await;
+        Self::setup_sequence([(channel.get_hw_channel(), conversion)].into_iter());
+
+        // Write is used to zero the other MEMRES interrupt bits.
+        r.cpu_int(0).imask().write(|w| {
+            w.set_memresifg(0, true);
         });
 
-        // Clear interrupt status
-        self.info.regs.cpu_int(0).iclr().write(|reg| {
-            reg.set_memresifg(id, true);
+        r.ctl0().modify(|w| {
+            w.set_enc(true);
         });
-        // Enable interrupt
-        self.info.regs.cpu_int(0).imask().modify(|reg| {
-            reg.set_memresifg(id, true);
+
+        r.ctl1().modify(|w| {
+            w.set_sc(vals::Sc::START);
         });
+
+        Self::wait_for_conversion().await;
+        r.memres(0).read().data()
     }
 
-    /// Read one ADC channel asynchronously using the config provided at initialization.
-    pub async fn read_channel(&mut self, channel: &Peri<'d, impl AdcChannel<T>>) -> u16 {
-        channel.setup();
-
-        // CTL0.ENC must be 0 to write the MEMCTL register
-        self.wait_for_conversion().await;
-
-        self.info.regs.ctl2().modify(|reg| {
-            // Set end address to the number of used channels
-            reg.set_endadd(Self::SINGLE_CHANNEL);
-        });
-
-        self.setup_async_channel(Self::SINGLE_CHANNEL as usize, channel, self.config.vr_select);
-
-        self.enable_conversion();
-        self.start_conversion();
-        self.wait_for_conversion().await;
-
-        self.conversion_result(Self::SINGLE_CHANNEL as usize)
-    }
-
-    /// Read one or multiple ADC channels using the Vrsel provided per channel.
+    /// Read one or multiple ADC regular channels using the irq handler.
     ///
     /// `sequence` iterator and `readings` must have the same length.
-    ///
-    /// Example
-    /// ```rust,ignore
-    /// use embassy_mspm0::adc::{Adc, AdcChannel, Vrsel};
-    ///
-    /// let mut adc = Adc::new_async(p.ADC0, adc_config, Irqs);
-    /// let sequence = [(&p.PA22.into(), Vrsel::VddaVssa), (&p.PA20.into(), Vrsel::VddaVssa)];
-    /// let mut readings = [0u16; 2];
-    ///
-    /// adc.read_sequence(sequence.into_iter(), &mut readings).await;
-    /// defmt::info!("Measurements: {}", readings);
-    /// ```
-    pub async fn read_sequence<'a>(
+    pub async fn irq_read_sequence<'a>(
         &mut self,
-        sequence: impl ExactSizeIterator<Item = (&'a Peri<'d, AnyAdcChannel<T>>, Vrsel)>,
+        sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'a, T>, Conversion)>,
         readings: &mut [u16],
     ) where
-        'd: 'a,
+        T: 'a,
     {
-        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
+        assert!(sequence.len() != 0, "Read sequence cannot be empty");
         assert!(
             sequence.len() == readings.len(),
             "Sequence length must be equal to readings length"
         );
         assert!(
-            sequence.len() <= Self::MAX_SEQUENCE_LEN,
+            sequence.len() <= MAX_SEQUENCE_LEN,
             "Asynchronous read sequence cannot be more than {} in length",
-            Self::MAX_SEQUENCE_LEN
+            MAX_SEQUENCE_LEN
         );
 
-        // CTL0.ENC must be 0 to write the MEMCTL register
-        self.wait_for_conversion().await;
+        let sequence_len = sequence.len();
+        let r = T::info().regs;
 
-        self.info.regs.ctl2().modify(|reg| {
-            // Set end address to the number of used channels
-            reg.set_endadd((sequence.len() - 1) as u8);
+        // Wait until ADC is not converting to start.
+        //
+        // This is needed a future which started sampling could have been dropped half way through.
+        Self::wait_for_conversion().await;
+        Self::setup_sequence(sequence.map(|(ch, conv)| (ch.get_hw_channel(), conv)));
+
+        // Only wake up when the last bit is set.
+        //
+        // Write is used to zero the other MEMRES interrupt bits.
+        r.cpu_int(0).imask().write(|w| {
+            w.set_memresifg(sequence_len - 1, true);
         });
 
-        for (i, (channel, vrsel)) in sequence.enumerate() {
-            self.setup_async_channel(i, channel, vrsel);
-        }
-        self.enable_conversion();
-        self.start_conversion();
-        self.wait_for_conversion().await;
+        r.ctl0().modify(|w| {
+            w.set_enc(true);
+        });
 
-        for (i, r) in readings.iter_mut().enumerate() {
-            *r = self.conversion_result(i);
+        r.ctl1().modify(|w| {
+            w.set_sc(vals::Sc::START);
+        });
+
+        Self::wait_for_conversion().await;
+
+        for (i, reading) in readings.iter_mut().enumerate() {
+            *reading = r.memres(i).read().data();
         }
     }
+
+    // TODO: DMA driven ADC
 }
 
 /// Peripheral instance trait.
 #[allow(private_bounds)]
 pub trait Instance: PeripheralType + SealedInstance {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
+}
+
+/// A type-erased borrowed channel for the given ADC instance.
+///
+/// The borrowed channel cannot consume the channel source because it might need to run drop code.
+pub struct BorrowedAdcChannel<'a, T> {
+    pub(crate) channel: u8,
+    pub(crate) _marker: PhantomData<&'a mut T>,
+}
+
+impl<T> BorrowedAdcChannel<'_, T> {
+    pub fn get_hw_channel(&self) -> u8 {
+        self.channel
+    }
+}
+
+impl<T: Instance> AdcChannel<T> for BorrowedAdcChannel<'_, T> {}
+impl<T: Instance> SealedAdcChannel<T> for BorrowedAdcChannel<'_, T> {
+    fn channel(&self) -> u8 {
+        self.channel
+    }
+}
+
+#[allow(private_bounds)]
+pub trait BorrowedChannel<'a, T>: SealedBorrowedChannel<'a, T> {}
+impl<'a, T, C: SealedBorrowedChannel<'a, T>> BorrowedChannel<'a, T> for C {}
+
+impl<'a, T, C: AdcChannel<T>> SealedBorrowedChannel<'a, T> for &'a mut C {
+    #[inline]
+    fn reborrow_adc(self) -> BorrowedAdcChannel<'a, T> {
+        self.reborrow_adc()
+    }
+}
+
+impl<'a, T> SealedBorrowedChannel<'a, T> for BorrowedAdcChannel<'a, T> {
+    #[inline]
+    fn reborrow_adc(self) -> BorrowedAdcChannel<'a, T> {
+        self
+    }
+}
+
+/// ADC channel.
+#[allow(private_bounds)]
+pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
+    #[allow(unused_mut)]
+    fn reborrow_adc<'a>(&'a mut self) -> BorrowedAdcChannel<'a, T> {
+        self.setup();
+
+        BorrowedAdcChannel {
+            channel: self.channel(),
+            _marker: PhantomData,
+        }
+    }
+}
+
+// Impl details
+
+// Constants from the metapac crate
+const ADC_VRSEL: u8 = crate::_generated::ADC_VRSEL;
+const ADC_MEMCTL: u8 = crate::_generated::ADC_MEMCTL;
+
+impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
+    fn setup(config: Config) {
+        assert!(config.sample_period_0 <= Config::MAX_SAMPLE_PERIOD);
+        assert!(config.sample_period_1 <= Config::MAX_SAMPLE_PERIOD);
+
+        let r = T::info().regs;
+
+        r.gprcm(0).rstctl().write(|w| {
+            w.set_resetstkyclr(true);
+            w.set_resetassert(true);
+            w.set_key(vals::ResetKey::KEY);
+        });
+
+        r.gprcm(0).pwren().modify(|reg| {
+            reg.set_enable(true);
+            reg.set_key(vals::PwrenKey::KEY);
+        });
+
+        // Wait for power up
+        cortex_m::asm::delay(16);
+
+        r.gprcm(0).clkcfg().write(|w| {
+            w.set_key(vals::ClkcfgKey::KEY);
+            w.set_sampclk(vals::Sampclk::SYSOSC);
+        });
+
+        // FIXME: Consider clock config
+        // This code assumes the 24/32 MHz boot frequency
+        r.ctl0().write(|w| {
+            w.set_enc(false);
+            // TODO: power down config
+            w.set_pwrdn(vals::Pwrdn::MANUAL);
+            w.set_sclkdiv(vals::Sclkdiv::DIV_BY_4);
+        });
+
+        r.clkfreq().write(|w| {
+            w.set_frange(vals::Frange::RANGE24TO32);
+        });
+
+        r.ctl1().write(|w| {
+            w.set_trigsrc(vals::Trigsrc::SOFTWARE);
+            w.set_sc(vals::Sc::STOP);
+            w.set_conseq(vals::Conseq::SEQUENCE);
+            w.set_sampmode(vals::Sampmode::AUTO);
+            w.set_avgn(vals::Avgn::DISABLE);
+            w.set_avgd(0);
+        });
+
+        r.ctl2().write(|w| {
+            // Binary unsigned
+            w.set_df(false);
+            w.set_res(to_res(config.resolution));
+            w.set_rstsampcapen(false);
+            w.set_dmaen(false);
+            w.set_fifoen(false);
+            w.set_sampcnt(vals::Sampcnt::MIN);
+            w.set_startadd(0);
+            w.set_endadd(0);
+        });
+
+        r.scomp0().write(|w| {
+            w.set_val(config.sample_period_0.get());
+        });
+
+        r.scomp1().write(|w| {
+            w.set_val(config.sample_period_1.get());
+        });
+    }
+
+    // (channel, conversion)
+    fn setup_sequence(sequence: impl ExactSizeIterator<Item = (u8, Conversion)>) {
+        let r = T::info().regs;
+        let len = sequence.len();
+
+        for (i, (ch, conversion)) in sequence.enumerate() {
+            assert!(
+                (conversion.vrsel as u8) < ADC_VRSEL,
+                "Reference voltage selection out of bounds"
+            );
+
+            r.memctl(i).write(|w| {
+                w.set_chansel(ch);
+                // TODO: Conversion function to not be repr dependent
+                w.set_vrsel(vals::Vrsel::from_bits(conversion.vrsel as u8));
+                w.set_stime(convert_stime(conversion.stime));
+                // TODO: More parameters
+                w.set_avgen(false);
+                w.set_bcsen(false);
+                w.set_trig(vals::Trig::AUTO_NEXT);
+                w.set_wincomp(false);
+            });
+        }
+
+        r.ctl2().modify(|w| {
+            w.set_startadd(0);
+            w.set_endadd((len - 1) as u8);
+        });
+    }
+
+    /// Return `impl Future` to reduce async state machine size.
+    #[inline]
+    fn wait_for_conversion() -> impl Future<Output = ()> {
+        let r = T::info().regs;
+        let state = T::state();
+
+        poll_fn(move |cx| {
+            state.waker.register(cx.waker());
+
+            if !r.ctl0().read().enc() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+    }
 }
 
 /// Peripheral state.
@@ -419,6 +570,41 @@ pub(crate) struct Info {
 pub(crate) trait SealedInstance {
     fn info() -> &'static Info;
     fn state() -> &'static State;
+}
+
+pub(crate) trait SealedAdcChannel<T> {
+    fn setup(&self) {}
+
+    fn channel(&self) -> u8;
+}
+
+trait SealedBorrowedChannel<'a, T> {
+    fn reborrow_adc(self) -> BorrowedAdcChannel<'a, T>;
+}
+
+const fn to_res(resolution: Resolution) -> vals::Res {
+    match resolution {
+        Resolution::Bits12 => vals::Res::BIT_12,
+        Resolution::Bits10 => vals::Res::BIT_10,
+        Resolution::Bits8 => vals::Res::BIT_8,
+    }
+}
+
+const fn from_res(res: vals::Res) -> Resolution {
+    match res {
+        vals::Res::BIT_12 => Resolution::Bits12,
+        vals::Res::BIT_10 => Resolution::Bits10,
+        vals::Res::BIT_8 => Resolution::Bits8,
+        // SAFETY: The HAL will never program an invalid valid.
+        vals::Res::_RESERVED_3 => unsafe { unreachable_unchecked() },
+    }
+}
+
+const fn convert_stime(stime: SampleTimeComparator) -> vals::Stime {
+    match stime {
+        SampleTimeComparator::Scomp0 => vals::Stime::SEL_SCOMP0,
+        SampleTimeComparator::Scomp1 => vals::Stime::SEL_SCOMP1,
+    }
 }
 
 macro_rules! impl_adc_instance {
@@ -449,61 +635,16 @@ macro_rules! impl_adc_instance {
     };
 }
 
-/// A type-erased channel for a given ADC instance.
-///
-/// This is useful in scenarios where you need the ADC channels to have the same type, such as
-/// storing them in an array.
-pub struct AnyAdcChannel<T> {
-    pub(crate) channel: u8,
-    pub(crate) _phantom: PhantomData<T>,
-}
-
-impl_peripheral!(AnyAdcChannel<T: Instance>);
-impl<T: Instance> AdcChannel<T> for AnyAdcChannel<T> {}
-impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<T> {
-    fn channel(&self) -> u8 {
-        self.channel
-    }
-}
-
-impl<T> AnyAdcChannel<T> {
-    #[allow(unused)]
-    pub(crate) fn get_hw_channel(&self) -> u8 {
-        self.channel
-    }
-}
-
-/// ADC channel.
-#[allow(private_bounds)]
-pub trait AdcChannel<T>: PeripheralType + Into<AnyAdcChannel<T>> + SealedAdcChannel<T> + Sized {}
-
-pub(crate) trait SealedAdcChannel<T> {
-    fn setup(&self) {}
-
-    fn channel(&self) -> u8;
-}
-
 macro_rules! impl_adc_pin {
     ($inst: ident, $pin: ident, $ch: expr) => {
-        impl crate::adc::AdcChannel<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::peripherals::$pin {
+        impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
+        impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
             fn setup(&self) {
-                crate::gpio::SealedPin::set_as_analog(self);
+                <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(self);
             }
 
             fn channel(&self) -> u8 {
                 $ch
-            }
-        }
-
-        impl From<crate::peripherals::$pin> for crate::adc::AnyAdcChannel<peripherals::$inst> {
-            fn from(val: crate::peripherals::$pin) -> Self {
-                crate::adc::SealedAdcChannel::<peripherals::$inst>::setup(&val);
-
-                Self {
-                    channel: crate::adc::SealedAdcChannel::<peripherals::$inst>::channel(&val),
-                    _phantom: core::marker::PhantomData,
-                }
             }
         }
     };
