@@ -7,9 +7,8 @@
 //! Only available on chips whose ICACHE block has `CRR` registers (U5, U3, WBA, H5, L5) — not
 //! on N6.
 
-use crate::pac::icache::vals::{Hburst, Mstsel, Rsize};
-
 use super::regs;
+use crate::pac::icache::vals::{Hburst, Mstsel, Rsize};
 
 /// Number of remap regions.
 pub const REGION_COUNT: usize = 4;
