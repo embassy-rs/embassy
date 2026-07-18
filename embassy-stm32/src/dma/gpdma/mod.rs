@@ -22,7 +22,7 @@ use crate::rcc::WakeGuard;
 pub mod linked_list;
 pub mod ringbuffered;
 
-pub use vals::Pam;
+pub use vals::Pam as Packing;
 
 pub(crate) enum DmaInfo {
     #[cfg(gpdma)]
@@ -337,7 +337,7 @@ pub struct TransferOptions {
     #[cfg(stm32n6)]
     pub secure: bool,
     /// DMA packing configuration
-    pub packing: Pam,
+    pub packing: Packing,
     /// Source/destination burst length, in beats. Default `_1Beats`. Some
     /// peripherals only assert their DMA request line for bursts above a
     /// threshold (notably the JPEG codec on N6), and some require multi-beat
@@ -349,11 +349,6 @@ pub struct TransferOptions {
     pub request_mode: RequestMode,
     /// Optional trigger-gated transfer configuration.
     pub trigger: Option<TriggerConfig>,
-}
-
-/// Return the no packing value
-pub const fn no_packing() -> Pam {
-    Pam::ZeroExtendOrLeftTruncate
 }
 
 impl Default for TransferOptions {

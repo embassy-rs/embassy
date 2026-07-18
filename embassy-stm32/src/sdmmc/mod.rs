@@ -414,7 +414,7 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
-    packing: true,
+    packing: crate::dma::Packing::Pack,
 };
 
 #[cfg(all(sdmmc_v1, not(dma)))]
@@ -423,7 +423,7 @@ const DMA_TRANSFER_OPTIONS: crate::dma::TransferOptions = crate::dma::TransferOp
     circular: false,
     half_transfer_ir: false,
     complete_transfer_ir: true,
-    packing: true,
+    packing: crate::dma::Packing::Pack,
 };
 
 /// SDMMC configuration
