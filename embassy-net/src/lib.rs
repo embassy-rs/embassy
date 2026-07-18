@@ -102,9 +102,7 @@ pub struct StackResources<const SOCK: usize> {
     #[cfg(feature = "dhcpv4-ntp")]
     dhcp_rx_buffer: MaybeUninit<[u8; DHCP_RX_BUFFER_SIZE]>,
     #[cfg(feature = "ptp")]
-    ids: MaybeUninit<[Option<u8>; SOCK]>,
-    #[cfg(feature = "ptp")]
-    times: MaybeUninit<[Option<embassy_net_driver::Timestamp>; SOCK]>,
+    times: MaybeUninit<heapless::LinearMap<SocketHandle, TimeEntry, SOCK>>,
 }
 
 #[cfg(feature = "dhcpv4-hostname")]
@@ -128,8 +126,6 @@ impl<const SOCK: usize> StackResources<SOCK> {
             },
             #[cfg(feature = "dhcpv4-ntp")]
             dhcp_rx_buffer: MaybeUninit::uninit(),
-            #[cfg(feature = "ptp")]
-            ids: MaybeUninit::uninit(),
             #[cfg(feature = "ptp")]
             times: MaybeUninit::uninit(),
         }
@@ -341,9 +337,51 @@ pub(crate) struct Inner {
     #[cfg(feature = "dhcpv4-ntp")]
     dhcp_rx_buffer: *mut [u8],
     #[cfg(feature = "ptp")]
-    ids: &'static mut [Option<u8>],
-    #[cfg(feature = "ptp")]
-    times: &'static mut [Option<embassy_net_driver::Timestamp>],
+    times: &'static mut dyn LinearMap<SocketHandle, TimeEntry>,
+}
+
+#[cfg(feature = "ptp")]
+struct TimeEntry {
+    id: u8,
+    time: Option<embassy_net_driver::Timestamp>,
+    waker: WakerRegistration,
+}
+
+#[cfg(feature = "ptp")]
+trait LinearMap<K, V> {
+    #[allow(dead_code)]
+    fn insert(&mut self, key: K, val: V) -> Result<Option<V>, ()>;
+    #[allow(dead_code)]
+    fn get_mut(&mut self, key: &K) -> Option<&mut V>;
+    #[allow(dead_code)]
+    fn remove(&mut self, key: &K) -> Option<V>;
+    #[allow(dead_code)]
+    fn iter(&self) -> heapless::linear_map::Iter<'_, K, V>;
+    #[allow(dead_code)]
+    fn iter_mut(&mut self) -> heapless::linear_map::IterMut<'_, K, V>;
+}
+
+#[cfg(feature = "ptp")]
+impl<K: Eq + Copy, V, const N: usize> LinearMap<K, V> for heapless::LinearMap<K, V, N> {
+    fn insert(&mut self, key: K, val: V) -> Result<Option<V>, ()> {
+        self.insert(key, val).map_err(|_| ())
+    }
+
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.get_mut(key)
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        self.remove(key)
+    }
+
+    fn iter(&self) -> heapless::linear_map::Iter<'_, K, V> {
+        self.iter()
+    }
+
+    fn iter_mut(&mut self) -> heapless::linear_map::IterMut<'_, K, V> {
+        self.iter_mut()
+    }
 }
 
 fn _assert_covariant<'a, 'b: 'a>(x: Stack<'b>) -> Stack<'a> {
@@ -378,6 +416,11 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     );
 
     unsafe fn transmute_slice<T>(x: &mut [T]) -> &'static mut [T] {
+        core::mem::transmute(x)
+    }
+
+    #[cfg(feature = "ptp")]
+    unsafe fn transmute_static<T: ?Sized>(x: &mut T) -> &'static mut T {
         core::mem::transmute(x)
     }
 
@@ -420,9 +463,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         #[cfg(feature = "dhcpv4-ntp")]
         dhcp_rx_buffer: resources.dhcp_rx_buffer.write([0; DHCP_RX_BUFFER_SIZE]) as *mut [u8],
         #[cfg(feature = "ptp")]
-        ids: unsafe { &mut transmute_slice(resources.ids.write([None; SOCK]))[..] },
-        #[cfg(feature = "ptp")]
-        times: unsafe { &mut transmute_slice(resources.times.write([None; SOCK]))[..] },
+        times: unsafe { transmute_static(resources.times.write(heapless::LinearMap::new())) },
     };
 
     #[cfg(feature = "proto-ipv4")]
@@ -960,16 +1001,11 @@ impl Inner {
 
         #[cfg(feature = "ptp")]
         while let Some((id, timestamp)) = driver.poll_timestamp(cx) {
-            if let Some(index) = self
-                .ids
-                .iter()
-                .enumerate()
-                .find(|x| x.1.is_some_and(|x| x == id))
-                .map(|x| x.0)
-            {
-                self.times[index] = Some(timestamp);
-
-                // TODO: wake socket waker
+            for (_handle, entry) in self.times.iter_mut() {
+                if id == entry.id && entry.time.is_none() {
+                    entry.time = Some(timestamp);
+                    entry.waker.wake();
+                }
             }
         }
 
