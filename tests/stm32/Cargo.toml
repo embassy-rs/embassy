@@ -30,10 +30,10 @@ stm32l4a6zg = ["embassy-stm32/stm32l4a6zg", "not-stop", "chrono", "not-gpdma", "
 stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "not-stop", "chrono", "not-gpdma", "rng", "dual-bank"]
 stm32l552ze = ["embassy-stm32/stm32l552ze", "not-stop", "not-gpdma", "rng", "hash", "dual-bank"]
 stm32u585ai = ["embassy-stm32/stm32u585ai", "not-stop", "spi-v345", "chrono", "rng", "hash", "cordic"]
-stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "not-stop", "spi-v345", "chrono", "rng", "hash", "cordic", "tamp"]
+stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "not-stop", "spi-v345", "chrono", "rng", "hash", "cordic"]
 stm32wb55rg = ["embassy-stm32/stm32wb55rg", "embassy-stm32-wpan?/stm32wb55rg", "fake-stop", "chrono", "not-gpdma", "ble", "mac" , "rng", "hsem"]
 stm32wba52cg = ["embassy-stm32/stm32wba52cg", "not-stop", "spi-v345", "chrono", "rng", "hash", "adc"]
-stm32wba65ri = ["embassy-stm32/stm32wba65ri", "not-stop", "spi-v345", "chrono", "rng", "hash", "adc", "tamp"]
+stm32wba65ri = ["embassy-stm32/stm32wba65ri", "not-stop", "spi-v345", "chrono", "rng", "hash", "adc"]
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "fake-stop", "not-gpdma", "rng", "chrono", "hsem"]
 stm32f091rc = ["embassy-stm32/stm32f091rc", "not-stop", "cm0", "not-gpdma", "chrono"]
 stm32h503rb = ["embassy-stm32/stm32h503rb", "stop", "spi-v345", "rng"]
@@ -63,7 +63,6 @@ adc = []
 ucpd = []
 cordic = ["dep:num-traits"]
 hsem = []
-tamp = []
 dual-bank = ["embassy-stm32/dual-bank"]
 single-bank = ["embassy-stm32/single-bank"]
 eeprom = []
@@ -210,11 +209,6 @@ required-features = []
 name = "stop"
 path = "src/bin/stop.rs"
 required-features = [ "stop", "chrono",]
-
-[[bin]]
-name = "tamp"
-path = "src/bin/tamp.rs"
-required-features = [ "tamp",]
 
 [[bin]]
 name = "timer"
