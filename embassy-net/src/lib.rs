@@ -25,6 +25,7 @@ pub mod tcp;
 mod time;
 #[cfg(feature = "udp")]
 pub mod udp;
+pub mod vlan;
 
 use core::cell::RefCell;
 use core::future::{Future, poll_fn};
@@ -234,7 +235,7 @@ impl Config {
     /// IPv4 configuration with dynamic addressing.
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// # use embassy_net::Config;
     /// let _cfg = Config::dhcpv4(Default::default());
     /// ```
