@@ -339,7 +339,7 @@ impl<'a> UdpSocket<'a> {
         T: Into<UdpMetadata>,
     {
         let remote_endpoint: UdpMetadata = remote_endpoint.into();
-        let (remote_endpoint, id) = self.with_id(remote_endpoint);
+        let (remote_endpoint, _id) = self.with_id(remote_endpoint);
 
         poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await?;
 

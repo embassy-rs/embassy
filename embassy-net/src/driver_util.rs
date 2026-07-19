@@ -13,6 +13,9 @@ where
     pub inner: &'d mut T,
     pub medium: Medium,
     pub tx_exhausted: bool,
+    #[cfg(feature = "ptp")]
+    #[allow(unused)]
+    pub times: &'d mut dyn crate::LinearMap<crate::SocketHandle, crate::TimeEntry>,
 }
 
 impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>

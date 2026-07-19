@@ -419,6 +419,9 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         iface_cfg.slaac = matches!(config.ipv6, ConfigV6::Slaac);
     }
 
+    #[cfg(feature = "ptp")]
+    let times = resources.times.write(heapless::LinearMap::new());
+
     #[allow(unused_mut)]
     let mut iface = Interface::new(
         iface_cfg,
@@ -427,6 +430,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             cx: None,
             medium,
             tx_exhausted: false,
+            #[cfg(feature = "ptp")]
+            times,
         },
         instant_to_smoltcp(Instant::now()),
     );
@@ -479,7 +484,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         #[cfg(feature = "dhcpv4-ntp")]
         dhcp_rx_buffer: resources.dhcp_rx_buffer.write([0; DHCP_RX_BUFFER_SIZE]) as *mut [u8],
         #[cfg(feature = "ptp")]
-        times: unsafe { transmute_static(resources.times.write(heapless::LinearMap::new())) },
+        times: unsafe { transmute_static(times) },
         #[cfg(feature = "ptp")]
         next_id: 0,
     };
@@ -1052,6 +1057,8 @@ impl Inner {
             inner: driver,
             medium,
             tx_exhausted: false,
+            #[cfg(feature = "ptp")]
+            times: self.times,
         };
         self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
         let tx_exhausted = smoldev.tx_exhausted;
