@@ -352,6 +352,18 @@ struct TimeEntry {
 }
 
 #[cfg(feature = "ptp")]
+impl TimeEntry {
+    pub const fn new(id: u16) -> Self {
+        Self {
+            id,
+            did: None,
+            time: None,
+            waker: WakerRegistration::new(),
+        }
+    }
+}
+
+#[cfg(feature = "ptp")]
 trait LinearMap<K, V> {
     #[allow(dead_code)]
     fn insert(&mut self, key: K, val: V) -> Result<Option<V>, ()>;

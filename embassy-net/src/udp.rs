@@ -161,6 +161,17 @@ impl<'a> UdpSocket<'a> {
         })
     }
 
+    #[cfg(feature = "ptp")]
+    fn with_id(&self, mut remote_endpoint: UdpMetadata) -> (UdpMetadata, u16) {
+        self.stack.with_mut(|i| {
+            i.next_id = i.next_id.wrapping_add(1);
+            remote_endpoint.meta.id = i.next_id as u32;
+            i.times.insert(self.handle, crate::TimeEntry::new(i.next_id)).unwrap();
+
+            (remote_endpoint, i.next_id)
+        })
+    }
+
     /// Wait until the socket becomes readable.
     ///
     /// A socket is readable when a packet has been received, or when there are queued packets in
@@ -327,25 +338,12 @@ impl<'a> UdpSocket<'a> {
     where
         T: Into<UdpMetadata>,
     {
-        let mut remote_endpoint: UdpMetadata = remote_endpoint.into();
-
-        self.stack.with_mut(|s| {
-            s.next_id = s.next_id.wrapping_add(1);
-            remote_endpoint.meta.id = s.next_id as u32;
-            s.times
-                .insert(
-                    self.handle,
-                    crate::TimeEntry {
-                        id: s.next_id,
-                        did: None,
-                        time: None,
-                        waker: embassy_sync::waitqueue::WakerRegistration::new(),
-                    },
-                )
-                .unwrap();
-        });
+        let remote_endpoint: UdpMetadata = remote_endpoint.into();
+        let (remote_endpoint, id) = self.with_id(remote_endpoint);
 
         poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await?;
+
+        // TODO: wait for the timestamp to be entered
 
         todo!()
     }
