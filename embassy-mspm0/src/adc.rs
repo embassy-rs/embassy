@@ -217,7 +217,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
         });
     }
 
-    fn setup_blocking_channel(&mut self, channel: &Peri<'d, impl AdcChannel<T>>) {
+    fn setup_blocking_channel(&mut self, channel: &Peri<'_, impl AdcChannel<T>>) {
         channel.setup();
 
         // CTL0.ENC must be 0 to write the MEMCTL register
@@ -262,7 +262,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
     }
 
     /// Read one ADC channel in blocking mode using the config provided at initialization.
-    pub fn blocking_read(&mut self, channel: &Peri<'d, impl AdcChannel<T>>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &Peri<'_, impl AdcChannel<T>>) -> u16 {
         self.setup_blocking_channel(channel);
         self.enable_conversion();
         self.start_conversion();
@@ -292,7 +292,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
         .await;
     }
 
-    fn setup_async_channel(&self, id: usize, channel: &Peri<'d, impl AdcChannel<T>>, vrsel: Vrsel) {
+    fn setup_async_channel(&self, id: usize, channel: &Peri<'_, impl AdcChannel<T>>, vrsel: Vrsel) {
         let vrsel = vals::Vrsel::from_bits(vrsel as u8);
         // Conversion mem config
         self.info.regs.memctl(id).modify(|reg| {
@@ -316,7 +316,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
     }
 
     /// Read one ADC channel asynchronously using the config provided at initialization.
-    pub async fn read_channel(&mut self, channel: &Peri<'d, impl AdcChannel<T>>) -> u16 {
+    pub async fn read_channel(&mut self, channel: &Peri<'_, impl AdcChannel<T>>) -> u16 {
         channel.setup();
 
         // CTL0.ENC must be 0 to write the MEMCTL register
@@ -351,12 +351,12 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
     /// adc.read_sequence(sequence.into_iter(), &mut readings).await;
     /// defmt::info!("Measurements: {}", readings);
     /// ```
-    pub async fn read_sequence<'a>(
+    pub async fn read_sequence<'a, 'b: 'a>(
         &mut self,
-        sequence: impl ExactSizeIterator<Item = (&'a Peri<'d, AnyAdcChannel<T>>, Vrsel)>,
+        sequence: impl ExactSizeIterator<Item = (&'a Peri<'b, AnyAdcChannel<T>>, Vrsel)>,
         readings: &mut [u16],
     ) where
-        'd: 'a,
+        T: 'b,
     {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(

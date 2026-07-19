@@ -31,7 +31,11 @@ fn generate_code(cfgs: &mut CfgSet) {
         PathBuf::from(env::var_os("OUT_DIR").unwrap()).display(),
     );
 
-    cfgs.declare_all(&["gpio_pb", "gpio_pc", "int_group1", "unicomm"]);
+    cfgs.declare_all(&["gpio_pb", "gpio_pc", "int_group1", "unicomm", "opa"]);
+
+    if METADATA.peripherals.iter().any(|p| p.kind == "opa") {
+        cfgs.enable("opa");
+    }
 
     let chip_name = match env::vars()
         .map(|(a, _)| a)
@@ -68,6 +72,7 @@ fn generate_code(cfgs: &mut CfgSet) {
     g.extend(generate_interrupts());
     g.extend(generate_peripheral_instances());
     g.extend(generate_pin_trait_impls());
+    g.extend(generate_opa_adc_channels());
     g.extend(generate_groups());
     g.extend(generate_dma_channel_count());
     g.extend(generate_adc_constants(cfgs));
@@ -678,6 +683,7 @@ fn generate_peripheral_instances() -> TokenStream {
             "wwdt" => Some(quote! { impl_wwdt_instance!(#peri); }),
             "adc" => Some(quote! { impl_adc_instance!(#peri); }),
             "mathacl" => Some(quote! { impl_mathacl_instance!(#peri); }),
+            "opa" => Some(quote! { impl_opa_instance!(#peri); }),
             _ => None,
         };
 
@@ -695,6 +701,32 @@ fn generate_peripheral_instances() -> TokenStream {
             impls.push(quote! { impl_full_dma_channel!(#peri, #num); });
         } else {
             impls.push(quote! { impl_dma_channel!(#peri, #num); });
+        }
+    }
+
+    quote! {
+        #(#impls)*
+    }
+}
+
+fn generate_opa_adc_channels() -> TokenStream {
+    // OPA outputs are internally routed to fixed ADC channels. This mapping
+    // is not present in mspm0-data, so it is reproduced here from the TI
+    // SDK's `ADC12_internalConnections.js` (SysConfig metadata).
+    let mapping: &[(&str, &str, u8)] = match METADATA.family {
+        "mspm0g150x" | "mspm0g350x" => &[("OPA0", "ADC0", 13), ("OPA1", "ADC1", 13)],
+        "mspm0l130x" | "mspm0l134x" => &[("OPA0", "ADC0", 12), ("OPA1", "ADC0", 13)],
+        _ => &[],
+    };
+
+    let mut impls = Vec::<TokenStream>::new();
+
+    for (opa, adc, channel) in mapping {
+        let exists = |name| METADATA.peripherals.iter().any(|p| p.name == name);
+        if exists(*opa) && exists(*adc) {
+            let opa = format_ident!("{}", opa);
+            let adc = format_ident!("{}", adc);
+            impls.push(quote! { impl_opa_adc_channel!(#opa, #adc, #channel); });
         }
     }
 
@@ -729,6 +761,13 @@ fn generate_pin_trait_impls() -> TokenStream {
                 ("tim", "CCP1_CMPL") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, CompCh1); }),
                 ("tim", "CCP2_CMPL") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, CompCh2); }),
                 ("tim", "CCP3_CMPL") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, CompCh3); }),
+                // OPA pin channels are the CFG.PSEL mux values from the
+                // MSPM0 TRM. IN2+ shares the DAC_OUT pad and is selected
+                // through the DAC12 PSEL channel.
+                ("opa", "IN0+") => Some(quote! { impl_opa_non_inverting_pin!(#peri, #pin_name, 1u8); }),
+                ("opa", "IN1+") => Some(quote! { impl_opa_non_inverting_pin!(#peri, #pin_name, 2u8); }),
+                ("opa", "IN2+") => Some(quote! { impl_opa_non_inverting_pin!(#peri, #pin_name, 3u8); }),
+                ("opa", "OUT") => Some(quote! { impl_opa_output_pin!(#peri, #pin_name); }),
                 ("uart", "TX") => Some(quote! { impl_uart_tx_pin!(#peri, #pin_name, #pf); }),
                 ("uart", "RX") => Some(quote! { impl_uart_rx_pin!(#peri, #pin_name, #pf); }),
                 ("uart", "CTS") => Some(quote! { impl_uart_cts_pin!(#peri, #pin_name, #pf); }),
