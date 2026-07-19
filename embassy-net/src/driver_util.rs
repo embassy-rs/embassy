@@ -123,6 +123,7 @@ where
     }
 
     fn set_meta(&mut self, meta: phy::PacketMeta) {
+        // TODO: when called with a nonzero ID, associate the inner ID of this token with the ID if set.
         self.0.set_meta(into_embassy_net_meta(meta));
     }
 }
