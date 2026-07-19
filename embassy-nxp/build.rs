@@ -240,7 +240,10 @@ fn generate_code(cfgs: &mut common::CfgSet, singletons: &[Singleton]) {
 }
 
 fn interrupts() -> TokenStream {
-    let interrupts = METADATA.interrupts.iter().map(|interrupt| format_ident!("{interrupt}"));
+    let interrupts = METADATA
+        .interrupts
+        .iter()
+        .map(|(interrupt, _)| format_ident!("{interrupt}"));
 
     quote! {
         embassy_hal_internal::interrupt_mod!(#(#interrupts),*);
@@ -342,7 +345,7 @@ fn impl_usart(cfgs: &mut common::CfgSet, impls: &mut Vec<TokenStream>, periphera
         };
 
         for pin in signal.pins {
-            let alt = format_ident!("ALT{}", pin.alt);
+            let alt = format_ident!("Alt{}", pin.alt);
             let pin = format_ident!("{}", pin.pin);
 
             impls.push(quote! {
@@ -388,7 +391,7 @@ fn impl_sct(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
             if signal.name.starts_with("OUT") {
                 for pin in signal.pins {
                     let pin_name = format_ident!("{}", pin.pin);
-                    let alt = format_ident!("ALT{}", pin.alt);
+                    let alt = format_ident!("Alt{}", pin.alt);
 
                     impls.push(quote! {
                         impl_sct_output_pin!(#instance, #channel_name, #pin_name, #alt);
@@ -431,7 +434,7 @@ fn impl_spi(cfgs: &mut common::CfgSet, impls: &mut Vec<TokenStream>, peripheral:
         };
 
         for pin in signal.pins {
-            let alt = format_ident!("ALT{}", pin.alt);
+            let alt = format_ident!("Alt{}", pin.alt);
             let pin = format_ident!("{}", pin.pin);
 
             impls.push(quote! {
