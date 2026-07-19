@@ -311,6 +311,45 @@ impl<'a> UdpSocket<'a> {
         })
     }
 
+    #[cfg(feature = "ptp")]
+    /// Send a datagram to the specified remote endpoint and retreive the timestamp in which it has been sent.
+    ///
+    /// This method will wait until the datagram has been sent.
+    ///
+    /// If the socket's send buffer is too small to fit `buf`, this method will return `Err(SendError::PacketTooLarge)`
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
+    pub async fn send_to_timed<T>(
+        &self,
+        buf: &[u8],
+        remote_endpoint: T,
+    ) -> Result<embassy_net_driver::Timestamp, SendError>
+    where
+        T: Into<UdpMetadata>,
+    {
+        let mut remote_endpoint: UdpMetadata = remote_endpoint.into();
+
+        self.stack.with_mut(|s| {
+            s.next_id = s.next_id.wrapping_add(1);
+            remote_endpoint.meta.id = s.next_id as u32;
+            s.times
+                .insert(
+                    self.handle,
+                    crate::TimeEntry {
+                        id: s.next_id,
+                        did: None,
+                        time: None,
+                        waker: embassy_sync::waitqueue::WakerRegistration::new(),
+                    },
+                )
+                .unwrap();
+        });
+
+        poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await?;
+
+        todo!()
+    }
+
     /// Send a datagram to the specified remote endpoint.
     ///
     /// This method will wait until the datagram has been sent.

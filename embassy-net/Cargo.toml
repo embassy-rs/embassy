@@ -110,7 +110,7 @@ alloc = ["smoltcp/alloc"]
 ## Enable smoltcp packetmeta-id feature
 packetmeta-id = [ "smoltcp/packetmeta-id", "embassy-net-driver/packetmeta-id" ]
 ## Enable ptp support
-ptp = []
+ptp = ["packetmeta-id"]
 
 [dependencies]
 

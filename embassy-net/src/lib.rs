@@ -338,11 +338,15 @@ pub(crate) struct Inner {
     dhcp_rx_buffer: *mut [u8],
     #[cfg(feature = "ptp")]
     times: &'static mut dyn LinearMap<SocketHandle, TimeEntry>,
+    #[cfg(feature = "ptp")]
+    next_id: u16,
 }
 
 #[cfg(feature = "ptp")]
 struct TimeEntry {
-    id: u8,
+    #[allow(unused)]
+    id: u16,
+    did: Option<u8>,
     time: Option<embassy_net_driver::Timestamp>,
     waker: WakerRegistration,
 }
@@ -464,6 +468,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         dhcp_rx_buffer: resources.dhcp_rx_buffer.write([0; DHCP_RX_BUFFER_SIZE]) as *mut [u8],
         #[cfg(feature = "ptp")]
         times: unsafe { transmute_static(resources.times.write(heapless::LinearMap::new())) },
+        #[cfg(feature = "ptp")]
+        next_id: 0,
     };
 
     #[cfg(feature = "proto-ipv4")]
@@ -1002,7 +1008,7 @@ impl Inner {
         #[cfg(feature = "ptp")]
         while let Some((id, timestamp)) = driver.poll_timestamp(cx) {
             for (_handle, entry) in self.times.iter_mut() {
-                if id == entry.id && entry.time.is_none() {
+                if entry.did.is_some_and(|did| id == did) && entry.time.is_none() {
                     entry.time = Some(timestamp);
                     entry.waker.wake();
                 }
