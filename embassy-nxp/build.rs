@@ -431,7 +431,7 @@ fn impl_spi(cfgs: &mut common::CfgSet, impls: &mut Vec<TokenStream>, peripheral:
         };
 
         for pin in signal.pins {
-            let alt = format_ident!("ALT{}", pin.alt);
+            let alt = format_ident!("Alt{}", pin.alt);
             let pin = format_ident!("{}", pin.pin);
 
             impls.push(quote! {

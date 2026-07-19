@@ -125,12 +125,12 @@ impl<'d, M: Mode> Spi<'d, M> {
         });
         SYSCON
             .presetctrl1()
-            .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::ASSERTED));
+            .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::Asserted));
         SYSCON
             .presetctrl1()
-            .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::RELEASED));
+            .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::Released));
         flexcomm_register.pselid().modify(|w| {
-            w.set_persel(flexcomm::vals::Persel::SPI);
+            w.set_persel(flexcomm::vals::Persel::Spi);
             // This will lock the peripheral PERSEL and will not allow any changes until the board is reset.
             w.set_lock(true);
         });
@@ -153,7 +153,7 @@ impl<'d, M: Mode> Spi<'d, M> {
 
         SYSCON
             .fcclksel(instance_number)
-            .modify(|w| w.set_sel(syscon::vals::FcclkselSel::ENUM_0X3));
+            .modify(|w| w.set_sel(syscon::vals::FcclkselSel::Enum0x3));
         let source_clock = 96_000_000;
 
         // Parameter calculation for clock division
@@ -181,32 +181,32 @@ impl<'d, M: Mode> Spi<'d, M> {
         if let Some((mosi_pin, func)) = mosi {
             mosi_pin.pio().modify(|w| {
                 w.set_func(func);
-                w.set_mode(iocon::vals::PioMode::INACTIVE);
-                w.set_slew(iocon::vals::PioSlew::STANDARD);
+                w.set_mode(iocon::vals::PioMode::Inactive);
+                w.set_slew(iocon::vals::PioSlew::Standard);
                 w.set_invert(false);
-                w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
-                w.set_od(iocon::vals::PioOd::NORMAL);
+                w.set_digimode(iocon::vals::PioDigimode::Digital);
+                w.set_od(iocon::vals::PioOd::Normal);
             });
         }
 
         if let Some((miso_pin, func)) = miso {
             miso_pin.pio().modify(|w| {
                 w.set_func(func);
-                w.set_mode(iocon::vals::PioMode::INACTIVE);
-                w.set_slew(iocon::vals::PioSlew::STANDARD);
+                w.set_mode(iocon::vals::PioMode::Inactive);
+                w.set_slew(iocon::vals::PioSlew::Standard);
                 w.set_invert(false);
-                w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
-                w.set_od(iocon::vals::PioOd::NORMAL);
+                w.set_digimode(iocon::vals::PioDigimode::Digital);
+                w.set_od(iocon::vals::PioOd::Normal);
             });
         };
 
         sck.0.pio().modify(|w| {
             w.set_func(sck.1);
-            w.set_mode(iocon::vals::PioMode::INACTIVE);
-            w.set_slew(iocon::vals::PioSlew::STANDARD);
+            w.set_mode(iocon::vals::PioMode::Inactive);
+            w.set_slew(iocon::vals::PioSlew::Standard);
             w.set_invert(false);
-            w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
-            w.set_od(iocon::vals::PioOd::NORMAL);
+            w.set_digimode(iocon::vals::PioDigimode::Digital);
+            w.set_od(iocon::vals::PioOd::Normal);
         });
     }
 
@@ -220,23 +220,23 @@ impl<'d, M: Mode> Spi<'d, M> {
 
         registers.cfg().modify(|w| {
             w.set_enable(false);
-            w.set_master(spi::vals::Master::MASTER_MODE);
+            w.set_master(spi::vals::Master::MasterMode);
             w.set_loop_(false);
         });
 
         // Configurations based on the config written by a user.
         registers.cfg().modify(|w| {
             w.set_cpha(match config.phase {
-                Phase::CaptureOnFirstTransition => spi::vals::Cpha::CAPTURE,
-                Phase::CaptureOnSecondTransition => spi::vals::Cpha::CHANGE,
+                Phase::CaptureOnFirstTransition => spi::vals::Cpha::Capture,
+                Phase::CaptureOnSecondTransition => spi::vals::Cpha::Change,
             });
             w.set_cpol(match config.polarity {
-                Polarity::IdleLow => spi::vals::Cpol::LOW,
-                Polarity::IdleHigh => spi::vals::Cpol::HIGH,
+                Polarity::IdleLow => spi::vals::Cpol::Low,
+                Polarity::IdleHigh => spi::vals::Cpol::High,
             });
             w.set_lsbf(match config.data_format {
-                DataFormat::LsbFirst => spi::vals::Lsbf::REVERSE,
-                DataFormat::MsbFirst => spi::vals::Lsbf::STANDARD,
+                DataFormat::LsbFirst => spi::vals::Lsbf::Reverse,
+                DataFormat::MsbFirst => spi::vals::Lsbf::Standard,
             });
         });
 
@@ -265,7 +265,7 @@ impl<'d, M: Mode> Spi<'d, M> {
                 return Err(Error::Overrun);
             }
             spi_reg.fifowr().write(|w| {
-                w.set_rxignore(spi::vals::Rxignore::IGNORE);
+                w.set_rxignore(spi::vals::Rxignore::Ignore);
                 w.set_txdata(*d as u16); // Data to be transferred
                 w.set_len(7);
             });
@@ -284,7 +284,7 @@ impl<'d, M: Mode> Spi<'d, M> {
                 return Err(Error::Overrun);
             }
             spi_reg.fifowr().write(|w| {
-                w.set_rxignore(spi::vals::Rxignore::READ);
+                w.set_rxignore(spi::vals::Rxignore::Read);
                 w.set_txdata(*d as u16); // Data to be transferred
                 w.set_len(7);
             });
@@ -304,7 +304,7 @@ impl<'d, M: Mode> Spi<'d, M> {
         for d in data {
             while !spi_reg.fifostat().read().txnotfull() {}
             spi_reg.fifowr().write(|w| {
-                w.set_rxignore(spi::vals::Rxignore::READ);
+                w.set_rxignore(spi::vals::Rxignore::Read);
                 w.set_txdata(0u16); // Data to be transferred
                 w.set_len(7);
             });
@@ -328,7 +328,7 @@ impl<'d, M: Mode> Spi<'d, M> {
                 return Err(Error::Overrun);
             }
             spi_reg.fifowr().write(|w| {
-                w.set_rxignore(spi::vals::Rxignore::READ);
+                w.set_rxignore(spi::vals::Rxignore::Read);
                 w.set_txdata(wb as u16); // Data to be transferred
                 w.set_len(7);
             });
