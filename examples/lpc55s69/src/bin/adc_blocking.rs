@@ -11,7 +11,7 @@ async fn main(_spawner: Spawner) {
     // TODO
     let p = embassy_nxp::init(Default::default());
     loop {
-        info("ADC reading: ");
+        info!("ADC reading: ");
         Timer::after_millis(500).await;
     }
 }
