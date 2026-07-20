@@ -13,6 +13,7 @@ use crate::gpio::Level;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
 };
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 
 /// This struct represents a uart tx program loaded into pio instruction memory.
 pub struct PioUartTxProgram<'d, PIO: Instance> {
