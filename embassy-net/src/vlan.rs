@@ -18,7 +18,7 @@ struct VlanSplitterState<'d, D: Driver + 'd, const N: usize> {
     tx_out: bool,
     rx_out: bool,
     tx_req: u32, // Bitmask of drivers requesting tx
-    t_req: [BitMask; N],
+    t_req: [Mask; N],
     rx_token: Option<(u8, VlanRxToken<'d, D, N>)>,
     tx_token: Option<D::TxToken<'d>>,
     timestamp: (u8, Timestamp),
@@ -50,7 +50,7 @@ impl<'d, D: Driver + 'd, const N: usize> VlanSplitter<'d, D, N> {
                 tx_out: false,
                 rx_out: false,
                 tx_req: 0,
-                t_req: [BitMask::default(); N],
+                t_req: [Mask::default(); N],
                 rx_token: None,
                 tx_token: None,
                 timestamp: (0, Timestamp::from_seconds_and_nanos(0, 0)),
@@ -363,40 +363,29 @@ impl<'d, D: Driver + 'd, const N: usize> Drop for VlanRxToken<'d, D, N> {
         }
     }
 }
-
 #[derive(Debug, Default, Clone, Copy)]
-struct BitMask {
-    // 8 * 32 = 256 bits
-    words: [u32; 2],
+struct Mask {
+    word: u64,
 }
 
-impl BitMask {
+impl Mask {
     pub fn set(&mut self, n: u8) {
-        let n = n % 64;
-        let idx = (n >> 5) as usize; // n / 32 without division
-        let bit = n & 31; // n % 32 without modulo
-        let mask = 1u32 << bit;
-        self.words[idx] |= mask;
+        self.word |= 1u64 << (n % 64);
     }
 
     /// Clears the nth bit and returns whether it was previously set.
     pub fn clear(&mut self, n: u8) -> bool {
-        let n = n % 64;
-        let idx = (n >> 5) as usize;
-        let bit = n & 31;
-        let mask = 1u32 << bit;
+        let mask = 1u64 << (n % 64);
+        let was_set = (self.word & mask) != 0;
 
-        let was_set = (self.words[idx] & mask) != 0;
-        self.words[idx] &= !mask;
+        self.word &= !mask;
         was_set
     }
 
     pub fn is_set(&self, n: u8) -> bool {
-        let n = n % 64;
-        let idx = (n >> 5) as usize;
-        let bit = n & 31;
-        let mask = 1u32 << bit;
-        (self.words[idx] & mask) != 0
+        let mask = 1u64 << (n % 64);
+
+        (self.word & mask) != 0
     }
 }
 
@@ -468,7 +457,7 @@ mod tests {
 
     use embassy_net_driver::{Capabilities, Driver, HardwareAddress, LinkState, RxToken, Timestamp, TxToken};
 
-    use super::{BitMask, VlanSplitter, VlanSplitterDriver, insert_vlan, strip_vlan};
+    use super::{Mask, VlanSplitter, VlanSplitterDriver, insert_vlan, strip_vlan};
 
     fn noop_raw_waker() -> RawWaker {
         unsafe fn clone(_: *const ()) -> RawWaker {
@@ -1057,8 +1046,8 @@ mod tests {
 
     #[test]
     fn test_bit_mask_operations() {
-        // Test BitMask set, clear, and is_set operations
-        let mut mask = BitMask::default();
+        // Test Mask set, clear, and is_set operations
+        let mut mask = Mask::default();
 
         // Test set and is_set
         mask.set(10);
@@ -1084,8 +1073,8 @@ mod tests {
 
     #[test]
     fn test_bit_mask_wrapping() {
-        // Test that BitMask wraps at 64 bits (% 64)
-        let mut mask = BitMask::default();
+        // Test that Mask wraps at 64 bits (% 64)
+        let mut mask = Mask::default();
 
         mask.set(65); // Should wrap to bit 1 (65 % 64 = 1)
         assert!(mask.is_set(1));
