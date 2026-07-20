@@ -140,7 +140,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> FifoOutFuture<'a, 'd, PIO, SM> {
 impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoOutFuture<'a, 'd, PIO, SM> {
     type Output = ();
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        //debug!("Poll {},{}", PIO::PIO_NO, SM);
         let value = self.value;
         if self.get_mut().sm_tx.try_push(value) {
             Poll::Ready(())
@@ -149,7 +148,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoOutFuture<'a, 'd, PI
             PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = TXNFULL_MASK << SM;
             });
-            // debug!("Pending");
             Poll::Pending
         }
     }
@@ -179,7 +177,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> FifoInFuture<'a, 'd, PIO, SM> {
 impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoInFuture<'a, 'd, PIO, SM> {
     type Output = u32;
     fn poll(mut self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        //debug!("Poll {},{}", PIO::PIO_NO, SM);
         if let Some(v) = self.sm_rx.try_pull() {
             Poll::Ready(v)
         } else {
@@ -187,7 +184,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoInFuture<'a, 'd, PIO
             PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = RXNEMPTY_MASK << SM;
             });
-            //debug!("Pending");
             Poll::Pending
         }
     }
@@ -211,8 +207,6 @@ pub struct IrqFuture<'a, 'd, PIO: Instance> {
 impl<'a, 'd, PIO: Instance> Future for IrqFuture<'a, 'd, PIO> {
     type Output = ();
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        //debug!("Poll {},{}", PIO::PIO_NO, SM);
-
         // Check if IRQ flag is already set
         if PIO::PIO.irq().read().0 & (1 << self.irq_no) != 0 {
             PIO::PIO.irq().write(|m| m.0 = 1 << self.irq_no);
@@ -813,11 +807,9 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                 }
             }
 
-            defmt::info!(
+            debug!(
                 "Configuring pincrtl in_base={}, out_base={}, shift={}",
-                config.pins.in_base,
-                config.pins.out_base,
-                shift,
+                config.pins.in_base, config.pins.out_base, shift,
             );
             sm.pinctrl().write(|w| {
                 w.set_sideset_count(config.pins.sideset_count);
