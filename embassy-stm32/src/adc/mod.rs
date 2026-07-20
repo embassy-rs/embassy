@@ -597,6 +597,9 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // Ensure no conversions are ongoing
         T::regs().stop();
+        // DIFSEL is only writable while the ADC is disabled (ADEN=0), see RM0440 §21.7.21.
+        // Adc::new() left the ADC enabled, so power it down first, then re-enable.
+        T::regs().power_down();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
@@ -653,13 +656,15 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
             NR_INJECTED_RANKS
         );
 
-        // TODO: move enable after configure_sequence?
-        T::regs().enable();
+        // DIFSEL is only writable while the ADC is disabled (ADEN=0), see RM0440 §21.7.21.
+        // Adc::new() left the ADC enabled, so power it down first, then re-enable.
+        T::regs().power_down();
         T::regs().configure_injected_sequence(
             sequence
                 .iter()
                 .map(|(channel, sample_time)| ((channel.channel, channel.is_differential), *sample_time)),
         );
+        T::regs().enable();
 
         T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), interrupt);
         T::regs().start_injected();
