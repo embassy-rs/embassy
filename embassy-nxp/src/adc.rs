@@ -3,4 +3,4 @@
 
 #[cfg_attr(lpc55, path= "./adc/lpc55.rs")]
 mod inner;
-pub use innner::*;
+pub use inner::*;
