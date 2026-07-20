@@ -26,6 +26,8 @@ mod time;
 #[cfg(feature = "udp")]
 pub mod udp;
 pub mod vlan;
+#[cfg(feature = "dhcpd")]
+pub mod dhcpd;
 
 use core::cell::RefCell;
 use core::future::{Future, poll_fn};
