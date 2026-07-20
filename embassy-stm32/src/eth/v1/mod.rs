@@ -6,7 +6,6 @@ mod tx_desc;
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::Peri;
-use stm32_metapac::eth::vals::{Apcs, Dm, DmaomrSr, Fes, Ftf, Ifg, Pbl, Rsf, St, Tsf};
 
 pub(crate) use self::rx_desc::{RDes, RDesRing};
 pub(crate) use self::tx_desc::{TDes, TDesRing};
@@ -20,6 +19,9 @@ use crate::interrupt::InterruptExt;
 use crate::pac::AFIO;
 #[cfg(any(eth_v1b, eth_v1c))]
 use crate::pac::SYSCFG;
+#[cfg(any(eth_v1b, eth_v1c))]
+use crate::pac::eth::vals::Ipco;
+use crate::pac::eth::vals::{Apcs, Dm, DmaomrSr, Fes, Ftf, Ifg, Pbl, Rsf, St, Tsf};
 use crate::pac::{ETH, RCC};
 
 /// Interrupt handler.
@@ -254,11 +256,19 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         dma.dmabmr().modify(|w| w.set_sr(true));
         while dma.dmabmr().read().sr() {}
 
+        #[cfg(any(eth_v1b, eth_v1c))]
+        // === Enable Enhanced Descriptor Format FIRST (before any descriptor setup) ===
+        // This must be set before the DMA starts fetching descriptors.
+        // It changes descriptor size from 4 words (16 bytes) to 8 words (32 bytes).
+        dma.dmabmr().modify(|w| w.set_edfe(true));
+
         mac.maccr().modify(|w| {
             w.set_ifg(Ifg::Ifg96); // inter frame gap 96 bit times
             w.set_apcs(Apcs::Strip); // automatic padding and crc stripping
             w.set_fes(Fes::Fes100); // fast ethernet speed
             w.set_dm(Dm::FullDuplex); // full duplex
+            #[cfg(any(eth_v1b, eth_v1c))]
+            w.set_ipco(Ipco::Offload); // === Enable IPv4/TCP/UDP checksum offload ===
             // TODO: Carrier sense ? ECRSFD
         });
 
