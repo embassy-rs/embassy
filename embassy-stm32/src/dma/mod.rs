@@ -10,6 +10,8 @@ pub use dma_bdma::*;
 #[cfg(any(gpdma, lpdma))]
 pub(crate) mod gpdma;
 #[cfg(any(gpdma, lpdma))]
+pub use gpdma::linked_list::{LinearItem, RunMode, Table};
+#[cfg(any(gpdma, lpdma))]
 pub use gpdma::ringbuffered::*;
 #[cfg(any(gpdma, lpdma))]
 pub use gpdma::*;
