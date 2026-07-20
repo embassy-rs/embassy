@@ -13,11 +13,12 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.P2_09, Level::Low, OutputDrive::Standard);
 
     loop {
-        info!("high!");
+        info!("led on!");
         led.set_high();
-        Timer::after_millis(300).await;
-        info!("low!");
+        Timer::after_millis(500).await;
+
+        info!("led off!");
         led.set_low();
-        Timer::after_millis(300).await;
+        Timer::after_millis(500).await;
     }
 }

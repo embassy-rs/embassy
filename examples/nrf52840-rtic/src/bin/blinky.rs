@@ -31,12 +31,13 @@ mod app {
         let mut led = Output::new(pin, Level::Low, OutputDrive::Standard);
 
         loop {
-            info!("off!");
+            info!("led on!");
             led.set_high();
-            Timer::after_millis(300).await;
-            info!("on!");
+            Timer::after_millis(500).await;
+
+            info!("led off!");
             led.set_low();
-            Timer::after_millis(300).await;
+            Timer::after_millis(500).await;
         }
     }
 }
