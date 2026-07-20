@@ -103,7 +103,9 @@ macro_rules! bind_interrupts {
 /// This returns the peripheral singletons that can be used for creating drivers.
 ///
 /// This should only be called once and at startup, otherwise it panics.
-pub fn init(_config: config::Config) -> Peripherals {
+pub fn init(config: config::Config) -> Peripherals {
+    #[cfg(not(lpc55))]
+    let _ = &config;
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.
     let peripherals = Peripherals::take();
@@ -159,6 +161,25 @@ pub fn init(_config: config::Config) -> Peripherals {
 
     #[cfg(lpc55)]
     {
+        if config.main_clock == config::MainClock::FroHf96 {
+            // Flash wait states first, so timing is safe before the frequency rises.
+            // 9 system-clock access time covers rates up to 100 MHz.
+            pac::SYSCON
+                .fmccr()
+                .modify(|w| w.set_flashtim(pac::syscon::vals::Flashtim::FLASHTIM8));
+            // Ensure the FRO-HF 96 MHz output is enabled (ROM default leaves it on;
+            // set it anyway).
+            pac::ANACTRL.fro192m_ctrl().modify(|w| w.set_ena_96mhzclk(true));
+            // AHB divider = 1, then switch main clock to FRO-HF (glitch-free per UM).
+            pac::SYSCON.ahbclkdiv().modify(|w| w.set_div(0));
+            pac::SYSCON
+                .mainclksela()
+                .modify(|w| w.set_sel(pac::syscon::vals::MainclkselaSel::ENUM_0X3));
+            pac::SYSCON
+                .mainclkselb()
+                .modify(|w| w.set_sel(pac::syscon::vals::MainclkselbSel::ENUM_0X0));
+        }
+
         pint::init();
         pwm::Pwm::reset();
     }
@@ -174,8 +195,24 @@ pub fn init(_config: config::Config) -> Peripherals {
 
 /// HAL configuration for the NXP board.
 pub mod config {
+    /// Main (system) clock selection for LPC55.
+    #[cfg(lpc55)]
+    #[derive(Default, Clone, Copy, PartialEq, Eq)]
+    pub enum MainClock {
+        /// Leave the ROM boot default untouched.
+        #[default]
+        Untouched,
+        /// FRO HF 96 MHz as main clock (required for USB-HS).
+        FroHf96,
+    }
+
+    /// HAL configuration.
     #[derive(Default)]
-    pub struct Config {}
+    pub struct Config {
+        /// Main (system) clock selection.
+        #[cfg(lpc55)]
+        pub main_clock: MainClock,
+    }
 }
 
 #[allow(unused)]
