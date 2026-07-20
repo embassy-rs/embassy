@@ -484,10 +484,15 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 
     /// Set the timer period in timer clock cycles.
     ///
-    /// The timer will count for `clocks` clock cycles before wrapping.
+    /// In the edge-aligned mode, the timer will wrap in given clock cycles.
+    /// In the center-aligned mode, the timer will count up and down in given clock cycles.
+    ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
-    pub fn set_period_clocks(&self, clocks: u64, round: RoundTo) {
+    pub fn set_period_clocks(&self, mut clocks: u64, round: RoundTo) {
+        if T::is_center_aligned() {
+            clocks = clocks / 2;
+        }
         self.set_period_clocks_internal(clocks, round, T::Word::bits());
     }
 
@@ -504,12 +509,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         regs.arr().write_value(arr.into());
     }
 
-    /// Set the frequency of how many times per second the timer counts up to the max value or down to 0.
+    /// Set the frequency - how many times per second.
     ///
-    /// This means that in the default edge-aligned mode,
-    /// the timer counter will wrap around at the same frequency as is being set.
-    /// In center-aligned mode (which not all timers support), the wrap-around frequency is effectively halved
-    /// because it needs to count up and down.
+    /// In the edge-aligned mode, the timer will wrap-around at the same frequency as is being set
+    /// In the center-aligned mode, its the frequency of the timer counting both up and down,
+    /// so wrap-around frequency is effectively halved.
     ///
     /// The actual frequency may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
@@ -523,6 +527,9 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 
     /// Set the timer period in milliseconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
     pub fn set_period_ms(&self, ms: u32, round: RoundTo) {
@@ -532,6 +539,9 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     }
 
     /// Set the timer period in microseconds.
+    ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
     ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
@@ -543,6 +553,9 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 
     /// Set the timer period in seconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
     pub fn set_period_secs(&self, secs: u32, round: RoundTo) {
@@ -552,6 +565,9 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     }
 
     /// Set the timer period using an `embassy_time::Duration`.
+    ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
     ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
@@ -629,7 +645,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         let arr = regs.arr().read().arr();
         let psc = regs.psc().read();
 
-        timer_f / arr / (psc + 1)
+        let mut freq = timer_f / (arr + 1) / (psc + 1);
+        if T::is_center_aligned() {
+            freq = freq / 2_u32;
+        }
+        freq
     }
 
     /// Get the clock frequency of the timer (before prescaler is applied).
@@ -981,13 +1001,13 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
         unsafe {
             use crate::dma::TransferOptions;
-            #[cfg(not(any(bdma, gpdma)))]
+            #[cfg(not(any(bdma, gpdma, lpdma)))]
             use crate::dma::{Burst, FifoThreshold};
 
             let dma_transfer_option = TransferOptions {
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 fifo_threshold: Some(FifoThreshold::Full),
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr8,
                 ..Default::default()
             };
@@ -1040,13 +1060,13 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     ) -> Transfer<'a> {
         unsafe {
             use crate::dma::TransferOptions;
-            #[cfg(not(any(bdma, gpdma)))]
+            #[cfg(not(any(bdma, gpdma, lpdma)))]
             use crate::dma::{Burst, FifoThreshold};
 
             let dma_transfer_option = TransferOptions {
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 fifo_threshold: Some(FifoThreshold::Full),
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr8,
                 ..Default::default()
             };
@@ -1119,13 +1139,13 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
         unsafe {
             use crate::dma::TransferOptions;
-            #[cfg(not(any(bdma, gpdma)))]
+            #[cfg(not(any(bdma, gpdma, lpdma)))]
             use crate::dma::{Burst, FifoThreshold};
 
             let dma_transfer_option = TransferOptions {
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 fifo_threshold: Some(FifoThreshold::Full),
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr4,
                 ..Default::default()
             };

@@ -1,34 +1,39 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
+
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 #![warn(missing_docs)]
 #![allow(async_fn_in_trait)]
 
-use embassy_futures::select::{Either4, select4};
+use aligned::Aligned;
+#[cfg(not(feature = "bluetooth"))]
+use embassy_futures::select::{Either4 as EitherMany, select4 as select_many};
+#[cfg(feature = "bluetooth")]
+use embassy_futures::select::{Either5 as EitherMany, select5 as select_many};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_hal::digital::OutputPin;
 
 use crate::ioctl::{PendingIoctl, Shared};
-use crate::proto::{CtrlMsg, CtrlMsg_};
+use crate::rpc::ioctl_ctx::IoctlMessage;
+use crate::rpc::{Backend, HostedEvent, RpcBackend};
 
-#[allow(unused)]
-#[allow(non_snake_case)]
-#[allow(non_camel_case_types)]
-#[allow(non_upper_case_globals)]
-#[allow(missing_docs)]
-#[allow(clippy::all)]
-mod proto;
+pub(crate) mod proto;
 
 // must be first
 mod fmt;
 
+#[cfg(feature = "bluetooth")]
+pub mod bluetooth;
 mod control;
-mod iface;
+pub mod iface;
 mod ioctl;
+mod rpc;
 
 pub use control::*;
-pub use iface::*;
+use iface::Interface;
 
 const MTU: usize = 1514;
 
@@ -92,24 +97,48 @@ struct PayloadHeader {
 }
 impl_bytes!(PayloadHeader);
 
-#[allow(unused)]
-#[repr(u8)]
-enum InterfaceType {
-    Sta = 0,
-    Ap = 1,
-    Serial = 2,
-    Hci = 3,
-    Priv = 4,
-    Test = 5,
+impl PayloadHeader {
+    #[inline]
+    fn copy(mut self, buffer: &mut [u8; MAX_BUFFER_SIZE]) {
+        buffer[0..PayloadHeader::SIZE].copy_from_slice(&self.to_bytes());
+        self.checksum = checksum(&buffer[..PayloadHeader::SIZE + self.len as usize]);
+        buffer[0..PayloadHeader::SIZE].copy_from_slice(&self.to_bytes());
+    }
 }
 
-const MAX_SPI_BUFFER_SIZE: usize = 1600;
+#[allow(unused)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+enum InterfaceType {
+    Invalid,
+    Sta,
+    Ap,
+    Serial,
+    Hci,
+    Priv,
+    Test,
+}
+
+const MAX_BUFFER_SIZE: usize = 1600;
+// Maximum payload size
+const MAX_IOCTL_SIZE: usize = if cfg!(feature = "esp-hosted-fg") {
+    // Scan results are unlimited
+    MAX_BUFFER_SIZE - 12
+} else {
+    // Theoretical max overhead is 29 bytes. Biggest message currently is OTA write with 256 bytes.
+    256 + 29
+};
 const HEARTBEAT_MAX_GAP: Duration = Duration::from_secs(20);
 
 /// State for the esp-hosted driver.
 pub struct State {
     shared: Shared,
+    ioctl_buffer: [u8; MAX_IOCTL_SIZE],
+    msg_buffer: IoctlMessage,
     ch: ch::State<MTU, 4, 4>,
+    #[cfg(feature = "bluetooth")]
+    bt: bluetooth::BtState,
 }
 
 impl State {
@@ -118,6 +147,10 @@ impl State {
         Self {
             shared: Shared::new(),
             ch: ch::State::new(),
+            msg_buffer: IoctlMessage::default(),
+            ioctl_buffer: [0u8; MAX_IOCTL_SIZE],
+            #[cfg(feature = "bluetooth")]
+            bt: bluetooth::BtState::new(),
         }
     }
 }
@@ -125,15 +158,27 @@ impl State {
 /// Type alias for network driver.
 pub type NetDriver<'a> = ch::Device<'a, MTU>;
 
-/// Create a new esp-hosted driver using the provided state, interface, and reset pin.
+/// Handles returned by [`new`] for interacting with the esp-hosted driver.
+pub struct HostedResources<'a, I, OUT> {
+    /// Network device for use with embassy-net.
+    pub net_device: NetDriver<'a>,
+
+    /// Bluetooth HCI transport, for use with a `bt-hci` host stack.
+    #[cfg(feature = "bluetooth")]
+    pub bluetooth: bluetooth::BtDriver<'a>,
+
+    /// Control handle for managing WiFi and driver state.
+    pub control: Control<'a>,
+
+    /// Runner driving communication with the coprocessor. Must be spawned.
+    pub runner: Runner<'a, I, OUT>,
+}
+
+/// Create a new esp-hosted driver.
 ///
 /// Returns a device handle for interfacing with embassy-net, a control handle for
 /// interacting with the driver, and a runner for communicating with the WiFi device.
-pub async fn new<'a, I, OUT>(
-    state: &'a mut State,
-    iface: I,
-    reset: OUT,
-) -> (NetDriver<'a>, Control<'a>, Runner<'a, I, OUT>)
+pub async fn new<'a, I, OUT>(state: &'a mut State, iface: I, reset: OUT) -> HostedResources<'a, I, OUT>
 where
     I: Interface,
     OUT: OutputPin,
@@ -141,17 +186,29 @@ where
     let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
 
+    #[cfg(feature = "bluetooth")]
+    let (bt_runner, bt_driver) = bluetooth::new(&mut state.bt);
+
     let runner = Runner {
         ch: ch_runner,
         state_ch,
         shared: &state.shared,
+        backend: Backend::default(),
         next_seq: 1,
         reset,
         iface,
         heartbeat_deadline: Instant::now() + HEARTBEAT_MAX_GAP,
+        #[cfg(feature = "bluetooth")]
+        bt: bt_runner,
     };
 
-    (device, Control::new(state_ch, &state.shared), runner)
+    HostedResources {
+        net_device: device,
+        #[cfg(feature = "bluetooth")]
+        bluetooth: bt_driver,
+        control: Control::new(state_ch, &state.shared, &mut state.ioctl_buffer, &mut state.msg_buffer),
+        runner,
+    }
 }
 
 /// Runner for communicating with the WiFi device.
@@ -159,12 +216,16 @@ pub struct Runner<'a, I, OUT> {
     ch: ch::Runner<'a, MTU>,
     state_ch: ch::StateRunner<'a>,
     shared: &'a Shared,
+    backend: Backend,
 
     next_seq: u16,
     heartbeat_deadline: Instant,
 
     iface: I,
     reset: OUT,
+
+    #[cfg(feature = "bluetooth")]
+    bt: bluetooth::BtRunner<'a>,
 }
 
 impl<'a, I, OUT> Runner<'a, I, OUT>
@@ -180,9 +241,18 @@ where
         self.reset.set_high().unwrap();
         Timer::after_millis(1000).await;
 
-        let mut buffer = [0u8; MAX_SPI_BUFFER_SIZE];
+        self.iface.init(true).await;
+        self.shared.interface_ready();
+
+        let mut buffer = Aligned([0u8; MAX_BUFFER_SIZE]);
 
         loop {
+            if let ioctl::ControlState::Reboot = self.shared.state() {
+                self.backend = Backend::default();
+                self.iface.init(false).await;
+                self.shared.interface_ready();
+            }
+
             self.iface.wait_for_handshake().await;
 
             let ioctl = self.shared.ioctl_wait_pending();
@@ -190,70 +260,121 @@ where
             let ev = self.iface.wait_for_ready();
             let hb = Timer::at(self.heartbeat_deadline);
 
-            match select4(ioctl, tx, ev, hb).await {
-                Either4::First(PendingIoctl { buf, req_len }) => {
-                    buffer[12..24].copy_from_slice(b"\x01\x08\x00ctrlResp\x02");
-                    buffer[24..26].copy_from_slice(&(req_len as u16).to_le_bytes());
-                    buffer[26..][..req_len].copy_from_slice(&unsafe { &*buf }[..req_len]);
+            let event = select_many(
+                ioctl,
+                tx,
+                ev,
+                hb,
+                #[cfg(feature = "bluetooth")]
+                self.bt.tx_chan.receive(),
+            )
+            .await;
 
-                    let mut header = PayloadHeader {
-                        if_type_and_num: InterfaceType::Serial as _,
-                        len: (req_len + 14) as _,
+            let mut tx_len = 0;
+            match event {
+                EitherMany::First(PendingIoctl { buf, req_len }) => {
+                    let if_type_and_num = unwrap!(self.backend.encode_iface_type(InterfaceType::Serial));
+
+                    let payload_len = self
+                        .backend
+                        .encode_ioctl(&mut buffer[PayloadHeader::SIZE..], &unsafe { &*buf }[..req_len]);
+
+                    let header = PayloadHeader {
+                        if_type_and_num,
+                        len: payload_len as _,
                         offset: PayloadHeader::SIZE as _,
                         seq_num: self.next_seq,
                         ..Default::default()
                     };
                     self.next_seq = self.next_seq.wrapping_add(1);
-
-                    // Calculate checksum
-                    buffer[0..12].copy_from_slice(&header.to_bytes());
-                    header.checksum = checksum(&buffer[..26 + req_len]);
-                    buffer[0..12].copy_from_slice(&header.to_bytes());
+                    header.copy(&mut buffer);
+                    tx_len = PayloadHeader::SIZE + payload_len;
                 }
-                Either4::Second(packet) => {
-                    buffer[12..][..packet.len()].copy_from_slice(&packet);
+                EitherMany::Second(packet) => {
+                    let packet_len = packet.len();
+                    if let Some(if_type_and_num) = self.backend.encode_iface_type(InterfaceType::Sta) {
+                        buffer[PayloadHeader::SIZE..][..packet_len].copy_from_slice(&packet);
 
-                    let mut header = PayloadHeader {
-                        if_type_and_num: InterfaceType::Sta as _,
-                        len: packet.len() as _,
-                        offset: PayloadHeader::SIZE as _,
-                        seq_num: self.next_seq,
-                        ..Default::default()
-                    };
-                    self.next_seq = self.next_seq.wrapping_add(1);
-
-                    // Calculate checksum
-                    buffer[0..12].copy_from_slice(&header.to_bytes());
-                    header.checksum = checksum(&buffer[..12 + packet.len()]);
-                    buffer[0..12].copy_from_slice(&header.to_bytes());
+                        let header = PayloadHeader {
+                            if_type_and_num,
+                            len: packet_len as _,
+                            offset: PayloadHeader::SIZE as _,
+                            seq_num: self.next_seq,
+                            ..Default::default()
+                        };
+                        self.next_seq = self.next_seq.wrapping_add(1);
+                        header.copy(&mut buffer);
+                        tx_len = PayloadHeader::SIZE + packet_len;
+                    } else {
+                        // Backend doesn't support the requested interface type. Drop the
+                        // packet and send nothing this iteration.
+                        buffer[..PayloadHeader::SIZE].fill(0);
+                    }
 
                     packet.tx_done();
                 }
-                Either4::Third(()) => {
+                EitherMany::Third(()) => {
                     buffer[..PayloadHeader::SIZE].fill(0);
+                    tx_len = 0;
                 }
-                Either4::Fourth(()) => {
+                EitherMany::Fourth(()) => {
                     // Extend the deadline if initializing
-                    if let ioctl::ControlState::Reboot = self.shared.state() {
+                    if let ioctl::ControlState::Reboot | ioctl::ControlState::WaitingForInit = self.shared.state() {
                         self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP;
                         continue;
                     }
                     panic!("heartbeat from esp32 stopped")
                 }
+
+                // Bluetooth HCI packet queued by the host stack.
+                #[cfg(feature = "bluetooth")]
+                EitherMany::Fifth(slot) => {
+                    if let Some(if_type_and_num) = self.backend.encode_iface_type(InterfaceType::Hci) {
+                        // `slot.buf[0]` is the H4 packet type indicator; it travels in the
+                        // payload header's `hci_priv_packet_type` field, and the remaining
+                        // bytes are the HCI packet body.
+                        let pkt_type = slot.buf[0];
+                        let body = &slot.buf[1..slot.len];
+                        buffer[PayloadHeader::SIZE..][..body.len()].copy_from_slice(body);
+
+                        let header = PayloadHeader {
+                            if_type_and_num,
+                            len: body.len() as _,
+                            offset: PayloadHeader::SIZE as _,
+                            seq_num: self.next_seq,
+                            hci_priv_packet_type: pkt_type,
+                            ..Default::default()
+                        };
+                        self.next_seq = self.next_seq.wrapping_add(1);
+                        header.copy(&mut buffer);
+                        tx_len = PayloadHeader::SIZE + body.len() as usize;
+                    } else {
+                        // Backend doesn't support HCI (e.g. not yet initialized). Drop the
+                        // packet and send nothing this iteration.
+                        buffer[..PayloadHeader::SIZE].fill(0);
+                    }
+                    slot.receive_done();
+                }
             }
 
             if buffer[0] != 0 {
-                trace!("tx: {:02x}", &buffer[..40]);
+                #[cfg(feature = "log")]
+                trace!("tx: {:02x?}", &buffer[..40]);
+                #[cfg(feature = "defmt")]
+                trace!("tx: {=[u8]:02x}", &buffer[..40]);
             }
 
-            self.iface.transfer(&mut buffer).await;
+            self.iface.transfer(&mut buffer, tx_len).await;
 
-            self.handle_rx(&mut buffer);
+            self.handle_rx(&mut buffer[..]);
         }
     }
 
     fn handle_rx(&mut self, buf: &mut [u8]) {
-        trace!("rx: {:02x}", &buf[..40]);
+        #[cfg(feature = "log")]
+        trace!("rx: {:02x?}", &buf[..40]);
+        #[cfg(feature = "defmt")]
+        trace!("rx: {=[u8]:02x}", &buf[..40]);
 
         let buf_len = buf.len();
         let h = PayloadHeader::from_bytes_mut((&mut buf[..PayloadHeader::SIZE]).try_into().unwrap());
@@ -278,77 +399,66 @@ where
         }
 
         let payload = &buf[PayloadHeader::SIZE..][..payload_len];
+        let if_type = self.backend.decode_iface_type(if_type_and_num & 0x0f);
 
-        match if_type_and_num & 0x0f {
-            // STA
-            0 => match self.ch.try_rx_buf() {
+        match if_type {
+            Some(InterfaceType::Sta) => match self.ch.try_rx_buf() {
                 Some(mut buf) => {
                     buf[..payload.len()].copy_from_slice(payload);
                     buf.rx_done(payload.len())
                 }
                 None => warn!("failed to push rxd packet to the channel."),
             },
-            // serial
-            2 => {
-                trace!("serial rx: {:02x}", payload);
-                if payload.len() < 14 {
-                    warn!("serial rx: too short");
-                    return;
-                }
+            Some(InterfaceType::Serial) => {
+                #[cfg(feature = "log")]
+                trace!("serial rx: {:02x?}", payload);
+                #[cfg(feature = "defmt")]
+                trace!("serial rx: {=[u8]:02x}", payload);
 
-                let is_event = match &payload[..12] {
-                    b"\x01\x08\x00ctrlResp\x02" => false,
-                    b"\x01\x08\x00ctrlEvnt\x02" => true,
-                    _ => {
-                        warn!("serial rx: bad tlv");
-                        return;
-                    }
-                };
-
-                let len = u16::from_le_bytes(payload[12..14].try_into().unwrap()) as usize;
-                if payload.len() < 14 + len {
-                    warn!("serial rx: too short 2");
-                    return;
+                match self.backend.process_serial_data(payload) {
+                    Some((true, data)) => self.handle_event(data),
+                    Some((false, data)) => self.shared.ioctl_done(data),
+                    _ => {}
                 }
-                let data = &payload[14..][..len];
+            }
+            #[cfg(feature = "bluetooth")]
+            Some(InterfaceType::Hci) => {
+                #[cfg(feature = "log")]
+                trace!("hci rx: {:02x?}", payload);
+                #[cfg(feature = "defmt")]
+                trace!("hci rx: {=[u8]:02x}", payload);
 
-                if is_event {
-                    self.handle_event(data);
-                } else {
-                    self.shared.ioctl_done(data);
-                }
+                self.bt.rx(payload);
+            }
+            Some(InterfaceType::Priv) => {
+                #[cfg(feature = "log")]
+                debug!("priv rx: {:02x?}", payload);
+                #[cfg(feature = "defmt")]
+                debug!("priv rx: {=[u8]:02x}", payload);
             }
             _ => warn!("unknown iftype {}", if_type_and_num),
         }
     }
 
     fn handle_event(&mut self, data: &[u8]) {
-        use micropb::MessageDecode;
-        let mut event = CtrlMsg::default();
-        if event.decode_from_bytes(data).is_err() {
-            warn!("failed to parse event");
-            return;
-        }
-
-        debug!("event: {:?}", &event);
-
-        let Some(payload) = &event.payload else {
-            warn!("event without payload?");
-            return;
-        };
-
-        match payload {
-            CtrlMsg_::Payload::EventEspInit(_) => self.shared.init_done(),
-            CtrlMsg_::Payload::EventHeartbeat(_) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
-            CtrlMsg_::Payload::EventStationConnectedToAp(e) => {
-                info!("connected, code {}", e.resp);
+        match self.backend.normalize_event(data) {
+            Some(HostedEvent::Init) => self.shared.init_done(self.backend),
+            Some(HostedEvent::Heartbeat) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
+            Some(HostedEvent::StaConnected { resp }) => {
+                info!("connected, code {}", resp);
+                if self.shared.connect_is_pending() {
+                    self.shared.connect_done();
+                }
                 self.state_ch.set_link_state(LinkState::Up);
             }
-            CtrlMsg_::Payload::EventStationDisconnectFromAp(e) => {
-                info!("disconnected, code {}", e.resp);
+            Some(HostedEvent::StaDisconnected { reason }) => {
+                info!("disconnected, reason {}", reason);
+                if self.shared.connect_is_pending() {
+                    self.shared.connect_failed(reason);
+                }
                 self.state_ch.set_link_state(LinkState::Down);
             }
-            _ => {}
+            None => {}
         }
     }
 }

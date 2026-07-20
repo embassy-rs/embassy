@@ -32,6 +32,8 @@ pub struct TransferConfig {
     pub instruction: u8,
     /// Flash memory address
     pub address: Option<u32>,
+    /// Address size (8/16/24/32-bit)
+    pub address_size: AddressSize,
     /// Number of dummy cycles (DCYC)
     pub dummy: DummyCycles,
 }
@@ -44,6 +46,7 @@ impl Default for TransferConfig {
             dwidth: QspiWidth::NONE,
             instruction: 0,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         }
     }
@@ -57,8 +60,6 @@ pub struct Config {
     /// Flash memory size representend as 2^[0-32], as reasonable minimum 1KiB(9) was chosen.
     /// If you need other value the whose predefined use `Other` variant.
     pub memory_size: MemorySize,
-    /// Address size (8/16/24/32-bit)
-    pub address_size: AddressSize,
     /// Scalar factor for generating CLK [0-255]
     pub prescaler: u8,
     /// Number of bytes to trigger FIFO threshold flag.
@@ -77,7 +78,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             memory_size: MemorySize::Other(0),
-            address_size: AddressSize::_24bit,
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
             cs_high_time: ChipSelectHighTime::_5Cycle,
@@ -210,9 +210,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
 
     /// Do a QSPI command.
     pub fn blocking_command(&mut self, transaction: TransferConfig) {
-        #[cfg(not(stm32h7))]
-        T::REGS.cr().modify(|v| v.set_dmaen(false));
-        self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
+        self.setup_command(transaction);
 
         while !T::REGS.sr().read().tcf() {}
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
@@ -280,7 +278,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
             v.set_imode(transaction.iwidth.into());
             v.set_instruction(transaction.instruction);
             v.set_admode(transaction.awidth.into());
-            v.set_adsize(self.config.address_size.into());
+            v.set_adsize(transaction.address_size.into());
             v.set_dmode(transaction.dwidth.into());
             v.set_abmode(QspiWidth::NONE.into());
             v.set_dcyc(transaction.dummy.into());
@@ -355,12 +353,25 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         self.setup_transaction(QspiMode::AutoPolling, &transaction, Some(data_len));
     }
 
+    fn setup_command(&mut self, transaction: TransferConfig) {
+        #[cfg(not(stm32h7))]
+        T::REGS.cr().modify(|v| v.set_dmaen(false));
+
+        self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
+    }
+
     fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {
         self.assert_transfer_widths(transaction);
 
         match (transaction.address, transaction.awidth) {
             (Some(_), QspiWidth::NONE) => panic!("QSPI address can't be sent with an address width of NONE"),
-            (Some(_), _) => {}
+            (Some(address), _) => {
+                // u32::bit_width was only stabilized in 1.97
+                let address_bit_width = u32::BITS - address.leading_zeros();
+                if address_bit_width > transaction.address_size.bit_width() as u32 {
+                    panic!("QSPI address too large to be represented with the given address size");
+                }
+            }
             (None, QspiWidth::NONE) => {}
             (None, _) => panic!("QSPI address is not set, so the address width should be NONE"),
         }
@@ -391,7 +402,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
             v.set_imode(transaction.iwidth.into());
             v.set_instruction(transaction.instruction);
             v.set_admode(transaction.awidth.into());
-            v.set_adsize(self.config.address_size.into());
+            v.set_adsize(transaction.address_size.into());
             v.set_dmode(transaction.dwidth.into());
             v.set_abmode(QspiWidth::NONE.into());
             v.set_dcyc(transaction.dummy.into());
@@ -847,6 +858,21 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         }
         .await
     }
+
+    /// Do a QSPI command.
+    pub async fn command(&mut self, transaction: TransferConfig) {
+        T::REGS.cr().modify(|m| {
+            // Set Transfer Complete Interrupt Enable
+            m.set_tcie(true);
+        });
+
+        self.setup_command(transaction);
+
+        CommandFuture {
+            _peri: self._peri.reborrow(),
+        }
+        .await
+    }
 }
 
 /// QSPI error
@@ -955,6 +981,37 @@ impl From<MatchMode> for bool {
     }
 }
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+struct CommandFuture<'d, T: Instance> {
+    _peri: Peri<'d, T>,
+}
+
+impl<'d, T: Instance> Unpin for CommandFuture<'d, T> {}
+impl<'d, T: Instance> Drop for CommandFuture<'d, T> {
+    fn drop(&mut self) {
+        T::REGS.cr().modify(|m| {
+            // Unset Transfer Control Interrupt Enable
+            m.set_tcie(false);
+        });
+    }
+}
+
+impl<'d, T: Instance> Future for CommandFuture<'d, T> {
+    type Output = ();
+
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+        COMMAND_WAKER.register(cx.waker());
+
+        if T::REGS.sr().read().busy() {
+            core::task::Poll::Pending
+        } else {
+            core::task::Poll::Ready(())
+        }
+    }
+}
+
+static COMMAND_WAKER: AtomicWaker = AtomicWaker::new();
+
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _marker: PhantomData<T>,
@@ -966,6 +1023,12 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
             // clear status match flag
             T::REGS.fcr().modify(|m| m.set_csmf(true));
             AUTOPOLL_WAKER.wake();
+        }
+
+        if T::REGS.sr().read().tcf() {
+            // clear transfer complete flag
+            T::REGS.fcr().modify(|m| m.set_ctcf(true));
+            COMMAND_WAKER.wake();
         }
     }
 }

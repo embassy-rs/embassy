@@ -143,7 +143,7 @@ impl<'d> ExtiInput<'d, Async> {
     /// token. The pin retains its current pull configuration.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub fn from_input<C: Channel>(
+    pub unsafe fn from_input<C: Channel>(
         pin: Input<'d>,
         _ch: Peri<'d, C>,
         _irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
@@ -165,7 +165,7 @@ impl<'d> ExtiInput<'d, Async> {
     /// before calling this.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub fn from_flex<C: Channel>(
+    pub unsafe fn from_flex<C: Channel>(
         pin: Flex<'d>,
         _ch: Peri<'d, C>,
         _irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,

@@ -485,6 +485,7 @@ pub(crate) unsafe fn init(config: Config) {
         pclk2_tim: Some(pclk2_tim),
         msik: msik,
         hsi48: hsi48,
+        sai1: None,
         rtc: rtc,
         lse: lse,
         lsi: lsi,

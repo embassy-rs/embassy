@@ -2,7 +2,7 @@
 #![doc = include_str!("../README.md")]
 use std::io;
 use std::io::{Read, Write};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::os::unix::prelude::BorrowedFd;
 use std::task::Context;
@@ -46,34 +46,41 @@ fn ifreq_ioctl(lower: libc::c_int, ifreq: &mut ifreq, cmd: libc::c_ulong) -> io:
 /// A TUN/TAP device.
 #[derive(Debug)]
 pub struct TunTap {
-    fd: libc::c_int,
+    fd: OwnedFd,
     mtu: usize,
 }
 
 impl AsRawFd for TunTap {
     fn as_raw_fd(&self) -> RawFd {
-        self.fd
+        self.fd.as_raw_fd()
     }
 }
 
 impl AsFd for TunTap {
     fn as_fd(&self) -> BorrowedFd<'_> {
-        unsafe { BorrowedFd::borrow_raw(self.fd) }
+        self.fd.as_fd()
     }
 }
 
 impl TunTap {
     /// Create a new TUN/TAP device.
     pub fn new(name: &str) -> io::Result<TunTap> {
-        unsafe {
+        use std::os::fd::FromRawFd as _;
+
+        let fd = unsafe {
             let fd = libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_NONBLOCK);
             if fd == -1 {
                 return Err(io::Error::last_os_error());
             }
 
+            // SAFETY: the file descriptor is open.
+            OwnedFd::from_raw_fd(fd)
+        };
+
+        let mtu = unsafe {
             let mut ifreq = ifreq_for(name);
             ifreq.ifr_data = libc::IFF_TAP | libc::IFF_NO_PI;
-            ifreq_ioctl(fd, &mut ifreq, libc::TUNSETIFF)?;
+            ifreq_ioctl(fd.as_raw_fd(), &mut ifreq, libc::TUNSETIFF)?;
 
             let socket = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, libc::IPPROTO_IP);
             if socket == -1 {
@@ -86,24 +93,16 @@ impl TunTap {
 
             // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
             // smoltcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
-            let mtu = ip_mtu + ETHERNET_HEADER_LEN;
+            ip_mtu + ETHERNET_HEADER_LEN
+        };
 
-            Ok(TunTap { fd, mtu })
-        }
-    }
-}
-
-impl Drop for TunTap {
-    fn drop(&mut self) {
-        unsafe {
-            libc::close(self.fd);
-        }
+        Ok(TunTap { fd, mtu })
     }
 }
 
 impl io::Read for TunTap {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let len = unsafe { libc::read(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
+        let len = unsafe { libc::read(self.fd.as_raw_fd(), buf.as_mut_ptr() as *mut libc::c_void, buf.len()) };
         if len == -1 {
             Err(io::Error::last_os_error())
         } else {
@@ -114,7 +113,7 @@ impl io::Read for TunTap {
 
 impl io::Write for TunTap {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let len = unsafe { libc::write(self.fd, buf.as_ptr() as *mut libc::c_void, buf.len()) };
+        let len = unsafe { libc::write(self.fd.as_raw_fd(), buf.as_ptr() as *mut libc::c_void, buf.len()) };
         if len == -1 {
             Err(io::Error::last_os_error())
         } else {

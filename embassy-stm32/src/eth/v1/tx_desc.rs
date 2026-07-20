@@ -1,8 +1,12 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
+#[cfg(feature = "ptp")]
+use embassy_net_driver::PacketMeta;
 use vcell::VolatileCell;
 
 use crate::eth::TX_BUFFER_SIZE;
+#[cfg(feature = "ptp")]
+use crate::eth::packet_state::TxPacketStateRing;
 use crate::pac::ETH;
 
 /// Transmit and Receive Descriptor fields
@@ -106,12 +110,18 @@ impl TDes {
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
     buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
+    #[cfg(feature = "ptp")]
+    state: TxPacketStateRing<'a>,
     index: usize,
 }
 
 impl<'a> TDesRing<'a> {
     /// Initialise this TDesRing. Assume TDesRing is corrupt
-    pub(crate) fn new(descriptors: &'a mut [TDes], buffers: &'a mut [Packet<TX_BUFFER_SIZE>]) -> Self {
+    pub(crate) fn new(
+        descriptors: &'a mut [TDes],
+        buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
+        #[cfg(feature = "ptp")] state: TxPacketStateRing<'a>,
+    ) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
 
@@ -127,6 +137,8 @@ impl<'a> TDesRing<'a> {
         Self {
             descriptors,
             buffers,
+            #[cfg(feature = "ptp")]
+            state,
             index: 0,
         }
     }
@@ -145,6 +157,11 @@ impl<'a> TDesRing<'a> {
         }
     }
 
+    #[cfg(feature = "ptp")]
+    pub(crate) fn set_meta(&mut self, meta: PacketMeta) {
+        self.state.set_meta(meta);
+    }
+
     /// Transmit the packet written in a buffer returned by `available`.
     pub(crate) fn transmit(&mut self, len: usize) {
         let descriptor = &mut self.descriptors[self.index];
@@ -152,6 +169,8 @@ impl<'a> TDesRing<'a> {
 
         descriptor.set_buffer1(self.buffers[self.index].0.as_ptr());
         descriptor.set_buffer1_len(len);
+        #[cfg(feature = "ptp")]
+        self.state.commit(self.index);
 
         descriptor.set_owned();
 

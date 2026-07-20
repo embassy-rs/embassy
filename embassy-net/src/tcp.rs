@@ -144,6 +144,19 @@ impl<'a> TcpReader<'a> {
     pub fn recv_queue(&self) -> usize {
         self.io.recv_queue()
     }
+
+    /// Return whether the receive half of the full-duplex connection is open.
+    /// This function returns true if it’s possible to receive data from the remote endpoint.
+    /// It will return true while there is data in the receive buffer, and if there isn’t,
+    /// as long as the remote endpoint has not closed the connection.
+    pub fn may_recv(&self) -> bool {
+        self.io.with(|s, _| s.may_recv())
+    }
+
+    /// Get whether the socket is ready to receive data, i.e. whether there is some pending data in the receive buffer.
+    pub fn can_recv(&self) -> bool {
+        self.io.with(|s, _| s.can_recv())
+    }
 }
 
 impl<'a> TcpWriter<'a> {
@@ -221,6 +234,33 @@ impl<'a> TcpWriter<'a> {
     /// Return the amount of octets queued in the transmit buffer.
     pub fn send_queue(&self) -> usize {
         self.io.send_queue()
+    }
+
+    /// Return whether the transmit half of the full-duplex connection is open.
+    ///
+    /// This function returns true if it's possible to send data and have it arrive
+    /// to the remote endpoint. However, it does not make any guarantees about the state
+    /// of the transmit buffer, and even if it returns true, [write](#method.write) may
+    /// not be able to enqueue any octets.
+    ///
+    /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED` or
+    /// `CLOSE-WAIT` state.
+    pub fn may_send(&self) -> bool {
+        self.io.with(|s, _| s.may_send())
+    }
+
+    /// Check whether the transmit half of the full-duplex connection is open
+    /// (see [may_send](#method.may_send)), and the transmit buffer is not full.
+    pub fn can_send(&self) -> bool {
+        self.io.with(|s, _| s.can_send())
+    }
+
+    /// Return whether the receive half of the full-duplex connection is open.
+    /// This function returns true if it’s possible for the corresponding [`TcpWriter`]
+    /// to receive data from the remote endpoint.
+    /// It will return true as long as the remote endpoint has not closed the connection.
+    pub fn may_recv(&self) -> bool {
+        self.io.with(|s, _| s.may_recv())
     }
 }
 

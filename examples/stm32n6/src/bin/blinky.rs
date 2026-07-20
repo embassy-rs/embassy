@@ -25,7 +25,10 @@ async fn button_task(mut button: ExtiInput<'static, Async>) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    let mut config = embassy_stm32::Config::default();
+    config.rcc.supply_config = embassy_stm32::rcc::SupplyConfig::External;
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let mut led = Output::new(p.PG10, Level::High, Speed::Low);

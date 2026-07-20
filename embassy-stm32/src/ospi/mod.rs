@@ -128,6 +128,26 @@ impl Default for Config {
     }
 }
 
+/// HyperBus latency configuration, programmed into OCTOSPI_HLCR.
+///
+/// Required for HyperBus (HyperRAM / HyperFlash) memory-mapped access: the access time
+/// and read-write recovery must match the device datasheet at the chosen bus clock,
+/// analogous to a NOR flash's dummy-cycle latency. HLCR is the one HyperBus register the
+/// rest of the driver does not touch, so apply this with [`Ospi::configure_hyperbus`]
+/// after construction and before enabling memory-mapped mode.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct HyperbusConfig {
+    /// Latency mode (fixed = twice the access time, or variable).
+    pub latency_mode: HyperbusLatencyMode,
+    /// Device access time (TACC), in communication-clock cycles.
+    pub access_time: u8,
+    /// Read-write recovery time (TRWR), in communication-clock cycles.
+    pub rw_recovery_time: u8,
+    /// Apply zero latency on write operations.
+    pub write_zero_latency: bool,
+}
+
 /// OSPI transfer configuration.
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -171,6 +191,9 @@ pub struct TransferConfig {
     /// Data strobe (DQS) management enable
     pub dqse: bool,
     /// Send instruction only once (SIOO) mode enable
+    /// Enable this to improve memory-mapped latency. Ensure your device supports this mode.
+    /// Some manufacturers call this 'Continuous Read' mode and require specific bits to be set
+    /// in alternate bytes (e.g. Winbound W25Q) and specific disable sequences.
     pub sioo: bool,
 }
 
@@ -198,7 +221,7 @@ impl Default for TransferConfig {
             dummy: DummyCycles::_0,
 
             dqse: false,
-            sioo: true,
+            sioo: false,
         }
     }
 }
@@ -269,7 +292,9 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_ddtr(write_config.ddtr);
 
             w.set_abmode(PhaseMode::from_bits(write_config.abwidth.into()));
-            w.set_dqse(write_config.dqse);
+            // Always Enable DQS bit - without this bit set every write request returns an error
+            // See "ES0491 - Rev 9 - 2.8.6 - Memory-mapped write error response when DQS output is disabled"
+            w.set_dqse(true);
         });
 
         reg.wtcr().modify(|w| w.set_dcyc(write_config.dummy.into()));
@@ -282,8 +307,30 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         Ok(())
     }
 
+    /// Program the HyperBus latency register (OCTOSPI_HLCR).
+    ///
+    /// Only meaningful when the connected device is a HyperBus memory
+    /// ([`Config::memory_type`] == [`MemoryType::HyperBusMemory`]). Call this after
+    /// construction and before [`Ospi::enable_memory_mapped_mode`]. The peripheral is
+    /// already enabled at this point, so this waits for it to be idle before writing.
+    pub fn configure_hyperbus(&mut self, config: HyperbusConfig) {
+        let reg = T::REGS;
+        while reg.sr().read().busy() {}
+        reg.hlcr().write(|w| {
+            w.set_lm(vals::LatencyMode::from_bits(config.latency_mode.into()));
+            w.set_wzl(config.write_zero_latency);
+            w.set_tacc(config.access_time);
+            w.set_trwr(config.rw_recovery_time);
+        });
+    }
+
     /// Quit from memory mapped mode
     pub fn disable_memory_mapped_mode(&mut self) {
+        // Ensure memory transactions have completed.
+        // If this is called immediately after writing to memory mapped memory a BusFault of type
+        // 'Imprecise data access error' could occur.
+        cortex_m::asm::dsb();
+
         let reg = T::REGS;
 
         reg.cr().modify(|r| {

@@ -4,7 +4,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
@@ -14,6 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::future::{Either, select};
 
 use crate::Peri;
+use crate::atomic::{AtomicClear, AtomicModify};
 use crate::dma::ChannelAndRequest;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
@@ -25,7 +26,6 @@ use crate::pac::usart::Lpuart as Regs;
 use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
-use crate::reg::AtomicModify;
 use crate::time::Hertz;
 
 /// Interrupt handler.
@@ -525,8 +525,17 @@ impl<'d> UartTx<'d, Async> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         let r = self.info.regs;
+        let half_duplex = r.cr3().read().hdsel();
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
+
+        // Discard any TC completion latched from a *previous* transmission
+        // (e.g. by the ring-buffered receiver's idle polling, which clears the
+        // ISR and latches TC into `tc_flag`). A stale latch here would make a
+        // subsequent `flush()` return while this transmission is still in
+        // flight — in half-duplex mode that re-enables the receiver mid-write
+        // and echoes the transmitted data.
+        self.state.tc_flag.clear();
 
         let ch = self.tx_dma.as_mut().unwrap();
         r.cr3().set_bits(|reg| {
@@ -536,6 +545,24 @@ impl<'d> UartTx<'d, Async> {
         // is held across an await and makes the future non-Send.
         let transfer = unsafe { ch.write(buffer, tdr(r), Default::default()) };
         transfer.await;
+
+        if half_duplex {
+            // A concurrently running reader (e.g. a long-lived task parked in
+            // `RingBufferedUartRx::wait_for_data_or_idle`) has no way to
+            // notice that `RE` was just cleared for this write: the receiver
+            // only gets re-enabled at the top of a *new* `read()` call, and a
+            // task already parked inside one will never make it. Restore the
+            // receiver here instead of leaving it to the other side. Flush
+            // first so the last byte(s) have actually left the shift register
+            // before RE comes back, otherwise the tail of this transmission
+            // gets read back as incoming data.
+            flush(&self.info, &self.state).await?;
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
+        }
+
         Ok(())
     }
 
@@ -636,13 +663,28 @@ impl<'d, M: Mode> UartTx<'d, M> {
     /// Perform a blocking UART write
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
+        let half_duplex = r.cr3().read().hdsel();
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
+
+        // See `write`: discard a TC latch left over from a previous transmission.
+        self.state.tc_flag.clear();
 
         for &b in buffer {
             while !sr(r).read().txe() {}
             unsafe { tdr(r).write_volatile(b) };
         }
+
+        if half_duplex {
+            // See `write`: restore the receiver ourselves rather than leaving
+            // it to a reader that may already be parked waiting for data.
+            blocking_flush(self.info)?;
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
+        }
+
         Ok(())
     }
 
@@ -678,7 +720,7 @@ async fn flush(info: &Info, state: &State) -> Result<(), Error> {
             state.tx_waker.register(cx.waker());
 
             let sr = sr(r).read();
-            if sr.tc() {
+            if sr.tc() || state.tc_flag.clear() {
                 // Transmission complete detected
                 return Poll::Ready(());
             }
@@ -2172,6 +2214,7 @@ enum Kind {
 struct State {
     rx_waker: AtomicWaker,
     tx_waker: AtomicWaker,
+    tc_flag: AtomicBool,
     tx_rx_refcount: AtomicU8,
     eager_reads: AtomicUsize,
 }
@@ -2181,6 +2224,7 @@ impl State {
         Self {
             rx_waker: AtomicWaker::new(),
             tx_waker: AtomicWaker::new(),
+            tc_flag: AtomicBool::new(false),
             tx_rx_refcount: AtomicU8::new(0),
             eager_reads: AtomicUsize::new(0),
         }

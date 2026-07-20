@@ -7,7 +7,7 @@
 
 use core::str::from_utf8;
 
-use cyw43::aligned_bytes;
+use cyw43::{ApAuth, aligned_bytes};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::*;
 use embassy_executor::Spawner;
@@ -99,8 +99,10 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(net_task(runner)));
 
-    //control.start_ap_open("cyw43", 5).await;
-    control.start_ap_wpa2("cyw43", "password", 5).await;
+    control.start_ap("cyw43", "password", ApAuth::Wpa2, 5).await;
+    // WPA3 requires compatible CYW43 firmware and client support.
+    // control.start_ap("cyw43", "password", ApAuth::Wpa3, 5).await;
+    // control.start_ap("cyw43", "password", ApAuth::Wpa2Wpa3, 5).await;
 
     // And now we can use it!
 

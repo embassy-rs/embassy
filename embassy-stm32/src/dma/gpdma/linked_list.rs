@@ -1,8 +1,14 @@
 //! Implementation of the GPDMA linked list and linked list items.
 #![macro_use]
 
+#[cfg(gpdma)]
 use stm32_metapac::gpdma::regs;
+#[cfg(gpdma)]
 use stm32_metapac::gpdma::vals::Dreq;
+#[cfg(not(gpdma))]
+use stm32_metapac::lpdma::regs;
+#[cfg(not(gpdma))]
+use stm32_metapac::lpdma::vals::Dreq;
 
 use crate::dma::word::{Word, WordSize};
 use crate::dma::{Dir, Request};

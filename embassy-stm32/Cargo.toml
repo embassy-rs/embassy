@@ -54,6 +54,8 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f479zi", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f730i8", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h753zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "ptp", "stm32h753zi"]},
+    {target = "thumbv7em-none-eabi", features = ["exti", "log", "ptp", "stm32h753zi"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h735zg", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "split-pc2", "split-pc3", "stm32h755zi-cm7", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h725re", "time", "time-driver-any"]},
@@ -126,6 +128,7 @@ flavors = [
     { regex_feature = "stm32f7[67]..[ig]", target = "thumbv7em-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32f7.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32c0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32c5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32g0...c", target = "thumbv6m-none-eabi", features = ["dual-bank"] },
     { regex_feature = "stm32g0.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "stm32g4[78].*", target = "thumbv7em-none-eabi", features = ["low-power", "dual-bank"] },
@@ -157,13 +160,12 @@ embassy-time = { version = "0.5.1", path = "../embassy-time", optional = true }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
-embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4", "aligned"] }
+embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
-cyw43 = { version = "0.7.0", path = "../cyw43", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -184,9 +186,10 @@ log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
+sdio = "0.5.0"
 sdio-host = "0.9.0"
 dsp-fixedpoint = { version = "0.1.0", default-features = false }
-critical-section = "1.1"
+critical-section = { version = "1.1", default-features = false }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -210,11 +213,11 @@ heapless = "0.9.1"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-efbc4aab23acca680b52fda1f70c82cdca01a43f" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-1912ac7d73c27f03863fb2d71fbfddf0d9fce062" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-efbc4aab23acca680b52fda1f70c82cdca01a43f", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-1912ac7d73c27f03863fb2d71fbfddf0d9fce062" , default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
@@ -244,14 +247,15 @@ defmt = [
     "embassy-net-driver/defmt",
     "embassy-time?/defmt",
     "embassy-usb-synopsys-otg/defmt",
-    "stm32-metapac/defmt"
+    "stm32-metapac/defmt",
+    "sdio/defmt"
 ]
 ## Use log for logging
 log = ["dep:log"]
+## Enable Ethernet PTP hardware timestamping.
+ptp = ["embassy-net-driver/packetmeta-id"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
-## Enable cyw
-cyw43 = ["dep:cyw43"]
 
 stm32-hrtim = ["dep:stm32-hrtim"]
 
@@ -1149,7 +1153,7 @@ stm32g471rc = [ "stm32-metapac/stm32g471rc" ]
 stm32g471re = [ "stm32-metapac/stm32g471re" ]
 stm32g471vc = [ "stm32-metapac/stm32g471vc" ]
 stm32g471ve = [ "stm32-metapac/stm32g471ve" ]
-stm32g473cb = [ "stm32-metapac/stm32g473cb" ]
+stm32g473cb = [ "stm32-metapac/stm32g473cb", "dual-bank" ]
 stm32g473cc = [ "stm32-metapac/stm32g473cc" ]
 stm32g473ce = [ "stm32-metapac/stm32g473ce" ]
 stm32g473mb = [ "stm32-metapac/stm32g473mb" ]

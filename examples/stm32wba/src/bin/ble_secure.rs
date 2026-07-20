@@ -204,7 +204,12 @@ async fn main(spawner: Spawner) {
 
                 GapEvent::Disconnected { handle, reason } => {
                     info!("=== DISCONNECTED ===");
-                    info!("  Handle: 0x{:04X}, Reason: 0x{:02X}", handle.0, reason);
+                    info!(
+                        "  Handle: 0x{:04X}, Reason: 0x{:02X} ({})",
+                        handle.0,
+                        reason.as_u8(),
+                        Display2Format(&reason)
+                    );
 
                     // Restart advertising
                     ble.start_advertising(adv_params.clone(), create_adv_data(), None)

@@ -575,6 +575,11 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     }
                     OutResponse::Accepted
                 }
+                // USB 2.0 debug devices use a standard device feature selector,
+                // but the actual mode transition is device-specific.
+                (Request::SET_FEATURE, Request::FEATURE_DEVICE_DEBUG_MODE) => {
+                    self.handle_control_out_delegated(req, data)
+                }
                 _ => OutResponse::Rejected,
             },
             (RequestType::Standard, Recipient::Interface) => {
@@ -786,6 +791,9 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
             descriptor_type::DEVICE_QUALIFIER if self.config.max_speed > UsbDeviceSpeed::Full => {
                 InResponse::Accepted(&self.device_qualifier_descriptor)
             }
+            // USB_DT_DEBUG is a standard descriptor, but its endpoint contents
+            // are supplied by a special-purpose debug device implementation.
+            descriptor_type::DEBUG => self.handle_control_in_delegated(req, buf),
             _ => InResponse::Rejected,
         }
     }

@@ -5,7 +5,7 @@ use std::process::Command;
 use std::{env, fs};
 
 use build_common::CfgSet;
-use convert_case::ccase;
+use convert_case::{Casing, ccase};
 use indexmap::IndexMap;
 use nxp_pac::metadata::METADATA;
 use proc_macro2::TokenStream;
@@ -56,6 +56,7 @@ fn main() {
         generate_ctimer_pin_impls(),
         generate_lpuart_pin_impls(),
         generate_flexspi_pin_impls(),
+        generate_dma_impls(),
     ];
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
@@ -158,6 +159,10 @@ fn generate_cc_gates() -> TokenStream {
     let mut generated = TokenStream::new();
 
     for peripheral in METADATA.peripherals {
+        if peripheral.name.to_ascii_lowercase().starts_with("can") {
+            continue;
+        }
+
         let Some(gate) = peripheral.gate.as_ref() else {
             continue;
         };
@@ -394,18 +399,18 @@ fn generate_flexspi_pin_impls() -> TokenStream {
     for flexspi in METADATA.peripherals.iter().filter(|p| flexspi_regex.is_match(p.name)) {
         let flexspi_name = format_ident!("{}", flexspi.name);
 
-        let mut emitted_pins = std::collections::HashSet::new();
         for signal in flexspi.signals {
+            let mut name_split = signal.name.split("_");
+            let port = format_ident!("{}", name_split.next().unwrap());
+            let signal_name = format_ident!("{}", name_split.next().unwrap().to_case(convert_case::Case::Pascal));
+
             for pin in signal.pins {
-                if !emitted_pins.insert(pin.pin) {
-                    continue;
-                }
                 let pin_name = format_ident!("{}", pin.pin);
                 let feature_gate = pin_feature_gate(pin.pin);
 
                 generated.extend(quote! {
                     #feature_gate
-                    crate::impl_flexspi_pin!(#pin_name, #flexspi_name);
+                    crate::impl_flexspi_pin!(#pin_name, #flexspi_name, #port, #signal_name);
                 });
             }
         }
@@ -498,6 +503,35 @@ fn generate_lpuart_pin_impls() -> TokenStream {
 }
 
 fn generate_dma_requests_enum() -> TokenStream {
+    let mut generated = TokenStream::new();
+
+    let dma_regex = Regex::new(r"(?:^DMA)(\d+)").unwrap();
+    let dma_driver_regex = Regex::new(r"(?:DMA)(\d+)").unwrap();
+
+    for (dma, dma_num) in METADATA
+        .peripherals
+        .iter()
+        .filter_map(|p| get_regex_num(p.name, &dma_regex).map(|num| (p, num)))
+    {
+        let num_channels = get_regex_num(dma.driver_name, &dma_driver_regex).unwrap();
+
+        for channel_num in 0..num_channels {
+            let dma_num = proc_macro2::Literal::u32_unsuffixed(dma_num);
+            let channel_num = proc_macro2::Literal::u32_unsuffixed(channel_num);
+
+            let channel_ident = format_ident!("DMA{dma_num}_CH{channel_num}");
+
+            generated.extend(quote! {
+                crate::impl_dma_channel!(#channel_ident, #dma_num, #channel_num, #channel_ident);
+                crate::impl_dma_interrupt_handler!(#channel_ident, #dma_num, #channel_num);
+            });
+        }
+    }
+
+    generated
+}
+
+fn generate_dma_impls() -> TokenStream {
     let mut dma_requests = HashMap::new();
     for dma_mux in METADATA.peripherals.iter().flat_map(|p| p.dma_muxing) {
         dma_requests.insert(dma_mux.signal, dma_mux.request);

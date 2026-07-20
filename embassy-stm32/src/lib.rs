@@ -16,8 +16,8 @@ mod fmt;
 include!(concat!(env!("OUT_DIR"), "/_macros.rs"));
 
 // Utilities
+mod atomic;
 mod macros;
-mod reg;
 pub mod time;
 mod wait;
 /// Operating modes for peripherals.
@@ -52,10 +52,15 @@ pub mod rcc;
 mod time_driver;
 pub mod timer;
 
+#[cfg(any(adf, mdf))]
+pub(crate) mod dflt;
+
 // Sometimes-present hardware
 
 #[cfg(adc)]
 pub mod adc;
+#[cfg(adf)]
+pub mod adf;
 #[cfg(aes_v3b)]
 pub mod aes;
 #[cfg(backup_sram)]
@@ -64,7 +69,7 @@ pub mod backup_sram;
 pub mod can;
 #[cfg(any(comp_u5, comp_v1, comp_v2))]
 pub mod comp;
-#[cfg(cordic)]
+#[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
 
 #[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
@@ -122,8 +127,14 @@ pub mod exti;
 pub mod flash;
 #[cfg(fmac)]
 pub mod fmac;
-#[cfg(fmc)]
+#[cfg(any(fmc, fsmc))]
 pub mod fmc;
+#[cfg(gfxmmu_v2)]
+pub mod gfxmmu;
+#[cfg(gfxtim)]
+pub mod gfxtim;
+#[cfg(all(gpu2d, stm32u5))]
+pub mod gpu2d;
 #[cfg(hash)]
 pub mod hash;
 #[cfg(hrtim)]
@@ -136,21 +147,25 @@ pub mod hspi;
 pub mod i2c;
 #[cfg(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))]
 pub mod i2s;
+#[cfg(icache)]
+pub mod icache;
 #[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
-// Limited to N6 for now — on H7 the metapac entry for JPEG has `rcc: None`
-// (no RccPeripheral impl is generated), and the DMA signal names differ
-// (INFIFO/OUTFIFO vs N6's RX/TX). Broaden once stm32-data is updated.
-#[cfg(all(jpeg, stm32n6))]
+// JPEG is unavailable on some families (e.g. H7 uses different DMA signal names).
+#[cfg(all(jpeg, any(stm32n6, stm32u5f9, stm32u5g9)))]
 pub mod jpeg;
 #[cfg(lcd)]
 pub mod lcd;
 #[cfg(feature = "low-power")]
 pub mod low_power;
+#[cfg(lpgpio)]
+pub mod lpgpio;
 #[cfg(lptim)]
 pub mod lptim;
 #[cfg(ltdc)]
 pub mod ltdc;
+#[cfg(mdf)]
+pub mod mdf;
 #[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
@@ -159,6 +174,10 @@ pub mod ospi;
 pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
+#[cfg(ramcfg_wba)]
+pub mod ramcfg;
+#[cfg(rifsc)]
+pub mod rif;
 #[cfg(rng)]
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
@@ -173,6 +192,8 @@ pub mod sdmmc;
 pub mod spdifrx;
 #[cfg(spi)]
 pub mod spi;
+#[cfg(any(tamp_g0, tamp_g4, tamp_h5, tamp_l5, tamp_u5, tamp_wba, tamp_wl))]
+pub mod tamp;
 #[cfg(tsc)]
 pub mod tsc;
 #[cfg(ucpd)]
@@ -438,7 +459,7 @@ pub struct Config {
     /// GPDMA interrupt priority.
     ///
     /// Defaults to P0 (highest).
-    #[cfg(gpdma)]
+    #[cfg(any(gpdma, lpdma))]
     pub gpdma_interrupt_priority: Priority,
 
     /// MDMA interrupt priority.
@@ -488,7 +509,7 @@ impl Default for Config {
             bdma_interrupt_priority: Priority::P0,
             #[cfg(dma)]
             dma_interrupt_priority: Priority::P0,
-            #[cfg(gpdma)]
+            #[cfg(any(gpdma, lpdma))]
             gpdma_interrupt_priority: Priority::P0,
             #[cfg(mdma)]
             mdma_interrupt_priority: Priority::P0,
@@ -716,7 +737,7 @@ fn init_hw(config: Config) -> Peripherals {
 
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
-            #[cfg(dbgmcu_h5)]
+            #[cfg(any(dbgmcu_h5, dbgmcu_c5))]
             {
                 cr.set_stop(config.enable_debug_during_sleep);
                 cr.set_standby(config.enable_debug_during_sleep);
@@ -750,11 +771,14 @@ fn init_hw(config: Config) -> Peripherals {
         #[cfg(any(stm32h7rs))]
         // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
         rcc::enable_with_cs::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs)))]
+        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5)))]
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
-        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
+        #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5)))]
         rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);
-        #[cfg(all(flash, not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs))))]
+        #[cfg(all(
+            flash,
+            not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs, stm32c5))
+        ))]
         rcc::enable_and_reset_with_cs::<peripherals::FLASH>(cs);
 
         // Enable the VDDIO2 power supply on chips that have it.
@@ -914,7 +938,7 @@ fn init_hw(config: Config) -> Peripherals {
                 config.bdma_interrupt_priority,
                 #[cfg(dma)]
                 config.dma_interrupt_priority,
-                #[cfg(gpdma)]
+                #[cfg(any(gpdma, lpdma))]
                 config.gpdma_interrupt_priority,
                 #[cfg(mdma)]
                 config.mdma_interrupt_priority,

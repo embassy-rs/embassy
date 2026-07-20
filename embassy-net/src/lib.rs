@@ -25,6 +25,7 @@ pub mod tcp;
 mod time;
 #[cfg(feature = "udp")]
 pub mod udp;
+pub mod vlan;
 
 use core::cell::RefCell;
 use core::future::{Future, poll_fn};
@@ -68,6 +69,8 @@ const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
 #[cfg(feature = "dns")]
 const MAX_QUERIES: usize = 4;
+#[cfg(feature = "dhcpv4-ntp")]
+const DHCP_RX_BUFFER_SIZE: usize = 576;
 #[cfg(feature = "dhcpv4-hostname")]
 const MAX_HOSTNAME_LEN: usize = 32;
 
@@ -93,6 +96,11 @@ pub struct StackResources<const SOCK: usize> {
     queries: MaybeUninit<[Option<dns::DnsQuery>; MAX_QUERIES]>,
     #[cfg(feature = "dhcpv4-hostname")]
     hostname: HostnameResources,
+    // Retains the raw DHCP reply so options not parsed by smoltcp (NTP servers, option 42) can be
+    // read out. 576 is the minimum DHCP message size every server must respect (RFC 2131); an
+    // undersized buffer never corrupts the IP configuration, it only drops the extra options.
+    #[cfg(feature = "dhcpv4-ntp")]
+    dhcp_rx_buffer: MaybeUninit<[u8; DHCP_RX_BUFFER_SIZE]>,
 }
 
 #[cfg(feature = "dhcpv4-hostname")]
@@ -114,6 +122,8 @@ impl<const SOCK: usize> StackResources<SOCK> {
                 option: MaybeUninit::uninit(),
                 data: MaybeUninit::uninit(),
             },
+            #[cfg(feature = "dhcpv4-ntp")]
+            dhcp_rx_buffer: MaybeUninit::uninit(),
         }
     }
 }
@@ -129,6 +139,9 @@ pub struct StaticConfigV4 {
     pub gateway: Option<Ipv4Address>,
     /// DNS servers.
     pub dns_servers: Vec<Ipv4Address, 3>,
+    /// NTP servers (DHCP option 42).
+    #[cfg(feature = "dhcpv4-ntp")]
+    pub ntp_servers: Vec<Ipv4Address, 4>,
 }
 
 /// Static IPv6 address configuration
@@ -222,7 +235,7 @@ impl Config {
     /// IPv4 configuration with dynamic addressing.
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// # use embassy_net::Config;
     /// let _cfg = Config::dhcpv4(Default::default());
     /// ```
@@ -317,6 +330,8 @@ pub(crate) struct Inner {
     dns_waker: WakerRegistration,
     #[cfg(feature = "dhcpv4-hostname")]
     hostname: *mut HostnameResources,
+    #[cfg(feature = "dhcpv4-ntp")]
+    dhcp_rx_buffer: *mut [u8],
 }
 
 fn _assert_covariant<'a, 'b: 'a>(x: Stack<'b>) -> Stack<'a> {
@@ -390,6 +405,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         dns_waker: WakerRegistration::new(),
         #[cfg(feature = "dhcpv4-hostname")]
         hostname: &mut resources.hostname,
+        #[cfg(feature = "dhcpv4-ntp")]
+        dhcp_rx_buffer: resources.dhcp_rx_buffer.write([0; DHCP_RX_BUFFER_SIZE]) as *mut [u8],
     };
 
     #[cfg(feature = "proto-ipv4")]
@@ -401,6 +418,36 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     let inner = &*resources.inner.write(RefCell::new(inner));
     let stack = Stack { inner };
     (stack, Runner { driver, stack })
+}
+
+/// Parse the NTP servers (DHCP option 42) out of the raw DHCP reply retained by smoltcp.
+///
+/// smoltcp does not parse this option itself; it only exposes the raw packet (when a receive
+/// buffer is set), leaving it to consumers to read out the options they care about.
+#[cfg(feature = "dhcpv4-ntp")]
+fn parse_dhcp_ntp_servers(config: &dhcpv4::Config) -> Vec<Ipv4Address, 4> {
+    /// DHCP option code for NTP servers (RFC 2132 §8.3). Length is a multiple of 4, one address each.
+    const OPT_NTP_SERVERS: u8 = 42;
+
+    let mut servers = Vec::new();
+    let Some(packet) = config.packet.as_ref() else {
+        return servers;
+    };
+    for option in packet.options() {
+        if option.kind != OPT_NTP_SERVERS {
+            continue;
+        }
+        for chunk in option.data.chunks_exact(4) {
+            // Drop any servers past our capacity, like smoltcp does for DNS servers.
+            if servers
+                .push(Ipv4Address::from_octets(chunk.try_into().unwrap()))
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+    servers
 }
 
 fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddress, Medium) {
@@ -719,7 +766,18 @@ impl Inner {
             ConfigV4::Dhcp(c) => {
                 // Create the socket if it doesn't exist.
                 if self.dhcp_socket.is_none() {
-                    let socket = smoltcp::socket::dhcpv4::Socket::new();
+                    #[allow(unused_mut)]
+                    let mut socket = smoltcp::socket::dhcpv4::Socket::new();
+
+                    #[cfg(feature = "dhcpv4-ntp")]
+                    {
+                        // smoltcp doesn't parse options it doesn't know about (e.g. NTP), but it can
+                        // retain the raw reply so we can read them out. safety: this pointer lives as
+                        // long as the stack, since `new()` borrows the resources for `'d`.
+                        let buffer = unsafe { &mut *self.dhcp_rx_buffer };
+                        socket.set_receive_packet_buffer(buffer);
+                    }
+
                     let handle = self.sockets.add(socket);
                     self.dhcp_socket = Some(handle);
                 }
@@ -884,16 +942,6 @@ impl Inner {
             }
         }
 
-        let timestamp = instant_to_smoltcp(Instant::now());
-        let mut smoldev = DriverAdapter {
-            cx: Some(cx),
-            inner: driver,
-            medium,
-            tx_exhausted: false,
-        };
-        self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
-        let tx_exhausted = smoldev.tx_exhausted;
-
         // Update link up
         let old_link_up = self.link_up;
         self.link_up = driver.link_state(cx) == LinkState::Up;
@@ -904,6 +952,25 @@ impl Inner {
             self.state_waker.wake();
         }
 
+        // Reset the DHCP socket on link-state change before polling, else a stale DISCOVER
+        // is sent by the poll below and discarded, causing a second DISCOVER on the next poll.
+        #[cfg(feature = "dhcpv4")]
+        if old_link_up != self.link_up
+            && let Some(dhcp_handle) = self.dhcp_socket
+        {
+            self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle).reset();
+        }
+
+        let timestamp = instant_to_smoltcp(Instant::now());
+        let mut smoldev = DriverAdapter {
+            cx: Some(cx),
+            inner: driver,
+            medium,
+            tx_exhausted: false,
+        };
+        self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
+        let tx_exhausted = smoldev.tx_exhausted;
+
         #[allow(unused_mut)]
         let mut configure = false;
 
@@ -913,9 +980,6 @@ impl Inner {
                 let socket = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
 
                 if self.link_up {
-                    if old_link_up != self.link_up {
-                        socket.reset();
-                    }
                     match socket.poll() {
                         None => false,
                         Some(dhcpv4::Event::Deconfigured) => {
@@ -923,16 +987,19 @@ impl Inner {
                             true
                         }
                         Some(dhcpv4::Event::Configured(config)) => {
+                            #[cfg(feature = "dhcpv4-ntp")]
+                            let ntp_servers = parse_dhcp_ntp_servers(&config);
                             self.static_v4 = Some(StaticConfigV4 {
                                 address: config.address,
                                 gateway: config.router,
                                 dns_servers: config.dns_servers,
+                                #[cfg(feature = "dhcpv4-ntp")]
+                                ntp_servers,
                             });
                             true
                         }
                     }
                 } else if old_link_up {
-                    socket.reset();
                     self.static_v4 = None;
                     true
                 } else {

@@ -8,12 +8,12 @@ use pac::adc::vals::Dmacfg;
 use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 #[cfg(adc_g0)]
 pub use pac::adc::vals::{Ovsr, Ovss, Presc};
+#[cfg(any(adc_h5, adc_h7rs))]
+use pac::adccommon::vals::Presc;
 
 #[allow(unused_imports)]
 use crate::adc::SealedAdcChannel;
-use crate::adc::{
-    Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
-};
+use crate::adc::{Adc, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt};
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
@@ -148,6 +148,9 @@ pub struct AdcConfig {
     pub oversampling_mode: Option<(Rovsm, Trovs, bool)>,
     #[cfg(adc_g0)]
     pub clock: Option<Clock>,
+    #[cfg(any(adc_h5, adc_h7rs))]
+    /// Clock prescaler for the ker_ck_input clock
+    pub prescaler: Option<Presc>,
     pub resolution: Option<Resolution>,
     pub averaging: Option<Averaging>,
 }
@@ -200,7 +203,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, _disable: bool) {
+    fn stop(&self) {
         // Ensure conversions are finished.
         if self.cr().read().adstart() && !self.cr().read().addis() {
             self.cr().modify(|reg| {
@@ -208,18 +211,13 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             });
             while self.cr().read().adstart() {}
         }
+    }
 
-        // Reset configuration.
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        self.cfgr().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_dmaen(false);
-        });
-        #[cfg(any(adc_g0, adc_u0))]
-        self.cfgr1().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_dmaen(false);
-        });
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     /// Perform a single conversion.
@@ -243,8 +241,9 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         regs.modify(|w| {
             w.set_discen(false);
             w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            #[cfg(not(any(adc_v3, adc_g0, adc_u0, adc_h5)))]
             w.set_cont(false);
-            #[cfg(any(adc_v3, adc_g0, adc_u0))]
+            #[cfg(any(adc_v3, adc_g0, adc_u0, adc_h5))]
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
             w.set_dmacfg(Dmacfg::Circular);
 
@@ -336,8 +335,36 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             // Configure channels and ranks
             for (_i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
                 // RM0492, RM0481, etc.
-                // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-                #[cfg(any(adc_h5, adc_h7rs))]
+                // OP0: Option bit 0
+                // For ADC1:
+                //   0: INP0/INN1 GPIO switch control disabled (for both ADC1 and ADC2)
+                //   1: INP0/INN1 GPIO switch control enabled (for both ADC1 and ADC2)
+                //   Note: This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected.
+                // For ADC2:
+                //   0: VDDCORE channel disabled (for both ADC2 and ADC3)
+                //   1: VDDCORE channel enabled (for both ADC2 and ADC3)
+                // For ADC3: (only available on STM32H543/553 devices)
+                //   0: INP0 GPIO switch control disabled
+                //   1: INP0 GPIO switch control enabled
+
+                #[cfg(adc_h5)]
+                if channel == 0 {
+                    #[cfg(peri_adc2)]
+                    let is_adc2 = self.as_ptr() == crate::pac::ADC2.as_ptr();
+
+                    #[cfg(not(peri_adc2))]
+                    let is_adc2 = false;
+
+                    if is_adc2 {
+                        // when ADC2_INP0 should be enabled, set OP0 to 1 for ADC1
+                        crate::pac::ADC1.or().modify(|reg| reg.set_op0(true));
+                    } else {
+                        // when ADC1_INP0 should be enabled, set OP0 to 1 for ADC1
+                        // when ADC3_INP0 should be enabled, set OP0 to 1 for ADC3
+                        self.or().modify(|reg| reg.set_op0(true));
+                    }
+                }
+                #[cfg(adc_h7rs)]
                 if channel == 0 {
                     self.or().modify(|reg| reg.set_op0(true));
                 }
@@ -455,14 +482,27 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
-        #[cfg(not(adc_g0))]
-        let s = Self::new(adc);
+        #[cfg(any(adc_h5, adc_h7rs))]
+        let s = {
+            Self::init_regulator();
+            // Configure the prescaler before running the calibration
+            if let Some(prescaler) = config.prescaler {
+                T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
+            }
+
+            Self::init_calibrate();
+
+            Self { adc }
+        };
 
         #[cfg(adc_g0)]
         let s = match config.clock {
             Some(clock) => Self::new_with_clock(adc, clock),
             None => Self::new(adc),
         };
+
+        #[cfg(not(any(adc_g0, adc_h5, adc_h7rs)))]
+        let s = Self::new(adc);
 
         #[cfg(any(adc_g0, adc_u0, adc_v3))]
         if let Some(shift) = config.oversampling_shift {
@@ -555,21 +595,6 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Self::init_calibrate();
 
         Self { adc }
-    }
-
-    /// Power down the ADC.
-    ///
-    /// This stops ADC operation and may reduce power consumption.
-    /// A later read will enable it automatically.
-    pub fn power_down(&mut self) {
-        T::regs().stop(false);
-
-        if T::regs().cr().read().aden() {
-            T::regs().cr().modify(|reg| {
-                reg.set_addis(true);
-            });
-            while T::regs().cr().read().aden() {}
-        }
     }
 
     #[cfg(adc_u0)]

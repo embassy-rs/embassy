@@ -42,6 +42,13 @@ fn main() {
     let mut cfgs = common::CfgSet::new();
     common::set_target_cfgs(&mut cfgs);
 
+    if std::env::var("CARGO_FEATURE_RT").is_err()
+        && std::env::var("CARGO_CFG_TARGET_OS") == Ok("none".to_string())
+        && std::env::var("CARGO_CFG_TARGET_ARCH") == Ok("arm".to_string())
+    {
+        println!("cargo::warning=Building for bare-metal ARM without `rt` feature: interrupts will loop forever.");
+    }
+
     let chip_name = match env::vars()
         .map(|(a, _)| a)
         .filter(|x| x.starts_with("CARGO_FEATURE_STM32") && x != "CARGO_FEATURE_STM32_HRTIM")
@@ -177,6 +184,7 @@ fn main() {
     // generate one singleton per peripheral (with many exceptions...)
     for (p, r) in &peripheral_list {
         if r.kind == "adccommon"
+            || r.kind == "adc"
             || r.kind == "sai"
             || r.kind == "ucpd"
             || r.kind == "otg"
@@ -227,6 +235,11 @@ fn main() {
     }
 
     cfgs.declare_all(&[
+        "peri_adc1",
+        "peri_adc2",
+        "peri_adc3",
+        "peri_adc4",
+        "peri_adc5",
         "peri_adc1_common",
         "peri_adc3_common",
         "peri_adc12_common",
@@ -598,7 +611,9 @@ fn main() {
 
         g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
 
-        g.extend(quote! { pub mod flash_regions { #flash_regions } });
+        g.extend(quote! {
+            pub mod flash_regions { #flash_regions }
+        });
     }
 
     // ========
@@ -1057,7 +1072,7 @@ fn main() {
     // ========
     // Generate fns to enable GPIO, DMA in RCC
 
-    for kind in ["mdma", "dma", "bdma", "dmamux", "gpdma", "gpio"] {
+    for kind in ["mdma", "dma", "bdma", "dmamux", "gpdma", "lpdma", "gpio"] {
         let mut gg = TokenStream::new();
 
         for (p, r) in &peripheral_list {
@@ -1222,6 +1237,19 @@ fn main() {
         (("eth", "TXD2"), quote!(crate::eth::TXD2Pin)),
         (("eth", "TXD3"), quote!(crate::eth::TXD3Pin)),
         (("eth", "TX_EN"), quote!(crate::eth::TXEnPin)),
+        (("eth", "RGMII_GTX_CLK"), quote!(crate::eth::RGMIIGTXClkPin)),
+        (("eth", "RGMII_RX_CLK"), quote!(crate::eth::RGMIIRXClkPin)),
+        (("eth", "RGMII_RX_CTL"), quote!(crate::eth::RGMIIRXCtlPin)),
+        (("eth", "RGMII_TX_CTL"), quote!(crate::eth::RGMIITXCtlPin)),
+        (("eth", "RGMII_RXD0"), quote!(crate::eth::RGMIIRXD0Pin)),
+        (("eth", "RGMII_RXD1"), quote!(crate::eth::RGMIIRXD1Pin)),
+        (("eth", "RGMII_RXD2"), quote!(crate::eth::RGMIIRXD2Pin)),
+        (("eth", "RGMII_RXD3"), quote!(crate::eth::RGMIIRXD3Pin)),
+        (("eth", "RGMII_TXD0"), quote!(crate::eth::RGMIITXD0Pin)),
+        (("eth", "RGMII_TXD1"), quote!(crate::eth::RGMIITXD1Pin)),
+        (("eth", "RGMII_TXD2"), quote!(crate::eth::RGMIITXD2Pin)),
+        (("eth", "RGMII_TXD3"), quote!(crate::eth::RGMIITXD3Pin)),
+        (("eth", "RGMII_CLK125"), quote!(crate::eth::RGMIICLK125Pin)),
         (("fmc", "A0"), quote!(crate::fmc::A0Pin)),
         (("fmc", "A1"), quote!(crate::fmc::A1Pin)),
         (("fmc", "A2"), quote!(crate::fmc::A2Pin)),
@@ -1690,8 +1718,31 @@ fn main() {
         (("lcd", "VLCD"), quote!(crate::lcd::VlcdPin)),
         (("dac", "OUT1"), quote!(crate::dac::DacPin<Ch1>)),
         (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
+        (("adf", "CCK0"), quote!(crate::adf::CckPin)),
+        (("adf", "CCK1"), quote!(crate::adf::CckPin)),
+        (("adf", "SDI0"), quote!(crate::adf::SdiPin)),
+        (("mdf", "CCK0"), quote!(crate::mdf::CckPin)),
+        (("mdf", "CCK1"), quote!(crate::mdf::CckPin)),
+        (("mdf", "CKI0"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI1"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI2"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI3"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI4"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI5"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "SDI0"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI1"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI2"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI3"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI4"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI5"), quote!(crate::mdf::SdiPin)),
     ] {
         signals.entry(key).or_default().push(value);
+    }
+
+    // STM32U5 maps the external memory controller as kind "fsmc" (v5x1) but uses
+    // the same pin signals as FMC on other families.
+    for ((_, signal), traits) in signals.clone().into_iter().filter(|((kind, _), _)| *kind == "fmc") {
+        signals.entry(("fsmc", signal)).or_default().extend(traits);
     }
 
     // On some families the USB DM/DP signals are present as alternate functions,
@@ -1891,7 +1942,7 @@ fn main() {
                     adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
 
                     g.extend(quote! {
-                    impl_adc_pin!( #peri, #pin_name, #ch);
+                        impl_adc_pin!( #peri, #pin_name, #ch);
                     })
                 }
                 if let Some((ch, true)) = ch {
@@ -1987,7 +2038,7 @@ fn main() {
                 let sel: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
 
                 g.extend(quote! {
-                impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
+                    impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
                 })
             }
         }
@@ -2004,7 +2055,7 @@ fn main() {
                 };
 
                 g.extend(quote! {
-                impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
+                    impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
                 })
             }
         }
@@ -2055,6 +2106,13 @@ fn main() {
         (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)),
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),
+        (("adf", "FLT0"), quote!(crate::adf::RxDma<Flt0>)),
+        (("mdf", "FLT0"), quote!(crate::mdf::RxDma<Flt0>)),
+        (("mdf", "FLT1"), quote!(crate::mdf::RxDma<Flt1>)),
+        (("mdf", "FLT2"), quote!(crate::mdf::RxDma<Flt2>)),
+        (("mdf", "FLT3"), quote!(crate::mdf::RxDma<Flt3>)),
+        (("mdf", "FLT4"), quote!(crate::mdf::RxDma<Flt4>)),
+        (("mdf", "FLT5"), quote!(crate::mdf::RxDma<Flt5>)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
     ]
@@ -2090,9 +2148,9 @@ fn main() {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     }
 
-    // JPEG HAL is currently N6-only; only emit dma_trait impls there.
+    // JPEG HAL: emit dma_trait impls on chips that use RX/TX DMA signal names.
     // ST naming: jpeg_rx_dma = mem→peri (input), jpeg_tx_dma = peri→mem (output).
-    if chip_name.starts_with("stm32n6") {
+    if chip_name.starts_with("stm32n6") || chip_name.starts_with("stm32u5f9") || chip_name.starts_with("stm32u5g9") {
         signals.insert(("jpeg", "RX"), quote!(crate::jpeg::DmaIn));
         signals.insert(("jpeg", "TX"), quote!(crate::jpeg::DmaOut));
     }
@@ -2262,6 +2320,9 @@ fn main() {
                         return Ok(f.simplify());
                     }
                 }
+                if n.contains("Disabled") {
+                    return Ok(Frac { num: 1, denom: 0 });
+                }
                 Err(())
             }
 
@@ -2398,13 +2459,11 @@ fn main() {
         #[cfg(feature = "_split-pins-enabled")]
         for split_feature in &split_features {
             if split_feature.pin_name_without_c == pin.name {
-                pins_table.push(vec![
-                    split_feature.pin_name_with_c.to_string(),
-                    p.name.to_string(),
-                    port_num.to_string(),
-                    pin_num.to_string(),
-                    format!("EXTI{}", pin_num),
-                ]);
+                let pin_name = format_ident!("{}", split_feature.pin_name_with_c);
+
+                g.extend(quote! {
+                    impl_analog_pin!(#pin_name);
+                });
             }
         }
     }
@@ -2528,11 +2587,9 @@ fn main() {
         let dma_info = match bi.kind {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
-            "gpdma" => quote!(crate::pac::#dma),
+            "gpdma" => quote!(crate::dma::DmaInfo::Gpdma(crate::pac::#dma)),
             "mdma" => quote!(crate::dma::DmaInfo::Mdma(crate::pac::#dma)),
-            "lpdma" => {
-                quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())})
-            }
+            "lpdma" => quote!(crate::dma::DmaInfo::Lpdma(crate::pac::#dma)),
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
 

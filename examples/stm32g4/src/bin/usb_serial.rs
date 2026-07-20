@@ -38,7 +38,7 @@ async fn main(_spawner: Spawner) {
         config.rcc.sys = Sysclk::Pll1R;
         config.rcc.boost = true; // BOOST!
         config.rcc.mux.clk48sel = mux::Clk48sel::Hsi48;
-        //config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q; // uncomment to use PLL1_Q instead.
+        //config.rcc.mux.clk48sel = mux::Clk48sel::Pll1Q; // uncomment to use PLL1_Q instead.
     }
     let p = embassy_stm32::init(config);
 

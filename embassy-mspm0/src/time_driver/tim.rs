@@ -83,10 +83,8 @@ struct TimxDriver {
 }
 
 impl TimxDriver {
-    #[inline(never)]
     fn init(&'static self, _cs: CriticalSection) {
-        // Clock config
-        // TODO: Configurable tick rate up to 4 MHz (32 kHz for now)
+        // TODO: Configurable tick rate
         let regs = regs();
 
         // Reset timer
@@ -106,19 +104,22 @@ impl TimxDriver {
 
         // 1. Select TIMCLK source
         regs.clksel().modify(|w| {
-            // Use LFCLK for a 32.768kHz tick rate
-            w.set_lfclk_sel(true);
+            // FIXME (bug): Using LFCLK at 32.768 kHz results in a race condition where time goes backwards.
+            // w.set_lfclk_sel(true);
+
             // TODO: Allow MFCLK for configurable tick rate up to 4 MHz
-            // w.set_mfclk_sel(ClkSel::ENABLE);
+            w.set_mfclk_sel(true);
         });
 
         // 2. Divide by TIMCLK, we don't need to divide further for the 32kHz tick rate
         regs.clkdiv().modify(|w| {
-            w.set_ratio(0); // + 1
+            // FIXME (bug): For 32.768 kHz we would do no division
+            // w.set_ratio(0); // + 1
+
+            w.set_ratio(3); // divide by 4
         });
 
-        // 3. To be generic across timer instances, we do not use the prescaler.
-        // TODO: mspm0-sdk always sets this, regardless of timer width?
+        // Not every timer supports the prescaler so we should zero it.
         regs.commonregs(0).cps().modify(|w| {
             w.set_pcnt(0);
         });
@@ -133,8 +134,7 @@ impl TimxDriver {
         });
 
         regs.counterregs(0).ctrctl().modify(|w| {
-            // allow counting during debug
-            w.set_repeat(Repeat::REPEAT_3);
+            w.set_repeat(Repeat::REPEAT_1);
             w.set_cvae(Cvae::ZEROVAL);
             w.set_cm(Cm::UP);
 
@@ -151,7 +151,7 @@ impl TimxDriver {
         });
 
         // Middle
-        regs.counterregs(0).cc(0).write_value(0x7FFF as u32);
+        regs.counterregs(0).cc(0).write_value(0x8000 as u32);
         regs.counterregs(0).load().write_value(u16::MAX as u32);
 
         // Enable the period interrupts
@@ -175,8 +175,7 @@ impl TimxDriver {
         });
     }
 
-    #[inline(never)]
-    fn next_period(&self) {
+    fn next_period(&self, cs: CriticalSection) {
         let r = regs();
 
         // We only modify the period from the timer interrupt, so we know this can't race.
@@ -184,50 +183,39 @@ impl TimxDriver {
         self.period.store(period, Ordering::Relaxed);
         let t = (period as u64) << 15;
 
-        critical_section::with(move |cs| {
-            r.cpu_int(0).imask().modify(move |w| {
-                let alarm = self.alarm.borrow(cs);
-                let at = alarm.get();
+        r.cpu_int(0).imask().modify(move |w| {
+            let alarm = self.alarm.borrow(cs);
+            let at = alarm.get();
 
-                if at < t + 0xC000 {
-                    // just enable it. `set_alarm` has already set the correct CC1 val.
-                    w.set_ccu1(true);
-                }
-            })
+            if at < t + 0xC000 {
+                // just enable it. `set_alarm` has already set the correct CC1 val.
+                w.set_ccu1(true);
+            }
         });
     }
 
-    #[inline(never)]
     fn on_interrupt(&self) {
         let r = regs();
 
         critical_section::with(|cs| {
             let mis = r.cpu_int(0).mis().read();
 
-            // Advance to next period if overflowed
+            // Overflow
             if mis.l() {
-                self.next_period();
-
-                r.cpu_int(0).iclr().write(|w| {
-                    w.set_l(true);
-                });
+                self.next_period(cs);
             }
 
+            // Half overflow
             if mis.ccu0() {
-                self.next_period();
-
-                r.cpu_int(0).iclr().write(|w| {
-                    w.set_ccu0(true);
-                });
+                self.next_period(cs);
             }
 
             if mis.ccu1() {
-                r.cpu_int(0).iclr().write(|w| {
-                    w.set_ccu1(true);
-                });
-
                 self.trigger_alarm(cs);
             }
+
+            // Clear all interrupts. MIS and ICLR have same layout.
+            r.cpu_int(0).iclr().write_value(mis);
         });
     }
 
