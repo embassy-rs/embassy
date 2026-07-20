@@ -15,6 +15,8 @@ pub mod pwm;
 pub mod sct;
 #[cfg(lpc55)]
 pub mod usart;
+#[cfg(lpc55)]
+pub mod usb;
 
 #[cfg(rt1xxx)]
 mod iomuxc;
