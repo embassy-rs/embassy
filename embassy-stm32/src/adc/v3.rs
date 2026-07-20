@@ -1,3 +1,5 @@
+use core::marker::PhantomData;
+
 use cfg_if::cfg_if;
 #[cfg(adc_g0)]
 use heapless::Vec;
@@ -13,9 +15,9 @@ use pac::adccommon::vals::Presc;
 
 #[allow(unused_imports)]
 use crate::adc::SealedAdcChannel;
-use crate::adc::{Adc, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt};
+use crate::adc::{Adc, Averaging, ConversionMode, DefaultInstance, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt};
 use crate::wait::block_for_us;
-use crate::{Peri, pac, rcc};
+use crate::{Peri, interrupt, pac, rcc};
 
 #[cfg(adc_h5)]
 mod injected;
@@ -37,6 +39,27 @@ pub const NR_INJECTED_RANKS: usize = 4;
 /// The number of variants in Smpsel
 // TODO: Use [#![feature(variant_count)]](https://github.com/rust-lang/rust/issues/73662) when stable
 const SAMPLE_TIMES_CAPACITY: usize = 2;
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _marker: PhantomData<T>,
+}
+
+impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let isr = T::regs().isr().read();
+        if isr.eoc() || isr.eos() || isr.jeoc() || isr.jeos() {
+            if isr.jeos() {
+                T::state().injected_eos.store(true, core::sync::atomic::Ordering::Release);
+            }
+
+            // flags are cleared by writing 1 to them
+            T::regs().isr().write_value(isr);
+
+            T::state().waker.wake();
+        }
+    }
+}
 
 #[cfg(adc_g0)]
 impl<T: Instance> super::ConverterFor<super::VrefInt> for T {

@@ -26,7 +26,7 @@ use core::marker::PhantomData;
 #[cfg(not(any(adc_f3v3, adc_wba, adc_wb1)))]
 pub use _version::*;
 pub use configured_sequence::ConfiguredSequence;
-#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba, adc_h5))]
 use embassy_sync::waitqueue::AtomicWaker;
 pub use ringbuffered::{OverrunError, RingBufferedAdc};
 
@@ -94,16 +94,18 @@ pub struct Adc<'d, T: Instance> {
     adc: crate::Peri<'d, T>,
 }
 
-#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_h5))]
 pub struct State {
     pub waker: AtomicWaker,
+    pub injected_eos: core::sync::atomic::AtomicBool,
 }
 
-#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_h5))]
 impl State {
     pub const fn new() -> Self {
         Self {
             waker: AtomicWaker::new(),
+            injected_eos: core::sync::atomic::AtomicBool::new(false)
         }
     }
 }
@@ -190,7 +192,7 @@ trait SealedInstance: BasicInstance {
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
     #[allow(unused)]
     fn common_regs() -> crate::pac::adccommon::AdcCommon;
-    #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba))]
+    #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba, adc_h5))]
     fn state() -> &'static State;
 }
 
@@ -649,16 +651,21 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     ///   `InjectedAdc<T, N>` to enforce bounds at compile time.
     pub fn setup_injected_conversions<'a, const N: usize>(
         self,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, crate::adc::InterruptHandler<T>> + 'a,
         sequence: [(BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         trigger: InjectedAdcTrigger<T>,
-        interrupt: bool,
-    ) -> InjectedAdc<'a, T::Regs> {
+    ) -> InjectedAdc<'a, T::Regs> where T: DefaultInstance {
+
         assert!(N != 0, "Read sequence cannot be empty");
         assert!(
             N <= NR_INJECTED_RANKS,
             "Read sequence cannot be more than {} in length",
             NR_INJECTED_RANKS
         );
+
+        use crate::interrupt::typelevel::Interrupt;
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable(); }
 
         T::regs().stop();
         T::regs().configure_injected_sequence(
@@ -668,7 +675,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         );
 
         T::regs().enable();
-        T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), interrupt);
+        T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), true);
         T::regs().start_injected();
 
         core::mem::forget(self);
@@ -676,7 +683,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         InjectedAdc::new(sequence) // InjectedAdc<'a, T, N> now borrows the channels
     }
 
-    #[cfg(any(adc_v2, adc_g4))]
+    #[cfg(any(adc_v2, adc_g4, adc_h5))]
     /// Configures ADC for both regular conversions with a ring-buffered DMA and injected conversions.
     ///
     /// # Parameters
@@ -704,13 +711,13 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         self,
         dma: embassy_hal_internal::Peri<'a, D>,
         dma_buf: &'a mut [u16],
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a
+        + crate::interrupt::typelevel::Binding<T::Interrupt, crate::adc::InterruptHandler<T>> + 'b,
         regular_sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         regular_trigger: Option<RegularAdcTrigger<T>>,
         injected_sequence: [(BorrowedAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
-        injected_trigger: InjectedAdcTrigger<T>,
-        injected_interrupt: bool,
-    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T::Regs>) {
+        injected_trigger: InjectedAdcTrigger<T>
+    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T::Regs>) where T: DefaultInstance {
         let ret = unsafe {
             (
                 Self {
@@ -720,7 +727,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
                 Self {
                     adc: self.adc.clone_unchecked(),
                 }
-                .setup_injected_conversions(injected_sequence, injected_trigger, injected_interrupt),
+                .setup_injected_conversions(_irq, injected_sequence, injected_trigger),
             )
         };
 
@@ -997,7 +1004,7 @@ foreach_adc!(
                 return crate::pac::$common_inst
             }
 
-            #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0))]
+            #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0, adc_h5))]
             fn state() -> &'static State {
                 static STATE: State = State::new();
                 &STATE
