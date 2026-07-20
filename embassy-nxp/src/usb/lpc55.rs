@@ -45,6 +45,21 @@ const CMD_TV: u32 = 1 << 27; // RF/TV: data toggle value for bulk/interrupt
 const NBYTES_SHIFT: u32 = 11;
 const NBYTES_MASK: u32 = 0x7FFF;
 
+/// Per-slot buffer capacity for HS bulk endpoints, in bytes.
+///
+/// The ip3511-HS packetizes a single command/status entry: NBytes (15 bits)
+/// may span multiple max-packet-size packets and hardware streams them all
+/// without CPU involvement, so larger slots amortize the ISR + executor +
+/// re-arm turnaround over many packets.
+///
+/// OUT slots are a power of two (8 x 512) because an OUT window only
+/// completes when the buffer fills or a short packet arrives: host-side
+/// writes are power-of-two-sized, so windows tile them exactly. IN has no
+/// such constraint; 3584 (7 x 512) makes both directions plus EP0 and one
+/// interrupt endpoint fit the 16 KiB USB SRAM (2x4096 + 2x3584 + overhead).
+const BULK_OUT_SLOT_LEN: u16 = 4096;
+const BULK_IN_SLOT_LEN: u16 = 3584;
+
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
@@ -521,11 +536,26 @@ impl<'d, T: Instance> Driver<'d, T> {
         used[index] = true;
 
         // Two buffer slots per endpoint (double buffering): software fills or
-        // drains one while the other is on the wire.
-        let buf_addrs = [
-            self.alloc_buffer(max_packet_size)?,
-            self.alloc_buffer(max_packet_size)?,
-        ];
+        // drains one while the other is on the wire. HS bulk endpoints get
+        // multi-packet slots (see BULK_*_SLOT_LEN); fall back to single-packet
+        // slots if the USB SRAM cannot fit the large ones.
+        let want_len = match (ep_type, D::dir()) {
+            (EndpointType::Bulk, Direction::Out) => BULK_OUT_SLOT_LEN.max(max_packet_size),
+            (EndpointType::Bulk, Direction::In) => BULK_IN_SLOT_LEN.max(max_packet_size),
+            _ => max_packet_size,
+        };
+        let mark = self.alloc_offset;
+        let (buf_addrs, slot_len) = match (self.alloc_buffer(want_len), self.alloc_buffer(want_len)) {
+            (Ok(a), Ok(b)) => ([a, b], want_len),
+            _ if want_len > max_packet_size => {
+                self.alloc_offset = mark;
+                (
+                    [self.alloc_buffer(max_packet_size)?, self.alloc_buffer(max_packet_size)?],
+                    max_packet_size,
+                )
+            }
+            _ => return Err(EndpointAllocError),
+        };
 
         // Disabled until `endpoint_set_enabled`.
         ep_cmd_write(index, D::dir(), 0, CMD_D);
@@ -542,6 +572,8 @@ impl<'d, T: Instance> Driver<'d, T> {
                 interval_ms,
             },
             buf_addrs,
+            slot_len,
+            armed_len: [0; 2],
         })
     }
 }
@@ -793,6 +825,11 @@ pub struct Endpoint<'d, T: Instance, D> {
     _phantom: PhantomData<(&'d mut T, D)>,
     info: EndpointInfo,
     buf_addrs: [u32; 2],
+    /// Per-slot buffer capacity (multi-packet for HS bulk endpoints).
+    slot_len: u16,
+    /// Length each OUT slot was last armed with; needed to compute the
+    /// received count from the NBytes-remaining field on completion.
+    armed_len: [u16; 2],
 }
 
 impl<'d, T: Instance, D: Dir> driver::Endpoint for Endpoint<'d, T, D> {
@@ -825,6 +862,17 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         let mps = self.info.max_packet_size as u32;
         let state = &EP_OUT_STATE[index];
 
+        // Receive window per slot: a single packet by default, or a
+        // multi-packet window (hardware packetizes one command entry) when
+        // the caller's buffer spans several packets. A window completes when
+        // it fills or a short packet arrives, so callers using large buffers
+        // must expect coalescing without intermediate packet boundaries.
+        let arm_len = if buf.len() as u32 > mps {
+            (buf.len() as u32).min(self.slot_len as u32) / mps * mps
+        } else {
+            mps
+        };
+
         // Keep both slots armed so the endpoint does not NAK between packets
         // while the host streams. A slot with PRIMED set and Active clear
         // holds a received, not-yet-consumed packet.
@@ -834,7 +882,8 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
                 if ep_cmd_read(index, Direction::Out, slot) & CMD_D != 0 {
                     return Err(EndpointError::Disabled);
                 }
-                ep_arm_slot(index, Direction::Out, slot, mps, self.buf_addrs[slot], s & TR_PENDING != 0);
+                ep_arm_slot(index, Direction::Out, slot, arm_len, self.buf_addrs[slot], s & TR_PENDING != 0);
+                self.armed_len[slot] = arm_len as u16;
                 s = (s | (PRIMED0 << slot)) & !TR_PENDING;
                 state.store(s, Ordering::Relaxed);
             }
@@ -861,7 +910,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         })
         .await?;
 
-        let rx_len = (mps - remaining_bytes(word)) as usize;
+        let rx_len = (self.armed_len[slot] as u32 - remaining_bytes(word)) as usize;
         if rx_len > buf.len() {
             return Err(EndpointError::BufferOverflow);
         }
@@ -869,7 +918,8 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 
         // Hand the drained slot straight back to hardware and advance the
         // consume cursor.
-        ep_arm_slot(index, Direction::Out, slot, mps, self.buf_addrs[slot], false);
+        ep_arm_slot(index, Direction::Out, slot, arm_len, self.buf_addrs[slot], false);
+        self.armed_len[slot] = arm_len as u16;
         state.store((s ^ SLOT) | (PRIMED0 << slot), Ordering::Relaxed);
 
         trace!("READ {:?} rx_len = {}", self.info.addr, rx_len);
@@ -879,7 +929,9 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 
 impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
-        if buf.len() > self.info.max_packet_size as usize {
+        // Multi-packet: one command entry sends ceil(len / mps) packets
+        // without CPU involvement; the slot capacity is the only limit.
+        if buf.len() > self.slot_len as usize {
             return Err(EndpointError::BufferOverflow);
         }
 
