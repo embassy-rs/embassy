@@ -2,12 +2,24 @@
 
 #![macro_use]
 
+<<<<<<< HEAD
 use embassy_hal_internal::Peri;
 
 use crate::peripherals::ADC0;
 use crate::pac::adc0::Adc0;
 use crate::pac::adc0::vals;
 use crate::pac;
+=======
+//! ADC driver
+
+use crate::pac::adc0::Adc0;
+use crate::pac::adc0::
+
+pub trait AdcPin {
+    // TODO
+    fn channel(&self) -> u8;
+}
+>>>>>>> a0a86607a (Continue adc)
 
 /// Resolution selection
 pub enum Resolution {
