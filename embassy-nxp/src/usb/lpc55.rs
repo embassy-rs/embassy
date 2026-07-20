@@ -8,7 +8,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU8, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -49,6 +49,17 @@ static BUS_WAKER: AtomicWaker = AtomicWaker::new();
 static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [const { AtomicWaker::new() }; EP_COUNT];
 
+// Double-buffer bookkeeping for data endpoints, shared between `Bus`
+// (reset/enable/stall paths) and the endpoint futures. Hardware consumes the
+// two command/status entries of a double-buffered endpoint in strict EPINUSE
+// ping-pong order, so a 1-bit cursor kept in lockstep (resynced to slot 0
+// whenever EPINUSE is cleared) tracks the hardware exactly.
+const SLOT: u8 = 1 << 0; // next slot to arm (IN) / consume (OUT)
+const PRIMED0: u8 = 1 << 1; // OUT slot armed or holding an unread packet (`PRIMED0 << slot`)
+const TR_PENDING: u8 = 1 << 3; // reset the data toggle on the next arm
+static EP_IN_STATE: [AtomicU8; EP_COUNT] = [const { AtomicU8::new(0) }; EP_COUNT];
+static EP_OUT_STATE: [AtomicU8; EP_COUNT] = [const { AtomicU8::new(0) }; EP_COUNT];
+
 fn nbytes(n: u32) -> u32 {
     (n & NBYTES_MASK) << NBYTES_SHIFT
 }
@@ -73,48 +84,78 @@ fn ep_cmd_ptr(index: usize, dir: Direction, buf1: bool) -> *mut u32 {
     (USB_SRAM_ADDR as usize + index * 16 + slot * 4) as *mut u32
 }
 
-fn ep_cmd_read(index: usize, dir: Direction) -> u32 {
-    unsafe { ep_cmd_ptr(index, dir, false).read_volatile() }
+fn ep_cmd_read(index: usize, dir: Direction, slot: usize) -> u32 {
+    unsafe { ep_cmd_ptr(index, dir, slot != 0).read_volatile() }
 }
 
-fn ep_cmd_write(index: usize, dir: Direction, word: u32) {
-    unsafe { ep_cmd_ptr(index, dir, false).write_volatile(word) }
+fn ep_cmd_write(index: usize, dir: Direction, slot: usize, word: u32) {
+    unsafe { ep_cmd_ptr(index, dir, slot != 0).write_volatile(word) }
 }
 
-fn ep_cmd_modify(index: usize, dir: Direction, f: impl FnOnce(u32) -> u32) {
+fn ep_cmd_modify(index: usize, dir: Direction, slot: usize, f: impl FnOnce(u32) -> u32) {
     critical_section::with(|_| {
-        let p = ep_cmd_ptr(index, dir, false);
+        let p = ep_cmd_ptr(index, dir, slot != 0);
         unsafe { p.write_volatile(f(p.read_volatile())) }
     });
 }
 
-/// Arm a data endpoint buffer for transfer, preserving the hardware-owned
-/// data-toggle value (TV, bit 27) and stall bit. A full-word write here would
-/// zero the toggle and the host would silently discard the mismatched packets
-/// (lpc55-hal uses the same read-modify-write discipline).
-fn ep_arm(index: usize, dir: Direction, len: u32, buf_addr: u32) {
-    let old = ep_cmd_read(index, dir);
-    ep_cmd_write(
-        index,
-        dir,
-        (old & (CMD_TV | CMD_S)) | CMD_A | nbytes(len) | addroff(buf_addr),
-    );
+/// Arm one buffer slot of a data endpoint.
+///
+/// The command word is written whole: the HS controller tracks the
+/// bulk/interrupt data toggle internally per endpoint (read-only EPTOGGLE
+/// register), not in the entry's TV bit, which is only consumed together
+/// with TR. `tr` requests that toggle reset; it is set exactly once for the
+/// first transfer after enable/unstall (the NXP SDK's deferred toggle-reset
+/// discipline).
+fn ep_arm_slot(index: usize, dir: Direction, slot: usize, len: u32, buf_addr: u32, tr: bool) {
+    let tr = if tr { CMD_TR } else { 0 };
+    ep_cmd_write(index, dir, slot, CMD_A | nbytes(len) | addroff(buf_addr) | tr);
 }
 
+/// Copy into the dedicated USB SRAM using 32-bit accesses.
+///
+/// The SRAM sits behind the AHB matrix, so each access is a full bus
+/// transaction: byte-wise copies are 4x the transactions and dominate the
+/// per-packet cost at high speed. Endpoint buffers are 64-byte aligned and
+/// rounded up to 64-byte multiples (see `alloc_buffer`), so word-aligned
+/// stores plus a full-word tail never leave the allocation.
 fn copy_to_usb_sram(buf_addr: u32, data: &[u8]) {
+    debug_assert!(buf_addr % 4 == 0);
     compiler_fence(Ordering::SeqCst);
-    let dst = buf_addr as *mut u8;
-    for (i, b) in data.iter().enumerate() {
-        unsafe { dst.add(i).write_volatile(*b) };
+    let mut dst = buf_addr as *mut u32;
+    let mut chunks = data.chunks_exact(4);
+    for c in &mut chunks {
+        unsafe {
+            dst.write_volatile(u32::from_le_bytes(c.try_into().unwrap()));
+            dst = dst.add(1);
+        }
+    }
+    let rem = chunks.remainder();
+    if !rem.is_empty() {
+        let mut tail = [0u8; 4];
+        tail[..rem.len()].copy_from_slice(rem);
+        unsafe { dst.write_volatile(u32::from_le_bytes(tail)) };
     }
     compiler_fence(Ordering::SeqCst);
 }
 
+/// Copy out of the dedicated USB SRAM using 32-bit accesses; see
+/// [`copy_to_usb_sram`] for the alignment/over-read reasoning.
 fn copy_from_usb_sram(buf_addr: u32, data: &mut [u8]) {
+    debug_assert!(buf_addr % 4 == 0);
     compiler_fence(Ordering::SeqCst);
-    let src = buf_addr as *const u8;
-    for (i, b) in data.iter_mut().enumerate() {
-        *b = unsafe { src.add(i).read_volatile() };
+    let mut src = buf_addr as *const u32;
+    let mut chunks = data.chunks_exact_mut(4);
+    for c in &mut chunks {
+        unsafe {
+            c.copy_from_slice(&src.read_volatile().to_le_bytes());
+            src = src.add(1);
+        }
+    }
+    let rem = chunks.into_remainder();
+    if !rem.is_empty() {
+        let tail = unsafe { src.read_volatile() }.to_le_bytes();
+        rem.copy_from_slice(&tail[..rem.len()]);
     }
     compiler_fence(Ordering::SeqCst);
 }
@@ -394,9 +435,11 @@ impl<'d, T: Instance> Driver<'d, T> {
         regs.databufstart().write(|w| w.set_da_buf(USB_SRAM_ADDR));
         regs.epliststart()
             .write_value(pac::usbhsd::regs::Epliststart(USB_SRAM_ADDR));
-        // Single-buffered operation everywhere.
+        // Non-control endpoints run double-buffered: EPBUFCFG has one bit
+        // per physical endpoint (EP0 excluded), and hardware ping-pongs the
+        // two command/status entries via EPINUSE.
         regs.epinuse().write(|w| w.set_buf(0));
-        regs.epbufcfg().write(|w| w.set_buf_sb(0));
+        regs.epbufcfg().write(|w| w.set_buf_sb(0x3FF));
         regs.epskip().write_value(pac::usbhsd::regs::Epskip(0));
 
         // Enable the device controller, but do not connect yet. Preserve the
@@ -477,12 +520,18 @@ impl<'d, T: Instance> Driver<'d, T> {
         };
         used[index] = true;
 
-        let buf_addr = self.alloc_buffer(max_packet_size)?;
+        // Two buffer slots per endpoint (double buffering): software fills or
+        // drains one while the other is on the wire.
+        let buf_addrs = [
+            self.alloc_buffer(max_packet_size)?,
+            self.alloc_buffer(max_packet_size)?,
+        ];
 
         // Disabled until `endpoint_set_enabled`.
-        ep_cmd_write(index, D::dir(), CMD_D);
+        ep_cmd_write(index, D::dir(), 0, CMD_D);
+        ep_cmd_write(index, D::dir(), 1, CMD_D);
 
-        trace!("  index={} addr={:08x}", index, buf_addr);
+        trace!("  index={} addr={:08x}", index, buf_addrs[0]);
 
         Ok(Endpoint {
             _phantom: PhantomData,
@@ -492,7 +541,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 max_packet_size,
                 interval_ms,
             },
-            buf_addr,
+            buf_addrs,
         })
     }
 }
@@ -535,9 +584,10 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         ep_cmd_write(
             0,
             Direction::Out,
+            0,
             CMD_A | nbytes(control_max_packet_size as u32) | addroff(ep0_out_addr),
         );
-        ep_cmd_write(0, Direction::In, addroff(ep0_in_addr));
+        ep_cmd_write(0, Direction::In, 0, addroff(ep0_in_addr));
 
         trace!("started");
 
@@ -598,18 +648,26 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                     w.set_dev_addr(0);
                 });
 
-                // Disable all non-control endpoints; re-arm EP0 (EP0 OUT
+                // Disable all non-control endpoints (both buffer slots) and
+                // reset the double-buffer bookkeeping; re-arm EP0 (EP0 OUT
                 // stays armed at all times) and keep the SETUP pointer.
                 for i in 1..EP_COUNT {
-                    ep_cmd_write(i, Direction::Out, CMD_D);
-                    ep_cmd_write(i, Direction::In, CMD_D);
+                    for slot in 0..2 {
+                        ep_cmd_write(i, Direction::Out, slot, CMD_D);
+                        ep_cmd_write(i, Direction::In, slot, CMD_D);
+                    }
+                    EP_OUT_STATE[i].store(0, Ordering::Relaxed);
+                    EP_IN_STATE[i].store(0, Ordering::Relaxed);
                 }
+                regs.epinuse().write(|w| w.set_buf(0));
+                regs.epbufcfg().write(|w| w.set_buf_sb(0x3FF));
                 ep_cmd_write(
                     0,
                     Direction::Out,
+                    0,
                     CMD_A | nbytes(self.ep0_mps as u32) | addroff(self.ep0_out_addr),
                 );
-                ep_cmd_write(0, Direction::In, 0);
+                ep_cmd_write(0, Direction::In, 0, 0);
                 unsafe { ep_cmd_ptr(0, Direction::Out, true).write_volatile(addroff(self.setup_addr)) };
 
                 // Unstick any pending endpoint futures; they will observe the
@@ -648,16 +706,28 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         if index == 0 {
             return;
         }
+        let dir = ep_addr.direction();
+        let state = match dir {
+            Direction::Out => &EP_OUT_STATE[index],
+            Direction::In => &EP_IN_STATE[index],
+        };
 
         if enabled {
-            // Clear Disabled, reset the data toggle to DATA0. Not Active:
-            // OUT endpoints NAK until a read arms them.
-            ep_cmd_write(index, ep_addr.direction(), CMD_TR);
+            // Both slots idle (NAK until armed). Hardware must restart on
+            // slot 0 to match the software cursor, and the data toggle is
+            // reset on the first armed transfer (TR_PENDING).
+            ep_cmd_write(index, dir, 0, 0);
+            ep_cmd_write(index, dir, 1, 0);
+            let phy_ep = 2 * index + (dir == Direction::In) as usize;
+            T::regs().epinuse().modify(|w| w.set_buf(w.buf() & !(1 << (phy_ep - 2))));
+            state.store(TR_PENDING, Ordering::Relaxed);
         } else {
-            ep_cmd_write(index, ep_addr.direction(), CMD_D);
+            ep_cmd_write(index, dir, 0, CMD_D);
+            ep_cmd_write(index, dir, 1, CMD_D);
+            state.store(0, Ordering::Relaxed);
         }
 
-        match ep_addr.direction() {
+        match dir {
             Direction::Out => EP_OUT_WAKERS[index].wake(),
             Direction::In => EP_IN_WAKERS[index].wake(),
         }
@@ -668,19 +738,38 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         let index = ep_addr.index();
         let dir = ep_addr.direction();
         let regs = T::regs();
+        let phy_ep = 2 * index + (dir == Direction::In) as usize;
+        // EP0's second OUT slot is the SETUP pointer: never touch it.
+        let slots = if index == 0 { 0..1 } else { 0..2 };
 
         if stalled {
-            if ep_cmd_read(index, dir) & CMD_A != 0 {
-                // Reclaim the active transfer first via EPSKIP.
-                let phy_ep = 2 * index + (dir == Direction::In) as usize;
-                regs.epskip().write_value(pac::usbhsd::regs::Epskip(1 << phy_ep));
-                while regs.epskip().read().0 & (1 << phy_ep) != 0 {}
-                regs.intstat().write_value(pac::usbhsd::regs::Intstat(1 << phy_ep));
+            for slot in slots.clone() {
+                if ep_cmd_read(index, dir, slot) & CMD_A != 0 {
+                    // Reclaim the in-flight transfer via EPSKIP (skips the
+                    // slot EPINUSE points at).
+                    regs.epskip().write_value(pac::usbhsd::regs::Epskip(1 << phy_ep));
+                    while regs.epskip().read().0 & (1 << phy_ep) != 0 {}
+                    regs.intstat().write_value(pac::usbhsd::regs::Intstat(1 << phy_ep));
+                }
             }
-            ep_cmd_modify(index, dir, |w| (w & !CMD_A) | CMD_S);
-        } else {
+            for slot in slots {
+                ep_cmd_modify(index, dir, slot, |w| (w & !CMD_A) | CMD_S);
+            }
+        } else if index == 0 {
             // Clearing a stall resets the data toggle to DATA0.
-            ep_cmd_modify(index, dir, |w| (w & !CMD_S) | CMD_TR);
+            ep_cmd_modify(index, dir, 0, |w| (w & !CMD_S) | CMD_TR);
+        } else {
+            // Drop any buffered packets, resync the hardware slot cursor and
+            // defer the toggle reset to the next armed transfer.
+            for slot in slots {
+                ep_cmd_modify(index, dir, slot, |w| w & !(CMD_S | CMD_A));
+            }
+            regs.epinuse().modify(|w| w.set_buf(w.buf() & !(1 << (phy_ep - 2))));
+            let state = match dir {
+                Direction::Out => &EP_OUT_STATE[index],
+                Direction::In => &EP_IN_STATE[index],
+            };
+            state.store(TR_PENDING, Ordering::Relaxed);
         }
 
         match dir {
@@ -690,7 +779,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        ep_cmd_read(ep_addr.index(), ep_addr.direction()) & CMD_S != 0
+        ep_cmd_read(ep_addr.index(), ep_addr.direction(), 0) & CMD_S != 0
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
@@ -703,7 +792,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 pub struct Endpoint<'d, T: Instance, D> {
     _phantom: PhantomData<(&'d mut T, D)>,
     info: EndpointInfo,
-    buf_addr: u32,
+    buf_addrs: [u32; 2],
 }
 
 impl<'d, T: Instance, D: Dir> driver::Endpoint for Endpoint<'d, T, D> {
@@ -719,7 +808,7 @@ impl<'d, T: Instance, D: Dir> driver::Endpoint for Endpoint<'d, T, D> {
         };
         poll_fn(|cx| {
             wakers[index].register(cx.waker());
-            if ep_cmd_read(index, D::dir()) & CMD_D == 0 {
+            if ep_cmd_read(index, D::dir(), 0) & CMD_D == 0 {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -734,20 +823,34 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let index = self.info.addr.index();
         let mps = self.info.max_packet_size as u32;
+        let state = &EP_OUT_STATE[index];
 
-        if ep_cmd_read(index, Direction::Out) & CMD_D != 0 {
-            return Err(EndpointError::Disabled);
+        // Keep both slots armed so the endpoint does not NAK between packets
+        // while the host streams. A slot with PRIMED set and Active clear
+        // holds a received, not-yet-consumed packet.
+        let mut s = state.load(Ordering::Relaxed);
+        for slot in 0..2 {
+            if s & (PRIMED0 << slot) == 0 {
+                if ep_cmd_read(index, Direction::Out, slot) & CMD_D != 0 {
+                    return Err(EndpointError::Disabled);
+                }
+                ep_arm_slot(index, Direction::Out, slot, mps, self.buf_addrs[slot], s & TR_PENDING != 0);
+                s = (s | (PRIMED0 << slot)) & !TR_PENDING;
+                state.store(s, Ordering::Relaxed);
+            }
         }
 
-        // Arm reception, preserving the data toggle. The endpoint NAKs while
-        // not armed, which is the correct default behavior.
-        ep_arm(index, Direction::Out, mps, self.buf_addr);
-
+        // Consume in hardware ping-pong order.
+        let slot = (s & SLOT) as usize;
         let word = poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
-            let word = ep_cmd_read(index, Direction::Out);
+            let word = ep_cmd_read(index, Direction::Out, slot);
             if word & CMD_D != 0 {
                 // Disabled by a bus reset while waiting.
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
+            if state.load(Ordering::Relaxed) & (PRIMED0 << slot) == 0 {
+                // A re-enable or unstall cancelled the armed transfer.
                 return Poll::Ready(Err(EndpointError::Disabled));
             }
             if word & CMD_A == 0 {
@@ -762,7 +865,12 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         if rx_len > buf.len() {
             return Err(EndpointError::BufferOverflow);
         }
-        copy_from_usb_sram(self.buf_addr, &mut buf[..rx_len]);
+        copy_from_usb_sram(self.buf_addrs[slot], &mut buf[..rx_len]);
+
+        // Hand the drained slot straight back to hardware and advance the
+        // consume cursor.
+        ep_arm_slot(index, Direction::Out, slot, mps, self.buf_addrs[slot], false);
+        state.store((s ^ SLOT) | (PRIMED0 << slot), Ordering::Relaxed);
 
         trace!("READ {:?} rx_len = {}", self.info.addr, rx_len);
         Ok(rx_len)
@@ -776,31 +884,44 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         }
 
         let index = self.info.addr.index();
-        if ep_cmd_read(index, Direction::In) & CMD_D != 0 {
-            return Err(EndpointError::Disabled);
+        let state = &EP_IN_STATE[index];
+
+        // Fill slots in hardware ping-pong order, returning as soon as the
+        // packet is armed: the wire transmits from one slot while software
+        // fills the other, so a saturating writer never lets the endpoint
+        // NAK an IN token.
+        loop {
+            let s = state.load(Ordering::Relaxed);
+            let slot = (s & SLOT) as usize;
+
+            poll_fn(|cx| {
+                EP_IN_WAKERS[index].register(cx.waker());
+                let word = ep_cmd_read(index, Direction::In, slot);
+                if word & CMD_D != 0 {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                if word & CMD_A == 0 {
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await?;
+
+            // A reset or re-enable while waiting may have moved the slot
+            // cursor; re-derive and retry if so.
+            let s = state.load(Ordering::Relaxed);
+            if (s & SLOT) as usize != slot {
+                continue;
+            }
+
+            copy_to_usb_sram(self.buf_addrs[slot], buf);
+            ep_arm_slot(index, Direction::In, slot, buf.len() as u32, self.buf_addrs[slot], s & TR_PENDING != 0);
+            state.store((s ^ SLOT) & !TR_PENDING, Ordering::Relaxed);
+
+            trace!("WRITE {:?} len = {}", self.info.addr, buf.len());
+            return Ok(());
         }
-
-        copy_to_usb_sram(self.buf_addr, buf);
-        // Hardware advances the AddressOffset and NBytes as it transmits:
-        // always re-write those fields, preserving only the data toggle.
-        ep_arm(index, Direction::In, buf.len() as u32, self.buf_addr);
-
-        poll_fn(|cx| {
-            EP_IN_WAKERS[index].register(cx.waker());
-            let word = ep_cmd_read(index, Direction::In);
-            if word & CMD_D != 0 {
-                return Poll::Ready(Err(EndpointError::Disabled));
-            }
-            if word & CMD_A == 0 {
-                Poll::Ready(Ok(()))
-            } else {
-                Poll::Pending
-            }
-        })
-        .await?;
-
-        trace!("WRITE {:?} len = {}", self.info.addr, buf.len());
-        Ok(())
     }
 }
 
@@ -833,8 +954,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         // UM procedure: clear Active and Stall on both EP0 directions BEFORE
         // acknowledging the SETUP bit.
-        ep_cmd_modify(0, Direction::Out, |w| w & !(CMD_A | CMD_S));
-        ep_cmd_modify(0, Direction::In, |w| w & !(CMD_A | CMD_S));
+        ep_cmd_modify(0, Direction::Out, 0, |w| w & !(CMD_A | CMD_S));
+        ep_cmd_modify(0, Direction::In, 0, |w| w & !(CMD_A | CMD_S));
 
         let mut buf = [0; 8];
         copy_from_usb_sram(self.setup_addr, &mut buf);
@@ -847,6 +968,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         ep_cmd_write(
             0,
             Direction::Out,
+            0,
             CMD_A | nbytes(self.max_packet_size as u32) | addroff(self.ep0_out_addr),
         );
 
@@ -867,7 +989,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             if regs.devcmdstat().read().setup() {
                 return Poll::Ready(Err(EndpointError::Disabled));
             }
-            let word = ep_cmd_read(0, Direction::Out);
+            let word = ep_cmd_read(0, Direction::Out, 0);
             if word & CMD_A == 0 {
                 Poll::Ready(Ok(word))
             } else {
@@ -883,7 +1005,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         copy_from_usb_sram(self.ep0_out_addr, &mut buf[..rx_len]);
 
         // Re-arm for the next OUT packet (or the status stage).
-        ep_cmd_write(0, Direction::Out, CMD_A | nbytes(mps) | addroff(self.ep0_out_addr));
+        ep_cmd_write(0, Direction::Out, 0, CMD_A | nbytes(mps) | addroff(self.ep0_out_addr));
 
         trace!("control: data_out rx_len = {}", rx_len);
         Ok(rx_len)
@@ -904,6 +1026,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         ep_cmd_write(
             0,
             Direction::In,
+            0,
             CMD_A | nbytes(data.len() as u32) | addroff(self.ep0_in_addr),
         );
 
@@ -912,7 +1035,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             if regs.devcmdstat().read().setup() {
                 return Poll::Ready(Err(EndpointError::Disabled));
             }
-            if ep_cmd_read(0, Direction::In) & CMD_A == 0 {
+            if ep_cmd_read(0, Direction::In, 0) & CMD_A == 0 {
                 Poll::Ready(Ok(()))
             } else {
                 Poll::Pending
@@ -931,7 +1054,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         trace!("control: accept");
 
         // Zero-length status-stage IN packet.
-        ep_cmd_write(0, Direction::In, CMD_A | addroff(self.ep0_in_addr));
+        ep_cmd_write(0, Direction::In, 0, CMD_A | addroff(self.ep0_in_addr));
 
         poll_fn(|cx| {
             EP_IN_WAKERS[0].register(cx.waker());
@@ -939,7 +1062,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             if T::regs().devcmdstat().read().setup() {
                 return Poll::Ready(());
             }
-            if ep_cmd_read(0, Direction::In) & CMD_A == 0 {
+            if ep_cmd_read(0, Direction::In, 0) & CMD_A == 0 {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -952,8 +1075,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         trace!("control: reject");
         // Stall both EP0 directions; `setup()` clears the stalls on the next
         // SETUP packet.
-        ep_cmd_modify(0, Direction::Out, |w| w | CMD_S);
-        ep_cmd_modify(0, Direction::In, |w| w | CMD_S);
+        ep_cmd_modify(0, Direction::Out, 0, |w| w | CMD_S);
+        ep_cmd_modify(0, Direction::In, 0, |w| w | CMD_S);
     }
 
     async fn accept_set_address(&mut self, addr: u8) {
