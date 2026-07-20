@@ -6,7 +6,6 @@ use crate::pac::adc0::Adc0;
 use crate::pac::adc0::vals;
 
 pub trait AdcPin {
-    // TODO
     fn channel(&self) -> u8;
 }
 
@@ -109,3 +108,26 @@ impl<'d> Adc<'d> {
         data
     }
 }
+
+macro_rules! impl_adc_pin {
+    // pin => peripheral struct
+    // channel => u8 channel number
+    ($pin:ident, $channel:expr) => {
+        impl crate::adc::AdcPin for crate::peripherals::$pin {
+            fn channel(&self) -> u8 {
+                $channel
+            }
+        }
+    }
+}
+
+impl_adc_pin!(PIO0_10, 1);
+impl_adc_pin!(PIO0_11, 9);
+impl_adc_pin!(PIO0_12, 10);
+impl_adc_pin!(PIO0_15, 2);
+impl_adc_pin!(PIO0_16, 8);
+impl_adc_pin!(PIO0_23, 0);
+impl_adc_pin!(PIO0_31, 3);
+impl_adc_pin!(PIO1_0, 11);
+impl_adc_pin!(PIO1_8, 4);
+impl_adc_pin!(PIO1_9, 12);
