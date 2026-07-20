@@ -3,7 +3,6 @@
 use core::convert::Infallible;
 
 use embedded_io_async::{ErrorType, Read, Write};
-
 use fixed::FixedU32;
 use fixed::traits::ToFixed;
 use fixed::types::extra::U8;
