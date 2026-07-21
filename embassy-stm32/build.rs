@@ -1753,6 +1753,10 @@ fn main() {
         let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
         let mut seen_lcd_seg_pins = HashSet::new();
 
+        if regs.version == "n6" && (regs.kind == "lptim" || regs.kind == "sai") {
+            continue;
+        }
+
         if let Some(peri) = p.name.strip_prefix("SPI")
             && peripheral_map.contains_key(format!("I2S{}", peri).as_str())
         {
@@ -2031,7 +2035,7 @@ fn main() {
                 }
             }
 
-            if regs.kind == "spdifrx" {
+            if regs.kind == "spdifrx" && regs.version != "n6" {
                 let peri = format_ident!("{}", p.name);
                 let pin_name = format_ident!("{}", pin.pin);
                 let af = pin.af.unwrap_or(0);
@@ -2164,6 +2168,10 @@ fn main() {
 
     for (p, regs) in &peripheral_list {
         if regs.kind == "adc" && (regs.version == "f3v3" || regs.version == "wb1") {
+            continue;
+        }
+
+        if regs.version == "n6" && (regs.kind == "lptim" || regs.kind == "sai") {
             continue;
         }
 

@@ -244,6 +244,7 @@ impl<'d, T: Instance, F: Filter> Mdf<'d, T, F> {
         regs.dfltcicr(index).modify(|w| {
             w.set_datsrc(v::Datsrc::from_bits(Datsrc::Bsmx.to_bits()));
             w.set_cicmod(v::Cicmod::from_bits(Cicmod::Sinc5.to_bits()));
+            #[cfg(not(mdf_n6))]
             w.set_mcicd(config.filter.cic_decimation);
             w.set_scale(config.filter.scale);
         });

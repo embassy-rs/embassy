@@ -1407,6 +1407,7 @@ pub(crate) unsafe fn init(config: Config) {
         per: Some(clocks.perclk),
         rtc: osc.rtc,
         i2s_ckin: None,
+        spdif_symb: None,
         ic1: clock_inputs.ic1,
         ic2: clock_inputs.ic2,
         ic3: clock_inputs.ic3,
