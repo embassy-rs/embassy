@@ -112,9 +112,9 @@ impl Request {
 
         Request {
             direction: if rt & 0x80 == 0 { Direction::Out } else { Direction::In },
-            request_type: unsafe { mem::transmute((rt >> 5) & 0b11) },
+            request_type: unsafe { mem::transmute::<u8, RequestType>((rt >> 5) & 0b11) },
             recipient: if recipient <= 3 {
-                unsafe { mem::transmute(recipient) }
+                unsafe { mem::transmute::<u8, Recipient>(recipient) }
             } else {
                 Recipient::Reserved
             },

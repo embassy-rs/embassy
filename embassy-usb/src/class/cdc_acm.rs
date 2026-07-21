@@ -626,7 +626,7 @@ pub enum StopBits {
 impl From<u8> for StopBits {
     fn from(value: u8) -> Self {
         if value <= 2 {
-            unsafe { mem::transmute(value) }
+            unsafe { mem::transmute::<u8, StopBits>(value) }
         } else {
             StopBits::One
         }
@@ -652,7 +652,7 @@ pub enum ParityType {
 impl From<u8> for ParityType {
     fn from(value: u8) -> Self {
         if value <= 4 {
-            unsafe { mem::transmute(value) }
+            unsafe { mem::transmute::<u8, ParityType>(value) }
         } else {
             ParityType::None
         }
