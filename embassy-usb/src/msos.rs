@@ -690,6 +690,12 @@ impl CcgpDeviceDescriptor {
     }
 }
 
+impl Default for CcgpDeviceDescriptor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Table 19. Microsoft OS 2.0 vendor revision descriptor.
 #[allow(non_snake_case)]
 #[repr(C, packed(1))]
