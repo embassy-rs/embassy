@@ -267,6 +267,16 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
 
         Ok(&mut self.dfu)
     }
+
+    /// Reset to initial/uninitialised state.
+    ///
+    /// After reset, the updater will behave as if no writes had
+    /// occurred, with writes beginning at offset 0 again.
+    pub async fn reset(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted().await?;
+        self.last_erased_dfu_sector_index = None;
+        Ok(())
+    }
 }
 
 /// Manages the state partition of the firmware update.
