@@ -60,27 +60,28 @@ fn main() {
         }
 
         if let Some(feature) = var.strip_prefix("CARGO_FEATURE_")
-            && let Some(i) = feature.rfind('_') {
-                let name = &feature[..i];
-                let value = &feature[i + 1..];
-                if let Some(cfg) = configs.get_mut(name) {
-                    let Ok(value) = value.parse::<usize>() else {
-                        panic!("Invalid value for feature {name}: {value}")
-                    };
+            && let Some(i) = feature.rfind('_')
+        {
+            let name = &feature[..i];
+            let value = &feature[i + 1..];
+            if let Some(cfg) = configs.get_mut(name) {
+                let Ok(value) = value.parse::<usize>() else {
+                    panic!("Invalid value for feature {name}: {value}")
+                };
 
-                    // envvars take priority.
-                    if !cfg.seen_env {
-                        assert!(
-                            !cfg.seen_feature,
-                            "multiple values set for feature {}: {} and {}",
-                            name, cfg.value, value
-                        );
+                // envvars take priority.
+                if !cfg.seen_env {
+                    assert!(
+                        !cfg.seen_feature,
+                        "multiple values set for feature {}: {} and {}",
+                        name, cfg.value, value
+                    );
 
-                        cfg.value = value;
-                        cfg.seen_feature = true;
-                    }
+                    cfg.value = value;
+                    cfg.seen_feature = true;
                 }
             }
+        }
     }
 
     let mut data = String::new();

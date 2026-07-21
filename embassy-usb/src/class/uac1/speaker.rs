@@ -447,8 +447,6 @@ pub struct ControlMonitor<'d> {
 
 impl<'d> ControlMonitor<'d> {
     fn audio_settings(&self) -> AudioSettings {
-        
-
         self.shared.audio_settings.lock(|x| x.get())
     }
 
@@ -625,8 +623,6 @@ impl<'d> Control<'d> {
         match req.request {
             GET_CUR => match control_unit {
                 VOLUME_CONTROL => {
-                    
-
                     let volume: i16 = match channel_index as usize {
                         ..=MAX_AUDIO_CHANNEL_INDEX => audio_settings.volume_8q8_db[channel_index as usize],
                         _ => return Some(InResponse::Rejected),
@@ -639,8 +635,6 @@ impl<'d> Control<'d> {
                     Some(InResponse::Accepted(&buf[..2]))
                 }
                 MUTE_CONTROL => {
-                    
-
                     let mute_state: bool = match channel_index as usize {
                         ..=MAX_AUDIO_CHANNEL_INDEX => audio_settings.muted[channel_index as usize],
                         _ => return Some(InResponse::Rejected),

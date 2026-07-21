@@ -504,10 +504,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> D::EndpointIn {
-        
-
-        self
-            .builder
+        self.builder
             .driver
             .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
             .expect("alloc_endpoint_in failed")
@@ -539,10 +536,7 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> D::EndpointOut {
-        
-
-        self
-            .builder
+        self.builder
             .driver
             .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
             .expect("alloc_endpoint_out failed")

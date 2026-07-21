@@ -239,7 +239,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
 
         // ALLOCATE the Isochronous IN Endpoint for Audio Data (AudioStream -> Host)
         let max_packet_size: u16 =
-            calculate_max_packet_size(*max_rate , MAX_AUDIO_CHANNEL_COUNT as u8, sample_width as u8);
+            calculate_max_packet_size(*max_rate, MAX_AUDIO_CHANNEL_COUNT as u8, sample_width as u8);
         let audio_in_endpoint: <D as Driver<'d>>::EndpointIn = b.alloc_endpoint_in(
             EndpointType::Isochronous, // Endpoint type
             None,                      // Specific address (None lets the driver assign it, e.g., 0x81)
@@ -388,7 +388,6 @@ impl AudioSourceControlHandler {
         iface_ctrl_num: InterfaceNumber,
         iface_stream_num: InterfaceNumber,
     ) -> Self {
-        
         AudioSourceControlHandler {
             current_volume: [0, 0, 0],
             current_mute: [0, 0, 0],
@@ -590,7 +589,7 @@ impl AudioSourceControlHandler {
                         buf
                     );
 
-                    let rate = (buf[0] as u32) | (buf[1] as u32) << 8 | (buf[2] as u32) << 16 ;
+                    let rate = (buf[0] as u32) | (buf[1] as u32) << 8 | (buf[2] as u32) << 16;
                     let current_rate = self.supported_sample_rates[self.current_sample_rate_index];
 
                     if rate == current_rate {
