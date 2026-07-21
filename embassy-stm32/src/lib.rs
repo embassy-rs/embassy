@@ -160,7 +160,7 @@ pub mod lcd;
 pub mod low_power;
 #[cfg(lpgpio)]
 pub mod lpgpio;
-#[cfg(lptim)]
+#[cfg(all(lptim, not(lptim_n6)))]
 pub mod lptim;
 #[cfg(ltdc)]
 pub mod ltdc;
@@ -184,11 +184,11 @@ pub mod rng;
 pub mod rtc;
 #[cfg(saes_v1a)]
 pub mod saes;
-#[cfg(sai)]
+#[cfg(all(sai, not(sai_n6)))]
 pub mod sai;
 #[cfg(any(sdmmc_v1, sdmmc_v2, sdmmc_v3))]
 pub mod sdmmc;
-#[cfg(spdifrx)]
+#[cfg(all(spdifrx, not(spdifrx_n6)))]
 pub mod spdifrx;
 #[cfg(spi)]
 pub mod spi;
