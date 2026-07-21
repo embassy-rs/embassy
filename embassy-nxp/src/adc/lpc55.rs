@@ -51,7 +51,9 @@ impl<'d> Adc<'d> {
             w.set_adcen(vals::Adcen::ADCEN_1)
         });
         adc.tctrl(0).modify(|w| {
-            w.set_fifo_sel_a(vals::FifoSelA::FIFO_SEL_A_0)
+            w.set_fifo_sel_a(vals::FifoSelA::FIFO_SEL_A_0);
+            w.set_fifo_sel_b(vals::FifoSelB::FIFO_SEL_B_0);
+            w.set_tcmd(vals::Tcmd::TCMD_1)
         });
 
         // Set resolution
@@ -92,13 +94,16 @@ impl<'d> Adc<'d> {
             w.set_adch(pin.channel().into())
         });
 
+
         let result_reg = self.adc.resfifo(0).read();
         
         if result_reg.valid() == vals::Valid::VALID_0 {
             // TODO handle error
+            defmt::error!("FIFO0 is invalid!");
         }
 
         let data_raw = result_reg.d();
+        defmt::info!("Raw data: {}", data_raw);
 
         let data = match self.config.resolution {
             Resolution::Bits16 => data_raw,
