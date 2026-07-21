@@ -137,6 +137,12 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        #[cfg(stm32g4)]
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
+
         let mut smpr = Smpr::default();
         let mut smpr2 = Smpr2::default();
         let mut sqr1 = Sqr1::default();
@@ -200,6 +206,12 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
 impl InjectedRegs for crate::pac::adc::Adc {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
+        #[cfg(stm32g4)]
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
+
         let mut smpr1 = self.smpr().read();
         let mut smpr2 = self.smpr2().read();
         #[cfg(stm32g4)]
