@@ -41,6 +41,7 @@ const CMD_A: u32 = 1 << 31; // Active (HW clears on completion)
 const CMD_D: u32 = 1 << 30; // Disabled
 const CMD_S: u32 = 1 << 29; // Stall
 const CMD_TR: u32 = 1 << 28; // Toggle Reset (write-1)
+#[allow(dead_code)] // documented for completeness of the CS-word encoding
 const CMD_TV: u32 = 1 << 27; // RF/TV: data toggle value for bulk/interrupt
 const NBYTES_SHIFT: u32 = 11;
 const NBYTES_MASK: u32 = 0x7FFF;
