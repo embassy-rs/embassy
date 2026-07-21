@@ -1750,6 +1750,14 @@ fn main() {
         signals.entry(key).or_default().push(value);
     }
 
+    // The `i3c` module is only compiled in for STM32N6 today; on other families
+    // (e.g. STM32H5) that also expose an "i3c" peripheral kind, `crate::i3c` doesn't
+    // exist, so drop these signals there to avoid generating unresolvable pin_trait_impl!s.
+    if !chip_name.starts_with("stm32n6") {
+        signals.remove(&("i3c", "SDA"));
+        signals.remove(&("i3c", "SCL"));
+    }
+
     // STM32U5 maps the external memory controller as kind "fsmc" (v5x1) but uses
     // the same pin signals as FMC on other families.
     for ((_, signal), traits) in signals.clone().into_iter().filter(|((kind, _), _)| *kind == "fmc") {
