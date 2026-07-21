@@ -472,6 +472,14 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cnt().write(|r| r.set_cnt(0));
     }
 
+    /// Get the current counter value.
+    pub fn get_counter(&self) -> T::Word {
+        #[cfg(not(stm32l0))]
+        return unwrap!(self.regs_gp32_unchecked().cnt().read().try_into());
+        #[cfg(stm32l0)]
+        return unwrap!(self.regs_gp32_unchecked().cnt().read().cnt().try_into());
+    }
+
     /// get the capability of the timer
     pub fn bits(&self) -> TimerBits {
         match T::Word::bits() {

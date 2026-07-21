@@ -38,6 +38,10 @@ Timer:
 - feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
 - feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
 - feat: stm32/timer: add low-level timer status helpers for UIF remap control and counting direction (`is_counting_up`/`is_counting_down`)
+- feat: stm32/timer: add `low_level::Timer::get_counter()` to read the counter register as `T::Word`
+
+QEI:
+- fix: stm32/qei: `count()`, `reset()`, and `auto_reload` always used the 16-bit register view, so on 32-bit timers `reset()` only cleared the lower 16 bits of the counter (leaving the upper bits stale) and `auto_reload`/`count()` were truncated to `u16`; `Config`/`AdvancedConfig` are now generic over the timer instance and `auto_reload` uses `T::Word`, while `count()` returns `u32` so 32-bit timers work correctly across their full range (breaking change)
 
 PKA:
 - feat: stm32/pka: extend ECC point buffer support to 640-bit operands (80-byte coordinates) in public point types and Jacobian conversion paths
