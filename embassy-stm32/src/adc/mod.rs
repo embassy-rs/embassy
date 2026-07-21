@@ -57,16 +57,16 @@ dma_trait!(RxDma, Instance);
 pub struct Exten;
 
 pub struct RegularAdcTrigger<T: Instance> {
-    _trigger: u8,
-    _edge: Exten,
+    trigger: u8,
+    edge: Exten,
     _marker: PhantomData<T>,
 }
 
 impl<T: Instance> RegularAdcTrigger<T> {
     pub fn from(trigger: impl RegularTrigger<T>, edge: Exten) -> Option<Self> {
         Some(Self {
-            _trigger: trigger.signal(),
-            _edge: edge,
+            trigger: trigger.signal(),
+            edge: edge,
             _marker: PhantomData,
         })
     }
@@ -145,20 +145,27 @@ pub trait BasicAdcRegs {
 
 trait AdcRegs: BasicAdcRegs {
     const HAS_ERRATA: bool = false;
+    /// Enable but do not start the ADC.
     fn enable(&self);
+    /// Start the ADC.
     fn start(&self);
     /// Stop any ongoing conversion, leaving the ADC enabled and ready to restart.
     fn stop(&self);
-    /// Stop conversions and fully power down the ADC hardware.
+    /// Stop conversions and fully power down the ADC hardware; called only on `Drop`.
     fn power_down(&self);
+    /// Returns `true` if a conversion is ongoing; otherwise `false`.
     fn wait_done(&self) -> bool;
     fn configure_dma(&self, conversion_mode: ConversionMode);
+    /// Configure the sequence. If the ADC is capable of differential channels,
+    /// this method must disable the ADC before configuring the sequence if required by hardware.
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
     fn data(&self) -> *mut u16;
 }
 
 #[cfg(any(adc_v2, adc_g4))]
 trait InjectedRegs: AdcRegs {
+    /// Configure the sequence. If the ADC is capable of differential channels,
+    /// this method must disable the ADC before configuring the sequence if required by hardware.
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
     fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool);
     fn start_injected(&self);
@@ -395,7 +402,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().enable();
 
         // Use repeated mode and use the dma to stop the transfer
-        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))));
+        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t.trigger, t.edge))));
 
         let mut dma_channel = new_dma_nonopt!(rx_dma, irq);
 
@@ -473,7 +480,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().enable();
 
         // Configure DMA once, reused across all subsequent read() calls.
-        T::regs().configure_dma(ConversionMode::Repeated(Some((trigger._trigger, trigger._edge))));
+        T::regs().configure_dma(ConversionMode::Repeated(Some((trigger.trigger, trigger.edge))));
 
         let mut dma_channel = new_dma_nonopt!(rx_dma, irq);
 
@@ -602,7 +609,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))));
+        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t.trigger, t.edge))));
 
         core::mem::forget(self);
 
@@ -653,14 +660,14 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
             NR_INJECTED_RANKS
         );
 
-        // TODO: move enable after configure_sequence?
-        T::regs().enable();
+        T::regs().stop();
         T::regs().configure_injected_sequence(
             sequence
                 .iter()
                 .map(|(channel, sample_time)| ((channel.channel, channel.is_differential), *sample_time)),
         );
 
+        T::regs().enable();
         T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), interrupt);
         T::regs().start_injected();
 
