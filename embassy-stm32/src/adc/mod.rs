@@ -42,7 +42,7 @@ pub mod adc4;
 use embassy_hal_internal::drop::OnDrop;
 
 pub use crate::pac::adc::vals;
-#[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5))]
+#[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5, adc_h5))]
 pub use crate::pac::adc::vals::Exten;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
@@ -52,7 +52,7 @@ use crate::{peripherals, rcc};
 
 dma_trait!(RxDma, Instance);
 
-#[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5)))]
+#[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5, adc_h5)))]
 /// Trigger edge stub.
 pub struct Exten;
 
@@ -162,7 +162,7 @@ trait AdcRegs: BasicAdcRegs {
     fn data(&self) -> *mut u16;
 }
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 trait InjectedRegs: AdcRegs {
     /// Configure the sequence. If the ADC is capable of differential channels,
     /// this method must disable the ADC before configuring the sequence if required by hardware.
@@ -173,11 +173,11 @@ trait InjectedRegs: AdcRegs {
     fn read_injected(&self, data: &mut [u16]);
 }
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 #[allow(private_bounds)]
 pub trait InjectedAdcRegs: InjectedRegs {}
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 impl<T: InjectedRegs> InjectedAdcRegs for T {}
 
 #[allow(private_bounds)]
@@ -617,9 +617,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 }
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
-    #[cfg(any(adc_v2, adc_g4))]
+    #[cfg(any(adc_v2, adc_g4, adc_h5))]
     /// Configures the ADC for injected conversions.
     ///
     /// Injected conversions are separate from the regular conversion sequence and are typically
