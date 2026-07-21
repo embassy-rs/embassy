@@ -292,3 +292,44 @@ macro_rules! if_afio {
         impl $trait<$a, $b, $c>
     };
 }
+
+/// Defines a `u8`-backed enum with `from_bits`/`to_bits`/`From` conversions.
+///
+/// Used to shim PAC `vals` enums on chips whose generated PAC blocks omit
+/// the `vals` module entirely (e.g. N6 lptim/sai).
+macro_rules! u8_enum {
+    ($name:ident { $($variant:ident = $val:expr),* $(,)? }) => {
+        #[repr(u8)]
+        #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        pub enum $name {
+            $($variant = $val,)*
+        }
+
+        impl $name {
+            #[inline(always)]
+            pub const fn from_bits(val: u8) -> Self {
+                unsafe { core::mem::transmute(val) }
+            }
+
+            #[inline(always)]
+            pub const fn to_bits(self) -> u8 {
+                self as u8
+            }
+        }
+
+        impl From<u8> for $name {
+            #[inline(always)]
+            fn from(val: u8) -> Self {
+                Self::from_bits(val)
+            }
+        }
+
+        impl From<$name> for u8 {
+            #[inline(always)]
+            fn from(val: $name) -> u8 {
+                val.to_bits()
+            }
+        }
+    };
+}

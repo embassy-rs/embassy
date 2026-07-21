@@ -17,7 +17,7 @@ use stm32_metapac::lptim::Lptim;
 use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
 use crate::lptim::SealedInstance;
-use crate::pac::lptim::vals;
+use crate::lptim::vals;
 use crate::rcc::SealedRccPeripheral;
 use crate::{peripherals, rcc};
 

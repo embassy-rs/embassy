@@ -71,6 +71,8 @@ pub mod can;
 pub mod comp;
 #[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
+#[cfg(any(aes_v3b, saes_n6))]
+mod crypto;
 
 #[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
 pub mod comp {
@@ -97,6 +99,8 @@ macro_rules! impl_comp_inp_pin {
 macro_rules! impl_comp_inm_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
 }
+#[cfg(cacheaxi)]
+pub mod cacheaxi;
 #[cfg(any(ipcc, hsem))]
 pub mod cpu;
 #[cfg(crc)]
@@ -129,7 +133,7 @@ pub mod flash;
 pub mod fmac;
 #[cfg(any(fmc, fsmc))]
 pub mod fmc;
-#[cfg(gfxmmu_v2)]
+#[cfg(any(gfxmmu_v2, gfxmmu_n6))]
 pub mod gfxmmu;
 #[cfg(gfxtim)]
 pub mod gfxtim;
@@ -147,6 +151,8 @@ pub mod hspi;
 pub mod i2c;
 #[cfg(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))]
 pub mod i2s;
+#[cfg(i3c)]
+pub mod i3c;
 #[cfg(icache)]
 pub mod icache;
 #[cfg(any(stm32wb, stm32wl5x))]
@@ -160,17 +166,19 @@ pub mod lcd;
 pub mod low_power;
 #[cfg(lpgpio)]
 pub mod lpgpio;
-#[cfg(all(lptim, not(lptim_n6)))]
+#[cfg(lptim)]
 pub mod lptim;
 #[cfg(ltdc)]
 pub mod ltdc;
+#[cfg(mce)]
+pub mod mce;
 #[cfg(mdf)]
 pub mod mdf;
 #[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
-#[cfg(pka_v1a)]
+#[cfg(any(pka_v1a, pka_n6))]
 pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
@@ -182,17 +190,17 @@ pub mod rif;
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
 pub mod rtc;
-#[cfg(saes_v1a)]
+#[cfg(any(saes_v1a, saes_n6))]
 pub mod saes;
-#[cfg(all(sai, not(sai_n6)))]
+#[cfg(sai)]
 pub mod sai;
 #[cfg(any(sdmmc_v1, sdmmc_v2, sdmmc_v3))]
 pub mod sdmmc;
-#[cfg(all(spdifrx, not(spdifrx_n6)))]
+#[cfg(spdifrx)]
 pub mod spdifrx;
 #[cfg(spi)]
 pub mod spi;
-#[cfg(any(tamp_g0, tamp_g4, tamp_h5, tamp_l5, tamp_u5, tamp_wba, tamp_wl))]
+#[cfg(any(tamp_g0, tamp_g4, tamp_h5, tamp_l5, tamp_u5, tamp_wba, tamp_wl, tamp_n6))]
 pub mod tamp;
 #[cfg(tsc)]
 pub mod tsc;

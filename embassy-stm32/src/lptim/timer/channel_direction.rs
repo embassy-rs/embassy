@@ -1,4 +1,4 @@
-use crate::pac::lptim::vals;
+use crate::lptim::vals::Ccsel;
 
 /// Direction of a low-power timer channel
 pub enum ChannelDirection {
@@ -8,11 +8,19 @@ pub enum ChannelDirection {
     InputCapture,
 }
 
-impl From<ChannelDirection> for vals::Ccsel {
-    fn from(direction: ChannelDirection) -> Self {
-        match direction {
-            ChannelDirection::OutputPwm => vals::Ccsel::OutputCompare,
-            ChannelDirection::InputCapture => vals::Ccsel::InputCapture,
+impl ChannelDirection {
+    pub(crate) fn ccsel(&self) -> Ccsel {
+        match self {
+            ChannelDirection::OutputPwm => Ccsel::OutputCompare,
+            ChannelDirection::InputCapture => Ccsel::InputCapture,
+        }
+    }
+
+    #[cfg(lptim_n6)]
+    pub(crate) fn ccsel_bool(&self) -> bool {
+        match self {
+            ChannelDirection::OutputPwm => false,
+            ChannelDirection::InputCapture => true,
         }
     }
 }

@@ -98,13 +98,19 @@
 //! - [`aes`](crate::aes) - Standard AES implementation (all WBA chips)
 //! - [`pka`](crate::pka) - Public Key Accelerator
 
-// Re-export most types from AES since they're identical
+// Re-export cipher types from AES (WBA) or the shared crypto module (N6).
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
+#[cfg(aes_v3b)]
 pub use crate::aes::{
+    AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, Cipher, CipherAuthenticated, CipherSized, Context, Direction, Error,
+    IVSized, KeySize,
+};
+#[cfg(all(saes_n6, not(aes_v3b)))]
+pub use crate::crypto::{
     AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, Cipher, CipherAuthenticated, CipherSized, Context, Direction, Error,
     IVSized, KeySize,
 };
@@ -114,6 +120,95 @@ use crate::mode::{Async, Blocking, Mode};
 use crate::{interrupt, pac, peripherals, rcc};
 
 static SAES_WAKER: AtomicWaker = AtomicWaker::new();
+
+#[inline]
+fn set_chmod(p: pac::saes::Saes, bits: u8) {
+    p.cr().modify(|w| {
+        #[cfg(not(saes_n6))]
+        w.set_chmod(pac::saes::vals::Chmod::from_bits(bits));
+        #[cfg(saes_n6)]
+        {
+            w.set_chmod(bits & 0x3);
+            w.set_chmod_1((bits >> 2) & 1 != 0);
+        }
+    });
+}
+
+#[inline]
+fn set_mode(p: pac::saes::Saes, mode: u8) {
+    p.cr().modify(|w| {
+        #[cfg(not(saes_n6))]
+        w.set_mode(pac::saes::vals::Mode::from_bits(mode));
+        #[cfg(saes_n6)]
+        w.set_mode(mode);
+    });
+}
+
+#[inline]
+fn set_datatype(p: pac::saes::Saes, datatype: u8) {
+    p.cr().modify(|w| {
+        #[cfg(not(saes_n6))]
+        w.set_datatype(pac::saes::vals::Datatype::from_bits(datatype));
+        #[cfg(saes_n6)]
+        w.set_datatype(datatype);
+    });
+}
+
+#[inline]
+fn set_keysize(p: pac::saes::Saes, keysize: KeySize) {
+    p.cr().modify(|w| {
+        #[cfg(not(saes_n6))]
+        {
+            let val = match keysize {
+                KeySize::Bits128 => pac::saes::vals::Keysize::Bits128,
+                KeySize::Bits256 => pac::saes::vals::Keysize::Bits256,
+            };
+            w.set_keysize(val);
+        }
+        #[cfg(saes_n6)]
+        w.set_keysize(keysize == KeySize::Bits256);
+    });
+}
+
+#[inline]
+fn set_kmod(p: pac::saes::Saes, key_mode: KeyMode) {
+    p.cr().modify(|w| {
+        #[cfg(not(saes_n6))]
+        w.set_kmod(pac::saes::vals::Kmod::from_bits(key_mode as u8));
+        #[cfg(saes_n6)]
+        w.set_kmod(key_mode as u8);
+    });
+}
+
+#[inline]
+fn set_gcmph(p: pac::saes::Saes, phase: u8) {
+    p.cr().modify(|w| {
+        #[cfg(not(saes_n6))]
+        w.set_gcmph(pac::saes::vals::Gcmph::from_bits(phase));
+        #[cfg(saes_n6)]
+        w.set_gcmph(phase);
+    });
+}
+
+#[inline]
+fn set_keysel(p: pac::saes::Saes, hw_key_src: HardwareKeySource) {
+    p.cr().modify(|w| {
+        #[cfg(not(saes_n6))]
+        w.set_keysel(pac::saes::vals::Keysel::from_bits(hw_key_src as u8));
+        #[cfg(saes_n6)]
+        w.set_keysel(hw_key_src as u8);
+    });
+}
+
+#[inline]
+fn set_kshareid(p: pac::saes::Saes, target: KeyShareTarget) {
+    p.cr().modify(|w| {
+        #[cfg(not(saes_n6))]
+        w.set_kshareid(pac::saes::vals::Kshareid::from_bits(target as u8));
+        #[cfg(saes_n6)]
+        w.set_kshareid(target as u8);
+    });
+}
 
 /// SAES interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -359,16 +454,11 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         p.icr().write(|w| w.0 = 0xFFFF_FFFF);
 
         // Configure data type based on cipher mode (NO_SWAP, BYTE_SWAP, or BIT_SWAP)
-        p.cr()
-            .modify(|w| w.set_datatype(pac::saes::vals::Datatype::from_bits(cipher.datatype())));
+        set_datatype(p, cipher.datatype());
 
         // Configure key size
         let keysize = cipher.key_size();
-        let keysize_val = match keysize {
-            KeySize::Bits128 => pac::saes::vals::Keysize::Bits128,
-            KeySize::Bits256 => pac::saes::vals::Keysize::Bits256,
-        };
-        p.cr().modify(|w| w.set_keysize(keysize_val));
+        set_keysize(p, keysize);
         // Changing KEYSIZE may trigger a new RNG mask fetch (BUSY=1) inside SAES,
         // particularly when switching from 128-bit to 256-bit, which needs a larger mask.
         while p.sr().read().busy() {}
@@ -378,25 +468,19 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         let is_gcm_ccm = cipher.uses_gcm_phases();
 
         // Set direction
-        let mode_val = match dir {
-            Direction::Encrypt => pac::saes::vals::Mode::Encryption,
-            Direction::Decrypt => pac::saes::vals::Mode::Decryption,
-        };
-        p.cr().modify(|w| w.set_mode(mode_val));
+        set_mode(p, dir as u8);
 
         // Set key mode
-        let kmod_val = pac::saes::vals::Kmod::from_bits(key_mode as u8);
-        p.cr().modify(|w| w.set_kmod(kmod_val));
+        set_kmod(p, key_mode);
 
         // For GCM/CCM (authenticated) modes, set GCMPH=0 (init phase) BEFORE loading the key.
         if is_gcm_ccm {
-            p.cr().modify(|w| w.set_gcmph(pac::saes::vals::Gcmph::from_bits(0)));
+            set_gcmph(p, 0);
         }
 
         // Configure and load the key (after GCMPH is set).
         if let Some(hw_key_src) = hw_key {
-            let keysel_val = pac::saes::vals::Keysel::from_bits(hw_key_src as u8);
-            p.cr().modify(|w| w.set_keysel(keysel_val));
+            set_keysel(p, hw_key_src);
             p.cr().modify(|w| w.set_keyprot(true));
             // For hardware keys (non-SW), SAES fetches the key autonomously: wait for KEYVALID.
             while !p.sr().read().keyvalid() {}
@@ -412,14 +496,14 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         // CTR, GCM, and CCM use the encryption key schedule in both directions - no derivation.
         let needs_key_derivation = dir == Direction::Decrypt && matches!(cipher.chmod_bits(), 0 | 1);
         if needs_key_derivation {
-            p.cr().modify(|w| w.set_mode(pac::saes::vals::Mode::KeyDerivation));
+            set_mode(p, 1);
             p.cr().modify(|w| w.set_en(true));
             // Wait for CCF (computation complete), not BUSY
             while !p.isr().read().ccf() {}
             // Clear CCF via ICR
             p.icr().write(|w| w.0 = 0xFFFF_FFFF);
             // Restore decrypt mode for the actual operation
-            p.cr().modify(|w| w.set_mode(mode_val));
+            set_mode(p, dir as u8);
         }
 
         // Load IV
@@ -461,11 +545,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
     /// Share the current unwrapped key with another peripheral.
     /// This must be called after a decryption operation that unwrapped a key.
     pub fn share_key_with(&mut self, target: KeyShareTarget) {
-        let p = T::regs();
-        let kshareid_val = match target {
-            KeyShareTarget::AES => pac::saes::vals::Kshareid::Aes,
-        };
-        p.cr().modify(|w| w.set_kshareid(kshareid_val));
+        set_kshareid(T::regs(), target);
     }
 
     /// Set cipher mode for SAES peripheral using the cipher's CHMOD bits.
@@ -473,11 +553,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
     where
         C: Cipher<'c>,
     {
-        // Use the cipher's canonical CHMOD value (0=ECB, 1=CBC, 2=CTR, 3=GCM/GMAC, 4=CCM).
-        // Inferring mode from IV length is unreliable: GCM, CBC, and CTR all use 16-byte IVs
-        // after AesGcm::new() pads the 12-byte nonce to 16 bytes.
-        p.cr()
-            .modify(|w| w.set_chmod(pac::saes::vals::Chmod::from_bits(cipher.chmod_bits())));
+        set_chmod(p, cipher.chmod_bits());
     }
 
     /// Process authenticated additional data (AAD) for GCM/CCM modes.
@@ -494,7 +570,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
 
         // Set GCM phase to header (phase 1), then re-enable.
         // After the init phase SAES auto-clears EN, so we must set EN=1 here.
-        p.cr().modify(|w| w.set_gcmph(pac::saes::vals::Gcmph::from_bits(1)));
+        set_gcmph(p, 1);
         p.cr().modify(|w| w.set_en(true));
 
         let mut aad_remaining = aad.len();
@@ -582,7 +658,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
             if !ctx.header_processed {
                 ctx.header_processed = true;
             }
-            p.cr().modify(|w| w.set_gcmph(pac::saes::vals::Gcmph::from_bits(2)));
+            set_gcmph(p, 2);
             p.cr().modify(|w| w.set_npblb(0));
             p.cr().modify(|w| w.set_en(true));
         }
@@ -656,7 +732,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
             while p.sr().read().busy() {}
 
             // Set GCM phase to final (phase 3)
-            p.cr().modify(|w| w.set_gcmph(pac::saes::vals::Gcmph::from_bits(3)));
+            set_gcmph(p, 3);
 
             // Write lengths (in bits) as final block
             let header_bits = (ctx.header_len * 8) as u64;
@@ -728,7 +804,12 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         let p = T::regs();
 
         // Check for write error before starting
+        #[cfg(not(saes_n6))]
         if p.sr().read().wrerr() {
+            return Err(Error::WriteError);
+        }
+        #[cfg(saes_n6)]
+        if p.sr().read().wrerrf() {
             return Err(Error::WriteError);
         }
 

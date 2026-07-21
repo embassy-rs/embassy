@@ -246,6 +246,11 @@ impl<'d, T: Instance, F: Filter> Mdf<'d, T, F> {
             w.set_cicmod(v::Cicmod::from_bits(Cicmod::Sinc5.to_bits()));
             #[cfg(not(mdf_n6))]
             w.set_mcicd(config.filter.cic_decimation);
+            #[cfg(mdf_n6)]
+            {
+                w.set_mcicd(config.filter.cic_decimation as u8);
+                w.set_mcicd8(config.filter.cic_decimation > 0xFF);
+            }
             w.set_scale(config.filter.scale);
         });
         regs.dfltrsfr(index).modify(|w| {

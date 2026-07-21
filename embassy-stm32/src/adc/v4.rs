@@ -8,6 +8,8 @@ use pac::adc::vals::{Adcaldif, Boost};
 use pac::adc::vals::{Adstp, Dmngt, Exten, Pcsel};
 #[cfg(not(any(stm32u3, stm32n6)))]
 use pac::adccommon::vals::Presc;
+#[cfg(stm32n6)]
+pub use pac::adccommon::vals::{Damdf, Dual};
 
 #[cfg(any(stm32u5, stm32u3, stm32n6))]
 use crate::adc::DefaultInstance;
@@ -108,6 +110,15 @@ fn from_ker_ck(frequency: Hertz) -> Presc {
 pub struct AdcConfig {
     pub resolution: Option<Resolution>,
     pub averaging: Option<Averaging>,
+    /// Dual-ADC mode for ADC1/ADC2 via `ADC12_COMMON` (N6 only).
+    #[cfg(stm32n6)]
+    pub dual_mode: Option<Dual>,
+    /// Dual-mode data format in `ADC12_COMMON` (N6 only).
+    #[cfg(stm32n6)]
+    pub damdf: Option<Damdf>,
+    /// Delay between dual-ADC sampling phases (N6 only).
+    #[cfg(stm32n6)]
+    pub dual_delay: Option<u8>,
 }
 
 impl AdcRegs for crate::pac::adc::Adc {
@@ -179,17 +190,31 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         let mut smpr1 = self.smpr(0).read();
         let mut smpr2 = self.smpr(1).read();
+        #[cfg(not(stm32u3))]
+        let mut difsel = self.difsel().read();
 
         // Set sequence length
         sqr1.set_l(sequence.len() as u8 - 1);
 
         // Configure channels and ranks
-        for (i, ((channel, _), sample_time)) in sequence.enumerate() {
+        for (i, ((channel, is_differential), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.into();
             if channel <= 9 {
                 smpr1.set_smp(channel as _, sample_time);
             } else {
                 smpr2.set_smp((channel - 10) as _, sample_time);
+            }
+
+            #[cfg(not(stm32u3))]
+            {
+                difsel.set_difsel(
+                    channel as _,
+                    if is_differential {
+                        Difsel::Differential
+                    } else {
+                        Difsel::SingleEnded
+                    },
+                );
             }
 
             #[cfg(any(stm32h7, stm32u5, stm32u3, stm32n6))]
@@ -221,6 +246,8 @@ impl AdcRegs for crate::pac::adc::Adc {
         self.sqr4().write_value(sqr4);
         self.smpr(0).write_value(smpr1);
         self.smpr(1).write_value(smpr2);
+        #[cfg(not(stm32u3))]
+        self.difsel().write_value(difsel);
     }
 }
 
@@ -232,6 +259,19 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         if let Some(resolution) = config.resolution {
             T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
         }
+
+        #[cfg(stm32n6)]
+        T::common_regs().ccr().modify(|reg| {
+            if let Some(dual) = config.dual_mode {
+                reg.set_dual(dual);
+            }
+            if let Some(damdf) = config.damdf {
+                reg.set_damdf(damdf);
+            }
+            if let Some(delay) = config.dual_delay {
+                reg.set_delay(delay);
+            }
+        });
 
         // Set hardware averaging.
         if let Some(averaging) = config.averaging {
@@ -413,8 +453,11 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
+    ///
+    /// On STM32N6 there is no ADC-connected temperature sensor; use the
+    /// [`crate::dts`] driver instead.
+    #[cfg(not(stm32n6))]
     pub fn enable_temperature(&mut self) -> Temperature {
-        #[cfg(not(stm32n6))]
         T::common_regs().ccr().modify(|reg| {
             reg.set_vsenseen(true);
         });

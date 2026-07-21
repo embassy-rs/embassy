@@ -377,9 +377,18 @@ fn main() {
     let time_driver_irq_decl = if !time_driver_singleton.is_empty() {
         cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
 
-        let Some((p, _)) = peripheral_map.get(time_driver_singleton) else {
+        let Some((p, regs)) = peripheral_map.get(time_driver_singleton) else {
             panic!("Tried to select {time_driver_singleton}, which is not available on this device");
         };
+
+        if regs.kind == "lptim" && regs.version == "n6" {
+            panic!(
+                "{time_driver_singleton} does not support use as a time driver on this chip yet: N6's LPTIM \
+                 register layout (split isr_output/dier_output/icr_output registers) and RCC clock-mux \
+                 selection are not yet implemented for the time driver. Select a TIM-based time driver \
+                 (e.g. time-driver-any) instead."
+            );
+        }
         let irqs: BTreeSet<_> = p
             .interrupts
             .iter()
@@ -1753,10 +1762,6 @@ fn main() {
         let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
         let mut seen_lcd_seg_pins = HashSet::new();
 
-        if regs.version == "n6" && (regs.kind == "lptim" || regs.kind == "sai") {
-            continue;
-        }
-
         if let Some(peri) = p.name.strip_prefix("SPI")
             && peripheral_map.contains_key(format!("I2S{}", peri).as_str())
         {
@@ -2035,7 +2040,7 @@ fn main() {
                 }
             }
 
-            if regs.kind == "spdifrx" && regs.version != "n6" {
+            if regs.kind == "spdifrx" {
                 let peri = format_ident!("{}", p.name);
                 let pin_name = format_ident!("{}", pin.pin);
                 let af = pin.af.unwrap_or(0);
@@ -2168,10 +2173,6 @@ fn main() {
 
     for (p, regs) in &peripheral_list {
         if regs.kind == "adc" && (regs.version == "f3v3" || regs.version == "wb1") {
-            continue;
-        }
-
-        if regs.version == "n6" && (regs.kind == "lptim" || regs.kind == "sai") {
             continue;
         }
 
@@ -2398,6 +2399,12 @@ fn main() {
             let sname = format_ident!("{}", irq.signal);
             pt.extend(quote!(pub type #sname = crate::interrupt::typelevel::#iname;));
         }
+        if let Some(regs) = &p.registers {
+            if regs.kind == "spdifrx" && p.interrupts.is_empty() {
+                let iname = format_ident!("{}", p.name);
+                pt.extend(quote!(pub type GLOBAL = crate::interrupt::typelevel::#iname;));
+            }
+        }
 
         let pname = format_ident!("{}", p.name);
         mt.extend(quote!(pub mod #pname { #pt }));
@@ -2509,6 +2516,15 @@ fn main() {
                 irq.interrupt.to_ascii_uppercase(),
             ];
             interrupts_table.push(row)
+        }
+        if regs.kind == "spdifrx" && p.interrupts.is_empty() {
+            interrupts_table.push(vec![
+                p.name.to_string(),
+                regs.kind.to_string(),
+                regs.block.to_string(),
+                "GLOBAL".to_string(),
+                p.name.to_string(),
+            ]);
         }
 
         let row = vec![regs.kind.to_string(), p.name.to_string()];
