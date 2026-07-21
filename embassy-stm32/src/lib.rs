@@ -151,11 +151,7 @@ pub mod hspi;
 pub mod i2c;
 #[cfg(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))]
 pub mod i2s;
-// Restricted to N6: the generic `i3c` cfg also covers other chips (e.g. H5)
-// whose I3C instances aren't all wired up with complete RCC metadata (some
-// lack an enable/reset bit entirely in the PAC data), which this
-// register-access-only driver hasn't been written or tested against.
-#[cfg(all(i3c, stm32n6))]
+#[cfg(all(i3c, any(stm32n6, stm32h5, stm32u3)))]
 pub mod i3c;
 #[cfg(icache)]
 pub mod icache;

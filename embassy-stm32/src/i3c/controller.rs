@@ -1,4 +1,4 @@
-//! Blocking I3C controller driver for STM32N6.
+//! Blocking I3C controller driver for STM32N6, STM32H5, and STM32U3.
 
 use core::marker::PhantomData;
 
@@ -15,6 +15,7 @@ use super::{
 use crate::gpio::Flex;
 use crate::mode::Blocking;
 use crate::pac::i3c::regs::Cr;
+use crate::pac::i3c::vals::{Crinit, Mend, Thres};
 use crate::rcc;
 
 /// I3C controller in blocking mode.
@@ -322,7 +323,7 @@ fn init_controller(info: &Info, config: Config) {
     let c = config.controller;
 
     regs.cfgr().modify(|w| w.set_en(false));
-    regs.cfgr().modify(|w| w.set_crinit(true));
+    regs.cfgr().modify(|w| w.set_crinit(Crinit::Controller));
 
     regs.timingr0().write(|w| {
         w.set_scll_pp(t.scl_pp_low);
@@ -349,10 +350,10 @@ fn init_controller(info: &Info, config: Config) {
     regs.cfgr().modify(|w| {
         w.set_hksdaen(c.high_keeper_sda);
         w.set_hjack(c.hot_join_allowed);
-        w.set_rxthres(false);
-        w.set_txthres(false);
+        w.set_rxthres(Thres::Byte);
+        w.set_txthres(Thres::Byte);
         w.set_tmode(false);
-        w.set_smode(false);
+        w.set_rmode(false);
     });
 
     if c.dynamic_addr != 0 {
@@ -404,7 +405,11 @@ fn write_ccc_cr(regs: crate::pac::i3c::I3c, ccc: u8, end: u32) {
         w.set_dcnt(0);
         w.set_ccc(ccc);
         w.set_mtype((MTYPE_CCC >> 27) as u8);
-        w.set_mend(end == GENERATE_STOP);
+        w.set_mend(if end == GENERATE_STOP {
+            Mend::Stop
+        } else {
+            Mend::RepeatedStart
+        });
     });
 }
 

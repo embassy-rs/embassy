@@ -1,8 +1,9 @@
 //! Improved inter-integrated circuit (I3C)
 //!
-//! STM32N6 I3C1/I3C2 controller driver. Based on the STM32N6 HAL I3C driver
-//! (`stm32n6xx_hal_i3c`). Supports blocking controller operations: direct CCC,
-//! private transfers, broadcast CCC, and dynamic address assignment (ENTDAA).
+//! I3C controller driver for STM32N6, STM32H5, and STM32U3. Originally based on the
+//! STM32N6 HAL I3C driver (`stm32n6xx_hal_i3c`). Supports blocking controller
+//! operations: direct CCC, private transfers, broadcast CCC, and dynamic address
+//! assignment (ENTDAA).
 
 mod config;
 pub mod controller;
