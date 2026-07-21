@@ -1087,7 +1087,7 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
         Resolution::Bits12 => (1 << 12) - 1,
         Resolution::Bits10 => (1 << 10) - 1,
         Resolution::Bits8 => (1 << 8) - 1,
-        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3v1, adc_f3v2, adc_h5))]
+        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3v1, adc_f3v2, adc_h5, adc_n6))]
         Resolution::Bits6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),

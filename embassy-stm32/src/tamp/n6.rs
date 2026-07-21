@@ -1,15 +1,12 @@
-//! H5-specific internal tamper field access.
+//! N6-specific internal tamper field access.
 //!
-//! Every other supported TAMP version exposes internal tampers through an
-//! indexed array accessor (`itampe(n)`, `itampf(n)`, ...). H5 instead exposes
-//! them as individually named bit fields (`itamp1e()`, `itamp2e()`, ...), with
-//! gaps at ITAMP10 and ITAMP14 (reserved, not physically present). This shims
-//! them behind the same 0-based index used everywhere else in this driver,
-//! where index `n` means ITAMP`(n + 1)`.
+//! Like H5, N6 exposes internal tampers as individually named bit fields
+//! (`itamp1e()`, `itamp2e()`, …) rather than an indexed array. Index `n`
+//! maps to ITAMP`(n + 1)` with a gap at index 9 (ITAMP10 is not present).
 
 use super::itamp_fields;
 
-pub const INTERNAL_TAMPERS: u8 = 15;
+pub const INTERNAL_TAMPERS: u8 = 11;
 
 itamp_fields! {
     0 => (itamp1e, set_itamp1e, itamp1ie, set_itamp1ie, itamp1f, itamp1mf, set_citamp1f),
@@ -22,7 +19,4 @@ itamp_fields! {
     7 => (itamp8e, set_itamp8e, itamp8ie, set_itamp8ie, itamp8f, itamp8mf, set_citamp8f),
     8 => (itamp9e, set_itamp9e, itamp9ie, set_itamp9ie, itamp9f, itamp9mf, set_citamp9f),
     10 => (itamp11e, set_itamp11e, itamp11ie, set_itamp11ie, itamp11f, itamp11mf, set_citamp11f),
-    11 => (itamp12e, set_itamp12e, itamp12ie, set_itamp12ie, itamp12f, itamp12mf, set_citamp12f),
-    12 => (itamp13e, set_itamp13e, itamp13ie, set_itamp13ie, itamp13f, itamp13mf, set_citamp13f),
-    14 => (itamp15e, set_itamp15e, itamp15ie, set_itamp15ie, itamp15f, itamp15mf, set_citamp15f),
 }

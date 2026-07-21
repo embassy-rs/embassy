@@ -10,6 +10,7 @@ use embassy_hal_internal::PeripheralType;
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gfxmmu::Gfxmmu as Regs;
+#[cfg(gfxmmu_v2)]
 use crate::pac::gfxmmu::vals::Bm192;
 use crate::{Peri, interrupt, rcc};
 
@@ -50,6 +51,10 @@ pub struct Config {
     /// Use 192 blocks per line instead of 256.
     pub block_mode_192: bool,
     /// Enable the cache unit.
+    ///
+    /// Not available on N6 (`gfxmmu_n6`): the block has no cache controller,
+    /// so this field doesn't exist for that variant.
+    #[cfg(gfxmmu_v2)]
     pub cache_enable: bool,
     /// Default 32-bit fill value for unmapped blocks.
     pub default_value: u32,
@@ -59,6 +64,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             block_mode_192: true,
+            #[cfg(gfxmmu_v2)]
             cache_enable: true,
             default_value: 0,
         }
@@ -98,15 +104,23 @@ impl<'d, T: Instance> Gfxmmu<'d, T> {
         let regs = T::regs();
         regs.dvr().write(|w| w.set_dv(config.default_value));
         regs.cr().modify(|w| {
-            w.set_bm(
-                0,
-                if config.block_mode_192 {
-                    Bm192::_192blocksPerLine
-                } else {
-                    Bm192::_256blocksPerLine
-                },
-            );
-            w.set_ce(config.cache_enable);
+            #[cfg(gfxmmu_v2)]
+            {
+                w.set_bm(
+                    0,
+                    if config.block_mode_192 {
+                        Bm192::_192blocksPerLine
+                    } else {
+                        Bm192::_256blocksPerLine
+                    },
+                );
+                w.set_ce(config.cache_enable);
+            }
+            #[cfg(gfxmmu_n6)]
+            {
+                w.set_bs(config.block_mode_192);
+                w.set_ate(true);
+            }
         });
 
         Self { _peri: peri }
@@ -165,6 +179,9 @@ impl<'d, T: Instance> Gfxmmu<'d, T> {
     }
 
     /// Flush the cache (blocks until complete).
+    ///
+    /// Not available on N6 (`gfxmmu_n6`): the block has no cache controller.
+    #[cfg(gfxmmu_v2)]
     pub fn flush_cache(&mut self) {
         let regs = T::regs();
         regs.ccr().modify(|w| w.set_ff(true));
@@ -172,6 +189,9 @@ impl<'d, T: Instance> Gfxmmu<'d, T> {
     }
 
     /// Invalidate the cache (blocks until complete).
+    ///
+    /// Not available on N6 (`gfxmmu_n6`): the block has no cache controller.
+    #[cfg(gfxmmu_v2)]
     pub fn invalidate_cache(&mut self) {
         let regs = T::regs();
         regs.ccr().modify(|w| w.set_fi(true));

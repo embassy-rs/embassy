@@ -3,16 +3,16 @@ mod prescaler;
 
 use embassy_hal_internal::Peri;
 
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 use super::channel::Channel;
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 mod channel_direction;
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 pub use channel_direction::ChannelDirection;
 use prescaler::Prescaler;
 
 use super::Instance;
-use crate::pac::lptim::vals::{Filter, Trigen};
+use crate::lptim::vals::{self, Filter, Trigen};
 use crate::rcc;
 use crate::time::Hertz;
 
@@ -60,8 +60,14 @@ impl<'d, T: Instance> Timer<'d, T> {
 
         let psc = Prescaler::from_ticks(pclk_ticks_per_timer_period);
         let arr = psc.scale_down(pclk_ticks_per_timer_period);
+        let presc = vals::Presc::from(&psc);
 
-        T::regs().cfgr().modify(|r| r.set_presc((&psc).into()));
+        T::regs().cfgr().modify(|r| {
+            #[cfg(not(lptim_n6))]
+            r.set_presc(presc);
+            #[cfg(lptim_n6)]
+            r.set_presc(presc.to_bits());
+        });
         T::regs().arr().modify(|r| r.set_arr(arr.into()));
     }
 
@@ -69,7 +75,17 @@ impl<'d, T: Instance> Timer<'d, T> {
     pub fn get_frequency(&self) -> Hertz {
         let pclk_f = T::frequency();
         let arr = T::regs().arr().read().arr();
-        let psc = Prescaler::from(T::regs().cfgr().read().presc());
+        let presc = {
+            #[cfg(not(lptim_n6))]
+            {
+                T::regs().cfgr().read().presc()
+            }
+            #[cfg(lptim_n6)]
+            {
+                vals::Presc::from_bits(T::regs().cfgr().read().presc())
+            }
+        };
+        let psc = Prescaler::from(presc);
 
         pclk_f / psc.scale_up(arr)
     }
@@ -92,12 +108,22 @@ impl<'d, T: Instance> Timer<'d, T> {
     /// Use [`Trigen::Software`] for software start. Any edge mode enables
     /// external trigger start.
     pub fn set_trigger_mode(&self, mode: Trigen) {
-        T::regs().cfgr().modify(|r| r.set_trigen(mode));
+        T::regs().cfgr().modify(|r| {
+            #[cfg(not(lptim_n6))]
+            r.set_trigen(mode);
+            #[cfg(lptim_n6)]
+            r.set_trigen(mode.to_bits());
+        });
     }
 
     /// Configure the digital filter applied to trigger input transitions.
     pub fn set_trigger_filter(&self, filter: Filter) {
-        T::regs().cfgr().modify(|r| r.set_trgflt(filter));
+        T::regs().cfgr().modify(|r| {
+            #[cfg(not(lptim_n6))]
+            r.set_trgflt(filter);
+            #[cfg(lptim_n6)]
+            r.set_trgflt(filter.to_bits());
+        });
     }
 
     /// Convenience helper to enable external trigger start with source, edge and filter.
@@ -113,10 +139,15 @@ impl<'d, T: Instance> Timer<'d, T> {
     }
 }
 
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 impl<'d, T: Instance> Timer<'d, T> {
     /// Enable/disable a channel.
     pub fn enable_channel(&self, channel: Channel, enable: bool) {
+        #[cfg(lptim_n6)]
+        T::regs().ccmr1().modify(|w| {
+            w.set_cce(channel.index(), enable);
+        });
+        #[cfg(not(lptim_n6))]
         T::regs().ccmr(0).modify(|w| {
             w.set_cce(channel.index(), enable);
         });
@@ -124,7 +155,14 @@ impl<'d, T: Instance> Timer<'d, T> {
 
     /// Get enable/disable state of a channel
     pub fn get_channel_enable_state(&self, channel: Channel) -> bool {
-        T::regs().ccmr(0).read().cce(channel.index())
+        #[cfg(lptim_n6)]
+        {
+            T::regs().ccmr1().read().cce(channel.index())
+        }
+        #[cfg(not(lptim_n6))]
+        {
+            T::regs().ccmr(0).read().cce(channel.index())
+        }
     }
 
     /// Set compare value for a channel.
@@ -138,40 +176,67 @@ impl<'d, T: Instance> Timer<'d, T> {
     }
 
     /// Set channel direction.
-    #[cfg(any(lptim_v2a, lptim_v2b))]
     pub fn set_channel_direction(&self, channel: Channel, direction: ChannelDirection) {
-        T::regs()
-            .ccmr(0)
-            .modify(|w| w.set_ccsel(channel.index(), direction.into()));
+        #[cfg(lptim_n6)]
+        T::regs().ccmr1().modify(|w| {
+            w.set_ccsel(channel.index(), direction.ccsel_bool());
+        });
+        #[cfg(not(lptim_n6))]
+        T::regs().ccmr(0).modify(|w| {
+            w.set_ccsel(channel.index(), direction.ccsel());
+        });
     }
 
     /// Enable the timer interrupt.
     pub fn enable_interrupt(&self) {
+        #[cfg(lptim_n6)]
+        T::regs().dier_output().modify(|w| w.set_arrmie(true));
+        #[cfg(not(lptim_n6))]
         T::regs().dier().modify(|w| w.set_arrmie(true));
     }
 
     /// Disable the timer interrupt.
     pub fn disable_interrupt(&self) {
+        #[cfg(lptim_n6)]
+        T::regs().dier_output().modify(|w| w.set_arrmie(false));
+        #[cfg(not(lptim_n6))]
         T::regs().dier().modify(|w| w.set_arrmie(false));
     }
 
     /// Check if the timer interrupt is enabled.
     pub fn is_interrupt_enabled(&self) -> bool {
-        T::regs().dier().read().arrmie()
+        #[cfg(lptim_n6)]
+        {
+            T::regs().dier_output().read().arrmie()
+        }
+        #[cfg(not(lptim_n6))]
+        {
+            T::regs().dier().read().arrmie()
+        }
     }
 
     /// Check if the timer interrupt is pending.
     pub fn is_interrupt_pending(&self) -> bool {
-        T::regs().isr().read().arrm()
+        #[cfg(lptim_n6)]
+        {
+            T::regs().isr_output().read().arrm()
+        }
+        #[cfg(not(lptim_n6))]
+        {
+            T::regs().isr().read().arrm()
+        }
     }
 
     /// Clear the timer interrupt.
     pub fn clear_interrupt(&self) {
+        #[cfg(lptim_n6)]
+        T::regs().icr_output().write(|w| w.set_arrmcf(true));
+        #[cfg(not(lptim_n6))]
         T::regs().icr().write(|w| w.set_arrmcf(true));
     }
 }
 
-#[cfg(not(any(lptim_v2a, lptim_v2b)))]
+#[cfg(not(any(lptim_v2a, lptim_v2b, lptim_n6)))]
 impl<'d, T: Instance> Timer<'d, T> {
     /// Set compare value for a channel.
     pub fn set_compare_value(&self, value: u16) {

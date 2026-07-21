@@ -10,7 +10,7 @@
 //! unlocked unconditionally during [`crate::init()`]. So, unlike most other
 //! peripherals, [`Tamp::new()`] does not call `rcc::enable_and_reset`.
 //!
-//! Supported on STM32G0, G4, H5, L5, U5, WBA and WL. The underlying register
+//! Supported on STM32G0, G4, H5, L5, U5, WBA, WL and N6. The underlying register
 //! layout differs meaningfully across these (channel/tamper counts, whether
 //! there's a monotonic counter, and — on H5 — internal tampers are exposed as
 //! individually named bit fields rather than an indexed array); those
@@ -31,6 +31,71 @@ use crate::{interrupt, pac};
 
 #[cfg(tamp_h5)]
 mod h5;
+#[cfg(tamp_n6)]
+mod n6;
+
+/// Generates the seven index-mapping functions used by chips that expose
+/// internal tampers as individually named bit fields (`itamp1e()`, `itamp2e()`,
+/// ...) instead of an indexed array accessor.
+///
+/// Indices not listed in the table fall through to the `_` arm: reads return
+/// `false`/no-op and writes are a no-op, per the `InternalTamper` contract
+/// ("indices that aren't physically present are simply inert").
+#[cfg(any(tamp_h5, tamp_n6))]
+macro_rules! itamp_fields {
+    ($( $idx:literal => ($e:ident, $set_e:ident, $ie:ident, $set_ie:ident, $f:ident, $mf:ident, $set_cf:ident) ),* $(,)?) => {
+        pub fn cr1_itampe(r: crate::pac::tamp::regs::Cr1, n: usize) -> bool {
+            match n {
+                $( $idx => r.$e(), )*
+                _ => false,
+            }
+        }
+
+        pub fn cr1_set_itampe(w: &mut crate::pac::tamp::regs::Cr1, n: usize, val: bool) {
+            match n {
+                $( $idx => w.$set_e(val), )*
+                _ => {}
+            }
+        }
+
+        pub fn ier_itampie(r: crate::pac::tamp::regs::Ier, n: usize) -> bool {
+            match n {
+                $( $idx => r.$ie(), )*
+                _ => false,
+            }
+        }
+
+        pub fn ier_set_itampie(w: &mut crate::pac::tamp::regs::Ier, n: usize, val: bool) {
+            match n {
+                $( $idx => w.$set_ie(val), )*
+                _ => {}
+            }
+        }
+
+        pub fn sr_itampf(r: crate::pac::tamp::regs::Sr, n: usize) -> bool {
+            match n {
+                $( $idx => r.$f(), )*
+                _ => false,
+            }
+        }
+
+        pub fn misr_itampmf(r: crate::pac::tamp::regs::Misr, n: usize) -> bool {
+            match n {
+                $( $idx => r.$mf(), )*
+                _ => false,
+            }
+        }
+
+        pub fn scr_set_citampf(w: &mut crate::pac::tamp::regs::Scr, n: usize, val: bool) {
+            match n {
+                $( $idx => w.$set_cf(val), )*
+                _ => {}
+            }
+        }
+    };
+}
+#[cfg(any(tamp_h5, tamp_n6))]
+pub(crate) use itamp_fields;
 
 // On several chips TAMP doesn't have its own NVIC line — its interrupt is
 // combined with RTC's (alarm/wakeup/LSE-CSS) on a shared vector. `bind_interrupts!`
@@ -45,7 +110,7 @@ type TampInterrupt = interrupt::typelevel::RTC_TAMP_LSECSS;
 type TampInterrupt = interrupt::typelevel::TAMP_STAMP_LSECSS_SSRU;
 #[cfg(all(tamp_wl, feature = "_core-cm0p"))]
 type TampInterrupt = interrupt::typelevel::RTC_LSECSS;
-#[cfg(any(tamp_h5, tamp_l5, tamp_u5, tamp_wba))]
+#[cfg(any(tamp_h5, tamp_l5, tamp_u5, tamp_wba, tamp_n6))]
 type TampInterrupt = interrupt::typelevel::TAMP;
 
 #[cfg(tamp_wba)]
@@ -58,6 +123,8 @@ const EXTERNAL_CHANNELS: u8 = 2;
 const EXTERNAL_CHANNELS: u8 = 3;
 #[cfg(tamp_h5)]
 const EXTERNAL_CHANNELS: u8 = 8;
+#[cfg(tamp_n6)]
+const EXTERNAL_CHANNELS: u8 = 7;
 #[cfg(tamp_l5)]
 const EXTERNAL_CHANNELS: u8 = 8;
 #[cfg(tamp_wl)]
@@ -71,12 +138,14 @@ const INTERNAL_TAMPERS: u8 = 6;
 const INTERNAL_TAMPERS: u8 = 8;
 #[cfg(tamp_h5)]
 const INTERNAL_TAMPERS: u8 = h5::INTERNAL_TAMPERS;
+#[cfg(tamp_n6)]
+const INTERNAL_TAMPERS: u8 = n6::INTERNAL_TAMPERS;
 
 #[cfg(tamp_g0)]
 const BACKUP_REGISTER_COUNT: usize = 5;
 #[cfg(tamp_wl)]
 const BACKUP_REGISTER_COUNT: usize = 20;
-#[cfg(any(tamp_u5, tamp_wba, tamp_g4, tamp_h5, tamp_l5))]
+#[cfg(any(tamp_u5, tamp_wba, tamp_g4, tamp_h5, tamp_l5, tamp_n6))]
 const BACKUP_REGISTER_COUNT: usize = 32;
 
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -90,7 +159,11 @@ fn cr1_itampe(r: Cr1, n: usize) -> bool {
     {
         h5::cr1_itampe(r, n)
     }
-    #[cfg(not(tamp_h5))]
+    #[cfg(tamp_n6)]
+    {
+        n6::cr1_itampe(r, n)
+    }
+    #[cfg(not(any(tamp_h5, tamp_n6)))]
     {
         r.itampe(n)
     }
@@ -101,7 +174,11 @@ fn cr1_set_itampe(w: &mut Cr1, n: usize, val: bool) {
     {
         h5::cr1_set_itampe(w, n, val);
     }
-    #[cfg(not(tamp_h5))]
+    #[cfg(tamp_n6)]
+    {
+        n6::cr1_set_itampe(w, n, val);
+    }
+    #[cfg(not(any(tamp_h5, tamp_n6)))]
     {
         w.set_itampe(n, val);
     }
@@ -112,7 +189,11 @@ fn ier_itampie(r: Ier, n: usize) -> bool {
     {
         h5::ier_itampie(r, n)
     }
-    #[cfg(not(tamp_h5))]
+    #[cfg(tamp_n6)]
+    {
+        n6::ier_itampie(r, n)
+    }
+    #[cfg(not(any(tamp_h5, tamp_n6)))]
     {
         r.itampie(n)
     }
@@ -123,7 +204,11 @@ fn ier_set_itampie(w: &mut Ier, n: usize, val: bool) {
     {
         h5::ier_set_itampie(w, n, val);
     }
-    #[cfg(not(tamp_h5))]
+    #[cfg(tamp_n6)]
+    {
+        n6::ier_set_itampie(w, n, val);
+    }
+    #[cfg(not(any(tamp_h5, tamp_n6)))]
     {
         w.set_itampie(n, val);
     }
@@ -134,7 +219,11 @@ fn sr_itampf(r: Sr, n: usize) -> bool {
     {
         h5::sr_itampf(r, n)
     }
-    #[cfg(not(tamp_h5))]
+    #[cfg(tamp_n6)]
+    {
+        n6::sr_itampf(r, n)
+    }
+    #[cfg(not(any(tamp_h5, tamp_n6)))]
     {
         r.itampf(n)
     }
@@ -145,7 +234,11 @@ fn misr_itampmf(r: Misr, n: usize) -> bool {
     {
         h5::misr_itampmf(r, n)
     }
-    #[cfg(not(tamp_h5))]
+    #[cfg(tamp_n6)]
+    {
+        n6::misr_itampmf(r, n)
+    }
+    #[cfg(not(any(tamp_h5, tamp_n6)))]
     {
         r.itampmf(n)
     }
@@ -156,7 +249,11 @@ fn scr_set_citampf(w: &mut Scr, n: usize, val: bool) {
     {
         h5::scr_set_citampf(w, n, val);
     }
-    #[cfg(not(tamp_h5))]
+    #[cfg(tamp_n6)]
+    {
+        n6::scr_set_citampf(w, n, val);
+    }
+    #[cfg(not(any(tamp_h5, tamp_n6)))]
     {
         w.set_citampf(n, val);
     }
@@ -167,7 +264,7 @@ fn set_tampflt(w: &mut Fltcr, filter: Filter) {
     {
         w.set_tampflt(pac::tamp::vals::Tampflt::from_bits(filter as u8));
     }
-    #[cfg(any(tamp_g0, tamp_g4, tamp_h5, tamp_l5))]
+    #[cfg(any(tamp_g0, tamp_g4, tamp_h5, tamp_l5, tamp_n6))]
     {
         w.set_tampflt(filter as u8);
     }
@@ -178,29 +275,29 @@ fn set_tamptrg(w: &mut pac::tamp::regs::Cr2, n: usize, trigger: Trigger) {
     {
         w.set_tamptrg(n, pac::tamp::vals::Tamptrg::from_bits(trigger as u8));
     }
-    #[cfg(any(tamp_g0, tamp_g4, tamp_h5, tamp_l5))]
+    #[cfg(any(tamp_g0, tamp_g4, tamp_h5, tamp_l5, tamp_n6))]
     {
         w.set_tamptrg(n, trigger as u8 != 0);
     }
 }
 
 fn read_bkpr(register: usize) -> u32 {
-    #[cfg(tamp_h5)]
+    #[cfg(any(tamp_h5, tamp_n6))]
     {
         regs().bkpr(register).read()
     }
-    #[cfg(not(tamp_h5))]
+    #[cfg(not(any(tamp_h5, tamp_n6)))]
     {
         regs().bkpr(register).read().bkp()
     }
 }
 
 fn write_bkpr(register: usize, value: u32) {
-    #[cfg(tamp_h5)]
+    #[cfg(any(tamp_h5, tamp_n6))]
     {
         regs().bkpr(register).write_value(value);
     }
-    #[cfg(not(tamp_h5))]
+    #[cfg(not(any(tamp_h5, tamp_n6)))]
     {
         regs().bkpr(register).write(|w| w.set_bkp(value));
     }
@@ -465,13 +562,13 @@ impl<'d> Tamp<'d> {
     ///
     /// Not available on G0/G4, which don't have this register — this method
     /// doesn't exist on those chips.
-    #[cfg(any(tamp_u5, tamp_wba, tamp_h5, tamp_l5, tamp_wl))]
+    #[cfg(any(tamp_u5, tamp_wba, tamp_h5, tamp_l5, tamp_wl, tamp_n6))]
     pub fn monotonic_counter(&self) -> u32 {
-        #[cfg(tamp_h5)]
+        #[cfg(any(tamp_h5, tamp_n6))]
         {
             regs().count1r().read()
         }
-        #[cfg(not(tamp_h5))]
+        #[cfg(not(any(tamp_h5, tamp_n6)))]
         {
             regs().countr().read().count()
         }
