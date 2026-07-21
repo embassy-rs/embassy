@@ -321,6 +321,18 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4};
 
             #[cfg(adc_h5)]
+            {
+                // RM0481
+                // DIFSEL:
+                //   The software is allowed to write these bits only when the ADC is disabled (ADCAL = 0,
+                //   JADSTART = 0, JADSTP = 0, ADSTART = 0, ADSTP = 0, ADDIS = 0 and ADEN = 0).
+                if self.cr().read().aden() {
+                    self.cr().modify(|reg| reg.set_addis(true));
+                    while self.cr().read().aden() {}
+                }
+            }
+
+            #[cfg(adc_h5)]
             let mut difsel = 0u32;
 
             let mut sqr1 = Sqr1::default();
@@ -441,6 +453,18 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 impl crate::adc::InjectedRegs for crate::pac::adc::Adc {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
         use crate::pac::adc::regs::Jsqr;
+
+        #[cfg(adc_h5)]
+        {
+            // RM0481
+            // DIFSEL:
+            //   The software is allowed to write these bits only when the ADC is disabled (ADCAL = 0,
+            //   JADSTART = 0, JADSTP = 0, ADSTART = 0, ADSTP = 0, ADDIS = 0 and ADEN = 0).
+            if self.cr().read().aden() {
+                self.cr().modify(|reg| reg.set_addis(true));
+                while self.cr().read().aden() {}
+            }
+        }
 
         let mut difsel = 0u32;
 
