@@ -197,7 +197,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         sqr1.set_l(sequence.len() as u8 - 1);
 
         // Configure channels and ranks
-        for (i, ((channel, is_differential), sample_time)) in sequence.enumerate() {
+        for (i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.into();
             if channel <= 9 {
                 smpr1.set_smp(channel as _, sample_time);
@@ -209,7 +209,7 @@ impl AdcRegs for crate::pac::adc::Adc {
             {
                 difsel.set_difsel(
                     channel as _,
-                    if is_differential {
+                    if _is_differential {
                         Difsel::Differential
                     } else {
                         Difsel::SingleEnded
