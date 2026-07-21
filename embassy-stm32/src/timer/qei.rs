@@ -8,8 +8,7 @@ use super::{GeneralInstance4Channel, TimerPin};
 use crate::Peri;
 use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, Pull};
-use crate::timer::CoreInstance;
-use crate::timer::TimerChannel;
+use crate::timer::{CoreInstance, TimerChannel};
 
 /// Qei driver config.
 ///
@@ -220,8 +219,8 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
     }
 
     /// Get count.
-    pub fn count(&self) -> T::Word {
-        self.inner.get_counter()
+    pub fn count(&self) -> u32 {
+        self.inner.get_counter().into()
     }
 
     /// Reset count.
