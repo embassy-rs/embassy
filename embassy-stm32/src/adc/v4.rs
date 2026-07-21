@@ -11,7 +11,7 @@ use pac::adccommon::vals::Presc;
 #[cfg(stm32n6)]
 pub use pac::adccommon::vals::{Damdf, Dual};
 
-#[cfg(any(stm32u5, stm32u3, stm32n6))]
+#[cfg(any(stm32u5, stm32u3, stm32n6, stm32c5))]
 use crate::adc::DefaultInstance;
 #[cfg(not(stm32n6))]
 use crate::adc::Temperature;
@@ -19,6 +19,7 @@ use crate::adc::Temperature;
 use crate::adc::Vbat;
 use crate::adc::{Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, VrefInt};
 use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4};
+#[cfg(not(stm32c5))]
 use crate::time::Hertz;
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
@@ -39,9 +40,6 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
 #[cfg(stm32n6)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(70);
-// No prescaler on C5, like U3; conservative placeholder pending datasheet confirmation.
-#[cfg(stm32c5)]
-const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
 
 #[cfg(stm32g4)]
 impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
@@ -93,6 +91,15 @@ impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
 #[cfg(stm32n6)]
 impl<T: DefaultInstance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 17;
+}
+
+#[cfg(stm32c5)]
+impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
+    const CHANNEL: u8 = 12;
+}
+#[cfg(stm32c5)]
+impl<T: DefaultInstance> super::ConverterFor<super::VrefInt> for T {
+    const CHANNEL: u8 = 13;
 }
 
 #[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
@@ -326,6 +333,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         info!("ADC frequency set to {}", frequency);
 
+        #[cfg(not(stm32c5))] // C5 checks this in its rcc
         if frequency > MAX_ADC_CLK_FREQ {
             panic!(
                 "Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.",
