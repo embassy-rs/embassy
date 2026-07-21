@@ -91,8 +91,7 @@ impl<'d> Handler for Control<'d> {
             && req.request == self.vendor_code
             && req.value == landing_value
             && req.index == WEB_USB_REQUEST_GET_URL
-        {
-            if let Some(url) = self.landing_url {
+            && let Some(url) = self.landing_url {
                 let url_bytes = url.as_bytes();
                 let len = url_bytes.len();
 
@@ -103,7 +102,6 @@ impl<'d> Handler for Control<'d> {
 
                 return Some(InResponse::Accepted(&self.ep_buf[..3 + len]));
             }
-        }
         None
     }
 }

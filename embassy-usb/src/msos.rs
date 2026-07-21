@@ -622,7 +622,7 @@ impl MinimumRecoveryTimeDescriptor {
     /// `resume_signaling_time` must be >= 1 and <= 20.
     pub fn new(resume_recovery_time: u8, resume_signaling_time: u8) -> Self {
         assert!(resume_recovery_time <= 10);
-        assert!(resume_signaling_time >= 1 && resume_signaling_time <= 20);
+        assert!((1..=20).contains(&resume_signaling_time));
         Self {
             wLength: (size_of::<Self>() as u16).to_le(),
             wDescriptorType: (Self::TYPE as u16).to_le(),

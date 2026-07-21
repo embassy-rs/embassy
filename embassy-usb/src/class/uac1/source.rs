@@ -239,7 +239,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
 
         // ALLOCATE the Isochronous IN Endpoint for Audio Data (AudioStream -> Host)
         let max_packet_size: u16 =
-            calculate_max_packet_size(*max_rate as u32, MAX_AUDIO_CHANNEL_COUNT as u8, sample_width as u8);
+            calculate_max_packet_size(*max_rate , MAX_AUDIO_CHANNEL_COUNT as u8, sample_width as u8);
         let audio_in_endpoint: <D as Driver<'d>>::EndpointIn = b.alloc_endpoint_in(
             EndpointType::Isochronous, // Endpoint type
             None,                      // Specific address (None lets the driver assign it, e.g., 0x81)
@@ -326,7 +326,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
         let ba_iface_nr = u8::from(iface_ctrl_num) + 1;
         {
             let mut alt_ctrl = iface_ctrl.alt_setting(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE, None);
-            Self::create_control_function(&mut alt_ctrl, ba_iface_nr.into(), terminal_type);
+            Self::create_control_function(&mut alt_ctrl, ba_iface_nr, terminal_type);
         }
         // Create Audio Source Interface (IF 1) - TWO Alternate Settings
         // Alternate Setting 1: ACTIVE with Isochronous IN Endpoint
@@ -388,7 +388,8 @@ impl AudioSourceControlHandler {
         iface_ctrl_num: InterfaceNumber,
         iface_stream_num: InterfaceNumber,
     ) -> Self {
-        let obj = AudioSourceControlHandler {
+        
+        AudioSourceControlHandler {
             current_volume: [0, 0, 0],
             current_mute: [0, 0, 0],
             current_sample_rate_index: 0, // Default to the first supported sample rate index
@@ -398,8 +399,7 @@ impl AudioSourceControlHandler {
             ep_feedback_addr,
             iface_ctrl_num,
             iface_stream_num,
-        };
-        obj
+        }
     }
 
     fn handle_control_in<'r>(&'r mut self, req: Request, data: &'r mut [u8]) -> Option<InResponse<'r>> {
@@ -496,29 +496,29 @@ impl AudioSourceControlHandler {
         );
 
         match req.request {
-            SET_CUR | SET_RES => match control_selector as u8 {
+            SET_CUR | SET_RES => match control_selector {
                 VOLUME_CONTROL if channel < 3 && data.len() >= 2 => {
                     self.current_volume[channel] = i16::from_le_bytes([data[0], data[1]]);
                     debug!(
                         "AudioSourceControlHandler: Volume set: ch{} = {} (raw)",
                         channel, self.current_volume[channel]
                     );
-                    return Some(OutResponse::Accepted);
+                    Some(OutResponse::Accepted)
                 }
-                MUTE_CONTROL if channel < 3 && data.len() >= 1 => {
+                MUTE_CONTROL if channel < 3 && !data.is_empty() => {
                     self.current_mute[channel] = data[0];
                     debug!(
                         "AudioSourceControlHandler: Mute set: ch{} = {}",
                         channel, self.current_mute[channel]
                     );
-                    return Some(OutResponse::Accepted);
+                    Some(OutResponse::Accepted)
                 }
                 _ => {
                     debug!(
                         "AudioSourceControlHandler: Unsupported control selector {:?}. Rejected!",
                         control_selector
                     );
-                    return Some(OutResponse::Rejected);
+                    Some(OutResponse::Rejected)
                 }
             },
             _ => {
@@ -526,7 +526,7 @@ impl AudioSourceControlHandler {
                     "AudioSourceControlHandler: Unsupported request {:#02X}. Rejected!",
                     req.request
                 );
-                return Some(OutResponse::Rejected);
+                Some(OutResponse::Rejected)
             }
         }
     }
@@ -568,7 +568,7 @@ impl AudioSourceControlHandler {
                 );
             }
         }
-        return Some(InResponse::Rejected);
+        Some(InResponse::Rejected)
     }
 
     fn handle_ep_out(&mut self, req: Request, buf: &[u8]) -> Option<OutResponse> {
@@ -590,7 +590,7 @@ impl AudioSourceControlHandler {
                         buf
                     );
 
-                    let rate = ((buf[0] as u32) | (buf[1] as u32) << 8 | (buf[2] as u32) << 16) as u32;
+                    let rate = (buf[0] as u32) | (buf[1] as u32) << 8 | (buf[2] as u32) << 16 ;
                     let current_rate = self.supported_sample_rates[self.current_sample_rate_index];
 
                     if rate == current_rate {

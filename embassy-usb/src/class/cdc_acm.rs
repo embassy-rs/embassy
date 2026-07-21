@@ -599,13 +599,13 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
         //
         // It's important that `start` and `end` be updated in this order so they're left in a
         // consistent state if the `read` future is dropped mid-execution, e.g. from a timeout.
-        match self.receiver.read_packet(&mut self.buffer).await {
+        match self.receiver.read_packet(self.buffer).await {
             Ok(n) => self.end = n,
             Err(EndpointError::BufferOverflow) => unreachable!(),
             Err(EndpointError::Disabled) => return Err(CdcAcmError::NotConnected),
         }
         self.start = 0;
-        return Ok(self.read_from_buffer(buf));
+        Ok(self.read_from_buffer(buf))
     }
 }
 

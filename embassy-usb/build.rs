@@ -59,8 +59,8 @@ fn main() {
             cfg.seen_env = true;
         }
 
-        if let Some(feature) = var.strip_prefix("CARGO_FEATURE_") {
-            if let Some(i) = feature.rfind('_') {
+        if let Some(feature) = var.strip_prefix("CARGO_FEATURE_")
+            && let Some(i) = feature.rfind('_') {
                 let name = &feature[..i];
                 let value = &feature[i + 1..];
                 if let Some(cfg) = configs.get_mut(name) {
@@ -81,7 +81,6 @@ fn main() {
                     }
                 }
             }
-        }
     }
 
     let mut data = String::new();
