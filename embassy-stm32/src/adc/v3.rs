@@ -13,9 +13,12 @@ use pac::adccommon::vals::Presc;
 
 #[allow(unused_imports)]
 use crate::adc::SealedAdcChannel;
-use crate::adc::{Adc, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt};
+use crate::adc::{Adc, Averaging, ConversionMode, InjectedRegs, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, Exten};
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
+
+mod injected;
+pub use injected::InjectedAdc;
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -25,6 +28,8 @@ pub const VREF_CALIB_MV: u32 = 3000;
 #[cfg(any(adc_h5, adc_h7rs))]
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
+
+pub const NR_INJECTED_RANKS: usize = 4;
 
 #[cfg(adc_g0)]
 /// The number of variants in Smpsel
@@ -424,6 +429,141 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
             #[cfg(adc_h5)]
             self.difsel().write(|w| w.set_difsel(difsel));
+        }
+    }
+}
+
+#[cfg(adc_h5)]
+impl InjectedRegs for crate::pac::adc::Adc {
+    fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
+        use crate::pac::adc::regs::Jsqr;
+
+        let mut difsel = 0u32;
+
+        let mut jsqr = Jsqr::default();
+
+        cfg_if! {
+            if #[cfg(any(adc_h5, adc_h7rs))] {
+                let mut smpr1 = self.smpr1().read();
+                let mut smpr2 = self.smpr2().read();
+            } else {
+                let mut smpr1 = self.smpr(0).read();
+                let mut smpr2 = self.smpr(1).read();
+            }
+        }
+
+        // Set sequence length
+        jsqr.set_jl(sequence.len() as u8 - 1);
+
+        // Configure channels and ranks
+        for (i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
+            // RM0492, RM0481, etc.
+            // OP0: Option bit 0
+            // For ADC1:
+            //   0: INP0/INN1 GPIO switch control disabled (for both ADC1 and ADC2)
+            //   1: INP0/INN1 GPIO switch control enabled (for both ADC1 and ADC2)
+            //   Note: This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected.
+            // For ADC2:
+            //   0: VDDCORE channel disabled (for both ADC2 and ADC3)
+            //   1: VDDCORE channel enabled (for both ADC2 and ADC3)
+            // For ADC3: (only available on STM32H543/553 devices)
+            //   0: INP0 GPIO switch control disabled
+            //   1: INP0 GPIO switch control enabled
+
+            #[cfg(adc_h5)]
+            if channel == 0 {
+                #[cfg(peri_adc2)]
+                let is_adc2 = self.as_ptr() == crate::pac::ADC2.as_ptr();
+
+                #[cfg(not(peri_adc2))]
+                let is_adc2 = false;
+
+                if is_adc2 {
+                    // when ADC2_INP0 should be enabled, set OP0 to 1 for ADC1
+                    crate::pac::ADC1.or().modify(|reg| reg.set_op0(true));
+                } else {
+                    // when ADC1_INP0 should be enabled, set OP0 to 1 for ADC1
+                    // when ADC3_INP0 should be enabled, set OP0 to 1 for ADC3
+                    self.or().modify(|reg| reg.set_op0(true));
+                }
+            }
+            #[cfg(adc_h7rs)]
+            if channel == 0 {
+                self.or().modify(|reg| reg.set_op0(true));
+            }
+
+            // Configure channel
+            match channel {
+                0..=9 => smpr1.set_smp(channel as usize % 10, sample_time.into()),
+                _ => smpr2.set_smp(channel as usize % 10, sample_time.into()),
+            }
+
+            #[cfg(stm32h7)]
+            {
+                use crate::pac::adc::vals::Pcsel;
+
+                self.cfgr2().modify(|w| w.set_lshift(0));
+                self.pcsel()
+                    .write(|w| w.set_pcsel(channel.channel() as _, Pcsel::PRESELECTED));
+            }
+
+            jsqr.set_jsq(i, channel);
+
+            #[cfg(adc_h5)]
+            {
+                difsel |= (_is_differential as u32) << channel;
+            }
+        }
+
+        self.jsqr().write_value(jsqr);
+
+        cfg_if! {
+            if #[cfg(any(adc_h5, adc_h7rs))] {
+                self.smpr1().write_value(smpr1);
+                self.smpr2().write_value(smpr2);
+            } else {
+                self.smpr(0).write_value(smpr1);
+                self.smpr(1).write_value(smpr2);
+            }
+        }
+
+        #[cfg(adc_h5)]
+        self.difsel().write(|w| w.set_difsel(difsel));
+    }
+
+    fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool) {
+        self.cfgr().modify(|reg| reg.set_jdiscen(false));
+
+        // Set external trigger for injected conversion sequence
+        self.jsqr().modify(|r| {
+            r.set_jextsel(trigger.0);
+            r.set_jexten(trigger.1);
+        });
+
+        // Enable end of injected sequence interrupt
+        self.ier().modify(|r| r.set_jeosie(interrupt));
+    }
+
+    fn start_injected(&self) {
+        self.cr().modify(|reg| {
+            reg.set_jadstart(true);
+        });
+    }
+
+    fn stop_injected(&self) {
+        if self.cr().read().adstart() && !self.cr().read().addis() {
+            self.cr().modify(|reg| {
+                reg.set_jadstp(true);
+            });
+            // The software must poll JADSTART until the bit is reset before assuming the
+            // ADC is completely stopped
+            while self.cr().read().jadstart() {}
+        }
+    }
+
+    fn read_injected(&self, data: &mut [u16]) {
+        for (i, d) in data.iter_mut().enumerate() {
+            *d = self.jdr(i).read().jdata();
         }
     }
 }

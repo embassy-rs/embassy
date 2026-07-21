@@ -157,7 +157,7 @@ trait AdcRegs: BasicAdcRegs {
     fn data(&self) -> *mut u16;
 }
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 trait InjectedRegs: AdcRegs {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
     fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool);
@@ -166,11 +166,11 @@ trait InjectedRegs: AdcRegs {
     fn read_injected(&self, data: &mut [u16]);
 }
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 #[allow(private_bounds)]
 pub trait InjectedAdcRegs: InjectedRegs {}
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 impl<T: InjectedRegs> InjectedAdcRegs for T {}
 
 #[allow(private_bounds)]
@@ -610,9 +610,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 }
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
-    #[cfg(any(adc_v2, adc_g4))]
+    #[cfg(any(adc_v2, adc_g4, adc_h5))]
     /// Configures the ADC for injected conversions.
     ///
     /// Injected conversions are separate from the regular conversion sequence and are typically
