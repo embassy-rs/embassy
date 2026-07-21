@@ -665,7 +665,7 @@ impl AudioSourceControlHandler {
     }
 }
 
-impl<'d> Handler for AudioSourceControlHandler {
+impl Handler for AudioSourceControlHandler {
     /// Called when the host has set the address of the device to `addr`.
     fn addressed(&mut self, addr: u8) {
         debug!("AudioSourceControlHandler: Host set address to: {:#02X}", addr);
