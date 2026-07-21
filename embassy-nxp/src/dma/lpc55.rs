@@ -3,7 +3,7 @@
 use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
 use critical_section::Mutex;
@@ -26,6 +26,7 @@ fn DMA0() {
         }
 
         if (inta & (1 << channel)) != 0 {
+            CHANNEL_IRQ_COUNTS[channel].fetch_add(1, Ordering::Relaxed);
             CHANNEL_WAKERS[channel].wake();
             DMA0.inta0().modify(|w| w.set_ia(1 << channel));
         }
@@ -248,6 +249,24 @@ impl<'a, C: Channel> Future for Transfer<'a, C> {
 pub(crate) const CHANNEL_COUNT: usize = 32;
 
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [const { AtomicWaker::new() }; CHANNEL_COUNT];
+static CHANNEL_IRQ_COUNTS: [AtomicU32; CHANNEL_COUNT] = [const { AtomicU32::new(0) }; CHANNEL_COUNT];
+
+/// Number of interrupt-A completions seen on `channel` since boot (wrapping).
+///
+/// For continuous linked/ping-pong descriptor chains programmed at the PAC
+/// level (with `SETINTA` on each descriptor), this counts completed
+/// descriptors and lets a consumer track the producer position without
+/// per-transfer interrupts.
+pub fn irq_count(channel: u8) -> u32 {
+    CHANNEL_IRQ_COUNTS[channel as usize].load(Ordering::Relaxed)
+}
+
+/// Waker woken on every interrupt-A completion of `channel`.
+///
+/// Companion to [`irq_count`]: register, then re-check the count.
+pub fn irq_waker(channel: u8) -> &'static AtomicWaker {
+    &CHANNEL_WAKERS[channel as usize]
+}
 
 // See section 22.5.2 (table 450)
 // UM11126, Rev. 2.8
