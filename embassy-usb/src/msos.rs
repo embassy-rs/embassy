@@ -93,7 +93,7 @@ impl<'d> MsOsDescriptorWriter<'d> {
     /// Write the MS OS descriptor set header.
     ///
     /// - `windows_version` is an NTDDI version constant that describes a windows version. See the [`windows_version`]
-    /// module.
+    ///   module.
     /// - `vendor_code` is the vendor request code used to read the MS OS descriptor set.
     pub fn header(&mut self, windows_version: u32, vendor_code: u8) {
         assert!(self.is_empty(), "You can only call MsOsDescriptorWriter::header once");
