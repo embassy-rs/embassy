@@ -113,7 +113,7 @@ macro_rules! impl_adc_pin {
     // pin => peripheral struct
     // channel => u8 channel number
     ($pin:ident, $channel:expr) => {
-        impl crate::adc::AdcPin for crate::peripherals::$pin {
+        impl<'d> crate::adc::AdcPin for crate::Peri<'d, crate::peripherals::$pin> {
             fn channel(&self) -> u8 {
                 $channel
             }
