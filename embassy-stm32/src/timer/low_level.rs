@@ -690,6 +690,11 @@ impl<'d, T: BasicInstance> Timer<'d, T> {
     pub fn regs_basic(&self) -> crate::pac::timer::TimBasic {
         unsafe { crate::pac::timer::TimBasic::from_ptr(T::regs()) }
     }
+
+    /// Set Timer Master Mode
+    pub fn set_master_mode(&self, mms: MasterMode) {
+        self.regs_basic().cr2().modify(|w| w.set_mms(mms));
+    }
 }
 
 impl<'d, T: GeneralInstance1Channel> Timer<'d, T> {
@@ -1193,11 +1198,6 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Set capture compare DMA enable state
     pub fn set_cc_dma_enable_state(&self, channel: Channel, ccde: bool) {
         self.regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
-    }
-
-    /// Set Timer Master Mode
-    pub fn set_master_mode(&self, mms: MasterMode) {
-        self.regs_gp16().cr2().modify(|w| w.set_mms(mms));
     }
 
     /// Set Timer Slave Mode
