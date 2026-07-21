@@ -14,12 +14,14 @@ use pac::adccommon::vals::Presc;
 #[allow(unused_imports)]
 use crate::adc::SealedAdcChannel;
 use crate::adc::{
-    Adc, Averaging, ConversionMode, Exten, InjectedRegs, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
+    Adc, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
 };
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
+#[cfg(adc_h5)]
 mod injected;
+#[cfg(adc_h5)]
 pub use injected::InjectedAdc;
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -436,7 +438,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 }
 
 #[cfg(adc_h5)]
-impl InjectedRegs for crate::pac::adc::Adc {
+impl crate::adc::InjectedRegs for crate::pac::adc::Adc {
     fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
         use crate::pac::adc::regs::Jsqr;
 
@@ -533,7 +535,7 @@ impl InjectedRegs for crate::pac::adc::Adc {
         self.difsel().write(|w| w.set_difsel(difsel));
     }
 
-    fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool) {
+    fn configure_injected_trigger(&self, trigger: (u8, crate::adc::Exten), interrupt: bool) {
         self.cfgr().modify(|reg| reg.set_jdiscen(false));
 
         // Set external trigger for injected conversion sequence
