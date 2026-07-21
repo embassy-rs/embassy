@@ -297,6 +297,7 @@ macro_rules! if_afio {
 ///
 /// Used to shim PAC `vals` enums on chips whose generated PAC blocks omit
 /// the `vals` module entirely (e.g. N6 lptim/sai).
+#[cfg(any(sai_n6, lptim_n6))]
 macro_rules! u8_enum {
     ($name:ident { $($variant:ident = $val:expr),* $(,)? }) => {
         #[repr(u8)]

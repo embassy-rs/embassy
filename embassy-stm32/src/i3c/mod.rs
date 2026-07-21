@@ -18,7 +18,9 @@ trait SealedInstance: RccPeripheral {
 /// I3C instance trait.
 #[allow(private_bounds)]
 pub trait Instance: PeripheralType + SealedInstance + 'static {
+    /// Event interrupt for this instance.
     type EventInterrupt: crate::interrupt::typelevel::Interrupt;
+    /// Error interrupt for this instance.
     type ErrorInterrupt: crate::interrupt::typelevel::Interrupt;
 }
 

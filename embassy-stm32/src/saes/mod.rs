@@ -111,8 +111,8 @@ pub use crate::aes::{
 };
 #[cfg(all(saes_n6, not(aes_v3b)))]
 pub use crate::crypto::{
-    AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, Cipher, CipherAuthenticated, CipherSized, Context, Direction, Error,
-    IVSized, KeySize,
+    AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, AesGmac, Cipher, CipherAuthenticated, CipherSized, Context, Direction,
+    Error, IVSized, KeySize,
 };
 use crate::dma::ChannelAndRequest;
 use crate::interrupt::typelevel::Interrupt;

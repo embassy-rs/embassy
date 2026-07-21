@@ -13,9 +13,9 @@ pub use pac::adccommon::vals::{Damdf, Dual};
 
 #[cfg(any(stm32u5, stm32u3, stm32n6))]
 use crate::adc::DefaultInstance;
-use crate::adc::{
-    Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
-};
+#[cfg(not(stm32n6))]
+use crate::adc::Temperature;
+use crate::adc::{Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, Vbat, VrefInt};
 use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::wait::block_for_us;

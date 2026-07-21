@@ -1,3 +1,4 @@
+#[cfg(not(lptim_n6))]
 use crate::lptim::vals::Ccsel;
 
 /// Direction of a low-power timer channel
@@ -9,6 +10,7 @@ pub enum ChannelDirection {
 }
 
 impl ChannelDirection {
+    #[cfg(not(lptim_n6))]
     pub(crate) fn ccsel(&self) -> Ccsel {
         match self {
             ChannelDirection::OutputPwm => Ccsel::OutputCompare,

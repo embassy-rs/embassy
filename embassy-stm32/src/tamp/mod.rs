@@ -41,6 +41,7 @@ mod n6;
 /// Indices not listed in the table fall through to the `_` arm: reads return
 /// `false`/no-op and writes are a no-op, per the `InternalTamper` contract
 /// ("indices that aren't physically present are simply inert").
+#[cfg(any(tamp_h5, tamp_n6))]
 macro_rules! itamp_fields {
     ($( $idx:literal => ($e:ident, $set_e:ident, $ie:ident, $set_ie:ident, $f:ident, $mf:ident, $set_cf:ident) ),* $(,)?) => {
         pub fn cr1_itampe(r: crate::pac::tamp::regs::Cr1, n: usize) -> bool {
@@ -93,6 +94,7 @@ macro_rules! itamp_fields {
         }
     };
 }
+#[cfg(any(tamp_h5, tamp_n6))]
 pub(crate) use itamp_fields;
 
 // On several chips TAMP doesn't have its own NVIC line — its interrupt is

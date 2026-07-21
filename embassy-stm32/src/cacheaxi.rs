@@ -17,8 +17,11 @@ fn regs() -> pac::cacheaxi::Cacheaxi {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ReadMonitor {
+    /// Count read hits only.
     Hit,
+    /// Count read misses only.
     Miss,
+    /// Count both read hits and misses.
     Both,
 }
 
@@ -36,8 +39,11 @@ impl ReadMonitor {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WriteMonitor {
+    /// Count write hits only.
     Hit,
+    /// Count write misses only.
     Miss,
+    /// Count both write hits and misses.
     Both,
 }
 

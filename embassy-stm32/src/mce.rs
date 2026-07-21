@@ -47,6 +47,7 @@ trait SealedInstance: RccPeripheral {
 /// MCE instance trait.
 #[allow(private_bounds)]
 pub trait Instance: PeripheralType + SealedInstance + 'static {
+    /// Global interrupt for this instance.
     type GlobalInterrupt: interrupt::typelevel::Interrupt;
 }
 
