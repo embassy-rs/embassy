@@ -7,6 +7,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::dac::DacChannel;
 use embassy_stm32::peripherals::GPDMA1_CH0;
 use embassy_stm32::rcc::{LsConfig, mux};
+use embassy_stm32::timer;
 use embassy_stm32::timer::low_level::RoundTo::Faster;
 use embassy_stm32::triggers::TIM6_TRGO;
 use embassy_stm32::{Config, bind_interrupts, dma, pac};
@@ -21,7 +22,7 @@ async fn main(_spawner: Spawner) {
     info!("Device has started");
     let mut config = Config::default();
 
-    // turns on internal LSI(needed for DAC sync)
+    // turns on internal LSI, needed for DAC sync, this is a low power (optional) feature to operate in sample and hold mode
     config.rcc.ls = LsConfig::default_lsi();
     // changing the mux to point to our clock(LSI)
     config.rcc.mux.dac1sel = mux::Dacsel::Lsi;
@@ -35,13 +36,22 @@ async fn main(_spawner: Spawner) {
     embassy_stm32::rcc::enable_and_reset::<embassy_stm32::peripherals::TIM6>();
 
     // The timer is needed such that the DMA knows when to "fire"
-    let timer = embassy_stm32::timer::low_level::Timer::new(p.TIM6);
+    // DMA is demand-pulled by the peripheral, but the DAC does not have a native "demand", that's
+    // why we need the TRGO trigger event
+    let timer = timer::low_level::Timer::new(p.TIM6);
+
+    // Hertz value chosen randomly
     timer.set_frequency(embassy_stm32::time::Hertz(10000), Faster);
 
     // DAC listens to MMS
-    pac::TIM6
-        .cr2()
-        .modify(|w| w.set_mms(embassy_stm32::pac::timer::vals::Mms::Update));
+    /*
+        timer
+            .regs_basic()
+            .cr2()
+            .modify(|w| w.set_mms(pac::timer::vals::Mms::Update));
+
+    */
+    timer.set_master_mode(pac::timer::vals::Mms::Update);
 
     timer.start();
 
