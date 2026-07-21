@@ -6,10 +6,12 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::dac::DacChannel;
 use embassy_stm32::peripherals::GPDMA1_CH0;
-use embassy_stm32::rcc::{LsConfig, mux};
+use embassy_stm32::rcc::{LsConfig, enable_and_reset, mux};
+use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::RoundTo::Faster;
+use embassy_stm32::timer::low_level::{MasterMode, Timer};
 use embassy_stm32::triggers::TIM6_TRGO;
-use embassy_stm32::{Config, bind_interrupts, dma, pac, timer};
+use embassy_stm32::{Config, bind_interrupts, dma};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -32,25 +34,18 @@ async fn main(_spawner: Spawner) {
     // Any timer that supports the hardware TRGO can be selected here
     let mut dac = DacChannel::new_triggered(p.DAC1, p.GPDMA1_CH0, TIM6_TRGO, Irqs, p.PA4);
 
-    embassy_stm32::rcc::enable_and_reset::<embassy_stm32::peripherals::TIM6>();
+    enable_and_reset::<embassy_stm32::peripherals::TIM6>();
 
     // The timer is needed such that the DMA knows when to "fire"
     // DMA is demand-pulled by the peripheral, but the DAC does not have a native "demand", that's
     // why we need the TRGO trigger event
-    let timer = timer::low_level::Timer::new(p.TIM6);
+    let timer = Timer::new(p.TIM6);
 
     // Hertz value chosen randomly
-    timer.set_frequency(embassy_stm32::time::Hertz(10000), Faster);
+    timer.set_frequency(Hertz(10000), Faster);
 
     // DAC listens to MMS
-    /*
-        timer
-            .regs_basic()
-            .cr2()
-            .modify(|w| w.set_mms(pac::timer::vals::Mms::Update));
-
-    */
-    timer.set_master_mode(pac::timer::vals::Mms::Update);
+    timer.set_master_mode(MasterMode::Update);
 
     timer.start();
 
