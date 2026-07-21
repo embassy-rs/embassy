@@ -7,10 +7,9 @@ use embassy_executor::Spawner;
 use embassy_stm32::dac::DacChannel;
 use embassy_stm32::peripherals::GPDMA1_CH0;
 use embassy_stm32::rcc::{LsConfig, mux};
-use embassy_stm32::timer;
 use embassy_stm32::timer::low_level::RoundTo::Faster;
 use embassy_stm32::triggers::TIM6_TRGO;
-use embassy_stm32::{Config, bind_interrupts, dma, pac};
+use embassy_stm32::{Config, bind_interrupts, dma, pac, timer};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
