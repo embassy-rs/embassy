@@ -42,7 +42,7 @@ pub mod adc4;
 use embassy_hal_internal::drop::OnDrop;
 
 pub use crate::pac::adc::vals;
-#[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5))]
+#[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5, adc_h5))]
 pub use crate::pac::adc::vals::Exten;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
@@ -52,7 +52,7 @@ use crate::{peripherals, rcc};
 
 dma_trait!(RxDma, Instance);
 
-#[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5)))]
+#[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5, adc_h5)))]
 /// Trigger edge stub.
 pub struct Exten;
 

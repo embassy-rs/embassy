@@ -247,9 +247,9 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
             w.set_dmacfg(Dmacfg::Circular);
 
-            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
+            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_h5))]
             if let ConversionMode::Repeated(Some((signal, _edge))) = conversion_mode {
-                #[cfg(adc_g0)]
+                #[cfg(any(adc_g0, adc_h5))]
                 w.set_exten(_edge);
                 w.set_extsel(signal.into());
             }
