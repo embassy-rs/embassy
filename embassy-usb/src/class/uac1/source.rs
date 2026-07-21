@@ -1,5 +1,4 @@
 use core::marker::PhantomData;
-use core::usize;
 
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
@@ -115,10 +114,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
     ) {
         // USB Device Class Definition for Audio Devices
         // 4.3.2.1 Input Terminal Descriptor
-        let mut w_terminal_type: u16 = TerminalType::InMicrophone.into();
-        if terminal_type.is_some() {
-            w_terminal_type = terminal_type.unwrap().into();
-        }
+        let w_terminal_type: u16 = terminal_type.unwrap_or(TerminalType::InMicrophone).into();
 
         let channels_cfg: u16 = ChannelConfig::LeftFront as u16 | ChannelConfig::RightFront as u16;
         let input_terminal_descriptor: [u8; 10] = [
