@@ -248,8 +248,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         // =====================================================
         // Audio streaming interface, zero-bandwidth [UAC 4.5.1]
         let mut interface = func.interface();
-        let alt = interface.alt_setting(USB_AUDIO_CLASS, USB_AUDIOSTREAMING_SUBCLASS, PROTOCOL_NONE, None);
-        drop(alt);
+        let _alt = interface.alt_setting(USB_AUDIO_CLASS, USB_AUDIOSTREAMING_SUBCLASS, PROTOCOL_NONE, None);
 
         // ==================================================
         // Audio streaming interface, operational [UAC 4.5.1]

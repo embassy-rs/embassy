@@ -331,8 +331,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
         let iface_stream_num = iface_stream.interface_number();
 
         // Alternate Setting 0 (INACTIVE - Zero Bandwidth)
-        let alt_setting = iface_stream.alt_setting(USB_AUDIO_CLASS, USB_AUDIOSTREAMING_SUBCLASS, PROTOCOL_NONE, None);
-        drop(alt_setting);
+        let _alt_setting = iface_stream.alt_setting(USB_AUDIO_CLASS, USB_AUDIOSTREAMING_SUBCLASS, PROTOCOL_NONE, None);
 
         // Alternate Setting 1 (ACTIVE - With Endpoints)
         let mut alt_setting =
