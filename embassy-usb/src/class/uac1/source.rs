@@ -1,5 +1,3 @@
-use core::marker::PhantomData;
-
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::pubsub::{PubSubChannel, Publisher, Subscriber};
 use embassy_usb_driver::{EndpointAddress, EndpointIn, EndpointOut};
@@ -102,7 +100,12 @@ impl<'d, D: Driver<'d>> AudioSourceEpOut<'d, D> {
 
 /// Implementation of the Audio Source interface
 pub struct AudioSource<'d, D: Driver<'d>> {
-    phantom: PhantomData<&'d D>,
+    /// Audio In Enpoint
+    pub audio_ep_in: AudioSourceEpIn<'d, D>,
+    /// Feedback In Endpoint
+    pub feedback_ep_in: AudioSourceEpIn<'d, D>,
+    /// Control Handler
+    pub handler: AudioSourceControlHandler,
 }
 
 impl<'d, D: Driver<'d>> AudioSource<'d, D> {
@@ -308,11 +311,7 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
         sample_width: SampleWidth,
         fedback_refresh_period_ms: u8,
         terminal_type: Option<TerminalType>,
-    ) -> (
-        AudioSourceEpIn<'d, D>,
-        AudioSourceEpIn<'d, D>,
-        AudioSourceControlHandler,
-    ) {
+    ) -> Self {
         // Create the Audio Function (IAD groups IF0 & IF1)
         let mut func = b.function(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE);
 
@@ -347,17 +346,17 @@ impl<'d, D: Driver<'d>> AudioSource<'d, D> {
         let ep_audio_addr = ep_audio_in.info().addr;
         let ep_feedback_addr = ep_feedback_in.info().addr;
 
-        (
-            AudioSourceEpIn { ep: ep_audio_in },
-            AudioSourceEpIn { ep: ep_feedback_in },
-            AudioSourceControlHandler::new(
+        Self {
+            audio_ep_in: AudioSourceEpIn { ep: ep_audio_in },
+            feedback_ep_in: AudioSourceEpIn { ep: ep_feedback_in },
+            handler: AudioSourceControlHandler::new(
                 sample_rates,
                 ep_audio_addr,
                 ep_feedback_addr,
                 iface_ctrl_num,
                 iface_stream_num,
             ),
-        )
+        }
     }
 }
 

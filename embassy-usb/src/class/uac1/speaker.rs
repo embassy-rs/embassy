@@ -12,7 +12,6 @@
 
 use core::cell::{Cell, RefCell};
 use core::future::{Future, poll_fn};
-use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::task::Poll;
 
@@ -84,7 +83,12 @@ impl<'d> State<'d> {
 
 /// Implementation of the USB audio class 1.0.
 pub struct Speaker<'d, D: Driver<'d>> {
-    phantom: PhantomData<&'d D>,
+    /// Stream
+    pub stream: Stream<'d, D>,
+    /// Feedback
+    pub feedback: Feedback<'d, D>,
+    /// Control Monitor
+    pub control_monitor: ControlMonitor<'d>,
 }
 
 impl<'d, D: Driver<'d>> Speaker<'d, D> {
@@ -112,7 +116,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         sample_rates_hz: &[u32],
         channels: &'d [Channel],
         feedback_refresh_period: FeedbackRefresh,
-    ) -> (Stream<'d, D>, Feedback<'d, D>, ControlMonitor<'d>) {
+    ) -> Self {
         // The class and subclass fields of the IAD aren't required to match the class and subclass fields of
         // the interfaces in the interface collection that the IAD describes. Microsoft recommends that
         // the first interface of the collection has class and subclass fields that match the class and
@@ -325,11 +329,11 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 
         let control = &state.shared;
 
-        (
-            Stream { streaming_endpoint },
-            Feedback { feedback_endpoint },
-            ControlMonitor { shared: control },
-        )
+        Self {
+            stream: Stream { streaming_endpoint },
+            feedback: Feedback { feedback_endpoint },
+            control_monitor: ControlMonitor { shared: control },
+        }
     }
 }
 
