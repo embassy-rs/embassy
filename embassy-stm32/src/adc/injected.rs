@@ -26,14 +26,21 @@ impl<'d, R: InjectedAdcRegs> InjectedAdc<'d, R> {
         }
     }
 
+    /// Stops injected convention.
+    ///
+    /// Any ongoing injected conversion is aborted with partial result discarded.
     pub fn stop_injected_conversions(&mut self) {
         self.regs.stop_injected();
     }
 
+    /// Starts injected convention:
+    /// - Immediately if in software trigger mode (JEXTEN = 0)
+    /// - At the next active edge of the selected injected hardware trigger (JEXTEN != 0)
     pub fn start_injected_conversions(&mut self) {
         self.regs.start_injected();
     }
 
+    /// Reads injected convention result after the end of sequence is detected.
     pub async fn read(&mut self, buf: &mut [u16]) {
         let f = poll_fn(|cx| {
             self.state.waker.register(cx.waker());
@@ -51,6 +58,10 @@ impl<'d, R: InjectedAdcRegs> InjectedAdc<'d, R> {
         self.read_latest(buf);
     }
 
+    /// Reads latest result directly from the injected convention registers.
+    ///
+    /// This function is intended to be used in a custom interrupt handler.
+    /// For other use cases prefer [`read`](Self::read) function.
     pub fn read_latest(&mut self, buf: &mut [u16]) {
         assert!(
             buf.len() == self.len,

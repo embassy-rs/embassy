@@ -633,7 +633,6 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     /// - `sequence`: An array of tuples containing the ADC channels and their sample times. The length
     ///   `N` determines the number of injected ranks to configure (maximum 4 for STM32).
     /// - `trigger`: The trigger source that starts the injected conversion sequence.
-    /// - `interrupt`: If `true`, enables the end-of-sequence (JEOS) interrupt for injected conversions.
     ///
     /// # Returns
     /// An `InjectedAdc<T, N>` instance that represents the configured injected sequence. The returned
@@ -693,7 +692,6 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     /// - `regular_conversion_mode`: The mode for regular conversions (e.g., continuous or triggered).
     /// - `injected_sequence`: An array of channels and sample times for injected conversions (length `N`).
     /// - `injected_trigger`: The trigger source for injected conversions.
-    /// - `injected_interrupt`: Whether to enable the end-of-sequence interrupt for injected conversions.
     ///
     /// Injected conversions are typically used with interrupts. If ADC1 and ADC2 are used in dual mode,
     /// it is recommended to enable interrupts only for the ADC whose sequence takes the longest to complete.
