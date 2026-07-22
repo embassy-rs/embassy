@@ -239,7 +239,6 @@ struct Inner<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn build(
         driver: D,
         config: Config<'d>,

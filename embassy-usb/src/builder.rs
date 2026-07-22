@@ -510,7 +510,6 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             .expect("alloc_endpoint_in failed")
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn endpoint_in(
         &mut self,
         ep_type: EndpointType,
@@ -543,7 +542,6 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
             .expect("alloc_endpoint_out failed")
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn endpoint_out(
         &mut self,
         ep_type: EndpointType,
