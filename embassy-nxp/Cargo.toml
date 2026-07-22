@@ -12,6 +12,7 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55s16"]},
     {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1011", "rt", "time-driver-pit"]},
     {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1062", "rt", "time-driver-pit"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1064", "rt", "time-driver-pit"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -87,3 +88,4 @@ lpc55-core0 = ["nxp-pac/lpc55s69_cm33_core0"]
 lpc55s16 = ["nxp-pac/lpc55s16", "_lpc55"]
 mimxrt1011 = ["nxp-pac/mimxrt1011", "_rt1xxx", "dep:imxrt-rt"]
 mimxrt1062 = ["nxp-pac/mimxrt1062", "_rt1xxx", "dep:imxrt-rt"]
+mimxrt1064 = ["nxp-pac/mimxrt1064", "_rt1xxx", "dep:imxrt-rt"]
