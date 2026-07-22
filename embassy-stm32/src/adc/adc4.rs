@@ -323,7 +323,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, _injected: bool) {
         let mut prev_channel: i16 = -1;
         let mut chselr = Chselr::default();
         let mut smpr = self.smpr().read();
