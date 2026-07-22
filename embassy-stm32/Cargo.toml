@@ -1978,3 +1978,8 @@ stm32wle5cc = [ "stm32-metapac/stm32wle5cc" ]
 stm32wle5j8 = [ "stm32-metapac/stm32wle5j8" ]
 stm32wle5jb = [ "stm32-metapac/stm32wle5jb" ]
 stm32wle5jc = [ "stm32-metapac/stm32wle5jc" ]
+
+# Local dev override: pin stm32-metapac to a local build of embassy-rs/stm32-data
+# (../stm32-data) until embassy-rs/stm32-data#878 merges and a new release is cut.
+[patch."https://github.com/embassy-rs/stm32-data-generated"]
+stm32-metapac = { path = "/Users/gmata/Axon/open_source_projects/embassy-project/stm32-data/build/stm32-metapac" }

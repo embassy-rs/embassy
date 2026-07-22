@@ -1750,11 +1750,17 @@ fn main() {
         signals.entry(key).or_default().push(value);
     }
 
-    // The `i3c` module is only compiled in for STM32N6, STM32H5, and STM32U3
-    // today; on other families that also expose an "i3c" peripheral kind,
-    // `crate::i3c` doesn't exist, so drop these signals there to avoid
-    // generating unresolvable pin_trait_impl!s.
-    if !(chip_name.starts_with("stm32n6") || chip_name.starts_with("stm32h5") || chip_name.starts_with("stm32u3")) {
+    // The `i3c` module is only compiled in for STM32N6, STM32H5, STM32U3,
+    // STM32C5, and STM32H7R/H7S today; on other families that also expose an
+    // "i3c" peripheral kind, `crate::i3c` doesn't exist, so drop these
+    // signals there to avoid generating unresolvable pin_trait_impl!s.
+    if !(chip_name.starts_with("stm32n6")
+        || chip_name.starts_with("stm32h5")
+        || chip_name.starts_with("stm32u3")
+        || chip_name.starts_with("stm32c5")
+        || chip_name.starts_with("stm32h7r")
+        || chip_name.starts_with("stm32h7s"))
+    {
         signals.remove(&("i3c", "SDA"));
         signals.remove(&("i3c", "SCL"));
     }

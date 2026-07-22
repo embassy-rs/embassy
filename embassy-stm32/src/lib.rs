@@ -151,7 +151,7 @@ pub mod hspi;
 pub mod i2c;
 #[cfg(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))]
 pub mod i2s;
-#[cfg(all(i3c, any(stm32n6, stm32h5, stm32u3)))]
+#[cfg(all(i3c, any(stm32n6, stm32h5, stm32u3, stm32c5, stm32h7rs)))]
 pub mod i3c;
 #[cfg(icache)]
 pub mod icache;
