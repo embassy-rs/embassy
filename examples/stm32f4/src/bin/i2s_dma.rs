@@ -24,31 +24,30 @@ async fn main(_spawner: Spawner) {
 
         let mut config = embassy_stm32::Config::default();
         config.rcc.hse = Some(Hse {
-            freq: Hertz::mhz(25),
-            mode: HseMode::Oscillator,
+            freq: Hertz(8_000_000),
+            mode: HseMode::Bypass,
         });
         config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::Div25,
-            mul: PllMul::Mul192,
-            divp: Some(PllPDiv::Div2),
-            divq: Some(PllQDiv::Div4),
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul180,
+            divp: Some(PllPDiv::Div2), // 8mhz / 4 * 180 / 2 = 180Mhz.
+            divq: None,
             divr: None,
         });
-        config.rcc.sys = Sysclk::Pll1P;
-
         config.rcc.ahb_pre = AHBPrescaler::Div1;
-        config.rcc.apb1_pre = APBPrescaler::Div2;
-        config.rcc.apb2_pre = APBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
 
         // reference your chip's manual for proper clock settings; this config
         // is recommended for a 32 bit frame at 48 kHz sample rate
         config.rcc.plli2s = Some(Pll {
-            prediv: PllPreDiv::Div25,
-            mul: PllMul::Mul384,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul60,
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::Div5),
+            divr: Some(PllRDiv::Div2),
         });
         config.enable_debug_during_sleep = true;
 
@@ -82,7 +81,9 @@ async fn main(_spawner: Spawner) {
     );
     i2s.start();
 
-    loop {
+    for _ in 0..10 {
         i2s.write(&wavetable).await.ok();
     }
+
+    cortex_m::asm::bkpt();
 }
