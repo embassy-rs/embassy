@@ -231,65 +231,68 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     }
 
     /// Creates the [`UsbDevice`] instance with the configuration in this builder.
-    pub fn build(mut self) -> UsbDevice<'d, D> {
-        let msos_descriptor = self.msos_descriptor.build(&mut self.bos_descriptor);
+    pub fn build(self) -> UsbDevice<'d, D> {
+        let Self {
+            config,
+            handlers,
+            interfaces,
+            control_buf,
+            driver,
+            next_string_index: _,
+            mut config_descriptor,
+            mut bos_descriptor,
+            msos_descriptor,
+        } = self;
 
-        self.config_descriptor.end_configuration();
-        self.bos_descriptor.end_bos();
+        let msos_descriptor = msos_descriptor.build(&mut bos_descriptor);
 
-        if self.config.max_speed == UsbDeviceSpeed::High {
+        config_descriptor.end_configuration();
+        let config_descriptor = config_descriptor.into_buf();
+
+        bos_descriptor.end_bos();
+        let bos_descriptor = bos_descriptor.writer.into_buf();
+
+        if config.max_speed == UsbDeviceSpeed::High {
             assert!(
-                self.config.max_packet_size_0 == 64,
+                config.max_packet_size_0 == 64,
                 "high-speed USB requires max_packet_size_0 = 64"
             );
-            let used = self.config_descriptor.position();
-            rewrite_config_descriptor_for_high_speed(&mut self.config_descriptor.buf[..used]);
+            rewrite_config_descriptor_for_high_speed(config_descriptor);
         }
-
-        let config_descriptor = self.config_descriptor.into_buf();
 
         // Log the number of allocator bytes actually used in descriptor buffers
         trace!("USB: config_descriptor used: {}", config_descriptor.len());
-        trace!("USB: bos_descriptor used: {}", self.bos_descriptor.writer.position());
+        trace!("USB: bos_descriptor used: {}", bos_descriptor.len());
         trace!("USB: msos_descriptor used: {}", msos_descriptor.len());
-        trace!("USB: control_buf size: {}", self.control_buf.len());
+        trace!("USB: control_buf size: {}", control_buf.len());
 
-        {
-            let driver = self.driver;
-            let config = self.config;
-            let handlers = self.handlers;
-            let bos_descriptor: &'d [u8] = self.bos_descriptor.writer.into_buf();
-            let interfaces = self.interfaces;
-            let control_buf: &'d mut [u8] = self.control_buf;
+        // Start the USB bus.
+        // This prevent further allocation by consuming the driver.
+        let (bus, control) = driver.start(config.max_packet_size_0 as u16);
+        let device_descriptor = descriptor::device_descriptor(&config);
+        let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
 
-            // Start the USB bus.
-            // This prevent further allocation by consuming the driver.
-            let (bus, control) = driver.start(config.max_packet_size_0 as u16);
-            let device_descriptor = descriptor::device_descriptor(&config);
-            let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
+        UsbDevice {
+            control_buf,
+            control,
+            inner: Inner {
+                bus,
+                config,
+                device_descriptor,
+                device_qualifier_descriptor,
+                config_descriptor,
+                bos_descriptor,
+                msos_descriptor,
 
-            UsbDevice {
-                control_buf,
-                control,
-                inner: Inner {
-                    bus,
-                    config,
-                    device_descriptor,
-                    device_qualifier_descriptor,
-                    config_descriptor,
-                    bos_descriptor,
-                    msos_descriptor,
-
-                    device_state: UsbDeviceState::Unpowered,
-                    suspended: false,
-                    remote_wakeup_enabled: false,
-                    self_powered: false,
-                    address: 0,
-                    set_address_pending: false,
-                    interfaces,
-                    handlers,
-                },
-            }
+                device_state: UsbDeviceState::Unpowered,
+                suspended: false,
+                remote_wakeup_enabled: false,
+                self_powered: false,
+                address: 0,
+                set_address_pending: false,
+                interfaces,
+                handlers,
+            },
         }
     }
 
