@@ -12,7 +12,7 @@
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
-#[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6), path = "v4.rs")]
+#[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6, adc_c5), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
@@ -26,7 +26,7 @@ use core::marker::PhantomData;
 #[cfg(not(any(adc_f3v3, adc_wba, adc_wb1)))]
 pub use _version::*;
 pub use configured_sequence::ConfiguredSequence;
-#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba, adc_h5, adc_v2, adc_g4))]
 use embassy_sync::waitqueue::AtomicWaker;
 pub use ringbuffered::{OverrunError, RingBufferedAdc};
 
@@ -94,16 +94,18 @@ pub struct Adc<'d, T: Instance> {
     adc: crate::Peri<'d, T>,
 }
 
-#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_h5, adc_v2, adc_g4))]
 pub struct State {
     pub waker: AtomicWaker,
+    pub injected_done: core::sync::atomic::AtomicBool,
 }
 
-#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_h5, adc_v2, adc_g4))]
 impl State {
     pub const fn new() -> Self {
         Self {
             waker: AtomicWaker::new(),
+            injected_done: core::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -158,15 +160,16 @@ trait AdcRegs: BasicAdcRegs {
     fn configure_dma(&self, conversion_mode: ConversionMode);
     /// Configure the sequence. If the ADC is capable of differential channels,
     /// this method must disable the ADC before configuring the sequence if required by hardware.
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
+    fn configure_sequence(
+        &self,
+        sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>,
+        injected: bool,
+    );
     fn data(&self) -> *mut u16;
 }
 
 #[cfg(any(adc_v2, adc_g4, adc_h5))]
 trait InjectedRegs: AdcRegs {
-    /// Configure the sequence. If the ADC is capable of differential channels,
-    /// this method must disable the ADC before configuring the sequence if required by hardware.
-    fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
     fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool);
     fn start_injected(&self);
     fn stop_injected(&self);
@@ -190,7 +193,7 @@ trait SealedInstance: BasicInstance {
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
     #[allow(unused)]
     fn common_regs() -> crate::pac::adccommon::AdcCommon;
-    #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba))]
+    #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba, adc_h5, adc_v2, adc_g4))]
     fn state() -> &'static State;
 }
 
@@ -206,7 +209,9 @@ pub(crate) trait SealedAdcChannel<T> {
     }
 }
 
-#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_n6))]
+#[cfg(any(
+    adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5
+))]
 /// Number of samples used for averaging.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -220,9 +225,9 @@ pub enum Averaging {
     Samples64,
     Samples128,
     Samples256,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5))]
     Samples512,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5))]
     Samples1024,
 }
 
@@ -296,7 +301,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         let channel = channel.reborrow_adc();
 
         T::regs().stop();
-        T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+        T::regs().configure_sequence(
+            [((channel.channel(), channel.is_differential()), sample_time)].into_iter(),
+            false,
+        );
 
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::NoDma);
@@ -326,7 +334,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         let channel = channel.reborrow_adc();
 
         T::regs().stop();
-        T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+        T::regs().configure_sequence(
+            [((channel.channel(), channel.is_differential()), sample_time)].into_iter(),
+            false,
+        );
 
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::NoDma);
@@ -397,6 +408,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
@@ -475,6 +487,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
@@ -554,6 +567,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
@@ -606,6 +620,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
@@ -631,7 +646,6 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     /// - `sequence`: An array of tuples containing the ADC channels and their sample times. The length
     ///   `N` determines the number of injected ranks to configure (maximum 4 for STM32).
     /// - `trigger`: The trigger source that starts the injected conversion sequence.
-    /// - `interrupt`: If `true`, enables the end-of-sequence (JEOS) interrupt for injected conversions.
     ///
     /// # Returns
     /// An `InjectedAdc<T, N>` instance that represents the configured injected sequence. The returned
@@ -649,10 +663,13 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     ///   `InjectedAdc<T, N>` to enforce bounds at compile time.
     pub fn setup_injected_conversions<'a, const N: usize>(
         self,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, crate::adc::InterruptHandler<T>> + 'a,
         sequence: [(BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         trigger: InjectedAdcTrigger<T>,
-        interrupt: bool,
-    ) -> InjectedAdc<'a, T::Regs> {
+    ) -> InjectedAdc<'a, T::Regs>
+    where
+        T: DefaultInstance,
+    {
         assert!(N != 0, "Read sequence cannot be empty");
         assert!(
             N <= NR_INJECTED_RANKS,
@@ -660,15 +677,22 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
             NR_INJECTED_RANKS
         );
 
+        use crate::interrupt::typelevel::Interrupt;
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
         T::regs().stop();
-        T::regs().configure_injected_sequence(
+        T::regs().configure_sequence(
             sequence
                 .iter()
                 .map(|(channel, sample_time)| ((channel.channel, channel.is_differential), *sample_time)),
+            true,
         );
 
         T::regs().enable();
-        T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), interrupt);
+        T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), true);
         T::regs().start_injected();
 
         core::mem::forget(self);
@@ -676,7 +700,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         InjectedAdc::new(sequence) // InjectedAdc<'a, T, N> now borrows the channels
     }
 
-    #[cfg(any(adc_v2, adc_g4))]
+    #[cfg(any(adc_v2, adc_g4, adc_h5))]
     /// Configures ADC for both regular conversions with a ring-buffered DMA and injected conversions.
     ///
     /// # Parameters
@@ -686,7 +710,6 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     /// - `regular_conversion_mode`: The mode for regular conversions (e.g., continuous or triggered).
     /// - `injected_sequence`: An array of channels and sample times for injected conversions (length `N`).
     /// - `injected_trigger`: The trigger source for injected conversions.
-    /// - `injected_interrupt`: Whether to enable the end-of-sequence interrupt for injected conversions.
     ///
     /// Injected conversions are typically used with interrupts. If ADC1 and ADC2 are used in dual mode,
     /// it is recommended to enable interrupts only for the ADC whose sequence takes the longest to complete.
@@ -704,13 +727,18 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         self,
         dma: embassy_hal_internal::Peri<'a, D>,
         dma_buf: &'a mut [u16],
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'a
+        + crate::interrupt::typelevel::Binding<T::Interrupt, crate::adc::InterruptHandler<T>>
+        + 'b,
         regular_sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         regular_trigger: Option<RegularAdcTrigger<T>>,
         injected_sequence: [(BorrowedAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         injected_trigger: InjectedAdcTrigger<T>,
-        injected_interrupt: bool,
-    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T::Regs>) {
+    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T::Regs>)
+    where
+        T: DefaultInstance,
+    {
         let ret = unsafe {
             (
                 Self {
@@ -720,7 +748,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
                 Self {
                     adc: self.adc.clone_unchecked(),
                 }
-                .setup_injected_conversions(injected_sequence, injected_trigger, injected_interrupt),
+                .setup_injected_conversions(_irq, injected_sequence, injected_trigger),
             )
         };
 
@@ -997,7 +1025,7 @@ foreach_adc!(
                 return crate::pac::$common_inst
             }
 
-            #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0))]
+            #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0, adc_h5, adc_v2, adc_g4))]
             fn state() -> &'static State {
                 static STATE: State = State::new();
                 &STATE
@@ -1017,7 +1045,7 @@ pub(crate) trait AnalogPin {
 impl<T: crate::gpio::SealedPin> AnalogPin for T {
     fn set_as_analog(&self) {
         #[cfg(any(
-            adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, stm32n6
+            adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, stm32n6, adc_c5
         ))]
         T::set_as_analog(self);
     }
