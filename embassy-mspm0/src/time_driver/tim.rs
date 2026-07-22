@@ -319,7 +319,7 @@ impl Driver for TimxDriver {
             // The counter and period are incoherent.
             let ris = regs.cpu_int(0).ris().read();
             if ris.l() || ris.ccu0() {
-                // A period event is latched but the interrupt hasn't run yet, so period is stale 
+                // A period event is latched but the interrupt hasn't run yet, so period is stale
                 // and counter is fresh. `calc_now`'s XOR handles this.
                 // NOTE: You must NOT wait for the interrupt here: now() is called inside critical
                 // sections, where it would deadlock.
@@ -329,7 +329,7 @@ impl Driver for TimxDriver {
             // NOTE: It seems that on the MSPM0, the LFCLK lags the timer interrupt by enough to be
             // read multiple times without changing.
             // The interrupt already advanced `period` while the counter is stale.
-            
+
             // The counter has just crossed into this period, so now ≈ period start.
             return (period as u64) << 15;
         }
