@@ -12,7 +12,7 @@
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
-#[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6), path = "v4.rs")]
+#[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6, adc_c5), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
@@ -206,7 +206,9 @@ pub(crate) trait SealedAdcChannel<T> {
     }
 }
 
-#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_n6))]
+#[cfg(any(
+    adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5
+))]
 /// Number of samples used for averaging.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -220,9 +222,9 @@ pub enum Averaging {
     Samples64,
     Samples128,
     Samples256,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5))]
     Samples512,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5))]
     Samples1024,
 }
 
@@ -1017,7 +1019,7 @@ pub(crate) trait AnalogPin {
 impl<T: crate::gpio::SealedPin> AnalogPin for T {
     fn set_as_analog(&self) {
         #[cfg(any(
-            adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, stm32n6
+            adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, stm32n6, adc_c5
         ))]
         T::set_as_analog(self);
     }
