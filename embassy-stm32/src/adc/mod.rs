@@ -26,7 +26,7 @@ use core::marker::PhantomData;
 #[cfg(not(any(adc_f3v3, adc_wba, adc_wb1)))]
 pub use _version::*;
 pub use configured_sequence::ConfiguredSequence;
-#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba, adc_h5))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba, adc_h5, adc_v2, adc_g4))]
 use embassy_sync::waitqueue::AtomicWaker;
 pub use ringbuffered::{OverrunError, RingBufferedAdc};
 
@@ -94,13 +94,13 @@ pub struct Adc<'d, T: Instance> {
     adc: crate::Peri<'d, T>,
 }
 
-#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_h5))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_h5, adc_v2, adc_g4))]
 pub struct State {
     pub waker: AtomicWaker,
     pub injected_eos: core::sync::atomic::AtomicBool,
 }
 
-#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_h5))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_h5, adc_v2, adc_g4))]
 impl State {
     pub const fn new() -> Self {
         Self {
@@ -192,7 +192,7 @@ trait SealedInstance: BasicInstance {
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
     #[allow(unused)]
     fn common_regs() -> crate::pac::adccommon::AdcCommon;
-    #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba, adc_h5))]
+    #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba, adc_h5, adc_v2, adc_g4))]
     fn state() -> &'static State;
 }
 
@@ -1121,7 +1121,7 @@ foreach_adc!(
                 return crate::pac::$common_inst
             }
 
-            #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0, adc_h5))]
+            #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0, adc_h5, adc_v2, adc_g4))]
             fn state() -> &'static State {
                 static STATE: State = State::new();
                 &STATE
