@@ -2,7 +2,6 @@
 #![no_main]
 
 use defmt::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
@@ -12,8 +11,8 @@ use embassy_usb::class::uac1::source::{AudioSource, AudioSourceControlHandler, A
 use embassy_usb::class::uac1::terminal_type::TerminalType;
 use embassy_usb::class::uac1::{self};
 use embassy_usb::{Builder, UsbVersion};
-use panic_probe as _;
 use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USB_LP_CAN1_RX0 => embassy_stm32::usb::InterruptHandler<peripherals::USB>;
