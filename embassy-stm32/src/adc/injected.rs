@@ -1,6 +1,6 @@
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
-use core::future::poll_fn;
 use core::task::Poll;
 
 use crate::adc::{BasicAdcRegs, BorrowedAdcChannel, InjectedAdcRegs, Instance, State};

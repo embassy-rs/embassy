@@ -105,7 +105,7 @@ impl State {
     pub const fn new() -> Self {
         Self {
             waker: AtomicWaker::new(),
-            injected_eos: core::sync::atomic::AtomicBool::new(false)
+            injected_eos: core::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -653,8 +653,10 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, crate::adc::InterruptHandler<T>> + 'a,
         sequence: [(BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         trigger: InjectedAdcTrigger<T>,
-    ) -> InjectedAdc<'a, T::Regs> where T: DefaultInstance {
-
+    ) -> InjectedAdc<'a, T::Regs>
+    where
+        T: DefaultInstance,
+    {
         assert!(N != 0, "Read sequence cannot be empty");
         assert!(
             N <= NR_INJECTED_RANKS,
@@ -664,7 +666,9 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
 
         use crate::interrupt::typelevel::Interrupt;
         T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable(); }
+        unsafe {
+            T::Interrupt::enable();
+        }
 
         T::regs().stop();
         T::regs().configure_injected_sequence(
@@ -709,13 +713,18 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         self,
         dma: embassy_hal_internal::Peri<'a, D>,
         dma_buf: &'a mut [u16],
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a
-        + crate::interrupt::typelevel::Binding<T::Interrupt, crate::adc::InterruptHandler<T>> + 'b,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'a
+        + crate::interrupt::typelevel::Binding<T::Interrupt, crate::adc::InterruptHandler<T>>
+        + 'b,
         regular_sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         regular_trigger: Option<RegularAdcTrigger<T>>,
         injected_sequence: [(BorrowedAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
-        injected_trigger: InjectedAdcTrigger<T>
-    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T::Regs>) where T: DefaultInstance {
+        injected_trigger: InjectedAdcTrigger<T>,
+    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T::Regs>)
+    where
+        T: DefaultInstance,
+    {
         let ret = unsafe {
             (
                 Self {

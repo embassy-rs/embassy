@@ -15,7 +15,9 @@ use pac::adccommon::vals::Presc;
 
 #[allow(unused_imports)]
 use crate::adc::SealedAdcChannel;
-use crate::adc::{Adc, Averaging, ConversionMode, DefaultInstance, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt};
+use crate::adc::{
+    Adc, Averaging, ConversionMode, DefaultInstance, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
+};
 use crate::wait::block_for_us;
 use crate::{Peri, interrupt, pac, rcc};
 
@@ -50,7 +52,9 @@ impl<T: DefaultInstance> interrupt::typelevel::Handler<T::Interrupt> for Interru
         let isr = T::regs().isr().read();
         if isr.eoc() || isr.eos() || isr.jeoc() || isr.jeos() {
             if isr.jeos() {
-                T::state().injected_eos.store(true, core::sync::atomic::Ordering::Release);
+                T::state()
+                    .injected_eos
+                    .store(true, core::sync::atomic::Ordering::Release);
             }
 
             // flags are cleared by writing 1 to them
