@@ -119,7 +119,7 @@ num-traits = { version="0.2", default-features = false,features = ["libm"], opti
 [[bin]]
 name = "adc"
 path = "src/bin/adc.rs"
-required-features = [ "dac",]
+required-features = [ "adc",]
 
 [[bin]]
 name = "afio"
