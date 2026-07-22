@@ -301,6 +301,14 @@ pub struct Config {
     compensation: Compensation,
 }
 
+impl Config {
+    /// Set the RTC clock select.
+    pub fn with_clksel(mut self, clksel: ClkSel) -> Self {
+        self.clksel = clksel;
+        self
+    }
+}
+
 /// Errors exclusive to HW initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
