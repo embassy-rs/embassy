@@ -48,7 +48,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 [dependencies]
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 # TODO: Support other tick rates
-embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-1_000_000"] }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-32_768"] }
 embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
@@ -115,6 +115,12 @@ nrst-pin-as-gpio = []
 
 ## Allow using the SWD pins as regular GPIO pins.
 swd-pins-as-gpio = []
+
+## Enable low-power (deep-sleep) support.
+## MSPM0 only keeps TIMG0 and TIMG1 clocked in STANDBY, so enabling this requires the time driver to run on one of those timers:
+## select `time-driver-timg0`, `time-driver-timg1`, or `time-driver-any` (which selects TIMG0 when the chip has it).
+## A `low-power` build with the time driver on any other timer fails to compile.
+low-power = []
 
 #! ## Time
 

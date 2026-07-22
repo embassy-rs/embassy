@@ -17,6 +17,15 @@ use crate::{peripherals, tim};
 #[cfg(any(time_driver_timg12, time_driver_timg13))]
 compile_error!("TIMG12 and TIMG13 are not supported by the time driver yet");
 
+// Only TIMG0 and TIMG1 remain clocked in STANDBY, so they are the only timers that can wake the
+// core from deep sleep via the time driver. Reject a `low-power` build on any other timer.
+#[cfg(all(feature = "low-power", not(any(time_driver_timg0, time_driver_timg1))))]
+compile_error!(
+    "the `low-power` feature requires the time driver to run on TIMG0 or TIMG1, as they are the \
+     only timers clocked in STANDBY. Enable `time-driver-timg0`, `time-driver-timg1`, or \
+     `time-driver-any` (which selects TIMG0 when available)."
+);
+
 // Currently TIMG12 and TIMG13 are excluded because those are 32-bit timers.
 #[cfg(time_driver_timg0)]
 type T = peripherals::TIMG0;
@@ -104,19 +113,19 @@ impl TimxDriver {
 
         // 1. Select TIMCLK source
         regs.clksel().modify(|w| {
-            // FIXME (bug): Using LFCLK at 32.768 kHz results in a race condition where time goes backwards.
-            // w.set_lfclk_sel(true);
+            // Use LFCLK at 32.768 kHz, as it's available all the way down to STANDBY.
+            w.set_lfclk_sel(true);
 
             // TODO: Allow MFCLK for configurable tick rate up to 4 MHz
-            w.set_mfclk_sel(true);
+            // w.set_mfclk_sel(true);
         });
 
         // 2. Divide by TIMCLK, we don't need to divide further for the 32kHz tick rate
         regs.clkdiv().modify(|w| {
-            // FIXME (bug): For 32.768 kHz we would do no division
-            // w.set_ratio(0); // + 1
+            // 32.768 kHz on the LFCLK requires no division.
+            w.set_ratio(0); // + 1
 
-            w.set_ratio(3); // divide by 4
+            // w.set_ratio(3); // divide by 4 to get 1MHz
         });
 
         // Not every timer supports the prescaler so we should zero it.
@@ -277,13 +286,52 @@ impl Driver for TimxDriver {
     fn now(&self) -> u64 {
         let regs = regs();
 
-        let period = self.period.load(Ordering::Relaxed);
-        // Ensure the compiler does not read the counter before the period.
-        compiler_fence(Ordering::Acquire);
+        // This sequence lock fixes the race condition that causes time to go backwards.
+        loop {
+            let period = self.period.load(Ordering::Relaxed);
+            // Ensure the compiler does not read the counter before the period.
+            compiler_fence(Ordering::Acquire);
 
-        let counter = regs.counterregs(0).ctr().read() as u16;
+            // The counter is not synchronized to the CPU/bus clock, so a read could be torn.
+            let mut counter = regs.counterregs(0).ctr().read() as u16;
+            loop {
+                let again = regs.counterregs(0).ctr().read() as u16;
+                if counter == again {
+                    break;
+                }
+                counter = again;
+            }
 
-        calc_now(period, counter)
+            // Ensure the compiler does not read the counter after the period.
+            compiler_fence(Ordering::Acquire);
+
+            // If the timer interrupt changed the period while we were reading the counter,
+            // the (period, counter) pair may be out of sync.
+            if period != self.period.load(Ordering::Relaxed) {
+                continue;
+            }
+
+            // When the counter's top bit equals period parity, the two are coherent.
+            if (((counter >> 15) as u32) & 1) == (period & 1) {
+                return calc_now(period, counter);
+            }
+
+            // The counter and period are incoherent.
+            let ris = regs.cpu_int(0).ris().read();
+            if ris.l() || ris.ccu0() {
+                // A period event is latched but the interrupt hasn't run yet, so period is stale and counter is fresh.
+                // calc_now's XOR handles this.
+                // NOTE: You must NOT wait for the interrupt here: now() is called inside critical sections, where it would deadlock.
+                return calc_now(period, counter);
+            }
+
+            // NOTE: It seems that on the MSPM0, the LFCLK seems to lag the timer interrupt by just
+            // enough.
+            // The interrupt already advanced `period` while the counter is stale.
+            
+            // The counter has just crossed into this period, so now ≈ period start.
+            return (period as u64) << 15;
+        }
     }
 
     fn schedule_wake(&self, at: u64, waker: &Waker) {
