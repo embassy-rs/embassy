@@ -136,7 +136,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, injected: bool) {
         #[cfg(stm32g4)]
         if self.cr().read().aden() {
             self.cr().modify(|reg| reg.set_addis(true));
@@ -152,11 +152,18 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         #[cfg(stm32g4)]
         let mut difsel = self.difsel().read();
 
-        // Set sequence length
-        sqr1.set_l(sequence.len() as u8 - 1);
+        let mut jsqr = Jsqr::default();
+
+        let len: u8 = sequence.len().try_into().unwrap();
+        if injected {
+            jsqr.set_jl(len - 1);
+        } else {
+            // Set sequence length
+            sqr1.set_l(len - 1);
+        }
 
         // Configure channels and ranks
-        for (_i, ((ch, is_differential), sample_time)) in sequence.enumerate() {
+        for (i, ((ch, is_differential), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.into();
             if ch <= 9 {
                 smpr.set_smp(ch as _, sample_time);
@@ -164,20 +171,32 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 smpr2.set_smp((ch - 10) as _, sample_time);
             }
 
-            match _i {
-                0..=3 => {
-                    sqr1.set_sq(_i, ch);
+            if injected {
+                let idx = match i {
+                    0..=3 => i,
+                    4..=8 => i - 4,
+                    9..=13 => i - 9,
+                    14..=15 => i - 14,
+                    _ => unreachable!(),
+                };
+
+                jsqr.set_jsq(idx, ch);
+            } else {
+                match i {
+                    0..=3 => {
+                        sqr1.set_sq(i, ch);
+                    }
+                    4..=8 => {
+                        sqr2.set_sq(i - 4, ch);
+                    }
+                    9..=13 => {
+                        sqr3.set_sq(i - 9, ch);
+                    }
+                    14..=15 => {
+                        sqr4.set_sq(i - 14, ch);
+                    }
+                    _ => unreachable!(),
                 }
-                4..=8 => {
-                    sqr2.set_sq(_i - 4, ch);
-                }
-                9..=13 => {
-                    sqr3.set_sq(_i - 9, ch);
-                }
-                14..=15 => {
-                    sqr4.set_sq(_i - 14, ch);
-                }
-                _ => unreachable!(),
             }
 
             #[cfg(stm32g4)]
@@ -197,70 +216,18 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         self.difsel().write_value(difsel);
         self.smpr().write_value(smpr);
         self.smpr2().write_value(smpr2);
-        self.sqr1().write_value(sqr1);
-        self.sqr2().write_value(sqr2);
-        self.sqr3().write_value(sqr3);
-        self.sqr4().write_value(sqr4);
+        if injected {
+            self.jsqr().write_value(jsqr);
+        } else {
+            self.sqr1().write_value(sqr1);
+            self.sqr2().write_value(sqr2);
+            self.sqr3().write_value(sqr3);
+            self.sqr4().write_value(sqr4);
+        }
     }
 }
 
 impl InjectedRegs for crate::pac::adc::Adc {
-    fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
-        #[cfg(stm32g4)]
-        if self.cr().read().aden() {
-            self.cr().modify(|reg| reg.set_addis(true));
-            while self.cr().read().aden() {}
-        }
-
-        let mut smpr1 = self.smpr().read();
-        let mut smpr2 = self.smpr2().read();
-        #[cfg(stm32g4)]
-        let mut difsel = self.difsel().read();
-
-        let mut jsqr = Jsqr::default();
-
-        let len: u8 = sequence.len().try_into().unwrap();
-        jsqr.set_jl(len - 1);
-
-        for (n, ((channel, is_differential), sample_time)) in sequence.enumerate() {
-            let sample_time = sample_time.clone().into();
-            if channel <= 9 {
-                smpr1.set_smp(channel as _, sample_time);
-            } else {
-                smpr2.set_smp((channel - 10) as _, sample_time);
-            }
-
-            let idx = match n {
-                0..=3 => n,
-                4..=8 => n - 4,
-                9..=13 => n - 9,
-                14..=15 => n - 14,
-                _ => unreachable!(),
-            };
-
-            jsqr.set_jsq(idx, channel);
-
-            #[cfg(stm32g4)]
-            if channel < 18 {
-                difsel.set_difsel(
-                    channel.into(),
-                    if is_differential {
-                        Difsel::Differential
-                    } else {
-                        Difsel::SingleEnded
-                    },
-                );
-            }
-        }
-
-        #[cfg(stm32g4)]
-        self.difsel().write_value(difsel);
-        self.smpr().write_value(smpr1);
-        self.smpr2().write_value(smpr2);
-
-        self.jsqr().write_value(jsqr);
-    }
-
     fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool) {
         self.cfgr().modify(|reg| reg.set_jdiscen(false));
 

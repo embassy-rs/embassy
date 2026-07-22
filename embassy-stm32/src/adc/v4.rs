@@ -187,7 +187,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, injected: bool) {
         let mut sqr1 = Sqr1::default();
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
@@ -198,8 +198,10 @@ impl AdcRegs for crate::pac::adc::Adc {
         #[cfg(not(any(stm32u3, stm32c5)))]
         let mut difsel = self.difsel().read();
 
-        // Set sequence length
-        sqr1.set_l(sequence.len() as u8 - 1);
+        if !injected {
+            // Set sequence length
+            sqr1.set_l(sequence.len() as u8 - 1);
+        }
 
         // Configure channels and ranks
         for (i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
@@ -228,27 +230,31 @@ impl AdcRegs for crate::pac::adc::Adc {
                 self.pcsel().modify(|w| w.set_pcsel(channel as _, Pcsel::Preselected));
             }
 
-            match i {
-                0..=3 => {
-                    sqr1.set_sq(i, channel);
+            if !injected {
+                match i {
+                    0..=3 => {
+                        sqr1.set_sq(i, channel);
+                    }
+                    4..=8 => {
+                        sqr2.set_sq(i - 4, channel);
+                    }
+                    9..=13 => {
+                        sqr3.set_sq(i - 9, channel);
+                    }
+                    14..=15 => {
+                        sqr4.set_sq(i - 14, channel);
+                    }
+                    _ => unreachable!(),
                 }
-                4..=8 => {
-                    sqr2.set_sq(i - 4, channel);
-                }
-                9..=13 => {
-                    sqr3.set_sq(i - 9, channel);
-                }
-                14..=15 => {
-                    sqr4.set_sq(i - 14, channel);
-                }
-                _ => unreachable!(),
             }
         }
 
-        self.sqr1().write_value(sqr1);
-        self.sqr2().write_value(sqr2);
-        self.sqr3().write_value(sqr3);
-        self.sqr4().write_value(sqr4);
+        if !injected {
+            self.sqr1().write_value(sqr1);
+            self.sqr2().write_value(sqr2);
+            self.sqr3().write_value(sqr3);
+            self.sqr4().write_value(sqr4);
+        }
         self.smpr(0).write_value(smpr1);
         self.smpr(1).write_value(smpr2);
         #[cfg(not(any(stm32u3, stm32c5)))]
