@@ -118,6 +118,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
 
     #[cfg(not(feature = "sosc-as-gpio"))]
     operator.configure_sosc()?;
+    #[cfg(not(feature = "mcxa1xx"))]
     operator.configure_spll()?;
 
     // Finally, setup main clock
