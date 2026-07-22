@@ -85,5 +85,15 @@ async fn main(_spawner: Spawner) {
         i2s.write(&wavetable).await.ok();
     }
 
+    i2s.stop().await;
+
+    i2s.start();
+
+    for _ in 0..10 {
+        i2s.write(&wavetable).await.ok();
+    }
+
+    i2s.stop().await;
+
     cortex_m::asm::bkpt();
 }
