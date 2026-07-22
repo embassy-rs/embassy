@@ -53,9 +53,11 @@ async fn main(spawner: Spawner) {
     //     probe-rs download 43439A0.bin --binary-format bin --chip RP2040 --base-address 0x101b0000
     //     probe-rs download 43439A0_btfw.bin --binary-format bin --chip RP2040 --base-address 0x101f0000
     //     probe-rs download 43439A0_clm.bin --binary-format bin --chip RP2040 --base-address 0x101f8000
-    let fw = unsafe { core::slice::from_raw_parts(0x101b0000 as *const u8, 231077) };
+    // let fw = unsafe { core::slice::from_raw_parts(0x101b0000 as *const u8, 231077) };
     let _btfw = unsafe { core::slice::from_raw_parts(0x101f0000 as *const u8, 6164) };
-    let clm = unsafe { core::slice::from_raw_parts(0x101f8000 as *const u8, 984) };
+    // let clm = unsafe { core::slice::from_raw_parts(0x101f8000 as *const u8, 984) };
+    let fw = aligned_bytes!("../../../../cyw43-firmware/43439A0.bin");
+    let clm = aligned_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
     let nvram = aligned_bytes!("../../../../cyw43-firmware/nvram_rp2040.bin");
 
     let pwr = Output::new(p.PIN_23, Level::Low);
