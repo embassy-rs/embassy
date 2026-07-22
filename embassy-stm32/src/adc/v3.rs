@@ -51,7 +51,7 @@ impl<T: crate::adc::DefaultInstance> crate::interrupt::typelevel::Handler<T::Int
         if isr.eoc() || isr.eos() || isr.jeoc() || isr.jeos() {
             if isr.jeos() {
                 T::state()
-                    .injected_eos
+                    .injected_done
                     .store(true, core::sync::atomic::Ordering::Release);
             }
 

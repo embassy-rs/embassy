@@ -45,7 +45,7 @@ impl<'d, R: InjectedAdcRegs> InjectedAdc<'d, R> {
         let f = poll_fn(|cx| {
             self.state.waker.register(cx.waker());
 
-            if self.state.injected_eos.clear() {
+            if self.state.injected_done.clear() {
                 Poll::Ready(())
             } else {
                 Poll::Pending
