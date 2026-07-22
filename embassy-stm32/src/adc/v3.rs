@@ -263,7 +263,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, injected: bool) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, _injected: bool) {
         #[cfg(adc_g0)]
         {
             let mut sample_times = Vec::<SampleTime, SAMPLE_TIMES_CAPACITY>::new();
@@ -351,7 +351,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             }
 
             // Set sequence length
-            if injected {
+            if _injected {
                 jsqr.set_jl(sequence.len() as u8 - 1);
             } else {
                 sqr1.set_l(sequence.len() as u8 - 1);
@@ -410,7 +410,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 }
 
                 // Each channel is sampled according to sequence
-                if injected {
+                if _injected {
                     jsqr.set_jsq(i, channel);
                 } else {
                     match i {
@@ -436,7 +436,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 }
             }
 
-            if injected {
+            if _injected {
                 self.jsqr().write_value(jsqr);
             } else {
                 self.sqr1().write_value(sqr1);
