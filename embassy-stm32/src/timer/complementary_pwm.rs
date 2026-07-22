@@ -9,7 +9,6 @@ use super::low_level::{CountingMode, OutputPolarity, RoundTo, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
-#[cfg(not(stm32c5))]
 use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, OutputType};
 #[cfg(timer_v2)]
@@ -468,85 +467,79 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Set PWM frequency.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around at the same frequency as is being set
+    /// In the center-aligned mode, its the frequency of the timer counting both up and down,
+    /// so wrap-around frequency is effectively halved.
+    ///
     /// The actual frequency may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the frequency will not be applied in the timer until an update event
     /// occurs.
     pub fn set_frequency(&mut self, freq: Hertz) {
-        let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
-            2u64
-        } else {
-            1u64
-        };
-        let timer_f = T::frequency().0 as u64;
-        let clocks = timer_f / (freq.0 as u64 * multiplier);
-        self.inner.set_period_clocks_internal(clocks, RoundTo::Slower, 16);
+        self.inner.set_frequency(freq, RoundTo::Slower);
+    }
+
+    /// Get the PWM driver frequency.
+    pub fn get_frequency(&self) -> Hertz {
+        self.inner.get_frequency()
     }
 
     /// Set the PWM period in milliseconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     pub fn set_period_ms(&mut self, ms: u32) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * ms as u64 / 1_000;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period_ms(ms, RoundTo::Slower);
     }
 
     /// Set the PWM period in microseconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     pub fn set_period_us(&mut self, us: u32) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * us as u64 / 1_000_000;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period_us(us, RoundTo::Slower);
     }
 
     /// Set the PWM period in seconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     pub fn set_period_secs(&mut self, secs: u32) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * secs as u64;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period_secs(secs, RoundTo::Slower);
     }
 
     /// Set the PWM period using an `embassy_time::Duration`.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     #[cfg(feature = "time")]
     pub fn set_period(&mut self, period: embassy_time::Duration) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * period.as_ticks() / embassy_time::TICK_HZ;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period(period, RoundTo::Slower);
     }
 
     /// Get max duty value.
@@ -609,7 +602,6 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_dead_time_value(value);
     }
 
-    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -630,7 +622,6 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
     }
 
-    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -649,7 +640,6 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.enable_update_dma(false);
     }
 
-    #[cfg(not(stm32c5))]
     /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
     ///
     /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
@@ -747,6 +737,10 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 }
 
+fn div_round(a: u16, b: u16) -> u16 {
+    (a + b / 2) / b
+}
+
 fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
     /*
         Dead-time = T_clk * T_dts * T_dtg
@@ -785,28 +779,48 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
             _ => unreachable!(),
         };
 
-        // 127
-        // 128
-        // ..
-        // 254
-        // 256
-        // ..
-        // 504
-        // 512
-        // ..
-        // 1008
+        // 0xx case DTG[7:5]=0xx => DT=DTG[7:0]x tdtg with tdtg=tDTS
+        // then DT/tDTS = DTG[7:0] (where DTG[7] is always 0)
+        // so DT/tDTS = 0..127
+        // also DTG[7:0] = DT/tDTS
+
+        // 10x case DTG[7:5]=10x => DT=(64+DTG[5:0])xtdtg with Tdtg=2xtDTS
+        // then DT/tDTS = (64 + DTG[5:0]) * 2
+        // so DT/tDTS = (64 + 0..63) * 2 = 128..254
+        // also DTG[5:0] = DT/tDTS / 2 - 64
+        // and DTG[7:0] = (DT/tDTS / 2 - 64) | 0b100_00000
+
+        // 110 case DTG[7:5]=110 => DT=(32+DTG[4:0])xtdtg with Tdtg=8xtDTS
+        // then DT/tDTS = (32 + DTG[4:0]) * 8
+        // so DT/tDTS = (32 + 0..31) * 8 = 256..504
+        // also DTG[4:0] = DT/tDTS / 8 - 32
+        // and DTG[7:0] = (DT/tDTS / 8 - 32) | 0b110_00000
+
+        // 111 case DTG[7:5]=111 => DT=(32+DTG[4:0])xtdtg with Tdtg=16xtDTS
+        // then DT/tDTS = (32 + DTG[4:0]) * 16
+        // so DT/tDTS = (32 + 0..31) * 16 = 512..1008
+        // also DTG[4:0] = DT/tDTS / 16 - 32
+        // and DTG[7:0] = (DT/tDTS / 16 - 32) | 0b111_00000
+
+        // because ranges do not cover all values they were
+        // extended such that values fall into nearest one
 
         let target = value / outdiv;
-        let (these_bits, result) = if target < 128 {
-            (target as u8, target)
-        } else if target < 255 {
-            ((64 + (target / 2) as u8) | 128, (target - target % 2))
-        } else if target < 508 {
-            ((32 + (target / 8) as u8) | 192, (target - target % 8))
-        } else if target < 1008 {
-            ((32 + (target / 16) as u8) | 224, (target - target % 16))
-        } else {
-            (u8::MAX, 1008)
+        let (these_bits, result) = match target {
+            0..127 | 127 => (target as u8, target),
+            128..254 | 254..256 => {
+                let tmp = div_round(value, outdiv * 2);
+                ((tmp as u8 - 64) | 0b100_00000, tmp * 2)
+            }
+            256..504 | 504..508 => {
+                let tmp = div_round(value, outdiv * 8);
+                ((tmp as u8 - 32) | 0b110_00000, tmp * 8)
+            }
+            508..512 | 512..1008 => {
+                let tmp = div_round(value, outdiv * 16);
+                ((tmp as u8 - 32) | 0b111_00000, tmp * 16)
+            }
+            1008.. => (u8::MAX, 1008),
         };
 
         let this_error = value.abs_diff(result * outdiv);
@@ -840,32 +854,32 @@ mod tests {
             TestRun {
                 value: 1,
                 ckd: Ckd::Div1,
-                bits: 1,
+                bits: 0b000_000001, // case 0xx: 1 * 1 = 1, error = 0
             },
             TestRun {
                 value: 125,
                 ckd: Ckd::Div1,
-                bits: 125,
+                bits: 0b011_11101, // case 0xx: 125 * 1 = 125, error = 0
             },
             TestRun {
                 value: 245,
                 ckd: Ckd::Div1,
-                bits: 64 + 245 / 2,
+                bits: 0b101_11011, // case 10x: (64 + 59) * 2 * 1 = 246, error = 1
             },
             TestRun {
                 value: 255,
-                ckd: Ckd::Div2,
-                bits: 127,
+                ckd: Ckd::Div1,
+                bits: 0b110_00000, // case 110: (32 + 0) * 8 * 1 = 256, error = 1
             },
             TestRun {
                 value: 400,
                 ckd: Ckd::Div1,
-                bits: 210,
+                bits: 0b110_10010, // case 110: (32 + 18) * 8 * 1 = 400, error = 0
             },
             TestRun {
                 value: 600,
                 ckd: Ckd::Div4,
-                bits: 64 + (600u16 / 8) as u8,
+                bits: 0b100_01011, // case 10x: (64 + 11) * 2 * 4 = 600, error = 0
             },
         ];
 
@@ -874,6 +888,96 @@ mod tests {
 
             assert_eq!(ckd.to_bits(), test_run.ckd.to_bits());
             assert_eq!(bits, test_run.bits);
+        }
+    }
+
+    fn reference_ckd_dtg_to_dt(ckd: Ckd, dtg: u8) -> u16 {
+        let div = match ckd {
+            Ckd::Div1 => 1,
+            Ckd::Div2 => 2,
+            Ckd::Div4 => 4,
+            _ => unreachable!(),
+        };
+        reference_dtg_to_dt(dtg) * div
+    }
+
+    fn reference_dtg_to_dt(dtg: u8) -> u16 {
+        match ((dtg >> 7) & 1, (dtg >> 6) & 1, (dtg >> 5) & 1) {
+            (0, _, _) => dtg as u16,
+            (1, 0, _) => (64 + (dtg & 0b111111)) as u16 * 2,
+            (1, 1, 0) => (32 + (dtg & 0b11111)) as u16 * 8,
+            (1, 1, 1) => (32 + (dtg & 0b11111)) as u16 * 16,
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn test_div1_dtg_with_reference() {
+        for dtg in 0u8..=255u8 {
+            let dt = reference_dtg_to_dt(dtg);
+            let (ckd, bits) = compute_dead_time_value(dt);
+            assert_eq!(ckd, Ckd::Div1);
+            assert_eq!(bits, dtg);
+        }
+    }
+
+    #[test]
+    fn test_div2_dtg_with_reference() {
+        for dtg in 0u8..=255u8 {
+            let dt = reference_dtg_to_dt(dtg);
+            if dt * 2 > 1008 {
+                let (ckd, bits) = compute_dead_time_value(dt * 2);
+                assert_eq!(ckd, Ckd::Div2);
+                assert_eq!(bits, dtg);
+            }
+        }
+    }
+
+    #[test]
+    fn test_div4_dtg_with_reference() {
+        for dtg in 0u8..=255u8 {
+            let dt = reference_dtg_to_dt(dtg);
+            if dt * 4 > 1008 * 2 {
+                let (ckd, bits) = compute_dead_time_value(dt * 4);
+                assert_eq!(ckd, Ckd::Div4);
+                assert_eq!(bits, dtg);
+            }
+        }
+    }
+
+    #[test]
+    fn test_all_dead_time_cases_min_error() {
+        let mut lut = [None; 4032 + 1]; // max possible dt is 4032
+        // fill lut with all possible dt values that have exact ckd and dtg
+        for ckd in [Ckd::Div4, Ckd::Div2, Ckd::Div1] {
+            for dtg in 0u8..=255u8 {
+                let dt = reference_ckd_dtg_to_dt(ckd, dtg);
+                lut[dt as usize] = Some((ckd, dtg));
+            }
+        }
+        // for given dt return min error to nearest dt that has exact ckd and dtg
+        let min_error = |dt: u16| -> u16 {
+            // fast path
+            if dt >= 4032 {
+                return dt - 4032;
+            }
+            // slow path
+            let mut i = 0;
+            loop {
+                let less = lut.get(dt.saturating_sub(i) as usize).and_then(|x| *x);
+                let more = lut.get(dt.saturating_add(i) as usize).and_then(|x| *x);
+                if less.is_some() || more.is_some() {
+                    return i;
+                }
+                i += 1;
+            }
+        };
+        // test all dt values and check if dt represented by
+        // the returned ckd and dgt is within min error
+        for dt in 0..=65535 {
+            let (ckd, dgt) = compute_dead_time_value(dt);
+            let exact_dt = reference_ckd_dtg_to_dt(ckd, dgt);
+            assert!(dt.abs_diff(exact_dt) <= min_error(dt));
         }
     }
 }

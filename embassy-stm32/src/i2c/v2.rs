@@ -1141,6 +1141,14 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         .await?;
 
         dma_transfer.await;
+
+        if !restart {
+            // Wait for the bus to be free
+            while self.info.regs.isr().read().busy() {
+                timeout.check()?;
+            }
+        }
+
         drop(on_drop);
 
         Ok(())

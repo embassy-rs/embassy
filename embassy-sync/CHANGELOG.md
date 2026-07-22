@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bytes were written.
 - Implement `core::error::Error` for `channel::TryReceiveError` and `channel::TrySendError`.
 - Made `Signal::poll_wait` public.
+- Made `Subscriber::poll_next_message` public.
+- Made `watch::Receiver::poll_changed` public.
 
 ## 0.8.0 - 2026-03-10
 - Fix wakers getting dropped by `Signal::reset`

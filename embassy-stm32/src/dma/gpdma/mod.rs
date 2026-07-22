@@ -22,6 +22,8 @@ use crate::rcc::WakeGuard;
 pub mod linked_list;
 pub mod ringbuffered;
 
+pub use vals::Pam as Packing;
+
 pub(crate) enum DmaInfo {
     #[cfg(gpdma)]
     Gpdma(pac::gpdma::Gpdma),
@@ -111,6 +113,46 @@ impl From<RequestMode> for vals::Breq {
         match value {
             RequestMode::Burst => vals::Breq::Burst,
             RequestMode::Block => vals::Breq::Block,
+        }
+    }
+}
+
+/// Transfer complete event mode (`TR2.TCEM`).
+///
+/// Controls when the transfer-complete (and half-transfer) events are
+/// generated. For linked-list transfers, this is a per-item field loaded
+/// from each LLI when `UT2` is set.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TransferCompleteMode {
+    /// Generate TC/HT events at the end of each block transfer.
+    EachBlock,
+    /// Generate TC at the end of each LLI transfer (including loading the
+    /// next LLI). HT is generated at the half of the LLI data transfer.
+    EachLinkedListItem,
+    /// Generate TC only at the end of the last LLI transfer. HT is
+    /// generated at the half of the last LLI's data transfer.
+    LastLinkedListItem,
+}
+
+#[cfg(gpdma)]
+impl From<TransferCompleteMode> for pac::gpdma::vals::Tcem {
+    fn from(value: TransferCompleteMode) -> Self {
+        match value {
+            TransferCompleteMode::EachBlock => Self::EachBlock,
+            TransferCompleteMode::EachLinkedListItem => Self::EachLinkedListItem,
+            TransferCompleteMode::LastLinkedListItem => Self::LastLinkedListItem,
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<TransferCompleteMode> for pac::lpdma::vals::Tcem {
+    fn from(value: TransferCompleteMode) -> Self {
+        match value {
+            TransferCompleteMode::EachBlock => Self::EachBlock,
+            TransferCompleteMode::EachLinkedListItem => Self::EachLinkedListItem,
+            TransferCompleteMode::LastLinkedListItem => Self::LastLinkedListItem,
         }
     }
 }
@@ -334,6 +376,8 @@ pub struct TransferOptions {
     /// after partial progress. Default `false`.
     #[cfg(stm32n6)]
     pub secure: bool,
+    /// DMA packing configuration
+    pub packing: Packing,
     /// Source/destination burst length, in beats. Default `_1Beats`. Some
     /// peripherals only assert their DMA request line for bursts above a
     /// threshold (notably the JPEG codec on N6), and some require multi-beat
@@ -343,6 +387,12 @@ pub struct TransferOptions {
     pub burst_length: Burst,
     /// Select whether peripheral handshaking is done at burst or block level.
     pub request_mode: RequestMode,
+    /// Transfer complete event mode. Default `EachBlock`.
+    ///
+    /// For linked-list transfers, set this on each `LinearItem` via
+    /// [`LinearItem::set_transfer_complete_mode`](linked_list::LinearItem::set_transfer_complete_mode)
+    /// since the channel TR2 is overwritten by the first LLI when `UT2` is set.
+    pub transfer_complete_mode: TransferCompleteMode,
     /// Optional trigger-gated transfer configuration.
     pub trigger: Option<TriggerConfig>,
 }
@@ -355,10 +405,12 @@ impl Default for TransferOptions {
             complete_transfer_ir: true,
             #[cfg(stm32n6)]
             secure: false,
+            packing: vals::Pam::Pack,
 
             #[cfg(not(stm32c5))]
             burst_length: Burst::_1Beats,
             request_mode: RequestMode::Burst,
+            transfer_complete_mode: TransferCompleteMode::EachBlock,
             trigger: None,
         }
     }
@@ -460,6 +512,7 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: c
         };
     }
     crate::_generated::init_gpdma();
+    crate::_generated::init_lpdma();
 }
 
 pub(crate) unsafe fn on_irq(channel: DmaChannel) {
@@ -606,7 +659,7 @@ impl<'d> Channel<'d> {
                     // one source beat per destination beat, which silently corrupts
                     // mixed-width transfers.
                     if data_size != dst_size {
-                        w.set_pam(vals::Pam::Pack);
+                        w.set_pam(vals::Pam::from(options.packing.to_bits()));
                     }
                     w.set_dap(match dir {
                         Dir::MemoryToPeripheral => vals::Ap::Port1, // Destination is peripheral on AHB for HPDMA
@@ -632,8 +685,6 @@ impl<'d> Channel<'d> {
             }
             #[cfg(lpdma)]
             DmaInfo::Lpdma(regs) => {
-                use crate::pac::lpdma::vals;
-
                 regs.ch(info.num).tr1().write(|w| {
                     w.set_sdw(data_size.into());
                     w.set_ddw(dst_size.into());
@@ -644,7 +695,7 @@ impl<'d> Channel<'d> {
                     // one source beat per destination beat, which silently corrupts
                     // mixed-width transfers.
                     if data_size != dst_size {
-                        w.set_pam(vals::Pam::Pack);
+                        w.set_pam(options.packing);
                     }
                 });
             }
@@ -658,6 +709,7 @@ impl<'d> Channel<'d> {
             });
             w.set_breq(options.request_mode.into());
             w.set_reqsel(request);
+            w.set_tcem(options.transfer_complete_mode.into());
             if let Some(trigger) = options.trigger {
                 w.set_trigsel(trigger.signal);
                 w.set_trigpol(trigger.polarity.into());
@@ -695,11 +747,7 @@ impl<'d> Channel<'d> {
     }
 
     /// Configure a linked-list transfer.
-    unsafe fn configure_linked_list<const ITEM_COUNT: usize>(
-        &self,
-        table: &Table<ITEM_COUNT>,
-        options: TransferOptions,
-    ) {
+    unsafe fn configure_linked_list<const N: usize>(&self, table: &Table<N>, options: TransferOptions) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
 
@@ -748,7 +796,7 @@ impl<'d> Channel<'d> {
         });
 
         let state = &STATE[self.channel as usize];
-        state.lli_state.count.store(ITEM_COUNT, Ordering::Relaxed);
+        state.lli_state.count.store(N, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
         state
             .lli_state
@@ -950,12 +998,12 @@ impl<'d> Channel<'d> {
     }
 
     /// Create a linked-list DMA transfer.
-    pub unsafe fn linked_list<'a, const ITEM_COUNT: usize>(
+    pub unsafe fn linked_list<'a, const N: usize>(
         &'a mut self,
-        table: Table<ITEM_COUNT>,
+        table: &'a Table<N>,
         options: TransferOptions,
-    ) -> LinkedListTransfer<'a, ITEM_COUNT> {
-        self.configure_linked_list(&table, options);
+    ) -> LinkedListTransfer<'a> {
+        self.configure_linked_list(table, options);
         self.start();
 
         LinkedListTransfer {
@@ -963,16 +1011,33 @@ impl<'d> Channel<'d> {
             channel: self.reborrow(),
         }
     }
+
+    /// Reconfigure and restart a linked-list transfer from item[0].
+    ///
+    /// Resets the channel, clears all flags, reconfigures LBAR/BR1/LLR/CR
+    /// from the table and options, and re-enables the channel. This is
+    /// intended for use cases that need to restart the same linked-list
+    /// chain from the beginning.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that no other code is concurrently accessing
+    /// the channel registers, and that the `table` remains valid for the
+    /// duration of the transfer.
+    pub unsafe fn restart_linked_list<const N: usize>(&self, table: &Table<N>, options: TransferOptions) {
+        self.configure_linked_list(table, options);
+        self.start();
+    }
 }
 
 /// Linked-list DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
+pub struct LinkedListTransfer<'a> {
     channel: Channel<'a>,
     _wake_guard: WakeGuard,
 }
 
-impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> LinkedListTransfer<'a> {
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     ///
     /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
@@ -1019,7 +1084,7 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
     }
 }
 
-impl<'a, const ITEM_COUNT: usize> Drop for LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> Drop for LinkedListTransfer<'a> {
     fn drop(&mut self) {
         self.request_reset();
 
@@ -1028,8 +1093,8 @@ impl<'a, const ITEM_COUNT: usize> Drop for LinkedListTransfer<'a, ITEM_COUNT> {
     }
 }
 
-impl<'a, const ITEM_COUNT: usize> Unpin for LinkedListTransfer<'a, ITEM_COUNT> {}
-impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> Unpin for LinkedListTransfer<'a> {}
+impl<'a> Future for LinkedListTransfer<'a> {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let state = &STATE[self.channel.channel as usize];
@@ -1098,7 +1163,6 @@ impl<'a> Transfer<'a> {
         core::mem::forget(self);
     }
 
-    #[cfg(not(stm32c5))]
     pub(crate) unsafe fn unchecked_extend_lifetime(self) -> Transfer<'static> {
         unsafe { core::mem::transmute(self) }
     }

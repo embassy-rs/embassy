@@ -1,9 +1,10 @@
 use core::default::Default;
 use core::ops::{Deref, DerefMut};
 
+use sdio::MmcBus;
 use sdio_host::common_cmd::R3;
 use sdio_host::emmc::{EMMC, ExtCSD};
-use sdio_host::sd::{BusWidth, CIC, CID, CSD, CardCapacity, CardStatus, CurrentState, OCR, RCA, SCR, SD, SDStatus};
+use sdio_host::sd::{CIC, CID, CSD, CardCapacity, CardStatus, CurrentState, OCR, RCA, SCR, SD, SDStatus};
 use sdio_host::sd_cmd::{R6, R7};
 use sdio_host::{common_cmd, emmc_cmd, sd_cmd};
 
@@ -132,6 +133,7 @@ pub struct StorageDevice<'a, 'b, T: Addressable> {
 /// Card Storage Device
 impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     /// Create a new SD card
+    #[deprecated = "use the sdio crate"]
     pub async fn new_sd_card(sdmmc: &'a mut Sdmmc<'b>, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Self, Error> {
         let mut s = Self {
             info: Card::default(),
@@ -144,6 +146,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     }
 
     /// Create a new uninitialized card
+    #[deprecated = "use the sdio crate"]
     pub fn new_uninit_sd_card(sdmmc: &'a mut Sdmmc<'b>) -> Self {
         Self {
             info: Card::default(),
@@ -162,8 +165,8 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // Get the bus width configured in the Sdmmc peripheral
-        let configured_bus_width = match self.sdmmc.bus_width() {
-            BusWidth::Eight => return Err(Error::BusWidth),
+        let configured_bus_width = match self.sdmmc.supports_bus_width() {
+            ::sdio::BusWidth::W8 => return Err(Error::BusWidth),
             bus_width => bus_width,
         };
 
@@ -254,8 +257,8 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         // Select bus width based on Sdmmc configuration and card capability
         // Use 4-bit only if both the peripheral is configured for it AND the card supports it
         let (bus_width, acmd_arg) = match configured_bus_width {
-            BusWidth::Four if self.info.scr.bus_width_four() => (BusWidth::Four, 2),
-            _ => (BusWidth::One, 0),
+            ::sdio::BusWidth::W4 if self.info.scr.bus_width_four() => (::sdio::BusWidth::W4, 2),
+            _ => (::sdio::BusWidth::W1, 0),
         };
 
         self.sdmmc.cmd(common_cmd::app_cmd(self.info.rca), true, false)?;
@@ -312,7 +315,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     }
 
     #[cfg(sdmmc_dlyb)]
-    fn tune_dlyb(&mut self, freq: Hertz, bus_width: BusWidth) -> Result<(), Error> {
+    fn tune_dlyb(&mut self, freq: Hertz, bus_width: ::sdio::BusWidth) -> Result<(), Error> {
         // DLL needs a stable input clock at the target rate to lock.
         self.sdmmc.clkcr_set_clkdiv(freq, bus_width)?;
 
@@ -461,6 +464,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
 /// Emmc storage device
 impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     /// Create a new EMMC card
+    #[deprecated = "use the sdio crate"]
     pub async fn new_emmc(sdmmc: &'a mut Sdmmc<'b>, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Self, Error> {
         let mut s = Self {
             info: Emmc::default(),
@@ -473,6 +477,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     }
 
     /// Create a new uninitialized emmc
+    #[deprecated = "use the sdio crate"]
     pub fn new_uninit_emmc(sdmmc: &'a mut Sdmmc<'b>) -> Self {
         Self {
             info: Emmc::default(),
@@ -489,7 +494,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     async fn acquire(&mut self, _cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
         let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
-        let bus_width = self.sdmmc.bus_width();
+        let bus_width = self.sdmmc.supports_bus_width();
 
         // While the SD/SDIO card or eMMC is in identification mode,
         // the SDMMC_CK frequency must be no more than 400 kHz.

@@ -55,7 +55,7 @@ pub trait Cipher<'c> {
     fn set_algomode(&self, p: pac::cryp::Cryp);
 
     /// Performs any key preparation within the processor, if necessary.
-    fn prepare_key(&self, _p: pac::cryp::Cryp) {}
+    fn prepare_key(&self, _p: pac::cryp::Cryp, _dir: Direction) {}
 
     /// Performs any cipher-specific initialization.
     fn init_phase_blocking<T: Instance, M: Mode>(&self, _p: pac::cryp::Cryp, _cryp: &Cryp<T, M>) {}
@@ -301,7 +301,10 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesEcb<'c, KEY_SIZE> {
         self.iv
     }
 
-    fn prepare_key(&self, p: pac::cryp::Cryp) {
+    fn prepare_key(&self, p: pac::cryp::Cryp, dir: Direction) {
+        if dir == Direction::Encrypt {
+            return;
+        }
         #[cfg(cryp_v1)]
         {
             p.cr().modify(|w| w.set_algomode(7));
@@ -318,11 +321,11 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesEcb<'c, KEY_SIZE> {
     fn set_algomode(&self, p: pac::cryp::Cryp) {
         #[cfg(cryp_v1)]
         {
-            p.cr().modify(|w| w.set_algomode(2));
+            p.cr().modify(|w| w.set_algomode(4));
         }
         #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
         {
-            p.cr().modify(|w| w.set_algomode0(2));
+            p.cr().modify(|w| w.set_algomode0(4));
             p.cr().modify(|w| w.set_algomode3(false));
         }
     }
@@ -358,7 +361,10 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCbc<'c, KEY_SIZE> {
         self.iv
     }
 
-    fn prepare_key(&self, p: pac::cryp::Cryp) {
+    fn prepare_key(&self, p: pac::cryp::Cryp, dir: Direction) {
+        if dir == Direction::Encrypt {
+            return;
+        }
         #[cfg(cryp_v1)]
         {
             p.cr().modify(|w| w.set_algomode(7));
@@ -1058,7 +1064,7 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         // Set data type to 8-bit. This will match software implementations.
         T::regs().cr().modify(|w| w.set_datatype(2));
 
-        ctx.cipher.prepare_key(T::regs());
+        ctx.cipher.prepare_key(T::regs(), dir);
 
         ctx.cipher.set_algomode(T::regs());
 
@@ -1411,7 +1417,7 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         self.load_key(ctx.cipher.key());
 
         // Prepare key if applicable.
-        ctx.cipher.prepare_key(T::regs());
+        ctx.cipher.prepare_key(T::regs(), ctx.dir);
         T::regs().cr().write(|w| w.0 = ctx.cr);
 
         // Enable crypto processor.
@@ -1530,7 +1536,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         // Set data type to 8-bit. This will match software implementations.
         T::regs().cr().modify(|w| w.set_datatype(2));
 
-        ctx.cipher.prepare_key(T::regs());
+        ctx.cipher.prepare_key(T::regs(), dir);
 
         ctx.cipher.set_algomode(T::regs());
 

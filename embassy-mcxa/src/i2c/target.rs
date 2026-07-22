@@ -369,6 +369,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             });
 
             self.info.regs().scfgr1().modify(|w| {
+                w.set_adrstall(true);
                 w.set_rxstall(true);
                 w.set_txdstall(true);
                 w.set_gcen(config.general_call.into());
@@ -1309,5 +1310,206 @@ impl<'d, M: Mode> Drop for I2c<'d, M> {
     fn drop(&mut self) {
         self._scl.set_as_disabled();
         self._sda.set_as_disabled();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `embedded-mcu-hal` I2C target trait implementations
+// ---------------------------------------------------------------------------
+//
+// These adapt the inherent blocking/async target API above to the generic
+// `embedded_mcu_hal::i2c::target` traits, gated behind the `embedded-mcu-hal`
+// cargo feature.
+//
+// Both 7-bit (`SevenBitAddress`) and 10-bit (`TenBitAddress`) address modes
+// are supported. The blocking trait is implemented once, generic over the
+// address width; the async trait is implemented once, generic over both the
+// address width and the async mode (`Async` and `Dma`).
+//
+// Known deviations from the trait contract (see the module docs and the
+// trait docs in `embedded_mcu_hal::i2c::target`):
+//
+//   * `listen` never returns `Request::RepeatedStart`. A repeated START is
+//     folded into the next `Read`/`Write` event and additionally surfaced
+//     through `WriteStatus::Restarted` / `ReadStatus::EarlyStop`. The
+//     listen -> respond -> re-listen loop still behaves correctly; faithful
+//     edge emission would require tracking the previous sub-transaction
+//     address at the driver level.
+//   * The `SevenBitAddress` implementation truncates the matched address to
+//     seven bits (`as u8`). Use the `TenBitAddress` implementation for a
+//     lossless 10-bit address.
+
+#[cfg(feature = "embedded-mcu-hal")]
+use embedded_mcu_hal::i2c::target as emh;
+#[cfg(feature = "embedded-mcu-hal")]
+use embedded_mcu_hal::i2c::{AddressMode, SevenBitAddress, TenBitAddress};
+
+/// Map this driver's [`IOError`] onto the generic target [`emh::ErrorKind`].
+#[cfg(feature = "embedded-mcu-hal")]
+impl emh::Error for IOError {
+    fn kind(&self) -> emh::ErrorKind {
+        match self {
+            // FIFO over/underrun maps precisely onto `Overrun`.
+            IOError::FifoError => emh::ErrorKind::Overrun,
+            // A bit error is an illegal state on the bus lines.
+            IOError::BitError => emh::ErrorKind::Bus,
+            // A busy bus is a bus-level condition.
+            IOError::BusBusy => emh::ErrorKind::Bus,
+            IOError::TargetBusy => emh::ErrorKind::Other,
+            IOError::Other => emh::ErrorKind::Other,
+        }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'d, M: Mode> emh::ErrorType for I2c<'d, M> {
+    type Error = IOError;
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<ReadStatus> for emh::ReadStatus {
+    fn from(value: ReadStatus) -> Self {
+        match value {
+            ReadStatus::Complete(n) => emh::ReadStatus::Complete(n),
+            ReadStatus::NeedMore(n) => emh::ReadStatus::NeedMore(n),
+            ReadStatus::EarlyStop(n) => emh::ReadStatus::EarlyStop(n),
+        }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<WriteStatus> for emh::WriteStatus {
+    fn from(value: WriteStatus) -> Self {
+        match value {
+            WriteStatus::Stopped(n) => emh::WriteStatus::Stopped(n),
+            WriteStatus::Restarted(n) => emh::WriteStatus::Restarted(n),
+            WriteStatus::BufferFull(n) => emh::WriteStatus::BufferFull(n),
+        }
+    }
+}
+
+/// 7-bit view of a matched-address [`Request`]. The matched address is
+/// truncated to seven bits (`as u8`).
+///
+/// The inherent `listen` methods never produce a repeated-start event, so
+/// this conversion never yields [`emh::Request::RepeatedStart`].
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<Request> for emh::Request<SevenBitAddress> {
+    fn from(value: Request) -> Self {
+        match value {
+            Request::Read(addr) => emh::Request::Read(addr as u8),
+            Request::Write(addr) => emh::Request::Write(addr as u8),
+            Request::Stop(addr) => emh::Request::Stop(addr as u8),
+            Request::GeneralCall => emh::Request::GeneralCall,
+            Request::SmbusAlert => emh::Request::SmbusAlert,
+        }
+    }
+}
+
+/// 10-bit (lossless) view of a matched-address [`Request`].
+///
+/// The inherent `listen` methods never produce a repeated-start event, so
+/// this conversion never yields [`emh::Request::RepeatedStart`].
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<Request> for emh::Request<TenBitAddress> {
+    fn from(value: Request) -> Self {
+        match value {
+            Request::Read(addr) => emh::Request::Read(addr),
+            Request::Write(addr) => emh::Request::Write(addr),
+            Request::Stop(addr) => emh::Request::Stop(addr),
+            Request::GeneralCall => emh::Request::GeneralCall,
+            Request::SmbusAlert => emh::Request::SmbusAlert,
+        }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'d, M: Mode> I2c<'d, M> {
+    /// Bring the target back to a known-clean baseline while preserving the
+    /// configured addressing, general-call / SMBus-alert settings, and
+    /// clocking.
+    ///
+    /// This is the shared implementation behind the blocking and async
+    /// `recover` trait methods. All work is synchronous register access
+    /// performed inside a single critical section, which makes the async
+    /// wrapper trivially cancellation-safe and re-entrant.
+    fn recover_inner(&self) {
+        critical_section::with(|_| {
+            // Stop driving SCL/SDA by disabling the target.
+            self.info.regs().scr().modify(|w| w.set_sen(false));
+
+            // Drop any in-flight FIFO bytes.
+            self.info.regs().scr().modify(|w| {
+                w.set_rtf(ScrRtf::NowEmpty);
+                w.set_rrf(ScrRrf::NowEmpty);
+            });
+
+            // Disable any DMA request enables left set by a cancelled DMA
+            // respond future.
+            self.info.regs().sder().modify(|w| {
+                w.set_tdde(false);
+                w.set_rdde(false);
+            });
+
+            // Mask all target interrupts (write 0). The async wait helpers
+            // re-enable exactly the interrupts they need before awaiting.
+            self.info.regs().sier().write(|_| {});
+
+            // Clear latched bus-event status.
+            self.clear_status();
+
+            // Re-enable the target. Addressing (SAMR/SCFGR1) and clocking are
+            // untouched, so the next `listen` accepts a fresh transaction
+            // without re-initialising the driver.
+            self.info.regs().scr().modify(|w| w.set_sen(true));
+        });
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'d, A: AddressMode> emh::blocking::I2c<A> for I2c<'d, Blocking>
+where
+    Request: Into<emh::Request<A>>,
+{
+    fn recover(&mut self) -> Result<(), Self::Error> {
+        self.recover_inner();
+        Ok(())
+    }
+
+    fn listen(&mut self) -> Result<emh::Request<A>, Self::Error> {
+        self.blocking_listen().map(Into::into)
+    }
+
+    fn respond_to_read(&mut self, buf: &[u8]) -> Result<emh::ReadStatus, Self::Error> {
+        self.blocking_respond_to_read(buf).map(Into::into)
+    }
+
+    fn respond_to_write(&mut self, buf: &mut [u8]) -> Result<emh::WriteStatus, Self::Error> {
+        self.blocking_respond_to_write(buf).map(Into::into)
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+#[allow(private_bounds)]
+impl<'d, M: AsyncMode, A: AddressMode> emh::asynch::I2c<A> for I2c<'d, M>
+where
+    Self: AsyncEngine,
+    Request: Into<emh::Request<A>>,
+{
+    async fn recover(&mut self) -> Result<(), Self::Error> {
+        self.recover_inner();
+        Ok(())
+    }
+
+    async fn listen(&mut self) -> Result<emh::Request<A>, Self::Error> {
+        self.async_listen().await.map(Into::into)
+    }
+
+    async fn respond_to_read(&mut self, buf: &[u8]) -> Result<emh::ReadStatus, Self::Error> {
+        self.async_respond_to_read(buf).await.map(Into::into)
+    }
+
+    async fn respond_to_write(&mut self, buf: &mut [u8]) -> Result<emh::WriteStatus, Self::Error> {
+        self.async_respond_to_write(buf).await.map(Into::into)
     }
 }

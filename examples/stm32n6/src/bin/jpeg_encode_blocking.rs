@@ -19,7 +19,10 @@ struct Aligned<const N: usize>([u8; N]);
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    let p = embassy_stm32::init(Config::default());
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    let mut config = Config::default();
+    config.rcc.supply_config = embassy_stm32::rcc::SupplyConfig::External;
+    let p = embassy_stm32::init(config);
 
     let mut src_buf = Aligned::<{ (W as usize) * (H as usize) }>([0u8; (W as usize) * (H as usize)]);
     let src = &mut src_buf.0;

@@ -8,11 +8,11 @@ use core::task::Poll;
 use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::atomic::AtomicModify;
 use crate::cpu::CoreId;
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::IPCC;
 use crate::rcc::SealedRccPeripheral;
-use crate::reg::AtomicModify;
 use crate::{interrupt, rcc};
 
 /// Interrupt handler.

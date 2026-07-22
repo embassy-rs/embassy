@@ -13,6 +13,7 @@ use embassy_nrf::spim::{self, Spim};
 use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
+use hosted::iface::spi::SpiInterface;
 use static_cell::StaticCell;
 use {defmt_rtt as _, embassy_net_esp_hosted as hosted, panic_probe as _};
 
@@ -29,7 +30,7 @@ const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 async fn wifi_task(
     runner: hosted::Runner<
         'static,
-        hosted::SpiInterface<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Input<'static>>,
+        SpiInterface<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Input<'static>>,
         Output<'static>,
     >,
 ) -> ! {
@@ -63,7 +64,7 @@ async fn main(spawner: Spawner) {
     let spi = spim::Spim::new(p.SPI3, Irqs, sck, miso, mosi, config);
     let spi = ExclusiveDevice::new(spi, cs, Delay);
 
-    let iface = hosted::SpiInterface::new(spi, handshake, ready);
+    let iface = SpiInterface::new(spi, handshake, ready);
 
     static STATE: StaticCell<embassy_net_esp_hosted::State> = StaticCell::new();
     let embassy_net_esp_hosted::HostedResources {

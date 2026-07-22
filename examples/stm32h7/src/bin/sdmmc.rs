@@ -4,9 +4,9 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::sdmmc::sd::{CmdBlock, StorageDevice};
-use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, bind_interrupts, peripherals, sdmmc};
+use embassy_time::Delay;
+use sdio::BlockDevice;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -52,11 +52,11 @@ async fn main(_spawner: Spawner) {
         Default::default(),
     );
 
-    let mut cmd_block = CmdBlock::new();
-
-    let storage = StorageDevice::new_sd_card(&mut sdmmc, &mut cmd_block, mhz(25))
-        .await
-        .unwrap();
+    let storage = loop {
+        if let Ok(storage) = BlockDevice::<_, _, _, 512>::new_sd_card(&mut sdmmc, 24_000_000, Delay).await {
+            break storage;
+        }
+    };
 
     let card = storage.card();
 

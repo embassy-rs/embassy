@@ -1,17 +1,23 @@
-#[cfg(not(stm32u3))]
+#[cfg(stm32n6)]
+use pac::adc::vals::Adcaldif;
+#[cfg(not(any(stm32u3, stm32c5)))]
 use pac::adc::vals::Difsel;
-#[cfg(not(any(stm32u5, stm32u3)))]
+#[cfg(not(any(stm32u5, stm32u3, stm32n6, stm32c5)))]
 use pac::adc::vals::{Adcaldif, Boost};
 #[allow(unused)]
 use pac::adc::vals::{Adstp, Dmngt, Exten, Pcsel};
-#[cfg(not(stm32u3))]
+#[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
 use pac::adccommon::vals::Presc;
+#[cfg(stm32n6)]
+pub use pac::adccommon::vals::{Damdf, Dual};
 
-#[cfg(any(stm32u5, stm32u3))]
+#[cfg(any(stm32u5, stm32u3, stm32n6))]
 use crate::adc::DefaultInstance;
-use crate::adc::{
-    Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt,
-};
+#[cfg(not(stm32n6))]
+use crate::adc::Temperature;
+#[cfg(not(stm32c5))]
+use crate::adc::Vbat;
+use crate::adc::{Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, VrefInt};
 use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::wait::block_for_us;
@@ -30,6 +36,11 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 #[cfg(stm32u5)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 #[cfg(stm32u3)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
+#[cfg(stm32n6)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(70);
+// No prescaler on C5, like U3; conservative placeholder pending datasheet confirmation.
+#[cfg(stm32c5)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
 
 #[cfg(stm32g4)]
@@ -51,7 +62,7 @@ impl<T: Instance> super::ConverterFor<super::Temperature> for T {
 }
 
 // TODO this should be 14 for H7a/b/35
-#[cfg(not(any(stm32u5, stm32u3)))]
+#[cfg(not(any(stm32u5, stm32u3, stm32n6)))]
 impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 17;
 }
@@ -69,7 +80,7 @@ impl<T: DefaultInstance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 18;
 }
 
-#[cfg(stm32u3)]
+#[cfg(any(stm32u3, stm32n6))]
 impl<T: DefaultInstance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 16;
 }
@@ -79,7 +90,12 @@ impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 17;
 }
 
-#[cfg(not(stm32u3))]
+#[cfg(stm32n6)]
+impl<T: DefaultInstance> super::ConverterFor<super::VrefInt> for T {
+    const CHANNEL: u8 = 17;
+}
+
+#[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
@@ -99,6 +115,15 @@ fn from_ker_ck(frequency: Hertz) -> Presc {
 pub struct AdcConfig {
     pub resolution: Option<Resolution>,
     pub averaging: Option<Averaging>,
+    /// Dual-ADC mode for ADC1/ADC2 via `ADC12_COMMON` (N6 only).
+    #[cfg(stm32n6)]
+    pub dual_mode: Option<Dual>,
+    /// Dual-mode data format in `ADC12_COMMON` (N6 only).
+    #[cfg(stm32n6)]
+    pub damdf: Option<Damdf>,
+    /// Delay between dual-ADC sampling phases (N6 only).
+    #[cfg(stm32n6)]
+    pub dual_delay: Option<u8>,
 }
 
 impl AdcRegs for crate::pac::adc::Adc {
@@ -162,7 +187,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, injected: bool) {
         let mut sqr1 = Sqr1::default();
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
@@ -170,12 +195,16 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         let mut smpr1 = self.smpr(0).read();
         let mut smpr2 = self.smpr(1).read();
+        #[cfg(not(any(stm32u3, stm32c5)))]
+        let mut difsel = self.difsel().read();
 
-        // Set sequence length
-        sqr1.set_l(sequence.len() as u8 - 1);
+        if !injected {
+            // Set sequence length
+            sqr1.set_l(sequence.len() as u8 - 1);
+        }
 
         // Configure channels and ranks
-        for (i, ((channel, _), sample_time)) in sequence.enumerate() {
+        for (i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.into();
             if channel <= 9 {
                 smpr1.set_smp(channel as _, sample_time);
@@ -183,35 +212,53 @@ impl AdcRegs for crate::pac::adc::Adc {
                 smpr2.set_smp((channel - 10) as _, sample_time);
             }
 
-            #[cfg(any(stm32h7, stm32u5, stm32u3))]
+            #[cfg(not(any(stm32u3, stm32c5)))]
+            {
+                difsel.set_difsel(
+                    channel as _,
+                    if _is_differential {
+                        Difsel::Differential
+                    } else {
+                        Difsel::SingleEnded
+                    },
+                );
+            }
+
+            #[cfg(any(stm32h7, stm32u5, stm32u3, stm32n6, stm32c5))]
             {
                 self.cfgr2().modify(|w| w.set_lshift(0));
                 self.pcsel().modify(|w| w.set_pcsel(channel as _, Pcsel::Preselected));
             }
 
-            match i {
-                0..=3 => {
-                    sqr1.set_sq(i, channel);
+            if !injected {
+                match i {
+                    0..=3 => {
+                        sqr1.set_sq(i, channel);
+                    }
+                    4..=8 => {
+                        sqr2.set_sq(i - 4, channel);
+                    }
+                    9..=13 => {
+                        sqr3.set_sq(i - 9, channel);
+                    }
+                    14..=15 => {
+                        sqr4.set_sq(i - 14, channel);
+                    }
+                    _ => unreachable!(),
                 }
-                4..=8 => {
-                    sqr2.set_sq(i - 4, channel);
-                }
-                9..=13 => {
-                    sqr3.set_sq(i - 9, channel);
-                }
-                14..=15 => {
-                    sqr4.set_sq(i - 14, channel);
-                }
-                _ => unreachable!(),
             }
         }
 
-        self.sqr1().write_value(sqr1);
-        self.sqr2().write_value(sqr2);
-        self.sqr3().write_value(sqr3);
-        self.sqr4().write_value(sqr4);
+        if !injected {
+            self.sqr1().write_value(sqr1);
+            self.sqr2().write_value(sqr2);
+            self.sqr3().write_value(sqr3);
+            self.sqr4().write_value(sqr4);
+        }
         self.smpr(0).write_value(smpr1);
         self.smpr(1).write_value(smpr2);
+        #[cfg(not(any(stm32u3, stm32c5)))]
+        self.difsel().write_value(difsel);
     }
 }
 
@@ -223,6 +270,19 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         if let Some(resolution) = config.resolution {
             T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
         }
+
+        #[cfg(stm32n6)]
+        T::common_regs().ccr().modify(|reg| {
+            if let Some(dual) = config.dual_mode {
+                reg.set_dual(dual);
+            }
+            if let Some(damdf) = config.damdf {
+                reg.set_damdf(damdf);
+            }
+            if let Some(delay) = config.dual_delay {
+                reg.set_delay(delay);
+            }
+        });
 
         // Set hardware averaging.
         if let Some(averaging) = config.averaging {
@@ -254,14 +314,14 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
-        #[cfg(not(stm32u3))]
+        #[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
         let prescaler = from_ker_ck(T::frequency());
-        #[cfg(not(stm32u3))]
+        #[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
         T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
-        #[cfg(not(stm32u3))]
+        #[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
         let frequency = T::frequency() / prescaler;
 
-        #[cfg(stm32u3)]
+        #[cfg(any(stm32u3, stm32n6, stm32c5))]
         let frequency = T::frequency();
 
         info!("ADC frequency set to {}", frequency);
@@ -289,32 +349,101 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         T::regs().cr().modify(|reg| {
             reg.set_deeppwd(false);
+            #[cfg(not(stm32n6))]
             reg.set_advregen(true);
         });
 
         block_for_us(10);
 
-        #[cfg(not(stm32u3))]
+        #[cfg(not(any(stm32u3, stm32c5)))]
         T::regs().difsel().modify(|w| {
             for n in 0..20 {
                 w.set_difsel(n, Difsel::SingleEnded);
             }
         });
 
-        #[cfg(not(stm32u3))]
-        T::regs().cr().modify(|w| {
-            #[cfg(not(adc_u5))]
-            w.set_adcaldif(Adcaldif::SingleEnded);
-            w.set_adcallin(true);
-        });
+        #[cfg(not(stm32n6))]
+        {
+            #[cfg(not(any(stm32u3, stm32c5)))]
+            T::regs().cr().modify(|w| {
+                #[cfg(not(adc_u5))]
+                w.set_adcaldif(Adcaldif::SingleEnded);
+                w.set_adcallin(true);
+            });
 
-        T::regs().cr().modify(|w| w.set_adcal(true));
+            T::regs().cr().modify(|w| w.set_adcal(true));
 
-        while T::regs().cr().read().adcal() {}
+            while T::regs().cr().read().adcal() {}
 
-        block_for_us(1);
+            block_for_us(1);
 
-        T::regs().enable();
+            T::regs().enable();
+        }
+
+        #[cfg(stm32n6)]
+        {
+            // See STM32N6 reference manual 32.4.8: Software procedure to calibrate the ADC
+            const ADC_MIDPOINT: u64 = 0x7ff;
+            // Steps 4 to 8
+            let sample_and_average = || -> u64 {
+                let mut data = [0u64; 8];
+                for reading in &mut data {
+                    // 4. Set the ADSTART bit in the ADC_CR register.
+                    T::regs().cr().modify(|w| w.set_adstart(true));
+                    // 5. Wait until the ADSTART bit is cleared or the EOC flag is set.
+                    while T::regs().cr().read().adstart() && !T::regs().isr().read().eoc() {}
+                    // 6. Read the ADC_DR register, then copy the converted data to the memory.
+                    *reading = T::regs().dr().read().rdata() as u64;
+                    // 7. Repeat from step 4 several times (for example eight times).
+                }
+                // 8. Average the data stored in memory by dividing the accumulated data by the
+                // number of the conversions
+                data.iter().sum::<u64>() / data.len() as u64
+            };
+            // 1. Ensure DEEPPWD = 0, ADEN = 1 and wait until the ADRDY bit is set.
+            T::regs().cr().modify(|reg| reg.set_deeppwd(false));
+            block_for_us(1);
+            T::regs().enable();
+            // 2. Set ADCAL and ensure CALADDOS = 0.
+            T::regs().cr().modify(|w| w.set_adcal(true));
+            T::regs().calfact().modify(|w| w.set_caladdos(false));
+            // 3. Select the calibration input mode by clearing ADCALDIF (single-ended input).
+            T::regs().cr().modify(|w| w.set_adcaldif(Adcaldif::SingleEnded));
+            // Steps 4 to 8
+            let mut average = sample_and_average();
+            // 9. If the averaged data is zero, set CALADDOS. Repeat all steps from step 4.
+            if average == 0 {
+                T::regs().calfact().modify(|w| w.set_caladdos(true));
+                average = sample_and_average();
+            }
+            // 10. Store the averaged data to CALFACT_S[8:0].
+            T::regs().calfact().modify(|w| w.set_calfact_s(average as u16));
+            // 11. Select the calibration input mode by setting ADCALDIF (differential input).
+            T::regs().cr().modify(|w| w.set_adcaldif(Adcaldif::Differential));
+            // 12. Keep the same CALADDOS setting as the one obtained during the single-end
+            // calibration.
+            // 13. Repeat steps 4 to 8.
+            average = sample_and_average();
+            // 14. Subtract 0x7FF from the averaged data. If the result is positive, store it in the
+            // CALFACT_D[8:0] bitfield. If it is negative, set CALADDOS, then repeat steps from 4 to
+            // 8.
+            if average < ADC_MIDPOINT {
+                T::regs().calfact().modify(|w| w.set_caladdos(true));
+                average = sample_and_average();
+            }
+            // 15. Subtract again 0x7FF from the new averaged data. The resulting value is positive.
+            // Store it in CALFACT_D[8:0].
+            let result = average.saturating_sub(ADC_MIDPOINT) as u16;
+            T::regs().calfact().modify(|w| w.set_calfact_d(result));
+            // 16. CALADDOS is now set, so clear ADCALDIF, and repeat steps 4 to 8..
+            T::regs().cr().modify(|w| w.set_adcaldif(Adcaldif::SingleEnded));
+            average = sample_and_average();
+            // 17. Store the averaged data in CALFACT_S[8:0].
+            T::regs().calfact().modify(|w| w.set_calfact_s(average as u16));
+            // 18. Clear ADCAL bit.
+            T::regs().cr().modify(|w| w.set_adcal(false));
+            block_for_us(1);
+        }
 
         // single conversion mode, software trigger
         T::regs().cfgr().modify(|w| {
@@ -335,6 +464,10 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
+    ///
+    /// On STM32N6 there is no ADC-connected temperature sensor; use the
+    /// [`crate::dts`] driver instead.
+    #[cfg(not(stm32n6))]
     pub fn enable_temperature(&mut self) -> Temperature {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vsenseen(true);
@@ -344,6 +477,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the vbat internal channel.
+    #[cfg(not(stm32c5))]
     pub fn enable_vbat(&mut self) -> Vbat {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbaten(true);

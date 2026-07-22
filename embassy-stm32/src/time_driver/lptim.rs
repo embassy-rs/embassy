@@ -16,8 +16,7 @@ use stm32_metapac::lptim::Lptim;
 
 use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
-use crate::lptim::SealedInstance;
-use crate::pac::lptim::vals;
+use crate::lptim::{SealedInstance, vals};
 use crate::rcc::SealedRccPeripheral;
 use crate::{peripherals, rcc};
 
@@ -32,17 +31,18 @@ fn regs_lptim() -> Lptim {
     T::regs()
 }
 
-// LPTIM v2a (STM32WBA) renames the interrupt enable register from IER to DIER
-// and uses IcrAdv/DierAdv register types instead of Icr/Ier.
-// The compare register also changes from a single `cmp()` to an indexed `ccr(n)`.
+// LPTIM v2a/v2b (STM32WBA, STM32U5, STM32U3, etc.) renames the interrupt
+// enable register from IER to DIER and uses IcrAdv/DierAdv register types
+// instead of Icr/Ier. The compare register also changes from a single `cmp()`
+// to an indexed `ccr(n)`.
 
 /// Read the interrupt enable register value as a raw u32.
 fn ier_read(r: Lptim) -> u32 {
-    #[cfg(not(stm32wba))]
+    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     {
         r.ier().read().0
     }
-    #[cfg(stm32wba)]
+    #[cfg(any(stm32wba, stm32u5, stm32u3))]
     {
         r.dier().read().0
     }
@@ -50,11 +50,11 @@ fn ier_read(r: Lptim) -> u32 {
 
 /// Check if the compare-capture interrupt is enabled for channel `n`.
 fn ier_ccie(r: Lptim, n: usize) -> bool {
-    #[cfg(not(stm32wba))]
+    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     {
         r.ier().read().ccie(n)
     }
-    #[cfg(stm32wba)]
+    #[cfg(any(stm32wba, stm32u5, stm32u3))]
     {
         r.dier().read().ccie(n)
     }
@@ -62,35 +62,40 @@ fn ier_ccie(r: Lptim, n: usize) -> bool {
 
 /// Modify the interrupt enable register.
 fn ier_set_ueie(r: Lptim, val: bool) {
-    #[cfg(not(stm32wba))]
+    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     r.ier().modify(|w| w.set_ueie(val));
-    #[cfg(stm32wba)]
+    #[cfg(any(stm32wba, stm32u5, stm32u3))]
     r.dier().modify(|w| w.set_ueie(val));
 }
 
 fn ier_set_ccie(r: Lptim, n: usize, val: bool) {
-    #[cfg(not(stm32wba))]
+    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     r.ier().modify(|w| w.set_ccie(n, val));
-    #[cfg(stm32wba)]
+    #[cfg(any(stm32wba, stm32u5, stm32u3))]
     r.dier().modify(|w| w.set_ccie(n, val));
 }
 
 /// Write a raw value to the ICR (interrupt clear register).
 fn icr_write_raw(r: Lptim, val: u32) {
-    #[cfg(not(stm32wba))]
+    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     r.icr().write_value(stm32_metapac::lptim::regs::Icr(val));
-    #[cfg(stm32wba)]
+    #[cfg(any(stm32wba, stm32u5, stm32u3))]
     r.icr().write_value(stm32_metapac::lptim::regs::IcrAdv(val));
 }
 
 /// Write the compare value and wait for the write to be acknowledged.
 fn write_compare(r: Lptim, val: u16) {
-    #[cfg(not(stm32wba))]
+    #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     {
+        // On STM32WL, CMPOK remains set after a compare update. Clear the stale
+        // acknowledgement so the loop waits for the current CMP write.
+        #[cfg(any(stm32wlex, stm32wl5x))]
+        r.icr().write(|w| w.set_cmpokcf(0, true));
+
         r.cmp().write(|w| w.set_cmp(val));
         while !r.isr().read().cmpok(0) {}
     }
-    #[cfg(stm32wba)]
+    #[cfg(any(stm32wba, stm32u5, stm32u3))]
     {
         r.ccr(0).write(|w| w.set_ccr(val));
         while !r.isr().read().cmpok(0) {}
@@ -202,6 +207,28 @@ impl RtcDriver {
                 #[cfg(stm32wlex)]
                 {
                     crate::pac::EXTI.imr(0).modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
+                }
+            }
+
+            // U5/U3: the LP timer used as time driver must remain functional in
+            // STOP mode so it can wake the CPU. Two RCC bits are required:
+            //  - SRDAMR.*amen: autonomous mode enable, so the peripheral can
+            //    request its kernel clock (LSE/LSI) while in STOP.
+            //  - APB3SMENR.*smen: keep the APB bus clock available in STOP so
+            //    the NVIC interrupt reaches the CPU.
+            // Without these, the LPTIM keeps its registers but its interrupt
+            // cannot wake the core from STOP, hanging the executor.
+            #[cfg(any(stm32u5, stm32u3))]
+            {
+                #[cfg(time_driver_lptim1)]
+                {
+                    crate::pac::RCC.srdamr().modify(|w| w.set_lptim1amen(true));
+                    crate::pac::RCC.apb3smenr().modify(|w| w.set_lptim1smen(true));
+                }
+                #[cfg(time_driver_lptim3)]
+                {
+                    crate::pac::RCC.srdamr().modify(|w| w.set_lptim3amen(true));
+                    crate::pac::RCC.apb3smenr().modify(|w| w.set_lptim3smen(true));
                 }
             }
         }

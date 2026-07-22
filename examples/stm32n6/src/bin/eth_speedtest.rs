@@ -27,7 +27,7 @@ use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Ipv4Cidr, StackResources, StaticConfigV4};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH_SMA, ETH1};
-use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
+use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
 use embassy_stm32::{Config, bind_interrupts, eth};
 use embassy_time::{Duration, Instant};
 use embedded_io_async::{Read, Write};
@@ -53,6 +53,8 @@ const GATEWAY: Ipv4Address = Ipv4Address::new(192, 168, 137, 1);
 
 fn rcc_config() -> Config {
     let mut config = Config::default();
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    config.rcc.supply_config = SupplyConfig::External;
     // PLL1 = HSI(64 MHz) / 4 * 50 = 800 MHz.
     config.rcc.pll1 = Some(Pll::Oscillator {
         source: Pllsel::Hsi,

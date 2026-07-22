@@ -18,6 +18,7 @@ use crate::peripherals;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
     pub(crate) pin: Peri<'d, AnyPin>,
+    borrowed: bool,
 }
 
 impl<'d> Flex<'d> {
@@ -29,7 +30,10 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         // Pin will be in disconnected state.
-        Self { pin: pin.into() }
+        Self {
+            pin: pin.into(),
+            borrowed: false,
+        }
     }
 
     /// Reborrow into a "child" Flex.
@@ -38,6 +42,7 @@ impl<'d> Flex<'d> {
     pub fn reborrow(&mut self) -> Flex<'_> {
         Flex {
             pin: self.pin.reborrow(),
+            borrowed: true,
         }
     }
 
@@ -45,6 +50,7 @@ impl<'d> Flex<'d> {
     pub unsafe fn clone_unchecked(&self) -> Flex<'d> {
         Flex {
             pin: self.pin.clone_unchecked(),
+            borrowed: self.borrowed,
         }
     }
 
@@ -251,6 +257,9 @@ impl<'d> Flex<'d> {
 impl<'d> Drop for Flex<'d> {
     #[inline]
     fn drop(&mut self) {
+        if self.borrowed {
+            return;
+        }
         trace!("gpio: dropping {}", self.pin);
         critical_section::with(|_| {
             self.pin.set_as_disconnected();
@@ -692,7 +701,7 @@ fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
 }
 
 #[inline(never)]
-#[cfg(all(gpio_v2, not(stm32c5)))]
+#[cfg(gpio_v2)]
 fn set_speed(pin_port: PinNumber, speed: Speed) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -722,7 +731,6 @@ pub(crate) fn set_as_analog(pin_port: PinNumber) {
 }
 
 #[inline(never)]
-#[cfg(not(stm32c5))]
 fn get_pull(pin_port: PinNumber) -> Pull {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -804,7 +812,7 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
-    #[cfg(all(gpio_v2, not(stm32c5)))]
+    #[cfg(gpio_v2)]
     fn set_speed(&self, speed: Speed) {
         set_speed(self.pin_port(), speed)
     }
@@ -828,7 +836,6 @@ pub(crate) trait SealedPin {
 
     /// Get the pull-up configuration.
     #[inline]
-    #[cfg(not(stm32c5))]
     fn pull(&self) -> Pull {
         critical_section::with(|_| get_pull(self.pin_port()))
     }

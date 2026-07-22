@@ -20,6 +20,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-hostname", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-hostname", "dns", "medium-ethernet", "slaac", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-ntp", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv6", "slaac", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ieee802154", "proto-ipv6", "tcp", "udp"]},
@@ -86,6 +87,8 @@ mdns = ["dns", "smoltcp/socket-mdns"]
 dhcpv4 = ["proto-ipv4", "medium-ethernet", "smoltcp/socket-dhcpv4"]
 ## Enable DHCPv4 support with hostname
 dhcpv4-hostname = ["dhcpv4"]
+## Enable parsing of the NTP servers (DHCP option 42) from the DHCP reply
+dhcpv4-ntp = ["dhcpv4"]
 ## Enable IPv4 support
 proto-ipv4 = ["smoltcp/proto-ipv4"]
 ## Enable IPv6 support
@@ -119,6 +122,7 @@ smoltcp = {  version = "0.13.0", default-features = false, features = [
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embedded-io-async = { version = "0.7.0" }
 

@@ -23,6 +23,7 @@ DMA:
 - feat: stm32/dma: ungate `TransferOptions::burst_length` on GPDMA (was stm32n6-only)
 - fix: stm32/dma: auto-set `TR1.PAM = Pack` on GPDMA when source and destination widths differ, instead of silently zero-extending one beat per destination beat
 - fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
+- feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
@@ -37,6 +38,10 @@ Timer:
 - feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
 - feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
 - feat: stm32/timer: add low-level timer status helpers for UIF remap control and counting direction (`is_counting_up`/`is_counting_down`)
+- feat: stm32/timer: add `low_level::Timer::get_counter()` to read the counter register as `T::Word`
+
+QEI:
+- fix: stm32/qei: `count()`, `reset()`, and `auto_reload` always used the 16-bit register view, so on 32-bit timers `reset()` only cleared the lower 16 bits of the counter (leaving the upper bits stale) and `auto_reload`/`count()` were truncated to `u16`; `Config`/`AdvancedConfig` are now generic over the timer instance and `auto_reload` uses `T::Word`, while `count()` returns `u32` so 32-bit timers work correctly across their full range (breaking change)
 
 PKA:
 - feat: stm32/pka: extend ECC point buffer support to 640-bit operands (80-byte coordinates) in public point types and Jacobian conversion paths
@@ -47,6 +52,9 @@ CRYP:
 
 SAES:
 - feat: stm32/saes: expose explicit key-mode starters (`start_with_mode`, `start_wrapped_key`, `start_shared_key`) and async `aad`/`payload`/`finish` parity methods
+
+OSPI:
+- feat: stm32/ospi: add `Ospi::configure_hyperbus` + `HyperbusConfig`/`HyperbusLatencyMode` to program the HyperBus latency register (HLCR), enabling HyperBus/HyperRAM memory-mapped bring-up without reaching for `unstable-pac`
 
 ## 0.6.0 - 2026-03-10
 

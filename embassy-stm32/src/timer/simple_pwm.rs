@@ -4,16 +4,13 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, RoundTo, Timer};
-#[cfg(not(stm32c5))]
 use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
 use crate::Peri;
-#[cfg(not(stm32c5))]
 use crate::dma::word::Word;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
-#[cfg(not(stm32c5))]
 use crate::pac::timer::vals::Ccds;
 use crate::time::Hertz;
 #[cfg(timer_v2)]
@@ -176,7 +173,6 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
         self.timer.set_output_compare_clear_enable(self.channel, enable);
     }
 
-    #[cfg(not(stm32c5))]
     /// Convert this PWM channel into a ring-buffered PWM channel.
     ///
     /// This allows continuous PWM waveform generation using a DMA ring buffer.
@@ -364,21 +360,17 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
 
     /// Set PWM frequency.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around at the same frequency as is being set
+    /// In the center-aligned mode, its the frequency of the timer counting both up and down,
+    /// so wrap-around frequency is effectively halved.
+    ///
     /// The actual frequency may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the frequency will not be applied in the timer until an update event
     /// occurs.
     pub fn set_frequency(&mut self, freq: Hertz) {
-        // TODO: prevent ARR = u16::MAX?
-        let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
-            2u64
-        } else {
-            1u64
-        };
-        let timer_f = T::frequency().0 as u64;
-        let clocks = timer_f / (freq.0 as u64 * multiplier);
-        self.inner.set_period_clocks_internal(clocks, RoundTo::Slower, 16);
+        self.inner.set_frequency(freq, RoundTo::Slower);
     }
 
     /// Get the PWM driver frequency.
@@ -388,67 +380,59 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
 
     /// Set PWM period in milliseconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     pub fn set_period_ms(&mut self, ms: u32) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * ms as u64 / 1_000;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period_ms(ms, RoundTo::Slower);
     }
 
     /// Set PWM period in microseconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     pub fn set_period_us(&mut self, us: u32) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * us as u64 / 1_000_000;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period_us(us, RoundTo::Slower);
     }
 
     /// Set PWM period in seconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     pub fn set_period_secs(&mut self, secs: u32) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * secs as u64;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period_secs(secs, RoundTo::Slower);
     }
 
     /// Set PWM period using an `embassy_time::Duration`.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
-    /// limitations. The timer will round towards a slower (longer) period.
+    /// limitations. The timer will round towards a longer period (slower).
     ///
     /// Note: that the period will not be applied in the timer until an update event
     /// occurs.
     #[cfg(feature = "time")]
     pub fn set_period(&mut self, period: embassy_time::Duration) {
-        let timer_f = T::frequency().0 as u64;
-        let mut clocks = timer_f * period.as_ticks() / embassy_time::TICK_HZ;
-        if self.inner.get_counting_mode().is_center_aligned() {
-            clocks = clocks / 2;
-        }
-        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+        self.inner.set_period(period, RoundTo::Slower);
     }
 
     /// Get max duty value.
@@ -470,7 +454,6 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.set_compare_dither_value(channel, dither);
     }
 
-    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -491,7 +474,6 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
     }
 
-    #[cfg(not(stm32c5))]
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
@@ -512,7 +494,6 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.enable_update_dma(false);
     }
 
-    #[cfg(not(stm32c5))]
     /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
     ///
     /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers

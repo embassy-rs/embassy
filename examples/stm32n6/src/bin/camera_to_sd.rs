@@ -29,7 +29,7 @@ use embassy_stm32::i2c::I2c;
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
 use embassy_stm32::peripherals::DCMIPP;
 use embassy_stm32::rcc::mux::{Dcmippsel, Ltdcsel};
-use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk};
+use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
 use embassy_stm32::rif::{RifMaster, RifMasterAttributes, RifPeripheral, RifPeripheralAttributes};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::sdmmc::sd::{Addressable, Card, CmdBlock, DataBlock, StorageDevice};
@@ -173,6 +173,7 @@ async fn main(_spawner: Spawner) {
     sd_cfg.data_transfer_timeout = 200_000_000;
     let mut sd = Sdmmc::new_4bit(p.SDMMC2, Irqs, p.PC2, p.PC3, p.PC4, p.PC5, p.PC0, p.PE4, sd_cfg);
     let mut cmd_block = CmdBlock::new();
+    #[allow(deprecated)]
     let mut sd_state = match StorageDevice::new_sd_card(&mut sd, &mut cmd_block, Hertz(24_000_000)).await {
         Ok(storage) => {
             info!("sd: card ready, {} blocks", storage.card().size());
@@ -552,6 +553,11 @@ impl TimeSource for FixedTime {
 
 fn rcc_config() -> Config {
     let mut config = Config::default();
+    // The STM32N6570-DK supplies VCORE from an external SMPS (board default, UM3300
+    // Table 6). The embassy default (SupplyConfig::Smps) enables the *internal* SMPS,
+    // so VOSRDY never reaches the selected VOS level and init() hangs in the voltage-
+    // scaling wait. Selecting External clears SDEN → VOSRDY/ACTVOSRDY read ready.
+    config.rcc.supply_config = SupplyConfig::External;
     config.rcc.pll1 = Some(Pll::Oscillator {
         source: Pllsel::Hsi,
         divm: Plldivm::Div4,

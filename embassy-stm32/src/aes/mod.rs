@@ -148,6 +148,7 @@ use core::task::Poll;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
+pub use crate::crypto::{CipherAuthenticated, CipherSized, Direction, Error, IVSized, KeySize};
 use crate::dma::ChannelAndRequest;
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
@@ -178,40 +179,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             T::regs().icr().write(|w| w.0 = 0xFFFF_FFFF);
         }
     }
-}
-
-/// AES error
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
-    /// Invalid key size
-    KeyError,
-    /// Read error - unexpected output read during computation
-    ReadError,
-    /// Write error - unexpected input write during output phase
-    WriteError,
-    /// Invalid configuration
-    ConfigError,
-}
-
-/// AES cipher direction
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Direction {
-    /// Encryption mode
-    Encrypt = 0,
-    /// Decryption mode (MODE = 2)
-    Decrypt = 2,
-}
-
-/// AES key size
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum KeySize {
-    /// 128-bit key
-    Bits128 = 0,
-    /// 256-bit key
-    Bits256 = 1,
 }
 
 /// This trait encapsulates all cipher-specific behavior.
@@ -342,18 +309,6 @@ pub trait Cipher<'c> {
         };
         (header, len)
     }
-}
-
-/// This trait enables restriction of ciphers to specific key sizes.
-pub trait CipherSized {}
-
-/// This trait enables restriction of initialization vectors to sizes compatible with a cipher mode.
-pub trait IVSized {}
-
-/// This trait enables restriction of a header phase to authenticated ciphers only.
-pub trait CipherAuthenticated<const TAG_SIZE: usize> {
-    /// Defines the authentication tag size.
-    const TAG_SIZE: usize = TAG_SIZE;
 }
 
 /// AES-ECB Cipher Mode

@@ -4,68 +4,11 @@
 use aligned::{A4, Aligned};
 use block_device_driver::BlockDevice;
 use defmt::{info, warn};
-use embassy_stm32::sdmmc::sd::{Addressable, Card, DataBlock, StorageDevice};
+use embassy_stm32::sdmmc::Sdmmc;
 use embedded_fatfs::{DefaultTimeProvider, FileSystem, FsOptions, LossyOemCpConverter};
-use embedded_io_async::ErrorKind;
 
-pub struct EmbassyBlockDevice<'a, 'b> {
-    inner: StorageDevice<'a, 'b, Card>,
-}
-
-impl<'a, 'b> EmbassyBlockDevice<'a, 'b> {
-    pub fn new(inner: StorageDevice<'a, 'b, Card>) -> Self {
-        Self { inner }
-    }
-}
-
-#[derive(Debug)]
-pub struct SdError(pub embassy_stm32::sdmmc::Error);
-
-impl core::fmt::Display for SdError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
-}
-
-impl core::error::Error for SdError {}
-
-impl embedded_io_async::Error for SdError {
-    fn kind(&self) -> ErrorKind {
-        ErrorKind::Other
-    }
-}
-
-impl defmt::Format for SdError {
-    fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(fmt, "SdError({:?})", defmt::Debug2Format(&self.0));
-    }
-}
-
-impl<'a, 'b> BlockDevice<512> for EmbassyBlockDevice<'a, 'b> {
-    type Error = SdError;
-    /// `DataBlock` is `repr(align(4)) [u32; 128]`, layout-compatible with `Aligned<A4, [u8; 512]>`.
-    type Align = A4;
-
-    async fn read(
-        &mut self,
-        block_address: u32,
-        data: &mut [Aligned<Self::Align, [u8; 512]>],
-    ) -> Result<(), Self::Error> {
-        let blocks: &mut [DataBlock] =
-            unsafe { core::slice::from_raw_parts_mut(data.as_mut_ptr() as *mut DataBlock, data.len()) };
-        self.inner.read_blocks(block_address, blocks).await.map_err(SdError)
-    }
-
-    async fn write(&mut self, block_address: u32, data: &[Aligned<Self::Align, [u8; 512]>]) -> Result<(), Self::Error> {
-        let blocks: &[DataBlock] =
-            unsafe { core::slice::from_raw_parts(data.as_ptr() as *const DataBlock, data.len()) };
-        self.inner.write_blocks(block_address, blocks).await.map_err(SdError)
-    }
-
-    async fn size(&mut self) -> Result<u64, Self::Error> {
-        Ok(self.inner.card().size())
-    }
-}
+pub type DefaultBlockDevice<T, B, D> = ::sdio::BlockDevice<T, B, D, 512>;
+pub type EmbassyBlockDevice<'a, 'b> = DefaultBlockDevice<::sdio::sd::Card, &'a mut Sdmmc<'b>, embassy_time::Delay>;
 
 pub type EmbassyStream<'a, 'b> = block_device_adapters::BufStream<EmbassyBlockDevice<'a, 'b>, 512>;
 pub type EmbassyFs<'a, 'b> =
@@ -78,9 +21,8 @@ pub type FsError<'a, 'b> = embedded_fatfs::Error<
 
 /// Mount FAT on `storage`. Reads sector 0 to detect MBR vs superfloppy
 /// layout and offsets the `StreamSlice` accordingly.
-pub async fn mount<'a, 'b>(storage: StorageDevice<'a, 'b, Card>) -> Result<EmbassyFs<'a, 'b>, FsError<'a, 'b>> {
-    let card_bytes = storage.card().size();
-    let mut block_dev = EmbassyBlockDevice::new(storage);
+pub async fn mount<'a, 'b>(mut block_dev: EmbassyBlockDevice<'a, 'b>) -> Result<EmbassyFs<'a, 'b>, FsError<'a, 'b>> {
+    let card_bytes = block_dev.size().await.unwrap();
 
     let mut sec0_buf = [Aligned::<A4, _>([0u8; 512])];
     block_dev.read(0, &mut sec0_buf).await.map_err(|e| {

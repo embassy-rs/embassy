@@ -38,6 +38,10 @@ const MAX_PAGE_WORDS: usize = MAX_PAGE_SIZE / 4;
 const LUT_KEY_VALUE: u32 = 0x5AF0_5AF0;
 const LUT_WORD_COUNT: usize = 64;
 const DMA_FIFO_WINDOW_BYTES: usize = 8;
+/// FlexSPI IP write granularity. The IP write path corrupts the byte before a
+/// non-aligned start address, so page programs must be aligned to this many
+/// bytes; it is the same granularity the DMA FIFO window requires.
+const WRITE_GRANULARITY: usize = DMA_FIFO_WINDOW_BYTES;
 const TEMP_SEQUENCE_INDEX: u8 = 15;
 const IP_FIFO_DEPTH_WORDS: usize = 32;
 const IP_FIFO_CAPACITY_BYTES: usize = IP_FIFO_DEPTH_WORDS * 4;
@@ -494,12 +498,22 @@ impl From<IoError> for SetupError {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum IoError {
-    Command { error_code: pac::flexspi::Ipcmderrcode },
+    Command {
+        error_code: pac::flexspi::Ipcmderrcode,
+    },
     CommandGrantTimeout,
     Dma(crate::dma::TransferErrors),
     InterruptWait,
     InvalidDmaParameters,
     InvalidTransferLength,
+    /// A `page_program` address or length is not 8-byte aligned, or the write
+    /// would cross a page boundary. The FlexSPI IP write path corrupts the byte
+    /// before a non-8-aligned start address, so writes must be 8-byte aligned
+    /// (the same granularity the DMA path requires); and a program that crosses
+    /// a page wraps the column address within that page.
+    Misaligned,
+    /// The requested access extends past the configured flash size.
+    OutOfBounds,
 }
 
 impl From<crate::dma::InvalidParameters> for IoError {
@@ -762,6 +776,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     pub fn erase_sector(&mut self, address: u32) -> Result<(), IoError> {
+        self.check_in_bounds(address, 1)?;
         self.write_enable()?;
         self.issue_ip_command(address, self.flash.erase_sector_seq as usize, 0, None)?;
         self.wait_bus_busy()?;
@@ -769,6 +784,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     pub fn read(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), IoError> {
+        self.check_in_bounds(address, buffer.len())?;
         let mut offset = 0;
 
         while offset < buffer.len() {
@@ -788,9 +804,7 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     pub fn page_program(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
-        if data.is_empty() || data.len() > self.flash.page_size {
-            return Err(IoError::InvalidTransferLength);
-        }
+        self.check_program(address, data.len())?;
 
         self.write_enable()?;
 
@@ -798,6 +812,36 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
 
         self.wait_bus_busy()?;
         Ok(())
+    }
+
+    /// Total addressable flash size in bytes.
+    fn flash_size_bytes(&self) -> u64 {
+        self.flash.flash_size_kbytes as u64 * 1024
+    }
+
+    /// Reject a read/erase access that runs past the end of the device.
+    fn check_in_bounds(&self, address: u32, len: usize) -> Result<(), IoError> {
+        if address as u64 + len as u64 > self.flash_size_bytes() {
+            return Err(IoError::OutOfBounds);
+        }
+        Ok(())
+    }
+
+    /// Validate a page-program request: non-empty and no larger than a page,
+    /// 8-byte aligned (the FlexSPI IP-write granularity; a non-aligned start
+    /// corrupts the preceding byte), not crossing a page boundary, and within
+    /// the device.
+    fn check_program(&self, address: u32, len: usize) -> Result<(), IoError> {
+        if len == 0 || len > self.flash.page_size {
+            return Err(IoError::InvalidTransferLength);
+        }
+        if address as usize % WRITE_GRANULARITY != 0 || len % WRITE_GRANULARITY != 0 {
+            return Err(IoError::Misaligned);
+        }
+        if (address as usize % self.flash.page_size) + len > self.flash.page_size {
+            return Err(IoError::Misaligned);
+        }
+        self.check_in_bounds(address, len)
     }
 
     fn write_enable(&mut self) -> Result<(), IoError> {
@@ -849,6 +893,25 @@ impl<'d, M: Mode> InnerFlexSpi<'d, M> {
     }
 
     fn prepare_ip_transfer(&mut self) {
+        // Recover from a previous async operation that was cancelled (its future
+        // dropped) mid-command -- e.g. the caller wrapped it in `with_timeout`
+        // and it elapsed. That can leave the sequence engine non-idle (CS
+        // asserted, TX-FIFO underrun), after which a plain `wait_idle()` would
+        // spin forever. A software reset forces idle, de-asserts CS, resets the
+        // instruction pointer, and flushes the FIFOs; the LUT and controller
+        // config survive it (the init path relies on exactly this). A single
+        // SEQIDLE sample is authoritative: SEQIDLE only deasserts on a fresh
+        // IPCMD trigger and none is pending here, so a still-draining command
+        // holds it low rather than reading idle mid-sequence.
+        //
+        // This is cancel-safety (correctness), not a timeout: *how long* to wait
+        // for an operation, and whether to give up, is policy left to the caller
+        // (wrap the async op in `with_timeout` with an application-specific
+        // budget). The driver only guarantees that a cancelled op does not wedge
+        // the next one.
+        if self.info.regs.sts0().read().seqidle() != pac::flexspi::Seqidle::Value1 {
+            self.software_reset();
+        }
         self.wait_idle();
         self.info.pending_events().store(0, Ordering::Release);
 
@@ -1013,6 +1076,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
     }
 
     pub async fn erase_sector_async(&mut self, address: u32) -> Result<(), IoError> {
+        self.check_in_bounds(address, 1)?;
         self.write_enable_async().await?;
         self.issue_ip_command_async(address, self.flash.erase_sector_seq as usize, 0, None)
             .await?;
@@ -1022,6 +1086,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
     }
 
     pub async fn read_async(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), IoError> {
+        self.check_in_bounds(address, buffer.len())?;
         let mut offset = 0;
 
         while offset < buffer.len() {
@@ -1057,9 +1122,7 @@ impl<'d> InnerFlexSpi<'d, Async> {
     }
 
     pub async fn page_program_async(&mut self, address: u32, data: &[u8]) -> Result<(), IoError> {
-        if data.is_empty() || data.len() > self.flash.page_size {
-            return Err(IoError::InvalidTransferLength);
-        }
+        self.check_program(address, data.len())?;
 
         self.write_enable_async().await?;
 

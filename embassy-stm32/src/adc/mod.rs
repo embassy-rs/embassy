@@ -12,7 +12,7 @@
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
-#[cfg_attr(any(adc_v4, adc_u5, adc_u3), path = "v4.rs")]
+#[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6, adc_c5), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
@@ -42,7 +42,7 @@ pub mod adc4;
 use embassy_hal_internal::drop::OnDrop;
 
 pub use crate::pac::adc::vals;
-#[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5))]
+#[cfg(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5, adc_h5))]
 pub use crate::pac::adc::vals::Exten;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
@@ -52,21 +52,21 @@ use crate::{peripherals, rcc};
 
 dma_trait!(RxDma, Instance);
 
-#[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5)))]
+#[cfg(not(any(adc_v2, adc_g4, adc_g0, adc_c0, adc_f3v1, adc_wba, adc_u5, adc_h5)))]
 /// Trigger edge stub.
 pub struct Exten;
 
 pub struct RegularAdcTrigger<T: Instance> {
-    _trigger: u8,
-    _edge: Exten,
+    trigger: u8,
+    edge: Exten,
     _marker: PhantomData<T>,
 }
 
 impl<T: Instance> RegularAdcTrigger<T> {
     pub fn from(trigger: impl RegularTrigger<T>, edge: Exten) -> Option<Self> {
         Some(Self {
-            _trigger: trigger.signal(),
-            _edge: edge,
+            trigger: trigger.signal(),
+            edge: edge,
             _marker: PhantomData,
         })
     }
@@ -145,32 +145,40 @@ pub trait BasicAdcRegs {
 
 trait AdcRegs: BasicAdcRegs {
     const HAS_ERRATA: bool = false;
+    /// Enable but do not start the ADC.
     fn enable(&self);
+    /// Start the ADC.
     fn start(&self);
     /// Stop any ongoing conversion, leaving the ADC enabled and ready to restart.
     fn stop(&self);
-    /// Stop conversions and fully power down the ADC hardware.
+    /// Stop conversions and fully power down the ADC hardware; called only on `Drop`.
     fn power_down(&self);
+    /// Returns `true` if a conversion is ongoing; otherwise `false`.
     fn wait_done(&self) -> bool;
     fn configure_dma(&self, conversion_mode: ConversionMode);
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
+    /// Configure the sequence. If the ADC is capable of differential channels,
+    /// this method must disable the ADC before configuring the sequence if required by hardware.
+    fn configure_sequence(
+        &self,
+        sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>,
+        injected: bool,
+    );
     fn data(&self) -> *mut u16;
 }
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 trait InjectedRegs: AdcRegs {
-    fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
     fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool);
     fn start_injected(&self);
     fn stop_injected(&self);
     fn read_injected(&self, data: &mut [u16]);
 }
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 #[allow(private_bounds)]
 pub trait InjectedAdcRegs: InjectedRegs {}
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 impl<T: InjectedRegs> InjectedAdcRegs for T {}
 
 #[allow(private_bounds)]
@@ -199,7 +207,9 @@ pub(crate) trait SealedAdcChannel<T> {
     }
 }
 
-#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3))]
+#[cfg(any(
+    adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5
+))]
 /// Number of samples used for averaging.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -213,9 +223,9 @@ pub enum Averaging {
     Samples64,
     Samples128,
     Samples256,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5))]
     Samples512,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5))]
     Samples1024,
 }
 
@@ -251,6 +261,12 @@ const fn check_dma_len(sequence_len: usize, dma_len: Option<usize>, configured_s
     }
 }
 
+#[cfg(stm32n6)]
+type Word = u32;
+
+#[cfg(not(stm32n6))]
+type Word = u16;
+
 #[cfg(not(adc_f3v3))]
 /// An ADC with a pre-configured channel sequence for repeated DMA to peripheral reads.
 ///
@@ -283,7 +299,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         let channel = channel.reborrow_adc();
 
         T::regs().stop();
-        T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+        T::regs().configure_sequence(
+            [((channel.channel(), channel.is_differential()), sample_time)].into_iter(),
+            false,
+        );
 
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::NoDma);
@@ -313,7 +332,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         let channel = channel.reborrow_adc();
 
         T::regs().stop();
-        T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+        T::regs().configure_sequence(
+            [((channel.channel(), channel.is_differential()), sample_time)].into_iter(),
+            false,
+        );
 
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::NoDma);
@@ -325,7 +347,12 @@ impl<'d, T: Instance> Adc<'d, T> {
             while !T::regs().wait_done() {}
         }
 
-        unsafe { core::ptr::read_volatile(T::regs().data()) }
+        #[cfg(not(stm32n6))]
+        return unsafe { core::ptr::read_volatile(T::regs().data()) };
+        #[cfg(stm32n6)]
+        unsafe {
+            core::ptr::read_volatile(T::regs().data() as *mut u32) as u16
+        }
     }
 
     /// Read one or multiple ADC regular channels using DMA.
@@ -379,16 +406,30 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
 
         // Use repeated mode and use the dma to stop the transfer
-        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))));
+        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t.trigger, t.edge))));
 
-        let request = rx_dma.request();
-        let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
-        let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, Default::default()) };
+        let mut dma_channel = new_dma_nonopt!(rx_dma, irq);
+
+        let transfer = unsafe {
+            dma_channel.read_raw(
+                T::regs().data() as *mut Word,
+                readings,
+                crate::dma::TransferOptions {
+                    #[cfg(stm32n6)]
+                    // DMA will read 0 unless it is marked as secure along with RISUP 64 (ADC12)
+                    secure: true,
+                    #[cfg(stm32n6)]
+                    packing: crate::dma::Packing::ZeroExtendOrLeftTruncate,
+                    ..Default::default()
+                },
+            )
+        };
 
         // Ensure conversions are finished, even in the event of dropping the future
         let _stop_adc = OnDrop::new(|| T::regs().stop());
@@ -444,19 +485,19 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
 
         // Configure DMA once, reused across all subsequent read() calls.
-        T::regs().configure_dma(ConversionMode::Repeated(Some((trigger._trigger, trigger._edge))));
+        T::regs().configure_dma(ConversionMode::Repeated(Some((trigger.trigger, trigger.edge))));
 
-        let dma_request = rx_dma.request();
-        let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
+        let mut dma_channel = new_dma_nonopt!(rx_dma, irq);
+
         let transfer = unsafe {
             dma_channel
                 .read_raw_repeated(
-                    dma_request,
                     dst,
                     1,
                     T::regs().data(),
@@ -524,6 +565,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
@@ -576,10 +618,11 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
-        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t._trigger, t._edge))));
+        T::regs().configure_dma(ConversionMode::Repeated(trigger.map(|t| (t.trigger, t.edge))));
 
         core::mem::forget(self);
 
@@ -587,9 +630,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 }
 
-#[cfg(any(adc_v2, adc_g4))]
+#[cfg(any(adc_v2, adc_g4, adc_h5))]
 impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
-    #[cfg(any(adc_v2, adc_g4))]
+    #[cfg(any(adc_v2, adc_g4, adc_h5))]
     /// Configures the ADC for injected conversions.
     ///
     /// Injected conversions are separate from the regular conversion sequence and are typically
@@ -630,14 +673,15 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
             NR_INJECTED_RANKS
         );
 
-        // TODO: move enable after configure_sequence?
-        T::regs().enable();
-        T::regs().configure_injected_sequence(
+        T::regs().stop();
+        T::regs().configure_sequence(
             sequence
                 .iter()
                 .map(|(channel, sample_time)| ((channel.channel, channel.is_differential), *sample_time)),
+            true,
         );
 
+        T::regs().enable();
         T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), interrupt);
         T::regs().start_injected();
 
@@ -744,7 +788,6 @@ impl VrefInt {
         stm32l4,
         stm32l4_plus,
         stm32l5,
-        stm32n6,
         stm32l5,
         stm32wb,
         stm32wl
@@ -981,15 +1024,32 @@ foreach_adc!(
     };
 );
 
+pub(crate) trait AnalogPin {
+    fn set_as_analog(&self) {}
+}
+
+impl<T: crate::gpio::SealedPin> AnalogPin for T {
+    fn set_as_analog(&self) {
+        #[cfg(any(
+            adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, stm32n6, adc_c5
+        ))]
+        T::set_as_analog(self);
+    }
+}
+
+#[allow(unused_macros)]
+macro_rules! impl_analog_pin {
+    ($pin:ident) => {
+        impl crate::adc::AnalogPin for crate::peripherals::$pin {}
+    };
+}
+
 macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
         impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
-            #[cfg(any(
-                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
-            ))]
             fn setup(&mut self) {
-                <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(self);
+                <crate::peripherals::$pin as crate::adc::AnalogPin>::set_as_analog(self);
             }
 
             fn channel(&self) -> u8 {
@@ -1015,12 +1075,9 @@ macro_rules! impl_adc_pair {
                 crate::Peri<'_, crate::peripherals::$npin>,
             )
         {
-            #[cfg(any(
-                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
-            ))]
             fn setup(&mut self) {
-                <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(&mut self.0);
-                <crate::peripherals::$npin as crate::gpio::SealedPin>::set_as_analog(&mut self.1);
+                <crate::peripherals::$pin as crate::adc::AnalogPin>::set_as_analog(&mut self.0);
+                <crate::peripherals::$npin as crate::adc::AnalogPin>::set_as_analog(&mut self.1);
             }
 
             fn channel(&self) -> u8 {
@@ -1051,7 +1108,7 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
         Resolution::Bits12 => (1 << 12) - 1,
         Resolution::Bits10 => (1 << 10) - 1,
         Resolution::Bits8 => (1 << 8) - 1,
-        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3v1, adc_f3v2, adc_h5))]
+        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3v1, adc_f3v2, adc_h5, adc_n6))]
         Resolution::Bits6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),

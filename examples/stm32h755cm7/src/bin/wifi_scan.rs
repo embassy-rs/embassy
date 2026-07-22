@@ -4,13 +4,11 @@
 use core::mem::MaybeUninit;
 use core::str;
 
-use cyw43::aligned_bytes;
+use cyw43::{Cyw4373, aligned_bytes};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::sdmmc::sdio::SerialDataInterface;
-use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, SharedData, bind_interrupts, peripherals, sdmmc};
 use embassy_time::Timer;
 use static_cell::StaticCell;
@@ -23,47 +21,8 @@ bind_interrupts!(struct Irqs {
     SDMMC1 => sdmmc::InterruptHandler<peripherals::SDMMC1>;
 });
 
-/// Run SDIO enumeration via SerialDataInterface::new, retrying up to 10 times.
-///
-/// CMD5 retry logic (500 × 1 ms, SDMMC clock kept running) is now handled
-/// inside SerialDataInterface::acquire in embassy-stm32/src/sdmmc/sdio.rs,
-/// matching the Infineon WHD driver behaviour.  This outer loop is a safety
-/// net for transient errors at higher layers (CMD3/CMD7 glitches etc.).
-///
-/// The raw-pointer reborrow is necessary because the borrow-checker cannot
-/// prove across async loop iterations that the `'static` borrow from a failed
-/// `SerialDataInterface::new` call is released before the next attempt.  The
-/// reborrow is safe: only one mutable reference exists at any point.
-async fn sdio_init_with_retry(
-    sdmmc: &'static mut Sdmmc<'static>,
-) -> Result<SerialDataInterface<'static, 'static>, embassy_stm32::sdmmc::Error> {
-    let mut last_err = embassy_stm32::sdmmc::Error::Timeout;
-
-    for i in 0..10u8 {
-        // SAFETY: see doc comment above.
-        let r: &'static mut Sdmmc<'static> = unsafe { &mut *(sdmmc as *mut _) };
-        match SerialDataInterface::new(r, mhz(50)).await {
-            Ok(sdio) => {
-                if i > 0 {
-                    info!("SDIO ready after {} outer retries", i);
-                }
-                return Ok(sdio);
-            }
-            Err(e) => {
-                last_err = e;
-                warn!("SDIO init attempt {} failed: {:?}", i, e);
-                Timer::after_millis(100).await;
-            }
-        }
-    }
-
-    Err(last_err)
-}
-
 #[embassy_executor::task]
-async fn cyw43_task(
-    runner: cyw43::Runner<'static, cyw43::SdioBus<SerialDataInterface<'static, 'static>>, cyw43::Cyw4373>,
-) -> ! {
+async fn cyw43_task(runner: cyw43::Runner<'static, cyw43::SdioBus<&'static mut Sdmmc<'static>>, Cyw4373>) -> ! {
     runner.run().await
 }
 
@@ -168,27 +127,7 @@ async fn main(spawner: Spawner) {
     wl_reg.set_high();
     Timer::after_millis(500).await;
 
-    let sdio = match sdio_init_with_retry(sdmmc).await {
-        Ok(sdio) => sdio,
-        Err(e) => {
-            error!("SDIO init failed after all retries: {:?}", e);
-            loop {
-                Timer::after_secs(1).await;
-            }
-        }
-    };
-
-    info!("new sdio");
-
-    let (_net_device, mut control, runner) = match cyw43::new_4373_sdio(state, sdio, fw, nvram).await {
-        Ok(parts) => parts,
-        Err(_) => {
-            error!("CYW43 init failed while waiting for WLAN/F2 readiness");
-            loop {
-                Timer::after_secs(1).await;
-            }
-        }
-    };
+    let (_net_device, mut control, runner) = cyw43::new_4373_sdio(state, sdmmc, fw, nvram, 12_500_000).await.unwrap();
 
     info!("spawn task");
     spawner.spawn(unwrap!(cyw43_task(runner)));
