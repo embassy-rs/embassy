@@ -38,6 +38,31 @@ pub const NR_INJECTED_RANKS: usize = 4;
 // TODO: Use [#![feature(variant_count)]](https://github.com/rust-lang/rust/issues/73662) when stable
 const SAMPLE_TIMES_CAPACITY: usize = 2;
 
+/// Interrupt handler.
+#[cfg(adc_h5)]
+pub struct InterruptHandler<T: Instance> {
+    _marker: core::marker::PhantomData<T>,
+}
+
+#[cfg(adc_h5)]
+impl<T: crate::adc::DefaultInstance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let isr = T::regs().isr().read();
+        if isr.eoc() || isr.eos() || isr.jeoc() || isr.jeos() {
+            if isr.jeos() {
+                T::state()
+                    .injected_done
+                    .store(true, core::sync::atomic::Ordering::Release);
+            }
+
+            // flags are cleared by writing 1 to them
+            T::regs().isr().write_value(isr);
+
+            T::state().waker.wake();
+        }
+    }
+}
+
 #[cfg(adc_g0)]
 impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 13;

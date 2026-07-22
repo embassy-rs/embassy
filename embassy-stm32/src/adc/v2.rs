@@ -1,7 +1,8 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use crate::adc::{
-    Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime, Temperature, Vbat, VrefInt,
+    Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Instance, Resolution, SampleTime, Temperature, Vbat,
+    VrefInt,
 };
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
@@ -28,6 +29,30 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 pub const VREF_CALIB_MV: u32 = 3300;
 
 pub const NR_INJECTED_RANKS: usize = 4;
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _marker: core::marker::PhantomData<T>,
+}
+
+impl<T: DefaultInstance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let mut sr = T::regs().sr().read();
+        if sr.eoc() || sr.jeoc() {
+            if sr.jeoc() {
+                T::state()
+                    .injected_done
+                    .store(true, core::sync::atomic::Ordering::Release);
+            }
+
+            sr.set_eoc(false);
+            sr.set_jeoc(false);
+            T::regs().sr().write_value(sr);
+
+            T::state().waker.wake();
+        }
+    }
+}
 
 impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;

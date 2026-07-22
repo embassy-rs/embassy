@@ -6,7 +6,7 @@ pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, T
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
-use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime};
+use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Instance, Resolution, SampleTime};
 use crate::pac::adc::regs::{Jsqr, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::wait::block_for_us;
@@ -27,6 +27,29 @@ pub const NR_INJECTED_RANKS: usize = 4;
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(60);
 #[cfg(stm32h7)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _marker: core::marker::PhantomData<T>,
+}
+
+impl<T: DefaultInstance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let isr = T::regs().isr().read();
+        if isr.eoc() || isr.eos() || isr.jeoc() || isr.jeos() {
+            if isr.jeos() {
+                T::state()
+                    .injected_done
+                    .store(true, core::sync::atomic::Ordering::Release);
+            }
+
+            // flags are cleared by writing 1 to them
+            T::regs().isr().write_value(isr);
+
+            T::state().waker.wake();
+        }
+    }
+}
 
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
