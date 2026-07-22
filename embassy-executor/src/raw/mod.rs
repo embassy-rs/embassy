@@ -578,6 +578,18 @@ impl Executor {
         self.inner.poll()
     }
 
+    /// Signal to the tracing system that the whole system is about to go idle.
+    ///
+    /// While `executor_idle` is emitted automatically at the end of each `poll`,
+    /// `trace_system_idle` must be called by each executor before putting the
+    /// entire system into idle. Do NOT call it from an interrupt executor, which
+    /// returns to a preempted context after polling and is therefore not idle.
+    #[inline]
+    pub fn trace_system_idle(&'static self) {
+        #[cfg(feature = "_any_trace")]
+        trace::system_idle();
+    }
+
     /// Get a spawner that spawns tasks in this executor.
     ///
     /// It is OK to call this method multiple times to obtain multiple

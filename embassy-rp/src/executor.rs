@@ -123,6 +123,7 @@ mod thread {
             loop {
                 unsafe {
                     self.inner.poll();
+                    self.inner.trace_system_idle();
                     asm!("wfe");
                 };
             }
