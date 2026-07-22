@@ -10,9 +10,8 @@ use core::cell::RefCell;
 
 use defmt::info;
 use embassy_stm32::adc::{
-    Adc, AdcChannel as _, Exten, InjectedAdc, InjectedAdcTrigger, RegularAdcTrigger, SampleTime, VrefInt,
+    self, Adc, AdcChannel as _, Exten, InjectedAdc, InjectedAdcTrigger, RegularAdcTrigger, SampleTime, VrefInt,
 };
-use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
 use embassy_stm32::pac::adc::Adc as AdcRegs;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
@@ -29,6 +28,15 @@ static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs>>>> 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
 });
+
+// The interrupt is implemented manually.
+unsafe impl
+    embassy_stm32::interrupt::typelevel::Binding<
+        embassy_stm32::interrupt::typelevel::ADC1_2,
+        adc::InterruptHandler<peripherals::ADC1>,
+    > for Irqs
+{
+}
 
 /// This example showcases how to use both regular ADC conversions with DMA and injected ADC
 /// conversions with ADC interrupt simultaneously. Both conversion types can be configured with
@@ -108,15 +116,12 @@ async fn main(_spawner: embassy_executor::Spawner) {
         RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
         injected_sequence,
         InjectedAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
-        true,
     );
 
     // Store ADC globally to allow access from ADC interrupt
     critical_section::with(|cs| {
         ADC1_HANDLE.borrow(cs).replace(Some(injected_adc));
     });
-    // Enable interrupt for ADC1_2
-    unsafe { ADC1_2::enable() };
 
     // Main loop for reading regular ADC measurements periodically
     let mut data = [0u16; 2];
