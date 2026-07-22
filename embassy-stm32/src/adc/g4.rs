@@ -7,7 +7,7 @@ use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
 use crate::adc::{Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime};
-use crate::pac::adc::regs::{Jsqr, Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
+use crate::pac::adc::regs::{Jsqr, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
@@ -143,8 +143,8 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             while self.cr().read().aden() {}
         }
 
-        let mut smpr = Smpr::default();
-        let mut smpr2 = Smpr2::default();
+        let mut smpr = self.smpr().read();
+        let mut smpr2 = self.smpr2().read();
         let mut sqr1 = Sqr1::default();
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
