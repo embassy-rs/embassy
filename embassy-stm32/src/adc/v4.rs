@@ -1,12 +1,12 @@
 #[cfg(stm32n6)]
 use pac::adc::vals::Adcaldif;
-#[cfg(not(stm32u3))]
+#[cfg(not(any(stm32u3, stm32c5)))]
 use pac::adc::vals::Difsel;
-#[cfg(not(any(stm32u5, stm32u3, stm32n6)))]
+#[cfg(not(any(stm32u5, stm32u3, stm32n6, stm32c5)))]
 use pac::adc::vals::{Adcaldif, Boost};
 #[allow(unused)]
 use pac::adc::vals::{Adstp, Dmngt, Exten, Pcsel};
-#[cfg(not(any(stm32u3, stm32n6)))]
+#[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
 use pac::adccommon::vals::Presc;
 #[cfg(stm32n6)]
 pub use pac::adccommon::vals::{Damdf, Dual};
@@ -15,7 +15,9 @@ pub use pac::adccommon::vals::{Damdf, Dual};
 use crate::adc::DefaultInstance;
 #[cfg(not(stm32n6))]
 use crate::adc::Temperature;
-use crate::adc::{Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, Vbat, VrefInt};
+#[cfg(not(stm32c5))]
+use crate::adc::Vbat;
+use crate::adc::{Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, VrefInt};
 use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::wait::block_for_us;
@@ -37,6 +39,9 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
 #[cfg(stm32n6)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(70);
+// No prescaler on C5, like U3; conservative placeholder pending datasheet confirmation.
+#[cfg(stm32c5)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
 
 #[cfg(stm32g4)]
 impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
@@ -90,7 +95,7 @@ impl<T: DefaultInstance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 17;
 }
 
-#[cfg(not(any(stm32u3, stm32n6)))]
+#[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
@@ -182,7 +187,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, injected: bool) {
         let mut sqr1 = Sqr1::default();
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
@@ -190,11 +195,13 @@ impl AdcRegs for crate::pac::adc::Adc {
 
         let mut smpr1 = self.smpr(0).read();
         let mut smpr2 = self.smpr(1).read();
-        #[cfg(not(stm32u3))]
+        #[cfg(not(any(stm32u3, stm32c5)))]
         let mut difsel = self.difsel().read();
 
-        // Set sequence length
-        sqr1.set_l(sequence.len() as u8 - 1);
+        if !injected {
+            // Set sequence length
+            sqr1.set_l(sequence.len() as u8 - 1);
+        }
 
         // Configure channels and ranks
         for (i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
@@ -205,7 +212,7 @@ impl AdcRegs for crate::pac::adc::Adc {
                 smpr2.set_smp((channel - 10) as _, sample_time);
             }
 
-            #[cfg(not(stm32u3))]
+            #[cfg(not(any(stm32u3, stm32c5)))]
             {
                 difsel.set_difsel(
                     channel as _,
@@ -217,36 +224,40 @@ impl AdcRegs for crate::pac::adc::Adc {
                 );
             }
 
-            #[cfg(any(stm32h7, stm32u5, stm32u3, stm32n6))]
+            #[cfg(any(stm32h7, stm32u5, stm32u3, stm32n6, stm32c5))]
             {
                 self.cfgr2().modify(|w| w.set_lshift(0));
                 self.pcsel().modify(|w| w.set_pcsel(channel as _, Pcsel::Preselected));
             }
 
-            match i {
-                0..=3 => {
-                    sqr1.set_sq(i, channel);
+            if !injected {
+                match i {
+                    0..=3 => {
+                        sqr1.set_sq(i, channel);
+                    }
+                    4..=8 => {
+                        sqr2.set_sq(i - 4, channel);
+                    }
+                    9..=13 => {
+                        sqr3.set_sq(i - 9, channel);
+                    }
+                    14..=15 => {
+                        sqr4.set_sq(i - 14, channel);
+                    }
+                    _ => unreachable!(),
                 }
-                4..=8 => {
-                    sqr2.set_sq(i - 4, channel);
-                }
-                9..=13 => {
-                    sqr3.set_sq(i - 9, channel);
-                }
-                14..=15 => {
-                    sqr4.set_sq(i - 14, channel);
-                }
-                _ => unreachable!(),
             }
         }
 
-        self.sqr1().write_value(sqr1);
-        self.sqr2().write_value(sqr2);
-        self.sqr3().write_value(sqr3);
-        self.sqr4().write_value(sqr4);
+        if !injected {
+            self.sqr1().write_value(sqr1);
+            self.sqr2().write_value(sqr2);
+            self.sqr3().write_value(sqr3);
+            self.sqr4().write_value(sqr4);
+        }
         self.smpr(0).write_value(smpr1);
         self.smpr(1).write_value(smpr2);
-        #[cfg(not(stm32u3))]
+        #[cfg(not(any(stm32u3, stm32c5)))]
         self.difsel().write_value(difsel);
     }
 }
@@ -303,14 +314,14 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
-        #[cfg(not(any(stm32u3, stm32n6)))]
+        #[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
         let prescaler = from_ker_ck(T::frequency());
-        #[cfg(not(any(stm32u3, stm32n6)))]
+        #[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
         T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
-        #[cfg(not(any(stm32u3, stm32n6)))]
+        #[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
         let frequency = T::frequency() / prescaler;
 
-        #[cfg(any(stm32u3, stm32n6))]
+        #[cfg(any(stm32u3, stm32n6, stm32c5))]
         let frequency = T::frequency();
 
         info!("ADC frequency set to {}", frequency);
@@ -344,7 +355,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         block_for_us(10);
 
-        #[cfg(not(stm32u3))]
+        #[cfg(not(any(stm32u3, stm32c5)))]
         T::regs().difsel().modify(|w| {
             for n in 0..20 {
                 w.set_difsel(n, Difsel::SingleEnded);
@@ -353,7 +364,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         #[cfg(not(stm32n6))]
         {
-            #[cfg(not(stm32u3))]
+            #[cfg(not(any(stm32u3, stm32c5)))]
             T::regs().cr().modify(|w| {
                 #[cfg(not(adc_u5))]
                 w.set_adcaldif(Adcaldif::SingleEnded);
@@ -466,6 +477,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     /// Enable reading the vbat internal channel.
+    #[cfg(not(stm32c5))]
     pub fn enable_vbat(&mut self) -> Vbat {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbaten(true);

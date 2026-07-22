@@ -87,6 +87,11 @@ fn icr_write_raw(r: Lptim, val: u32) {
 fn write_compare(r: Lptim, val: u16) {
     #[cfg(not(any(stm32wba, stm32u5, stm32u3)))]
     {
+        // On STM32WL, CMPOK remains set after a compare update. Clear the stale
+        // acknowledgement so the loop waits for the current CMP write.
+        #[cfg(any(stm32wlex, stm32wl5x))]
+        r.icr().write(|w| w.set_cmpokcf(0, true));
+
         r.cmp().write(|w| w.set_cmp(val));
         while !r.isr().read().cmpok(0) {}
     }

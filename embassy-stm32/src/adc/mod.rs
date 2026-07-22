@@ -12,7 +12,7 @@
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
-#[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6), path = "v4.rs")]
+#[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6, adc_c5), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
@@ -160,15 +160,16 @@ trait AdcRegs: BasicAdcRegs {
     fn configure_dma(&self, conversion_mode: ConversionMode);
     /// Configure the sequence. If the ADC is capable of differential channels,
     /// this method must disable the ADC before configuring the sequence if required by hardware.
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
+    fn configure_sequence(
+        &self,
+        sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>,
+        injected: bool,
+    );
     fn data(&self) -> *mut u16;
 }
 
 #[cfg(any(adc_v2, adc_g4, adc_h5))]
 trait InjectedRegs: AdcRegs {
-    /// Configure the sequence. If the ADC is capable of differential channels,
-    /// this method must disable the ADC before configuring the sequence if required by hardware.
-    fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
     fn configure_injected_trigger(&self, trigger: (u8, Exten), interrupt: bool);
     fn start_injected(&self);
     fn stop_injected(&self);
@@ -208,7 +209,9 @@ pub(crate) trait SealedAdcChannel<T> {
     }
 }
 
-#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_n6))]
+#[cfg(any(
+    adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5
+))]
 /// Number of samples used for averaging.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -222,9 +225,9 @@ pub enum Averaging {
     Samples64,
     Samples128,
     Samples256,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5))]
     Samples512,
-    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3, adc_n6, adc_c5))]
     Samples1024,
 }
 
@@ -298,7 +301,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         let channel = channel.reborrow_adc();
 
         T::regs().stop();
-        T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+        T::regs().configure_sequence(
+            [((channel.channel(), channel.is_differential()), sample_time)].into_iter(),
+            false,
+        );
 
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::NoDma);
@@ -328,7 +334,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         let channel = channel.reborrow_adc();
 
         T::regs().stop();
-        T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+        T::regs().configure_sequence(
+            [((channel.channel(), channel.is_differential()), sample_time)].into_iter(),
+            false,
+        );
 
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::NoDma);
@@ -399,6 +408,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
@@ -477,6 +487,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
@@ -556,6 +567,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
@@ -608,6 +620,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
         T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::regs().enable();
@@ -671,10 +684,11 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         }
 
         T::regs().stop();
-        T::regs().configure_injected_sequence(
+        T::regs().configure_sequence(
             sequence
                 .iter()
                 .map(|(channel, sample_time)| ((channel.channel, channel.is_differential), *sample_time)),
+            true,
         );
 
         T::regs().enable();
@@ -1031,7 +1045,7 @@ pub(crate) trait AnalogPin {
 impl<T: crate::gpio::SealedPin> AnalogPin for T {
     fn set_as_analog(&self) {
         #[cfg(any(
-            adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, stm32n6
+            adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba, stm32n6, adc_c5
         ))]
         T::set_as_analog(self);
     }

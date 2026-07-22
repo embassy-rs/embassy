@@ -165,6 +165,7 @@ pub(crate) unsafe fn init(config: Config) {
     set_clocks!(
         sys: Some(sys),
         hclk1: Some(hclk),
+        hclk2: Some(hclk),
         pclk1: Some(apb1),
         pclk1_tim: Some(hclk),
         pclk2: Some(apb2),
