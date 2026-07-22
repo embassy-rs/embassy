@@ -2,12 +2,12 @@ use heapless::Vec;
 
 use crate::config::MAX_HANDLER_COUNT;
 use crate::descriptor::{
-    BosWriter, DescriptorWriter, SynchronizationType, UsageType, rewrite_config_descriptor_for_high_speed,
+    self, BosWriter, DescriptorWriter, SynchronizationType, UsageType, rewrite_config_descriptor_for_high_speed,
 };
 use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointInfo, EndpointType};
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Handler, Interface, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START, UsbDevice};
+use crate::{Handler, Inner, Interface, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START, UsbDevice, UsbDeviceState};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -254,16 +254,43 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         trace!("USB: msos_descriptor used: {}", msos_descriptor.len());
         trace!("USB: control_buf size: {}", self.control_buf.len());
 
-        UsbDevice::build(
-            self.driver,
-            self.config,
-            self.handlers,
-            config_descriptor,
-            self.bos_descriptor.writer.into_buf(),
-            msos_descriptor,
-            self.interfaces,
-            self.control_buf,
-        )
+        {
+            let driver = self.driver;
+            let config = self.config;
+            let handlers = self.handlers;
+            let bos_descriptor: &'d [u8] = self.bos_descriptor.writer.into_buf();
+            let interfaces = self.interfaces;
+            let control_buf: &'d mut [u8] = self.control_buf;
+
+            // Start the USB bus.
+            // This prevent further allocation by consuming the driver.
+            let (bus, control) = driver.start(config.max_packet_size_0 as u16);
+            let device_descriptor = descriptor::device_descriptor(&config);
+            let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
+
+            UsbDevice {
+                control_buf,
+                control,
+                inner: Inner {
+                    bus,
+                    config,
+                    device_descriptor,
+                    device_qualifier_descriptor,
+                    config_descriptor,
+                    bos_descriptor,
+                    msos_descriptor,
+
+                    device_state: UsbDeviceState::Unpowered,
+                    suspended: false,
+                    remote_wakeup_enabled: false,
+                    self_powered: false,
+                    address: 0,
+                    set_address_pending: false,
+                    interfaces,
+                    handlers,
+                },
+            }
+        }
     }
 
     /// Returns the size of the control request data buffer. Can be used by
