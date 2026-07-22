@@ -134,8 +134,12 @@ pub use rramc as nvmc;
     feature = "_nrf91",
 ))]
 pub mod pdm;
-#[cfg(not(feature = "_nrf54l"))] // TODO
-#[cfg(any(feature = "nrf52840", feature = "nrf9160-s", feature = "nrf9160-ns"))]
+#[cfg(any(
+    feature = "nrf52840",
+    feature = "nrf9160-s",
+    feature = "nrf9160-ns",
+    feature = "_nrf54l"
+))]
 pub mod power;
 pub mod ppi;
 #[cfg(feature = "_nrf54l")]

@@ -17,6 +17,11 @@ use crate::adc::{Adc, Averaging, ConversionMode, Instance, Resolution, SampleTim
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
+#[cfg(adc_h5)]
+mod injected;
+#[cfg(adc_h5)]
+pub use injected::InjectedAdc;
+
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
 #[cfg(any(adc_v3, adc_g0, adc_u0))]
@@ -26,10 +31,37 @@ pub const VREF_CALIB_MV: u32 = 3000;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
+pub const NR_INJECTED_RANKS: usize = 4;
+
 #[cfg(adc_g0)]
 /// The number of variants in Smpsel
 // TODO: Use [#![feature(variant_count)]](https://github.com/rust-lang/rust/issues/73662) when stable
 const SAMPLE_TIMES_CAPACITY: usize = 2;
+
+/// Interrupt handler.
+#[cfg(adc_h5)]
+pub struct InterruptHandler<T: Instance> {
+    _marker: core::marker::PhantomData<T>,
+}
+
+#[cfg(adc_h5)]
+impl<T: crate::adc::DefaultInstance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let isr = T::regs().isr().read();
+        if isr.eoc() || isr.eos() || isr.jeoc() || isr.jeos() {
+            if isr.jeos() {
+                T::state()
+                    .injected_done
+                    .store(true, core::sync::atomic::Ordering::Release);
+            }
+
+            // flags are cleared by writing 1 to them
+            T::regs().isr().write_value(isr);
+
+            T::state().waker.wake();
+        }
+    }
+}
 
 #[cfg(adc_g0)]
 impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
@@ -211,18 +243,6 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             });
             while self.cr().read().adstart() {}
         }
-
-        // Reset configuration.
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        self.cfgr().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_dmaen(false);
-        });
-        #[cfg(any(adc_g0, adc_u0))]
-        self.cfgr1().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_dmaen(false);
-        });
     }
 
     fn power_down(&self) {
@@ -253,21 +273,22 @@ impl super::AdcRegs for crate::pac::adc::Adc {
         regs.modify(|w| {
             w.set_discen(false);
             w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            #[cfg(not(any(adc_v3, adc_g0, adc_u0, adc_h5)))]
             w.set_cont(false);
-            #[cfg(any(adc_v3, adc_g0, adc_u0))]
+            #[cfg(any(adc_v3, adc_g0, adc_u0, adc_h5))]
             w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
             w.set_dmacfg(Dmacfg::Circular);
 
-            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0))]
+            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_h5))]
             if let ConversionMode::Repeated(Some((signal, _edge))) = conversion_mode {
-                #[cfg(adc_g0)]
+                #[cfg(any(adc_g0, adc_h5))]
                 w.set_exten(_edge);
                 w.set_extsel(signal.into());
             }
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, _injected: bool) {
         #[cfg(adc_g0)]
         {
             let mut sample_times = Vec::<SampleTime, SAMPLE_TIMES_CAPACITY>::new();
@@ -320,10 +341,24 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
         #[cfg(not(any(adc_g0, adc_u0)))]
         {
-            use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4};
+            use crate::pac::adc::regs::{Jsqr, Sqr1, Sqr2, Sqr3, Sqr4};
+
+            #[cfg(adc_h5)]
+            {
+                // RM0481
+                // DIFSEL:
+                //   The software is allowed to write these bits only when the ADC is disabled (ADCAL = 0,
+                //   JADSTART = 0, JADSTP = 0, ADSTART = 0, ADSTP = 0, ADDIS = 0 and ADEN = 0).
+                if self.cr().read().aden() {
+                    self.cr().modify(|reg| reg.set_addis(true));
+                    while self.cr().read().aden() {}
+                }
+            }
 
             #[cfg(adc_h5)]
             let mut difsel = 0u32;
+
+            let mut jsqr = Jsqr::default();
 
             let mut sqr1 = Sqr1::default();
             let mut sqr2 = Sqr2::default();
@@ -341,13 +376,45 @@ impl super::AdcRegs for crate::pac::adc::Adc {
             }
 
             // Set sequence length
-            sqr1.set_l(sequence.len() as u8 - 1);
+            if _injected {
+                jsqr.set_jl(sequence.len() as u8 - 1);
+            } else {
+                sqr1.set_l(sequence.len() as u8 - 1);
+            }
 
             // Configure channels and ranks
-            for (_i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
+            for (i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
                 // RM0492, RM0481, etc.
-                // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-                #[cfg(any(adc_h5, adc_h7rs))]
+                // OP0: Option bit 0
+                // For ADC1:
+                //   0: INP0/INN1 GPIO switch control disabled (for both ADC1 and ADC2)
+                //   1: INP0/INN1 GPIO switch control enabled (for both ADC1 and ADC2)
+                //   Note: This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected.
+                // For ADC2:
+                //   0: VDDCORE channel disabled (for both ADC2 and ADC3)
+                //   1: VDDCORE channel enabled (for both ADC2 and ADC3)
+                // For ADC3: (only available on STM32H543/553 devices)
+                //   0: INP0 GPIO switch control disabled
+                //   1: INP0 GPIO switch control enabled
+
+                #[cfg(adc_h5)]
+                if channel == 0 {
+                    #[cfg(peri_adc2)]
+                    let is_adc2 = self.as_ptr() == crate::pac::ADC2.as_ptr();
+
+                    #[cfg(not(peri_adc2))]
+                    let is_adc2 = false;
+
+                    if is_adc2 {
+                        // when ADC2_INP0 should be enabled, set OP0 to 1 for ADC1
+                        crate::pac::ADC1.or().modify(|reg| reg.set_op0(true));
+                    } else {
+                        // when ADC1_INP0 should be enabled, set OP0 to 1 for ADC1
+                        // when ADC3_INP0 should be enabled, set OP0 to 1 for ADC3
+                        self.or().modify(|reg| reg.set_op0(true));
+                    }
+                }
+                #[cfg(adc_h7rs)]
                 if channel == 0 {
                     self.or().modify(|reg| reg.set_op0(true));
                 }
@@ -368,20 +435,24 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 }
 
                 // Each channel is sampled according to sequence
-                match _i {
-                    0..=3 => {
-                        sqr1.set_sq(_i, channel);
+                if _injected {
+                    jsqr.set_jsq(i, channel);
+                } else {
+                    match i {
+                        0..=3 => {
+                            sqr1.set_sq(i, channel);
+                        }
+                        4..=8 => {
+                            sqr2.set_sq(i - 4, channel);
+                        }
+                        9..=13 => {
+                            sqr3.set_sq(i - 9, channel);
+                        }
+                        14..=15 => {
+                            sqr4.set_sq(i - 14, channel);
+                        }
+                        _ => unreachable!(),
                     }
-                    4..=8 => {
-                        sqr2.set_sq(_i - 4, channel);
-                    }
-                    9..=13 => {
-                        sqr3.set_sq(_i - 9, channel);
-                    }
-                    14..=15 => {
-                        sqr4.set_sq(_i - 14, channel);
-                    }
-                    _ => unreachable!(),
                 }
 
                 #[cfg(adc_h5)]
@@ -390,10 +461,14 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 }
             }
 
-            self.sqr1().write_value(sqr1);
-            self.sqr2().write_value(sqr2);
-            self.sqr3().write_value(sqr3);
-            self.sqr4().write_value(sqr4);
+            if _injected {
+                self.jsqr().write_value(jsqr);
+            } else {
+                self.sqr1().write_value(sqr1);
+                self.sqr2().write_value(sqr2);
+                self.sqr3().write_value(sqr3);
+                self.sqr4().write_value(sqr4);
+            }
 
             cfg_if! {
                 if #[cfg(any(adc_h5, adc_h7rs))] {
@@ -407,6 +482,45 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
             #[cfg(adc_h5)]
             self.difsel().write(|w| w.set_difsel(difsel));
+        }
+    }
+}
+
+#[cfg(adc_h5)]
+impl crate::adc::InjectedRegs for crate::pac::adc::Adc {
+    fn configure_injected_trigger(&self, trigger: (u8, crate::adc::Exten), interrupt: bool) {
+        self.cfgr().modify(|reg| reg.set_jdiscen(false));
+
+        // Set external trigger for injected conversion sequence
+        self.jsqr().modify(|r| {
+            r.set_jextsel(trigger.0);
+            r.set_jexten(trigger.1);
+        });
+
+        // Enable end of injected sequence interrupt
+        self.ier().modify(|r| r.set_jeosie(interrupt));
+    }
+
+    fn start_injected(&self) {
+        self.cr().modify(|reg| {
+            reg.set_jadstart(true);
+        });
+    }
+
+    fn stop_injected(&self) {
+        if self.cr().read().adstart() && !self.cr().read().addis() {
+            self.cr().modify(|reg| {
+                reg.set_jadstp(true);
+            });
+            // The software must poll JADSTART until the bit is reset before assuming the
+            // ADC is completely stopped
+            while self.cr().read().jadstart() {}
+        }
+    }
+
+    fn read_injected(&self, data: &mut [u16]) {
+        for (i, d) in data.iter_mut().enumerate() {
+            *d = self.jdr(i).read().jdata();
         }
     }
 }

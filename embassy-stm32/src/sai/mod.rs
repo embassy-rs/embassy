@@ -1,6 +1,9 @@
 //! Serial Audio Interface (SAI)
 #![macro_use]
 
+mod regs;
+pub(crate) mod vals;
+
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
@@ -8,9 +11,9 @@ use embassy_hal_internal::PeripheralType;
 pub use crate::dma::word;
 use crate::dma::{self, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
-pub use crate::pac::sai::vals::Mckdiv as MasterClockDivider;
-use crate::pac::sai::{Sai as Regs, vals};
+use crate::pac::sai::Sai as Regs;
 use crate::rcc::{self, RccPeripheral};
+pub use crate::sai::vals::Mckdiv as MasterClockDivider;
 use crate::{Peri, interrupt, peripherals};
 
 /// SAI error
@@ -182,7 +185,7 @@ pub enum SyncInput {
     /// Syncs with the other A/B sub-block within the SAI unit
     Internal,
     /// Syncs with a sub-block in the other SAI unit
-    #[cfg(any(sai_v3, sai_v4))]
+    #[cfg(any(sai_v3, sai_v4, sai_n6))]
     External(SyncInputInstance),
 }
 
@@ -191,14 +194,14 @@ impl SyncInput {
         match self {
             SyncInput::None => vals::Syncen::Asynchronous,
             SyncInput::Internal => vals::Syncen::Internal,
-            #[cfg(any(sai_v3, sai_v4))]
+            #[cfg(any(sai_v3, sai_v4, sai_n6))]
             SyncInput::External(_) => vals::Syncen::External,
         }
     }
 }
 
 /// SAI instance to sync from.
-#[cfg(any(sai_v3, sai_v4))]
+#[cfg(any(sai_v3, sai_v4, sai_n6))]
 #[derive(Copy, Clone, PartialEq)]
 #[allow(missing_docs)]
 pub enum SyncInputInstance {
@@ -502,7 +505,7 @@ fn update_synchronous_config(config: &mut Config) {
         config.sync_input = SyncInput::Internal;
     }
 
-    #[cfg(any(sai_v3, sai_v4))]
+    #[cfg(any(sai_v3, sai_v4, sai_n6))]
     {
         //this must either be Internal or External
         //The asynchronous sub-block on the same SAI needs to enable sync_output
@@ -646,7 +649,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
 
         ch.cr2().modify(|w| w.set_fflush(true));
 
-        #[cfg(any(sai_v3, sai_v4))]
+        #[cfg(any(sai_v3, sai_v4, sai_n6))]
         {
             if let SyncInput::External(i) = config.sync_input {
                 T::REGS.gcr().modify(|w| {
@@ -665,47 +668,15 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             }
         }
 
-        ch.cr1().modify(|w| {
-            w.set_mode(config.mode.mode(if Self::is_transmitter(&ring_buffer) {
-                TxRx::Transmitter
-            } else {
-                TxRx::Receiver
-            }));
-            w.set_prtcfg(config.protocol.prtcfg());
-            w.set_ds(config.data_size.ds());
-            w.set_lsbfirst(config.bit_order.lsbfirst());
-            w.set_ckstr(config.clock_strobe.ckstr());
-            w.set_syncen(config.sync_input.syncen());
-            w.set_mono(config.stereo_mono.mono());
-            w.set_outdriv(config.output_drive.outdriv());
-            w.set_mckdiv(config.master_clock_divider);
-            w.set_nodiv(config.nodiv);
-            w.set_dmaen(true);
-        });
-
-        ch.cr2().modify(|w| {
-            w.set_fth(config.fifo_threshold.fth());
-            w.set_comp(config.companding.comp());
-            w.set_cpl(config.complement_format.cpl());
-            w.set_muteval(config.mute_value.muteval());
-            w.set_mutecnt(config.mute_detection_counter.0 as u8);
-            w.set_tris(config.is_high_impedance_on_inactive_slot);
-        });
-
-        ch.frcr().modify(|w| {
-            w.set_fsoff(config.frame_sync_offset.fsoff());
-            w.set_fspol(config.frame_sync_polarity.fspol());
-            w.set_fsdef(config.frame_sync_definition.fsdef());
-            w.set_fsall(config.frame_sync_active_level_length.0 as u8 - 1);
-            w.set_frl((config.frame_length - 1).try_into().unwrap());
-        });
-
-        ch.slotr().modify(|w| {
-            w.set_nbslot(config.slot_count.0 as u8 - 1);
-            w.set_slotsz(config.slot_size.slotsz());
-            w.set_fboff(config.first_bit_offset.0 as u8);
-            w.set_sloten(vals::Sloten::from_bits(config.slot_enable as u16));
-        });
+        let tx_rx = if Self::is_transmitter(&ring_buffer) {
+            TxRx::Transmitter
+        } else {
+            TxRx::Receiver
+        };
+        regs::configure_cr1(ch, &config, tx_rx);
+        regs::configure_cr2(ch, &config);
+        regs::configure_frcr(ch, &config);
+        regs::configure_slotr(ch, &config);
 
         ch.cr1().modify(|w| w.set_saien(true));
 

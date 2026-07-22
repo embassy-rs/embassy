@@ -9,13 +9,11 @@ use core::task::{Context, Poll};
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputCaptureSelection, Timer};
 use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2, Ch3, Ch4};
-use crate::Peri;
-#[cfg(not(stm32c5))]
-use crate::dma;
 use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::timer::{TimerChannel, TimerInputTrigger};
+use crate::{Peri, dma};
 
 enum InputType<'d> {
     #[allow(dead_code)]
@@ -291,7 +289,6 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         }
     }
 
-    #[cfg(not(stm32c5))]
     /// Capture a sequence of timer input edges into a buffer using DMA.
     ///
     /// Note: DMA capture is only available on `InputCapture`, not on the per-channel

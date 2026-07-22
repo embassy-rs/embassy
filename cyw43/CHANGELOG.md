@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add WPA3 and WPA2/WPA3 transition-mode SoftAP support.
+
 ## 0.7.0 - 2026-03-10
 
 - Reset WPA security before creating secure AP

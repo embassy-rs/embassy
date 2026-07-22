@@ -726,8 +726,10 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_request(Request::Processdaa);
         });
 
-        // Here
-        for device in devices {
+        // Enumerate responding targets. The loop is bounded by the caller's
+        // `devices` slice; DAA itself ends when no further target arbitrates,
+        // which the hardware signals via `mstatus.complete()` (see below).
+        'daa: for device in devices {
             // Wait for controller event
             loop {
                 let s = self.info.regs().mstatus().read();
@@ -737,7 +739,11 @@ impl<'d, M: Mode> I3c<'d, M> {
                 }
 
                 if s.complete() {
-                    return Err(IOError::Other);
+                    // DAA finished: no further target arbitrated. Every target
+                    // that responded has already been decoded and assigned in a
+                    // previous iteration, so this is the normal end of the
+                    // sequence, not an error. Fall through to the cleanup below.
+                    break 'daa;
                 }
 
                 if s.mctrldone() && s.state() == State::Daa {

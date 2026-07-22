@@ -34,7 +34,7 @@ use events::Events;
 use ioctl::IoctlState;
 
 pub use crate::control::{
-    AddMulticastAddressError, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
+    AddMulticastAddressError, ApAuth, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
 };
 pub use crate::runner::Runner;
 pub use crate::sdio::SdioBus;
@@ -456,7 +456,7 @@ where
         None,
     );
 
-    runner.init(firmware, nvram, None, &()).await.unwrap();
+    runner.init(firmware, nvram, None).await.unwrap();
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -481,7 +481,7 @@ pub async fn new_sdio<'a, SDIO>(
 where
     SDIO: ::sdio::MmcBus,
 {
-    new_43439_sdio(state, sdio, firmware, nvram).await.unwrap()
+    new_43439_sdio(state, sdio, firmware, nvram, 50_000_000).await.unwrap()
 }
 
 /// Create a new instance of the CYW43 driver.
@@ -493,6 +493,7 @@ pub async fn new_43439_sdio<'a, SDIO>(
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
+    freq: u32,
 ) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>)>
 where
     SDIO: ::sdio::MmcBus,
@@ -502,7 +503,7 @@ where
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio),
+        SdioBus::new(sdio, freq),
         Cyw43439,
         &state.ioctl_state,
         &state.net.events,
@@ -511,12 +512,7 @@ where
         None,
     );
 
-    let config = sdio::Config {
-        max_f: 50_000_000,
-        out_of_band_irq: false,
-    };
-
-    runner.init(firmware, nvram, None, &config).await?;
+    runner.init(firmware, nvram, None).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -533,6 +529,7 @@ pub async fn new_4373_sdio<'a, SDIO>(
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
+    freq: u32,
 ) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw4373>)>
 where
     SDIO: ::sdio::MmcBus,
@@ -542,7 +539,7 @@ where
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio),
+        SdioBus::new(sdio, freq),
         Cyw4373,
         &state.ioctl_state,
         &state.net.events,
@@ -551,12 +548,7 @@ where
         None,
     );
 
-    let config = sdio::Config {
-        max_f: 12_500_000,
-        out_of_band_irq: false,
-    };
-
-    runner.init(firmware, nvram, None, &config).await?;
+    runner.init(firmware, nvram, None).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -605,7 +597,7 @@ where
     );
 
     runner
-        .init(wifi_firmware, nvram, Some(bluetooth_firmware), &())
+        .init(wifi_firmware, nvram, Some(bluetooth_firmware))
         .await
         .unwrap();
     let control = Control::new(
@@ -623,7 +615,7 @@ where
 macro_rules! aligned_bytes {
     ($path:expr) => {{
         {
-            static BYTES: &cyw43::Aligned<cyw43::A4, [u8]> = &cyw43::Aligned(*include_bytes!($path));
+            static BYTES: &::cyw43::Aligned<cyw43::A4, [u8]> = &::cyw43::Aligned(*include_bytes!($path));
 
             BYTES
         }

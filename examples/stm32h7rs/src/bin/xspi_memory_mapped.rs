@@ -5,11 +5,11 @@
 //! Macronix MX25UW25645GXDI00 flash chip installed on XSPI2, powered at 1.8 V.
 //!
 //! IMPORTANT: this example use HSLV (high-speed, low-voltage) mode for XSPI2,
-//!            to which the flash is connected, to achieve the maximum flash
-//!            bus speeds in STR communication mode. This is safe on the Nucleo
-//!            board, which is factory-wired for a fixed 1.8 V on VDD_XSPI2.
-//!            For other boards, this may not be so, and may be destructive!
-//!            See the notes in the RCC config below for more details.
+//!            to which the flash is connected, to achieve the maximum bus
+//!            speeds the flash can support. This is safe on the Nucleo board,
+//!            which is factory-wired for a fixed 1.8 V on VDD_XSPI2. For other
+//!            boards, this may not be so, and may be destructive!
+//!            --> See the notes in the RCC config below for more details.
 
 use core::cmp::min;
 
@@ -118,29 +118,6 @@ async fn main(_spawner: Spawner) {
 
     // Initialize peripherals
     let p = embassy_stm32::init(config);
-
-    let spi_config = embassy_stm32::xspi::Config {
-        fifo_threshold: FIFOThresholdLevel::_4Bytes,
-        memory_type: MemoryType::Macronix,
-        delay_hold_quarter_cycle: true,
-        device_size: MemorySize::_32MiB,
-        chip_select_high_time: ChipSelectHighTime::_2Cycle,
-        free_running_clock: false,
-        clock_mode: false,
-        wrap_size: WrapSize::None,
-        // 400 MHz clock / (3 + 1) = 100 MHz. This is above the maximum for
-        // READ instructions so the FAST READ must be used. The nucleo board's
-        // flash can run at up to 133 MHz in SPI mode and 200 MHz in OPI mode.
-        // This clock prescaler must be even, otherwise the clock will not have
-        // symmetric high and low times. (Note: one is internally added to the
-        // clock_prescaler value defined here.)
-        clock_prescaler: 3,
-        sample_shifting: false,
-        chip_select_boundary: 0,
-        max_transfer: 0,
-        refresh: 0,
-    };
-
     let mut cor = cortex_m::Peripherals::take().unwrap();
 
     // Not necessary, but recommended if using XIP
@@ -172,23 +149,65 @@ async fn main(_spawner: Spawner) {
     info!("- GPIO:  NMOS {:#04X}   PMOS {:#04X}", cv.io_nsrc, cv.io_psrc);
     set_and_enable_comp_vals(&cv);
 
+    // Configure the XSPI interface for the MX25UW25645GXDI00 flash.
+    let xspi_config = embassy_stm32::xspi::Config {
+        fifo_threshold: FIFOThresholdLevel::_4Bytes,
+        memory_type: MemoryType::Macronix,
+        delay_hold_quarter_cycle: true,
+        device_size: MemorySize::_32MiB,
+        chip_select_high_time: ChipSelectHighTime::_2Cycle,
+        free_running_clock: false,
+        clock_mode: false,
+        wrap_size: WrapSize::None,
+        // 400 MHz clock / (3 + 1) = 100 MHz. This is above the maximum for SPI
+        // READ instructions so the FAST READ must be used. The nucleo board's
+        // flash can run at up to 133 MHz in SPI mode and 200 MHz in OPI mode.
+        // This clock prescaler must be even, otherwise the clock will not have
+        // symmetric high and low times. (Note: one is internally added to the
+        // clock_prescaler value defined here.)
+        clock_prescaler: 3,
+        sample_shifting: false,
+        chip_select_boundary: 0,
+        max_transfer: 0,
+        refresh: 0,
+    };
+
     let xspi = embassy_stm32::xspi::Xspi::new_blocking_xspi_dqs(
-        p.XSPI2, p.PN6, p.PN2, p.PN3, p.PN4, p.PN5, p.PN8, p.PN9, p.PN10, p.PN11, p.PN1, p.PN0, spi_config,
+        p.XSPI2,
+        p.PN6,
+        p.PN2,
+        p.PN3,
+        p.PN4,
+        p.PN5,
+        p.PN8,
+        p.PN9,
+        p.PN10,
+        p.PN11,
+        p.PN1,
+        p.PN0,
+        xspi_config,
     );
 
-    let mut flash = SpiFlashMemory::new(xspi);
-    info!("Starting in SPI mode with 100 MHz XSPI bus clock.");
+    // Initialize the flash in default (post-reset) SPI mode.
+    // (Maximum SPI bus clock: 133 MHz.)
+    let mut flash_spi = SpiFlashMemory::new(xspi);
+    info!("--> Starting in SPI mode with 100 MHz XSPI bus clock.");
 
     // With higher flash clock speeds, the first read_id() returns all zeros,
-    // or a hardfault occurs. A short wait (>15µs) resolves this. (This may be
-    // due to the flash initialization not having completed yet.)
+    // or a hardfault occurs. This is due to the post-reset flash initialization
+    // not having completed yet. A short wait resolves this (50 µs). Note that
+    // the flash can take up to 100 ms to reset if a chip erase was interrupted.
     Timer::after_micros(50).await;
+    if flash_spi.read_id() == [0, 0, 0] {
+        Timer::after_millis(100).await;
+    }
 
-    let flash_id = flash.read_id();
+    let flash_id = flash_spi.read_id();
     info!("FLASH ID: {=[u8]:x}", flash_id);
+    assert_eq!(flash_id, [0xc2, 0x81, 0x39], "Flash ID incorrect");
 
     // Erase the first sector
-    flash.erase_sector(0);
+    flash_spi.erase_sector(0);
 
     // Write some data into the flash. This writes more than one page to test
     // that functionality.
@@ -197,94 +216,132 @@ async fn main(_spawner: Spawner) {
     for i in 0..512 {
         wr_buf[i] = base_number.wrapping_add(i as u8);
     }
-    flash.write_memory(0, &wr_buf);
+    flash_spi.write_memory(0, &wr_buf);
 
     // Read the data back and verify it.
     let mut rd_buf = [0u8; 512];
     let start_time = embassy_time::Instant::now();
-    flash.read_memory(0, &mut rd_buf);
+    flash_spi.read_memory(0, &mut rd_buf);
     let elapsed = start_time.elapsed();
-    info!("Read 512 bytes in {} us in SPI mode", elapsed.as_micros());
+    info!("Indirect read of 512 bytes took {} us in SPI mode", elapsed.as_micros());
     info!("WRITE BUF: {=[u8]:#X}", wr_buf[0..32]);
     info!("READ BUF: {=[u8]:#X}", rd_buf[0..32]);
-
     assert_eq!(wr_buf, rd_buf, "Read buffer does not match write buffer");
 
-    flash.enable_mm();
+    flash_spi.enable_mm();
     info!("Enabled memory mapped mode");
 
     let first_u32 = unsafe { *(0x70000000 as *const u32) };
     assert_eq!(first_u32, 0x93929190);
-    info!("first_u32 {:08x}", first_u32);
+    info!("  first_u32  {:08x}", first_u32);
 
     let second_u32 = unsafe { *(0x70000004 as *const u32) };
     assert_eq!(second_u32, 0x97969594);
-    info!("second_u32 {:08x}", first_u32);
+    info!("  second_u32 {:08x}", second_u32);
 
-    flash.disable_mm();
+    flash_spi.disable_mm();
     info!("Disabled memory mapped mode");
 
-    let flash_id = flash.read_id();
+    let flash_id = flash_spi.read_id();
     info!("FLASH ID: {=[u8]:x}", flash_id);
+    assert_eq!(flash_id, [0xc2, 0x81, 0x39], "Flash ID incorrect");
 
-    // Change to OPI mode. This allows for higher XSPI bus clock speeds.
-    let mut flash = flash.into_octo();
-    info!("Entered OPI mode.");
+    // Change the flash to OPI mode, using either STR (single transfer rate)
+    // or DTR (double transfer rate).
+    //
+    // Note: The buffer read timings in DTR OPI mode at 200 MHz XSPI bus clock
+    //       are only a little faster, compared to those for STR SPI at 100 MHz,
+    //       where they should be an order of magnitude faster instead. This is
+    //       due to the considerable overhead incurred by the non-DMA transfers
+    //       used in the buffer reads (should not be an issue in MM mode). When
+    //       the XSPI bus clock is set to, say, 4 MHz (/100), and thus dominates
+    //       the transfer time, the expected speed speed-ups are clearly seen.
+    //       (SPI -> STR OPI -> DTR OPI)
+    let enable_dtr_mode = true; // DTR OPI mode
+    //let enable_dtr_mode = false; // STR OPI mode
+    let mut flash_opi = flash_spi.into_octo(enable_dtr_mode);
+    if enable_dtr_mode {
+        info!("--> Entered DTR-OPI mode");
+    } else {
+        info!("--> Entered STR-OPI mode");
+    }
 
     // Change the bus clock to 200 MHz.
     // 400 MHz / (1 + 1) = 200 MHz (Even ratio: 1+1 = 2)
-    flash.xspi.set_clock_prescaler(1);
-    info!("XSPI clock prescaler set to /2 -> 200 MHz bus clock");
+    // (Maximum OPI bus clock: 200 MHz.)
+    flash_opi.xspi.set_clock_prescaler(1);
+    info!("--> XSPI clock prescaler set to /2 -> 200 MHz bus clock");
 
-    Timer::after_millis(100).await;
+    let flash_id = flash_opi.read_id();
+    info!("FLASH ID: {=[u8]:x}", flash_id);
+    assert_eq!(flash_id, [0xc2, 0x81, 0x39], "Flash ID incorrect");
 
-    let flash_id = flash.read_id();
-    info!("FLASH ID in OPI mode: {=[u8]:x}", flash_id);
-
-    flash.erase_sector(0);
-
+    flash_opi.erase_sector(0);
     let mut rd_buf = [0u8; 512];
-    flash.read_memory(0, &mut rd_buf);
+    flash_opi.read_memory(0, &mut rd_buf);
     info!("READ BUF after erase: {=[u8]:#X}", rd_buf[0..32]);
-
     assert_eq!(rd_buf, [0xFF; 512], "Read buffer is not all 0xFF after erase");
 
-    flash.write_memory(0, &wr_buf);
+    flash_opi.write_memory(0, &wr_buf);
     let start = embassy_time::Instant::now();
-    flash.read_memory(0, &mut rd_buf);
+    flash_opi.read_memory(0, &mut rd_buf);
     let elapsed = start.elapsed();
-    info!("Read 512 bytes in {} us in OPI mode", elapsed.as_micros());
+    info!("Indirect read of 512 bytes took {} us in OPI mode", elapsed.as_micros());
     info!("READ BUF after write: {=[u8]:#X}", rd_buf[0..32]);
-    assert_eq!(wr_buf, rd_buf, "Read buffer does not match write buffer in OPI mode");
+    assert_eq!(wr_buf, rd_buf, "Read buffer does not match write buffer");
 
-    flash.enable_mm();
+    flash_opi.enable_mm();
+
     info!("Enabled memory mapped mode in OPI mode");
     let first_u32 = unsafe { *(0x70000000 as *const u32) };
     assert_eq!(first_u32, 0x93929190);
-    info!("first_u32 {:08x}", first_u32);
+    info!("  first_u32  {:08x}", first_u32);
+
     let second_u32 = unsafe { *(0x70000004 as *const u32) };
     assert_eq!(second_u32, 0x97969594);
-    info!("second_u32 {:08x}", first_u32);
-    flash.disable_mm();
+    info!("  second_u32 {:08x}", second_u32);
+
+    flash_opi.disable_mm();
     info!("Disabled memory mapped mode in OPI mode");
 
     // Change the bus clock to 100 MHz in preparation for re-entering SPI mode.
     // 400 MHz / (3 + 1) = 100 MHz (Even ratio: 3+1 = 4)
-    flash.xspi.set_clock_prescaler(3);
-    info!("XSPI clock prescaler set to /4 -> 100 MHz bus clock");
+    flash_opi.xspi.set_clock_prescaler(3);
+    info!("--> XSPI clock prescaler set to /4 -> 100 MHz bus clock");
 
-    // Reset back to SPI mode.
-    let mut flash = flash.into_spi();
-    info!("Re-entered SPI mode");
+    // There are two ways to return from OPI mode to SPI mode: via a mode
+    // switch, or by software reset of the chip. Both are shown here:
+    let to_spi_via_mode_switch = true; // Use mode switch.
+    //let to_spi_via_mode_switch = false; // Use chip reset.
+    let mut flash_spi = if to_spi_via_mode_switch {
+        // Return to SPI mode via mode switch.
+        // The registers and settings not pertaining to the mode are retained.
+        let flash_spi = flash_opi.into_spi();
+        info!("--> Re-entered SPI mode via mode switch");
+        flash_spi
+    } else {
+        // Return to SPI mode via software reset.
+        // All registers and settings are returned to power-up defaults, and
+        // any on-going flash operations are interrupted.
+        let mut flash_spi = flash_opi.reset_memory();
+        Timer::after_micros(50).await;
+        if flash_spi.read_id() == [0, 0, 0] {
+            Timer::after_millis(100).await;
+        }
+        info!("--> Re-entered SPI mode via reset");
+        flash_spi
+    };
 
-    let flash_id = flash.read_id();
-    info!("FLASH ID back in SPI mode: {=[u8]:x}", flash_id);
+    let flash_id = flash_spi.read_id();
+    info!("FLASH ID: {=[u8]:x}", flash_id);
+    assert_eq!(flash_id, [0xc2, 0x81, 0x39], "Flash ID incorrect");
 
     info!("DONE");
 
     // Output pin PD10 = LD1 (green).
     let mut led = Output::new(p.PD10, Level::Low, Speed::Low);
 
+    // Blink indefinitely.
     loop {
         led.toggle();
         Timer::after_millis(1000).await;
@@ -307,6 +364,7 @@ pub struct SpiFlashMemory<I: Instance> {
 /// This targets a MX25UW25645GXDI00.
 pub struct OpiFlashMemory<I: Instance> {
     xspi: Xspi<'static, I, Blocking>,
+    dtr_mode: bool,
 }
 
 /// SPI mode commands for MX25UW25645G flash memory
@@ -536,7 +594,6 @@ enum OpiCommand {
 impl<I: Instance> SpiFlashMemory<I> {
     pub fn new(xspi: Xspi<'static, I, Blocking>) -> Self {
         let mut memory = Self { xspi };
-
         memory.reset_memory();
         memory
     }
@@ -570,16 +627,23 @@ impl<I: Instance> SpiFlashMemory<I> {
         self.xspi.enable_memory_mapped_mode(read_config, write_config).unwrap();
     }
 
-    fn into_octo(mut self) -> OpiFlashMemory<I> {
-        self.enable_opi_mode();
-        OpiFlashMemory { xspi: self.xspi }
+    fn into_octo(mut self, enable_dtr: bool) -> OpiFlashMemory<I> {
+        self.enable_opi_mode(enable_dtr);
+        OpiFlashMemory {
+            xspi: self.xspi,
+            dtr_mode: enable_dtr,
+        }
     }
 
-    fn enable_opi_mode(&mut self) {
+    fn enable_opi_mode(&mut self, enable_dtr: bool) {
         let cr2_0 = self.read_cr2(0);
-        info!("Read CR2 at 0x0: {:x}", cr2_0);
-        self.enable_write();
-        self.write_cr2(0, cr2_0 | 0x01); // Set bit 0 to enable octo SPI in STR
+        if enable_dtr {
+            // Clear bit 0 and set bit 1 to enable octo SPI in DTR.
+            self.write_cr2(0, (cr2_0 & 0xFE) | 0x02);
+        } else {
+            // Set bit 0 and clear bit 1 for enable octo SPI in STR.
+            self.write_cr2(0, (cr2_0 & 0xFD) | 0x01);
+        }
     }
 
     fn exec_command(&mut self, cmd: u8) {
@@ -593,7 +657,7 @@ impl<I: Instance> SpiFlashMemory<I> {
             dummy: DummyCycles::_0,
             ..Default::default()
         };
-        // info!("Excuting command: {:x}", transaction.instruction);
+        // info!("Executing command: {:x}", transaction.instruction);
         self.xspi.blocking_command(&transaction).unwrap();
     }
 
@@ -709,8 +773,8 @@ impl<I: Instance> SpiFlashMemory<I> {
         }
     }
 
-    // Note: read_register cannot be used to read the configuration register 2 since there is an
-    // address required for that read.
+    // Note: read_register cannot be used to read the configuration register 2
+    // since there is an address required for that read.
     fn read_register(&mut self, cmd: u8) -> u8 {
         let mut buffer = [0; 1];
         let transaction: TransferConfig = TransferConfig {
@@ -782,6 +846,7 @@ impl<I: Instance> SpiFlashMemory<I> {
             dummy: DummyCycles::_0,
             ..Default::default()
         };
+        self.enable_write();
         self.xspi.blocking_write(&buffer, transaction).unwrap();
         self.wait_write_finish();
     }
@@ -790,17 +855,60 @@ impl<I: Instance> SpiFlashMemory<I> {
 impl<I: Instance> OpiFlashMemory<I> {
     pub fn into_spi(mut self) -> SpiFlashMemory<I> {
         self.disable_opi_mode();
-        SpiFlashMemory { xspi: self.xspi }
+
+        // Wait for the flash to disable opi mode. As the flash should now be
+        // in SPI mode, poll using the SPI mode driver.
+        let mut flash = SpiFlashMemory { xspi: self.xspi };
+        flash.wait_write_finish();
+
+        flash
     }
 
-    /// Disable OPI mode and return to SPI
-    pub fn disable_opi_mode(&mut self) {
-        // Clear SOPI and DOPI bits in CR2 volatile register
-        let cr2_0 = self.read_cr2(0x00000000);
-        self.write_cr2(0x00000000, cr2_0 & 0xFC); // Clear bits 0 and 1
+    /// Disable OPI mode, and return to STR SPI mode.
+    fn disable_opi_mode(&mut self) {
+        // Clearing the CR2_0 register SOPI and DOPI bits returns the flash to
+        // STR SPI mode. There is an issue: using write_cr2() to modify the
+        // register fails when returning from DTR OPI mode (but works for STR
+        // OPI mode). This is because, after setting the CR2_0 register using
+        // blocking_write(), the flash switches to STR SPI mode, but the
+        // following wait_write_finish() will still use DTR mode if we return
+        // from DTR OPI mode. Hence, a local implementation is used that here
+        // that stops using DTR mode after the CR2_0 register is written.
+
+        // Read the CR2_0 register and modify the read-back register content.
+        let cr2_0_address = 0;
+        let cr2_0_modified = self.read_cr2(cr2_0_address) & 0xFC; // Read CR2_0 and clear bits 0 and 1.
+
+        // Write the modified CR2_0 register content, using the current STR/DTR
+        // OPI mode.
+        let transaction = TransferConfig {
+            iwidth: XspiWidth::OCTO,
+            isize: AddressSize::_16bit,
+            adwidth: XspiWidth::OCTO,
+            adsize: AddressSize::_32bit,
+            dwidth: XspiWidth::OCTO,
+            instruction: Some(OpiCommand::WriteConfigurationRegister2 as u32),
+            address: Some(cr2_0_address),
+            dummy: DummyCycles::_0,
+            dqse: false, // DQS is not used for writes.
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
+            ddtr: false, // Writing 1 byte using STR, as using DTR requires an even number.
+            ..Default::default()
+        };
+        self.enable_write();
+        self.xspi.blocking_write(&[cr2_0_modified], transaction).unwrap();
+
+        // // Disable the use of DTR mode before waiting on the flash to finish
+        // // the mode change. Internally, wait_write_flash() reads-back the flash
+        // // status register, with the flash now in STR SPI mode. Performing a
+        // // DTR read hangs. (However, OPI still works for this read somehow?
+        // // Fishy... Wait poll in SPI mode instead, in into_spi().)
+        //self.dtr_mode = false;
+        //self.wait_write_finish();
     }
 
-    /// Enable memory-mapped mode for OPI
+    /// Enable memory-mapped mode for OPI.
     pub fn enable_mm(&mut self) {
         let read_config = TransferConfig {
             iwidth: XspiWidth::OCTO,
@@ -808,8 +916,16 @@ impl<I: Instance> OpiFlashMemory<I> {
             adwidth: XspiWidth::OCTO,
             adsize: AddressSize::_32bit,
             dwidth: XspiWidth::OCTO,
-            instruction: Some(OpiCommand::OctaRead as u32),
-            dummy: DummyCycles::_20, // Default dummy cycles for OPI
+            instruction: Some(if self.dtr_mode {
+                OpiCommand::OctaDTRRead
+            } else {
+                OpiCommand::OctaRead
+            } as u32),
+            dummy: DummyCycles::_20, // Default dummy cycles for OPI read at 200 MHz.
+            dqse: self.dtr_mode,
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
+            ddtr: self.dtr_mode,
             ..Default::default()
         };
 
@@ -821,6 +937,10 @@ impl<I: Instance> OpiFlashMemory<I> {
             dwidth: XspiWidth::OCTO,
             instruction: Some(OpiCommand::PageProgram4B as u32),
             dummy: DummyCycles::_0,
+            dqse: false, // DQS is not used for writes.
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
+            ddtr: self.dtr_mode,
             ..Default::default()
         };
 
@@ -841,16 +961,38 @@ impl<I: Instance> OpiFlashMemory<I> {
             instruction: Some(cmd as u32),
             address: None,
             dummy: DummyCycles::_0,
+            dqse: false, // DQS is not used for writes.
+            idtr: self.dtr_mode,
             ..Default::default()
         };
         self.xspi.blocking_command(&transaction).unwrap();
     }
 
     /// Reset memory using OPI commands
-    pub fn reset_memory(&mut self) {
+    /// The reset will clear all volatile bits and settings, returning them to
+    /// the default power-on configuration. Thus, the driver must drop from OPI
+    /// to SPI mode.
+    pub fn reset_memory(mut self) -> SpiFlashMemory<I> {
         self.exec_command(OpiCommand::ResetEnable);
         self.exec_command(OpiCommand::ResetMemory);
-        self.wait_write_finish();
+
+        // // Disable the use of DTR mode before waiting on the flash to finish
+        // // the reset. Internally, wait_write_flash() reads-back the flash
+        // // status register, with the flash now in STR SPI mode. Performing a
+        // // DTR read hangs. (However, OPI still works for this read somehow?
+        // // Fishy... Wait poll in SPI mode instead, below.)
+        // self.dtr_mode = false;
+        // self.wait_write_finish();
+
+        // After reset, the flash will be in STR SPI mode. Switch the driver
+        // over in anticipation.
+        let mut flash = SpiFlashMemory { xspi: self.xspi };
+
+        // Wait for the flash to finish the reset command. As the flash should
+        // now be in SPI mode, poll using the SPI mode driver.
+        flash.wait_write_finish();
+
+        flash
     }
 
     /// Enable write using OPI command
@@ -870,6 +1012,10 @@ impl<I: Instance> OpiFlashMemory<I> {
             instruction: Some(OpiCommand::ReadIdentification as u32),
             address: Some(0x00000000), // Dummy address required
             dummy: DummyCycles::_4,
+            dqse: self.dtr_mode,
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
+            ddtr: false, // Reading 3 bytes using STR, as using DTR requires an even number.
             ..Default::default()
         };
         self.xspi.blocking_read(&mut buffer, transaction).unwrap();
@@ -877,16 +1023,34 @@ impl<I: Instance> OpiFlashMemory<I> {
     }
 
     /// Read memory using OPI mode
+    /// Note: reading in DTR mode requires an even address and number of bytes.
+    ///       (RM0477: p.1030, Section 24.5 "Address alignment and data number")
     pub fn read_memory(&mut self, addr: u32, buffer: &mut [u8]) {
+        if self.dtr_mode {
+            assert!(addr & 0x1 == 0, "The read address must be even in DTR mode.");
+            assert!(
+                buffer.len() & 0x1 == 0,
+                "The read buffer size must be even in DTR mode."
+            );
+        }
+
         let transaction = TransferConfig {
             iwidth: XspiWidth::OCTO,
             isize: AddressSize::_16bit,
             adwidth: XspiWidth::OCTO,
             adsize: AddressSize::_32bit,
             dwidth: XspiWidth::OCTO,
-            instruction: Some(OpiCommand::OctaRead as u32),
+            instruction: Some(if self.dtr_mode {
+                OpiCommand::OctaDTRRead
+            } else {
+                OpiCommand::OctaRead
+            } as u32),
             address: Some(addr),
             dummy: DummyCycles::_20, // Default for 200MHz operation
+            dqse: self.dtr_mode,
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
+            ddtr: self.dtr_mode,
             ..Default::default()
         };
         self.xspi.blocking_read(buffer, transaction).unwrap();
@@ -908,6 +1072,9 @@ impl<I: Instance> OpiFlashMemory<I> {
             instruction: Some(cmd as u32),
             address: Some(addr),
             dummy: DummyCycles::_0,
+            dqse: false, // DQS is not used for writes.
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
             ..Default::default()
         };
         self.enable_write();
@@ -933,6 +1100,8 @@ impl<I: Instance> OpiFlashMemory<I> {
     }
 
     /// Write single page using OPI
+    /// Note: writing in DTR mode requires an even address and number of bytes.
+    ///       (RM0477: p.1030, Section 24.5 "Address alignment and data number")
     fn write_page(&mut self, addr: u32, buffer: &[u8], len: usize) {
         assert!(
             (len as u32 + (addr & 0x000000ff)) <= MEMORY_PAGE_SIZE as u32,
@@ -940,6 +1109,14 @@ impl<I: Instance> OpiFlashMemory<I> {
             len,
             addr
         );
+
+        if self.dtr_mode {
+            assert!(addr & 0x1 == 0, "The write address must be even in DTR mode.");
+            assert!(
+                buffer.len() & 0x1 == 0,
+                "The write buffer size must be even in DTR mode."
+            );
+        }
 
         let transaction = TransferConfig {
             iwidth: XspiWidth::OCTO,
@@ -950,6 +1127,10 @@ impl<I: Instance> OpiFlashMemory<I> {
             instruction: Some(OpiCommand::PageProgram4B as u32),
             address: Some(addr),
             dummy: DummyCycles::_0,
+            dqse: false, // DQS is not used for writes.
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
+            ddtr: self.dtr_mode,
             ..Default::default()
         };
         self.enable_write();
@@ -958,6 +1139,8 @@ impl<I: Instance> OpiFlashMemory<I> {
     }
 
     /// Write memory using OPI (handles page boundaries)
+    /// Note: writing in DTR mode requires an even address and number of bytes.
+    ///       (RM0477: p.1030, Section 24.5 "Address alignment and data number")
     pub fn write_memory(&mut self, addr: u32, buffer: &[u8]) {
         let mut left = buffer.len();
         let mut place = addr;
@@ -986,6 +1169,10 @@ impl<I: Instance> OpiFlashMemory<I> {
             instruction: Some(cmd as u32),
             address: Some(dummy_addr),
             dummy: dummy_cycles,
+            dqse: self.dtr_mode,
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
+            ddtr: false, // Reading 1 byte using STR, as using DTR requires an even number.
             ..Default::default()
         };
         self.xspi.blocking_read(&mut buffer, transaction).unwrap();
@@ -1021,6 +1208,10 @@ impl<I: Instance> OpiFlashMemory<I> {
             instruction: Some(OpiCommand::WriteStatusConfigurationRegister as u32),
             address: Some(0x00000000),
             dummy: DummyCycles::_0,
+            dqse: false, // DQS is not used for writes.
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
+            ddtr: self.dtr_mode, // DTR mode possible: writing two bytes sr + cr (even).
             ..Default::default()
         };
 
@@ -1041,6 +1232,10 @@ impl<I: Instance> OpiFlashMemory<I> {
             instruction: Some(OpiCommand::ReadConfigurationRegister2 as u32),
             address: Some(address),
             dummy: DummyCycles::_4,
+            dqse: self.dtr_mode,
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
+            ddtr: false, // Reading 1 byte using STR, as using DTR requires an even number.
             ..Default::default()
         };
         self.xspi.blocking_read(&mut buffer, transaction).unwrap();
@@ -1058,6 +1253,10 @@ impl<I: Instance> OpiFlashMemory<I> {
             instruction: Some(OpiCommand::WriteConfigurationRegister2 as u32),
             address: Some(address),
             dummy: DummyCycles::_0,
+            dqse: false, // DQS is not used for writes.
+            idtr: self.dtr_mode,
+            addtr: self.dtr_mode,
+            ddtr: false, // Writing 1 byte using STR, as using DTR requires an even number.
             ..Default::default()
         };
 

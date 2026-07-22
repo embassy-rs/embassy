@@ -16,6 +16,9 @@ pub mod descriptor_type {
     pub const ENDPOINT: u8 = 5;
     pub const DEVICE_QUALIFIER: u8 = 6;
     pub const OTHER_SPEED_CONFIGURATION: u8 = 7;
+    pub const INTERFACE_POWER: u8 = 8;
+    pub const OTG: u8 = 9;
+    pub const DEBUG: u8 = 10;
     pub const IAD: u8 = 11;
     pub const BOS: u8 = 15;
     pub const CAPABILITY: u8 = 16;

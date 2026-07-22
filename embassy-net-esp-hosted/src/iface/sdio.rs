@@ -17,8 +17,7 @@
 use ::sdio::sdio::SdioCard;
 use ::sdio::{MmcBus, MmcError};
 use aligned::{A4, Aligned};
-use embassy_time::Timer;
-use embedded_hal_async::delay::DelayNs;
+use embassy_time::{Delay, Timer};
 
 use crate::{Interface, PayloadHeader};
 
@@ -50,10 +49,9 @@ const ESP_RX_BUFFER_SIZE: usize = 1536;
 
 /// SDIO interface for esp-hosted.
 ///
-/// Wraps an [`SdioCard`]. The card is (re)acquired by [`Interface::init`] after
-/// the runner pulses reset, so pass an un-acquired card from [`SdioCard::new_uninit`].
-pub struct SdioInterface<B: MmcBus, D: DelayNs> {
-    card: SdioCard<B, D>,
+/// Wraps an [`SdioCard`]. Pass the [`MmcBus`] to be used.
+pub struct SdioInterface<B: MmcBus> {
+    card: SdioCard<B, Delay>,
     freq: u32,
     tx_buf_count: u32,
     rx_byte_count: u32,
@@ -62,13 +60,13 @@ pub struct SdioInterface<B: MmcBus, D: DelayNs> {
     cached_granted: u32,
 }
 
-impl<B: MmcBus, D: DelayNs> SdioInterface<B, D> {
+impl<B: MmcBus> SdioInterface<B> {
     const MAX_WRITE_BUF_RETRIES: u8 = 50;
 
     /// Create a new SDIO interface targeting `freq_hz` (clamped during acquisition).
-    pub fn new(card: SdioCard<B, D>, freq_hz: u32) -> Self {
+    pub fn new(bus: B, freq_hz: u32) -> Self {
         Self {
-            card,
+            card: SdioCard::new_uninit(bus, Delay),
             freq: freq_hz,
             tx_buf_count: 0,
             rx_byte_count: 0,
@@ -228,7 +226,7 @@ impl<B: MmcBus, D: DelayNs> SdioInterface<B, D> {
     }
 }
 
-impl<B: MmcBus, D: DelayNs> Interface for SdioInterface<B, D> {
+impl<B: MmcBus> Interface for SdioInterface<B> {
     async fn init(&mut self, cold_boot: bool) {
         if !cold_boot {
             Timer::after_secs(2).await;

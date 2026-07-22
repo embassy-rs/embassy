@@ -1,0 +1,21 @@
+[package]
+name = "apollo-embassy-examples"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabihf", artifact-dir = "out/examples/ambiq" }
+]
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.3"
+panic-halt = "0.2.0"
+
+embassy-executor = { version = "0.10.0", path = "../../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt"] }
+embassy-time = { version = "0.5.1", path = "../../../embassy-time" }
+embassy-ambiq = { path = "../../../embassy-ambiq", default-features = false, features = ["apollo3", "time-driver-stimer-xtal-32768", "svl-vtor"] }
+apollo3-pac = "0.2.0"

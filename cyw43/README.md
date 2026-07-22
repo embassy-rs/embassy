@@ -16,7 +16,7 @@ Working:
 
 - WiFi support
     - Station mode (joining an AP).
-    - AP mode (creating an AP)
+    - AP mode with open, WPA2, WPA3, and WPA2/WPA3 transition-mode security. WPA3 requires compatible CYW43 firmware and client support.
     - Scanning
     - Sending and receiving Ethernet frames.
     - Using the default MAC address.
