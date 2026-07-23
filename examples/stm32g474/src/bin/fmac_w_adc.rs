@@ -103,7 +103,7 @@ async fn main(_spawner: Spawner) {
     loop {
         if let Some(raw) = from_adc.read() {
             // raw is in Q1.15 format, convert back to u16
-            let filtered_value = raw.inner;
+            let filtered_value = raw.into_bits();
             defmt::println!("reading: {}", filtered_value);
         }
     }
