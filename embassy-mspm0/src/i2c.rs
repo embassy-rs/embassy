@@ -226,12 +226,14 @@ impl Config {
 
     /// The sleep floor for the selected clock source.
     ///
+    /// Shared with the I2C target ([`crate::i2c_target`]), which uses the same clocking.
+    ///
     /// The controller only holds its configured SCL where its source clock is fully available:
     /// MFCLK (4 MHz) survives STOP0/STOP1 but not STOP2, while BusClk (ULPCLK) only keeps its full
     /// rate in RUN/SLEEP — ULPCLK is capped at 4 MHz in STOP, which would silently slow SCL — so it
     /// forbids all deep sleep. Derived from the un-divided source rate; the divider does not change
     /// which modes deliver the source (24 MHz BusClk on C-series lands on the same floor as 32 MHz).
-    fn wake_floor(&self) -> Option<SleepLevel> {
+    pub(crate) fn wake_floor(&self) -> Option<SleepLevel> {
         let source_hz = match self.clock_source {
             ClockSel::MfClk => 4_000_000,
             ClockSel::BusClk => 32_000_000,

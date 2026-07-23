@@ -288,9 +288,9 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
         // is only guaranteed present in RUN/SLEEP, so a software-triggered conversion forbids all deep
         // sleep (floor Stop0 → the executor idles in SLEEP, where SYSOSC and the ADC stay alive and
         // MEMRESIFG wakes it). Operation-scoped: dropped when the wait ends; the ADC is idle between
-        // conversions. Deep-sleep (STOP/STANDBY) sampling is the timer/event-triggered path (Regime B):
-        // the ADC hardware auto-requests SYSOSC via an async fast clock request, so such an API would
-        // need no guard here — not yet implemented.
+        // conversions. Deep-sleep (STOP/STANDBY) sampling is the timer/event-triggered path: the ADC
+        // hardware auto-requests SYSOSC via an async fast clock request, so such an API would need no
+        // guard here — not yet implemented.
         let _guard = SleepLevel::floor_for_clock_hz(ADC_SAMPLE_CLOCK_HZ).map(WakeGuard::new);
 
         let info = self.info;
