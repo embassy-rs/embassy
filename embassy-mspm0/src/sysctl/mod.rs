@@ -43,6 +43,56 @@ pub enum SleepLevel {
     Standby1,
 }
 
+impl SleepLevel {
+    /// Shallowest level to forbid so a PD0 peripheral clocked at `clock_hz` keeps running, or `None`
+    /// to forbid nothing (any sleep depth is fine, or the peripheral needs no functional clock).
+    ///
+    /// `clock_hz` is the frequency of the functional clock that must stay live for the peripheral —
+    /// ULPCLK for bus-clocked peripherals, or the LFCLK/MFCLK source rate for those clocked directly.
+    /// Feed the result to [`WakeGuard::new`] (via [`Option::map`]) for as long as the peripheral must
+    /// stay clocked. The per-mode ceiling is architectural across every MSPM0 family: STOP0/STOP1 cap
+    /// at 4 MHz, STOP2 at 32 kHz (LFCLK), and STANDBY unclocks PD0 entirely. Assumes the RUN0 run
+    /// mode, the only one the HAL configures today (STOP0 reaches 4 MHz only when entered from RUN0).
+    pub const fn floor_for_clock_hz(clock_hz: u32) -> Option<Self> {
+        // Per-mode clock ceilings, from the family TRMs' "DMA Operating Mode Support" sections.
+        const STOP_HZ: u32 = 4_000_000; // STOP0 and STOP1
+        const STOP2_HZ: u32 = 32_768; // STOP2, sourced from LFCLK
+
+        if clock_hz > STOP_HZ {
+            Some(Self::Stop0) // more than any STOP mode offers: only RUN/SLEEP will do
+        } else if clock_hz > STOP2_HZ {
+            Some(Self::Stop2) // STOP0/STOP1 suffice; STOP2 is too slow
+        } else if clock_hz > 0 {
+            Some(Self::Standby0) // STOP2 suffices; STANDBY has no PD0 clock
+        } else {
+            None // clock-agnostic
+        }
+    }
+}
+
+// Boundary checks for `floor_for_clock_hz`, verified at compile time.
+// `core::assert!` bypasses the crate's defmt-routing `assert!` shim, which is not const-evaluable.
+const _: () = {
+    core::assert!(matches!(
+        SleepLevel::floor_for_clock_hz(4_000_001),
+        Some(SleepLevel::Stop0)
+    ));
+    core::assert!(matches!(
+        SleepLevel::floor_for_clock_hz(4_000_000), // MFCLK
+        Some(SleepLevel::Stop2)
+    ));
+    core::assert!(matches!(
+        SleepLevel::floor_for_clock_hz(32_769),
+        Some(SleepLevel::Stop2)
+    ));
+    core::assert!(matches!(
+        SleepLevel::floor_for_clock_hz(32_768), // LFCLK
+        Some(SleepLevel::Standby0)
+    ));
+    core::assert!(matches!(SleepLevel::floor_for_clock_hz(1), Some(SleepLevel::Standby0)));
+    core::assert!(matches!(SleepLevel::floor_for_clock_hz(0), None));
+};
+
 /// RAII token forbidding a deep-sleep mode (and anything deeper) while held.
 ///
 /// A guard at `level` blocks that [`SleepLevel`] and every deeper mode; the low-power executor then

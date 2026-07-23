@@ -13,6 +13,7 @@ use embedded_hal_nb::nb;
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::Binding;
 use crate::pac::uart::Uart as Regs;
+use crate::sysctl::{SleepLevel, WakeGuard};
 use crate::uart::{Config, ConfigError, CtsPin, Error, Info, Instance, RtsPin, RxPin, State, TxPin};
 use crate::{Peri, interrupt};
 
@@ -146,6 +147,7 @@ impl<'d> BufferedUart<'d> {
                 rx: self.rx.rx.as_mut().map(Peri::reborrow),
                 rts: self.rx.rts.as_mut().map(Peri::reborrow),
                 reborrowed: true,
+                wake_guard: None,
             },
         )
     }
@@ -161,6 +163,10 @@ pub struct BufferedUartRx<'d> {
     rx: Option<Peri<'d, AnyPin>>,
     rts: Option<Peri<'d, AnyPin>>,
     reborrowed: bool,
+    /// Held for the receiver's whole enabled lifetime: the RX ISR buffers bytes at any time, so the
+    /// chip must stay clocked deep enough to sample them. `None` on reborrowed handles (the owner
+    /// holds it) and when the clock is too slow to constrain sleep. See [`Self::rx_wake_guard`].
+    wake_guard: Option<WakeGuard>,
 }
 
 impl SetConfig for BufferedUartRx<'_> {
@@ -214,12 +220,26 @@ impl<'d> BufferedUartRx<'d> {
             rts.update_pf(config.rts_pf());
         }
 
-        super::reconfigure(&self.info, &self.state.state, config)
+        super::reconfigure(&self.info, &self.state.state, config)?;
+
+        // The clock source may have changed, so re-derive the sleep floor. Acquiring the new guard
+        // before dropping the old keeps the receiver's floor covered across the swap.
+        if !self.reborrowed {
+            self.wake_guard = self.rx_wake_guard();
+        }
+        Ok(())
     }
 
     /// Set baudrate
     pub fn set_baudrate(&mut self, baudrate: u32) -> Result<(), ConfigError> {
+        // Baudrate does not change the clock source, so the sleep floor is unaffected.
         super::set_baudrate(&self.info, self.state.state.clock.load(Ordering::Relaxed), baudrate)
+    }
+
+    /// The sleep-floor guard for the current clock source: the receiver only functions while its
+    /// clock is delivered, so forbid any mode deeper than that. Held for the driver's lifetime.
+    fn rx_wake_guard(&self) -> Option<WakeGuard> {
+        SleepLevel::floor_for_clock_hz(self.state.state.clock.load(Ordering::Relaxed)).map(WakeGuard::new)
     }
 
     /// Read from UART RX buffer, blocking execution until done.
@@ -606,9 +626,12 @@ impl<'d> BufferedUart<'d> {
                 rx,
                 rts,
                 reborrowed: false,
+                wake_guard: None,
             },
         };
         this.enable_and_configure(tx_buffer, rx_buffer, &config)?;
+        // configure() has set the clock, so the receiver's floor can now be derived.
+        this.rx.wake_guard = this.rx.rx_wake_guard();
 
         Ok(this)
     }
@@ -662,8 +685,11 @@ impl<'d> BufferedUartRx<'d> {
             rx,
             rts,
             reborrowed: false,
+            wake_guard: None,
         };
         this.enable_and_configure(rx_buffer, &config)?;
+        // configure() has set the clock, so the floor can now be derived.
+        this.wake_guard = this.rx_wake_guard();
 
         Ok(this)
     }
@@ -881,6 +907,11 @@ impl<'d> BufferedUartTx<'d> {
     }
 
     async fn flush_inner(&self) -> Result<(), Error> {
+        // Hold the sleep floor only while draining: TX must stay clocked for the transfer to finish
+        // and fire EOT, but an idle TX-only UART should not constrain sleep. Dropped when flush
+        // returns (or the future is cancelled). `write` never awaits, so it needs no guard.
+        let _guard = SleepLevel::floor_for_clock_hz(self.state.state.clock.load(Ordering::Relaxed)).map(WakeGuard::new);
+
         poll_fn(move |cx| {
             let state = self.state;
 
