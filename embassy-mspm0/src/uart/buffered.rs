@@ -222,10 +222,10 @@ impl<'d> BufferedUartRx<'d> {
 
         super::reconfigure(&self.info, &self.state.state, config)?;
 
-        // The clock source may have changed, so re-derive the sleep floor. Acquiring the new guard
-        // before dropping the old keeps the receiver's floor covered across the swap.
+        // The clock source or low_power_rx_wake may have changed, so re-derive the sleep floor.
+        // Acquiring the new guard before dropping the old keeps the receiver's floor covered.
         if !self.reborrowed {
-            self.wake_guard = self.rx_wake_guard();
+            self.wake_guard = self.rx_wake_guard(config.low_power_rx_wake);
         }
         Ok(())
     }
@@ -238,8 +238,16 @@ impl<'d> BufferedUartRx<'d> {
 
     /// The sleep-floor guard for the current clock source: the receiver only functions while its
     /// clock is delivered, so forbid any mode deeper than that. Held for the driver's lifetime.
-    fn rx_wake_guard(&self) -> Option<WakeGuard> {
-        SleepLevel::floor_for_clock_hz(self.state.state.clock.load(Ordering::Relaxed)).map(WakeGuard::new)
+    ///
+    /// With `low_power_rx_wake` set, no floor is held: the receiver relies on the UART's asynchronous
+    /// fast-clock request to wake the chip from any deep-sleep mode on an incoming start bit, so the
+    /// executor may idle as deep as STANDBY1. See [`Config::low_power_rx_wake`](super::Config).
+    fn rx_wake_guard(&self, low_power_rx_wake: bool) -> Option<WakeGuard> {
+        if low_power_rx_wake {
+            None
+        } else {
+            SleepLevel::floor_for_clock_hz(self.state.state.clock.load(Ordering::Relaxed)).map(WakeGuard::new)
+        }
     }
 
     /// Read from UART RX buffer, blocking execution until done.
@@ -631,7 +639,7 @@ impl<'d> BufferedUart<'d> {
         };
         this.enable_and_configure(tx_buffer, rx_buffer, &config)?;
         // configure() has set the clock, so the receiver's floor can now be derived.
-        this.rx.wake_guard = this.rx.rx_wake_guard();
+        this.rx.wake_guard = this.rx.rx_wake_guard(config.low_power_rx_wake);
 
         Ok(this)
     }
@@ -689,7 +697,7 @@ impl<'d> BufferedUartRx<'d> {
         };
         this.enable_and_configure(rx_buffer, &config)?;
         // configure() has set the clock, so the floor can now be derived.
-        this.wake_guard = this.rx_wake_guard();
+        this.wake_guard = this.rx_wake_guard(config.low_power_rx_wake);
 
         Ok(this)
     }

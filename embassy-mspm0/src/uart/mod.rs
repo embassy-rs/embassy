@@ -158,6 +158,23 @@ pub struct Config {
 
     /// Set the pull configuration for the CTS pin.
     pub cts_pull: Pull,
+
+    /// Let the chip deep-sleep (down to STANDBY1) while an async [`BufferedUart`] receiver is
+    /// listening, waking on an incoming RX start bit.
+    ///
+    /// When `false` (default), a buffered receiver keeps the chip clocked deep enough to receive
+    /// continuously — it holds a sleep floor derived from the clock source (e.g. LFCLK → STANDBY0,
+    /// MFCLK → STOP1). When `true`, the receiver holds no floor: the executor may idle in any
+    /// deep-sleep mode, and the UART's asynchronous fast-clock request (on by default in hardware)
+    /// wakes it — starting SYSOSC to receive the frame — when a start bit arrives.
+    ///
+    /// Reliable operation requires (the caller's responsibility — not checked here):
+    /// - The UART instance is in power domain 0 (PD0). PD1 instances are not active in STOP/STANDBY.
+    /// - Baud rate ≤ 19200: the fast-clock receive mode is specified to 19200 baud at 1% accuracy;
+    ///   above that the first frame after wake may be lost.
+    ///
+    /// Only affects the async [`BufferedUart`] receiver; ignored by the blocking driver and by TX.
+    pub low_power_rx_wake: bool,
 }
 
 impl Default for Config {
@@ -181,6 +198,7 @@ impl Default for Config {
             rx_pull: Pull::None,
             rts_pull: Pull::None,
             cts_pull: Pull::None,
+            low_power_rx_wake: false,
         }
     }
 }
