@@ -7,6 +7,7 @@ pub mod i2s;
 pub mod ir_nec;
 pub mod onewire;
 pub mod pwm;
+pub mod qspi;
 pub mod rotary_encoder;
 pub mod spi;
 pub mod step_dir;

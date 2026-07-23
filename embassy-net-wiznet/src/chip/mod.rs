@@ -9,8 +9,9 @@ mod w6100;
 pub use w6100::W6100;
 
 mod w6300;
-use embedded_hal_async::spi::SpiDevice;
 pub use w6300::W6300;
+
+use crate::wiznet_spi_interface::WiznetSpiBus;
 
 pub(crate) trait SealedChip {
     type Address;
@@ -47,9 +48,13 @@ pub(crate) trait SealedChip {
     fn rx_addr(addr: u16) -> Self::Address;
     fn tx_addr(addr: u16) -> Self::Address;
 
-    async fn bus_read<SPI: SpiDevice>(spi: &mut SPI, address: Self::Address, data: &mut [u8])
+    async fn bus_read<SPI: WiznetSpiBus>(
+        spi: &mut SPI,
+        address: Self::Address,
+        data: &mut [u8],
+    ) -> Result<(), SPI::Error>;
+    async fn bus_write<SPI: WiznetSpiBus>(spi: &mut SPI, address: Self::Address, data: &[u8])
     -> Result<(), SPI::Error>;
-    async fn bus_write<SPI: SpiDevice>(spi: &mut SPI, address: Self::Address, data: &[u8]) -> Result<(), SPI::Error>;
 }
 
 /// Trait for Wiznet chips.
