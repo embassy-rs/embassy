@@ -5,15 +5,18 @@
 use crate::pac::adc0::Adc0;
 use crate::pac::adc0::vals;
 
+/// Trait that provides channel numbers for pins that support ADC
 pub trait AdcPin {
     fn channel(&self) -> u8;
 }
 
+/// Resolution selection
 pub enum Resolution {
     Bits16,
     Bits12,
 }
 
+/// Averaging selection
 pub enum Averaging {
     None,
     Samples2,
@@ -25,11 +28,13 @@ pub enum Averaging {
     Samples128,
 }
 
+/// The struct to store the configuration
 pub struct Config {
     pub resolution: Resolution,
     pub averaging: Averaging,
 }
 
+/// Default config implementation
 impl Config {
     pub const fn default() -> Self {
         Self {
@@ -39,12 +44,14 @@ impl Config {
     }
 }
 
+/// The main struct
 pub struct Adc<'d> {
     adc: &'d mut Adc0,
     config: Config,
 }
 
 impl<'d> Adc<'d> {
+    /// Creation and initialization of ADC
     pub fn new(adc: &'d mut Adc0, config: Config) -> Self {
         // Enable and configure the ADC
         adc.ctrl().modify(|w| {
@@ -53,7 +60,8 @@ impl<'d> Adc<'d> {
         adc.tctrl(0).modify(|w| {
             w.set_fifo_sel_a(vals::FifoSelA::FIFO_SEL_A_0);
             w.set_fifo_sel_b(vals::FifoSelB::FIFO_SEL_B_0);
-            w.set_tcmd(vals::Tcmd::TCMD_1)
+            w.set_tcmd(vals::Tcmd::TCMD_1);
+            w.set_hten(vals::Hten::HTEN_1)
         });
 
         // Set resolution
@@ -82,24 +90,32 @@ impl<'d> Adc<'d> {
             Averaging::Samples128 => vals::CalAvgs::CAL_AVGS_7,
         };
 
+        defmt::info!("Bit value: {}", bit_value == vals::CalAvgs::CAL_AVGS_0);
+        
         adc.ctrl().modify(|w| {
-            w.set_cal_avgs(bit_value)
+            w.set_cal_avgs(vals::CalAvgs::CAL_AVGS_4);
+            w.set_cal_req(vals::CalReq::CAL_REQ_1)
         });
+
+        defmt::info!("{}", adc.resfifo(0).read().valid() == vals::Valid::VALID_1);
 
         Self { adc, config }
     }
 
+    /// Reading the channel synchronously
     pub fn blocking_read<P: AdcPin>(&mut self, pin: &mut P) -> u16 {
         self.adc.cmdl1().modify(|w| {
             w.set_adch(pin.channel().into())
         });
 
+        self.adc.swtrig().write(|w| {
+            w.set_swt0(1.into())
+        });
 
-        let result_reg = self.adc.resfifo(0).read();
-        
-        if result_reg.valid() == vals::Valid::VALID_0 {
-            // TODO handle error
-            defmt::error!("FIFO0 is invalid!");
+        let mut result_reg = self.adc.resfifo(0).read();
+        while !(result_reg.valid() == vals::Valid::VALID_1) {
+            result_reg = self.adc.resfifo(0).read();
+            // defmt::info!("dskjfhsghf");
         }
 
         let data_raw = result_reg.d();
@@ -114,6 +130,7 @@ impl<'d> Adc<'d> {
     }
 }
 
+/// Macro to implement the AdcPin trait for pins
 macro_rules! impl_adc_pin {
     // pin => peripheral struct
     // channel => u8 channel number
