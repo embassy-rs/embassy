@@ -6,7 +6,7 @@ use defmt::*;
 use embassy_nxp::adc::{Adc, Config};
 
 use embassy_executor::Spawner;
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer};
 
 use {defmt_rtt as _, panic_halt as _};
 
@@ -14,32 +14,54 @@ use {defmt_rtt as _, panic_halt as _};
 async fn main(_spawner: Spawner) {
     let mut p = embassy_nxp::init(Default::default());
 
+    let syscon = embassy_nxp::pac::SYSCON;
     let pmc = embassy_nxp::pac::PMC;
-    pmc.pdruncfgclr0().write(|w| {
-        // w.set_pden_auxbias(0)
-        w.set_pdruncfgclr0(0 << 19)
-    });
-
     let anactrl = embassy_nxp::pac::ANACTRL;
+    let iocon = embassy_nxp::pac::IOCON;
+    
+
+    // Enable clocks
+    // bit 27 = ADC
+    // bit 13 = IOCON
+    syscon.ahbclkctrlset(0).write(|w| w.set_data((1 << 27) | (1 << 13)));
+    syscon.ahbclkctrlset(2).write(|w| w.set_data(1 << 27));
+
+    // Clear reset
+    syscon.presetctrlclr(0).write(|w| w.set_data(1 << 27));
+
+    // Power up AUXBIAS
+    pmc.pdruncfgclr0().write(|w| w.set_pdruncfgclr0(1 << 19));
+
+    // Enable VREF
     anactrl.aux_bias().modify(|w| {
         w.set_vref1venable(true)
     });
 
-    let syscon = embassy_nxp::pac::SYSCON;
-    syscon.ahbclkctrlset(0).write(|w| {
-        // w.set_adc(true)
-        w.set_data(1 << 27)
-    });
+    // Configure the clocks
     syscon.adcclksel().write(|w| {
         w.set_sel(0)
     });
     syscon.adcclkdiv().write(|w| {
-        w.set_div(6);
-        w.set_halt(0.into())
+        w.set_div(6)
     });
+    syscon.adcclkdiv().modify(|w| w.set_reset(1.into()));
+    syscon.adcclkdiv().modify(|w| w.set_reset(0.into()));
+    syscon.adcclkdiv().modify(|w| w.set_halt(0.into()));
+
+    // Set pin to analog mode
+    iocon.pio1(9).modify(|w| {
+        w.set_func(0.into());
+        w.set_mode(0.into());
+        w.set_digimode(0.into());
+        w.set_asw(1.into())
+    });
+
+    embassy_time::block_for(Duration::from_micros(100));
 
     let mut raw_adc0 = embassy_nxp::pac::ADC0;
     let mut adc = Adc::new(&mut raw_adc0, Config::default());
+
+    embassy_time::block_for(Duration::from_micros(100));
 
     loop {
         let reading = adc.blocking_read(&mut p.PIO1_9);

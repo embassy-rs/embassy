@@ -53,15 +53,18 @@ pub struct Adc<'d> {
 impl<'d> Adc<'d> {
     /// Creation and initialization of ADC
     pub fn new(adc: &'d mut Adc0, config: Config) -> Self {
+        defmt::info!("Starting ADC init sequence");
         // Enable and configure the ADC
         adc.ctrl().modify(|w| {
             w.set_adcen(vals::Adcen::ADCEN_1)
         });
+
+        // Set up trigger control
         adc.tctrl(0).modify(|w| {
             w.set_fifo_sel_a(vals::FifoSelA::FIFO_SEL_A_0);
             w.set_fifo_sel_b(vals::FifoSelB::FIFO_SEL_B_0);
             w.set_tcmd(vals::Tcmd::TCMD_1);
-            w.set_hten(vals::Hten::HTEN_1)
+            w.set_hten(vals::Hten::HTEN_0)
         });
 
         // Set resolution
@@ -78,6 +81,10 @@ impl<'d> Adc<'d> {
             }
         };
 
+        adc.cmdl1().modify(|w| {
+            w.set_ctype(0.into())
+        });
+
         // Set averaging
         let bit_value = match config.averaging {
             Averaging::None => vals::CalAvgs::CAL_AVGS_0,
@@ -89,15 +96,20 @@ impl<'d> Adc<'d> {
             Averaging::Samples64 => vals::CalAvgs::CAL_AVGS_6,
             Averaging::Samples128 => vals::CalAvgs::CAL_AVGS_7,
         };
-
-        defmt::info!("Bit value: {}", bit_value == vals::CalAvgs::CAL_AVGS_0);
-        
+     
         adc.ctrl().modify(|w| {
-            w.set_cal_avgs(vals::CalAvgs::CAL_AVGS_4);
+            w.set_cal_avgs(bit_value)
+        });
+
+        adc.ctrl().modify(|w| {
             w.set_cal_req(vals::CalReq::CAL_REQ_1)
         });
 
-        defmt::info!("{}", adc.resfifo(0).read().valid() == vals::Valid::VALID_1);
+        while adc.ctrl().read().cal_req() == vals::CalReq::CAL_REQ_1 {
+            // wait
+            defmt::info!("Waiting for calibration");
+        }
+        defmt::info!("Calibration completed");
 
         Self { adc, config }
     }
@@ -115,7 +127,7 @@ impl<'d> Adc<'d> {
         let mut result_reg = self.adc.resfifo(0).read();
         while !(result_reg.valid() == vals::Valid::VALID_1) {
             result_reg = self.adc.resfifo(0).read();
-            // defmt::info!("dskjfhsghf");
+            defmt::info!("dskjfhsghf");
         }
 
         let data_raw = result_reg.d();
@@ -144,12 +156,12 @@ macro_rules! impl_adc_pin {
 }
 
 impl_adc_pin!(PIO0_10, 1);
-impl_adc_pin!(PIO0_11, 9);
-impl_adc_pin!(PIO0_12, 10);
+impl_adc_pin!(PIO0_11, 1);
+impl_adc_pin!(PIO0_12, 2);
 impl_adc_pin!(PIO0_15, 2);
-impl_adc_pin!(PIO0_16, 8);
+impl_adc_pin!(PIO0_16, 0);
 impl_adc_pin!(PIO0_23, 0);
 impl_adc_pin!(PIO0_31, 3);
-impl_adc_pin!(PIO1_0, 11);
+impl_adc_pin!(PIO1_0, 3);
 impl_adc_pin!(PIO1_8, 4);
-impl_adc_pin!(PIO1_9, 12);
+impl_adc_pin!(PIO1_9, 4);
