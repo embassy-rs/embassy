@@ -23,6 +23,68 @@ mod inner;
 
 pub use inner::ClkOutSource;
 
+/// Deep-sleep modes, shallowest (most capable) to deepest (least capable).
+///
+/// The argument to [`WakeGuard::new`] and the vocabulary the low-power executor idles into. Not every
+/// family implements every mode (only G/L have STOP1); a mode a family lacks is rounded to the next
+/// shallower one it does have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SleepLevel {
+    /// STOP0.
+    Stop0,
+    /// STOP1; rounded to STOP0 on families without it.
+    Stop1,
+    /// STOP2.
+    Stop2,
+    /// STANDBY0.
+    Standby0,
+    /// STANDBY1.
+    Standby1,
+}
+
+/// RAII token forbidding a deep-sleep mode (and anything deeper) while held.
+///
+/// A guard at `level` blocks that [`SleepLevel`] and every deeper mode; the low-power executor then
+/// idles into the deepest mode still permitted, or a plain `WFI` if even [`SleepLevel::Stop0`] is
+/// blocked. Guards are refcounted per level and compose: the shallowest blocked mode wins. Drop
+/// releases it.
+///
+/// Always available so drivers can hold one unconditionally; without the `low-power` feature it is a
+/// no-op (the `level` is ignored and nothing is tracked).
+#[must_use]
+pub struct WakeGuard {
+    #[cfg(feature = "low-power")]
+    level: SleepLevel,
+}
+
+impl WakeGuard {
+    /// Forbid entering `level` or any deeper mode until dropped.
+    ///
+    /// [`SleepLevel::Stop0`] blocks all deep sleep, leaving only `WFI`. Without the `low-power`
+    /// feature `level` is ignored and this does nothing.
+    #[inline]
+    pub fn new(level: SleepLevel) -> Self {
+        #[cfg(feature = "low-power")]
+        crate::low_power::block(level);
+        #[cfg(not(feature = "low-power"))]
+        let _ = level;
+
+        Self {
+            #[cfg(feature = "low-power")]
+            level,
+        }
+    }
+}
+
+impl Drop for WakeGuard {
+    #[inline]
+    fn drop(&mut self) {
+        #[cfg(feature = "low-power")]
+        crate::low_power::unblock(self.level);
+    }
+}
+
 /// Divider applied to the clock source of the CLK_OUT pin.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

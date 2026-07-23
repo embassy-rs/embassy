@@ -1,5 +1,9 @@
 //! Low-power (deep-sleep) support.
 //!
+//! Deep-sleep depth is gated by [`WakeGuard`](crate::sysctl::WakeGuard), which drivers hold to keep
+//! the chip shallower than a given [`SleepLevel`]; the low-power executor then idles into the deepest
+//! mode no guard blocks.
+//!
 //! Each family implements the SYSCTL power-mode sequence from the device TRM (chapter
 //! "System Control (SYSCTL)" -> "Operating Modes"), cross-checked against TI driverlib's
 //! `DL_SYSCTL_setPowerPolicy*`. The families are split into three behaviors:
@@ -68,30 +72,11 @@ pub use inner::{SleepMode, enter_sleep};
 )))]
 compile_error!("the `low-power` feature is not implemented for this chip family");
 
-/// Deep-sleep depth ladder, shallowest (most capable) to deepest (least capable).
-///
-/// Family-independent superset used by [`SleepGuard`] and the low-power executor. Not every family
-/// implements every level (only G/L have STOP1); a level a family lacks is rounded to the next
-/// shallower one it does have.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum SleepLevel {
-    /// No deep sleep: plain `WFI`.
-    Wfi,
-    /// [`SleepMode::Stop0`](inner::SleepMode).
-    Stop0,
-    /// [`SleepMode::Stop1`](inner::SleepMode); rounded to STOP0 on families without it.
-    Stop1,
-    /// [`SleepMode::Stop2`](inner::SleepMode).
-    Stop2,
-    /// [`SleepMode::Standby0`](inner::SleepMode).
-    Standby0,
-    /// [`SleepMode::Standby1`](inner::SleepMode).
-    Standby1,
-}
+/// Deep-sleep modes. Defined in [`sysctl`](crate::sysctl) alongside the always-available
+/// [`WakeGuard`](crate::sysctl::WakeGuard) that takes one; re-exported here for convenience.
+pub use crate::sysctl::SleepLevel;
 
-const LEVELS: [SleepLevel; 6] = [
-    SleepLevel::Wfi,
+const LEVELS: [SleepLevel; 5] = [
     SleepLevel::Stop0,
     SleepLevel::Stop1,
     SleepLevel::Stop2,
@@ -99,9 +84,8 @@ const LEVELS: [SleepLevel; 6] = [
     SleepLevel::Standby1,
 ];
 
-/// Per-level cap refcount. `SLEEP_CAPS[l]` counts the guards forbidding sleep deeper than `LEVELS[l]`.
-static SLEEP_CAPS: [AtomicU32; 6] = [
-    AtomicU32::new(0),
+/// `SLEEP_BLOCKS[i]` counts the guards forbidding `LEVELS[i]` and every deeper mode.
+static SLEEP_BLOCKS: [AtomicU32; 5] = [
     AtomicU32::new(0),
     AtomicU32::new(0),
     AtomicU32::new(0),
@@ -109,56 +93,47 @@ static SLEEP_CAPS: [AtomicU32; 6] = [
     AtomicU32::new(0),
 ];
 
-/// RAII token capping how deep the low-power executor may sleep while held.
-///
-/// While a guard at `level` is alive the executor will not sleep deeper than `level`. Guards are
-/// refcounted per level and compose: the shallowest active cap wins. Drop releases it.
-#[must_use]
-pub struct SleepGuard {
-    level: SleepLevel,
+/// Add a block at `level` (and every deeper mode). Paired with [`unblock`] by
+/// [`WakeGuard`](crate::sysctl::WakeGuard).
+pub(crate) fn block(level: SleepLevel) {
+    SLEEP_BLOCKS[level as usize].fetch_add(1, Ordering::Relaxed);
 }
 
-impl SleepGuard {
-    /// Forbid sleeping deeper than `level` until dropped.
-    pub fn new(level: SleepLevel) -> Self {
-        SLEEP_CAPS[level as usize].fetch_add(1, Ordering::Relaxed);
-        Self { level }
-    }
+/// Remove a block previously added at `level`.
+pub(crate) fn unblock(level: SleepLevel) {
+    SLEEP_BLOCKS[level as usize].fetch_sub(1, Ordering::Relaxed);
 }
 
-impl Drop for SleepGuard {
-    fn drop(&mut self) {
-        SLEEP_CAPS[self.level as usize].fetch_sub(1, Ordering::Relaxed);
-    }
-}
-
-/// Deepest level currently permitted: the shallowest active cap, or the deepest level if none.
-fn deepest_allowed() -> SleepLevel {
-    for (l, cap) in SLEEP_CAPS.iter().enumerate() {
-        if cap.load(Ordering::Relaxed) > 0 {
-            return LEVELS[l];
+/// Deepest mode currently permitted, or `None` (plain `WFI`) if all deep sleep is blocked.
+fn deepest_allowed() -> Option<SleepLevel> {
+    for (i, blocks) in SLEEP_BLOCKS.iter().enumerate() {
+        if blocks.load(Ordering::Relaxed) > 0 {
+            // LEVELS[i] and everything deeper is blocked, so the deepest permitted is one shallower.
+            return i.checked_sub(1).map(|j| LEVELS[j]);
         }
     }
-    SleepLevel::Standby1
+    Some(SleepLevel::Standby1)
 }
 
-/// Enter the deepest sleep permitted by the active [`SleepGuard`]s, waiting for an interrupt.
+/// Enter the deepest sleep permitted by the active [`WakeGuard`](crate::sysctl::WakeGuard)s, waiting
+/// for an interrupt.
 ///
 /// Called by the low-power executor on idle. With no guards held it enters the deepest mode the
-/// chip supports; a held guard caps the depth, and a `Wfi` cap keeps it a plain `WFI`.
+/// chip supports; a held guard caps the depth, and a guard on [`SleepLevel::Stop0`] keeps it a
+/// plain `WFI`.
 ///
 /// # Safety
 /// Deep sleep powers down PD1 (and, in STANDBY, most of PD0). Any peripheral transaction that must
-/// survive has to be protected by a [`SleepGuard`] shallow enough to keep it clocked. Until the
-/// drivers hold their own guards, the caller is responsible for this.
+/// survive has to be protected by a [`WakeGuard`](crate::sysctl::WakeGuard) shallow enough to keep it
+/// clocked. Until the drivers hold their own guards, the caller is responsible for this.
 pub unsafe fn sleep(cs: CriticalSection) {
     match deepest_allowed() {
-        SleepLevel::Wfi => {
+        None => {
             cortex_m::asm::dsb();
             cortex_m::asm::wfi();
             cortex_m::asm::isb();
         }
-        level => enter_sleep(cs, inner::level_to_mode(level)),
+        Some(level) => enter_sleep(cs, inner::level_to_mode(level)),
     }
 }
 

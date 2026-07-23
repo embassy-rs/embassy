@@ -55,13 +55,12 @@ pub unsafe fn enter_sleep(_cs: CriticalSection, mode: SleepMode) {
 
 /// Map the family-independent [`SleepLevel`](super::SleepLevel) to this family's [`SleepMode`].
 ///
-/// This family has no STOP1, so a STOP1 cap rounds to STOP0. `Wfi` is handled by [`super::sleep`]
-/// and never reaches here.
+/// This family has no STOP1, so a STOP1 level rounds to STOP0.
 pub(super) fn level_to_mode(level: super::SleepLevel) -> SleepMode {
     use super::SleepLevel;
 
     match level {
-        SleepLevel::Wfi | SleepLevel::Stop0 | SleepLevel::Stop1 => SleepMode::Stop0,
+        SleepLevel::Stop0 | SleepLevel::Stop1 => SleepMode::Stop0,
         SleepLevel::Stop2 => SleepMode::Stop2,
         SleepLevel::Standby0 => SleepMode::Standby0,
         SleepLevel::Standby1 => SleepMode::Standby1,
