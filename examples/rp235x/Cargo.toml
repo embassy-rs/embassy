@@ -57,6 +57,7 @@ static_cell = "2.1"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
 log = "0.4"
 embedded-sdmmc = "0.7.0"
+num-traits = { version = "0.2.19", default-features = false }
 
 [profile.release]
 # Enable generation of debug symbols even on release builds
