@@ -11,7 +11,7 @@ use pac::adccommon::vals::Presc;
 #[cfg(stm32n6)]
 pub use pac::adccommon::vals::{Damdf, Dual};
 
-#[cfg(any(stm32u5, stm32u3, stm32n6, stm32c5))]
+#[cfg(any(stm32u5, stm32u3, stm32n6))]
 use crate::adc::DefaultInstance;
 #[cfg(not(stm32n6))]
 use crate::adc::Temperature;
@@ -60,7 +60,7 @@ impl<T: Instance> super::ConverterFor<super::Temperature> for T {
 }
 
 // TODO this should be 14 for H7a/b/35
-#[cfg(not(any(stm32u5, stm32u3, stm32n6)))]
+#[cfg(not(any(stm32u5, stm32u3, stm32n6, stm32c5)))]
 impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 17;
 }
@@ -94,11 +94,11 @@ impl<T: DefaultInstance> super::ConverterFor<super::VrefInt> for T {
 }
 
 #[cfg(stm32c5)]
-impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 12;
 }
 #[cfg(stm32c5)]
-impl<T: DefaultInstance> super::ConverterFor<super::VrefInt> for T {
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 13;
 }
 
