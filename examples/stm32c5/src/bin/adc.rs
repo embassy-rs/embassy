@@ -20,16 +20,18 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let adc_config = AdcConfig::default();
-    let mut adc = Adc::new_with_config(p.ADC1, adc_config);
+    let adc1_config = AdcConfig::default();
+    let adc2_config = AdcConfig::default();
+    let mut adc1 = Adc::new_with_config(p.ADC1, adc1_config);
+    let mut adc2 = Adc::new_with_config(p.ADC2, adc2_config);
 
-    let mut vrefint_channel = adc.enable_vrefint();
+    let mut vrefint_channel = adc1.enable_vrefint();
 
     loop {
-        let vrefint = adc.blocking_read(&mut vrefint_channel, SampleTime::Cycles289);
+        let vrefint = adc1.blocking_read(&mut vrefint_channel, SampleTime::Cycles289);
         info!("vrefint: {}", vrefint);
-        let measured = adc.blocking_read(&mut p.PA0, SampleTime::Cycles289);
-        info!("measured: {}", measured);
+        let measured = adc2.blocking_read(&mut p.PH4, SampleTime::Cycles289);
+        info!("PH4 aka A0: {}", measured);
         Timer::after_millis(500).await;
     }
 }
