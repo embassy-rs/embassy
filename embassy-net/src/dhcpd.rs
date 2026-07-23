@@ -1,16 +1,14 @@
 //! DHCPv4 server implementation.
 
-use crate::Stack;
-use crate::udp::{PacketMetadata, UdpSocket};
-use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::Instant;
 use heapless::Vec;
 use rand_core_10::Rng;
-use smoltcp::wire::{
-    DhcpMessageType, DhcpPacket, DhcpRepr, Ipv4Address,
-    DHCP_SERVER_PORT, DHCP_CLIENT_PORT,
-};
+use smoltcp::wire::{DHCP_CLIENT_PORT, DHCP_SERVER_PORT, DhcpMessageType, DhcpPacket, DhcpRepr, Ipv4Address};
+
+use crate::Stack;
+use crate::udp::{PacketMetadata, UdpSocket};
 
 #[cfg(feature = "dhcpd")]
 const DHCPD_DOMAIN_LEN: usize = 32;
@@ -86,15 +84,14 @@ impl Default for DhcpdLease {
     }
 }
 
-
 /// Iterate through all leases, removing the ones that expired
 fn expire_leases<const DHCPD_MAX_LEASES: usize>(
     config: &'static DhcpdConfig,
-    leases: &mut Vec<DhcpdLease, DHCPD_MAX_LEASES>
+    leases: &mut Vec<DhcpdLease, DHCPD_MAX_LEASES>,
 ) -> () {
     if embassy_time::Instant::now().as_secs() < config.lease_time.as_secs() {
         // We do not yet run long enough to have any expired leases
-        return
+        return;
     }
 
     let deadline = embassy_time::Instant::now() - config.lease_time;
@@ -112,29 +109,37 @@ fn pick_offer<const DHCPD_MAX_LEASES: usize, T: Rng>(
     rng: &mut T,
     req: &DhcpRepr,
     config: &'static DhcpdConfig,
-    leases: &Vec<DhcpdLease, DHCPD_MAX_LEASES>
+    leases: &Vec<DhcpdLease, DHCPD_MAX_LEASES>,
 ) -> Option<Ipv4Address> {
-    info!("DHCP DISOCVER from {:?}.\nCurrent leases ({}):", req.client_hardware_address, leases.len());
+    info!(
+        "DHCP DISOCVER from {:?}.\nCurrent leases ({}):",
+        req.client_hardware_address,
+        leases.len()
+    );
 
     // Check if we already issued a lease to that client
     for x in leases {
         debug!("{:?}", x);
         if x.mac == Some(req.client_hardware_address) {
             debug!("MATCH: {:?} -> {:?}", x.mac, x.ip);
-            return x.ip
+            return x.ip;
         }
     }
 
     // If there is no lease, check if we have leases available
     if leases.len() >= DHCPD_MAX_LEASES {
         debug!("Too many leases. Given: {}, Max: {}", leases.len(), DHCPD_MAX_LEASES);
-        return None
+        return None;
     }
 
     // Check if the current number of leases is larger than the IP range size
     if leases.len() >= ((config.range_end.to_bits() - config.range_start.to_bits()) as usize) {
-        debug!("IP range saturated. Leases given: {}, Range size: {}", leases.len(), (config.range_end.to_bits() - config.range_start.to_bits()));
-        return None
+        debug!(
+            "IP range saturated. Leases given: {}, Range size: {}",
+            leases.len(),
+            (config.range_end.to_bits() - config.range_start.to_bits())
+        );
+        return None;
     }
 
     // Find a free IP address in the range. We will eventually find one since
@@ -142,10 +147,14 @@ fn pick_offer<const DHCPD_MAX_LEASES: usize, T: Rng>(
     loop {
         // Get a random IPv4 between range_start and range_end
         let rand: u32 = rng.next_u32();
-        let ip_u32: u32 = config.range_start.to_bits() + (rand % (config.range_end.to_bits() - config.range_start.to_bits() + 1));
+        let ip_u32: u32 =
+            config.range_start.to_bits() + (rand % (config.range_end.to_bits() - config.range_start.to_bits() + 1));
         let ip = core::net::Ipv4Addr::from_bits(ip_u32);
 
-        debug!("Scanning the leases for our random IP in range: {:?} - {:?} - {:?}", config.range_start, ip, config.range_end);
+        debug!(
+            "Scanning the leases for our random IP in range: {:?} - {:?} - {:?}",
+            config.range_start, ip, config.range_end
+        );
 
         // Find out if it's free or leased
         let mut found: bool = false;
@@ -159,7 +168,7 @@ fn pick_offer<const DHCPD_MAX_LEASES: usize, T: Rng>(
             // Our random IP was not found in the current leases => return it
             debug!("IP {:?} is not leased, taking it!", ip);
 
-            return Some(ip)
+            return Some(ip);
         }
     }
 }
@@ -168,10 +177,10 @@ fn pick_offer<const DHCPD_MAX_LEASES: usize, T: Rng>(
 fn validate_request<const DHCPD_MAX_LEASES: usize>(
     req: &DhcpRepr,
     config: &'static DhcpdConfig,
-    leases: &mut Vec<DhcpdLease, DHCPD_MAX_LEASES>
+    leases: &mut Vec<DhcpdLease, DHCPD_MAX_LEASES>,
 ) -> Option<Ipv4Address> {
     if req.requested_ip.is_none() && (req.client_ip == core::net::Ipv4Addr::UNSPECIFIED) {
-        return None
+        return None;
     }
 
     // A REQUEST packet has two use cases:
@@ -184,11 +193,18 @@ fn validate_request<const DHCPD_MAX_LEASES: usize>(
         requested_ip = req.requested_ip;
     }
 
-    info!("DHCP REQUEST from {:?}: {:?}.\nCurrent leases ({}):", req.client_hardware_address, requested_ip, leases.len());
+    info!(
+        "DHCP REQUEST from {:?}: {:?}.\nCurrent leases ({}):",
+        req.client_hardware_address,
+        requested_ip,
+        leases.len()
+    );
 
     // Check if the requested IP is in our range
-    if (requested_ip.unwrap().to_bits() < config.range_start.to_bits()) || (requested_ip.unwrap().to_bits() > config.range_end.to_bits()) {
-        return None
+    if (requested_ip.unwrap().to_bits() < config.range_start.to_bits())
+        || (requested_ip.unwrap().to_bits() > config.range_end.to_bits())
+    {
+        return None;
     }
 
     // Check if that IP is free (= not leased by someone else)
@@ -201,7 +217,7 @@ fn validate_request<const DHCPD_MAX_LEASES: usize>(
 
     // Leased by someone else => Send NAK
     if found {
-        return None
+        return None;
     }
 
     // The IP is not leased OR leased by the same client
@@ -212,7 +228,7 @@ fn validate_request<const DHCPD_MAX_LEASES: usize>(
         if x.mac == Some(req.client_hardware_address) {
             debug!("MATCH: {:?} -> {:?}", x.mac, x.ip);
             x.last_refresh = Some(Instant::now());
-            return x.ip
+            return x.ip;
         }
     }
 
@@ -221,7 +237,7 @@ fn validate_request<const DHCPD_MAX_LEASES: usize>(
     // Check if we have leases available
     if leases.len() >= DHCPD_MAX_LEASES {
         debug!("Too many leases. Given: {}, Max: {}", leases.len(), DHCPD_MAX_LEASES);
-        return None
+        return None;
     }
 
     let mut lease: DhcpdLease = DhcpdLease::default();
@@ -233,17 +249,13 @@ fn validate_request<const DHCPD_MAX_LEASES: usize>(
     let push_result = leases.push(lease);
 
     if push_result.is_err() {
-        return None
+        return None;
     }
 
     requested_ip
 }
 
-fn build_offer<'a>(
-    req: &'a DhcpRepr<'a>,
-    config: &'static DhcpdConfig,
-    yiaddr: Ipv4Address
-) -> DhcpRepr<'a> {
+fn build_offer<'a>(req: &'a DhcpRepr<'a>, config: &'static DhcpdConfig, yiaddr: Ipv4Address) -> DhcpRepr<'a> {
     DhcpRepr {
         message_type: DhcpMessageType::Offer,
         transaction_id: req.transaction_id,
@@ -269,11 +281,7 @@ fn build_offer<'a>(
     }
 }
 
-fn build_ack<'a>(
-    req: &'a DhcpRepr<'a>,
-    config: &'static DhcpdConfig,
-    yiaddr: Ipv4Address
-) -> DhcpRepr<'a> {
+fn build_ack<'a>(req: &'a DhcpRepr<'a>, config: &'static DhcpdConfig, yiaddr: Ipv4Address) -> DhcpRepr<'a> {
     DhcpRepr {
         message_type: DhcpMessageType::Ack,
         transaction_id: req.transaction_id,
@@ -299,11 +307,7 @@ fn build_ack<'a>(
     }
 }
 
-fn build_nak<'a>(
-    req: &'a DhcpRepr<'a>,
-    config: &'static DhcpdConfig,
-    yiaddr: Ipv4Address
-) -> DhcpRepr<'a> {
+fn build_nak<'a>(req: &'a DhcpRepr<'a>, config: &'static DhcpdConfig, yiaddr: Ipv4Address) -> DhcpRepr<'a> {
     DhcpRepr {
         message_type: DhcpMessageType::Nak,
         transaction_id: req.transaction_id,
@@ -336,12 +340,10 @@ fn emit_dhcp(repr: &DhcpRepr, out: &mut [u8]) -> Option<usize> {
     let mut pkt = DhcpPacket::new_unchecked(pkt_buf);
     let repr_result = repr.emit(&mut pkt);
     if repr_result.is_err() {
-        return None
+        return None;
     }
     Some(len)
 }
-
-
 
 /// DHCPd runner.
 ///
@@ -368,7 +370,9 @@ impl<'d, const DHCPD_MAX_LEASES: usize, T: Rng> Runner<'d, DHCPD_MAX_LEASES, T> 
 
         loop {
             let mut buf = [0u8; 1500];
-            let Ok((n, meta)) = sock.recv_from(&mut buf).await else { continue; };
+            let Ok((n, meta)) = sock.recv_from(&mut buf).await else {
+                continue;
+            };
 
             info!("DHCPd received {} bytes from {:?}", n, meta);
 
@@ -397,7 +401,9 @@ impl<'d, const DHCPD_MAX_LEASES: usize, T: Rng> Runner<'d, DHCPD_MAX_LEASES, T> 
                         debug!("Sending back DHCP OFFER: {:?}", resp);
                         let mut out = [0u8; 512];
                         let len = emit_dhcp(&resp, &mut out);
-                        let _ = sock.send_to(&out[..len.unwrap()], (Ipv4Address::BROADCAST, DHCP_CLIENT_PORT)).await;
+                        let _ = sock
+                            .send_to(&out[..len.unwrap()], (Ipv4Address::BROADCAST, DHCP_CLIENT_PORT))
+                            .await;
                     }
                 }
                 DhcpMessageType::Request => {
@@ -406,13 +412,17 @@ impl<'d, const DHCPD_MAX_LEASES: usize, T: Rng> Runner<'d, DHCPD_MAX_LEASES, T> 
                         debug!("Sending back DHCP ACK: {:?}", resp);
                         let mut out = [0u8; 512];
                         let len = emit_dhcp(&resp, &mut out);
-                        let _ = sock.send_to(&out[..len.unwrap()], (Ipv4Address::BROADCAST, DHCP_CLIENT_PORT)).await;
+                        let _ = sock
+                            .send_to(&out[..len.unwrap()], (Ipv4Address::BROADCAST, DHCP_CLIENT_PORT))
+                            .await;
                     } else {
                         let resp = build_nak(&req, self.config, req.requested_ip.unwrap());
                         debug!("Sending back DHCP NAK: {:?}", resp);
                         let mut out = [0u8; 512];
                         let len = emit_dhcp(&resp, &mut out);
-                        let _ = sock.send_to(&out[..len.unwrap()], (Ipv4Address::BROADCAST, DHCP_CLIENT_PORT)).await;
+                        let _ = sock
+                            .send_to(&out[..len.unwrap()], (Ipv4Address::BROADCAST, DHCP_CLIENT_PORT))
+                            .await;
                     }
                 }
                 _ => {}
@@ -420,7 +430,6 @@ impl<'d, const DHCPD_MAX_LEASES: usize, T: Rng> Runner<'d, DHCPD_MAX_LEASES, T> 
         }
     }
 }
-
 
 /// Create a new runner
 

@@ -11,16 +11,16 @@ use cyw43::{ApAuth, aligned_bytes};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_net::dhcpd::{DhcpdConfig, DhcpdLease};
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Config, StackResources};
-use embassy_net::dhcpd::{DhcpdConfig, DhcpdLease};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, dma};
-use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::Duration;
 use embedded_io_async::Write;
 use heapless::Vec;
@@ -114,14 +114,15 @@ async fn main(spawner: Spawner) {
     static DHCPD_CONFIG: StaticCell<DhcpdConfig> = StaticCell::new();
 
     let dhcpd_config: &'static mut DhcpdConfig = DHCPD_CONFIG.init(DhcpdConfig::default());
-    dhcpd_config.server_ip   = core::net::Ipv4Addr::new(169, 254, 1, 1);
+    dhcpd_config.server_ip = core::net::Ipv4Addr::new(169, 254, 1, 1);
     dhcpd_config.range_start = core::net::Ipv4Addr::new(169, 254, 2, 100);
-    dhcpd_config.range_end   = core::net::Ipv4Addr::new(169, 254, 2, 200);
+    dhcpd_config.range_end = core::net::Ipv4Addr::new(169, 254, 2, 200);
     dhcpd_config.subnet_mask = core::net::Ipv4Addr::new(255, 255, 0, 0);
-    dhcpd_config.lease_time  = Duration::from_secs(300);
+    dhcpd_config.lease_time = Duration::from_secs(300);
 
     static LEASES: StaticCell<Mutex<NoopRawMutex, Vec<DhcpdLease, DHCPD_MAX_LEASES>>> = StaticCell::new();
-    let leases: &'static mut Mutex<NoopRawMutex, Vec<DhcpdLease, DHCPD_MAX_LEASES>> = LEASES.init(Mutex::new(Vec::new()));
+    let leases: &'static mut Mutex<NoopRawMutex, Vec<DhcpdLease, DHCPD_MAX_LEASES>> =
+        LEASES.init(Mutex::new(Vec::new()));
 
     let dhcpd_runner = embassy_net::dhcpd::new(stack, rng, dhcpd_config, leases);
 

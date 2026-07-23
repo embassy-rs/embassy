@@ -8,15 +8,14 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_net::Ipv4Cidr;
-use embassy_net::StackResources;
 use embassy_net::dhcpd::{DhcpdConfig, DhcpdLease};
+use embassy_net::{Ipv4Cidr, StackResources};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_rp::{bind_interrupts, peripherals};
-use embassy_sync::mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::mutex::Mutex;
 use embassy_time::Duration;
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
@@ -122,14 +121,15 @@ async fn main(spawner: Spawner) {
     static DHCPD_CONFIG: StaticCell<DhcpdConfig> = StaticCell::new();
 
     let dhcpd_config: &'static mut DhcpdConfig = DHCPD_CONFIG.init(DhcpdConfig::default());
-    dhcpd_config.server_ip   = core::net::Ipv4Addr::new(10, 42, 0, 61);
+    dhcpd_config.server_ip = core::net::Ipv4Addr::new(10, 42, 0, 61);
     dhcpd_config.range_start = core::net::Ipv4Addr::new(10, 42, 0, 62);
-    dhcpd_config.range_end   = core::net::Ipv4Addr::new(10, 42, 0, 64);
+    dhcpd_config.range_end = core::net::Ipv4Addr::new(10, 42, 0, 64);
     dhcpd_config.subnet_mask = core::net::Ipv4Addr::new(255, 255, 255, 0);
-    dhcpd_config.lease_time  = Duration::from_secs(300);
+    dhcpd_config.lease_time = Duration::from_secs(300);
 
     static LEASES: StaticCell<Mutex<NoopRawMutex, Vec<DhcpdLease, DHCPD_MAX_LEASES>>> = StaticCell::new();
-    let leases: &'static mut Mutex<NoopRawMutex, Vec<DhcpdLease, DHCPD_MAX_LEASES>> = LEASES.init(Mutex::new(Vec::new()));
+    let leases: &'static mut Mutex<NoopRawMutex, Vec<DhcpdLease, DHCPD_MAX_LEASES>> =
+        LEASES.init(Mutex::new(Vec::new()));
 
     let dhcpd_runner = embassy_net::dhcpd::new(stack, rng, dhcpd_config, leases);
 
