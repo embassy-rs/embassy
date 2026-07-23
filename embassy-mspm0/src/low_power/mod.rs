@@ -7,8 +7,11 @@
 //! - `c110x.rs` — STOP0/2 + STANDBY0/1 (no STOP1); STOP0 also clears `USELFCLK`: C-series.
 //! - `h321x.rs` — STOP0/2 + STANDBY0/1 (no STOP1): H321x.
 
+use core::sync::atomic::Ordering;
+
 use critical_section::CriticalSection;
 use pac::sysctl::vals::Dsleep;
+use portable_atomic::AtomicU32;
 
 use crate::pac;
 
@@ -64,6 +67,100 @@ pub use inner::{SleepMode, enter_sleep};
     mspm0h321x
 )))]
 compile_error!("the `low-power` feature is not implemented for this chip family");
+
+/// Deep-sleep depth ladder, shallowest (most capable) to deepest (least capable).
+///
+/// Family-independent superset used by [`SleepGuard`] and the low-power executor. Not every family
+/// implements every level (only G/L have STOP1); a level a family lacks is rounded to the next
+/// shallower one it does have.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SleepLevel {
+    /// No deep sleep: plain `WFI`.
+    Wfi,
+    /// [`SleepMode::Stop0`](inner::SleepMode).
+    Stop0,
+    /// [`SleepMode::Stop1`](inner::SleepMode); rounded to STOP0 on families without it.
+    Stop1,
+    /// [`SleepMode::Stop2`](inner::SleepMode).
+    Stop2,
+    /// [`SleepMode::Standby0`](inner::SleepMode).
+    Standby0,
+    /// [`SleepMode::Standby1`](inner::SleepMode).
+    Standby1,
+}
+
+const LEVELS: [SleepLevel; 6] = [
+    SleepLevel::Wfi,
+    SleepLevel::Stop0,
+    SleepLevel::Stop1,
+    SleepLevel::Stop2,
+    SleepLevel::Standby0,
+    SleepLevel::Standby1,
+];
+
+/// Per-level cap refcount. `SLEEP_CAPS[l]` counts the guards forbidding sleep deeper than `LEVELS[l]`.
+static SLEEP_CAPS: [AtomicU32; 6] = [
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+    AtomicU32::new(0),
+];
+
+/// RAII token capping how deep the low-power executor may sleep while held.
+///
+/// While a guard at `level` is alive the executor will not sleep deeper than `level`. Guards are
+/// refcounted per level and compose: the shallowest active cap wins. Drop releases it.
+#[must_use]
+pub struct SleepGuard {
+    level: SleepLevel,
+}
+
+impl SleepGuard {
+    /// Forbid sleeping deeper than `level` until dropped.
+    pub fn new(level: SleepLevel) -> Self {
+        SLEEP_CAPS[level as usize].fetch_add(1, Ordering::Relaxed);
+        Self { level }
+    }
+}
+
+impl Drop for SleepGuard {
+    fn drop(&mut self) {
+        SLEEP_CAPS[self.level as usize].fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+/// Deepest level currently permitted: the shallowest active cap, or the deepest level if none.
+fn deepest_allowed() -> SleepLevel {
+    for (l, cap) in SLEEP_CAPS.iter().enumerate() {
+        if cap.load(Ordering::Relaxed) > 0 {
+            return LEVELS[l];
+        }
+    }
+    SleepLevel::Standby1
+}
+
+/// Enter the deepest sleep permitted by the active [`SleepGuard`]s, waiting for an interrupt.
+///
+/// Called by the low-power executor on idle. With no guards held it enters the deepest mode the
+/// chip supports; a held guard caps the depth, and a `Wfi` cap keeps it a plain `WFI`.
+///
+/// # Safety
+/// Deep sleep powers down PD1 (and, in STANDBY, most of PD0). Any peripheral transaction that must
+/// survive has to be protected by a [`SleepGuard`] shallow enough to keep it clocked. Until the
+/// drivers hold their own guards, the caller is responsible for this.
+pub unsafe fn sleep(cs: CriticalSection) {
+    match deepest_allowed() {
+        SleepLevel::Wfi => {
+            cortex_m::asm::dsb();
+            cortex_m::asm::wfi();
+            cortex_m::asm::isb();
+        }
+        level => enter_sleep(cs, inner::level_to_mode(level)),
+    }
+}
 
 /// Enter SHUTDOWN, the lowest-power state. Does not return.
 ///

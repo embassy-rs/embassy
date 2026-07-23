@@ -68,3 +68,18 @@ pub unsafe fn enter_sleep(_cs: CriticalSection, mode: SleepMode) {
 
     super::arm_and_wait();
 }
+
+/// Map the family-independent [`SleepLevel`](super::SleepLevel) to this family's [`SleepMode`].
+///
+/// `Wfi` is handled by [`super::sleep`] and never reaches here.
+pub(super) fn level_to_mode(level: super::SleepLevel) -> SleepMode {
+    use super::SleepLevel;
+
+    match level {
+        SleepLevel::Wfi | SleepLevel::Stop0 => SleepMode::Stop0,
+        SleepLevel::Stop1 => SleepMode::Stop1,
+        SleepLevel::Stop2 => SleepMode::Stop2,
+        SleepLevel::Standby0 => SleepMode::Standby0,
+        SleepLevel::Standby1 => SleepMode::Standby1,
+    }
+}

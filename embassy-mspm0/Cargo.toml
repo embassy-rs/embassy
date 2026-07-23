@@ -47,6 +47,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
 # TODO: Support other tick rates
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-32_768"] }
 embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
@@ -121,6 +122,13 @@ swd-pins-as-gpio = []
 ## select `time-driver-timg0`, `time-driver-timg1`, or `time-driver-any` (which selects TIMG0 when the chip has it).
 ## A `low-power` build with the time driver on any other timer fails to compile.
 low-power = []
+
+## Provide an `embassy-executor` thread executor (`executor::Executor`) that deep-sleeps on idle.
+## Implies `low-power`. Do not also enable `platform-cortex-m` on `embassy-executor`.
+executor-thread = ["_executor"]
+
+# Internal: pulls in `embassy-executor` and the low-power machinery the executor idles into.
+_executor = ["dep:embassy-executor", "low-power"]
 
 #! ## Time
 
