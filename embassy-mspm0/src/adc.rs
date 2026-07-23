@@ -10,6 +10,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::adc::{Adc as Regs, vals};
+use crate::sysctl::{SleepLevel, WakeGuard};
 use crate::{Peri, interrupt};
 
 /// Interrupt handler.
@@ -32,6 +33,11 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 // Constants from the metapac crate
 const ADC_VRSEL: u8 = crate::_generated::ADC_VRSEL;
 const ADC_MEMCTL: u8 = crate::_generated::ADC_MEMCTL;
+
+/// The ADC samples on SYSOSC, configured for the 24-32 MHz FRANGE (see [`Adc::setup`]). Used only to
+/// derive the sleep floor: being > 4 MHz, it forbids all deep sleep for a software-triggered
+/// conversion (which is what [`Adc`] does today).
+const ADC_SAMPLE_CLOCK_HZ: u32 = 32_000_000;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -278,6 +284,15 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
     pub const MAX_SEQUENCE_LEN: usize = ADC_MEMCTL as usize;
 
     async fn wait_for_conversion(&self) {
+        // Hold the chip in RUN/SLEEP while a conversion is in flight: the ADC samples on SYSOSC, which
+        // is only guaranteed present in RUN/SLEEP, so a software-triggered conversion forbids all deep
+        // sleep (floor Stop0 → the executor idles in SLEEP, where SYSOSC and the ADC stay alive and
+        // MEMRESIFG wakes it). Operation-scoped: dropped when the wait ends; the ADC is idle between
+        // conversions. Deep-sleep (STOP/STANDBY) sampling is the timer/event-triggered path (Regime B):
+        // the ADC hardware auto-requests SYSOSC via an async fast clock request, so such an API would
+        // need no guard here — not yet implemented.
+        let _guard = SleepLevel::floor_for_clock_hz(ADC_SAMPLE_CLOCK_HZ).map(WakeGuard::new);
+
         let info = self.info;
         let state = self.state;
         poll_fn(move |cx| {
