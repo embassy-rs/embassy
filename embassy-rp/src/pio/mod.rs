@@ -140,7 +140,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> FifoOutFuture<'a, 'd, PIO, SM> {
 impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoOutFuture<'a, 'd, PIO, SM> {
     type Output = ();
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        //debug!("Poll {},{}", PIO::PIO_NO, SM);
         let value = self.value;
         if self.get_mut().sm_tx.try_push(value) {
             Poll::Ready(())
@@ -149,7 +148,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoOutFuture<'a, 'd, PI
             PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = TXNFULL_MASK << SM;
             });
-            // debug!("Pending");
             Poll::Pending
         }
     }
@@ -179,7 +177,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> FifoInFuture<'a, 'd, PIO, SM> {
 impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoInFuture<'a, 'd, PIO, SM> {
     type Output = u32;
     fn poll(mut self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        //debug!("Poll {},{}", PIO::PIO_NO, SM);
         if let Some(v) = self.sm_rx.try_pull() {
             Poll::Ready(v)
         } else {
@@ -187,7 +184,6 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Future for FifoInFuture<'a, 'd, PIO
             PIO::PIO.irqs(0).inte().write_set(|m| {
                 m.0 = RXNEMPTY_MASK << SM;
             });
-            //debug!("Pending");
             Poll::Pending
         }
     }
@@ -212,8 +208,6 @@ pub struct IrqFuture<'a, 'd, PIO: Instance> {
 impl<'a, 'd, PIO: Instance> Future for IrqFuture<'a, 'd, PIO> {
     type Output = ();
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        //debug!("Poll {},{}", PIO::PIO_NO, SM);
-
         // Check if IRQ flag is already set
         if PIO::PIO.irq().read().0 & (1 << self.irq_no) != 0 {
             if self.clear_flag {
@@ -527,7 +521,7 @@ pub struct ExecConfig {
     /// If true, side-set data is asserted to pin directions, instead of pin values.
     pub side_pindir: bool,
     /// Pin to trigger jump.
-    pub jmp_pin: u8,
+    pub jmp_pin: Option<u8>,
     /// After reaching this address, execution is wrapped to wrap_bottom.
     pub wrap_top: u8,
     /// After reaching wrap_top, execution is wrapped to this address.
@@ -696,7 +690,7 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
 
     /// Set pin used to signal jump.
     pub fn set_jmp_pin(&mut self, pin: &Pin<'d, PIO>) {
-        self.exec.jmp_pin = pin.pin();
+        self.exec.jmp_pin = Some(pin.pin());
     }
 
     /// Sets the range of pins affected by SET instructions. The range must be consecutive.
@@ -741,28 +735,6 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         assert!(config.shift_out.threshold <= 32, "shift_out.threshold must be <= 32");
         let sm = Self::this_sm();
         sm.clkdiv().write(|w| w.0 = config.clock_divider.to_bits() << 8);
-        sm.execctrl().write(|w| {
-            w.set_side_en(config.exec.side_en);
-            w.set_side_pindir(config.exec.side_pindir);
-            w.set_jmp_pin(config.exec.jmp_pin);
-            w.set_out_en_sel(config.out_en_sel);
-            w.set_inline_out_en(config.inline_out_en);
-            w.set_out_sticky(config.out_sticky);
-            w.set_wrap_top(config.exec.wrap_top);
-            w.set_wrap_bottom(config.exec.wrap_bottom);
-            #[cfg(feature = "_rp235x")]
-            w.set_status_sel(match config.status_sel {
-                StatusSource::TxFifoLevel => pac::pio::vals::ExecctrlStatusSel::Txlevel,
-                StatusSource::RxFifoLevel => pac::pio::vals::ExecctrlStatusSel::Rxlevel,
-                StatusSource::Irq => pac::pio::vals::ExecctrlStatusSel::Irq,
-            });
-            #[cfg(feature = "rp2040")]
-            w.set_status_sel(match config.status_sel {
-                StatusSource::TxFifoLevel => pac::pio::vals::SmExecctrlStatusSel::Txlevel,
-                StatusSource::RxFifoLevel => pac::pio::vals::SmExecctrlStatusSel::Rxlevel,
-            });
-            w.set_status_n(config.status_n.into());
-        });
         sm.shiftctrl().write(|w| {
             w.set_fjoin_rx(config.fifo_join == FifoJoin::RxOnly);
             w.set_fjoin_tx(config.fifo_join == FifoJoin::TxOnly);
@@ -798,6 +770,8 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
 
         #[cfg(feature = "_rp235x")]
         {
+            let gpio_base_latched = PIO::PIO.gpiobase().read().gpiobase();
+
             let mut low_ok = true;
             let mut high_ok = true;
 
@@ -813,7 +787,12 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                 }
             }
 
-            if !low_ok && !high_ok {
+            if let Some(jmp_pin) = config.exec.jmp_pin {
+                low_ok &= jmp_pin < 32;
+                high_ok &= jmp_pin >= 16;
+            }
+
+            if (!low_ok && !high_ok) || (!high_ok && gpio_base_latched) {
                 panic!(
                     "All pins must either be <32 or >=16, in:{:?}-{:?}, side:{:?}-{:?}, set:{:?}-{:?}, out:{:?}-{:?}",
                     config.pins.in_base,
@@ -826,8 +805,26 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                     config.pins.out_base + config.pins.out_count - 1,
                 )
             }
-            let shift = if low_ok { 0 } else { 16 };
+            let shift = if low_ok && !gpio_base_latched { 0 } else { 16 };
 
+            if !gpio_base_latched && shift == 16 {
+                // GPIO_Base set for the first time, update all SMs
+                for i in 0..4 {
+                    if i != SM {
+                        PIO::PIO.sm(i).pinctrl().modify(|w| {
+                            w.set_in_base(w.in_base().checked_sub(shift).unwrap_or_default());
+                            w.set_sideset_base(w.sideset_base().checked_sub(shift).unwrap_or_default());
+                            w.set_set_base(w.set_base().checked_sub(shift).unwrap_or_default());
+                            w.set_out_base(w.out_base().checked_sub(shift).unwrap_or_default());
+                        });
+                    }
+                }
+            }
+
+            debug!(
+                "Configuring pincrtl in_base={}, out_base={}, shift={}",
+                config.pins.in_base, config.pins.out_base, shift,
+            );
             sm.pinctrl().write(|w| {
                 w.set_sideset_count(config.pins.sideset_count);
                 w.set_set_count(config.pins.set_count);
@@ -840,6 +837,39 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
 
             PIO::PIO.gpiobase().write(|w| w.set_gpiobase(shift == 16));
         }
+
+        sm.execctrl().write(|w| {
+            w.set_side_en(config.exec.side_en);
+            w.set_side_pindir(config.exec.side_pindir);
+
+            #[cfg(not(feature = "_rp235x"))]
+            w.set_jmp_pin(config.exec.jmp_pin.unwrap_or_default());
+            #[cfg(feature = "_rp235x")]
+            w.set_jmp_pin(
+                config
+                    .exec
+                    .jmp_pin
+                    .unwrap_or_default()
+                    .saturating_sub(PIO::PIO.gpiobase().read().0 as u8),
+            );
+            w.set_out_en_sel(config.out_en_sel);
+            w.set_inline_out_en(config.inline_out_en);
+            w.set_out_sticky(config.out_sticky);
+            w.set_wrap_top(config.exec.wrap_top);
+            w.set_wrap_bottom(config.exec.wrap_bottom);
+            #[cfg(feature = "_rp235x")]
+            w.set_status_sel(match config.status_sel {
+                StatusSource::TxFifoLevel => pac::pio::vals::ExecctrlStatusSel::Txlevel,
+                StatusSource::RxFifoLevel => pac::pio::vals::ExecctrlStatusSel::Rxlevel,
+                StatusSource::Irq => pac::pio::vals::ExecctrlStatusSel::Irq,
+            });
+            #[cfg(feature = "rp2040")]
+            w.set_status_sel(match config.status_sel {
+                StatusSource::TxFifoLevel => pac::pio::vals::SmExecctrlStatusSel::Txlevel,
+                StatusSource::RxFifoLevel => pac::pio::vals::SmExecctrlStatusSel::Rxlevel,
+            });
+            w.set_status_n(config.status_n.into());
+        });
 
         if let Some(origin) = config.origin {
             unsafe { self.exec_jmp(origin) }
