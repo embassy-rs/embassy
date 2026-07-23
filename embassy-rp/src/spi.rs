@@ -40,6 +40,33 @@ impl Default for Config {
     }
 }
 
+#[cfg(feature = "defmt")]
+impl defmt::Format for Config {
+    fn format(&self, f: defmt::Formatter) {
+        let phase = match self.phase {
+            Phase::CaptureOnFirstTransition => {
+                defmt::intern!("CaptureOnFirstTransition")
+            }
+            Phase::CaptureOnSecondTransition => {
+                defmt::intern!("CaptureOnSecondTransition")
+            }
+        };
+
+        let polarity = match self.polarity {
+            Polarity::IdleLow => defmt::intern!("IdleLow"),
+            Polarity::IdleHigh => defmt::intern!("IdleHigh"),
+        };
+
+        defmt::write!(
+            f,
+            "Config {{ frequency: {=u32}, phase: {=istr}, polarity: {=istr} }}",
+            self.frequency,
+            phase,
+            polarity,
+        );
+    }
+}
+
 /// SPI driver.
 pub struct Spi<'d, T: Instance, M: Mode> {
     inner: Peri<'d, T>,

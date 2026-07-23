@@ -602,6 +602,7 @@ impl Into<crate::pac::pio::vals::ExecctrlStatusN> for StatusN {
 
 /// PIO config.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config<'d, PIO: Instance> {
     /// Clock divisor register for state machines.
     pub clock_divider: FixedU32<U8>,
