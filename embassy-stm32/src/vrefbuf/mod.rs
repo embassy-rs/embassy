@@ -62,7 +62,7 @@ impl<'d, T: Instance> VoltageReferenceBuffer<'d, T> {
             w.set_envr(true);
             w.set_vrs(voltage_scale);
         });
-        while vrefbuf.csr().read().vrr() != false {
+        while vrefbuf.csr().read().vrr() == false {
             // wait...
         }
         trace!(
