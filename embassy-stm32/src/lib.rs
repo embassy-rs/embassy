@@ -174,12 +174,16 @@ pub mod ltdc;
 pub mod mce;
 #[cfg(mdf)]
 pub mod mdf;
+#[cfg(mdios)]
+pub mod mdios;
 #[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
 #[cfg(any(pka_v1a, pka_n6))]
 pub mod pka;
+#[cfg(pssi)]
+pub mod pssi;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(ramcfg_wba)]
