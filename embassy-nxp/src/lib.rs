@@ -15,7 +15,9 @@ pub mod pwm;
 pub mod sct;
 #[cfg(lpc55)]
 pub mod usart;
-
+#[cfg(lpc55)]
+#[path = "crc/crc.rs"]
+pub mod crc;
 #[cfg(rt1xxx)]
 mod iomuxc;
 
