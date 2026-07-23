@@ -51,19 +51,21 @@ impl SleepLevel {
     /// ULPCLK for bus-clocked peripherals, or the LFCLK/MFCLK source rate for those clocked directly.
     /// Feed the result to [`WakeGuard::new`] (via [`Option::map`]) for as long as the peripheral must
     /// stay clocked. The per-mode ceiling is architectural across every MSPM0 family: STOP0/STOP1 cap
-    /// at 4 MHz, STOP2 at 32 kHz (LFCLK), and STANDBY unclocks PD0 entirely. Assumes the RUN0 run
-    /// mode, the only one the HAL configures today (STOP0 reaches 4 MHz only when entered from RUN0).
+    /// at 4 MHz, STOP2 and STANDBY0 at 32 kHz (LFCLK), and only STANDBY1 unclocks PD0 (there just
+    /// TIMG0/1 stay clocked). Assumes the RUN0 run mode, the only one the HAL configures today (STOP0
+    /// reaches 4 MHz only when entered from RUN0).
     pub const fn floor_for_clock_hz(clock_hz: u32) -> Option<Self> {
-        // Per-mode clock ceilings, from the family TRMs' "DMA Operating Mode Support" sections.
+        // Per-mode clock ceilings, from the family TRMs' "DMA Operating Mode Support" and "Operating
+        // Modes" sections. STANDBY0 clocks all PD0 peripherals from LFCLK; STANDBY1 does not.
         const STOP_HZ: u32 = 4_000_000; // STOP0 and STOP1
-        const STOP2_HZ: u32 = 32_768; // STOP2, sourced from LFCLK
+        const LFCLK_HZ: u32 = 32_768; // STOP2 and STANDBY0, both sourced from LFCLK
 
         if clock_hz > STOP_HZ {
             Some(Self::Stop0) // more than any STOP mode offers: only RUN/SLEEP will do
-        } else if clock_hz > STOP2_HZ {
-            Some(Self::Stop2) // STOP0/STOP1 suffice; STOP2 is too slow
+        } else if clock_hz > LFCLK_HZ {
+            Some(Self::Stop2) // STOP0/STOP1 suffice; STOP2 and STANDBY0 are too slow
         } else if clock_hz > 0 {
-            Some(Self::Standby0) // STOP2 suffices; STANDBY has no PD0 clock
+            Some(Self::Standby1) // STOP2/STANDBY0 (LFCLK) suffice; only STANDBY1 unclocks PD0
         } else {
             None // clock-agnostic
         }
@@ -86,10 +88,10 @@ const _: () = {
         Some(SleepLevel::Stop2)
     ));
     core::assert!(matches!(
-        SleepLevel::floor_for_clock_hz(32_768), // LFCLK
-        Some(SleepLevel::Standby0)
+        SleepLevel::floor_for_clock_hz(32_768), // LFCLK: STANDBY0 still clocks PD0, only STANDBY1 does not
+        Some(SleepLevel::Standby1)
     ));
-    core::assert!(matches!(SleepLevel::floor_for_clock_hz(1), Some(SleepLevel::Standby0)));
+    core::assert!(matches!(SleepLevel::floor_for_clock_hz(1), Some(SleepLevel::Standby1)));
     core::assert!(matches!(SleepLevel::floor_for_clock_hz(0), None));
 };
 
