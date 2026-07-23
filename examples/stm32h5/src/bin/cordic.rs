@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner) {
 
     // for output buf, the length is not that strict, larger than minimal required is ok.
     let mut output_f64 = [0f64; 19];
-    let mut output_u32 = [Q32::<31>::new(0); 21];
+    let mut output_u32 = [Q32::<31>::from_bits(0); 21];
 
     // tips:
     // CORDIC peripheral has some strict on input value, you can also use ".check_argX_fXX()" methods
@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner) {
     let arg1 = [-1.0, -0.5, 0.0, 0.5, 1.0]; // for trigonometric function, the ARG1 value [-pi, pi] should be map to [-1, 1]
     let arg2 = [0.5]; // and for Sin function, ARG2 should be in [0, 1]
 
-    let mut input_buf = [Q32::<31>::new(0); 9];
+    let mut input_buf = [Q32::<31>::from_bits(0); 9];
 
     // convert input from floating point to fixed point
     input_buf[0] = Q32::<31>::from_f64(arg1[0]);
