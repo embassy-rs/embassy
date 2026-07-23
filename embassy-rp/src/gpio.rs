@@ -698,9 +698,9 @@ impl<'d> Flex<'d> {
         self.pin.sio_oe().value_set().write_value(self.bit())
     }
 
-    /// Set as output pin.
+    /// Is the pin in output mode?
     #[inline]
-    fn is_set_as_output(&self) -> bool {
+    pub fn is_set_as_output(&self) -> bool {
         (self.pin.sio_oe().value().read() & self.bit()) != 0
     }
 
