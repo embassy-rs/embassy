@@ -52,7 +52,7 @@ features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6",
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname", "packetmeta-id"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname", "packetmeta-id", "dhcpd"]
 
 [features]
 default = ["auto-icmp-echo-reply"]
@@ -64,6 +64,9 @@ log = ["dep:log"]
 
 ## Trace all raw received and transmitted packets using defmt or log.
 packet-trace = []
+
+## Enable the integrated DHCP server
+dhcpd = ["smoltcp/proto-dhcpv4", "udp"]
 
 #! Many of the following feature flags are re-exports of smoltcp feature flags. See 
 #! the [smoltcp feature flag documentation](https://github.com/smoltcp-rs/smoltcp#feature-flags)
@@ -130,3 +133,5 @@ managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
 heapless = { version = "0.9", default-features = false }
 embedded-nal-async = "0.9.0"
 document-features = "0.2.7"
+
+rand-core-10 = { package = "rand_core", version = "0.10" }
