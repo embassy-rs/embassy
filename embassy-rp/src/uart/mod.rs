@@ -7,7 +7,7 @@ use core::task::Poll;
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use embassy_time::{Delay, Timer};
+use embassy_time::{Delay, Instant, Timer};
 use pac::uart::regs::Uartris;
 
 use crate::clocks::clk_peri_freq;
@@ -116,6 +116,10 @@ pub enum Error {
     Parity,
     /// Triggered when the received character didn't have a valid stop bit.
     Framing,
+    /// Triggered when the timeout is hit.
+    Timeout(usize),
+    /// Triggered when buffer passed by the user is smaller then the byte amount received
+    BufferOverflow,
 }
 
 impl core::fmt::Display for Error {
@@ -335,6 +339,42 @@ impl<'d, M: Mode> UartRx<'d, M> {
             }
         }
         Ok(buffer.len())
+    }
+    /// Returns True if the UART FIFO is not empty
+    pub fn has_rx_data(&mut self) -> bool {
+        !self.info.regs.uartfr().read().rxfe()
+    }
+    /// Returns Ok(len) if no errors occured, in case the target byte is not found on timeout Error::Timeout(len) is returned
+    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned  
+    /// These method does not clean the fifo they read the fifo until the target is reached or until timeout is reached.
+    pub fn blocking_read_until(
+        &mut self,
+        buffer: &mut [u8],
+        target_byte: u8,
+        timeout_micros: u64,
+    ) -> Result<usize, Error> {
+        let r = self.info.regs;
+        let start_time = Instant::now();
+        let mut bytes_copied = 0;
+        loop {
+            if bytes_copied >= buffer.len() {
+                return Err(Error::BufferOverflow);
+            }
+            while r.uartfr().read().rxfe() {
+                if start_time.elapsed().as_micros() > timeout_micros {
+                    return Err(Error::Timeout(bytes_copied));
+                }
+            }
+
+            let byte = r.uartdr().read().data();
+
+            buffer[bytes_copied] = byte;
+            bytes_copied += 1;
+
+            if byte == target_byte {
+                return Ok(bytes_copied);
+            }
+        }
     }
 }
 
@@ -798,6 +838,21 @@ impl<'d> Uart<'d, Blocking> {
             },
         }
     }
+    /// Returns True if the UART FIFO is not empty
+    pub fn has_rx_data(&mut self) -> bool {
+        self.rx.has_rx_data()
+    }
+    /// Returns Ok(len) if no errors occured, in case the target byte is not found on timeout Error::Timeout(len) is returned
+    /// if the bytes read are bigger than the size of the buffer the Error::BufferOverflow is returned  
+    /// These method does not clean the fifo they read the fifo until the target is reached or until timeout is reached.
+    pub fn blocking_read_until(
+        &mut self,
+        buffer: &mut [u8],
+        target_byte: u8,
+        timeout_micros: u64,
+    ) -> Result<usize, Error> {
+        self.rx.blocking_read_until(buffer, target_byte, timeout_micros)
+    }
 }
 
 impl<'d> Uart<'d, Async> {
@@ -1245,6 +1300,8 @@ impl embedded_hal_nb::serial::Error for Error {
             Self::Break => embedded_hal_nb::serial::ErrorKind::Other,
             Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
             Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
+            Self::Timeout(_) => embedded_hal_nb::serial::ErrorKind::Other,
+            Self::BufferOverflow => embedded_hal_nb::serial::ErrorKind::Other,
         }
     }
 }

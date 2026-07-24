@@ -167,6 +167,94 @@ async fn main(_spawner: Spawner) {
         assert_eq!(read1(&mut uart).unwrap(), [5]);
     }
 
+    info!("test has_rx_data");
+    {
+        let config = Config::default();
+        let mut uart = Uart::new_blocking(uart.reborrow(), tx.reborrow(), rx.reborrow(), config);
+
+        // No byte was sent to the FIFO should return False
+        assert_eq!(uart.has_rx_data(), false);
+
+        // We can't send too many bytes, they have to fit in the FIFO.
+        // This is because we aren't sending+receiving at the same time.
+        let data = [0xC0];
+        uart.blocking_write(&data).unwrap();
+        while uart.busy() {}
+        assert_eq!(uart.has_rx_data(), true);
+        // Cleaning fifo for the next test
+        read::<1>(&mut uart).unwrap();
+    }
+
+    info!("Test blocking_read_until ");
+    {
+        let config = Config::default();
+        let mut uart = Uart::new_blocking(uart.reborrow(), tx.reborrow(), rx.reborrow(), config);
+        let mut buf = [0u8; 4];
+
+        let data = [0xC0, 0xDE, 0xAA, 0xBB];
+
+        uart.blocking_write(&data).unwrap();
+        assert_eq!(uart.blocking_read_until(&mut buf, 0xAA, 10_000_000).unwrap(), 3);
+        assert_eq!(buf, [0xC0, 0xDE, 0xAA, 0x00]);
+        //Cleaning fifo for the next test
+        read::<1>(&mut uart).unwrap();
+    }
+    info!("Test blocking_read_until buffer overflow buffer smaller than data");
+    {
+        let config = Config::default();
+
+        let mut uart = Uart::new_blocking(uart.reborrow(), tx.reborrow(), rx.reborrow(), config);
+        let mut buf = [0u8; 1];
+
+        let data = [0xC0, 0xDE, 0xAA, 0xBB, 0xDD];
+
+        uart.blocking_write(&data).unwrap();
+        match uart.blocking_read_until(&mut buf, 0x00, 10_000_000) {
+            Ok(n) => defmt::panic!("Expected BufferOverflow, got Ok({})", n),
+            Err(e) => {
+                assert_eq!(e, Error::BufferOverflow);
+            }
+        }
+        //Cleaning fifo for the next test
+        read::<4>(&mut uart).unwrap();
+    }
+    info!("Test blocking_read_until buffer overflow buffer same size");
+    {
+        let config = Config::default();
+
+        let mut uart = Uart::new_blocking(uart.reborrow(), tx.reborrow(), rx.reborrow(), config);
+        let mut buf = [0u8; 5];
+
+        let data = [0xC0, 0xDE, 0xAA, 0xBB, 0xDD];
+
+        uart.blocking_write(&data).unwrap();
+        match uart.blocking_read_until(&mut buf, 0x00, 10_000_000) {
+            Ok(n) => defmt::panic!("Expected BufferOverflow, got Ok({})", n),
+            Err(e) => {
+                assert_eq!(e, Error::BufferOverflow);
+            }
+        }
+    }
+    info!("Test blocking_read_until timeout");
+    {
+        let config = Config::default();
+
+        let mut uart = Uart::new_blocking(uart.reborrow(), tx.reborrow(), rx.reborrow(), config);
+        let mut buf = [0u8; 5];
+        let data = [0xC0, 0xDE, 0xAA, 0xBB];
+
+        uart.blocking_write(&data).unwrap();
+        match uart.blocking_read_until(&mut buf, 0x00, 1000) {
+            Ok(_) => defmt::panic!("Expected Timeout error"),
+            Err(Error::Timeout(n)) => {
+                defmt::assert_eq!(n, 4);
+                assert_eq!(buf[..4], data);
+            }
+            Err(e) => {
+                defmt::panic!("Expected Timeout error, got {:?}", e);
+            }
+        }
+    }
     info!("Test OK");
     cortex_m::asm::bkpt();
 }
