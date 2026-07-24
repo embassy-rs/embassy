@@ -40,13 +40,13 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 embedded-io = { version = "0.7.1" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 ## Chip dependencies
-nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/embassy-rs/nxp-pac", rev = "47dada0976da4114c348ea16f5ead31f38f36eea" }
+nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/embassy-rs/nxp-pac", rev = "8512ecedcd0fe9c2713d06f3bbd1b7f93805f306" }
 
 imxrt-rt = { version = "0.1.7", optional = true, features = ["device"] }
 
 [build-dependencies]
 cfg_aliases = "0.2.1"
-nxp-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nxp-pac", rev = "47dada0976da4114c348ea16f5ead31f38f36eea", features = ["metadata"] }
+nxp-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nxp-pac", rev = "8512ecedcd0fe9c2713d06f3bbd1b7f93805f306", features = ["metadata"] }
 proc-macro2 = "1.0.95"
 quote = "1.0.15"
 
@@ -83,7 +83,7 @@ _lpc55 = []
 _time_driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
 #! ### Chip selection features
-lpc55-core0 = ["nxp-pac/lpc55s69_cm33_core0"]
+lpc55-core0 = ["nxp-pac/lpc55s69_cm33_core0", "_lpc55"]
 lpc55s16 = ["nxp-pac/lpc55s16", "_lpc55"]
 mimxrt1011 = ["nxp-pac/mimxrt1011", "_rt1xxx", "dep:imxrt-rt"]
 mimxrt1062 = ["nxp-pac/mimxrt1062", "_rt1xxx", "dep:imxrt-rt"]

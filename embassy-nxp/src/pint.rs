@@ -10,7 +10,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::Peri;
 use crate::gpio::{self, AnyPin, Level, SealedPin};
-use crate::pac::{INPUTMUX, PINT, SYSCON, interrupt};
+use crate::pac::{INPUTMUX, Interrupt, PINT, SYSCON, interrupt};
 
 struct PinInterrupt {
     assigned: bool,
@@ -93,14 +93,14 @@ pub(crate) fn init() {
 
     // Enable interrupts
     unsafe {
-        interrupt::PIN_INT0.enable();
-        interrupt::PIN_INT1.enable();
-        interrupt::PIN_INT2.enable();
-        interrupt::PIN_INT3.enable();
-        interrupt::PIN_INT4.enable();
-        interrupt::PIN_INT5.enable();
-        interrupt::PIN_INT6.enable();
-        interrupt::PIN_INT7.enable();
+        Interrupt::PIN_INT0.enable();
+        Interrupt::PIN_INT1.enable();
+        Interrupt::PIN_INT2.enable();
+        Interrupt::PIN_INT3.enable();
+        Interrupt::PIN_INT4.enable();
+        Interrupt::PIN_INT5.enable();
+        Interrupt::PIN_INT6.enable();
+        Interrupt::PIN_INT7.enable();
     };
 
     info!("Pin interrupts initialized");
