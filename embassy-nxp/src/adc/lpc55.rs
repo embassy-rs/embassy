@@ -7,7 +7,10 @@ use crate::pac::adc0::vals;
 
 /// Trait that provides channel numbers for pins that support ADC
 pub trait AdcPin {
+    /// Channel number
     fn channel(&self) -> u8;
+    /// Channel side (A / B), 0 = A, 1 = B
+    fn ctype(&self) -> u8;
 }
 
 /// Resolution selection
@@ -117,16 +120,19 @@ impl<'d> Adc<'d> {
 
         let gain_a = adc.gcc(0).read().gain_cal();
         let gain_b = adc.gcc(1).read().gain_cal();
-        defmt::info!("gain a {}", gain_a);
+        defmt::info!("gain_a raw = {:#x}, gain_b raw = {:#x}", gain_a, gain_b);
 
         let gcr_a = (((gain_a as u32) << 16) / (0x1FFFFu32 - gain_a as u32)) as u16;
         let gcr_b = (((gain_b as u32) << 16) / (0x1FFFFu32 - gain_b as u32)) as u16;
 
-        adc.gcr(0).write(|w| w.set_gcalr(gcr_a));
-        adc.gcr(1).write(|w| w.set_gcalr(gcr_b));
-
-        adc.gcr(0).write(|w| w.set_rdy(1.into()));
-        adc.gcr(1).write(|w| w.set_rdy(1.into()));
+        adc.gcr(0).write(|w| { 
+            w.set_gcalr(gcr_a);
+            w.set_rdy(1.into())
+        });
+        adc.gcr(1).write(|w| { 
+            w.set_gcalr(gcr_b);
+            w.set_rdy(1.into())
+        });
 
         while !(adc.stat().read().cal_rdy().to_bits() != 0) {}
 
@@ -138,8 +144,17 @@ impl<'d> Adc<'d> {
     /// Reading the channel synchronously
     pub fn blocking_read<P: AdcPin>(&mut self, pin: &mut P) -> u16 {
         self.adc.cmdl1().modify(|w| {
-            w.set_adch(pin.channel().into())
+            w.set_adch(pin.channel().into());
+            w.set_ctype(pin.ctype().into())
         });
+
+        let cmdl_readback = self.adc.cmdl1().read();
+        defmt::info!(
+            "CMDL1 readback: adch={} ctype={} mode={}",
+            cmdl_readback.adch().to_bits(),
+            cmdl_readback.ctype().to_bits(),
+            cmdl_readback.mode().to_bits()
+        );
 
         self.adc.swtrig().write(|w| {
             w.set_swt0(1.into())
@@ -150,6 +165,15 @@ impl<'d> Adc<'d> {
         while !(result_reg.valid() == vals::Valid::VALID_1) {
             result_reg = self.adc.resfifo(0).read();
         }
+
+        defmt::info!(
+            "RESFIFO0: d=0x{:04x} tsrc={} loopcnt={} cmdsrc={} valid={}",
+            result_reg.d(),
+            result_reg.tsrc().to_bits(),
+            result_reg.loopcnt().to_bits(),
+            result_reg.cmdsrc().to_bits(),
+            result_reg.valid().to_bits()
+        );
 
         let data_raw = result_reg.d();
         defmt::info!("Raw data: {}", data_raw);
@@ -165,24 +189,29 @@ impl<'d> Adc<'d> {
 
 /// Macro to implement the AdcPin trait for pins
 macro_rules! impl_adc_pin {
-    // pin => peripheral struct
+    // pin     => peripheral struct
     // channel => u8 channel number
-    ($pin:ident, $channel:expr) => {
+    // ctype   => channel side (0=A, 1=B)
+    ($pin:ident, $channel:expr, $ctype:expr) => {
         impl<'d> crate::adc::AdcPin for crate::Peri<'d, crate::peripherals::$pin> {
             fn channel(&self) -> u8 {
                 $channel
+            }
+
+            fn ctype(&self) -> u8 {
+                $ctype
             }
         }
     }
 }
 
-impl_adc_pin!(PIO0_10, 1);
-impl_adc_pin!(PIO0_11, 1);
-impl_adc_pin!(PIO0_12, 2);
-impl_adc_pin!(PIO0_15, 2);
-impl_adc_pin!(PIO0_16, 0);
-impl_adc_pin!(PIO0_23, 0);
-impl_adc_pin!(PIO0_31, 3);
-impl_adc_pin!(PIO1_0, 3);
-impl_adc_pin!(PIO1_8, 4);
-impl_adc_pin!(PIO1_9, 4);
+impl_adc_pin!(PIO0_23, 0, 0);
+impl_adc_pin!(PIO0_16, 0, 1);
+impl_adc_pin!(PIO0_10, 1, 0);
+impl_adc_pin!(PIO0_11, 1, 1);
+impl_adc_pin!(PIO0_15, 2, 0);
+impl_adc_pin!(PIO0_12, 2, 1);
+impl_adc_pin!(PIO0_31, 3, 0);
+impl_adc_pin!(PIO1_0,  3, 1);
+impl_adc_pin!(PIO1_8,  4, 0);
+impl_adc_pin!(PIO1_9,  4, 1);

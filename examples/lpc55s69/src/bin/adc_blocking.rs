@@ -64,7 +64,7 @@ async fn main(_spawner: Spawner) {
     embassy_time::block_for(Duration::from_micros(100));
 
     loop {
-        let reading = adc.blocking_read(&mut p.PIO1_9);
+        let reading = adc.blocking_read(&mut p.PIO0_16);
         info!("ADC reading: {}", reading);
         Timer::after_millis(500).await;
     }
