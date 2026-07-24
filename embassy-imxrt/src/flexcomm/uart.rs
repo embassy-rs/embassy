@@ -17,8 +17,7 @@ use crate::flexcomm::Clock;
 use crate::gpio::{AnyPin, GpioPin as Pin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::iopctl::{DriveMode, DriveStrength, Inverter, IopctlPin, Pull, SlewRate};
-use crate::pac::usart0::cfg::{Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
-use crate::pac::usart0::ctl::Cc;
+use crate::pac::usart::vals::{Cc, Clkpol, Datalen, Loop, Paritysel as Parity, Stoplen, Syncen, Syncmst};
 use crate::sealed::Sealed;
 use crate::{dma, interrupt};
 
@@ -86,14 +85,14 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             baudrate: 115_200,
-            data_bits: Datalen::Bit8,
-            parity: Parity::NoParity,
-            stop_bits: Stoplen::Bit1,
-            clock_polarity: Clkpol::FallingEdge,
-            operation: Syncen::AsynchronousMode,
-            sync_mode_master_select: Syncmst::Slave,
-            continuous_clock: Cc::ClockOnCharacter,
-            loopback_mode: Loop::Normal,
+            data_bits: Datalen::BIT_8,
+            parity: Parity::NO_PARITY,
+            stop_bits: Stoplen::BIT_1,
+            clock_polarity: Clkpol::FALLING_EDGE,
+            operation: Syncen::ASYNCHRONOUS_MODE,
+            sync_mode_master_select: Syncmst::SLAVE,
+            continuous_clock: Cc::CLOCK_ON_CHARACTER,
+            loopback_mode: Loop::NORMAL,
             clock: crate::flexcomm::Clock::Sfro,
         }
     }
@@ -154,25 +153,21 @@ impl<'a, M: Mode> UartTx<'a, M> {
 impl<'a, M: Mode> Drop for UartTx<'a, M> {
     fn drop(&mut self) {
         if self.info.refcnt.fetch_sub(1, Ordering::Relaxed) == 1 {
-            while self.info.regs.stat().read().txidle().bit_is_clear() {}
+            while !self.info.regs.stat().read().txidle() {}
 
-            self.info.regs.fifointenclr().modify(|_, w| {
-                w.txerr()
-                    .set_bit()
-                    .rxerr()
-                    .set_bit()
-                    .txlvl()
-                    .set_bit()
-                    .rxlvl()
-                    .set_bit()
+            self.info.regs.fifointenclr().modify(|w| {
+                w.set_txerr(true);
+                w.set_rxerr(true);
+                w.set_txlvl(true);
+                w.set_rxlvl(true);
             });
 
-            self.info
-                .regs
-                .fifocfg()
-                .modify(|_, w| w.dmatx().clear_bit().dmarx().clear_bit());
+            self.info.regs.fifocfg().modify(|w| {
+                w.set_dmatx(false);
+                w.set_dmarx(false);
+            });
 
-            self.info.regs.cfg().modify(|_, w| w.enable().disabled());
+            self.info.regs.cfg().modify(|w| w.set_enable(false));
         }
     }
 }
@@ -190,17 +185,13 @@ impl<'a> UartTx<'a, Blocking> {
     }
 
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
-        // SAFETY: unsafe only used for .bits()
-        self.info
-            .regs
-            .fifowr()
-            .write(|w| unsafe { w.txdata().bits(u16::from(byte)) });
+        self.info.regs.fifowr().write(|w| w.set_txdata(u16::from(byte)));
 
         Ok(())
     }
 
     fn blocking_write_byte(&mut self, byte: u8) -> Result<()> {
-        while self.info.regs.fifostat().read().txnotfull().bit_is_clear() {}
+        while !self.info.regs.fifostat().read().txnotfull() {}
 
         // Prevent the compiler from reordering write_byte_internal()
         // before the loop above.
@@ -210,7 +201,7 @@ impl<'a> UartTx<'a, Blocking> {
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<()> {
-        if self.info.regs.fifostat().read().txnotfull().bit_is_clear() {
+        if !self.info.regs.fifostat().read().txnotfull() {
             Err(Error::TxFifoFull)
         } else {
             self.write_byte_internal(byte)
@@ -238,13 +229,13 @@ impl<'a> UartTx<'a, Blocking> {
 
     /// Flush UART TX blocking execution until done.
     pub fn blocking_flush(&mut self) -> Result<()> {
-        while self.info.regs.stat().read().txidle().bit_is_clear() {}
+        while !self.info.regs.stat().read().txidle() {}
         Ok(())
     }
 
     /// Flush UART TX.
     pub fn flush(&mut self) -> Result<()> {
-        if self.info.regs.stat().read().txidle().bit_is_clear() {
+        if !self.info.regs.stat().read().txidle() {
             Err(Error::TxBusy)
         } else {
             Ok(())
@@ -267,25 +258,21 @@ impl<'a, M: Mode> UartRx<'a, M> {
 impl<'a, M: Mode> Drop for UartRx<'a, M> {
     fn drop(&mut self) {
         if self.info.refcnt.fetch_sub(1, Ordering::Relaxed) == 1 {
-            while self.info.regs.stat().read().rxidle().bit_is_clear() {}
+            while !self.info.regs.stat().read().rxidle() {}
 
-            self.info.regs.fifointenclr().modify(|_, w| {
-                w.txerr()
-                    .set_bit()
-                    .rxerr()
-                    .set_bit()
-                    .txlvl()
-                    .set_bit()
-                    .rxlvl()
-                    .set_bit()
+            self.info.regs.fifointenclr().modify(|w| {
+                w.set_txerr(true);
+                w.set_rxerr(true);
+                w.set_txlvl(true);
+                w.set_rxlvl(true);
             });
 
-            self.info
-                .regs
-                .fifocfg()
-                .modify(|_, w| w.dmatx().clear_bit().dmarx().clear_bit());
+            self.info.regs.fifocfg().modify(|w| {
+                w.set_dmatx(false);
+                w.set_dmarx(false);
+            });
 
-            self.info.regs.cfg().modify(|_, w| w.enable().disabled());
+            self.info.regs.cfg().modify(|w| w.set_enable(false));
         }
     }
 }
@@ -304,27 +291,27 @@ impl<'a> UartRx<'a, Blocking> {
 
 impl UartRx<'_, Blocking> {
     fn read_byte_internal(&mut self) -> Result<u8> {
-        if self.info.regs.fifostat().read().rxerr().bit_is_set() {
-            self.info.regs.fifocfg().modify(|_, w| w.emptyrx().set_bit());
-            self.info.regs.fifostat().modify(|_, w| w.rxerr().set_bit());
+        if self.info.regs.fifostat().read().rxerr() {
+            self.info.regs.fifocfg().modify(|w| w.set_emptyrx(true));
+            self.info.regs.fifostat().modify(|w| w.set_rxerr(true));
             Err(Error::Read)
-        } else if self.info.regs.stat().read().parityerrint().bit_is_set() {
-            self.info.regs.stat().modify(|_, w| w.parityerrint().clear_bit_by_one());
+        } else if self.info.regs.stat().read().parityerrint() {
+            self.info.regs.stat().modify(|w| w.set_parityerrint(true));
             Err(Error::Parity)
-        } else if self.info.regs.stat().read().framerrint().bit_is_set() {
-            self.info.regs.stat().modify(|_, w| w.framerrint().clear_bit_by_one());
+        } else if self.info.regs.stat().read().framerrint() {
+            self.info.regs.stat().modify(|w| w.set_framerrint(true));
             Err(Error::Framing)
-        } else if self.info.regs.stat().read().rxnoiseint().bit_is_set() {
-            self.info.regs.stat().modify(|_, w| w.rxnoiseint().clear_bit_by_one());
+        } else if self.info.regs.stat().read().rxnoiseint() {
+            self.info.regs.stat().modify(|w| w.set_rxnoiseint(true));
             Err(Error::Noise)
         } else {
-            let byte = self.info.regs.fiford().read().rxdata().bits() as u8;
+            let byte = self.info.regs.fiford().read().rxdata() as u8;
             Ok(byte)
         }
     }
 
     fn read_byte(&mut self) -> Result<u8> {
-        if self.info.regs.fifostat().read().rxnotempty().bit_is_clear() {
+        if !self.info.regs.fifostat().read().rxnotempty() {
             Err(Error::RxFifoEmpty)
         } else {
             self.read_byte_internal()
@@ -332,7 +319,7 @@ impl UartRx<'_, Blocking> {
     }
 
     fn blocking_read_byte(&mut self) -> Result<u8> {
-        while self.info.regs.fifostat().read().rxnotempty().bit_is_clear() {}
+        while !self.info.regs.fifostat().read().rxnotempty() {}
 
         // Prevent the compiler from reordering read_byte_internal()
         // before the loop above.
@@ -404,21 +391,27 @@ impl<'a, M: Mode> Uart<'a, M> {
         let regs = T::info().regs;
 
         if tx.is_some() {
-            regs.fifocfg().modify(|_, w| w.emptytx().set_bit().enabletx().enabled());
+            regs.fifocfg().modify(|w| {
+                w.set_emptytx(true);
+                w.set_enabletx(true);
+            });
 
             // clear FIFO error
-            regs.fifostat().write(|w| w.txerr().set_bit());
+            regs.fifostat().write(|w| w.set_txerr(true));
         }
 
         if rx.is_some() {
-            regs.fifocfg().modify(|_, w| w.emptyrx().set_bit().enablerx().enabled());
+            regs.fifocfg().modify(|w| {
+                w.set_emptyrx(true);
+                w.set_enablerx(true);
+            });
 
             // clear FIFO error
-            regs.fifostat().write(|w| w.rxerr().set_bit());
+            regs.fifostat().write(|w| w.set_rxerr(true));
         }
 
         if rts.is_some() && cts.is_some() {
-            regs.cfg().modify(|_, w| w.ctsen().enabled());
+            regs.cfg().modify(|w| w.set_ctsen(true));
         }
 
         Self::set_baudrate_inner::<T>(config.baudrate, config.clock)?;
@@ -447,23 +440,20 @@ impl<'a, M: Mode> Uart<'a, M> {
         let regs = T::info().regs;
 
         // If synchronous master mode is enabled, only configure the BRG value.
-        if regs.cfg().read().syncen().is_synchronous_mode() {
+        if regs.cfg().read().syncen() == Syncen::SYNCHRONOUS_MODE {
             // Master
-            if regs.cfg().read().syncmst().is_master() {
+            if regs.cfg().read().syncmst() == Syncmst::MASTER {
                 // Calculate the BRG value
                 let brgval = (source_clock_hz / baudrate) - 1;
 
-                // SAFETY: unsafe only used for .bits()
-                regs.brg().write(|w| unsafe { w.brgval().bits(brgval as u16) });
+                regs.brg().write(|w| w.set_brgval(brgval as u16));
             }
         } else {
             let (osr, brg) = calculate_baudrate(source_clock_hz, baudrate)?;
 
-            // SAFETY: unsafe only used for .bits()
-            regs.osr().write(|w| unsafe { w.osrval().bits(osr - 1) });
+            regs.osr().write(|w| w.set_osrval(osr - 1));
 
-            // SAFETY: unsafe only used for .bits()
-            regs.brg().write(|w| unsafe { w.brgval().bits(brg - 1) });
+            regs.brg().write(|w| w.set_brgval(brg - 1));
         }
 
         Ok(())
@@ -472,24 +462,18 @@ impl<'a, M: Mode> Uart<'a, M> {
     fn set_uart_config<T: Instance>(config: Config) {
         let regs = T::info().regs;
 
-        regs.cfg().modify(|_, w| w.enable().disabled());
+        regs.cfg().modify(|w| w.set_enable(false));
 
-        regs.cfg().modify(|_, w| {
-            w.datalen()
-                .variant(config.data_bits)
-                .stoplen()
-                .variant(config.stop_bits)
-                .paritysel()
-                .variant(config.parity)
-                .loop_()
-                .variant(config.loopback_mode)
-                .syncen()
-                .variant(config.operation)
-                .clkpol()
-                .variant(config.clock_polarity)
+        regs.cfg().modify(|w| {
+            w.set_datalen(config.data_bits);
+            w.set_stoplen(config.stop_bits);
+            w.set_paritysel(config.parity);
+            w.set_loop_(config.loopback_mode);
+            w.set_syncen(config.operation);
+            w.set_clkpol(config.clock_polarity);
         });
 
-        regs.cfg().modify(|_, w| w.enable().enabled());
+        regs.cfg().modify(|w| w.set_enable(true));
     }
 
     /// Split the Uart into a transmitter and receiver, which is particularly
@@ -587,11 +571,11 @@ impl<'a> UartTx<'a, Async> {
 
         // Disable DMA on completion/cancellation
         let _dma_guard = OnDrop::new(|| {
-            regs.fifocfg().modify(|_, w| w.dmatx().disabled());
+            regs.fifocfg().modify(|w| w.set_dmatx(false));
         });
 
         for chunk in buf.chunks(dma::MAX_CHUNK_SIZE) {
-            regs.fifocfg().modify(|_, w| w.dmatx().enabled());
+            regs.fifocfg().modify(|w| w.set_dmatx(true));
 
             let ch = self.tx_dma.as_mut().unwrap().reborrow();
             let transfer = unsafe { dma::write(ch, chunk, regs.fifowr().as_ptr() as *mut u8) };
@@ -602,36 +586,28 @@ impl<'a> UartTx<'a, Async> {
                     UART_WAKERS[self.info.index].register(cx.waker());
 
                     self.info.regs.intenset().write(|w| {
-                        w.framerren()
-                            .set_bit()
-                            .parityerren()
-                            .set_bit()
-                            .rxnoiseen()
-                            .set_bit()
-                            .aberren()
-                            .set_bit()
+                        w.set_framerren(true);
+                        w.set_parityerren(true);
+                        w.set_rxnoiseen(true);
+                        w.set_aberren(true);
                     });
 
                     let stat = self.info.regs.stat().read();
 
                     self.info.regs.stat().write(|w| {
-                        w.framerrint()
-                            .clear_bit_by_one()
-                            .parityerrint()
-                            .clear_bit_by_one()
-                            .rxnoiseint()
-                            .clear_bit_by_one()
-                            .aberr()
-                            .clear_bit_by_one()
+                        w.set_framerrint(true);
+                        w.set_parityerrint(true);
+                        w.set_rxnoiseint(true);
+                        w.set_aberr(true);
                     });
 
-                    if stat.framerrint().bit_is_set() {
+                    if stat.framerrint() {
                         Poll::Ready(Err(Error::Framing))
-                    } else if stat.parityerrint().bit_is_set() {
+                    } else if stat.parityerrint() {
                         Poll::Ready(Err(Error::Parity))
-                    } else if stat.rxnoiseint().bit_is_set() {
+                    } else if stat.rxnoiseint() {
                         Poll::Ready(Err(Error::Noise))
-                    } else if stat.aberr().bit_is_set() {
+                    } else if stat.aberr() {
                         Poll::Ready(Err(Error::Fail))
                     } else {
                         Poll::Pending
@@ -653,14 +629,14 @@ impl<'a> UartTx<'a, Async> {
     pub async fn flush(&mut self) -> Result<()> {
         self.wait_on(
             |me| {
-                if me.info.regs.stat().read().txidle().bit_is_set() {
+                if me.info.regs.stat().read().txidle() {
                     Poll::Ready(Ok(()))
                 } else {
                     Poll::Pending
                 }
             },
             |me| {
-                me.info.regs.intenset().write(|w| w.txidleen().set_bit());
+                me.info.regs.intenset().write(|w| w.set_txidleen(true));
             },
         )
         .await
@@ -715,11 +691,11 @@ impl<'a> UartRx<'a, Async> {
 
         // Disable DMA on completion/cancellation
         let _dma_guard = OnDrop::new(|| {
-            regs.fifocfg().modify(|_, w| w.dmarx().disabled());
+            regs.fifocfg().modify(|w| w.set_dmarx(false));
         });
 
         for chunk in buf.chunks_mut(dma::MAX_CHUNK_SIZE) {
-            regs.fifocfg().modify(|_, w| w.dmarx().enabled());
+            regs.fifocfg().modify(|w| w.set_dmarx(true));
 
             let ch = self.rx_dma.as_mut().unwrap().reborrow();
             let transfer = unsafe { dma::read(ch, regs.fiford().as_ptr() as *const u8, chunk) };
@@ -730,36 +706,28 @@ impl<'a> UartRx<'a, Async> {
                     UART_WAKERS[self.info.index].register(cx.waker());
 
                     self.info.regs.intenset().write(|w| {
-                        w.framerren()
-                            .set_bit()
-                            .parityerren()
-                            .set_bit()
-                            .rxnoiseen()
-                            .set_bit()
-                            .aberren()
-                            .set_bit()
+                        w.set_framerren(true);
+                        w.set_parityerren(true);
+                        w.set_rxnoiseen(true);
+                        w.set_aberren(true);
                     });
 
                     let stat = self.info.regs.stat().read();
 
                     self.info.regs.stat().write(|w| {
-                        w.framerrint()
-                            .clear_bit_by_one()
-                            .parityerrint()
-                            .clear_bit_by_one()
-                            .rxnoiseint()
-                            .clear_bit_by_one()
-                            .aberr()
-                            .clear_bit_by_one()
+                        w.set_framerrint(true);
+                        w.set_parityerrint(true);
+                        w.set_rxnoiseint(true);
+                        w.set_aberr(true);
                     });
 
-                    if stat.framerrint().bit_is_set() {
+                    if stat.framerrint() {
                         Poll::Ready(Err(Error::Framing))
-                    } else if stat.parityerrint().bit_is_set() {
+                    } else if stat.parityerrint() {
                         Poll::Ready(Err(Error::Parity))
-                    } else if stat.rxnoiseint().bit_is_set() {
+                    } else if stat.rxnoiseint() {
                         Poll::Ready(Err(Error::Noise))
-                    } else if stat.aberr().bit_is_set() {
+                    } else if stat.aberr() {
                         Poll::Ready(Err(Error::Fail))
                     } else {
                         Poll::Pending
@@ -807,6 +775,7 @@ impl<'a> Uart<'a, Async> {
     }
 
     /// Create a new DMA enabled UART with hardware flow control (RTS/CTS)
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_rtscts<T: Instance>(
         _inner: Peri<'a, T>,
         tx: Peri<'a, impl TxPin<T>>,
@@ -1001,7 +970,7 @@ impl embedded_hal_nb::serial::Write for Uart<'_, Blocking> {
 }
 
 struct Info {
-    regs: &'static crate::pac::usart0::RegisterBlock,
+    regs: crate::pac::usart::Usart,
     index: usize,
     refcnt: AtomicU8,
 }
@@ -1025,23 +994,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let regs = T::info().regs;
         let stat = regs.intstat().read();
 
-        if stat.txidle().bit_is_set()
-            || stat.framerrint().bit_is_set()
-            || stat.parityerrint().bit_is_set()
-            || stat.rxnoiseint().bit_is_set()
-            || stat.aberrint().bit_is_set()
-        {
+        if stat.txidle() || stat.framerrint() || stat.parityerrint() || stat.rxnoiseint() || stat.aberrint() {
             regs.intenclr().write(|w| {
-                w.txidleclr()
-                    .set_bit()
-                    .framerrclr()
-                    .set_bit()
-                    .parityerrclr()
-                    .set_bit()
-                    .rxnoiseclr()
-                    .set_bit()
-                    .aberrclr()
-                    .set_bit()
+                w.set_txidleclr(true);
+                w.set_framerrclr(true);
+                w.set_parityerrclr(true);
+                w.set_rxnoiseclr(true);
+                w.set_aberrclr(true);
             });
         }
 
@@ -1063,7 +1022,7 @@ macro_rules! impl_instance {
                 impl SealedInstance for crate::peripherals::[<FLEXCOMM $n>] {
                     fn info() -> Info {
                         Info {
-                            regs: unsafe { &*crate::pac::[<Usart $n>]::ptr() },
+                            regs: crate::pac::[<USART $n>],
                             index: $n,
 			    refcnt: AtomicU8::new(0),
                         }
