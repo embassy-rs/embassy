@@ -18,6 +18,7 @@ use crate::interrupt::InterruptExt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::vals;
 use crate::pac::{self};
+use crate::sysctl::WakeGuard;
 use crate::{Peri, i2c, i2c_target, interrupt};
 
 #[non_exhaustive]
@@ -98,6 +99,10 @@ pub struct I2cTarget<'d, M: Mode> {
     sda: Option<Peri<'d, AnyPin>>,
     config: i2c::Config,
     target_config: i2c_target::Config,
+    /// Held for the whole time the (async) target is active: the target responds to the bus at any
+    /// time, so the chip must stay clocked deep enough to service an address match. Set only on the
+    /// async path (the blocking target cannot listen); `None` otherwise. See the async `reset`.
+    wake_guard: Option<WakeGuard>,
     _phantom: PhantomData<M>,
 }
 
@@ -172,6 +177,14 @@ impl<'d> I2cTarget<'d, Async> {
     pub fn reset(&mut self) -> Result<(), ConfigError> {
         self.init()?;
         unsafe { self.info.interrupt.enable() };
+
+        // Hold the sleep floor for the target's whole active life: once ACTIVE it answers the bus
+        // autonomously (address match, clock stretch, FIFO) and its IRQ wakes the core, but only while
+        // its clock is delivered — so the chip must not sleep deeper than the clock source allows
+        // (MfClk → STOP1, BusClk → RUN/SLEEP). Lifetime-scoped, like a buffered UART receiver; the
+        // clock source may have changed, so re-derive it here. Deeper "wake from STANDBY" needs target
+        // wakeup (TWUEN), which is disabled for errata I2C_ERR_04 — a possible future enhancement.
+        self.wake_guard = self.config.wake_floor().map(WakeGuard::new);
         Ok(())
     }
 }
@@ -235,6 +248,7 @@ impl<'d, M: Mode> I2cTarget<'d, M> {
             sda,
             config,
             target_config,
+            wake_guard: None,
             _phantom: PhantomData,
         }
     }

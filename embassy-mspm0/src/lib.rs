@@ -14,12 +14,16 @@ mod macros;
 
 pub mod adc;
 pub mod dma;
+#[cfg(feature = "_executor")]
+pub mod executor;
 pub mod gpio;
 // TODO: I2C unicomm
 #[cfg(not(unicomm))]
 pub mod i2c;
 #[cfg(not(unicomm))]
 pub mod i2c_target;
+#[cfg(feature = "low-power")]
+pub mod low_power;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x))]
 pub mod mathacl;
 pub mod sysctl;

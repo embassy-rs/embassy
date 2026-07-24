@@ -17,6 +17,7 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::{I2c as Regs, vals};
 use crate::pac::{self};
+use crate::sysctl::{SleepLevel, WakeGuard};
 
 /// The clock source for the I2C.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -223,6 +224,23 @@ impl Config {
         }
     }
 
+    /// The sleep floor for the selected clock source.
+    ///
+    /// Shared with the I2C target ([`crate::i2c_target`]), which uses the same clocking.
+    ///
+    /// The controller only holds its configured SCL where its source clock is fully available:
+    /// MFCLK (4 MHz) survives STOP0/STOP1 but not STOP2, while BusClk (ULPCLK) only keeps its full
+    /// rate in RUN/SLEEP — ULPCLK is capped at 4 MHz in STOP, which would silently slow SCL — so it
+    /// forbids all deep sleep. Derived from the un-divided source rate; the divider does not change
+    /// which modes deliver the source (24 MHz BusClk on C-series lands on the same floor as 32 MHz).
+    pub(crate) fn wake_floor(&self) -> Option<SleepLevel> {
+        let source_hz = match self.clock_source {
+            ClockSel::MfClk => 4_000_000,
+            ClockSel::BusClk => 32_000_000,
+        };
+        SleepLevel::floor_for_clock_hz(source_hz)
+    }
+
     fn check_clock_i2c(&self) -> bool {
         // make sure source clock is ~20 faster than i2c clock
         let clk_ratio = 20;
@@ -321,6 +339,9 @@ pub struct I2c<'d, M: Mode> {
     state: &'static State,
     scl: Option<Peri<'d, AnyPin>>,
     sda: Option<Peri<'d, AnyPin>>,
+    /// Sleep floor held during each async transaction so SCL keeps clocking to completion.
+    /// Operation-scoped (a controller only acts on request), unlike a listening peripheral.
+    wake_floor: Option<SleepLevel>,
     _phantom: PhantomData<M>,
 }
 
@@ -424,6 +445,9 @@ impl<'d, M: Mode> I2c<'d, M> {
         self.state
             .clock
             .store(config.calculate_clock_source(), Ordering::Relaxed);
+
+        // Derive the sleep floor from the (finalized) clock source for the async transaction guard.
+        self.wake_floor = config.wake_floor();
 
         self.info
             .regs
@@ -699,6 +723,11 @@ impl<'d> I2c<'d, Blocking> {
 
 impl<'d> I2c<'d, Async> {
     async fn write_async_internal(&mut self, addr: u8, write: &[u8], end_w_stop: bool) -> Result<(), Error> {
+        // Keep the chip clocked deep enough for SCL to run to completion (and fire the done IRQ)
+        // for the length of this transaction. Dropped on return; the controller is idle between
+        // transactions, so this is operation-scoped, not held for the driver's lifetime.
+        let _guard = self.wake_floor.map(WakeGuard::new);
+
         let ctrl = self.info.regs.controller(0);
 
         let mut bytes_to_send = write.len();
@@ -762,6 +791,9 @@ impl<'d> I2c<'d, Async> {
         restart: bool,
         end_w_stop: bool,
     ) -> Result<(), Error> {
+        // See `write_async_internal`: hold the sleep floor for the duration of the transaction.
+        let _guard = self.wake_floor.map(WakeGuard::new);
+
         let read_len = read.len();
 
         let mut bytes_to_read = read_len;
@@ -1066,6 +1098,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             state: T::state(),
             scl: scl_inner,
             sda: sda_inner,
+            wake_floor: None,
             _phantom: PhantomData,
         };
         this.init(&config)?;

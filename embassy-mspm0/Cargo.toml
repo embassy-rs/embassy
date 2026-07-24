@@ -47,8 +47,9 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
 # TODO: Support other tick rates
-embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-1_000_000"] }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-32_768"] }
 embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
@@ -70,7 +71,7 @@ critical-section = "1.2.0"
 micromath = "2.0.0"
 
 # mspm0-metapac = { version = "" }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d9f54366c65cec47957065f42fe04542b852a8cd" }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-1da5eda11bf1ae69a604ba62df6242884df15d68" }
 rand_core = "0.9"
 # Force no cache padding or the types are too large.
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"]}
@@ -84,7 +85,7 @@ quote = "1.0.40"
 cfg_aliases = "0.2.1"
 
 # mspm0-metapac = { version = "", default-features = false, features = ["metadata"] }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d9f54366c65cec47957065f42fe04542b852a8cd", default-features = false, features = ["metadata"] }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-1da5eda11bf1ae69a604ba62df6242884df15d68", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -115,6 +116,19 @@ nrst-pin-as-gpio = []
 
 ## Allow using the SWD pins as regular GPIO pins.
 swd-pins-as-gpio = []
+
+## Enable low-power (deep-sleep) support.
+## MSPM0 only keeps TIMG0 and TIMG1 clocked in STANDBY, so enabling this requires the time driver to run on one of those timers:
+## select `time-driver-timg0`, `time-driver-timg1`, or `time-driver-any` (which selects TIMG0 when the chip has it).
+## A `low-power` build with the time driver on any other timer fails to compile.
+low-power = []
+
+## Provide an `embassy-executor` thread executor (`executor::Executor`) that deep-sleeps on idle.
+## Implies `low-power`. Do not also enable `platform-cortex-m` on `embassy-executor`.
+executor-thread = ["_executor"]
+
+# Internal: pulls in `embassy-executor` and the low-power machinery the executor idles into.
+_executor = ["dep:embassy-executor", "low-power"]
 
 #! ## Time
 
@@ -285,6 +299,7 @@ mspm0g5187ruy = ["mspm0-metapac/mspm0g5187ruy"]
 mspm0g5187ycj = ["mspm0-metapac/mspm0g5187ycj"]
 mspm0g5187rge = ["mspm0-metapac/mspm0g5187rge"]
 mspm0h3216pt = ["mspm0-metapac/mspm0h3216pt"]
+mspm0l1105rhb = ["mspm0-metapac/mspm0l1105rhb"]
 mspm0l1105dgs20 = ["mspm0-metapac/mspm0l1105dgs20"]
 mspm0l1105dgs28 = ["mspm0-metapac/mspm0l1105dgs28"]
 mspm0l1105rge = ["mspm0-metapac/mspm0l1105rge"]
@@ -315,6 +330,7 @@ mspm0l1304dgs28 = ["mspm0-metapac/mspm0l1304dgs28"]
 mspm0l1304rge = ["mspm0-metapac/mspm0l1304rge"]
 mspm0l1304rtr = ["mspm0-metapac/mspm0l1304rtr"]
 mspm0l1304dyy = ["mspm0-metapac/mspm0l1304dyy"]
+mspm0l1305rhb = ["mspm0-metapac/mspm0l1305rhb"]
 mspm0l1305dgs20 = ["mspm0-metapac/mspm0l1305dgs20"]
 mspm0l1305dgs28 = ["mspm0-metapac/mspm0l1305dgs28"]
 mspm0l1305rge = ["mspm0-metapac/mspm0l1305rge"]

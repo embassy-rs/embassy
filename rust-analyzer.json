@@ -1,33 +1,13 @@
 {
-  "[toml]": {
-    "editor.formatOnSave": false
-  },
-  "[markdown]": {
-    "editor.formatOnSave": false
-  },
-  "rust-analyzer.rustfmt.extraArgs": [
-    "+nightly"
-  ],
-  "rust-analyzer.check.allTargets": false,
+  "rust-analyzer.check.allTargets": false
   "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.cargo.noDefaultFeatures": true,
   "rust-analyzer.showUnlinkedFileNotification": false,
-  // Uncomment the target of your chip.
-  //"rust-analyzer.cargo.target": "thumbv6m-none-eabi",
-  //"rust-analyzer.cargo.target": "thumbv7m-none-eabi",
-  "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
-  //"rust-analyzer.cargo.target": "thumbv7em-none-eabihf",
-  //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
-  "rust-analyzer.cargo.features": [
-    // Comment out these features when working on the examples. Most example crates do not have any cargo features.
-    "stm32f107rb",
-    "time-driver-any",
-    "unstable-pac",
-    "exti",
-    "rt",
+  "rust-analyzer.rustfmt.extraArgs": [
+    "+nightly"
   ],
   "rust-analyzer.linkedProjects": [
-    "embassy-stm32/Cargo.toml",
+    "embassy-mspm0/Cargo.toml",
     // To work on the examples, comment the line above and all of the cargo.features lines,
     // then uncomment ONE line below to select the chip you want to work on.
     // This makes rust-analyzer work on the example crate and all its dependencies.
@@ -64,5 +44,17 @@
     // "examples/stm32wb/Cargo.toml",
     // "examples/stm32wl/Cargo.toml",
     // "examples/wasm/Cargo.toml",
+  ],
+  // Uncomment the target of your chip.
+  "rust-analyzer.cargo.target": "thumbv6m-none-eabi",
+  //"rust-analyzer.cargo.target": "thumbv7m-none-eabi",
+  // "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
+  //"rust-analyzer.cargo.target": "thumbv7em-none-eabihf",
+  //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
+  "rust-analyzer.cargo.features": [
+    // Comment out these features when working on the examples. Most example crates do not have any cargo features.
+    "mspm0l1305dgs28",
+    "unstable-pac",
+    "low-power"
   ],
 }

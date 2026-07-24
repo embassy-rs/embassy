@@ -14,6 +14,8 @@ use rand_core::{TryCryptoRng, TryRngCore};
 
 use crate::peripherals::TRNG;
 use crate::sealed;
+#[cfg(feature = "rt")]
+use crate::sysctl::{SleepLevel, WakeGuard};
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -447,6 +449,12 @@ impl TrngInner<'_> {
 
     #[cfg(feature = "rt")]
     async fn async_read_u32(&mut self) -> Result<u32, Error> {
+        // The TRNG is clocked from MCLK, which only runs in RUN/SLEEP, so a read forbids all deep
+        // sleep while it is in flight (floor Stop0 → the executor idles in SLEEP, where MCLK and the
+        // TRNG stay alive and the ready IRQ wakes it). Operation-scoped: the TRNG is read on demand,
+        // not a background service, so this is dropped when the read completes.
+        let _guard = SleepLevel::floor_for_clock_hz(get_mclk_frequency()).map(WakeGuard::new);
+
         poll_fn(|cx| {
             WAKER.register(cx.waker());
             let result = self.poll();
