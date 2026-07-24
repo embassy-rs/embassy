@@ -40,6 +40,29 @@ const FCR_CCMDENDF: u32 = 1 << 4;
 const CR2_STARTCMD: u32 = 1 << 0;
 const CMD_CLEAN: u32 = 0b01 << 1;
 const CMD_CLEAN_INVALIDATE: u32 = 0b11 << 1;
+const CR1_RHITMEN: u32 = 1 << 16;
+const CR1_RMISSMEN: u32 = 1 << 17;
+const RHMONR: u32 = CACHEAXI_BASE + 0x010;
+const RMMONR: u32 = CACHEAXI_BASE + 0x014;
+
+/// Raw `(CR1, SR)` state for one-time bring-up diagnostics.
+pub fn npu_cache_debug_state() -> (u32, u32) {
+    (read(CR1), read(SR))
+}
+
+/// Reset and start the CACHEAXI read hit/miss monitors.
+pub fn npu_cache_monitor_reset() {
+    const MONITORS: u32 = CR1_RHITMEN | CR1_RMISSMEN;
+    // ST's HAL resets a monitor by pulsing its enable mask shifted by two.
+    write(CR1, read(CR1) | (MONITORS << 2));
+    write(CR1, read(CR1) & !(MONITORS << 2));
+    write(CR1, read(CR1) | MONITORS);
+}
+
+/// Return cumulative CACHEAXI `(read_hits, read_misses)` monitor values.
+pub fn npu_cache_read_counters() -> (u32, u32) {
+    (read(RHMONR), read(RMMONR))
+}
 
 #[inline(always)]
 fn read(addr: u32) -> u32 {
@@ -52,12 +75,23 @@ fn write(addr: u32, val: u32) {
 }
 
 /// Enable the NPU cache (CACHEAXI): switches on its RCC clock, pulses its
-/// reset and sets the enable bit. Call once before running inferences that
-/// touch cacheable memory pools (external flash / PSRAM).
+/// reset and sets the enable bit. The parent NPU clock domain must already
+/// be enabled and released from reset (for example by [`super::Npu::new`]),
+/// matching ST's `NPU_Config()` ordering. Call once before running inferences
+/// that touch cacheable memory pools (external flash / PSRAM).
 pub fn npu_cache_enable() {
-    pac::RCC.ahb5enr().modify(|w| w.set_npucacheen(true));
-    pac::RCC.ahb5rstr().modify(|w| w.set_npucacherst(true));
-    pac::RCC.ahb5rstr().modify(|w| w.set_npucacherst(false));
+    // Exact equivalent of ST's `__HAL_RCC_CACHEAXI_CLK_ENABLE()`:
+    // atomic set followed by AHB5ENR readback for the RCC startup delay.
+    pac::RCC.ahb5ensr().write(|w| w.set_npucacheens(true));
+    let _ = pac::RCC.ahb5enr().read();
+    pac::RCC.ahb5rstsr().write(|w| w.set_npucachersts(true));
+    pac::RCC.ahb5rstcr().write(|w| w.set_npucacherstc(true));
+
+    // Drain the RCC clock/reset writes before accessing CACHEAXI. This does
+    // not replace the requirement that the parent NPU clock domain was
+    // enabled first.
+    cortex_m::asm::dsb();
+    cortex_m::asm::isb();
 
     // The first enable attempt commonly observes BUSYF; wait it out.
     while read(SR) & SR_BUSYF != 0 {}
@@ -67,7 +101,7 @@ pub fn npu_cache_enable() {
 /// Disable the NPU cache and gate its clock.
 pub fn npu_cache_disable() {
     write(CR1, read(CR1) & !CR1_EN);
-    pac::RCC.ahb5enr().modify(|w| w.set_npucacheen(false));
+    pac::RCC.ahb5encr().write(|w| w.set_npucacheenc(true));
 }
 
 /// Invalidate the entire NPU cache. Blocks until done.

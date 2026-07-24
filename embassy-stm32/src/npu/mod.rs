@@ -78,7 +78,7 @@
 
 pub mod cache;
 pub mod ecloader;
-mod regs;
+pub mod regs;
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -105,25 +105,6 @@ const EVT_EC_DONE: u32 = 1 << 0;
 static WAKER: AtomicWaker = AtomicWaker::new();
 static EVENTS: AtomicU32 = AtomicU32::new(0);
 static ERRORS: AtomicU32 = AtomicU32::new(0);
-
-// Diagnostic snapshot captured on the last DMA-transpose call. Used by
-// `Npu::last_transpose_debug()` to help post-mortem when the transfer
-// silently produces wrong data.
-static DBG_LAST_INTREG:   AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_OUT_CTRL: AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_IN_CTRL:  AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_SPUN:     AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_OUT_POS:  AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_IN_POS:   AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_OUT_IRQ:  AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_IN_IRQ:   AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_OUT_EVT:  AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_SW_CTRL:  AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_SW_DST:   AtomicU32 = AtomicU32::new(0);
-static DBG_LAST_ICTRL:    AtomicU32 = AtomicU32::new(0);
-static DBG_EARLY_OUT_CTRL: AtomicU32 = AtomicU32::new(0);
-static DBG_EARLY_IN_CTRL:  AtomicU32 = AtomicU32::new(0);
-static DBG_EARLY_INTREG:   AtomicU32 = AtomicU32::new(0);
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
@@ -176,8 +157,15 @@ pub enum Error {
     EpochController,
     /// The epoch controller waited for a unit acknowledge that never came.
     EpochControllerNoAck,
+    /// Epoch-controller CLR/CONFCLR teardown did not complete. Contains the
+    /// final raw EPOCHCTRL.CTRL value; bit 1 identifies CLR and bit 30
+    /// identifies CONFCLR.
+    EpochControllerTeardown(u32),
     /// One or more streaming engines reported an error (bitmask by engine).
     StreamingEngine(u16),
+    /// A streaming engine did not complete CLR/CONFCLR teardown. Contains
+    /// `(engine index, final raw STRENG.CTRL value)`.
+    StreamingEngineTeardown(u8, u32),
     /// One or more bus interfaces reported an error (bitmask by unit).
     BusInterface(u8),
     /// Unexpected interrupt source(s) (raw INTCTRL bitmask).
@@ -252,9 +240,13 @@ impl<'d, T: Instance> Npu<'d, T> {
     /// controller (the equivalent of `LL_ATON_RT_RuntimeInit()`).
     pub fn new(peri: Peri<'d, T>, _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd) -> Self {
         // Kernel clock + reset pulse.
-        pac::RCC.ahb5enr().modify(|w| w.set_npuen(true));
-        pac::RCC.ahb5rstr().modify(|w| w.set_npurst(true));
-        pac::RCC.ahb5rstr().modify(|w| w.set_npurst(false));
+        // Match ST's LL_AHB5 helpers: use the atomic set/clear aliases and
+        // read AHB5ENR back after enabling to provide the documented RCC
+        // peripheral-clock startup delay.
+        pac::RCC.ahb5ensr().write(|w| w.set_npuens(true));
+        let _ = pac::RCC.ahb5enr().read();
+        pac::RCC.ahb5rstsr().write(|w| w.set_npursts(true));
+        pac::RCC.ahb5rstcr().write(|w| w.set_npurstc(true));
 
         // ATON global init (LL_ATON_Init): clear the clock-controller
         // pipeline, then enable it and ungate all unit clocks. Per-unit
@@ -339,312 +331,39 @@ impl<'d, T: Instance> Npu<'d, T> {
         })
         .await;
 
-        // Stop the epoch controller and clear its pipeline & configuration
-        // (ATON_DISABLE_CLR_CONFCLR), so the next blob starts from a clean
-        // unit even after an error.
+        // Stop the epoch controller and clear its pipeline & configuration,
+        // matching ST's `ATON_DISABLE_CLR_CONFCLR`. ST polls indefinitely;
+        // retain the same register sequence but guard the polls so a wedged
+        // unit is reported instead of blocking the entire executor forever.
+        const TEARDOWN_SPIN_LIMIT: u32 = 1_000_000;
+        let mut teardown_error = None;
         regs::write(regs::EPOCHCTRL_CTRL, regs::EPOCHCTRL_CTRL_CLR);
-        while regs::read(regs::EPOCHCTRL_CTRL) & regs::EPOCHCTRL_CTRL_CLR != 0 {}
-        regs::write(regs::EPOCHCTRL_CTRL, regs::EPOCHCTRL_CTRL_CONFCLR);
-        while regs::read(regs::EPOCHCTRL_CTRL) & regs::EPOCHCTRL_CTRL_CONFCLR != 0 {}
+        let mut spins = 0;
+        while regs::read(regs::EPOCHCTRL_CTRL) & regs::EPOCHCTRL_CTRL_CLR != 0 {
+            spins += 1;
+            if spins == TEARDOWN_SPIN_LIMIT {
+                teardown_error = Some(Error::EpochControllerTeardown(regs::read(regs::EPOCHCTRL_CTRL)));
+                break;
+            }
+        }
+        if teardown_error.is_none() {
+            regs::write(regs::EPOCHCTRL_CTRL, regs::EPOCHCTRL_CTRL_CONFCLR);
+            spins = 0;
+            while regs::read(regs::EPOCHCTRL_CTRL) & regs::EPOCHCTRL_CTRL_CONFCLR != 0 {
+                spins += 1;
+                if spins == TEARDOWN_SPIN_LIMIT {
+                    teardown_error = Some(Error::EpochControllerTeardown(regs::read(regs::EPOCHCTRL_CTRL)));
+                    break;
+                }
+            }
+        }
 
         // Re-mask the epoch event and restore the OR-mask (the IRQ handler
         // fully masks the line after an error).
         regs::write(regs::intctrl_intandmsk(0), 0xFFFF_FFFF);
         regs::write(regs::intctrl_intormsk(0), regs::INT_STRENG_EVT_MASK);
 
-        res
-    }
-
-    /// Rank-4 int8 tensor transpose on the ATON stream engines (hardware DMA).
-    ///
-    /// Streams `input.addr` sequentially through STRENG-0 (RAW input DMA) into
-    /// the switch, which routes it to STRENG-1 (structured output DMA) writing
-    /// the permuted result to `output.addr`. Mirrors ST's `LL_ATON_LIB_DMA_Transpose`
-    /// (`ll_aton_lib.c`) for the byte-tensor case.
-    ///
-    /// - `input_shape`  — `[N, ...]` shape of the source tensor. `input_shape[0]`
-    ///   must be 1 (only rank-4 with an outermost batch of 1 is supported here;
-    ///   BlazeFace always has N=1).
-    /// - `output_axes_offsets_bytes` — output tensor's per-axis byte strides.
-    /// - `perm` — permutation such that `output[i0,i1,i2,i3] = input[j0..j3]`
-    ///   with `j[perm[k]] = i[k]`. This is the same `perm` field emitted by
-    ///   the generator; internally we index into `output_axes_offsets` with it.
-    ///
-    /// The caller is responsible for cache maintenance: neither the NPU nor
-    /// the M55 D-cache is touched by this call.
-    pub async fn dma_transpose_int8(
-        &mut self,
-        input_addr: u32,
-        input_shape: [u16; 4],
-        output_addr: u32,
-        output_axes_offsets_bytes: [u32; 4],
-        perm: [u8; 4],
-    ) -> Result<(), Error> {
-        // We use STRENG 0 as raw input DMA and STRENG 1 as structured output DMA.
-        // These two engines are also part of the "epoch controller" execution
-        // model, so we take care to leave them cleared+configuration-cleared on
-        // the way out.
-        const IN: usize = 0;
-        const OUT: usize = 1;
-
-        let sh = input_shape;
-        let fwidth  = sh[3] as u32;
-        let fheight = sh[2] as u32;
-        let frame_loop_cnt = sh[1] as u32;
-        let frame_tot_cnt  = sh[0] as u32 * sh[1] as u32;
-        let in_bytes = sh[0] as u32 * sh[1] as u32 * sh[2] as u32 * sh[3] as u32;
-
-        let oo = output_axes_offsets_bytes;
-        let line_offset  = oo[perm[2] as usize];
-        let batch_offset = oo[perm[3] as usize];
-        let frame_offset = oo[perm[1] as usize];
-        let loop_offset  = oo[perm[0] as usize];
-
-        // Reset both engines to a known state before programming. Unlike
-        // INTCTRL/EPOCHCTRL, the STRENG CLR/CONFCLR bits are not observably
-        // self-clearing on this SoC, so we just write and move on — matching
-        // ST's `LL_Streng_TensorInit`, which programs the fields directly.
-        // Zero the entire register block so residual state from a prior
-        // HW-blob epoch (CID_CACHE.LOFF_MSB, POS.GAPCYCLES, LIMIT{EN,ADDR},
-        // FRAME_RPT, FRPTOFF, FOFFSET, EXTSYNC{,2}, STOPTAG, DESCRADDR, ...)
-        // doesn't OR into our config.
-        for n in [IN, OUT] {
-            // Force the engine's state machine back to idle via CLR pulse
-            // (bounded: never wait more than a few µs — the CLR bit may be
-            // observably not-self-clearing on some devices, but issuing the
-            // write still resets internal counters and external-sync waits).
-            regs::write(regs::streng_reg(n, regs::STRENG_CTRL_OFF), regs::STRENG_CTRL_CLR);
-            for _ in 0..10_000 {
-                if regs::read(regs::streng_reg(n, regs::STRENG_CTRL_OFF)) & regs::STRENG_CTRL_CLR == 0 {
-                    break;
-                }
-            }
-            regs::write(regs::streng_reg(n, regs::STRENG_CTRL_OFF), regs::STRENG_CTRL_CONFCLR);
-            for _ in 0..10_000 {
-                if regs::read(regs::streng_reg(n, regs::STRENG_CTRL_OFF)) & regs::STRENG_CTRL_CONFCLR == 0 {
-                    break;
-                }
-            }
-            // Belt-and-braces: explicitly zero every field we don't program.
-            regs::write(regs::streng_reg(n, regs::STRENG_CTRL_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_ADDR_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_FSIZE_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_DEPTH_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_STRD_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_FOFFSET_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_FRAME_RPT_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_FRPTOFF_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_POS_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_EVENT_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_STOPTAG_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_LIMITEN_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_LIMIT_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_LIMITADDR_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_CID_CACHE_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_EXTSYNC_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_EXTSYNC2_OFF), 0);
-            regs::write(regs::streng_reg(n, regs::STRENG_DESCRADDR_OFF), 0);
-            // Ack any stale IRQ latches.
-            let v = regs::read(regs::streng_irq(n));
-            if v != 0 { regs::write(regs::streng_irq(n), v); }
-        }
-
-        // Clear our destination-port entry in the switch (leaves other
-        // routes owned by the epoch controller alone).
-        let dst_reg = regs::strswitch_dst(regs::strsw_dst_idx_streng(OUT));
-        regs::write(dst_reg, 0);
-
-        // ── Program STRENG-1 (output, structured) ──────────────────────────
-        // CTRL: DIR=1 (stream->bus), RAW=0, SINGLE=(frame_tot_cnt==1), 8-bit.
-        let mut ctrl_out = regs::STRENG_CTRL_DIR | (8u32 << regs::STRENG_CTRL_SIZE0_LSB);
-        if frame_tot_cnt == 1 {
-            ctrl_out |= regs::STRENG_CTRL_SINGLE;
-        }
-        regs::write(regs::streng_reg(OUT, regs::STRENG_CTRL_OFF), ctrl_out);
-        regs::write(regs::streng_reg(OUT, regs::STRENG_ADDR_OFF), output_addr);
-        // FSIZE: WIDTH=fwidth, HEIGHT=fheight
-        regs::write(
-            regs::streng_reg(OUT, regs::STRENG_FSIZE_OFF),
-            (fwidth & 0xFFFF) | ((fheight & 0xFFFF) << regs::STRENG_FSIZE_HEIGHT_LSB),
-        );
-        // DEPTH: SIZE=1, OFFSET=batch_offset (low 16 bits; MSBs go into LIMITEN.DOFF_MSB)
-        let batch_offset_lo = batch_offset & 0xFFFF;
-        let batch_offset_hi = batch_offset >> 16;
-        regs::write(
-            regs::streng_reg(OUT, regs::STRENG_DEPTH_OFF),
-            1u32 | (batch_offset_lo << regs::STRENG_DEPTH_OFFSET_LSB),
-        );
-        // STRD: LOFF=line_offset (or fwidth*batch_offset if 0; here always non-zero).
-        // Assumes line_offset fits in 16 bits — true for all BlazeFace transposes.
-        debug_assert!(line_offset <= 0xFFFF, "line_offset {} does not fit in 16 bits", line_offset);
-        regs::write(regs::streng_reg(OUT, regs::STRENG_STRD_OFF), line_offset & 0xFFFF);
-        regs::write(regs::streng_reg(OUT, regs::STRENG_FOFFSET_OFF), frame_offset);
-        regs::write(regs::streng_reg(OUT, regs::STRENG_FRAME_RPT_OFF), frame_loop_cnt);
-        regs::write(regs::streng_reg(OUT, regs::STRENG_FRPTOFF_OFF), loop_offset);
-        // LIMITEN: FRAMELIMIT=1, STOPPREFTC=1 (bit-1 is the reset value ST
-        // preserves — stop prefetching once the last programmed byte has
-        // been fetched; without this the engine keeps prefetching and never
-        // reaches the "frame overflow" completion state), DOFF_MSB from
-        // batch_offset high bits.
-        regs::write(
-            regs::streng_reg(OUT, regs::STRENG_LIMITEN_OFF),
-            regs::STRENG_LIMITEN_STOPPREFTC
-                | regs::STRENG_LIMITEN_FRAMELIMIT
-                | (batch_offset_hi << regs::STRENG_LIMITEN_DOFF_MSB_LSB),
-        );
-        regs::write(regs::streng_reg(OUT, regs::STRENG_LIMIT_OFF), frame_tot_cnt);
-
-        // Enable frame-overflow (completion) + illegal-cfg (error) events on
-        // the output engine. Without this, the engine completes the transfer
-        // silently and no INTCTRL bit is ever latched. Mirrors ST's
-        // `LL_Streng_TensorInit` for the dir=1 case.
-        regs::write(
-            regs::streng_reg(OUT, regs::STRENG_EVENT_OFF),
-            regs::STRENG_EVENT_EN_OFLOW_FRM | regs::STRENG_EVENT_EN_ILLCFG,
-        );
-
-        // ── Program STRENG-0 (input, raw sequential read) ──────────────────
-        // CTRL: DIR=0 (bus->stream), RAW=1, SINGLE=1 (frame_tot_cnt=1), 8-bit.
-        let ctrl_in = regs::STRENG_CTRL_RAW
-            | regs::STRENG_CTRL_SINGLE
-            | (8u32 << regs::STRENG_CTRL_SIZE0_LSB);
-        regs::write(regs::streng_reg(IN, regs::STRENG_CTRL_OFF), ctrl_in);
-        regs::write(regs::streng_reg(IN, regs::STRENG_ADDR_OFF), input_addr);
-        // FSIZE in raw mode = total number of transfer units (bytes here).
-        regs::write(regs::streng_reg(IN, regs::STRENG_FSIZE_OFF), in_bytes);
-        regs::write(regs::streng_reg(IN, regs::STRENG_LIMITEN_OFF),
-            regs::STRENG_LIMITEN_STOPPREFTC | regs::STRENG_LIMITEN_FRAMELIMIT);
-        regs::write(regs::streng_reg(IN, regs::STRENG_LIMIT_OFF), 1);
-        // Enable illegal-cfg error event on the input engine only (completion
-        // is signalled by the output engine).
-        regs::write(regs::streng_reg(IN, regs::STRENG_EVENT_OFF), regs::STRENG_EVENT_EN_ILLCFG);
-
-        // ── Program the stream switch: route STRENG-0 -> STRENG-1 ──────────
-        // Destination index for STRENG-1 = 1. LINK0 = src port id of STRENG-0 = 0.
-        let src_id  = regs::strsw_src_streng(IN);
-        regs::write(dst_reg, regs::STRSW_DST_EN0 | (src_id << regs::STRSW_DST_LINK0_LSB));
-        // Enable the switch. Use a plain write (not RMW) to match ST's
-        // `LL_Switch_Init_NoReset`, which unconditionally writes EN=1 and
-        // therefore discards any stale CLR/CONFCLR bits that would otherwise
-        // hold the switch in reset.
-        regs::write(regs::STRSWITCH_CTRL, regs::STRSWITCH_CTRL_EN);
-
-        // ── Pre-arm interrupt-status polling ───────────────────────────────
-        // We poll INTCTRL.INTREG (latched hardware status) for the OUT
-        // engine's completion event; a bit-flip there is our "done" signal.
-        // The RUNNING bit in CTRL cannot be used reliably because it has a
-        // small assertion latency after we set EN — a fast tail-read wins
-        // the race and sees RUNNING=0 before the engine ever starts.
-        //
-        // Block ALL sources on IRQ line 0 for the duration of this transfer
-        // so the OS ISR does not steal (and clear) our completion bits.
-        let saved_ormsk = regs::read(regs::intctrl_intormsk(0));
-        regs::write(regs::intctrl_intormsk(0), 0xFFFF_FFFF);
-        let our_int_mask = (1u32 << IN) | (1u32 << OUT)
-                         | (1u32 << (regs::INT_STRENG_ERR_SHIFT + IN as u32))
-                         | (1u32 << (regs::INT_STRENG_ERR_SHIFT + OUT as u32));
-        // Clear any stale INTCTRL latches for our engines.
-        regs::write(regs::INTCTRL_INTCLR, our_int_mask);
-
-        // ── Start the engines ──────────────────────────────────────────────
-        cortex_m::asm::dsb();
-        regs::modify(regs::streng_reg(OUT, regs::STRENG_CTRL_OFF), |v| v | regs::STRENG_CTRL_EN);
-        regs::modify(regs::streng_reg(IN,  regs::STRENG_CTRL_OFF), |v| v | regs::STRENG_CTRL_EN);
-
-        // Snapshot immediately (within a few cycles of enable) so we can see
-        // if the engines actually asserted RUNNING at all.
-        DBG_EARLY_OUT_CTRL.store(regs::read(regs::streng_reg(OUT, regs::STRENG_CTRL_OFF)), Ordering::Relaxed);
-        DBG_EARLY_IN_CTRL.store(regs::read(regs::streng_reg(IN,  regs::STRENG_CTRL_OFF)), Ordering::Relaxed);
-        DBG_EARLY_INTREG.store(regs::read(regs::INTCTRL_INTREG), Ordering::Relaxed);
-
-        // ── Wait for completion via INTCTRL.INTREG ─────────────────────────
-        //
-        // Bit `OUT` = STRENG-OUT completion, bit `10+OUT` = STRENG-OUT error,
-        // similarly for IN. Bounded spin; no `.await` so `with_timeout` at
-        // the caller cannot preempt us.
-        let done_bit  = 1u32 << OUT;
-        let err_bits  = (1u32 << (regs::INT_STRENG_ERR_SHIFT + IN  as u32))
-                      | (1u32 << (regs::INT_STRENG_ERR_SHIFT + OUT as u32));
-        let mut spun: u32 = 0;
-        let (result, last_intreg): (Result<(), Error>, u32) = loop {
-            let intreg = regs::read(regs::INTCTRL_INTREG);
-            if intreg & err_bits != 0 {
-                let engines = ((intreg & err_bits) >> regs::INT_STRENG_ERR_SHIFT) as u16;
-                break (Err(Error::StreamingEngine(engines)), intreg);
-            }
-            if intreg & done_bit != 0 {
-                break (Ok(()), intreg);
-            }
-            spun = spun.wrapping_add(1);
-            if spun > 2_000_000 {
-                break (Err(Error::StreamingEngine(1 << OUT)), intreg);
-            }
-        };
-        DBG_LAST_INTREG.store(last_intreg, Ordering::Relaxed);
-        DBG_LAST_OUT_CTRL.store(regs::read(regs::streng_reg(OUT, regs::STRENG_CTRL_OFF)), Ordering::Relaxed);
-        DBG_LAST_IN_CTRL.store(regs::read(regs::streng_reg(IN,  regs::STRENG_CTRL_OFF)), Ordering::Relaxed);
-        DBG_LAST_SPUN.store(spun, Ordering::Relaxed);
-        DBG_LAST_OUT_POS.store(regs::read(regs::streng_reg(OUT, regs::STRENG_POS_OFF)), Ordering::Relaxed);
-        DBG_LAST_IN_POS.store(regs::read(regs::streng_reg(IN,  regs::STRENG_POS_OFF)), Ordering::Relaxed);
-        DBG_LAST_OUT_IRQ.store(regs::read(regs::streng_irq(OUT)), Ordering::Relaxed);
-        DBG_LAST_IN_IRQ.store(regs::read(regs::streng_irq(IN)),  Ordering::Relaxed);
-        DBG_LAST_OUT_EVT.store(regs::read(regs::streng_reg(OUT, regs::STRENG_EVENT_OFF)), Ordering::Relaxed);
-        DBG_LAST_SW_CTRL.store(regs::read(regs::STRSWITCH_CTRL), Ordering::Relaxed);
-        DBG_LAST_SW_DST.store(regs::read(dst_reg), Ordering::Relaxed);
-        DBG_LAST_ICTRL.store(regs::read(regs::INTCTRL_CTRL), Ordering::Relaxed);
-
-        // ── Tear down ──────────────────────────────────────────────────────
-        // Ack per-STRENG IRQ latches, then disable both engines via a plain
-        // CTRL=0 and clear our DST route. Restore the INTCTRL OR-mask so the
-        // OS ISR resumes servicing the sources it was configured for.
-        for n in [IN, OUT] {
-            let v = regs::read(regs::streng_irq(n));
-            if v != 0 { regs::write(regs::streng_irq(n), v); }
-            regs::write(regs::streng_reg(n, regs::STRENG_CTRL_OFF), 0);
-            // Disable per-engine event sources — the epoch controller expects
-            // to program these fresh for the next blob.
-            regs::write(regs::streng_reg(n, regs::STRENG_EVENT_OFF), 0);
-        }
-        regs::write(dst_reg, 0);
-        regs::write(regs::INTCTRL_INTCLR, our_int_mask);
-        regs::write(regs::intctrl_intormsk(0), saved_ormsk);
-
-        result
-    }
-
-    /// Read the diagnostic snapshot captured on the *last* call to
-    /// [`dma_transpose_int8`]. Returns `(intreg, out_ctrl, in_ctrl, spun)`.
-    pub fn last_transpose_debug(&self) -> (u32, u32, u32, u32) {
-        (
-            DBG_LAST_INTREG.load(Ordering::Relaxed),
-            DBG_LAST_OUT_CTRL.load(Ordering::Relaxed),
-            DBG_LAST_IN_CTRL.load(Ordering::Relaxed),
-            DBG_LAST_SPUN.load(Ordering::Relaxed),
-        )
-    }
-
-    /// Full diagnostic snapshot from the last DMA-transpose call. Fields:
-    /// `(intreg, out_ctrl, in_ctrl, spun, out_pos, in_pos, out_irq, in_irq,
-    ///   out_evt, sw_ctrl, sw_dst, ictrl, early_out_ctrl, early_in_ctrl,
-    ///   early_intreg)`.
-    pub fn last_transpose_debug_full(&self) -> [u32; 15] {
-        [
-            DBG_LAST_INTREG.load(Ordering::Relaxed),
-            DBG_LAST_OUT_CTRL.load(Ordering::Relaxed),
-            DBG_LAST_IN_CTRL.load(Ordering::Relaxed),
-            DBG_LAST_SPUN.load(Ordering::Relaxed),
-            DBG_LAST_OUT_POS.load(Ordering::Relaxed),
-            DBG_LAST_IN_POS.load(Ordering::Relaxed),
-            DBG_LAST_OUT_IRQ.load(Ordering::Relaxed),
-            DBG_LAST_IN_IRQ.load(Ordering::Relaxed),
-            DBG_LAST_OUT_EVT.load(Ordering::Relaxed),
-            DBG_LAST_SW_CTRL.load(Ordering::Relaxed),
-            DBG_LAST_SW_DST.load(Ordering::Relaxed),
-            DBG_LAST_ICTRL.load(Ordering::Relaxed),
-            DBG_EARLY_OUT_CTRL.load(Ordering::Relaxed),
-            DBG_EARLY_IN_CTRL.load(Ordering::Relaxed),
-            DBG_EARLY_INTREG.load(Ordering::Relaxed),
-        ]
+        teardown_error.map_or(res, Err)
     }
 
     /// Run a network: execute a list of epoch blocks in order, awaiting each
@@ -684,7 +403,7 @@ impl<'d, T: Instance> Drop for Npu<'d, T> {
         regs::write(regs::CLKCTRL_CTRL, 0);
 
         // Gate the NPU kernel clock.
-        pac::RCC.ahb5enr().modify(|w| w.set_npuen(false));
+        pac::RCC.ahb5encr().write(|w| w.set_npuenc(true));
     }
 }
 

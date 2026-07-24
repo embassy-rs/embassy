@@ -13,8 +13,12 @@
 //! - `BUSIF`     — 2 bus interface units (must be enabled for any traffic)
 //! - `STRENG`    — 10 streaming engines (only the IRQ register, for acks)
 //! - `EPOCHCTRL` — the epoch controller, which executes command blobs
+//!
+//! Register-name docs are omitted: identifiers mirror the ATON reference-manual
+//! naming (`<UNIT>_<REG>_<FIELD>_<LSB|EN|MASK>`), so a per-item doc string
+//! would just repeat the name. See the top-of-file summary for the semantics.
 
-#![allow(dead_code)]
+#![allow(dead_code, missing_docs)]
 
 /// ATON register block base address (non-secure alias, matches the address
 /// space used by `stm32-metapac` for the N6 family).
