@@ -12,7 +12,6 @@
 
 use core::cell::{Cell, RefCell};
 use core::future::{Future, poll_fn};
-use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::task::Poll;
 
@@ -84,7 +83,12 @@ impl<'d> State<'d> {
 
 /// Implementation of the USB audio class 1.0.
 pub struct Speaker<'d, D: Driver<'d>> {
-    phantom: PhantomData<&'d D>,
+    /// Stream
+    pub stream: Stream<'d, D>,
+    /// Feedback
+    pub feedback: Feedback<'d, D>,
+    /// Control Monitor
+    pub control_monitor: ControlMonitor<'d>,
 }
 
 impl<'d, D: Driver<'d>> Speaker<'d, D> {
@@ -112,7 +116,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         sample_rates_hz: &[u32],
         channels: &'d [Channel],
         feedback_refresh_period: FeedbackRefresh,
-    ) -> (Stream<'d, D>, Feedback<'d, D>, ControlMonitor<'d>) {
+    ) -> Self {
         // The class and subclass fields of the IAD aren't required to match the class and subclass fields of
         // the interfaces in the interface collection that the IAD describes. Microsoft recommends that
         // the first interface of the collection has class and subclass fields that match the class and
@@ -121,7 +125,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 
         // Audio control interface (mandatory) [UAC 4.3.1]
         let mut interface = func.interface();
-        let control_interface = interface.interface_number().into();
+        let control_interface = interface.interface_number();
         let streaming_interface = u8::from(control_interface) + 1;
         let mut alt = interface.alt_setting(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE, None);
 
@@ -248,8 +252,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
         // =====================================================
         // Audio streaming interface, zero-bandwidth [UAC 4.5.1]
         let mut interface = func.interface();
-        let alt = interface.alt_setting(USB_AUDIO_CLASS, USB_AUDIOSTREAMING_SUBCLASS, PROTOCOL_NONE, None);
-        drop(alt);
+        let _alt = interface.alt_setting(USB_AUDIO_CLASS, USB_AUDIOSTREAMING_SUBCLASS, PROTOCOL_NONE, None);
 
         // ==================================================
         // Audio streaming interface, operational [UAC 4.5.1]
@@ -293,7 +296,7 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
                 AS_GENERAL,            // bDescriptorSubtype (General)
                 SAMPLING_FREQ_CONTROL, // bmAttributes (support sampling frequency control)
                 0x02,                  // bLockDelayUnits (PCM)
-                0x0000 as u8,
+                0x0000_u8,
                 (0x0000 >> 8) as u8, // wLockDelay (0)
             ],
         );
@@ -326,11 +329,11 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 
         let control = &state.shared;
 
-        (
-            Stream { streaming_endpoint },
-            Feedback { feedback_endpoint },
-            ControlMonitor { shared: control },
-        )
+        Self {
+            stream: Stream { streaming_endpoint },
+            feedback: Feedback { feedback_endpoint },
+            control_monitor: ControlMonitor { shared: control },
+        }
     }
 }
 
@@ -447,9 +450,7 @@ pub struct ControlMonitor<'d> {
 
 impl<'d> ControlMonitor<'d> {
     fn audio_settings(&self) -> AudioSettings {
-        let audio_settings = self.shared.audio_settings.lock(|x| x.get());
-
-        audio_settings
+        self.shared.audio_settings.lock(|x| x.get())
     }
 
     fn get_logical_channel(&self, search_channel: Channel) -> Option<usize> {
@@ -625,60 +626,56 @@ impl<'d> Control<'d> {
         match req.request {
             GET_CUR => match control_unit {
                 VOLUME_CONTROL => {
-                    let volume: i16;
-
-                    match channel_index as usize {
-                        ..=MAX_AUDIO_CHANNEL_INDEX => volume = audio_settings.volume_8q8_db[channel_index as usize],
+                    let volume: i16 = match channel_index as usize {
+                        ..=MAX_AUDIO_CHANNEL_INDEX => audio_settings.volume_8q8_db[channel_index as usize],
                         _ => return Some(InResponse::Rejected),
-                    }
+                    };
 
                     buf[0] = volume as u8;
                     buf[1] = (volume >> 8) as u8;
 
                     debug!("Got channel {} volume: {}.", channel_index, volume);
-                    return Some(InResponse::Accepted(&buf[..2]));
+                    Some(InResponse::Accepted(&buf[..2]))
                 }
                 MUTE_CONTROL => {
-                    let mute_state: bool;
-
-                    match channel_index as usize {
-                        ..=MAX_AUDIO_CHANNEL_INDEX => mute_state = audio_settings.muted[channel_index as usize],
+                    let mute_state: bool = match channel_index as usize {
+                        ..=MAX_AUDIO_CHANNEL_INDEX => audio_settings.muted[channel_index as usize],
                         _ => return Some(InResponse::Rejected),
-                    }
+                    };
 
                     buf[0] = mute_state.into();
                     debug!("Got channel {} mute state: {}.", channel_index, mute_state);
-                    return Some(InResponse::Accepted(&buf[..1]));
+                    Some(InResponse::Accepted(&buf[..1]))
                 }
-                _ => return Some(InResponse::Rejected),
+                _ => Some(InResponse::Rejected),
             },
             GET_MIN => match control_unit {
                 VOLUME_CONTROL => {
                     let min_volume = MIN_VOLUME_DB * VOLUME_STEPS_PER_DB;
                     buf[0] = min_volume as u8;
                     buf[1] = (min_volume >> 8) as u8;
-                    return Some(InResponse::Accepted(&buf[..2]));
+                    Some(InResponse::Accepted(&buf[..2]))
                 }
-                _ => return Some(InResponse::Rejected),
+                _ => Some(InResponse::Rejected),
             },
             GET_MAX => match control_unit {
                 VOLUME_CONTROL => {
                     let max_volume = MAX_VOLUME_DB * VOLUME_STEPS_PER_DB;
                     buf[0] = max_volume as u8;
                     buf[1] = (max_volume >> 8) as u8;
-                    return Some(InResponse::Accepted(&buf[..2]));
+                    Some(InResponse::Accepted(&buf[..2]))
                 }
-                _ => return Some(InResponse::Rejected),
+                _ => Some(InResponse::Rejected),
             },
             GET_RES => match control_unit {
                 VOLUME_CONTROL => {
                     buf[0] = VOLUME_STEPS_PER_DB as u8;
                     buf[1] = (VOLUME_STEPS_PER_DB >> 8) as u8;
-                    return Some(InResponse::Accepted(&buf[..2]));
+                    Some(InResponse::Accepted(&buf[..2]))
                 }
-                _ => return Some(InResponse::Rejected),
+                _ => Some(InResponse::Rejected),
             },
-            _ => return Some(InResponse::Rejected),
+            _ => Some(InResponse::Rejected),
         }
     }
 
@@ -691,7 +688,7 @@ impl<'d> Control<'d> {
             return None;
         }
 
-        if control_selector != SAMPLING_FREQ_CONTROL as u8 {
+        if control_selector != SAMPLING_FREQ_CONTROL {
             debug!(
                 "Unsupported endpoint get request for control selector {}.",
                 control_selector
