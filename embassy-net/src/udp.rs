@@ -161,6 +161,17 @@ impl<'a> UdpSocket<'a> {
         })
     }
 
+    #[cfg(feature = "ptp")]
+    fn with_id(&self, mut remote_endpoint: UdpMetadata) -> (UdpMetadata, u16) {
+        self.stack.with_mut(|i| {
+            i.next_id = i.next_id.wrapping_add(1);
+            remote_endpoint.meta.id = i.next_id as u32;
+            i.times.insert(self.handle, crate::TimeEntry::new(i.next_id)).unwrap();
+
+            (remote_endpoint, i.next_id)
+        })
+    }
+
     /// Wait until the socket becomes readable.
     ///
     /// A socket is readable when a packet has been received, or when there are queued packets in
@@ -309,6 +320,32 @@ impl<'a> UdpSocket<'a> {
                 Poll::Pending
             }
         })
+    }
+
+    #[cfg(feature = "ptp")]
+    /// Send a datagram to the specified remote endpoint and retreive the timestamp in which it has been sent.
+    ///
+    /// This method will wait until the datagram has been sent.
+    ///
+    /// If the socket's send buffer is too small to fit `buf`, this method will return `Err(SendError::PacketTooLarge)`
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
+    pub async fn send_to_timed<T>(
+        &self,
+        buf: &[u8],
+        remote_endpoint: T,
+    ) -> Result<embassy_net_driver::Timestamp, SendError>
+    where
+        T: Into<UdpMetadata>,
+    {
+        let remote_endpoint: UdpMetadata = remote_endpoint.into();
+        let (remote_endpoint, _id) = self.with_id(remote_endpoint);
+
+        poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await?;
+
+        // TODO: wait for the timestamp to be entered
+
+        todo!()
     }
 
     /// Send a datagram to the specified remote endpoint.

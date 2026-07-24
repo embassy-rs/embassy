@@ -13,6 +13,9 @@ where
     pub inner: &'d mut T,
     pub medium: Medium,
     pub tx_exhausted: bool,
+    #[cfg(feature = "ptp")]
+    #[allow(unused)]
+    pub times: &'d mut dyn crate::LinearMap<crate::SocketHandle, crate::TimeEntry>,
 }
 
 impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
@@ -120,6 +123,7 @@ where
     }
 
     fn set_meta(&mut self, meta: phy::PacketMeta) {
+        // TODO: when called with a nonzero ID, associate the inner ID of this token with the ID if set.
         self.0.set_meta(into_embassy_net_meta(meta));
     }
 }

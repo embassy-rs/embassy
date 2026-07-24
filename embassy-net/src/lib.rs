@@ -101,6 +101,8 @@ pub struct StackResources<const SOCK: usize> {
     // undersized buffer never corrupts the IP configuration, it only drops the extra options.
     #[cfg(feature = "dhcpv4-ntp")]
     dhcp_rx_buffer: MaybeUninit<[u8; DHCP_RX_BUFFER_SIZE]>,
+    #[cfg(feature = "ptp")]
+    times: MaybeUninit<heapless::LinearMap<SocketHandle, TimeEntry, SOCK>>,
 }
 
 #[cfg(feature = "dhcpv4-hostname")]
@@ -124,6 +126,8 @@ impl<const SOCK: usize> StackResources<SOCK> {
             },
             #[cfg(feature = "dhcpv4-ntp")]
             dhcp_rx_buffer: MaybeUninit::uninit(),
+            #[cfg(feature = "ptp")]
+            times: MaybeUninit::uninit(),
         }
     }
 }
@@ -332,6 +336,68 @@ pub(crate) struct Inner {
     hostname: *mut HostnameResources,
     #[cfg(feature = "dhcpv4-ntp")]
     dhcp_rx_buffer: *mut [u8],
+    #[cfg(feature = "ptp")]
+    times: &'static mut dyn LinearMap<SocketHandle, TimeEntry>,
+    #[cfg(feature = "ptp")]
+    next_id: u16,
+}
+
+#[cfg(feature = "ptp")]
+struct TimeEntry {
+    #[allow(unused)]
+    id: u16,
+    did: Option<u8>,
+    time: Option<embassy_net_driver::Timestamp>,
+    waker: WakerRegistration,
+}
+
+#[cfg(feature = "ptp")]
+impl TimeEntry {
+    pub const fn new(id: u16) -> Self {
+        Self {
+            id,
+            did: None,
+            time: None,
+            waker: WakerRegistration::new(),
+        }
+    }
+}
+
+#[cfg(feature = "ptp")]
+trait LinearMap<K, V> {
+    #[allow(dead_code)]
+    fn insert(&mut self, key: K, val: V) -> Result<Option<V>, ()>;
+    #[allow(dead_code)]
+    fn get_mut(&mut self, key: &K) -> Option<&mut V>;
+    #[allow(dead_code)]
+    fn remove(&mut self, key: &K) -> Option<V>;
+    #[allow(dead_code)]
+    fn iter(&self) -> heapless::linear_map::Iter<'_, K, V>;
+    #[allow(dead_code)]
+    fn iter_mut(&mut self) -> heapless::linear_map::IterMut<'_, K, V>;
+}
+
+#[cfg(feature = "ptp")]
+impl<K: Eq + Copy, V, const N: usize> LinearMap<K, V> for heapless::LinearMap<K, V, N> {
+    fn insert(&mut self, key: K, val: V) -> Result<Option<V>, ()> {
+        self.insert(key, val).map_err(|_| ())
+    }
+
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.get_mut(key)
+    }
+
+    fn remove(&mut self, key: &K) -> Option<V> {
+        self.remove(key)
+    }
+
+    fn iter(&self) -> heapless::linear_map::Iter<'_, K, V> {
+        self.iter()
+    }
+
+    fn iter_mut(&mut self) -> heapless::linear_map::IterMut<'_, K, V> {
+        self.iter_mut()
+    }
 }
 
 fn _assert_covariant<'a, 'b: 'a>(x: Stack<'b>) -> Stack<'a> {
@@ -353,6 +419,9 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         iface_cfg.slaac = matches!(config.ipv6, ConfigV6::Slaac);
     }
 
+    #[cfg(feature = "ptp")]
+    let times = resources.times.write(heapless::LinearMap::new());
+
     #[allow(unused_mut)]
     let mut iface = Interface::new(
         iface_cfg,
@@ -361,11 +430,18 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             cx: None,
             medium,
             tx_exhausted: false,
+            #[cfg(feature = "ptp")]
+            times,
         },
         instant_to_smoltcp(Instant::now()),
     );
 
     unsafe fn transmute_slice<T>(x: &mut [T]) -> &'static mut [T] {
+        core::mem::transmute(x)
+    }
+
+    #[cfg(feature = "ptp")]
+    unsafe fn transmute_static<T: ?Sized>(x: &mut T) -> &'static mut T {
         core::mem::transmute(x)
     }
 
@@ -407,6 +483,10 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         hostname: &mut resources.hostname,
         #[cfg(feature = "dhcpv4-ntp")]
         dhcp_rx_buffer: resources.dhcp_rx_buffer.write([0; DHCP_RX_BUFFER_SIZE]) as *mut [u8],
+        #[cfg(feature = "ptp")]
+        times: unsafe { transmute_static(times) },
+        #[cfg(feature = "ptp")]
+        next_id: 0,
     };
 
     #[cfg(feature = "proto-ipv4")]
@@ -942,6 +1022,16 @@ impl Inner {
             }
         }
 
+        #[cfg(feature = "ptp")]
+        while let Some((id, timestamp)) = driver.poll_timestamp(cx) {
+            for (_handle, entry) in self.times.iter_mut() {
+                if entry.did.is_some_and(|did| id == did) && entry.time.is_none() {
+                    entry.time = Some(timestamp);
+                    entry.waker.wake();
+                }
+            }
+        }
+
         // Update link up
         let old_link_up = self.link_up;
         self.link_up = driver.link_state(cx) == LinkState::Up;
@@ -967,6 +1057,8 @@ impl Inner {
             inner: driver,
             medium,
             tx_exhausted: false,
+            #[cfg(feature = "ptp")]
+            times: self.times,
         };
         self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
         let tx_exhausted = smoldev.tx_exhausted;
