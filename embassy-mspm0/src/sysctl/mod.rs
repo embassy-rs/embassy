@@ -44,6 +44,14 @@ pub enum SleepLevel {
 }
 
 impl SleepLevel {
+    pub const LEVELS: [SleepLevel; 5] = [
+        SleepLevel::Stop0,
+        SleepLevel::Stop1,
+        SleepLevel::Stop2,
+        SleepLevel::Standby0,
+        SleepLevel::Standby1,
+    ];
+
     /// Shallowest level to forbid so a PD0 peripheral clocked at `clock_hz` keeps running, or `None`
     /// to forbid nothing (any sleep depth is fine, or the peripheral needs no functional clock).
     ///
@@ -117,10 +125,10 @@ impl WakeGuard {
     /// feature `level` is ignored and this does nothing.
     #[inline]
     pub fn new(level: SleepLevel) -> Self {
-        #[cfg(feature = "low-power")]
-        crate::low_power::block(level);
         #[cfg(not(feature = "low-power"))]
         let _ = level;
+        #[cfg(feature = "low-power")]
+        crate::low_power::block(level);
 
         Self {
             #[cfg(feature = "low-power")]

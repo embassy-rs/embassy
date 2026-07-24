@@ -76,15 +76,7 @@ compile_error!("the `low-power` feature is not implemented for this chip family"
 /// [`WakeGuard`](crate::sysctl::WakeGuard) that takes one; re-exported here for convenience.
 pub use crate::sysctl::SleepLevel;
 
-const LEVELS: [SleepLevel; 5] = [
-    SleepLevel::Stop0,
-    SleepLevel::Stop1,
-    SleepLevel::Stop2,
-    SleepLevel::Standby0,
-    SleepLevel::Standby1,
-];
-
-/// `SLEEP_BLOCKS[i]` counts the guards forbidding `LEVELS[i]` and every deeper mode.
+/// `SLEEP_BLOCKS[i]` counts the guards forbidding `SleepLevel::LEVELS[i]` and every deeper mode.
 static SLEEP_BLOCKS: [AtomicU32; 5] = [
     AtomicU32::new(0),
     AtomicU32::new(0),
@@ -109,7 +101,7 @@ fn deepest_allowed() -> Option<SleepLevel> {
     for (i, blocks) in SLEEP_BLOCKS.iter().enumerate() {
         if blocks.load(Ordering::Relaxed) > 0 {
             // LEVELS[i] and everything deeper is blocked, so the deepest permitted is one shallower.
-            return i.checked_sub(1).map(|j| LEVELS[j]);
+            return i.checked_sub(1).map(|j| SleepLevel::LEVELS[j]);
         }
     }
     Some(SleepLevel::Standby1)

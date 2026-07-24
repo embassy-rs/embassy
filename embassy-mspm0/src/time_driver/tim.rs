@@ -19,6 +19,7 @@ compile_error!("TIMG12 and TIMG13 are not supported by the time driver yet");
 
 // Only TIMG0 and TIMG1 remain clocked in STANDBY, so they are the only timers that can wake the
 // core from deep sleep via the time driver. Reject a `low-power` build on any other timer.
+// TODO: Or maybe allow using them, but disable STANDBY? STOP0 still work.
 #[cfg(all(feature = "low-power", not(any(time_driver_timg0, time_driver_timg1))))]
 compile_error!(
     "the `low-power` feature requires the time driver to run on TIMG0 or TIMG1, as they are the \
@@ -286,53 +287,30 @@ impl Driver for TimxDriver {
     fn now(&self) -> u64 {
         let regs = regs();
 
-        // This sequence lock fixes the race condition that causes time to go backwards.
-        loop {
-            let period = self.period.load(Ordering::Relaxed);
-            // Ensure the compiler does not read the counter before the period.
-            compiler_fence(Ordering::Acquire);
+        let period = self.period.load(Ordering::Relaxed);
+        let counter = regs.counterregs(0).ctr().read() as u16;
 
-            // The counter is not synchronized to the CPU/bus clock, so a read could be torn.
-            let mut counter = regs.counterregs(0).ctr().read() as u16;
-            loop {
-                let again = regs.counterregs(0).ctr().read() as u16;
-                if counter == again {
-                    break;
-                }
-                counter = again;
-            }
-
-            // Ensure the compiler does not read the counter after the period.
-            compiler_fence(Ordering::Acquire);
-
-            // If the timer interrupt changed the period while we were reading the counter,
-            // the (period, counter) pair may be out of sync.
-            if period != self.period.load(Ordering::Relaxed) {
-                continue;
-            }
-
-            // When the counter's top bit equals period parity, the two are coherent.
-            if (((counter >> 15) as u32) & 1) == (period & 1) {
-                return calc_now(period, counter);
-            }
-
-            // The counter and period are incoherent.
-            let ris = regs.cpu_int(0).ris().read();
-            if ris.l() || ris.ccu0() {
-                // A period event is latched but the interrupt hasn't run yet, so period is stale
-                // and counter is fresh. `calc_now`'s XOR handles this.
-                // NOTE: You must NOT wait for the interrupt here: now() is called inside critical
-                // sections, where it would deadlock.
-                return calc_now(period, counter);
-            }
-
-            // NOTE: It seems that on the MSPM0, the LFCLK lags the timer interrupt by enough to be
-            // read multiple times without changing.
-            // The interrupt already advanced `period` while the counter is stale.
-
-            // The counter has just crossed into this period, so now ≈ period start.
-            return (period as u64) << 15;
+        // When the counter's top bit equals period parity, the two are coherent.
+        if (((counter >> 15) as u32) & 1) == (period & 1) {
+            return calc_now(period, counter);
         }
+
+        // The counter and period are incoherent.
+        let ris = regs.cpu_int(0).ris().read();
+        if ris.l() || ris.ccu0() {
+            // A period event is latched but the interrupt hasn't run yet, so period is stale
+            // and counter is fresh. `calc_now`'s XOR handles this.
+            // NOTE: You must NOT wait for the interrupt here: now() is called inside critical
+            // sections, where it would deadlock.
+            return calc_now(period, counter);
+        }
+
+        // NOTE: It seems that on the MSPM0, the LFCLK lags the timer interrupt by enough to be
+        // read multiple times without changing.
+        // The interrupt already advanced `period` while the counter is stale.
+
+        // The counter has just crossed into this period, so now ≈ period start.
+        return (period as u64) << 15;
     }
 
     fn schedule_wake(&self, at: u64, waker: &Waker) {
