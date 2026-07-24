@@ -118,8 +118,16 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     pub fn start(&mut self) {
-        // Apply the default configuration to the channel.
-        unsafe { self.channel.configure_linked_list(&self.table, self.options) };
+        unsafe {
+            self.channel.configure_linked_list_raw(
+                self.table.base_address(),
+                self.table.offset_address(0),
+                1,
+                self.table.transfer_count(),
+                self.options,
+                false,
+            );
+        }
         self.table.link(RunMode::Circular);
         self.channel.start();
     }
@@ -284,8 +292,16 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     pub fn start(&mut self) {
-        // Apply the default configuration to the channel.
-        unsafe { self.channel.configure_linked_list(&self.table, self.options) };
+        unsafe {
+            self.channel.configure_linked_list_raw(
+                self.table.base_address(),
+                self.table.offset_address(0),
+                1,
+                self.table.transfer_count(),
+                self.options,
+                false,
+            );
+        }
         self.table.link(RunMode::Circular);
 
         self.channel.start();

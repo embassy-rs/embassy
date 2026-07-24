@@ -21,6 +21,8 @@ use crate::rcc::WakeGuard;
 
 pub mod linked_list;
 pub mod ringbuffered;
+#[cfg(gpdma)]
+pub mod two_d;
 
 pub use vals::Pam as Packing;
 
@@ -58,6 +60,7 @@ impl DmaInfo {
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
     pub(crate) num: usize,
+    pub(crate) supports_2d: bool,
     #[cfg(feature = "_dual-core")]
     pub(crate) irq: pac::Interrupt,
     #[cfg(feature = "low-power")]
@@ -746,8 +749,20 @@ impl<'d> Channel<'d> {
         state.lli_state.transfer_count.store(0, Ordering::Relaxed)
     }
 
-    /// Configure a linked-list transfer.
-    unsafe fn configure_linked_list<const N: usize>(&self, table: &Table<N>, options: TransferOptions) {
+    /// Internal helper: configure the channel for a linked-list transfer.
+    ///
+    /// Accepts the raw table-derived values so that both `Table` and
+    /// `TwoDTable` can share the same channel setup logic.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn configure_linked_list_raw(
+        &self,
+        base_address: u16,
+        first_offset: u16,
+        item_count: usize,
+        total_transfer_count: usize,
+        options: TransferOptions,
+        is_2d: bool,
+    ) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
 
@@ -765,22 +780,28 @@ impl<'d> Channel<'d> {
             w.set_ulef(true);
             w.set_usef(true);
         });
-        ch.lbar().write(|reg| reg.set_lba(table.base_address()));
+        ch.lbar().write(|reg| reg.set_lba(base_address));
 
         // Empty LLI0.
         ch.br1().write(|w| w.set_bndt(0));
 
-        // Enable all linked-list field updates.
+        // Enable linked-list field updates. For 2D items the DMA must also
+        // load TR3 and BR2, so UT3/UB2 must be set in the initial LLR to
+        // match the 8-word TwoDItem layout (vs the 6-word LinearItem layout).
         ch.llr().write(|w| {
             w.set_ut1(true);
             w.set_ut2(true);
             w.set_ub1(true);
             w.set_usa(true);
             w.set_uda(true);
+            if is_2d {
+                w.set_ut3(true);
+                w.set_ub2(true);
+            }
             w.set_ull(true);
 
             // Lower two bits are ignored: 32 bit aligned.
-            w.set_la(table.offset_address(0) >> 2);
+            w.set_la(first_offset >> 2);
         });
 
         ch.tr3().write(|_| {}); // no address offsets.
@@ -796,12 +817,12 @@ impl<'d> Channel<'d> {
         });
 
         let state = &STATE[self.channel as usize];
-        state.lli_state.count.store(N, Ordering::Relaxed);
+        state.lli_state.count.store(item_count, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
         state
             .lli_state
             .transfer_count
-            .store(table.transfer_count(), Ordering::Relaxed)
+            .store(total_transfer_count, Ordering::Relaxed)
     }
 
     fn start(&self) {
@@ -1003,7 +1024,44 @@ impl<'d> Channel<'d> {
         table: &'a Table<N>,
         options: TransferOptions,
     ) -> LinkedListTransfer<'a> {
-        self.configure_linked_list(table, options);
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            false,
+        );
+        self.start();
+
+        LinkedListTransfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
+
+    /// Create a 2D linked-list DMA transfer.
+    ///
+    /// Requires a channel that supports 2D addressing. Panics if the
+    /// channel does not have 2D capability.
+    #[cfg(gpdma)]
+    pub unsafe fn linked_list_2d<'a, const N: usize>(
+        &'a mut self,
+        table: &'a two_d::TwoDTable<N>,
+        options: TransferOptions,
+    ) -> LinkedListTransfer<'a> {
+        assert!(
+            self.info().supports_2d,
+            "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+        );
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            true,
+        );
         self.start();
 
         LinkedListTransfer {
@@ -1025,7 +1083,41 @@ impl<'d> Channel<'d> {
     /// the channel registers, and that the `table` remains valid for the
     /// duration of the transfer.
     pub unsafe fn restart_linked_list<const N: usize>(&self, table: &Table<N>, options: TransferOptions) {
-        self.configure_linked_list(table, options);
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            false,
+        );
+        self.start();
+    }
+
+    /// Reconfigure and restart a 2D linked-list transfer from item[0].
+    ///
+    /// Requires a channel that supports 2D addressing. Panics if the
+    /// channel does not have 2D capability.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that no other code is concurrently accessing
+    /// the channel registers, and that the `table` remains valid for the
+    /// duration of the transfer.
+    #[cfg(gpdma)]
+    pub unsafe fn restart_linked_list_2d<const N: usize>(&self, table: &two_d::TwoDTable<N>, options: TransferOptions) {
+        assert!(
+            self.info().supports_2d,
+            "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+        );
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            true,
+        );
         self.start();
     }
 }

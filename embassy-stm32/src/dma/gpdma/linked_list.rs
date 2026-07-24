@@ -34,7 +34,7 @@ pub struct LinearItem {
     pub tr1: regs::ChTr1,
     /// Transfer register 2.
     pub tr2: regs::ChTr2,
-    /// Block register 2.
+    /// Block register 1.
     pub br1: regs::ChBr1,
     /// Source address register.
     pub sar: u32,
@@ -83,53 +83,9 @@ impl LinearItem {
         data_size: WordSize,
         dst_size: WordSize,
     ) -> Self {
-        // BNDT is specified as bytes, not as number of transfers.
-        let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
-            panic!("DMA transfers may not be larger than 65535 bytes.");
-        };
-
-        let mut br1 = regs::ChBr1(0);
-        br1.set_bndt(bndt);
-
-        let mut tr1 = regs::ChTr1(0);
-        tr1.set_sdw(data_size.into());
-        tr1.set_ddw(dst_size.into());
-        tr1.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
-        tr1.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
-
-        // Set AHB port assignments for GPDMA (LPDMA does not have SAP/DAP).
-        // This matches the logic in Channel::configure() for non-linked-list
-        // transfers: memory is on Port0 (AXI), peripheral is on Port1 (AHB).
-        #[cfg(gpdma)]
-        {
-            use stm32_metapac::gpdma::vals::Ap;
-            tr1.set_sap(match dir {
-                Dir::MemoryToPeripheral => Ap::Port0, // Source is memory on AXI
-                Dir::PeripheralToMemory => Ap::Port1, // Source is peripheral on AHB
-                Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
-            });
-            tr1.set_dap(match dir {
-                Dir::MemoryToPeripheral => Ap::Port1, // Destination is peripheral on AHB
-                Dir::PeripheralToMemory => Ap::Port0, // Destination is memory on AXI
-                Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
-            });
-        }
-
-        let mut tr2 = regs::ChTr2(0);
-        tr2.set_dreq(match dir {
-            Dir::MemoryToPeripheral => Dreq::DestinationPeripheral,
-            Dir::PeripheralToMemory => Dreq::SourcePeripheral,
-            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
-        });
-        tr2.set_reqsel(request);
-
-        let (sar, dar) = match dir {
-            Dir::MemoryToPeripheral => (mem_addr as _, peri_addr as _),
-            Dir::PeripheralToMemory => (peri_addr as _, mem_addr as _),
-            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
-        };
-
-        let llr = regs::ChLlr(0);
+        let (tr1, tr2, br1, sar, dar) = build_common_fields(
+            request, dir, peri_addr, mem_addr, mem_len, incr_mem, data_size, dst_size,
+        );
 
         Self {
             tr1,
@@ -137,13 +93,13 @@ impl LinearItem {
             br1,
             sar,
             dar,
-            llr,
+            llr: regs::ChLlr(0),
         }
     }
 
-    /// Link to the next linear item at the given address.
+    /// Link to the next linear item at the given offset address.
     ///
-    /// Enables channel update bits.
+    /// Enables update bits for all 6 linear-LLI fields (UT1, UT2, UB1, USA, UDA, ULL).
     pub fn link_to(&mut self, next: u16) {
         let mut llr = regs::ChLlr(0);
 
@@ -177,14 +133,71 @@ impl LinearItem {
         self.tr2.set_tcem(mode.into());
     }
 
-    /// The item's transfer count in number of words.
+    /// The item's transfer count in number of destination words.
     pub fn transfer_count(&self) -> usize {
         let word_size: WordSize = self.tr1.ddw().into();
         self.br1.bndt() as usize / word_size.bytes()
     }
 }
 
-/// A table of linked list items.
+/// Build the fields common to both linear and 2D items (TR1, TR2, BR1, SAR, DAR).
+#[allow(clippy::too_many_arguments)]
+pub(super) unsafe fn build_common_fields(
+    request: Request,
+    dir: Dir,
+    peri_addr: *const u32,
+    mem_addr: *mut u32,
+    mem_len: usize,
+    incr_mem: bool,
+    data_size: WordSize,
+    dst_size: WordSize,
+) -> (regs::ChTr1, regs::ChTr2, regs::ChBr1, u32, u32) {
+    let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
+        panic!("DMA transfers may not be larger than 65535 bytes.");
+    };
+
+    let mut br1 = regs::ChBr1(0);
+    br1.set_bndt(bndt);
+
+    let mut tr1 = regs::ChTr1(0);
+    tr1.set_sdw(data_size.into());
+    tr1.set_ddw(dst_size.into());
+    tr1.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
+    tr1.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+
+    #[cfg(gpdma)]
+    {
+        use stm32_metapac::gpdma::vals::Ap;
+        tr1.set_sap(match dir {
+            Dir::MemoryToPeripheral => Ap::Port0,
+            Dir::PeripheralToMemory => Ap::Port1,
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
+        });
+        tr1.set_dap(match dir {
+            Dir::MemoryToPeripheral => Ap::Port1,
+            Dir::PeripheralToMemory => Ap::Port0,
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
+        });
+    }
+
+    let mut tr2 = regs::ChTr2(0);
+    tr2.set_dreq(match dir {
+        Dir::MemoryToPeripheral => Dreq::DestinationPeripheral,
+        Dir::PeripheralToMemory => Dreq::SourcePeripheral,
+        Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
+    });
+    tr2.set_reqsel(request);
+
+    let (sar, dar) = match dir {
+        Dir::MemoryToPeripheral => (mem_addr as _, peri_addr as _),
+        Dir::PeripheralToMemory => (peri_addr as _, mem_addr as _),
+        Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
+    };
+
+    (tr1, tr2, br1, sar, dar)
+}
+
+/// A table of linear linked list items.
 #[repr(C)]
 pub struct Table<const ITEM_COUNT: usize> {
     /// The items.

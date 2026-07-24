@@ -2643,6 +2643,10 @@ fn main() {
 
         g.extend(quote!(dma_channel_impl!(#name, #irq_type);));
 
+        if ch.supports_2d.unwrap_or(false) {
+            g.extend(quote!(dma_channel_2d_impl!(#name);));
+        }
+
         let dma = format_ident!("{}", ch.dma);
         let ch_num = ch.channel as usize;
         let bi = dma_peri.registers.as_ref().unwrap();
@@ -2674,11 +2678,20 @@ fn main() {
             quote!()
         };
 
+        let supports_2d_field = match bi.kind {
+            "gpdma" | "lpdma" => {
+                let supports_2d = ch.supports_2d.unwrap_or(false);
+                quote!(supports_2d: #supports_2d,)
+            }
+            _ => quote!(),
+        };
+
         #[cfg(not(feature = "_dual-core"))]
         dmas.extend(quote! {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
                 num: #ch_num,
+                #supports_2d_field
                 #[cfg(feature = "low-power")]
                 stop_mode: crate::rcc::StopMode::#stop_mode,
                 #dmamux
@@ -2689,6 +2702,7 @@ fn main() {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
                 num: #ch_num,
+                #supports_2d_field
                 irq: #irq_pac,
                 #[cfg(feature = "low-power")]
                 stop_mode: crate::rcc::StopMode::#stop_mode,
