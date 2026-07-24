@@ -21,7 +21,7 @@ use crate::rcc::WakeGuard;
 
 pub mod linked_list;
 pub mod ringbuffered;
-#[cfg(gpdma)]
+#[cfg(gpdma2d)]
 pub mod two_d;
 
 pub use vals::Pam as Packing;
@@ -60,6 +60,7 @@ impl DmaInfo {
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
     pub(crate) num: usize,
+    #[cfg(gpdma2d)]
     pub(crate) supports_2d: bool,
     #[cfg(feature = "_dual-core")]
     pub(crate) irq: pac::Interrupt,
@@ -1044,7 +1045,7 @@ impl<'d> Channel<'d> {
     ///
     /// Requires a channel that supports 2D addressing. Panics if the
     /// channel does not have 2D capability.
-    #[cfg(gpdma)]
+    #[cfg(gpdma2d)]
     pub unsafe fn linked_list_2d<'a, const N: usize>(
         &'a mut self,
         table: &'a two_d::TwoDTable<N>,
@@ -1104,7 +1105,7 @@ impl<'d> Channel<'d> {
     /// The caller must ensure that no other code is concurrently accessing
     /// the channel registers, and that the `table` remains valid for the
     /// duration of the transfer.
-    #[cfg(gpdma)]
+    #[cfg(gpdma2d)]
     pub unsafe fn restart_linked_list_2d<const N: usize>(&self, table: &two_d::TwoDTable<N>, options: TransferOptions) {
         assert!(
             self.info().supports_2d,

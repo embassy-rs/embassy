@@ -166,6 +166,9 @@ fn main() {
         cfgs.enable("sdmmc_dlyb");
     }
 
+    // GPDMA 2D support: enabled when at least one GPDMA channel supports 2D addressing.
+    cfgs.declare("gpdma2d");
+
     // compile a map of peripherals with registers
     let peripheral_map: HashMap<&str, (&Peripheral, &PeripheralRegisters)> = METADATA
         .peripherals
@@ -2614,6 +2617,8 @@ fn main() {
         }
     }
 
+    let mut has_gpdma_2d = false;
+
     for ch in METADATA.dma_channels.iter() {
         let (dma_peri, _) = peripheral_map.get(ch.dma).unwrap();
         let stop_mode = dma_peri
@@ -2651,6 +2656,10 @@ fn main() {
         let ch_num = ch.channel as usize;
         let bi = dma_peri.registers.as_ref().unwrap();
 
+        if ch.supports_2d.unwrap_or(false) && bi.kind == "gpdma" {
+            has_gpdma_2d = true;
+        }
+
         let dma_info = match bi.kind {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
@@ -2681,7 +2690,7 @@ fn main() {
         let supports_2d_field = match bi.kind {
             "gpdma" | "lpdma" => {
                 let supports_2d = ch.supports_2d.unwrap_or(false);
-                quote!(supports_2d: #supports_2d,)
+                quote!(#[cfg(gpdma2d)] supports_2d: #supports_2d,)
             }
             _ => quote!(),
         };
@@ -2709,6 +2718,10 @@ fn main() {
                 #dmamux
             },
         });
+    }
+
+    if has_gpdma_2d {
+        cfgs.enable("gpdma2d");
     }
 
     g.extend(quote! {

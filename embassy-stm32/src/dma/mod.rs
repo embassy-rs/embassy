@@ -13,7 +13,7 @@ pub(crate) mod gpdma;
 pub use gpdma::linked_list::{LinearItem, RunMode, Table};
 #[cfg(any(gpdma, lpdma))]
 pub use gpdma::ringbuffered::*;
-#[cfg(gpdma)]
+#[cfg(gpdma2d)]
 pub use gpdma::two_d::{TwoDConfig, TwoDItem, TwoDTable};
 #[cfg(any(gpdma, lpdma))]
 pub use gpdma::*;
@@ -114,14 +114,14 @@ pub trait ChannelInstance: SealedChannelInstance + PeripheralType + 'static {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-#[cfg(gpdma)]
+#[cfg(gpdma2d)]
 pub(crate) trait SealedTwoDChannelInstance {}
 
 /// DMA channel with 2D addressing capability (block repeat with address offsets).
 ///
 /// This trait is only implemented for GPDMA channels that support 2D transfers.
 /// Use it as a bound to require a 2D-capable channel at compile time.
-#[cfg(gpdma)]
+#[cfg(gpdma2d)]
 #[allow(private_bounds)]
 pub trait TwoDChannelInstance: ChannelInstance + SealedTwoDChannelInstance {}
 
@@ -149,7 +149,7 @@ macro_rules! dma_channel_impl {
     };
 }
 
-#[cfg(gpdma)]
+#[cfg(gpdma2d)]
 macro_rules! dma_channel_2d_impl {
     ($channel_peri:ident) => {
         impl crate::dma::SealedTwoDChannelInstance for crate::peripherals::$channel_peri {}
