@@ -47,7 +47,10 @@ unsafe extern "C" {
 }
 
 /// Bind the real GPU2D peripheral. Call once, before `NeoChrom::new()`.
-pub fn init(peri: Peri<'static, GPU2D>, irq: impl Binding<<GPU2D as Gpu2dInstance>::Interrupt, Gpu2dInterruptHandler<GPU2D>> + 'static) {
+pub fn init(
+    peri: Peri<'static, GPU2D>,
+    irq: impl Binding<<GPU2D as Gpu2dInstance>::Interrupt, Gpu2dInterruptHandler<GPU2D>> + 'static,
+) {
     let driver = Gpu2d::new(peri, irq);
     critical_section::with(|cs| {
         *GPU2D_DRIVER.borrow(cs).borrow_mut() = Some(driver);

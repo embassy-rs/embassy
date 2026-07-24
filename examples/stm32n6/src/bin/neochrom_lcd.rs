@@ -88,10 +88,8 @@ async fn main(_spawner: Spawner) {
     panel.power_on().await;
 
     let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
-        p.LTDC, Irqs, p.PB13, p.PB14, p.PE11, p.PG13,
-        p.PG15, p.PA7, p.PB2, p.PG6, p.PH3, p.PH6, p.PA8, p.PA2,
-        p.PG12, p.PG1, p.PA1, p.PA0, p.PB15, p.PB12, p.PB11, p.PG8,
-        p.PG0, p.PD9, p.PD15, p.PB4, p.PH4, p.PA15, p.PG11, p.PD8,
+        p.LTDC, Irqs, p.PB13, p.PB14, p.PE11, p.PG13, p.PG15, p.PA7, p.PB2, p.PG6, p.PH3, p.PH6, p.PA8, p.PA2, p.PG12,
+        p.PG1, p.PA1, p.PA0, p.PB15, p.PB12, p.PB11, p.PG8, p.PG0, p.PD9, p.PD15, p.PB4, p.PH4, p.PA15, p.PG11, p.PD8,
     );
     ltdc.init(&LTDC_CONFIG);
 
@@ -124,12 +122,7 @@ async fn main(_spawner: Spawner) {
     let fbs = [fb0.as_ptr(), fb1.as_ptr()];
     let mut back_idx = 1;
 
-    let colors = [
-        Rgba8888::RED,
-        Rgba8888::GREEN,
-        Rgba8888::BLUE,
-        Rgba8888::WHITE,
-    ];
+    let colors = [Rgba8888::RED, Rgba8888::GREEN, Rgba8888::BLUE, Rgba8888::WHITE];
     let mut color_idx = 0usize;
     let mut fps_start = Instant::now();
     let mut frame_count = 0u32;
@@ -179,7 +172,12 @@ fn promote_display_and_gpu_masters() {
     for rif_master in [RifMaster::Gpu2d, RifMaster::Dma2d, RifMaster::LtdcL1, RifMaster::LtdcL2] {
         rif_master.set_attributes(&RifMasterAttributes::new(1, true, true));
     }
-    for rif_periph in [RifPeripheral::Gpu2d, RifPeripheral::Dma2d, RifPeripheral::LtdcL1, RifPeripheral::LtdcL2] {
+    for rif_periph in [
+        RifPeripheral::Gpu2d,
+        RifPeripheral::Dma2d,
+        RifPeripheral::LtdcL1,
+        RifPeripheral::LtdcL2,
+    ] {
         rif_periph.set_attributes(&RifPeripheralAttributes::new(true, true));
     }
 }

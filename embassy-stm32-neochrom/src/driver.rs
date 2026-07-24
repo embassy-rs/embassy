@@ -3,8 +3,7 @@
 use crate::color::Rgba8888;
 use crate::error::{Error, InitError};
 use crate::ffi::nema_gfx::{
-    nema_bind_dst_tex, nema_cl_bind, nema_cl_create, nema_cl_submit, nema_cl_wait, nema_clear, nema_init,
-    NEMA_RGBA8888,
+    NEMA_RGBA8888, nema_bind_dst_tex, nema_cl_bind, nema_cl_create, nema_cl_submit, nema_cl_wait, nema_clear, nema_init,
 };
 use crate::framebuffer::FrameBuffer;
 
@@ -204,7 +203,7 @@ impl NeoChrom {
         dst_y: i32,
     ) -> Result<(), Error> {
         unsafe {
-            use crate::ffi::nema_gfx::{nema_bind_src_tex, nema_blit, NEMA_TEX_BORDER};
+            use crate::ffi::nema_gfx::{NEMA_TEX_BORDER, nema_bind_src_tex, nema_blit};
             nema_bind_dst_tex(dst.phys_addr(), DW, DH, NEMA_RGBA8888, -1);
             nema_bind_src_tex(src.phys_addr(), SW, SH, NEMA_RGBA8888, -1, NEMA_TEX_BORDER as u8);
 
@@ -306,7 +305,14 @@ impl NeoChrom {
     }
 
     /// Blit source texture `src` to `dst` at (`dst_x`, `dst_y`) scaled to `dst_w` x `dst_h`.
-    pub fn blit_rect_fit<const DW: u32, const DH: u32, const DN: usize, const SW: u32, const SH: u32, const SN: usize>(
+    pub fn blit_rect_fit<
+        const DW: u32,
+        const DH: u32,
+        const DN: usize,
+        const SW: u32,
+        const SH: u32,
+        const SN: usize,
+    >(
         &mut self,
         dst: &FrameBuffer<DW, DH, DN>,
         src: &FrameBuffer<SW, SH, SN>,
@@ -316,7 +322,7 @@ impl NeoChrom {
         dst_h: i32,
     ) -> Result<(), Error> {
         unsafe {
-            use crate::ffi::nema_gfx::{nema_bind_src_tex, nema_blit_rect_fit, NEMA_TEX_BORDER};
+            use crate::ffi::nema_gfx::{NEMA_TEX_BORDER, nema_bind_src_tex, nema_blit_rect_fit};
             nema_bind_dst_tex(dst.phys_addr(), DW, DH, NEMA_RGBA8888, -1);
             nema_bind_src_tex(src.phys_addr(), SW, SH, NEMA_RGBA8888, -1, NEMA_TEX_BORDER as u8);
 
@@ -342,7 +348,7 @@ impl NeoChrom {
         angle_degrees: u32,
     ) -> Result<(), Error> {
         unsafe {
-            use crate::ffi::nema_gfx::{nema_bind_src_tex, nema_blit_rotate, NEMA_TEX_BORDER};
+            use crate::ffi::nema_gfx::{NEMA_TEX_BORDER, nema_bind_src_tex, nema_blit_rotate};
             nema_bind_dst_tex(dst.phys_addr(), DW, DH, NEMA_RGBA8888, -1);
             nema_bind_src_tex(src.phys_addr(), SW, SH, NEMA_RGBA8888, -1, NEMA_TEX_BORDER as u8);
 
@@ -359,7 +365,14 @@ impl NeoChrom {
     }
 
     /// Blit source texture `src` to `dst` with rotation around center (`cx`, `cy`) and pivot (`px`, `py`).
-    pub fn blit_rotate_pivot<const DW: u32, const DH: u32, const DN: usize, const SW: u32, const SH: u32, const SN: usize>(
+    pub fn blit_rotate_pivot<
+        const DW: u32,
+        const DH: u32,
+        const DN: usize,
+        const SW: u32,
+        const SH: u32,
+        const SN: usize,
+    >(
         &mut self,
         dst: &FrameBuffer<DW, DH, DN>,
         src: &FrameBuffer<SW, SH, SN>,
@@ -370,7 +383,7 @@ impl NeoChrom {
         angle_degrees: f32,
     ) -> Result<(), Error> {
         unsafe {
-            use crate::ffi::nema_gfx::{nema_bind_src_tex, nema_blit_rotate_pivot, NEMA_TEX_BORDER};
+            use crate::ffi::nema_gfx::{NEMA_TEX_BORDER, nema_bind_src_tex, nema_blit_rotate_pivot};
             nema_bind_dst_tex(dst.phys_addr(), DW, DH, NEMA_RGBA8888, -1);
             nema_bind_src_tex(src.phys_addr(), SW, SH, NEMA_RGBA8888, -1, NEMA_TEX_BORDER as u8);
 
@@ -388,7 +401,14 @@ impl NeoChrom {
 
     /// Blit sub-rectangle of source texture `src` (`src_x`,`src_y`,`src_w`,`src_h`) to destination `dst` (`dst_x`,`dst_y`,`dst_w`,`dst_h`).
     #[allow(clippy::too_many_arguments)]
-    pub fn blit_subrect_fit<const DW: u32, const DH: u32, const DN: usize, const SW: u32, const SH: u32, const SN: usize>(
+    pub fn blit_subrect_fit<
+        const DW: u32,
+        const DH: u32,
+        const DN: usize,
+        const SW: u32,
+        const SH: u32,
+        const SN: usize,
+    >(
         &mut self,
         dst: &FrameBuffer<DW, DH, DN>,
         src: &FrameBuffer<SW, SH, SN>,
@@ -402,7 +422,7 @@ impl NeoChrom {
         src_h: i32,
     ) -> Result<(), Error> {
         unsafe {
-            use crate::ffi::nema_gfx::{nema_bind_src_tex, nema_blit_subrect_fit, NEMA_TEX_BORDER};
+            use crate::ffi::nema_gfx::{NEMA_TEX_BORDER, nema_bind_src_tex, nema_blit_subrect_fit};
             nema_bind_dst_tex(dst.phys_addr(), DW, DH, NEMA_RGBA8888, -1);
             nema_bind_src_tex(src.phys_addr(), SW, SH, NEMA_RGBA8888, -1, NEMA_TEX_BORDER as u8);
 
@@ -420,7 +440,14 @@ impl NeoChrom {
 
     /// Blit source texture `src` to destination `dst` warped into quadrilateral defined by 4 vertices.
     #[allow(clippy::too_many_arguments)]
-    pub fn blit_quad_fit<const DW: u32, const DH: u32, const DN: usize, const SW: u32, const SH: u32, const SN: usize>(
+    pub fn blit_quad_fit<
+        const DW: u32,
+        const DH: u32,
+        const DN: usize,
+        const SW: u32,
+        const SH: u32,
+        const SN: usize,
+    >(
         &mut self,
         dst: &FrameBuffer<DW, DH, DN>,
         src: &FrameBuffer<SW, SH, SN>,
@@ -434,7 +461,7 @@ impl NeoChrom {
         dy3: f32,
     ) -> Result<(), Error> {
         unsafe {
-            use crate::ffi::nema_gfx::{nema_bind_src_tex, nema_blit_quad_fit, NEMA_TEX_BORDER};
+            use crate::ffi::nema_gfx::{NEMA_TEX_BORDER, nema_bind_src_tex, nema_blit_quad_fit};
             nema_bind_dst_tex(dst.phys_addr(), DW, DH, NEMA_RGBA8888, -1);
             nema_bind_src_tex(src.phys_addr(), SW, SH, NEMA_RGBA8888, -1, NEMA_TEX_BORDER as u8);
 
@@ -454,15 +481,27 @@ impl NeoChrom {
     pub fn set_blend_fill(&mut self, mode: BlendMode) {
         unsafe {
             use crate::ffi::nema_gfx::{nema_set_blend, nema_tex_t_NEMA_NOTEX, nema_tex_t_NEMA_TEX0};
-            nema_set_blend(mode as u32, nema_tex_t_NEMA_TEX0, nema_tex_t_NEMA_NOTEX, nema_tex_t_NEMA_NOTEX);
+            nema_set_blend(
+                mode as u32,
+                nema_tex_t_NEMA_TEX0,
+                nema_tex_t_NEMA_NOTEX,
+                nema_tex_t_NEMA_NOTEX,
+            );
         }
     }
 
     /// Set the GPU blending mode for blit operations.
     pub fn set_blend_blit(&mut self, mode: BlendMode) {
         unsafe {
-            use crate::ffi::nema_gfx::{nema_set_blend, nema_tex_t_NEMA_NOTEX, nema_tex_t_NEMA_TEX0, nema_tex_t_NEMA_TEX1};
-            nema_set_blend(mode as u32, nema_tex_t_NEMA_TEX0, nema_tex_t_NEMA_TEX1, nema_tex_t_NEMA_NOTEX);
+            use crate::ffi::nema_gfx::{
+                nema_set_blend, nema_tex_t_NEMA_NOTEX, nema_tex_t_NEMA_TEX0, nema_tex_t_NEMA_TEX1,
+            };
+            nema_set_blend(
+                mode as u32,
+                nema_tex_t_NEMA_TEX0,
+                nema_tex_t_NEMA_TEX1,
+                nema_tex_t_NEMA_NOTEX,
+            );
         }
     }
 
@@ -496,13 +535,25 @@ impl NeoChrom {
     ) -> Result<(), Error> {
         unsafe {
             use crate::ffi::nema_gfx::{
-                nema_bind_src_tex, nema_blit, nema_set_blend, nema_set_tex_color, NEMA_A8, NEMA_FILTER_BL,
+                NEMA_A8, NEMA_FILTER_BL, nema_bind_src_tex, nema_blit, nema_set_blend, nema_set_tex_color,
                 nema_tex_t_NEMA_NOTEX, nema_tex_t_NEMA_TEX0, nema_tex_t_NEMA_TEX1,
             };
             nema_bind_dst_tex(dst.phys_addr(), DW, DH, crate::ffi::nema_gfx::NEMA_RGBA8888, -1);
-            nema_bind_src_tex(mask_phys_addr, mask_w, mask_h, NEMA_A8, mask_stride, NEMA_FILTER_BL as u8);
+            nema_bind_src_tex(
+                mask_phys_addr,
+                mask_w,
+                mask_h,
+                NEMA_A8,
+                mask_stride,
+                NEMA_FILTER_BL as u8,
+            );
             nema_set_tex_color(color.bits());
-            nema_set_blend(BlendMode::Simple as u32, nema_tex_t_NEMA_TEX0, nema_tex_t_NEMA_TEX1, nema_tex_t_NEMA_NOTEX);
+            nema_set_blend(
+                BlendMode::Simple as u32,
+                nema_tex_t_NEMA_TEX0,
+                nema_tex_t_NEMA_TEX1,
+                nema_tex_t_NEMA_NOTEX,
+            );
 
             let mut cl = nema_cl_create();
             nema_cl_bind(&mut cl);
