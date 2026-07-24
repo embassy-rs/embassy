@@ -1,10 +1,27 @@
 //! Minimal register map for the ST Neural-ART accelerator ("ATON") on STM32N6.
 //!
-//! The NPU is not described in `stm32-metapac` (ST does not ship SVD data for
-//! it), so the handful of registers the runtime needs are defined here by
-//! hand. Names, offsets and bit positions are taken from the generated
+//! # Why this is not `stm32_metapac::npu`
+//!
+//! Embassy's usual convention is to reach peripherals through `crate::pac::*`
+//! (i.e. `stm32-metapac`, which is generated from `stm32-data` chiptool YAML,
+//! which in turn is derived from ST's SVDs plus hand-authored overrides).
+//! The STM32N657 SVD ST publishes today (checked against `STM32N657.svd`)
+//! *does* describe the NPU at the system integration level — the five NVIC
+//! lines (`NPU_end_of_epoch`, `NPU1..3`, `NPUCACHE`) and the RCC bits
+//! (`NPUEN`, `NPURST`, `NPUCACHEEN`, `NPULPEN`, ...) are all there and
+//! reachable via `stm32-metapac` as usual. What is **not** described is the
+//! ATON register block itself at `0x480E_0000`: no `<peripheral>` entry for
+//! the epoch controller, streaming engines, stream switch, bus interfaces,
+//! interrupt controller or cache maintenance unit. That is roughly 140 KB of
+//! register space that the reference manual documents but the SVD does not.
+//!
+//! Names, offsets and bit positions are taken from the generated
 //! `ATON.h` of the STM32N6 (Neural-ART machine description, ATON IP v1.x) as
 //! shipped with ST Edge AI / X-CUBE-AI.
+//!
+//! Clock/reset gating and NVIC unmasking still go through metapac (`RCC` and
+//! `crate::interrupt::typelevel::NPU*`) — only the ATON-internal register
+//! map is hand-rolled.
 //!
 //! Only the units the epoch-controller execution model touches are described:
 //!
@@ -134,24 +151,24 @@ pub const fn streng_reg(n: usize, off: u32) -> u32 {
     STRENG_BASE + 0x1000 * n as u32 + off
 }
 
-pub const STRENG_CTRL_OFF:      u32 = 0x00;
-pub const STRENG_ADDR_OFF:      u32 = 0x08;
-pub const STRENG_FSIZE_OFF:     u32 = 0x0C;
-pub const STRENG_DEPTH_OFF:     u32 = 0x10;
-pub const STRENG_STRD_OFF:      u32 = 0x14;
-pub const STRENG_FOFFSET_OFF:   u32 = 0x18;
+pub const STRENG_CTRL_OFF: u32 = 0x00;
+pub const STRENG_ADDR_OFF: u32 = 0x08;
+pub const STRENG_FSIZE_OFF: u32 = 0x0C;
+pub const STRENG_DEPTH_OFF: u32 = 0x10;
+pub const STRENG_STRD_OFF: u32 = 0x14;
+pub const STRENG_FOFFSET_OFF: u32 = 0x18;
 pub const STRENG_FRAME_RPT_OFF: u32 = 0x1C;
-pub const STRENG_FRPTOFF_OFF:   u32 = 0x20;
-pub const STRENG_POS_OFF:       u32 = 0x24;
-pub const STRENG_EVENT_OFF:     u32 = 0x28;
-pub const STRENG_STOPTAG_OFF:   u32 = 0x2C;
-pub const STRENG_LIMITEN_OFF:   u32 = 0x30;
-pub const STRENG_LIMIT_OFF:     u32 = 0x34;
+pub const STRENG_FRPTOFF_OFF: u32 = 0x20;
+pub const STRENG_POS_OFF: u32 = 0x24;
+pub const STRENG_EVENT_OFF: u32 = 0x28;
+pub const STRENG_STOPTAG_OFF: u32 = 0x2C;
+pub const STRENG_LIMITEN_OFF: u32 = 0x30;
+pub const STRENG_LIMIT_OFF: u32 = 0x34;
 pub const STRENG_LIMITADDR_OFF: u32 = 0x38;
-pub const STRENG_IRQ_OFF:       u32 = 0x3C;
+pub const STRENG_IRQ_OFF: u32 = 0x3C;
 pub const STRENG_CID_CACHE_OFF: u32 = 0x48;
-pub const STRENG_EXTSYNC_OFF:   u32 = 0x4C;
-pub const STRENG_EXTSYNC2_OFF:  u32 = 0x50;
+pub const STRENG_EXTSYNC_OFF: u32 = 0x4C;
+pub const STRENG_EXTSYNC2_OFF: u32 = 0x50;
 pub const STRENG_DESCRADDR_OFF: u32 = 0x54;
 
 /// Streaming engine IRQ status register (write back the read value to ack).
@@ -161,14 +178,14 @@ pub const fn streng_irq(n: usize) -> u32 {
 }
 
 // STRENG CTRL bit positions (see ATON.h ATON_STRENG_CTRL_*_LSB).
-pub const STRENG_CTRL_EN:      u32 = 1 << 0;
-pub const STRENG_CTRL_CLR:     u32 = 1 << 1;
-pub const STRENG_CTRL_SINGLE:  u32 = 1 << 2;
-pub const STRENG_CTRL_DIR:     u32 = 1 << 3;
-pub const STRENG_CTRL_NOINC:   u32 = 1 << 4;
-pub const STRENG_CTRL_CONT:    u32 = 1 << 7;
-pub const STRENG_CTRL_RAW:     u32 = 1 << 8;
-pub const STRENG_CTRL_NOBLK:   u32 = 1 << 11;
+pub const STRENG_CTRL_EN: u32 = 1 << 0;
+pub const STRENG_CTRL_CLR: u32 = 1 << 1;
+pub const STRENG_CTRL_SINGLE: u32 = 1 << 2;
+pub const STRENG_CTRL_DIR: u32 = 1 << 3;
+pub const STRENG_CTRL_NOINC: u32 = 1 << 4;
+pub const STRENG_CTRL_CONT: u32 = 1 << 7;
+pub const STRENG_CTRL_RAW: u32 = 1 << 8;
+pub const STRENG_CTRL_NOBLK: u32 = 1 << 11;
 pub const STRENG_CTRL_LSBMODE: u32 = 1 << 14;
 pub const STRENG_CTRL_SIGNEXT: u32 = 1 << 15;
 pub const STRENG_CTRL_SIZE0_LSB: u32 = 16; // 4-bit field
@@ -183,7 +200,7 @@ pub const STRENG_FSIZE_HEIGHT_LSB: u32 = 16;
 pub const STRENG_DEPTH_OFFSET_LSB: u32 = 16;
 // STRENG STRD: LOFF[15:0], FGAP[21:16], BGAP[29:24].
 // STRENG LIMITEN: ADDRLIMIT bit0, STOPPREFTC bit1, FRAMELIMIT bit2, DOFF_MSB[31:16].
-pub const STRENG_LIMITEN_ADDRLIMIT:  u32 = 1 << 0;
+pub const STRENG_LIMITEN_ADDRLIMIT: u32 = 1 << 0;
 pub const STRENG_LIMITEN_STOPPREFTC: u32 = 1 << 1;
 pub const STRENG_LIMITEN_FRAMELIMIT: u32 = 1 << 2;
 pub const STRENG_LIMITEN_DOFF_MSB_LSB: u32 = 16;
@@ -197,7 +214,7 @@ pub const STRENG_LIMITEN_DOFF_MSB_LSB: u32 = 16;
 //   EN_ILLCFG    bit 20: illegal-configuration error.
 pub const STRENG_EVENT_EN_OFLOW_ADD: u32 = 1 << 18;
 pub const STRENG_EVENT_EN_OFLOW_FRM: u32 = 1 << 19;
-pub const STRENG_EVENT_EN_ILLCFG:    u32 = 1 << 20;
+pub const STRENG_EVENT_EN_ILLCFG: u32 = 1 << 20;
 
 // ── STRSWITCH ───────────────────────────────────────────────────────────────
 
@@ -205,8 +222,8 @@ pub const STRSWITCH_BASE: u32 = ATON_BASE + 0x4000; // unit 0 of 1
 
 /// Stream switch CTRL. Bit 0 = EN, bit 1 = CLR, bit 30 = CONFCLR.
 pub const STRSWITCH_CTRL: u32 = STRSWITCH_BASE + 0x00;
-pub const STRSWITCH_CTRL_EN:      u32 = 1 << 0;
-pub const STRSWITCH_CTRL_CLR:     u32 = 1 << 1;
+pub const STRSWITCH_CTRL_EN: u32 = 1 << 0;
+pub const STRSWITCH_CTRL_CLR: u32 = 1 << 1;
 pub const STRSWITCH_CTRL_CONFCLR: u32 = 1 << 30;
 
 /// Stream-switch destination-port register for destination index `idx`
@@ -221,14 +238,18 @@ pub const fn strswitch_dst(idx: usize) -> u32 {
 /// Destination-index in the stream switch DST-register array for STRENG `n`
 /// (matches `ATON_STRSWITCH_0_DSTSTRENG_n_0_IDX == n`).
 #[inline(always)]
-pub const fn strsw_dst_idx_streng(n: usize) -> usize { n }
+pub const fn strsw_dst_idx_streng(n: usize) -> usize {
+    n
+}
 
 /// Source-port ID for STRENG `n` (matches
 /// `ATON_STRSWITCH_0_LINK_STRENG_n_0 == n`).
 #[inline(always)]
-pub const fn strsw_src_streng(n: usize) -> u32 { n as u32 }
+pub const fn strsw_src_streng(n: usize) -> u32 {
+    n as u32
+}
 
-pub const STRSW_DST_EN0:      u32 = 1 << 0;
+pub const STRSW_DST_EN0: u32 = 1 << 0;
 pub const STRSW_DST_LINK0_LSB: u32 = 1; // 6-bit field
 
 // ── EPOCHCTRL ───────────────────────────────────────────────────────────────

@@ -78,6 +78,11 @@
 
 pub mod cache;
 pub mod ecloader;
+/// Raw ATON register map. Exposed as an intentional low-level route
+/// for advanced users that need to compose their own streaming-engine
+/// helpers on top of the epoch-controller-oriented driver (e.g. a
+/// hardware-DMA transpose). Names mirror the ATON reference-manual naming;
+/// no stability guarantees are made about this module.
 pub mod regs;
 
 use core::future::poll_fn;
@@ -120,7 +125,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             let v = regs::read(regs::EPOCHCTRL_IRQ);
             regs::write(regs::EPOCHCTRL_IRQ, v);
         }
-        let streng = (irqs & regs::INT_STRENG_EVT_MASK) | ((irqs & regs::INT_STRENG_ERR_MASK) >> regs::INT_STRENG_ERR_SHIFT);
+        let streng =
+            (irqs & regs::INT_STRENG_EVT_MASK) | ((irqs & regs::INT_STRENG_ERR_MASK) >> regs::INT_STRENG_ERR_SHIFT);
         for i in 0..regs::STRENG_NUM {
             if streng & (1 << i) != 0 {
                 let v = regs::read(regs::streng_irq(i));
@@ -163,9 +169,6 @@ pub enum Error {
     EpochControllerTeardown(u32),
     /// One or more streaming engines reported an error (bitmask by engine).
     StreamingEngine(u16),
-    /// A streaming engine did not complete CLR/CONFCLR teardown. Contains
-    /// `(engine index, final raw STRENG.CTRL value)`.
-    StreamingEngineTeardown(u8, u32),
     /// One or more bus interfaces reported an error (bitmask by unit).
     BusInterface(u8),
     /// Unexpected interrupt source(s) (raw INTCTRL bitmask).
@@ -238,7 +241,10 @@ impl<'d, T: Instance> Npu<'d, T> {
     /// Enables the NPU kernel clock, resets the IP, ungates all ATON-internal
     /// unit clocks, enables the bus interfaces and configures the interrupt
     /// controller (the equivalent of `LL_ATON_RT_RuntimeInit()`).
-    pub fn new(peri: Peri<'d, T>, _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd) -> Self {
+    pub fn new(
+        peri: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
         // Kernel clock + reset pulse.
         // Match ST's LL_AHB5 helpers: use the atomic set/clear aliases and
         // read AHB5ENR back after enabling to provide the documented RCC

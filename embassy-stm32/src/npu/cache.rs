@@ -3,9 +3,12 @@
 //! Two caches sit between the memories and the compute:
 //!
 //! - **CACHEAXI** ("NPU cache"): a write-back cache on the NPU's AXI masters,
-//!   used for weights/activations in external memory. Not described in
-//!   `stm32-metapac`, so it is driven here through a minimal hand-written
-//!   register map (offsets from RM0486 / the STM32N6 CMSIS device header).
+//!   used for weights/activations in external memory. The peripheral base is
+//!   exposed by `stm32-metapac` (as `pac::CACHEAXI`, an opaque `*mut ()`),
+//!   but its register block is not currently modelled in `stm32-data` — so
+//!   the individual registers are still accessed here through a minimal
+//!   hand-written map (offsets from RM0486 / the STM32N6 CMSIS device
+//!   header). Clock and reset still go through `pac::RCC`.
 //! - **The Cortex-M55 data cache**: when input/output buffers live in
 //!   MCU-cacheable memory, the CPU cache must be cleaned before the NPU reads
 //!   and invalidated before the CPU reads back results. The generated network
