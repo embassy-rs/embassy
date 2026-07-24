@@ -1184,6 +1184,27 @@ fn main() {
         (("dcmi", "HSYNC"), quote!(crate::dcmi::HSyncPin)),
         (("dcmi", "VSYNC"), quote!(crate::dcmi::VSyncPin)),
         (("dcmi", "PIXCLK"), quote!(crate::dcmi::PixClkPin)),
+        (("pssi", "D0"), quote!(crate::pssi::D0Pin)),
+        (("pssi", "D1"), quote!(crate::pssi::D1Pin)),
+        (("pssi", "D2"), quote!(crate::pssi::D2Pin)),
+        (("pssi", "D3"), quote!(crate::pssi::D3Pin)),
+        (("pssi", "D4"), quote!(crate::pssi::D4Pin)),
+        (("pssi", "D5"), quote!(crate::pssi::D5Pin)),
+        (("pssi", "D6"), quote!(crate::pssi::D6Pin)),
+        (("pssi", "D7"), quote!(crate::pssi::D7Pin)),
+        (("pssi", "D8"), quote!(crate::pssi::D8Pin)),
+        (("pssi", "D9"), quote!(crate::pssi::D9Pin)),
+        (("pssi", "D10"), quote!(crate::pssi::D10Pin)),
+        (("pssi", "D11"), quote!(crate::pssi::D11Pin)),
+        (("pssi", "D12"), quote!(crate::pssi::D12Pin)),
+        (("pssi", "D13"), quote!(crate::pssi::D13Pin)),
+        (("pssi", "D14"), quote!(crate::pssi::D14Pin)),
+        (("pssi", "D15"), quote!(crate::pssi::D15Pin)),
+        (("pssi", "PDCK"), quote!(crate::pssi::PdckPin)),
+        (("pssi", "DE"), quote!(crate::pssi::DePin)),
+        (("pssi", "RDY"), quote!(crate::pssi::RdyPin)),
+        (("mdios", "MDC"), quote!(crate::mdios::MdcPin)),
+        (("mdios", "MDIO"), quote!(crate::mdios::MdioPin)),
         (("dsihost", "TE"), quote!(crate::dsihost::TePin)),
         (("ltdc", "CLK"), quote!(crate::ltdc::ClkPin)),
         (("ltdc", "HSYNC"), quote!(crate::ltdc::HsyncPin)),
@@ -1865,8 +1886,8 @@ fn main() {
                     }
                 }
 
-                // MDIO and MDC are special
-                if pin.signal == "MDIO" || pin.signal == "MDC" {
+                // MDIO and MDC are special for ETH
+                if (pin.signal == "MDIO" || pin.signal == "MDC") && p.name.starts_with("ETH") {
                     peri = format_ident!("{}", "ETH_SMA");
                 }
 
@@ -2112,6 +2133,7 @@ fn main() {
         (("i2c", "TX"), quote!(crate::i2c::TxDma)),
         (("dcmi", "DCMI"), quote!(crate::dcmi::FrameDma)),
         (("dcmi", "PSSI"), quote!(crate::dcmi::FrameDma)),
+        (("pssi", "PSSI"), quote!(crate::pssi::Dma)),
         // SDMMCv1 uses the same channel for both directions, so just implement for RX
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
