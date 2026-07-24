@@ -102,13 +102,34 @@ impl<'d> Adc<'d> {
         });
 
         adc.ctrl().modify(|w| {
+            // Auto calibration request
             w.set_cal_req(vals::CalReq::CAL_REQ_1)
         });
 
-        while adc.ctrl().read().cal_req() == vals::CalReq::CAL_REQ_1 {
-            // wait
-            defmt::info!("Waiting for calibration");
+        defmt::info!("Waiting for calibration");
+
+        // Calibration sequence
+        // Reference: https://github.com/lpc55/lpc55-hal/blob/main/src/peripherals/adc.rs#L78
+        while (adc.gcc(0).read().rdy().to_bits() == 0) || (adc.gcc(1).read().rdy().to_bits() == 0) {
+            defmt::info!("GCC0: {}", adc.gcc(0).read().rdy().to_bits());
+            defmt::info!("GCC1: {}", adc.gcc(1).read().rdy().to_bits());
         }
+
+        let gain_a = adc.gcc(0).read().gain_cal();
+        let gain_b = adc.gcc(1).read().gain_cal();
+        defmt::info!("gain a {}", gain_a);
+
+        let gcr_a = (((gain_a as u32) << 16) / (0x1FFFFu32 - gain_a as u32)) as u16;
+        let gcr_b = (((gain_b as u32) << 16) / (0x1FFFFu32 - gain_b as u32)) as u16;
+
+        adc.gcr(0).write(|w| w.set_gcalr(gcr_a));
+        adc.gcr(1).write(|w| w.set_gcalr(gcr_b));
+
+        adc.gcr(0).write(|w| w.set_rdy(1.into()));
+        adc.gcr(1).write(|w| w.set_rdy(1.into()));
+
+        while !(adc.stat().read().cal_rdy().to_bits() != 0) {}
+
         defmt::info!("Calibration completed");
 
         Self { adc, config }
@@ -125,9 +146,9 @@ impl<'d> Adc<'d> {
         });
 
         let mut result_reg = self.adc.resfifo(0).read();
+        defmt::info!("Waiting for FIFO0 to become valid");
         while !(result_reg.valid() == vals::Valid::VALID_1) {
             result_reg = self.adc.resfifo(0).read();
-            defmt::info!("dskjfhsghf");
         }
 
         let data_raw = result_reg.d();
