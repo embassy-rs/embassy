@@ -599,13 +599,13 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
         //
         // It's important that `start` and `end` be updated in this order so they're left in a
         // consistent state if the `read` future is dropped mid-execution, e.g. from a timeout.
-        match self.receiver.read_packet(&mut self.buffer).await {
+        match self.receiver.read_packet(self.buffer).await {
             Ok(n) => self.end = n,
             Err(EndpointError::BufferOverflow) => unreachable!(),
             Err(EndpointError::Disabled) => return Err(CdcAcmError::NotConnected),
         }
         self.start = 0;
-        return Ok(self.read_from_buffer(buf));
+        Ok(self.read_from_buffer(buf))
     }
 }
 
@@ -626,7 +626,7 @@ pub enum StopBits {
 impl From<u8> for StopBits {
     fn from(value: u8) -> Self {
         if value <= 2 {
-            unsafe { mem::transmute(value) }
+            unsafe { mem::transmute::<u8, StopBits>(value) }
         } else {
             StopBits::One
         }
@@ -652,7 +652,7 @@ pub enum ParityType {
 impl From<u8> for ParityType {
     fn from(value: u8) -> Self {
         if value <= 4 {
-            unsafe { mem::transmute(value) }
+            unsafe { mem::transmute::<u8, ParityType>(value) }
         } else {
             ParityType::None
         }

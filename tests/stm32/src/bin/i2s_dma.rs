@@ -1,8 +1,4 @@
-// This example is written for an STM32F411 chip communicating with an external
-// PCM5102a DAC. Remap pins, change clock speeds, etc. as necessary for your own
-// hardware.
-//
-// NOTE: This example outputs potentially loud audio. Please run responsibly.
+// required-features: i2s_f4
 
 #![no_std]
 #![no_main]
@@ -13,11 +9,17 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
+teleprobe_meta::target!(b"nucleo-stm32f429zi");
+
 bind_interrupts!(struct Irqs {
     DMA1_STREAM7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
 });
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let config = {
         use embassy_stm32::rcc::*;
@@ -79,21 +81,16 @@ async fn main(_spawner: Spawner) {
         Irqs,
         i2s_config,
     );
-    i2s.start();
 
-    for _ in 0..10 {
-        i2s.write(&wavetable).await.ok();
+    for _ in 0..3 {
+        i2s.start();
+
+        for _ in 0..10 {
+            i2s.write(&wavetable).await.ok();
+        }
+
+        i2s.stop().await;
     }
-
-    i2s.stop().await;
-
-    i2s.start();
-
-    for _ in 0..10 {
-        i2s.write(&wavetable).await.ok();
-    }
-
-    i2s.stop().await;
 
     cortex_m::asm::bkpt();
 }

@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-// required-features: dac
+// required-features: adc
 
 #[path = "../common.rs"]
 mod common;

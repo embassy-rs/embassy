@@ -108,7 +108,11 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
+    fn configure_sequence(
+        &self,
+        sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>,
+        _injected: bool,
+    ) {
         let mut needs_hw = sequence.len() == 1 || sequence.len() > CHSELR_SQ_SIZE;
         let mut is_ordered_up = true;
         let mut is_ordered_down = true;

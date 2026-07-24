@@ -74,7 +74,7 @@ impl StateMachineTest for WriterTest {
         }
     }
 
-    fn teardown(state: Self::SystemUnderTest) {
+    fn teardown(state: Self::SystemUnderTest, _reference: prop_test::Status) {
         unsafe {
             let _ = Box::from_raw(state.buffer);
         };
