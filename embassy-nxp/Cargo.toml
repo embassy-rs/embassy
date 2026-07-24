@@ -46,7 +46,7 @@ imxrt-rt = { version = "0.1.7", optional = true, features = ["device"] }
 
 [build-dependencies]
 cfg_aliases = "0.2.1"
-nxp-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nxp-pac", rev = "47dada0976da4114c348ea16f5ead31f38f36eea", features = ["metadata"] }
+nxp-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nxp-pac", rev = "47dada0976da4114c348ea16f5ead31f38f36eea", features = ["metadata"], default-features = false}
 proc-macro2 = "1.0.95"
 quote = "1.0.15"
 
