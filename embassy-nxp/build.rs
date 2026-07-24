@@ -61,11 +61,7 @@ fn singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
 
     for peripheral in METADATA.peripherals {
         // GPIO and DMA are generated in a 2nd pass.
-        let skip_singleton = if peripheral.name.starts_with("GPIO") || peripheral.name.starts_with("DMA") {
-            true
-        } else {
-            false
-        };
+        let skip_singleton = peripheral.name.starts_with("GPIO") || peripheral.name.starts_with("DMA");
 
         if !skip_singleton {
             singletons.push(Singleton {
@@ -74,6 +70,12 @@ fn singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
             });
         }
     }
+
+    #[cfg(feature = "lpc55-core0")]
+    singletons.push(Singleton {
+        name: "CRC_ENGINE".into(),
+        cfg: None,
+    });
 
     cfgs.declare_all(&[
         "gpio1",
