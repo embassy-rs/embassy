@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) -> ! {
     led1.set_inversion(true);
 
     loop {
-        Timer::after_millis(400).await;
+        Timer::after_millis(500).await;
 
         info!("Toggle");
         led1.toggle();
