@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use core::task::Context;
 
 use embassy_net_driver::{Capabilities, Checksum, Driver, PacketMeta, RxToken, TxToken};
@@ -21,7 +22,7 @@ where
     pub medium: Medium,
     pub tx_exhausted: bool,
     #[cfg(feature = "ptp")]
-    pub(crate) sinks: &'d dyn DynLinearMap<SocketHandle, TimestampSink>,
+    pub sinks: &'d mut dyn DynLinearMap<SocketHandle, TimestampSink>,
 }
 
 impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
@@ -33,22 +34,38 @@ where
     where
         Self: 'a;
     type TxToken<'a>
-        = TxTokenAdapter<T::TxToken<'a>>
+        = TxTokenAdapter<'a, T::TxToken<'a>>
     where
         Self: 'a;
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         // TODO: for the receive tokens, store the timestamp in the timestamp sink
 
-        self.inner
-            .receive(unwrap!(self.cx.as_deref_mut()))
-            .map(|(rx, tx)| (RxTokenAdapter(rx), TxTokenAdapter(tx)))
+        self.inner.receive(unwrap!(self.cx.as_deref_mut())).map(|(rx, tx)| {
+            (
+                RxTokenAdapter(rx),
+                TxTokenAdapter {
+                    token: tx,
+                    #[cfg(feature = "ptp")]
+                    sinks: self.sinks,
+                    _lifetime: PhantomData,
+                },
+            )
+        })
     }
 
     /// Construct a transmit token.
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
         // TODO: for the transmit tokens, refactor the token so that a call to set meta stores the associated id in the sink
-        let token = self.inner.transmit(unwrap!(self.cx.as_deref_mut())).map(TxTokenAdapter);
+        let token = self
+            .inner
+            .transmit(unwrap!(self.cx.as_deref_mut()))
+            .map(|tx| TxTokenAdapter {
+                token: tx,
+                #[cfg(feature = "ptp")]
+                sinks: self.sinks,
+                _lifetime: PhantomData,
+            });
 
         self.tx_exhausted = token.is_none();
 
@@ -111,11 +128,17 @@ where
     }
 }
 
-pub(crate) struct TxTokenAdapter<T>(T)
+pub(crate) struct TxTokenAdapter<'d, T>
 where
-    T: TxToken;
+    T: TxToken,
+{
+    token: T,
+    #[cfg(feature = "ptp")]
+    sinks: &'d mut dyn DynLinearMap<SocketHandle, TimestampSink>,
+    _lifetime: PhantomData<&'d ()>,
+}
 
-impl<T> phy::TxToken for TxTokenAdapter<T>
+impl<'d, T> phy::TxToken for TxTokenAdapter<'d, T>
 where
     T: TxToken,
 {
@@ -123,7 +146,7 @@ where
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        self.0.consume(len, |buf| {
+        self.token.consume(len, |buf| {
             let r = f(buf);
             #[cfg(feature = "packet-trace")]
             trace!("embassy device tx: {:02x}", buf);
@@ -132,7 +155,18 @@ where
     }
 
     fn set_meta(&mut self, meta: phy::PacketMeta) {
-        self.0.set_meta(into_embassy_net_meta(meta));
+        // store the packet ID into the sink
+        for (_socket, sink) in self.sinks.iter_mut() {
+            if !sink.tx.get(&meta.id).is_some() {
+                continue;
+            }
+
+            if sink.tx_assoc.insert(self.token.id() as u32, meta.id).is_err() {
+                warn!("failed to insert timestamp into map during set_meta");
+            }
+        }
+
+        self.token.set_meta(into_embassy_net_meta(meta));
     }
 }
 

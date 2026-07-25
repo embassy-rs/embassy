@@ -122,7 +122,7 @@ struct TimestampSink {
     // driver ID: packetmeta ID
     tx_assoc: &'static mut dyn DynLinearMap<u32, u32>,
     // packetmeta ID: Timestamp
-    tx: &'static mut dyn DynLinearMap<u32, Timestamp>,
+    tx: &'static mut dyn DynLinearMap<u32, Option<Timestamp>>,
     tx_waker: WakerRegistration,
     // packetmeta ID: Timestamp
     rx: &'static mut dyn DynLinearMap<u32, Timestamp>,
@@ -333,6 +333,8 @@ pub(crate) struct Inner {
     pub(crate) iface: Interface,
     #[cfg(feature = "ptp")]
     pub(crate) sinks: &'static mut dyn DynLinearMap<SocketHandle, TimestampSink>,
+    #[cfg(feature = "ptp")]
+    pub(crate) next_id: u32,
     /// Waker used for triggering polls.
     pub(crate) waker: WakerRegistration,
     /// Waker used for waiting for link up or config up.
@@ -420,6 +422,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     let mut inner = Inner {
         sockets,
         iface,
+        #[cfg(feature = "ptp")]
+        next_id: 0,
         #[cfg(feature = "ptp")]
         sinks: unsafe { transmute_static(sinks) },
         waker: WakerRegistration::new(),
@@ -969,8 +973,8 @@ impl Inner {
                     continue;
                 };
 
-                if sink.tx.insert(packetmeta_id, timestamp).is_err() {
-                    warn!("net: failed to insert timestamp into map");
+                if sink.tx.insert(packetmeta_id, Some(timestamp)).is_err() {
+                    warn!("failed to insert timestamp into map during poll_timestamp");
                 } else {
                     sink.tx_waker.wake();
                 }
