@@ -61,7 +61,7 @@ pub(crate) mod dflt;
 pub mod adc;
 #[cfg(adf)]
 pub mod adf;
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v2, aes_v3b))]
 pub mod aes;
 #[cfg(backup_sram)]
 pub mod backup_sram;
@@ -71,7 +71,7 @@ pub mod can;
 pub mod comp;
 #[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
-#[cfg(any(aes_v3b, saes_n6))]
+#[cfg(any(aes_v2, aes_v3b, saes_n6))]
 mod crypto;
 
 #[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
