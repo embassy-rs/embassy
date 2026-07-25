@@ -972,7 +972,11 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
             rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
             #[cfg(all(feature = "low-power", feature = "_lp-time-driver"))]
-            crate::time_driver::LPTimeDriver::set_min_stop_pause(crate::time_driver::get_driver(), cs, config.min_stop_pause);
+            crate::time_driver::LPTimeDriver::set_min_stop_pause(
+                crate::time_driver::get_driver(),
+                cs,
+                config.min_stop_pause,
+            );
         }
 
         p
