@@ -6,7 +6,7 @@ use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence, fence};
 use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::AtomicWaker;
-use linked_list::Table;
+use linked_list::{LinkedListItem, Table};
 #[cfg(not(lpdma))]
 use pac::gpdma::{Channel as BaseChannel, Gpdma as BaseRegs, vals};
 #[cfg(lpdma)]
@@ -393,9 +393,9 @@ pub struct TransferOptions {
     pub request_mode: RequestMode,
     /// Transfer complete event mode. Default `EachBlock`.
     ///
-    /// For linked-list transfers, set this on each `LinearItem` via
-    /// [`LinearItem::set_transfer_complete_mode`](linked_list::LinearItem::set_transfer_complete_mode)
-    /// since the channel TR2 is overwritten by the first LLI when `UT2` is set.
+    /// For linked-list transfers, this is configured per-item via the item's
+    /// config (e.g. [`LinearItemConfig`](linked_list::LinearItemConfig)) since
+    /// the channel TR2 register is overwritten by each LLI when `UT2` is set.
     pub transfer_complete_mode: TransferCompleteMode,
     /// Optional trigger-gated transfer configuration.
     pub trigger: Option<TriggerConfig>,
@@ -1020,48 +1020,30 @@ impl<'d> Channel<'d> {
     }
 
     /// Create a linked-list DMA transfer.
-    pub unsafe fn linked_list<'a, const N: usize>(
-        &'a mut self,
-        table: &'a Table<N>,
-        options: TransferOptions,
-    ) -> LinkedListTransfer<'a> {
-        self.configure_linked_list_raw(
-            table.base_address(),
-            table.offset_address(0),
-            N,
-            table.transfer_count(),
-            options,
-            false,
-        );
-        self.start();
-
-        LinkedListTransfer {
-            _wake_guard: self.info().wake_guard(),
-            channel: self.reborrow(),
-        }
-    }
-
-    /// Create a 2D linked-list DMA transfer.
     ///
-    /// Requires a channel that supports 2D addressing. Panics if the
-    /// channel does not have 2D capability.
-    #[cfg(gpdma2d)]
-    pub unsafe fn linked_list_2d<'a, const N: usize>(
+    /// Works with both linear (`Table<LinearItem, N>`) and 2D
+    /// (`Table<TwoDItem, N>`) tables. When a 2D table is used, the channel
+    /// must support 2D addressing or this will panic.
+    pub unsafe fn linked_list<'a, T: LinkedListItem, const N: usize>(
         &'a mut self,
-        table: &'a two_d::TwoDTable<N>,
+        table: &'a Table<T, N>,
         options: TransferOptions,
     ) -> LinkedListTransfer<'a> {
-        assert!(
-            self.info().supports_2d,
-            "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
-        );
+        #[cfg(gpdma2d)]
+        if T::IS_2D {
+            assert!(
+                self.info().supports_2d,
+                "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+            );
+        }
+
         self.configure_linked_list_raw(
             table.base_address(),
             table.offset_address(0),
             N,
             table.transfer_count(),
             options,
-            true,
+            T::IS_2D,
         );
         self.start();
 
@@ -1078,46 +1060,34 @@ impl<'d> Channel<'d> {
     /// intended for use cases that need to restart the same linked-list
     /// chain from the beginning.
     ///
+    /// Works with both linear and 2D tables. When a 2D table is used, the
+    /// channel must support 2D addressing or this will panic.
+    ///
     /// # Safety
     ///
     /// The caller must ensure that no other code is concurrently accessing
     /// the channel registers, and that the `table` remains valid for the
     /// duration of the transfer.
-    pub unsafe fn restart_linked_list<const N: usize>(&self, table: &Table<N>, options: TransferOptions) {
-        self.configure_linked_list_raw(
-            table.base_address(),
-            table.offset_address(0),
-            N,
-            table.transfer_count(),
-            options,
-            false,
-        );
-        self.start();
-    }
+    pub unsafe fn restart_linked_list<T: LinkedListItem, const N: usize>(
+        &self,
+        table: &Table<T, N>,
+        options: TransferOptions,
+    ) {
+        #[cfg(gpdma2d)]
+        if T::IS_2D {
+            assert!(
+                self.info().supports_2d,
+                "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+            );
+        }
 
-    /// Reconfigure and restart a 2D linked-list transfer from item[0].
-    ///
-    /// Requires a channel that supports 2D addressing. Panics if the
-    /// channel does not have 2D capability.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that no other code is concurrently accessing
-    /// the channel registers, and that the `table` remains valid for the
-    /// duration of the transfer.
-    #[cfg(gpdma2d)]
-    pub unsafe fn restart_linked_list_2d<const N: usize>(&self, table: &two_d::TwoDTable<N>, options: TransferOptions) {
-        assert!(
-            self.info().supports_2d,
-            "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
-        );
         self.configure_linked_list_raw(
             table.base_address(),
             table.offset_address(0),
             N,
             table.transfer_count(),
             options,
-            true,
+            T::IS_2D,
         );
         self.start();
     }
