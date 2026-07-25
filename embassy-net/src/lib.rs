@@ -41,7 +41,9 @@ use embassy_net_driver::Timestamp;
 use embassy_net_driver::{Driver, LinkState};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
-use heapless::{LinearMap, Vec};
+#[cfg(feature = "ptp")]
+use heapless::LinearMap;
+use heapless::Vec;
 #[cfg(feature = "dns")]
 pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
 #[cfg(feature = "multicast")]
@@ -1023,6 +1025,7 @@ impl Inner {
             inner: driver,
             medium,
             tx_exhausted: false,
+            #[cfg(feature = "ptp")]
             sinks: self.sinks,
         };
         self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
