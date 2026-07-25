@@ -155,6 +155,7 @@ where
     }
 
     fn set_meta(&mut self, meta: phy::PacketMeta) {
+        #[cfg(feature = "ptp")]
         // store the packet ID into the sink
         for (_socket, sink) in self.sinks.iter_mut() {
             if !sink.tx.get(&meta.id).is_some() {
