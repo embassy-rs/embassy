@@ -6,6 +6,7 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
+use embassy_time::{Duration, Instant, Timer};
 use embassy_usb_driver::host::{
     DeviceEvent, HostError, PipeError, TimeoutConfig, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
 };
@@ -18,7 +19,6 @@ use crate::pac::USBRAM;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::peripherals::USB;
-use crate::wait::{block_for_us, wait_for_us};
 use crate::{Peri, interrupt};
 
 /// The number of registers is 8, allowing up to 16 mono-
@@ -304,7 +304,10 @@ impl<'d, I: SealedHostInstance> UsbHost<'d, I> {
         });
 
         // Wait for voltage reference
-        block_for_us(100_0000); // 100 ms
+        #[cfg(feature = "time")]
+        embassy_time::block_for(embassy_time::Duration::from_millis(100));
+        #[cfg(not(feature = "time"))]
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 10);
 
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));
@@ -522,16 +525,13 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
         self.write_data(buf);
 
         let index = self.index;
-
-        #[allow(unused)]
         let timeout_ms = 1000;
 
         self.activate_tx();
 
         let regs = I::regs();
 
-        #[cfg(feature = "time")]
-        let t0 = embassy_time::Instant::now();
+        let t0 = Instant::now();
 
         poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
@@ -543,8 +543,7 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
                 return Poll::Ready(Err(PipeError::Disconnected));
             }
 
-            #[cfg(feature = "time")]
-            if t0.elapsed() > embassy_time::Duration::from_millis(timeout_ms as u64) {
+            if t0.elapsed() > Duration::from_millis(timeout_ms as u64) {
                 // Timeout, we need to stop the current transaction.
                 self.disable_tx();
                 return Poll::Ready(Err(PipeError::Timeout));
@@ -563,7 +562,6 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
         let index = self.index;
 
-        #[allow(unused)]
         let timeout_ms = 1000;
 
         // A cancelled read leaves the channel armed and the packet may land
@@ -581,8 +579,7 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
 
         let mut count: usize = 0;
 
-        #[cfg(feature = "time")]
-        let t0 = embassy_time::Instant::now();
+        let t0 = Instant::now();
 
         poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
@@ -594,8 +591,7 @@ impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I
                 return Poll::Ready(Err(PipeError::Disconnected));
             }
 
-            #[cfg(feature = "time")]
-            if t0.elapsed() > embassy_time::Duration::from_millis(timeout_ms as u64) {
+            if t0.elapsed() > Duration::from_millis(timeout_ms as u64) {
                 self.disable_rx();
                 return Poll::Ready(Err(PipeError::Timeout));
             }
@@ -924,7 +920,7 @@ impl<'d, I: SealedHostInstance> UsbHostController<'d> for UsbHost<'d, I> {
         });
 
         // USB Spec says wait 50ms
-        wait_for_us(50_0000).await;
+        Timer::after_millis(50).await;
 
         // Clear reset state; device will be in default state
         regs.cntr().modify(|w| {
@@ -939,7 +935,7 @@ impl<'d, I: SealedHostInstance> UsbHostController<'d> for UsbHost<'d, I> {
             // completion on attach before returning.
             self.bus_reset().await;
             // USB 2.0 §7.1.7.5: reset recovery time before the device must respond.
-            wait_for_us(10_0000).await; // 10 ms
+            Timer::after_millis(10).await;
         }
         event
     }
