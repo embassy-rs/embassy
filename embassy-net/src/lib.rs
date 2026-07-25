@@ -119,6 +119,11 @@ struct HostnameResources {
     data: MaybeUninit<[u8; MAX_HOSTNAME_LEN]>,
 }
 
+// For the rx behavior, we do things differently than from the tx behavior.
+// We will have a single ringbuffer in which timestamps will be stored
+// with a fixed capacity. Later, the timestamps can be stored in packetmeta.
+// in the smoltcp ringbuffers.
+
 #[cfg(feature = "ptp")]
 struct TimestampSink {
     // driver ID: packetmeta ID
@@ -128,7 +133,6 @@ struct TimestampSink {
     tx_waker: WakerRegistration,
     // packetmeta ID: Timestamp
     rx: &'static mut dyn DynLinearMap<u32, Timestamp>,
-    rx_waker: WakerRegistration,
 }
 
 impl<const SOCK: usize> StackResources<SOCK> {
