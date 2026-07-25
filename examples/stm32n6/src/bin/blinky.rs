@@ -39,9 +39,11 @@ async fn main(spawner: Spawner) {
     spawner.spawn(button_task(button).unwrap());
 
     loop {
+        info!("led on!");
         led.set_high();
         Timer::after_millis(500).await;
 
+        info!("led off!");
         led.set_low();
         Timer::after_millis(500).await;
     }

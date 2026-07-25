@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use defmt::*;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_time::Timer;
@@ -12,11 +13,12 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.P0_00, Level::Low, OutputDrive::Standard);
 
     loop {
+        info!("led on!");
         led.set_high();
-        defmt::info!("high");
         Timer::after_millis(500).await;
+
+        info!("led off!");
         led.set_low();
-        defmt::info!("low");
-        Timer::after_millis(1000).await;
+        Timer::after_millis(500).await;
     }
 }

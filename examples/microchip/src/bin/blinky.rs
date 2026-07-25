@@ -20,6 +20,6 @@ async fn main(_spawner: Spawner) {
         info!("toggle leds");
         led1.toggle();
         led2.toggle();
-        Timer::after_secs(1).await;
+        Timer::after_millis(500).await;
     }
 }
