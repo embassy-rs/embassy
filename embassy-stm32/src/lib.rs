@@ -176,6 +176,8 @@ pub mod mce;
 pub mod mdf;
 #[cfg(mdios)]
 pub mod mdios;
+#[cfg(npu)]
+pub mod npu;
 #[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
