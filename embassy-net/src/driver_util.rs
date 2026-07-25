@@ -1,6 +1,8 @@
 use core::marker::PhantomData;
 use core::task::Context;
 
+#[cfg(feature = "ptp")]
+use embassy_net_driver::Timestamp;
 use embassy_net_driver::{Capabilities, Checksum, Driver, PacketMeta, RxToken, TxToken};
 #[cfg(feature = "ptp")]
 use smoltcp::iface::SocketHandle;
@@ -23,6 +25,14 @@ where
     pub tx_exhausted: bool,
     #[cfg(feature = "ptp")]
     pub sinks: &'d mut dyn DynLinearMap<SocketHandle, TimestampSink>,
+    #[cfg(feature = "ptp")]
+    pub source: &'d mut [(u32, Timestamp)],
+    #[cfg(feature = "ptp")]
+    pub source_index: &'d mut u32,
+    #[cfg(feature = "ptp")]
+    pub next_id: &'d mut u32,
+    #[cfg(feature = "ptp")]
+    pub last_rx_id: &'d mut u32,
 }
 
 impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
@@ -39,9 +49,9 @@ where
         Self: 'a;
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        // TODO: for the receive tokens, store the timestamp in the timestamp sink
-
         self.inner.receive(unwrap!(self.cx.as_deref_mut())).map(|(rx, tx)| {
+            // TODO: if the id does not match the last rx id for the receive tokens, store the timestamp in the timestamp sink
+
             (
                 RxTokenAdapter(rx),
                 TxTokenAdapter {

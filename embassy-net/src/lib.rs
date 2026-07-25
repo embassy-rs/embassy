@@ -81,6 +81,10 @@ const MAX_QUERIES: usize = 4;
 const DHCP_RX_BUFFER_SIZE: usize = 576;
 #[cfg(feature = "dhcpv4-hostname")]
 const MAX_HOSTNAME_LEN: usize = 32;
+#[cfg(feature = "ptp")]
+const PTP_RX_SIZE: usize = 30;
+
+// TODO: the PTP rx size will be removed after changes to smoltcp are merged and released.
 
 /// Error returned by `try_*` socket methods.
 ///
@@ -102,6 +106,8 @@ pub struct StackResources<const SOCK: usize> {
     inner: MaybeUninit<RefCell<Inner>>,
     #[cfg(feature = "ptp")]
     sinks: MaybeUninit<LinearMap<SocketHandle, TimestampSink, SOCK>>,
+    #[cfg(feature = "ptp")]
+    source: MaybeUninit<[(u32, Timestamp); PTP_RX_SIZE]>,
     #[cfg(feature = "dns")]
     queries: MaybeUninit<[Option<dns::DnsQuery>; MAX_QUERIES]>,
     #[cfg(feature = "dhcpv4-hostname")]
@@ -131,8 +137,6 @@ struct TimestampSink {
     // packetmeta ID: Timestamp
     tx: &'static mut dyn DynLinearMap<u32, Option<Timestamp>>,
     tx_waker: WakerRegistration,
-    // packetmeta ID: Timestamp
-    rx: &'static mut dyn DynLinearMap<u32, Timestamp>,
 }
 
 impl<const SOCK: usize> StackResources<SOCK> {
@@ -143,6 +147,8 @@ impl<const SOCK: usize> StackResources<SOCK> {
             inner: MaybeUninit::uninit(),
             #[cfg(feature = "ptp")]
             sinks: MaybeUninit::uninit(),
+            #[cfg(feature = "ptp")]
+            source: MaybeUninit::uninit(),
             #[cfg(feature = "dns")]
             queries: MaybeUninit::uninit(),
             #[cfg(feature = "dhcpv4-hostname")]
@@ -340,7 +346,13 @@ pub(crate) struct Inner {
     #[cfg(feature = "ptp")]
     pub(crate) sinks: &'static mut dyn DynLinearMap<SocketHandle, TimestampSink>,
     #[cfg(feature = "ptp")]
+    pub(crate) source: &'static mut [(u32, Timestamp)],
+    #[cfg(feature = "ptp")]
+    pub(crate) source_index: u32,
+    #[cfg(feature = "ptp")]
     pub(crate) next_id: u32,
+    #[cfg(feature = "ptp")]
+    pub(crate) last_rx_id: u32,
     /// Waker used for triggering polls.
     pub(crate) waker: WakerRegistration,
     /// Waker used for waiting for link up or config up.
@@ -397,6 +409,9 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     #[cfg(feature = "ptp")]
     let sinks = resources.sinks.write(LinearMap::new());
 
+    #[cfg(feature = "ptp")]
+    let source = resources.source.write([(0, Timestamp::default()); PTP_RX_SIZE]);
+
     #[allow(unused_mut)]
     let mut iface = Interface::new(
         iface_cfg,
@@ -406,7 +421,15 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             medium,
             tx_exhausted: false,
             #[cfg(feature = "ptp")]
-            sinks: unsafe { transmute_static(sinks) },
+            sinks,
+            #[cfg(feature = "ptp")]
+            source,
+            #[cfg(feature = "ptp")]
+            source_index: &mut 0,
+            #[cfg(feature = "ptp")]
+            next_id: &mut 0,
+            #[cfg(feature = "ptp")]
+            last_rx_id: &mut 0,
         },
         instant_to_smoltcp(Instant::now()),
     );
@@ -431,7 +454,13 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         #[cfg(feature = "ptp")]
         next_id: 0,
         #[cfg(feature = "ptp")]
+        last_rx_id: 0,
+        #[cfg(feature = "ptp")]
+        source_index: 0,
+        #[cfg(feature = "ptp")]
         sinks: unsafe { transmute_static(sinks) },
+        #[cfg(feature = "ptp")]
+        source: unsafe { transmute_slice(source) },
         waker: WakerRegistration::new(),
         state_waker: WakerRegistration::new(),
         next_local_port,
@@ -1031,6 +1060,14 @@ impl Inner {
             tx_exhausted: false,
             #[cfg(feature = "ptp")]
             sinks: self.sinks,
+            #[cfg(feature = "ptp")]
+            source: self.source,
+            #[cfg(feature = "ptp")]
+            source_index: &mut self.source_index,
+            #[cfg(feature = "ptp")]
+            next_id: &mut self.next_id,
+            #[cfg(feature = "ptp")]
+            last_rx_id: &mut self.last_rx_id,
         };
         self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
         let tx_exhausted = smoldev.tx_exhausted;
