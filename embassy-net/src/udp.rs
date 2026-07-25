@@ -126,6 +126,8 @@ impl<'a> UdpSocket<'a> {
         Self { stack, handle }
     }
 
+    // TODO: create new_with_sink here
+
     /// Bind the socket to a local endpoint.
     pub fn bind<T>(&mut self, endpoint: T) -> Result<(), BindError>
     where

@@ -18,6 +18,8 @@ pub mod dns;
 mod driver_util;
 #[cfg(feature = "icmp")]
 pub mod icmp;
+#[cfg(feature = "ptp")]
+mod map_util;
 #[cfg(feature = "raw")]
 pub mod raw;
 #[cfg(feature = "tcp")]
@@ -34,10 +36,12 @@ use core::pin::pin;
 use core::task::{Context, Poll};
 
 pub use embassy_net_driver as driver;
+#[cfg(feature = "ptp")]
+use embassy_net_driver::Timestamp;
 use embassy_net_driver::{Driver, LinkState};
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
-use heapless::Vec;
+use heapless::{LinearMap, Vec};
 #[cfg(feature = "dns")]
 pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
 #[cfg(feature = "multicast")]
@@ -63,6 +67,8 @@ pub use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
 pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
 
 use crate::driver_util::DriverAdapter;
+#[cfg(feature = "ptp")]
+use crate::map_util::DynLinearMap;
 use crate::time::{instant_from_smoltcp, instant_to_smoltcp};
 
 const LOCAL_PORT_MIN: u16 = 1025;
@@ -92,6 +98,8 @@ pub enum TryError<T> {
 pub struct StackResources<const SOCK: usize> {
     sockets: MaybeUninit<[SocketStorage<'static>; SOCK]>,
     inner: MaybeUninit<RefCell<Inner>>,
+    #[cfg(feature = "ptp")]
+    sinks: MaybeUninit<LinearMap<SocketHandle, TimestampSink, SOCK>>,
     #[cfg(feature = "dns")]
     queries: MaybeUninit<[Option<dns::DnsQuery>; MAX_QUERIES]>,
     #[cfg(feature = "dhcpv4-hostname")]
@@ -109,12 +117,26 @@ struct HostnameResources {
     data: MaybeUninit<[u8; MAX_HOSTNAME_LEN]>,
 }
 
+#[cfg(feature = "ptp")]
+struct TimestampSink {
+    // driver ID: packetmeta ID
+    tx_assoc: &'static mut dyn DynLinearMap<u32, u32>,
+    // packetmeta ID: Timestamp
+    tx: &'static mut dyn DynLinearMap<u32, Timestamp>,
+    tx_waker: WakerRegistration,
+    // packetmeta ID: Timestamp
+    rx: &'static mut dyn DynLinearMap<u32, Timestamp>,
+    rx_waker: WakerRegistration,
+}
+
 impl<const SOCK: usize> StackResources<SOCK> {
     /// Create a new set of stack resources.
     pub const fn new() -> Self {
         Self {
             sockets: MaybeUninit::uninit(),
             inner: MaybeUninit::uninit(),
+            #[cfg(feature = "ptp")]
+            sinks: MaybeUninit::uninit(),
             #[cfg(feature = "dns")]
             queries: MaybeUninit::uninit(),
             #[cfg(feature = "dhcpv4-hostname")]
@@ -309,6 +331,8 @@ pub struct Stack<'d> {
 pub(crate) struct Inner {
     pub(crate) sockets: SocketSet<'static>, // Lifetime type-erased.
     pub(crate) iface: Interface,
+    #[cfg(feature = "ptp")]
+    pub(crate) sinks: &'static mut dyn DynLinearMap<SocketHandle, TimestampSink>,
     /// Waker used for triggering polls.
     pub(crate) waker: WakerRegistration,
     /// Waker used for waiting for link up or config up.
@@ -353,6 +377,17 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         iface_cfg.slaac = matches!(config.ipv6, ConfigV6::Slaac);
     }
 
+    unsafe fn transmute_slice<T>(x: &mut [T]) -> &'static mut [T] {
+        core::mem::transmute(x)
+    }
+
+    #[cfg(feature = "ptp")]
+    unsafe fn transmute_static<T: ?Sized>(x: &mut T) -> &'static mut T {
+        core::mem::transmute(x)
+    }
+
+    let sinks = resources.sinks.write(LinearMap::new());
+
     #[allow(unused_mut)]
     let mut iface = Interface::new(
         iface_cfg,
@@ -361,13 +396,10 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             cx: None,
             medium,
             tx_exhausted: false,
+            sinks: unsafe { transmute_static(sinks) },
         },
         instant_to_smoltcp(Instant::now()),
     );
-
-    unsafe fn transmute_slice<T>(x: &mut [T]) -> &'static mut [T] {
-        core::mem::transmute(x)
-    }
 
     let sockets = resources.sockets.write([SocketStorage::EMPTY; SOCK]);
     #[allow(unused_mut)]
@@ -386,6 +418,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     let mut inner = Inner {
         sockets,
         iface,
+        #[cfg(feature = "ptp")]
+        sinks: unsafe { transmute_static(sinks) },
         waker: WakerRegistration::new(),
         state_waker: WakerRegistration::new(),
         next_local_port,
@@ -925,6 +959,8 @@ impl Inner {
     fn poll<D: Driver>(&mut self, cx: &mut Context<'_>, driver: &mut D) {
         self.waker.register(cx.waker());
 
+        // TODO: poll the driver for tx timestamps here, to avoid overruns.
+
         let (_hardware_addr, medium) = to_smoltcp_hardware_address(driver.hardware_address());
 
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -967,6 +1003,7 @@ impl Inner {
             inner: driver,
             medium,
             tx_exhausted: false,
+            sinks: self.sinks,
         };
         self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
         let tx_exhausted = smoldev.tx_exhausted;

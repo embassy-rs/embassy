@@ -1,8 +1,15 @@
 use core::task::Context;
 
 use embassy_net_driver::{Capabilities, Checksum, Driver, PacketMeta, RxToken, TxToken};
+#[cfg(feature = "ptp")]
+use smoltcp::iface::SocketHandle;
 use smoltcp::phy::{self, Medium};
 use smoltcp::time::Instant;
+
+#[cfg(feature = "ptp")]
+use crate::TimestampSink;
+#[cfg(feature = "ptp")]
+use crate::map_util::DynLinearMap;
 
 pub(crate) struct DriverAdapter<'d, 'c, T>
 where
@@ -13,6 +20,8 @@ where
     pub inner: &'d mut T,
     pub medium: Medium,
     pub tx_exhausted: bool,
+    #[cfg(feature = "ptp")]
+    pub(crate) sinks: &'d dyn DynLinearMap<SocketHandle, TimestampSink>,
 }
 
 impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
@@ -29,6 +38,8 @@ where
         Self: 'a;
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        // TODO: for the receive tokens, store the timestamp in the timestamp sink
+
         self.inner
             .receive(unwrap!(self.cx.as_deref_mut()))
             .map(|(rx, tx)| (RxTokenAdapter(rx), TxTokenAdapter(tx)))
@@ -36,6 +47,7 @@ where
 
     /// Construct a transmit token.
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
+        // TODO: for the transmit tokens, refactor the token so that a call to set meta stores the associated id in the sink
         let token = self.inner.transmit(unwrap!(self.cx.as_deref_mut())).map(TxTokenAdapter);
 
         self.tx_exhausted = token.is_none();
