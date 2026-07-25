@@ -304,7 +304,7 @@ impl<'d, I: SealedHostInstance> UsbHost<'d, I> {
         });
 
         // Wait for voltage reference
-        block_for_us(100_0000); // 100 ms
+        block_for_us(100_000); // 100 ms
 
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));
@@ -924,7 +924,7 @@ impl<'d, I: SealedHostInstance> UsbHostController<'d> for UsbHost<'d, I> {
         });
 
         // USB Spec says wait 50ms
-        wait_for_us(50_0000).await;
+        wait_for_us(50_000).await;
 
         // Clear reset state; device will be in default state
         regs.cntr().modify(|w| {
@@ -939,7 +939,7 @@ impl<'d, I: SealedHostInstance> UsbHostController<'d> for UsbHost<'d, I> {
             // completion on attach before returning.
             self.bus_reset().await;
             // USB 2.0 §7.1.7.5: reset recovery time before the device must respond.
-            wait_for_us(10_0000).await; // 10 ms
+            wait_for_us(10_000).await; // 10 ms
         }
         event
     }
