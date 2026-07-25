@@ -5,7 +5,17 @@ pub trait DynLinearMap<K, V> {
     fn get(&self, key: &K) -> Option<&V>;
     fn get_mut(&mut self, key: &K) -> Option<&mut V>;
 
-    fn set(&mut self, key: K, value: V) -> Result<Option<V>, (K, V)>;
+    /// Inserts a key-value pair into the map.
+    ///
+    /// If the map did not have this key present, None is returned.
+    ///
+    /// If the map did have this key present, the value is updated, and the old value is returned.
+    ///
+    /// Computes in O(n) time
+    fn insert(&mut self, key: K, value: V) -> Result<Option<V>, (K, V)>;
+    /// Removes a key from the map, returning the value at the key if the key was previously in the map.
+    ///
+    /// Computes in O(n) time
     fn remove(&mut self, key: &K) -> Option<V>;
 
     fn iter<'a>(&'a self) -> Iter<'a, K, V>;
@@ -27,7 +37,7 @@ impl<K: Eq + core::hash::Hash, V, const N: usize> DynLinearMap<K, V> for LinearM
         self.get_mut(key)
     }
 
-    fn set(&mut self, key: K, value: V) -> Result<Option<V>, (K, V)> {
+    fn insert(&mut self, key: K, value: V) -> Result<Option<V>, (K, V)> {
         self.insert(key, value)
     }
 

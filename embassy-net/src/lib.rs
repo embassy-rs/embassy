@@ -386,6 +386,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         core::mem::transmute(x)
     }
 
+    #[cfg(feature = "ptp")]
     let sinks = resources.sinks.write(LinearMap::new());
 
     #[allow(unused_mut)]
@@ -396,6 +397,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             cx: None,
             medium,
             tx_exhausted: false,
+            #[cfg(feature = "ptp")]
             sinks: unsafe { transmute_static(sinks) },
         },
         instant_to_smoltcp(Instant::now()),
@@ -959,7 +961,21 @@ impl Inner {
     fn poll<D: Driver>(&mut self, cx: &mut Context<'_>, driver: &mut D) {
         self.waker.register(cx.waker());
 
-        // TODO: poll the driver for tx timestamps here, to avoid overruns.
+        #[cfg(feature = "ptp")]
+        // poll the driver for tx timestamps here, to avoid overruns.
+        while let Some((id, timestamp)) = driver.poll_timestamp(cx) {
+            for (_socket, sink) in self.sinks.iter_mut() {
+                let Some(packetmeta_id) = sink.tx_assoc.remove(&(id as u32)) else {
+                    continue;
+                };
+
+                if sink.tx.insert(packetmeta_id, timestamp).is_err() {
+                    warn!("net: failed to insert timestamp into map");
+                } else {
+                    sink.tx_waker.wake();
+                }
+            }
+        }
 
         let (_hardware_addr, medium) = to_smoltcp_hardware_address(driver.hardware_address());
 
