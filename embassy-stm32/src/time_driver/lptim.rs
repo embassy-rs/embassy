@@ -365,6 +365,11 @@ impl super::LPTimeDriver for RtcDriver {
         trace!("resume_time");
         self.is_stopped.store(false, Ordering::Relaxed);
     }
+
+    fn set_min_stop_pause(&self, cs: CriticalSection, min_stop_pause: embassy_time::Duration) {
+        trace!("set_min_stop_pause: {} ticks", min_stop_pause.as_ticks());
+        self.min_stop_pause.borrow(cs).replace(min_stop_pause);
+    }
 }
 
 impl Driver for RtcDriver {

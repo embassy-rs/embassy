@@ -61,7 +61,7 @@ pub(crate) mod dflt;
 pub mod adc;
 #[cfg(adf)]
 pub mod adf;
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v2, aes_v3b))]
 pub mod aes;
 #[cfg(backup_sram)]
 pub mod backup_sram;
@@ -71,7 +71,7 @@ pub mod can;
 pub mod comp;
 #[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
-#[cfg(any(aes_v3b, saes_n6))]
+#[cfg(any(aes_v2, aes_v3b, saes_n6))]
 mod crypto;
 
 #[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
@@ -176,12 +176,16 @@ pub mod mce;
 pub mod mdf;
 #[cfg(npu)]
 pub mod npu;
+#[cfg(mdios)]
+pub mod mdios;
 #[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
 #[cfg(any(pka_v1a, pka_n6))]
 pub mod pka;
+#[cfg(pssi)]
+pub mod pssi;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(ramcfg_wba)]
@@ -969,6 +973,12 @@ fn init_hw(config: Config) -> Peripherals {
             // must be after time-driver init
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
             rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
+            #[cfg(all(feature = "low-power", feature = "_lp-time-driver"))]
+            crate::time_driver::LPTimeDriver::set_min_stop_pause(
+                crate::time_driver::get_driver(),
+                cs,
+                config.min_stop_pause,
+            );
         }
 
         p

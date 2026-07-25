@@ -513,7 +513,7 @@ fn enable_low_power_peripherals() {
         w.set_eth1rxlpen(true);
         w.set_eth1txlpen(true);
         w.set_eth1maclpen(true);
-        w.set_gpulpen(true);
+        w.set_gpu2dlpen(true);
         w.set_gfxmmulpen(true);
         w.set_mce4lpen(true);
         w.set_xspi3lpen(true);
