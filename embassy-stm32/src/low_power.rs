@@ -207,6 +207,30 @@ mod platform {
 
     /// Exit stop mode, reinitializing timer and rcc if required
     pub fn exit_stop(_cs: CriticalSection) {
+        #[cfg(any(stm32u5, stm32u3))]
+        {
+            let sr = crate::pac::PWR.sr().read();
+            if sr.stopf() {
+                let lpms = crate::pac::PWR.cr1().read().lpms();
+                debug!("low power: U5/U3 woke from STOP (LPMS={})", lpms);
+
+                // HSE and all PLLs stop in any STOP mode on U5/U3.
+                // Full RCC restore from saved config on every STOP exit.
+                crate::rcc::reinit_saved(_cs);
+
+                // GPTIM timer state is lost in Stop2/Stop3, needs re-init.
+                // LPTIM (_lp-time-driver) survives all STOP modes autonomously.
+                #[cfg(not(feature = "_lp-time-driver"))]
+                if lpms >= 2 {
+                    trace!("low power: re-initializing timer (STOP2+, GPTIM)");
+                    super::get_driver().init_timer(_cs);
+                }
+            }
+
+            // Clear STOPF by writing CSSF
+            crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+        }
+
         #[cfg(any(stm32wl, stm32wb, stm32wba))]
         {
             // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
