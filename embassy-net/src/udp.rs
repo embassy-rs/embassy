@@ -163,6 +163,27 @@ impl<'a> UdpSocket<'a> {
         })
     }
 
+    #[cfg(feature = "ptp")]
+    fn with_sink<R>(&self, f: impl FnOnce(&mut crate::TimestampSink, &mut crate::IdRing) -> R) -> R {
+        self.stack.with_mut(|i| {
+            let sink = i.sinks.get_mut(&self.handle).expect("failed to get sink");
+            let res = f(sink, &mut i.id_ring);
+            res
+        })
+    }
+
+    #[cfg(feature = "ptp")]
+    fn next_id(&self) -> u32 {
+        self.with_sink(|sink, next_id| {
+            let id = next_id.next_id();
+            if sink.tx.insert(id, None).is_err() {
+                warn!("failed to insert timestamp into map during send_to_timed");
+            }
+
+            id
+        })
+    }
+
     /// Wait until the socket becomes readable.
     ///
     /// A socket is readable when a packet has been received, or when there are queued packets in
@@ -329,27 +350,15 @@ impl<'a> UdpSocket<'a> {
     where
         T: Into<UdpMetadata>,
     {
+        let id = self.next_id();
         let mut remote_endpoint: UdpMetadata = remote_endpoint.into();
-
-        let id = self.stack.with_mut(|i| {
-            let sink = i.sinks.get_mut(&self.handle).unwrap();
-
-            i.next_id = i.next_id.wrapping_add(1);
-            if sink.tx.insert(i.next_id, None).is_err() {
-                warn!("failed to insert timestamp into map during send_to_timed");
-            }
-
-            i.next_id
-        });
 
         remote_endpoint.meta.id = id;
 
-        poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await?;
+        self.send_to(buf, remote_endpoint).await?;
 
         poll_fn(|cx| {
-            self.stack.with_mut(|i| {
-                let sink = i.sinks.get_mut(&self.handle).unwrap();
-
+            self.with_sink(|sink, _| {
                 sink.tx_waker.register(cx.waker());
                 let ts = if let Some(Some(timestamp)) = sink.tx.get(&id) {
                     Some(*timestamp)
@@ -358,7 +367,7 @@ impl<'a> UdpSocket<'a> {
                 };
 
                 if let Some(timestamp) = ts {
-                    sink.tx.remove(&id);
+                    sink.tx.remove(&remote_endpoint.meta.id);
 
                     Poll::Ready(Ok(timestamp))
                 } else {

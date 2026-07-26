@@ -10,9 +10,9 @@ use smoltcp::phy::{self, Medium};
 use smoltcp::time::Instant;
 
 #[cfg(feature = "ptp")]
-use crate::TimestampSink;
-#[cfg(feature = "ptp")]
 use crate::map_util::DynLinearMap;
+#[cfg(feature = "ptp")]
+use crate::{IdRing, TimestampSink};
 
 pub(crate) struct DriverAdapter<'d, 'c, T>
 where
@@ -30,7 +30,7 @@ where
     #[cfg(feature = "ptp")]
     pub source_index: &'d mut u32,
     #[cfg(feature = "ptp")]
-    pub next_id: &'d mut u32,
+    pub id_ring: &'d mut IdRing,
 }
 
 impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
@@ -55,9 +55,8 @@ where
             if timestamp != self.source[*self.source_index as usize].1 {
                 // Increment index.
                 *self.source_index = (*self.source_index + 1) % self.source.len() as u32;
-                *self.next_id = self.next_id.wrapping_add(1);
 
-                self.source[*self.source_index as usize] = (*self.next_id, timestamp);
+                self.source[*self.source_index as usize] = (self.id_ring.next_id(), timestamp);
             }
 
             #[cfg(feature = "ptp")]

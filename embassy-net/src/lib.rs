@@ -139,6 +139,17 @@ struct TimestampSink {
     tx_waker: WakerRegistration,
 }
 
+#[cfg(feature = "ptp")]
+struct IdRing(u32);
+
+#[cfg(feature = "ptp")]
+impl IdRing {
+    pub fn next_id(&mut self) -> u32 {
+        self.0 = self.0.wrapping_add(1);
+        self.0
+    }
+}
+
 impl<const SOCK: usize> StackResources<SOCK> {
     /// Create a new set of stack resources.
     pub const fn new() -> Self {
@@ -350,7 +361,7 @@ pub(crate) struct Inner {
     #[cfg(feature = "ptp")]
     pub(crate) source_index: u32,
     #[cfg(feature = "ptp")]
-    pub(crate) next_id: u32,
+    pub(crate) id_ring: IdRing,
     /// Waker used for triggering polls.
     pub(crate) waker: WakerRegistration,
     /// Waker used for waiting for link up or config up.
@@ -425,7 +436,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             #[cfg(feature = "ptp")]
             source_index: &mut 0,
             #[cfg(feature = "ptp")]
-            next_id: &mut 0,
+            id_ring: &mut IdRing(0),
         },
         instant_to_smoltcp(Instant::now()),
     );
@@ -448,7 +459,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         sockets,
         iface,
         #[cfg(feature = "ptp")]
-        next_id: 0,
+        id_ring: IdRing(0),
         #[cfg(feature = "ptp")]
         source_index: 0,
         #[cfg(feature = "ptp")]
@@ -1059,7 +1070,7 @@ impl Inner {
             #[cfg(feature = "ptp")]
             source_index: &mut self.source_index,
             #[cfg(feature = "ptp")]
-            next_id: &mut self.next_id,
+            id_ring: &mut self.id_ring,
         };
         self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
         let tx_exhausted = smoldev.tx_exhausted;
