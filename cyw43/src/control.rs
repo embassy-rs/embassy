@@ -1,8 +1,10 @@
 use core::cmp::{max, min};
 use core::iter::zip;
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering::Relaxed;
 
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
+use embassy_net_driver_channel::driver::HardwareAddress;
 use embassy_time::{Duration, Timer};
 
 use crate::consts::*;
@@ -10,13 +12,18 @@ use crate::events::{Event, EventSubscriber, Events};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
-use crate::{countries, events, PowerManagementMode};
+use crate::{PowerManagementMode, countries, events};
 
-/// Control errors.
+/// Join errors.
 #[derive(Debug)]
-pub struct Error {
-    /// Status code.
-    pub status: u32,
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum JoinError {
+    /// Network not found.
+    NetworkNotFound,
+    /// Failure to join network. Contains the status code from the SET_SSID event.
+    JoinFailure(u8),
+    /// Authentication failure for a secure network.
+    AuthenticationFailure,
 }
 
 /// Multicast errors.
@@ -33,6 +40,7 @@ pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     events: &'a Events,
     ioctl_state: &'a IoctlState,
+    secure_network: &'a AtomicBool,
 }
 
 /// WiFi scan type.
@@ -96,6 +104,20 @@ pub enum JoinAuth {
     Wpa2Wpa3,
 }
 
+/// Authentication type for an access point.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ApAuth {
+    /// Open network.
+    Open,
+    /// WPA2 only.
+    Wpa2,
+    /// WPA3 only. Requires compatible CYW43 firmware and client support.
+    Wpa3,
+    /// WPA2 + WPA3 transition mode. WPA3 requires compatible CYW43 firmware and client support.
+    Wpa2Wpa3,
+}
+
 /// Options for [`Control::join`].
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -154,11 +176,17 @@ impl<'a> Default for JoinOptions<'a> {
 }
 
 impl<'a> Control<'a> {
-    pub(crate) fn new(state_ch: ch::StateRunner<'a>, event_sub: &'a Events, ioctl_state: &'a IoctlState) -> Self {
+    pub(crate) fn new(
+        state_ch: ch::StateRunner<'a>,
+        event_sub: &'a Events,
+        ioctl_state: &'a IoctlState,
+        secure_network: &'a AtomicBool,
+    ) -> Self {
         Self {
             state_ch,
             events: event_sub,
             ioctl_state,
+            secure_network,
         }
     }
 
@@ -186,8 +214,8 @@ impl<'a> Control<'a> {
             };
             let mut buf = [0; 8 + 12 + CHUNK_SIZE];
             buf[0..8].copy_from_slice(b"clmload\x00");
-            buf[8..20].copy_from_slice(&header.to_bytes());
-            buf[20..][..chunk.len()].copy_from_slice(&chunk);
+            buf[8..20].copy_from_slice(header.to_bytes());
+            buf[20..][..chunk.len()].copy_from_slice(chunk);
             self.ioctl(IoctlType::Set, Ioctl::SetVar, 0, &mut buf[..8 + 12 + chunk.len()])
                 .await;
         }
@@ -198,7 +226,7 @@ impl<'a> Control<'a> {
 
     /// Initialize WiFi controller.
     pub async fn init(&mut self, clm: &[u8]) {
-        self.load_clm(&clm).await;
+        self.load_clm(clm).await;
 
         debug!("Configuring misc stuff...");
 
@@ -218,7 +246,7 @@ impl<'a> Control<'a> {
             country_code: [country.code[0], country.code[1], 0, 0],
             rev: if country.rev == 0 { -1 } else { country.rev as _ },
         };
-        self.set_iovar("country", &country_info.to_bytes()).await;
+        self.set_iovar("country", country_info.to_bytes()).await;
 
         // set country takes some time, next ioctls fail if we don't wait.
         Timer::after_millis(100).await;
@@ -253,7 +281,7 @@ impl<'a> Control<'a> {
         evts.unset(Event::PROBRESP_MSG);
         evts.unset(Event::ROAM);
 
-        self.set_iovar("bsscfg:event_msgs", &evts.to_bytes()).await;
+        self.set_iovar("bsscfg:event_msgs", evts.to_bytes()).await;
 
         Timer::after_millis(100).await;
 
@@ -295,8 +323,8 @@ impl<'a> Control<'a> {
         self.ioctl_set_u32(Ioctl::SetPm, 0, mode_num).await;
     }
 
-    /// Join an unprotected network with the provided ssid.
-    pub async fn join(&mut self, ssid: &str, options: JoinOptions<'_>) -> Result<(), Error> {
+    /// Join a network with the provided SSID using the specified options.
+    pub async fn join(&mut self, ssid: &str, options: JoinOptions<'_>) -> Result<(), JoinError> {
         self.set_iovar_u32("ampdu_ba_wsize", 8).await;
 
         if options.auth == JoinAuth::Open {
@@ -341,7 +369,7 @@ impl<'a> Control<'a> {
                 };
                 pfi.passphrase[..options.passphrase.len()].copy_from_slice(options.passphrase);
                 Timer::after_millis(3).await;
-                self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes())
+                self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes().clone())
                     .await;
             }
 
@@ -352,7 +380,7 @@ impl<'a> Control<'a> {
                 };
                 pfi.passphrase[..options.passphrase.len()].copy_from_slice(options.passphrase);
                 Timer::after_millis(3).await;
-                self.set_iovar("sae_password", &pfi.to_bytes()).await;
+                self.set_iovar("sae_password", pfi.to_bytes()).await;
             }
 
             self.ioctl_set_u32(Ioctl::SetInfra, 0, 1).await;
@@ -367,40 +395,63 @@ impl<'a> Control<'a> {
         };
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
 
-        self.wait_for_join(i).await
+        let secure_network = options.auth != JoinAuth::Open;
+        self.secure_network.store(secure_network, Relaxed);
+        self.wait_for_join(i, secure_network).await
     }
 
-    async fn wait_for_join(&mut self, i: SsidInfo) -> Result<(), Error> {
-        self.events.mask.enable(&[Event::SET_SSID, Event::AUTH]);
+    async fn wait_for_join(&mut self, i: SsidInfo, secure_network: bool) -> Result<(), JoinError> {
+        struct UnsubscribeOnDrop<'a>(&'a Events);
+
+        impl Drop for UnsubscribeOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.mask.disable_all();
+            }
+        }
+
+        let _uod = UnsubscribeOnDrop(self.events);
+
+        self.events.mask.enable(&[Event::SET_SSID, Event::AUTH, Event::PSK_SUP]);
         let mut subscriber = self.events.queue.subscriber().unwrap();
         // the actual join operation starts here
         // we make sure to enable events before so we don't miss any
 
-        self.ioctl(IoctlType::Set, Ioctl::SetSsid, 0, &mut i.to_bytes()).await;
+        self.ioctl(IoctlType::Set, Ioctl::SetSsid, 0, &mut i.to_bytes().clone())
+            .await;
 
-        // to complete the join, we wait for a SET_SSID event
-        // we also save the AUTH status for the user, it may be interesting
-        let mut auth_status = 0;
-        let status = loop {
+        // To complete the join on an open network, we wait for a SET_SSID event with status SUCCESS
+        // For secured networks, we wait for a PSK_SUP event with status 6 "UNSOLICITED"
+        let result = loop {
             let msg = subscriber.next_message_pure().await;
-            if msg.header.event_type == Event::AUTH && msg.header.status != EStatus::SUCCESS {
-                auth_status = msg.header.status;
-            } else if msg.header.event_type == Event::SET_SSID {
-                // join operation ends with SET_SSID event
-                break msg.header.status;
-            }
+
+            let status = EStatus::from(msg.header.status as u8);
+            match (msg.header.event_type, status, secure_network) {
+                // Join operation ends with SET_SSID event for open networks
+                (Event::SET_SSID, EStatus::SUCCESS, false) => break Ok(()),
+                (Event::SET_SSID, EStatus::NO_NETWORKS, _) => break Err(JoinError::NetworkNotFound),
+                (Event::SET_SSID, status, _) if status != EStatus::SUCCESS => {
+                    break Err(JoinError::JoinFailure(status as u8));
+                }
+                // Ignore PSK_SUP "ABORT" which is sometimes sent before successful join
+                (Event::PSK_SUP, EStatus::ABORT, true) => {}
+                // Event PSK_SUP with status 6 "UNSOLICITED" indicates success for secure networks
+                (Event::PSK_SUP, EStatus::UNSOLICITED, true) => break Ok(()),
+                // Events indicating authentication failure, possibly due to incorrect password
+                (Event::PSK_SUP, _, true) | (Event::AUTH, EStatus::FAIL, true) => {
+                    break Err(JoinError::AuthenticationFailure);
+                }
+                _ => {}
+            };
         };
 
-        self.events.mask.disable_all();
-        if status == EStatus::SUCCESS {
-            // successful join
-            self.state_ch.set_link_state(LinkState::Up);
-            debug!("JOINED");
-            Ok(())
-        } else {
-            warn!("JOIN failed with status={} auth={}", status, auth_status);
-            Err(Error { status })
-        }
+        match result {
+            Ok(()) => debug!("JOINED"),
+            Err(JoinError::JoinFailure(status)) => debug!("JOIN failed: status={}", status),
+            Err(JoinError::NetworkNotFound) => debug!("JOIN failed: network not found"),
+            Err(JoinError::AuthenticationFailure) => debug!("JOIN failed: authentication failure"),
+        };
+
+        result
     }
 
     /// Set GPIO pin on WiFi chip.
@@ -412,20 +463,46 @@ impl<'a> Control<'a> {
 
     /// Start open access point.
     pub async fn start_ap_open(&mut self, ssid: &str, channel: u8) {
-        self.start_ap(ssid, "", Security::OPEN, channel).await;
+        self.start_ap(ssid, "", ApAuth::Open, channel).await;
     }
 
     /// Start WPA2 protected access point.
     pub async fn start_ap_wpa2(&mut self, ssid: &str, passphrase: &str, channel: u8) {
-        self.start_ap(ssid, passphrase, Security::WPA2_AES_PSK, channel).await;
+        self.start_ap(ssid, passphrase, ApAuth::Wpa2, channel).await;
     }
 
-    async fn start_ap(&mut self, ssid: &str, passphrase: &str, security: Security, channel: u8) {
-        if security != Security::OPEN
-            && (passphrase.as_bytes().len() < MIN_PSK_LEN || passphrase.as_bytes().len() > MAX_PSK_LEN)
-        {
+    /// Start WPA3 protected access point.
+    ///
+    /// Requires compatible CYW43 firmware and client support.
+    pub async fn start_ap_wpa3(&mut self, ssid: &str, passphrase: &str, channel: u8) {
+        self.start_ap(ssid, passphrase, ApAuth::Wpa3, channel).await;
+    }
+
+    /// Start WPA2/WPA3 transition mode access point.
+    ///
+    /// WPA3 requires compatible CYW43 firmware and client support.
+    pub async fn start_ap_wpa2_wpa3(&mut self, ssid: &str, passphrase: &str, channel: u8) {
+        self.start_ap(ssid, passphrase, ApAuth::Wpa2Wpa3, channel).await;
+    }
+
+    /// Start an access point with the specified authentication type.
+    ///
+    /// WPA3 requires compatible CYW43 firmware and client support.
+    pub async fn start_ap(&mut self, ssid: &str, passphrase: &str, auth: ApAuth, channel: u8) {
+        if auth != ApAuth::Open && (passphrase.len() < MIN_PSK_LEN || passphrase.len() > MAX_PSK_LEN) {
             panic!("Passphrase is too short or too long");
         }
+
+        let (security, mfp, wpa_auth) = match auth {
+            ApAuth::Open => (Security::OPEN, MFP_NONE, WPA_AUTH_DISABLED),
+            ApAuth::Wpa2 => (Security::WPA2_AES_PSK, MFP_NONE, WPA_AUTH_WPA2_PSK | WPA_AUTH_WPA_PSK),
+            ApAuth::Wpa3 => (Security::WPA3_SAE, MFP_REQUIRED, WPA_AUTH_WPA3_SAE_PSK),
+            ApAuth::Wpa2Wpa3 => (
+                Security::WPA3_WPA2_PSK,
+                MFP_CAPABLE,
+                WPA_AUTH_WPA2_PSK | WPA_AUTH_WPA3_SAE_PSK,
+            ),
+        };
 
         // Temporarily set wifi down
         self.down().await;
@@ -436,6 +513,9 @@ impl<'a> Control<'a> {
         // Set wifi up again
         self.up().await;
 
+        // Disable authentication
+        self.ioctl_set_u32(Ioctl::SetAuth, 0, AUTH_OPEN).await;
+
         // Turn on AP mode
         self.ioctl_set_u32(Ioctl::SetAp, 0, 1).await;
 
@@ -443,12 +523,12 @@ impl<'a> Control<'a> {
         let mut i = SsidInfoWithIndex {
             index: 0,
             ssid_info: SsidInfo {
-                len: ssid.as_bytes().len() as _,
+                len: ssid.len() as _,
                 ssid: [0; 32],
             },
         };
-        i.ssid_info.ssid[..ssid.as_bytes().len()].copy_from_slice(ssid.as_bytes());
-        self.set_iovar("bsscfg:ssid", &i.to_bytes()).await;
+        i.ssid_info.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
+        self.set_iovar("bsscfg:ssid", i.to_bytes()).await;
 
         // Set channel number
         self.ioctl_set_u32(Ioctl::SetChannel, 0, channel as u32).await;
@@ -456,20 +536,24 @@ impl<'a> Control<'a> {
         // Set security
         self.set_iovar_u32x2("bsscfg:wsec", 0, (security as u32) & 0xFF).await;
 
-        if security != Security::OPEN {
-            self.set_iovar_u32x2("bsscfg:wpa_auth", 0, 0x0084).await; // wpa_auth = WPA2_AUTH_PSK | WPA_AUTH_PSK
+        // Set management frame protection
+        self.set_iovar_u32("mfp", mfp).await;
 
+        // Set WPA authentication
+        self.set_iovar_u32x2("bsscfg:wpa_auth", 0, wpa_auth).await;
+
+        if auth != ApAuth::Open {
             Timer::after_millis(100).await;
 
-            // Set passphrase
-            let mut pfi = PassphraseInfo {
-                len: passphrase.as_bytes().len() as _,
-                flags: 1, // WSEC_PASSPHRASE
-                passphrase: [0; 64],
-            };
-            pfi.passphrase[..passphrase.as_bytes().len()].copy_from_slice(passphrase.as_bytes());
-            self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes())
-                .await;
+            match auth {
+                ApAuth::Open => unreachable!(),
+                ApAuth::Wpa2 => self.set_ap_wpa2_passphrase(passphrase).await,
+                ApAuth::Wpa3 => self.set_ap_sae_passphrase(passphrase).await,
+                ApAuth::Wpa2Wpa3 => {
+                    self.set_ap_sae_passphrase(passphrase).await;
+                    self.set_ap_wpa2_passphrase(passphrase).await;
+                }
+            }
         }
 
         // Change mutlicast rate from 1 Mbps to 11 Mbps
@@ -477,6 +561,26 @@ impl<'a> Control<'a> {
 
         // Start AP
         self.set_iovar_u32x2("bss", 0, 1).await; // bss = BSS_UP
+    }
+
+    async fn set_ap_wpa2_passphrase(&mut self, passphrase: &str) {
+        let mut pfi = PassphraseInfo {
+            len: passphrase.len() as _,
+            flags: 1, // WSEC_PASSPHRASE
+            passphrase: [0; 64],
+        };
+        pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
+        self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes().clone())
+            .await;
+    }
+
+    async fn set_ap_sae_passphrase(&mut self, passphrase: &str) {
+        let mut pfi = SaePassphraseInfo {
+            len: passphrase.len() as _,
+            passphrase: [0; 128],
+        };
+        pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
+        self.set_iovar("sae_password", pfi.to_bytes()).await;
     }
 
     /// Closes access point.
@@ -545,6 +649,30 @@ impl<'a> Control<'a> {
         n
     }
 
+    /// Retrieve the latest RSSI value
+    pub async fn get_rssi(&mut self) -> i32 {
+        let mut rssi_buf = [0u8; 4];
+        let n = self.ioctl(IoctlType::Get, Ioctl::GetRssi, 0, &mut rssi_buf).await;
+        assert_eq!(n, 4);
+        i32::from_ne_bytes(rssi_buf)
+    }
+
+    /// Arm the firmware's offloaded MAC-layer keepalive (`mkeep_alive`).
+    /// The chip emits a periodic null-data frame to the AP every
+    /// `period_ms` with no host wakeups, preventing AP idle-station reaping.
+    /// `id` selects one of the firmware's keepalive slots.
+    pub async fn keepalive(&mut self, id: u8, period_ms: u32) {
+        // wl_mkeep_alive_pkt { version, length, period_msec,
+        //                      len_bytes, keep_alive_id, data[] }
+        let mut pkt = [0u8; 11];
+        pkt[0..2].copy_from_slice(&1u16.to_le_bytes()); // version = WL_MKEEP_ALIVE_VERSION
+        pkt[2..4].copy_from_slice(&11u16.to_le_bytes()); // length = WL_MKEEP_ALIVE_FIXED_LEN
+        pkt[4..8].copy_from_slice(&period_ms.to_le_bytes()); // period_msec
+        pkt[8..10].copy_from_slice(&0u16.to_le_bytes()); // len_bytes = 0 → null frame
+        pkt[10] = id; // keep_alive_id
+        self.set_iovar("mkeep_alive", &pkt).await;
+    }
+
     async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {
         let mut buf = [0; 8];
         buf[0..4].copy_from_slice(&val1.to_le_bytes());
@@ -607,8 +735,8 @@ impl<'a> Control<'a> {
         if kind == IoctlType::Set {
             debug!("ioctl set {:?} iface {} = {:02x}", cmd, iface, Bytes(buf));
         }
-        let n = self.ioctl_inner(kind, cmd, iface, buf).await;
-        n
+
+        self.ioctl_inner(kind, cmd, iface, buf).await
     }
 
     async fn ioctl_inner(&mut self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
@@ -672,12 +800,12 @@ impl<'a> Control<'a> {
             version: 1,
             action: 1,
             sync_id: 1,
-            ssid_len: scan_opts.ssid.as_ref().map(|e| e.as_bytes().len() as u32).unwrap_or(0),
+            ssid_len: scan_opts.ssid.as_ref().map(|e| e.len() as u32).unwrap_or(0),
             ssid: scan_opts
                 .ssid
                 .map(|e| {
                     let mut ssid = [0; 32];
-                    ssid[..e.as_bytes().len()].copy_from_slice(e.as_bytes());
+                    ssid[..e.len()].copy_from_slice(e.as_bytes());
                     ssid
                 })
                 .unwrap_or([0; 32]),
@@ -694,11 +822,11 @@ impl<'a> Control<'a> {
 
         self.events.mask.enable(&[Event::ESCAN_RESULT]);
         let subscriber = self.events.queue.subscriber().unwrap();
-        self.set_iovar_v::<256>("escan", &scan_params.to_bytes()).await;
+        self.set_iovar_v::<256>("escan", scan_params.to_bytes()).await;
 
         Scanner {
             subscriber,
-            events: &self.events,
+            events: self.events,
         }
     }
     /// Leave the wifi, with which we are currently associated.

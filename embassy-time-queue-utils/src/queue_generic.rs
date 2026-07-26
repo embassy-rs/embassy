@@ -2,7 +2,7 @@
 //!
 //! Time queue drivers may use this to simplify their implementation.
 
-use core::cmp::{min, Ordering};
+use core::cmp::{Ordering, min};
 use core::task::Waker;
 
 use heapless::Vec;
@@ -47,7 +47,7 @@ impl<const QUEUE_SIZE: usize> ConstGenericQueue<QUEUE_SIZE> {
 
     /// Schedules a task to run at a specific time, and returns whether any changes were made.
     ///
-    /// If this function returns `true`, the called should find the next expiration time and set
+    /// If this function returns `true`, the caller should find the next expiration time and set
     /// a new alarm for that time.
     pub fn schedule_wake(&mut self, at: u64, waker: &Waker) -> bool {
         self.queue
@@ -135,7 +135,7 @@ impl Queue {
 
     /// Schedules a task to run at a specific time, and returns whether any changes were made.
     ///
-    /// If this function returns `true`, the called should find the next expiration time and set
+    /// If this function returns `true`, the caller should find the next expiration time and set
     /// a new alarm for that time.
     pub fn schedule_wake(&mut self, at: u64, waker: &Waker) -> bool {
         self.queue.schedule_wake(at, waker)

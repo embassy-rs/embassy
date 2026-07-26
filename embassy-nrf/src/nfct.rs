@@ -10,18 +10,18 @@
 #![macro_use]
 
 use core::future::poll_fn;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 pub use vals::{Bitframesdd as SddPat, Discardmode as DiscardMode};
 
 use crate::interrupt::InterruptExt;
-use crate::pac::nfct::vals;
 use crate::pac::NFCT;
+use crate::pac::nfct::vals;
 use crate::peripherals::NFCT;
 use crate::util::slice_in_ram;
-use crate::{interrupt, pac, Peri};
+use crate::{Peri, interrupt, pac};
 
 /// NFCID1 (aka UID) of different sizes.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -120,7 +120,7 @@ impl<'d> NfcT<'d> {
             NfcId::SingleSize(bytes) => {
                 r.nfcid1_last().write(|w| w.0 = u32::from_be_bytes(*bytes));
 
-                vals::Nfcidsize::NFCID1SINGLE
+                vals::Nfcidsize::Nfcid1single
             }
             NfcId::DoubleSize(bytes) => {
                 let (bytes, chunk) = bytes.split_last_chunk::<4>().unwrap();
@@ -130,7 +130,7 @@ impl<'d> NfcT<'d> {
                 chunk[1..].copy_from_slice(bytes);
                 r.nfcid1_2nd_last().write(|w| w.0 = u32::from_be_bytes(chunk));
 
-                vals::Nfcidsize::NFCID1DOUBLE
+                vals::Nfcidsize::Nfcid1double
             }
             NfcId::TripleSize(bytes) => {
                 let (bytes, chunk) = bytes.split_last_chunk::<4>().unwrap();
@@ -145,7 +145,7 @@ impl<'d> NfcT<'d> {
                 chunk[1..].copy_from_slice(bytes);
                 r.nfcid1_3rd_last().write(|w| w.0 = u32::from_be_bytes(chunk));
 
-                vals::Nfcidsize::NFCID1TRIPLE
+                vals::Nfcidsize::Nfcid1triple
             }
         };
 
@@ -215,7 +215,7 @@ impl<'d> NfcT<'d> {
             r.framedelaymin().write(|w| w.set_framedelaymin(1152));
             r.framedelaymax().write(|w| w.set_framedelaymax(4096));
             r.framedelaymode().write(|w| {
-                w.set_framedelaymode(vals::Framedelaymode::WINDOW_GRID);
+                w.set_framedelaymode(vals::Framedelaymode::WindowGrid);
             });
 
             info!("waiting for field");
@@ -306,7 +306,7 @@ impl<'d> NfcT<'d> {
 
         r.txd().frameconfig().write(|w| {
             w.set_crcmodetx(true);
-            w.set_discardmode(DiscardMode::DISCARD_END);
+            w.set_discardmode(DiscardMode::DiscardEnd);
             w.set_parity(true);
             w.set_sof(true);
         });

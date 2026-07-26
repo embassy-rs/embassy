@@ -7,8 +7,6 @@
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
 //! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_executor_macros::task) macro, which are fully safe.
 
-#[cfg_attr(target_has_atomic = "ptr", path = "run_queue_atomics.rs")]
-#[cfg_attr(not(target_has_atomic = "ptr"), path = "run_queue_critical_section.rs")]
 mod run_queue;
 
 #[cfg_attr(all(cortex_m, target_has_atomic = "32"), path = "state_atomics_arm.rs")]
@@ -28,30 +26,41 @@ pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
 
+#[cfg(feature = "scheduler-deadline")]
+mod deadline;
+
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
-#[cfg(not(feature = "arch-avr"))]
+#[cfg(not(feature = "platform-avr"))]
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
 
+#[cfg(feature = "scheduler-deadline")]
+pub(crate) use deadline::Deadline;
 use embassy_executor_timer_queue::TimerQueueItem;
-#[cfg(feature = "arch-avr")]
+#[cfg(feature = "platform-avr")]
 use portable_atomic::AtomicPtr;
 
 use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
+use self::waker::try_task_from_waker;
 use super::SpawnToken;
 use crate::{Metadata, SpawnError};
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
     unsafe { task_from_waker(waker).timer_queue_item() }
+}
+
+#[unsafe(no_mangle)]
+extern "Rust" fn __try_embassy_time_queue_item_from_waker(waker: &Waker) -> Option<&'static mut TimerQueueItem> {
+    unsafe { try_task_from_waker(waker).map(|task| task.timer_queue_item()) }
 }
 
 /// Raw task header for use in task pointers.
@@ -96,6 +105,7 @@ extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
+
     pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
@@ -221,8 +231,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     /// NRVO optimizations.
     ///
     /// This function will fail if the task is already spawned and has not finished running.
-    /// In this case, the error is delayed: a "poisoned" SpawnToken is returned, which will
-    /// cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
+    /// In this case, [`SpawnError::Busy`] is returned.
     ///
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
@@ -371,8 +380,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// See [`TaskStorage::spawn()`] for details.
     ///
     /// This will loop over the pool and spawn the task in the first storage that
-    /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
-    /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
+    /// is currently free. If none is free, [`SpawnError::Busy`] is returned.
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<impl Sized>, SpawnError> {
         self.spawn_impl::<F>(future)
     }
@@ -403,7 +411,7 @@ unsafe impl Sync for Pender {}
 
 impl Pender {
     pub(crate) fn pend(self) {
-        extern "Rust" {
+        unsafe extern "Rust" {
             fn __pender(context: *mut ());
         }
         unsafe { __pender(self.0) };
@@ -503,7 +511,7 @@ impl SyncExecutor {
 /// The pender function must be exported with the name `__pender` and have the following signature:
 ///
 /// ```rust
-/// #[export_name = "__pender"]
+/// #[unsafe(export_name = "__pender")]
 /// fn pender(context: *mut ()) {
 ///    // schedule `poll()` to be called
 /// }
@@ -559,8 +567,6 @@ impl Executor {
     /// energy.
     ///
     /// # Safety
-    ///
-    /// You must call `initialize` before calling this method.
     ///
     /// You must NOT call `poll` reentrantly on the same executor.
     ///

@@ -1,7 +1,7 @@
 [package]
 name = "embassy-net-driver"
 version = "0.2.0"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Driver trait for the `embassy-net` async TCP/IP network stack."
 repository = "https://github.com/embassy-rs/embassy"
@@ -21,5 +21,14 @@ target = "thumbv7em-none-eabi"
 [package.metadata.docs.rs]
 features = ["defmt"]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["defmt", "packetmeta-id"]},
+]
+
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
+
+[features]
+defmt = ["dep:defmt"]
+packetmeta-id = []

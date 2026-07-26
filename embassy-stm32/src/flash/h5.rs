@@ -1,5 +1,5 @@
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
 use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
@@ -100,8 +100,8 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     pac::FLASH.nscr().modify(|r| {
         // TODO: later check bank swap
         r.set_bksel(match sector.bank {
-            crate::flash::FlashBank::Bank1 => stm32_metapac::flash::vals::NscrBksel::B_0X0,
-            crate::flash::FlashBank::Bank2 => stm32_metapac::flash::vals::NscrBksel::B_0X1,
+            crate::flash::FlashBank::Bank1 => stm32_metapac::flash::vals::NscrBksel::B0x0,
+            crate::flash::FlashBank::Bank2 => stm32_metapac::flash::vals::NscrBksel::B0x1,
             _ => unreachable!(),
         });
         r.set_snb(sector.index_in_bank);

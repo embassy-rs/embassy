@@ -5,8 +5,8 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -22,11 +22,11 @@ use crate::can::enums::{BusError, RefCountOp, TryReadError};
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
-use crate::{interrupt, peripherals, Peri};
+use crate::{Peri, interrupt, peripherals};
 
 /// Interrupt handler.
 pub struct TxInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::TXInterrupt> for TxInterruptHandler<T> {
@@ -44,7 +44,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::TXInterrupt> for TxInterruptH
 
 /// RX0 interrupt handler.
 pub struct Rx0InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::RX0Interrupt> for Rx0InterruptHandler<T> {
@@ -57,7 +57,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::RX0Interrupt> for Rx0Interrup
 
 /// RX1 interrupt handler.
 pub struct Rx1InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::RX1Interrupt> for Rx1InterruptHandler<T> {
@@ -70,7 +70,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::RX1Interrupt> for Rx1Interrup
 
 /// SCE interrupt handler.
 pub struct SceInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterruptHandler<T> {
@@ -127,7 +127,7 @@ impl CanConfig<'_> {
     ///
     /// This is a helper that internally calls `set_bit_timing()`[Self::set_bit_timing].
     pub fn set_bitrate(self, bitrate: u32) -> Self {
-        let bit_timing = util::calc_can_timings(self.periph_clock, bitrate).unwrap();
+        let bit_timing = unwrap!(util::calc_can_timings(self.periph_clock, bitrate));
         self.set_bit_timing(bit_timing)
     }
 
@@ -181,21 +181,21 @@ pub enum TryWriteError {
 impl<'d> Can<'d> {
     /// Creates a new Bxcan instance, keeping the peripheral in sleep mode.
     /// You must call [Can::enable_non_blocking] to use the peripheral.
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, #[cfg(afio)] A>(
         _peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         _irqs: impl interrupt::typelevel::Binding<T::TXInterrupt, TxInterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::RX0Interrupt, Rx0InterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::RX1Interrupt, Rx1InterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::SCEInterrupt, SceInterruptHandler<T>>
-            + 'd,
+        + interrupt::typelevel::Binding<T::RX0Interrupt, Rx0InterruptHandler<T>>
+        + interrupt::typelevel::Binding<T::RX1Interrupt, Rx1InterruptHandler<T>>
+        + interrupt::typelevel::Binding<T::SCEInterrupt, SceInterruptHandler<T>>
+        + 'd,
     ) -> Self {
         let info = T::info();
         let regs = &T::info().regs;
 
-        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
-        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        set_as_af!(rx, AfType::input(Pull::None));
+        set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         rcc::enable_and_reset::<T>();
 
@@ -229,8 +229,8 @@ impl<'d> Can<'d> {
             info.sce_interrupt.enable();
         }
 
-        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
-        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        set_as_af!(rx, AfType::input(Pull::None));
+        set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         Registers(T::regs()).leave_init_mode();
 
@@ -243,7 +243,7 @@ impl<'d> Can<'d> {
 
     /// Set CAN bit rate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
-        let bit_timing = util::calc_can_timings(self.periph_clock, bitrate).unwrap();
+        let bit_timing = unwrap!(util::calc_can_timings(self.periph_clock, bitrate));
         self.modify_config().set_bit_timing(bit_timing);
     }
 
@@ -382,7 +382,7 @@ impl<'d> Can<'d> {
     /// Waits for a specific transmit mailbox to become empty
     pub async fn flush(&self, mb: Mailbox) {
         CanTx {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: TxInfoRef::new(&self.info),
         }
         .flush_inner(mb)
@@ -397,7 +397,7 @@ impl<'d> Can<'d> {
     /// and a frame with equal priority is already queued for transmission.
     pub async fn flush_any(&self) {
         CanTx {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: TxInfoRef::new(&self.info),
         }
         .flush_any_inner()
@@ -407,7 +407,7 @@ impl<'d> Can<'d> {
     /// Waits until all of the transmit mailboxes become empty
     pub async fn flush_all(&self) {
         CanTx {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: TxInfoRef::new(&self.info),
         }
         .flush_all_inner()
@@ -470,11 +470,11 @@ impl<'d> Can<'d> {
     pub fn split<'c>(&'c mut self) -> (CanTx<'d>, CanRx<'d>) {
         (
             CanTx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 info: TxInfoRef::new(&self.info),
             },
             CanRx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 info: RxInfoRef::new(&self.info),
             },
         )
@@ -564,7 +564,7 @@ impl<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_
 
 /// CAN driver, transmit half.
 pub struct CanTx<'d> {
-    _phantom: PhantomData<&'d ()>,
+    _marker: PhantomData<&'d ()>,
     info: TxInfoRef,
 }
 
@@ -774,7 +774,7 @@ impl<'d, const TX_BUF_SIZE: usize> BufferedCanTx<'d, TX_BUF_SIZE> {
 /// CAN driver, receive half.
 #[allow(dead_code)]
 pub struct CanRx<'d> {
-    _phantom: PhantomData<&'d ()>,
+    _marker: PhantomData<&'d ()>,
     info: RxInfoRef,
 }
 
@@ -1314,8 +1314,8 @@ foreach_peripheral!(
     };
 );
 
-pin_trait!(RxPin, Instance);
-pin_trait!(TxPin, Instance);
+pin_trait!(RxPin, Instance, @A);
+pin_trait!(TxPin, Instance, @A);
 
 trait Index {
     fn index(&self) -> usize;

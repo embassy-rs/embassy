@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage_async::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
-use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{BOOT_MAGIC, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, State};
 
 /// FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
@@ -25,7 +25,7 @@ impl<'a, DFU: NorFlash, STATE: NorFlash>
         dfu_flash: &'a embassy_sync::mutex::Mutex<NoopRawMutex, DFU>,
         state_flash: &'a embassy_sync::mutex::Mutex<NoopRawMutex, STATE>,
     ) -> Self {
-        extern "C" {
+        unsafe extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
             static __bootloader_dfu_start: u32;
@@ -103,7 +103,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             let public_key = VerifyingKey::from_bytes(_public_key).map_err(into_signature_error)?;
             let signature = Signature::from_bytes(_signature);
 
-            let mut chunk_buf = [0; 2];
+            let mut chunk_buf = [0; 64];
             let mut message = [0; 64];
             self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
 
@@ -115,6 +115,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             use salty::{PublicKey, Signature};
 
             use crate::digest_adapters::salty::Sha512;
+            use crate::fmt::Bytes;
 
             fn into_signature_error<E>(_: E) -> FirmwareUpdaterError {
                 FirmwareUpdaterError::Signature(signature::Error::default())
@@ -124,15 +125,15 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             let signature = Signature::try_from(_signature).map_err(into_signature_error)?;
 
             let mut message = [0; 64];
-            let mut chunk_buf = [0; 2];
+            let mut chunk_buf = [0; 64];
             self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
 
             let r = public_key.verify(&message, &signature);
             trace!(
                 "Verifying with public key {}, signature {} and message {} yields ok: {}",
-                public_key.to_bytes(),
-                signature.to_bytes(),
-                message,
+                Bytes(&public_key.to_bytes()),
+                Bytes(&signature.to_bytes()),
+                Bytes(&message),
                 r.is_ok()
             );
             r.map_err(into_signature_error)?;

@@ -8,7 +8,7 @@ mod fmt;
 use core::convert::Infallible;
 use core::mem::MaybeUninit;
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embedded_io_async::{BufRead, Write};
@@ -103,7 +103,7 @@ impl<'d> Runner<'d> {
                 Either::First(r) => {
                     needs_poll = false;
 
-                    let (buf, rx_data) = r?;
+                    let (mut buf, rx_data) = r?;
                     let n = ppp.consume(rx_data, &mut rx_buf);
                     rw.consume(n);
 
@@ -111,8 +111,12 @@ impl<'d> Runner<'d> {
                         PPPoSAction::None => {}
                         PPPoSAction::Received(rg) => {
                             let pkt = &rx_buf[rg];
-                            buf[..pkt.len()].copy_from_slice(pkt);
-                            rx_chan.rx_done(pkt.len());
+                            if pkt.len() > buf.len() {
+                                warn!("received packet len {} exceeds MTU {}, dropping", pkt.len(), buf.len());
+                            } else {
+                                buf[..pkt.len()].copy_from_slice(pkt);
+                                buf.rx_done(pkt.len());
+                            }
                         }
                         PPPoSAction::Transmit(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,
                     }
@@ -136,11 +140,11 @@ impl<'d> Runner<'d> {
                     }
                 }
                 Either::Second(pkt) => {
-                    match ppp.send(pkt, &mut tx_buf) {
+                    match ppp.send(&pkt, &mut tx_buf) {
                         Ok(n) => rw.write_all(&tx_buf[..n]).await.map_err(RunError::Write)?,
                         Err(BufferFullError) => unreachable!(),
                     }
-                    tx_chan.tx_done();
+                    pkt.tx_done();
                 }
             }
         }

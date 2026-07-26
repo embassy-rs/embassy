@@ -1,6 +1,7 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # replace your chip as listed in `probe-rs chip list`
 runner = "probe-rs run --chip STM32L073RZTx"
+# runner = "teleprobe client run --target nucleo-stm32l073rz -s "
 
 [build]
 target = "thumbv6m-none-eabi"

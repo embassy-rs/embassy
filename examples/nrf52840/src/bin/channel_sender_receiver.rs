@@ -3,8 +3,8 @@
 
 use defmt::unwrap;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_nrf::Peri;
+use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::Timer;

@@ -22,7 +22,8 @@ impl From<QspiMode> for u8 {
 
 /// QSPI lane width
 #[allow(dead_code)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum QspiWidth {
     /// None
     NONE,
@@ -67,6 +68,7 @@ impl From<FlashSelection> for bool {
 /// QSPI memory size.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MemorySize {
     _1KiB,
     _2KiB,
@@ -127,15 +129,28 @@ impl From<MemorySize> for u8 {
 
 /// QSPI Address size
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AddressSize {
     /// 8-bit address
     _8Bit,
     /// 16-bit address
     _16Bit,
     /// 24-bit address
-    _24bit,
+    _24Bit,
     /// 32-bit address
-    _32bit,
+    _32Bit,
+}
+
+impl AddressSize {
+    /// The number of address bits for this address size
+    pub fn bit_width(self) -> u8 {
+        match self {
+            AddressSize::_8Bit => 8,
+            AddressSize::_16Bit => 16,
+            AddressSize::_24Bit => 24,
+            AddressSize::_32Bit => 32,
+        }
+    }
 }
 
 impl From<AddressSize> for u8 {
@@ -143,8 +158,8 @@ impl From<AddressSize> for u8 {
         match val {
             AddressSize::_8Bit => 0b00,
             AddressSize::_16Bit => 0b01,
-            AddressSize::_24bit => 0b10,
-            AddressSize::_32bit => 0b11,
+            AddressSize::_24Bit => 0b10,
+            AddressSize::_32Bit => 0b11,
         }
     }
 }
@@ -152,6 +167,7 @@ impl From<AddressSize> for u8 {
 /// Time the Chip Select line stays high.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChipSelectHighTime {
     _1Cycle,
     _2Cycle,
@@ -181,6 +197,7 @@ impl From<ChipSelectHighTime> for u8 {
 /// FIFO threshold.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FIFOThresholdLevel {
     _1Bytes,
     _2Bytes,
@@ -258,6 +275,7 @@ impl From<FIFOThresholdLevel> for u8 {
 /// Dummy cycle count
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DummyCycles {
     _0,
     _1,
@@ -334,6 +352,7 @@ impl From<DummyCycles> for u8 {
 
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SampleShifting {
     None,
     HalfCycle,

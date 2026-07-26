@@ -6,13 +6,12 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embedded_storage::nor_flash::{
-    check_erase, check_read, check_write, ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind,
-    ReadNorFlash,
+    ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash, check_erase, check_read,
+    check_write,
 };
 
-use crate::dma::{AnyChannel, Channel, Transfer};
-use crate::pac;
 use crate::peripherals::FLASH;
+use crate::{dma, interrupt, pac};
 
 /// Flash base address.
 pub const FLASH_BASE: *const u32 = 0x10000000 as _;
@@ -79,7 +78,7 @@ impl NorFlashError for Error {
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct BackgroundRead<'a, 'd, T: Instance, const FLASH_SIZE: usize> {
     flash: PhantomData<&'a mut Flash<'d, T, Async, FLASH_SIZE>>,
-    transfer: Transfer<'a, AnyChannel>,
+    transfer: dma::Transfer<'a>,
 }
 
 impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Future for BackgroundRead<'a, 'd, T, FLASH_SIZE> {
@@ -114,7 +113,7 @@ impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, '
 
 /// Flash driver.
 pub struct Flash<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> {
-    dma: Option<Peri<'d, AnyChannel>>,
+    dma: Option<dma::Channel<'d>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
@@ -263,9 +262,13 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
     /// Create a new flash driver in async mode.
-    pub fn new(_flash: Peri<'d, T>, dma: Peri<'d, impl Channel>) -> Self {
+    pub fn new<D: dma::ChannelInstance>(
+        _flash: Peri<'d, T>,
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
+    ) -> Self {
         Self {
-            dma: Some(dma.into()),
+            dma: Some(dma::Channel::new(dma, irq)),
             phantom: PhantomData,
         }
     }
@@ -314,12 +317,10 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         #[cfg(feature = "_rp235x")]
         const XIP_AUX_BASE: *const u32 = 0x50500000 as *const _;
         let transfer = unsafe {
-            crate::dma::read(
-                self.dma.as_mut().unwrap().reborrow(),
-                XIP_AUX_BASE,
-                data,
-                pac::dma::vals::TreqSel::XIP_STREAM,
-            )
+            self.dma
+                .as_mut()
+                .unwrap()
+                .read(XIP_AUX_BASE, data, pac::dma::vals::TreqSel::XipStream, false)
         };
 
         Ok(BackgroundRead {
@@ -627,7 +628,7 @@ mod ram_helpers {
     /// Length of data must be a multiple of 4096
     /// addr must be aligned to 4096
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "rp2040")]
     unsafe fn write_flash_inner(addr: u32, len: u32, data: Option<&[u8]>, ptrs: *const FlashFunctionPointers) {
         #[cfg(target_arch = "arm")]
@@ -692,7 +693,7 @@ mod ram_helpers {
     /// Length of data must be a multiple of 4096
     /// addr must be aligned to 4096
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "_rp235x")]
     unsafe fn write_flash_inner(addr: u32, len: u32, data: Option<&[u8]>, ptrs: *const FlashFunctionPointers) {
         let data = data.map(|d| d.as_ptr()).unwrap_or(core::ptr::null());
@@ -811,7 +812,7 @@ mod ram_helpers {
     ///
     /// Credit: taken from `rp2040-flash` (also licensed Apache+MIT)
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "rp2040")]
     unsafe fn read_flash_inner(cmd: FlashCommand, ptrs: *const FlashFunctionPointers) {
         #[cfg(target_arch = "arm")]

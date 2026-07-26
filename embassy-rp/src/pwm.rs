@@ -3,13 +3,13 @@
 use embassy_hal_internal::{Peri, PeripheralType};
 pub use embedded_hal_1::pwm::SetDutyCycle;
 use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
-use fixed::traits::ToFixed;
 use fixed::FixedU16;
+use fixed::traits::ToFixed;
 use pac::pwm::regs::{ChDiv, Intr};
 use pac::pwm::vals::Divmode;
 
 use crate::gpio::{AnyPin, Pin as GpioPin, Pull, SealedPin as _};
-use crate::{pac, peripherals, RegExt};
+use crate::{RegExt, pac, peripherals};
 
 /// The configuration of a PWM slice.
 /// Note the period in clock cycles of a slice can be computed as:
@@ -75,9 +75,9 @@ pub enum InputMode {
 impl From<InputMode> for Divmode {
     fn from(value: InputMode) -> Self {
         match value {
-            InputMode::Level => Divmode::LEVEL,
-            InputMode::RisingEdge => Divmode::RISE,
-            InputMode::FallingEdge => Divmode::FALL,
+            InputMode::Level => Divmode::Level,
+            InputMode::RisingEdge => Divmode::Rise,
+            InputMode::FallingEdge => Divmode::Fall,
         }
     }
 }
@@ -158,7 +158,7 @@ impl<'d> Pwm<'d> {
                 #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 #[cfg(feature = "_rp235x")]
-                if divmode != Divmode::DIV {
+                if divmode != Divmode::Div {
                     // Is in input mode and so must enable input mode for the pin
                     w.set_ie(true);
                 }
@@ -177,19 +177,19 @@ impl<'d> Pwm<'d> {
     /// Create PWM driver without any configured pins.
     #[inline]
     pub fn new_free<T: Slice>(slice: Peri<'d, T>, config: Config) -> Self {
-        Self::new_inner(slice.number(), None, None, Pull::None, config, Divmode::DIV)
+        Self::new_inner(slice.number(), None, None, Pull::None, config, Divmode::Div)
     }
 
     /// Create PWM driver with a single 'a' pin as output.
     #[inline]
     pub fn new_output_a<T: Slice>(slice: Peri<'d, T>, a: Peri<'d, impl ChannelAPin<T>>, config: Config) -> Self {
-        Self::new_inner(slice.number(), Some(a.into()), None, Pull::None, config, Divmode::DIV)
+        Self::new_inner(slice.number(), Some(a.into()), None, Pull::None, config, Divmode::Div)
     }
 
     /// Create PWM driver with a single 'b' pin as output.
     #[inline]
     pub fn new_output_b<T: Slice>(slice: Peri<'d, T>, b: Peri<'d, impl ChannelBPin<T>>, config: Config) -> Self {
-        Self::new_inner(slice.number(), None, Some(b.into()), Pull::None, config, Divmode::DIV)
+        Self::new_inner(slice.number(), None, Some(b.into()), Pull::None, config, Divmode::Div)
     }
 
     /// Create PWM driver with a 'a' and 'b' pins as output.
@@ -206,7 +206,7 @@ impl<'d> Pwm<'d> {
             Some(b.into()),
             Pull::None,
             config,
-            Divmode::DIV,
+            Divmode::Div,
         )
     }
 

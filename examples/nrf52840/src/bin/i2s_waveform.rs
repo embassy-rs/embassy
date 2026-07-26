@@ -5,7 +5,7 @@ use core::f32::consts::PI;
 
 use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_nrf::i2s::{self, Channels, Config, DoubleBuffering, MasterClock, Sample as _, SampleWidth, I2S};
+use embassy_nrf::i2s::{self, Channels, Config, DoubleBuffering, I2S, MasterClock, Sample as _, SampleWidth};
 use embassy_nrf::{bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -140,11 +140,7 @@ impl SineOsc {
 
 #[inline]
 fn abs(value: f32) -> f32 {
-    if value < 0.0 {
-        -value
-    } else {
-        value
-    }
+    if value < 0.0 { -value } else { value }
 }
 
 #[inline]

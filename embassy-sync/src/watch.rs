@@ -1,13 +1,13 @@
 //! A synchronization primitive for passing the latest value to **multiple** receivers.
 
 use core::cell::RefCell;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::task::{Context, Poll};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::MultiWakerRegistration;
 
 /// The `Watch` is a single-slot signaling primitive that allows _multiple_ (`N`) receivers to concurrently await
@@ -585,6 +585,11 @@ impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Rcv<'a, T, W> {
     /// **Note**: Futures do nothing unless you `.await` or poll them.
     pub async fn changed(&mut self) -> T {
         poll_fn(|cx| self.watch.poll_changed(&mut self.at_id, cx)).await
+    }
+
+    /// Poll the `Watch` for a changed value, marking it as seen.
+    pub fn poll_changed(&mut self, cx: &mut Context<'_>) -> Poll<T> {
+        self.watch.poll_changed(&mut self.at_id, cx)
     }
 
     /// Tries to get the new value of the watch without waiting, marking it as seen.

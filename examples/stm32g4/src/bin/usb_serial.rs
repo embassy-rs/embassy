@@ -6,10 +6,10 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{self, Driver, Instance};
-use embassy_stm32::{bind_interrupts, peripherals, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals};
+use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::Builder;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -28,17 +28,17 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV2,
-            mul: PllMul::MUL72,
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div2,
+            mul: PllMul::Mul72,
             divp: None,
-            divq: Some(PllQDiv::DIV6), // 48mhz
-            divr: Some(PllRDiv::DIV2), // Main system clock at 144 MHz
+            divq: Some(PllQDiv::Div6), // 48mhz
+            divr: Some(PllRDiv::Div2), // Main system clock at 144 MHz
         });
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.boost = true; // BOOST!
-        config.rcc.mux.clk48sel = mux::Clk48sel::HSI48;
-        //config.rcc.mux.clk48sel = mux::Clk48sel::PLL1_Q; // uncomment to use PLL1_Q instead.
+        config.rcc.mux.clk48sel = mux::Clk48sel::Hsi48;
+        //config.rcc.mux.clk48sel = mux::Clk48sel::Pll1Q; // uncomment to use PLL1_Q instead.
     }
     let p = embassy_stm32::init(config);
 

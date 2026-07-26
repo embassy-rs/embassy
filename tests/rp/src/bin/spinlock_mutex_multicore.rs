@@ -7,7 +7,7 @@ teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{info, unwrap};
 use embassy_executor::Executor;
-use embassy_rp::multicore::{spawn_core1, Stack};
+use embassy_rp::multicore::{Stack, spawn_core1};
 use embassy_rp::spinlock_mutex::SpinlockRawMutex;
 use embassy_sync::channel::Channel;
 use static_cell::StaticCell;

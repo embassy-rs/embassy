@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use darling::export::NestedMeta;
 use darling::FromMeta;
+use darling::export::NestedMeta;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{ReturnType, Type};
@@ -38,6 +38,12 @@ pub static ARCH_CORTEX_M: Arch = Arch {
 };
 
 pub static ARCH_CORTEX_AR: Arch = Arch {
+    default_entry: None,
+    flavor: Flavor::Standard,
+    executor_required: false,
+};
+
+pub static ARCH_Z7: Arch = Arch {
     default_entry: None,
     flavor: Flavor::Standard,
     executor_required: false,
@@ -170,7 +176,7 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
     let f_body = f.body;
     let out = &f.sig.output;
 
-    let name_main_task = if cfg!(feature = "rtos-trace") {
+    let name_main_task = if cfg!(feature = "metadata-name") {
         quote!(
             main_task.metadata().set_name("main\0");
         )
@@ -183,7 +189,7 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
             quote!(!),
             quote! {
                 unsafe fn __make_static<T>(t: &mut T) -> &'static mut T {
-                    ::core::mem::transmute(t)
+                    unsafe { ::core::mem::transmute(t) }
                 }
 
                 let mut executor = #executor::new();

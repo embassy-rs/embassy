@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::i2c::{Address, OwnAddresses, SlaveCommandKind};
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, i2c, peripherals};
+use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -16,6 +16,10 @@ bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
     I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
+    DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+    DMA1_CHANNEL2 => dma::InterruptHandler<peripherals::DMA1_CH2>;
+    DMA1_CHANNEL3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
+    DMA1_CHANNEL4 => dma::InterruptHandler<peripherals::DMA1_CH4>;
 });
 
 const DEV_ADDR: u8 = 0x42;
@@ -137,13 +141,13 @@ async fn main(spawner: Spawner) {
     let d_sda = p.PA8;
     let d_scl = p.PA9;
     let device =
-        i2c::I2c::new(p.I2C2, d_scl, d_sda, Irqs, p.DMA1_CH1, p.DMA1_CH2, config).into_slave_multimaster(d_addr_config);
+        i2c::I2c::new(p.I2C2, d_scl, d_sda, p.DMA1_CH1, p.DMA1_CH2, Irqs, config).into_slave_multimaster(d_addr_config);
 
     spawner.spawn(unwrap!(device_task(device)));
 
     let c_sda = p.PB8;
     let c_scl = p.PB7;
-    let controller = i2c::I2c::new(p.I2C1, c_sda, c_scl, Irqs, p.DMA1_CH3, p.DMA1_CH4, config);
+    let controller = i2c::I2c::new(p.I2C1, c_sda, c_scl, p.DMA1_CH3, p.DMA1_CH4, Irqs, config);
 
     spawner.spawn(unwrap!(controller_task(controller)));
 }

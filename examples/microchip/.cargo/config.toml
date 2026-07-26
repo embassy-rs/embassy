@@ -1,0 +1,17 @@
+[target.thumbv7em-none-eabihf]
+runner = 'probe-rs run --chip MEC1723N_B0_SZ'
+
+rustflags = [
+  # "-C", "linker=flip-link",
+  "-C", "link-arg=-Tlink_ram.x",
+  "-C", "link-arg=-Tdefmt.x",
+  # This is needed if your flash or ram addresses are not aligned to 0x10000 in memory.x
+  # See https://github.com/rust-embedded/cortex-m-quickstart/pull/95
+  "-C", "link-arg=--nmagic",
+]
+
+[build]
+target = "thumbv7em-none-eabihf" # Cortex-M4F
+
+[env]
+DEFMT_LOG = "trace"

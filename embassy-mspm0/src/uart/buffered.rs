@@ -1,4 +1,4 @@
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::slice;
 use core::sync::atomic::{AtomicU8, Ordering};
@@ -14,7 +14,7 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::Binding;
 use crate::pac::uart::Uart as Regs;
 use crate::uart::{Config, ConfigError, CtsPin, Error, Info, Instance, RtsPin, RxPin, State, TxPin};
-use crate::{interrupt, Peri};
+use crate::{Peri, interrupt};
 
 /// Interrupt handler.
 pub struct BufferedInterruptHandler<T: Instance> {
@@ -436,6 +436,10 @@ impl embedded_io_async::Write for BufferedUart<'_> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.tx.write_inner(buf).await
     }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.tx.flush_inner().await
+    }
 }
 
 impl embedded_io_async::Write for BufferedUartTx<'_> {
@@ -633,6 +637,10 @@ impl<'d> BufferedUart<'d> {
             self.tx.cts.is_some(),
         )?;
 
+        info.regs.cpu_int(0).imask().modify(|w| {
+            w.set_rxint(true);
+        });
+
         info.interrupt.unpend();
         unsafe { info.interrupt.enable() };
 
@@ -667,6 +675,10 @@ impl<'d> BufferedUartRx<'d> {
         init_buffers(info, state, None, Some(rx_buffer));
         super::enable(info.regs);
         super::configure(info, &self.state.state, config, true, self.rts.is_some(), false, false)?;
+
+        info.regs.cpu_int(0).imask().modify(|w| {
+            w.set_rxint(true);
+        });
 
         info.interrupt.unpend();
         unsafe { info.interrupt.enable() };
@@ -889,6 +901,10 @@ impl<'d> BufferedUartTx<'d> {
         init_buffers(info, state, Some(tx_buffer), None);
         super::enable(info.regs);
         super::configure(info, &state.state, config, false, false, true, self.cts.is_some())?;
+
+        info.regs.cpu_int(0).imask().modify(|w| {
+            w.set_rxint(true);
+        });
 
         info.interrupt.unpend();
         unsafe { info.interrupt.enable() };

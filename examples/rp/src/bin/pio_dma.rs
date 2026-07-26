@@ -5,16 +5,17 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_rp::bind_interrupts;
-use embassy_rp::peripherals::PIO0;
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Config, InterruptHandler, Pio, ShiftConfig, ShiftDirection};
+use embassy_rp::{bind_interrupts, dma};
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });
 
 fn swap_nibbles(v: u32) -> u32 {
@@ -62,8 +63,8 @@ async fn main(_spawner: Spawner) {
     sm.set_config(&cfg);
     sm.set_enable(true);
 
-    let mut dma_out_ref = p.DMA_CH0;
-    let mut dma_in_ref = p.DMA_CH1;
+    let mut dma_out_ref = dma::Channel::new(p.DMA_CH0, Irqs);
+    let mut dma_in_ref = dma::Channel::new(p.DMA_CH1, Irqs);
     let mut dout = [0x12345678u32; 29];
     for i in 1..dout.len() {
         dout[i] = (dout[i - 1] & 0x0fff_ffff) * 13 + 7;
@@ -72,8 +73,8 @@ async fn main(_spawner: Spawner) {
     loop {
         let (rx, tx) = sm.rx_tx();
         join(
-            tx.dma_push(dma_out_ref.reborrow(), &dout, false),
-            rx.dma_pull(dma_in_ref.reborrow(), &mut din, false),
+            tx.dma_push(&mut dma_out_ref, &dout, false),
+            rx.dma_pull(&mut dma_in_ref, &mut din, false),
         )
         .await;
         for i in 0..din.len() {

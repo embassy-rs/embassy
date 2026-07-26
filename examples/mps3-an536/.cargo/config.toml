@@ -1,0 +1,8 @@
+[target.armv8r-none-eabihf]
+runner = "qemu-run --machine mps3-an536 --cpu cortex-r52 --arg smp=2"
+
+[build]
+target = "armv8r-none-eabihf"
+
+[env]
+DEFMT_LOG = "trace"

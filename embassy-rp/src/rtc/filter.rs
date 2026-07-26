@@ -4,7 +4,8 @@ use crate::pac::rtc::regs::{IrqSetup0, IrqSetup1};
 /// A filter used for [`RealTimeClock::schedule_alarm`].
 ///
 /// [`RealTimeClock::schedule_alarm`]: struct.RealTimeClock.html#method.schedule_alarm
-#[derive(Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DateTimeFilter {
     /// The year that this alarm should trigger on, `None` if the RTC alarm should not trigger on a year value.
     pub year: Option<u16>,
@@ -80,7 +81,7 @@ impl DateTimeFilter {
     pub(super) fn write_setup_1(&self, w: &mut IrqSetup1) {
         if let Some(day_of_week) = self.day_of_week {
             w.set_dotw_ena(true);
-            let bits = super::datetime::day_of_week_to_u8(day_of_week);
+            let bits = super::conversions::day_of_week_to_u8(day_of_week);
 
             w.set_dotw(bits);
         }

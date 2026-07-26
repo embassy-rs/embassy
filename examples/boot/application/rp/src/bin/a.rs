@@ -23,6 +23,7 @@ static APP_B: &[u8] = &[0, 1, 2, 3];
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
+const WATCHDOG_TIMEOUT: Duration = Duration::from_secs(8);
 
 #[embassy_executor::main]
 async fn main(_s: Spawner) {
@@ -31,7 +32,7 @@ async fn main(_s: Spawner) {
 
     // Override bootloader watchdog
     let mut watchdog = Watchdog::new(p.WATCHDOG);
-    watchdog.start(Duration::from_secs(8));
+    watchdog.start(WATCHDOG_TIMEOUT);
 
     let flash = Flash::<_, _, FLASH_SIZE>::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));
@@ -41,7 +42,7 @@ async fn main(_s: Spawner) {
     let mut updater = BlockingFirmwareUpdater::new(config, &mut aligned.0);
 
     Timer::after_secs(5).await;
-    watchdog.feed();
+    watchdog.feed(WATCHDOG_TIMEOUT);
     led.set_high();
     let mut offset = 0;
     let mut buf: AlignedBuffer<4096> = AlignedBuffer([0; 4096]);
@@ -57,7 +58,7 @@ async fn main(_s: Spawner) {
         writer.write(offset, &buf.0[..chunk.len()]).unwrap();
         offset += chunk.len() as u32;
     }
-    watchdog.feed();
+    watchdog.feed(WATCHDOG_TIMEOUT);
     defmt::info!("firmware written, marking update");
     updater.mark_updated().unwrap();
     Timer::after_secs(2).await;

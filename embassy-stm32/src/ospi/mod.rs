@@ -1,6 +1,29 @@
 //! OCTOSPI Serial Peripheral Interface
 //!
-
+//! Notes on OCTOSPIM (OctoSPI manager / mux)
+//! Some chips have an OCTOSPIM peripheral, such chips, like the STM32H735, have a default mapping as follows:
+//!
+//! RM0468 Rev 3:
+//! "In the default out-of-reset configuration, all the OCTOSPI1 and OCTOSPI2 signals are mapped, respectively, on
+//! Port 1 and on Port 2."
+//!
+//! This mapping is maintained by this implementation in that:
+//! * OCTOSPIM.P1CR is used for OCTOSPI1.
+//! * OCTOSPIM.P2CR is used for OCTOSPI2.
+//!
+//! However, it is possible to have a bootloader which does not follow this convention and runs your code from
+//! memory-mapped flash, which will then break things when you use the functions in this module.
+//! In this very special case, use a function that resides in RAM to re-configure the OctoSPI.
+//!
+//! Additionally, there are other issues when running code from memory-mapped mode, since the reference manual states:
+//!
+//! "The OCTOSPIM configuration can be changed only when all OCTOSPIs are disabled"
+//!
+//! this implementation does indeed disable both OCTOSPI peripherals before OCTOSPIM reconfiguration.
+//!
+//! Finally, for simplicity, this implementation currently enforces that DQS, NCS and CLK are on the same physical
+//! group, however this is not a requirement of the hardware.  i.e. using P1_NCS and P1_CLK is ok, but P1_NCS and P2_CLK is
+//! not and you will get a compile error if you try. PR's welcome to change this as needed.
 #![macro_use]
 
 pub mod enums;
@@ -12,17 +35,38 @@ use embassy_hal_internal::PeripheralType;
 pub use enums::*;
 use stm32_metapac::octospi::vals::{PhaseMode, SizeInBits};
 
-use crate::dma::{word, ChannelAndRequest};
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::dma::{ChannelAndRequest, word};
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-use crate::pac::octospi::{vals, Octospi as Regs};
+use crate::pac::octospi::{Octospi as Regs, vals};
 #[cfg(octospim_v1)]
 use crate::pac::octospim::Octospim;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peri};
+use crate::{Peri, peripherals};
+
+//
+// OCTOSPIM Physical Groups
+// bit 0 high = low group (if used), bit 1 high = hig group (if used)
+// bit 1 high = port 2, bit 1 low = port 1
+//
+
+#[allow(unused)]
+#[cfg(octospim_v1)]
+mod octospin_v1_constants {
+    pub(crate) const OCTOSPIM_P1_LOW: u8 = 0b00;
+    pub(crate) const OCTOSPIM_P1_HIGH: u8 = 0b01;
+    pub(crate) const OCTOSPIM_P2_LOW: u8 = 0b10;
+    pub(crate) const OCTOSPIM_P2_HIGH: u8 = 0b11;
+    pub(crate) const OCTOSPIM_P1_CTRL: u8 = 0b00;
+    pub(crate) const OCTOSPIM_P2_CTRL: u8 = 0b10;
+}
+#[allow(unused)]
+#[cfg(octospim_v1)]
+pub use octospin_v1_constants::*;
 
 /// OPSI driver config.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Fifo threshold used by the peripheral to generate the interrupt indicating data
     /// or space is available in the FIFO
@@ -30,7 +74,9 @@ pub struct Config {
     /// Indicates the type of external device connected
     pub memory_type: MemoryType, // Need to add an additional enum to provide this public interface
     /// Defines the size of the external device connected to the OSPI corresponding
-    /// to the number of address bits required to access the device
+    /// to the number of address bits required to access the device.
+    /// When using indirect mode, [`TransferConfig::address`] + the length of the data being read
+    /// or written must fit within the configured `device_size`, otherwise an error is returned.
     pub device_size: MemorySize,
     /// Sets the minimum number of clock cycles that the chip select signal must be held high
     /// between commands
@@ -82,7 +128,29 @@ impl Default for Config {
     }
 }
 
+/// HyperBus latency configuration, programmed into OCTOSPI_HLCR.
+///
+/// Required for HyperBus (HyperRAM / HyperFlash) memory-mapped access: the access time
+/// and read-write recovery must match the device datasheet at the chosen bus clock,
+/// analogous to a NOR flash's dummy-cycle latency. HLCR is the one HyperBus register the
+/// rest of the driver does not touch, so apply this with [`Ospi::configure_hyperbus`]
+/// after construction and before enabling memory-mapped mode.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct HyperbusConfig {
+    /// Latency mode (fixed = twice the access time, or variable).
+    pub latency_mode: HyperbusLatencyMode,
+    /// Device access time (TACC), in communication-clock cycles.
+    pub access_time: u8,
+    /// Read-write recovery time (TRWR), in communication-clock cycles.
+    pub rw_recovery_time: u8,
+    /// Apply zero latency on write operations.
+    pub write_zero_latency: bool,
+}
+
 /// OSPI transfer configuration.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TransferConfig {
     /// Instruction width (IMODE)
     pub iwidth: OspiWidth,
@@ -92,10 +160,11 @@ pub struct TransferConfig {
     pub isize: AddressSize,
     /// Instruction Double Transfer rate enable
     pub idtr: bool,
-
     /// Address width (ADMODE)
     pub adwidth: OspiWidth,
-    /// Device memory address
+    /// Device memory address.
+    /// In indirect mode, this value + the length of the data being read or written must be within
+    /// configured [`Config::device_size`], otherwise the transfer returns an error.
     pub address: Option<u32>,
     /// Number of Address Bytes
     pub adsize: AddressSize,
@@ -113,11 +182,19 @@ pub struct TransferConfig {
 
     /// Data width (DMODE)
     pub dwidth: OspiWidth,
-    /// Data buffer
+    /// Data Double Transfer rate enable
     pub ddtr: bool,
 
     /// Number of dummy cycles (DCYC)
     pub dummy: DummyCycles,
+
+    /// Data strobe (DQS) management enable
+    pub dqse: bool,
+    /// Send instruction only once (SIOO) mode enable
+    /// Enable this to improve memory-mapped latency. Ensure your device supports this mode.
+    /// Some manufacturers call this 'Continuous Read' mode and require specific bits to be set
+    /// in alternate bytes (e.g. Winbound W25Q) and specific disable sequences.
+    pub sioo: bool,
 }
 
 impl Default for TransferConfig {
@@ -142,6 +219,9 @@ impl Default for TransferConfig {
             ddtr: false,
 
             dummy: DummyCycles::_0,
+
+            dqse: false,
+            sioo: false,
         }
     }
 }
@@ -161,19 +241,19 @@ pub enum OspiError {
 /// OSPI driver.
 pub struct Ospi<'d, T: Instance, M: PeriMode> {
     _peri: Peri<'d, T>,
-    sck: Option<Peri<'d, AnyPin>>,
-    d0: Option<Peri<'d, AnyPin>>,
-    d1: Option<Peri<'d, AnyPin>>,
-    d2: Option<Peri<'d, AnyPin>>,
-    d3: Option<Peri<'d, AnyPin>>,
-    d4: Option<Peri<'d, AnyPin>>,
-    d5: Option<Peri<'d, AnyPin>>,
-    d6: Option<Peri<'d, AnyPin>>,
-    d7: Option<Peri<'d, AnyPin>>,
-    nss: Option<Peri<'d, AnyPin>>,
-    dqs: Option<Peri<'d, AnyPin>>,
+    _sck: Option<Flex<'d>>,
+    _d0: Option<Flex<'d>>,
+    _d1: Option<Flex<'d>>,
+    _d2: Option<Flex<'d>>,
+    _d3: Option<Flex<'d>>,
+    _d4: Option<Flex<'d>>,
+    _d5: Option<Flex<'d>>,
+    _d6: Option<Flex<'d>>,
+    _d7: Option<Flex<'d>>,
+    _nss: Option<Flex<'d>>,
+    _dqs: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
     config: Config,
     width: OspiWidth,
 }
@@ -192,25 +272,28 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         let reg = T::REGS;
         while reg.sr().read().busy() {}
 
-        reg.ccr().modify(|r| {
-            r.set_dqse(false);
-            r.set_sioo(true);
-        });
+        if let Some(instruction) = write_config.instruction {
+            reg.wir().write(|r| {
+                r.set_instruction(instruction);
+            });
+        }
 
-        // Set wrting configurations, there are separate registers for write configurations in memory mapped mode
+        // Set writing configurations, there are separate registers for write configurations in memory mapped mode
         reg.wccr().modify(|w| {
             w.set_imode(PhaseMode::from_bits(write_config.iwidth.into()));
             w.set_idtr(write_config.idtr);
             w.set_isize(SizeInBits::from_bits(write_config.isize.into()));
 
             w.set_admode(PhaseMode::from_bits(write_config.adwidth.into()));
-            w.set_addtr(write_config.idtr);
+            w.set_addtr(write_config.addtr);
             w.set_adsize(SizeInBits::from_bits(write_config.adsize.into()));
 
             w.set_dmode(PhaseMode::from_bits(write_config.dwidth.into()));
             w.set_ddtr(write_config.ddtr);
 
             w.set_abmode(PhaseMode::from_bits(write_config.abwidth.into()));
+            // Always Enable DQS bit - without this bit set every write request returns an error
+            // See "ES0491 - Rev 9 - 2.8.6 - Memory-mapped write error response when DQS output is disabled"
             w.set_dqse(true);
         });
 
@@ -218,18 +301,40 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         // Enable memory mapped mode
         reg.cr().modify(|r| {
-            r.set_fmode(crate::ospi::vals::FunctionalMode::MEMORY_MAPPED);
+            r.set_fmode(crate::ospi::vals::FunctionalMode::MemoryMapped);
             r.set_tcen(false);
         });
         Ok(())
     }
 
+    /// Program the HyperBus latency register (OCTOSPI_HLCR).
+    ///
+    /// Only meaningful when the connected device is a HyperBus memory
+    /// ([`Config::memory_type`] == [`MemoryType::HyperBusMemory`]). Call this after
+    /// construction and before [`Ospi::enable_memory_mapped_mode`]. The peripheral is
+    /// already enabled at this point, so this waits for it to be idle before writing.
+    pub fn configure_hyperbus(&mut self, config: HyperbusConfig) {
+        let reg = T::REGS;
+        while reg.sr().read().busy() {}
+        reg.hlcr().write(|w| {
+            w.set_lm(vals::LatencyMode::from_bits(config.latency_mode.into()));
+            w.set_wzl(config.write_zero_latency);
+            w.set_tacc(config.access_time);
+            w.set_trwr(config.rw_recovery_time);
+        });
+    }
+
     /// Quit from memory mapped mode
     pub fn disable_memory_mapped_mode(&mut self) {
+        // Ensure memory transactions have completed.
+        // If this is called immediately after writing to memory mapped memory a BusFault of type
+        // 'Imprecise data access error' could occur.
+        cortex_m::asm::dsb();
+
         let reg = T::REGS;
 
         reg.cr().modify(|r| {
-            r.set_fmode(crate::ospi::vals::FunctionalMode::INDIRECT_WRITE);
+            r.set_fmode(crate::ospi::vals::FunctionalMode::IndirectWrite);
             r.set_abort(true);
             r.set_dmaen(false);
             r.set_en(false);
@@ -244,26 +349,165 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         });
     }
 
+    #[cfg(octospim_v1)]
+    fn disable_octospis_for_octospim_config() -> (bool, bool) {
+        let octospi1_enabled = crate::peripherals::OCTOSPI1::REGS.cr().read().en();
+
+        #[cfg(all(octospim_v1, peri_octospi2))]
+        let octospi2_enabled = crate::peripherals::OCTOSPI2::REGS.cr().read().en();
+
+        #[cfg(not(all(octospim_v1, peri_octospi2)))]
+        let octospi2_enabled = false;
+
+        crate::peripherals::OCTOSPI1::REGS.cr().modify(|w| {
+            w.set_en(false);
+        });
+
+        #[cfg(all(octospim_v1, peri_octospi2))]
+        crate::peripherals::OCTOSPI2::REGS.cr().modify(|w| {
+            w.set_en(false);
+        });
+
+        (octospi1_enabled, octospi2_enabled)
+    }
+
+    #[cfg(octospim_v1)]
+    fn restore_octospis_after_config(octospi1_was_enabled: bool, _octospi2_was_enabled: bool) {
+        if T::OCTOSPI_IDX == 1 || octospi1_was_enabled {
+            crate::peripherals::OCTOSPI1::REGS.cr().modify(|w| {
+                w.set_en(true);
+            });
+        }
+
+        #[cfg(all(octospim_v1, peri_octospi2))]
+        if T::OCTOSPI_IDX == 2 || _octospi2_was_enabled {
+            crate::peripherals::OCTOSPI2::REGS.cr().modify(|w| {
+                w.set_en(true);
+            });
+        }
+    }
+
+    #[cfg(octospim_v1)]
+    fn octospim_low_data_src() -> u8 {
+        if T::OCTOSPI_IDX == 1 { 0b00 } else { 0b10 }
+    }
+
+    #[cfg(octospim_v1)]
+    fn octospim_high_data_src() -> u8 {
+        if T::OCTOSPI_IDX == 1 { 0b01 } else { 0b11 }
+    }
+
+    #[cfg(octospim_v1)]
+    fn octospim_signal_src() -> bool {
+        T::OCTOSPI_IDX == 2
+    }
+
+    #[cfg(octospim_v1)]
+    fn octospim_uses_p2(physical_group: u8) -> bool {
+        physical_group & 0b10 != 0
+    }
+
+    #[cfg(octospim_v1)]
+    fn octospim_uses_high_group(physical_group: u8) -> bool {
+        physical_group & 0b01 != 0
+    }
+
+    #[cfg(octospim_v1)]
+    fn configure_octospim_data_group(physical_group: u8, data_src: u8) {
+        let use_high_group = Self::octospim_uses_high_group(physical_group);
+
+        if Self::octospim_uses_p2(physical_group) {
+            T::OCTOSPIM_REGS.p2cr().modify(|w| {
+                if use_high_group {
+                    w.set_iohen(true);
+                    w.set_iohsrc(data_src);
+                } else {
+                    w.set_iolen(true);
+                    w.set_iolsrc(data_src);
+                }
+            });
+        } else {
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                if use_high_group {
+                    w.set_iohen(true);
+                    w.set_iohsrc(data_src);
+                } else {
+                    w.set_iolen(true);
+                    w.set_iolsrc(data_src);
+                }
+            });
+        }
+    }
+
+    #[cfg(octospim_v1)]
+    fn configure_octospim_control_group(physical_group: u8, has_dqs: bool) {
+        let signal_src = Self::octospim_signal_src();
+
+        if Self::octospim_uses_p2(physical_group) {
+            T::OCTOSPIM_REGS.p2cr().modify(|w| {
+                w.set_clken(true);
+                w.set_clksrc(signal_src);
+                w.set_ncsen(true);
+                w.set_ncssrc(signal_src);
+
+                if has_dqs {
+                    w.set_dqsen(true);
+                    w.set_dqssrc(signal_src);
+                } else {
+                    w.set_dqsen(false);
+                }
+            });
+        } else {
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                w.set_clken(true);
+                w.set_clksrc(signal_src);
+                w.set_ncsen(true);
+                w.set_ncssrc(signal_src);
+
+                if has_dqs {
+                    w.set_dqsen(true);
+                    w.set_dqssrc(signal_src);
+                } else {
+                    w.set_dqsen(false);
+                }
+            });
+        }
+    }
+
     fn new_inner(
         peri: Peri<'d, T>,
-        d0: Option<Peri<'d, AnyPin>>,
-        d1: Option<Peri<'d, AnyPin>>,
-        d2: Option<Peri<'d, AnyPin>>,
-        d3: Option<Peri<'d, AnyPin>>,
-        d4: Option<Peri<'d, AnyPin>>,
-        d5: Option<Peri<'d, AnyPin>>,
-        d6: Option<Peri<'d, AnyPin>>,
-        d7: Option<Peri<'d, AnyPin>>,
-        sck: Option<Peri<'d, AnyPin>>,
-        nss: Option<Peri<'d, AnyPin>>,
-        dqs: Option<Peri<'d, AnyPin>>,
+        d0: Option<Flex<'d>>,
+        d1: Option<Flex<'d>>,
+        d2: Option<Flex<'d>>,
+        d3: Option<Flex<'d>>,
+        d4: Option<Flex<'d>>,
+        d5: Option<Flex<'d>>,
+        d6: Option<Flex<'d>>,
+        d7: Option<Flex<'d>>,
+        sck: Option<Flex<'d>>,
+        nss: Option<Flex<'d>>,
+        dqs: Option<Flex<'d>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         width: OspiWidth,
         dual_quad: bool,
+        #[cfg(octospim_v1)] iol_pgroup: u8,
+        #[cfg(octospim_v1)] ioh_pgroup: Option<u8>,
+        #[cfg(octospim_v1)] ctrl_pgroup: u8,
     ) -> Self {
         #[cfg(octospim_v1)]
-        {
+        trace!("OCTOSPI_IDX: {:?}", T::OCTOSPI_IDX);
+
+        #[cfg(octospim_v1)]
+        let (octospi1_was_enabled, octospi2_was_enabled) = {
+            trace!("IOL_PGROUP: 0b{:02b}", iol_pgroup);
+            if let Some(ioh_pgroup) = ioh_pgroup {
+                trace!("IOH_PGROUP: 0b{:02b}", ioh_pgroup);
+            } else {
+                trace!("IOH_PGROUP: N/A");
+            }
+            trace!("CLK/NCS/DQS CTRL_PGROUP: 0b{:02b}", ctrl_pgroup);
+
             // RCC for octospim should be enabled before writing register
             #[cfg(stm32l4)]
             crate::pac::RCC.ahb2smenr().modify(|w| w.set_octospimsmen(true));
@@ -272,10 +516,11 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             #[cfg(not(any(stm32l4, stm32u5)))]
             crate::pac::RCC.ahb3enr().modify(|w| w.set_iomngren(true));
 
-            // Disable OctoSPI peripheral first
-            T::REGS.cr().modify(|w| {
-                w.set_en(false);
-            });
+            let previously_enabled_instances = Self::disable_octospis_for_octospim_config();
+            trace!(
+                "OCTOSPI1_ENABLED: {:?}, OCTOSPI2_ENABLED: {:?}",
+                previously_enabled_instances.0, previously_enabled_instances.1
+            );
 
             // OctoSPI IO Manager has been enabled before
             T::OCTOSPIM_REGS.cr().modify(|w| {
@@ -283,61 +528,29 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                 w.set_req2ack_time(0xff);
             });
 
-            // Clear config
-            T::OCTOSPIM_REGS.p1cr().modify(|w| {
-                w.set_clksrc(false);
-                w.set_dqssrc(false);
-                w.set_ncssrc(false);
-                w.set_clken(false);
-                w.set_dqsen(false);
-                w.set_ncsen(false);
-                w.set_iolsrc(0);
-                w.set_iohsrc(0);
-            });
+            Self::configure_octospim_control_group(ctrl_pgroup, dqs.is_some());
+            Self::configure_octospim_data_group(iol_pgroup, Self::octospim_low_data_src());
 
-            T::OCTOSPIM_REGS.p1cr().modify(|w| {
-                let octospi_src = if T::OCTOSPI_IDX == 1 { false } else { true };
-                w.set_ncsen(true);
-                w.set_ncssrc(octospi_src);
-                w.set_clken(true);
-                w.set_clksrc(octospi_src);
-                if dqs.is_some() {
-                    w.set_dqsen(true);
-                    w.set_dqssrc(octospi_src);
-                }
+            if dual_quad {
+                debug_assert!(
+                    ioh_pgroup.is_some(),
+                    "dual-quad must set ioh_pgroup for the second flash chip"
+                );
+            }
 
-                // Set OCTOSPIM IOL and IOH according to the index of OCTOSPI instance
-                if T::OCTOSPI_IDX == 1 {
-                    w.set_iolen(true);
-                    w.set_iolsrc(0);
-                    // Enable IOH in octo and dual quad mode
-                    if let OspiWidth::OCTO = width {
-                        w.set_iohen(true);
-                        w.set_iohsrc(0b01);
-                    } else if dual_quad {
-                        w.set_iohen(true);
-                        w.set_iohsrc(0b00);
-                    } else {
-                        w.set_iohen(false);
-                        w.set_iohsrc(0b00);
-                    }
-                } else {
-                    w.set_iolen(true);
-                    w.set_iolsrc(0b10);
-                    // Enable IOH in octo and dual quad mode
-                    if let OspiWidth::OCTO = width {
-                        w.set_iohen(true);
-                        w.set_iohsrc(0b11);
-                    } else if dual_quad {
-                        w.set_iohen(true);
-                        w.set_iohsrc(0b10);
-                    } else {
-                        w.set_iohen(false);
-                        w.set_iohsrc(0b00);
-                    }
-                }
-            });
-        }
+            if let Some(ioh_pgroup) = ioh_pgroup {
+                Self::configure_octospim_data_group(ioh_pgroup, Self::octospim_high_data_src());
+            }
+
+            let cr = T::OCTOSPIM_REGS.cr().read();
+            let p1cr = T::OCTOSPIM_REGS.p1cr().read();
+            let p2cr = T::OCTOSPIM_REGS.p2cr().read();
+            debug!("OCTOSPIM_CR: 0x{:08X} - {:?}", cr.0, cr);
+            debug!("OCTOSPIM_P1CR: 0x{:08X} - {:?}", p1cr.0, p1cr);
+            debug!("OCTOSPIM_P2CR: 0x{:08X} - {:?}", p2cr.0, p2cr);
+
+            previously_enabled_instances
+        };
 
         // System configuration
         rcc::enable_and_reset::<T>();
@@ -386,16 +599,24 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         T::REGS.tcr().modify(|w| {
             w.set_sshift(match config.sample_shifting {
-                true => vals::SampleShift::HALF_CYCLE,
-                false => vals::SampleShift::NONE,
+                true => vals::SampleShift::HalfCycle,
+                false => vals::SampleShift::None,
             });
             w.set_dhqc(config.delay_hold_quarter_cycle);
         });
 
         // Enable peripheral
-        T::REGS.cr().modify(|w| {
-            w.set_en(true);
-        });
+        #[cfg(not(octospim_v1))]
+        {
+            T::REGS.cr().modify(|w| {
+                w.set_en(true);
+            });
+        }
+
+        #[cfg(octospim_v1)]
+        {
+            Self::restore_octospis_after_config(octospi1_was_enabled, octospi2_was_enabled);
+        }
 
         // Free running clock needs to be set after peripheral enable
         if config.free_running_clock {
@@ -406,19 +627,19 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         Self {
             _peri: peri,
-            sck,
-            d0,
-            d1,
-            d2,
-            d3,
-            d4,
-            d5,
-            d6,
-            d7,
-            nss,
-            dqs,
+            _sck: sck,
+            _d0: d0,
+            _d1: d1,
+            _d2: d2,
+            _d3: d3,
+            _d4: d4,
+            _d5: d5,
+            _d6: d6,
+            _d7: d7,
+            _nss: nss,
+            _dqs: dqs,
             dma,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config,
             width,
         }
@@ -436,17 +657,12 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         }
 
         T::REGS.cr().modify(|w| {
-            w.set_fmode(0.into());
+            w.set_fmode(vals::FunctionalMode::IndirectWrite);
         });
 
         // Configure alternate bytes
         if let Some(ab) = command.alternate_bytes {
             T::REGS.abr().write(|v| v.set_alternate(ab));
-            T::REGS.ccr().modify(|w| {
-                w.set_abmode(PhaseMode::from_bits(command.abwidth.into()));
-                w.set_abdtr(command.abdtr);
-                w.set_absize(SizeInBits::from_bits(command.absize.into()));
-            })
         }
 
         // Configure dummy cycles
@@ -458,28 +674,35 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         if let Some(data_length) = data_len {
             T::REGS.dlr().write(|v| {
                 v.set_dl((data_length - 1) as u32);
-            })
+            });
         } else {
             T::REGS.dlr().write(|v| {
                 v.set_dl((0) as u32);
-            })
+            });
         }
 
-        // Configure instruction/address/data modes
+        // Configure instruction/address/alternate bytes/data/communication modes
         T::REGS.ccr().modify(|w| {
             w.set_imode(PhaseMode::from_bits(command.iwidth.into()));
             w.set_idtr(command.idtr);
             w.set_isize(SizeInBits::from_bits(command.isize.into()));
 
             w.set_admode(PhaseMode::from_bits(command.adwidth.into()));
-            w.set_addtr(command.idtr);
+            w.set_addtr(command.addtr);
             w.set_adsize(SizeInBits::from_bits(command.adsize.into()));
+
+            w.set_abmode(PhaseMode::from_bits(command.abwidth.into()));
+            w.set_abdtr(command.abdtr);
+            w.set_absize(SizeInBits::from_bits(command.absize.into()));
 
             w.set_dmode(PhaseMode::from_bits(command.dwidth.into()));
             w.set_ddtr(command.ddtr);
+
+            w.set_dqse(command.dqse);
+            w.set_sioo(command.sioo);
         });
 
-        // Set informationrequired to initiate transaction
+        // Set information required to initiate transaction
         if let Some(instruction) = command.instruction {
             if let Some(address) = command.address {
                 T::REGS.ir().write(|v| {
@@ -512,6 +735,18 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                 // The only single phase transaction supported is instruction only
                 return Err(OspiError::InvalidCommand);
             }
+        }
+
+        // The following errors set the TEF flag in OCTOSPI_SR register:
+        // - in indirect or automatic status-polling mode, when a wrong address has been programmed
+        //   in OCTOSPI_AR (according to the device size defined by DEVSIZE[4:0])
+        // - in indirect mode, if the address plus the data length exceed the device size: TEF is
+        // set as soon as the access is triggered.
+        if T::REGS.sr().read().tef() {
+            // Clear the TEF register to make it ready for the next transfer.
+            T::REGS.fcr().write(|w| w.set_ctef(true));
+
+            return Err(OspiError::InvalidCommand);
         }
 
         Ok(())
@@ -548,16 +783,15 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS
-            .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
-        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::IndirectRead));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
@@ -587,11 +821,12 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::IndirectWrite));
 
         for idx in 0..buf.len() {
             while !T::REGS.sr().read().ftf() {}
@@ -653,8 +888,8 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
         T::REGS.tcr().modify(|w| {
             w.set_sshift(match config.sample_shifting {
-                true => vals::SampleShift::HALF_CYCLE,
-                false => vals::SampleShift::NONE,
+                true => vals::SampleShift::HalfCycle,
+                false => vals::SampleShift::None,
             });
             w.set_dhqc(config.delay_hold_quarter_cycle);
         });
@@ -682,6 +917,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
 
 impl<'d, T: Instance> Ospi<'d, T, Blocking> {
     /// Create new blocking OSPI driver for a single spi external chip
+    #[cfg(not(octospim_v1))]
     pub fn new_blocking_singlespi(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
@@ -713,7 +949,44 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
         )
     }
 
+    /// Create new blocking OSPI driver for a single spi external chip
+    #[cfg(octospim_v1)]
+    pub fn new_blocking_singlespi<const IOL_PGROUP: u8, const CTRL_PGROUP: u8>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0: Peri<'d, impl D0Src<T, IOL_PGROUP>>,
+        d1: Peri<'d, impl D1Src<T, IOL_PGROUP>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::input(Pull::None)),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            None,
+            config,
+            OspiWidth::SING,
+            false,
+            IOL_PGROUP,
+            None,
+            CTRL_PGROUP,
+        )
+    }
+
     /// Create new blocking OSPI driver for a dualspi external chip
+    #[cfg(not(octospim_v1))]
     pub fn new_blocking_dualspi(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
@@ -745,7 +1018,44 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
         )
     }
 
+    /// Create new blocking OSPI driver for a dualspi external chip
+    #[cfg(octospim_v1)]
+    pub fn new_blocking_dualspi<const IOL_PGROUP: u8, const CTRL_PGROUP: u8>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0: Peri<'d, impl D0Src<T, IOL_PGROUP>>,
+        d1: Peri<'d, impl D1Src<T, IOL_PGROUP>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            None,
+            config,
+            OspiWidth::DUAL,
+            false,
+            IOL_PGROUP,
+            None,
+            CTRL_PGROUP,
+        )
+    }
+
     /// Create new blocking OSPI driver for a quadspi external chip
+    #[cfg(not(octospim_v1))]
     pub fn new_blocking_quadspi(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
@@ -779,19 +1089,16 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
         )
     }
 
-    /// Create new blocking OSPI driver for two quadspi external chips
-    pub fn new_blocking_dualquadspi(
+    /// Create new blocking OSPI driver for a quadspi external chip
+    #[cfg(octospim_v1)]
+    pub fn new_blocking_quadspi<const IOL_PGROUP: u8, const CTRL_PGROUP: u8>(
         peri: Peri<'d, T>,
-        sck: Peri<'d, impl SckPin<T>>,
-        d0: Peri<'d, impl D0Pin<T>>,
-        d1: Peri<'d, impl D1Pin<T>>,
-        d2: Peri<'d, impl D2Pin<T>>,
-        d3: Peri<'d, impl D3Pin<T>>,
-        d4: Peri<'d, impl D4Pin<T>>,
-        d5: Peri<'d, impl D5Pin<T>>,
-        d6: Peri<'d, impl D6Pin<T>>,
-        d7: Peri<'d, impl D7Pin<T>>,
-        nss: Peri<'d, impl NSSPin<T>>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0: Peri<'d, impl D0Src<T, IOL_PGROUP>>,
+        d1: Peri<'d, impl D1Src<T, IOL_PGROUP>>,
+        d2: Peri<'d, impl D2Src<T, IOL_PGROUP>>,
+        d3: Peri<'d, impl D3Src<T, IOL_PGROUP>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -800,10 +1107,52 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
             new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            None,
+            None,
+            None,
+            None,
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            None,
+            config,
+            OspiWidth::QUAD,
+            false,
+            IOL_PGROUP,
+            None,
+            CTRL_PGROUP,
+        )
+    }
+
+    /// Create new blocking OSPI driver for two quadspi external chips
+    #[cfg(not(octospim_v1))]
+    pub fn new_blocking_dualquadspi(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0_1: Peri<'d, impl D0Pin<T>>,
+        d1_1: Peri<'d, impl D1Pin<T>>,
+        d2_1: Peri<'d, impl D2Pin<T>>,
+        d3_1: Peri<'d, impl D3Pin<T>>,
+        d0_2: Peri<'d, impl D4Pin<T>>,
+        d1_2: Peri<'d, impl D5Pin<T>>,
+        d2_2: Peri<'d, impl D6Pin<T>>,
+        d3_2: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d0_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_pin!(
                 nss,
@@ -817,7 +1166,50 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
         )
     }
 
+    /// Create new blocking OSPI driver for two quadspi external chips
+    #[cfg(octospim_v1)]
+    pub fn new_blocking_dualquadspi<const IOLSRC1: u8, const IOLSRC2: u8, const CTRL_PGROUP: u8>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0_1: Peri<'d, impl D0Src<T, IOLSRC1>>,
+        d1_1: Peri<'d, impl D1Src<T, IOLSRC1>>,
+        d2_1: Peri<'d, impl D2Src<T, IOLSRC1>>,
+        d3_1: Peri<'d, impl D3Src<T, IOLSRC1>>,
+        d0_2: Peri<'d, impl D4Src<T, IOLSRC2>>,
+        d1_2: Peri<'d, impl D5Src<T, IOLSRC2>>,
+        d2_2: Peri<'d, impl D6Src<T, IOLSRC2>>,
+        d3_2: Peri<'d, impl D7Src<T, IOLSRC2>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d0_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            None,
+            config,
+            OspiWidth::QUAD,
+            true,
+            IOLSRC1,
+            Some(IOLSRC2),
+            CTRL_PGROUP,
+        )
+    }
+
     /// Create new blocking OSPI driver for octospi external chips
+    #[cfg(not(octospim_v1))]
     pub fn new_blocking_octospi(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
@@ -854,17 +1246,144 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
             false,
         )
     }
+
+    /// Create new blocking OSPI driver for octospi external chips
+    #[cfg(octospim_v1)]
+    pub fn new_blocking_octospi<const IOL_PGROUP: u8, const IOH_PGROUP: u8, const CTRL_PGROUP: u8>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0: Peri<'d, impl D0Src<T, IOL_PGROUP>>,
+        d1: Peri<'d, impl D1Src<T, IOL_PGROUP>>,
+        d2: Peri<'d, impl D2Src<T, IOL_PGROUP>>,
+        d3: Peri<'d, impl D3Src<T, IOL_PGROUP>>,
+        d4: Peri<'d, impl D4Src<T, IOH_PGROUP>>,
+        d5: Peri<'d, impl D5Src<T, IOH_PGROUP>>,
+        d6: Peri<'d, impl D6Src<T, IOH_PGROUP>>,
+        d7: Peri<'d, impl D7Src<T, IOH_PGROUP>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            None,
+            config,
+            OspiWidth::OCTO,
+            false,
+            IOL_PGROUP,
+            Some(IOH_PGROUP),
+            CTRL_PGROUP,
+        )
+    }
+
+    /// Create new blocking OSPI driver for octospi external chips with DQS support
+    #[cfg(not(octospim_v1))]
+    pub fn new_blocking_octospi_with_dqs(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dqs: Peri<'d, impl DQSPin<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            None,
+            config,
+            OspiWidth::OCTO,
+            false,
+        )
+    }
+
+    /// Create new blocking OSPI driver for octospi external chips with DQS support
+    #[cfg(octospim_v1)]
+    pub fn new_blocking_octospi_with_dqs<const IOL_PGROUP: u8, const IOH_PGROUP: u8, const CTRL_PGROUP: u8>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0: Peri<'d, impl D0Src<T, IOL_PGROUP>>,
+        d1: Peri<'d, impl D1Src<T, IOL_PGROUP>>,
+        d2: Peri<'d, impl D2Src<T, IOL_PGROUP>>,
+        d3: Peri<'d, impl D3Src<T, IOL_PGROUP>>,
+        d4: Peri<'d, impl D4Src<T, IOH_PGROUP>>,
+        d5: Peri<'d, impl D5Src<T, IOH_PGROUP>>,
+        d6: Peri<'d, impl D6Src<T, IOH_PGROUP>>,
+        d7: Peri<'d, impl D7Src<T, IOH_PGROUP>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        dqs: Peri<'d, impl DQSSrc<T, CTRL_PGROUP>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            None,
+            config,
+            OspiWidth::OCTO,
+            false,
+            IOL_PGROUP,
+            Some(IOH_PGROUP),
+            CTRL_PGROUP,
+        )
+    }
 }
 
 impl<'d, T: Instance> Ospi<'d, T, Async> {
     /// Create new blocking OSPI driver for a single spi external chip
-    pub fn new_singlespi(
+    #[cfg(not(octospim_v1))]
+    pub fn new_singlespi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -883,21 +1402,61 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::SING,
             false,
         )
     }
 
+    /// Create new blocking OSPI driver for a single spi external chip
+    #[cfg(octospim_v1)]
+    pub fn new_singlespi<const IOL_PGROUP: u8, const CTRL_PGROUP: u8, D: OctoDma<T>>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0: Peri<'d, impl D0Src<T, IOL_PGROUP>>,
+        d1: Peri<'d, impl D1Src<T, IOL_PGROUP>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::input(Pull::None)),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            new_dma!(dma, _irq),
+            config,
+            OspiWidth::SING,
+            false,
+            IOL_PGROUP,
+            None,
+            CTRL_PGROUP,
+        )
+    }
+
     /// Create new blocking OSPI driver for a dualspi external chip
-    pub fn new_dualspi(
+    #[cfg(not(octospim_v1))]
+    pub fn new_dualspi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -916,15 +1475,54 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::DUAL,
             false,
         )
     }
 
+    /// Create new blocking OSPI driver for a dualspi external chip
+    #[cfg(octospim_v1)]
+    pub fn new_dualspi<const IOL_PGROUP: u8, const CTRL_PGROUP: u8, D: OctoDma<T>>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0: Peri<'d, impl D0Src<T, IOL_PGROUP>>,
+        d1: Peri<'d, impl D1Src<T, IOL_PGROUP>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            new_dma!(dma, _irq),
+            config,
+            OspiWidth::DUAL,
+            false,
+            IOL_PGROUP,
+            None,
+            CTRL_PGROUP,
+        )
+    }
+
     /// Create new blocking OSPI driver for a quadspi external chip
-    pub fn new_quadspi(
+    #[cfg(not(octospim_v1))]
+    pub fn new_quadspi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -932,7 +1530,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -951,27 +1550,25 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::QUAD,
             false,
         )
     }
 
-    /// Create new blocking OSPI driver for two quadspi external chips
-    pub fn new_dualquadspi(
+    /// Create new blocking OSPI driver for a quadspi external chip
+    #[cfg(octospim_v1)]
+    pub fn new_quadspi<const IOL_PGROUP: u8, const CTRL_PGROUP: u8, D: OctoDma<T>>(
         peri: Peri<'d, T>,
-        sck: Peri<'d, impl SckPin<T>>,
-        d0: Peri<'d, impl D0Pin<T>>,
-        d1: Peri<'d, impl D1Pin<T>>,
-        d2: Peri<'d, impl D2Pin<T>>,
-        d3: Peri<'d, impl D3Pin<T>>,
-        d4: Peri<'d, impl D4Pin<T>>,
-        d5: Peri<'d, impl D5Pin<T>>,
-        d6: Peri<'d, impl D6Pin<T>>,
-        d7: Peri<'d, impl D7Pin<T>>,
-        nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0: Peri<'d, impl D0Src<T, IOL_PGROUP>>,
+        d1: Peri<'d, impl D1Src<T, IOL_PGROUP>>,
+        d2: Peri<'d, impl D2Src<T, IOL_PGROUP>>,
+        d3: Peri<'d, impl D3Src<T, IOL_PGROUP>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -980,25 +1577,114 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
             new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            None,
+            None,
+            None,
+            None,
             new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_pin!(
                 nss,
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
+            config,
+            OspiWidth::QUAD,
+            false,
+            IOL_PGROUP,
+            None,
+            CTRL_PGROUP,
+        )
+    }
+
+    /// Create new blocking OSPI driver for two quadspi external chips
+    #[cfg(not(octospim_v1))]
+    pub fn new_dualquadspi<D: OctoDma<T>>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0_1: Peri<'d, impl D0Pin<T>>,
+        d1_1: Peri<'d, impl D1Pin<T>>,
+        d2_1: Peri<'d, impl D2Pin<T>>,
+        d3_1: Peri<'d, impl D3Pin<T>>,
+        d0_2: Peri<'d, impl D4Pin<T>>,
+        d1_2: Peri<'d, impl D5Pin<T>>,
+        d2_2: Peri<'d, impl D6Pin<T>>,
+        d3_2: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d0_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            new_dma!(dma, _irq),
             config,
             OspiWidth::QUAD,
             true,
         )
     }
 
+    /// Create new blocking OSPI driver for two quadspi external chips
+    #[cfg(octospim_v1)]
+    pub fn new_dualquadspi<const IOLSRC1: u8, const CTRL_PGROUP: u8, const IOLSRC2: u8, D: OctoDma<T>>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0_1: Peri<'d, impl D0Src<T, IOLSRC1>>,
+        d1_1: Peri<'d, impl D1Src<T, IOLSRC1>>,
+        d2_1: Peri<'d, impl D2Src<T, IOLSRC1>>,
+        d3_1: Peri<'d, impl D3Src<T, IOLSRC1>>,
+        d0_2: Peri<'d, impl D0Src<T, IOLSRC2>>,
+        d1_2: Peri<'d, impl D1Src<T, IOLSRC2>>,
+        d2_2: Peri<'d, impl D2Src<T, IOLSRC2>>,
+        d3_2: Peri<'d, impl D3Src<T, IOLSRC2>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3_1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d0_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3_2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            new_dma!(dma, _irq),
+            config,
+            OspiWidth::QUAD,
+            true,
+            IOLSRC1,
+            Some(IOLSRC2),
+            CTRL_PGROUP,
+        )
+    }
+
     /// Create new blocking OSPI driver for octospi external chips
-    pub fn new_octospi(
+    #[cfg(not(octospim_v1))]
+    pub fn new_octospi<D: OctoDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1010,7 +1696,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl OctoDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1029,10 +1716,141 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             OspiWidth::OCTO,
             false,
+        )
+    }
+
+    /// Create new blocking OSPI driver for octospi external chips
+    #[cfg(octospim_v1)]
+    pub fn new_octospi<const IOL_PGROUP: u8, const IOH_PGROUP: u8, const CTRL_PGROUP: u8, D: OctoDma<T>>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0: Peri<'d, impl D0Src<T, IOL_PGROUP>>,
+        d1: Peri<'d, impl D1Src<T, IOL_PGROUP>>,
+        d2: Peri<'d, impl D2Src<T, IOL_PGROUP>>,
+        d3: Peri<'d, impl D3Src<T, IOL_PGROUP>>,
+        d4: Peri<'d, impl D4Src<T, IOH_PGROUP>>,
+        d5: Peri<'d, impl D5Src<T, IOH_PGROUP>>,
+        d6: Peri<'d, impl D6Src<T, IOH_PGROUP>>,
+        d7: Peri<'d, impl D7Src<T, IOH_PGROUP>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            new_dma!(dma, _irq),
+            config,
+            OspiWidth::OCTO,
+            false,
+            IOL_PGROUP,
+            Some(IOH_PGROUP),
+            CTRL_PGROUP,
+        )
+    }
+
+    /// Create new blocking OSPI driver for octospi external chips with DQS support
+    #[cfg(not(octospim_v1))]
+    pub fn new_octospi_with_dqs<D: OctoDma<T>>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dqs: Peri<'d, impl DQSPin<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_dma!(dma, _irq),
+            config,
+            OspiWidth::OCTO,
+            false,
+        )
+    }
+
+    /// Create new blocking OSPI driver for octospi external chips with DQS support
+    #[cfg(octospim_v1)]
+    pub fn new_octospi_with_dqs<const IOL_PGROUP: u8, const IOH_PGROUP: u8, const CTRL_PGROUP: u8, D: OctoDma<T>>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckSrc<T, CTRL_PGROUP>>,
+        d0: Peri<'d, impl D0Src<T, IOL_PGROUP>>,
+        d1: Peri<'d, impl D1Src<T, IOL_PGROUP>>,
+        d2: Peri<'d, impl D2Src<T, IOL_PGROUP>>,
+        d3: Peri<'d, impl D3Src<T, IOL_PGROUP>>,
+        d4: Peri<'d, impl D4Src<T, IOH_PGROUP>>,
+        d5: Peri<'d, impl D5Src<T, IOH_PGROUP>>,
+        d6: Peri<'d, impl D6Src<T, IOH_PGROUP>>,
+        d7: Peri<'d, impl D7Src<T, IOH_PGROUP>>,
+        nss: Peri<'d, impl NSSSrc<T, CTRL_PGROUP>>,
+        dqs: Peri<'d, impl DQSSrc<T, CTRL_PGROUP>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_dma!(dma, _irq),
+            config,
+            OspiWidth::OCTO,
+            false,
+            IOL_PGROUP,
+            Some(IOH_PGROUP),
+            CTRL_PGROUP,
         )
     }
 
@@ -1045,31 +1863,32 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS
-            .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
-        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::IndirectRead));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
-        };
+        for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.blocking_wait();
+            transfer.blocking_wait();
+        }
 
         finish_dma(T::REGS);
 
@@ -1085,21 +1904,25 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::IndirectWrite));
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .write(buf, T::REGS.dr().as_ptr() as *mut W, Default::default())
-        };
+        // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
+        for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.blocking_wait();
+            transfer.blocking_wait();
+        }
 
         finish_dma(T::REGS);
 
@@ -1115,31 +1938,32 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
 
         // For a indirect read transaction, the transaction begins when the instruction/address is set
-        T::REGS
-            .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_READ));
-        if T::REGS.ccr().read().admode() == vals::PhaseMode::NONE {
+        T::REGS.cr().modify(|v| v.set_fmode(vals::FunctionalMode::IndirectRead));
+        if T::REGS.ccr().read().admode() == vals::PhaseMode::None {
             T::REGS.ir().write(|v| v.set_instruction(current_instruction));
         } else {
             T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
-        };
+        for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.await;
+            transfer.await;
+        }
 
         finish_dma(T::REGS);
 
@@ -1155,21 +1979,25 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
-            .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
+            .modify(|v| v.set_fmode(vals::FunctionalMode::IndirectWrite));
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .write(buf, T::REGS.dr().as_ptr() as *mut W, Default::default())
-        };
+        // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
+        for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.await;
+            transfer.await;
+        }
 
         finish_dma(T::REGS);
 
@@ -1179,18 +2007,6 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
 
 impl<'d, T: Instance, M: PeriMode> Drop for Ospi<'d, T, M> {
     fn drop(&mut self) {
-        self.sck.as_ref().map(|x| x.set_as_disconnected());
-        self.d0.as_ref().map(|x| x.set_as_disconnected());
-        self.d1.as_ref().map(|x| x.set_as_disconnected());
-        self.d2.as_ref().map(|x| x.set_as_disconnected());
-        self.d3.as_ref().map(|x| x.set_as_disconnected());
-        self.d4.as_ref().map(|x| x.set_as_disconnected());
-        self.d5.as_ref().map(|x| x.set_as_disconnected());
-        self.d6.as_ref().map(|x| x.set_as_disconnected());
-        self.d7.as_ref().map(|x| x.set_as_disconnected());
-        self.nss.as_ref().map(|x| x.set_as_disconnected());
-        self.dqs.as_ref().map(|x| x.set_as_disconnected());
-
         rcc::disable::<T>();
     }
 }
@@ -1226,19 +2042,74 @@ pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + SealedOcto
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {}
 
-pin_trait!(SckPin, Instance);
-pin_trait!(NckPin, Instance);
-pin_trait!(D0Pin, Instance);
-pin_trait!(D1Pin, Instance);
-pin_trait!(D2Pin, Instance);
-pin_trait!(D3Pin, Instance);
-pin_trait!(D4Pin, Instance);
-pin_trait!(D5Pin, Instance);
-pin_trait!(D6Pin, Instance);
-pin_trait!(D7Pin, Instance);
-pin_trait!(DQSPin, Instance);
-pin_trait!(NSSPin, Instance);
+#[cfg(octospim_v1)]
+macro_rules! ospi_signal_src_trait {
+    ($signal:ident) => {
+        #[doc = concat!(stringify!($signal), " pin trait")]
+        pub trait $signal<T: Instance, const CTRL_PGROUP: u8>: crate::gpio::Pin {
+            #[cfg(not(afio))]
+            #[doc = concat!("Get the AF number needed to use this pin as `", stringify!($signal), "`.")]
+            fn af_num(&self) -> u8;
+
+            #[cfg(afio)]
+            #[doc = concat!("Configures AFIO_MAPR to use this pin as `", stringify!($signal), "`.")]
+            fn afio_remap(&self);
+        }
+    };
+}
+
+#[cfg(octospim_v1)]
+macro_rules! ospi_signal_src_trait_impl {
+    (crate::ospi::$trait:ident<$src:tt>, $instance:ident, $pin:ident, $af:expr) => {
+        #[cfg(afio)]
+        impl crate::ospi::$trait<crate::peripherals::$instance, $src> for crate::peripherals::$pin {
+            fn afio_remap(&self) {
+                // nothing
+            }
+        }
+
+        #[cfg(not(afio))]
+        impl crate::ospi::$trait<crate::peripherals::$instance, $src> for crate::peripherals::$pin {
+            fn af_num(&self) -> u8 {
+                $af
+            }
+        }
+    };
+}
+
 dma_trait!(OctoDma, Instance);
+
+cfg_if::cfg_if! {
+    if #[cfg(octospim_v1)] {
+        // signal sources when using OCTOSPIM
+        ospi_signal_src_trait!(SckSrc);
+        ospi_signal_src_trait!(NckSrc);
+        ospi_signal_src_trait!(DQSSrc);
+        ospi_signal_src_trait!(NSSSrc);
+        ospi_signal_src_trait!(D0Src);
+        ospi_signal_src_trait!(D1Src);
+        ospi_signal_src_trait!(D2Src);
+        ospi_signal_src_trait!(D3Src);
+        ospi_signal_src_trait!(D4Src);
+        ospi_signal_src_trait!(D5Src);
+        ospi_signal_src_trait!(D6Src);
+        ospi_signal_src_trait!(D7Src);
+    } else {
+        // pins when NOT using OCTOSPIM
+        pin_trait!(SckPin, Instance);
+        pin_trait!(NckPin, Instance);
+        pin_trait!(DQSPin, Instance);
+        pin_trait!(NSSPin, Instance);
+        pin_trait!(D0Pin, Instance);
+        pin_trait!(D1Pin, Instance);
+        pin_trait!(D2Pin, Instance);
+        pin_trait!(D3Pin, Instance);
+        pin_trait!(D4Pin, Instance);
+        pin_trait!(D5Pin, Instance);
+        pin_trait!(D6Pin, Instance);
+        pin_trait!(D7Pin, Instance);
+    }
+}
 
 // Hard-coded the octospi index, for OCTOSPIM
 #[cfg(octospim_v1)]

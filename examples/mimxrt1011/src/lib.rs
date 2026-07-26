@@ -71,5 +71,5 @@ pub const SERIAL_NOR_CONFIGURATION_BLOCK: nor::ConfigurationBlock =
         .ip_cmd_serial_clk_freq(nor::SerialClockFrequency::MHz30);
 
 #[unsafe(no_mangle)]
-#[cfg_attr(all(target_arch = "arm", target_os = "none"), link_section = ".fcb")]
+#[cfg_attr(all(target_arch = "arm", target_os = "none"), unsafe(link_section = ".fcb"))]
 pub static FLEXSPI_CONFIGURATION_BLOCK: nor::ConfigurationBlock = SERIAL_NOR_CONFIGURATION_BLOCK;

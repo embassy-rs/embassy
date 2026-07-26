@@ -7,13 +7,14 @@ set -euo pipefail
 export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
+export PATH=$CARGO_HOME/bin:$PATH
 
 # needed for "dumb HTTP" transport support
 # used when pointing stm32-metapac to a CI-built one.
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
 
-cargo install espup
-/ci/cache/cargo/bin/espup install --toolchain-version 1.84.0.0
+cargo install espup --locked
+espup install --toolchain-version 1.92.0.0
 
 # Restore lockfiles
 if [ -f /ci/cache/lockfiles.tar ]; then
@@ -24,11 +25,7 @@ fi
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
 
-mkdir .cargo
-cat > .cargo/config.toml<< EOF
-[unstable]
-build-std = ["alloc", "core"]
-EOF
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 1cc6a2c6d2ec06607499df33e147310095b1afd5
 
 ./ci-xtensa.sh
 

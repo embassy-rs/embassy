@@ -17,6 +17,7 @@ The `embassy-nrf` HAL supports most variants of the nRF family:
 * nRF51 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf51))
 * nRF52 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf52840))
 * nRF53 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf5340))
+* nRF54 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf54l15))
 * nRF91 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf9160))
 
 Most peripherals are supported, but can vary between chip families. To check what's available, make sure to pick the MCU you're targeting in the top menu in the [documentation](https://docs.embassy.dev/embassy-nrf).
@@ -27,6 +28,10 @@ allows running Rust code without a SPM or TF-M binary, saving flash space and si
 ## Time driver
 
 If the `time-driver-rtc1` feature is enabled, the HAL uses the RTC peripheral as a global time driver for [embassy-time](https://crates.io/crates/embassy-time), with a tick rate of 32768 Hz.
+
+## Embassy-net-driver
+
+If the board supports IEEE 802.15.4 (see `src/radio/mod.rs`) the corresponding [embassy-net-driver](https://crates.io/crates/embassy-net-driver) implementation can be enabled with the feature `net-driver`.
 
 ## Embedded-hal
 

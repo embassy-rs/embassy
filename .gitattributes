@@ -17,6 +17,13 @@
 
 .vscode/*.json linguist-language=JSON-with-Comments
 
+# Configure changelog files to use union merge strategy
+# This prevents merge conflicts by automatically combining changes from both branches
+CHANGELOG.md merge=union
+changelog.md merge=union
+CHANGELOG.txt merge=union
+changelog.txt merge=union
+
 *.raw    binary
 *.bin    binary
 *.png    binary

@@ -3,10 +3,13 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+// must go first!
+mod fmt;
+
 pub mod chip;
 mod device;
 
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{Either3, select3};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Ticker, Timer};
@@ -63,10 +66,15 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, 
     pub async fn run(mut self) -> ! {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
         let mut tick = Ticker::every(Duration::from_millis(500));
+
+        // Signals that there are more RX frames to read
+        let mut rx_frames_remaining = false;
         loop {
             match select3(
                 async {
-                    self.int.wait_for_low().await.ok();
+                    if !rx_frames_remaining {
+                        self.int.wait_for_low().await.ok();
+                    }
                     rx_chan.rx_buf().await
                 },
                 tx_chan.tx_buf(),
@@ -74,14 +82,21 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, 
             )
             .await
             {
-                Either3::First(p) => {
-                    if let Ok(n) = self.mac.read_frame(p).await {
-                        rx_chan.rx_done(n);
-                    }
+                Either3::First(mut p) => {
+                    match self.mac.read_frame(&mut p).await {
+                        Ok(n @ 1..) => {
+                            p.rx_done(n);
+                            rx_frames_remaining = true;
+                        }
+                        // Empty RX buffer, or a read error: no more frames to read
+                        Ok(0) | Err(_) => {
+                            rx_frames_remaining = false;
+                        }
+                    };
                 }
-                Either3::Second(p) => {
-                    self.mac.write_frame(p).await.ok();
-                    tx_chan.tx_done();
+                Either3::Second(mut p) => {
+                    self.mac.write_frame(&mut p).await.ok();
+                    p.tx_done();
                 }
                 Either3::Third(()) => {
                     if self.mac.is_link_up().await {

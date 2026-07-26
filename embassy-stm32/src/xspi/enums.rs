@@ -22,6 +22,7 @@ impl Into<u8> for XspiMode {
 
 /// Xspi lane width
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum XspiWidth {
     /// None
     NONE,
@@ -33,6 +34,8 @@ pub enum XspiWidth {
     QUAD,
     /// Eight lanes
     OCTO,
+    /// Sixteen lanes (Hexadeca-SPI)
+    HEXA,
 }
 
 impl Into<u8> for XspiWidth {
@@ -43,6 +46,7 @@ impl Into<u8> for XspiWidth {
             XspiWidth::DUAL => 0b10,
             XspiWidth::QUAD => 0b11,
             XspiWidth::OCTO => 0b100,
+            XspiWidth::HEXA => 0b101,
         }
     }
 }
@@ -50,6 +54,7 @@ impl Into<u8> for XspiWidth {
 /// Wrap Size
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WrapSize {
     None,
     _16Bytes,
@@ -73,6 +78,7 @@ impl Into<u8> for WrapSize {
 /// Memory Type
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MemoryType {
     Micron,
     Macronix,
@@ -80,6 +86,8 @@ pub enum MemoryType {
     MacronixRam,
     HyperBusMemory,
     HyperBusRegister,
+    APMemory16Bits, // AP Memory 16-bit (for  PSRAM in X8/X16 mode)
+    APMemory,       //The same as Standard
 }
 
 impl Into<u8> for MemoryType {
@@ -91,6 +99,8 @@ impl Into<u8> for MemoryType {
             MemoryType::MacronixRam => 0x03,
             MemoryType::HyperBusMemory => 0x04,
             MemoryType::HyperBusRegister => 0x04,
+            MemoryType::APMemory16Bits => 0x06,
+            MemoryType::APMemory => 0x02,
         }
     }
 }
@@ -98,6 +108,7 @@ impl Into<u8> for MemoryType {
 /// Xspi memory size.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MemorySize {
     _1KiB,
     _2KiB,
@@ -158,6 +169,7 @@ impl Into<u8> for MemorySize {
 
 /// Xspi Address size
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AddressSize {
     /// 8-bit address
     _8bit,
@@ -183,6 +195,7 @@ impl Into<u8> for AddressSize {
 /// Time the Chip Select line stays high.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChipSelectHighTime {
     _1Cycle,
     _2Cycle,
@@ -192,6 +205,62 @@ pub enum ChipSelectHighTime {
     _6Cycle,
     _7Cycle,
     _8Cycle,
+    _9Cycle,
+    _10Cycle,
+    _11Cycle,
+    _12Cycle,
+    _13Cycle,
+    _14Cycle,
+    _15Cycle,
+    _16Cycle,
+    _17Cycle,
+    _18Cycle,
+    _19Cycle,
+    _20Cycle,
+    _21Cycle,
+    _22Cycle,
+    _23Cycle,
+    _24Cycle,
+    _25Cycle,
+    _26Cycle,
+    _27Cycle,
+    _28Cycle,
+    _29Cycle,
+    _30Cycle,
+    _31Cycle,
+    _32Cycle,
+    _33Cycle,
+    _34Cycle,
+    _35Cycle,
+    _36Cycle,
+    _37Cycle,
+    _38Cycle,
+    _39Cycle,
+    _40Cycle,
+    _41Cycle,
+    _42Cycle,
+    _43Cycle,
+    _44Cycle,
+    _45Cycle,
+    _46Cycle,
+    _47Cycle,
+    _48Cycle,
+    _49Cycle,
+    _50Cycle,
+    _51Cycle,
+    _52Cycle,
+    _53Cycle,
+    _54Cycle,
+    _55Cycle,
+    _56Cycle,
+    _57Cycle,
+    _58Cycle,
+    _59Cycle,
+    _60Cycle,
+    _61Cycle,
+    _62Cycle,
+    _63Cycle,
+    _64Cycle,
 }
 
 impl Into<u8> for ChipSelectHighTime {
@@ -205,6 +274,62 @@ impl Into<u8> for ChipSelectHighTime {
             ChipSelectHighTime::_6Cycle => 5,
             ChipSelectHighTime::_7Cycle => 6,
             ChipSelectHighTime::_8Cycle => 7,
+            ChipSelectHighTime::_9Cycle => 8,
+            ChipSelectHighTime::_10Cycle => 9,
+            ChipSelectHighTime::_11Cycle => 10,
+            ChipSelectHighTime::_12Cycle => 11,
+            ChipSelectHighTime::_13Cycle => 12,
+            ChipSelectHighTime::_14Cycle => 13,
+            ChipSelectHighTime::_15Cycle => 14,
+            ChipSelectHighTime::_16Cycle => 15,
+            ChipSelectHighTime::_17Cycle => 16,
+            ChipSelectHighTime::_18Cycle => 17,
+            ChipSelectHighTime::_19Cycle => 18,
+            ChipSelectHighTime::_20Cycle => 19,
+            ChipSelectHighTime::_21Cycle => 20,
+            ChipSelectHighTime::_22Cycle => 21,
+            ChipSelectHighTime::_23Cycle => 22,
+            ChipSelectHighTime::_24Cycle => 23,
+            ChipSelectHighTime::_25Cycle => 24,
+            ChipSelectHighTime::_26Cycle => 25,
+            ChipSelectHighTime::_27Cycle => 26,
+            ChipSelectHighTime::_28Cycle => 27,
+            ChipSelectHighTime::_29Cycle => 28,
+            ChipSelectHighTime::_30Cycle => 29,
+            ChipSelectHighTime::_31Cycle => 30,
+            ChipSelectHighTime::_32Cycle => 31,
+            ChipSelectHighTime::_33Cycle => 32,
+            ChipSelectHighTime::_34Cycle => 33,
+            ChipSelectHighTime::_35Cycle => 34,
+            ChipSelectHighTime::_36Cycle => 35,
+            ChipSelectHighTime::_37Cycle => 36,
+            ChipSelectHighTime::_38Cycle => 37,
+            ChipSelectHighTime::_39Cycle => 38,
+            ChipSelectHighTime::_40Cycle => 39,
+            ChipSelectHighTime::_41Cycle => 40,
+            ChipSelectHighTime::_42Cycle => 41,
+            ChipSelectHighTime::_43Cycle => 42,
+            ChipSelectHighTime::_44Cycle => 43,
+            ChipSelectHighTime::_45Cycle => 44,
+            ChipSelectHighTime::_46Cycle => 45,
+            ChipSelectHighTime::_47Cycle => 46,
+            ChipSelectHighTime::_48Cycle => 47,
+            ChipSelectHighTime::_49Cycle => 48,
+            ChipSelectHighTime::_50Cycle => 49,
+            ChipSelectHighTime::_51Cycle => 50,
+            ChipSelectHighTime::_52Cycle => 51,
+            ChipSelectHighTime::_53Cycle => 52,
+            ChipSelectHighTime::_54Cycle => 53,
+            ChipSelectHighTime::_55Cycle => 54,
+            ChipSelectHighTime::_56Cycle => 55,
+            ChipSelectHighTime::_57Cycle => 56,
+            ChipSelectHighTime::_58Cycle => 57,
+            ChipSelectHighTime::_59Cycle => 58,
+            ChipSelectHighTime::_60Cycle => 59,
+            ChipSelectHighTime::_61Cycle => 60,
+            ChipSelectHighTime::_62Cycle => 61,
+            ChipSelectHighTime::_63Cycle => 62,
+            ChipSelectHighTime::_64Cycle => 63,
         }
     }
 }
@@ -212,6 +337,7 @@ impl Into<u8> for ChipSelectHighTime {
 /// FIFO threshold.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FIFOThresholdLevel {
     _1Bytes,
     _2Bytes,
@@ -289,6 +415,7 @@ impl Into<u8> for FIFOThresholdLevel {
 /// Dummy cycle count
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DummyCycles {
     _0,
     _1,

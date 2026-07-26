@@ -20,7 +20,7 @@ macro_rules! peripherals_definition {
                     ///
                     /// You must ensure that you're only using one instance of this type at a time.
                     #[inline]
-                    pub unsafe fn steal() -> $crate::Peri<'static, Self> {
+                    pub const unsafe fn steal() -> $crate::Peri<'static, Self> {
                         $crate::Peri::new_unchecked(Self{ _private: ()})
                     }
                 }
@@ -58,7 +58,7 @@ macro_rules! peripherals_struct {
             ///Returns all the peripherals *once*
             #[inline]
             pub(crate) fn take_with_cs(_cs: critical_section::CriticalSection) -> Self {
-                #[no_mangle]
+                #[unsafe(no_mangle)]
                 static mut _EMBASSY_DEVICE_PERIPHERALS: bool = false;
 
                 // safety: OK because we're inside a CS.

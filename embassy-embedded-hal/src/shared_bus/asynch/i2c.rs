@@ -26,8 +26,8 @@ use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_hal_async::i2c;
 
-use crate::shared_bus::I2cDeviceError;
 use crate::SetConfig;
+use crate::shared_bus::I2cDeviceError;
 
 /// I2C device on a shared bus.
 pub struct I2cDevice<'a, M: RawMutex, BUS> {
@@ -38,6 +38,12 @@ impl<'a, M: RawMutex, BUS> I2cDevice<'a, M, BUS> {
     /// Create a new `I2cDevice`.
     pub fn new(bus: &'a Mutex<M, BUS>) -> Self {
         Self { bus }
+    }
+}
+
+impl<'a, M: RawMutex, BUS> Clone for I2cDevice<'a, M, BUS> {
+    fn clone(&self) -> Self {
+        Self { bus: self.bus }
     }
 }
 
@@ -110,6 +116,18 @@ impl<'a, M: RawMutex, BUS: SetConfig> I2cDeviceWithConfig<'a, M, BUS> {
     /// Change the device's config at runtime
     pub fn set_config(&mut self, config: BUS::Config) {
         self.config = config;
+    }
+}
+
+impl<'a, M: RawMutex, BUS: SetConfig> Clone for I2cDeviceWithConfig<'a, M, BUS>
+where
+    BUS::Config: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            bus: self.bus,
+            config: self.config.clone(),
+        }
     }
 }
 

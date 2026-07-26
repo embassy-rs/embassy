@@ -97,7 +97,7 @@ mod shared {
         }
     }
 
-    #[link_section = ".ram_d3"]
+    #[unsafe(link_section = ".ram_d3")]
     pub static SHARED_LED_STATE: SharedLedState = SharedLedState::new();
 
     // Memory region constants for MPU configuration
@@ -106,7 +106,7 @@ mod shared {
     pub const SRAM4_REGION_NUMBER: u8 = 0;
 }
 
-#[link_section = ".ram_d3"]
+#[unsafe(link_section = ".ram_d3")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 /// Configure MPU to make SRAM4 region non-cacheable
@@ -166,23 +166,23 @@ async fn main(_spawner: Spawner) -> ! {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        config.rcc.hsi = Some(HSIPrescaler::Div1);
         config.rcc.csi = true;
         config.rcc.hsi48 = Some(Default::default());
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL50,
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV8),
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div8),
             divr: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV2;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.apb3_pre = APBPrescaler::DIV2;
-        config.rcc.apb4_pre = APBPrescaler::DIV2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div2;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.apb3_pre = APBPrescaler::Div2;
+        config.rcc.apb4_pre = APBPrescaler::Div2;
         config.rcc.voltage_scale = VoltageScale::Scale1;
         config.rcc.supply_config = SupplyConfig::DirectSMPS;
     }

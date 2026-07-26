@@ -102,7 +102,7 @@ async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, T>>) 
     loop {
         let n = class.read_packet(&mut buf).await?;
         let data = &buf[..n];
-        info!("data: {:x}", data);
+        log::info!("data: {:x?}", data);
         class.write_packet(data).await?;
     }
 }

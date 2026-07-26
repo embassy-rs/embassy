@@ -95,11 +95,7 @@ impl<const N: usize> RingBuffer<N> {
 
     fn wrap(&self, n: usize) -> usize {
         assert!(n <= N);
-        if n == N {
-            0
-        } else {
-            n
-        }
+        if n == N { 0 } else { n }
     }
 }
 

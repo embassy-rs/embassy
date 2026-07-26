@@ -6,9 +6,9 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::mode::Async;
 use embassy_stm32::qspi::enums::{AddressSize, ChipSelectHighTime, FIFOThresholdLevel, MemorySize, *};
-use embassy_stm32::qspi::{Config as QspiCfg, Instance, Qspi, TransferConfig};
+use embassy_stm32::qspi::{self, Config as QspiCfg, Instance, Qspi, TransferConfig};
 use embassy_stm32::time::mhz;
-use embassy_stm32::Config as StmCfg;
+use embassy_stm32::{Config as StmCfg, bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 const MEMORY_PAGE_SIZE: usize = 256;
@@ -70,6 +70,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::NONE,
             instruction: cmd,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_command(transaction);
@@ -93,6 +94,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::SING,
             instruction: CMD_READ_ID,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_read(&mut buffer, transaction);
@@ -107,6 +109,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::SING,
             instruction: CMD_READ_UUID,
             address: Some(0),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_8,
         };
         self.qspi.blocking_read(&mut buffer, transaction);
@@ -120,6 +123,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::QUAD,
             instruction: CMD_QUAD_READ,
             address: Some(addr),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_8,
         };
         if use_dma {
@@ -140,6 +144,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::NONE,
             instruction: cmd,
             address: Some(addr),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.enable_write();
@@ -177,6 +182,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::QUAD,
             instruction: CMD_QUAD_WRITE_PG,
             address: Some(addr),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.enable_write();
@@ -212,6 +218,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::SING,
             instruction: cmd,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_read(&mut buffer, transaction);
@@ -226,6 +233,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::SING,
             instruction: cmd,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_write(&buffer, transaction);
@@ -248,6 +256,11 @@ impl<I: Instance> FlashMemory<I> {
     }
 }
 
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM7 => dma::InterruptHandler<peripherals::DMA2_CH7>;
+    QUADSPI => qspi::InterruptHandler<peripherals::QUADSPI>;
+});
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     let mut config = StmCfg::default();
@@ -257,32 +270,31 @@ async fn main(_spawner: Spawner) -> ! {
             freq: mhz(8),
             mode: HseMode::Oscillator,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL216,
-            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 216 / 2 = 216Mhz
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul216,
+            divp: Some(PllPDiv::Div2), // 8mhz / 4 * 216 / 2 = 216Mhz
             divq: None,
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
     }
     let p = embassy_stm32::init(config);
     info!("Embassy initialized");
 
-    let config = QspiCfg {
-        memory_size: MemorySize::_8MiB,
-        address_size: AddressSize::_24bit,
-        prescaler: 16,
-        cs_high_time: ChipSelectHighTime::_1Cycle,
-        fifo_threshold: FIFOThresholdLevel::_16Bytes,
-        sample_shifting: SampleShifting::None,
-    };
+    let mut config = QspiCfg::default();
+    config.memory_size = MemorySize::_8MiB;
+    config.prescaler = 16;
+    config.cs_high_time = ChipSelectHighTime::_1Cycle;
+    config.fifo_threshold = FIFOThresholdLevel::_16Bytes;
+    config.sample_shifting = SampleShifting::None;
+
     let driver = Qspi::new_bank1(
-        p.QUADSPI, p.PF8, p.PF9, p.PE2, p.PF6, p.PF10, p.PB10, p.DMA2_CH7, config,
+        p.QUADSPI, p.PF8, p.PF9, p.PE2, p.PF6, p.PF10, p.PB10, p.DMA2_CH7, Irqs, config,
     );
     let mut flash = FlashMemory::new(driver);
     let flash_id = flash.read_id();

@@ -7,9 +7,9 @@ use core::task::Poll;
 use embassy_futures::block_on;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::clocks::{enable_and_reset, SysconPeripheral};
+use crate::clocks::{SysconPeripheral, enable_and_reset};
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, peripherals, Peri, PeripheralType};
+use crate::{Peri, PeripheralType, interrupt, peripherals};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -257,6 +257,25 @@ impl<'d> rand_core_09::RngCore for Rng<'d> {
 }
 
 impl<'d> rand_core_09::CryptoRng for Rng<'d> {}
+
+impl<'d> rand_core_10::TryRng for Rng<'d> {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.blocking_next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.blocking_next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl<'d> rand_core_10::TryCryptoRng for Rng<'d> {}
 
 struct Info {
     regs: crate::pac::Trng,

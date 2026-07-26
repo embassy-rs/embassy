@@ -1,19 +1,21 @@
 use core::future::poll_fn;
 use core::mem;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embedded_io_async::ReadReady;
-use futures_util::future::{select, Either};
+use futures_util::future::{Either, select};
 
-use super::{rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx};
+use super::{
+    Config, ConfigError, Error, Info, State, UartRx, clear_interrupt_flags, flush, rdr, reconfigure, set_baudrate, sr,
+};
 use crate::dma::ReadableRingBuffer;
-use crate::gpio::{AnyPin, SealedPin as _};
+use crate::gpio::Flex;
 use crate::mode::Async;
+use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 use crate::usart::Regs;
-use crate::Peri;
 
 /// Rx-only Ring-buffered UART Driver
 ///
@@ -26,9 +28,9 @@ use crate::Peri;
 /// contain enough bytes to fill the buffer passed by the caller of
 /// the function, or is empty.
 ///
-/// Waiting for bytes operates in one of two modes, depending on
-/// the behavior of the sender and the size of the buffer passed
-/// to the function:
+/// Waiting for bytes operates in one of three modes, depending on
+/// the behavior of the sender, the size of the buffer passed
+/// to the function, and the configuration:
 ///
 /// - If the sender sends intermittently, the 'idle line'
 /// condition will be detected when the sender stops, and any
@@ -47,7 +49,11 @@ use crate::Peri;
 /// interrupt when those specific buffer addresses have been
 /// written.
 ///
-/// In both cases this will result in variable latency due to the
+/// - If `eager_reads` is enabled in `config`, the UART interrupt
+/// is enabled on all data reception and the call will only wait
+/// for at least one byte to be available before returning.
+///
+/// In the first two cases this will result in variable latency due to the
 /// buffering effect. For example, if the baudrate is 2400 bps, and
 /// the configuration is 8 data bits, no parity bit, and one stop bit,
 /// then a byte will be received every ~4.16ms. If the ring buffer is
@@ -68,21 +74,17 @@ use crate::Peri;
 /// sending, but would be falsely triggered in the worst-case
 /// buffer delay scenario.
 ///
-/// Note: This latency is caused by the limited capabilities of the
-/// STM32 DMA controller; since it cannot generate an interrupt when
-/// it stores a byte into an empty ring buffer, or in any other
-/// configurable conditions, it is not possible to take notice of the
-/// contents of the ring buffer more quickly without introducing
-/// polling. As a result the latency can be reduced by calling the
-/// read functions repeatedly with smaller buffers to receive the
-/// available bytes, as each call to a read function will explicitly
-/// check the ring buffer for available bytes.
+/// Note: Enabling `eager_reads` with `RingBufferedUartRx` will enable
+/// an UART RXNE interrupt, which will cause an interrupt to occur on
+/// every received data byte. The data is still copied using DMA, but
+/// there is nevertheless additional processing overhead for each byte.
 pub struct RingBufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    rx: Option<Peri<'d, AnyPin>>,
-    rts: Option<Peri<'d, AnyPin>>,
+    _wake_guard: WakeGuard,
+    _rx: Option<Flex<'d>>,
+    _rts: Option<Flex<'d>>,
     ring_buf: ReadableRingBuffer<'d, u8>,
 }
 
@@ -116,6 +118,8 @@ impl<'d> UartRx<'d, Async> {
         let rx = unsafe { self.rx.as_ref().map(|x| x.clone_unchecked()) };
         let rts = unsafe { self.rts.as_ref().map(|x| x.clone_unchecked()) };
 
+        let wake_guard = self.info.rcc.wake_guard();
+
         // Don't disable the clock
         mem::forget(self);
 
@@ -123,8 +127,9 @@ impl<'d> UartRx<'d, Async> {
             info,
             state,
             kernel_clock,
-            rx,
-            rts,
+            _wake_guard: wake_guard,
+            _rx: rx,
+            _rts: rts,
             ring_buf,
         }
     }
@@ -133,6 +138,9 @@ impl<'d> UartRx<'d, Async> {
 impl<'d> RingBufferedUartRx<'d> {
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        self.state
+            .eager_reads
+            .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
         reconfigure(self.info, self.kernel_clock, config)
     }
 
@@ -148,8 +156,8 @@ impl<'d> RingBufferedUartRx<'d> {
         let r = self.info.regs;
         // clear all interrupts and DMA Rx Request
         r.cr1().modify(|w| {
-            // disable RXNE interrupt
-            w.set_rxneie(false);
+            // use RXNE only when returning reads early
+            w.set_rxneie(self.state.eager_reads.load(Ordering::Relaxed) > 0);
             // enable parity interrupt if not ParityNone
             w.set_peie(w.pce());
             // enable idle line interrupt
@@ -192,7 +200,10 @@ impl<'d> RingBufferedUartRx<'d> {
     fn start_dma_or_check_errors(&mut self) -> Result<(), Error> {
         let r = self.info.regs;
 
-        check_idle_and_errors(r)?;
+        if check_idle_and_errors(r)?.1 {
+            self.state.tc_flag.store(true, Ordering::Release);
+            self.state.tx_waker.wake();
+        }
         if !r.cr3().read().dmar() {
             self.start_uart();
         }
@@ -216,6 +227,10 @@ impl<'d> RingBufferedUartRx<'d> {
         // since they can't operate simultaneously on the shared line
         let r = self.info.regs;
         if r.cr3().read().hdsel() && r.cr1().read().te() {
+            // Wait for any in-flight transmission to complete before disabling the
+            // transmitter, otherwise the last byte(s) would be truncated on the wire.
+            flush(self.info, self.state).await?;
+
             r.cr1().modify(|reg| {
                 reg.set_re(true);
                 reg.set_te(false);
@@ -248,39 +263,71 @@ impl<'d> RingBufferedUartRx<'d> {
     async fn wait_for_data_or_idle(&mut self) -> Result<(), Error> {
         compiler_fence(Ordering::SeqCst);
 
-        // Future which completes when idle line is detected
-        let s = self.state;
-        let uart = poll_fn(|cx| {
-            s.rx_waker.register(cx.waker());
+        loop {
+            // Future which completes when idle line is detected
+            let s = self.state;
+            let mut uart_init = false;
+            let uart = poll_fn(|cx| {
+                s.rx_waker.register(cx.waker());
 
-            compiler_fence(Ordering::SeqCst);
+                compiler_fence(Ordering::SeqCst);
 
-            if check_idle_and_errors(self.info.regs)? {
-                // Idle line is detected
-                Poll::Ready(Ok(()))
-            } else {
-                Poll::Pending
+                // We may have been woken by IDLE or, if eager_reads is set, by RXNE.
+                // However, DMA will clear RXNE, so we can't check directly, and because
+                // the other future borrows `ring_buf`, we can't check `len()` here either.
+                // Instead, return from this future and we'll check the length afterwards.
+                let eager = s.eager_reads.load(Ordering::Relaxed) > 0;
+
+                let (idle, tc) = check_idle_and_errors(self.info.regs)?;
+                if tc {
+                    self.state.tc_flag.store(true, Ordering::Release);
+                    self.state.tx_waker.wake();
+                }
+                if idle || (eager && uart_init) {
+                    // Idle line is detected, or eager reads is set and some data is available.
+                    Poll::Ready(Ok(idle))
+                } else {
+                    uart_init = true;
+                    Poll::Pending
+                }
+            });
+
+            let mut dma_init = false;
+            // Future which completes when the DMA controller indicates it
+            // has written to the ring buffer's middle byte, or last byte
+            let dma = poll_fn(|cx| {
+                self.ring_buf.set_waker(cx.waker());
+
+                let status = match dma_init {
+                    false => Poll::Pending,
+                    true => Poll::Ready(()),
+                };
+
+                dma_init = true;
+                status
+            });
+
+            match select(uart, dma).await {
+                // UART woke with line idle
+                Either::Left((Ok(true), _)) => {
+                    return Ok(());
+                }
+                // UART woke without idle or error: word received
+                Either::Left((Ok(false), _)) => {
+                    let eager = self.state.eager_reads.load(Ordering::Relaxed);
+                    if eager > 0 && self.ring_buf.len().unwrap_or(0) >= eager {
+                        return Ok(());
+                    } else {
+                        continue;
+                    }
+                }
+                // UART woke with error
+                Either::Left((Err(e), _)) => {
+                    return Err(e);
+                }
+                // DMA woke
+                Either::Right(((), _)) => return Ok(()),
             }
-        });
-
-        let mut dma_init = false;
-        // Future which completes when the DMA controller indicates it
-        // has written to the ring buffer's middle byte, or last byte
-        let dma = poll_fn(|cx| {
-            self.ring_buf.set_waker(cx.waker());
-
-            let status = match dma_init {
-                false => Poll::Pending,
-                true => Poll::Ready(()),
-            };
-
-            dma_init = true;
-            status
-        });
-
-        match select(uart, dma).await {
-            Either::Left((result, _)) => result,
-            Either::Right(((), _)) => Ok(()),
         }
     }
 
@@ -293,8 +340,6 @@ impl<'d> RingBufferedUartRx<'d> {
 impl Drop for RingBufferedUartRx<'_> {
     fn drop(&mut self) {
         self.stop_uart();
-        self.rx.as_ref().map(|x| x.set_as_disconnected());
-        self.rts.as_ref().map(|x| x.set_as_disconnected());
         super::drop_tx_rx(self.info, self.state);
     }
 }
@@ -307,27 +352,17 @@ impl Drop for RingBufferedUartRx<'_> {
 ///
 /// For usart_v1 and usart_v2, all status flags must be handled together anyway because all flags
 /// are cleared by a single read to the RDR register.
-fn check_idle_and_errors(r: Regs) -> Result<bool, Error> {
-    // Critical section is required so that the flags aren't set after read and before clear
-    let sr = critical_section::with(|_| {
-        // SAFETY: read only and we only use Rx related flags
-        let sr = sr(r).read();
+fn check_idle_and_errors(r: Regs) -> Result<(bool, bool), Error> {
+    // SAFETY: read only and we only use Rx related flags
+    let sr = sr(r).read();
 
-        #[cfg(any(usart_v3, usart_v4))]
-        r.icr().write(|w| {
-            w.set_idle(true);
-            w.set_pe(true);
-            w.set_fe(true);
-            w.set_ne(true);
-            w.set_ore(true);
-        });
-        #[cfg(not(any(usart_v3, usart_v4)))]
-        unsafe {
-            // This read also clears the error and idle interrupt flags on v1 (TODO and v2?)
-            rdr(r).read_volatile()
-        };
-        sr
-    });
+    #[cfg(not(any(usart_v3, usart_v4)))]
+    unsafe {
+        // This read also clears the error and idle interrupt flags on v1 (TODO and v2?)
+        rdr(r).read_volatile()
+    };
+    clear_interrupt_flags(r, sr);
+
     if sr.pe() {
         Err(Error::Parity)
     } else if sr.fe() {
@@ -338,7 +373,7 @@ fn check_idle_and_errors(r: Regs) -> Result<bool, Error> {
         Err(Error::Overrun)
     } else {
         r.cr1().modify(|w| w.set_idleie(true));
-        Ok(sr.idle())
+        Ok((sr.idle(), sr.tc()))
     }
 }
 
@@ -381,7 +416,7 @@ impl ReadReady for RingBufferedUartRx<'_> {
             crate::dma::ringbuffer::Error::Overrun => Self::Error::Overrun,
             crate::dma::ringbuffer::Error::DmaUnsynced => {
                 error!(
-                    "Ringbuffer error: DmaUNsynced, driver implementation is 
+                    "Ringbuffer error: DmaUNsynced, driver implementation is
                     probably bugged please open an issue"
                 );
                 // we report this as overrun since its recoverable in the same way

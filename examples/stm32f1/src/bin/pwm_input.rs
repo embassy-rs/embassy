@@ -3,10 +3,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::gpio::{AfioRemap, Level, Output, Pull, Speed};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::pwm_input::PwmInput;
-use embassy_stm32::{bind_interrupts, peripherals, timer, Peri};
+use embassy_stm32::{Peri, bind_interrupts, peripherals, timer};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -38,7 +38,7 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(blinky(p.PC13)));
 
-    let mut pwm_input = PwmInput::new_ch1(p.TIM2, p.PA0, Pull::None, khz(10));
+    let mut pwm_input = PwmInput::new_ch1::<AfioRemap<0>>(p.TIM2, p.PA0, Irqs, Pull::None, khz(10));
     pwm_input.enable();
 
     loop {

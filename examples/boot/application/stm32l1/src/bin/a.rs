@@ -6,9 +6,10 @@ use defmt_rtt::*;
 use embassy_boot_stm32::{AlignedBuffer, FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
-use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::{bind_interrupts, interrupt};
 use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
 use panic_reset as _;
@@ -18,13 +19,18 @@ static APP_B: &[u8] = &[0, 1, 2, 3];
 #[cfg(not(feature = "skip-include"))]
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
+bind_interrupts!(
+    pub struct Irqs{
+        EXTI2 => exti::InterruptHandler<interrupt::typelevel::EXTI2>;
+});
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(BlockingAsync::new(flash));
 
-    let mut button = ExtiInput::new(p.PB2, p.EXTI2, Pull::Up);
+    let mut button = ExtiInput::new(p.PB2, p.EXTI2, Pull::Up, Irqs);
 
     let mut led = Output::new(p.PB5, Level::Low, Speed::Low);
 

@@ -63,6 +63,7 @@ pub mod pac {
     #[doc(no_inline)]
     pub use nrf_pac::{
         CC_HOST_RGF_S as CC_HOST_RGF,
+        CC_RNG_S as CC_RNG,
         CLOCK_S as CLOCK,
         CRYPTOCELL_S as CRYPTOCELL,
         CTRL_AP_PERI_S as CTRL_AP_PERI,
@@ -74,7 +75,7 @@ pub mod pac {
         EGU4_S as EGU4,
         EGU5_S as EGU5,
         FICR_S as FICR,
-        FPU_S as FPU,
+        FPU_NS as FPU,
         GPIOTE0_S as GPIOTE0,
         I2S_S as I2S,
         IPC_S as IPC,
@@ -131,6 +132,7 @@ pub const FLASH_SIZE: usize = 1024 * 1024;
 embassy_hal_internal::peripherals! {
     // RTC
     RTC0,
+    #[cfg(not(feature = "time-driver-rtc1"))]
     RTC1,
 
     // WDT
@@ -238,6 +240,10 @@ embassy_hal_internal::peripherals! {
     EGU3,
     EGU4,
     EGU5,
+
+    // CryptoCell RNG
+    #[cfg(feature = "_s")]
+    CC_RNG
 }
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);
@@ -272,9 +278,16 @@ impl_pwm!(PWM3, PWM3, PWM3);
 
 impl_pdm!(PDM, PDM, PDM);
 
+#[cfg(feature = "_s")]
+impl_ccrng!(CC_RNG, CC_RNG, CRYPTOCELL);
+
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
+
+impl_rtc!(RTC0, RTC0, RTC0);
+#[cfg(not(feature = "time-driver-rtc1"))]
+impl_rtc!(RTC1, RTC1, RTC1);
 
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
@@ -309,31 +322,38 @@ impl_pin!(P0_29, 0, 29);
 impl_pin!(P0_30, 0, 30);
 impl_pin!(P0_31, 0, 31);
 
-impl_ppi_channel!(PPI_CH0, 0 => configurable);
-impl_ppi_channel!(PPI_CH1, 1 => configurable);
-impl_ppi_channel!(PPI_CH2, 2 => configurable);
-impl_ppi_channel!(PPI_CH3, 3 => configurable);
-impl_ppi_channel!(PPI_CH4, 4 => configurable);
-impl_ppi_channel!(PPI_CH5, 5 => configurable);
-impl_ppi_channel!(PPI_CH6, 6 => configurable);
-impl_ppi_channel!(PPI_CH7, 7 => configurable);
-impl_ppi_channel!(PPI_CH8, 8 => configurable);
-impl_ppi_channel!(PPI_CH9, 9 => configurable);
-impl_ppi_channel!(PPI_CH10, 10 => configurable);
-impl_ppi_channel!(PPI_CH11, 11 => configurable);
-impl_ppi_channel!(PPI_CH12, 12 => configurable);
-impl_ppi_channel!(PPI_CH13, 13 => configurable);
-impl_ppi_channel!(PPI_CH14, 14 => configurable);
-impl_ppi_channel!(PPI_CH15, 15 => configurable);
+impl_ppi_channel!(PPI_CH0, DPPIC, 0 => configurable);
+impl_ppi_channel!(PPI_CH1, DPPIC, 1 => configurable);
+impl_ppi_channel!(PPI_CH2, DPPIC, 2 => configurable);
+impl_ppi_channel!(PPI_CH3, DPPIC, 3 => configurable);
+impl_ppi_channel!(PPI_CH4, DPPIC, 4 => configurable);
+impl_ppi_channel!(PPI_CH5, DPPIC, 5 => configurable);
+impl_ppi_channel!(PPI_CH6, DPPIC, 6 => configurable);
+impl_ppi_channel!(PPI_CH7, DPPIC, 7 => configurable);
+impl_ppi_channel!(PPI_CH8, DPPIC, 8 => configurable);
+impl_ppi_channel!(PPI_CH9, DPPIC, 9 => configurable);
+impl_ppi_channel!(PPI_CH10, DPPIC, 10 => configurable);
+impl_ppi_channel!(PPI_CH11, DPPIC, 11 => configurable);
+impl_ppi_channel!(PPI_CH12, DPPIC, 12 => configurable);
+impl_ppi_channel!(PPI_CH13, DPPIC, 13 => configurable);
+impl_ppi_channel!(PPI_CH14, DPPIC, 14 => configurable);
+impl_ppi_channel!(PPI_CH15, DPPIC, 15 => configurable);
 
-impl_saadc_input!(P0_13, ANALOG_INPUT0);
-impl_saadc_input!(P0_14, ANALOG_INPUT1);
-impl_saadc_input!(P0_15, ANALOG_INPUT2);
-impl_saadc_input!(P0_16, ANALOG_INPUT3);
-impl_saadc_input!(P0_17, ANALOG_INPUT4);
-impl_saadc_input!(P0_18, ANALOG_INPUT5);
-impl_saadc_input!(P0_19, ANALOG_INPUT6);
-impl_saadc_input!(P0_20, ANALOG_INPUT7);
+impl_ppi_group!(PPI_GROUP0, DPPIC, 0);
+impl_ppi_group!(PPI_GROUP1, DPPIC, 1);
+impl_ppi_group!(PPI_GROUP2, DPPIC, 2);
+impl_ppi_group!(PPI_GROUP3, DPPIC, 3);
+impl_ppi_group!(PPI_GROUP4, DPPIC, 4);
+impl_ppi_group!(PPI_GROUP5, DPPIC, 5);
+
+impl_saadc_input!(P0_13, AnalogInput0);
+impl_saadc_input!(P0_14, AnalogInput1);
+impl_saadc_input!(P0_15, AnalogInput2);
+impl_saadc_input!(P0_16, AnalogInput3);
+impl_saadc_input!(P0_17, AnalogInput4);
+impl_saadc_input!(P0_18, AnalogInput5);
+impl_saadc_input!(P0_19, AnalogInput6);
+impl_saadc_input!(P0_20, AnalogInput7);
 
 impl_egu!(EGU0, EGU0, EGU0);
 impl_egu!(EGU1, EGU1, EGU1);
