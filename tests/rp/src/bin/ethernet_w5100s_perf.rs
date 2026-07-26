@@ -10,7 +10,7 @@ use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, SPI0};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Delay;
@@ -27,7 +27,7 @@ async fn ethernet_task(
     runner: Runner<
         'static,
         W5100S,
-        ExclusiveDevice<Spi<'static, SPI0, Async>, Output<'static>, Delay>,
+        ExclusiveDevice<Spi<'static, Async>, Output<'static>, Delay>,
         Input<'static>,
         Output<'static>,
     >,
