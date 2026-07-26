@@ -273,13 +273,34 @@ impl Driver for TimxDriver {
     fn now(&self) -> u64 {
         let regs = regs();
 
-        let period = self.period.load(Ordering::Relaxed);
-        // Ensure the compiler does not read the counter before the period.
-        compiler_fence(Ordering::Acquire);
+        // On MSPM0 this sequence reread and comparison must be done or else time may
+        // appear to go backwards.
+        //
+        // The timer counter and the software period counter are not updated as one
+        // atomic operation. It is possible for the timer interrupt to increment the
+        // period counter while reading the counter.
+        //
+        // For example, `period` may be read as X while the timer is near the end of
+        // that period. The timer then wraps and the interrupt increments `period` to
+        // X + 1 before the counter is read. If the counter read returns 0x0000, using
+        // the stale period X would produce a timestamp 32768 ticks in the past.
+        loop {
+            let period = self.period.load(Ordering::Relaxed);
+            // Ensure the compiler does not read the counter before the period.
+            compiler_fence(Ordering::Acquire);
 
-        let counter = regs.counterregs(0).ctr().read() as u16;
+            let counter = regs.counterregs(0).ctr().read() as u16;
 
-        calc_now(period, counter)
+            // Ensure the compiler does not read the period again before the counter.
+            compiler_fence(Ordering::Acquire);
+            let period2 = self.period.load(Ordering::Relaxed);
+
+            if period != period2 {
+                continue;
+            }
+
+            return calc_now(period, counter);
+        }
     }
 
     fn schedule_wake(&self, at: u64, waker: &Waker) {
