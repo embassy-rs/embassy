@@ -171,13 +171,22 @@ impl TimxDriver {
             w.set_ccu0(true);
         });
 
-        <T as tim::Instance>::Interrupt::IRQ.unpend();
-        unsafe { <T as tim::Instance>::Interrupt::IRQ.enable() };
-
         // Allow the counter to start counting.
         regs.counterregs(0).ctrctl().modify(|w| {
             w.set_en(true);
         });
+
+        // Enabling the counter with CVAE = ZEROVAL zeroes it, which can latch a zero event. Discard
+        // anything latched up to here before arming the interrupt, or that event would be counted as
+        // a wrap that never happened and put the whole timebase a half period off.
+        regs.cpu_int(0).iclr().write(|w| {
+            w.set_z(true);
+            w.set_ccu0(true);
+            w.set_ccu1(true);
+        });
+
+        <T as tim::Instance>::Interrupt::IRQ.unpend();
+        unsafe { <T as tim::Instance>::Interrupt::IRQ.enable() };
     }
 
     fn next_period(&self, cs: CriticalSection) {
