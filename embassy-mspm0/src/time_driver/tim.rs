@@ -64,6 +64,15 @@ fn regs() -> Tim {
 // Therefore, when `period` is even, counter is in 0..0x7FFF. When odd, counter is in 0x8000..0xFFFF
 // This allows for now() to return the correct value even if it races an overflow.
 //
+// The overflow half must be counted on the *zero* event, not the load event, or that invariant does
+// not hold. SLAU847F Figure 28-10 shows that in up counting mode the load event is asserted during
+// the `CTR == LOAD` TIMCLK cycle, i.e. one full tick *before* the counter wraps, while the zero
+// event is asserted during the `CTR == 0` cycle. Counting on the load event advances `period` while
+// `counter` still reads 0xFFFF, which is the one pairing the parity repair below cannot fix: it
+// leaves a stale counter against a fresh period for a whole tick on every wrap, worth 2^16 ticks of
+// error. The zero event lands exactly on the parity boundary, same as CCU0 lands exactly on
+// `CTR == 0x8000`. (LOAD is 2^16 - 1, not 2^16: up counting mode has a period of `LOAD + 1`.)
+//
 // To get `now()`, `period` is read first, then `counter` is read. If the counter value matches
 // the expected range for the `period` parity, we're done. If it doesn't, this means that
 // a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
