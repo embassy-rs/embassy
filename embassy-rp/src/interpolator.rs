@@ -3,7 +3,6 @@
 //! The interpolator can be used for various applications, such as generating sequences of values or performing mathematical operations on data streams.
 
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use rp_pac::sio::regs::{Interp1CtrlLane0, Interp1CtrlLane1};
@@ -129,17 +128,21 @@ macro_rules! interpolator {
         impl $interp {
             ///Returns the peripheral *once* for each core. Panics if called more than once per core.
             pub fn take() -> $crate::Peri<'static, Self> {
+                critical_section::with(Self::take_with_cs)
+            }
+
+            fn take_with_cs(_cs: critical_section::CriticalSection) -> $crate::Peri<'static, Self> {
                 #[unsafe(no_mangle)]
-                static $static: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
+                static mut $static: [bool; 2] = [false, false];
 
-                let taken_flag = &$static[current_core()];
+                unsafe {
+                    if $static[current_core()] {
+                        panic!("take called more than once!");
+                    }
+                    $static[current_core()] = true;
 
-                if taken_flag.load(Ordering::SeqCst) {
-                    panic!("take called more than once!")
+                    Self::steal()
                 }
-                taken_flag.store(true, Ordering::SeqCst);
-
-                unsafe { Self::steal() }
             }
 
             /// Unsafely create an instance of this peripheral out of thin air.
