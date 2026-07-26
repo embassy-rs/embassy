@@ -66,6 +66,7 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
 pub struct WatchdogFlash<'d, const SIZE: usize> {
     flash: Flash<'d, FLASH, Blocking, SIZE>,
     watchdog: Watchdog,
+    timeout: Duration,
 }
 
 impl<'d, const SIZE: usize> WatchdogFlash<'d, SIZE> {
@@ -74,7 +75,16 @@ impl<'d, const SIZE: usize> WatchdogFlash<'d, SIZE> {
         let flash = Flash::<_, Blocking, SIZE>::new_blocking(flash);
         let mut watchdog = Watchdog::new(watchdog);
         watchdog.start(timeout);
-        Self { flash, watchdog }
+        Self {
+            flash,
+            watchdog,
+            timeout,
+        }
+    }
+
+    /// Split back into separate flash and watchdog.
+    pub fn split(self) -> (Flash<'d, FLASH, Blocking, SIZE>, Watchdog) {
+        (self.flash, self.watchdog)
     }
 }
 
@@ -87,11 +97,11 @@ impl<'d, const SIZE: usize> NorFlash for WatchdogFlash<'d, SIZE> {
     const ERASE_SIZE: usize = <Flash<'d, FLASH, Blocking, SIZE> as NorFlash>::ERASE_SIZE;
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.watchdog.feed();
+        self.watchdog.feed(self.timeout);
         self.flash.blocking_erase(from, to)
     }
     fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Self::Error> {
-        self.watchdog.feed();
+        self.watchdog.feed(self.timeout);
         self.flash.blocking_write(offset, data)
     }
 }
@@ -99,7 +109,7 @@ impl<'d, const SIZE: usize> NorFlash for WatchdogFlash<'d, SIZE> {
 impl<'d, const SIZE: usize> ReadNorFlash for WatchdogFlash<'d, SIZE> {
     const READ_SIZE: usize = <Flash<'d, FLASH, Blocking, SIZE> as ReadNorFlash>::READ_SIZE;
     fn read(&mut self, offset: u32, data: &mut [u8]) -> Result<(), Self::Error> {
-        self.watchdog.feed();
+        self.watchdog.feed(self.timeout);
         self.flash.blocking_read(offset, data)
     }
     fn capacity(&self) -> usize {

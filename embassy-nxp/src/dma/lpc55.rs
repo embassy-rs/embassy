@@ -1,3 +1,5 @@
+#![macro_use]
+
 use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
@@ -9,9 +11,12 @@ use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::{PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::pac::{DMA0, SYSCON, *};
-use crate::{Peri, peripherals};
+use crate::Peri;
+#[cfg(feature = "rt")]
+use crate::pac::interrupt;
+use crate::pac::{SYSCON, *};
 
+#[cfg(feature = "rt")]
 #[interrupt]
 fn DMA0() {
     let inta = DMA0.inta0().read().ia();
@@ -278,7 +283,7 @@ static DMA_DESCRIPTORS: Mutex<RefCell<DmaDescriptorTable>> = Mutex::new(RefCell:
     }; CHANNEL_COUNT],
 }));
 
-trait SealedChannel {}
+pub(crate) trait SealedChannel {}
 trait SealedWord {}
 
 /// DMA channel interface.
@@ -323,7 +328,7 @@ impl Word for u32 {
 
 /// Type erased DMA channel.
 pub struct AnyChannel {
-    number: u8,
+    pub(crate) number: u8,
 }
 
 impl_peripheral!(AnyChannel);
@@ -335,10 +340,10 @@ impl Channel for AnyChannel {
     }
 }
 
-macro_rules! channel {
-    ($name:ident, $num:expr) => {
-        impl SealedChannel for peripherals::$name {}
-        impl Channel for peripherals::$name {
+macro_rules! impl_dma_channel {
+    ($instance:ident, $name:ident, $num:expr) => {
+        impl crate::dma::SealedChannel for crate::peripherals::$name {}
+        impl crate::dma::Channel for crate::peripherals::$name {
             fn number(&self) -> u8 {
                 $num
             }
@@ -346,32 +351,10 @@ macro_rules! channel {
 
         impl From<peripherals::$name> for crate::dma::AnyChannel {
             fn from(val: peripherals::$name) -> Self {
+                use crate::dma::Channel;
+
                 Self { number: val.number() }
             }
         }
     };
 }
-
-channel!(DMA_CH0, 0);
-channel!(DMA_CH1, 1);
-channel!(DMA_CH2, 2);
-channel!(DMA_CH3, 3);
-channel!(DMA_CH4, 4);
-channel!(DMA_CH5, 5);
-channel!(DMA_CH6, 6);
-channel!(DMA_CH7, 7);
-channel!(DMA_CH8, 8);
-channel!(DMA_CH9, 9);
-channel!(DMA_CH10, 10);
-channel!(DMA_CH11, 11);
-channel!(DMA_CH12, 12);
-channel!(DMA_CH13, 13);
-channel!(DMA_CH14, 14);
-channel!(DMA_CH15, 15);
-channel!(DMA_CH16, 16);
-channel!(DMA_CH17, 17);
-channel!(DMA_CH18, 18);
-channel!(DMA_CH19, 19);
-channel!(DMA_CH20, 20);
-channel!(DMA_CH21, 21);
-channel!(DMA_CH22, 22);

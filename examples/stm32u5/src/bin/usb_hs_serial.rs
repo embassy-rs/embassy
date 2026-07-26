@@ -29,22 +29,22 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV2,   // HSE / 2 = 8MHz
-            mul: PllMul::MUL60,        // 8MHz * 60 = 480MHz
-            divr: Some(PllDiv::DIV3),  // 480MHz / 3 = 160MHz (sys_ck)
-            divq: Some(PllDiv::DIV10), // 480MHz / 10 = 48MHz (USB)
-            divp: Some(PllDiv::DIV15), // 480MHz / 15 = 32MHz (USBOTG)
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div2,   // HSE / 2 = 8MHz
+            mul: PllMul::Mul60,        // 8MHz * 60 = 480MHz
+            divr: Some(PllDiv::Div3),  // 480MHz / 3 = 160MHz (sys_ck)
+            divq: Some(PllDiv::Div10), // 480MHz / 10 = 48MHz (USB)
+            divp: Some(PllDiv::Div15), // 480MHz / 15 = 32MHz (USBOTG)
         });
-        config.rcc.mux.otghssel = mux::Otghssel::PLL1_P;
-        config.rcc.voltage_range = VoltageScale::RANGE1;
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.mux.otghssel = mux::Otghssel::Pll1P;
+        config.rcc.voltage_range = VoltageScale::Range1;
+        config.rcc.sys = Sysclk::Pll1R;
     }
 
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
-    let mut ep_out_buffer = [0u8; 256];
+    let mut ep_out_buffer = [0u8; 1024];
     let mut config = embassy_stm32::usb::Config::default();
     // Do not enable vbus_detection. This is a safe default that works in all boards.
     // However, if your USB device is self-powered (can stay powered on if USB is unplugged), you need
@@ -77,7 +77,8 @@ async fn main(_spawner: Spawner) {
     );
 
     // Create classes on the builder.
-    let mut class = CdcAcmClass::new(&mut builder, &mut state, 64);
+    // High-speed bulk endpoints must have a max packet size of 512 bytes.
+    let mut class = CdcAcmClass::new(&mut builder, &mut state, 512);
 
     // Build the builder.
     let mut usb = builder.build();
@@ -112,7 +113,7 @@ impl From<EndpointError> for Disconnected {
 }
 
 async fn echo<'d, T: Instance + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, T>>) -> Result<(), Disconnected> {
-    let mut buf = [0; 64];
+    let mut buf = [0; 512];
     loop {
         let n = class.read_packet(&mut buf).await?;
         let data = &buf[..n];

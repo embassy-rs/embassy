@@ -138,26 +138,46 @@ impl<'d> Twim<'d> {
         let r = T::regs();
 
         // Configure pins
+        sda.set_high();
+        scl.set_high();
         sda.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::OUTPUT);
-            w.set_input(gpiovals::Input::CONNECT);
+            w.set_dir(gpiovals::Dir::Output);
+            w.set_input(gpiovals::Input::Connect);
+            #[cfg(not(feature = "_nrf54l"))]
             w.set_drive(match config.sda_high_drive {
-                true => gpiovals::Drive::H0D1,
-                false => gpiovals::Drive::S0D1,
+                true => gpiovals::Drive::H0d1,
+                false => gpiovals::Drive::S0d1,
             });
+            #[cfg(feature = "_nrf54l")]
+            {
+                w.set_drive0(match config.sda_high_drive {
+                    true => gpiovals::Drive::H,
+                    false => gpiovals::Drive::S,
+                });
+                w.set_drive1(gpiovals::Drive::D);
+            }
             if config.sda_pullup {
-                w.set_pull(gpiovals::Pull::PULLUP);
+                w.set_pull(gpiovals::Pull::Pullup);
             }
         });
         scl.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::OUTPUT);
-            w.set_input(gpiovals::Input::CONNECT);
+            w.set_dir(gpiovals::Dir::Output);
+            w.set_input(gpiovals::Input::Connect);
+            #[cfg(not(feature = "_nrf54l"))]
             w.set_drive(match config.scl_high_drive {
-                true => gpiovals::Drive::H0D1,
-                false => gpiovals::Drive::S0D1,
+                true => gpiovals::Drive::H0d1,
+                false => gpiovals::Drive::S0d1,
             });
-            if config.sda_pullup {
-                w.set_pull(gpiovals::Pull::PULLUP);
+            #[cfg(feature = "_nrf54l")]
+            {
+                w.set_drive0(match config.scl_high_drive {
+                    true => gpiovals::Drive::H,
+                    false => gpiovals::Drive::S,
+                });
+                w.set_drive1(gpiovals::Drive::D);
+            }
+            if config.scl_pullup {
+                w.set_pull(gpiovals::Pull::Pullup);
             }
         });
 
@@ -166,7 +186,7 @@ impl<'d> Twim<'d> {
         r.psel().scl().write_value(scl.psel_bits());
 
         // Enable TWIM instance.
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
         let mut twim = Self {
             r: T::regs(),
@@ -210,8 +230,8 @@ impl<'d> Twim<'d> {
         // We're giving the register a pointer to the stack. Since we're
         // waiting for the I2C transaction to end before this stack pointer
         // becomes invalid, there's nothing wrong here.
-        r.txd().ptr().write_value(buffer.as_ptr() as u32);
-        r.txd().maxcnt().write(|w|
+        r.dma().tx().ptr().write_value(buffer.as_ptr() as u32);
+        r.dma().tx().maxcnt().write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to `u8` is also fine.
@@ -237,8 +257,8 @@ impl<'d> Twim<'d> {
         // We're giving the register a pointer to the stack. Since we're
         // waiting for the I2C transaction to end before this stack pointer
         // becomes invalid, there's nothing wrong here.
-        r.rxd().ptr().write_value(buffer.as_mut_ptr() as u32);
-        r.rxd().maxcnt().write(|w|
+        r.dma().rx().ptr().write_value(buffer.as_mut_ptr() as u32);
+        r.dma().rx().maxcnt().write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to the type of maxcnt
@@ -281,7 +301,7 @@ impl<'d> Twim<'d> {
 
     fn check_rx(&self, len: usize) -> Result<(), Error> {
         let r = self.r;
-        if r.rxd().amount().read().0 != len as u32 {
+        if r.dma().rx().amount().read().0 != len as u32 {
             Err(Error::Receive)
         } else {
             Ok(())
@@ -290,7 +310,7 @@ impl<'d> Twim<'d> {
 
     fn check_tx(&self, len: usize) -> Result<(), Error> {
         let r = self.r;
-        if r.txd().amount().read().0 != len as u32 {
+        if r.dma().tx().amount().read().0 != len as u32 {
             Err(Error::Transmit)
         } else {
             Ok(())
@@ -412,7 +432,7 @@ impl<'d> Twim<'d> {
                 }
 
                 r.shorts().write(|w| {
-                    w.set_lastrx_starttx(true);
+                    w.set_lastrx_dma_tx_start(true);
                     if stop {
                         w.set_lasttx_stop(true);
                     } else {
@@ -421,7 +441,7 @@ impl<'d> Twim<'d> {
                 });
 
                 // Start read+write operation.
-                r.tasks_startrx().write_value(1);
+                r.tasks_dma().rx().start().write_value(1);
                 if last_op.is_some() {
                     r.tasks_resume().write_value(1);
                 }
@@ -429,7 +449,7 @@ impl<'d> Twim<'d> {
                 // TODO: Handle empty write buffer
                 if rd_buffer.is_empty() {
                     // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STARTTX ourselves.
-                    r.tasks_starttx().write_value(1);
+                    r.tasks_dma().tx().start().write_value(1);
                 }
 
                 Ok(2)
@@ -443,7 +463,7 @@ impl<'d> Twim<'d> {
                 r.shorts().write(|w| w.set_lastrx_stop(true));
 
                 // Start read operation.
-                r.tasks_startrx().write_value(1);
+                r.tasks_dma().rx().start().write_value(1);
                 if last_op.is_some() {
                     r.tasks_resume().write_value(1);
                 }
@@ -466,11 +486,11 @@ impl<'d> Twim<'d> {
 
                 // Start write+read operation.
                 r.shorts().write(|w| {
-                    w.set_lasttx_startrx(true);
+                    w.set_lasttx_dma_rx_start(true);
                     w.set_lastrx_stop(true);
                 });
 
-                r.tasks_starttx().write_value(1);
+                r.tasks_dma().tx().start().write_value(1);
                 if last_op.is_some() {
                     r.tasks_resume().write_value(1);
                 }
@@ -494,7 +514,7 @@ impl<'d> Twim<'d> {
                     }
                 });
 
-                r.tasks_starttx().write_value(1);
+                r.tasks_dma().tx().start().write_value(1);
                 if last_op.is_some() {
                     r.tasks_resume().write_value(1);
                 }
@@ -709,7 +729,7 @@ impl<'a> Drop for Twim<'a> {
 
         // disable!
         let r = self.r;
-        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Disabled));
 
         gpio::deconfigure_pin(r.psel().sda().read());
         gpio::deconfigure_pin(r.psel().scl().read());

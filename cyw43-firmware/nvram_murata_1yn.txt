@@ -1,0 +1,82 @@
+# NVRAM file for CYW943439WLPTH
+# 2.4 GHz, 20 MHz BW mode
+
+# The following parameter values are just placeholders, need to be updated.
+NVRAMRev=$Rev: 726808 $
+manfid=0x2d0
+prodid=0x0727
+vendid=0x14e4
+devid=0x43e2
+boardtype=0x0887
+boardrev=0x1101
+boardnum=22
+macaddr=00:90:4c:2d:a0:05
+sromrev=11
+#boardflags=0x00404201
+boardflags=0x00404001
+boardflags3=0x08000000
+xtalfreq=37400
+nocrc=1
+ag0=255
+aa2g=1
+ccode=ALL
+
+pa0itssit=0x20
+extpagain2g=0
+#PA parameters for 2.4GHz, measured at CHIP OUTPUT
+pa2ga0=-168,6777,-789
+AvVmid_c0=0x0,0xc8
+AvVmidIQcal=0x2,0xa8
+cckpwroffset0=5
+
+# PPR params
+maxp2ga0=74
+txpwrbckof=6
+cckbw202gpo=0
+legofdmbw202gpo=0x88888888
+mcsbw202gpo=0xaaaaaaaa
+propbw202gpo=0xdd
+
+# OFDM IIR :
+ofdmdigfilttype=18
+ofdmdigfilttypebe=18
+# PAPD mode:
+papdmode=1
+papdvalidtest=1
+pacalidx2g=45
+papdepsoffset=-30
+papdendidx=58
+
+# LTECX flags
+ltecxmux=0
+ltecxpadnum=0x0102
+ltecxfnsel=0x44
+ltecxgcigpio=0x01
+
+il0macaddr=00:90:4c:c5:12:38
+wl0id=0x431b
+
+deadman_to=0xffffffff
+# muxenab: 0x1 for UART enable, 0x10 for HOST WAKE INT enable, 0x11 for both enable
+# Power cycle required if change
+muxenab=0x11
+# CLDO PWM voltage settings - 0x4 - 1.1 volt
+#cldo_pwm=0x4
+
+#VCO freq 326.4MHz
+spurconfig=0x3
+
+#SW based desense - Enable by default
+#i.e using glitich statistcs as critria to change crsmin
+glitch_based_crsmin=1
+
+# Default btc_mode
+btc_mode=0
+bt_default_ant=0
+
+#Antenna diversity
+#swdiv_en=1
+#swdiv_gpio=2 
+
+tempbased_duty_cycle_en=0
+# End of NVRAM - do not remove this line #

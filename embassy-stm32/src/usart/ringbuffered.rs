@@ -7,11 +7,13 @@ use embassy_embedded_hal::SetConfig;
 use embedded_io_async::ReadReady;
 use futures_util::future::{Either, select};
 
-use super::{Config, ConfigError, Error, Info, State, UartRx, rdr, reconfigure, set_baudrate, sr};
-use crate::Peri;
+use super::{
+    Config, ConfigError, Error, Info, State, UartRx, clear_interrupt_flags, flush, rdr, reconfigure, set_baudrate, sr,
+};
 use crate::dma::ReadableRingBuffer;
-use crate::gpio::{AnyPin, SealedPin as _};
+use crate::gpio::Flex;
 use crate::mode::Async;
+use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 use crate::usart::Regs;
 
@@ -80,8 +82,9 @@ pub struct RingBufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    rx: Option<Peri<'d, AnyPin>>,
-    rts: Option<Peri<'d, AnyPin>>,
+    _wake_guard: WakeGuard,
+    _rx: Option<Flex<'d>>,
+    _rts: Option<Flex<'d>>,
     ring_buf: ReadableRingBuffer<'d, u8>,
 }
 
@@ -115,6 +118,8 @@ impl<'d> UartRx<'d, Async> {
         let rx = unsafe { self.rx.as_ref().map(|x| x.clone_unchecked()) };
         let rts = unsafe { self.rts.as_ref().map(|x| x.clone_unchecked()) };
 
+        let wake_guard = self.info.rcc.wake_guard();
+
         // Don't disable the clock
         mem::forget(self);
 
@@ -122,8 +127,9 @@ impl<'d> UartRx<'d, Async> {
             info,
             state,
             kernel_clock,
-            rx,
-            rts,
+            _wake_guard: wake_guard,
+            _rx: rx,
+            _rts: rts,
             ring_buf,
         }
     }
@@ -194,7 +200,10 @@ impl<'d> RingBufferedUartRx<'d> {
     fn start_dma_or_check_errors(&mut self) -> Result<(), Error> {
         let r = self.info.regs;
 
-        check_idle_and_errors(r)?;
+        if check_idle_and_errors(r)?.1 {
+            self.state.tc_flag.store(true, Ordering::Release);
+            self.state.tx_waker.wake();
+        }
         if !r.cr3().read().dmar() {
             self.start_uart();
         }
@@ -218,6 +227,10 @@ impl<'d> RingBufferedUartRx<'d> {
         // since they can't operate simultaneously on the shared line
         let r = self.info.regs;
         if r.cr3().read().hdsel() && r.cr1().read().te() {
+            // Wait for any in-flight transmission to complete before disabling the
+            // transmitter, otherwise the last byte(s) would be truncated on the wire.
+            flush(self.info, self.state).await?;
+
             r.cr1().modify(|reg| {
                 reg.set_re(true);
                 reg.set_te(false);
@@ -265,7 +278,11 @@ impl<'d> RingBufferedUartRx<'d> {
                 // Instead, return from this future and we'll check the length afterwards.
                 let eager = s.eager_reads.load(Ordering::Relaxed) > 0;
 
-                let idle = check_idle_and_errors(self.info.regs)?;
+                let (idle, tc) = check_idle_and_errors(self.info.regs)?;
+                if tc {
+                    self.state.tc_flag.store(true, Ordering::Release);
+                    self.state.tx_waker.wake();
+                }
                 if idle || (eager && uart_init) {
                     // Idle line is detected, or eager reads is set and some data is available.
                     Poll::Ready(Ok(idle))
@@ -323,8 +340,6 @@ impl<'d> RingBufferedUartRx<'d> {
 impl Drop for RingBufferedUartRx<'_> {
     fn drop(&mut self) {
         self.stop_uart();
-        self.rx.as_ref().map(|x| x.set_as_disconnected());
-        self.rts.as_ref().map(|x| x.set_as_disconnected());
         super::drop_tx_rx(self.info, self.state);
     }
 }
@@ -337,27 +352,17 @@ impl Drop for RingBufferedUartRx<'_> {
 ///
 /// For usart_v1 and usart_v2, all status flags must be handled together anyway because all flags
 /// are cleared by a single read to the RDR register.
-fn check_idle_and_errors(r: Regs) -> Result<bool, Error> {
-    // Critical section is required so that the flags aren't set after read and before clear
-    let sr = critical_section::with(|_| {
-        // SAFETY: read only and we only use Rx related flags
-        let sr = sr(r).read();
+fn check_idle_and_errors(r: Regs) -> Result<(bool, bool), Error> {
+    // SAFETY: read only and we only use Rx related flags
+    let sr = sr(r).read();
 
-        #[cfg(any(usart_v3, usart_v4))]
-        r.icr().write(|w| {
-            w.set_idle(true);
-            w.set_pe(true);
-            w.set_fe(true);
-            w.set_ne(true);
-            w.set_ore(true);
-        });
-        #[cfg(not(any(usart_v3, usart_v4)))]
-        unsafe {
-            // This read also clears the error and idle interrupt flags on v1 (TODO and v2?)
-            rdr(r).read_volatile()
-        };
-        sr
-    });
+    #[cfg(not(any(usart_v3, usart_v4)))]
+    unsafe {
+        // This read also clears the error and idle interrupt flags on v1 (TODO and v2?)
+        rdr(r).read_volatile()
+    };
+    clear_interrupt_flags(r, sr);
+
     if sr.pe() {
         Err(Error::Parity)
     } else if sr.fe() {
@@ -368,7 +373,7 @@ fn check_idle_and_errors(r: Regs) -> Result<bool, Error> {
         Err(Error::Overrun)
     } else {
         r.cr1().modify(|w| w.set_idleie(true));
-        Ok(sr.idle())
+        Ok((sr.idle(), sr.tc()))
     }
 }
 

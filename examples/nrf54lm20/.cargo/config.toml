@@ -1,0 +1,9 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# Note: it needs the latest git version of probe-rs
+runner = "probe-rs run --chip nrf54lm20a"
+
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[env]
+DEFMT_LOG = "trace"

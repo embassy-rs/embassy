@@ -5,8 +5,8 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, StackResources};
-use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue};
-use embassy_stm32::peripherals::ETH;
+use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
+use embassy_stm32::peripherals::{ETH, ETH_SMA};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
@@ -20,7 +20,7 @@ bind_interrupts!(struct Irqs {
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-type Device = Ethernet<'static, ETH, GenericPhy>;
+type Device = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
 
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {
@@ -36,18 +36,18 @@ async fn main(spawner: Spawner) -> ! {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL180,
-            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 180 / 2 = 180Mhz.
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul180,
+            divp: Some(PllPDiv::Div2), // 8mhz / 4 * 180 / 2 = 180Mhz.
             divq: None,
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
     }
     let p = embassy_stm32::init(config);
 
@@ -67,16 +67,16 @@ async fn main(spawner: Spawner) -> ! {
         p.ETH,
         Irqs,
         p.PA1,
-        p.PA2,
-        p.PC1,
         p.PA7,
         p.PC4,
         p.PC5,
         p.PG13,
         p.PB13,
         p.PG11,
-        GenericPhy::new_auto(),
         mac_addr,
+        p.ETH_SMA,
+        p.PA2,
+        p.PC1,
     );
 
     let config = embassy_net::Config::dhcpv4(Default::default());

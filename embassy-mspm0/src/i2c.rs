@@ -56,7 +56,7 @@ pub enum ClockDiv {
 }
 
 impl ClockDiv {
-    fn into(self) -> vals::Ratio {
+    pub(crate) fn into(self) -> vals::Ratio {
         match self {
             Self::DivBy1 => vals::Ratio::DIV_BY_1,
             Self::DivBy2 => vals::Ratio::DIV_BY_2,
@@ -133,6 +133,11 @@ pub enum ConfigError {
     ///
     /// The clock soure is not enabled is SYSCTL.
     ClockSourceNotEnabled,
+
+    /// Invalid target address.
+    ///
+    /// The target address is not 7-bit.
+    InvalidTargetAddress,
 }
 
 #[non_exhaustive]
@@ -140,7 +145,7 @@ pub enum ConfigError {
 /// Config
 pub struct Config {
     /// I2C clock source.
-    clock_source: ClockSel,
+    pub(crate) clock_source: ClockSel,
 
     /// I2C clock divider.
     pub clock_div: ClockDiv,
@@ -196,7 +201,7 @@ impl Config {
     }
 
     #[cfg(any(mspm0c110x, mspm0c1105_c1106))]
-    fn calculate_clock_source(&self) -> u32 {
+    pub(crate) fn calculate_clock_source(&self) -> u32 {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
@@ -209,7 +214,7 @@ impl Config {
         mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0h321x, mspm0l110x, mspm0l122x,
         mspm0l130x, mspm0l134x, mspm0l222x
     ))]
-    fn calculate_clock_source(&self) -> u32 {
+    pub(crate) fn calculate_clock_source(&self) -> u32 {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
@@ -469,9 +474,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_cblen(length as u16);
             w.set_start(false);
             w.set_ack(send_ack_nack);
-            if send_stop {
-                w.set_stop(true);
-            }
+            w.set_stop(send_stop);
         });
 
         Ok(())
@@ -504,9 +507,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_burstrun(true);
             w.set_ack(send_ack_nack);
             w.set_start(true);
-            if send_stop {
-                w.set_stop(true);
-            }
+            w.set_stop(send_stop);
         });
 
         Ok(())
@@ -523,9 +524,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             w.set_cblen(length as u16);
             w.set_burstrun(true);
             w.set_start(true);
-            if send_stop {
-                w.set_stop(true);
-            }
+            w.set_stop(send_stop);
         });
 
         Ok(())

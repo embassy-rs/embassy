@@ -4,8 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::hrtim::*;
-use embassy_stm32::time::{khz, mhz};
+use embassy_stm32::time::mhz;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -20,39 +19,40 @@ async fn main(_spawner: Spawner) {
         });
         config.rcc.pll = Some(Pll {
             src: PllSource::HSE,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL9,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul9,
         });
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV1;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div1;
 
-        config.rcc.mux.hrtim1sw = embassy_stm32::rcc::mux::Timsw::PLL1_P;
+        config.rcc.mux.hrtim1sw = embassy_stm32::rcc::mux::Timsw::Pll1P;
     }
-    let p = embassy_stm32::init(config);
+    let _p = embassy_stm32::init(config);
 
     info!("Hello World!");
 
-    let ch1 = PwmPin::new_cha(p.PA8);
-    let ch1n = ComplementaryPwmPin::new_cha(p.PA9);
-    let pwm = AdvancedPwm::new(
-        p.HRTIM1,
-        Some(ch1),
-        Some(ch1n),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
+    //    let ch1 = hrtim::Pin {
+    //        pin: p.PA8,
+    //        speed: Speed::Low,
+    //    };
+    //    let ch1n = hrtim::Pin {
+    //        pin: p.PA9,
+    //        speed: Speed::Low,
+    //    };
+    //
+    //    // ...with a prescaler of 4 this gives us a HrTimer with a tick rate of 1152MHz
+    //    // With max the max period set, this would be 1152MHz/2^16 ~= 17.6kHz...
+    //    let prescaler = hrtim::Pscl4;
+    //
+    //    let Parts { control, tima, .. } = p.HRTIM1.hr_control();
+    //    let (control, ..) = control.wait_for_calibration();
+    //    let mut control = control.constrain();
+    //
+    //    info!("pwm constructed");
 
-    info!("pwm constructed");
-
-    let mut buck_converter = BridgeConverter::new(pwm.ch_a, khz(5));
+    // let mut buck_converter = BridgeConverter::new(tima, ch1, ch1n, khz(5), prescaler, &mut control);
 
     //    embassy_stm32::pac::HRTIM1
     //        .tim(0)
@@ -66,15 +66,15 @@ async fn main(_spawner: Spawner) {
     //        .rstr(0)
     //        .modify(|w| w.set_srt(true));
 
-    let max_duty = buck_converter.get_max_compare_value();
-
-    info!("max compare value: {}", max_duty);
-
-    buck_converter.set_dead_time(max_duty / 20);
-    buck_converter.set_primary_duty(max_duty / 2);
-    buck_converter.set_secondary_duty(3 * max_duty / 4);
-
-    buck_converter.start();
+    //    let max_duty = buck_converter.get_max_compare_value();
+    //
+    //    info!("max compare value: {}", max_duty);
+    //
+    //    buck_converter.set_dead_time(max_duty / 20);
+    //    buck_converter.set_primary_duty(max_duty / 2);
+    //    buck_converter.set_secondary_duty(3 * max_duty / 4);
+    //
+    //    buck_converter.start(&mut control.control);
 
     Timer::after_millis(500).await;
 

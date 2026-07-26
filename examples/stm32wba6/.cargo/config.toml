@@ -5,4 +5,4 @@ runner = "probe-rs run --chip STM32WBA65RI"
 target = "thumbv8m.main-none-eabihf"
 
 [env]
-DEFMT_LOG = "trace"
+DEFMT_LOG = "info"

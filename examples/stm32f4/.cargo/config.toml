@@ -1,6 +1,8 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
 # replace STM32F429ZITx with your chip as listed in `probe-rs chip list`
-runner = "probe-rs run --chip STM32F429ZITx"
+# runner = "probe-rs run --chip STM32F429ZITx"
+runner = "teleprobe client run --target nucleo-stm32f429zi -s"
+
 
 [build]
 target = "thumbv7em-none-eabi"

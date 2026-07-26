@@ -55,11 +55,11 @@ impl<'d> Radio<'d> {
         errata::post_power();
 
         // Enable 802.15.4 mode
-        r.mode().write(|w| w.set_mode(vals::Mode::IEEE802154_250KBIT));
+        r.mode().write(|w| w.set_mode(vals::Mode::Ieee802154250kbit));
         // Configure CRC skip address
         r.crccnf().write(|w| {
-            w.set_len(vals::Len::TWO);
-            w.set_skipaddr(vals::Skipaddr::IEEE802154);
+            w.set_len(vals::Len::Two);
+            w.set_skipaddr(vals::Skipaddr::Ieee802154);
         });
         // Configure CRC polynomial and init
         r.crcpoly().write(|w| w.set_crcpoly(0x0001_1021));
@@ -72,13 +72,13 @@ impl<'d> Radio<'d> {
             // Zero bytes S1 field length
             w.set_s1len(0);
             // Do not include S1 field in RAM if S1 length > 0
-            w.set_s1incl(vals::S1incl::AUTOMATIC);
+            w.set_s1incl(vals::S1incl::Automatic);
             // Zero code Indicator length
             w.set_cilen(0);
             // 32-bit zero preamble
-            w.set_plen(vals::Plen::_32BIT_ZERO);
+            w.set_plen(vals::Plen::_32bitZero);
             // Include CRC in length
-            w.set_crcinc(vals::Crcinc::INCLUDE);
+            w.set_crcinc(vals::Crcinc::Include);
         });
         r.pcnf1().write(|w| {
             // Maximum packet length
@@ -88,7 +88,7 @@ impl<'d> Radio<'d> {
             // Zero base address length
             w.set_balen(0);
             // Little-endian
-            w.set_endian(vals::Endian::LITTLE);
+            w.set_endian(vals::Endian::Little);
             // Disable packet whitening
             w.set_whiteen(false);
         });
@@ -122,7 +122,7 @@ impl<'d> Radio<'d> {
         self.needs_enable = true;
         r.frequency().write(|w| {
             w.set_frequency(frequency_offset);
-            w.set_map(vals::Map::DEFAULT);
+            w.set_map(vals::Map::Default);
         });
     }
 
@@ -131,12 +131,12 @@ impl<'d> Radio<'d> {
         let r = self.r;
         self.needs_enable = true;
         match cca {
-            Cca::CarrierSense => r.ccactrl().write(|w| w.set_ccamode(vals::Ccamode::CARRIER_MODE)),
+            Cca::CarrierSense => r.ccactrl().write(|w| w.set_ccamode(vals::Ccamode::CarrierMode)),
             Cca::EnergyDetection { ed_threshold } => {
                 // "[ED] is enabled by first configuring the field CCAMODE=EdMode in CCACTRL
                 // and writing the CCAEDTHRES field to a chosen value."
                 r.ccactrl().write(|w| {
-                    w.set_ccamode(vals::Ccamode::ED_MODE);
+                    w.set_ccamode(vals::Ccamode::EdMode);
                     w.set_ccaedthres(ed_threshold);
                 });
             }
@@ -162,39 +162,39 @@ impl<'d> Radio<'d> {
 
         let tx_power: TxPower = match power {
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            8 => TxPower::POS8_DBM,
+            8 => TxPower::Pos8dBm,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            7 => TxPower::POS7_DBM,
+            7 => TxPower::Pos7dBm,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            6 => TxPower::POS6_DBM,
+            6 => TxPower::Pos6dBm,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            5 => TxPower::POS5_DBM,
+            5 => TxPower::Pos5dBm,
             #[cfg(not(feature = "_nrf5340-net"))]
-            4 => TxPower::POS4_DBM,
+            4 => TxPower::Pos4dBm,
             #[cfg(not(feature = "_nrf5340-net"))]
-            3 => TxPower::POS3_DBM,
+            3 => TxPower::Pos3dBm,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            2 => TxPower::POS2_DBM,
-            0 => TxPower::_0_DBM,
+            2 => TxPower::Pos2dBm,
+            0 => TxPower::_0dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -1 => TxPower::NEG1_DBM,
+            -1 => TxPower::Neg1dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -2 => TxPower::NEG2_DBM,
+            -2 => TxPower::Neg2dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -3 => TxPower::NEG3_DBM,
-            -4 => TxPower::NEG4_DBM,
+            -3 => TxPower::Neg3dBm,
+            -4 => TxPower::Neg4dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -5 => TxPower::NEG5_DBM,
+            -5 => TxPower::Neg5dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -6 => TxPower::NEG6_DBM,
+            -6 => TxPower::Neg6dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -7 => TxPower::NEG7_DBM,
-            -8 => TxPower::NEG8_DBM,
-            -12 => TxPower::NEG12_DBM,
-            -16 => TxPower::NEG16_DBM,
-            -20 => TxPower::NEG20_DBM,
-            -30 => TxPower::NEG30_DBM,
-            -40 => TxPower::NEG40_DBM,
+            -7 => TxPower::Neg7dBm,
+            -8 => TxPower::Neg8dBm,
+            -12 => TxPower::Neg12dBm,
+            -16 => TxPower::Neg16dBm,
+            -20 => TxPower::Neg20dBm,
+            -30 => TxPower::Neg30dBm,
+            -40 => TxPower::Neg40dBm,
             _ => panic!("Invalid transmission power value"),
         };
 
@@ -217,27 +217,27 @@ impl<'d> Radio<'d> {
         // See figure 110 in nRF52840-PS
         loop {
             match self.state() {
-                RadioState::DISABLED => return,
+                RadioState::Disabled => return,
                 // idle or ramping up
-                RadioState::RX_RU | RadioState::RX_IDLE | RadioState::TX_RU | RadioState::TX_IDLE => {
+                RadioState::RxRu | RadioState::RxIdle | RadioState::TxRu | RadioState::TxIdle => {
                     r.tasks_disable().write_value(1);
-                    self.wait_for_radio_state(RadioState::DISABLED);
+                    self.wait_for_radio_state(RadioState::Disabled);
                     return;
                 }
                 // ramping down
-                RadioState::RX_DISABLE | RadioState::TX_DISABLE => {
-                    self.wait_for_radio_state(RadioState::DISABLED);
+                RadioState::RxDisable | RadioState::TxDisable => {
+                    self.wait_for_radio_state(RadioState::Disabled);
                     return;
                 }
                 // cancel ongoing transfer or ongoing CCA
-                RadioState::RX => {
+                RadioState::Rx => {
                     r.tasks_ccastop().write_value(1);
                     r.tasks_stop().write_value(1);
-                    self.wait_for_radio_state(RadioState::RX_IDLE);
+                    self.wait_for_radio_state(RadioState::RxIdle);
                 }
-                RadioState::TX => {
+                RadioState::Tx => {
                     r.tasks_stop().write_value(1);
-                    self.wait_for_radio_state(RadioState::TX_IDLE);
+                    self.wait_for_radio_state(RadioState::TxIdle);
                 }
                 _ => unreachable!(),
             }
@@ -254,10 +254,10 @@ impl<'d> Radio<'d> {
         // clear related events
         self.r.events_ccabusy().write_value(0);
         self.r.events_phyend().write_value(0);
-        // NOTE to avoid errata 204 (see rev1 v1.4) we do TX_IDLE -> DISABLED -> RXIDLE
+        // NOTE to avoid errata 204 (see rev1 v1.4) we do TX_IDLE  Disabled -> RXIDLE
         let disable = match self.state() {
-            RadioState::DISABLED => false,
-            RadioState::RX_IDLE => self.needs_enable,
+            RadioState::Disabled => false,
+            RadioState::RxIdle => self.needs_enable,
             _ => true,
         };
         if disable {
@@ -289,7 +289,7 @@ impl<'d> Radio<'d> {
 
         match self.state() {
             // Re-start receiver
-            RadioState::RX_IDLE => r.tasks_start().write_value(1),
+            RadioState::RxIdle => r.tasks_start().write_value(1),
             // Enable receiver
             _ => r.tasks_rxen().write_value(1),
         }
@@ -302,7 +302,7 @@ impl<'d> Radio<'d> {
         r.tasks_stop().write_value(1);
         loop {
             match r.state().read().state() {
-                RadioState::DISABLED | RadioState::RX_IDLE => break,
+                RadioState::Disabled | RadioState::RxIdle => break,
                 _ => (),
             }
         }
@@ -345,7 +345,7 @@ impl<'d> Radio<'d> {
         dropper.defuse();
 
         let crc = r.rxcrc().read().rxcrc() as u16;
-        if r.crcstatus().read().crcstatus() == vals::Crcstatus::CRCOK {
+        if r.crcstatus().read().crcstatus() == vals::Crcstatus::CrcOk {
             Ok(())
         } else {
             Err(Error::CrcFailed(crc))
@@ -405,7 +405,7 @@ impl<'d> Radio<'d> {
 
         match self.state() {
             // Re-start receiver
-            RadioState::RX_IDLE => r.tasks_ccastart().write_value(1),
+            RadioState::RxIdle => r.tasks_ccastart().write_value(1),
             // Enable receiver
             _ => r.tasks_rxen().write_value(1),
         }

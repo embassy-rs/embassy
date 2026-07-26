@@ -28,15 +28,24 @@ pub trait VbusDetect {
     async fn wait_power_ready(&mut self) -> Result<(), ()>;
 }
 
-#[cfg(not(feature = "_nrf5340"))]
+#[cfg(feature = "_nrf54lm20-app")]
+static USB_DETECTED: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "_nrf54lm20-app")]
+const VREGUSB_STATUS_VBUS_DETECTED: u32 = 1 << 2;
+
+#[cfg(all(not(feature = "_nrf5340"), not(feature = "_nrf54lm20-app")))]
 type UsbRegIrq = interrupt::typelevel::CLOCK_POWER;
 #[cfg(feature = "_nrf5340")]
 type UsbRegIrq = interrupt::typelevel::USBREGULATOR;
+#[cfg(feature = "_nrf54lm20-app")]
+type UsbRegIrq = interrupt::typelevel::VREGUSB;
 
-#[cfg(not(feature = "_nrf5340"))]
+#[cfg(all(not(feature = "_nrf5340"), not(feature = "_nrf54lm20-app")))]
 const USB_REG_PERI: pac::power::Power = pac::POWER;
 #[cfg(feature = "_nrf5340")]
 const USB_REG_PERI: pac::usbreg::Usbreg = pac::USBREGULATOR;
+#[cfg(feature = "_nrf54lm20-app")]
+const USB_REG_PERI: pac::vregusb::Vregusb = pac::VREGUSB;
 
 /// Interrupt handler.
 pub struct InterruptHandler {
@@ -47,17 +56,36 @@ impl interrupt::typelevel::Handler<UsbRegIrq> for InterruptHandler {
     unsafe fn on_interrupt() {
         let regs = USB_REG_PERI;
 
+        #[cfg(feature = "_nrf54lm20-app")]
+        if regs.events_vbusdetected().read() != 0 {
+            regs.events_vbusdetected().write_value(0);
+            USB_DETECTED.store(true, Ordering::Relaxed);
+            BUS_WAKER.wake();
+            POWER_WAKER.wake();
+        }
+
+        #[cfg(feature = "_nrf54lm20-app")]
+        if regs.events_vbusremoved().read() != 0 {
+            regs.events_vbusremoved().write_value(0);
+            USB_DETECTED.store(false, Ordering::Relaxed);
+            BUS_WAKER.wake();
+            POWER_WAKER.wake();
+        }
+
+        #[cfg(not(feature = "_nrf54lm20-app"))]
         if regs.events_usbdetected().read() != 0 {
             regs.events_usbdetected().write_value(0);
             BUS_WAKER.wake();
         }
 
+        #[cfg(not(feature = "_nrf54lm20-app"))]
         if regs.events_usbremoved().read() != 0 {
             regs.events_usbremoved().write_value(0);
             BUS_WAKER.wake();
             POWER_WAKER.wake();
         }
 
+        #[cfg(not(feature = "_nrf54lm20-app"))]
         if regs.events_usbpwrrdy().read() != 0 {
             regs.events_usbpwrrdy().write_value(0);
             POWER_WAKER.wake();
@@ -83,6 +111,24 @@ impl HardwareVbusDetect {
         UsbRegIrq::unpend();
         unsafe { UsbRegIrq::enable() };
 
+        #[cfg(feature = "_nrf54lm20-app")]
+        {
+            regs.events_vbusdetected().write_value(0);
+            regs.events_vbusremoved().write_value(0);
+            regs.intenset().write(|w| {
+                w.set_vbusdetected(true);
+                w.set_vbusremoved(true);
+            });
+            regs.tasks_start().write_value(1);
+
+            if initial_vbus_detected() {
+                USB_DETECTED.store(true, Ordering::Relaxed);
+                BUS_WAKER.wake();
+                POWER_WAKER.wake();
+            }
+        }
+
+        #[cfg(not(feature = "_nrf54lm20-app"))]
         regs.intenset().write(|w| {
             w.set_usbdetected(true);
             w.set_usbremoved(true);
@@ -95,21 +141,43 @@ impl HardwareVbusDetect {
 
 impl VbusDetect for HardwareVbusDetect {
     fn is_usb_detected(&self) -> bool {
+        #[cfg(feature = "_nrf54lm20-app")]
+        {
+            USB_DETECTED.load(Ordering::Relaxed)
+        }
+
+        #[cfg(not(feature = "_nrf54lm20-app"))]
         let regs = USB_REG_PERI;
-        regs.usbregstatus().read().vbusdetect()
+        #[cfg(not(feature = "_nrf54lm20-app"))]
+        {
+            regs.usbregstatus().read().vbusdetect()
+        }
     }
 
     fn wait_power_ready(&mut self) -> impl Future<Output = Result<(), ()>> {
         poll_fn(|cx| {
             POWER_WAKER.register(cx.waker());
-            let regs = USB_REG_PERI;
 
-            if regs.usbregstatus().read().outputrdy() {
-                Poll::Ready(Ok(()))
-            } else if !self.is_usb_detected() {
-                Poll::Ready(Err(()))
-            } else {
-                Poll::Pending
+            #[cfg(feature = "_nrf54lm20-app")]
+            {
+                if self.is_usb_detected() {
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Ready(Err(()))
+                }
+            }
+
+            #[cfg(not(feature = "_nrf54lm20-app"))]
+            let regs = USB_REG_PERI;
+            #[cfg(not(feature = "_nrf54lm20-app"))]
+            {
+                if regs.usbregstatus().read().outputrdy() {
+                    Poll::Ready(Ok(()))
+                } else if !self.is_usb_detected() {
+                    Poll::Ready(Err(()))
+                } else {
+                    Poll::Pending
+                }
             }
         })
     }
@@ -174,5 +242,12 @@ impl VbusDetect for &SoftwareVbusDetect {
                 Poll::Pending
             }
         })
+    }
+}
+
+#[cfg(feature = "_nrf54lm20-app")]
+fn initial_vbus_detected() -> bool {
+    unsafe {
+        ((USB_REG_PERI.as_ptr() as *const u32).add(0x400 / 4).read_volatile() & VREGUSB_STATUS_VBUS_DETECTED) != 0
     }
 }

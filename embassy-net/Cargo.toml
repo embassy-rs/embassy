@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net"
-version = "0.7.1"
+version = "0.9.1"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Async TCP/IP network stack for embedded systems"
@@ -19,13 +19,17 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "multicast", "proto-ipv4", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-hostname", "dns", "medium-ethernet", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-hostname", "dns", "medium-ethernet", "slaac", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-ntp", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv6", "slaac", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ieee802154", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp", "packetmeta-id"]},
     # Xtensa builds
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "medium-ethernet", "packet-trace"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "multicast", "medium-ethernet"]},
@@ -44,15 +48,17 @@ build = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname", "packetmeta-id"]
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname"]
+features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname", "packetmeta-id"]
 
 [features]
+default = ["auto-icmp-echo-reply"]
+
 ## Enable defmt
-defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt-03", "defmt?/ip_in_core"]
+defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt", "defmt?/ip_in_core"]
 ## Enable log
 log = ["dep:log"]
 
@@ -65,6 +71,8 @@ packet-trace = []
 
 ## Enable ICMP support
 icmp = ["smoltcp/socket-icmp"]
+## ICMP echo request auto reply
+auto-icmp-echo-reply = ["smoltcp/auto-icmp-echo-reply"]
 ## Enable UDP support
 udp = ["smoltcp/socket-udp"]
 ## Enable Raw support
@@ -79,6 +87,8 @@ mdns = ["dns", "smoltcp/socket-mdns"]
 dhcpv4 = ["proto-ipv4", "medium-ethernet", "smoltcp/socket-dhcpv4"]
 ## Enable DHCPv4 support with hostname
 dhcpv4-hostname = ["dhcpv4"]
+## Enable parsing of the NTP servers (DHCP option 42) from the DHCP reply
+dhcpv4-ntp = ["dhcpv4"]
 ## Enable IPv4 support
 proto-ipv4 = ["smoltcp/proto-ipv4"]
 ## Enable IPv6 support
@@ -91,27 +101,32 @@ medium-ip = ["smoltcp/medium-ip"]
 medium-ieee802154 = ["smoltcp/medium-ieee802154"]
 ## Enable multicast support (for both ipv4 and/or ipv6 if enabled)
 multicast = ["smoltcp/multicast"]
+## Enable stateless address autoconfiguration for ipv6
+slaac = ["proto-ipv6", "multicast", "smoltcp/proto-ipv6-slaac"]
 ## Enable smoltcp std feature (necessary if using "managed" crate std feature)
 std = ["smoltcp/std"]
 ## Enable smoltcp alloc feature (necessary if using "managed" crate alloc feature)
 alloc = ["smoltcp/alloc"]
+## Enable smoltcp packetmeta-id feature
+packetmeta-id = [ "smoltcp/packetmeta-id", "embassy-net-driver/packetmeta-id" ]
 
 [dependencies]
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { version = "0.12.0", default-features = false, features = [
+smoltcp = {  version = "0.13.0", default-features = false, features = [
   "socket",
   "async",
 ] }
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.5.0", path = "../embassy-time" }
-embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
-embedded-io-async = { version = "0.6.1" }
+embassy-time = { version = "0.5.1", path = "../embassy-time" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+embedded-io-async = { version = "0.7.0" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
-heapless = { version = "0.8", default-features = false }
-embedded-nal-async = "0.8.0"
+heapless = { version = "0.9", default-features = false }
+embedded-nal-async = "0.9.0"
 document-features = "0.2.7"

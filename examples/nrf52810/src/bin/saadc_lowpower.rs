@@ -33,7 +33,7 @@ async fn main(_p: Spawner) {
             let battery_pin = p.P0_02.reborrow();
             let sensor1_pin = p.P0_03.reborrow();
             let mut adc_config = saadc::Config::default();
-            adc_config.oversample = Oversample::OVER4X;
+            adc_config.oversample = Oversample::Over4x;
             let battery = saadc::ChannelConfig::single_ended(battery_pin);
             let sensor1 = saadc::ChannelConfig::single_ended(sensor1_pin);
             let mut saadc = Saadc::new(p.SAADC.reborrow(), Irqs, adc_config, [battery, sensor1]);

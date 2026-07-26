@@ -4,7 +4,7 @@
 use defmt::{debug, error, info};
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::peripherals::UART0;
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, UART0};
 use embassy_rp::uart::{Config, DataBits, InterruptHandler as UARTInterruptHandler, Parity, StopBits, Uart};
 use embassy_time::{Duration, Timer, with_timeout};
 use heapless::Vec;
@@ -12,6 +12,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(pub struct Irqs {
     UART0_IRQ  => UARTInterruptHandler<UART0>;
+    DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>, embassy_rp::dma::InterruptHandler<DMA_CH1>;
 });
 
 const START: u16 = 0xEF01;

@@ -1,11 +1,12 @@
-use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
-use crate::{Peri, pac};
+use super::{Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task};
+use crate::Peri;
 
 const DPPI_ENABLE_BIT: u32 = 0x8000_0000;
 const DPPI_CHANNEL_MASK: u32 = 0x0000_00FF;
 
-pub(crate) fn regs() -> pac::dppic::Dppic {
-    pac::DPPIC
+#[cfg(not(feature = "_nrf54l"))]
+pub(crate) fn regs() -> crate::pac::dppic::Dppic {
+    crate::pac::DPPIC
 }
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
@@ -49,13 +50,13 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'d, 
     /// Enables the channel.
     pub fn enable(&mut self) {
         let n = self.ch.number();
-        regs().chenset().write(|w| w.0 = 1 << n);
+        self.ch.regs().chenset().write(|w| w.0 = 1 << n);
     }
 
     /// Disables the channel.
     pub fn disable(&mut self) {
         let n = self.ch.number();
-        regs().chenclr().write(|w| w.0 = 1 << n);
+        self.ch.regs().chenclr().write(|w| w.0 = 1 << n);
     }
 }
 
@@ -78,5 +79,51 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop for
         for event in self.events {
             unsafe { event.publish_reg().write_volatile(0) }
         }
+    }
+}
+
+impl<'d, G: Group> PpiGroup<'d, G> {
+    /// Add a PPI channel to this group.
+    ///
+    /// If the channel is already in the group, this is a no-op.
+    pub fn add_channel<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>(
+        &mut self,
+        ch: &Ppi<'_, C, EVENT_COUNT, TASK_COUNT>,
+    ) {
+        let r = self.g.regs();
+        let ng = self.g.number();
+        let nc = ch.ch.number();
+
+        let en = r.subscribe_chg(ng).en().read();
+        let dis = r.subscribe_chg(ng).dis().read();
+        r.subscribe_chg(ng).en().write_value(Default::default());
+        r.subscribe_chg(ng).dis().write_value(Default::default());
+
+        r.chg(ng).modify(|w| w.set_ch(nc, true));
+
+        r.subscribe_chg(ng).en().write_value(en);
+        r.subscribe_chg(ng).dis().write_value(dis);
+    }
+
+    /// Remove a PPI channel from this group.
+    ///
+    /// If the channel is already not in the group, this is a no-op.
+    pub fn remove_channel<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>(
+        &mut self,
+        ch: &Ppi<'_, C, EVENT_COUNT, TASK_COUNT>,
+    ) {
+        let r = self.g.regs();
+        let ng = self.g.number();
+        let nc = ch.ch.number();
+
+        let en = r.subscribe_chg(ng).en().read();
+        let dis = r.subscribe_chg(ng).dis().read();
+        r.subscribe_chg(ng).en().write_value(Default::default());
+        r.subscribe_chg(ng).dis().write_value(Default::default());
+
+        r.chg(ng).modify(|w| w.set_ch(nc, false));
+
+        r.subscribe_chg(ng).en().write_value(en);
+        r.subscribe_chg(ng).dis().write_value(dis);
     }
 }

@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
     dbg!("Setting up...");
     let config = NfcConfig {
         nfcid1: NfcId::DoubleSize([0x04, 0x68, 0x95, 0x71, 0xFA, 0x5C, 0x64]),
-        sdd_pat: nfct::SddPat::SDD00100,
+        sdd_pat: nfct::SddPat::Sdd00100,
         plat_conf: 0b0000,
         protocol: nfct::SelResProtocol::Type4A,
     };

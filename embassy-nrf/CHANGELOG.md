@@ -7,7 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+
+- added: System OFF support for the nRF54L series.
+
+## 0.11.0 - 2026-06-16
+
+- added: support for the SQSPI peripheral for nRF54.
+- added: support for the nRF54 VPR coprocessor, including loading and running programs and issuing bare opcodes
+- added: USB support for nRF54LM20A (via embassy-usb-synopsys-otg)
+- added: `nfc-pins-as-gpio` support for nrf54
+- added: support for rand-core 0.10
+- bugfix: fix cracen on nRF54LM20A
+- bugfix: nrf91: fix erratum 36
+- bugfix: fix GRTC time driver for nRF54L/LM series
+- bugfix: fix GRTC syscounter reset on init and select the last GRTC CC channel
+- bugfix: nrf54: provide explicit timer Capture/Compare channel numbers
+- bugfix: pwm: put pins into high-z on drop
+- changed: update nrf-pac
+
+## 0.10.0 - 2026-03-10
+
+- feat: implement CryptoCell RNG driver (nrf52840, nrf5340, nrf9120, nrf9160)
+- bugfix: avoid hang if calling `now()` before syscounter is enabled on nrf54
+- bugfix: use correct pin count for the nrf54 chip family
+- bugfix: nrf54lm20 uses separate register for burst config
+- bugfix: enable burst for nrf54 if oversampling
+- bugfix: put SCL/SDA into high state during TWIM initialization
+- Update to embedded-io 0.7
+- Update embassy-sync to 0.8.0
+- Update embassy-embedded-hal to 0.6.0
+- Update embassy-net-driver-channel to 0.4.0
+
+## 0.9.0 - 2025-12-15
+
 - changed: apply trimming values from FICR.TRIMCNF on nrf53/54l
+- changed: do not panic on BufferedUarte overrun
+- added: allow direct access to the input pin of `gpiote::InputChannel`
+- bugfix: use DETECTMODE_SEC in GPIOTE in secure mode
+- added: allow configuring the idle state of GPIO pins connected to PWM channels
+- changed: allow configuring the PWM peripheral in the constructor of `SimplePwm`
+- changed: support setting duty cycles with inverted polarity in `SimplePwm`
+- added: support setting the duty cycles of all channels at once in `SimplePwm`
+- changed: updated to nrf-pac with nrf52/nrf53/nrf91 register layout more similar to nrf54
+- added: support for nrf54l peripherals: uart, gpiote, twim, twis, spim, spis, dppi, pwm, saadc, cracen
+- added: support for changing nrf54l clock speed
+- bugfix: Do not write to UICR from non-secure code on nrf53
+- bugfix: Add delay to uart init anomaly fix
+- changed: `BufferedUarte::read_ready` now uses the same definition for 'empty' so following read calls will not block when true is returned
+- added: add `gpiote::InputChannel::wait_for_high()` and `wait_for_low()` to wait for specific signal level
+- changed: `gpiote::InputChannel::wait()` now takes a mutable reference to `self` to avoid interference from concurrent calls
+- changed: `gpiote::InputChannel::wait()` now ensures events are seen as soon as the function is called, even if the future is not polled
+- bugfix: use correct flash size for nRF54l
+- changed: add workaround for anomaly 66 on nrf52
+- added: expose PPI events available on SPIS peripheral
+- added: add basic GRTC time driver support for nRF54L
+* added: support for nrf54l10 and nrf54l05
+* added: expose uicr write functions
+* added: support for nrf54lm20a
+- added: support buffered rram for nrf54
 
 ## 0.8.0 - 2025-09-30
 

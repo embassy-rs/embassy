@@ -188,6 +188,9 @@ embassy_hal_internal::peripherals! {
 
     // NFC
     NFCT,
+
+    // CryptoCell RNG
+    CC_RNG
 }
 
 impl_usb!(USBD, USBD, USBD);
@@ -214,6 +217,8 @@ impl_pwm!(PWM0, PWM0, PWM0);
 impl_pwm!(PWM1, PWM1, PWM1);
 impl_pwm!(PWM2, PWM2, PWM2);
 impl_pwm!(PWM3, PWM3, PWM3);
+
+impl_ccrng!(CC_RNG, CC_RNG, CRYPTOCELL);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
@@ -287,47 +292,54 @@ impl_pin!(P1_13, 1, 13);
 impl_pin!(P1_14, 1, 14);
 impl_pin!(P1_15, 1, 15);
 
-impl_ppi_channel!(PPI_CH0, 0 => configurable);
-impl_ppi_channel!(PPI_CH1, 1 => configurable);
-impl_ppi_channel!(PPI_CH2, 2 => configurable);
-impl_ppi_channel!(PPI_CH3, 3 => configurable);
-impl_ppi_channel!(PPI_CH4, 4 => configurable);
-impl_ppi_channel!(PPI_CH5, 5 => configurable);
-impl_ppi_channel!(PPI_CH6, 6 => configurable);
-impl_ppi_channel!(PPI_CH7, 7 => configurable);
-impl_ppi_channel!(PPI_CH8, 8 => configurable);
-impl_ppi_channel!(PPI_CH9, 9 => configurable);
-impl_ppi_channel!(PPI_CH10, 10 => configurable);
-impl_ppi_channel!(PPI_CH11, 11 => configurable);
-impl_ppi_channel!(PPI_CH12, 12 => configurable);
-impl_ppi_channel!(PPI_CH13, 13 => configurable);
-impl_ppi_channel!(PPI_CH14, 14 => configurable);
-impl_ppi_channel!(PPI_CH15, 15 => configurable);
-impl_ppi_channel!(PPI_CH16, 16 => configurable);
-impl_ppi_channel!(PPI_CH17, 17 => configurable);
-impl_ppi_channel!(PPI_CH18, 18 => configurable);
-impl_ppi_channel!(PPI_CH19, 19 => configurable);
-impl_ppi_channel!(PPI_CH20, 20 => static);
-impl_ppi_channel!(PPI_CH21, 21 => static);
-impl_ppi_channel!(PPI_CH22, 22 => static);
-impl_ppi_channel!(PPI_CH23, 23 => static);
-impl_ppi_channel!(PPI_CH24, 24 => static);
-impl_ppi_channel!(PPI_CH25, 25 => static);
-impl_ppi_channel!(PPI_CH26, 26 => static);
-impl_ppi_channel!(PPI_CH27, 27 => static);
-impl_ppi_channel!(PPI_CH28, 28 => static);
-impl_ppi_channel!(PPI_CH29, 29 => static);
-impl_ppi_channel!(PPI_CH30, 30 => static);
-impl_ppi_channel!(PPI_CH31, 31 => static);
+impl_ppi_channel!(PPI_CH0, PPI, 0 => configurable);
+impl_ppi_channel!(PPI_CH1, PPI, 1 => configurable);
+impl_ppi_channel!(PPI_CH2, PPI, 2 => configurable);
+impl_ppi_channel!(PPI_CH3, PPI, 3 => configurable);
+impl_ppi_channel!(PPI_CH4, PPI, 4 => configurable);
+impl_ppi_channel!(PPI_CH5, PPI, 5 => configurable);
+impl_ppi_channel!(PPI_CH6, PPI, 6 => configurable);
+impl_ppi_channel!(PPI_CH7, PPI, 7 => configurable);
+impl_ppi_channel!(PPI_CH8, PPI, 8 => configurable);
+impl_ppi_channel!(PPI_CH9, PPI, 9 => configurable);
+impl_ppi_channel!(PPI_CH10, PPI, 10 => configurable);
+impl_ppi_channel!(PPI_CH11, PPI, 11 => configurable);
+impl_ppi_channel!(PPI_CH12, PPI, 12 => configurable);
+impl_ppi_channel!(PPI_CH13, PPI, 13 => configurable);
+impl_ppi_channel!(PPI_CH14, PPI, 14 => configurable);
+impl_ppi_channel!(PPI_CH15, PPI, 15 => configurable);
+impl_ppi_channel!(PPI_CH16, PPI, 16 => configurable);
+impl_ppi_channel!(PPI_CH17, PPI, 17 => configurable);
+impl_ppi_channel!(PPI_CH18, PPI, 18 => configurable);
+impl_ppi_channel!(PPI_CH19, PPI, 19 => configurable);
+impl_ppi_channel!(PPI_CH20, PPI, 20 => static);
+impl_ppi_channel!(PPI_CH21, PPI, 21 => static);
+impl_ppi_channel!(PPI_CH22, PPI, 22 => static);
+impl_ppi_channel!(PPI_CH23, PPI, 23 => static);
+impl_ppi_channel!(PPI_CH24, PPI, 24 => static);
+impl_ppi_channel!(PPI_CH25, PPI, 25 => static);
+impl_ppi_channel!(PPI_CH26, PPI, 26 => static);
+impl_ppi_channel!(PPI_CH27, PPI, 27 => static);
+impl_ppi_channel!(PPI_CH28, PPI, 28 => static);
+impl_ppi_channel!(PPI_CH29, PPI, 29 => static);
+impl_ppi_channel!(PPI_CH30, PPI, 30 => static);
+impl_ppi_channel!(PPI_CH31, PPI, 31 => static);
 
-impl_saadc_input!(P0_02, ANALOG_INPUT0);
-impl_saadc_input!(P0_03, ANALOG_INPUT1);
-impl_saadc_input!(P0_04, ANALOG_INPUT2);
-impl_saadc_input!(P0_05, ANALOG_INPUT3);
-impl_saadc_input!(P0_28, ANALOG_INPUT4);
-impl_saadc_input!(P0_29, ANALOG_INPUT5);
-impl_saadc_input!(P0_30, ANALOG_INPUT6);
-impl_saadc_input!(P0_31, ANALOG_INPUT7);
+impl_ppi_group!(PPI_GROUP0, PPI, 0);
+impl_ppi_group!(PPI_GROUP1, PPI, 1);
+impl_ppi_group!(PPI_GROUP2, PPI, 2);
+impl_ppi_group!(PPI_GROUP3, PPI, 3);
+impl_ppi_group!(PPI_GROUP4, PPI, 4);
+impl_ppi_group!(PPI_GROUP5, PPI, 5);
+
+impl_saadc_input!(P0_02, AnalogInput0);
+impl_saadc_input!(P0_03, AnalogInput1);
+impl_saadc_input!(P0_04, AnalogInput2);
+impl_saadc_input!(P0_05, AnalogInput3);
+impl_saadc_input!(P0_28, AnalogInput4);
+impl_saadc_input!(P0_29, AnalogInput5);
+impl_saadc_input!(P0_30, AnalogInput6);
+impl_saadc_input!(P0_31, AnalogInput7);
 
 impl_i2s!(I2S, I2S, I2S);
 

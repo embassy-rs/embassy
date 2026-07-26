@@ -21,7 +21,7 @@ async fn main(_spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true });
-        config.rcc.mux.usbsel = mux::Usbsel::HSI48;
+        config.rcc.mux.usbsel = mux::Usbsel::Hsi48;
     }
     let p = embassy_stm32::init(config);
 

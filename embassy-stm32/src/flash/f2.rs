@@ -32,7 +32,7 @@ pub(crate) unsafe fn enable_blocking_write() {
 
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
-        w.set_psize(pac::flash::vals::Psize::PSIZE32);
+        w.set_psize(pac::flash::vals::Psize::Psize32);
     });
 }
 

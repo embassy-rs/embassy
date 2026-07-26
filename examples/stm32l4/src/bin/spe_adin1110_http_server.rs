@@ -24,13 +24,15 @@ use embassy_futures::yield_now;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
 use embassy_net_adin1110::{ADIN1110, Device, Runner};
+use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rng::{self, Rng};
+use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{Config as SPI_Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, exti, pac, peripherals};
+use embassy_stm32::{bind_interrupts, dma, exti, interrupt, pac, peripherals};
 use embassy_time::{Delay, Duration, Ticker, Timer};
 use embedded_hal_async::i2c::I2c as I2cBus;
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -44,6 +46,11 @@ bind_interrupts!(struct Irqs {
     I2C3_EV => i2c::EventInterruptHandler<peripherals::I2C3>;
     I2C3_ER => i2c::ErrorInterruptHandler<peripherals::I2C3>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
+    EXTI15_10 => exti::InterruptHandler<interrupt::typelevel::EXTI15_10>;
+    DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+    DMA1_CHANNEL2 => dma::InterruptHandler<peripherals::DMA1_CH2>;
+    DMA1_CHANNEL6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
+    DMA1_CHANNEL7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
 });
 
 // Basic settings
@@ -54,9 +61,9 @@ const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 5), 24)
 // Listen port for the webserver
 const HTTP_LISTEN_PORT: u16 = 80;
 
-pub type SpeSpi = Spi<'static, Async>;
+pub type SpeSpi = Spi<'static, Async, Master>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
-pub type SpeInt = exti::ExtiInput<'static>;
+pub type SpeInt = exti::ExtiInput<'static, Async>;
 pub type SpeRst = Output<'static>;
 pub type Adin1110T = ADIN1110<SpeSpiCs>;
 pub type TempSensI2c = I2c<'static, Async, i2c::Master>;
@@ -72,18 +79,18 @@ async fn main(spawner: Spawner) {
         use embassy_stm32::rcc::*;
         // 80Mhz clock (Source: 8 / SrcDiv: 1 * PllMul 20 / ClkDiv 2)
         // 80MHz highest frequency for flash 0 wait.
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.hse = Some(Hse {
             freq: Hertz::mhz(8),
             mode: HseMode::Oscillator,
         });
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL20,
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul20,
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::DIV2), // sysclk 80Mhz clock (8 / 1 * 20 / 2)
+            divr: Some(PllRDiv::Div2), // sysclk 80Mhz clock (8 / 1 * 20 / 2)
         });
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
     }
@@ -112,9 +119,9 @@ async fn main(spawner: Spawner) {
         dp.I2C3,
         dp.PG7,
         dp.PG8,
-        Irqs,
         dp.DMA1_CH6,
         dp.DMA1_CH7,
+        Irqs,
         I2C_Config::default(),
     );
 
@@ -124,7 +131,7 @@ async fn main(spawner: Spawner) {
     let spe_cfg1 = Input::new(dp.PC9, Pull::None);
     let _spe_ts_capt = Output::new(dp.PC6, Level::Low, Speed::Low);
 
-    let spe_int = exti::ExtiInput::new(dp.PB11, dp.EXTI11, Pull::None);
+    let spe_int = ExtiInput::new(dp.PB11, dp.EXTI11, Pull::None, Irqs);
 
     let spe_spi_cs_n = Output::new(dp.PB12, Level::High, Speed::High);
     let spe_spi_sclk = dp.PB13;
@@ -142,6 +149,7 @@ async fn main(spawner: Spawner) {
         spe_spi_miso,
         dp.DMA1_CH1,
         dp.DMA1_CH2,
+        Irqs,
         spi_config,
     );
     let spe_spi = SpeSpiCs::new(spe_spi, spe_spi_cs_n, Delay);

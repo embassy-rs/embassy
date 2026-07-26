@@ -17,6 +17,7 @@ use crate::gpio::{self, AnyPin, OutputDrive, Pin as GpioPin, SealedPin as _, con
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spis::vals;
+use crate::ppi::Event;
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac};
 
@@ -65,7 +66,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             mode: MODE_0,
-            bit_order: BitOrder::MSB_FIRST,
+            bit_order: BitOrder::MsbFirst,
             orc: 0x00,
             def: 0x00,
             auto_acquire: true,
@@ -172,26 +173,26 @@ impl<'d> Spis<'d> {
         let r = T::regs();
 
         // Configure pins.
-        cs.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+        cs.conf().write(|w| w.set_input(gpiovals::Input::Connect));
         r.psel().csn().write_value(cs.psel_bits());
         if let Some(sck) = &sck {
-            sck.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+            sck.conf().write(|w| w.set_input(gpiovals::Input::Connect));
             r.psel().sck().write_value(sck.psel_bits());
         }
         if let Some(mosi) = &mosi {
-            mosi.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+            mosi.conf().write(|w| w.set_input(gpiovals::Input::Connect));
             r.psel().mosi().write_value(mosi.psel_bits());
         }
         if let Some(miso) = &miso {
             miso.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::OUTPUT);
+                w.set_dir(gpiovals::Dir::Output);
                 convert_drive(w, config.miso_drive);
             });
             r.psel().miso().write_value(miso.psel_bits());
         }
 
         // Enable SPIS instance.
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
         let mut spis = Self {
             r: T::regs(),
@@ -224,15 +225,15 @@ impl<'d> Spis<'d> {
         if tx.len() > EASY_DMA_SIZE {
             return Err(Error::TxBufferTooLong);
         }
-        r.txd().ptr().write_value(tx as *const u8 as _);
-        r.txd().maxcnt().write(|w| w.set_maxcnt(tx.len() as _));
+        r.dma().tx().ptr().write_value(tx as *const u8 as _);
+        r.dma().tx().maxcnt().write(|w| w.set_maxcnt(tx.len() as _));
 
         // Set up the DMA read.
         if rx.len() > EASY_DMA_SIZE {
             return Err(Error::RxBufferTooLong);
         }
-        r.rxd().ptr().write_value(rx as *mut u8 as _);
-        r.rxd().maxcnt().write(|w| w.set_maxcnt(rx.len() as _));
+        r.dma().rx().ptr().write_value(rx as *mut u8 as _);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(rx.len() as _));
 
         // Reset end event.
         r.events_end().write_value(0);
@@ -260,8 +261,8 @@ impl<'d> Spis<'d> {
         // Wait for 'end' event.
         while r.events_end().read() == 0 {}
 
-        let n_rx = r.rxd().amount().read().0 as usize;
-        let n_tx = r.txd().amount().read().0 as usize;
+        let n_rx = r.dma().rx().amount().read().0 as usize;
+        let n_tx = r.dma().tx().amount().read().0 as usize;
 
         compiler_fence(Ordering::SeqCst);
 
@@ -326,12 +327,26 @@ impl<'d> Spis<'d> {
         })
         .await;
 
-        let n_rx = r.rxd().amount().read().0 as usize;
-        let n_tx = r.txd().amount().read().0 as usize;
+        let n_rx = r.dma().rx().amount().read().0 as usize;
+        let n_tx = r.dma().tx().amount().read().0 as usize;
 
         compiler_fence(Ordering::SeqCst);
 
         Ok((n_rx, n_tx))
+    }
+
+    /// Returns the ACQUIRED event, for use with PPI.
+    ///
+    /// This event will fire when the semaphore is acquired.
+    pub fn event_acquired(&self) -> Event<'d> {
+        Event::from_reg(self.r.events_acquired())
+    }
+
+    /// Returns the END event, for use with PPI.
+    ///
+    /// This event will fire when the slave transaction is complete.
+    pub fn event_end(&self) -> Event<'d> {
+        Event::from_reg(self.r.events_end())
     }
 
     async fn async_inner(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(usize, usize), Error> {
@@ -441,7 +456,7 @@ impl<'d> Drop for Spis<'d> {
 
         // Disable
         let r = self.r;
-        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Disabled));
 
         gpio::deconfigure_pin(r.psel().sck().read());
         gpio::deconfigure_pin(r.psel().csn().read());
@@ -506,20 +521,20 @@ impl<'d> SetConfig for Spis<'d> {
             w.set_order(config.bit_order);
             match mode {
                 MODE_0 => {
-                    w.set_cpol(vals::Cpol::ACTIVE_HIGH);
-                    w.set_cpha(vals::Cpha::LEADING);
+                    w.set_cpol(vals::Cpol::ActiveHigh);
+                    w.set_cpha(vals::Cpha::Leading);
                 }
                 MODE_1 => {
-                    w.set_cpol(vals::Cpol::ACTIVE_HIGH);
-                    w.set_cpha(vals::Cpha::TRAILING);
+                    w.set_cpol(vals::Cpol::ActiveHigh);
+                    w.set_cpha(vals::Cpha::Trailing);
                 }
                 MODE_2 => {
-                    w.set_cpol(vals::Cpol::ACTIVE_LOW);
-                    w.set_cpha(vals::Cpha::LEADING);
+                    w.set_cpol(vals::Cpol::ActiveLow);
+                    w.set_cpha(vals::Cpha::Leading);
                 }
                 MODE_3 => {
-                    w.set_cpol(vals::Cpol::ACTIVE_LOW);
-                    w.set_cpha(vals::Cpha::TRAILING);
+                    w.set_cpol(vals::Cpol::ActiveLow);
+                    w.set_cpha(vals::Cpha::Trailing);
                 }
             }
         });

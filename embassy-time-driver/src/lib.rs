@@ -126,6 +126,11 @@ pub trait Driver: Send + Sync + 'static {
     ///   10_000 years from now.). This means if your hardware only has 16bit/32bit timers
     ///   you MUST extend them to 64-bit, for example by counting overflows in software,
     ///   or chaining multiple timers together.
+    /// - It never fails, including any kind of access fault, even if the underlying
+    ///   hardware has not yet been initialized. In these cases, it may be necessary to
+    ///   check if the hardware is initialized (using an atomic boolean, or similar),
+    ///   and if not, return a default value, such as zero (while still respecting
+    ///   the other requirements above).
     fn now(&self) -> u64;
 
     /// Schedules a waker to be awoken at moment `at`.

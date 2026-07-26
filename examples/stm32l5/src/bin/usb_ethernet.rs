@@ -45,18 +45,18 @@ async fn main(spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.pll = Some(Pll {
             // 80Mhz clock (16 / 1 * 10 / 2)
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL10,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul10,
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::DIV2),
+            divr: Some(PllRDiv::Div2),
         });
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
-        config.rcc.mux.clk48sel = mux::Clk48sel::HSI48;
+        config.rcc.mux.clk48sel = mux::Clk48sel::Hsi48;
     }
     let p = embassy_stm32::init(config);
 

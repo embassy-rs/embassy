@@ -1,3 +1,5 @@
+use crate::SetConfig;
+
 /// Wrapper that implements async traits using blocking implementations.
 ///
 /// This allows driver writers to depend on the async traits while still supporting embedded-hal peripheral implementations.
@@ -92,6 +94,18 @@ where
     async fn transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Self::Error> {
         self.wrapped.transfer_in_place(data)?;
         Ok(())
+    }
+}
+
+///
+/// Implementations relating to both I2C and SPI
+///
+
+impl<T: SetConfig> SetConfig for BlockingAsync<T> {
+    type Config = T::Config;
+    type ConfigError = T::ConfigError;
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.wrapped.set_config(config)
     }
 }
 

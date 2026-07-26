@@ -14,15 +14,15 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSI, // 16 MHz
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL7, // 16 * 7 = 112 MHz
+            source: PllSource::Hsi, // 16 MHz
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul7, // 16 * 7 = 112 MHz
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::DIV2), // 112 / 2 = 56 MHz
+            divr: Some(PllRDiv::Div2), // 112 / 2 = 56 MHz
         });
         config.rcc.ls = LsConfig::default();
     }
@@ -36,7 +36,7 @@ async fn main(_spawner: Spawner) {
         .and_hms_opt(10, 30, 15)
         .unwrap();
 
-    let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
+    let (mut rtc, time_provider) = Rtc::new(p.RTC, RtcConfig::default());
     info!("Got RTC! {:?}", now.and_utc().timestamp());
 
     rtc.set_datetime(now.into()).expect("datetime not set");
@@ -44,6 +44,6 @@ async fn main(_spawner: Spawner) {
     // In reality the delay would be much longer
     Timer::after_millis(20000).await;
 
-    let then: NaiveDateTime = rtc.now().unwrap().into();
+    let then: NaiveDateTime = time_provider.now().unwrap().into();
     info!("Got RTC! {:?}", then.and_utc().timestamp());
 }

@@ -207,13 +207,13 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
             }
         }
 
-        const POOL_SIZE: usize = #pool_size;
-        static POOL: #embassy_executor::raw::TaskPool<<() as _EmbassyInternalTaskTrait>::Fut, POOL_SIZE> = #embassy_executor::raw::TaskPool::new();
+        const __POOL_SIZE: usize = #pool_size;
+        static POOL: #embassy_executor::raw::TaskPool<<() as _EmbassyInternalTaskTrait>::Fut, __POOL_SIZE> = #embassy_executor::raw::TaskPool::new();
         unsafe { POOL.#spawn(move || <() as _EmbassyInternalTaskTrait>::construct(#(#full_args,)*)) }
     };
     #[cfg(not(feature = "nightly"))]
     let mut task_outer_body = quote! {
-        const fn __task_pool_get<F, Args, Fut>(_: F) -> &'static #embassy_executor::raw::TaskPool<Fut, POOL_SIZE>
+        const fn __task_pool_get<F, Args, Fut>(_: F) -> &'static #embassy_executor::raw::TaskPool<Fut, __POOL_SIZE>
         where
             F: #embassy_executor::_export::TaskFn<Args, Fut = Fut>,
             Fut: ::core::future::Future + 'static,
@@ -221,11 +221,11 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
             unsafe { &*POOL.get().cast() }
         }
 
-        const POOL_SIZE: usize = #pool_size;
+        const __POOL_SIZE: usize = #pool_size;
         static POOL: #embassy_executor::_export::TaskPoolHolder<
-            {#embassy_executor::_export::task_pool_size::<_, _, _, POOL_SIZE>(#task_inner_ident)},
-            {#embassy_executor::_export::task_pool_align::<_, _, _, POOL_SIZE>(#task_inner_ident)},
-        > = unsafe { ::core::mem::transmute(#embassy_executor::_export::task_pool_new::<_, _, _, POOL_SIZE>(#task_inner_ident)) };
+            {#embassy_executor::_export::task_pool_size::<_, _, _, __POOL_SIZE>(#task_inner_ident)},
+            {#embassy_executor::_export::task_pool_align::<_, _, _, __POOL_SIZE>(#task_inner_ident)},
+        > = unsafe { ::core::mem::transmute(#embassy_executor::_export::task_pool_new::<_, _, _, __POOL_SIZE>(#task_inner_ident)) };
         unsafe { __task_pool_get(#task_inner_ident).#spawn(move || #task_inner_ident(#(#full_args,)*)) }
     };
 

@@ -7,8 +7,8 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net::tcp::client::{TcpClient, TcpClientState};
-use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue};
-use embassy_stm32::peripherals::ETH;
+use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
+use embassy_stm32::peripherals::{ETH, ETH_SMA};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
 use embassy_time::Timer;
@@ -22,7 +22,7 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-type Device = Ethernet<'static, ETH, GenericPhy>;
+type Device = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
 
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {
@@ -34,23 +34,24 @@ async fn main(spawner: Spawner) -> ! {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        config.rcc.hsi = Some(HSIPrescaler::Div1);
         config.rcc.csi = true;
         config.rcc.hsi48 = Some(Default::default()); // needed for RNG
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL50,
-            divp: Some(PllDiv::DIV2),
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
+            fracn: None,
+            divp: Some(PllDiv::Div2),
             divq: None,
             divr: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
-        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
-        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::Div2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::Div2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
     }
     let p = embassy_stm32::init(config);
@@ -71,16 +72,16 @@ async fn main(spawner: Spawner) -> ! {
         p.ETH,
         Irqs,
         p.PA1,
-        p.PA2,
-        p.PC1,
         p.PA7,
         p.PC4,
         p.PC5,
         p.PG13,
         p.PB13,
         p.PG11,
-        GenericPhy::new_auto(),
         mac_addr,
+        p.ETH_SMA,
+        p.PA2,
+        p.PC1,
     );
 
     let config = embassy_net::Config::dhcpv4(Default::default());

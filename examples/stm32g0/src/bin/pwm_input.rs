@@ -47,7 +47,7 @@ async fn main(spawner: Spawner) {
     pwm.ch1().set_duty_cycle_fraction(1, 4);
     pwm.ch1().enable();
 
-    let mut pwm_input = PwmInput::new_ch1(p.TIM2, p.PA0, Pull::None, khz(1000));
+    let mut pwm_input = PwmInput::new_ch1(p.TIM2, p.PA0, Irqs, Pull::None, khz(1000));
     pwm_input.enable();
 
     loop {

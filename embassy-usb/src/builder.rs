@@ -1,11 +1,13 @@
 use heapless::Vec;
 
 use crate::config::MAX_HANDLER_COUNT;
-use crate::descriptor::{BosWriter, DescriptorWriter, SynchronizationType, UsageType};
+use crate::descriptor::{
+    self, BosWriter, DescriptorWriter, SynchronizationType, UsageType, rewrite_config_descriptor_for_high_speed,
+};
 use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointInfo, EndpointType};
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Handler, Interface, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START, UsbDevice};
+use crate::{Handler, Inner, Interface, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START, UsbDevice, UsbDeviceState};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -16,6 +18,16 @@ pub enum UsbVersion {
     Two = 0x0200,
     /// Usb version 2.1
     TwoOne = 0x0210,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The fastest speed the device configuration supports.
+pub enum UsbDeviceSpeed {
+    /// Full-speed only.
+    Full,
+    /// Build a high-speed configuration descriptor.
+    High,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -64,6 +76,11 @@ pub struct Config<'a> {
     ///
     /// Default: 64 bytes
     pub max_packet_size_0: u8,
+
+    /// The fastest speed the device can enumerate at.
+    ///
+    /// Default: [`UsbDeviceSpeed::Full`]
+    pub max_speed: UsbDeviceSpeed,
 
     /// Manufacturer name string descriptor.
     ///
@@ -127,6 +144,7 @@ impl<'a> Config<'a> {
             device_sub_class: 0x02,
             device_protocol: 0x01,
             max_packet_size_0: 64,
+            max_speed: UsbDeviceSpeed::Full,
             vendor_id: vid,
             product_id: pid,
             device_release: 0x0010,
@@ -213,28 +231,69 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
     }
 
     /// Creates the [`UsbDevice`] instance with the configuration in this builder.
-    pub fn build(mut self) -> UsbDevice<'d, D> {
-        let msos_descriptor = self.msos_descriptor.build(&mut self.bos_descriptor);
+    pub fn build(self) -> UsbDevice<'d, D> {
+        let Self {
+            config,
+            handlers,
+            interfaces,
+            control_buf,
+            driver,
+            next_string_index: _,
+            mut config_descriptor,
+            mut bos_descriptor,
+            msos_descriptor,
+        } = self;
 
-        self.config_descriptor.end_configuration();
-        self.bos_descriptor.end_bos();
+        let msos_descriptor = msos_descriptor.build(&mut bos_descriptor);
+
+        config_descriptor.end_configuration();
+        let config_descriptor = config_descriptor.into_buf();
+
+        bos_descriptor.end_bos();
+        let bos_descriptor = bos_descriptor.writer.into_buf();
+
+        if config.max_speed == UsbDeviceSpeed::High {
+            assert!(
+                config.max_packet_size_0 == 64,
+                "high-speed USB requires max_packet_size_0 = 64"
+            );
+            rewrite_config_descriptor_for_high_speed(config_descriptor);
+        }
 
         // Log the number of allocator bytes actually used in descriptor buffers
-        trace!("USB: config_descriptor used: {}", self.config_descriptor.position());
-        trace!("USB: bos_descriptor used: {}", self.bos_descriptor.writer.position());
+        trace!("USB: config_descriptor used: {}", config_descriptor.len());
+        trace!("USB: bos_descriptor used: {}", bos_descriptor.len());
         trace!("USB: msos_descriptor used: {}", msos_descriptor.len());
-        trace!("USB: control_buf size: {}", self.control_buf.len());
+        trace!("USB: control_buf size: {}", control_buf.len());
 
-        UsbDevice::build(
-            self.driver,
-            self.config,
-            self.handlers,
-            self.config_descriptor.into_buf(),
-            self.bos_descriptor.writer.into_buf(),
-            msos_descriptor,
-            self.interfaces,
-            self.control_buf,
-        )
+        // Start the USB bus.
+        // This prevent further allocation by consuming the driver.
+        let (bus, control) = driver.start(config.max_packet_size_0 as u16);
+        let device_descriptor = descriptor::device_descriptor(&config);
+        let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
+
+        UsbDevice {
+            control_buf,
+            control,
+            inner: Inner {
+                bus,
+                config,
+                device_descriptor,
+                device_qualifier_descriptor,
+                config_descriptor,
+                bos_descriptor,
+                msos_descriptor,
+
+                device_state: UsbDeviceState::Unpowered,
+                suspended: false,
+                remote_wakeup_enabled: false,
+                self_powered: false,
+                address: 0,
+                set_address_pending: false,
+                interfaces,
+                handlers,
+            },
+        }
     }
 
     /// Returns the size of the control request data buffer. Can be used by
@@ -475,13 +534,10 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> D::EndpointIn {
-        let ep = self
-            .builder
+        self.builder
             .driver
             .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
-            .expect("alloc_endpoint_in failed");
-
-        ep
+            .expect("alloc_endpoint_in failed")
     }
 
     fn endpoint_in(
@@ -510,13 +566,10 @@ impl<'a, 'd, D: Driver<'d>> InterfaceAltBuilder<'a, 'd, D> {
         max_packet_size: u16,
         interval_ms: u8,
     ) -> D::EndpointOut {
-        let ep = self
-            .builder
+        self.builder
             .driver
             .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
-            .expect("alloc_endpoint_out failed");
-
-        ep
+            .expect("alloc_endpoint_out failed")
     }
 
     fn endpoint_out(

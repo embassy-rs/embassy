@@ -67,7 +67,7 @@ impl<'d, T: Instance, const SM: usize> PioPwm<'d, T, SM> {
         Self { sm, pin }
     }
 
-    /// Enable's the PIO program, continuing the wave generation from the PIO program.
+    /// Enables the PIO program, continuing the wave generation from the PIO program.
     pub fn start(&mut self) {
         self.sm.set_enable(true);
     }

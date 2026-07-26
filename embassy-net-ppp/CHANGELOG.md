@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Fix panic in `Runner::run` when a received packet is larger than the MTU (1500). Such packets are now dropped with a warning.
+
+## 0.3.0 - 2026-03-11
+
+- Update to embedded-io 0.7
+- Update embassy-net-driver-channel to 0.4.0
+- Update embassy-sync to 0.8.0
+
 ## 0.2.1 - 2025-08-26
 
 ## 0.2.0 - 2025-01-12

@@ -8,10 +8,10 @@ use defmt_rtt::*;
 use embassy_boot_stm32::{AlignedBuffer, FirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_executor::Spawner;
-use embassy_stm32::SharedData;
-use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::flash::{Flash, WRITE_SIZE};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::{SharedData, bind_interrupts, interrupt};
 use embassy_sync::mutex::Mutex;
 use panic_reset as _;
 
@@ -19,6 +19,11 @@ use panic_reset as _;
 static APP_B: &[u8] = &[0, 1, 2, 3];
 #[cfg(not(feature = "skip-include"))]
 static APP_B: &[u8] = include_bytes!("../../b.bin");
+
+bind_interrupts!(
+    pub struct Irqs{
+        EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
+});
 
 #[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
@@ -29,7 +34,7 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(BlockingAsync::new(flash));
 
-    let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up);
+    let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up, Irqs);
 
     let mut led = Output::new(p.PB9, Level::Low, Speed::Low);
     led.set_high();

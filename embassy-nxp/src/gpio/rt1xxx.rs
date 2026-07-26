@@ -10,7 +10,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use nxp_pac::gpio::vals::Icr;
 use nxp_pac::iomuxc::vals::Pus;
 
-use crate::chip::{mux_address, pad_address};
+use crate::chip::{iomuxc_mux, iomuxc_pad};
 use crate::pac::common::{RW, Reg};
 use crate::pac::gpio::Gpio;
 #[cfg(feature = "rt")]
@@ -121,6 +121,10 @@ pub enum Bank {
     /// Bank 5
     #[cfg(gpio5)]
     Gpio5,
+
+    #[cfg(gpio10)]
+    /// Bank 10
+    Gpio10,
 }
 
 /// GPIO flexible pin.
@@ -656,6 +660,8 @@ static GPIO3_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
 static GPIO4_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
 #[cfg(gpio5)]
 static GPIO5_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
+#[cfg(gpio10)]
+static GPIO10_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
 
 /// Sealed trait for pins. This trait is sealed and cannot be implemented outside of this crate.
 pub(crate) trait SealedPin: Sized {
@@ -676,13 +682,15 @@ pub(crate) trait SealedPin: Sized {
             Bank::Gpio4 => pac::GPIO4,
             #[cfg(gpio5)]
             Bank::Gpio5 => pac::GPIO5,
+            #[cfg(gpio10)]
+            Bank::Gpio10 => pac::GPIO10,
         }
     }
 
     #[inline]
     fn mux(&self) -> Reg<MuxCtl, RW> {
         // SAFETY: The generated mux address table is valid since it is generated from the SVD files.
-        let address = unsafe { mux_address(self._bank(), self.pin_number()).unwrap_unchecked() };
+        let address = unsafe { iomuxc_mux(self._bank(), self.pin_number()).unwrap_unchecked() };
 
         // SAFETY: The register at the address is an instance of MuxCtl.
         unsafe { Reg::from_ptr(address as *mut _) }
@@ -690,8 +698,7 @@ pub(crate) trait SealedPin: Sized {
 
     #[inline]
     fn pad(&self) -> Reg<Ctl, RW> {
-        // SAFETY: The generated pad address table is valid since it is generated from the SVD files.
-        let address = unsafe { pad_address(self._bank(), self.pin_number()).unwrap_unchecked() };
+        let address = iomuxc_pad(self._bank(), self.pin_number());
 
         // SAFETY: The register at the address is an instance of Ctl.
         unsafe { Reg::from_ptr(address as *mut _) }
@@ -709,6 +716,8 @@ pub(crate) trait SealedPin: Sized {
             Bank::Gpio4 => &GPIO4_WAKERS[self.pin_number() as usize],
             #[cfg(gpio5)]
             Bank::Gpio5 => &GPIO5_WAKERS[self.pin_number() as usize],
+            #[cfg(gpio10)]
+            Bank::Gpio10 => &GPIO10_WAKERS[self.pin_number() as usize],
         }
     }
 }
@@ -791,39 +800,6 @@ impl<'d> Future for InputFuture<'d> {
 
         Poll::Pending
     }
-}
-
-/// A macro to generate all GPIO pins.
-///
-/// This generates a lookup table for IOMUX register addresses.
-macro_rules! impl_gpio {
-    (
-        $($name: ident($bank: ident, $pin_number: expr);)*
-    ) => {
-        #[inline]
-        pub(crate) const fn pad_address(bank: crate::gpio::Bank, pin: u8) -> Option<u32> {
-            match (bank, pin) {
-                $(
-                    (crate::gpio::Bank::$bank, $pin_number) => Some(crate::chip::_generated::iomuxc::pads::$name),
-                )*
-                _ => None
-            }
-        }
-
-        #[inline]
-        pub(crate) const fn mux_address(bank: crate::gpio::Bank, pin: u8) -> Option<u32> {
-            match (bank, pin) {
-                $(
-                    (crate::gpio::Bank::$bank, $pin_number) => Some(crate::chip::_generated::iomuxc::muxes::$name),
-                )*
-                _ => None
-            }
-        }
-
-        $(
-            impl_pin!($name, $bank, $pin_number);
-        )*
-    };
 }
 
 macro_rules! impl_pin {

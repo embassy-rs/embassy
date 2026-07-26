@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner) {
     );
 
     let max = pwm.get_max_duty();
-    pwm.set_dead_time(max / 1024);
+    pwm.set_dead_time((max / 1024) as u16);
 
     pwm.enable(Channel::Ch1);
 

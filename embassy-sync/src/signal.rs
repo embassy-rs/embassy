@@ -86,7 +86,8 @@ where
         self.try_take();
     }
 
-    fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
+    /// Poll for state changes of this Signal.
+    pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
         self.state.lock(|cell| {
             let state = cell.replace(State::None);
             match state {
@@ -109,6 +110,8 @@ where
     }
 
     /// Future that completes when this Signal has been signaled, taking the value out of the signal.
+    ///
+    /// The returned Future is cancel-safe. No value will be lost even if it isn't polled to completion.
     pub fn wait(&self) -> impl Future<Output = T> + '_ {
         poll_fn(move |cx| self.poll_wait(cx))
     }

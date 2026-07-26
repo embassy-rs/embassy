@@ -41,6 +41,28 @@ pub enum TerminalType {
     ExtSpdifConnector = 0x0605,
     Ext1394DaStream = 0x0606,
     Ext1394DvStreamSoundtrack = 0x0607,
+
+    // Embedded Terminal Types
+    Undefined = 0x0700,
+    LevelCalibrationNoiseSource = 0x0701,
+    EqualizationNoise = 0x0702,
+    CdPlayer = 0x0703,
+    DAT = 0x0704,
+    DCC = 0x0705,
+    MiniDisk = 0x0706,
+    AnalogTape = 0x0707,
+    Phonograph = 0x0708,
+    VcrAudio = 0x0709,
+    VideoDiscAudio = 0x070A,
+    DvdAudio = 0x070B,
+    TvTunerAudio = 0x070C,
+    SatelliteReceiverAudio = 0x070D,
+    CableTunerAudio = 0x070E,
+    DssAudio = 0x070F,
+    RadioReceiver = 0x0710,
+    RadioTransmitter = 0x0711,
+    MultiTrackRecorder = 0x0712,
+    Synthesizer = 0x0713,
 }
 
 impl From<TerminalType> for u16 {

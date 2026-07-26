@@ -1,19 +1,82 @@
 //! Digital to Analog Converter (DAC)
 #![macro_use]
 
-use core::marker::PhantomData;
+pub mod ringbuffered;
 
-use crate::dma::ChannelAndRequest;
+use core::marker::PhantomData;
+use core::slice;
+
+#[cfg(stm32g4)]
+use dac::vals;
+use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::drop::OnDrop;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+pub use ringbuffered::RingBufferedDacChannel;
+
+use crate::dma::{ChannelAndRequest, Packing, word as dma};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
-use crate::rcc::{self, RccPeripheral};
+use crate::pac::dac::Dac as Regs;
+use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
+use crate::time::Hertz;
 use crate::{Peri, peripherals};
 
-mod tsel;
-use embassy_hal_internal::PeripheralType;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-pub use tsel::TriggerSel;
+/// Software trigger
+pub struct SOFTWARE;
+
+/// Sawtooth waveform step direction
+#[cfg(stm32g4)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum StepDirection {
+    /// Increment dac value every step trigger
+    Increment,
+
+    /// Decrement dac value every step trigger
+    Decrement,
+}
+
+#[cfg(stm32g4)]
+impl<T: Instance> ChannelIncTrigger<T> for SOFTWARE {
+    fn signal(&self) -> u8 {
+        0
+    }
+}
+
+impl<T: Instance> ChannelTrigger<T> for SOFTWARE {
+    fn signal(&self) -> u8 {
+        #[cfg(any(
+            stm32l4_plus,
+            stm32l5,
+            stm32u5,
+            stm32u3,
+            stm32h7,
+            stm32h5,
+            stm32g0,
+            stm32u0,
+            stm32g4,
+            stm32wl
+        ))]
+        const SOFTWARE_TRIG: u8 = 0;
+
+        #[cfg(not(any(
+            stm32l4_plus,
+            stm32l5,
+            stm32u5,
+            stm32u3,
+            stm32h7,
+            stm32h5,
+            stm32g0,
+            stm32u0,
+            stm32g4,
+            stm32wl
+        )))]
+        const SOFTWARE_TRIG: u8 = 7;
+
+        SOFTWARE_TRIG
+    }
+}
 
 /// Operating mode for DAC channel
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
@@ -45,56 +108,16 @@ pub enum Mode {
 impl Mode {
     fn mode(&self) -> dac::vals::Mode {
         match self {
-            Mode::NormalExternalBuffered => dac::vals::Mode::NORMAL_EXT_BUFEN,
-            Mode::NormalBothBuffered => dac::vals::Mode::NORMAL_EXT_INT_BUFEN,
-            Mode::NormalExternalUnbuffered => dac::vals::Mode::NORMAL_EXT_BUFDIS,
-            Mode::NormalInternalUnbuffered => dac::vals::Mode::NORMAL_INT_BUFDIS,
-            Mode::SampleHoldExternalBuffered => dac::vals::Mode::SAMPHOLD_EXT_BUFEN,
-            Mode::SampleHoldBothBuffered => dac::vals::Mode::SAMPHOLD_EXT_INT_BUFEN,
-            Mode::SampleHoldBothUnbuffered => dac::vals::Mode::SAMPHOLD_EXT_INT_BUFDIS,
-            Mode::SampleHoldInternalUnbuffered => dac::vals::Mode::SAMPHOLD_INT_BUFDIS,
+            Mode::NormalExternalBuffered => dac::vals::Mode::NormalExtBufen,
+            Mode::NormalBothBuffered => dac::vals::Mode::NormalExtIntBufen,
+            Mode::NormalExternalUnbuffered => dac::vals::Mode::NormalExtBufdis,
+            Mode::NormalInternalUnbuffered => dac::vals::Mode::NormalIntBufdis,
+            Mode::SampleHoldExternalBuffered => dac::vals::Mode::SampholdExtBufen,
+            Mode::SampleHoldBothBuffered => dac::vals::Mode::SampholdExtIntBufen,
+            Mode::SampleHoldBothUnbuffered => dac::vals::Mode::SampholdExtIntBufdis,
+            Mode::SampleHoldInternalUnbuffered => dac::vals::Mode::SampholdIntBufdis,
         }
     }
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Single 8 or 12 bit value that can be output by the DAC.
-///
-/// 12-bit values outside the permitted range are silently truncated.
-pub enum Value {
-    /// 8 bit value
-    Bit8(u8),
-    /// 12 bit value stored in a u16, left-aligned
-    Bit12Left(u16),
-    /// 12 bit value stored in a u16, right-aligned
-    Bit12Right(u16),
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Dual 8 or 12 bit values that can be output by the DAC channels 1 and 2 simultaneously.
-///
-/// 12-bit values outside the permitted range are silently truncated.
-pub enum DualValue {
-    /// 8 bit value
-    Bit8(u8, u8),
-    /// 12 bit value stored in a u16, left-aligned
-    Bit12Left(u16, u16),
-    /// 12 bit value stored in a u16, right-aligned
-    Bit12Right(u16, u16),
-}
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-/// Array variant of [`Value`].
-pub enum ValueArray<'a> {
-    /// 8 bit values
-    Bit8(&'a [u8]),
-    /// 12 bit value stored in a u16, left-aligned
-    Bit12Left(&'a [u16]),
-    /// 12 bit values stored in a u16, right-aligned
-    Bit12Right(&'a [u16]),
 }
 
 #[derive(Debug)]
@@ -136,33 +159,65 @@ impl State {
 ///
 /// If you want to use both channels, either together or independently,
 /// create a [`Dac`] first and use it to access each channel.
-pub struct DacChannel<'d, T: Instance, C: Channel, M: PeriMode> {
-    phantom: PhantomData<&'d mut (T, C, M)>,
+pub struct DacChannel<'d, M: PeriMode> {
+    phantom: PhantomData<&'d mut M>,
     #[allow(unused)]
     dma: Option<ChannelAndRequest<'d>>,
+    info: &'static Info,
+    state: &'static State,
+    _ker_clk: Hertz,
+    idx: usize,
 }
 
-/// DAC channel 1 type alias.
-pub type DacCh1<'d, T, M> = DacChannel<'d, T, Ch1, M>;
-/// DAC channel 2 type alias.
-pub type DacCh2<'d, T, M> = DacChannel<'d, T, Ch2, M>;
-
-impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Async> {
+impl<'d> DacChannel<'d, Async> {
     /// Create a new `DacChannel` instance, consuming the underlying DAC peripheral.
     ///
     /// The channel is enabled on creation and begin to drive the output pin.
     /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
     /// disable the channel; you must re-enable it with `enable()`.
-    ///
-    /// By default, triggering is disabled, but it can be enabled using
-    /// [`DacChannel::set_trigger()`].
-    pub fn new(peri: Peri<'d, T>, dma: Peri<'d, impl Dma<T, C>>, pin: Peri<'d, impl DacPin<T, C>>) -> Self {
+    pub fn new<T: Instance, C: Channel, D: Dma<T, C>>(
+        peri: Peri<'d, T>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        pin: Peri<'d, impl DacPin<T, C>>,
+    ) -> Self {
         pin.set_as_analog();
-        Self::new_inner(
-            peri,
-            new_dma!(dma),
+        Self::new_inner::<T, C>(
+            Some(peri),
+            None,
+            new_dma!(dma, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::Disabled,
+            #[cfg(stm32g4)]
+            None,
+        )
+    }
+
+    /// Create a new `DacChannel` instance, consuming the underlying DAC peripheral.
+    ///
+    /// The channel is enabled on creation and begin to drive the output pin.
+    /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
+    /// disable the channel; you must re-enable it with `enable()`.
+    pub fn new_triggered<T: Instance, C: Channel, D: Dma<T, C>>(
+        peri: Peri<'d, T>,
+        dma: Peri<'d, D>,
+        trigger: impl ChannelTrigger<T>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        pin: Peri<'d, impl DacPin<T, C>>,
+    ) -> Self {
+        pin.set_as_analog();
+        Self::new_inner::<T, C>(
+            Some(peri),
+            Some(trigger.signal()),
+            new_dma!(dma, _irq),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+            Mode::NormalExternalBuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::Disabled,
+            #[cfg(stm32g4)]
+            None,
         )
     }
 
@@ -173,58 +228,153 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Async> {
     /// The channel is set to [`Mode::NormalInternalUnbuffered`] and enabled on creation.
     /// Note that some methods, such as `set_trigger()` and `set_mode()`, will disable the
     /// channel; you must re-enable it with `enable()`.
-    ///
-    /// By default, triggering is disabled, but it can be enabled using
-    /// [`DacChannel::set_trigger()`].
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal(peri: Peri<'d, T>, dma: Peri<'d, impl Dma<T, C>>) -> Self {
-        Self::new_inner(peri, new_dma!(dma), Mode::NormalInternalUnbuffered)
+    pub fn new_internal<T: Instance, C: Channel, D: Dma<T, C>>(
+        peri: Peri<'d, T>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+    ) -> Self {
+        Self::new_inner::<T, C>(
+            Some(peri),
+            None,
+            new_dma!(dma, _irq),
+            Mode::NormalInternalUnbuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::Disabled,
+            #[cfg(stm32g4)]
+            None,
+        )
+    }
+
+    /// Create a new `DacChannel` instance where the external output pin is not used,
+    /// so the DAC can only be used to generate internal signals.
+    /// The GPIO pin is therefore available to be used for other functions.
+    ///
+    /// The channel is set to [`Mode::NormalInternalUnbuffered`] and enabled on creation.
+    /// Note that some methods, such as `set_trigger()` and `set_mode()`, will disable the
+    /// channel; you must re-enable it with `enable()`.
+    #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
+    pub fn new_triggered_internal<T: Instance, C: Channel, D: Dma<T, C>>(
+        peri: Peri<'d, T>,
+        dma: Peri<'d, D>,
+        trigger: impl ChannelTrigger<T>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+    ) -> Self {
+        Self::new_inner::<T, C>(
+            Some(peri),
+            Some(trigger.signal()),
+            new_dma!(dma, _irq),
+            Mode::NormalInternalUnbuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::Disabled,
+            #[cfg(stm32g4)]
+            None,
+        )
+    }
+
+    /// Convert this channel into a ring-buffered DAC channel using 8-bit output (DHR8Rx).
+    ///
+    /// Each element of `dma_buf` holds one 8-bit sample in bits [7:0].
+    /// The DMA runs in circular mode so output is uninterrupted between writes.
+    /// Use [`RingBufferedDacChannel::write_immediate`] to pre-fill the buffer before
+    /// calling [`RingBufferedDacChannel::start`].
+    pub fn into_ring_buffered<W: Word>(self, dma_buf: &'d mut [W]) -> RingBufferedDacChannel<'d, W> {
+        let info = self.info;
+        let state = self.state;
+        let idx = self.idx;
+        // Safety: self is forgotten below so the ChannelAndRequest won't be dropped twice.
+        let dma = unsafe { self.dma.as_ref().unwrap().clone_unchecked() };
+        core::mem::forget(self);
+
+        let crate::dma::ChannelAndRequest { channel, request } = dma;
+        info.regs.cr().modify(|w| {
+            w.set_en(idx, true);
+            w.set_dmaen(idx, true);
+        });
+
+        let ring_buf = unsafe {
+            crate::dma::WritableRingBuffer::new(
+                channel,
+                request,
+                W::dma_ptr(info.regs, idx),
+                W::dma_buf_mut(dma_buf),
+                crate::dma::TransferOptions {
+                    packing: Packing::ZeroExtendOrLeftTruncate,
+                    ..Default::default()
+                },
+            )
+        };
+        RingBufferedDacChannel::new(ring_buf, info, state, idx)
     }
 
     /// Write `data` to this channel via DMA.
-    ///
-    /// To prevent delays or glitches when outputing a periodic waveform, the `circular`
-    /// flag can be set. This configures a circular DMA transfer that continually outputs
-    /// `data`. Note that for performance reasons in circular mode the transfer-complete
-    /// interrupt is disabled.
-    #[cfg(not(gpdma))]
-    pub async fn write(&mut self, data: ValueArray<'_>, circular: bool) {
+    pub async fn write<W: Word>(&mut self, data: &[W]) {
         // Enable DAC and DMA
-        T::regs().cr().modify(|w| {
-            w.set_en(C::IDX, true);
-            w.set_dmaen(C::IDX, true);
+        self.info.regs.cr().modify(|w| {
+            w.set_en(self.idx, true);
+            w.set_dmaen(self.idx, true);
+        });
+
+        let _guard = OnDrop::new(|| {
+            self.info.regs.cr().modify(|w| {
+                w.set_en(self.idx, false);
+                w.set_dmaen(self.idx, false);
+            })
         });
 
         let dma = self.dma.as_mut().unwrap();
 
         let tx_options = crate::dma::TransferOptions {
-            circular,
             half_transfer_ir: false,
-            complete_transfer_ir: !circular,
+            complete_transfer_ir: true,
+            packing: Packing::ZeroExtendOrLeftTruncate,
             ..Default::default()
         };
 
         // Initiate the correct type of DMA transfer depending on what data is passed
-        let tx_f = match data {
-            ValueArray::Bit8(buf) => unsafe { dma.write(buf, T::regs().dhr8r(C::IDX).as_ptr() as *mut u8, tx_options) },
-            ValueArray::Bit12Left(buf) => unsafe {
-                dma.write(buf, T::regs().dhr12l(C::IDX).as_ptr() as *mut u16, tx_options)
-            },
-            ValueArray::Bit12Right(buf) => unsafe {
-                dma.write(buf, T::regs().dhr12r(C::IDX).as_ptr() as *mut u16, tx_options)
-            },
-        };
+        let tx_f = unsafe { dma.write_raw(W::dma_buf(data), W::dma_ptr(self.info.regs, self.idx), tx_options) };
 
         tx_f.await;
+    }
 
-        T::regs().cr().modify(|w| {
-            w.set_en(C::IDX, false);
-            w.set_dmaen(C::IDX, false);
+    #[cfg(any(bdma, dma, mdma))]
+    /// Write `data` to this channel via DMA.
+    ///
+    /// This configures a circular DMA transfer that continually outputs
+    /// `data`. Note that for performance reasons in circular mode the transfer-complete
+    /// interrupt is disabled.
+    pub async fn write_circular<W: Word>(&mut self, data: &[W]) {
+        // Enable DAC and DMA
+        self.info.regs.cr().modify(|w| {
+            w.set_en(self.idx, true);
+            w.set_dmaen(self.idx, true);
         });
+
+        let _guard = OnDrop::new(|| {
+            self.info.regs.cr().modify(|w| {
+                w.set_en(self.idx, false);
+                w.set_dmaen(self.idx, false);
+            })
+        });
+
+        let dma = self.dma.as_mut().unwrap();
+
+        let tx_options = crate::dma::TransferOptions {
+            circular: true,
+            half_transfer_ir: false,
+            complete_transfer_ir: false,
+            packing: Packing::ZeroExtendOrLeftTruncate,
+            ..Default::default()
+        };
+
+        // Initiate the correct type of DMA transfer depending on what data is passed
+        let tx_f = unsafe { dma.write_raw(W::dma_buf(data), W::dma_ptr(self.info.regs, self.idx), tx_options) };
+
+        tx_f.await;
     }
 }
 
-impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Blocking> {
+impl<'d> DacChannel<'d, Blocking> {
     /// Create a new `DacChannel` instance, consuming the underlying DAC peripheral.
     ///
     /// The channel is enabled on creation and begin to drive the output pin.
@@ -233,13 +383,18 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Blocking> {
     ///
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
-    pub fn new_blocking(peri: Peri<'d, T>, pin: Peri<'d, impl DacPin<T, C>>) -> Self {
+    pub fn new_blocking<T: Instance, C: Channel>(peri: Peri<'d, T>, pin: Peri<'d, impl DacPin<T, C>>) -> Self {
         pin.set_as_analog();
-        Self::new_inner(
-            peri,
+        Self::new_inner::<T, C>(
+            Some(peri),
+            None,
             None,
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::Disabled,
+            #[cfg(stm32g4)]
+            None,
         )
     }
 
@@ -254,26 +409,119 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Blocking> {
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal_blocking(peri: Peri<'d, T>) -> Self {
-        Self::new_inner(peri, None, Mode::NormalInternalUnbuffered)
+    pub fn new_internal_blocking<T: Instance, C: Channel>(peri: Peri<'d, T>) -> Self {
+        Self::new_inner::<T, C>(
+            Some(peri),
+            None,
+            None,
+            Mode::NormalInternalUnbuffered,
+            #[cfg(stm32g4)]
+            vals::Wave::Disabled,
+            #[cfg(stm32g4)]
+            None,
+        )
+    }
+
+    /// Create a new `DacChannel` instance with sawtooth mode enabled
+    ///
+    /// See [Self::set_sawtooth_reset_value], [Self::set_sawtooth_step_value] and [Self::set_sawtooth_step_direction]
+    /// for setting the reset value, step size and -direction.
+    ///
+    /// This method disables the channel, so you may need to re-enable afterwards.
+    #[cfg(stm32g4)]
+    pub fn new_sawtooth<T: Instance, C: Channel>(
+        peri: Peri<'d, T>,
+        reset_trigger: impl ChannelTrigger<T>,
+        step_trigger: impl ChannelIncTrigger<T>,
+        pin: Peri<'d, impl DacPin<T, C>>,
+    ) -> Self {
+        pin.set_as_analog();
+        Self::new_inner::<T, C>(
+            Some(peri),
+            Some(reset_trigger.signal()),
+            None,
+            Mode::NormalExternalBuffered,
+            vals::Wave::Sawtooth,
+            Some(step_trigger.signal()),
+        )
+    }
+
+    /// Create a new `DacChannel` instance with sawtooth mode enabled where the external output pin is not used,
+    /// so the DAC can only be used to generate internal signals.
+    /// The GPIO pin is therefore available to be used for other functions.
+    ///
+    /// See [Self::set_sawtooth_reset_value], [Self::set_sawtooth_step_value] and [Self::set_sawtooth_step_direction]
+    /// for setting the reset value, step size and -direction.
+    ///
+    /// This method disables the channel, so you may need to re-enable afterwards.
+    #[cfg(stm32g4)]
+    pub fn new_sawtooth_internal<T: Instance, C: Channel>(
+        peri: Peri<'d, T>,
+        reset_trigger: impl ChannelTrigger<T>,
+        step_trigger: impl ChannelIncTrigger<T>,
+    ) -> Self {
+        Self::new_inner::<T, C>(
+            Some(peri),
+            Some(reset_trigger.signal()),
+            None,
+            Mode::NormalInternalUnbuffered,
+            vals::Wave::Sawtooth,
+            Some(step_trigger.signal()),
+        )
     }
 }
 
-impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
-    fn new_inner(
-        _peri: Peri<'d, T>,
+impl<'d, M: PeriMode> DacChannel<'d, M> {
+    fn new_inner<T: Instance, C: Channel>(
+        peri: Option<Peri<'d, T>>,
+        trigger: Option<u8>,
         dma: Option<ChannelAndRequest<'d>>,
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
+        #[cfg(stm32g4)] wave: dac::vals::Wave,
+        #[cfg(stm32g4)] inc_trigger: Option<u8>,
     ) -> Self {
-        rcc::enable_and_reset::<T>();
+        if peri.is_some() {
+            rcc::enable_and_reset::<T>();
+        }
+
         let mut dac = Self {
             phantom: PhantomData,
+            info: T::info(),
+            state: T::state(),
+            _ker_clk: T::frequency(),
+            idx: C::IDX,
             dma,
         };
         #[cfg(any(dac_v5, dac_v6, dac_v7))]
         dac.set_hfsel();
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
         dac.set_mode(mode);
+
+        #[cfg(stm32g4)]
+        dac.set_wave(wave);
+        if let Some(idx) = trigger {
+            dac.info.regs.cr().modify(|reg| {
+                reg.set_tsel(dac.idx, idx);
+                reg.set_ten(dac.idx, true);
+            });
+
+            // Set in case Sawtooth wave form is used
+            #[cfg(stm32g4)]
+            dac.info.regs.stmodr().modify(|reg| {
+                reg.set_strsttrigsel(dac.idx, idx);
+            });
+        } else {
+            dac.info.regs.cr().modify(|reg| {
+                reg.set_ten(dac.idx, false);
+            });
+        }
+
+        #[cfg(stm32g4)]
+        inc_trigger.map(|idx| {
+            dac.info.regs.stmodr().modify(|reg| {
+                reg.set_stinctrigsel(dac.idx, idx);
+            })
+        });
         dac.enable();
         dac
     }
@@ -281,8 +529,8 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
     /// Enable or disable this channel.
     pub fn set_enable(&mut self, on: bool) {
         critical_section::with(|_| {
-            T::regs().cr().modify(|reg| {
-                reg.set_en(C::IDX, on);
+            self.info.regs.cr().modify(|reg| {
+                reg.set_en(self.idx, on);
             });
         });
         let event = if on {
@@ -290,10 +538,10 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
         } else {
             ChannelEvent::Disable
         };
-        let channel_count = T::state().adjust_channel_count(event);
+        let channel_count = self.state.adjust_channel_count(event);
         // Disable the DAC only if no more channels are using it.
         if channel_count == 0 {
-            rcc::disable::<T>();
+            self.info.rcc.disable();
         }
     }
 
@@ -307,31 +555,22 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
         self.set_enable(false)
     }
 
-    /// Set the trigger source for this channel.
-    ///
-    /// This method disables the channel, so you may need to re-enable afterwards.
-    pub fn set_trigger(&mut self, source: TriggerSel) {
-        critical_section::with(|_| {
-            T::regs().cr().modify(|reg| {
-                reg.set_en(C::IDX, false);
-                reg.set_tsel(C::IDX, source as u8);
-            });
-        });
-    }
-
-    /// Enable or disable triggering for this channel.
-    pub fn set_triggering(&mut self, on: bool) {
-        critical_section::with(|_| {
-            T::regs().cr().modify(|reg| {
-                reg.set_ten(C::IDX, on);
-            });
-        });
-    }
-
     /// Software trigger this channel.
+    ///
+    /// NOTE: In sawtooth mode, this only works with [SOFTWARE] as reset_trigger source
     pub fn trigger(&mut self) {
-        T::regs().swtrigr().write(|reg| {
-            reg.set_swtrig(C::IDX, true);
+        self.info.regs.swtrigr().write(|reg| {
+            reg.set_swtrig(self.idx, true);
+        });
+    }
+
+    /// Software trigger this channels sawtooth waveform step
+    ///
+    /// NOTE: This only works with [SOFTWARE] as reset_trigger source
+    #[cfg(stm32g4)]
+    pub fn trigger_step(&mut self) {
+        self.info.regs.swtrigr().write(|reg| {
+            reg.set_swtrigb(self.idx, true);
         });
     }
 
@@ -341,11 +580,24 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
     #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
     pub fn set_mode(&mut self, mode: Mode) {
         critical_section::with(|_| {
-            T::regs().cr().modify(|reg| {
-                reg.set_en(C::IDX, false);
+            self.info.regs.cr().modify(|reg| {
+                reg.set_en(self.idx, false);
             });
-            T::regs().mcr().modify(|reg| {
-                reg.set_mode(C::IDX, mode.mode());
+            self.info.regs.mcr().modify(|reg| {
+                reg.set_mode(self.idx, mode.mode());
+            });
+        });
+    }
+
+    /// Set mode of this channel.
+    ///
+    /// This method disables the channel, so you may need to re-enable afterwards.
+    #[cfg(stm32g4)]
+    fn set_wave(&mut self, wave: dac::vals::Wave) {
+        critical_section::with(|_| {
+            self.info.regs.cr().modify(|reg| {
+                reg.set_en(self.idx, false);
+                reg.set_wave(self.idx, wave);
             });
         });
     }
@@ -354,25 +606,54 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
     ///
     /// If triggering is not enabled, the new value is immediately output; otherwise,
     /// it will be output after the next trigger.
-    pub fn set(&mut self, value: Value) {
-        match value {
-            Value::Bit8(v) => T::regs().dhr8r(C::IDX).write(|reg| reg.set_dhr(v)),
-            Value::Bit12Left(v) => T::regs().dhr12l(C::IDX).write(|reg| reg.set_dhr(v)),
-            Value::Bit12Right(v) => T::regs().dhr12r(C::IDX).write(|reg| reg.set_dhr(v)),
-        }
+    pub fn set<W: Word>(&mut self, value: W) {
+        W::set_value(self.info.regs, self.idx, value);
     }
 
     /// Read the current output value of the DAC.
     pub fn read(&self) -> u16 {
-        T::regs().dor(C::IDX).read().dor()
+        self.info.regs.dor(self.idx).read().dor()
+    }
+
+    /// Set sawtooth reset value set on every reset trigger
+    ///
+    /// This is only used when the channel is in sawtooth waveform mode
+    #[cfg(stm32g4)]
+    pub fn set_sawtooth_reset_value(&mut self, value: u16) {
+        self.info.regs.str(self.idx).modify(|reg| reg.set_rstdata(value));
+    }
+
+    /// Set sawtooth step value (12.4 bit format)
+    ///
+    /// See [Self::set_sawtooth_step_direction] for setting the step direction
+    /// and [Self::set_sawtooth_mode] for setting sawtooth mode.
+    ///
+    /// NOTE: This is only used when the channel is in sawtooth waveform mode
+    #[cfg(stm32g4)]
+    pub fn set_sawtooth_step_value(&mut self, value: u16) {
+        self.info.regs.str(self.idx).modify(|reg| reg.set_incdata(value));
+    }
+
+    /// Set sawtooth step direction
+    ///
+    /// See [Self::set_sawtooth_step_value] for setting the step value
+    /// and [Self::set_sawtooth_mode] for setting sawtooth mode.
+    ///
+    /// NOTE: This is only used when the channel is in sawtooth waveform mode
+    #[cfg(stm32g4)]
+    pub fn set_sawtooth_step_direction(&mut self, value: StepDirection) {
+        self.info
+            .regs
+            .str(self.idx)
+            .modify(|reg| reg.set_dir(matches!(value, StepDirection::Increment)));
     }
 
     /// Set HFSEL as appropriate for the current peripheral clock frequency.
     #[cfg(dac_v5)]
     fn set_hfsel(&mut self) {
-        if T::frequency() >= crate::time::mhz(80) {
+        if self._ker_clk >= crate::time::mhz(80) {
             critical_section::with(|_| {
-                T::regs().cr().modify(|reg| {
+                self.info.regs.cr().modify(|reg| {
                     reg.set_hfsel(true);
                 });
             });
@@ -382,15 +663,15 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
     /// Set HFSEL as appropriate for the current peripheral clock frequency.
     #[cfg(any(dac_v6, dac_v7))]
     fn set_hfsel(&mut self) {
-        if T::frequency() >= crate::time::mhz(160) {
+        if self._ker_clk >= crate::time::mhz(160) {
             critical_section::with(|_| {
-                T::regs().mcr().modify(|reg| {
+                self.info.regs.mcr().modify(|reg| {
                     reg.set_hfsel(0b10);
                 });
             });
-        } else if T::frequency() >= crate::time::mhz(80) {
+        } else if self._ker_clk >= crate::time::mhz(80) {
             critical_section::with(|_| {
-                T::regs().mcr().modify(|reg| {
+                self.info.regs.mcr().modify(|reg| {
                     reg.set_hfsel(0b01);
                 });
             });
@@ -398,7 +679,7 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
     }
 }
 
-impl<'d, T: Instance, C: Channel, M: PeriMode> Drop for DacChannel<'d, T, C, M> {
+impl<'d, M: PeriMode> Drop for DacChannel<'d, M> {
     fn drop(&mut self) {
         self.disable();
     }
@@ -414,12 +695,13 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> Drop for DacChannel<'d, T, C, M> 
 /// // Pins may need to be changed for your specific device.
 /// let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new_blocking(p.DAC1, p.PA4, p.PA5).split();
 /// ```
-pub struct Dac<'d, T: Instance, M: PeriMode> {
-    ch1: DacChannel<'d, T, Ch1, M>,
-    ch2: DacChannel<'d, T, Ch2, M>,
+pub struct Dac<'d, M: PeriMode> {
+    info: &'static Info,
+    ch1: DacChannel<'d, M>,
+    ch2: DacChannel<'d, M>,
 }
 
-impl<'d, T: Instance> Dac<'d, T, Async> {
+impl<'d> Dac<'d, Async> {
     /// Create a new `Dac` instance, consuming the underlying DAC peripheral.
     ///
     /// This struct allows you to access both channels of the DAC, where available. You can either
@@ -432,10 +714,13 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
     ///
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
-    pub fn new(
+    pub fn new<T: Instance, D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
         peri: Peri<'d, T>,
-        dma_ch1: Peri<'d, impl Dma<T, Ch1>>,
-        dma_ch2: Peri<'d, impl Dma<T, Ch2>>,
+        dma_ch1: Peri<'d, D1>,
+        dma_ch2: Peri<'d, D2>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
         pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
     ) -> Self {
@@ -443,12 +728,53 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
         pin_ch2.set_as_analog();
         Self::new_inner(
             peri,
-            new_dma!(dma_ch1),
-            new_dma!(dma_ch2),
+            None,
+            None,
+            new_dma!(dma_ch1, _irq),
+            new_dma!(dma_ch2, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
         )
     }
+
+    /// Create a new `Dac` instance, consuming the underlying DAC peripheral.
+    ///
+    /// This struct allows you to access both channels of the DAC, where available. You can either
+    /// call `split()` to obtain separate `DacChannel`s, or use methods on `Dac` to use
+    /// the two channels together.
+    ///
+    /// The channels are enabled on creation and begin to drive their output pins.
+    /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
+    /// disable the channel; you must re-enable them with `enable()`.
+    ///
+    /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
+    /// method on the underlying channels.
+    pub fn new_triggered<T: Instance, D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
+        peri: Peri<'d, T>,
+        dma_ch1: Peri<'d, D1>,
+        dma_ch2: Peri<'d, D2>,
+        trigger_ch1: impl ChannelTrigger<T>,
+        trigger_ch2: impl ChannelTrigger<T>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+    ) -> Self {
+        pin_ch1.set_as_analog();
+        pin_ch2.set_as_analog();
+
+        Self::new_inner(
+            peri,
+            Some(trigger_ch1.signal()),
+            Some(trigger_ch2.signal()),
+            new_dma!(dma_ch1, _irq),
+            new_dma!(dma_ch2, _irq),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+            Mode::NormalExternalBuffered,
+        )
+    }
+
     /// Create a new `Dac` instance with external output pins and unbuffered mode.
     ///
     /// This function consumes the underlying DAC peripheral and allows access to both channels.
@@ -466,16 +792,20 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
     /// * `peri` - The DAC peripheral instance.
     /// * `dma_ch1` - The DMA channel for DAC channel 1.
     /// * `dma_ch2` - The DMA channel for DAC channel 2.
+    /// * `_irq` - The interrupt binding for DMA channels 1 and 2.
     /// * `pin_ch1` - The GPIO pin for DAC channel 1 output.
     /// * `pin_ch2` - The GPIO pin for DAC channel 2 output.
     ///
     /// # Returns
     ///
     /// A new `Dac` instance in unbuffered mode.
-    pub fn new_unbuffered(
+    pub fn new_unbuffered<T: Instance, D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
         peri: Peri<'d, T>,
-        dma_ch1: Peri<'d, impl Dma<T, Ch1>>,
-        dma_ch2: Peri<'d, impl Dma<T, Ch2>>,
+        dma_ch1: Peri<'d, D1>,
+        dma_ch2: Peri<'d, D2>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
         pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
     ) -> Self {
@@ -483,8 +813,48 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
         pin_ch2.set_as_analog();
         Self::new_inner(
             peri,
-            new_dma!(dma_ch1),
-            new_dma!(dma_ch2),
+            None,
+            None,
+            new_dma!(dma_ch1, _irq),
+            new_dma!(dma_ch2, _irq),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+            Mode::NormalExternalUnbuffered,
+        )
+    }
+
+    /// Create a new `Dac` instance, consuming the underlying DAC peripheral.
+    ///
+    /// This struct allows you to access both channels of the DAC, where available. You can either
+    /// call `split()` to obtain separate `DacChannel`s, or use methods on `Dac` to use
+    /// the two channels together.
+    ///
+    /// The channels are enabled on creation and begin to drive their output pins.
+    /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
+    /// disable the channel; you must re-enable them with `enable()`.
+    ///
+    /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
+    /// method on the underlying channels.
+    pub fn new_triggered_unbuffered<T: Instance, D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
+        peri: Peri<'d, T>,
+        dma_ch1: Peri<'d, D1>,
+        dma_ch2: Peri<'d, D2>,
+        trigger_ch1: impl ChannelTrigger<T>,
+        trigger_ch2: impl ChannelTrigger<T>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+    ) -> Self {
+        pin_ch1.set_as_analog();
+        pin_ch2.set_as_analog();
+
+        Self::new_inner(
+            peri,
+            Some(trigger_ch1.signal()),
+            Some(trigger_ch2.signal()),
+            new_dma!(dma_ch1, _irq),
+            new_dma!(dma_ch2, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalUnbuffered,
         )
@@ -505,21 +875,61 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal(
+    pub fn new_internal<T: Instance, D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
         peri: Peri<'d, T>,
-        dma_ch1: Peri<'d, impl Dma<T, Ch1>>,
-        dma_ch2: Peri<'d, impl Dma<T, Ch2>>,
+        dma_ch1: Peri<'d, D1>,
+        dma_ch2: Peri<'d, D2>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
     ) -> Self {
         Self::new_inner(
             peri,
-            new_dma!(dma_ch1),
-            new_dma!(dma_ch2),
+            None,
+            None,
+            new_dma!(dma_ch1, _irq),
+            new_dma!(dma_ch2, _irq),
+            Mode::NormalInternalUnbuffered,
+        )
+    }
+
+    /// Create a new `Dac` instance where the external output pins are not used,
+    /// so the DAC can only be used to generate internal signals but the GPIO
+    /// pins remain available for other functions.
+    ///
+    /// This struct allows you to access both channels of the DAC, where available. You can either
+    /// call `split()` to obtain separate `DacChannel`s, or use methods on `Dac` to use the two
+    /// channels together.
+    ///
+    /// The channels are set to [`Mode::NormalInternalUnbuffered`] and enabled on creation.
+    /// Note that some methods, such as `set_trigger()` and `set_mode()`, will disable the
+    /// channel; you must re-enable them with `enable()`.
+    ///
+    /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
+    /// method on the underlying channels.
+    #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
+    pub fn new_triggered_internal<T: Instance, D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
+        peri: Peri<'d, T>,
+        trigger_ch1: impl ChannelTrigger<T>,
+        trigger_ch2: impl ChannelTrigger<T>,
+        dma_ch1: Peri<'d, D1>,
+        dma_ch2: Peri<'d, D2>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            Some(trigger_ch1.signal()),
+            Some(trigger_ch2.signal()),
+            new_dma!(dma_ch1, _irq),
+            new_dma!(dma_ch2, _irq),
             Mode::NormalInternalUnbuffered,
         )
     }
 }
 
-impl<'d, T: Instance> Dac<'d, T, Blocking> {
+impl<'d> Dac<'d, Blocking> {
     /// Create a new `Dac` instance, consuming the underlying DAC peripheral.
     ///
     /// This struct allows you to access both channels of the DAC, where available. You can either
@@ -532,7 +942,7 @@ impl<'d, T: Instance> Dac<'d, T, Blocking> {
     ///
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
-    pub fn new_blocking(
+    pub fn new_blocking<T: Instance>(
         peri: Peri<'d, T>,
         pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
@@ -541,6 +951,8 @@ impl<'d, T: Instance> Dac<'d, T, Blocking> {
         pin_ch2.set_as_analog();
         Self::new_inner(
             peri,
+            None,
+            None,
             None,
             None,
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
@@ -563,57 +975,63 @@ impl<'d, T: Instance> Dac<'d, T, Blocking> {
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal(peri: Peri<'d, T>) -> Self {
-        Self::new_inner(peri, None, None, Mode::NormalInternalUnbuffered)
+    pub fn new_internal<T: Instance>(peri: Peri<'d, T>) -> Self {
+        Self::new_inner(peri, None, None, None, None, Mode::NormalInternalUnbuffered)
     }
 }
 
-impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
-    fn new_inner(
+impl<'d, M: PeriMode> Dac<'d, M> {
+    fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
+        trigger_ch1: Option<u8>,
+        trigger_ch2: Option<u8>,
         dma_ch1: Option<ChannelAndRequest<'d>>,
         dma_ch2: Option<ChannelAndRequest<'d>>,
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
     ) -> Self {
         rcc::enable_and_reset::<T>();
 
-        let mut ch1 = DacCh1 {
-            phantom: PhantomData,
-            dma: dma_ch1,
-        };
-        #[cfg(any(dac_v5, dac_v6, dac_v7))]
-        ch1.set_hfsel();
-        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
-        ch1.set_mode(mode);
-        ch1.enable();
-
-        let mut ch2 = DacCh2 {
-            phantom: PhantomData,
-            dma: dma_ch2,
-        };
-        #[cfg(any(dac_v5, dac_v6, dac_v7))]
-        ch2.set_hfsel();
-        #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
-        ch2.set_mode(mode);
-        ch2.enable();
-
-        Self { ch1, ch2 }
+        Self {
+            info: T::info(),
+            ch1: DacChannel::new_inner::<T, Ch1>(
+                None,
+                trigger_ch1,
+                dma_ch1,
+                #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+                mode,
+                #[cfg(stm32g4)]
+                vals::Wave::Disabled,
+                #[cfg(stm32g4)]
+                None,
+            ),
+            ch2: DacChannel::new_inner::<T, Ch2>(
+                None,
+                trigger_ch2,
+                dma_ch2,
+                #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+                mode,
+                #[cfg(stm32g4)]
+                vals::Wave::Disabled,
+                #[cfg(stm32g4)]
+                None,
+            ),
+        }
     }
 
     /// Split this `Dac` into separate channels.
     ///
     /// You can access and move the channels around separately after splitting.
-    pub fn split(self) -> (DacCh1<'d, T, M>, DacCh2<'d, T, M>) {
+    pub fn split(self) -> (DacChannel<'d, M>, DacChannel<'d, M>) {
         (self.ch1, self.ch2)
     }
 
     /// Temporarily access channel 1.
-    pub fn ch1(&mut self) -> &mut DacCh1<'d, T, M> {
+    pub fn ch1(&mut self) -> &mut DacChannel<'d, M> {
         &mut self.ch1
     }
 
     /// Temporarily access channel 2.
-    pub fn ch2(&mut self) -> &mut DacCh2<'d, T, M> {
+    pub fn ch2(&mut self) -> &mut DacChannel<'d, M> {
         &mut self.ch2
     }
 
@@ -621,26 +1039,161 @@ impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
     ///
     /// If triggering is not enabled, the new values are immediately output;
     /// otherwise, they will be output after the next trigger.
-    pub fn set(&mut self, values: DualValue) {
-        match values {
-            DualValue::Bit8(v1, v2) => T::regs().dhr8rd().write(|reg| {
-                reg.set_dhr(0, v1);
-                reg.set_dhr(1, v2);
-            }),
-            DualValue::Bit12Left(v1, v2) => T::regs().dhr12ld().write(|reg| {
-                reg.set_dhr(0, v1);
-                reg.set_dhr(1, v2);
-            }),
-            DualValue::Bit12Right(v1, v2) => T::regs().dhr12rd().write(|reg| {
-                reg.set_dhr(0, v1);
-                reg.set_dhr(1, v2);
-            }),
+    pub fn set<W: Word>(&mut self, values: (W, W)) {
+        W::set_values(self.info.regs, values);
+    }
+}
+
+trait SealedCast<T: ?Sized> {}
+
+/// Convert between slice types
+#[allow(private_bounds)]
+pub trait Cast<T: ?Sized>: SealedCast<T> {
+    /// Cast the object
+    fn cast(&self) -> &T;
+
+    /// Cast the mut object
+    fn cast_mut(&mut self) -> &mut T;
+}
+
+macro_rules! impl_word_type {
+    ($a:ident, $b:ident) => {
+        #[allow(non_camel_case_types)]
+        #[repr(transparent)]
+        #[doc = concat!(stringify!($a), " integer type.")]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        #[derive(Clone, Copy, Debug)]
+        pub struct $a(pub $b);
+
+        impl_word_type!($a, $b, INTO_SLICE);
+        impl_word_type!($b, $a, INTO_SLICE);
+    };
+    ($a:ident, $b:ident, INTO_SLICE) => {
+        impl SealedCast<[$a]> for [$b] {}
+        impl Cast<[$a]> for [$b] {
+            fn cast(&self) -> &[$a] {
+                unsafe { slice::from_raw_parts(self.as_ptr() as *const $a, self.len()) }
+            }
+
+            fn cast_mut(&mut self) -> &mut [$a] {
+                unsafe { slice::from_raw_parts_mut(self.as_mut_ptr() as *mut $a, self.len()) }
+            }
         }
+
+        impl<const N: usize> SealedCast<[$a; N]> for [$b; N] {}
+        impl<const N: usize> Cast<[$a; N]> for [$b; N] {
+            fn cast(&self) -> &[$a; N] {
+                unsafe { &*(self.as_ptr() as *const u8 as *const [$a; N]) }
+            }
+
+            fn cast_mut(&mut self) -> &mut [$a; N] {
+                unsafe { &mut *(self.as_mut_ptr() as *mut u8 as *mut [$a; N]) }
+            }
+        }
+    };
+}
+
+impl_word_type!(u12r, u16);
+impl_word_type!(u12l, u16);
+
+trait SealedWord: Sized {
+    type Word: dma::Word;
+
+    fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word];
+    fn dma_buf(buf: &[Self]) -> &[Self::Word];
+    fn dma_ptr(regs: Regs, idx: usize) -> *mut u32;
+    fn set_value(regs: Regs, idx: usize, value: Self);
+    fn set_values(regs: Regs, values: (Self, Self));
+}
+
+trait_set::trait_set! {
+    /// The dac word type
+    pub trait Word = SealedWord;
+}
+
+impl SealedWord for u8 {
+    type Word = u8;
+
+    fn dma_buf(buf: &[Self]) -> &[Self::Word] {
+        buf
+    }
+
+    fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word] {
+        buf
+    }
+
+    fn dma_ptr(regs: Regs, idx: usize) -> *mut u32 {
+        regs.dhr8r(idx).as_ptr() as *mut u32
+    }
+
+    fn set_value(regs: Regs, idx: usize, value: Self) {
+        regs.dhr8r(idx).write(|reg| reg.set_dhr(value))
+    }
+
+    fn set_values(regs: Regs, values: (Self, Self)) {
+        regs.dhr8rd().write(|reg| {
+            reg.set_dhr(0, values.0);
+            reg.set_dhr(1, values.1);
+        })
+    }
+}
+
+impl SealedWord for u12r {
+    type Word = u16;
+
+    fn dma_buf(buf: &[Self]) -> &[Self::Word] {
+        buf.cast()
+    }
+
+    fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word] {
+        buf.cast_mut()
+    }
+
+    fn dma_ptr(regs: Regs, idx: usize) -> *mut u32 {
+        regs.dhr12r(idx).as_ptr() as *mut u32
+    }
+
+    fn set_value(regs: Regs, idx: usize, value: Self) {
+        regs.dhr12r(idx).write(|reg| reg.set_dhr(value.0))
+    }
+
+    fn set_values(regs: Regs, values: (Self, Self)) {
+        regs.dhr12rd().write(|reg| {
+            reg.set_dhr(0, values.0.0);
+            reg.set_dhr(1, values.1.0);
+        })
+    }
+}
+
+impl SealedWord for u12l {
+    type Word = u16;
+
+    fn dma_buf(buf: &[Self]) -> &[Self::Word] {
+        buf.cast()
+    }
+
+    fn dma_buf_mut(buf: &mut [Self]) -> &mut [Self::Word] {
+        buf.cast_mut()
+    }
+
+    fn dma_ptr(regs: Regs, idx: usize) -> *mut u32 {
+        regs.dhr12l(idx).as_ptr() as *mut u32
+    }
+
+    fn set_value(regs: Regs, idx: usize, value: Self) {
+        regs.dhr12l(idx).write(|reg| reg.set_dhr(value.0))
+    }
+
+    fn set_values(regs: Regs, values: (Self, Self)) {
+        regs.dhr12ld().write(|reg| {
+            reg.set_dhr(0, values.0.0);
+            reg.set_dhr(1, values.1.0);
+        })
     }
 }
 
 trait SealedInstance {
-    fn regs() -> crate::pac::dac::Dac;
+    fn info() -> &'static Info;
 
     fn state() -> &'static State {
         static STATE: State = State {
@@ -675,14 +1228,25 @@ impl SealedChannel for Ch2 {
 impl Channel for Ch1 {}
 impl Channel for Ch2 {}
 
+trigger_trait!(ChannelTrigger, Instance);
+trigger_trait!(ChannelIncTrigger, Instance);
 dma_trait!(Dma, Instance, Channel);
 pin_trait!(DacPin, Instance, Channel);
+
+struct Info {
+    regs: Regs,
+    rcc: RccInfo,
+}
 
 foreach_peripheral!(
     (dac, $inst:ident) => {
         impl crate::dac::SealedInstance for peripherals::$inst {
-            fn regs() -> crate::pac::dac::Dac {
-                crate::pac::$inst
+            fn info() -> &'static Info {
+                static INFO: Info = Info {
+                    regs: unsafe { Regs::from_ptr(crate::pac::$inst.as_ptr()) },
+                    rcc: crate::peripherals::$inst::RCC_INFO,
+                };
+                &INFO
             }
         }
 

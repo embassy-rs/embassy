@@ -17,23 +17,23 @@ async fn main(_spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = Some(Hsi {
-            sys_div: HsiSysDiv::DIV1,
+            sys_div: HsiSysDiv::Div1,
         });
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL16,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul16,
             divp: None,
-            divq: Some(PllQDiv::DIV2), // 16 / 1 * 16 / 2 = 128 Mhz
-            divr: Some(PllRDiv::DIV4), // 16 / 1 * 16 / 4 = 64 Mhz
+            divq: Some(PllQDiv::Div2), // 16 / 1 * 16 / 2 = 128 Mhz
+            divr: Some(PllRDiv::Div4), // 16 / 1 * 16 / 4 = 64 Mhz
         });
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
 
         // configure TIM1 mux to select PLLQ as clock source
         // https://www.st.com/resource/en/reference_manual/rm0444-stm32g0x1-advanced-armbased-32bit-mcus-stmicroelectronics.pdf
         // RM0444 page 210
         // RCC - Peripherals Independent Clock Control Register - bit 22 -> 1
-        config.rcc.mux.tim1sel = embassy_stm32::rcc::mux::Tim1sel::PLL1_Q;
+        config.rcc.mux.tim1sel = embassy_stm32::rcc::mux::Tim1sel::Pll1Q;
     }
     let p = embassy_stm32::init(config);
 

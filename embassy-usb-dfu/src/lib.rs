@@ -3,7 +3,10 @@
 #![warn(missing_docs)]
 mod fmt;
 
-pub mod consts;
+/// Re-export DFU constants from embassy-usb.
+pub mod consts {
+    pub use embassy_usb::class::dfu::consts::*;
+}
 
 #[cfg(feature = "dfu")]
 pub mod dfu;
