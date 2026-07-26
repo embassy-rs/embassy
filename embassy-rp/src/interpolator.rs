@@ -6,8 +6,8 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use rp_pac::sio::regs::{Interp1CtrlLane0, Interp1CtrlLane1};
-
-use crate::peripherals::{INTERP0, INTERP1};
+use crate::pac;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 /// Configuration struct for one lane of the interpolator
 #[derive(Debug, Clone, Copy)]
@@ -118,7 +118,45 @@ pub(crate) trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType {}
 
 macro_rules! interpolator {
-    ($interp:ident, $id:expr) => {
+    ($interp:ident, $static:ident, $id:expr) => {
+        /// Interpolator peripheral type.
+        #[derive(Copy, Clone)]
+        pub struct $interp {
+            not_send: PhantomData<*const ()>,
+        }
+
+        impl $interp {
+            ///Returns the peripheral *once* for each core. Panics if called more than once per core.
+            pub fn take() -> $crate::Peri<'static, Self> {
+
+                #[unsafe(no_mangle)]
+                static $static: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
+
+                let taken_flag = &$static[current_core()];
+
+                if taken_flag.load(Ordering::SeqCst) {
+                    panic!("take called more than once!")
+                }
+                taken_flag.store(true, Ordering::SeqCst);
+
+                unsafe {
+                    Self::steal()
+                }
+            }
+
+            /// Unsafely create an instance of this peripheral out of thin air.
+            ///
+            /// # Safety
+            ///
+            /// You must ensure that you're only using one instance of this type at a time.
+            #[inline]
+            pub unsafe fn steal() -> $crate::Peri<'static, Self> {
+                $crate::Peri::new_unchecked(Self{ not_send: PhantomData})
+            }
+        }
+
+        impl PeripheralType for $interp {}
+
         impl SealedInstance for $interp {
             #[inline]
             fn regs() -> crate::pac::sio::Interp {
@@ -129,8 +167,8 @@ macro_rules! interpolator {
     };
 }
 
-interpolator!(INTERP0, 0);
-interpolator!(INTERP1, 1);
+interpolator!(INTERP0, _EMBASSY_INTERP0_TAKEN, 0);
+interpolator!(INTERP1, _EMBASSY_INTERP1_TAKEN, 1);
 
 /// Interpolator Driver
 pub struct Interpolator<'d, T: Instance> {
@@ -287,5 +325,14 @@ impl<'d, T: Instance> InterpolatorLane1<'d, T> {
     ///Read the raw shift and mask value (BASE register not added)
     pub fn read_raw(&self) -> u32 {
         T::regs().accum1_add().read().interp1_accum1_add()
+    }
+}
+
+/// Gets which core we are currently executing from
+fn current_core() -> usize {
+    if pac::SIO.cpuid().read() == 0 {
+        0
+    } else {
+        1
     }
 }

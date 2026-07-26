@@ -5,15 +5,15 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::interpolator::{Instance, Interpolator, LaneCtrl};
+use embassy_rp::interpolator::{INTERP0, INTERP1, Instance, Interpolator, LaneCtrl};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_rp::init(Default::default());
+    let _p = embassy_rp::init(Default::default());
 
-    let mut interp0 = Interpolator::new(p.INTERP0);
-    let mut interp1 = Interpolator::new(p.INTERP1);
+    let mut interp0 = Interpolator::new(INTERP0::take());
+    let mut interp1 = Interpolator::new(INTERP1::take());
 
     times_table(&mut interp0);
     moving_mask(&mut interp1);
