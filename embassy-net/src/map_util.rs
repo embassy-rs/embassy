@@ -3,7 +3,7 @@ use heapless::linear_map::IterMut;
 
 pub trait DynLinearMap<K, V> {
     fn get(&self, key: &K) -> Option<&V>;
-    // fn get_mut(&mut self, key: &K) -> Option<&mut V>;
+    fn get_mut(&mut self, key: &K) -> Option<&mut V>;
 
     /// Inserts a key-value pair into the map.
     ///
@@ -33,9 +33,9 @@ impl<K: Eq + core::hash::Hash, V, const N: usize> DynLinearMap<K, V> for LinearM
         self.get(key)
     }
 
-    //    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-    //        self.get_mut(key)
-    //    }
+    fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        self.get_mut(key)
+    }
 
     fn insert(&mut self, key: K, value: V) -> Result<Option<V>, (K, V)> {
         self.insert(key, value)

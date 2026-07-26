@@ -313,6 +313,62 @@ impl<'a> UdpSocket<'a> {
         })
     }
 
+    #[cfg(feature = "ptp")]
+    /// Send a datagram to the specified remote endpoint and return the timestamp when it was sent.
+    ///
+    /// This method will wait until the datagram has been sent.
+    ///
+    /// If the socket's send buffer is too small to fit `buf`, this method will return `Err(SendError::PacketTooLarge)`
+    ///
+    /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
+    pub async fn send_to_timed<T>(
+        &self,
+        buf: &[u8],
+        remote_endpoint: T,
+    ) -> Result<embassy_net_driver::Timestamp, SendError>
+    where
+        T: Into<UdpMetadata>,
+    {
+        let mut remote_endpoint: UdpMetadata = remote_endpoint.into();
+
+        let id = self.stack.with_mut(|i| {
+            let sink = i.sinks.get_mut(&self.handle).unwrap();
+
+            i.next_id = i.next_id.wrapping_add(1);
+            if sink.tx.insert(i.next_id, None).is_err() {
+                warn!("failed to insert timestamp into map during send_to_timed");
+            }
+
+            i.next_id
+        });
+
+        remote_endpoint.meta.id = id;
+
+        poll_fn(move |cx| self.poll_send_to(buf, remote_endpoint, cx)).await?;
+
+        poll_fn(|cx| {
+            self.stack.with_mut(|i| {
+                let sink = i.sinks.get_mut(&self.handle).unwrap();
+
+                sink.tx_waker.register(cx.waker());
+                let ts = if let Some(Some(timestamp)) = sink.tx.get(&id) {
+                    Some(*timestamp)
+                } else {
+                    None
+                };
+
+                if let Some(timestamp) = ts {
+                    sink.tx.remove(&id);
+
+                    Poll::Ready(Ok(timestamp))
+                } else {
+                    Poll::Pending
+                }
+            })
+        })
+        .await
+    }
+
     /// Send a datagram to the specified remote endpoint.
     ///
     /// This method will wait until the datagram has been sent.
