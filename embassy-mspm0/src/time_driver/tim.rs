@@ -205,6 +205,11 @@ impl TimxDriver {
         critical_section::with(|cs| {
             let mis = r.cpu_int(0).mis().read();
 
+            // Clear the flags we are about to handle before handling them. MIS and ICLR have the
+            // same layout, and writing back only the bits we read leaves any event latched during
+            // the handler pending, so it is picked up on re-entry rather than lost.
+            r.cpu_int(0).iclr().write_value(mis);
+
             // Overflow
             if mis.z() {
                 self.next_period(cs);
@@ -218,9 +223,6 @@ impl TimxDriver {
             if mis.ccu1() {
                 self.trigger_alarm(cs);
             }
-
-            // Clear all interrupts. MIS and ICLR have same layout.
-            r.cpu_int(0).iclr().write_value(mis);
         });
     }
 
