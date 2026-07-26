@@ -150,6 +150,58 @@ impl IdRing {
     }
 }
 
+#[cfg(feature = "ptp")]
+trait WithSink {
+    fn with_sink<R>(&self, f: impl FnOnce(&mut crate::TimestampSink, &mut crate::IdRing) -> R) -> R;
+}
+
+#[cfg(feature = "ptp")]
+struct ActiveId<'d, T: WithSink> {
+    id: u32,
+    with_sink: &'d T,
+}
+
+#[cfg(feature = "ptp")]
+impl<'d, T: WithSink> ActiveId<'d, T> {
+    pub async fn wait_for_timestamp(&self) -> embassy_net_driver::Timestamp {
+        poll_fn(|cx| {
+            self.with_sink.with_sink(|sink, _| {
+                sink.tx_waker.register(cx.waker());
+                if let Some(Some(timestamp)) = sink.tx.get(&self.id) {
+                    Poll::Ready(*timestamp)
+                } else {
+                    Poll::Pending
+                }
+            })
+        })
+        .await
+    }
+}
+
+#[cfg(feature = "ptp")]
+impl<'d, T: WithSink> ActiveId<'d, T> {
+    pub fn new(with_sink: &'d T) -> Self {
+        Self {
+            id: with_sink.with_sink(|sink, next_id| {
+                let id = next_id.next_id();
+                if sink.tx.insert(id, None).is_err() {
+                    warn!("failed to insert timestamp into map during send_to_timed");
+                }
+
+                id
+            }),
+            with_sink,
+        }
+    }
+}
+
+#[cfg(feature = "ptp")]
+impl<'d, T: WithSink> Drop for ActiveId<'d, T> {
+    fn drop(&mut self) {
+        self.with_sink.with_sink(|sink, _| sink.tx.remove(&self.id));
+    }
+}
+
 impl<const SOCK: usize> StackResources<SOCK> {
     /// Create a new set of stack resources.
     pub const fn new() -> Self {

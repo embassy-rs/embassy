@@ -10,6 +10,8 @@ use smoltcp::socket::udp;
 pub use smoltcp::socket::udp::PacketMetadata;
 use smoltcp::wire::IpListenEndpoint;
 
+#[cfg(feature = "ptp")]
+use crate::{ActiveId, WithSink};
 use crate::{IpAddress, IpEndpoint, Stack, TryError};
 
 /// Metadata for a sent or received UDP packet.
@@ -160,27 +162,6 @@ impl<'a> UdpSocket<'a> {
             let res = f(socket, &mut i.iface);
             i.waker.wake();
             res
-        })
-    }
-
-    #[cfg(feature = "ptp")]
-    fn with_sink<R>(&self, f: impl FnOnce(&mut crate::TimestampSink, &mut crate::IdRing) -> R) -> R {
-        self.stack.with_mut(|i| {
-            let sink = i.sinks.get_mut(&self.handle).expect("failed to get sink");
-            let res = f(sink, &mut i.id_ring);
-            res
-        })
-    }
-
-    #[cfg(feature = "ptp")]
-    fn next_id(&self) -> u32 {
-        self.with_sink(|sink, next_id| {
-            let id = next_id.next_id();
-            if sink.tx.insert(id, None).is_err() {
-                warn!("failed to insert timestamp into map during send_to_timed");
-            }
-
-            id
         })
     }
 
@@ -350,32 +331,14 @@ impl<'a> UdpSocket<'a> {
     where
         T: Into<UdpMetadata>,
     {
-        let id = self.next_id();
         let mut remote_endpoint: UdpMetadata = remote_endpoint.into();
+        let id = ActiveId::new(self);
 
-        remote_endpoint.meta.id = id;
+        remote_endpoint.meta.id = id.id;
 
         self.send_to(buf, remote_endpoint).await?;
 
-        poll_fn(|cx| {
-            self.with_sink(|sink, _| {
-                sink.tx_waker.register(cx.waker());
-                let ts = if let Some(Some(timestamp)) = sink.tx.get(&id) {
-                    Some(*timestamp)
-                } else {
-                    None
-                };
-
-                if let Some(timestamp) = ts {
-                    sink.tx.remove(&remote_endpoint.meta.id);
-
-                    Poll::Ready(Ok(timestamp))
-                } else {
-                    Poll::Pending
-                }
-            })
-        })
-        .await
+        Ok(id.wait_for_timestamp().await)
     }
 
     /// Send a datagram to the specified remote endpoint.
@@ -625,6 +588,17 @@ impl<'a> UdpSocket<'a> {
     /// Set the hop limit field in the IP header of sent packets.
     pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
         self.with_mut(|s, _| s.set_hop_limit(hop_limit))
+    }
+}
+
+#[cfg(feature = "ptp")]
+impl WithSink for UdpSocket<'_> {
+    fn with_sink<R>(&self, f: impl FnOnce(&mut crate::TimestampSink, &mut crate::IdRing) -> R) -> R {
+        self.stack.with_mut(|i| {
+            let sink = i.sinks.get_mut(&self.handle).expect("failed to get sink");
+            let res = f(sink, &mut i.id_ring);
+            res
+        })
     }
 }
 
