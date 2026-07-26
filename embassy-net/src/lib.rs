@@ -1065,6 +1065,10 @@ impl Inner {
                     continue;
                 };
 
+                if !sink.tx.get(&packetmeta_id).is_some() {
+                    continue;
+                }
+
                 if sink.tx.insert(packetmeta_id, Some(timestamp)).is_err() {
                     warn!("failed to insert timestamp into map during poll_timestamp");
                 } else {
