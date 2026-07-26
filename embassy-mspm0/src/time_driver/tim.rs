@@ -49,29 +49,32 @@ type T = peripherals::TIMA0;
 #[cfg(time_driver_tima1)]
 type T = peripherals::TIMA1;
 
-// TODO: RTC
-
 fn regs() -> Tim {
     T::info().regs
 }
 
-/// Clock timekeeping works with something we call "periods", which are time intervals
-/// of 2^15 ticks. The Clock counter value is 16 bits, so one "overflow cycle" is 2 periods.
+// Clock timekeeping works with something we call "periods", which are time intervals
+// of 2^15 ticks. The Clock counter value is 16 bits, so one "overflow cycle" is 2 periods.
+//
+// A `period` count is maintained in parallel to the Timer hardware `counter`, like this:
+// - `period` and `counter` start at 0
+// - `period` is incremented on overflow (at counter value 0)
+// - `period` is incremented "midway" between overflows (at counter value 0x8000)
+//
+// Therefore, when `period` is even, counter is in 0..0x7FFF. When odd, counter is in 0x8000..0xFFFF
+// This allows for now() to return the correct value even if it races an overflow.
+//
+// To get `now()`, `period` is read first, then `counter` is read. If the counter value matches
+// the expected range for the `period` parity, we're done. If it doesn't, this means that
+// a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
+// corresponds to the next period.
+//
+// `period` is a 32bit integer, so It overflows on 2^32 * 2^15 / 32768 seconds of uptime, which is 136 years.
 fn calc_now(period: u32, counter: u16) -> u64 {
     ((period as u64) << 15) + ((counter as u32 ^ ((period & 1) << 15)) as u64)
 }
 
-/// The TIMx driver uses one of the `TIMG` or `TIMA` timer instances to implement a timer with a 32.768 kHz
-/// tick rate. (TODO: Allow setting the tick rate)
-///
-/// This driver defines a period to be 2^15 ticks. 16-bit timers of course count to 2^16 ticks.
-///
-/// To generate a period every 2^15 ticks, the CC0 value is set to 2^15 and the load value set to 2^16.
-/// Incrementing the period on a CCU0 and load results in the a period of 2^15 ticks.
-///
-/// For a specific timestamp, load the lower 16 bits into the CC1 value. When the period where the timestamp
-/// should be enabled is reached, then the CCU1 (CC1 up) interrupt runs to actually wake the timer.
-///
+/// TODO: Configurable tick rate
 /// TODO: Compensate for per part variance. This can supposedly be done with the FCC system.
 /// TODO: Allow using 32-bit timers (TIMG12 and TIMG13).
 struct TimxDriver {
@@ -104,19 +107,12 @@ impl TimxDriver {
 
         // 1. Select TIMCLK source
         regs.clksel().modify(|w| {
-            // FIXME (bug): Using LFCLK at 32.768 kHz results in a race condition where time goes backwards.
-            // w.set_lfclk_sel(true);
-
-            // TODO: Allow MFCLK for configurable tick rate up to 4 MHz
-            w.set_mfclk_sel(true);
+            w.set_lfclk_sel(true);
         });
 
         // 2. Divide by TIMCLK, we don't need to divide further for the 32kHz tick rate
         regs.clkdiv().modify(|w| {
-            // FIXME (bug): For 32.768 kHz we would do no division
-            // w.set_ratio(0); // + 1
-
-            w.set_ratio(3); // divide by 4
+            w.set_ratio(0); // + 1
         });
 
         // Not every timer supports the prescaler so we should zero it.
@@ -162,7 +158,7 @@ impl TimxDriver {
         });
 
         regs.cpu_int(0).imask().modify(|w| {
-            w.set_l(true);
+            w.set_z(true);
             w.set_ccu0(true);
         });
 
@@ -201,7 +197,7 @@ impl TimxDriver {
             let mis = r.cpu_int(0).mis().read();
 
             // Overflow
-            if mis.l() {
+            if mis.z() {
                 self.next_period(cs);
             }
 
