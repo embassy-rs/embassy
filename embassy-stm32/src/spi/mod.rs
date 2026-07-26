@@ -15,7 +15,7 @@ pub use ringbuffered::RingBufferedSpiRx;
 
 use crate::Peri;
 use crate::dma::{ChannelAndRequest, word};
-use crate::gpio::{AfType, Flex, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{Spi as Regs, regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
@@ -1247,6 +1247,8 @@ fn compute_frequency(kernel_clock: Hertz, br: Br) -> Hertz {
 
 #[cfg(gpio_v2)]
 fn set_speed(sck: &Option<Flex<'_>>, mosi: &Option<Flex<'_>>, gpio_speed: Speed) {
+    use crate::gpio::SealedPin;
+
     if let Some(sck) = sck.as_ref() {
         sck.pin.set_speed(gpio_speed);
     }
