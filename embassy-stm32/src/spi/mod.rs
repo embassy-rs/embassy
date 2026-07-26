@@ -623,8 +623,8 @@ impl<'d> Spi<'d, Blocking, Slave> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(miso, AfType::input(config.miso_pull)),
+            new_pin!(mosi, AfType::input(config.miso_pull)),
+            new_pin!(miso, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(cs, AfType::input(Pull::None)),
             None,
             None,
@@ -731,8 +731,8 @@ impl<'d> Spi<'d, Async, Slave> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(miso, AfType::input(config.miso_pull)),
+            new_pin!(mosi, AfType::input(config.miso_pull)),
+            new_pin!(miso, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(cs, AfType::input(Pull::None)),
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
@@ -753,7 +753,7 @@ impl<'d> Spi<'d, Async, Slave> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(mosi, AfType::input(config.miso_pull)),
             None,
             new_pin!(cs, AfType::input(Pull::None)),
             None,
