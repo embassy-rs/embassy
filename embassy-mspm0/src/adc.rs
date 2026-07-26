@@ -195,10 +195,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
     }
 
     /// Read an ADC pin.
-    pub fn blocking_read<'a>(&mut self, channel: impl BorrowedChannel<'a, T>, conversion: Conversion) -> u16
-    where
-        'd: 'a,
-    {
+    pub fn blocking_read<'a>(&mut self, channel: impl BorrowedChannel<'a, T>, conversion: Conversion) -> u16 {
         let r = T::info().regs;
         let channel = channel.reborrow_adc();
 
@@ -280,10 +277,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
     }
 
     /// Read an ADC pin asynchronously using the irq handler.
-    pub async fn irq_read<'a>(&mut self, channel: impl BorrowedChannel<'a, T>, conversion: Conversion) -> u16
-    where
-        T: 'a,
-    {
+    pub async fn irq_read<'a>(&mut self, channel: impl BorrowedChannel<'a, T>, conversion: Conversion) -> u16 {
         let r = T::info().regs;
         let channel = channel.reborrow_adc();
 
@@ -317,9 +311,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
         &mut self,
         sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'a, T>, Conversion)>,
         readings: &mut [u16],
-    ) where
-        T: 'a,
-    {
+    ) {
         assert!(sequence.len() != 0, "Read sequence cannot be empty");
         assert!(
             sequence.len() == readings.len(),
@@ -367,7 +359,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
 
 /// Peripheral instance trait.
 #[allow(private_bounds)]
-pub trait Instance: PeripheralType + SealedInstance {
+pub trait Instance: PeripheralType + SealedInstance + 'static {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
