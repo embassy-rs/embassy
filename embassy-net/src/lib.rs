@@ -351,8 +351,6 @@ pub(crate) struct Inner {
     pub(crate) source_index: u32,
     #[cfg(feature = "ptp")]
     pub(crate) next_id: u32,
-    #[cfg(feature = "ptp")]
-    pub(crate) last_rx_id: u32,
     /// Waker used for triggering polls.
     pub(crate) waker: WakerRegistration,
     /// Waker used for waiting for link up or config up.
@@ -428,8 +426,6 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             source_index: &mut 0,
             #[cfg(feature = "ptp")]
             next_id: &mut 0,
-            #[cfg(feature = "ptp")]
-            last_rx_id: &mut 0,
         },
         instant_to_smoltcp(Instant::now()),
     );
@@ -453,8 +449,6 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         iface,
         #[cfg(feature = "ptp")]
         next_id: 0,
-        #[cfg(feature = "ptp")]
-        last_rx_id: 0,
         #[cfg(feature = "ptp")]
         source_index: 0,
         #[cfg(feature = "ptp")]
@@ -1066,8 +1060,6 @@ impl Inner {
             source_index: &mut self.source_index,
             #[cfg(feature = "ptp")]
             next_id: &mut self.next_id,
-            #[cfg(feature = "ptp")]
-            last_rx_id: &mut self.last_rx_id,
         };
         self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
         let tx_exhausted = smoldev.tx_exhausted;

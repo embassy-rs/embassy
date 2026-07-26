@@ -31,8 +31,6 @@ where
     pub source_index: &'d mut u32,
     #[cfg(feature = "ptp")]
     pub next_id: &'d mut u32,
-    #[cfg(feature = "ptp")]
-    pub last_rx_id: &'d mut u32,
 }
 
 impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
@@ -50,10 +48,27 @@ where
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         self.inner.receive(unwrap!(self.cx.as_deref_mut())).map(|(rx, tx)| {
-            // TODO: if the id does not match the last rx id for the receive tokens, store the timestamp in the timestamp sink
+            #[cfg(feature = "ptp")]
+            let timestamp = rx.timestamp();
+
+            #[cfg(feature = "ptp")]
+            if timestamp != self.source[*self.source_index as usize].1 {
+                // Increment index.
+                *self.source_index = (*self.source_index + 1) % self.source.len() as u32;
+                *self.next_id = self.next_id.wrapping_add(1);
+
+                self.source[*self.source_index as usize] = (*self.next_id, timestamp);
+            }
+
+            #[cfg(feature = "ptp")]
+            let id = self.source[*self.source_index as usize].0;
 
             (
-                RxTokenAdapter(rx),
+                RxTokenAdapter {
+                    token: rx,
+                    #[cfg(feature = "ptp")]
+                    id,
+                },
                 TxTokenAdapter {
                     token: tx,
                     #[cfg(feature = "ptp")]
@@ -114,9 +129,14 @@ where
     }
 }
 
-pub(crate) struct RxTokenAdapter<T>(T)
+pub(crate) struct RxTokenAdapter<T>
 where
-    T: RxToken;
+    T: RxToken,
+{
+    token: T,
+    #[cfg(feature = "ptp")]
+    id: u32,
+}
 
 impl<T> phy::RxToken for RxTokenAdapter<T>
 where
@@ -126,7 +146,7 @@ where
     where
         F: FnOnce(&[u8]) -> R,
     {
-        self.0.consume(|buf| {
+        self.token.consume(|buf| {
             #[cfg(feature = "packet-trace")]
             trace!("embassy device rx: {:02x}", buf);
             f(buf)
@@ -134,7 +154,17 @@ where
     }
 
     fn meta(&self) -> phy::PacketMeta {
-        into_smoltcp_meta(self.0.meta())
+        #[cfg(not(feature = "ptp"))]
+        {
+            into_smoltcp_meta(self.token.meta())
+        }
+
+        #[cfg(feature = "ptp")]
+        {
+            let mut meta = phy::PacketMeta::default();
+            meta.id = self.id;
+            meta
+        }
     }
 }
 

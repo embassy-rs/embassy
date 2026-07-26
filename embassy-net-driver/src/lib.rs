@@ -148,7 +148,7 @@ impl<T: ?Sized + Driver> Driver for &mut T {
 }
 
 /// Represents a packet timestamp
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, PartialEq)]
 pub struct Timestamp {
     /// Seconds
     pub seconds: u32,
