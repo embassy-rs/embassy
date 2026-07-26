@@ -47,10 +47,10 @@ impl RtcDriver {
 
         // Select clock source - either XTAL or FRO
         // pmc.rtcosc32k().write(|w| w.set_sel(pmc::vals::Sel::XTAL32K));
-        pmc.rtcosc32k().write(|w| w.set_sel(pmc::vals::Sel::FRO32K));
+        pmc.rtcosc32k().write(|w| w.set_sel(pmc::vals::Sel::Fro32k));
 
         // Start the RTC peripheral
-        rtc.ctrl().modify(|w| w.set_rtc_osc_pd(rtc::vals::RtcOscPd::POWER_UP));
+        rtc.ctrl().modify(|w| w.set_rtc_osc_pd(rtc::vals::RtcOscPd::PowerUp));
 
         //reset/clear(?) counter
         rtc.count().modify(|w| w.set_val(0));
@@ -59,7 +59,7 @@ impl RtcDriver {
         rtc.ctrl().modify(|w| w.set_rtc1khz_en(true));
         // subsec counter enable
         rtc.ctrl()
-            .modify(|w| w.set_rtc_subsec_ena(rtc::vals::RtcSubsecEna::POWER_UP));
+            .modify(|w| w.set_rtc_subsec_ena(rtc::vals::RtcSubsecEna::PowerUp));
 
         // enable irq
         unsafe {
@@ -100,7 +100,7 @@ impl RtcDriver {
 
         rtc.ctrl().modify(|w| {
             w.set_alarm1hz(false);
-            w.set_wake1khz(rtc::vals::Wake1khz::RUN)
+            w.set_wake1khz(rtc::vals::Wake1khz::Run)
         });
         true
     }
@@ -114,8 +114,8 @@ impl RtcDriver {
                 self.trigger_alarm(cs);
             }
 
-            if flags.wake1khz() == rtc::vals::Wake1khz::RUN {
-                rtc.ctrl().modify(|w| w.set_wake1khz(rtc::vals::Wake1khz::TIMEOUT));
+            if flags.wake1khz() == rtc::vals::Wake1khz::Run {
+                rtc.ctrl().modify(|w| w.set_wake1khz(rtc::vals::Wake1khz::Timeout));
                 self.trigger_alarm(cs);
             }
         });
