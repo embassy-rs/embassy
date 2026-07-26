@@ -316,6 +316,25 @@ impl<'a> UdpSocket<'a> {
     }
 
     #[cfg(feature = "ptp")]
+    /// Fetch the receive timestamp for `PacketMeta`
+    pub fn receive_timestamp<T>(&self, meta: T) -> Option<embassy_net_driver::Timestamp>
+    where
+        T: Into<UdpMetadata>,
+    {
+        let meta: UdpMetadata = meta.into();
+
+        self.stack.with(|i| {
+            for (i, timestamp) in &*i.source {
+                if *i == meta.meta.id {
+                    return Some(*timestamp);
+                }
+            }
+
+            None
+        })
+    }
+
+    #[cfg(feature = "ptp")]
     /// Send a datagram to the specified remote endpoint and return the timestamp when it was sent.
     ///
     /// This method will wait until the datagram has been sent.
