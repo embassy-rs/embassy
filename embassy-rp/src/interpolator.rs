@@ -3,11 +3,12 @@
 //! The interpolator can be used for various applications, such as generating sequences of values or performing mathematical operations on data streams.
 
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use rp_pac::sio::regs::{Interp1CtrlLane0, Interp1CtrlLane1};
+
 use crate::pac;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 /// Configuration struct for one lane of the interpolator
 #[derive(Debug, Clone, Copy)]
@@ -128,7 +129,6 @@ macro_rules! interpolator {
         impl $interp {
             ///Returns the peripheral *once* for each core. Panics if called more than once per core.
             pub fn take() -> $crate::Peri<'static, Self> {
-
                 #[unsafe(no_mangle)]
                 static $static: [AtomicBool; 2] = [AtomicBool::new(false), AtomicBool::new(false)];
 
@@ -139,9 +139,7 @@ macro_rules! interpolator {
                 }
                 taken_flag.store(true, Ordering::SeqCst);
 
-                unsafe {
-                    Self::steal()
-                }
+                unsafe { Self::steal() }
             }
 
             /// Unsafely create an instance of this peripheral out of thin air.
@@ -151,7 +149,9 @@ macro_rules! interpolator {
             /// You must ensure that you're only using one instance of this type at a time.
             #[inline]
             pub unsafe fn steal() -> $crate::Peri<'static, Self> {
-                $crate::Peri::new_unchecked(Self{ not_send: PhantomData})
+                $crate::Peri::new_unchecked(Self {
+                    not_send: PhantomData,
+                })
             }
         }
 
@@ -330,9 +330,5 @@ impl<'d, T: Instance> InterpolatorLane1<'d, T> {
 
 /// Gets which core we are currently executing from
 fn current_core() -> usize {
-    if pac::SIO.cpuid().read() == 0 {
-        0
-    } else {
-        1
-    }
+    if pac::SIO.cpuid().read() == 0 { 0 } else { 1 }
 }

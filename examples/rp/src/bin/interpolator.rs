@@ -5,8 +5,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::interpolator::{Instance, Interpolator, LaneCtrl};
-use embassy_rp::interpolator::{INTERP0, INTERP1};
+use embassy_rp::interpolator::{INTERP0, INTERP1, Instance, Interpolator, LaneCtrl};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
