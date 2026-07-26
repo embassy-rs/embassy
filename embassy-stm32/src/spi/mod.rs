@@ -95,11 +95,11 @@ pub struct Config {
     pub bit_order: BitOrder,
     /// Clock frequency.
     pub frequency: Hertz,
-    /// Enable internal pullup on MISO.
+    /// Enable internal pullup on input pin.
     ///
-    /// There are some ICs that require a pull-up on the MISO pin for some applications.
-    /// If you  are unsure, you probably don't need this.
-    pub miso_pull: Pull,
+    /// There are some ICs that require a pull-up on the input pin for some applications.
+    /// If you are unsure, you probably don't need this.
+    pub input_pull: Pull,
     /// signal rise/fall speed (slew rate) - defaults to `VeryHigh`.
     /// Increase for high SPI speeds. Change to `Low` to reduce ringing.
     pub gpio_speed: Speed,
@@ -118,7 +118,7 @@ impl Default for Config {
             mode: MODE_0,
             bit_order: BitOrder::MsbFirst,
             frequency: Hertz(1_000_000),
-            miso_pull: Pull::None,
+            input_pull: Pull::None,
             gpio_speed: Speed::VeryHigh,
             nss_output_disable: false,
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
@@ -227,6 +227,7 @@ pub struct Spi<'d, M: PeriMode, CM: CommunicationMode> {
     rx_dma: Option<ChannelAndRequest<'d>>,
     _marker: PhantomData<(M, CM)>,
     current_word_size: word_impl::Config,
+    input_pull: Pull,
     gpio_speed: Speed,
 }
 
@@ -252,6 +253,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             rx_dma,
             current_word_size: <u8 as SealedWord>::CONFIG,
             _marker: PhantomData,
+            input_pull: config.input_pull,
             gpio_speed: config.gpio_speed,
         };
         this.enable_and_init(config);
@@ -456,11 +458,6 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             BitOrder::MsbFirst
         };
 
-        let miso_pull = match &self.miso {
-            None => Pull::None,
-            Some(pin) => pin.pin.pull(),
-        };
-
         #[cfg(any(spi_v1, spi_v2, spi_v3))]
         let br = cfg.br();
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
@@ -482,7 +479,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             mode: Mode { polarity, phase },
             bit_order,
             frequency,
-            miso_pull,
+            input_pull: self.input_pull,
             gpio_speed: self.gpio_speed,
             nss_output_disable,
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
@@ -623,7 +620,7 @@ impl<'d> Spi<'d, Blocking, Slave> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::input(config.miso_pull)),
+            new_pin!(mosi, AfType::input(config.input_pull)),
             new_pin!(miso, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(cs, AfType::input(Pull::None)),
             None,
@@ -646,7 +643,7 @@ impl<'d> Spi<'d, Blocking, Master> {
             peri,
             new_pin!(sck, config.sck_af()),
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(miso, AfType::input(config.miso_pull)),
+            new_pin!(miso, AfType::input(config.input_pull)),
             None,
             None,
             None,
@@ -665,7 +662,7 @@ impl<'d> Spi<'d, Blocking, Master> {
             peri,
             new_pin!(sck, config.sck_af()),
             None,
-            new_pin!(miso, AfType::input(config.miso_pull)),
+            new_pin!(miso, AfType::input(config.input_pull)),
             None,
             None,
             None,
@@ -731,7 +728,7 @@ impl<'d> Spi<'d, Async, Slave> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::input(config.miso_pull)),
+            new_pin!(mosi, AfType::input(config.input_pull)),
             new_pin!(miso, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(cs, AfType::input(Pull::None)),
             new_dma!(tx_dma, _irq),
@@ -753,7 +750,7 @@ impl<'d> Spi<'d, Async, Slave> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::input(config.miso_pull)),
+            new_pin!(mosi, AfType::input(config.input_pull)),
             None,
             new_pin!(cs, AfType::input(Pull::None)),
             None,
@@ -781,7 +778,7 @@ impl<'d> Spi<'d, Async, Master> {
             peri,
             new_pin!(sck, config.sck_af()),
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(miso, AfType::input(config.miso_pull)),
+            new_pin!(miso, AfType::input(config.input_pull)),
             None,
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
@@ -813,7 +810,7 @@ impl<'d> Spi<'d, Async, Master> {
             peri,
             new_pin!(sck, config.sck_af()),
             None,
-            new_pin!(miso, AfType::input(config.miso_pull)),
+            new_pin!(miso, AfType::input(config.input_pull)),
             None,
             #[cfg(any(spi_v1, spi_v2, spi_v3))]
             new_dma!(tx_dma, _irq),
