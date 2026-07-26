@@ -66,7 +66,7 @@ log = ["dep:log"]
 packet-trace = []
 
 #! Many of the following feature flags are re-exports of sporktcp feature flags. See 
-#! the [sporktcp feature flag documentation](https://github.com/sporktcp-rs/sporktcp#feature-flags)
+#! the [sporktcp feature flag documentation](https://github.com/embasssy-rs/smoltcp#feature-flags)
 #! for more details
 
 ## Enable ICMP support

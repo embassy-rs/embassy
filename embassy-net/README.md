@@ -2,7 +2,7 @@
 
 `embassy-net` is a no-std no-alloc async network stack, designed for embedded systems.
 
-It builds on [`sporktcp`](https://github.com/sporktcp-rs/sporktcp). It provides a higher-level and more opinionated
+It builds on [`sporktcp`](https://github.com/embasssy-rs/smoltcp). It provides a higher-level and more opinionated
 API. It glues together the components provided by `sporktcp`, handling the low-level details with defaults and
 memory management designed to work well for embedded systems, aiming for a more "Just Works" experience.
 
@@ -14,7 +14,7 @@ memory management designed to work well for embedded systems, aiming for a more 
 - TCP sockets implement the `embedded-io` async traits.
 - Multicast
 
-See the [`sporktcp`](https://github.com/sporktcp-rs/sporktcp) README for a detailed list of implemented and
+See the [`sporktcp`](https://github.com/embasssy-rs/smoltcp) README for a detailed list of implemented and
 unimplemented features of the network protocols.
 
 ## Hardware support

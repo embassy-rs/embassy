@@ -52,8 +52,8 @@ No unreleased changes yet... Quick, go send a PR!
     - The `run()` method has been moved to a new `Runner` struct.
     - Sockets are covariant wrt their lifetime.
     - An implication of the refactor is now you need only one `StaticCell` instead of two if you need to share the network stack between tasks.
-- Use standard `core::net` IP types instead of custom ones from sporktcp.
-- Update to `sporktcp` v0.12.
+- Use standard `core::net` IP types instead of custom ones from smoltcp.
+- Update to `smoltcp` v0.12.
 - Add `mdns` Cargo feature.
 - dns: properly handle `AddrType::Either` in `get_host_by_name()`
 - dns: truncate instead of panic if the DHCP server gives us more DNS servers than the configured maximum.
@@ -78,8 +78,8 @@ No unreleased changes yet... Quick, go send a PR!
 
 - Added `ReadReady` and `WriteReady` impls on `TcpSocket`.
 - Avoid never resolving `TcpIo::read` when the output buffer is empty.
-- Update to `sporktcp` v0.11.
-- Forward constants from `sporktcp` in DNS query results so changing DNS result size in `sporktcp` properly propagates.
+- Update to `smoltcp` v0.11.
+- Forward constants from `smoltcp` in DNS query results so changing DNS result size in `smoltcp` properly propagates.
 - Removed the nightly feature.
 
 ## 0.2.1 - 2023-10-31
@@ -89,14 +89,14 @@ No unreleased changes yet... Quick, go send a PR!
 
 ## 0.2.0 - 2023-10-18
 
-- Re-export `sporktcp::wire::IpEndpoint`
+- Re-export `smoltcp::wire::IpEndpoint`
 - Add poll functions on UdpSocket
 - Make dual-stack work in embassy-net
 - Fix multicast support
 - Allow ethernet and 802.15.4 to coexist
 - Add IEEE802.15.4 address to embassy net Stack
 - Use HardwareAddress in Driver
-- Add async versions of sporktcp's `send` and `recv` closure based API
+- Add async versions of smoltcp's `send` and `recv` closure based API
 - add error translation to tcp errors
 - Forward TCP/UDP socket capacity impls
 - allow changing IP config at runtime
