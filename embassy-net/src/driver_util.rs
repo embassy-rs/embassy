@@ -1,8 +1,8 @@
 use core::task::Context;
 
 use embassy_net_driver::{Capabilities, Checksum, Driver, PacketMeta, RxToken, TxToken};
-use smoltcp::phy::{self, Medium};
-use smoltcp::time::Instant;
+use sporktcp::phy::{self, Medium};
+use sporktcp::time::Instant;
 
 pub(crate) struct DriverAdapter<'d, 'c, T>
 where
@@ -95,7 +95,7 @@ where
     }
 
     fn meta(&self) -> phy::PacketMeta {
-        into_smoltcp_meta(self.0.meta())
+        into_sporktcp_meta(self.0.meta())
     }
 }
 
@@ -125,7 +125,7 @@ where
 }
 
 #[allow(unused, reason = "meta isn't used if no features are enabled")]
-pub(crate) fn into_smoltcp_meta(meta: PacketMeta) -> phy::PacketMeta {
+pub(crate) fn into_sporktcp_meta(meta: PacketMeta) -> phy::PacketMeta {
     let mut out_meta = phy::PacketMeta::default();
     #[cfg(feature = "packetmeta-id")]
     {

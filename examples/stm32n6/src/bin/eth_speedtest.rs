@@ -180,10 +180,10 @@ async fn main(spawner: Spawner) -> ! {
     core_peri.SCB.enable_icache();
 
     // The ethernet DMA is not cache-coherent. Rather than disable the whole
-    // D-cache (which makes smoltcp's software checksums and socket-buffer copies
+    // D-cache (which makes sporktcp's software checksums and socket-buffer copies
     // crawl, capping throughput well below line rate), place ONLY the PacketQueue
     // in a non-cacheable MPU region and keep the D-cache enabled for everything
-    // else (stack, smoltcp state, TCP buffers).
+    // else (stack, sporktcp state, TCP buffers).
     // TX is already at line rate with a small ring; give RX a deeper ring so it
     // can absorb bursts while net_task is busy (fewer drops -> fewer retransmits).
     static PACKETS: StaticCell<Aligned<PacketQueue<8, 8>>> = StaticCell::new();

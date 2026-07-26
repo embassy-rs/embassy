@@ -39,31 +39,31 @@ use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use heapless::Vec;
 #[cfg(feature = "dns")]
-pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
+pub use sporktcp::config::DNS_MAX_SERVER_COUNT;
 #[cfg(feature = "multicast")]
-pub use smoltcp::iface::MulticastError;
+pub use sporktcp::iface::MulticastError;
 #[cfg(any(feature = "dns", feature = "dhcpv4"))]
-use smoltcp::iface::SocketHandle;
-use smoltcp::iface::{Interface, SocketSet, SocketStorage};
-use smoltcp::phy::Medium;
+use sporktcp::iface::SocketHandle;
+use sporktcp::iface::{Interface, SocketSet, SocketStorage};
+use sporktcp::phy::Medium;
 #[cfg(feature = "dhcpv4")]
-use smoltcp::socket::dhcpv4::{self, RetryConfig};
+use sporktcp::socket::dhcpv4::{self, RetryConfig};
 #[cfg(feature = "medium-ethernet")]
-pub use smoltcp::wire::EthernetAddress;
+pub use sporktcp::wire::EthernetAddress;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154", feature = "medium-ip"))]
-pub use smoltcp::wire::HardwareAddress;
+pub use sporktcp::wire::HardwareAddress;
 #[cfg(any(feature = "udp", feature = "tcp"))]
-pub use smoltcp::wire::IpListenEndpoint;
+pub use sporktcp::wire::IpListenEndpoint;
 #[cfg(feature = "medium-ieee802154")]
-pub use smoltcp::wire::{Ieee802154Address, Ieee802154Frame};
-pub use smoltcp::wire::{IpAddress, IpCidr, IpEndpoint};
+pub use sporktcp::wire::{Ieee802154Address, Ieee802154Frame};
+pub use sporktcp::wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
-pub use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
+pub use sporktcp::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
-pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
+pub use sporktcp::wire::{Ipv6Address, Ipv6Cidr};
 
 use crate::driver_util::DriverAdapter;
-use crate::time::{instant_from_smoltcp, instant_to_smoltcp};
+use crate::time::{instant_from_sporktcp, instant_to_sporktcp};
 
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
@@ -96,7 +96,7 @@ pub struct StackResources<const SOCK: usize> {
     queries: MaybeUninit<[Option<dns::DnsQuery>; MAX_QUERIES]>,
     #[cfg(feature = "dhcpv4-hostname")]
     hostname: HostnameResources,
-    // Retains the raw DHCP reply so options not parsed by smoltcp (NTP servers, option 42) can be
+    // Retains the raw DHCP reply so options not parsed by sporktcp (NTP servers, option 42) can be
     // read out. 576 is the minimum DHCP message size every server must respect (RFC 2131); an
     // undersized buffer never corrupts the IP configuration, it only drops the extra options.
     #[cfg(feature = "dhcpv4-ntp")]
@@ -105,7 +105,7 @@ pub struct StackResources<const SOCK: usize> {
 
 #[cfg(feature = "dhcpv4-hostname")]
 struct HostnameResources {
-    option: MaybeUninit<smoltcp::wire::DhcpOption<'static>>,
+    option: MaybeUninit<sporktcp::wire::DhcpOption<'static>>,
     data: MaybeUninit<[u8; MAX_HOSTNAME_LEN]>,
 }
 
@@ -190,8 +190,8 @@ impl Default for DhcpConfig {
             max_lease_duration: Default::default(),
             retry_config: Default::default(),
             ignore_naks: Default::default(),
-            server_port: smoltcp::wire::DHCP_SERVER_PORT,
-            client_port: smoltcp::wire::DHCP_CLIENT_PORT,
+            server_port: sporktcp::wire::DHCP_SERVER_PORT,
+            client_port: sporktcp::wire::DHCP_CLIENT_PORT,
             #[cfg(feature = "dhcpv4-hostname")]
             hostname: None,
         }
@@ -345,8 +345,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     resources: &'d mut StackResources<SOCK>,
     random_seed: u64,
 ) -> (Stack<'d>, Runner<'d, D>) {
-    let (hardware_address, medium) = to_smoltcp_hardware_address(driver.hardware_address());
-    let mut iface_cfg = smoltcp::iface::Config::new(hardware_address);
+    let (hardware_address, medium) = to_sporktcp_hardware_address(driver.hardware_address());
+    let mut iface_cfg = sporktcp::iface::Config::new(hardware_address);
     iface_cfg.random_seed = random_seed;
     #[cfg(feature = "slaac")]
     {
@@ -362,7 +362,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             medium,
             tx_exhausted: false,
         },
-        instant_to_smoltcp(Instant::now()),
+        instant_to_sporktcp(Instant::now()),
     );
 
     unsafe fn transmute_slice<T>(x: &mut [T]) -> &'static mut [T] {
@@ -420,9 +420,9 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     (stack, Runner { driver, stack })
 }
 
-/// Parse the NTP servers (DHCP option 42) out of the raw DHCP reply retained by smoltcp.
+/// Parse the NTP servers (DHCP option 42) out of the raw DHCP reply retained by sporktcp.
 ///
-/// smoltcp does not parse this option itself; it only exposes the raw packet (when a receive
+/// sporktcp does not parse this option itself; it only exposes the raw packet (when a receive
 /// buffer is set), leaving it to consumers to read out the options they care about.
 #[cfg(feature = "dhcpv4-ntp")]
 fn parse_dhcp_ntp_servers(config: &dhcpv4::Config) -> Vec<Ipv4Address, 4> {
@@ -438,7 +438,7 @@ fn parse_dhcp_ntp_servers(config: &dhcpv4::Config) -> Vec<Ipv4Address, 4> {
             continue;
         }
         for chunk in option.data.chunks_exact(4) {
-            // Drop any servers past our capacity, like smoltcp does for DNS servers.
+            // Drop any servers past our capacity, like sporktcp does for DNS servers.
             if servers
                 .push(Ipv4Address::from_octets(chunk.try_into().unwrap()))
                 .is_err()
@@ -450,7 +450,7 @@ fn parse_dhcp_ntp_servers(config: &dhcpv4::Config) -> Vec<Ipv4Address, 4> {
     servers
 }
 
-fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddress, Medium) {
+fn to_sporktcp_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddress, Medium) {
     match addr {
         #[cfg(feature = "medium-ethernet")]
         driver::HardwareAddress::Ethernet(eth) => (HardwareAddress::Ethernet(EthernetAddress(eth)), Medium::Ethernet),
@@ -621,7 +621,7 @@ impl<'d> Stack<'d> {
         &self,
         name: &str,
         qtype: dns::DnsQueryType,
-    ) -> Result<Vec<IpAddress, { smoltcp::config::DNS_MAX_RESULT_COUNT }>, dns::Error> {
+    ) -> Result<Vec<IpAddress, { sporktcp::config::DNS_MAX_RESULT_COUNT }>, dns::Error> {
         // For A and AAAA queries we try detect whether `name` is just an IP address
         match qtype {
             #[cfg(feature = "proto-ipv4")]
@@ -767,11 +767,11 @@ impl Inner {
                 // Create the socket if it doesn't exist.
                 if self.dhcp_socket.is_none() {
                     #[allow(unused_mut)]
-                    let mut socket = smoltcp::socket::dhcpv4::Socket::new();
+                    let mut socket = sporktcp::socket::dhcpv4::Socket::new();
 
                     #[cfg(feature = "dhcpv4-ntp")]
                     {
-                        // smoltcp doesn't parse options it doesn't know about (e.g. NTP), but it can
+                        // sporktcp doesn't parse options it doesn't know about (e.g. NTP), but it can
                         // retain the raw reply so we can read them out. safety: this pointer lives as
                         // long as the stack, since `new()` borrows the resources for `'d`.
                         let buffer = unsafe { &mut *self.dhcp_rx_buffer };
@@ -785,7 +785,7 @@ impl Inner {
                 // Configure it
                 let socket = self.sockets.get_mut::<dhcpv4::Socket>(unwrap!(self.dhcp_socket));
                 socket.set_ignore_naks(c.ignore_naks);
-                socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_smoltcp));
+                socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_sporktcp));
                 socket.set_ports(c.server_port, c.client_port);
                 socket.set_retry_config(c.retry_config);
 
@@ -795,7 +795,7 @@ impl Inner {
                     // safety:
                     // - we just did set_outgoing_options([]) so we know the socket is no longer holding a reference.
                     // - we know this pointer lives for as long as the stack exists, because `new()` borrows
-                    //   the resources for `'d`. Therefore it's OK to pass a reference to this to smoltcp.
+                    //   the resources for `'d`. Therefore it's OK to pass a reference to this to sporktcp.
                     let hostname = unsafe { &mut *self.hostname };
 
                     // create data
@@ -804,7 +804,7 @@ impl Inner {
                     let data: &[u8] = &data[..h.len()];
 
                     // set the option.
-                    let option = hostname.option.write(smoltcp::wire::DhcpOption { data, kind: 12 });
+                    let option = hostname.option.write(sporktcp::wire::DhcpOption { data, kind: 12 });
                     socket.set_outgoing_options(core::slice::from_ref(option));
                 }
 
@@ -915,7 +915,7 @@ impl Inner {
                 dns_servers.len()
             };
             self.sockets
-                .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
+                .get_mut::<sporktcp::socket::dns::Socket>(self.dns_socket)
                 .update_servers(&dns_servers[..count]);
         }
 
@@ -925,7 +925,7 @@ impl Inner {
     fn poll<D: Driver>(&mut self, cx: &mut Context<'_>, driver: &mut D) {
         self.waker.register(cx.waker());
 
-        let (_hardware_addr, medium) = to_smoltcp_hardware_address(driver.hardware_address());
+        let (_hardware_addr, medium) = to_sporktcp_hardware_address(driver.hardware_address());
 
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         {
@@ -961,7 +961,7 @@ impl Inner {
             self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle).reset();
         }
 
-        let timestamp = instant_to_smoltcp(Instant::now());
+        let timestamp = instant_to_sporktcp(Instant::now());
         let mut smoldev = DriverAdapter {
             cx: Some(cx),
             inner: driver,
@@ -1032,7 +1032,7 @@ impl Inner {
                 let config = StaticConfigV6 {
                     address: *address,
                     gateway,
-                    dns_servers: Vec::new(), // RDNSS not (yet) supported by smoltcp.
+                    dns_servers: Vec::new(), // RDNSS not (yet) supported by sporktcp.
                 };
                 Some(config)
             } else {
@@ -1048,7 +1048,7 @@ impl Inner {
         if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets)
             && !tx_exhausted
         {
-            let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
+            let t = pin!(Timer::at(instant_from_sporktcp(poll_at)));
             if t.poll(cx).is_ready() {
                 cx.waker().wake_by_ref();
             }

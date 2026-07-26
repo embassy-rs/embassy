@@ -19,4 +19,4 @@ target = "thumbv7em-none-eabi"
 #target = "thumbv8m.main-none-eabihf"
 
 [env]
-DEFMT_LOG = "trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,smoltcp=info"
+DEFMT_LOG = "trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,sporktcp=info"

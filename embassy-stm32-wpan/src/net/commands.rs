@@ -2,7 +2,7 @@
 
 use core::{mem, slice};
 
-use smoltcp::wire::ieee802154::Frame;
+use sporktcp::wire::ieee802154::Frame;
 
 use crate::net::iface::mlme::{RequestPacketKind, ResponsePacketKind};
 use crate::net::iface::{HostToControllerPacket, PacketKind, WriteHci, mcps, mlme};

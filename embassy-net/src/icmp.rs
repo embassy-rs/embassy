@@ -4,15 +4,15 @@ use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
-use smoltcp::iface::{Interface, SocketHandle};
-pub use smoltcp::phy::ChecksumCapabilities;
-use smoltcp::socket::icmp;
-pub use smoltcp::socket::icmp::{Endpoint as IcmpEndpoint, PacketMetadata};
-use smoltcp::wire::IpAddress;
+use sporktcp::iface::{Interface, SocketHandle};
+pub use sporktcp::phy::ChecksumCapabilities;
+use sporktcp::socket::icmp;
+pub use sporktcp::socket::icmp::{Endpoint as IcmpEndpoint, PacketMetadata};
+use sporktcp::wire::IpAddress;
 #[cfg(feature = "proto-ipv4")]
-pub use smoltcp::wire::{Icmpv4Message, Icmpv4Packet, Icmpv4Repr};
+pub use sporktcp::wire::{Icmpv4Message, Icmpv4Packet, Icmpv4Repr};
 #[cfg(feature = "proto-ipv6")]
-pub use smoltcp::wire::{Icmpv6Message, Icmpv6Packet, Icmpv6Repr};
+pub use sporktcp::wire::{Icmpv6Message, Icmpv6Packet, Icmpv6Repr};
 
 use crate::{Stack, TryError};
 
@@ -521,9 +521,9 @@ pub mod ping {
 
     use embassy_time::{Duration, Instant, Timer, WithTimeout};
     #[cfg(feature = "proto-ipv6")]
-    use smoltcp::wire::IpAddress;
+    use sporktcp::wire::IpAddress;
     #[cfg(feature = "proto-ipv6")]
-    use smoltcp::wire::Ipv6Address;
+    use sporktcp::wire::Ipv6Address;
 
     use super::*;
 
@@ -851,7 +851,7 @@ pub mod ping {
         /// Creates a new instance of [`PingParams`] with the specified target IP address.
         pub fn new<T: Into<IpAddr>>(target: T) -> Self {
             Self {
-                target: Some(PingParams::ip_addr_to_smoltcp(target)),
+                target: Some(PingParams::ip_addr_to_sporktcp(target)),
                 #[cfg(feature = "proto-ipv6")]
                 source: None,
                 payload: b"embassy-net",
@@ -862,7 +862,7 @@ pub mod ping {
             }
         }
 
-        fn ip_addr_to_smoltcp<T: Into<IpAddr>>(ip_addr: T) -> IpAddress {
+        fn ip_addr_to_sporktcp<T: Into<IpAddr>>(ip_addr: T) -> IpAddress {
             match ip_addr.into() {
                 #[cfg(feature = "proto-ipv4")]
                 IpAddr::V4(v4) => IpAddress::Ipv4(v4),
@@ -877,7 +877,7 @@ pub mod ping {
 
         /// Sets the target IP address for the ping.
         pub fn set_target<T: Into<IpAddr>>(&mut self, target: T) -> &mut Self {
-            self.target = Some(PingParams::ip_addr_to_smoltcp(target));
+            self.target = Some(PingParams::ip_addr_to_sporktcp(target));
             self
         }
 

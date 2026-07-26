@@ -92,7 +92,7 @@ impl TunTap {
             let ip_mtu = ip_mtu? as usize;
 
             // SIOCGIFMTU returns the IP MTU (typically 1500 bytes.)
-            // smoltcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
+            // sporktcp counts the entire Ethernet packet in the MTU, so add the Ethernet header size to it.
             ip_mtu + ETHERNET_HEADER_LEN
         };
 
@@ -144,7 +144,7 @@ impl TunTapDevice {
     /// Sets the MAC address of the TAP device.
     ///
     /// Note that this can not be completely random; for example, choosing a multicast address
-    /// (least significant bit of the first octet is 1) would cause smoltcp to crash.
+    /// (least significant bit of the first octet is 1) would cause sporktcp to crash.
     pub fn set_hardware_address(&mut self, hardware_address: [u8; 6]) {
         self.hardware_address = hardware_address;
     }

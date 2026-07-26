@@ -275,7 +275,7 @@ impl RDesInfo {
         }
 
         // Hardware checksum offload: the MAC verified the IPv4 header
-        // and the TCP/UDP payload checksums. smoltcp is told not to re-verify
+        // and the TCP/UDP payload checksums. sporktcp is told not to re-verify
         // these (see the driver `capabilities`), so a frame the MAC flagged as
         // bad must be dropped here.
 

@@ -4,10 +4,10 @@ use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
-use smoltcp::iface::{Interface, SocketHandle};
-use smoltcp::socket::raw;
-pub use smoltcp::socket::raw::PacketMetadata;
-pub use smoltcp::wire::{IpProtocol, IpVersion};
+use sporktcp::iface::{Interface, SocketHandle};
+use sporktcp::socket::raw;
+pub use sporktcp::socket::raw::PacketMetadata;
+pub use sporktcp::wire::{IpProtocol, IpVersion};
 
 use crate::{Stack, TryError};
 
