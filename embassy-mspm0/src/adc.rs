@@ -4,13 +4,13 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{impl_peripheral, PeripheralType};
+use embassy_hal_internal::{PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
-use crate::pac::adc::{vals, Adc as Regs};
-use crate::{interrupt, Peri};
+use crate::pac::adc::{Adc as Regs, vals};
+use crate::{Peri, interrupt};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {

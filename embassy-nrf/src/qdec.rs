@@ -16,8 +16,10 @@ use crate::pac::qdec::vals;
 use crate::{interrupt, pac};
 
 /// Quadrature decoder driver.
-pub struct Qdec<'d, T: Instance> {
-    _p: Peri<'d, T>,
+pub struct Qdec<'d> {
+    r: pac::qdec::Qdec,
+    state: &'static State,
+    _phantom: PhantomData<&'d ()>,
 }
 
 /// QDEC config
@@ -59,9 +61,9 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-impl<'d, T: Instance> Qdec<'d, T> {
+impl<'d> Qdec<'d> {
     /// Create a new QDEC.
-    pub fn new(
+    pub fn new<T: Instance>(
         qdec: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         a: Peri<'d, impl GpioPin>,
@@ -72,7 +74,7 @@ impl<'d, T: Instance> Qdec<'d, T> {
     }
 
     /// Create a new QDEC, with a pin for LED output.
-    pub fn new_with_led(
+    pub fn new_with_led<T: Instance>(
         qdec: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         a: Peri<'d, impl GpioPin>,
@@ -83,8 +85,8 @@ impl<'d, T: Instance> Qdec<'d, T> {
         Self::new_inner(qdec, a.into(), b.into(), Some(led.into()), config)
     }
 
-    fn new_inner(
-        p: Peri<'d, T>,
+    fn new_inner<T: Instance>(
+        _p: Peri<'d, T>,
         a: Peri<'d, AnyPin>,
         b: Peri<'d, AnyPin>,
         led: Option<Peri<'d, AnyPin>>,
@@ -94,17 +96,17 @@ impl<'d, T: Instance> Qdec<'d, T> {
 
         // Select pins.
         a.conf().write(|w| {
-            w.set_input(gpiovals::Input::CONNECT);
-            w.set_pull(gpiovals::Pull::PULLUP);
+            w.set_input(gpiovals::Input::Connect);
+            w.set_pull(gpiovals::Pull::Pullup);
         });
         b.conf().write(|w| {
-            w.set_input(gpiovals::Input::CONNECT);
-            w.set_pull(gpiovals::Pull::PULLUP);
+            w.set_input(gpiovals::Input::Connect);
+            w.set_pull(gpiovals::Pull::Pullup);
         });
         r.psel().a().write_value(a.psel_bits());
         r.psel().b().write_value(b.psel_bits());
         if let Some(led_pin) = &led {
-            led_pin.conf().write(|w| w.set_dir(gpiovals::Dir::OUTPUT));
+            led_pin.conf().write(|w| w.set_dir(gpiovals::Dir::Output));
             r.psel().led().write_value(led_pin.psel_bits());
         }
 
@@ -116,8 +118,8 @@ impl<'d, T: Instance> Qdec<'d, T> {
 
         // Set LED output pin polarity
         r.ledpol().write(|w| match config.led_polarity {
-            LedPolarity::ActiveHigh => w.set_ledpol(vals::Ledpol::ACTIVE_HIGH),
-            LedPolarity::ActiveLow => w.set_ledpol(vals::Ledpol::ACTIVE_LOW),
+            LedPolarity::ActiveHigh => w.set_ledpol(vals::Ledpol::ActiveHigh),
+            LedPolarity::ActiveLow => w.set_ledpol(vals::Ledpol::ActiveLow),
         });
 
         // Set time period the LED is switched ON prior to sampling (0..511 us).
@@ -125,17 +127,17 @@ impl<'d, T: Instance> Qdec<'d, T> {
 
         // Set sample period
         r.sampleper().write(|w| match config.period {
-            SamplePeriod::_128us => w.set_sampleper(vals::Sampleper::_128US),
-            SamplePeriod::_256us => w.set_sampleper(vals::Sampleper::_256US),
-            SamplePeriod::_512us => w.set_sampleper(vals::Sampleper::_512US),
-            SamplePeriod::_1024us => w.set_sampleper(vals::Sampleper::_1024US),
-            SamplePeriod::_2048us => w.set_sampleper(vals::Sampleper::_2048US),
-            SamplePeriod::_4096us => w.set_sampleper(vals::Sampleper::_4096US),
-            SamplePeriod::_8192us => w.set_sampleper(vals::Sampleper::_8192US),
-            SamplePeriod::_16384us => w.set_sampleper(vals::Sampleper::_16384US),
-            SamplePeriod::_32ms => w.set_sampleper(vals::Sampleper::_32MS),
-            SamplePeriod::_65ms => w.set_sampleper(vals::Sampleper::_65MS),
-            SamplePeriod::_131ms => w.set_sampleper(vals::Sampleper::_131MS),
+            SamplePeriod::_128us => w.set_sampleper(vals::Sampleper::_128us),
+            SamplePeriod::_256us => w.set_sampleper(vals::Sampleper::_256us),
+            SamplePeriod::_512us => w.set_sampleper(vals::Sampleper::_512us),
+            SamplePeriod::_1024us => w.set_sampleper(vals::Sampleper::_1024us),
+            SamplePeriod::_2048us => w.set_sampleper(vals::Sampleper::_2048us),
+            SamplePeriod::_4096us => w.set_sampleper(vals::Sampleper::_4096us),
+            SamplePeriod::_8192us => w.set_sampleper(vals::Sampleper::_8192us),
+            SamplePeriod::_16384us => w.set_sampleper(vals::Sampleper::_16384us),
+            SamplePeriod::_32ms => w.set_sampleper(vals::Sampleper::_32ms),
+            SamplePeriod::_65ms => w.set_sampleper(vals::Sampleper::_65ms),
+            SamplePeriod::_131ms => w.set_sampleper(vals::Sampleper::_131ms),
         });
 
         T::Interrupt::unpend();
@@ -147,13 +149,20 @@ impl<'d, T: Instance> Qdec<'d, T> {
         // Start sampling
         r.tasks_start().write_value(1);
 
-        Self { _p: p }
+        Self {
+            r: T::regs(),
+            state: T::state(),
+            _phantom: PhantomData,
+        }
     }
 
     /// Perform an asynchronous read of the decoder.
-    /// The returned future can be awaited to obtain the number of steps.
+    /// The returned future can be awaited to obtain the number of steps
+    /// accumulated since the previous read.
     ///
-    /// If the future is dropped, the read is cancelled.
+    /// This method is cancel-safe: if the future is dropped before it
+    /// completes, no counts are lost; they stay in the accumulator and are
+    /// returned by the next read.
     ///
     /// # Example
     ///
@@ -173,17 +182,18 @@ impl<'d, T: Instance> Qdec<'d, T> {
     /// # };
     /// ```
     pub async fn read(&mut self) -> i16 {
-        let t = T::regs();
-        t.intenset().write(|w| w.set_reportrdy(true));
-        t.tasks_readclracc().write_value(1);
+        self.r.intenset().write(|w| w.set_reportrdy(true));
 
-        poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
-            if t.events_reportrdy().read() == 0 {
+        let state = self.state;
+        let r = self.r;
+        poll_fn(move |cx| {
+            state.waker.register(cx.waker());
+            if r.events_reportrdy().read() == 0 {
                 Poll::Pending
             } else {
-                t.events_reportrdy().write_value(0);
-                let acc = t.accread().read();
+                r.events_reportrdy().write_value(0);
+                r.tasks_readclracc().write_value(1);
+                let acc = r.accread().read();
                 Poll::Ready(acc as i16)
             }
         })

@@ -158,7 +158,7 @@ pub fn get_chipid() -> Result<u64, Error> {
 /// or the ROM get_sys_info() API. However note that the USB PICOBOOT OTP
 /// access point can read the entirety of page 0, so this value is not
 /// meaningfully private unless the USB PICOBOOT interface is disabled via the
-//// DISABLE_BOOTSEL_USB_PICOBOOT_IFC flag in BOOT_FLAGS0
+/// DISABLE_BOOTSEL_USB_PICOBOOT_IFC flag in BOOT_FLAGS0
 pub fn get_private_random_number() -> Result<u128, Error> {
     let w0 = read_ecc_word(0x004)?.to_be_bytes();
     let w1 = read_ecc_word(0x005)?.to_be_bytes();

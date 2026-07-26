@@ -113,12 +113,12 @@ static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
 
 #[interrupt]
 unsafe fn USART1() {
-    EXECUTOR_HIGH.on_interrupt()
+    unsafe { EXECUTOR_HIGH.on_interrupt() }
 }
 
 #[interrupt]
 unsafe fn USART2() {
-    EXECUTOR_MED.on_interrupt()
+    unsafe { EXECUTOR_MED.on_interrupt() }
 }
 
 #[entry]

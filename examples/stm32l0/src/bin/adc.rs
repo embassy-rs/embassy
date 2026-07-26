@@ -13,17 +13,16 @@ bind_interrupts!(struct Irqs {
     ADC1_COMP => adc::InterruptHandler<ADC1>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC1, Irqs);
-    adc.set_sample_time(SampleTime::CYCLES79_5);
     let mut pin = p.PA1;
 
     let mut vrefint = adc.enable_vref();
-    let vrefint_sample = adc.read(&mut vrefint).await;
+    let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::Cycles795);
     let convert_to_millivolts = |sample| {
         // From https://www.st.com/resource/en/datasheet/stm32l051c6.pdf
         // 6.3.3 Embedded internal reference voltage
@@ -33,7 +32,7 @@ async fn main(_spawner: Spawner) {
     };
 
     loop {
-        let v = adc.read(&mut pin).await;
+        let v = adc.blocking_read(&mut pin, SampleTime::Cycles795);
         info!("--> {} - {} mV", v, convert_to_millivolts(v));
         Timer::after_millis(100).await;
     }

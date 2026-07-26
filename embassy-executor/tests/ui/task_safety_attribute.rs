@@ -9,7 +9,7 @@ async fn safe() {}
 #[embassy_executor::task]
 async unsafe fn not_safe() {}
 
-#[export_name = "__pender"]
+#[unsafe(export_name = "__pender")]
 fn pender(_: *mut ()) {
     // The test doesn't link if we don't include this.
     // We never call this anyway.

@@ -1,4 +1,4 @@
-use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering, compiler_fence};
 
 #[derive(Clone, Copy)]
 pub(crate) struct Token(());

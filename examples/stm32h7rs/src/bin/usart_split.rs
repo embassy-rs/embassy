@@ -5,13 +5,15 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{Config, Uart, UartRx};
-use embassy_stm32::{bind_interrupts, peripherals, usart};
+use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     UART7 => usart::InterruptHandler<peripherals::UART7>;
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
 
 static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
@@ -22,7 +24,7 @@ async fn main(spawner: Spawner) -> ! {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, Irqs, p.GPDMA1_CH0, p.GPDMA1_CH1, config).unwrap();
+    let mut usart = Uart::new(p.UART7, p.PF6, p.PF7, p.GPDMA1_CH0, p.GPDMA1_CH1, Irqs, config).unwrap();
     unwrap!(usart.blocking_write(b"Type 8 chars to echo!\r\n"));
 
     let (mut tx, rx) = usart.split();

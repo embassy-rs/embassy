@@ -9,16 +9,16 @@ help: indicate the anonymous lifetime
 6 | async fn task(_x: Foo<'_>) {}
   |                      ++++
 
-error[E0700]: hidden type for `impl Sized` captures lifetime that does not appear in bounds
+error: lifetime may not live long enough
  --> tests/ui/nonstatic_struct_elided.rs:5:1
   |
 5 | #[embassy_executor::task]
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^ opaque type defined here
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ returning this value requires that `'1` must outlive `'static`
 6 | async fn task(_x: Foo) {}
-  |                   --- hidden type `impl Sized` captures the anonymous lifetime defined here
+  |               -- has type `Foo<'1>`
   |
   = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
-help: add a `use<...>` bound to explicitly capture `'_`
+help: to declare that `impl Sized` captures data from argument `_x`, you can add an explicit `'_` lifetime bound
   |
-5 | #[embassy_executor::task] + use<'_>
-  |                           +++++++++
+5 | #[embassy_executor::task] + '_
+  |                           ++++

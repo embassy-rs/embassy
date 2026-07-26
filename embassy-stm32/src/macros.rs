@@ -45,11 +45,11 @@ macro_rules! pin_trait {
         #[doc = concat!(stringify!($signal), " pin trait")]
         pub trait $signal<T: $instance $(, M: $mode)? $(, #[cfg(afio)] $afio)?>: crate::gpio::Pin {
             #[cfg(not(afio))]
-            #[doc = concat!("Get the AF number needed to use this pin as ", stringify!($signal))]
+            #[doc = concat!("Get the AF number needed to use this pin as `", stringify!($signal),"`.")]
             fn af_num(&self) -> u8;
 
             #[cfg(afio)]
-            #[doc = concat!("Configures AFIO_MAPR to use this pin as ", stringify!($signal))]
+            #[doc = concat!("Configures AFIO_MAPR to use this pin as `", stringify!($signal),"`.")]
             fn afio_remap(&self);
         }
     };
@@ -77,7 +77,7 @@ macro_rules! pin_trait_impl {
 macro_rules! pin_trait_afio_impl {
     (@set mapr, $setter:ident, $val:expr) => {
         crate::pac::AFIO.mapr().modify(|w| {
-            w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
+            w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NoOp);
             w.$setter($val);
         });
     };
@@ -106,6 +106,29 @@ macro_rules! pin_trait_afio_impl {
     };
 }
 
+#[cfg(any(comp_u5, comp_v1, comp_v2, opamp))]
+macro_rules! analog_pin_trait {
+    ($signal:ident, $instance:path $(, $mode:path)?) => {
+        #[doc = concat!(stringify!($signal), " pin trait")]
+        pub trait $signal<T: $instance $(, M: $mode)?>: crate::gpio::Pin {
+            #[cfg(not(afio))]
+            #[doc = concat!("Get the channel number needed to use this pin as `", stringify!($signal),"`.")]
+            fn channel(&self) -> u8;
+        }
+    };
+}
+
+#[cfg(any(comp_u5, comp_v1, comp_v2, opamp))]
+macro_rules! analog_pin_trait_impl {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $channel:expr) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
+            fn channel(&self) -> u8 {
+                $channel
+            }
+        }
+    };
+}
+
 #[allow(unused_macros)]
 macro_rules! sel_trait_impl {
     (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $sel:expr) => {
@@ -122,8 +145,8 @@ macro_rules! sel_trait_impl {
 macro_rules! dma_trait {
     ($signal:ident, $instance:path$(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " DMA request trait")]
-        pub trait $signal<T: $instance $(, M: $mode)?>: crate::dma::Channel {
-            #[doc = concat!("Get the DMA request number needed to use this channel as", stringify!($signal))]
+        pub trait $signal<T: $instance $(, M: $mode)?>: crate::dma::ChannelInstance {
+            #[doc = concat!("Get the DMA request number needed to use this channel as `", stringify!($signal),"`.")]
             /// Note: in some chips, ST calls this the "channel", and calls channels "streams".
             /// `embassy-stm32` always uses the "channel" and "request number" names.
             fn request(&self) -> crate::dma::Request;
@@ -153,27 +176,46 @@ macro_rules! dma_trait_impl {
     };
 }
 
+// ====================
+
+#[allow(unused)]
+macro_rules! trigger_trait {
+    ($signal:ident, $instance:path$(, $mode:path)?) => {
+        #[doc = concat!(stringify!($signal), " trigger trait")]
+        pub trait $signal<T: $instance $(, M: $mode)?>  {
+            #[doc = concat!("Get the signal number needed to use this trigger as `", stringify!($signal),"`.")]
+            /// Note: in some chips, ST calls this the "channel", and calls channels "streams".
+            /// `embassy-stm32` always uses the "channel" and "request number" names.
+            fn signal(&self) -> u8;
+        }
+    };
+}
+
+#[allow(unused)]
+macro_rules! trigger_trait_impl {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $trigger:ident, $signal:expr) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::triggers::$trigger {
+            fn signal(&self) -> u8 {
+                $signal
+            }
+        }
+    };
+}
+
 #[allow(unused)]
 macro_rules! new_dma_nonopt {
-    ($name:ident) => {{
+    ($name:ident, $irqs:expr) => {{
         let dma = $name;
-        let request = dma.request();
-        crate::dma::ChannelAndRequest {
-            channel: dma.into(),
-            request,
-        }
+        dma.remap();
+        crate::dma::ChannelAndRequest::new(dma.request(), dma, $irqs)
     }};
 }
 
 macro_rules! new_dma {
-    ($name:ident) => {{
+    ($name:ident, $irqs:expr) => {{
         let dma = $name;
         dma.remap();
-        let request = dma.request();
-        Some(crate::dma::ChannelAndRequest {
-            channel: dma.into(),
-            request,
-        })
+        Some(crate::dma::ChannelAndRequest::new(dma.request(), dma, $irqs))
     }};
 }
 
@@ -187,7 +229,7 @@ macro_rules! new_pin {
             pin.af_num(),
             $af_type,
         );
-        Some(pin.into())
+        Some(crate::gpio::Flex::new(pin))
     }};
 }
 
@@ -248,5 +290,47 @@ macro_rules! if_afio {
     };
     (impl $trait:ident<$a:ty, $b:ty, $c:ty, A>) => {
         impl $trait<$a, $b, $c>
+    };
+}
+
+/// Defines a `u8`-backed enum with `from_bits`/`to_bits`/`From` conversions.
+///
+/// Used to shim PAC `vals` enums on chips whose generated PAC blocks omit
+/// the `vals` module entirely (e.g. N6 lptim/sai).
+#[cfg(any(sai_n6, lptim_n6))]
+macro_rules! u8_enum {
+    ($name:ident { $($variant:ident = $val:expr),* $(,)? }) => {
+        #[repr(u8)]
+        #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        pub enum $name {
+            $($variant = $val,)*
+        }
+
+        impl $name {
+            #[inline(always)]
+            pub const fn from_bits(val: u8) -> Self {
+                unsafe { core::mem::transmute(val) }
+            }
+
+            #[inline(always)]
+            pub const fn to_bits(self) -> u8 {
+                self as u8
+            }
+        }
+
+        impl From<u8> for $name {
+            #[inline(always)]
+            fn from(val: u8) -> Self {
+                Self::from_bits(val)
+            }
+        }
+
+        impl From<$name> for u8 {
+            #[inline(always)]
+            fn from(val: $name) -> u8 {
+                val.to_bits()
+            }
+        }
     };
 }

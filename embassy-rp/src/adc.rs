@@ -1,18 +1,18 @@
 //! ADC driver.
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::mem;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{self, AnyPin, Pull, SealedPin as GpioPin};
-use crate::interrupt::typelevel::Binding;
 use crate::interrupt::InterruptExt;
+use crate::interrupt::typelevel::Binding;
 use crate::pac::dma::vals::TreqSel;
 use crate::peripherals::{ADC, ADC_TEMP_SENSOR};
-use crate::{dma, interrupt, pac, peripherals, Peri, RegExt};
+use crate::{Peri, RegExt, dma, interrupt, pac, peripherals};
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -242,7 +242,7 @@ impl<'d> Adc<'d, Async> {
         buf: &mut [W],
         fcs_err: bool,
         div: u16,
-        dma: Peri<'_, impl dma::Channel>,
+        dma_ch: &mut dma::Channel<'_>,
     ) -> Result<(), Error> {
         #[cfg(feature = "rp2040")]
         let mut rrobin = 0_u8;
@@ -296,11 +296,11 @@ impl<'d> Adc<'d, Async> {
         }
         let auto_reset = ResetDmaConfig;
 
-        let dma = unsafe { dma::read(dma, r.fifo().as_ptr() as *const W, buf as *mut [W], TreqSel::ADC) };
+        let dma = unsafe { dma_ch.read(r.fifo().as_ptr() as *const W, buf as *mut [W], TreqSel::Adc, false) };
         // start conversions and wait for dma to finish. we can't report errors early
         // because there's no interrupt to signal them, and inspecting every element
         // of the fifo is too costly to do here.
-        r.div().write_set(|w| w.set_int(div));
+        r.div().modify(|w| w.set_int(div));
         r.cs().write_set(|w| w.set_start_many(true));
         dma.await;
         mem::drop(auto_reset);
@@ -323,7 +323,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut [Channel<'_>],
         buf: &mut [S],
         div: u16,
-        dma: Peri<'_, impl dma::Channel>,
+        dma: &mut dma::Channel<'_>,
     ) -> Result<(), Error> {
         self.read_many_inner(ch.iter().map(|c| c.channel()), buf, false, div, dma)
             .await
@@ -339,7 +339,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut [Channel<'_>],
         buf: &mut [Sample],
         div: u16,
-        dma: Peri<'_, impl dma::Channel>,
+        dma: &mut dma::Channel<'_>,
     ) {
         // errors are reported in individual samples
         let _ = self
@@ -362,7 +362,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [S],
         div: u16,
-        dma: Peri<'_, impl dma::Channel>,
+        dma: &mut dma::Channel<'_>,
     ) -> Result<(), Error> {
         self.read_many_inner([ch.channel()].into_iter(), buf, false, div, dma)
             .await
@@ -377,7 +377,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [Sample],
         div: u16,
-        dma: Peri<'_, impl dma::Channel>,
+        dma: &mut dma::Channel<'_>,
     ) {
         // errors are reported in individual samples
         let _ = self

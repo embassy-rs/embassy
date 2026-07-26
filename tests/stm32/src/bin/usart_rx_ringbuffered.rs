@@ -12,11 +12,15 @@ use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{Config, DataBits, Parity, RingBufferedUartRx, StopBits, Uart, UartTx};
 use embassy_time::Timer;
 use rand_chacha::ChaCha8Rng;
-use rand_core::{RngCore, SeedableRng};
+use rand_core::{Rng, SeedableRng};
 
 const DMA_BUF_SIZE: usize = 256;
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(spawner: Spawner) {
     let p = init();
     info!("Hello World!");
@@ -40,7 +44,7 @@ async fn main(spawner: Spawner) {
     config.stop_bits = StopBits::STOP1;
     config.parity = Parity::ParityNone;
 
-    let usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config).unwrap();
+    let usart = Uart::new(usart, rx, tx, tx_dma, rx_dma, irq, config).unwrap();
     let (tx, rx) = usart.split();
     static mut DMA_BUF: [u8; DMA_BUF_SIZE] = [0; DMA_BUF_SIZE];
     let rx = rx.into_ring_buffered(unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) });

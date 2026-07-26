@@ -11,14 +11,14 @@ impl super::Rtc {
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
-                #[cfg(not(rtc_v2f2))]
+                #[cfg(not(rtc_v2_f2))]
                 w.set_bypshad(true);
-                #[cfg(rtc_v2f2)]
+                #[cfg(rtc_v2_f2)]
                 w.set_fmt(false);
-                #[cfg(not(rtc_v2f2))]
-                w.set_fmt(stm32_metapac::rtc::vals::Fmt::TWENTY_FOUR_HOUR);
-                w.set_osel(Osel::DISABLED);
-                w.set_pol(Pol::HIGH);
+                #[cfg(not(rtc_v2_f2))]
+                w.set_fmt(stm32_metapac::rtc::vals::Fmt::TwentyFourHour);
+                w.set_osel(Osel::Disabled);
+                w.set_pol(Pol::High);
             });
 
             rtc.prer().modify(|w| {
@@ -36,7 +36,7 @@ impl super::Rtc {
     ///
     /// To perform a calibration when `async_prescaler` is less then 3, `sync_prescaler`
     /// has to be reduced accordingly (see RM0351 Rev 9, sec 38.3.12).
-    #[cfg(not(rtc_v2f2))]
+    #[cfg(not(rtc_v2_f2))]
     pub fn calibrate(&mut self, mut clock_drift: f32, period: super::RtcCalibrationCyclePeriod) {
         const RTC_CALR_MIN_PPM: f32 = -487.1;
         const RTC_CALR_MAX_PPM: f32 = 488.5;
@@ -54,10 +54,10 @@ impl super::Rtc {
             rtc.calr().write(|w| {
                 match period {
                     super::RtcCalibrationCyclePeriod::Seconds8 => {
-                        w.set_calw8(stm32_metapac::rtc::vals::Calw8::EIGHT_SECOND);
+                        w.set_calw8(stm32_metapac::rtc::vals::Calw8::EightSecond);
                     }
                     super::RtcCalibrationCyclePeriod::Seconds16 => {
-                        w.set_calw16(stm32_metapac::rtc::vals::Calw16::SIXTEEN_SECOND);
+                        w.set_calw16(stm32_metapac::rtc::vals::Calw16::SixteenSecond);
                     }
                     super::RtcCalibrationCyclePeriod::Seconds32 => {
                         // Set neither `calw8` nor `calw16` to use 32 seconds
@@ -77,7 +77,7 @@ impl super::Rtc {
                     // When the offset is positive (0 to 512), the opposite of
                     // the offset (512 - offset) is masked, i.e. for the
                     // maximum offset (512), 0 pulses are masked.
-                    w.set_calp(stm32_metapac::rtc::vals::Calp::INCREASE_FREQ);
+                    w.set_calp(stm32_metapac::rtc::vals::Calp::IncreaseFreq);
                     w.set_calm(512 - clock_drift as u16);
                 } else {
                     // Minimum (about -510.7) rounds to -511.
@@ -86,14 +86,14 @@ impl super::Rtc {
                     // When the offset is negative or zero (-511 to 0),
                     // the absolute offset is masked, i.e. for the minimum
                     // offset (-511), 511 pulses are masked.
-                    w.set_calp(stm32_metapac::rtc::vals::Calp::NO_CHANGE);
+                    w.set_calp(stm32_metapac::rtc::vals::Calp::NoChange);
                     w.set_calm((clock_drift * -1.0) as u16);
                 }
             });
         })
     }
 
-    pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
+    pub(super) fn write<F, R>(&mut self, init_mode: bool, f: F) -> R
     where
         F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
@@ -145,6 +145,11 @@ impl SealedInstance for crate::peripherals::RTC {
 
     #[cfg(all(feature = "low-power", stm32l0))]
     type WakeupInterrupt = crate::interrupt::typelevel::RTC;
+
+    #[cfg(not(rtc_v2_f2))]
+    fn shpf() -> bool {
+        Self::regs().isr().read().shpf()
+    }
 
     fn read_backup_register(rtc: Rtc, register: usize) -> Option<u32> {
         if register < Self::BACKUP_REGISTER_COUNT {

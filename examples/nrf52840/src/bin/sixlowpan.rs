@@ -21,7 +21,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn ieee802154_task(runner: net::Runner<'static, peripherals::RADIO>) -> ! {
+async fn ieee802154_task(runner: net::Runner<'static>) -> ! {
     runner.run().await
 }
 

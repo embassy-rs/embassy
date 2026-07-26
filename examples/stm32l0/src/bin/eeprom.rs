@@ -3,10 +3,10 @@
 
 use defmt::{info, unwrap};
 use embassy_executor::Spawner;
-use embassy_stm32::flash::{Flash, EEPROM_BASE, EEPROM_SIZE};
+use embassy_stm32::flash::{EEPROM_BASE, EEPROM_SIZE, Flash};
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
 

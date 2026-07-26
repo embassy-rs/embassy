@@ -1,6 +1,6 @@
 //! Interrupt handling for cortex-m devices.
 use core::mem;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
@@ -137,7 +137,7 @@ macro_rules! interrupt_mod {
                 /// to be called every time the `I` interrupt fires.
                 ///
                 /// This allows drivers to check bindings at compile-time.
-                pub unsafe trait Binding<I: Interrupt, H: Handler<I>> {}
+                pub unsafe trait Binding<I: Interrupt, H: Handler<I>>: Copy {}
             }
         }
     };

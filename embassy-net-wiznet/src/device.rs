@@ -87,8 +87,7 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
         let mut version = [0];
         this.bus_read(C::COMMON_VERSION, &mut version).await?;
         if version[0] != C::CHIP_VERSION {
-            #[cfg(feature = "defmt")]
-            defmt::error!("invalid chip version: {} (expected {})", version[0], C::CHIP_VERSION);
+            error!("invalid chip version: {} (expected {})", version[0], C::CHIP_VERSION);
             return Err(InitError::InvalidChipVersion {
                 actual: version[0],
                 expected: C::CHIP_VERSION,
@@ -209,18 +208,34 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
         let expected_frame_size: usize = {
             let mut frame_bytes = [0u8; 2];
             self.read_bytes(&mut read_ptr, &mut frame_bytes).await?;
-            u16::from_be_bytes(frame_bytes) as usize - 2
+            let raw = u16::from_be_bytes(frame_bytes) as usize;
+            if raw < 2 {
+                // Corrupted header — advance read pointer past it and discard.
+                warn!("wiznet rx: bogus frame size {}, discarding", raw);
+                self.set_rx_read_ptr(read_ptr).await?;
+                self.command(Command::Receive).await?;
+                return Ok(0);
+            }
+            raw - 2
         };
 
+        // Cap to frame buffer length to prevent out-of-bounds access when
+        // a corrupted header reports a size larger than the buffer.
+        let read_len = expected_frame_size.min(frame.len());
+
         // Read the ethernet frame
-        self.read_bytes(&mut read_ptr, &mut frame[..expected_frame_size])
-            .await?;
+        self.read_bytes(&mut read_ptr, &mut frame[..read_len]).await?;
+
+        // If the frame was larger than our buffer, skip the remaining bytes
+        if expected_frame_size > read_len {
+            read_ptr = read_ptr.wrapping_add((expected_frame_size - read_len) as u16);
+        }
 
         // Register RX as completed
         self.set_rx_read_ptr(read_ptr).await?;
         self.command(Command::Receive).await?;
 
-        Ok(expected_frame_size)
+        Ok(read_len)
     }
 
     /// Write an ethernet frame to the device. Returns number of bytes written

@@ -1,6 +1,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 #![allow(async_fn_in_trait)]
 #![allow(clippy::new_without_default)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -18,6 +19,7 @@ pub mod once_lock;
 pub mod pipe;
 pub mod priority_channel;
 pub mod pubsub;
+pub mod rpc_service;
 pub mod rwlock;
 pub mod semaphore;
 pub mod signal;

@@ -5,9 +5,9 @@ use core::task::Poll;
 
 use pac::i2c;
 
-use crate::i2c::{set_up_i2c_pin, AbortReason, Instance, InterruptHandler, SclPin, SdaPin, FIFO_SIZE};
+use crate::i2c::{AbortReason, FIFO_SIZE, Instance, InterruptHandler, SclPin, SdaPin, set_up_i2c_pin};
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{pac, Peri};
+use crate::{Peri, pac};
 
 /// I2C error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -52,7 +52,7 @@ pub enum ReadStatus {
     Done,
     /// Transaction Incomplete, controller trying to read more bytes than were provided
     NeedMoreBytes,
-    /// Transaction Complere, but controller stopped reading bytes before we ran out
+    /// Transaction Complete, but controller stopped reading bytes before we ran out
     LeftoverBytes(u16),
 }
 
@@ -142,7 +142,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
             // This typically makes no sense for a slave, but it is used to
             // tune spike suppression, according to the datasheet.
-            w.set_speed(pac::i2c::vals::Speed::FAST);
+            w.set_speed(pac::i2c::vals::Speed::Fast);
 
             // Generate stop interrupts for general calls
             // This also causes stop interrupts for other devices on the bus but those will not be
@@ -240,7 +240,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
                 if p.ic_rxflr().read().rxflr() > 0 || me.pending_byte.is_some() {
                     me.drain_fifo(buffer, &mut len);
-                    // we're recieving data, set rx fifo watermark to 12 bytes (3/4 full) to reduce interrupt noise
+                    // we're receiving data, set rx fifo watermark to 12 bytes (3/4 full) to reduce interrupt noise
                     p.ic_rx_tl().write(|w| w.set_rx_tl(11));
                 }
 

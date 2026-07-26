@@ -10,7 +10,7 @@
 
 #![cfg(feature = "_rp235x")]
 
-use critical_section::{acquire, release, CriticalSection, RestoreState};
+use critical_section::{CriticalSection, RestoreState, acquire, release};
 
 use crate::pac;
 use crate::qmi_cs1::QmiCs1;
@@ -251,7 +251,7 @@ impl<'d> Psram<'d> {
     }
 
     /// Verify APS6404L PSRAM device matches expected configuration.
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[inline(never)]
     fn verify_aps6404l(qmi: &pac::qmi::Qmi, expected_size: usize) -> Result<(), Error> {
         // APS6404L-specific constants
@@ -306,7 +306,7 @@ impl<'d> Psram<'d> {
         Ok(())
     }
 
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[inline(never)]
     unsafe fn read_aps6404l_kgd_eid(qmi: &pac::qmi::Qmi) -> (u32, u32) {
         const RESET_ENABLE_CMD: u8 = 0xf5;
@@ -435,7 +435,7 @@ impl<'d> Psram<'d> {
     }
 
     /// Initialize PSRAM with proper timing.
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[inline(never)]
     fn init_psram(qmi: &pac::qmi::Qmi, xip_ctrl: &pac::xip_ctrl::XipCtrl, config: &Config) -> Result<(), Error> {
         // Set PSRAM timing for APS6404
@@ -458,7 +458,7 @@ impl<'d> Psram<'d> {
         // - Max select must be <= 8 us. The value is given in multiples of 64 system clocks.
         // - Min deselect must be >= 18ns. The value is given in system clock cycles - ceil(divisor / 2).
         let clock_period_fs: u64 = 1_000_000_000_000_000_u64 / u64::from(clock_hz);
-        let max_select: u8 = ((config.max_select_us as u64 * 1_000_000) / clock_period_fs) as u8;
+        let max_select: u8 = (((config.max_select_us as u64 * 1_000_000_000) / clock_period_fs) / 64) as u8;
         let min_deselect: u32 = ((config.min_deselect_ns as u64 * 1_000_000 + (clock_period_fs - 1)) / clock_period_fs
             - u64::from(divisor + 1) / 2) as u32;
 
@@ -488,7 +488,7 @@ impl<'d> Psram<'d> {
             qmi.mem(1).timing().write(|w| {
                 w.set_cooldown(config.cooldown);
                 w.set_pagebreak(match config.page_break {
-                    PageBreak::None => pac::qmi::vals::Pagebreak::NONE,
+                    PageBreak::None => pac::qmi::vals::Pagebreak::None,
                     PageBreak::_256 => pac::qmi::vals::Pagebreak::_256,
                     PageBreak::_1024 => pac::qmi::vals::Pagebreak::_1024,
                     PageBreak::_4096 => pac::qmi::vals::Pagebreak::_4096,
@@ -531,15 +531,15 @@ impl<'d> Psram<'d> {
                 w.set_prefix_len(if config.read_format.prefix_len {
                     pac::qmi::vals::PrefixLen::_8
                 } else {
-                    pac::qmi::vals::PrefixLen::NONE
+                    pac::qmi::vals::PrefixLen::None
                 });
                 w.set_suffix_len(if config.read_format.suffix_len {
                     pac::qmi::vals::SuffixLen::_8
                 } else {
-                    pac::qmi::vals::SuffixLen::NONE
+                    pac::qmi::vals::SuffixLen::None
                 });
                 w.set_dummy_len(match config.dummy_cycles {
-                    0 => pac::qmi::vals::DummyLen::NONE,
+                    0 => pac::qmi::vals::DummyLen::None,
                     4 => pac::qmi::vals::DummyLen::_4,
                     8 => pac::qmi::vals::DummyLen::_8,
                     12 => pac::qmi::vals::DummyLen::_12,
@@ -583,12 +583,12 @@ impl<'d> Psram<'d> {
                     w.set_prefix_len(if write_format.prefix_len {
                         pac::qmi::vals::PrefixLen::_8
                     } else {
-                        pac::qmi::vals::PrefixLen::NONE
+                        pac::qmi::vals::PrefixLen::None
                     });
                     w.set_suffix_len(if write_format.suffix_len {
                         pac::qmi::vals::SuffixLen::_8
                     } else {
-                        pac::qmi::vals::SuffixLen::NONE
+                        pac::qmi::vals::SuffixLen::None
                     });
                 });
             }
@@ -610,7 +610,7 @@ impl<'d> Psram<'d> {
         Ok(())
     }
 
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[inline(never)]
     unsafe fn direct_csr_send_init_command(config: &Config, init_cmd: u8) {
         #[cfg(target_arch = "arm")]

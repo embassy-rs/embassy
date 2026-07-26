@@ -5,10 +5,10 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
 use cfg_if::cfg_if;
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::pac;
-use crate::pac::common::{Reg, RW};
+use crate::pac::common::{RW, Reg};
 use crate::pac::gpio;
 use crate::pac::gpio::vals;
 #[cfg(not(feature = "_nrf51"))]
@@ -217,7 +217,7 @@ pub struct Output<'d> {
 }
 
 impl<'d> Output<'d> {
-    /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDriver] configuration.
+    /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDrive] configuration.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, drive: OutputDrive) -> Self {
         let mut pin = Flex::new(pin);
@@ -286,14 +286,14 @@ pub(crate) fn convert_drive(w: &mut pac::gpio::regs::PinCnf, drive: OutputDrive)
     #[cfg(not(feature = "_nrf54l"))]
     {
         let drive = match drive {
-            OutputDrive::Standard => vals::Drive::S0S1,
-            OutputDrive::HighDrive0Standard1 => vals::Drive::H0S1,
-            OutputDrive::Standard0HighDrive1 => vals::Drive::S0H1,
-            OutputDrive::HighDrive => vals::Drive::H0H1,
-            OutputDrive::Disconnect0Standard1 => vals::Drive::D0S1,
-            OutputDrive::Disconnect0HighDrive1 => vals::Drive::D0H1,
-            OutputDrive::Standard0Disconnect1 => vals::Drive::S0D1,
-            OutputDrive::HighDrive0Disconnect1 => vals::Drive::H0D1,
+            OutputDrive::Standard => vals::Drive::S0s1,
+            OutputDrive::HighDrive0Standard1 => vals::Drive::H0s1,
+            OutputDrive::Standard0HighDrive1 => vals::Drive::S0h1,
+            OutputDrive::HighDrive => vals::Drive::H0h1,
+            OutputDrive::Disconnect0Standard1 => vals::Drive::D0s1,
+            OutputDrive::Disconnect0HighDrive1 => vals::Drive::D0h1,
+            OutputDrive::Standard0Disconnect1 => vals::Drive::S0d1,
+            OutputDrive::HighDrive0Disconnect1 => vals::Drive::H0d1,
         };
         w.set_drive(drive);
     }
@@ -316,9 +316,9 @@ pub(crate) fn convert_drive(w: &mut pac::gpio::regs::PinCnf, drive: OutputDrive)
 
 fn convert_pull(pull: Pull) -> vals::Pull {
     match pull {
-        Pull::None => vals::Pull::DISABLED,
-        Pull::Up => vals::Pull::PULLUP,
-        Pull::Down => vals::Pull::PULLDOWN,
+        Pull::None => vals::Pull::Disabled,
+        Pull::Up => vals::Pull::Pullup,
+        Pull::Down => vals::Pull::Pulldown,
     }
 }
 
@@ -346,11 +346,11 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_as_input(&mut self, pull: Pull) {
         self.pin.conf().write(|w| {
-            w.set_dir(vals::Dir::INPUT);
-            w.set_input(vals::Input::CONNECT);
+            w.set_dir(vals::Dir::Input);
+            w.set_input(vals::Input::Connect);
             w.set_pull(convert_pull(pull));
             convert_drive(w, OutputDrive::Standard);
-            w.set_sense(vals::Sense::DISABLED);
+            w.set_sense(vals::Sense::Disabled);
         });
     }
 
@@ -361,11 +361,11 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_as_output(&mut self, drive: OutputDrive) {
         self.pin.conf().write(|w| {
-            w.set_dir(vals::Dir::OUTPUT);
-            w.set_input(vals::Input::DISCONNECT);
-            w.set_pull(vals::Pull::DISABLED);
+            w.set_dir(vals::Dir::Output);
+            w.set_input(vals::Input::Disconnect);
+            w.set_pull(vals::Pull::Disabled);
             convert_drive(w, drive);
-            w.set_sense(vals::Sense::DISABLED);
+            w.set_sense(vals::Sense::Disabled);
         });
     }
 
@@ -381,11 +381,11 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_as_input_output(&mut self, pull: Pull, drive: OutputDrive) {
         self.pin.conf().write(|w| {
-            w.set_dir(vals::Dir::OUTPUT);
-            w.set_input(vals::Input::CONNECT);
+            w.set_dir(vals::Dir::Output);
+            w.set_input(vals::Input::Connect);
             w.set_pull(convert_pull(pull));
             convert_drive(w, drive);
-            w.set_sense(vals::Sense::DISABLED);
+            w.set_sense(vals::Sense::Disabled);
         });
     }
 
@@ -393,7 +393,7 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_as_disconnected(&mut self) {
         self.pin.conf().write(|w| {
-            w.set_input(vals::Input::DISCONNECT);
+            w.set_input(vals::Input::Disconnect);
         });
     }
 
@@ -585,7 +585,6 @@ impl SealedPin for AnyPin {
 // ====================
 
 #[cfg(not(feature = "_nrf51"))]
-#[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) trait PselBits {
     fn psel_bits(&self) -> pac::shared::regs::Psel;
 }
@@ -602,17 +601,16 @@ impl<'a, P: Pin> PselBits for Option<Peri<'a, P>> {
 }
 
 #[cfg(not(feature = "_nrf51"))]
-#[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) const DISCONNECTED: Psel = Psel(1 << 31);
 
 #[cfg(not(feature = "_nrf51"))]
 #[allow(dead_code)]
 pub(crate) fn deconfigure_pin(psel: Psel) {
-    if psel.connect() == Connect::DISCONNECTED {
+    if psel.connect() == Connect::Disconnected {
         return;
     }
     unsafe { AnyPin::steal(psel.0 as _) }.conf().write(|w| {
-        w.set_input(vals::Input::DISCONNECT);
+        w.set_input(vals::Input::Disconnect);
     })
 }
 
@@ -781,7 +779,7 @@ impl<'d> embedded_hal_1::digital::ErrorType for Flex<'d> {
     type Error = Infallible;
 }
 
-/// Implement [`InputPin`] for [`Flex`];
+/// Implement [embedded_hal_1::digital::InputPin] for [`Flex`];
 ///
 /// If the pin is not in input mode the result is unspecified.
 impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {

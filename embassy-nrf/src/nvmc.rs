@@ -8,7 +8,7 @@ use embedded_storage::nor_flash::{
 
 use crate::pac::nvmc::vals;
 use crate::peripherals::NVMC;
-use crate::{pac, Peri};
+use crate::{Peri, pac};
 
 #[cfg(not(feature = "_nrf5340-net"))]
 /// Erase size of NVMC flash in bytes.
@@ -85,23 +85,23 @@ impl<'d> Nvmc<'d> {
 
     fn enable_erase(&self) {
         #[cfg(not(feature = "_ns"))]
-        Self::regs().config().write(|w| w.set_wen(vals::Wen::EEN));
+        Self::regs().config().write(|w| w.set_wen(vals::Wen::Een));
         #[cfg(feature = "_ns")]
-        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::EEN));
+        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::Een));
     }
 
     fn enable_read(&self) {
         #[cfg(not(feature = "_ns"))]
-        Self::regs().config().write(|w| w.set_wen(vals::Wen::REN));
+        Self::regs().config().write(|w| w.set_wen(vals::Wen::Ren));
         #[cfg(feature = "_ns")]
-        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::REN));
+        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::Ren));
     }
 
     fn enable_write(&self) {
         #[cfg(not(feature = "_ns"))]
-        Self::regs().config().write(|w| w.set_wen(vals::Wen::WEN));
+        Self::regs().config().write(|w| w.set_wen(vals::Wen::Wen));
         #[cfg(feature = "_ns")]
-        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::WEN));
+        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::Wen));
     }
 }
 

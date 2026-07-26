@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_mspm0::adc::{self, Adc, Vrsel};
-use embassy_mspm0::{bind_interrupts, peripherals, Config};
+use embassy_mspm0::{Config, bind_interrupts, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_halt as _};
 
@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     // Configure adc with sequence 0 to 1
     let mut adc = Adc::new_async(p.ADC0, Default::default(), Irqs);
-    let sequence = [(&p.PA22.into(), Vrsel::VddaVssa), (&p.PA20.into(), Vrsel::VddaVssa)];
+    let sequence = [(&p.PA22.into(), Vrsel::VddaVssa), (&p.PA15.into(), Vrsel::VddaVssa)];
     let mut readings = [0u16; 2];
 
     loop {

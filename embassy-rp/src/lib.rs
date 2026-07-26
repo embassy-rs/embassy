@@ -1,5 +1,7 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
+#![allow(unused_unsafe)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -20,11 +22,15 @@ mod intrinsics;
 
 pub mod adc;
 #[cfg(feature = "_rp235x")]
+pub mod aon_timer;
+#[cfg(feature = "_rp235x")]
 pub mod block;
-#[cfg(feature = "rp2040")]
 pub mod bootsel;
 pub mod clocks;
+pub(crate) mod datetime;
 pub mod dma;
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+pub mod executor;
 pub mod flash;
 #[cfg(feature = "rp2040")]
 mod float;
@@ -145,6 +151,8 @@ embassy_hal_internal::interrupt_mod!(
     TRNG_IRQ,
     PLL_SYS_IRQ,
     PLL_USB_IRQ,
+    POWMAN_IRQ_POW,
+    POWMAN_IRQ_TIMER,
     SWI_IRQ_0,
     SWI_IRQ_1,
     SWI_IRQ_2,
@@ -190,7 +198,7 @@ macro_rules! bind_interrupts {
 
         $(
             #[allow(non_snake_case)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
                 unsafe {
@@ -438,6 +446,7 @@ embassy_hal_internal::peripherals! {
     WATCHDOG,
     BOOTSEL,
 
+    POWMAN,
     TRNG
 }
 
@@ -446,13 +455,13 @@ macro_rules! select_bootloader {
     ( $( $feature:literal => $loader:ident, )+ default => $default:ident ) => {
         $(
             #[cfg(feature = $feature)]
-            #[link_section = ".boot2"]
+            #[unsafe(link_section = ".boot2")]
             #[used]
             static BOOT2: [u8; 256] = rp2040_boot2::$loader;
         )*
 
         #[cfg(not(any( $( feature = $feature),* )))]
-        #[link_section = ".boot2"]
+        #[unsafe(link_section = ".boot2")]
         #[used]
         static BOOT2: [u8; 256] = rp2040_boot2::$default;
     }
@@ -475,13 +484,13 @@ macro_rules! select_imagedef {
     ( $( $feature:literal => $imagedef:ident, )+ default => $default:ident ) => {
         $(
             #[cfg(feature = $feature)]
-            #[link_section = ".start_block"]
+            #[unsafe(link_section = ".start_block")]
             #[used]
             static IMAGE_DEF: crate::block::ImageDef = crate::block::ImageDef::$imagedef();
         )*
 
         #[cfg(not(any( $( feature = $feature),* )))]
-        #[link_section = ".start_block"]
+        #[unsafe(link_section = ".start_block")]
         #[used]
         static IMAGE_DEF: crate::block::ImageDef = crate::block::ImageDef::$default();
     }
@@ -528,7 +537,7 @@ select_imagedef! {
 /// }
 /// ```
 pub fn install_core0_stack_guard() -> Result<(), ()> {
-    extern "C" {
+    unsafe extern "C" {
         static mut _stack_end: usize;
     }
     unsafe { install_stack_guard(core::ptr::addr_of_mut!(_stack_end)) }

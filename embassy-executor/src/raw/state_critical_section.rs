@@ -1,7 +1,7 @@
 use core::cell::Cell;
 
-pub(crate) use critical_section::{with as locked, CriticalSection as Token};
 use critical_section::{CriticalSection, Mutex};
+pub(crate) use critical_section::{CriticalSection as Token, with as locked};
 
 #[cfg(target_arch = "avr")]
 type StateBits = u8;

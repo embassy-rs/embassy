@@ -5,7 +5,7 @@
 //!   bclk : GPIO 18
 //!   lrc  : GPIO 19
 //!   din  : GPIO 20
-//! Then hold down the boot select button to trigger a rising triangle waveform.
+//! Then short GPIO 0 to GND to trigger a rising triangle waveform.
 
 #![no_std]
 #![no_main]
@@ -13,16 +13,17 @@
 use core::mem;
 
 use embassy_executor::Spawner;
-use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Pull};
-use embassy_rp::peripherals::PIO0;
+use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::i2s::{PioI2sOut, PioI2sOutProgram};
+use embassy_rp::{bind_interrupts, dma};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
 });
 
 const SAMPLE_RATE: u32 = 48_000;
@@ -44,6 +45,7 @@ async fn main(_spawner: Spawner) {
         &mut common,
         sm0,
         p.DMA_CH0,
+        Irqs,
         data_pin,
         bit_clock_pin,
         left_right_clock_pin,
@@ -51,6 +53,7 @@ async fn main(_spawner: Spawner) {
         BIT_DEPTH,
         &program,
     );
+    i2s.start();
 
     let fade_input = Input::new(p.PIN_0, Pull::Up);
 
@@ -70,7 +73,7 @@ async fn main(_spawner: Spawner) {
         // but don't await the returned future, yet
         let dma_future = i2s.write(front_buffer);
 
-        // fade in audio when bootsel is pressed
+        // fade in audio when GPIO 0 pin is shorted to GND
         let fade_target = if fade_input.is_low() { i32::MAX } else { 0 };
 
         // fill back buffer with fresh audio samples before awaiting the dma future

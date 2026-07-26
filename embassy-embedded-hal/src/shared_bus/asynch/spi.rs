@@ -32,8 +32,8 @@ use embedded_hal_1::digital::OutputPin;
 use embedded_hal_1::spi::Operation;
 use embedded_hal_async::spi;
 
-use crate::shared_bus::SpiDeviceError;
 use crate::SetConfig;
+use crate::shared_bus::SpiDeviceError;
 
 /// SPI device on a shared bus.
 pub struct SpiDevice<'a, M: RawMutex, BUS, CS> {

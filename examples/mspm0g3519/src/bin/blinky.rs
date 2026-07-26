@@ -3,8 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_mspm0::gpio::{Level, Output};
 use embassy_mspm0::Config;
+use embassy_mspm0::gpio::{Level, Output};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_halt as _};
 
@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) -> ! {
     led1.set_inversion(true);
 
     loop {
-        Timer::after_millis(400).await;
+        Timer::after_millis(500).await;
 
         info!("Toggle");
         led1.toggle();

@@ -1,16 +1,18 @@
 //! IEEE 802.15.4 radio driver
 
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::marker::PhantomData;
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 
-use super::{Error, Instance, InterruptHandler, TxPower};
+use super::{Error, InterruptHandler, TxPower};
+use crate::Peri;
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::pac::radio::vals;
 pub use crate::pac::radio::vals::State as RadioState;
-use crate::Peri;
+use crate::radio::Instance;
 
 /// Default (IEEE compliant) Start of Frame Delimiter
 pub const DEFAULT_SFD: u8 = 0xA7;
@@ -32,29 +34,32 @@ pub enum Cca {
 }
 
 /// IEEE 802.15.4 radio driver.
-pub struct Radio<'d, T: Instance> {
-    _p: Peri<'d, T>,
+pub struct Radio<'d> {
+    r: crate::pac::radio::Radio,
+    state: &'static crate::radio::State,
     needs_enable: bool,
+    phantom: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Radio<'d, T> {
+impl<'d> Radio<'d> {
     /// Create a new IEEE 802.15.4 radio driver.
-    pub fn new(
-        radio: Peri<'d, T>,
+    pub fn new<T: Instance>(
+        _radio: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        let r = T::regs();
+        let r = crate::pac::RADIO;
 
         // Disable and enable to reset peripheral
         r.power().write(|w| w.set_power(false));
         r.power().write(|w| w.set_power(true));
+        errata::post_power();
 
         // Enable 802.15.4 mode
-        r.mode().write(|w| w.set_mode(vals::Mode::IEEE802154_250KBIT));
+        r.mode().write(|w| w.set_mode(vals::Mode::Ieee802154250kbit));
         // Configure CRC skip address
         r.crccnf().write(|w| {
-            w.set_len(vals::Len::TWO);
-            w.set_skipaddr(vals::Skipaddr::IEEE802154);
+            w.set_len(vals::Len::Two);
+            w.set_skipaddr(vals::Skipaddr::Ieee802154);
         });
         // Configure CRC polynomial and init
         r.crcpoly().write(|w| w.set_crcpoly(0x0001_1021));
@@ -67,13 +72,13 @@ impl<'d, T: Instance> Radio<'d, T> {
             // Zero bytes S1 field length
             w.set_s1len(0);
             // Do not include S1 field in RAM if S1 length > 0
-            w.set_s1incl(vals::S1incl::AUTOMATIC);
+            w.set_s1incl(vals::S1incl::Automatic);
             // Zero code Indicator length
             w.set_cilen(0);
             // 32-bit zero preamble
-            w.set_plen(vals::Plen::_32BIT_ZERO);
+            w.set_plen(vals::Plen::_32bitZero);
             // Include CRC in length
-            w.set_crcinc(vals::Crcinc::INCLUDE);
+            w.set_crcinc(vals::Crcinc::Include);
         });
         r.pcnf1().write(|w| {
             // Maximum packet length
@@ -83,18 +88,20 @@ impl<'d, T: Instance> Radio<'d, T> {
             // Zero base address length
             w.set_balen(0);
             // Little-endian
-            w.set_endian(vals::Endian::LITTLE);
+            w.set_endian(vals::Endian::Little);
             // Disable packet whitening
             w.set_whiteen(false);
         });
 
         // Enable NVIC interrupt
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
+        crate::interrupt::typelevel::RADIO::unpend();
+        unsafe { crate::interrupt::typelevel::RADIO::enable() };
 
         let mut radio = Self {
-            _p: radio,
+            r: crate::pac::RADIO,
+            state: T::state(),
             needs_enable: false,
+            phantom: PhantomData,
         };
 
         radio.set_sfd(DEFAULT_SFD);
@@ -107,7 +114,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Changes the radio channel
     pub fn set_channel(&mut self, channel: u8) {
-        let r = T::regs();
+        let r = self.r;
         if channel < 11 || channel > 26 {
             panic!("Bad 802.15.4 channel");
         }
@@ -115,21 +122,21 @@ impl<'d, T: Instance> Radio<'d, T> {
         self.needs_enable = true;
         r.frequency().write(|w| {
             w.set_frequency(frequency_offset);
-            w.set_map(vals::Map::DEFAULT);
+            w.set_map(vals::Map::Default);
         });
     }
 
     /// Changes the Clear Channel Assessment method
     pub fn set_cca(&mut self, cca: Cca) {
-        let r = T::regs();
+        let r = self.r;
         self.needs_enable = true;
         match cca {
-            Cca::CarrierSense => r.ccactrl().write(|w| w.set_ccamode(vals::Ccamode::CARRIER_MODE)),
+            Cca::CarrierSense => r.ccactrl().write(|w| w.set_ccamode(vals::Ccamode::CarrierMode)),
             Cca::EnergyDetection { ed_threshold } => {
                 // "[ED] is enabled by first configuring the field CCAMODE=EdMode in CCACTRL
                 // and writing the CCAEDTHRES field to a chosen value."
                 r.ccactrl().write(|w| {
-                    w.set_ccamode(vals::Ccamode::ED_MODE);
+                    w.set_ccamode(vals::Ccamode::EdMode);
                     w.set_ccaedthres(ed_threshold);
                 });
             }
@@ -138,56 +145,56 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Changes the Start of Frame Delimiter (SFD)
     pub fn set_sfd(&mut self, sfd: u8) {
-        let r = T::regs();
+        let r = self.r;
         r.sfd().write(|w| w.set_sfd(sfd));
     }
 
     /// Clear interrupts
     pub fn clear_all_interrupts(&mut self) {
-        let r = T::regs();
+        let r = self.r;
         r.intenclr().write(|w| w.0 = 0xffff_ffff);
     }
 
     /// Changes the radio transmission power
     pub fn set_transmission_power(&mut self, power: i8) {
-        let r = T::regs();
+        let r = self.r;
         self.needs_enable = true;
 
         let tx_power: TxPower = match power {
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            8 => TxPower::POS8_DBM,
+            8 => TxPower::Pos8dBm,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            7 => TxPower::POS7_DBM,
+            7 => TxPower::Pos7dBm,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            6 => TxPower::POS6_DBM,
+            6 => TxPower::Pos6dBm,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            5 => TxPower::POS5_DBM,
+            5 => TxPower::Pos5dBm,
             #[cfg(not(feature = "_nrf5340-net"))]
-            4 => TxPower::POS4_DBM,
+            4 => TxPower::Pos4dBm,
             #[cfg(not(feature = "_nrf5340-net"))]
-            3 => TxPower::POS3_DBM,
+            3 => TxPower::Pos3dBm,
             #[cfg(not(any(feature = "nrf52811", feature = "_nrf5340-net")))]
-            2 => TxPower::POS2_DBM,
-            0 => TxPower::_0_DBM,
+            2 => TxPower::Pos2dBm,
+            0 => TxPower::_0dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -1 => TxPower::NEG1_DBM,
+            -1 => TxPower::Neg1dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -2 => TxPower::NEG2_DBM,
+            -2 => TxPower::Neg2dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -3 => TxPower::NEG3_DBM,
-            -4 => TxPower::NEG4_DBM,
+            -3 => TxPower::Neg3dBm,
+            -4 => TxPower::Neg4dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -5 => TxPower::NEG5_DBM,
+            -5 => TxPower::Neg5dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -6 => TxPower::NEG6_DBM,
+            -6 => TxPower::Neg6dBm,
             #[cfg(feature = "_nrf5340-net")]
-            -7 => TxPower::NEG7_DBM,
-            -8 => TxPower::NEG8_DBM,
-            -12 => TxPower::NEG12_DBM,
-            -16 => TxPower::NEG16_DBM,
-            -20 => TxPower::NEG20_DBM,
-            -30 => TxPower::NEG30_DBM,
-            -40 => TxPower::NEG40_DBM,
+            -7 => TxPower::Neg7dBm,
+            -8 => TxPower::Neg8dBm,
+            -12 => TxPower::Neg12dBm,
+            -16 => TxPower::Neg16dBm,
+            -20 => TxPower::Neg20dBm,
+            -30 => TxPower::Neg30dBm,
+            -40 => TxPower::Neg40dBm,
             _ => panic!("Invalid transmission power value"),
         };
 
@@ -201,36 +208,36 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Get the current radio state
     fn state(&self) -> RadioState {
-        T::regs().state().read().state()
+        self.r.state().read().state()
     }
 
     /// Moves the radio from any state to the DISABLED state
     fn disable(&mut self) {
-        let r = T::regs();
+        let r = self.r;
         // See figure 110 in nRF52840-PS
         loop {
             match self.state() {
-                RadioState::DISABLED => return,
+                RadioState::Disabled => return,
                 // idle or ramping up
-                RadioState::RX_RU | RadioState::RX_IDLE | RadioState::TX_RU | RadioState::TX_IDLE => {
+                RadioState::RxRu | RadioState::RxIdle | RadioState::TxRu | RadioState::TxIdle => {
                     r.tasks_disable().write_value(1);
-                    self.wait_for_radio_state(RadioState::DISABLED);
+                    self.wait_for_radio_state(RadioState::Disabled);
                     return;
                 }
                 // ramping down
-                RadioState::RX_DISABLE | RadioState::TX_DISABLE => {
-                    self.wait_for_radio_state(RadioState::DISABLED);
+                RadioState::RxDisable | RadioState::TxDisable => {
+                    self.wait_for_radio_state(RadioState::Disabled);
                     return;
                 }
                 // cancel ongoing transfer or ongoing CCA
-                RadioState::RX => {
+                RadioState::Rx => {
                     r.tasks_ccastop().write_value(1);
                     r.tasks_stop().write_value(1);
-                    self.wait_for_radio_state(RadioState::RX_IDLE);
+                    self.wait_for_radio_state(RadioState::RxIdle);
                 }
-                RadioState::TX => {
+                RadioState::Tx => {
                     r.tasks_stop().write_value(1);
-                    self.wait_for_radio_state(RadioState::TX_IDLE);
+                    self.wait_for_radio_state(RadioState::TxIdle);
                 }
                 _ => unreachable!(),
             }
@@ -238,19 +245,19 @@ impl<'d, T: Instance> Radio<'d, T> {
     }
 
     fn set_buffer(&mut self, buffer: &[u8]) {
-        let r = T::regs();
+        let r = self.r;
         r.packetptr().write_value(buffer.as_ptr() as u32);
     }
 
     /// Moves the radio to the RXIDLE state
     fn receive_prepare(&mut self) {
         // clear related events
-        T::regs().events_ccabusy().write_value(0);
-        T::regs().events_phyend().write_value(0);
-        // NOTE to avoid errata 204 (see rev1 v1.4) we do TX_IDLE -> DISABLED -> RXIDLE
+        self.r.events_ccabusy().write_value(0);
+        self.r.events_phyend().write_value(0);
+        // NOTE to avoid errata 204 (see rev1 v1.4) we do TX_IDLE  Disabled -> RXIDLE
         let disable = match self.state() {
-            RadioState::DISABLED => false,
-            RadioState::RX_IDLE => self.needs_enable,
+            RadioState::Disabled => false,
+            RadioState::RxIdle => self.needs_enable,
             _ => true,
         };
         if disable {
@@ -263,7 +270,7 @@ impl<'d, T: Instance> Radio<'d, T> {
     fn receive_start(&mut self, packet: &mut Packet) {
         // NOTE we do NOT check the address of `packet` because the mutable reference ensures it's
         // allocated in RAM
-        let r = T::regs();
+        let r = self.r;
 
         self.receive_prepare();
 
@@ -282,7 +289,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         match self.state() {
             // Re-start receiver
-            RadioState::RX_IDLE => r.tasks_start().write_value(1),
+            RadioState::RxIdle => r.tasks_start().write_value(1),
             // Enable receiver
             _ => r.tasks_rxen().write_value(1),
         }
@@ -290,12 +297,12 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Cancel receiving packet
     fn receive_cancel() {
-        let r = T::regs();
+        let r = crate::pac::RADIO;
         r.shorts().write(|_| {});
         r.tasks_stop().write_value(1);
         loop {
             match r.state().read().state() {
-                RadioState::DISABLED | RadioState::RX_IDLE => break,
+                RadioState::Disabled | RadioState::RxIdle => break,
                 _ => (),
             }
         }
@@ -309,8 +316,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     /// validated by the hardware; otherwise it returns the `Err` variant. In either case, `packet`
     /// will be updated with the received packet's data
     pub async fn receive(&mut self, packet: &mut Packet) -> Result<(), Error> {
-        let s = T::state();
-        let r = T::regs();
+        let s = self.state;
+        let r = self.r;
 
         // Start the read
         self.receive_start(packet);
@@ -338,7 +345,7 @@ impl<'d, T: Instance> Radio<'d, T> {
         dropper.defuse();
 
         let crc = r.rxcrc().read().rxcrc() as u16;
-        if r.crcstatus().read().crcstatus() == vals::Crcstatus::CRCOK {
+        if r.crcstatus().read().crcstatus() == vals::Crcstatus::CrcOk {
             Ok(())
         } else {
             Err(Error::CrcFailed(crc))
@@ -356,8 +363,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     // NOTE we do NOT check the address of `packet` because the mutable reference ensures it's
     // allocated in RAM
     pub async fn try_send(&mut self, packet: &mut Packet) -> Result<(), Error> {
-        let s = T::state();
-        let r = T::regs();
+        let s = self.state;
+        let r = self.r;
 
         // enable radio to perform cca
         self.receive_prepare();
@@ -398,7 +405,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
         match self.state() {
             // Re-start receiver
-            RadioState::RX_IDLE => r.tasks_ccastart().write_value(1),
+            RadioState::RxIdle => r.tasks_ccastart().write_value(1),
             // Enable receiver
             _ => r.tasks_rxen().write_value(1),
         }
@@ -534,4 +541,20 @@ fn dma_start_fence() {
 /// NOTE must be preceded by a volatile read operation
 fn dma_end_fence() {
     compiler_fence(Ordering::Acquire);
+}
+
+mod errata {
+    pub fn post_power() {
+        // Workaround for anomaly 158
+        #[cfg(feature = "_nrf5340-net")]
+        for i in 0..32 {
+            let info = crate::pac::FICR.trimcnf(i);
+            let addr = info.addr().read();
+            if addr & 0xFFFF_F000 == crate::pac::RADIO.as_ptr() as u32 {
+                unsafe {
+                    (addr as *mut u32).write_volatile(info.data().read());
+                }
+            }
+        }
+    }
 }

@@ -7,14 +7,14 @@ use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
 use embassy_boot_stm32::*;
-use embassy_stm32::flash::{Flash, BANK1_REGION, WRITE_SIZE};
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::flash::{BANK1_REGION, Flash, WRITE_SIZE};
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb};
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_usb::{msos, Builder};
+use embassy_usb::{Builder, msos};
 use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{usb_dfu, Control, ResetImmediate};
+use embassy_usb_dfu::{ResetImmediate, new_state, usb_dfu};
 
 bind_interrupts!(struct Irqs {
     USB_LP => usb::InterruptHandler<peripherals::USB>;
@@ -34,7 +34,7 @@ static PUBLIC_SIGNING_KEY: &[u8; 32] = include_bytes!("../secrets/key.pub.short"
 #[entry]
 fn main() -> ! {
     let mut config = embassy_stm32::Config::default();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
 
     // Prevent a hard fault when accessing flash 'too early' after boot.
@@ -65,10 +65,10 @@ fn main() -> ! {
         let mut control_buf = [0; 4096];
 
         #[cfg(not(feature = "verify"))]
-        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate);
+        let mut state = new_state(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate);
 
         #[cfg(feature = "verify")]
-        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate, PUBLIC_SIGNING_KEY);
+        let mut state = new_state(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate, PUBLIC_SIGNING_KEY);
 
         let mut builder = Builder::new(
             driver,
@@ -106,11 +106,11 @@ fn main() -> ! {
         embassy_futures::block_on(dev.run());
     }
 
-    unsafe { bl.load(BANK1_REGION.base + active_offset) }
+    unsafe { bl.load(BANK1_REGION.base() + active_offset) }
 }
 
-#[no_mangle]
-#[cfg_attr(target_os = "none", link_section = ".HardFault.user")]
+#[unsafe(no_mangle)]
+#[cfg_attr(target_os = "none", unsafe(link_section = ".HardFault.user"))]
 unsafe extern "C" fn HardFault() {
     cortex_m::peripheral::SCB::sys_reset();
 }
@@ -118,7 +118,7 @@ unsafe extern "C" fn HardFault() {
 #[exception]
 unsafe fn DefaultHandler(_: i16) -> ! {
     const SCB_ICSR: *const u32 = 0xE000_ED04 as *const u32;
-    let irqn = core::ptr::read_volatile(SCB_ICSR) as u8 as i16 - 16;
+    let irqn = unsafe { core::ptr::read_volatile(SCB_ICSR) } as u8 as i16 - 16;
 
     panic!("DefaultHandler #{:?}", irqn);
 }

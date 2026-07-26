@@ -1,9 +1,146 @@
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, Ordering};
+#[cfg(flash_l4)]
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::{Ordering, fence};
+
+#[cfg(flash_l4)]
+use cortex_m::interrupt;
+#[cfg(flash_l4)]
+use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(flash_l4)]
+use pac::flash::regs::Sr;
 
 use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
+
+#[cfg(flash_l4)]
+static WAKER: AtomicWaker = AtomicWaker::new();
+#[cfg(flash_l4)]
+static DATA_CACHE_WAS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[cfg(flash_l4)]
+pub(crate) unsafe fn on_interrupt() {
+    // Clear IRQ flags (EOP and error flags are write-1-to-clear)
+    pac::FLASH.sr().write(|w| {
+        w.set_eop(true);
+        w.set_operr(true);
+        w.set_progerr(true);
+        w.set_wrperr(true);
+        w.set_pgaerr(true);
+        w.set_sizerr(true);
+        w.set_pgserr(true);
+        w.set_miserr(true);
+        w.set_fasterr(true);
+        w.set_rderr(true);
+        w.set_optverr(true);
+    });
+
+    WAKER.wake();
+}
+
+#[cfg(flash_l4)]
+pub(crate) unsafe fn enable_write() {
+    assert_eq!(0, WRITE_SIZE % 4);
+    save_data_cache_state();
+    pac::FLASH.cr().write(|w| {
+        w.set_pg(true);
+        w.set_eopie(true);
+        w.set_errie(true);
+    });
+}
+
+#[cfg(flash_l4)]
+pub(crate) unsafe fn disable_write() {
+    pac::FLASH.cr().write(|w| {
+        w.set_pg(false);
+        w.set_eopie(false);
+        w.set_errie(false);
+    });
+    restore_data_cache_state();
+}
+
+#[cfg(flash_l4)]
+unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
+    let mut address = start_address;
+    for val in buf.chunks(4) {
+        write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
+        address += val.len() as u32;
+
+        // prevents parallelism errors
+        fence(Ordering::SeqCst);
+    }
+}
+
+#[cfg(flash_l4)]
+pub(crate) async unsafe fn write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+    write_start(start_address, buf);
+    wait_ready().await
+}
+
+#[cfg(flash_l4)]
+pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    save_data_cache_state();
+
+    interrupt::free(|_| {
+        pac::FLASH.cr().modify(|w| {
+            w.set_per(true);
+            w.set_pnb(sector.index_in_bank);
+            w.set_bker(sector.bank == crate::flash::FlashBank::Bank2);
+            w.set_eopie(true);
+            w.set_errie(true);
+            w.set_start(true);
+        });
+    });
+
+    let ret = wait_ready().await;
+
+    pac::FLASH.cr().modify(|w| {
+        w.set_per(false);
+        w.set_eopie(false);
+        w.set_errie(false);
+    });
+    clear_all_err();
+    restore_data_cache_state();
+    ret
+}
+
+#[cfg(flash_l4)]
+pub(crate) async fn wait_ready() -> Result<(), Error> {
+    use core::future::poll_fn;
+    use core::task::Poll;
+
+    poll_fn(|cx| {
+        WAKER.register(cx.waker());
+
+        let sr = pac::FLASH.sr().read();
+        if !sr.bsy() {
+            Poll::Ready(get_result(sr))
+        } else {
+            Poll::Pending
+        }
+    })
+    .await
+}
+
+#[cfg(flash_l4)]
+fn get_result(sr: Sr) -> Result<(), Error> {
+    if sr.progerr() {
+        Err(Error::Prog)
+    } else if sr.wrperr() {
+        Err(Error::Protected)
+    } else if sr.pgaerr() {
+        Err(Error::Unaligned)
+    } else if sr.sizerr() {
+        Err(Error::Size)
+    } else if sr.miserr() {
+        Err(Error::Miss)
+    } else if sr.pgserr() {
+        Err(Error::Seq)
+    } else {
+        Ok(())
+    }
+}
 
 pub(crate) unsafe fn lock() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
@@ -54,6 +191,9 @@ pub(crate) unsafe fn unlock() {
 pub(crate) unsafe fn enable_blocking_write() {
     assert_eq!(0, WRITE_SIZE % 4);
 
+    #[cfg(flash_l4)]
+    save_data_cache_state();
+
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().write(|w| w.set_pg(true));
 
@@ -64,6 +204,9 @@ pub(crate) unsafe fn enable_blocking_write() {
 pub(crate) unsafe fn disable_blocking_write() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().write(|w| w.set_pg(false));
+
+    #[cfg(flash_l4)]
+    restore_data_cache_state();
 
     #[cfg(any(flash_l5))]
     pac::FLASH.nscr().write(|w| w.set_nspg(false));
@@ -83,6 +226,9 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    #[cfg(flash_l4)]
+    save_data_cache_state();
+
     #[cfg(any(flash_l0, flash_l1))]
     {
         pac::FLASH.pecr().modify(|w| {
@@ -96,14 +242,20 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     #[cfg(any(flash_wl, flash_wb, flash_l4, flash_l5))]
     {
         let idx = (sector.start - super::FLASH_BASE as u32) / super::BANK1_REGION.erase_size as u32;
+        #[cfg(any(flash_l4, flash_l5))]
+        let pgn = super::BANK1_REGION.size as u32 / super::BANK1_REGION.erase_size as u32;
 
         #[cfg(flash_l4)]
-        let (idx, bank) = if idx > 255 { (idx - 256, true) } else { (idx, false) };
+        let (idx, bank) = if idx > (pgn - 1) {
+            (idx - pgn, true)
+        } else {
+            (idx, false)
+        };
 
         #[cfg(flash_l5)]
         let (idx, bank) = if pac::FLASH.optr().read().dbank() {
-            if idx > 255 {
-                (idx - 256, Some(true))
+            if idx > (pgn - 1) {
+                (idx - pgn, Some(true))
             } else {
                 (idx, Some(false))
             }
@@ -149,7 +301,37 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     });
 
     clear_all_err();
+    #[cfg(flash_l4)]
+    restore_data_cache_state();
     ret
+}
+
+#[cfg(flash_l4)]
+fn save_data_cache_state() {
+    let dual_bank = unwrap!(crate::flash::get_flash_regions().last()).bank == crate::flash::FlashBank::Bank2;
+    if dual_bank {
+        // Disable data cache during write/erase if there are two banks, see errata 2.2.2
+        let dcen = pac::FLASH.acr().read().dcen();
+        DATA_CACHE_WAS_ENABLED.store(dcen, Ordering::Relaxed);
+        if dcen {
+            pac::FLASH.acr().modify(|w| w.set_dcen(false));
+        }
+    }
+}
+
+#[cfg(flash_l4)]
+fn restore_data_cache_state() {
+    let dual_bank = unwrap!(crate::flash::get_flash_regions().last()).bank == crate::flash::FlashBank::Bank2;
+    if dual_bank {
+        // Restore data cache if it was enabled
+        let dcen = DATA_CACHE_WAS_ENABLED.load(Ordering::Relaxed);
+        if dcen {
+            // Reset data cache before we enable it again
+            pac::FLASH.acr().modify(|w| w.set_dcrst(true));
+            pac::FLASH.acr().modify(|w| w.set_dcrst(false));
+            pac::FLASH.acr().modify(|w| w.set_dcen(true))
+        }
+    }
 }
 
 pub(crate) unsafe fn clear_all_err() {
@@ -234,19 +416,27 @@ pub(crate) unsafe fn wait_ready_blocking() -> Result<(), Error> {
 #[cfg(all(bank_setup_configurable, flash_l5))]
 pub(crate) fn check_bank_setup() {
     if cfg!(feature = "single-bank") && pac::FLASH.optr().read().dbank() {
-        panic!("Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the dbank value in the user option bytes or configure embassy to use dual-bank config");
+        panic!(
+            "Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the dbank value in the user option bytes or configure embassy to use dual-bank config"
+        );
     }
     if cfg!(feature = "dual-bank") && !pac::FLASH.optr().read().dbank() {
-        panic!("Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the dbank value in the user option bytes or configure embassy to use single-bank config");
+        panic!(
+            "Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the dbank value in the user option bytes or configure embassy to use single-bank config"
+        );
     }
 }
 
 #[cfg(all(bank_setup_configurable, flash_l4))]
 pub(crate) fn check_bank_setup() {
     if cfg!(feature = "single-bank") && pac::FLASH.optr().read().dualbank() {
-        panic!("Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the dualbank value in the user option bytes or configure embassy to use dual-bank config");
+        panic!(
+            "Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the dualbank value in the user option bytes or configure embassy to use dual-bank config"
+        );
     }
     if cfg!(feature = "dual-bank") && !pac::FLASH.optr().read().dualbank() {
-        panic!("Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the dualbank value in the user option bytes or configure embassy to use single-bank config");
+        panic!(
+            "Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the dualbank value in the user option bytes or configure embassy to use single-bank config"
+        );
     }
 }

@@ -14,7 +14,7 @@ export PATH=$CARGO_HOME/bin:$PATH
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
 
 cargo install espup --locked
-espup install --toolchain-version 1.88.0.0
+espup install --toolchain-version 1.92.0.0
 
 # Restore lockfiles
 if [ -f /ci/cache/lockfiles.tar ]; then
@@ -25,7 +25,7 @@ fi
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
 
-cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 280829ad163f1444999468a57d28fb7c412babbe
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 1cc6a2c6d2ec06607499df33e147310095b1afd5
 
 ./ci-xtensa.sh
 

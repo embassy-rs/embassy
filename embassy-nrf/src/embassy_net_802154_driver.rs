@@ -1,12 +1,12 @@
 //! embassy-net IEEE 802.15.4 driver
 
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{Either3, select3};
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_net_driver_channel::{self as ch};
 use embassy_time::{Duration, Ticker};
 
-use crate::radio::ieee802154::{Packet, Radio};
 use crate::radio::InterruptHandler;
+use crate::radio::ieee802154::{Packet, Radio};
 use crate::{self as nrf, interrupt};
 
 /// MTU for the nrf radio.
@@ -32,12 +32,12 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
 /// Background runner for the driver.
 ///
 /// You must call `.run()` in a background task for the driver to operate.
-pub struct Runner<'d, T: nrf::radio::Instance> {
-    radio: nrf::radio::ieee802154::Radio<'d, T>,
+pub struct Runner<'d> {
+    radio: nrf::radio::ieee802154::Radio<'d>,
     ch: ch::Runner<'d, MTU>,
 }
 
-impl<'d, T: nrf::radio::Instance> Runner<'d, T> {
+impl<'d> Runner<'d> {
     /// Drives the radio. Needs to run to use the driver.
     pub async fn run(mut self) -> ! {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
@@ -55,16 +55,16 @@ impl<'d, T: nrf::radio::Instance> Runner<'d, T> {
             )
             .await
             {
-                Either3::First(Some(rx_buf)) => {
+                Either3::First(Some(mut rx_buf)) => {
                     let len = rx_buf.len().min(packet.len() as usize);
                     (&mut rx_buf[..len]).copy_from_slice(&*packet);
-                    rx_chan.rx_done(len);
+                    rx_buf.rx_done(len);
                 }
                 Either3::Second(tx_buf) => {
                     let len = tx_buf.len().min(Packet::CAPACITY as usize);
                     packet.copy_from_slice(&tx_buf[..len]);
                     self.radio.try_send(&mut packet).await.ok().unwrap();
-                    tx_chan.tx_done();
+                    tx_buf.tx_done();
                 }
                 _ => {}
             }
@@ -84,7 +84,7 @@ pub async fn new<'a, const N_RX: usize, const N_TX: usize, T: nrf::radio::Instan
     radio: nrf::Peri<'a, T>,
     irq: Irq,
     state: &'a mut State<N_RX, N_TX>,
-) -> Result<(Device<'a>, Runner<'a, T>), ()>
+) -> Result<(Device<'a>, Runner<'a>), ()>
 where
     Irq: interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
 {

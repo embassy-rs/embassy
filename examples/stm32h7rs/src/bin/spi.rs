@@ -15,7 +15,7 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
-async fn main_task(mut spi: spi::Spi<'static, Blocking>) {
+async fn main_task(mut spi: spi::Spi<'static, Blocking, spi::mode::Master>) {
     for n in 0u32.. {
         let mut write: String<128> = String::new();
         core::write!(&mut write, "Hello DMA World {}!\r\n", n).unwrap();

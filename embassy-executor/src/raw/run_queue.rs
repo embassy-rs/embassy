@@ -1,9 +1,9 @@
-use core::ptr::{addr_of_mut, NonNull};
+use core::ptr::{NonNull, addr_of_mut};
 
-use cordyceps::sorted_list::Links;
 use cordyceps::Linked;
 #[cfg(any(feature = "scheduler-priority", feature = "scheduler-deadline"))]
 use cordyceps::SortedList;
+use cordyceps::sorted_list::Links;
 
 #[cfg(target_has_atomic = "ptr")]
 type TransferStack<T> = cordyceps::TransferStack<T>;

@@ -1,10 +1,10 @@
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering, fence};
 
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::flash::regs::Sr;
 
-use super::{get_flash_regions, FlashBank, FlashSector, WRITE_SIZE};
+use super::{FlashBank, FlashSector, WRITE_SIZE, get_flash_regions};
 use crate::_generated::FLASH_SIZE;
 use crate::flash::Error;
 use crate::pac;
@@ -45,7 +45,7 @@ pub(crate) unsafe fn enable_write() {
 
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
-        w.set_psize(pac::flash::vals::Psize::PSIZE32);
+        w.set_psize(pac::flash::vals::Psize::Psize32);
         w.set_eopie(true);
         w.set_errie(true);
     });
@@ -66,7 +66,7 @@ pub(crate) unsafe fn enable_blocking_write() {
 
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
-        w.set_psize(pac::flash::vals::Psize::PSIZE32);
+        w.set_psize(pac::flash::vals::Psize::Psize32);
     });
 }
 
@@ -246,7 +246,9 @@ pub(crate) fn assert_not_corrupted_read(end_address: u32) {
         feature = "stm32f439zi",
     ))]
     if second_bank_read && pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && !pa12_is_output_pull_low() {
-        panic!("Read corruption for stm32f42xxI and stm32f43xxI when PA12 is in use for chips below revision 3, see errata 2.2.11");
+        panic!(
+            "Read corruption for stm32f42xxI and stm32f43xxI when PA12 is in use for chips below revision 3, see errata 2.2.11"
+        );
     }
 
     #[cfg(any(
@@ -270,24 +272,26 @@ pub(crate) fn assert_not_corrupted_read(end_address: u32) {
         feature = "stm32f439zg",
     ))]
     if second_bank_read && pac::DBGMCU.idcode().read().rev_id() < REVISION_3 && !pa12_is_output_pull_low() {
-        panic!("Read corruption for stm32f42xxG and stm32f43xxG in dual bank mode when PA12 is in use for chips below revision 3, see errata 2.2.11");
+        panic!(
+            "Read corruption for stm32f42xxG and stm32f43xxG in dual bank mode when PA12 is in use for chips below revision 3, see errata 2.2.11"
+        );
     }
 }
 
 #[allow(unused)]
 fn pa12_is_output_pull_low() -> bool {
-    use pac::gpio::vals;
     use pac::GPIOA;
+    use pac::gpio::vals;
     const PIN: usize = 12;
-    GPIOA.moder().read().moder(PIN) == vals::Moder::OUTPUT
-        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PULL_DOWN
-        && GPIOA.odr().read().odr(PIN) == vals::Odr::LOW
+    GPIOA.moder().read().moder(PIN) == vals::Moder::Output
+        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PullDown
+        && GPIOA.odr().read().odr(PIN) == vals::Odr::Low
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flash::{get_sector, FlashBank};
+    use crate::flash::{FlashBank, get_sector};
 
     #[test]
     #[cfg(stm32f429)]
@@ -298,7 +302,7 @@ mod tests {
 
         if !cfg!(feature = "dual-bank") {
             let assert_sector = |snb: u8, index_in_bank: u8, start: u32, size: u32, address: u32| {
-                let sector = get_sector(address, crate::flash::get_flash_regions());
+                let sector = unwrap!(get_sector(address, crate::flash::get_flash_regions()));
                 assert_eq!(snb, sector.snb());
                 assert_eq!(
                     FlashSector {
@@ -325,7 +329,7 @@ mod tests {
             assert_sector(0x0B, 11, 0x080E_0000, LARGE_SECTOR_SIZE, 0x080F_FFFF);
         } else {
             let assert_sector = |snb: u8, bank: FlashBank, index_in_bank: u8, start: u32, size: u32, address: u32| {
-                let sector = get_sector(address, crate::flash::get_flash_regions());
+                let sector = unwrap!(get_sector(address, crate::flash::get_flash_regions()));
                 assert_eq!(snb, sector.snb());
                 assert_eq!(
                     FlashSector {
@@ -370,9 +374,13 @@ mod tests {
 #[cfg(all(bank_setup_configurable))]
 pub(crate) fn check_bank_setup() {
     if cfg!(feature = "single-bank") && pac::FLASH.optcr().read().db1m() {
-        panic!("Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the db1m value in the user option bytes or configure embassy to use dual-bank config");
+        panic!(
+            "Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the db1m value in the user option bytes or configure embassy to use dual-bank config"
+        );
     }
     if cfg!(feature = "dual-bank") && !pac::FLASH.optcr().read().db1m() {
-        panic!("Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the db1m value in the user option bytes or configure embassy to use single-bank config");
+        panic!(
+            "Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the db1m value in the user option bytes or configure embassy to use single-bank config"
+        );
     }
 }
