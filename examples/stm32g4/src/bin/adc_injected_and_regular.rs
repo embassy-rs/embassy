@@ -12,6 +12,7 @@ use defmt::info;
 use embassy_stm32::adc::{
     self, Adc, AdcChannel as _, Exten, InjectedAdc, InjectedAdcTrigger, RegularAdcTrigger, SampleTime, VrefInt,
 };
+use embassy_stm32::mode::Async;
 use embassy_stm32::pac::adc::Adc as AdcRegs;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
@@ -22,7 +23,7 @@ use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs>>>> =
+static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs, Async>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
 
 bind_interrupts!(struct Irqs {
@@ -116,7 +117,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
         injected_sequence,
         InjectedAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
-        true,
+        Async,
     );
 
     // Store ADC globally to allow access from ADC interrupt

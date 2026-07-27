@@ -20,6 +20,8 @@ mod _version;
 mod configured_sequence;
 mod ringbuffered;
 
+#[cfg(any(adc_v2, adc_h5, adc_g4))]
+mod injected;
 use core::marker::PhantomData;
 
 #[allow(unused)]
@@ -28,6 +30,8 @@ pub use _version::*;
 pub use configured_sequence::ConfiguredSequence;
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_u5, adc_wba, adc_h5, adc_v2, adc_g4))]
 use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(any(adc_v2, adc_h5, adc_g4))]
+pub use injected::{InjectedAdc, IrqMode, NoHandler};
 pub use ringbuffered::{OverrunError, RingBufferedAdc};
 
 #[cfg(adc_u5)]
@@ -660,13 +664,13 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     /// - The order of channels in `sequence` determines the rank order in the injected sequence.
     /// - Accessing samples beyond `N` will result in a panic; use the returned type
     ///   `InjectedAdc<T, N>` to enforce bounds at compile time.
-    pub fn setup_injected_conversions<'a, const N: usize>(
+    pub fn setup_injected_conversions<'a, const N: usize, M: IrqMode>(
         self,
-        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, crate::adc::InterruptHandler<T>> + 'a,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, M::Handler<T>> + 'a,
         sequence: [(BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         trigger: InjectedAdcTrigger<T>,
-        injected_interrupt: bool,
-    ) -> InjectedAdc<'a, T::Regs>
+        mode: M,
+    ) -> InjectedAdc<'a, T::Regs, M>
     where
         T: DefaultInstance,
     {
@@ -677,10 +681,11 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
             NR_INJECTED_RANKS
         );
 
-        use crate::interrupt::typelevel::Interrupt;
-        T::Interrupt::unpend();
-        unsafe {
-            T::Interrupt::enable();
+        if M::IRQ {
+            <T::Interrupt as crate::interrupt::typelevel::Interrupt>::unpend();
+            unsafe {
+                <T::Interrupt as crate::interrupt::typelevel::Interrupt>::enable();
+            }
         }
 
         T::regs().stop_injected();
@@ -692,12 +697,12 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         );
 
         T::regs().enable();
-        T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), injected_interrupt);
+        T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), M::IRQ);
         T::regs().start_injected();
 
         core::mem::forget(self);
 
-        InjectedAdc::new(sequence) // InjectedAdc<'a, T, N> now borrows the channels
+        InjectedAdc::new(sequence, mode) // InjectedAdc<'a, T, N> now borrows the channels
     }
 
     /// Configures ADC for both regular conversions with a ring-buffered DMA and injected conversions.
@@ -722,20 +727,20 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     /// This function is `unsafe` because it clones the ADC peripheral handle unchecked. Both the
     /// `RingBufferedAdc` and `InjectedAdc` take ownership of the handle and drop it independently.
     /// Ensure no other code concurrently accesses the same ADC instance in a conflicting way.
-    pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize, D: RxDma<T>>(
+    pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize, D: RxDma<T>, M: IrqMode>(
         self,
         dma: embassy_hal_internal::Peri<'a, D>,
         dma_buf: &'a mut [u16],
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
         + 'a
-        + crate::interrupt::typelevel::Binding<T::Interrupt, crate::adc::InterruptHandler<T>>
+        + crate::interrupt::typelevel::Binding<T::Interrupt, M::Handler<T>>
         + 'b,
         regular_sequence: impl ExactSizeIterator<Item = (BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         regular_trigger: Option<RegularAdcTrigger<T>>,
         injected_sequence: [(BorrowedAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         injected_trigger: InjectedAdcTrigger<T>,
-        injected_interrupt: bool,
-    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T::Regs>)
+        mode: M,
+    ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T::Regs, M>)
     where
         T: DefaultInstance,
     {
@@ -767,11 +772,11 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
 
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::Repeated(regular_trigger.map(|t| (t.trigger, t.edge))));
-        T::regs().configure_injected_trigger((injected_trigger._trigger, injected_trigger._edge), injected_interrupt);
+        T::regs().configure_injected_trigger((injected_trigger._trigger, injected_trigger._edge), M::IRQ);
 
         T::regs().start_injected();
 
-        if injected_interrupt {
+        if M::IRQ {
             <T::Interrupt as crate::interrupt::typelevel::Interrupt>::unpend();
             unsafe {
                 <T::Interrupt as crate::interrupt::typelevel::Interrupt>::enable();
@@ -782,7 +787,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
 
         (
             RingBufferedAdc::new(dma, _irq, dma_buf, sequence_len),
-            InjectedAdc::new(injected_sequence),
+            InjectedAdc::new(injected_sequence, mode),
         )
     }
 }

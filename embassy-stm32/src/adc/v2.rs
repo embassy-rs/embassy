@@ -4,17 +4,13 @@ use crate::adc::{
     Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Instance, Resolution, SampleTime, Temperature, Vbat,
     VrefInt,
 };
+use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3};
 use crate::pac::adc::vals;
+use crate::pac::adc::vals::Dds;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
 use crate::wait::block_for_us;
 use crate::{Peri, rcc};
-
-mod injected;
-pub use injected::InjectedAdc;
-
-use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3};
-use crate::pac::adc::vals::Dds;
 
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
     r.sr().modify(|regs| {
