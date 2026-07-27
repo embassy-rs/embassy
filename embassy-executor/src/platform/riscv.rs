@@ -17,9 +17,9 @@ mod thread {
 
     #[unsafe(export_name = "__pender")]
     fn __pender(_context: *mut ()) {
-        // Use Release ordering here to establish a happens-before relationship
-        // with the load in the executor run method.
-        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::Release);
+        // Relaxed ordering is sufficient because interrupts are disabled when the executor reads
+        // this variable.
+        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::Relaxed);
     }
 
     /// RISC-V Executor
@@ -65,11 +65,7 @@ mod thread {
                     // interrupts will only set this value to true.
                     critical_section::with(|_| {
                         // if there is work to do, loop back to polling. otherwise wait for interrupt
-                        //
-                        // Use Acquire ordering here to establish a happens-before relationship
-                        // with the store in __pender.
-                        if SIGNAL_WORK_THREAD_MODE.load(Ordering::Acquire) {
-                            // Relaxed ordering is fine because interrupts are masked.
+                        if SIGNAL_WORK_THREAD_MODE.load(Ordering::Relaxed) {
                             SIGNAL_WORK_THREAD_MODE.store(false, Ordering::Relaxed);
                         } else {
                             core::arch::asm!("wfi");
