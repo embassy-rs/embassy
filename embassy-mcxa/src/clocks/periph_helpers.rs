@@ -691,6 +691,24 @@ pub enum I3cClockSel {
     None,
 }
 
+/// Which instance of the `I3c` is this?
+///
+/// Should not be directly selectable by end-users.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum I3cInstance {
+    /// Instance 0
+    I3c0,
+    #[cfg(feature = "mcxa5xx")]
+    /// Instance 1
+    I3c1,
+    #[cfg(feature = "mcxa5xx")]
+    /// Instance 2
+    I3c2,
+    #[cfg(feature = "mcxa5xx")]
+    /// Instance 3
+    I3c3,
+}
+
 /// Top level configuration for `I3c` instances.
 pub struct I3cConfig {
     /// Power state required for this peripheral
@@ -699,6 +717,9 @@ pub struct I3cConfig {
     pub source: I3cClockSel,
     /// Clock divisor
     pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: I3cInstance,
 }
 
 impl SPConfHelper for I3cConfig {
@@ -714,7 +735,15 @@ impl SPConfHelper for I3cConfig {
         // check that source is suitable
         let mrcc0 = crate::pac::MRCC0;
 
-        let (clkdiv, clksel) = (mrcc0.mrcc_i3c0_fclk_clkdiv(), mrcc0.mrcc_i3c0_fclk_clksel());
+        let (clkdiv, clksel) = match self.instance {
+            I3cInstance::I3c0 => (mrcc0.mrcc_i3c0_fclk_clkdiv(), mrcc0.mrcc_i3c0_fclk_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            I3cInstance::I3c1 => (mrcc0.mrcc_i3c1_fclk_clkdiv(), mrcc0.mrcc_i3c1_fclk_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            I3cInstance::I3c2 => (mrcc0.mrcc_i3c2_fclk_clkdiv(), mrcc0.mrcc_i3c2_fclk_clksel()),
+            #[cfg(feature = "mcxa5xx")]
+            I3cInstance::I3c3 => (mrcc0.mrcc_i3c3_fclk_clkdiv(), mrcc0.mrcc_i3c3_fclk_clksel()),
+        };
 
         let (freq, variant) = match self.source {
             I3cClockSel::FroLfDiv => {
