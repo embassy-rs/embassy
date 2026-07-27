@@ -25,3 +25,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Add trng implementation (#5172)
 - fix: feature guard pins used for NRST and SWD (#5257)
 - feat: Move from GPIO waker arrays to maitake-sync wait map
+- fix: Add FIFO flush and bounded spin loops to I2C controller to prevent stale data on NACK/error paths
