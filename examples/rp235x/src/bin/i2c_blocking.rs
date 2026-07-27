@@ -7,11 +7,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::i2c::{self, Config};
 use embassy_time::Timer;
 use embedded_hal_1::i2c::I2c;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[allow(dead_code)]
 mod mcp23017 {

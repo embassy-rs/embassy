@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{self, Adc, SampleTime, WatchdogChannels};
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::peripherals::ADC1;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     ADC1_COMP => adc::InterruptHandler<ADC1>;

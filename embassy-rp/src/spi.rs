@@ -8,7 +8,7 @@ pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::dma::{Channel, ChannelInstance};
 use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
-use crate::{dma, interrupt, pac, peripherals};
+use crate::{dma, interrupt, mode, pac, peripherals};
 
 /// SPI errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,8 +43,8 @@ impl Default for Config {
 /// SPI driver.
 pub struct Spi<'d, M: Mode> {
     info: &'static Info,
-    tx_dma: Option<Channel<'d>>,
-    rx_dma: Option<Channel<'d>>,
+    tx_dma: Option<Channel<'d, mode::Async>>,
+    rx_dma: Option<Channel<'d, mode::Async>>,
     phantom: PhantomData<(&'d mut (), M)>,
 }
 
@@ -78,8 +78,8 @@ impl<'d, M: Mode> Spi<'d, M> {
         mosi: Option<Peri<'d, AnyPin>>,
         miso: Option<Peri<'d, AnyPin>>,
         cs: Option<Peri<'d, AnyPin>>,
-        tx_dma: Option<Channel<'d>>,
-        rx_dma: Option<Channel<'d>>,
+        tx_dma: Option<Channel<'d, mode::Async>>,
+        rx_dma: Option<Channel<'d, mode::Async>>,
         config: Config,
     ) -> Self {
         Self::apply_config(T::info(), &config);

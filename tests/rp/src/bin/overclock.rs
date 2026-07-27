@@ -7,11 +7,12 @@ teleprobe_meta::target!(b"rpi-pico");
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::clocks::{ClockConfig, CoreVoltage, clk_sys_freq, core_voltage};
 use embassy_rp::config::Config;
 use embassy_time::Instant;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const COUNT_TO: i64 = 10_000_000;
 

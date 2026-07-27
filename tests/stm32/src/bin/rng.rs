@@ -5,10 +5,11 @@
 #[path = "../common.rs"]
 mod common;
 use common::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, peripherals, rng};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[cfg(any(
     feature = "stm32l4a6zg",

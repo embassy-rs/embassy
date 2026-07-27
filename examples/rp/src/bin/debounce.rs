@@ -5,10 +5,11 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Level, Pull};
 use embassy_time::{Duration, Instant, Timer, with_deadline};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 pub struct Debouncer<'a> {
     input: Input<'a>,

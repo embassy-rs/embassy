@@ -6,9 +6,10 @@
 #![no_main]
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_mspm0::Config;
 use embassy_time::Instant;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[cortex_m_rt::entry]
 fn main() -> ! {

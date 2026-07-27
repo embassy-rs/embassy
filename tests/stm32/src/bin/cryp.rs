@@ -9,9 +9,10 @@ use aes_gcm::Aes128Gcm;
 use aes_gcm::aead::heapless::Vec;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use common::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::*;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[cfg_attr(
     feature = "stop",

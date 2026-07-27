@@ -10,11 +10,13 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use hal::config::Config;
 use hal::flash::{Flash, FlashProperty};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 /// Number of sectors from the end of flash to use as the test target.
 ///

@@ -120,9 +120,9 @@ macro_rules! float_impl {
             const BITS: u32 = $bits;
             const SIGNIFICAND_BITS: u32 = $significand_bits;
 
-            const SIGN_MASK: Self::Int = 1 << (Self::BITS - 1);
+            const SIGN_MASK: Self::Int = 1 << (<Self as Float>::BITS - 1);
             const SIGNIFICAND_MASK: Self::Int = (1 << Self::SIGNIFICAND_BITS) - 1;
-            const EXPONENT_MASK: Self::Int = !(Self::SIGN_MASK | Self::SIGNIFICAND_MASK);
+            const EXPONENT_MASK: Self::Int = !(<Self as Float>::SIGN_MASK | Self::SIGNIFICAND_MASK);
 
             fn repr(self) -> Self::Int {
                 self.to_bits()

@@ -14,7 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::future::{Either, select};
 
 use crate::Peri;
-use crate::atomic::{AtomicClear, AtomicModify};
+use crate::atomic::{AtomicClear, AtomicDecrement, AtomicModify};
 use crate::dma::ChannelAndRequest;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
@@ -1225,14 +1225,7 @@ impl<'d, M: Mode> Drop for UartRx<'d, M> {
 }
 
 fn drop_tx_rx(info: &Info, state: &State) {
-    // We cannot use atomic subtraction here, because it's not supported for all targets
-    let is_last_drop = critical_section::with(|_| {
-        let refcount = state.tx_rx_refcount.load(Ordering::Relaxed);
-        assert!(refcount >= 1);
-        state.tx_rx_refcount.store(refcount - 1, Ordering::Relaxed);
-        refcount == 1
-    });
-    if is_last_drop {
+    if state.tx_rx_refcount.decrement() == 1 {
         info.rcc.disable();
     }
 }

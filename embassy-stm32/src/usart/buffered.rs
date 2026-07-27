@@ -16,6 +16,7 @@ use super::{
     clear_interrupt_flags, configure, half_duplex_set_rx_tx_before_write, rdr, reconfigure, send_break, set_baudrate,
     sr, tdr,
 };
+use crate::atomic::AtomicModify;
 use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::{self, InterruptExt};
 use crate::time::Hertz;
@@ -41,10 +42,15 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     // On v1 & v2, reading DR clears the rxne, error and idle interrupt
     // flags. Keep this close to the SR read to reduce the chance of a
     // flag being set in-between.
-    let dr = if sr_val.rxne() || cfg!(any(usart_v1, usart_v2)) && (sr_val.ore() || sr_val.idle()) {
-        Some(rdr(r).read_volatile())
-    } else {
-        None
+    #[cfg(not(usart_v4))]
+    if sr_val.rxne() {
+        if let Some(byte) = state.rx_buf.writer().iter().next() {
+            *byte = rdr(r).read_volatile();
+        } else {
+            r.cr1().modify(|w| w.set_rxneie(false));
+        }
+    } else if cfg!(any(usart_v1, usart_v2)) && (sr_val.ore() || sr_val.idle()) {
+        rdr(r).read_volatile();
     };
     clear_interrupt_flags(r, sr_val);
 
@@ -63,20 +69,17 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
 
     // RX
     if sr_val.rxne() {
-        let mut rx_writer = state.rx_buf.writer();
+        #[cfg(usart_v4)]
         {
+            let mut rx_writer = state.rx_buf.writer();
             let mut rx_iter = rx_writer.iter();
-            if let Some(data) = dr
-                && let Some(byte) = rx_iter.next()
-            {
-                *byte = data;
-            }
-
-            #[cfg(usart_v4)]
-            while sr(r).read().rxne()
-                && let Some(byte) = rx_iter.next()
-            {
-                *byte = rdr(r).read_volatile();
+            while sr(r).read().rxne() {
+                if let Some(byte) = rx_iter.next() {
+                    *byte = rdr(r).read_volatile();
+                } else {
+                    r.cr3().modify(|w| w.set_rxftie(false));
+                    break;
+                }
             }
         }
 
@@ -532,12 +535,10 @@ impl<'d> BufferedUart<'d> {
         configure(info, self.rx.kernel_clock, &config, true, true)?;
 
         info.regs.cr1().modify(|w| {
-            w.set_rxneie(true);
+            w.set_rxneie(cfg!(not(usart_v4)));
             w.set_idleie(true);
             #[cfg(usart_v4)]
             w.set_txeie(false);
-            #[cfg(usart_v4)]
-            w.set_rxneie(false);
 
             if config.duplex.is_half() {
                 // The te and re bits will be set by write, read and flush methods.
@@ -593,9 +594,12 @@ impl<'d> BufferedUart<'d> {
             .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
         self.rx.info.regs.cr1().modify(|w| {
+            #[cfg(not(usart_v4))]
             w.set_rxneie(true);
             w.set_idleie(true);
         });
+        #[cfg(usart_v4)]
+        self.rx.info.regs.cr3().modify(|w| w.set_rxftie(true));
 
         Ok(())
     }
@@ -628,6 +632,10 @@ impl<'d> BufferedUartRx<'d> {
 
                 let do_pend = state.rx_buf.is_full();
                 rx_reader.pop_done(data_len);
+                #[cfg(not(usart_v4))]
+                self.info.regs.cr1().set_bits(|w| w.set_rxneie(true));
+                #[cfg(usart_v4)]
+                self.info.regs.cr3().set_bits(|w| w.set_rxftie(true));
 
                 if do_pend {
                     self.info.interrupt.pend();
@@ -660,6 +668,10 @@ impl<'d> BufferedUartRx<'d> {
 
                 let do_pend = state.rx_buf.is_full();
                 rx_reader.pop_done(data_len);
+                #[cfg(not(usart_v4))]
+                self.info.regs.cr1().set_bits(|w| w.set_rxneie(true));
+                #[cfg(usart_v4)]
+                self.info.regs.cr3().set_bits(|w| w.set_rxftie(true));
 
                 if do_pend {
                     self.info.interrupt.pend();
@@ -692,6 +704,10 @@ impl<'d> BufferedUartRx<'d> {
         let mut rx_reader = unsafe { state.rx_buf.reader() };
         let full = state.rx_buf.is_full();
         rx_reader.pop_done(amt);
+        #[cfg(not(usart_v4))]
+        self.info.regs.cr1().set_bits(|w| w.set_rxneie(true));
+        #[cfg(usart_v4)]
+        self.info.regs.cr3().set_bits(|w| w.set_rxftie(true));
         if full {
             self.info.interrupt.pend();
         }
@@ -712,9 +728,12 @@ impl<'d> BufferedUartRx<'d> {
             .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
         self.info.regs.cr1().modify(|w| {
+            #[cfg(not(usart_v4))]
             w.set_rxneie(true);
             w.set_idleie(true);
         });
+        #[cfg(usart_v4)]
+        self.info.regs.cr3().modify(|w| w.set_rxftie(true));
 
         Ok(())
     }
@@ -814,9 +833,12 @@ impl<'d> BufferedUartTx<'d> {
         reconfigure(self.info, self.kernel_clock, config)?;
 
         self.info.regs.cr1().modify(|w| {
+            #[cfg(not(usart_v4))]
             w.set_rxneie(true);
             w.set_idleie(true);
         });
+        #[cfg(usart_v4)]
+        self.info.regs.cr3().modify(|w| w.set_rxftie(true));
 
         Ok(())
     }

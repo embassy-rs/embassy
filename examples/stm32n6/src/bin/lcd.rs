@@ -24,6 +24,7 @@ mod rk050hr18c;
 use core::fmt::Write as _;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dma2d::{self, Dma2d};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
@@ -41,7 +42,7 @@ use embedded_graphics::primitives::{Circle, PrimitiveStyle, PrimitiveStyleBuilde
 use embedded_graphics::text::{Alignment, Baseline, Text, TextStyle, TextStyleBuilder};
 use embedded_graphics_core::geometry::Dimensions;
 use heapless::String;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 use crate::framebuffer::Framebuffer;
 use crate::rk050hr18c::{HEIGHT, LTDC_CONFIG, Rk050Hr18c, WIDTH};

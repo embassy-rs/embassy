@@ -6,13 +6,15 @@
 #![no_main]
 
 use defmt::{info, trace};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
+use embassy_stm32 as hal;
 use embassy_stm32::spdifrx::{self, Spdifrx};
 use embassy_stm32::{Peri, bind_interrupts, dma, peripherals, sai};
 use grounded::uninit::GroundedArrayCell;
 use hal::sai::*;
-use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     SPDIF_RX => spdifrx::GlobalInterruptHandler<peripherals::SPDIFRX1>;
@@ -164,7 +166,7 @@ fn new_sai_transmitter<'d>(
     fs: Peri<'d, peripherals::PD12>,
     dma: Peri<'d, peripherals::BDMA_CH0>,
     buf: &'d mut [u32],
-) -> Sai<'d, peripherals::SAI4, u32> {
+) -> Sai<'d, u32> {
     let mut sai_config = hal::sai::Config::default();
     sai_config.slot_count = hal::sai::word::U4(CHANNEL_COUNT as u8);
     sai_config.slot_enable = 0xFFFF; // All slots

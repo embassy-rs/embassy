@@ -9,6 +9,7 @@
 use core::cell::RefCell;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_stm32::adc::{
     self, Adc, AdcChannel as _, Exten, InjectedAdc, InjectedAdcTrigger, RegularAdcTrigger, SampleTime, VrefInt,
 };
@@ -20,8 +21,8 @@ use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::triggers::TIM1_TRGO2;
 use embassy_stm32::{Config, Peri, bind_interrupts, dma, interrupt, peripherals};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs, Async>>>> =
     CriticalSectionMutex::new(RefCell::new(None));

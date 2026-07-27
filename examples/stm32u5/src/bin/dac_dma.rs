@@ -3,6 +3,7 @@
 #![no_std]
 #![no_main]
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dac::DacChannel;
 use embassy_stm32::peripherals::GPDMA1_CH0;
@@ -12,7 +13,7 @@ use embassy_stm32::timer::low_level::RoundTo::Faster;
 use embassy_stm32::timer::low_level::{MasterMode, Timer};
 use embassy_stm32::triggers::TIM6_TRGO;
 use embassy_stm32::{Config, bind_interrupts, dma};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL0 => dma::InterruptHandler<GPDMA1_CH0>;

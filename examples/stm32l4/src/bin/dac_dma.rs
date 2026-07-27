@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dac::DacChannel;
 use embassy_stm32::mode::Async;
@@ -13,7 +14,7 @@ use embassy_stm32::timer::low_level::Timer;
 use embassy_stm32::triggers::{TIM6_TRGO, TIM7_TRGO};
 use embassy_stm32::{Peri, bind_interrupts, dma};
 use micromath::F32Ext;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL3 => dma::InterruptHandler<DMA1_CH3>;
