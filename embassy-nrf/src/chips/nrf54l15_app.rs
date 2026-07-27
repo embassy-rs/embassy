@@ -382,7 +382,9 @@ embassy_hal_internal::peripherals! {
     // GPIO port 1
     P1_00,
     P1_01,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P1_02,
+    #[cfg(feature = "nfc-pins-as-gpio")]
     P1_03,
     P1_04,
     P1_05,
@@ -482,6 +484,9 @@ embassy_hal_internal::peripherals! {
     WDT0,
     #[cfg(feature = "_s")]
     WDT1,
+
+    // VPR
+    VPR
 }
 
 impl_pin!(P0_00, 0, 0);
@@ -494,7 +499,9 @@ impl_pin!(P0_06, 0, 6);
 
 impl_pin!(P1_00, 1, 0);
 impl_pin!(P1_01, 1, 1);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P1_02, 1, 2);
+#[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P1_03, 1, 3);
 impl_pin!(P1_04, 1, 4);
 impl_pin!(P1_05, 1, 5);
@@ -534,7 +541,9 @@ cfg_if::cfg_if! {
 
         impl_gpiote_pin!(P1_00, GPIOTE20);
         impl_gpiote_pin!(P1_01, GPIOTE20);
+        #[cfg(feature = "nfc-pins-as-gpio")]
         impl_gpiote_pin!(P1_02, GPIOTE20);
+        #[cfg(feature = "nfc-pins-as-gpio")]
         impl_gpiote_pin!(P1_03, GPIOTE20);
         impl_gpiote_pin!(P1_04, GPIOTE20);
         impl_gpiote_pin!(P1_05, GPIOTE20);
@@ -614,13 +623,13 @@ impl_ppi_group!(PPI20_GROUP5, DPPIC20, 5);
 impl_ppi_group!(PPI30_GROUP0, DPPIC30, 0);
 impl_ppi_group!(PPI30_GROUP1, DPPIC30, 1);
 
-impl_timer!(TIMER00, TIMER00, TIMER00);
-impl_timer!(TIMER10, TIMER10, TIMER10);
-impl_timer!(TIMER20, TIMER20, TIMER20);
-impl_timer!(TIMER21, TIMER21, TIMER21);
-impl_timer!(TIMER22, TIMER22, TIMER22);
-impl_timer!(TIMER23, TIMER23, TIMER23);
-impl_timer!(TIMER24, TIMER24, TIMER24);
+impl_timer!(TIMER00, TIMER00, TIMER00, 6);
+impl_timer!(TIMER10, TIMER10, TIMER10, 8);
+impl_timer!(TIMER20, TIMER20, TIMER20, 6);
+impl_timer!(TIMER21, TIMER21, TIMER21, 6);
+impl_timer!(TIMER22, TIMER22, TIMER22, 6);
+impl_timer!(TIMER23, TIMER23, TIMER23, 6);
+impl_timer!(TIMER24, TIMER24, TIMER24, 6);
 
 impl_twim!(SERIAL20, TWIM20, SERIAL20);
 impl_twim!(SERIAL21, TWIM21, SERIAL21);
@@ -642,8 +651,8 @@ impl_spim!(
     SPIM00,
     SERIAL00,
     match pac::OSCILLATORS_S.pll().currentfreq().read().currentfreq() {
-        pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
-        pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
+        pac::oscillators::vals::Currentfreq::Ck128m => 128_000_000,
+        pac::oscillators::vals::Currentfreq::Ck64m => 64_000_000,
         _ => unreachable!(),
     }
 );
@@ -653,8 +662,8 @@ impl_spim!(
     SPIM00,
     SERIAL00,
     match pac::OSCILLATORS_NS.pll().currentfreq().read().currentfreq() {
-        pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
-        pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
+        pac::oscillators::vals::Currentfreq::Ck128m => 128_000_000,
+        pac::oscillators::vals::Currentfreq::Ck64m => 64_000_000,
         _ => unreachable!(),
     }
 );
@@ -686,6 +695,12 @@ impl_saadc_input!(P1_14, 1, 14);
 
 #[cfg(feature = "_s")]
 impl_cracen!(CRACEN, CRACEN, CRACEN);
+
+#[cfg(feature = "_s")]
+impl_vpr!(VPR, VPR00, VPR00);
+
+#[cfg(feature = "_s")]
+impl_sqspi!(VPR);
 
 embassy_hal_internal::interrupt_mod!(
     SWI00,
@@ -744,3 +759,86 @@ embassy_hal_internal::interrupt_mod!(
     GPIOTE30_1,
     CLOCK_POWER,
 );
+
+// PPI bridge (PPIB) channels
+use crate::ppib::impl_ppib_channel;
+
+impl_ppib_channel!(PPIB00_CH0, PPIB00, 0, PPIB10_CH0);
+impl_ppib_channel!(PPIB00_CH1, PPIB00, 1, PPIB10_CH1);
+impl_ppib_channel!(PPIB00_CH2, PPIB00, 2, PPIB10_CH2);
+impl_ppib_channel!(PPIB00_CH3, PPIB00, 3, PPIB10_CH3);
+impl_ppib_channel!(PPIB00_CH4, PPIB00, 4, PPIB10_CH4);
+impl_ppib_channel!(PPIB00_CH5, PPIB00, 5, PPIB10_CH5);
+impl_ppib_channel!(PPIB00_CH6, PPIB00, 6, PPIB10_CH6);
+impl_ppib_channel!(PPIB00_CH7, PPIB00, 7, PPIB10_CH7);
+
+impl_ppib_channel!(PPIB01_CH0, PPIB01, 0, PPIB20_CH0);
+impl_ppib_channel!(PPIB01_CH1, PPIB01, 1, PPIB20_CH1);
+impl_ppib_channel!(PPIB01_CH2, PPIB01, 2, PPIB20_CH2);
+impl_ppib_channel!(PPIB01_CH3, PPIB01, 3, PPIB20_CH3);
+impl_ppib_channel!(PPIB01_CH4, PPIB01, 4, PPIB20_CH4);
+impl_ppib_channel!(PPIB01_CH5, PPIB01, 5, PPIB20_CH5);
+impl_ppib_channel!(PPIB01_CH6, PPIB01, 6, PPIB20_CH6);
+impl_ppib_channel!(PPIB01_CH7, PPIB01, 7, PPIB20_CH7);
+
+impl_ppib_channel!(PPIB10_CH0, PPIB10, 0, PPIB00_CH0);
+impl_ppib_channel!(PPIB10_CH1, PPIB10, 1, PPIB00_CH1);
+impl_ppib_channel!(PPIB10_CH2, PPIB10, 2, PPIB00_CH2);
+impl_ppib_channel!(PPIB10_CH3, PPIB10, 3, PPIB00_CH3);
+impl_ppib_channel!(PPIB10_CH4, PPIB10, 4, PPIB00_CH4);
+impl_ppib_channel!(PPIB10_CH5, PPIB10, 5, PPIB00_CH5);
+impl_ppib_channel!(PPIB10_CH6, PPIB10, 6, PPIB00_CH6);
+impl_ppib_channel!(PPIB10_CH7, PPIB10, 7, PPIB00_CH7);
+
+impl_ppib_channel!(PPIB11_CH0, PPIB11, 0, PPIB21_CH0);
+impl_ppib_channel!(PPIB11_CH1, PPIB11, 1, PPIB21_CH1);
+impl_ppib_channel!(PPIB11_CH2, PPIB11, 2, PPIB21_CH2);
+impl_ppib_channel!(PPIB11_CH3, PPIB11, 3, PPIB21_CH3);
+impl_ppib_channel!(PPIB11_CH4, PPIB11, 4, PPIB21_CH4);
+impl_ppib_channel!(PPIB11_CH5, PPIB11, 5, PPIB21_CH5);
+impl_ppib_channel!(PPIB11_CH6, PPIB11, 6, PPIB21_CH6);
+impl_ppib_channel!(PPIB11_CH7, PPIB11, 7, PPIB21_CH7);
+impl_ppib_channel!(PPIB11_CH8, PPIB11, 8, PPIB21_CH8);
+impl_ppib_channel!(PPIB11_CH9, PPIB11, 9, PPIB21_CH9);
+impl_ppib_channel!(PPIB11_CH10, PPIB11, 10, PPIB21_CH10);
+impl_ppib_channel!(PPIB11_CH11, PPIB11, 11, PPIB21_CH11);
+impl_ppib_channel!(PPIB11_CH12, PPIB11, 12, PPIB21_CH12);
+impl_ppib_channel!(PPIB11_CH13, PPIB11, 13, PPIB21_CH13);
+impl_ppib_channel!(PPIB11_CH14, PPIB11, 14, PPIB21_CH14);
+impl_ppib_channel!(PPIB11_CH15, PPIB11, 15, PPIB21_CH15);
+
+impl_ppib_channel!(PPIB20_CH0, PPIB20, 0, PPIB01_CH0);
+impl_ppib_channel!(PPIB20_CH1, PPIB20, 1, PPIB01_CH1);
+impl_ppib_channel!(PPIB20_CH2, PPIB20, 2, PPIB01_CH2);
+impl_ppib_channel!(PPIB20_CH3, PPIB20, 3, PPIB01_CH3);
+impl_ppib_channel!(PPIB20_CH4, PPIB20, 4, PPIB01_CH4);
+impl_ppib_channel!(PPIB20_CH5, PPIB20, 5, PPIB01_CH5);
+impl_ppib_channel!(PPIB20_CH6, PPIB20, 6, PPIB01_CH6);
+impl_ppib_channel!(PPIB20_CH7, PPIB20, 7, PPIB01_CH7);
+
+impl_ppib_channel!(PPIB21_CH0, PPIB21, 0, PPIB11_CH0);
+impl_ppib_channel!(PPIB21_CH1, PPIB21, 1, PPIB11_CH1);
+impl_ppib_channel!(PPIB21_CH2, PPIB21, 2, PPIB11_CH2);
+impl_ppib_channel!(PPIB21_CH3, PPIB21, 3, PPIB11_CH3);
+impl_ppib_channel!(PPIB21_CH4, PPIB21, 4, PPIB11_CH4);
+impl_ppib_channel!(PPIB21_CH5, PPIB21, 5, PPIB11_CH5);
+impl_ppib_channel!(PPIB21_CH6, PPIB21, 6, PPIB11_CH6);
+impl_ppib_channel!(PPIB21_CH7, PPIB21, 7, PPIB11_CH7);
+impl_ppib_channel!(PPIB21_CH8, PPIB21, 8, PPIB11_CH8);
+impl_ppib_channel!(PPIB21_CH9, PPIB21, 9, PPIB11_CH9);
+impl_ppib_channel!(PPIB21_CH10, PPIB21, 10, PPIB11_CH10);
+impl_ppib_channel!(PPIB21_CH11, PPIB21, 11, PPIB11_CH11);
+impl_ppib_channel!(PPIB21_CH12, PPIB21, 12, PPIB11_CH12);
+impl_ppib_channel!(PPIB21_CH13, PPIB21, 13, PPIB11_CH13);
+impl_ppib_channel!(PPIB21_CH14, PPIB21, 14, PPIB11_CH14);
+impl_ppib_channel!(PPIB21_CH15, PPIB21, 15, PPIB11_CH15);
+
+impl_ppib_channel!(PPIB22_CH0, PPIB22, 0, PPIB30_CH0);
+impl_ppib_channel!(PPIB22_CH1, PPIB22, 1, PPIB30_CH1);
+impl_ppib_channel!(PPIB22_CH2, PPIB22, 2, PPIB30_CH2);
+impl_ppib_channel!(PPIB22_CH3, PPIB22, 3, PPIB30_CH3);
+
+impl_ppib_channel!(PPIB30_CH0, PPIB30, 0, PPIB22_CH0);
+impl_ppib_channel!(PPIB30_CH1, PPIB30, 1, PPIB22_CH1);
+impl_ppib_channel!(PPIB30_CH2, PPIB30, 2, PPIB22_CH2);
+impl_ppib_channel!(PPIB30_CH3, PPIB30, 3, PPIB22_CH3);

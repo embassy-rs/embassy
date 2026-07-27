@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::khz;
@@ -9,7 +10,7 @@ use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
 use embassy_stm32::timer::simple_pwm::PwmPin;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -33,7 +34,7 @@ async fn main(_spawner: Spawner) {
     );
 
     let max = pwm.get_max_duty();
-    pwm.set_dead_time(max / 1024);
+    pwm.set_dead_time((max / 1024) as u16);
 
     pwm.enable(Channel::Ch1);
 

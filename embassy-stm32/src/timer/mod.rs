@@ -7,6 +7,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
+pub mod hall;
 pub mod input_capture;
 pub mod low_level;
 pub mod one_pulse;
@@ -15,6 +16,8 @@ pub mod qei;
 pub mod ringbuffered;
 pub mod simple_pwm;
 
+use crate::dma::word::Word;
+use crate::fmt::Debuggable;
 use crate::interrupt;
 use crate::rcc::RccPeripheral;
 
@@ -44,13 +47,13 @@ impl Channel {
 }
 
 /// Channel 1 marker type.
-pub enum Ch1 {}
+pub struct Ch1;
 /// Channel 2 marker type.
-pub enum Ch2 {}
+pub struct Ch2;
 /// Channel 3 marker type.
-pub enum Ch3 {}
+pub struct Ch3;
 /// Channel 4 marker type.
-pub enum Ch4 {}
+pub struct Ch4;
 
 /// Timer channel trait.
 #[allow(private_bounds)]
@@ -156,14 +159,23 @@ trait SealedInstance: RccPeripheral + PeripheralType {
     fn state() -> &'static State;
 }
 
+trait CenterAligned {
+    fn is_center_aligned() -> bool;
+}
+
 /// Core timer instance.
 #[allow(private_bounds)]
-pub trait CoreInstance: SealedInstance + 'static {
+pub trait CoreInstance: SealedInstance + CenterAligned + 'static {
     /// Update Interrupt for this timer.
     type UpdateInterrupt: interrupt::typelevel::Interrupt;
 
     /// Amount of bits this timer has.
-    const BITS: TimerBits;
+    type Word: Word
+        + TryInto<u16, Error: Debuggable>
+        + From<u16>
+        + TryFrom<u32, Error: Debuggable>
+        + Into<u32>
+        + TryFrom<u64, Error: Debuggable>;
 
     /// Registers for this timer.
     ///
@@ -224,6 +236,8 @@ pub trait AdvancedInstance2Channel: BasicInstance + GeneralInstance2Channel + Ad
 /// Advanced 16-bit timer with 4 channels instance.
 pub trait AdvancedInstance4Channel: AdvancedInstance2Channel + GeneralInstance4Channel {}
 
+trigger_trait!(TimerInputTrigger, GeneralInstance4Channel, TimerChannel);
+
 pin_trait!(TimerPin, GeneralInstance4Channel, TimerChannel, @A);
 pin_trait!(ExternalTriggerPin, GeneralInstance4Channel, @A);
 
@@ -241,7 +255,7 @@ dma_trait!(Dma, GeneralInstance4Channel, TimerChannel);
 
 #[allow(unused)]
 macro_rules! impl_core_timer {
-    ($inst:ident, $bits:expr) => {
+    ($inst:ident, $bits:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             fn state() -> &'static State {
                 static STATE: State = State::new();
@@ -251,8 +265,7 @@ macro_rules! impl_core_timer {
 
         impl CoreInstance for crate::peripherals::$inst {
             type UpdateInterrupt = crate::_generated::peripheral_interrupts::$inst::UP;
-
-            const BITS: TimerBits = $bits;
+            type Word = $bits;
 
             fn regs() -> *mut () {
                 crate::pac::$inst.as_ptr()
@@ -304,61 +317,92 @@ macro_rules! impl_general_4ch_blank_sealed {
     };
 }
 
+#[allow(unused)]
+macro_rules! impl_never_center_aligned {
+    ($inst:ident) => {
+        impl CenterAligned for crate::peripherals::$inst {
+            fn is_center_aligned() -> bool {
+                false
+            }
+        }
+    };
+}
+
+#[allow(unused)]
+macro_rules! impl_maybe_center_aligned {
+    ($inst:ident) => {
+        impl CenterAligned for crate::peripherals::$inst {
+            fn is_center_aligned() -> bool {
+                let cr1 = unsafe { crate::pac::timer::TimGp16::from_ptr(Self::regs()) }
+                    .cr1()
+                    .read();
+                low_level::CountingMode::from((cr1.cms(), cr1.dir())).is_center_aligned()
+            }
+        }
+    };
+}
+
 foreach_interrupt! {
     ($inst:ident, timer, TIM_BASIC, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
+        impl_never_center_aligned!($inst);
     };
 
     ($inst:ident, timer, TIM_1CH, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
 
     ($inst:ident, timer, TIM_2CH, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
 
     ($inst:ident, timer, TIM_GP16, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
 
     ($inst:ident, timer, TIM_GP32, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits32);
+        impl_core_timer!($inst, u32);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl GeneralInstance32bit4Channel for crate::peripherals::$inst {}
         impl General4ChBlankSealed for crate::peripherals::$inst {}
     };
 
     ($inst:ident, timer, TIM_1CH_CMP, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl_general_4ch_blank_sealed!($inst);
         impl_advanced_1ch!($inst);
         impl AdvancedInstance2Channel for crate::peripherals::$inst {}
@@ -366,12 +410,13 @@ foreach_interrupt! {
     };
 
     ($inst:ident, timer, TIM_2CH_CMP, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl_general_4ch_blank_sealed!($inst);
         impl_advanced_1ch!($inst);
         impl AdvancedInstance2Channel for crate::peripherals::$inst {}
@@ -379,12 +424,13 @@ foreach_interrupt! {
     };
 
     ($inst:ident, timer, TIM_ADV, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
         impl_general_2ch!($inst);
         impl GeneralInstance4Channel for crate::peripherals::$inst {}
+        impl_maybe_center_aligned!($inst);
         impl_general_4ch_blank_sealed!($inst);
         impl_advanced_1ch!($inst);
         impl AdvancedInstance2Channel for crate::peripherals::$inst {}
@@ -394,14 +440,11 @@ foreach_interrupt! {
 
 /// Update interrupt handler.
 pub struct UpdateInterruptHandler<T: CoreInstance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for UpdateInterruptHandler<T> {
     unsafe fn on_interrupt() {
-        #[cfg(feature = "low-power")]
-        crate::low_power::Executor::on_wakeup_irq();
-
         let regs = crate::pac::timer::TimCore::from_ptr(T::regs());
 
         // Read TIM interrupt flags.
@@ -422,16 +465,13 @@ impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for Upda
 
 /// Capture/Compare interrupt handler.
 pub struct CaptureCompareInterruptHandler<T: GeneralInstance1Channel> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: GeneralInstance1Channel> interrupt::typelevel::Handler<T::CaptureCompareInterrupt>
     for CaptureCompareInterruptHandler<T>
 {
     unsafe fn on_interrupt() {
-        #[cfg(feature = "low-power")]
-        crate::low_power::Executor::on_wakeup_irq();
-
         let regs = crate::pac::timer::TimGp16::from_ptr(T::regs());
 
         // Read TIM interrupt flags.

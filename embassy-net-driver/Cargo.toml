@@ -21,8 +21,14 @@ target = "thumbv7em-none-eabi"
 [package.metadata.docs.rs]
 features = ["defmt"]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["defmt", "packetmeta-id"]},
+]
+
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
 
 [features]
 defmt = ["dep:defmt"]
+packetmeta-id = []

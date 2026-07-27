@@ -9,7 +9,7 @@ timer queue in link:https://crates.io/crates/embassy-executor[embassy-executor] 
 
 == Timer
 
-The `embassy::time::Timer` type provides two timing methods.
+The `embassy_time::Timer` type provides two timing methods.
 
 `Timer::at` creates a future that completes at the specified `Instant`, relative to the system boot time.
 `Timer::after` creates a future that completes after the specified `Duration`, relative to when the future was created.
@@ -19,8 +19,8 @@ An example of a delay is provided as follows:
 TIP: Dependencies needed to run this example link:#_the_cargo_toml[can be found here].
 [,rust]
 ----
-use embassy::executor::{task, Executor};
-use embassy::time::{Duration, Timer};
+use embassy_executor::task;
+use embassy_time::{Duration, Timer};
 
 #[task]
 /// Task that ticks periodically
@@ -35,7 +35,7 @@ async fn tick_periodic() -> ! {
 
 == Delay
 
-The `embassy::time::Delay` type provides an implementation of the link:https://docs.rs/embedded-hal/1.0.0/embedded_hal/delay/index.html[embedded-hal] and
+The `embassy_time::Delay` type provides an implementation of the link:https://docs.rs/embedded-hal/1.0.0/embedded_hal/delay/index.html[embedded-hal] and
 link:https://docs.rs/embedded-hal-async/latest/embedded_hal_async/delay/index.html[embedded-hal-async] traits. This can be used for drivers
 that expect a generic delay implementation to be provided.
 
@@ -44,7 +44,8 @@ An example of how this can be used:
 TIP: Dependencies needed to run this example link:#_the_cargo_toml[can be found here].
 [,rust]
 ----
-use embassy::executor::{task, Executor};
+use embassy_executor::task;
+use embassy_time::Delay;
 
 #[task]
 /// Task that ticks periodically
@@ -52,7 +53,7 @@ async fn tick_periodic() -> ! {
     loop {
         rprintln!("tick!");
         // async sleep primitive, suspends the task for 500ms.
-        generic_delay(embassy::time::Delay).await
+        generic_delay(Delay).await
     }
 }
 

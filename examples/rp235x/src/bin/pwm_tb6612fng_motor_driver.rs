@@ -7,13 +7,14 @@
 
 use assign_resources::assign_resources;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::config::Config;
 use embassy_rp::gpio::Output;
 use embassy_rp::{Peri, gpio, peripherals, pwm};
 use embassy_time::{Duration, Timer};
+use panic_probe as _;
 use tb6612fng::{DriveCommand, Motor, Tb6612fng};
-use {defmt_rtt as _, panic_probe as _};
 
 assign_resources! {
     motor: MotorResources {

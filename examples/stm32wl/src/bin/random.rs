@@ -4,11 +4,12 @@
 use core::mem::MaybeUninit;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{SharedData, bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs{
     RNG => rng::InterruptHandler<peripherals::RNG>;
@@ -25,16 +26,16 @@ async fn main(_spawner: Spawner) {
         config.rcc.hse = Some(Hse {
             freq: Hertz(32_000_000),
             mode: HseMode::Bypass,
-            prescaler: HsePrescaler::DIV1,
+            prescaler: HsePrescaler::Div1,
         });
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV2,
-            mul: PllMul::MUL6,
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div2,
+            mul: PllMul::Mul6,
             divp: None,
-            divq: Some(PllQDiv::DIV2), // PLL1_Q clock (32 / 2 * 6 / 2), used for RNG
-            divr: Some(PllRDiv::DIV2), // sysclk 48Mhz clock (32 / 2 * 6 / 2)
+            divq: Some(PllQDiv::Div2), // PLL1_Q clock (32 / 2 * 6 / 2), used for RNG
+            divr: Some(PllRDiv::Div2), // sysclk 48Mhz clock (32 / 2 * 6 / 2)
         });
     }
     let p = embassy_stm32::init_primary(config, &SHARED_DATA);

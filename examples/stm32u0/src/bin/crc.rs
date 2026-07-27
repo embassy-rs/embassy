@@ -2,9 +2,10 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::crc::{Config, Crc, InputReverseConfig, PolySize};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -23,7 +24,8 @@ async fn main(_spawner: Spawner) {
         )),
     );
 
-    let output = crc.feed_bytes(b"Life, it never die\nWomen are my favorite guy") ^ 0xFFFFFFFF;
+    crc.feed_bytes(b"Life, it never die\nWomen are my favorite guy");
+    let output = crc.read() ^ 0xFFFFFFFF;
 
     defmt::assert_eq!(output, 0x33F0E26B);
 

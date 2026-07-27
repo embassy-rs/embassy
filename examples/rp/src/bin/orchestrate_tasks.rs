@@ -19,6 +19,7 @@
 
 use assign_resources::assign_resources;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
@@ -29,7 +30,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::{channel, signal};
 use embassy_time::{Duration, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Hardware resource assignment. See other examples for different ways of doing this.
 assign_resources! {

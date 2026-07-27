@@ -10,6 +10,7 @@
 ///
 use bouncy_box::BouncyBox;
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
@@ -23,17 +24,23 @@ use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::pixelcolor::raw::RawU24;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::Rectangle;
-use heapless::{Entry, FnvIndexMap};
+use heapless::index_map::{Entry, FnvIndexMap};
+use panic_probe as _;
 use tinybmp::Bmp;
-use {defmt_rtt as _, panic_probe as _};
 
 const DISPLAY_WIDTH: usize = 480;
 const DISPLAY_HEIGHT: usize = 272;
 const MY_TASK_POOL_SIZE: usize = 2;
 
 // the following two display buffers consume 261120 bytes that just about fits into axis ram found on the mcu
-pub static mut FB1: [TargetPixelType; DISPLAY_WIDTH * DISPLAY_HEIGHT] = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
-pub static mut FB2: [TargetPixelType; DISPLAY_WIDTH * DISPLAY_HEIGHT] = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
+//
+// The LTDC frame-buffer address (CFBAR) must be bus-aligned: a plain `[u8; N]` array (align 1)
+// can land at an odd address, which starves the LTDC FIFO and reports FifoUnderrun on every
+// frame. Wrap the buffers so the linker aligns them to the AXI bus width.
+#[repr(C, align(32))]
+pub struct Framebuffer(pub [TargetPixelType; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
+pub static mut FB1: Framebuffer = Framebuffer([0; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
+pub static mut FB2: Framebuffer = Framebuffer([0; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
 
 bind_interrupts!(struct Irqs {
     LTDC => ltdc::InterruptHandler<peripherals::LTDC>;
@@ -48,6 +55,13 @@ async fn main(spawner: Spawner) {
     // blink the led on another task
     let led = Output::new(p.PC3, Level::High, Speed::Low);
     spawner.spawn(unwrap!(led_task(led)));
+
+    // The panel control pins are not part of the LTDC signal interface and must be driven
+    // separately: LCD_DISP (PD10) takes the panel out of standby, LCD_BL_CTRL (PG15) enables
+    // the backlight. Leaving either floating shows a blank/white panel regardless of the
+    // video content.
+    let _lcd_disp = Output::new(p.PD10, Level::High, Speed::Low);
+    let _lcd_backlight = Output::new(p.PG15, Level::High, Speed::Low);
 
     // numbers from STMicroelectronics/STM32CubeH7 STM32H735G-DK C-based example
     const RK043FN48H_HSYNC: u16 = 41; // Horizontal synchronization
@@ -73,9 +87,9 @@ async fn main(spawner: Spawner) {
     };
 
     info!("init ltdc");
-    let mut ltdc = Ltdc::new_with_pins(
-        p.LTDC, Irqs, p.PG7, p.PC6, p.PA4, p.PG14, p.PD0, p.PD6, p.PA8, p.PE12, p.PA3, p.PB8, p.PB9, p.PB1, p.PB0,
-        p.PA6, p.PE11, p.PH15, p.PH4, p.PC7, p.PD3, p.PE0, p.PH3, p.PH8, p.PH9, p.PH10, p.PH11, p.PE1, p.PE15,
+    let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
+        p.LTDC, Irqs, p.PG7, p.PC6, p.PA4, p.PE13, p.PG14, p.PD0, p.PD6, p.PA8, p.PE12, p.PA3, p.PB8, p.PB9, p.PB1,
+        p.PB0, p.PA6, p.PE11, p.PH15, p.PH4, p.PC7, p.PD3, p.PE0, p.PH3, p.PH8, p.PH9, p.PH10, p.PH11, p.PE1, p.PE15,
     );
     ltdc.init(&ltdc_config);
 
@@ -100,8 +114,8 @@ async fn main(spawner: Spawner) {
     // Safety: the DoubleBuffer controls access to the statically allocated frame buffers
     // and it is the only thing that mutates their content
     let mut double_buffer = DoubleBuffer::new(
-        unsafe { FB1.as_mut() },
-        unsafe { FB2.as_mut() },
+        unsafe { FB1.0.as_mut() },
+        unsafe { FB2.0.as_mut() },
         layer_config,
         color_map,
     );
@@ -127,7 +141,7 @@ async fn main(spawner: Spawner) {
 
 /// builds the color look-up table from all unique colors found in the bitmap. This should be a 256 color indexed bitmap to work.
 fn build_color_lookup_map(bmp: &Bmp<Rgb888>) -> FnvIndexMap<u32, u8, NUM_COLORS> {
-    let mut color_map: FnvIndexMap<u32, u8, NUM_COLORS> = heapless::FnvIndexMap::new();
+    let mut color_map: FnvIndexMap<u32, u8, NUM_COLORS> = FnvIndexMap::new();
     let mut counter: u8 = 0;
 
     // add black to position 0
@@ -317,41 +331,41 @@ mod rcc_setup {
         config.rcc.hsi = None;
         config.rcc.csi = false;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV5, // PLL_M
-            mul: PllMul::MUL104,     // PLL_N
-            divp: Some(PllDiv::DIV1),
-            divq: Some(PllDiv::DIV4),
-            divr: Some(PllDiv::DIV2),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div5, // PLL_M
+            mul: PllMul::Mul104,     // PLL_N
+            divp: Some(PllDiv::Div1),
+            divq: Some(PllDiv::Div4),
+            divr: Some(PllDiv::Div2),
         });
         // numbers adapted from Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_ospi.c
         // MX_OSPI_ClockConfig
         config.rcc.pll2 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV5, // PLL_M
-            mul: PllMul::MUL80,      // PLL_N
-            divp: Some(PllDiv::DIV5),
-            divq: Some(PllDiv::DIV2),
-            divr: Some(PllDiv::DIV2),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div5, // PLL_M
+            mul: PllMul::Mul80,      // PLL_N
+            divp: Some(PllDiv::Div5),
+            divq: Some(PllDiv::Div2),
+            divr: Some(PllDiv::Div2),
         });
         // numbers adapted from Drivers/BSP/STM32H735G-DK/stm32h735g_discovery_lcd.c
         // MX_LTDC_ClockConfig
         config.rcc.pll3 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV5, // PLL_M
-            mul: PllMul::MUL160,     // PLL_N
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV2),
-            divr: Some(PllDiv::DIV83),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div5, // PLL_M
+            mul: PllMul::Mul160,     // PLL_N
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div2),
+            divr: Some(PllDiv::Div83),
         });
         config.rcc.voltage_scale = VoltageScale::Scale0;
         config.rcc.supply_config = SupplyConfig::DirectSMPS;
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV2;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.apb3_pre = APBPrescaler::DIV2;
-        config.rcc.apb4_pre = APBPrescaler::DIV2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div2;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.apb3_pre = APBPrescaler::Div2;
+        config.rcc.apb4_pre = APBPrescaler::Div2;
         embassy_stm32::init(config)
     }
 }

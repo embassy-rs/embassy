@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net::tcp::TcpSocket;
@@ -12,8 +13,8 @@ use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
 use embedded_io_async::Write;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 type MyDriver = Driver<'static, embassy_stm32::peripherals::USB>;
 
@@ -45,18 +46,18 @@ async fn main(spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.pll = Some(Pll {
             // 80Mhz clock (16 / 1 * 10 / 2)
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL10,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul10,
             divp: None,
             divq: None,
-            divr: Some(PllRDiv::DIV2),
+            divr: Some(PllRDiv::Div2),
         });
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
-        config.rcc.mux.clk48sel = mux::Clk48sel::HSI48;
+        config.rcc.mux.clk48sel = mux::Clk48sel::Hsi48;
     }
     let p = embassy_stm32::init(config);
 

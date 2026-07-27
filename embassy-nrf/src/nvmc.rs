@@ -1,6 +1,6 @@
 //! Non-Volatile Memory Controller (NVMC, AKA internal flash) driver.
 
-use core::{ptr, slice};
+use core::ptr;
 
 use embedded_storage::nor_flash::{
     ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
@@ -85,23 +85,23 @@ impl<'d> Nvmc<'d> {
 
     fn enable_erase(&self) {
         #[cfg(not(feature = "_ns"))]
-        Self::regs().config().write(|w| w.set_wen(vals::Wen::EEN));
+        Self::regs().config().write(|w| w.set_wen(vals::Wen::Een));
         #[cfg(feature = "_ns")]
-        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::EEN));
+        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::Een));
     }
 
     fn enable_read(&self) {
         #[cfg(not(feature = "_ns"))]
-        Self::regs().config().write(|w| w.set_wen(vals::Wen::REN));
+        Self::regs().config().write(|w| w.set_wen(vals::Wen::Ren));
         #[cfg(feature = "_ns")]
-        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::REN));
+        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::Ren));
     }
 
     fn enable_write(&self) {
         #[cfg(not(feature = "_ns"))]
-        Self::regs().config().write(|w| w.set_wen(vals::Wen::WEN));
+        Self::regs().config().write(|w| w.set_wen(vals::Wen::Wen));
         #[cfg(feature = "_ns")]
-        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::WEN));
+        Self::regs().configns().write(|w| w.set_wen(vals::ConfignsWen::Wen));
     }
 }
 
@@ -119,8 +119,8 @@ impl<'d> ReadNorFlash for Nvmc<'d> {
             return Err(Error::OutOfBounds);
         }
 
-        let flash_data = unsafe { slice::from_raw_parts(offset as *const u8, bytes.len()) };
-        bytes.copy_from_slice(flash_data);
+        unsafe { ptr::copy_nonoverlapping(offset as _, bytes.as_mut_ptr(), bytes.len()) };
+
         Ok(())
     }
 

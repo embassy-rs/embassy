@@ -18,6 +18,7 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
@@ -26,8 +27,9 @@ use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler};
 use embassy_usb::class::web_usb::{Config as WebUsbConfig, State, Url, WebUsb};
 use embassy_usb::driver::{Driver, Endpoint, EndpointIn, EndpointOut};
 use embassy_usb::msos::{self, windows_version};
+use embassy_usb::types::InterfaceNumber;
 use embassy_usb::{Builder, Config};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
@@ -56,7 +58,7 @@ async fn main(_spawner: Spawner) {
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
-    let mut msos_descriptor = [0; 256];
+    let mut msos_descriptor = [0; 512];
 
     let webusb_config = WebUsbConfig {
         max_packet_size: 64,
@@ -83,6 +85,14 @@ async fn main(_spawner: Spawner) {
     // In principle you might want to call msos_feature() just on a specific function,
     // if your device also has other functions that still use standard class drivers.
     builder.msos_descriptor(windows_version::WIN8_1, 0);
+    builder.msos_writer().configuration(0);
+    builder.msos_writer().function(InterfaceNumber(0));
+    builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+    builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+        "DeviceInterfaceGUIDs",
+        msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+    ));
+    builder.msos_writer().function(InterfaceNumber(1));
     builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
     builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
         "DeviceInterfaceGUIDs",

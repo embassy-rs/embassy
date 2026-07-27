@@ -2,13 +2,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::{Hertz, mhz};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // If you are trying this and your USB device doesn't connect, the most
 // common issues are the RCC config and vbus_detection
@@ -26,18 +27,18 @@ async fn main(_spawner: Spawner) {
             freq: Hertz(8_000_000),
             mode: HseMode::Bypass,
         });
-        config.rcc.pll_src = PllSource::HSE;
+        config.rcc.pll_src = PllSource::Hse;
         config.rcc.pll = Some(Pll {
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL200,
-            divp: Some(PllPDiv::DIV2), // 8mhz / 4 * 200 / 2 = 200Mhz
-            divq: Some(PllQDiv::DIV4), // 8mhz / 4 * 200 / 4 = 100Mhz
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul200,
+            divp: Some(PllPDiv::Div2), // 8mhz / 4 * 200 / 2 = 200Mhz
+            divq: Some(PllQDiv::Div4), // 8mhz / 4 * 200 / 4 = 100Mhz
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.sys = Sysclk::Pll1P;
     }
     let p = embassy_stm32::init(config);
     let ch1_pin = PwmPin::new(p.PE9, OutputType::PushPull);

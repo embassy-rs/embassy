@@ -1,0 +1,15 @@
+[package]
+name = "cyw43-firmware"
+version = "0.1.0"
+edition = "2024"
+description = "cyw43 firmware"
+keywords = ["embedded", "cyw43"]
+categories = ["embedded", "hardware-support"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/cyw43-firmware"
+
+[dependencies]
+
+[[bin]]
+name = "write_nvrams"

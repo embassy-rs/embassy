@@ -6,6 +6,7 @@
 #[path = "../common.rs"]
 mod common;
 use common::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::filter::Mask32;
@@ -13,7 +14,7 @@ use embassy_stm32::can::{Fifo, Rx0InterruptHandler, Rx1InterruptHandler, SceInte
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
 use embassy_time::Duration;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[path = "../can_common.rs"]
 mod can_common;
@@ -26,7 +27,11 @@ bind_interrupts!(struct Irqs {
     CAN1_TX => TxInterruptHandler<CAN1>;
 });
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

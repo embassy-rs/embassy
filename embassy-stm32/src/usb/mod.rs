@@ -78,7 +78,7 @@ fn common_init<T: Instance>() {
         while !crate::pac::PWR.csr2().read().usb33rdy() {}
     }
 
-    #[cfg(stm32u5)]
+    #[cfg(any(stm32u5, stm32u3))]
     {
         // Enable USB power
         critical_section::with(|_| {
@@ -107,7 +107,7 @@ fn common_init<T: Instance>() {
         // Enable USB power
         critical_section::with(|_| {
             crate::pac::PWR.svmcr().modify(|w| {
-                w.set_usv(crate::pac::pwr::vals::Usv::B_0X1);
+                w.set_usv(crate::pac::pwr::vals::Usv::B0x1);
             });
             crate::pac::PWR.vosr().modify(|w| {
                 w.set_vdd11usbdis(false);

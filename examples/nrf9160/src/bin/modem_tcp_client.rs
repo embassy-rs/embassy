@@ -8,19 +8,21 @@ use core::slice;
 use core::str::FromStr;
 
 use defmt::{info, unwrap, warn};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Cidr, Stack, StackResources};
 use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{Runner, State, TraceBuffer, TraceReader, context};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
+use embassy_nrf::cryptocell_rng::CcRng;
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_nrf::uarte::Baudrate;
 use embassy_nrf::{Peri, bind_interrupts, interrupt, peripherals, uarte};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
 use heapless::Vec;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 #[interrupt]
 fn IPC() {
@@ -123,7 +125,7 @@ async fn main(spawner: Spawner) {
 
     static mut TRACE_BUF: [u8; 4096] = [0u8; 4096];
     let mut config = uarte::Config::default();
-    config.baudrate = Baudrate::BAUD1M;
+    config.baudrate = Baudrate::Baud1m;
     let uart = BufferedUarteTx::new(
         //let trace_uart = BufferedUarteTx::new(
         unsafe { peripherals::SERIAL0::steal() },
@@ -143,8 +145,9 @@ async fn main(spawner: Spawner) {
 
     let config = embassy_net::Config::default();
 
-    // Generate "random" seed. nRF91 has no RNG, TODO figure out something...
-    let seed = 123456;
+    // Generate random seed.
+    let mut rng = CcRng::new_blocking(p.CC_RNG);
+    let seed = rng.blocking_next_u64();
 
     // Init network stack
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();

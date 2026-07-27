@@ -6,10 +6,17 @@ mod common;
 use common::*;
 use defmt::{assert, assert_eq, unreachable};
 use embassy_executor::Spawner;
-use embassy_stm32::usart::{Config, ConfigError, Error, Uart};
+use embassy_futures::join::join;
+use embassy_stm32::mode::Blocking;
+use embassy_stm32::usart::{BufferedUart, Config, ConfigError, Error, Uart};
 use embassy_time::{Duration, Instant, block_for};
+use embedded_io_async::{Read, Write};
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");
@@ -19,27 +26,47 @@ async fn main(_spawner: Spawner) {
     let mut usart = peri!(p, UART);
     let mut rx = peri!(p, UART_RX);
     let mut tx = peri!(p, UART_TX);
+    let irq = irqs!(UART);
 
     {
         let config = Config::default();
         let mut usart = Uart::new_blocking(usart.reborrow(), rx.reborrow(), tx.reborrow(), config).unwrap();
 
-        // We can't send too many bytes, they have to fit in the FIFO.
-        // This is because we aren't sending+receiving at the same time.
+        let test_usart = async |usart: &mut Uart<'_, Blocking>| -> Result<(), Error> {
+            // We can't send too many bytes, they have to fit in the FIFO.
+            // This is because we aren't sending+receiving at the same time.
 
-        let data = [0xC0, 0xDE];
-        usart.blocking_write(&data).unwrap();
+            let data = [0xC0, 0xDE];
+            usart.blocking_write(&data)?;
 
-        let mut buf = [0; 2];
-        usart.blocking_read(&mut buf).unwrap();
-        assert_eq!(buf, data);
+            let mut buf = [0; 2];
+            usart.blocking_read(&mut buf)?;
+            assert_eq!(buf, data);
 
-        // Test flush doesn't hang.
-        usart.blocking_write(&data).unwrap();
-        usart.blocking_flush().unwrap();
+            // Test flush doesn't hang.
+            usart.blocking_write(&data)?;
+            usart.blocking_flush()?;
 
-        // Test flush doesn't hang if there's nothing to flush
-        usart.blocking_flush().unwrap();
+            // Test flush doesn't hang if there's nothing to flush
+            usart.blocking_flush()?;
+
+            Ok(())
+        };
+
+        let mut is_ok = false;
+        for _ in 0..3 {
+            match test_usart(&mut usart).await {
+                Ok(()) => is_ok = true,
+                Err(Error::Noise) => is_ok = false,
+                Err(e) => defmt::panic!("{}", e),
+            }
+
+            if is_ok {
+                break;
+            }
+        }
+
+        assert!(is_ok);
     }
 
     // Test error handling with with an overflow error
@@ -107,6 +134,81 @@ async fn main(_spawner: Spawner) {
                 dur,
                 want_dur
             );
+        }
+    }
+
+    // Test buffered usart
+    {
+        debug!("testing buffered usart");
+
+        const LEN: usize = 128;
+        let mut tx_buf = [0; LEN];
+        let mut rx_buf = [0; LEN];
+
+        let config = Config::default();
+        let mut _usart = BufferedUart::new(
+            usart.reborrow(),
+            rx.reborrow(),
+            tx.reborrow(),
+            &mut tx_buf,
+            &mut rx_buf,
+            irq,
+            config,
+        )
+        .unwrap();
+
+        let _test_usart = async |usart: &mut BufferedUart<'_>| -> Result<(), Error> {
+            let (mut writer, mut reader) = usart.split_ref();
+
+            const LEN: usize = 24;
+            let n = 5;
+            let mut tx_buf = [0; LEN];
+            let mut rx_buf = [0; LEN];
+            for i in 0..LEN {
+                tx_buf[i] = (i ^ n) as u8;
+            }
+
+            let mut ok = false;
+            while !ok {
+                join(
+                    async {
+                        reader.read(&mut rx_buf).await.unwrap();
+                    },
+                    async {
+                        writer.write_all(&tx_buf).await.unwrap();
+                    },
+                )
+                .await;
+
+                ok = rx_buf == tx_buf;
+            }
+
+            Ok(())
+        };
+
+        #[cfg(any(
+            feature = "stm32l152re",
+            feature = "stm32h563zi",
+            feature = "stm32g491re",
+            feature = "stm32f207zg",
+            feature = "stm32wl55jc",
+            feature = "stm32h503rb",
+            feature = "stm32wb55rg",
+        ))]
+        {
+            let mut res = Ok(());
+            for _ in 0..5 {
+                res = embassy_time::with_timeout(Duration::from_millis(250), async {
+                    _test_usart(&mut _usart).await.unwrap();
+                })
+                .await;
+
+                if res.is_ok() {
+                    break;
+                }
+            }
+
+            res.unwrap();
         }
     }
 

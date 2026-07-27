@@ -7,6 +7,7 @@
 #![no_main]
 
 use defmt::{error, info};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, Address, I2c, SlaveAddrConfig, SlaveCommand, SlaveCommandKind};
 use embassy_stm32::time::Hertz;
@@ -14,7 +15,7 @@ use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 pub const I2C_SLAVE_ADDR: u8 = 0x42;
 pub const BUFFER_SIZE: usize = 8;
@@ -71,16 +72,9 @@ pub async fn i2c_slave_task(mut i2c_slave: I2c<'static, embassy_stm32::mode::Blo
                 match i2c_slave.blocking_respond_to_write(&mut *data_buffer) {
                     Ok(bytes_received) => {
                         info!(
-                            "I2C: Received {} bytes - Buffer now contains: 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}",
+                            "I2C: Received {} bytes: {:02X}",
                             bytes_received,
-                            data_buffer[0],
-                            data_buffer[1],
-                            data_buffer[2],
-                            data_buffer[3],
-                            data_buffer[4],
-                            data_buffer[5],
-                            data_buffer[6],
-                            data_buffer[7]
+                            &data_buffer[..bytes_received]
                         );
                     }
                     Err(e) => {
@@ -103,7 +97,7 @@ pub async fn i2c_slave_task(mut i2c_slave: I2c<'static, embassy_stm32::mode::Blo
 
                 match i2c_slave.blocking_respond_to_read(&data_buffer[..BUFFER_SIZE]) {
                     Ok(bytes_sent) => {
-                        info!("I2C: Responded to read - {} bytes sent", bytes_sent);
+                        info!("I2C: Sent {} bytes in response to read command", bytes_sent);
                     }
                     Err(e) => {
                         error!("I2C: Read error: {}", format_i2c_error(&e));

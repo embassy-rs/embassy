@@ -6,11 +6,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio;
 use embassy_time::Timer;
 use gpio::{Input, Level, Output, Pull};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// It requires an external signal to be manually triggered on PIN 16. For
 /// example, this could be accomplished using an external power source with a

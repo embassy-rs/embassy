@@ -5,11 +5,12 @@ use core::mem;
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_executor::Executor;
+use defmt_rtt as _;
 use embassy_executor::raw::TaskStorage;
+use embassy_stm32::executor::Executor;
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 async fn run1() {
     loop {

@@ -4,11 +4,12 @@
 use core::mem::MaybeUninit;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::SharedData;
 use embassy_stm32::adc::{Adc, CkModePclk, Clock, SampleTime};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
@@ -22,7 +23,7 @@ async fn main(_spawner: Spawner) {
     let mut pin = p.PB2;
 
     let mut vrefint = adc.enable_vrefint();
-    let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::CYCLES79_5);
+    let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::Cycles795);
     let convert_to_millivolts = |sample| {
         // From https://www.st.com/resource/en/datasheet/stm32g031g8.pdf
         // 6.3.3 Embedded internal reference voltage
@@ -32,7 +33,7 @@ async fn main(_spawner: Spawner) {
     };
 
     loop {
-        let v = adc.blocking_read(&mut pin, SampleTime::CYCLES79_5);
+        let v = adc.blocking_read(&mut pin, SampleTime::Cycles795);
         info!("--> {} - {} mV", v, convert_to_millivolts(v));
         Timer::after_millis(100).await;
     }

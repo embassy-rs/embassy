@@ -2,24 +2,31 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_stm32::Config;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let config = Config::default();
+    // Fine-tune PLL1 dividers/multipliers
+    // voltage scale for max performance
+    // route PLL1_P into the USB‐OTG‐HS block
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    let mut led = Output::new(p.PB4, Level::High, Speed::Low);
+    // LD2 - PC4
+    let mut led = Output::new(p.PC4, Level::High, Speed::Low);
 
     loop {
-        info!("high");
+        info!("led on!");
         led.set_high();
         Timer::after_millis(500).await;
 
-        info!("low");
+        info!("led off!");
         led.set_low();
         Timer::after_millis(500).await;
     }

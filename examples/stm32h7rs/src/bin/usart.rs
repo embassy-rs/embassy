@@ -3,10 +3,11 @@
 
 use cortex_m_rt::entry;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Executor;
 use embassy_stm32::usart::{Config, Uart};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
 async fn main_task() {

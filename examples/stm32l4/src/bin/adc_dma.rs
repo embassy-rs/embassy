@@ -2,12 +2,17 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
-use embassy_stm32::adc::{Adc, AdcChannel, RegularConversionMode, SampleTime};
-use {defmt_rtt as _, panic_probe as _};
+use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
+use panic_probe as _;
 
 const DMA_BUF_LEN: usize = 512;
+
+bind_interrupts!(struct Irqs {
+    DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -16,20 +21,23 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.mux.adcsel = mux::Adcsel::SYS;
+        config.rcc.mux.adcsel = mux::Adcsel::Sys;
     }
-    let p = embassy_stm32::init(config);
+    let mut p = embassy_stm32::init(config);
 
     let adc = Adc::new(p.ADC1);
-    let adc_pin0 = p.PA0.degrade_adc();
-    let adc_pin1 = p.PA1.degrade_adc();
     let mut adc_dma_buf = [0u16; DMA_BUF_LEN];
     let mut measurements = [0u16; DMA_BUF_LEN / 2];
     let mut ring_buffered_adc = adc.into_ring_buffered(
         p.DMA1_CH1,
         &mut adc_dma_buf,
-        [(adc_pin0, SampleTime::CYCLES640_5), (adc_pin1, SampleTime::CYCLES640_5)].into_iter(),
-        RegularConversionMode::Continuous,
+        Irqs,
+        [
+            (p.PA0.reborrow_adc(), SampleTime::Cycles6405),
+            (p.PA1.reborrow_adc(), SampleTime::Cycles6405),
+        ]
+        .into_iter(),
+        None,
     );
 
     info!("starting measurement loop");

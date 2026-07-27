@@ -3,21 +3,25 @@
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
-use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
+use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, RoundTo, Timer};
 use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
 use crate::Peri;
+use crate::dma::word::Word;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
+use crate::pac::timer::vals::Ccds;
 use crate::time::Hertz;
+#[cfg(timer_v2)]
+use crate::timer::low_level::DitheringConfig;
 
 /// PWM pin wrapper.
 ///
 /// This wraps a pin to make it usable with PWM.
 pub struct PwmPin<'d, T, C, #[cfg(afio)] A> {
     #[allow(unused)]
-    pub(crate) pin: Peri<'d, AnyPin>,
+    pub(crate) pin: Flex<'d>,
     phantom: PhantomData<if_afio!((T, C, A))>,
 }
 
@@ -44,7 +48,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(P
             set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
         });
         PwmPin {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             phantom: PhantomData,
         }
     }
@@ -62,7 +66,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(P
             );
         });
         PwmPin {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             phantom: PhantomData,
         }
     }
@@ -76,6 +80,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(P
 pub struct SimplePwmChannel<'d, T: GeneralInstance4Channel> {
     timer: ManuallyDrop<Timer<'d, T>>,
     channel: Channel,
+    _pin: Option<Flex<'d>>,
 }
 
 // TODO: check for RMW races
@@ -95,21 +100,24 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
         self.timer.get_channel_enable_state(self.channel)
     }
 
+    /// Get the frequency of the PWM channel.
+    pub fn get_frequency(&self) -> Hertz {
+        self.timer.get_frequency()
+    }
+
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn max_duty_cycle(&self) -> u16 {
-        let max = self.timer.get_max_compare_value();
-        assert!(max < u16::MAX as u32);
-        max as u16 + 1
+    pub fn max_duty_cycle(&self) -> u32 {
+        self.timer.get_max_compare_value().into() + 1
     }
 
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`max_duty_cycle`](Self::max_duty_cycle) for 100% duty, both included.
-    pub fn set_duty_cycle(&mut self, duty: u16) {
+    pub fn set_duty_cycle(&mut self, duty: u32) {
         assert!(duty <= (*self).max_duty_cycle());
-        self.timer.set_compare_value(self.channel, duty.into())
+        self.timer.set_compare_value(self.channel, unwrap!(duty.try_into()))
     }
 
     /// Set the duty cycle to 0%, or always inactive.
@@ -126,21 +134,21 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     ///
     /// The caller is responsible for ensuring that `num` is less than or equal to `denom`,
     /// and that `denom` is not zero.
-    pub fn set_duty_cycle_fraction(&mut self, num: u16, denom: u16) {
+    pub fn set_duty_cycle_fraction(&mut self, num: u32, denom: u32) {
         assert!(denom != 0);
         assert!(num <= denom);
         let duty = u32::from(num) * u32::from(self.max_duty_cycle()) / u32::from(denom);
 
         // This is safe because we know that `num <= denom`, so `duty <= self.max_duty_cycle()` (u16)
         #[allow(clippy::cast_possible_truncation)]
-        self.set_duty_cycle(duty as u16);
+        self.set_duty_cycle(unwrap!(duty.try_into()));
     }
 
     /// Set the duty cycle to `percent / 100`
     ///
     /// The caller is responsible for ensuring that `percent` is less than or equal to 100.
     pub fn set_duty_cycle_percent(&mut self, percent: u8) {
-        self.set_duty_cycle_fraction(u16::from(percent), 100)
+        self.set_duty_cycle_fraction(percent as u32, 100)
     }
 
     /// Get the duty for a given channel.
@@ -160,6 +168,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
         self.timer.set_output_compare_mode(self.channel, mode);
     }
 
+    /// Enable/disable OCREF clear for this channel.
+    pub fn set_output_compare_clear_enable(&mut self, enable: bool) {
+        self.timer.set_output_compare_clear_enable(self.channel, enable);
+    }
+
     /// Convert this PWM channel into a ring-buffered PWM channel.
     ///
     /// This allows continuous PWM waveform generation using a DMA ring buffer.
@@ -171,19 +184,21 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     ///
     /// # Panics
     /// Panics if `dma_buf` is empty or longer than 65535 elements.
-    pub fn into_ring_buffered_channel(
+    pub fn into_ring_buffered_channel<W: Word + Into<T::Word>, D: super::UpDma<T>>(
         mut self,
-        tx_dma: Peri<'d, impl super::UpDma<T>>,
-        dma_buf: &'d mut [u16],
-    ) -> RingBufferedPwmChannel<'d, T> {
+        tx_dma: Peri<'d, D>,
+        dma_buf: &'d mut [W],
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+    ) -> RingBufferedPwmChannel<'d, T, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
+        self.timer.clamp_compare_value::<W>(self.channel);
         self.timer.enable_update_dma(true);
 
         RingBufferedPwmChannel::new(
             unsafe { self.timer.clone_unchecked() },
             self.channel,
-            self.timer.setup_ring_buffer(tx_dma, self.channel, dma_buf),
+            self.timer.setup_ring_buffer(tx_dma, irq, self.channel, dma_buf),
         )
     }
 }
@@ -203,6 +218,10 @@ pub struct SimplePwmChannels<'d, T: GeneralInstance4Channel> {
 /// Simple PWM driver.
 pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
+    ch1: Option<Flex<'d>>,
+    ch2: Option<Flex<'d>>,
+    ch3: Option<Flex<'d>>,
+    ch4: Option<Flex<'d>>,
 }
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
@@ -217,11 +236,33 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
-        Self::new_inner(tim, freq, counting_mode)
+        Self::new_inner(
+            tim,
+            ch1.map(|pin| pin.pin),
+            ch2.map(|pin| pin.pin),
+            ch3.map(|pin| pin.pin),
+            ch4.map(|pin| pin.pin),
+            freq,
+            counting_mode,
+        )
     }
 
-    fn new_inner(tim: Peri<'d, T>, freq: Hertz, counting_mode: CountingMode) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+    fn new_inner(
+        tim: Peri<'d, T>,
+        ch1: Option<Flex<'d>>,
+        ch2: Option<Flex<'d>>,
+        ch3: Option<Flex<'d>>,
+        ch4: Option<Flex<'d>>,
+        freq: Hertz,
+        counting_mode: CountingMode,
+    ) -> Self {
+        let mut this = Self {
+            inner: Timer::new(tim),
+            ch1,
+            ch2,
+            ch3,
+            ch4,
+        };
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
@@ -250,6 +291,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         SimplePwmChannel {
             timer: unsafe { self.inner.clone_unchecked() },
             channel,
+            _pin: None,
         }
     }
 
@@ -302,40 +344,134 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         // without this, the timer would be disabled at the end of this function
         let timer = ManuallyDrop::new(self.inner);
 
-        let ch = |channel| SimplePwmChannel {
+        let ch = |channel, pin| SimplePwmChannel {
             timer: unsafe { timer.clone_unchecked() },
             channel,
+            _pin: pin,
         };
 
         SimplePwmChannels {
-            ch1: ch(Channel::Ch1),
-            ch2: ch(Channel::Ch2),
-            ch3: ch(Channel::Ch3),
-            ch4: ch(Channel::Ch4),
+            ch1: ch(Channel::Ch1, self.ch1),
+            ch2: ch(Channel::Ch2, self.ch2),
+            ch3: ch(Channel::Ch3, self.ch3),
+            ch4: ch(Channel::Ch4, self.ch4),
         }
     }
 
     /// Set PWM frequency.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around at the same frequency as is being set
+    /// In the center-aligned mode, its the frequency of the timer counting both up and down,
+    /// so wrap-around frequency is effectively halved.
+    ///
+    /// The actual frequency may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a longer period (slower).
+    ///
     /// Note: that the frequency will not be applied in the timer until an update event
     /// occurs.
     pub fn set_frequency(&mut self, freq: Hertz) {
-        // TODO: prevent ARR = u16::MAX?
-        let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
-            2u8
-        } else {
-            1u8
-        };
-        self.inner.set_frequency_internal(freq * multiplier, 16);
+        self.inner.set_frequency(freq, RoundTo::Slower);
+    }
+
+    /// Get the PWM driver frequency.
+    pub fn get_frequency(&self) -> Hertz {
+        self.inner.get_frequency()
+    }
+
+    /// Set PWM period in milliseconds.
+    ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a longer period (slower).
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    pub fn set_period_ms(&mut self, ms: u32) {
+        self.inner.set_period_ms(ms, RoundTo::Slower);
+    }
+
+    /// Set PWM period in microseconds.
+    ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a longer period (slower).
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    pub fn set_period_us(&mut self, us: u32) {
+        self.inner.set_period_us(us, RoundTo::Slower);
+    }
+
+    /// Set PWM period in seconds.
+    ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a longer period (slower).
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    pub fn set_period_secs(&mut self, secs: u32) {
+        self.inner.set_period_secs(secs, RoundTo::Slower);
+    }
+
+    /// Set PWM period using an `embassy_time::Duration`.
+    ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a longer period (slower).
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    #[cfg(feature = "time")]
+    pub fn set_period(&mut self, period: embassy_time::Duration) {
+        self.inner.set_period(period, RoundTo::Slower);
     }
 
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn max_duty_cycle(&self) -> u16 {
-        let max = self.inner.get_max_compare_value();
-        assert!(max < u16::MAX as u32);
-        max as u16 + 1
+    pub fn max_duty_cycle(&self) -> u32 {
+        self.inner.get_max_compare_value().into() + 1
+    }
+
+    #[cfg(timer_v2)]
+    /// Configure timer dithering mode and ARR fractional nibble.
+    pub fn set_dithering(&mut self, config: DitheringConfig) {
+        self.inner.set_dithering(config);
+    }
+
+    #[cfg(timer_v2)]
+    /// Set CCR fractional nibble for one channel.
+    pub fn set_channel_dither(&mut self, channel: Channel, dither: u8) {
+        self.inner.set_compare_dither_value(channel, dither);
+    }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// The DMA channel provided does not need to correspond to the requested channel.
+    pub async fn waveform<C: TimerChannel, W: Word + Into<T::Word>, D: super::Dma<T, C>>(
+        &mut self,
+        dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
+        channel: Channel,
+        duty: &[W],
+    ) {
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_channel(C::CHANNEL, true);
+        self.inner.clamp_compare_value::<W>(channel);
+        self.inner.set_cc_dma_selection(Ccds::OnUpdate);
+        self.inner.set_cc_dma_enable_state(C::CHANNEL, true);
+        self.inner.setup_channel_update_dma(dma, irq, channel, duty).await;
+        self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
     }
 
     /// Generate a sequence of PWM waveform
@@ -344,10 +480,17 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
+    pub async fn waveform_up<W: Word + Into<T::Word>, D: super::UpDma<T>>(
+        &mut self,
+        dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
+        channel: Channel,
+        duty: &[W],
+    ) {
         self.inner.enable_channel(channel, true);
+        self.inner.clamp_compare_value::<W>(channel);
         self.inner.enable_update_dma(true);
-        self.inner.setup_update_dma(dma, channel, duty).await;
+        self.inner.setup_update_dma(dma, irq, channel, duty).await;
         self.inner.enable_update_dma(false);
     }
 
@@ -380,16 +523,25 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub async fn waveform_up_multi_channel(
+    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
-        dma: Peri<'_, impl super::UpDma<T>>,
+        dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
         starting_channel: Channel,
         ending_channel: Channel,
-        duty: &[u16],
+        duty: &[W],
     ) {
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .filter(|ch| ch.index() >= starting_channel.index())
+            .filter(|ch| ch.index() <= ending_channel.index())
+            .for_each(|ch| {
+                self.inner.enable_channel(*ch, true);
+                self.inner.clamp_compare_value::<W>(*ch);
+            });
         self.inner.enable_update_dma(true);
         self.inner
-            .setup_update_dma_burst(dma, starting_channel, ending_channel, duty)
+            .setup_update_dma_burst(dma, irq, starting_channel, ending_channel, duty)
             .await;
         self.inner.enable_update_dma(false);
     }
@@ -401,11 +553,11 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::ErrorType for SimplePw
 
 impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::SetDutyCycle for SimplePwmChannel<'d, T> {
     fn max_duty_cycle(&self) -> u16 {
-        self.max_duty_cycle()
+        unwrap!(self.max_duty_cycle().try_into())
     }
 
     fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
-        self.set_duty_cycle(duty);
+        self.set_duty_cycle(duty.into());
         Ok(())
     }
 
@@ -420,7 +572,7 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::SetDutyCycle for Simpl
     }
 
     fn set_duty_cycle_fraction(&mut self, num: u16, denom: u16) -> Result<(), Self::Error> {
-        self.set_duty_cycle_fraction(num, denom);
+        self.set_duty_cycle_fraction(num.into(), denom.into());
         Ok(())
     }
 
@@ -448,22 +600,22 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {
-        self.inner.get_compare_value(channel)
+        self.inner.get_compare_value(channel).into()
     }
 
     fn get_max_duty(&self) -> Self::Duty {
-        self.inner.get_max_compare_value() + 1
+        self.inner.get_max_compare_value().into() + 1
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
         assert!(duty <= self.max_duty_cycle() as u32);
-        self.inner.set_compare_value(channel, duty)
+        self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 
     fn set_period<P>(&mut self, period: P)
     where
         P: Into<Self::Time>,
     {
-        self.inner.set_frequency(period.into());
+        self.inner.set_frequency(period.into(), RoundTo::Slower);
     }
 }

@@ -6,14 +6,17 @@ teleprobe_meta::target!(b"rpi-pico");
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler, Sample};
-use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output, Pull};
-use {defmt_rtt as _, panic_probe as _};
+use embassy_rp::peripherals::DMA_CH0;
+use embassy_rp::{bind_interrupts, dma};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     ADC_IRQ_FIFO => InterruptHandler;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
 });
 
 #[embassy_executor::main]
@@ -22,6 +25,7 @@ async fn main(_spawner: Spawner) {
     let _power_reg_pwm_mode = Output::new(p.PIN_23, Level::High);
     let _wifi_off = Output::new(p.PIN_25, Level::High);
     let mut adc = Adc::new(p.ADC, Irqs, Config::default());
+    let mut dma_ch = dma::Channel::new(p.DMA_CH0, Irqs);
 
     #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
     let (mut a, mut b, mut c, mut d) = (p.PIN_26, p.PIN_27, p.PIN_28, p.PIN_29);
@@ -101,7 +105,7 @@ async fn main(_spawner: Spawner) {
             &mut Channel::new_pin(d.reborrow(), Pull::Down),
             &mut low,
             1,
-            p.DMA_CH0.reborrow(),
+            &mut dma_ch,
         )
         .await
         .unwrap();
@@ -109,17 +113,12 @@ async fn main(_spawner: Spawner) {
             &mut Channel::new_pin(d.reborrow(), Pull::None),
             &mut none,
             1,
-            p.DMA_CH0.reborrow(),
+            &mut dma_ch,
         )
         .await
         .unwrap();
-        adc.read_many_raw(
-            &mut Channel::new_pin(d.reborrow(), Pull::Up),
-            &mut up,
-            1,
-            p.DMA_CH0.reborrow(),
-        )
-        .await;
+        adc.read_many_raw(&mut Channel::new_pin(d.reborrow(), Pull::Up), &mut up, 1, &mut dma_ch)
+            .await;
         defmt::assert!(low.iter().zip(none.iter()).all(|(l, n)| *l >> 4 < *n as u16));
         defmt::assert!(up.iter().all(|s| s.good()));
         defmt::assert!(none.iter().zip(up.iter()).all(|(n, u)| (*n as u16) < u.value()));
@@ -130,7 +129,7 @@ async fn main(_spawner: Spawner) {
             &mut Channel::new_temp_sensor(p.ADC_TEMP_SENSOR.reborrow()),
             &mut temp,
             1,
-            p.DMA_CH0.reborrow(),
+            &mut dma_ch,
         )
         .await
         .unwrap();
@@ -144,7 +143,7 @@ async fn main(_spawner: Spawner) {
             Channel::new_pin(a.reborrow(), Pull::Up),
             Channel::new_temp_sensor(p.ADC_TEMP_SENSOR.reborrow()),
         ];
-        adc.read_many_multichannel(&mut channels, &mut multi, 1, p.DMA_CH0.reborrow())
+        adc.read_many_multichannel(&mut channels, &mut multi, 1, &mut dma_ch)
             .await
             .unwrap();
         defmt::assert!(multi[0] > 3_000);

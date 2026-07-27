@@ -1,14 +1,16 @@
 //! Generic SMI Ethernet PHY
 
 use core::task::Context;
+#[cfg(feature = "time")]
+use core::task::Poll;
 
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Timer};
 #[cfg(feature = "time")]
 use futures_util::FutureExt;
 
-use super::{Phy, StationManagement};
-use crate::block_for_us as blocking_delay_us;
+use crate::eth::{Phy, StationManagement};
+use crate::wait::block_for_us;
 
 #[allow(dead_code)]
 mod phy_consts {
@@ -21,6 +23,7 @@ mod phy_consts {
     pub const PHY_REG_ANEXP: u8 = 0x06;
     pub const PHY_REG_ANNPTX: u8 = 0x07;
     pub const PHY_REG_ANNPRX: u8 = 0x08;
+    pub const PHY_REG_GBCR: u8 = 0x09; // 1000BASE-T Control
     pub const PHY_REG_CTL: u8 = 0x0D; // Ethernet PHY Register Control
     pub const PHY_REG_ADDAR: u8 = 0x0E; // Ethernet PHY Address or Data
 
@@ -36,6 +39,10 @@ mod phy_consts {
     pub const PHY_REG_BCR_LOOPBACK: u16 = 1 << 14;
     pub const PHY_REG_BCR_RESET: u16 = 1 << 15;
 
+    pub const PHY_REG_ANTX_100BTX_FD: u16 = 0b1 << 8;
+
+    pub const PHY_REG_ANTX_TECH: u16 = 0b11111 << 5;
+
     pub const PHY_REG_BSR_JABBER: u16 = 1 << 1;
     pub const PHY_REG_BSR_UP: u16 = 1 << 2;
     pub const PHY_REG_BSR_FAULT: u16 = 1 << 4;
@@ -49,6 +56,8 @@ pub struct GenericPhy<SM: StationManagement> {
     sm: SM,
     #[cfg(feature = "time")]
     poll_interval: Duration,
+    #[cfg(feature = "time")]
+    timer: Timer,
 }
 
 impl<SM: StationManagement> GenericPhy<SM> {
@@ -63,6 +72,8 @@ impl<SM: StationManagement> GenericPhy<SM> {
             sm,
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
+            #[cfg(feature = "time")]
+            timer: Timer::after_ticks(0),
         }
     }
 
@@ -76,6 +87,8 @@ impl<SM: StationManagement> GenericPhy<SM> {
             phy_addr: 0xFF,
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
+            #[cfg(feature = "time")]
+            timer: Timer::after_ticks(0),
         }
     }
 }
@@ -93,7 +106,7 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
                         return;
                     }
                     // Give PHY a total of 100ms to respond
-                    blocking_delay_us(10000);
+                    block_for_us(10000);
                 }
             }
             panic!("PHY did not respond");
@@ -108,33 +121,40 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
         self.smi_write_ext(PHY_REG_WUCSR, 0);
 
         // Enable auto-negotiation
-        self.sm.smi_write(
-            self.phy_addr,
-            PHY_REG_BCR,
-            PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M,
-        );
+        let antx = self.sm.smi_read(self.phy_addr, PHY_REG_ANTX);
+        let antx = (antx & !PHY_REG_ANTX_TECH) | PHY_REG_ANTX_100BTX_FD;
+        self.sm.smi_write(self.phy_addr, PHY_REG_ANTX, antx);
+        self.sm.smi_write(self.phy_addr, PHY_REG_GBCR, 0);
+        self.sm
+            .smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_AN | PHY_REG_BCR_ANRST);
     }
 
-    fn poll_link(&mut self, cx: &mut Context) -> bool {
+    fn poll_link(&mut self, cx: &mut Context) -> Option<bool> {
         #[cfg(not(feature = "time"))]
         cx.waker().wake_by_ref();
 
         #[cfg(feature = "time")]
-        let _ = Timer::after(self.poll_interval).poll_unpin(cx);
+        if matches!(self.timer.poll_unpin(cx), Poll::Ready(())) {
+            self.timer = Timer::after(self.poll_interval);
+
+            let _ = self.timer.poll_unpin(cx);
+        } else {
+            return None;
+        }
 
         let bsr = self.sm.smi_read(self.phy_addr, PHY_REG_BSR);
 
         // No link without autonegotiate
         if bsr & PHY_REG_BSR_ANDONE == 0 {
-            return false;
+            return Some(false);
         }
         // No link if link is down
         if bsr & PHY_REG_BSR_UP == 0 {
-            return false;
+            return Some(false);
         }
 
         // Got link
-        true
+        Some(true)
     }
 }
 

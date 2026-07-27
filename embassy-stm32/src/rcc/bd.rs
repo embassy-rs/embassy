@@ -1,9 +1,10 @@
-#[cfg(not(stm32n6))]
 use core::sync::atomic::{Ordering, compiler_fence};
 
-#[cfg(not(stm32n6))]
 use crate::pac::common::{RW, Reg};
-#[cfg(backup_sram)]
+// For the H7, the Retention features live in the pwr registers
+#[cfg(all(backup_sram, not(stm32h7)))]
+use crate::pac::pwr::vals::Retention;
+#[cfg(all(stm32h7, backup_sram))]
 use crate::pac::pwr::vals::Retention;
 pub use crate::pac::rcc::vals::Rtcsel as RtcClockSource;
 use crate::time::Hertz;
@@ -25,7 +26,7 @@ pub struct LseConfig {
     pub frequency: Hertz,
     pub mode: LseMode,
     /// If peripherals other than RTC/TAMP or RCC functions need the lse this bit must be set
-    #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+    #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba))]
     pub peripherals_clocked: bool,
 }
 
@@ -48,15 +49,15 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
 
         match value {
             #[cfg(not(stm32h5))] // ES0565: LSE Low drive mode is not functional
-            LseDrive::Low => Lsedrv::LOW,
-            LseDrive::MediumLow => Lsedrv::MEDIUM_LOW,
-            LseDrive::MediumHigh => Lsedrv::MEDIUM_HIGH,
-            LseDrive::High => Lsedrv::HIGH,
+            LseDrive::Low => Lsedrv::Low,
+            LseDrive::MediumLow => Lsedrv::MediumLow,
+            LseDrive::MediumHigh => Lsedrv::MediumHigh,
+            LseDrive::High => Lsedrv::High,
         }
     }
 }
 
-#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0, stm32n6)))]
+#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
 type Bdcr = crate::pac::rcc::regs::Bdcr;
 #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
 type Bdcr = crate::pac::rcc::regs::Csr;
@@ -66,22 +67,21 @@ type Bdcr = crate::pac::rcc::regs::Csr1;
 #[cfg(any(stm32c0))]
 fn unlock() {}
 
-#[cfg(not(any(stm32c0, stm32n6)))]
+#[cfg(not(any(stm32c0)))]
 fn unlock() {
     #[cfg(any(stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1))]
     let cr = crate::pac::PWR.cr();
     #[cfg(not(any(
-        stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1, stm32u5, stm32h5, stm32wba, stm32n6
+        stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1, stm32u5, stm32u3, stm32h5, stm32wba, stm32n6
     )))]
     let cr = crate::pac::PWR.cr1();
-    #[cfg(any(stm32u5, stm32h5, stm32wba, stm32n6))]
+    #[cfg(any(stm32u5, stm32u3, stm32h5, stm32wba, stm32n6))]
     let cr = crate::pac::PWR.dbpcr();
 
     cr.modify(|w| w.set_dbp(true));
     while !cr.read().dbp() {}
 }
 
-#[cfg(not(stm32n6))]
 fn bdcr() -> Reg<Bdcr, RW> {
     #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
     return crate::pac::RCC.csr();
@@ -114,11 +114,11 @@ impl LsConfig {
 
     pub const fn default_lse() -> Self {
         Self {
-            rtc: RtcClockSource::LSE,
+            rtc: RtcClockSource::Lse,
             lse: Some(LseConfig {
                 frequency: Hertz(32_768),
                 mode: LseMode::Oscillator(LseDrive::MediumHigh),
-                #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+                #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba))]
                 peripherals_clocked: false,
             }),
             lsi: false,
@@ -129,7 +129,7 @@ impl LsConfig {
 
     pub const fn default_lsi() -> Self {
         Self {
-            rtc: RtcClockSource::LSI,
+            rtc: RtcClockSource::Lsi,
             lsi: true,
             lse: None,
             #[cfg(backup_sram)]
@@ -139,7 +139,7 @@ impl LsConfig {
 
     pub const fn off() -> Self {
         Self {
-            rtc: RtcClockSource::DISABLE,
+            rtc: RtcClockSource::Disable,
             lsi: false,
             lse: None,
             #[cfg(backup_sram)]
@@ -155,15 +155,14 @@ impl Default for LsConfig {
 }
 
 impl LsConfig {
-    #[cfg(not(stm32n6))]
     pub(crate) fn init(&self) -> Option<Hertz> {
         let rtc_clk = match self.rtc {
-            RtcClockSource::LSI => {
+            RtcClockSource::Lsi => {
                 assert!(self.lsi);
                 Some(LSI_FREQ)
             }
-            RtcClockSource::LSE => Some(self.lse.as_ref().unwrap().frequency),
-            RtcClockSource::DISABLE => None,
+            RtcClockSource::Lse => Some(self.lse.as_ref().unwrap().frequency),
+            RtcClockSource::Disable => None,
             _ => todo!(),
         };
 
@@ -217,16 +216,43 @@ impl LsConfig {
         // Enable backup regulator for peristent battery backed sram
         #[cfg(backup_sram)]
         {
-            unsafe { super::BKSRAM_RETAINED = crate::pac::PWR.bdcr().read().bren() == Retention::PRESERVED };
+            #[cfg(stm32h7)]
+            unsafe {
+                super::BKSRAM_RETAINED = crate::pac::PWR.cr2().read().bren() == Retention::Preserved
+            };
+            #[cfg(not(stm32h7))]
+            unsafe {
+                super::BKSRAM_RETAINED = crate::pac::PWR.bdcr().read().bren() == Retention::Preserved
+            };
 
+            // H7 has an additional backup SRAM enable bit that must be set in the RCC registers
+            #[cfg(stm32h7)]
+            crate::pac::RCC.ahb4enr().modify(|w| {
+                w.set_bkpsramen(true);
+            });
+
+            #[cfg(stm32h7)]
+            assert!(crate::pac::PWR.cr1().read().dbp() == true);
+
+            #[cfg(stm32h7)]
+            crate::pac::PWR.cr2().modify(|w| {
+                w.set_bren(match self.enable_backup_sram {
+                    true => Retention::Preserved,
+                    false => Retention::Lost,
+                });
+            });
+            #[cfg(not(stm32h7))]
             crate::pac::PWR.bdcr().modify(|w| {
                 w.set_bren(match self.enable_backup_sram {
-                    true => Retention::PRESERVED,
-                    false => Retention::LOST,
+                    true => Retention::Preserved,
+                    false => Retention::Lost,
                 });
             });
 
             // Wait for backup regulator voltage to stabilize
+            #[cfg(stm32h7)]
+            while self.enable_backup_sram && !crate::pac::PWR.cr2().read().brrdy() {}
+            #[cfg(not(stm32h7))]
             while self.enable_backup_sram && !crate::pac::PWR.bdsr().read().brrdy() {}
         }
 
@@ -258,11 +284,11 @@ impl LsConfig {
         }
         #[cfg(not(any(rcc_wba, rcc_n6)))]
         {
-            ok &= reg.rtcen() == (self.rtc != RtcClockSource::DISABLE);
+            ok &= reg.rtcen() == (self.rtc != RtcClockSource::Disable);
         }
         #[cfg(rcc_n6)]
         {
-            ok &= apb4lenr.rtcen() == (self.rtc != RtcClockSource::DISABLE);
+            ok &= apb4lenr.rtcen() == (self.rtc != RtcClockSource::Disable);
         }
         ok &= reg.lseon() == lse_en;
         #[cfg(not(rcc_n6))]
@@ -274,8 +300,10 @@ impl LsConfig {
             ok &= lsecfgr.lsebyp() == lse_byp;
         }
         #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
-        if let Some(lse_sysen) = lse_sysen {
-            ok &= reg.lsesysen() == lse_sysen;
+        if let Some(lse_sysen) = lse_sysen
+            && !lse_sysen
+        {
+            ok &= !reg.lsesysen();
         }
         #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1, rcc_n6)))]
         if let Some(lse_drv) = lse_drv {
@@ -284,6 +312,20 @@ impl LsConfig {
         #[cfg(rcc_n6)]
         if let Some(lse_drv) = lse_drv {
             ok &= lsecfgr.lsedrv() == lse_drv.into();
+        }
+
+        // After a power-on reset LSESYSEN will be set to 0
+        // even if VBAT was present and kept the RTC running
+        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+        if ok
+            && let Some(lse_sysen) = lse_sysen
+            && lse_sysen
+        {
+            bdcr().modify(|w| {
+                w.set_lsesysen(true);
+            });
+
+            while !bdcr().read().lsesysrdy() {}
         }
 
         // if configuration is OK, we're done.
@@ -356,7 +398,7 @@ impl LsConfig {
             }
         }
 
-        if self.rtc != RtcClockSource::DISABLE {
+        if self.rtc != RtcClockSource::Disable {
             #[cfg(not(rcc_n6))]
             bdcr().modify(|w| {
                 #[cfg(any(rtc_v2_h7, rtc_v2_l4, rtc_v2_wb, rtc_v3_base, rtc_v3_u5))]

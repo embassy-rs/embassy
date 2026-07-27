@@ -263,7 +263,7 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
             }
             if r.suspend() {
                 regs.eventcause().write(|w| w.set_suspend(true));
-                regs.lowpower().write(|w| w.set_lowpower(vals::Lowpower::LOW_POWER));
+                regs.lowpower().write(|w| w.set_lowpower(vals::Lowpower::LowPower));
                 return Poll::Ready(Event::Suspend);
             }
             if r.resume() {
@@ -300,8 +300,8 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
             regs.epstall().write(|w| {
                 w.set_ep(ep_addr.index() as u8 & 0b111);
                 w.set_io(match ep_addr.direction() {
-                    Direction::In => vals::Io::IN,
-                    Direction::Out => vals::Io::OUT,
+                    Direction::In => vals::Io::In,
+                    Direction::Out => vals::Io::Out,
                 });
                 w.set_stall(stalled);
             });
@@ -312,8 +312,8 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
         let regs = self.regs;
         let i = ep_addr.index();
         match ep_addr.direction() {
-            Direction::Out => regs.halted().epout(i).read().getstatus() == vals::Getstatus::HALTED,
-            Direction::In => regs.halted().epin(i).read().getstatus() == vals::Getstatus::HALTED,
+            Direction::Out => regs.halted().epout(i).read().getstatus() == vals::Getstatus::Halted,
+            Direction::In => regs.halted().epin(i).read().getstatus() == vals::Getstatus::Halted,
         }
     }
 
@@ -368,10 +368,10 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
         let regs = self.regs;
 
-        if regs.lowpower().read().lowpower() == vals::Lowpower::LOW_POWER {
+        if regs.lowpower().read().lowpower() == vals::Lowpower::LowPower {
             errata::pre_wakeup();
 
-            regs.lowpower().write(|w| w.set_lowpower(vals::Lowpower::FORCE_NORMAL));
+            regs.lowpower().write(|w| w.set_lowpower(vals::Lowpower::ForceNormal));
 
             poll_fn(|cx| {
                 BUS_WAKER.register(cx.waker());
@@ -384,7 +384,7 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
                     Poll::Ready(())
                 } else if r.usbwuallowed() {
                     regs.eventcause().write(|w| w.set_usbwuallowed(true));
-                    regs.dpdmvalue().write(|w| w.set_state(vals::State::RESUME));
+                    regs.dpdmvalue().write(|w| w.set_state(vals::State::Resume));
                     regs.tasks_dpdmdrive().write_value(1);
 
                     Poll::Ready(())

@@ -1,0 +1,946 @@
+#![macro_use]
+#![allow(missing_docs)]
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use core::task::Poll;
+
+use embassy_sync::waitqueue::AtomicWaker;
+use embassy_usb_driver::host::{
+    DeviceEvent, HostError, PipeError, TimeoutConfig, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
+};
+use embassy_usb_driver::{EndpointType, Speed};
+use stm32_metapac::common::{RW, Reg};
+use stm32_metapac::usb::regs::Epr;
+
+use super::{DmPin, DpPin, Instance};
+use crate::pac::USBRAM;
+use crate::pac::usb::regs;
+use crate::pac::usb::vals::{EpType, Stat};
+use crate::peripherals::USB;
+use crate::wait::{block_for_us, wait_for_us};
+use crate::{Peri, interrupt};
+
+/// The number of registers is 8, allowing up to 16 mono-
+/// directional/single-buffer or up to 7 double-buffer endpoints in any combination. For
+/// example the USB peripheral can be programmed to have 4 double buffer endpoints
+/// and 8 single-buffer/mono-directional endpoints.
+const USB_MAX_PIPES: usize = 8;
+
+/// Interrupt handler.
+pub struct USBHostInterruptHandler<I: Instance> {
+    _marker: PhantomData<I>,
+}
+
+impl<I: Instance> interrupt::typelevel::Handler<I::Interrupt> for USBHostInterruptHandler<I> {
+    unsafe fn on_interrupt() {
+        let regs = I::regs();
+        // let x = regs.istr().read().0;
+        // trace!("USB IRQ: {:08x}", x);
+
+        let istr = regs.istr().read();
+
+        // Detect device connect/disconnect
+        if istr.reset() {
+            trace!("USB IRQ: device connect/disconnect");
+
+            // Write 0 to clear.
+            let mut clear = regs::Istr(!0);
+            clear.set_reset(false);
+            regs.istr().write_value(clear);
+
+            // Wake main thread.
+            BUS_WAKER.wake();
+        }
+
+        if istr.ctr() {
+            let index = istr.ep_id() as usize;
+
+            let epr = regs.epr(index).read();
+
+            let mut epr_value = invariant(epr);
+            // Check and clear error flags
+            if epr.err_tx() {
+                epr_value.set_err_tx(false);
+                warn!("err_tx");
+            }
+            if epr.err_rx() {
+                epr_value.set_err_rx(false);
+                warn!("err_rx");
+            }
+            // Clear ctr (transaction complete) flags
+            let rx_ready = epr.ctr_rx();
+            let tx_ready = epr.ctr_tx();
+
+            epr_value.set_ctr_rx(!rx_ready);
+            epr_value.set_ctr_tx(!tx_ready);
+            regs.epr(index).write_value(epr_value);
+
+            if rx_ready {
+                RX_COMPLETE[index].store(true, Ordering::Relaxed);
+                EP_IN_WAKERS[index].wake();
+            }
+            if tx_ready {
+                EP_OUT_WAKERS[index].wake();
+            }
+        }
+
+        if istr.err() {
+            debug!("USB IRQ: err");
+
+            // Write 0 to clear (rc_w0 register).
+            let mut clear = regs::Istr(!0);
+            clear.set_err(false);
+            regs.istr().write_value(clear);
+
+            let index = istr.ep_id() as usize;
+            let mut epr = invariant(regs.epr(index).read());
+            // Toggle endpoint to disabled
+            epr.set_stat_rx(epr.stat_rx());
+            epr.set_stat_tx(epr.stat_tx());
+            regs.epr(index).write_value(epr);
+        }
+    }
+}
+
+const EP_COUNT: usize = 8;
+
+#[cfg(any(usbram_16x1_512, usbram_16x2_512))]
+const USBRAM_SIZE: usize = 512;
+#[cfg(any(usbram_16x2_1024, usbram_32_1024))]
+const USBRAM_SIZE: usize = 1024;
+#[cfg(usbram_32_2048)]
+const USBRAM_SIZE: usize = 2048;
+
+#[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
+const USBRAM_ALIGN: usize = 2;
+#[cfg(any(usbram_32_2048, usbram_32_1024))]
+const USBRAM_ALIGN: usize = 4;
+
+/// Endpoint buffer memory is allocated in fixed-size blocks tracked by the
+/// `HostState::used_blocks` bitmap, so it can be reclaimed on pipe drop. 64
+/// bytes is the full-speed maximum packet size and keeps the bitmap within a
+/// single `u32` for every supported USBRAM size (≤ 2048 bytes).
+const USBRAM_BLOCK_SIZE: usize = 64;
+/// First byte of endpoint buffer memory, after the BTABLE (EP_COUNT * 8 bytes).
+const USBRAM_BUFFER_BASE: usize = EP_COUNT * 8;
+/// Number of allocatable endpoint buffer blocks.
+const USBRAM_NUM_BLOCKS: usize = (USBRAM_SIZE - USBRAM_BUFFER_BASE) / USBRAM_BLOCK_SIZE;
+
+const NEW_AW: AtomicWaker = AtomicWaker::new();
+static BUS_WAKER: AtomicWaker = NEW_AW;
+static EP_IN_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
+static EP_OUT_WAKERS: [AtomicWaker; EP_COUNT] = [NEW_AW; EP_COUNT];
+/// Set on CTR_RX by the interrupt handler, consumed by [`Channel::read`].
+/// Disambiguates `STAT_RX == Disabled`: "packet received, data pending"
+/// vs "disabled by error recovery / never armed".
+const NEW_FLAG: AtomicBool = AtomicBool::new(false);
+static RX_COMPLETE: [AtomicBool; EP_COUNT] = [NEW_FLAG; EP_COUNT];
+
+fn convert_type(t: EndpointType) -> EpType {
+    match t {
+        EndpointType::Bulk => EpType::Bulk,
+        EndpointType::Control => EpType::Control,
+        EndpointType::Interrupt => EpType::Interrupt,
+        EndpointType::Isochronous => EpType::Iso,
+    }
+}
+
+fn invariant(mut r: regs::Epr) -> regs::Epr {
+    r.set_ctr_rx(true); // don't clear
+    r.set_ctr_tx(true); // don't clear
+    r.set_dtog_rx(false); // don't toggle
+    r.set_dtog_tx(false); // don't toggle
+    r.set_stat_rx(Stat::from_bits(0));
+    r.set_stat_tx(Stat::from_bits(0));
+    r
+}
+
+fn align_len_up(len: u16) -> u16 {
+    ((len as usize + USBRAM_ALIGN - 1) / USBRAM_ALIGN * USBRAM_ALIGN) as u16
+}
+
+/// Calculates the register field values for configuring receive buffer descriptor.
+/// Returns `(actual_len, len_bits)`
+///
+/// `actual_len` length in bytes rounded up to USBRAM_ALIGN
+/// `len_bits` should be placed on the upper 16 bits of the register value
+fn calc_receive_len_bits(len: u16) -> (u16, u16) {
+    match len {
+        // NOTE: this could be 1..=62 with 16bit USBRAM, but not with 32bit. Limit it to 60 for simplicity.
+        1..=60 => (align_len_up(len), align_len_up(len) / 2 << 10),
+        61..=1024 => ((len + 31) / 32 * 32, (((len + 31) / 32 - 1) << 10) | 0x8000),
+        _ => panic!("invalid OUT length {}", len),
+    }
+}
+
+#[cfg(any(usbram_32_2048, usbram_32_1024))]
+mod btable {
+    use super::*;
+
+    pub(super) fn write_in<I: Instance>(_index: usize, _addr: u16) {}
+
+    /// Writes to Transmit Buffer Descriptor for Channel/endpoint `index``
+    /// For Device this is an IN endpoint for Host an OUT endpoint
+    pub(super) fn write_transmit_buffer_descriptor<I: Instance>(index: usize, addr: u16, len: u16) {
+        // Address offset: index*8 [bytes] thus index*2 in 32 bit words
+        USBRAM.mem(index * 2).write_value((addr as u32) | ((len as u32) << 16));
+    }
+
+    /// Writes to Receive Buffer Descriptor for Channel/endpoint `index``
+    /// For Device this is an OUT endpoint for Host an IN endpoint
+    pub(super) fn write_receive_buffer_descriptor<I: Instance>(index: usize, addr: u16, max_len_bits: u16) {
+        // Address offset: index*8 + 4 [bytes] thus index*2 + 1 in 32 bit words
+        USBRAM
+            .mem(index * 2 + 1)
+            .write_value((addr as u32) | ((max_len_bits as u32) << 16));
+    }
+
+    pub(super) fn read_out_len<I: Instance>(index: usize) -> u16 {
+        (USBRAM.mem(index * 2 + 1).read() >> 16) as u16
+    }
+}
+
+// Maybe replace with struct that only knows its index
+struct EndpointBuffer<I: Instance> {
+    addr: u16,
+    len: u16,
+    _marker: PhantomData<I>,
+}
+
+impl<I: Instance> EndpointBuffer<I> {
+    fn new(addr: u16, len: u16) -> Self {
+        EndpointBuffer {
+            addr,
+            len,
+            _marker: PhantomData,
+        }
+    }
+
+    fn read(&mut self, buf: &mut [u8]) {
+        assert!(buf.len() <= self.len as usize);
+        for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
+            let val = USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).read();
+            let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
+            buf[i * USBRAM_ALIGN..][..n].copy_from_slice(&val.to_le_bytes()[..n]);
+        }
+    }
+
+    fn write(&mut self, buf: &[u8]) {
+        assert!(buf.len() <= self.len as usize);
+        for i in 0..(buf.len() + USBRAM_ALIGN - 1) / USBRAM_ALIGN {
+            let mut val = [0u8; USBRAM_ALIGN];
+            let n = USBRAM_ALIGN.min(buf.len() - i * USBRAM_ALIGN);
+            val[..n].copy_from_slice(&buf[i * USBRAM_ALIGN..][..n]);
+
+            #[cfg(not(any(usbram_32_2048, usbram_32_1024)))]
+            let val = u16::from_le_bytes(val);
+            #[cfg(any(usbram_32_2048, usbram_32_1024))]
+            let val = u32::from_le_bytes(val);
+            USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).write_value(val);
+        }
+    }
+}
+
+/// Per-instance state shared between [`UsbHost`], [`Allocator`] and [`Channel`].
+pub struct HostState {
+    /// Bitmap of allocated channels. Bit 0 is reserved for the control pipe.
+    allocated_pipes: AtomicU32,
+    /// Bitmap of used endpoint-buffer blocks of `USBRAM_BLOCK_SIZE` bytes each.
+    used_blocks: AtomicU32,
+}
+
+impl HostState {
+    /// Create a new, reset host state.
+    pub const fn new() -> Self {
+        Self {
+            allocated_pipes: AtomicU32::new(0),
+            used_blocks: AtomicU32::new(0),
+        }
+    }
+}
+
+/// Sealed extension of [`Instance`] exposing the per-peripheral [`HostState`].
+#[allow(private_bounds)]
+pub trait SealedHostInstance: Instance {
+    #[doc(hidden)]
+    fn host_state() -> &'static HostState;
+}
+
+foreach_interrupt!(
+    ($inst:ident, usb, $block:ident, LP, $irq:ident) => {
+        impl SealedHostInstance for crate::peripherals::$inst {
+            fn host_state() -> &'static HostState {
+                static STATE: HostState = HostState::new();
+                &STATE
+            }
+        }
+    };
+);
+
+/// USB host driver.
+pub struct UsbHost<'d, I: Instance> {
+    phantom: PhantomData<&'d mut I>,
+    // first free address in EP mem, in bytes.
+    // ep_mem_free: u16,
+}
+
+impl<'d, I: SealedHostInstance> UsbHost<'d, I> {
+    /// Create a new USB driver.
+    pub fn new(
+        _usb: Peri<'d, USB>,
+        _irq: impl interrupt::typelevel::Binding<I::Interrupt, USBHostInterruptHandler<I>> + 'd,
+        dp: Peri<'d, impl DpPin<I>>,
+        dm: Peri<'d, impl DmPin<I>>,
+    ) -> Self {
+        super::super::common_init::<I>();
+
+        let regs = I::regs();
+
+        regs.cntr().write(|w| {
+            w.set_pdwn(false);
+            w.set_fres(true);
+            w.set_host(true);
+        });
+
+        // Wait for voltage reference
+        block_for_us(100_000); // 100 ms
+
+        #[cfg(not(usb_v4))]
+        regs.btable().write(|w| w.set_btable(0));
+
+        #[cfg(not(stm32l1))]
+        {
+            use crate::gpio::{AfType, OutputType, Speed};
+            dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        }
+        #[cfg(stm32l1)]
+        let _ = (dp, dm); // suppress "unused" warnings.
+
+        I::host_state().used_blocks.store(0, Ordering::Relaxed);
+        Self {
+            phantom: PhantomData,
+            // ep_mem_free: EP_COUNT as u16 * 8, // for each EP, 4 regs, so 8 bytes
+            // control_channel_in: Channel::new(0, 0, 0, 0),
+            // control_channel_out: Channel::new(0, 0, 0, 0),
+            // channels_used: 0,
+            // channels_out_used: 0,
+        }
+    }
+
+    /// Start the USB peripheral
+    pub fn start(&mut self) {
+        let regs = I::regs();
+
+        regs.cntr().write(|w| {
+            w.set_host(true);
+            w.set_pdwn(false);
+            w.set_fres(false);
+            // Masks
+            w.set_resetm(true);
+            w.set_suspm(false);
+            w.set_wkupm(false);
+            w.set_ctrm(true);
+            w.set_errm(false);
+        });
+
+        // Enable pull downs on DP and DM lines for host mode
+        #[cfg(any(usb_v3, usb_v4))]
+        regs.bcdr().write(|w| w.set_dppu(true));
+
+        #[cfg(stm32l1)]
+        crate::pac::SYSCFG.pmc().modify(|w| w.set_usb_pu(true));
+    }
+
+    pub fn get_status(&self) -> u32 {
+        let regs = I::regs();
+
+        let istr = regs.istr().read();
+
+        istr.0
+    }
+
+    async fn wait_for_device_connect(&self) -> DeviceEvent {
+        poll_fn(|cx| {
+            let istr = I::regs().istr().read();
+
+            BUS_WAKER.register(cx.waker());
+
+            if istr.dcon_stat() {
+                let speed = if istr.ls_dcon() { Speed::Low } else { Speed::Full };
+                // device has been detected
+                Poll::Ready(DeviceEvent::Connected(speed))
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    #[allow(dead_code)]
+    async fn wait_for_device_disconnect(&self) -> DeviceEvent {
+        poll_fn(|cx| {
+            let istr = I::regs().istr().read();
+
+            BUS_WAKER.register(cx.waker());
+
+            if !istr.dcon_stat() {
+                // device has disconnected
+                Poll::Ready(DeviceEvent::Disconnected)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+}
+
+/// USB endpoint. Only implements single buffer mode.
+pub struct Channel<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> {
+    _marker: PhantomData<(&'d mut I, D, T)>,
+    /// Register index (there are 8 in total)
+    index: usize,
+    /// Device address this pipe targets (re-asserted before each control transfer).
+    addr: u8,
+    max_packet_size_in: u16,
+    #[allow(dead_code)]
+    max_packet_size_out: u16,
+    buf_in: Option<EndpointBuffer<I>>,
+    buf_out: Option<EndpointBuffer<I>>,
+}
+
+impl<'d, I: SealedHostInstance, D: pipe::Direction, T: pipe::Type> Channel<'d, I, D, T> {
+    fn new(
+        index: usize,
+        addr: u8,
+        buf_in: Option<EndpointBuffer<I>>,
+        buf_out: Option<EndpointBuffer<I>>,
+        max_packet_size_in: u16,
+        max_packet_size_out: u16,
+    ) -> Self {
+        Self {
+            _marker: PhantomData,
+            index,
+            addr,
+            max_packet_size_in,
+            max_packet_size_out,
+            buf_in,
+            buf_out,
+        }
+    }
+
+    /// Re-assert this pipe's device address and receive-buffer descriptor on the
+    /// shared control channel (slot 0). All control pipes reuse slot 0, but its
+    /// address and BTABLE receive descriptor are written only at allocation, so
+    /// opening another device's control pipe re-points slot 0 at that device;
+    /// restore both from this pipe's own state before each transfer. The
+    /// transmit descriptor is rewritten per packet in `write_data`.
+    fn restore_control_channel(&self) {
+        let epr_reg = self.reg();
+        let mut epr = invariant(epr_reg.read());
+        epr.set_devaddr(self.addr);
+        epr_reg.write_value(epr);
+
+        if let Some(buf_in) = self.buf_in.as_ref() {
+            let (_, len_bits) = calc_receive_len_bits(self.max_packet_size_in);
+            btable::write_receive_buffer_descriptor::<I>(self.index, buf_in.addr, len_bits);
+        }
+    }
+
+    fn reg(&self) -> Reg<Epr, RW> {
+        I::regs().epr(self.index)
+    }
+
+    pub fn activate_rx(&mut self) {
+        let epr = self.reg();
+        let epr_val = epr.read();
+        let current_stat_rx = epr_val.stat_rx().to_bits();
+        let mut epr_val = invariant(epr_val);
+        // stat_rx can only be toggled by writing a 1.
+        // We want to set it to Valid (0b11)
+        let stat_mask = Stat::from_bits(!current_stat_rx & 0x3);
+        epr_val.set_stat_rx(stat_mask);
+        epr.write_value(epr_val);
+    }
+
+    pub fn activate_tx(&mut self) {
+        let epr = self.reg();
+        let epr_val = epr.read();
+        let current_stat_tx = epr_val.stat_tx().to_bits();
+        let mut epr_val = invariant(epr_val);
+        // stat_tx can only be toggled by writing a 1.
+        // We want to set it to Valid (0b11)
+        let stat_mask = Stat::from_bits(!current_stat_tx & 0x3);
+        epr_val.set_stat_tx(stat_mask);
+        epr.write_value(epr_val);
+    }
+
+    pub fn disable_rx(&mut self) {
+        let epr = self.reg();
+        let epr_val = epr.read();
+        let current_stat_rx = epr_val.stat_rx();
+        let mut epr_val = invariant(epr_val);
+        // stat_rx can only be toggled by writing a 1.
+        // We want to set it to Disabled (0b00).
+        epr_val.set_stat_rx(current_stat_rx);
+        epr.write_value(epr_val);
+    }
+
+    fn disable_tx(&mut self) {
+        let epr = self.reg();
+        let epr_val = epr.read();
+        let current_stat_tx = epr_val.stat_tx();
+        let mut epr_val = invariant(epr_val);
+        // stat_tx can only be toggled by writing a 1.
+        // We want to set it to InActive (0b00).
+        epr_val.set_stat_tx(current_stat_tx);
+        epr.write_value(epr_val);
+    }
+
+    fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
+        let index = self.index;
+        let rx_len = btable::read_out_len::<I>(index) as usize & 0x3FF;
+        trace!("rx_len = {}", rx_len);
+        if rx_len > buf.len() {
+            return Err(PipeError::BufferOverflow);
+        }
+        self.buf_in.as_mut().unwrap().read(&mut buf[..rx_len]);
+        Ok(rx_len)
+    }
+
+    fn write_data(&mut self, buf: &[u8]) {
+        let index = self.index;
+        if let Some(buf_out) = self.buf_out.as_mut() {
+            buf_out.write(buf);
+            btable::write_transmit_buffer_descriptor::<I>(index, buf_out.addr, buf.len() as _);
+        }
+    }
+
+    //TODO: Emit a zero length packet when ensure_transaction_end is true and the packet is of max size
+    async fn write(&mut self, buf: &[u8], _ensure_transaction_end: bool) -> Result<(), PipeError> {
+        self.write_data(buf);
+
+        let index = self.index;
+
+        #[allow(unused)]
+        let timeout_ms = 1000;
+
+        self.activate_tx();
+
+        let regs = I::regs();
+
+        #[cfg(feature = "time")]
+        let t0 = embassy_time::Instant::now();
+
+        poll_fn(|cx| {
+            EP_OUT_WAKERS[index].register(cx.waker());
+
+            // Detect disconnect
+            let istr = regs.istr().read();
+            if !istr.dcon_stat() {
+                self.disable_tx();
+                return Poll::Ready(Err(PipeError::Disconnected));
+            }
+
+            #[cfg(feature = "time")]
+            if t0.elapsed() > embassy_time::Duration::from_millis(timeout_ms as u64) {
+                // Timeout, we need to stop the current transaction.
+                self.disable_tx();
+                return Poll::Ready(Err(PipeError::Timeout));
+            }
+
+            let stat = self.reg().read().stat_tx();
+            match stat {
+                Stat::Disabled => Poll::Ready(Ok(())),
+                Stat::Stall => Poll::Ready(Err(PipeError::Stall)),
+                Stat::Nak | Stat::Valid => Poll::Pending,
+            }
+        })
+        .await
+    }
+
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
+        let index = self.index;
+
+        #[allow(unused)]
+        let timeout_ms = 1000;
+
+        // A cancelled read leaves the channel armed and the packet may land
+        // (ACKed) unseen; re-arming over it would discard it, so only arm
+        // when neither armed nor holding an unread packet.
+        let stat = self.reg().read().stat_rx();
+        let armed_or_pending = matches!(stat, Stat::Valid)
+            || (matches!(stat, Stat::Disabled) && RX_COMPLETE[index].load(Ordering::Relaxed));
+        if !armed_or_pending {
+            RX_COMPLETE[index].store(false, Ordering::Relaxed);
+            self.activate_rx();
+        }
+
+        let regs = I::regs();
+
+        let mut count: usize = 0;
+
+        #[cfg(feature = "time")]
+        let t0 = embassy_time::Instant::now();
+
+        poll_fn(|cx| {
+            EP_IN_WAKERS[index].register(cx.waker());
+
+            // Detect disconnect
+            let istr = regs.istr().read();
+            if !istr.dcon_stat() {
+                self.disable_rx();
+                return Poll::Ready(Err(PipeError::Disconnected));
+            }
+
+            #[cfg(feature = "time")]
+            if t0.elapsed() > embassy_time::Duration::from_millis(timeout_ms as u64) {
+                self.disable_rx();
+                return Poll::Ready(Err(PipeError::Timeout));
+            }
+
+            let stat = self.reg().read().stat_rx();
+            match stat {
+                Stat::Disabled => {
+                    if !RX_COMPLETE[index].load(Ordering::Relaxed) {
+                        // Disarmed without a completed reception (e.g. ISR error
+                        // recovery): re-arm instead of reading stale bytes.
+                        self.activate_rx();
+                        return Poll::Pending;
+                    }
+                    RX_COMPLETE[index].store(false, Ordering::Relaxed);
+                    // Data available for read
+                    let idest = &mut buf[count..];
+                    let n = self.read_data(idest)?;
+                    count += n;
+                    // If transfer is smaller than max_packet_size, we are done
+                    // If we have read buf.len() bytes, we are done
+                    if count == buf.len() || n < self.max_packet_size_in as usize {
+                        Poll::Ready(Ok(count))
+                    } else {
+                        // More data expected: issue another read.
+                        self.activate_rx();
+                        Poll::Pending
+                    }
+                }
+                Stat::Stall => {
+                    // error
+                    Poll::Ready(Err(PipeError::Stall))
+                }
+                Stat::Nak => Poll::Pending,
+                Stat::Valid => {
+                    // not started yet? Try again
+                    Poll::Pending
+                }
+            }
+        })
+        .await
+    }
+}
+
+impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<'d, I, D, T> {
+    async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
+    where
+        T: pipe::IsControl,
+        D: pipe::IsIn,
+    {
+        // Slot 0 is shared by all control pipes; re-point it at this device.
+        self.restore_control_channel();
+
+        // SETUP starts a fresh transaction: discard leftovers from a
+        // cancelled earlier transfer.
+        self.disable_rx();
+        RX_COMPLETE[self.index].store(false, Ordering::Relaxed);
+
+        let epr0 = I::regs().epr(0);
+
+        // setup stage
+        let mut epr_val = invariant(epr0.read());
+        epr_val.set_setup(true);
+        epr0.write_value(epr_val);
+
+        self.write(setup, false).await?;
+
+        // data stage
+        let count = self.read(buf).await?;
+
+        // status stage
+
+        // Send 0 bytes
+        let zero: [u8; 0] = [0u8; 0];
+        self.write(&zero, false).await?;
+
+        Ok(count)
+    }
+
+    async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), PipeError>
+    where
+        T: pipe::IsControl,
+        D: pipe::IsOut,
+    {
+        // Slot 0 is shared by all control pipes; re-point it at this device.
+        self.restore_control_channel();
+
+        // SETUP starts a fresh transaction: discard leftovers from a
+        // cancelled earlier transfer.
+        self.disable_rx();
+        RX_COMPLETE[self.index].store(false, Ordering::Relaxed);
+
+        let epr0 = I::regs().epr(0);
+
+        // setup stage
+        let mut epr_val = invariant(epr0.read());
+        epr_val.set_setup(true);
+        epr0.write_value(epr_val);
+        self.write(setup, false).await?;
+
+        if buf.is_empty() {
+            // do nothing
+        } else {
+            self.write(buf, false).await?;
+        }
+
+        // Status stage
+        let mut status = [0u8; 0];
+        self.read(&mut status).await?;
+
+        Ok(())
+    }
+
+    async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
+    where
+        D: pipe::IsIn,
+    {
+        self.read(buf).await
+    }
+
+    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError>
+    where
+        D: pipe::IsOut,
+    {
+        self.write(buf, ensure_transaction_end).await
+    }
+
+    fn set_timeout(&mut self, _: TimeoutConfig) {
+        //TODO: Implement.
+    }
+
+    fn reset_data_toggle(&mut self) {
+        // On STM32 PMA USB, DTOG_RX and DTOG_TX are toggle-on-write-1: writing
+        // a 1 flips the bit, writing a 0 leaves it unchanged. To clear both
+        // to 0 (DATA0), read the current values and write them back — a
+        // currently-1 bit will toggle to 0, a currently-0 bit will be left
+        // alone. `invariant()` preserves CTR_* and clears STAT_* toggle
+        // fields; we then set the DTOG fields explicitly.
+        let epr = self.reg();
+        let current = epr.read();
+        let dtog_rx = current.dtog_rx();
+        let dtog_tx = current.dtog_tx();
+        let mut new = invariant(current);
+        new.set_dtog_rx(dtog_rx);
+        new.set_dtog_tx(dtog_tx);
+        epr.write_value(new);
+    }
+}
+
+impl<'d, I: SealedHostInstance, T: pipe::Type, D: pipe::Direction> Drop for Channel<'d, I, D, T> {
+    fn drop(&mut self) {
+        if self.index != 0 {
+            // Disarm and clear stale state so the freed slot can be reused
+            // safely. Slot 0 is shared by all control pipes and is cleaned
+            // up per control transfer instead.
+            self.disable_rx();
+            self.disable_tx();
+            RX_COMPLETE[self.index].store(false, Ordering::Relaxed);
+        }
+        let state = I::host_state();
+        critical_section::with(|_| {
+            let pipes = &state.allocated_pipes;
+            pipes.store(pipes.load(Ordering::Relaxed) & !(1 << self.index), Ordering::Relaxed);
+        });
+        // Reclaim the endpoint buffer memory so repeated plug/unplug cycles
+        // don't exhaust USBRAM.
+        if let Some(buf) = self.buf_in.as_ref() {
+            free_channel_mem(state, buf.addr, buf.len);
+        }
+        if let Some(buf) = self.buf_out.as_ref() {
+            free_channel_mem(state, buf.addr, buf.len);
+        }
+    }
+}
+
+/// Pipe allocator handle for [`UsbHost`].
+pub struct Allocator<'d, I: Instance> {
+    _marker: PhantomData<&'d I>,
+}
+
+impl<'d, I: Instance> Clone for Allocator<'d, I> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'d, I: Instance> Copy for Allocator<'d, I> {}
+
+/// Number of `USBRAM_BLOCK_SIZE` blocks needed to hold `len` bytes.
+fn blocks_for(len: u16) -> usize {
+    (len as usize + USBRAM_BLOCK_SIZE - 1) / USBRAM_BLOCK_SIZE
+}
+
+/// Allocate `len` bytes of endpoint buffer memory, returning its byte address.
+///
+/// Memory is tracked as a bitmap of fixed-size blocks so it can be reclaimed on
+/// pipe drop (see [`free_channel_mem`]). The allocation spans `blocks_for(len)`
+/// contiguous free blocks, found first-fit under a critical section so
+/// concurrent allocations from copies of the allocator can't clobber each other.
+fn alloc_channel_mem(state: &HostState, len: u16) -> Result<u16, ()> {
+    assert!(len as usize % USBRAM_ALIGN == 0);
+    let blocks = blocks_for(len);
+    if blocks == 0 || blocks > USBRAM_NUM_BLOCKS {
+        error!("Endpoint memory request too large");
+        return Err(());
+    }
+    let run = (1u32 << blocks) - 1;
+    critical_section::with(|_| {
+        let used = state.used_blocks.load(Ordering::Relaxed);
+        for start in 0..=(USBRAM_NUM_BLOCKS - blocks) {
+            let mask = run << start;
+            if used & mask == 0 {
+                state.used_blocks.store(used | mask, Ordering::Relaxed);
+                return Ok((USBRAM_BUFFER_BASE + start * USBRAM_BLOCK_SIZE) as u16);
+            }
+        }
+        error!("Endpoint memory full");
+        Err(())
+    })
+}
+
+/// Free endpoint buffer memory previously returned by [`alloc_channel_mem`].
+fn free_channel_mem(state: &HostState, addr: u16, len: u16) {
+    let blocks = blocks_for(len);
+    let start = (addr as usize - USBRAM_BUFFER_BASE) / USBRAM_BLOCK_SIZE;
+    let mask = ((1u32 << blocks) - 1) << start;
+    critical_section::with(|_| {
+        let used = state.used_blocks.load(Ordering::Relaxed);
+        state.used_blocks.store(used & !mask, Ordering::Relaxed);
+    });
+}
+
+impl<'d, I: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, I> {
+    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, I, D, T>;
+
+    fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
+        &self,
+        addr: u8,
+        endpoint: &embassy_usb_driver::EndpointInfo,
+        _split: Option<embassy_usb_driver::host::SplitInfo>,
+    ) -> Result<Self::Pipe<T, D>, embassy_usb_driver::host::HostError> {
+        let state = I::host_state();
+        let new_index = if T::ep_type() == EndpointType::Control {
+            // Only a single control channel is available
+            0
+        } else {
+            critical_section::with(|_| {
+                let pipes = state.allocated_pipes.load(Ordering::Relaxed);
+
+                // Ignore index 0
+                let new_index = (pipes | 1).trailing_ones();
+                if new_index as usize >= USB_MAX_PIPES {
+                    Err(HostError::OutOfPipes)
+                } else {
+                    state.allocated_pipes.store(pipes | 1 << new_index, Ordering::Relaxed);
+                    Ok(new_index)
+                }
+            })?
+        };
+
+        let max_packet_size = endpoint.max_packet_size;
+
+        let buffer_in = if D::is_in() {
+            let (len, len_bits) = calc_receive_len_bits(max_packet_size);
+            let Ok(buffer_addr) = alloc_channel_mem(state, len) else {
+                return Err(HostError::OutOfSlots);
+            };
+
+            btable::write_receive_buffer_descriptor::<I>(new_index as usize, buffer_addr, len_bits);
+
+            Some(EndpointBuffer::new(buffer_addr, len))
+        } else {
+            None
+        };
+
+        let buffer_out = if D::is_out() {
+            let len = align_len_up(max_packet_size);
+            let Ok(buffer_addr) = alloc_channel_mem(state, len) else {
+                return Err(HostError::OutOfSlots);
+            };
+
+            // ep_in_len is written when actually TXing packets.
+            btable::write_in::<I>(new_index as usize, buffer_addr);
+
+            Some(EndpointBuffer::new(buffer_addr, len))
+        } else {
+            None
+        };
+
+        let channel = Channel::<I, D, T>::new(
+            new_index as usize,
+            addr,
+            buffer_in,
+            buffer_out,
+            endpoint.max_packet_size,
+            endpoint.max_packet_size,
+        );
+
+        // configure channel register
+        let epr_reg = I::regs().epr(new_index as usize);
+        let mut epr = invariant(epr_reg.read());
+        epr.set_devaddr(addr);
+        epr.set_ep_type(convert_type(endpoint.ep_type));
+        // EA is the device endpoint number, not the host channel slot
+        // (`new_index`); these differ once more than one device is attached.
+        epr.set_ea(endpoint.addr.index() as _);
+        epr_reg.write_value(epr);
+
+        Ok(channel)
+    }
+}
+
+impl<'d, I: SealedHostInstance> UsbHostController<'d> for UsbHost<'d, I> {
+    type Allocator = Allocator<'d, I>;
+
+    fn allocator(&self) -> Self::Allocator {
+        Allocator { _marker: PhantomData }
+    }
+
+    async fn bus_reset(&mut self) {
+        let regs = I::regs();
+
+        trace!("Bus reset");
+        // Set bus in reset state
+        regs.cntr().modify(|w| {
+            w.set_fres(true);
+        });
+
+        // USB Spec says wait 50ms
+        wait_for_us(50_000).await;
+
+        // Clear reset state; device will be in default state
+        regs.cntr().modify(|w| {
+            w.set_fres(false);
+        });
+    }
+
+    async fn wait_for_device_event(&mut self) -> embassy_usb_driver::host::DeviceEvent {
+        let event = self.wait_for_device_connect().await;
+        if matches!(event, DeviceEvent::Connected(_)) {
+            // The UsbHostController contract requires driving a bus reset to
+            // completion on attach before returning.
+            self.bus_reset().await;
+            // USB 2.0 §7.1.7.5: reset recovery time before the device must respond.
+            wait_for_us(10_000).await; // 10 ms
+        }
+        event
+    }
+}

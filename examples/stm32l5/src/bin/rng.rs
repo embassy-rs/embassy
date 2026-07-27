@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{Pll, PllMul, PllPreDiv, PllRDiv, PllSource, Sysclk};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{Config, bind_interrupts, peripherals, rng};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
@@ -16,15 +17,15 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.hsi = true;
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.sys = Sysclk::Pll1R;
     config.rcc.pll = Some(Pll {
         // 64Mhz clock (16 / 1 * 8 / 2)
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,
-        mul: PllMul::MUL8,
+        source: PllSource::Hsi,
+        prediv: PllPreDiv::Div1,
+        mul: PllMul::Mul8,
         divp: None,
         divq: None,
-        divr: Some(PllRDiv::DIV2),
+        divr: Some(PllRDiv::Div2),
     });
     let p = embassy_stm32::init(config);
 

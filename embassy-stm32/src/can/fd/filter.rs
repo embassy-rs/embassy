@@ -334,7 +334,7 @@ impl ActivateFilter<StandardId, u16> for message_ram::StandardFilter {
         let sft = f.filter.into();
 
         let (sfid1, sfid2) = match f.filter {
-            FilterType::Range { to, from } => (to.as_raw(), from.as_raw()),
+            FilterType::Range { from, to } => (from.as_raw(), to.as_raw()),
             FilterType::DedicatedSingle(id) => (id.as_raw(), id.as_raw()),
             FilterType::DedicatedDual(id1, id2) => (id1.as_raw(), id2.as_raw()),
             FilterType::BitMask { filter, mask } => (filter, mask),
@@ -358,7 +358,7 @@ impl ActivateFilter<ExtendedId, u32> for message_ram::ExtendedFilter {
         let eft = f.filter.into();
 
         let (efid1, efid2) = match f.filter {
-            FilterType::Range { to, from } => (to.as_raw(), from.as_raw()),
+            FilterType::Range { from, to } => (from.as_raw(), to.as_raw()),
             FilterType::DedicatedSingle(id) => (id.as_raw(), id.as_raw()),
             FilterType::DedicatedDual(id1, id2) => (id1.as_raw(), id2.as_raw()),
             FilterType::BitMask { filter, mask } => (filter, mask),

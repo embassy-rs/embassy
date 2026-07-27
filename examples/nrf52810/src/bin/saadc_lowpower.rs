@@ -8,12 +8,13 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::saadc::{Oversample, Saadc};
 use embassy_nrf::{bind_interrupts, saadc};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
         SAADC => saadc::InterruptHandler;
@@ -33,7 +34,7 @@ async fn main(_p: Spawner) {
             let battery_pin = p.P0_02.reborrow();
             let sensor1_pin = p.P0_03.reborrow();
             let mut adc_config = saadc::Config::default();
-            adc_config.oversample = Oversample::OVER4X;
+            adc_config.oversample = Oversample::Over4x;
             let battery = saadc::ChannelConfig::single_ended(battery_pin);
             let sensor1 = saadc::ChannelConfig::single_ended(sensor1_pin);
             let mut saadc = Saadc::new(p.SAADC.reborrow(), Irqs, adc_config, [battery, sensor1]);

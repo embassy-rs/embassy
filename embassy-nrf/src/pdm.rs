@@ -104,10 +104,10 @@ impl<'d> Pdm<'d> {
         let r = T::regs();
 
         // setup gpio pins
-        din.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+        din.conf().write(|w| w.set_input(gpiovals::Input::Connect));
         r.psel().din().write_value(din.psel_bits());
         clk.set_low();
-        clk.conf().write(|w| w.set_dir(gpiovals::Dir::OUTPUT));
+        clk.conf().write(|w| w.set_dir(gpiovals::Dir::Output));
         r.psel().clk().write_value(clk.psel_bits());
 
         // configure
@@ -368,14 +368,14 @@ impl Default for Config {
         Self {
             operation_mode: OperationMode::Mono,
             edge: Edge::LeftFalling,
-            frequency: Frequency::DEFAULT,
+            frequency: Frequency::Default,
             #[cfg(any(
                 feature = "nrf52840",
                 feature = "nrf52833",
                 feature = "_nrf5340-app",
                 feature = "_nrf91",
             ))]
-            ratio: Ratio::RATIO80,
+            ratio: Ratio::Ratio80,
             gain_left: I7F1::ZERO,
             gain_right: I7F1::ZERO,
         }
@@ -394,8 +394,8 @@ pub enum OperationMode {
 impl From<OperationMode> for vals::Operation {
     fn from(mode: OperationMode) -> Self {
         match mode {
-            OperationMode::Mono => vals::Operation::MONO,
-            OperationMode::Stereo => vals::Operation::STEREO,
+            OperationMode::Mono => vals::Operation::Mono,
+            OperationMode::Stereo => vals::Operation::Stereo,
         }
     }
 }
@@ -412,8 +412,8 @@ pub enum Edge {
 impl From<Edge> for vals::Edge {
     fn from(edge: Edge) -> Self {
         match edge {
-            Edge::LeftRising => vals::Edge::LEFT_RISING,
-            Edge::LeftFalling => vals::Edge::LEFT_FALLING,
+            Edge::LeftRising => vals::Edge::LeftRising,
+            Edge::LeftFalling => vals::Edge::LeftFalling,
         }
     }
 }

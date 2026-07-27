@@ -1,6 +1,6 @@
 //! WebUSB API capability implementation.
 //!
-//! See https://wicg.github.io/webusb
+//! See <https://wicg.github.io/webusb>
 
 use core::mem::MaybeUninit;
 
@@ -91,18 +91,17 @@ impl<'d> Handler for Control<'d> {
             && req.request == self.vendor_code
             && req.value == landing_value
             && req.index == WEB_USB_REQUEST_GET_URL
+            && let Some(url) = self.landing_url
         {
-            if let Some(url) = self.landing_url {
-                let url_bytes = url.as_bytes();
-                let len = url_bytes.len();
+            let url_bytes = url.as_bytes();
+            let len = url_bytes.len();
 
-                self.ep_buf[0] = len as u8 + 3;
-                self.ep_buf[1] = WEB_USB_DESCRIPTOR_TYPE_URL;
-                self.ep_buf[2] = url.scheme();
-                self.ep_buf[3..3 + len].copy_from_slice(url_bytes);
+            self.ep_buf[0] = len as u8 + 3;
+            self.ep_buf[1] = WEB_USB_DESCRIPTOR_TYPE_URL;
+            self.ep_buf[2] = url.scheme();
+            self.ep_buf[3..3 + len].copy_from_slice(url_bytes);
 
-                return Some(InResponse::Accepted(&self.ep_buf[..3 + len]));
-            }
+            return Some(InResponse::Accepted(&self.ep_buf[..3 + len]));
         }
         None
     }
@@ -131,7 +130,7 @@ impl<'d> State<'d> {
 /// WebUSB capability implementation.
 ///
 /// WebUSB is a W3C standard that allows a web page to communicate with USB devices.
-/// See See https://wicg.github.io/webusb for more information and the browser API.
+/// See <https://wicg.github.io/webusb> for more information and the browser API.
 /// This implementation provides one read and one write endpoint.
 pub struct WebUsb<'d, D: Driver<'d>> {
     _driver: core::marker::PhantomData<&'d D>,

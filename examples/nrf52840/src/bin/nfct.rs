@@ -2,12 +2,14 @@
 #![no_main]
 
 use defmt::{todo, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_nrf as _;
 use embassy_nrf::config::HfclkSource;
 use embassy_nrf::nfct::{Config as NfcConfig, NfcId, NfcT};
 use embassy_nrf::{bind_interrupts, nfct};
 use iso14443_4::{Card, IsoDep};
-use {defmt_rtt as _, embassy_nrf as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     NFCT => nfct::InterruptHandler;
@@ -22,7 +24,7 @@ async fn main(_spawner: Spawner) {
     dbg!("Setting up...");
     let config = NfcConfig {
         nfcid1: NfcId::DoubleSize([0x04, 0x68, 0x95, 0x71, 0xFA, 0x5C, 0x64]),
-        sdd_pat: nfct::SddPat::SDD00100,
+        sdd_pat: nfct::SddPat::Sdd00100,
         plat_conf: 0b0000,
         protocol: nfct::SelResProtocol::Type4A,
     };

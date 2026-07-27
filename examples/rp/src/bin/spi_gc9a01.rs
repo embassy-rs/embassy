@@ -9,6 +9,7 @@
 use core::cell::RefCell;
 
 use defmt::*;
+use defmt_rtt as _;
 use display_interface_spi::SPIInterface;
 use embassy_embedded_hal::shared_bus::blocking::spi::SpiDeviceWithConfig;
 use embassy_executor::Spawner;
@@ -26,7 +27,7 @@ use embedded_graphics::primitives::{PrimitiveStyleBuilder, Rectangle};
 use mipidsi::Builder;
 use mipidsi::models::GC9A01;
 use mipidsi::options::{ColorInversion, ColorOrder};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const DISPLAY_FREQ: u32 = 64_000_000;
 const LCD_X_RES: i32 = 240;
@@ -54,7 +55,7 @@ async fn main(_spawner: Spawner) {
     display_config.phase = spi::Phase::CaptureOnSecondTransition;
     display_config.polarity = spi::Polarity::IdleHigh;
 
-    let spi: Spi<'_, _, Blocking> = Spi::new_blocking_txonly(p.SPI1, clk, mosi, display_config.clone());
+    let spi: Spi<'_, Blocking> = Spi::new_blocking_txonly(p.SPI1, clk, mosi, display_config.clone());
     let spi_bus: Mutex<NoopRawMutex, _> = Mutex::new(RefCell::new(spi));
 
     let display_spi = SpiDeviceWithConfig::new(&spi_bus, Output::new(display_cs, Level::High), display_config);

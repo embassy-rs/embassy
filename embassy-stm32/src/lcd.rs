@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::{AfType, AnyPin, SealedPin};
+use crate::gpio::{AfType, Flex, SealedPin};
 use crate::peripherals;
 use crate::rcc::{self, RccPeripheral};
 use crate::time::Hertz;
@@ -14,6 +14,8 @@ const NUM_SEGMENTS: u8 = 52;
 const NUM_SEGMENTS: u8 = 44;
 #[cfg(any(stm32l053, stm32l063, stm32l100))]
 const NUM_SEGMENTS: u8 = 32;
+
+const MAX_PINS: usize = 32;
 
 /// LCD configuration struct
 #[non_exhaustive]
@@ -151,6 +153,7 @@ pub enum Drive {
 /// LCD driver.
 pub struct Lcd<'d, T: Instance> {
     _peri: PhantomData<&'d mut T>,
+    _pins: heapless::Vec<Flex<'d>, MAX_PINS>,
     duty: Duty,
     ck_div: u32,
 }
@@ -164,7 +167,7 @@ impl<'d, T: Instance> Lcd<'d, T> {
         _peripheral: Peri<'d, T>,
         config: Config,
         vlcd_pin: Peri<'_, impl VlcdPin<T>>,
-        pins: [LcdPin<'d, T>; N],
+        mut pins: [LcdPin<'d, T>; N],
     ) -> Self {
         rcc::enable_and_reset::<T>();
 
@@ -180,8 +183,8 @@ impl<'d, T: Instance> Lcd<'d, T> {
         );
 
         // Set the pins
-        for pin in pins {
-            pin.pin.set_as_af(
+        for pin in pins.iter_mut() {
+            pin.pin.pin.set_as_af(
                 pin.af_num,
                 AfType::output(crate::gpio::OutputType::PushPull, crate::gpio::Speed::VeryHigh),
             );
@@ -271,10 +274,16 @@ impl<'d, T: Instance> Lcd<'d, T> {
         // Wait for the stepup converter to be ready
         while !T::regs().sr().read().rdy() {}
 
+        let mut lcd_pins = heapless::Vec::new();
+        for p in pins.into_iter() {
+            unwrap!(lcd_pins.push(p.pin));
+        }
+
         Self {
             _peri: PhantomData,
             duty: config.duty,
             ck_div,
+            _pins: lcd_pins,
         }
     }
 
@@ -453,10 +462,10 @@ pub enum BlinkSelector {
 /// A type-erased pin that can be configured as an LCD pin.
 /// This is used for passing pins to the new function in the array.
 pub struct LcdPin<'d, T: Instance> {
-    pin: Peri<'d, AnyPin>,
+    pin: Flex<'d>,
     af_num: u8,
     is_seg: bool,
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<'d, T: Instance> LcdPin<'d, T> {
@@ -465,10 +474,10 @@ impl<'d, T: Instance> LcdPin<'d, T> {
         let af = pin.af_num();
 
         Self {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             af_num: af,
             is_seg: true,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 
@@ -477,10 +486,10 @@ impl<'d, T: Instance> LcdPin<'d, T> {
         let af = pin.af_num();
 
         Self {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             af_num: af,
             is_seg: false,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 }

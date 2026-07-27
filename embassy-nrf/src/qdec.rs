@@ -96,17 +96,17 @@ impl<'d> Qdec<'d> {
 
         // Select pins.
         a.conf().write(|w| {
-            w.set_input(gpiovals::Input::CONNECT);
-            w.set_pull(gpiovals::Pull::PULLUP);
+            w.set_input(gpiovals::Input::Connect);
+            w.set_pull(gpiovals::Pull::Pullup);
         });
         b.conf().write(|w| {
-            w.set_input(gpiovals::Input::CONNECT);
-            w.set_pull(gpiovals::Pull::PULLUP);
+            w.set_input(gpiovals::Input::Connect);
+            w.set_pull(gpiovals::Pull::Pullup);
         });
         r.psel().a().write_value(a.psel_bits());
         r.psel().b().write_value(b.psel_bits());
         if let Some(led_pin) = &led {
-            led_pin.conf().write(|w| w.set_dir(gpiovals::Dir::OUTPUT));
+            led_pin.conf().write(|w| w.set_dir(gpiovals::Dir::Output));
             r.psel().led().write_value(led_pin.psel_bits());
         }
 
@@ -118,8 +118,8 @@ impl<'d> Qdec<'d> {
 
         // Set LED output pin polarity
         r.ledpol().write(|w| match config.led_polarity {
-            LedPolarity::ActiveHigh => w.set_ledpol(vals::Ledpol::ACTIVE_HIGH),
-            LedPolarity::ActiveLow => w.set_ledpol(vals::Ledpol::ACTIVE_LOW),
+            LedPolarity::ActiveHigh => w.set_ledpol(vals::Ledpol::ActiveHigh),
+            LedPolarity::ActiveLow => w.set_ledpol(vals::Ledpol::ActiveLow),
         });
 
         // Set time period the LED is switched ON prior to sampling (0..511 us).
@@ -127,17 +127,17 @@ impl<'d> Qdec<'d> {
 
         // Set sample period
         r.sampleper().write(|w| match config.period {
-            SamplePeriod::_128us => w.set_sampleper(vals::Sampleper::_128US),
-            SamplePeriod::_256us => w.set_sampleper(vals::Sampleper::_256US),
-            SamplePeriod::_512us => w.set_sampleper(vals::Sampleper::_512US),
-            SamplePeriod::_1024us => w.set_sampleper(vals::Sampleper::_1024US),
-            SamplePeriod::_2048us => w.set_sampleper(vals::Sampleper::_2048US),
-            SamplePeriod::_4096us => w.set_sampleper(vals::Sampleper::_4096US),
-            SamplePeriod::_8192us => w.set_sampleper(vals::Sampleper::_8192US),
-            SamplePeriod::_16384us => w.set_sampleper(vals::Sampleper::_16384US),
-            SamplePeriod::_32ms => w.set_sampleper(vals::Sampleper::_32MS),
-            SamplePeriod::_65ms => w.set_sampleper(vals::Sampleper::_65MS),
-            SamplePeriod::_131ms => w.set_sampleper(vals::Sampleper::_131MS),
+            SamplePeriod::_128us => w.set_sampleper(vals::Sampleper::_128us),
+            SamplePeriod::_256us => w.set_sampleper(vals::Sampleper::_256us),
+            SamplePeriod::_512us => w.set_sampleper(vals::Sampleper::_512us),
+            SamplePeriod::_1024us => w.set_sampleper(vals::Sampleper::_1024us),
+            SamplePeriod::_2048us => w.set_sampleper(vals::Sampleper::_2048us),
+            SamplePeriod::_4096us => w.set_sampleper(vals::Sampleper::_4096us),
+            SamplePeriod::_8192us => w.set_sampleper(vals::Sampleper::_8192us),
+            SamplePeriod::_16384us => w.set_sampleper(vals::Sampleper::_16384us),
+            SamplePeriod::_32ms => w.set_sampleper(vals::Sampleper::_32ms),
+            SamplePeriod::_65ms => w.set_sampleper(vals::Sampleper::_65ms),
+            SamplePeriod::_131ms => w.set_sampleper(vals::Sampleper::_131ms),
         });
 
         T::Interrupt::unpend();
@@ -157,9 +157,12 @@ impl<'d> Qdec<'d> {
     }
 
     /// Perform an asynchronous read of the decoder.
-    /// The returned future can be awaited to obtain the number of steps.
+    /// The returned future can be awaited to obtain the number of steps
+    /// accumulated since the previous read.
     ///
-    /// If the future is dropped, the read is cancelled.
+    /// This method is cancel-safe: if the future is dropped before it
+    /// completes, no counts are lost; they stay in the accumulator and are
+    /// returned by the next read.
     ///
     /// # Example
     ///
@@ -180,7 +183,6 @@ impl<'d> Qdec<'d> {
     /// ```
     pub async fn read(&mut self) -> i16 {
         self.r.intenset().write(|w| w.set_reportrdy(true));
-        self.r.tasks_readclracc().write_value(1);
 
         let state = self.state;
         let r = self.r;
@@ -190,6 +192,7 @@ impl<'d> Qdec<'d> {
                 Poll::Pending
             } else {
                 r.events_reportrdy().write_value(0);
+                r.tasks_readclracc().write_value(1);
                 let acc = r.accread().read();
                 Poll::Ready(acc as i16)
             }

@@ -8,71 +8,109 @@ use pac::adc::vals::Dmacfg;
 use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 #[cfg(adc_g0)]
 pub use pac::adc::vals::{Ovsr, Ovss, Presc};
+#[cfg(any(adc_h5, adc_h7rs))]
+use pac::adccommon::vals::Presc;
 
 #[allow(unused_imports)]
-use super::SealedAdcChannel;
-use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::ConversionMode;
+use crate::adc::SealedAdcChannel;
+use crate::adc::{Adc, Averaging, ConversionMode, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt};
+use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
+
+#[cfg(adc_h5)]
+mod injected;
+#[cfg(adc_h5)]
+pub use injected::InjectedAdc;
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
+#[cfg(any(adc_v3, adc_g0, adc_u0))]
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3000;
+#[cfg(any(adc_h5, adc_h7rs))]
+/// VREF voltage used for factory calibration of VREFINTCAL register.
+pub const VREF_CALIB_MV: u32 = 3300;
+
+pub const NR_INJECTED_RANKS: usize = 4;
 
 #[cfg(adc_g0)]
 /// The number of variants in Smpsel
 // TODO: Use [#![feature(variant_count)]](https://github.com/rust-lang/rust/issues/73662) when stable
 const SAMPLE_TIMES_CAPACITY: usize = 2;
 
+/// Interrupt handler.
+#[cfg(adc_h5)]
+pub struct InterruptHandler<T: Instance> {
+    _marker: core::marker::PhantomData<T>,
+}
+
+#[cfg(adc_h5)]
+impl<T: crate::adc::DefaultInstance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let isr = T::regs().isr().read();
+        if isr.eoc() || isr.eos() || isr.jeoc() || isr.jeos() {
+            if isr.jeos() {
+                T::state()
+                    .injected_done
+                    .store(true, core::sync::atomic::Ordering::Release);
+            }
+
+            // flags are cleared by writing 1 to them
+            T::regs().isr().write_value(isr);
+
+            T::state().waker.wake();
+        }
+    }
+}
+
 #[cfg(adc_g0)]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 13;
 }
 #[cfg(any(adc_h5, adc_h7rs))]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 17;
 }
 #[cfg(adc_u0)]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 12;
 }
 #[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
-impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 0;
 }
 
 #[cfg(adc_g0)]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 12;
 }
 #[cfg(any(adc_h5, adc_h7rs))]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 #[cfg(adc_u0)]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 11;
 }
 #[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(adc_g0)]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 14;
 }
 #[cfg(any(adc_h5, adc_h7rs))]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 16;
 }
 #[cfg(adc_u0)]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 13;
 }
 #[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 18;
 }
 
@@ -142,139 +180,121 @@ pub struct AdcConfig {
     pub oversampling_mode: Option<(Rovsm, Trovs, bool)>,
     #[cfg(adc_g0)]
     pub clock: Option<Clock>,
+    #[cfg(any(adc_h5, adc_h7rs))]
+    /// Clock prescaler for the ker_ck_input clock
+    pub prescaler: Option<Presc>,
     pub resolution: Option<Resolution>,
     pub averaging: Option<Averaging>,
 }
 
-impl<T: Instance> super::SealedAnyInstance for T {
-    fn dr() -> *mut u16 {
-        T::regs().dr().as_ptr() as *mut u16
+impl super::AdcRegs for crate::pac::adc::Adc {
+    #[cfg(any(rcc_l4, rcc_g4))]
+    const HAS_ERRATA: bool = true;
+
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
     }
 
     // Enable ADC only when it is not already running.
-    fn enable() {
+    fn enable(&self) {
+        #[cfg(adc_u0)]
+        if self.cfgr1().read().autoff() {
+            // In AUTOFF mode the ADC wakes automatically when conversion starts,
+            // so waiting for ADRDY here can stall instead of helping.
+            return;
+        }
+
         // Make sure bits are off
-        while T::regs().cr().read().addis() {
+        while self.cr().read().addis() {
             // spin
         }
 
-        if !T::regs().cr().read().aden() {
+        if !self.cr().read().aden() {
             // Enable ADC
-            T::regs().isr().modify(|reg| {
+            self.isr().modify(|reg| {
                 reg.set_adrdy(true);
             });
-            T::regs().cr().modify(|reg| {
+            self.cr().modify(|reg| {
                 reg.set_aden(true);
             });
 
-            while !T::regs().isr().read().adrdy() {
+            while !self.isr().read().adrdy() {
                 // spin
             }
         }
     }
 
-    fn start() {
-        T::regs().cr().modify(|reg| {
+    fn start(&self) {
+        self.isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
+
+        self.cr().modify(|reg| {
             reg.set_adstart(true);
         });
     }
 
-    fn stop() {
+    fn stop(&self) {
         // Ensure conversions are finished.
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
+        if self.cr().read().adstart() && !self.cr().read().addis() {
+            self.cr().modify(|reg| {
                 reg.set_adstp(true);
             });
-            while T::regs().cr().read().adstart() {}
+            while self.cr().read().adstart() {}
         }
+    }
 
-        // Reset configuration.
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        T::regs().cfgr().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_dmaen(false);
-        });
-        #[cfg(any(adc_g0, adc_u0))]
-        T::regs().cfgr1().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_dmaen(false);
-        });
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
     }
 
     /// Perform a single conversion.
-    fn convert() -> u16 {
-        // Some models are affected by an erratum:
-        // If we perform conversions slower than 1 kHz, the first read ADC value can be
-        // corrupted, so we discard it and measure again.
-        //
-        // STM32L471xx: Section 2.7.3
-        // STM32G4: Section 2.7.3
-        #[cfg(any(rcc_l4, rcc_g4))]
-        let len = 2;
-
-        #[cfg(not(any(rcc_l4, rcc_g4)))]
-        let len = 1;
-
-        for _ in 0..len {
-            T::regs().isr().modify(|reg| {
-                reg.set_eos(true);
-                reg.set_eoc(true);
-            });
-
-            // Start conversion
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
-
-            while !T::regs().isr().read().eos() {
-                // spin
-            }
-        }
-
-        T::regs().dr().read().0 as u16
+    fn wait_done(&self) -> bool {
+        self.isr().read().eos()
     }
 
-    fn configure_dma(conversion_mode: ConversionMode) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Set continuous mode with oneshot dma.
         // Clear overrun flag before starting transfer.
-        T::regs().isr().modify(|reg| {
+        self.isr().modify(|reg| {
             reg.set_ovr(true);
         });
 
         #[cfg(not(any(adc_g0, adc_u0)))]
-        let regs = T::regs().cfgr();
+        let regs = self.cfgr();
 
         #[cfg(any(adc_g0, adc_u0))]
-        let regs = T::regs().cfgr1();
+        let regs = self.cfgr1();
 
-        regs.modify(|reg| {
-            reg.set_discen(false);
-            reg.set_cont(true);
-            reg.set_dmacfg(match conversion_mode {
-                ConversionMode::Singular => Dmacfg::ONE_SHOT,
-                #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
-                ConversionMode::Repeated(_) => Dmacfg::CIRCULAR,
-            });
-            reg.set_dmaen(true);
+        regs.modify(|w| {
+            w.set_discen(false);
+            w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            #[cfg(not(any(adc_v3, adc_g0, adc_u0, adc_h5)))]
+            w.set_cont(false);
+            #[cfg(any(adc_v3, adc_g0, adc_u0, adc_h5))]
+            w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
+            w.set_dmacfg(Dmacfg::Circular);
+
+            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba, adc_c0, adc_h5))]
+            if let ConversionMode::Repeated(Some((signal, _edge))) = conversion_mode {
+                #[cfg(any(adc_g0, adc_h5))]
+                w.set_exten(_edge);
+                w.set_extsel(signal.into());
+            }
         });
     }
 
-    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        #[cfg(adc_h5)]
-        T::regs().cr().modify(|w| w.set_aden(false));
-
-        // Set sequence length
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        T::regs().sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
-
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, _injected: bool) {
         #[cfg(adc_g0)]
         {
             let mut sample_times = Vec::<SampleTime, SAMPLE_TIMES_CAPACITY>::new();
 
-            T::regs().chselr().write(|chselr| {
-                T::regs().smpr().write(|smpr| {
+            self.chselr().write(|chselr| {
+                self.smpr().write(|smpr| {
                     for ((channel, _), sample_time) in sequence {
                         chselr.set_chsel(channel.into(), true);
                         if let Some(i) = sample_times.iter().position(|&t| t == sample_time) {
@@ -292,103 +312,220 @@ impl<T: Instance> super::SealedAnyInstance for T {
                 })
             });
         }
-        #[cfg(not(adc_g0))]
+
+        #[cfg(adc_u0)]
         {
-            #[cfg(adc_u0)]
             let mut channel_mask = 0;
+            let mut sample_time: Self::SampleTime = SampleTime::Cycles15;
+
+            // Configure channels and ranks
+            for (_i, ((channel, _is_differential), _sample_time)) in sequence.enumerate() {
+                assert!(
+                    sample_time == _sample_time || _i == 0,
+                    "U0 only supports one sample time for the sequence."
+                );
+
+                sample_time = _sample_time;
+                channel_mask |= 1 << channel;
+            }
+
+            self.smpr().modify(|reg| reg.set_smp1(sample_time.into()));
+
+            // On G0 and U0 enabled channels are sampled from 0 to last channel.
+            // It is possible to add up to 8 sequences if CHSELRMOD = 1.
+            // However for supporting more than 8 channels alternative CHSELRMOD = 0 approach is used.
+            self.chselr().modify(|reg| {
+                reg.set_chsel(channel_mask);
+            });
+        }
+
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        {
+            use crate::pac::adc::regs::{Jsqr, Sqr1, Sqr2, Sqr3, Sqr4};
+
+            #[cfg(adc_h5)]
+            {
+                // RM0481
+                // DIFSEL:
+                //   The software is allowed to write these bits only when the ADC is disabled (ADCAL = 0,
+                //   JADSTART = 0, JADSTP = 0, ADSTART = 0, ADSTP = 0, ADDIS = 0 and ADEN = 0).
+                if self.cr().read().aden() {
+                    self.cr().modify(|reg| reg.set_addis(true));
+                    while self.cr().read().aden() {}
+                }
+            }
 
             #[cfg(adc_h5)]
             let mut difsel = 0u32;
 
+            let mut jsqr = Jsqr::default();
+
+            let mut sqr1 = Sqr1::default();
+            let mut sqr2 = Sqr2::default();
+            let mut sqr3 = Sqr3::default();
+            let mut sqr4 = Sqr4::default();
+
+            cfg_if! {
+                if #[cfg(any(adc_h5, adc_h7rs))] {
+                    let mut smpr1 = self.smpr1().read();
+                    let mut smpr2 = self.smpr2().read();
+                } else {
+                    let mut smpr1 = self.smpr(0).read();
+                    let mut smpr2 = self.smpr(1).read();
+                }
+            }
+
+            // Set sequence length
+            if _injected {
+                jsqr.set_jl(sequence.len() as u8 - 1);
+            } else {
+                sqr1.set_l(sequence.len() as u8 - 1);
+            }
+
             // Configure channels and ranks
-            for (_i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
+            for (i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
                 // RM0492, RM0481, etc.
-                // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-                #[cfg(any(adc_h5, adc_h7rs))]
+                // OP0: Option bit 0
+                // For ADC1:
+                //   0: INP0/INN1 GPIO switch control disabled (for both ADC1 and ADC2)
+                //   1: INP0/INN1 GPIO switch control enabled (for both ADC1 and ADC2)
+                //   Note: This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected.
+                // For ADC2:
+                //   0: VDDCORE channel disabled (for both ADC2 and ADC3)
+                //   1: VDDCORE channel enabled (for both ADC2 and ADC3)
+                // For ADC3: (only available on STM32H543/553 devices)
+                //   0: INP0 GPIO switch control disabled
+                //   1: INP0 GPIO switch control enabled
+
+                #[cfg(adc_h5)]
                 if channel == 0 {
-                    T::regs().or().modify(|reg| reg.set_op0(true));
+                    #[cfg(peri_adc2)]
+                    let is_adc2 = self.as_ptr() == crate::pac::ADC2.as_ptr();
+
+                    #[cfg(not(peri_adc2))]
+                    let is_adc2 = false;
+
+                    if is_adc2 {
+                        // when ADC2_INP0 should be enabled, set OP0 to 1 for ADC1
+                        crate::pac::ADC1.or().modify(|reg| reg.set_op0(true));
+                    } else {
+                        // when ADC1_INP0 should be enabled, set OP0 to 1 for ADC1
+                        // when ADC3_INP0 should be enabled, set OP0 to 1 for ADC3
+                        self.or().modify(|reg| reg.set_op0(true));
+                    }
+                }
+                #[cfg(adc_h7rs)]
+                if channel == 0 {
+                    self.or().modify(|reg| reg.set_op0(true));
                 }
 
                 // Configure channel
-                cfg_if! {
-                    if #[cfg(adc_u0)] {
-                        // On G0 and U6 all channels use the same sampling time.
-                        T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
-                    } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                        match channel {
-                            0..=9 => T::regs().smpr1().modify(|w| w.set_smp(channel as usize % 10, sample_time.into())),
-                            _ => T::regs().smpr2().modify(|w| w.set_smp(channel as usize % 10, sample_time.into())),
-                        }
-                    } else {
-                        let sample_time = sample_time.into();
-                        T::regs()
-                            .smpr(channel as usize / 10)
-                            .modify(|reg| reg.set_smp(channel as usize % 10, sample_time));
-                    }
+                match channel {
+                    0..=9 => smpr1.set_smp(channel as usize % 10, sample_time.into()),
+                    _ => smpr2.set_smp(channel as usize % 10, sample_time.into()),
                 }
 
                 #[cfg(stm32h7)]
                 {
                     use crate::pac::adc::vals::Pcsel;
 
-                    T::regs().cfgr2().modify(|w| w.set_lshift(0));
-                    T::regs()
-                        .pcsel()
+                    self.cfgr2().modify(|w| w.set_lshift(0));
+                    self.pcsel()
                         .write(|w| w.set_pcsel(channel.channel() as _, Pcsel::PRESELECTED));
                 }
 
                 // Each channel is sampled according to sequence
-                #[cfg(not(any(adc_g0, adc_u0)))]
-                match _i {
-                    0..=3 => {
-                        T::regs().sqr1().modify(|w| {
-                            w.set_sq(_i, channel);
-                        });
+                if _injected {
+                    jsqr.set_jsq(i, channel);
+                } else {
+                    match i {
+                        0..=3 => {
+                            sqr1.set_sq(i, channel);
+                        }
+                        4..=8 => {
+                            sqr2.set_sq(i - 4, channel);
+                        }
+                        9..=13 => {
+                            sqr3.set_sq(i - 9, channel);
+                        }
+                        14..=15 => {
+                            sqr4.set_sq(i - 14, channel);
+                        }
+                        _ => unreachable!(),
                     }
-                    4..=8 => {
-                        T::regs().sqr2().modify(|w| {
-                            w.set_sq(_i - 4, channel);
-                        });
-                    }
-                    9..=13 => {
-                        T::regs().sqr3().modify(|w| {
-                            w.set_sq(_i - 9, channel);
-                        });
-                    }
-                    14..=15 => {
-                        T::regs().sqr4().modify(|w| {
-                            w.set_sq(_i - 14, channel);
-                        });
-                    }
-                    _ => unreachable!(),
                 }
 
                 #[cfg(adc_h5)]
                 {
                     difsel |= (_is_differential as u32) << channel;
                 }
+            }
 
-                #[cfg(adc_u0)]
-                {
-                    channel_mask |= 1 << channel;
+            if _injected {
+                self.jsqr().write_value(jsqr);
+            } else {
+                self.sqr1().write_value(sqr1);
+                self.sqr2().write_value(sqr2);
+                self.sqr3().write_value(sqr3);
+                self.sqr4().write_value(sqr4);
+            }
+
+            cfg_if! {
+                if #[cfg(any(adc_h5, adc_h7rs))] {
+                    self.smpr1().write_value(smpr1);
+                    self.smpr2().write_value(smpr2);
+                } else {
+                    self.smpr(0).write_value(smpr1);
+                    self.smpr(1).write_value(smpr2);
                 }
             }
 
             #[cfg(adc_h5)]
-            T::regs().difsel().write(|w| w.set_difsel(difsel));
-
-            // On G0 and U0 enabled channels are sampled from 0 to last channel.
-            // It is possible to add up to 8 sequences if CHSELRMOD = 1.
-            // However for supporting more than 8 channels alternative CHSELRMOD = 0 approach is used.
-            #[cfg(adc_u0)]
-            T::regs().chselr().modify(|reg| {
-                reg.set_chsel(channel_mask);
-            });
+            self.difsel().write(|w| w.set_difsel(difsel));
         }
     }
 }
 
-impl<'d, T: Instance> Adc<'d, T> {
+#[cfg(adc_h5)]
+impl crate::adc::InjectedRegs for crate::pac::adc::Adc {
+    fn configure_injected_trigger(&self, trigger: (u8, crate::adc::Exten), interrupt: bool) {
+        self.cfgr().modify(|reg| reg.set_jdiscen(false));
+
+        // Set external trigger for injected conversion sequence
+        self.jsqr().modify(|r| {
+            r.set_jextsel(trigger.0);
+            r.set_jexten(trigger.1);
+        });
+
+        // Enable end of injected sequence interrupt
+        self.ier().modify(|r| r.set_jeosie(interrupt));
+    }
+
+    fn start_injected(&self) {
+        self.cr().modify(|reg| {
+            reg.set_jadstart(true);
+        });
+    }
+
+    fn stop_injected(&self) {
+        if self.cr().read().adstart() && !self.cr().read().addis() {
+            self.cr().modify(|reg| {
+                reg.set_jadstp(true);
+            });
+            // The software must poll JADSTART until the bit is reset before assuming the
+            // ADC is completely stopped
+            while self.cr().read().jadstart() {}
+        }
+    }
+
+    fn read_injected(&self, data: &mut [u16]) {
+        for (i, d) in data.iter_mut().enumerate() {
+            *d = self.jdr(i).read().jdata();
+        }
+    }
+}
+
+impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// Enable the voltage regulator
     fn init_regulator() {
         rcc::enable_and_reset::<T>();
@@ -405,11 +542,18 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_chselrmod(false);
         });
 
-        blocking_delay_us(20);
+        block_for_us(20);
     }
 
     /// Calibrate to remove conversion offset
     fn init_calibrate() {
+        #[cfg(adc_u0)]
+        let auto_off = T::regs().cfgr1().read().autoff();
+        #[cfg(adc_u0)]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_autoff(false);
+        });
+
         T::regs().cr().modify(|reg| {
             reg.set_adcal(true);
         });
@@ -418,7 +562,12 @@ impl<'d, T: Instance> Adc<'d, T> {
             // spin
         }
 
-        blocking_delay_us(1);
+        #[cfg(adc_u0)]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_autoff(auto_off);
+        });
+
+        block_for_us(1);
     }
 
     /// Initialize the ADC leaving any analog clock at reset value.
@@ -430,14 +579,27 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
-        #[cfg(not(adc_g0))]
-        let s = Self::new(adc);
+        #[cfg(any(adc_h5, adc_h7rs))]
+        let s = {
+            Self::init_regulator();
+            // Configure the prescaler before running the calibration
+            if let Some(prescaler) = config.prescaler {
+                T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
+            }
+
+            Self::init_calibrate();
+
+            Self { adc }
+        };
 
         #[cfg(adc_g0)]
         let s = match config.clock {
             Some(clock) => Self::new_with_clock(adc, clock),
             None => Self::new(adc),
         };
+
+        #[cfg(not(any(adc_g0, adc_h5, adc_h7rs)))]
+        let s = Self::new(adc);
 
         #[cfg(any(adc_g0, adc_u0, adc_v3))]
         if let Some(shift) = config.oversampling_shift {
@@ -520,9 +682,9 @@ impl<'d, T: Instance> Adc<'d, T> {
             Clock::Async { div } => T::regs().ccr().modify(|reg| reg.set_presc(div)),
             Clock::Sync { div } => T::regs().cfgr2().modify(|reg| {
                 reg.set_ckmode(match div {
-                    CkModePclk::DIV1 => Ckmode::PCLK,
-                    CkModePclk::DIV2 => Ckmode::PCLK_DIV2,
-                    CkModePclk::DIV4 => Ckmode::PCLK_DIV4,
+                    CkModePclk::DIV1 => Ckmode::Pclk,
+                    CkModePclk::DIV2 => Ckmode::PclkDiv2,
+                    CkModePclk::DIV4 => Ckmode::PclkDiv4,
                 })
             }),
         }
@@ -532,7 +694,21 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self { adc }
     }
 
-    pub fn enable_vrefint(&self) -> VrefInt {
+    #[cfg(adc_u0)]
+    pub fn enable_auto_off(&mut self) {
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_autoff(true);
+        });
+    }
+
+    #[cfg(adc_u0)]
+    pub fn disable_auto_off(&mut self) {
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_autoff(false);
+        });
+    }
+
+    pub fn enable_vrefint(&mut self) -> VrefInt {
         #[cfg(not(any(adc_g0, adc_u0)))]
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
@@ -544,12 +720,12 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // "Table 24. Embedded internal voltage reference" states that it takes a maximum of 12 us
         // to stabilize the internal voltage reference.
-        blocking_delay_us(15);
+        block_for_us(15);
 
         VrefInt {}
     }
 
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&mut self) -> Temperature {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {
@@ -569,7 +745,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature {}
     }
 
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&mut self) -> Vbat {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {
@@ -589,7 +765,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
-    pub fn disable_vbat(&self) {
+    pub fn disable_vbat(&mut self) {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
                 T::regs().ccr().modify(|reg| {

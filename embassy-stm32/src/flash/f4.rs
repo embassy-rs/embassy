@@ -45,7 +45,7 @@ pub(crate) unsafe fn enable_write() {
 
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
-        w.set_psize(pac::flash::vals::Psize::PSIZE32);
+        w.set_psize(pac::flash::vals::Psize::Psize32);
         w.set_eopie(true);
         w.set_errie(true);
     });
@@ -66,7 +66,7 @@ pub(crate) unsafe fn enable_blocking_write() {
 
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
-        w.set_psize(pac::flash::vals::Psize::PSIZE32);
+        w.set_psize(pac::flash::vals::Psize::Psize32);
     });
 }
 
@@ -283,9 +283,9 @@ fn pa12_is_output_pull_low() -> bool {
     use pac::GPIOA;
     use pac::gpio::vals;
     const PIN: usize = 12;
-    GPIOA.moder().read().moder(PIN) == vals::Moder::OUTPUT
-        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PULL_DOWN
-        && GPIOA.odr().read().odr(PIN) == vals::Odr::LOW
+    GPIOA.moder().read().moder(PIN) == vals::Moder::Output
+        && GPIOA.pupdr().read().pupdr(PIN) == vals::Pupdr::PullDown
+        && GPIOA.odr().read().odr(PIN) == vals::Odr::Low
 }
 
 #[cfg(test)]
@@ -302,7 +302,7 @@ mod tests {
 
         if !cfg!(feature = "dual-bank") {
             let assert_sector = |snb: u8, index_in_bank: u8, start: u32, size: u32, address: u32| {
-                let sector = get_sector(address, crate::flash::get_flash_regions());
+                let sector = unwrap!(get_sector(address, crate::flash::get_flash_regions()));
                 assert_eq!(snb, sector.snb());
                 assert_eq!(
                     FlashSector {
@@ -329,7 +329,7 @@ mod tests {
             assert_sector(0x0B, 11, 0x080E_0000, LARGE_SECTOR_SIZE, 0x080F_FFFF);
         } else {
             let assert_sector = |snb: u8, bank: FlashBank, index_in_bank: u8, start: u32, size: u32, address: u32| {
-                let sector = get_sector(address, crate::flash::get_flash_regions());
+                let sector = unwrap!(get_sector(address, crate::flash::get_flash_regions()));
                 assert_eq!(snb, sector.snb());
                 assert_eq!(
                     FlashSector {

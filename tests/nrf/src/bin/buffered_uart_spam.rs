@@ -9,6 +9,7 @@ use core::mem;
 use core::ptr::NonNull;
 
 use defmt::{assert_eq, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::buffered_uarte::{self, BufferedUarteRx};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
@@ -16,14 +17,14 @@ use embassy_nrf::ppi::{Event, Ppi, Task};
 use embassy_nrf::uarte::UarteTx;
 use embassy_nrf::{pac, peripherals, uarte};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut p = embassy_nrf::init(Default::default());
     let mut config = uarte::Config::default();
-    config.parity = uarte::Parity::EXCLUDED;
-    config.baudrate = uarte::Baudrate::BAUD1M;
+    config.parity = uarte::Parity::Excluded;
+    config.baudrate = uarte::Baudrate::Baud1m;
 
     let mut rx_buffer = [0u8; 1024];
 

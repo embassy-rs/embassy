@@ -2,20 +2,21 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32_wpan::TlMbox;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;
     IPCC_C1_TX => TransmitInterruptHandler;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     /*
         How to make this work:
@@ -41,15 +42,17 @@ async fn main(_spawner: Spawner) {
     */
 
     let mut config = embassy_stm32::Config::default();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config).await;
+    let mbox = TlMbox::wait_ready(p.IPCC, Irqs, config)
+        .await
+        .expect("failed to init tl mbox");
 
     loop {
-        let wireless_fw_info = mbox.sys_subsystem.wireless_fw_info();
+        let wireless_fw_info = mbox.sys.wireless_fw_info();
         match wireless_fw_info {
             None => info!("not yet initialized"),
             Some(fw_info) => {

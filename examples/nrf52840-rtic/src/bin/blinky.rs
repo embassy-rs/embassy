@@ -1,7 +1,8 @@
 #![no_std]
 #![no_main]
 
-use {defmt_rtt as _, panic_probe as _};
+use defmt_rtt as _;
+use panic_probe as _;
 
 #[rtic::app(device = embassy_nrf, peripherals = false, dispatchers = [EGU0_SWI0, EGU1_SWI1])]
 mod app {
@@ -31,12 +32,13 @@ mod app {
         let mut led = Output::new(pin, Level::Low, OutputDrive::Standard);
 
         loop {
-            info!("off!");
+            info!("led on!");
             led.set_high();
-            Timer::after_millis(300).await;
-            info!("on!");
+            Timer::after_millis(500).await;
+
+            info!("led off!");
             led.set_low();
-            Timer::after_millis(300).await;
+            Timer::after_millis(500).await;
         }
     }
 }

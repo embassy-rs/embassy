@@ -66,7 +66,7 @@ pub(crate) unsafe fn disable_blocking_write() {}
 
 pub(crate) async unsafe fn write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     // We cannot have the write setup sequence in begin_write as it depends on the address
-    let bank = if start_address < BANK1_REGION.end() {
+    let bank = if start_address >= BANK1_REGION.base() && start_address < BANK1_REGION.end() {
         pac::FLASH.bank(0)
     } else {
         pac::FLASH.bank(1)
@@ -114,7 +114,7 @@ pub(crate) async unsafe fn write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> 
 
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     // We cannot have the write setup sequence in begin_write as it depends on the address
-    let bank = if start_address < BANK1_REGION.end() {
+    let bank = if start_address >= BANK1_REGION.base() && start_address < BANK1_REGION.end() {
         pac::FLASH.bank(0)
     } else {
         pac::FLASH.bank(1)

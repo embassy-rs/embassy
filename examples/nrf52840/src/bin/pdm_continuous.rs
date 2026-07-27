@@ -4,13 +4,14 @@
 use core::cmp::Ordering;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::pdm::{self, Config, Frequency, OperationMode, Pdm, Ratio, SamplerState};
 use embassy_nrf::{bind_interrupts, peripherals};
 use fixed::types::I7F1;
 use microfft::real::rfft_1024;
 use num_integer::Roots;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Demonstrates both continuous sampling and scanning multiple channels driven by a PPI linked timer
 
@@ -23,8 +24,8 @@ async fn main(_p: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let mut config = Config::default();
     // Pins are correct for the onboard microphone on the Feather nRF52840 Sense.
-    config.frequency = Frequency::_1280K; // 16 kHz sample rate
-    config.ratio = Ratio::RATIO80;
+    config.frequency = Frequency::_1280k; // 16 kHz sample rate
+    config.ratio = Ratio::Ratio80;
     config.operation_mode = OperationMode::Mono;
     config.gain_left = I7F1::from_bits(5); // 2.5 dB
     let mut pdm = Pdm::new(p.PDM, Irqs, p.P0_00, p.P0_01, config);

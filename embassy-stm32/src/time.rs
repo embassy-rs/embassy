@@ -4,7 +4,7 @@ use core::fmt::Display;
 use core::ops::{Div, Mul};
 
 /// Hertz
-#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Debug)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Debug, Default)]
 pub struct Hertz(pub u32);
 
 impl Display for Hertz {
@@ -34,6 +34,25 @@ impl Hertz {
     /// Create a `Hertz` from the given megahertz.
     pub const fn mhz(megahertz: u32) -> Self {
         Self(megahertz * 1_000_000)
+    }
+}
+
+pub(crate) trait Prescaler {
+    fn num(&self) -> u32;
+    fn denom(&self) -> u32;
+}
+
+impl<T: Prescaler> Div<T> for Hertz {
+    type Output = Hertz;
+    fn div(self, rhs: T) -> Self::Output {
+        self * rhs.denom() / rhs.num()
+    }
+}
+
+impl<T: Prescaler> Mul<T> for Hertz {
+    type Output = Hertz;
+    fn mul(self, rhs: T) -> Self::Output {
+        self * rhs.num() / rhs.denom()
     }
 }
 
