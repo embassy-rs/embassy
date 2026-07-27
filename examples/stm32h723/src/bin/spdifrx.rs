@@ -164,7 +164,7 @@ fn new_sai_transmitter<'d>(
     fs: Peri<'d, peripherals::PD12>,
     dma: Peri<'d, peripherals::BDMA_CH0>,
     buf: &'d mut [u32],
-) -> Sai<'d, peripherals::SAI4, u32> {
+) -> Sai<'d, u32> {
     let mut sai_config = hal::sai::Config::default();
     sai_config.slot_count = hal::sai::word::U4(CHANNEL_COUNT as u8);
     sai_config.slot_enable = 0xFFFF; // All slots
