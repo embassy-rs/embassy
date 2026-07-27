@@ -5,6 +5,7 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::PIO0;
@@ -12,8 +13,8 @@ use embassy_rp::pio::program::pio_asm;
 use embassy_rp::{Peri, bind_interrupts, pio};
 use embassy_time::Timer;
 use fixed::traits::ToFixed;
+use panic_probe as _;
 use pio::{Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftDirection, StateMachine};
-use {defmt_rtt as _, panic_probe as _};
 
 // Program metadata for `picotool info`
 #[unsafe(link_section = ".bi_entries")]

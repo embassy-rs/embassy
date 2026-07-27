@@ -5,13 +5,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::DMA_CH0;
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::{Duration, Ticker};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     ADC_IRQ_FIFO => InterruptHandler;

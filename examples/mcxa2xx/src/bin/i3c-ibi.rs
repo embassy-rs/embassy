@@ -1,8 +1,10 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
+use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::PoweredClock;
 use embassy_mcxa::clocks::config::{
@@ -12,7 +14,7 @@ use embassy_mcxa::clocks::periph_helpers::{Div4, I3cClockSel};
 use embassy_mcxa::gpio::{self, Input, Pull};
 use embassy_mcxa::i3c::controller::{self, BusType, I3c, IbiSlot, Operation, Payload};
 use embassy_mcxa::peripherals::{GPIO1, I3C0};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     struct Irqs {

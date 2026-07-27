@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use dsp_fixedpoint::Q32;
 use embassy_executor::Spawner;
 use embassy_stm32::cordic::{self};
 use embassy_stm32::{bind_interrupts, dma, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;

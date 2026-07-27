@@ -50,6 +50,7 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
@@ -58,7 +59,7 @@ use embassy_usb::control::{InResponse, OutResponse, Recipient, Request, RequestT
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;
 use embassy_usb::{Builder, Config, Handler};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // This is a randomly generated GUID to allow clients on Windows to find our device
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];

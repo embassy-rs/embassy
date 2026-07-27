@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::{info, panic};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nrf::config::{ClockSpeed, Config as NrfConfig, HfclkSource};
@@ -13,8 +14,8 @@ use embassy_usb::driver::EndpointError;
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;
 use embassy_usb::{Builder, Config, UsbDeviceSpeed};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321}"];
 

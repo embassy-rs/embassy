@@ -4,6 +4,7 @@
 use core::time::Duration;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
@@ -14,6 +15,7 @@ use embassy_stm32_wpan::sub::ble::ControllerAdapter;
 use embassy_stm32_wpan::sub::mm;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, Sender};
+use panic_probe as _;
 use static_cell::StaticCell;
 use stm32wb_hci::host::uart::{Packet, UartHci};
 use stm32wb_hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
@@ -30,7 +32,6 @@ use stm32wb_hci::vendor::command::gatt::{
 use stm32wb_hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
 use stm32wb_hci::vendor::event::{self, AttributeHandle, VendorEvent};
 use stm32wb_hci::{BdAddr, Event};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;

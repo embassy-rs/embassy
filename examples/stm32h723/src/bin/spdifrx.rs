@@ -6,13 +6,15 @@
 #![no_main]
 
 use defmt::{info, trace};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
+use embassy_stm32 as hal;
 use embassy_stm32::spdifrx::{self, Spdifrx};
 use embassy_stm32::{Peri, bind_interrupts, dma, peripherals, sai};
 use grounded::uninit::GroundedArrayCell;
 use hal::sai::*;
-use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     SPDIF_RX => spdifrx::GlobalInterruptHandler<peripherals::SPDIFRX1>;

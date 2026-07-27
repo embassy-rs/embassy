@@ -10,6 +10,7 @@
 #![no_main]
 
 use defmt::{Debug2Format, error, info};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join3;
 use embassy_futures::select::{Either, select};
@@ -19,8 +20,8 @@ use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config};
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler as UsbInterruptHandler};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embedded_io_async::{BufRead, Write};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     UART0_IRQ => BufferedInterruptHandler<UART0>;

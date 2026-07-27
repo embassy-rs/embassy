@@ -23,11 +23,12 @@ use core::mem::MaybeUninit;
 use cortex_m::asm;
 use cortex_m::peripheral::MPU;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, SharedData};
 use embassy_time::Timer;
+use panic_probe as _;
 use shared::{SHARED_LED_STATE, SRAM4_BASE_ADDRESS, SRAM4_REGION_NUMBER, SRAM4_SIZE_LOG2};
-use {defmt_rtt as _, panic_probe as _};
 
 /// Module providing shared memory constructs for intercore communication
 mod shared {

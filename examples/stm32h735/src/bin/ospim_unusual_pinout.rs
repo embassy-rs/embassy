@@ -44,6 +44,7 @@
 /// 2.011047 [INFO ] END (ospim_unusual_pinout src/bin/ospim_unusual_pinout.rs:114)
 /// ```
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode::Blocking;
@@ -52,7 +53,7 @@ use embassy_stm32::ospi::{
     TransferConfig, WrapSize,
 };
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

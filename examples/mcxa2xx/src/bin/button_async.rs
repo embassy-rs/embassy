@@ -1,11 +1,13 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::{bind_interrupts, gpio, peripherals};
 use embassy_time::Timer;
 use hal::gpio::{Input, Pull};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     GPIO1 => gpio::InterruptHandler<peripherals::GPIO1>;

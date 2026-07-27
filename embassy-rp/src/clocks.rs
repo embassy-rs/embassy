@@ -1119,7 +1119,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     CLOCKS.pll_usb.store(pll_usb_freq, Ordering::Relaxed);
 
     let (ref_src, ref_aux, clk_ref_freq) = {
-        use {ClkRefCtrlAuxsrc as Aux, ClkRefCtrlSrc as Src};
+        use ClkRefCtrlAuxsrc as Aux;
+        use ClkRefCtrlSrc as Src;
         let div = config.ref_clk.div as u32;
         assert!(div >= 1 && div <= 4);
         match config.ref_clk.src {
@@ -1164,7 +1165,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     }
 
     let (sys_src, sys_aux, clk_sys_freq) = {
-        use {ClkSysCtrlAuxsrc as Aux, ClkSysCtrlSrc as Src};
+        use ClkSysCtrlAuxsrc as Aux;
+        use ClkSysCtrlSrc as Src;
         let (src, aux, freq) = match config.sys_clk.src {
             SysClkSrc::Ref => (Src::ClkRef, Aux::ClksrcPllSys, clk_ref_freq),
             SysClkSrc::PllSys => (Src::ClksrcClkSysAux, Aux::ClksrcPllSys, pll_sys_freq),

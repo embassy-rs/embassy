@@ -41,12 +41,14 @@
 //! Run: `cargo run --release --bin flexspi-cancel-soak`
 
 use defmt::{info, unwrap, warn};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::{bind_interrupts, peripherals};
 use embassy_time::{Duration, Instant, with_timeout};
 use hal::config::Config;
 use hal::flexspi::{self, Async, ClockConfig as FlexspiClockConfig, Flexspi, NorFlash};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 #[path = "../flexspi_common.rs"]
 mod flexspi_common;

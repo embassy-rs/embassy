@@ -6,12 +6,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::clocks::{ClockConfig, clk_sys_freq, core_voltage};
 use embassy_rp::config::Config;
 use embassy_rp::gpio::{Level, Output};
 use embassy_time::{Duration, Instant, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const COUNT_TO: i64 = 10_000_000;
 

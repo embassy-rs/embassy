@@ -4,12 +4,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Executor;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::multicore::{Stack, spawn_core1};
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 const CORE1_STACK_LENGTH: usize = 4096;
 

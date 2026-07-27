@@ -4,6 +4,7 @@
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net::tcp::client::{TcpClient, TcpClientState};
@@ -14,8 +15,8 @@ use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
 use embassy_time::Timer;
 use embedded_io_async::Write;
 use embedded_nal_async::TcpConnect;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;

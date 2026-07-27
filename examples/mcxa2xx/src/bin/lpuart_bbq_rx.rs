@@ -25,7 +25,9 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::clocks::PoweredClock;
 use embassy_mcxa::clocks::config::{
     CoreSleep, Div8, FircConfig, FircFreqSel, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
@@ -36,8 +38,8 @@ use embassy_mcxa::gpio::{DriveStrength, Input, Level, Output, Pull, SlewRate};
 use embassy_mcxa::lpuart::{BbqConfig, BbqHalfParts, BbqRxMode, LpuartBbqRx};
 use embassy_mcxa::{bind_interrupts, gpio, lpuart, peripherals};
 use embassy_time::{Duration, WithTimeout};
+use panic_probe as _;
 use static_cell::ConstStaticCell;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     LPUART3 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART3>;

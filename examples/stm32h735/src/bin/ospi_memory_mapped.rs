@@ -31,13 +31,14 @@
 //     configure_command), so the caller must.
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::ospi::{
     AddressSize, ChipSelectHighTime, Config, DummyCycles, FIFOThresholdLevel, Instance, MemorySize, MemoryType, Ospi,
     OspiWidth, TransferConfig, WrapSize,
 };
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// OCTOSPI1 memory-mapped window base (silicon-fixed, RM0468 memory map).
 const MEMORY_MAPPED_BASE: u32 = 0x9000_0000;
