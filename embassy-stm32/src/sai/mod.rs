@@ -8,6 +8,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::{AtomicU8, Ordering};
 
+use crate::atomic::AtomicDecrement;
 pub use crate::dma::word;
 use crate::dma::{self, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
@@ -823,11 +824,8 @@ impl<'d, W: word::Word> Drop for Sai<'d, W> {
 }
 
 fn drop_sb(state: &'static State, info: &'static Info) {
-    let ref_count = state.ref_count.load(Ordering::Acquire) - 1;
-    if ref_count == 0 {
+    if state.ref_count.decrement() == 1 {
         info.rcc.disable();
-    } else {
-        state.ref_count.store(ref_count, Ordering::Release);
     }
 }
 
