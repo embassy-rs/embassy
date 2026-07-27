@@ -206,11 +206,9 @@ where
         cfg.shift_in.auto_fill = true;
         //cfg.shift_in.threshold = 32;
         cfg.clock_divider = clock_divider;
+        cfg.set_input_sync_bypass(&[&pin_io]);
 
         sm.set_config(&cfg);
-
-        // Must be applied after set_config establishes GPIOBASE.
-        pin_io.set_input_sync_bypass(true);
 
         sm.set_pin_dirs(Direction::Out, &[&pin_clk, &pin_io]);
         sm.set_pins(Level::Low, &[&pin_clk, &pin_io]);
