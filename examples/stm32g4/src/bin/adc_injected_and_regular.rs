@@ -116,6 +116,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
         injected_sequence,
         InjectedAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
+        true,
     );
 
     // Store ADC globally to allow access from ADC interrupt

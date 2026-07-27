@@ -8,8 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 
 ## Unreleased - ReleaseDate
+- Fix i2c_slave respond_to_read for buffers larger than one chunk
 
 - DMA: clear channel `EN` bit before `chan_abort` on RP2350, per errata RP2350-E5 (see pico-sdk `dma_channel_abort` docs). Prevents the aborted channel from re-triggering.
+- breaking: Remove `<T: Instance>` from `Spi`, `I2c` and `I2cSlave` ([#4900](https://github.com/embassy-rs/embassy/pull/4900))
 
 ## 0.10.0 - 2026-03-10
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes
