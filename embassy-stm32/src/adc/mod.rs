@@ -683,7 +683,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
             T::Interrupt::enable();
         }
 
-        T::regs().stop();
+        T::regs().stop_injected();
         T::regs().configure_sequence(
             sequence
                 .iter()
@@ -739,27 +739,51 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
     where
         T: DefaultInstance,
     {
-        let ret = unsafe {
-            (
-                Self {
-                    adc: self.adc.clone_unchecked(),
-                }
-                .into_ring_buffered(dma, dma_buf, _irq, regular_sequence, regular_trigger),
-                Self {
-                    adc: self.adc.clone_unchecked(),
-                }
-                .setup_injected_conversions(
-                    _irq,
-                    injected_sequence,
-                    injected_trigger,
-                    injected_interrupt,
-                ),
-            )
-        };
+        let sequence_len = regular_sequence.len();
+
+        check_dma_len(sequence_len, Some(dma_buf.len()), false);
+
+        assert!(N != 0, "Read sequence cannot be empty");
+        assert!(
+            N <= NR_INJECTED_RANKS,
+            "Read sequence cannot be more than {} in length",
+            NR_INJECTED_RANKS
+        );
+
+        // Ensure no conversions are ongoing
+        T::regs().stop();
+        T::regs().stop_injected();
+
+        T::regs().configure_sequence(
+            regular_sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
+        );
+        T::regs().configure_sequence(
+            injected_sequence
+                .iter()
+                .map(|(channel, sample_time)| ((channel.channel, channel.is_differential), *sample_time)),
+            true,
+        );
+
+        T::regs().enable();
+        T::regs().configure_dma(ConversionMode::Repeated(regular_trigger.map(|t| (t.trigger, t.edge))));
+        T::regs().configure_injected_trigger((injected_trigger._trigger, injected_trigger._edge), injected_interrupt);
+
+        T::regs().start_injected();
+
+        if injected_interrupt {
+            <T::Interrupt as crate::interrupt::typelevel::Interrupt>::unpend();
+            unsafe {
+                <T::Interrupt as crate::interrupt::typelevel::Interrupt>::enable();
+            }
+        }
 
         core::mem::forget(self);
 
-        ret
+        (
+            RingBufferedAdc::new(dma, _irq, dma_buf, sequence_len),
+            InjectedAdc::new(injected_sequence),
+        )
     }
 }
 
