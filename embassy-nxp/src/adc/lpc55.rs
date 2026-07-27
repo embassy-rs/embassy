@@ -57,6 +57,21 @@ impl<'d> Adc<'d> {
     /// Creation and initialization of ADC
     pub fn new(adc: &'d mut Adc0, config: Config) -> Self {
         defmt::info!("Starting ADC init sequence");
+
+        adc.ctrl().write(|w| w.set_rst(vals::Rst::RST_1));
+        adc.ctrl().write(|w| w.set_rst(vals::Rst::RST_0)); 
+
+        adc.ctrl().modify(|w| {
+            w.set_rstfifo0(vals::Rstfifo0::RSTFIFO0_1);
+            w.set_rstfifo1(vals::Rstfifo1::RSTFIFO1_1)
+        });
+
+        adc.cfg().write(|w| {
+            w.set_pwren(1.into());
+            w.set_refsel(1.into());
+            w.set_tprictrl(0.into())
+        });
+
         // Enable and configure the ADC
         adc.ctrl().modify(|w| {
             w.set_adcen(vals::Adcen::ADCEN_1)
@@ -103,6 +118,30 @@ impl<'d> Adc<'d> {
         adc.ctrl().modify(|w| {
             w.set_cal_avgs(bit_value)
         });
+        
+        adc.ofstrim().write(|w| {
+            w.set_ofstrim_a(10);
+            w.set_ofstrim_b(10)
+        });
+
+        adc.pause().write(|w| {
+            w.set_pauseen(0.into())
+        });
+
+        adc.fctrl(0).write(|w| {
+            w.set_fwmark(0)
+        });
+        adc.fctrl(0).write(|w| {
+            w.set_fwmark(0)
+        });
+        
+        adc.ctrl().modify(|w| {
+            w.set_calofs(vals::Calofs::CALOFS_1)
+        });
+
+        while adc.stat().read().cal_rdy().to_bits() == 0 {
+            // wait for offset calibration
+        }
 
         adc.ctrl().modify(|w| {
             // Auto calibration request

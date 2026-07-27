@@ -48,20 +48,16 @@ async fn main(_spawner: Spawner) {
     syscon.adcclkdiv().modify(|w| w.set_reset(0.into()));
     syscon.adcclkdiv().modify(|w| w.set_halt(0.into()));
 
-    // Set pin to analog mode
-    iocon.pio1(9).modify(|w| {
-        w.set_func(0.into());
-        w.set_mode(0.into());
-        w.set_digimode(0.into());
-        w.set_asw(1.into())
-    });
-
     embassy_time::block_for(Duration::from_micros(100));
 
     let mut raw_adc0 = embassy_nxp::pac::ADC0;
     let mut adc = Adc::new(&mut raw_adc0, Config::default());
 
     embassy_time::block_for(Duration::from_micros(100));
+
+    // Set pin to input
+    let gpio = embassy_nxp::pac::GPIO;
+    gpio.dirclr(0).write(|w| w.set_dirclrp(1 << 16));
 
     loop {
         let reading = adc.blocking_read(&mut p.PIO0_16);
