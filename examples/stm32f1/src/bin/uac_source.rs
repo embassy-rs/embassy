@@ -145,7 +145,11 @@ async fn main(spawner: Spawner) {
     let mut builder = Builder::new(driver, usb_cfg, cfg_descr, bos_descr, &mut [], ctrl_buf);
 
     debug!("Create audio stream, feedback endpoints and handler");
-    let (audio_ep_in, feedback_ep_in, handler) = AudioSource::new(
+    let AudioSource {
+        audio_ep_in,
+        feedback_ep_in,
+        handler,
+    } = AudioSource::new(
         &mut builder,
         &SUPPORTED_SAMPLE_RATES,
         SAMPLE_WIDTH,

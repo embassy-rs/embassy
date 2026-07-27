@@ -24,6 +24,7 @@ DMA:
 - fix: stm32/dma: auto-set `TR1.PAM = Pack` on GPDMA when source and destination widths differ, instead of silently zero-extending one beat per destination beat
 - fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
 - feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
+- feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
@@ -208,6 +209,7 @@ Misc:
 - fix: Avoid generating timer update events when updating the frequency ([#4890](https://github.com/embassy-rs/embassy/pull/4890))
 - chore: cleanup low-power add time
 - fix: Allow setting SAI peripheral `frame_length` to `256`
+- fix: stm32/i2c fix busy waiting on BUSY flag in v2
 - fix: flash erase on dual-bank STM32Gxxx
 - feat: Add support for STM32N657X0
 - feat: timer: Add 32-bit timer support to SimplePwm waveform_up method following waveform pattern ([#4717](https://github.com/embassy-rs/embassy/pull/4717))

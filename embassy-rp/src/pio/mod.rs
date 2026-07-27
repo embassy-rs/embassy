@@ -15,7 +15,7 @@ use crate::dma::{self, Transfer, Word};
 use crate::gpio::{self, AnyPin, Drive, Level, Pull, SealedPin, SlewRate};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::relocate::RelocatedProgram;
-use crate::{RegExt, pac, peripherals};
+use crate::{RegExt, mode, pac, peripherals};
 
 mod instr;
 
@@ -425,7 +425,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
     /// Prepare DMA transfer from RX FIFO.
     pub fn dma_pull<'a, W: Word>(
         &'a mut self,
-        ch: &'a mut dma::Channel<'_>,
+        ch: &'a mut dma::Channel<'_, mode::Async>,
         data: &'a mut [W],
         bswap: bool,
     ) -> Transfer<'a> {
@@ -433,7 +433,11 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
     }
 
     /// Prepare a repeated DMA transfer from RX FIFO.
-    pub fn dma_pull_discard<'a, W: Word>(&'a mut self, ch: &'a mut dma::Channel<'_>, len: usize) -> Transfer<'a> {
+    pub fn dma_pull_discard<'a, W: Word>(
+        &'a mut self,
+        ch: &'a mut dma::Channel<'_, mode::Async>,
+        len: usize,
+    ) -> Transfer<'a> {
         unsafe { ch.read_discard(PIO::PIO.rxf(SM).as_ptr(), len, Self::dreq()) }
     }
 }
@@ -505,7 +509,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
     /// Prepare a DMA transfer to TX FIFO.
     pub fn dma_push<'a, W: Word>(
         &'a mut self,
-        ch: &'a mut dma::Channel<'_>,
+        ch: &'a mut dma::Channel<'_, mode::Async>,
         data: &'a [W],
         bswap: bool,
     ) -> Transfer<'a> {
@@ -513,7 +517,11 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
     }
 
     /// Prepare a repeated DMA transfer to TX FIFO.
-    pub fn dma_push_zeros<'a, W: Word>(&'a mut self, ch: &'a mut dma::Channel<'_>, len: usize) -> Transfer<'a> {
+    pub fn dma_push_zeros<'a, W: Word>(
+        &'a mut self,
+        ch: &'a mut dma::Channel<'_, mode::Async>,
+        len: usize,
+    ) -> Transfer<'a> {
         unsafe { ch.write_zeros(len, PIO::PIO.txf(SM).as_ptr() as *mut W, Self::dreq()) }
     }
 }

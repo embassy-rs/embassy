@@ -239,46 +239,6 @@ struct Inner<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
-    pub(crate) fn build(
-        driver: D,
-        config: Config<'d>,
-        handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
-        config_descriptor: &'d [u8],
-        bos_descriptor: &'d [u8],
-        msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
-        interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
-        control_buf: &'d mut [u8],
-    ) -> UsbDevice<'d, D> {
-        // Start the USB bus.
-        // This prevent further allocation by consuming the driver.
-        let (bus, control) = driver.start(config.max_packet_size_0 as u16);
-        let device_descriptor = descriptor::device_descriptor(&config);
-        let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
-
-        Self {
-            control_buf,
-            control,
-            inner: Inner {
-                bus,
-                config,
-                device_descriptor,
-                device_qualifier_descriptor,
-                config_descriptor,
-                bos_descriptor,
-                msos_descriptor,
-
-                device_state: UsbDeviceState::Unpowered,
-                suspended: false,
-                remote_wakeup_enabled: false,
-                self_powered: false,
-                address: 0,
-                set_address_pending: false,
-                interfaces,
-                handlers,
-            },
-        }
-    }
-
     /// Returns a report of the consumed buffers
     ///
     /// Useful for tuning buffer sizes for actual usage

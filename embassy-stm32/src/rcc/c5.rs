@@ -1,5 +1,5 @@
 use stm32_metapac::FLASH;
-use stm32_metapac::rcc::vals::Hseext;
+use stm32_metapac::rcc::vals::{Adcdacpre, Hseext};
 
 use crate::pac::RCC;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler, Sw as Sysclk};
@@ -44,7 +44,10 @@ pub struct Config {
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
+
     pub apb3_pre: APBPrescaler,
+
+    pub adcdac_pre: Adcdacpre,
 
     /// Per-peripheral kernel clock selection muxes
     pub mux: super::mux::ClockMux,
@@ -61,6 +64,7 @@ impl Config {
             apb1_pre: APBPrescaler::Div1,
             apb2_pre: APBPrescaler::Div1,
             apb3_pre: APBPrescaler::Div1,
+            adcdac_pre: Adcdacpre::Div1,
             mux: super::mux::ClockMux::default(),
         }
     }
@@ -144,6 +148,15 @@ pub(crate) unsafe fn init(config: Config) {
     let apb3 = hclk / config.apb3_pre;
     assert!(max::PCLK.contains(&apb3));
 
+    let adc_dac = match config.mux.adcdacsel {
+        stm32_metapac::rcc::vals::Adcdacsel::Hclk1 => hclk,
+        stm32_metapac::rcc::vals::Adcdacsel::Psi => unimplemented!(),
+        stm32_metapac::rcc::vals::Adcdacsel::Psik => unimplemented!(),
+        stm32_metapac::rcc::vals::Adcdacsel::Hsik => unimplemented!(),
+    };
+    let adc_dac = adc_dac / config.adcdac_pre;
+    assert!(max::ADC_DAC.contains(&adc_dac));
+
     flash_setup(hclk);
 
     //let rtc = config.ls.init();
@@ -160,6 +173,9 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.cfgr().modify(|w| w.set_sw(config.sys));
     while RCC.cfgr().read().sws() != config.sys {}
 
+    RCC.ccipr2().modify(|w| {
+        w.set_adcdacpre(config.adcdac_pre);
+    });
     config.mux.init();
 
     set_clocks!(
@@ -220,4 +236,5 @@ mod max {
     pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
     pub(crate) const PCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
     pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
+    pub(crate) const ADC_DAC: RangeInclusive<Hertz> = Hertz(8)..=Hertz(36_000_000);
 }

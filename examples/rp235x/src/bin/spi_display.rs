@@ -60,7 +60,7 @@ async fn main(_spawner: Spawner) {
     touch_config.phase = spi::Phase::CaptureOnSecondTransition;
     touch_config.polarity = spi::Polarity::IdleHigh;
 
-    let spi: Spi<'_, _, Blocking> = Spi::new_blocking(p.SPI1, clk, mosi, miso, touch_config.clone());
+    let spi: Spi<'_, Blocking> = Spi::new_blocking(p.SPI1, clk, mosi, miso, touch_config.clone());
     let spi_bus: Mutex<NoopRawMutex, _> = Mutex::new(RefCell::new(spi));
 
     let display_spi = SpiDeviceWithConfig::new(&spi_bus, Output::new(display_cs, Level::High), display_config);

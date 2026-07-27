@@ -17,7 +17,9 @@ mod thread {
 
     #[unsafe(export_name = "__pender")]
     fn __pender(_context: *mut ()) {
-        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
+        // Relaxed ordering is sufficient because interrupts are disabled when the executor reads
+        // this variable.
+        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::Relaxed);
     }
 
     /// RISC-V Executor
@@ -59,16 +61,13 @@ mod thread {
             loop {
                 unsafe {
                     self.inner.poll();
-                    // we do not care about race conditions between the load and store operations, interrupts
-                    //will only set this value to true.
+                    // we do not care about race conditions between the load and store operations,
+                    // interrupts will only set this value to true.
                     critical_section::with(|_| {
-                        // if there is work to do, loop back to polling
-                        // TODO can we relax this?
-                        if SIGNAL_WORK_THREAD_MODE.load(Ordering::SeqCst) {
-                            SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);
-                        }
-                        // if not, wait for interrupt
-                        else {
+                        // if there is work to do, loop back to polling. otherwise wait for interrupt
+                        if SIGNAL_WORK_THREAD_MODE.load(Ordering::Relaxed) {
+                            SIGNAL_WORK_THREAD_MODE.store(false, Ordering::Relaxed);
+                        } else {
                             core::arch::asm!("wfi");
                         }
                     });

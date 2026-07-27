@@ -634,7 +634,6 @@ impl<'d, T: Instance> Adc<'d, T> {
 
 #[cfg(any(adc_v2, adc_g4, adc_h5))]
 impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
-    #[cfg(any(adc_v2, adc_g4, adc_h5))]
     /// Configures the ADC for injected conversions.
     ///
     /// Injected conversions are separate from the regular conversion sequence and are typically
@@ -666,6 +665,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, crate::adc::InterruptHandler<T>> + 'a,
         sequence: [(BorrowedAdcChannel<'a, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         trigger: InjectedAdcTrigger<T>,
+        injected_interrupt: bool,
     ) -> InjectedAdc<'a, T::Regs>
     where
         T: DefaultInstance,
@@ -692,7 +692,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         );
 
         T::regs().enable();
-        T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), true);
+        T::regs().configure_injected_trigger((trigger._trigger, trigger._edge), injected_interrupt);
         T::regs().start_injected();
 
         core::mem::forget(self);
@@ -700,7 +700,6 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         InjectedAdc::new(sequence) // InjectedAdc<'a, T, N> now borrows the channels
     }
 
-    #[cfg(any(adc_v2, adc_g4, adc_h5))]
     /// Configures ADC for both regular conversions with a ring-buffered DMA and injected conversions.
     ///
     /// # Parameters
@@ -735,6 +734,7 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
         regular_trigger: Option<RegularAdcTrigger<T>>,
         injected_sequence: [(BorrowedAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime); N],
         injected_trigger: InjectedAdcTrigger<T>,
+        injected_interrupt: bool,
     ) -> (RingBufferedAdc<'a, T::Regs>, InjectedAdc<'b, T::Regs>)
     where
         T: DefaultInstance,
@@ -748,7 +748,12 @@ impl<'d, T: Instance<Regs: InjectedAdcRegs>> Adc<'d, T> {
                 Self {
                     adc: self.adc.clone_unchecked(),
                 }
-                .setup_injected_conversions(_irq, injected_sequence, injected_trigger),
+                .setup_injected_conversions(
+                    _irq,
+                    injected_sequence,
+                    injected_trigger,
+                    injected_interrupt,
+                ),
             )
         };
 

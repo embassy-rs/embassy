@@ -141,6 +141,15 @@ fn main() {
         cfgs.enable("backup_sram")
     }
 
+    // Neural-ART NPU (ATON): not described in stm32-metapac, so the singleton
+    // and cfg are emitted by hand for the chips that have it. The register
+    // map lives in `src/npu/regs.rs`.
+    cfgs.declare("npu");
+    if chip_name.starts_with("stm32n6") {
+        singletons.push("NPU".to_string());
+        cfgs.enable("npu");
+    }
+
     // SDMMC v3 + `time` feature: enables UHS-I 1.8V signalling support.
     // Used in lieu of `cfg(all(sdmmc_v3, feature = "time"))` to keep the
     // SDMMC driver readable.
@@ -165,6 +174,9 @@ fn main() {
     if has_dlybsd && has_sdmmc_v3 && env::var("CARGO_FEATURE_TIME").is_ok() {
         cfgs.enable("sdmmc_dlyb");
     }
+
+    // GPDMA 2D support: enabled when at least one GPDMA channel supports 2D addressing.
+    cfgs.declare("gpdma2d");
 
     // compile a map of peripherals with registers
     let peripheral_map: HashMap<&str, (&Peripheral, &PeripheralRegisters)> = METADATA
@@ -1184,6 +1196,27 @@ fn main() {
         (("dcmi", "HSYNC"), quote!(crate::dcmi::HSyncPin)),
         (("dcmi", "VSYNC"), quote!(crate::dcmi::VSyncPin)),
         (("dcmi", "PIXCLK"), quote!(crate::dcmi::PixClkPin)),
+        (("pssi", "D0"), quote!(crate::pssi::D0Pin)),
+        (("pssi", "D1"), quote!(crate::pssi::D1Pin)),
+        (("pssi", "D2"), quote!(crate::pssi::D2Pin)),
+        (("pssi", "D3"), quote!(crate::pssi::D3Pin)),
+        (("pssi", "D4"), quote!(crate::pssi::D4Pin)),
+        (("pssi", "D5"), quote!(crate::pssi::D5Pin)),
+        (("pssi", "D6"), quote!(crate::pssi::D6Pin)),
+        (("pssi", "D7"), quote!(crate::pssi::D7Pin)),
+        (("pssi", "D8"), quote!(crate::pssi::D8Pin)),
+        (("pssi", "D9"), quote!(crate::pssi::D9Pin)),
+        (("pssi", "D10"), quote!(crate::pssi::D10Pin)),
+        (("pssi", "D11"), quote!(crate::pssi::D11Pin)),
+        (("pssi", "D12"), quote!(crate::pssi::D12Pin)),
+        (("pssi", "D13"), quote!(crate::pssi::D13Pin)),
+        (("pssi", "D14"), quote!(crate::pssi::D14Pin)),
+        (("pssi", "D15"), quote!(crate::pssi::D15Pin)),
+        (("pssi", "PDCK"), quote!(crate::pssi::PdckPin)),
+        (("pssi", "DE"), quote!(crate::pssi::DePin)),
+        (("pssi", "RDY"), quote!(crate::pssi::RdyPin)),
+        (("mdios", "MDC"), quote!(crate::mdios::MdcPin)),
+        (("mdios", "MDIO"), quote!(crate::mdios::MdioPin)),
         (("dsihost", "TE"), quote!(crate::dsihost::TePin)),
         (("ltdc", "CLK"), quote!(crate::ltdc::ClkPin)),
         (("ltdc", "HSYNC"), quote!(crate::ltdc::HsyncPin)),
@@ -1865,8 +1898,8 @@ fn main() {
                     }
                 }
 
-                // MDIO and MDC are special
-                if pin.signal == "MDIO" || pin.signal == "MDC" {
+                // MDIO and MDC are special for ETH
+                if (pin.signal == "MDIO" || pin.signal == "MDC") && p.name.starts_with("ETH") {
                     peri = format_ident!("{}", "ETH_SMA");
                 }
 
@@ -2112,6 +2145,7 @@ fn main() {
         (("i2c", "TX"), quote!(crate::i2c::TxDma)),
         (("dcmi", "DCMI"), quote!(crate::dcmi::FrameDma)),
         (("dcmi", "PSSI"), quote!(crate::dcmi::FrameDma)),
+        (("pssi", "PSSI"), quote!(crate::pssi::Dma)),
         // SDMMCv1 uses the same channel for both directions, so just implement for RX
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
@@ -2592,6 +2626,8 @@ fn main() {
         }
     }
 
+    let mut has_gpdma_2d = false;
+
     for ch in METADATA.dma_channels.iter() {
         let (dma_peri, _) = peripheral_map.get(ch.dma).unwrap();
         let stop_mode = dma_peri
@@ -2621,9 +2657,17 @@ fn main() {
 
         g.extend(quote!(dma_channel_impl!(#name, #irq_type);));
 
+        if ch.supports_2d.unwrap_or(false) {
+            g.extend(quote!(dma_channel_2d_impl!(#name);));
+        }
+
         let dma = format_ident!("{}", ch.dma);
         let ch_num = ch.channel as usize;
         let bi = dma_peri.registers.as_ref().unwrap();
+
+        if ch.supports_2d.unwrap_or(false) && bi.kind == "gpdma" {
+            has_gpdma_2d = true;
+        }
 
         let dma_info = match bi.kind {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
@@ -2652,11 +2696,20 @@ fn main() {
             quote!()
         };
 
+        let supports_2d_field = match bi.kind {
+            "gpdma" | "lpdma" => {
+                let supports_2d = ch.supports_2d.unwrap_or(false);
+                quote!(#[cfg(gpdma2d)] supports_2d: #supports_2d,)
+            }
+            _ => quote!(),
+        };
+
         #[cfg(not(feature = "_dual-core"))]
         dmas.extend(quote! {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
                 num: #ch_num,
+                #supports_2d_field
                 #[cfg(feature = "low-power")]
                 stop_mode: crate::rcc::StopMode::#stop_mode,
                 #dmamux
@@ -2667,12 +2720,17 @@ fn main() {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
                 num: #ch_num,
+                #supports_2d_field
                 irq: #irq_pac,
                 #[cfg(feature = "low-power")]
                 stop_mode: crate::rcc::StopMode::#stop_mode,
                 #dmamux
             },
         });
+    }
+
+    if has_gpdma_2d {
+        cfgs.enable("gpdma2d");
     }
 
     g.extend(quote! {

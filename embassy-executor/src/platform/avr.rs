@@ -1,5 +1,5 @@
 #[cfg(feature = "executor-interrupt")]
-compile_error!("`executor-interrupt` is not supported with `arch-avr`.");
+compile_error!("`executor-interrupt` is not supported with `platform-avr`.");
 
 #[cfg(feature = "executor-thread")]
 pub use thread::*;

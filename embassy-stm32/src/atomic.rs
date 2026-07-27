@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use crate::pac::common::{Read, Reg, Write};
 
@@ -99,5 +99,27 @@ impl AtomicClear for AtomicBool {
         } else {
             false
         }
+    }
+}
+
+#[allow(dead_code)]
+pub trait AtomicDecrement {
+    fn decrement(&self) -> u8;
+}
+
+impl AtomicDecrement for AtomicU8 {
+    #[cfg(not(target_has_atomic = "8"))]
+    fn decrement(&self) -> u8 {
+        critical_section::with(|_| {
+            let refcount = self.load(Ordering::Relaxed);
+            assert!(refcount >= 1);
+            self.store(refcount - 1, Ordering::Relaxed);
+            refcount
+        })
+    }
+
+    #[cfg(target_has_atomic = "8")]
+    fn decrement(&self) -> u8 {
+        self.fetch_sub(1, Ordering::Acquire)
     }
 }

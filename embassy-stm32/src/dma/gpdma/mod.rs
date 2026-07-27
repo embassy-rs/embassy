@@ -6,7 +6,7 @@ use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence, fence};
 use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::AtomicWaker;
-use linked_list::Table;
+use linked_list::{LinkedListItem, Table};
 #[cfg(not(lpdma))]
 use pac::gpdma::{Channel as BaseChannel, Gpdma as BaseRegs, vals};
 #[cfg(lpdma)]
@@ -21,6 +21,8 @@ use crate::rcc::WakeGuard;
 
 pub mod linked_list;
 pub mod ringbuffered;
+#[cfg(gpdma2d)]
+pub mod two_d;
 
 pub use vals::Pam as Packing;
 
@@ -58,6 +60,8 @@ impl DmaInfo {
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
     pub(crate) num: usize,
+    #[cfg(gpdma2d)]
+    pub(crate) supports_2d: bool,
     #[cfg(feature = "_dual-core")]
     pub(crate) irq: pac::Interrupt,
     #[cfg(feature = "low-power")]
@@ -389,9 +393,9 @@ pub struct TransferOptions {
     pub request_mode: RequestMode,
     /// Transfer complete event mode. Default `EachBlock`.
     ///
-    /// For linked-list transfers, set this on each `LinearItem` via
-    /// [`LinearItem::set_transfer_complete_mode`](linked_list::LinearItem::set_transfer_complete_mode)
-    /// since the channel TR2 is overwritten by the first LLI when `UT2` is set.
+    /// For linked-list transfers, this is configured per-item via the item's
+    /// config (e.g. [`LinearItemConfig`](linked_list::LinearItemConfig)) since
+    /// the channel TR2 register is overwritten by each LLI when `UT2` is set.
     pub transfer_complete_mode: TransferCompleteMode,
     /// Optional trigger-gated transfer configuration.
     pub trigger: Option<TriggerConfig>,
@@ -746,8 +750,20 @@ impl<'d> Channel<'d> {
         state.lli_state.transfer_count.store(0, Ordering::Relaxed)
     }
 
-    /// Configure a linked-list transfer.
-    unsafe fn configure_linked_list<const N: usize>(&self, table: &Table<N>, options: TransferOptions) {
+    /// Internal helper: configure the channel for a linked-list transfer.
+    ///
+    /// Accepts the raw table-derived values so that both `Table` and
+    /// `TwoDTable` can share the same channel setup logic.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn configure_linked_list_raw(
+        &self,
+        base_address: u16,
+        first_offset: u16,
+        item_count: usize,
+        total_transfer_count: usize,
+        options: TransferOptions,
+        is_2d: bool,
+    ) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
 
@@ -765,22 +781,28 @@ impl<'d> Channel<'d> {
             w.set_ulef(true);
             w.set_usef(true);
         });
-        ch.lbar().write(|reg| reg.set_lba(table.base_address()));
+        ch.lbar().write(|reg| reg.set_lba(base_address));
 
         // Empty LLI0.
         ch.br1().write(|w| w.set_bndt(0));
 
-        // Enable all linked-list field updates.
+        // Enable linked-list field updates. For 2D items the DMA must also
+        // load TR3 and BR2, so UT3/UB2 must be set in the initial LLR to
+        // match the 8-word TwoDItem layout (vs the 6-word LinearItem layout).
         ch.llr().write(|w| {
             w.set_ut1(true);
             w.set_ut2(true);
             w.set_ub1(true);
             w.set_usa(true);
             w.set_uda(true);
+            if is_2d {
+                w.set_ut3(true);
+                w.set_ub2(true);
+            }
             w.set_ull(true);
 
             // Lower two bits are ignored: 32 bit aligned.
-            w.set_la(table.offset_address(0) >> 2);
+            w.set_la(first_offset >> 2);
         });
 
         ch.tr3().write(|_| {}); // no address offsets.
@@ -796,12 +818,12 @@ impl<'d> Channel<'d> {
         });
 
         let state = &STATE[self.channel as usize];
-        state.lli_state.count.store(N, Ordering::Relaxed);
+        state.lli_state.count.store(item_count, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
         state
             .lli_state
             .transfer_count
-            .store(table.transfer_count(), Ordering::Relaxed)
+            .store(total_transfer_count, Ordering::Relaxed)
     }
 
     fn start(&self) {
@@ -998,12 +1020,31 @@ impl<'d> Channel<'d> {
     }
 
     /// Create a linked-list DMA transfer.
-    pub unsafe fn linked_list<'a, const N: usize>(
+    ///
+    /// Works with both linear (`Table<LinearItem, N>`) and 2D
+    /// (`Table<TwoDItem, N>`) tables. When a 2D table is used, the channel
+    /// must support 2D addressing or this will panic.
+    pub unsafe fn linked_list<'a, T: LinkedListItem, const N: usize>(
         &'a mut self,
-        table: &'a Table<N>,
+        table: &'a Table<T, N>,
         options: TransferOptions,
     ) -> LinkedListTransfer<'a> {
-        self.configure_linked_list(table, options);
+        #[cfg(gpdma2d)]
+        if T::IS_2D {
+            assert!(
+                self.info().supports_2d,
+                "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+            );
+        }
+
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            T::IS_2D,
+        );
         self.start();
 
         LinkedListTransfer {
@@ -1019,13 +1060,35 @@ impl<'d> Channel<'d> {
     /// intended for use cases that need to restart the same linked-list
     /// chain from the beginning.
     ///
+    /// Works with both linear and 2D tables. When a 2D table is used, the
+    /// channel must support 2D addressing or this will panic.
+    ///
     /// # Safety
     ///
     /// The caller must ensure that no other code is concurrently accessing
     /// the channel registers, and that the `table` remains valid for the
     /// duration of the transfer.
-    pub unsafe fn restart_linked_list<const N: usize>(&self, table: &Table<N>, options: TransferOptions) {
-        self.configure_linked_list(table, options);
+    pub unsafe fn restart_linked_list<T: LinkedListItem, const N: usize>(
+        &self,
+        table: &Table<T, N>,
+        options: TransferOptions,
+    ) {
+        #[cfg(gpdma2d)]
+        if T::IS_2D {
+            assert!(
+                self.info().supports_2d,
+                "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+            );
+        }
+
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            T::IS_2D,
+        );
         self.start();
     }
 }

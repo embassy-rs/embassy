@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Async, Config, InterruptHandler};
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::DMA_CH0;
-use embassy_rp::{bind_interrupts, dma};
+use embassy_rp::{bind_interrupts, dma, mode};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embassy_time::{Duration, Ticker, Timer};
@@ -32,7 +32,7 @@ static MAX: AtomicU16 = AtomicU16::new(0);
 struct AdcParts {
     adc: Adc<'static, Async>,
     pin: adc::Channel<'static>,
-    dma: dma::Channel<'static>,
+    dma: dma::Channel<'static, mode::Async>,
 }
 
 #[embassy_executor::main]

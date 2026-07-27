@@ -835,6 +835,7 @@ pub(crate) trait SealedPin {
     }
 
     /// Get the pull-up configuration.
+    #[allow(unused)]
     #[inline]
     fn pull(&self) -> Pull {
         critical_section::with(|_| get_pull(self.pin_port()))
