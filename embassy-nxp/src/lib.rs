@@ -4,6 +4,7 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+pub mod casper;
 #[cfg(lpc55)]
 pub mod adc;
 #[cfg(lpc55)]
