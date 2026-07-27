@@ -273,6 +273,17 @@ impl<'d> Can<'d> {
         }
     }
 
+    /// Blocking version of enable. Enables the peripheral and synchronizes with the bus.
+    ///
+    /// This will wait for 11 consecutive recessive bits (bus idle state).
+    /// In loopback or internal modes, this typically completes very quickly.
+    pub fn blocking_enable(&mut self) {
+        while self.info.regs.enable_non_blocking().is_err() {
+            // CAN initialization is usually quick, especially in loopback mode
+            // Simple busy wait is acceptable for this one-time initialization
+        }
+    }
+
     /// Enables or disables the peripheral from automatically wakeup when a SOF is detected on the bus
     /// while the peripheral is in sleep mode
     pub fn set_automatic_wakeup(&mut self, enabled: bool) {
@@ -341,6 +352,18 @@ impl<'d> Can<'d> {
     /// If the TX queue is full, this will wait until there is space, therefore exerting backpressure.
     pub async fn write(&mut self, frame: &Frame) -> TransmitStatus {
         self.split().0.write(frame).await
+    }
+
+    /// Blocking write frame.
+    ///
+    /// If the TX queue is full, this will wait until there is space.
+    pub fn blocking_write(&mut self, frame: &Frame) -> TransmitStatus {
+        loop {
+            match self.try_write(frame) {
+                Ok(status) => return status,
+                Err(TryWriteError::Full) => continue,
+            }
+        }
     }
 
     /// Attempts to transmit a frame without blocking.
@@ -416,6 +439,19 @@ impl<'d> Can<'d> {
         RxMode::read(&self.info).await
     }
 
+    /// Blocking read frame.
+    ///
+    /// If no CAN frame is in the RX buffer, this will wait until there is one.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        loop {
+            match self.try_read() {
+                Ok(envelope) => return Ok(envelope),
+                Err(TryReadError::Empty) => continue,
+                Err(TryReadError::BusError(e)) => return Err(e),
+            }
+        }
+    }
+
     /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
@@ -480,6 +516,11 @@ impl<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_
         self.tx.write(frame).await
     }
 
+    /// Blocking write frame to TX buffer.
+    pub fn blocking_write(&mut self, frame: &Frame) {
+        self.tx.blocking_write(frame)
+    }
+
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedCanSender {
         self.tx.writer()
@@ -488,6 +529,11 @@ impl<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_
     /// Async read frame from RX buffer.
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         self.rx.read().await
+    }
+
+    /// Blocking read frame from RX buffer.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        self.rx.blocking_read()
     }
 
     /// Attempts to read a CAN frame without blocking.
@@ -538,6 +584,18 @@ impl<'d> CanTx<'d> {
             Poll::Pending
         })
         .await
+    }
+
+    /// Blocking write frame.
+    ///
+    /// If the TX queue is full, this will wait until there is space.
+    pub fn blocking_write(&mut self, frame: &Frame) -> TransmitStatus {
+        loop {
+            match self.try_write(frame) {
+                Ok(status) => return status,
+                Err(TryWriteError::Full) => continue,
+            }
+        }
     }
 
     /// Attempts to transmit a frame without blocking.
@@ -690,6 +748,20 @@ impl<'d, const TX_BUF_SIZE: usize> BufferedCanTx<'d, TX_BUF_SIZE> {
         waker(); // Wake for Tx
     }
 
+    /// Blocking write frame to TX buffer.
+    pub fn blocking_write(&mut self, frame: &Frame) {
+        loop {
+            match self.tx_buf.try_send(*frame) {
+                Ok(()) => {
+                    let waker = self.info.tx_waker;
+                    waker();
+                    return;
+                }
+                Err(_) => continue, // Channel full, continue waiting
+            }
+        }
+    }
+
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedCanSender {
         BufferedCanSender {
@@ -714,6 +786,19 @@ impl<'d> CanRx<'d> {
     /// Returns a tuple of the time the message was received and the message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         RxMode::read(&self.info).await
+    }
+
+    /// Blocking read frame.
+    ///
+    /// If no CAN frame is in the RX buffer, this will wait until there is one.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        loop {
+            match self.try_read() {
+                Ok(envelope) => return Ok(envelope),
+                Err(TryReadError::Empty) => continue,
+                Err(TryReadError::BusError(e)) => return Err(e),
+            }
+        }
     }
 
     /// Attempts to read a CAN frame without blocking.
@@ -781,6 +866,17 @@ impl<'d, const RX_BUF_SIZE: usize> BufferedCanRx<'d, RX_BUF_SIZE> {
     /// Async read frame from RX buffer.
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         self.rx_buf.receive().await
+    }
+
+    /// Blocking read frame from RX buffer.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        loop {
+            match self.try_read() {
+                Ok(envelope) => return Ok(envelope),
+                Err(TryReadError::Empty) => continue,
+                Err(TryReadError::BusError(e)) => return Err(e),
+            }
+        }
     }
 
     /// Attempts to read a CAN frame without blocking.
