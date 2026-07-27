@@ -157,7 +157,7 @@ pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
                 &mut errors,
                 &f.sig,
                 "\
-No architecture selected for embassy-executor. Make sure you've enabled one of the `arch-*` features in your Cargo.toml.
+No platform selected for embassy-executor. Make sure you've enabled one of the `platform-*` features in your Cargo.toml.
 
 Alternatively, if you would like to use a custom executor implementation, specify it with the `executor` argument.
 For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Executor\")]",

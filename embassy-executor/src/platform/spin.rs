@@ -1,5 +1,5 @@
 #[cfg(feature = "executor-interrupt")]
-compile_error!("`executor-interrupt` is not supported with `arch-spin`.");
+compile_error!("`executor-interrupt` is not supported with `platform-spin`.");
 
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
