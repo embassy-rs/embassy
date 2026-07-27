@@ -160,10 +160,6 @@ fn generate_cc_gates() -> TokenStream {
     let mut generated = TokenStream::new();
 
     for peripheral in METADATA.peripherals {
-        if peripheral.name.to_ascii_lowercase().starts_with("can") {
-            continue;
-        }
-
         let Some(gate) = peripheral.gate.as_ref() else {
             continue;
         };
