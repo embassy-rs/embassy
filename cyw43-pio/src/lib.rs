@@ -188,7 +188,6 @@ where
         let mut pin_io: embassy_rp::pio::Pin<PIO> = common.make_pio_pin(dio);
         pin_io.set_pull(Pull::None);
         pin_io.set_schmitt(true);
-        pin_io.set_input_sync_bypass(true);
         pin_io.set_drive_strength(Drive::_12mA);
         pin_io.set_slew_rate(SlewRate::Fast);
 
@@ -208,6 +207,7 @@ where
         cfg.shift_in.auto_fill = true;
         //cfg.shift_in.threshold = 32;
         cfg.clock_divider = clock_divider;
+        cfg.set_input_sync_bypass(&[&pin_io]);
 
         sm.set_config(&cfg);
 
