@@ -70,7 +70,7 @@ critical-section = "1.2.0"
 micromath = "2.0.0"
 
 # mspm0-metapac = { version = "" }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d9f54366c65cec47957065f42fe04542b852a8cd" }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-1da5eda11bf1ae69a604ba62df6242884df15d68" }
 rand_core = "0.9"
 # Force no cache padding or the types are too large.
 maitake-sync = { version = "0.3.0", default-features = false, features = ["critical-section", "no-cache-pad"]}
@@ -84,7 +84,7 @@ quote = "1.0.40"
 cfg_aliases = "0.2.1"
 
 # mspm0-metapac = { version = "", default-features = false, features = ["metadata"] }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d9f54366c65cec47957065f42fe04542b852a8cd", default-features = false, features = ["metadata"] }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-1da5eda11bf1ae69a604ba62df6242884df15d68", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -288,6 +288,7 @@ mspm0h3216pt = ["mspm0-metapac/mspm0h3216pt"]
 mspm0l1105dgs20 = ["mspm0-metapac/mspm0l1105dgs20"]
 mspm0l1105dgs28 = ["mspm0-metapac/mspm0l1105dgs28"]
 mspm0l1105rge = ["mspm0-metapac/mspm0l1105rge"]
+mspm0l1105rhb = ["mspm0-metapac/mspm0l1105rhb"]
 mspm0l1105rtr = ["mspm0-metapac/mspm0l1105rtr"]
 mspm0l1105dyy = ["mspm0-metapac/mspm0l1105dyy"]
 mspm0l1106rhb = ["mspm0-metapac/mspm0l1106rhb"]
@@ -318,6 +319,7 @@ mspm0l1304dyy = ["mspm0-metapac/mspm0l1304dyy"]
 mspm0l1305dgs20 = ["mspm0-metapac/mspm0l1305dgs20"]
 mspm0l1305dgs28 = ["mspm0-metapac/mspm0l1305dgs28"]
 mspm0l1305rge = ["mspm0-metapac/mspm0l1305rge"]
+mspm0l1305rhb = ["mspm0-metapac/mspm0l1305rhb"]
 mspm0l1305rtr = ["mspm0-metapac/mspm0l1305rtr"]
 mspm0l1305dyy = ["mspm0-metapac/mspm0l1305dyy"]
 mspm0l1306rhb = ["mspm0-metapac/mspm0l1306rhb"]
