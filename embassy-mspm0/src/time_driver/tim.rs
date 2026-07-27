@@ -178,7 +178,7 @@ impl TimxDriver {
 
         // Enabling the counter with CVAE = ZEROVAL zeroes it, which can latch a zero event. Discard
         // anything latched up to here before arming the interrupt, or that event would be counted as
-        // a wrap that never happened and put the whole timebase a half period off.
+        // a wrap that never happened and put the whole timebase a one period off.
         regs.cpu_int(0).iclr().write(|w| {
             w.set_z(true);
             w.set_ccu0(true);
