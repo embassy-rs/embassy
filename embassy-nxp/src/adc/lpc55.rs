@@ -110,7 +110,8 @@ impl<'d> Adc<'d> {
             w.set_avgs(avgs_bit.into());
             w.set_cmpen(0.into()); // disable compare
             w.set_loop_(0.into()); // no loop
-            w.set_next(0.into()) // no next command
+            w.set_next(0.into()); // no next command
+            w.set_sts(7.into())
         });
 
         // Set up trigger control
@@ -150,10 +151,6 @@ impl<'d> Adc<'d> {
         adc.ctrl().modify(|w| {
             w.set_cal_avgs(bit_value)
         });
-        
-        adc.ctrl().modify(|w| {
-            w.set_calofs(vals::Calofs::CALOFS_1)
-        });
 
         Self { adc, config }
     }
@@ -162,11 +159,11 @@ impl<'d> Adc<'d> {
     /// Reference: https://github.com/lpc55/lpc55-hal/blob/main/examples/adc.rs#L14
     fn calibrate<'a>(adc: &'a mut Adc0) {
         defmt::info!("Starting the calibration...");
+        
         // Offset trimming
-        adc.ofstrim().write(|w| {
-            w.set_ofstrim_a(10);
-            w.set_ofstrim_b(10)
-        });
+        adc.ctrl().modify(|w| w.set_calofs(vals::Calofs::CALOFS_1));
+        while adc.stat().read().cal_rdy().to_bits() == 0 {}
+        defmt::info!("Offset calibration completed");
 
         // Auto calibration request
         adc.ctrl().modify(|w| {
