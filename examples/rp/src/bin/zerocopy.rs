@@ -7,6 +7,7 @@
 use core::sync::atomic::{AtomicU16, Ordering};
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Async, Config, InterruptHandler};
 use embassy_rp::gpio::Pull;
@@ -15,8 +16,8 @@ use embassy_rp::{bind_interrupts, dma, mode};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embassy_time::{Duration, Ticker, Timer};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 type SampleBuffer = [u16; 512];
 

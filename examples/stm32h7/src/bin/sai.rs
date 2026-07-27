@@ -3,13 +3,15 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_stm32 as hal;
 use grounded::uninit::GroundedArrayCell;
 use hal::rcc::*;
 use hal::sai::*;
 use hal::time::Hertz;
 use hal::{bind_interrupts, dma, peripherals};
-use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
+use panic_probe as _;
 
 const BLOCK_LENGTH: usize = 32; // 32 samples
 const HALF_DMA_BUFFER_LENGTH: usize = BLOCK_LENGTH * 2; //  2 channels

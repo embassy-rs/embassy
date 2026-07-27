@@ -6,15 +6,17 @@
 
 teleprobe_meta::target!(b"frdm-mcx-a266");
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::lpuart::{Buffered, Lpuart};
 use embassy_time::{Duration, WithTimeout as _};
 use embedded_io_async::{Read, Write};
 use hal::config::Config;
+use panic_probe as _;
 use static_cell::ConstStaticCell;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const MESSAGE_SIZE: usize = 69;
 const MESSAGE: [u8; MESSAGE_SIZE] = *b"You've found the HIL tests for MCXA! Hope you have a wonderful day :)";

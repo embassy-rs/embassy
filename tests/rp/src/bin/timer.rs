@@ -6,9 +6,10 @@ teleprobe_meta::target!(b"rpi-pico");
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_time::{Instant, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

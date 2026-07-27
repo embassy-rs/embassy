@@ -4,11 +4,12 @@
 use core::mem;
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::qspi::Frequency;
 use embassy_nrf::{bind_interrupts, peripherals, qspi};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Workaround for alignment requirements.
 // Nicer API will probably come in the future.

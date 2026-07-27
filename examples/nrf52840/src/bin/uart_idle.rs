@@ -2,10 +2,11 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::peripherals::UARTE0;
 use embassy_nrf::{bind_interrupts, uarte};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     UARTE0 => uarte::InterruptHandler<UARTE0>;

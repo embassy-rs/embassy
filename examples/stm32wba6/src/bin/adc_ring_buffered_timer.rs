@@ -8,13 +8,14 @@
 #![no_main]
 
 use defmt::{error, info};
+use defmt_rtt as _;
 use embassy_stm32::adc::{Adc, AdcChannel as _, RingBufferedAdc, adc4};
 use embassy_stm32::peripherals::GPDMA1_CH1;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::{Config, bind_interrupts, dma};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL1 => dma::InterruptHandler<GPDMA1_CH1>;

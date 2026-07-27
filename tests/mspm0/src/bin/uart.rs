@@ -8,10 +8,11 @@ teleprobe_meta::target!(b"lp-mspm0g3507");
 teleprobe_meta::target!(b"lp-mspm0g3519");
 
 use defmt::{assert_eq, unwrap, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mspm0::mode::Blocking;
 use embassy_mspm0::uart::{ClockSel, Config, Error, Uart};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 fn read<const N: usize>(uart: &mut Uart<'_, Blocking>) -> Result<[u8; N], Error> {
     let mut buf = [255; N];

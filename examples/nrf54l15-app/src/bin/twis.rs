@@ -4,10 +4,11 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::twis::{self, Command, Twis};
 use embassy_nrf::{bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     SERIAL20 => twis::InterruptHandler<peripherals::SERIAL20>;

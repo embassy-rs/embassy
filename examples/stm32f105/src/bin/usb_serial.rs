@@ -4,6 +4,7 @@
 // Adapted from examples/stm32f4/src/bin/usb_serial.rs for stm32f105
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::time::Hertz;
@@ -12,7 +13,7 @@ use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;

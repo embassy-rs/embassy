@@ -4,6 +4,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::Spawner;
@@ -15,8 +16,8 @@ use embassy_rp::{bind_interrupts, dma};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 type SpiBus = Mutex<NoopRawMutex, Spi<'static, spi::Async>>;
 type I2cBus = Mutex<NoopRawMutex, I2c<'static, i2c::Async>>;

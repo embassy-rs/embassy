@@ -6,6 +6,7 @@
 
 use core::fmt::Write;
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::{DMA_CH3, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
@@ -13,7 +14,7 @@ use embassy_rp::pio_programs::hd44780::{PioHD44780, PioHD44780CommandSequencePro
 use embassy_rp::pwm::{self, Pwm};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::{Instant, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(pub struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;

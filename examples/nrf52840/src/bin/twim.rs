@@ -6,11 +6,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{bind_interrupts, peripherals};
+use panic_probe as _;
 use static_cell::ConstStaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 const ADDRESS: u8 = 0x50;
 

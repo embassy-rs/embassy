@@ -1,12 +1,13 @@
 #![macro_use]
 
 pub use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::Config;
 #[allow(unused)]
 use embassy_stm32::rcc::*;
 #[allow(unused)]
 use embassy_stm32::time::Hertz;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[cfg(feature = "stm32f103c8")]
 teleprobe_meta::target!(b"bluepill-stm32f103c8");
