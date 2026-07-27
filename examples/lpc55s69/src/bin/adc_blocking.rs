@@ -60,6 +60,7 @@ async fn main(_spawner: Spawner) {
     gpio.dirclr(0).write(|w| w.set_dirclrp(1 << 16));
 
     loop {
+        // PIO0_16 is A0 on the dev board
         let reading = adc.blocking_read(&mut p.PIO0_16);
         info!("ADC reading: {}", reading);
         Timer::after_millis(500).await;
