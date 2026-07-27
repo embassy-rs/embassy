@@ -18,12 +18,14 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_mcxa as hal;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::lpuart::{Config, Error, Lpuart};
 use embassy_time::Timer;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 // Total number of bytes to flood through the link.
 const TOTAL: usize = 4096;
