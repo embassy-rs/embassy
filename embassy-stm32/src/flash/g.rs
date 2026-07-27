@@ -7,6 +7,10 @@ use cortex_m::interrupt;
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::flash::regs::Sr;
 
+#[cfg(flash_g4c3)]
+use super::FlashBank;
+#[cfg(flash_g4c3)]
+use super::get_flash_regions;
 use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
@@ -99,6 +103,21 @@ unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
     }
 }
 
+#[cfg(flash_g4c3)]
+fn pnb_for_sector(sector: &FlashSector) -> u8 {
+    let bank1_pages: u8 = get_flash_regions()
+        .iter()
+        .take_while(|region| region.bank == FlashBank::Bank1)
+        .map(|region| region.sectors())
+        .sum();
+
+    if sector.bank == FlashBank::Bank2 {
+        bank1_pages + sector.index_in_bank
+    } else {
+        sector.index_in_bank
+    }
+}
+
 pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
     wait_busy();
     clear_all_err();
@@ -107,11 +126,15 @@ pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Erro
     interrupt::free(|_| {
         pac::FLASH.cr().modify(|w| {
             w.set_per(true);
-            #[cfg(any(flash_g0x0, flash_g0x1, flash_g4c3))]
+            #[cfg(any(flash_g0x0, flash_g0x1))]
             w.set_bker(sector.bank == crate::flash::FlashBank::Bank2);
+            #[cfg(flash_g4c3)]
+            w.set_bker(false);
             #[cfg(flash_g0x0)]
             w.set_pnb(sector.index_in_bank as u16);
-            #[cfg(not(flash_g0x0))]
+            #[cfg(flash_g4c3)]
+            w.set_pnb(pnb_for_sector(sector));
+            #[cfg(all(not(flash_g0x0), not(flash_g4c3)))]
             w.set_pnb(sector.index_in_bank as u8);
             w.set_eopie(true);
             w.set_errie(true);
@@ -140,11 +163,15 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     interrupt::free(|_| {
         pac::FLASH.cr().modify(|w| {
             w.set_per(true);
-            #[cfg(any(flash_g0x0, flash_g0x1, flash_g4c3))]
+            #[cfg(any(flash_g0x0, flash_g0x1))]
             w.set_bker(sector.bank == crate::flash::FlashBank::Bank2);
+            #[cfg(flash_g4c3)]
+            w.set_bker(false);
             #[cfg(flash_g0x0)]
             w.set_pnb(sector.index_in_bank as u16);
-            #[cfg(not(flash_g0x0))]
+            #[cfg(flash_g4c3)]
+            w.set_pnb(pnb_for_sector(sector));
+            #[cfg(all(not(flash_g0x0), not(flash_g4c3)))]
             w.set_pnb(sector.index_in_bank as u8);
             w.set_strt(true);
         });

@@ -5,7 +5,7 @@ use crate::pio::{
     StateMachine,
 };
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
-use crate::{Peri, dma, interrupt};
+use crate::{Peri, dma, interrupt, mode};
 
 /// This struct represents a HD44780 program that takes command words (<wait:24> <command:4> <0:4>)
 pub struct PioHD44780CommandWordProgram<'a, PIO: Instance> {
@@ -99,7 +99,7 @@ impl<'a, PIO: Instance> PioHD44780CommandSequenceProgram<'a, PIO> {
 
 /// Pio backed HD44780 driver
 pub struct PioHD44780<'l, P: Instance, const S: usize> {
-    dma: dma::Channel<'l>,
+    dma: dma::Channel<'l, mode::Async>,
     sm: StateMachine<'l, P, S>,
 
     buf: [u8; 40],

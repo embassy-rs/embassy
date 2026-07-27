@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::hash::*;
 use embassy_stm32::mode::Async;
 use embassy_stm32::{bind_interrupts, dma, hash, peripherals};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha224, Sha256};
 use {defmt_rtt as _, panic_probe as _};
 

@@ -100,7 +100,7 @@ impl<'d> Spi<'d, Async, Slave> {
         let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, info.regs.rx_ptr::<W>(), dma_buf, opts) };
         let sck = unsafe { self._sck.as_ref().map(|x| x.clone_unchecked()) };
         let mosi = unsafe { self._mosi.as_ref().map(|x| x.clone_unchecked()) };
-        let miso = unsafe { self.miso.as_ref().map(|x| x.clone_unchecked()) };
+        let miso = unsafe { self._miso.as_ref().map(|x| x.clone_unchecked()) };
         let nss = unsafe { self.nss.as_ref().unwrap().clone_unchecked() };
 
         // verify at runtime whether given EXTI channel is associated with NSS pin

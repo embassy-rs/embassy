@@ -1043,12 +1043,20 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             #[cfg(feature = "rp2040")]
             vreg.vreg().modify(|w| w.set_vsel(target_vsel));
             #[cfg(feature = "_rp235x")]
-            // For rp235x changes to the voltage regulator are protected by a password, see datasheet section 6.4 Power Management (POWMAN) Registers
-            // The password is "5AFE" (0x5AFE), it must be set in the top 16 bits of the register
-            vreg.vreg().modify(|w| {
-                w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Set the password
-                w.set_vsel(target_vsel);
-            });
+            {
+                // For rp235x changes to the voltage regulator are protected by a password, see datasheet section 6.4 Power Management (POWMAN) Registers
+                // The password is "5AFE" (0x5AFE), it must be set in the top 16 bits of the registers
+                // Unlock the VREG control interface, this cannot be locked after being unlocked
+                vreg.vreg_ctrl().modify(|w| {
+                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Password
+                    w.set_unlock(true);
+                });
+                // Set the regulator to the target voltage
+                vreg.vreg().modify(|w| {
+                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Password
+                    w.set_vsel(target_vsel);
+                });
+            }
 
             // Wait for the voltage to stabilize. Use the provided delay or default based on voltage
             let settling_time_us = config.voltage_stabilization_delay_us.unwrap_or_else(|| {

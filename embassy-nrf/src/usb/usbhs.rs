@@ -23,7 +23,8 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac};
 
 const MAX_EP_COUNT: usize = 16;
-const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 30;
+// USB-HS needs more FIFO space.
+const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 256;
 const FIFO_DEPTH_WORDS: u16 = 3040;
 
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();

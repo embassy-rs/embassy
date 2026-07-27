@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::mode::Async;
-use embassy_stm32::rcc::XspiClkSrc;
+use embassy_stm32::rcc::{SupplyConfig, XspiClkSrc};
 use embassy_stm32::{bind_interrupts, interrupt, usart};
 use embassy_time::{Duration, Timer, with_timeout};
 use {defmt_rtt as _, panic_probe as _};
@@ -67,6 +67,8 @@ async fn main(spawner: Spawner) {
     info!("App starting");
 
     let mut config = embassy_stm32::Config::default();
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    config.rcc.supply_config = SupplyConfig::External;
     config.rcc.mux.xspi2sel = XspiClkSrc::Per;
     config.rcc.vddio3_1v8 = true;
     let p = embassy_stm32::init(config);

@@ -141,7 +141,10 @@ impl<T: Instance<Regs = crate::pac::adc::Adc4>> AnalogWatchdog<T> {
         channel.setup();
 
         T::regs().stop();
-        T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+        T::regs().configure_sequence(
+            [((channel.channel(), channel.is_differential()), sample_time)].into_iter(),
+            false,
+        );
         T::regs().enable();
         T::regs().configure_dma(ConversionMode::NoDma);
 

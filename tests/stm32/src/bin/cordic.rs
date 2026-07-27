@@ -49,13 +49,13 @@ async fn main(_spawner: Spawner) {
         unsafe { core::mem::transmute::<[u8; INPUT_U8_COUNT], [Q32<31>; INPUT_U32_COUNT]>(input_buf_u8) };
 
     // ARG2 for Sin function should be inside [0, 1], set MSB to 0 of a Q1.31 value, will make sure it's no less than 0.
-    input_q1_31[1] &= Q32::new(!(1u32 << 31) as i32);
+    input_q1_31[1] &= Q32::from_bits(!(1u32 << 31) as i32);
 
     //
     // CORDIC calculation
     //
 
-    let mut output_q1_31 = [Q32::<31>::new(0); OUTPUT_LENGTH];
+    let mut output_q1_31 = [Q32::<31>::from_bits(0); OUTPUT_LENGTH];
 
     // setup Cordic driver with 2-arg, 2-result config for the initial call
     let mut cordic = cordic::Cordic::new(

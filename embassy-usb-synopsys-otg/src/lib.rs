@@ -278,6 +278,11 @@ struct EpState {
     // Written once during endpoint allocation (before Driver::start), read-only afterward.
     in_alloc: UnsafeCell<Option<EndpointData>>,
     out_alloc: UnsafeCell<Option<EndpointData>>,
+    /// RAM mirror of DIEPCTL/DOEPCTL.USBAEP. Endpoint futures check this
+    /// instead of the register, which on some chips (e.g. nRF54LM20A) is
+    /// unreadable without VBUS power — such a read hangs the whole chip.
+    in_enabled: AtomicBool,
+    out_enabled: AtomicBool,
 }
 
 // SAFETY: `out_buffer` access is synchronized via `out_size`. `in_alloc`/`out_alloc` are written
@@ -394,6 +399,8 @@ impl<const EP_COUNT: usize> StateStorage<EP_COUNT> {
                     out_size: AtomicU16::new(EP_OUT_BUFFER_EMPTY),
                     in_alloc: UnsafeCell::new(None),
                     out_alloc: UnsafeCell::new(None),
+                    in_enabled: AtomicBool::new(false),
+                    out_enabled: AtomicBool::new(false),
                 }
             }; EP_COUNT],
             bus_waker: AtomicWaker::new(),
@@ -930,6 +937,8 @@ impl<'d> Bus<'d> {
                         }
                     });
                 });
+                // Mirror USBAEP: hardwired on for EP0, cleared by the write above for the rest.
+                st.ep_states[index].in_enabled.store(index == 0, Ordering::Release);
             }
         }
 
@@ -963,6 +972,8 @@ impl<'d> Bus<'d> {
                         });
                     }
                 });
+                // Mirror USBAEP: hardwired on for EP0, cleared by the write above for the rest.
+                st.ep_states[index].out_enabled.store(index == 0, Ordering::Release);
             }
         }
 
@@ -989,10 +1000,14 @@ impl<'d> Bus<'d> {
         }
     }
 
-    /// Deinitialize the device
+    /// Deinitialize the device.
     pub fn deinit_device(&mut self) {
         if self.inited {
             self.inited = false;
+            for ep in self.instance.state.ep_states {
+                ep.in_enabled.store(false, Ordering::Release);
+                ep.out_enabled.store(false, Ordering::Release);
+            }
         }
     }
 }
@@ -1178,6 +1193,9 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     }
                 });
 
+                st.ep_states[ep_addr.index()]
+                    .out_enabled
+                    .store(enabled, Ordering::Release);
                 // Wake `Endpoint::wait_enabled()`
                 st.ep_states[ep_addr.index()].out_waker.wake();
             }
@@ -1214,6 +1232,9 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     }
                 });
 
+                st.ep_states[ep_addr.index()]
+                    .in_enabled
+                    .store(enabled, Ordering::Release);
                 // Wake `Endpoint::wait_enabled()`
                 st.ep_states[ep_addr.index()].in_waker.wake();
             }
@@ -1292,11 +1313,9 @@ impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, In> {
 
     async fn wait_enabled(&mut self) {
         poll_fn(|cx| {
-            let ep_index = self.info.addr.index();
-
             self.state.in_waker.register(cx.waker());
 
-            if self.regs.diepctl(ep_index).read().usbaep() {
+            if self.state.in_enabled.load(Ordering::Acquire) {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -1313,11 +1332,9 @@ impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, Out> {
 
     async fn wait_enabled(&mut self) {
         poll_fn(|cx| {
-            let ep_index = self.info.addr.index();
-
             self.state.out_waker.register(cx.waker());
 
-            if self.regs.doepctl(ep_index).read().usbaep() {
+            if self.state.out_enabled.load(Ordering::Acquire) {
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -1335,9 +1352,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
             let index = self.info.addr.index();
             self.state.out_waker.register(cx.waker());
 
-            let doepctl = self.regs.doepctl(index).read();
-            trace!("read ep={:?}: doepctl {:08x}", self.info.addr, doepctl.0,);
-            if !doepctl.usbaep() {
+            if !self.state.out_enabled.load(Ordering::Acquire) {
                 trace!("read ep={:?} error disabled", self.info.addr);
                 return Poll::Ready(Err(EndpointError::Disabled));
             }
@@ -1379,8 +1394,11 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                         });
                     }
 
-                    // Clear NAK to indicate we are ready to receive more data
+                    // Re-enable and clear NAK to receive more data. Newer DWC2
+                    // cores (e.g. nRF54LM20A) clear EPENA after each transfer
+                    // and NAK everything until it is set again.
                     self.regs.doepctl(index).modify(|w| {
+                        w.set_epena(true);
                         w.set_cnak(true);
                     });
                 });
@@ -1407,16 +1425,18 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
         poll_fn(|cx| {
             self.state.in_waker.register(cx.waker());
 
+            if !self.state.in_enabled.load(Ordering::Acquire) {
+                trace!("write ep={:?} wait for prev: error disabled", self.info.addr);
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
+
             let diepctl = self.regs.diepctl(index).read();
             let dtxfsts = self.regs.dtxfsts(index).read();
             trace!(
                 "write ep={:?}: diepctl {:08x} ftxfsts {:08x}",
                 self.info.addr, diepctl.0, dtxfsts.0
             );
-            if !diepctl.usbaep() {
-                trace!("write ep={:?} wait for prev: error disabled", self.info.addr);
-                Poll::Ready(Err(EndpointError::Disabled))
-            } else if !diepctl.epena() {
+            if !diepctl.epena() {
                 trace!("write ep={:?} wait for prev: ready", self.info.addr);
                 Poll::Ready(Ok(()))
             } else {

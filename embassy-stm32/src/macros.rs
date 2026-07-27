@@ -1,6 +1,5 @@
 #![macro_use]
 
-#[cfg(not(stm32c5))]
 macro_rules! peri_trait {
     (
         $(irqs: [$($irq:ident),*],)?
@@ -24,7 +23,6 @@ macro_rules! peri_trait {
     };
 }
 
-#[cfg(not(stm32c5))]
 macro_rules! peri_trait_impl {
     ($instance:ident, $info:expr) => {
         #[allow(private_interfaces)]
@@ -209,8 +207,7 @@ macro_rules! new_dma_nonopt {
     ($name:ident, $irqs:expr) => {{
         let dma = $name;
         dma.remap();
-        let request = dma.request();
-        crate::dma::ChannelAndRequest::new(dma, $irqs, request)
+        crate::dma::ChannelAndRequest::new(dma.request(), dma, $irqs)
     }};
 }
 
@@ -218,8 +215,7 @@ macro_rules! new_dma {
     ($name:ident, $irqs:expr) => {{
         let dma = $name;
         dma.remap();
-        let request = dma.request();
-        Some(crate::dma::ChannelAndRequest::new(dma, $irqs, request))
+        Some(crate::dma::ChannelAndRequest::new(dma.request(), dma, $irqs))
     }};
 }
 
@@ -294,5 +290,47 @@ macro_rules! if_afio {
     };
     (impl $trait:ident<$a:ty, $b:ty, $c:ty, A>) => {
         impl $trait<$a, $b, $c>
+    };
+}
+
+/// Defines a `u8`-backed enum with `from_bits`/`to_bits`/`From` conversions.
+///
+/// Used to shim PAC `vals` enums on chips whose generated PAC blocks omit
+/// the `vals` module entirely (e.g. N6 lptim/sai).
+#[cfg(any(sai_n6, lptim_n6))]
+macro_rules! u8_enum {
+    ($name:ident { $($variant:ident = $val:expr),* $(,)? }) => {
+        #[repr(u8)]
+        #[derive(Copy, Clone, Debug, Eq, PartialEq)]
+        #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        pub enum $name {
+            $($variant = $val,)*
+        }
+
+        impl $name {
+            #[inline(always)]
+            pub const fn from_bits(val: u8) -> Self {
+                unsafe { core::mem::transmute(val) }
+            }
+
+            #[inline(always)]
+            pub const fn to_bits(self) -> u8 {
+                self as u8
+            }
+        }
+
+        impl From<u8> for $name {
+            #[inline(always)]
+            fn from(val: u8) -> Self {
+                Self::from_bits(val)
+            }
+        }
+
+        impl From<$name> for u8 {
+            #[inline(always)]
+            fn from(val: $name) -> u8 {
+                val.to_bits()
+            }
+        }
     };
 }

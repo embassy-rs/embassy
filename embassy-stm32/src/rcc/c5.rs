@@ -1,5 +1,5 @@
 use stm32_metapac::FLASH;
-use stm32_metapac::rcc::vals::Hseext;
+use stm32_metapac::rcc::vals::{Adcdacpre, Hseext};
 
 use crate::pac::RCC;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Ppre as APBPrescaler, Sw as Sysclk};
@@ -44,7 +44,10 @@ pub struct Config {
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
+
     pub apb3_pre: APBPrescaler,
+
+    pub adcdac_pre: Adcdacpre,
 
     /// Per-peripheral kernel clock selection muxes
     pub mux: super::mux::ClockMux,
@@ -61,6 +64,7 @@ impl Config {
             apb1_pre: APBPrescaler::Div1,
             apb2_pre: APBPrescaler::Div1,
             apb3_pre: APBPrescaler::Div1,
+            adcdac_pre: Adcdacpre::Div1,
             mux: super::mux::ClockMux::default(),
         }
     }
@@ -80,12 +84,7 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_hsidiv3on(true);
     });
 
-    if config.hsi {
-        while !RCC.cr().read().hsirdy() {}
-    }
-    if config.hsi_div3 {
-        while !RCC.cr().read().hsidiv3rdy() {}
-    }
+    while !RCC.cr().read().hsidiv3rdy() {}
 
     // Use the HSI/3 clock as system clock during the actual clock setup
     RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsidiv3));
@@ -95,11 +94,18 @@ pub(crate) unsafe fn init(config: Config) {
     let hsi = config.hsi.then_some(HSI_FREQ);
     let hsi_div3 = config.hsi_div3.then_some(Hertz(HSI_FREQ.0 / 3));
 
-    // Turn off unused clock sources
+    // Turn set the clock sources per the config
     RCC.cr().modify(|w| {
         w.set_hsion(config.hsi);
         w.set_hsidiv3on(config.hsi_div3);
     });
+
+    if config.hsi {
+        while !RCC.cr().read().hsirdy() {}
+    }
+    if config.hsi_div3 {
+        while !RCC.cr().read().hsidiv3rdy() {}
+    }
 
     // Configure HSE
     let hse = match config.hse {
@@ -142,6 +148,15 @@ pub(crate) unsafe fn init(config: Config) {
     let apb3 = hclk / config.apb3_pre;
     assert!(max::PCLK.contains(&apb3));
 
+    let adc_dac = match config.mux.adcdacsel {
+        stm32_metapac::rcc::vals::Adcdacsel::Hclk1 => hclk,
+        stm32_metapac::rcc::vals::Adcdacsel::Psi => unimplemented!(),
+        stm32_metapac::rcc::vals::Adcdacsel::Psik => unimplemented!(),
+        stm32_metapac::rcc::vals::Adcdacsel::Hsik => unimplemented!(),
+    };
+    let adc_dac = adc_dac / config.adcdac_pre;
+    assert!(max::ADC_DAC.contains(&adc_dac));
+
     flash_setup(hclk);
 
     //let rtc = config.ls.init();
@@ -158,11 +173,15 @@ pub(crate) unsafe fn init(config: Config) {
     RCC.cfgr().modify(|w| w.set_sw(config.sys));
     while RCC.cfgr().read().sws() != config.sys {}
 
+    RCC.ccipr2().modify(|w| {
+        w.set_adcdacpre(config.adcdac_pre);
+    });
     config.mux.init();
 
     set_clocks!(
         sys: Some(sys),
         hclk1: Some(hclk),
+        hclk2: Some(hclk),
         pclk1: Some(apb1),
         pclk1_tim: Some(hclk),
         pclk2: Some(apb2),
@@ -181,6 +200,8 @@ pub(crate) unsafe fn init(config: Config) {
         lse: None,
 
         rtc: None,
+
+        audioclk: None,
     );
 }
 
@@ -215,4 +236,5 @@ mod max {
     pub(crate) const SYSCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
     pub(crate) const PCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
     pub(crate) const HCLK: RangeInclusive<Hertz> = Hertz(0)..=Hertz(144_000_000);
+    pub(crate) const ADC_DAC: RangeInclusive<Hertz> = Hertz(8)..=Hertz(36_000_000);
 }

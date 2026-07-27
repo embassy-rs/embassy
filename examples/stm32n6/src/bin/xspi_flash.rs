@@ -23,7 +23,7 @@ use defmt::{error, info, warn};
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode::Blocking;
-use embassy_stm32::rcc::{IcConfig, Icint, Icsel, XspiClkSrc};
+use embassy_stm32::rcc::{IcConfig, Icint, Icsel, SupplyConfig, XspiClkSrc};
 use embassy_stm32::xspi::{
     AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, Instance, MemorySize, MemoryType, TransferConfig,
     WrapSize, Xspi, XspiWidth,
@@ -37,6 +37,8 @@ const MEMORY_PAGE_SIZE: usize = 256;
 async fn main(_spawner: Spawner) {
     // Configure RCC with IC4 for XSPI2 kernel clock
     let mut config = embassy_stm32::Config::default();
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    config.rcc.supply_config = SupplyConfig::External;
     config.rcc.ic4 = Some(IcConfig {
         source: Icsel::Pll2,          // PLL2 in bypass mode = HSI 64 MHz
         divider: Icint::from_bits(0), // DIV1 = no division

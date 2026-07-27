@@ -208,13 +208,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             while info.regs.cr2().read().start() {
                 timeout.check()?;
             }
-
-            // Wait for the bus to be free
-            while info.regs.isr().read().busy() {
-                timeout.check()?;
-            }
         }
-
         // Set START and prepare to send `bytes`. The
         // START bit can be set even if the bus is BUSY or
         // I2C is in slave mode.
@@ -1141,6 +1135,14 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         .await?;
 
         dma_transfer.await;
+
+        if !restart {
+            // Wait for the bus to be free
+            while self.info.regs.isr().read().busy() {
+                timeout.check()?;
+            }
+        }
+
         drop(on_drop);
 
         Ok(())
@@ -1619,7 +1621,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         self.info.regs.oar2().write(|reg| {
             reg.set_oa2en(false);
             reg.set_oa2msk(oa2.mask.into());
-            reg.set_oa2(oa2.addr << 1);
+            reg.set_oa2(oa2.addr);
             reg.set_oa2en(true);
         });
     }

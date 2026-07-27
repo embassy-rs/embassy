@@ -80,7 +80,11 @@ impl Registers {
         let cantime = { self.regs.tscv().read().tsc() };
         let delta = cantime.overflowing_sub(ts_val).0 as u64;
         let ns = ns_per_timer_tick * delta as u64;
-        now_embassy - embassy_time::Duration::from_nanos(ns)
+        // Saturate instead of panicking: shortly after boot `now_embassy` can be
+        // smaller than the peripheral-timer-derived `ns` delta (the FDCAN
+        // timestamp counter and the embassy clock aren't reset in lockstep), which
+        // would otherwise underflow this subtraction on the very first RX frame.
+        now_embassy.saturating_sub(embassy_time::Duration::from_nanos(ns))
     }
 
     #[cfg(not(feature = "time"))]

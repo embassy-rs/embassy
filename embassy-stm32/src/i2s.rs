@@ -2,8 +2,6 @@
 
 #![macro_use]
 
-use core::ptr;
-
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
@@ -239,7 +237,7 @@ pub struct I2S<'d, W: Word> {
     mode: Mode,
     spi: Spi<'d, Async, Master>,
     #[cfg(spi_v2_i2s)]
-    regs_ext: Option<&'static Regs>,
+    regs_ext: Option<Regs>,
     _txsd: Option<Flex<'d>>,
     _rxsd: Option<Flex<'d>>,
     _ws: Option<Flex<'d>>,
@@ -465,7 +463,7 @@ impl<'d, W: Word> I2S<'d, W> {
             w.set_spe(false);
         });
 
-        if !ptr::eq(regs_tx, regs_rx) {
+        if regs_tx != regs_rx {
             regs_rx.cr1().modify(|w| {
                 w.set_spe(false);
             });
@@ -475,20 +473,20 @@ impl<'d, W: Word> I2S<'d, W> {
         if let Some(tx_ring_buffer) = &mut self.tx_ring_buffer {
             tx_ring_buffer.start();
 
-            set_txdmaen(*regs_tx, true);
+            set_txdmaen(regs_tx, true);
         }
         if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
             rx_ring_buffer.start();
             // SPIv3 clears rxfifo on SPE=0
             #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-            flush_rx_fifo(*regs_rx);
+            flush_rx_fifo(regs_rx);
 
-            set_rxdmaen(*regs_rx, true);
+            set_rxdmaen(regs_rx, true);
         }
         regs_tx.cr1().modify(|w| {
             w.set_spe(true);
         });
-        if !ptr::eq(regs_tx, regs_rx) {
+        if regs_tx != regs_rx {
             regs_rx.cr1().modify(|w| {
                 w.set_spe(true);
             });
@@ -500,7 +498,7 @@ impl<'d, W: Word> I2S<'d, W> {
         });
 
         #[cfg(any(spi_v1, spi_v2, spi_v3))]
-        if !ptr::eq(regs_tx, regs_rx) {
+        if regs_tx != regs_rx {
             regs_rx.i2scfgr().modify(|w| {
                 w.set_i2se(true);
             });
@@ -535,7 +533,7 @@ impl<'d, W: Word> I2S<'d, W> {
             if let Some(tx_ring_buffer) = &mut self.tx_ring_buffer {
                 tx_ring_buffer.stop().await;
 
-                set_txdmaen(*regs_tx, false);
+                set_txdmaen(regs_tx, false);
             }
         };
 
@@ -543,7 +541,7 @@ impl<'d, W: Word> I2S<'d, W> {
             if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
                 rx_ring_buffer.stop().await;
 
-                set_rxdmaen(*regs_rx, false);
+                set_rxdmaen(regs_rx, false);
             }
         };
 
@@ -564,7 +562,7 @@ impl<'d, W: Word> I2S<'d, W> {
             w.set_spe(false);
         });
 
-        if !ptr::eq(regs_tx, regs_rx) {
+        if regs_tx != regs_rx {
             regs_rx.cr1().modify(|w| {
                 w.set_spe(false);
             });
@@ -614,32 +612,32 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Write data directly to the raw I2S ringbuffer.
     /// This can be used to fill the buffer before starting the DMA transfer.
-    pub async fn write_immediate(&mut self, data: &[W]) -> Result<(usize, usize), Error> {
+    pub fn write_immediate(&mut self, data: &[W]) -> Result<(usize, usize), Error> {
         match &mut self.tx_ring_buffer {
             Some(ring) => Ok(ring.write_immediate(data)?),
             _ => return Err(Error::NotATransmitter),
         }
     }
 
-    fn regs_tx(&self) -> &'static Regs {
-        &self.spi.info.regs
+    fn regs_tx(&self) -> Regs {
+        self.spi.info.regs
     }
 
-    fn regs_rx(&self) -> &'static Regs {
+    fn regs_rx(&self) -> Regs {
         #[cfg(spi_v2_i2s)]
         {
-            self.regs_ext.unwrap_or(&self.spi.info.regs)
+            self.regs_ext.unwrap_or(self.spi.info.regs)
         }
 
         #[cfg(not(spi_v2_i2s))]
         {
-            &self.spi.info.regs
+            self.spi.info.regs
         }
     }
 
     fn new_inner<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        #[cfg(spi_v2_i2s)] regs_ext: Option<&'static Regs>,
+        #[cfg(spi_v2_i2s)] regs_ext: Option<Regs>,
         txsd: Option<Flex<'d>>,
         rxsd: Option<Flex<'d>>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
@@ -785,7 +783,7 @@ impl<'d, W: Word> I2S<'d, W> {
         let regs_rx = {
             #[cfg(spi_v2_i2s)]
             {
-                regs_ext.unwrap_or(&regs)
+                regs_ext.unwrap_or(regs)
             }
 
             #[cfg(not(spi_v2_i2s))]
@@ -924,15 +922,15 @@ fn reset_incompatible_bitfields<T: Instance>() {
 /// Full-Duplex I2s Instance
 pub trait I2sSExtInstance: spi::Instance {
     /// Ext regs
-    fn regs_ext() -> &'static Regs;
+    fn regs_ext() -> Regs;
 }
 
 #[allow(unused_macros)]
 macro_rules! impl_i2_ext_instance {
     ($spi:ident, $i2s:ident) => {
         impl crate::i2s::I2sSExtInstance for crate::peripherals::$spi {
-            fn regs_ext() -> &'static crate::pac::spi::Spi {
-                &crate::pac::$i2s
+            fn regs_ext() -> crate::pac::spi::Spi {
+                crate::pac::$i2s
             }
         }
     };

@@ -69,8 +69,7 @@ async fn main(_spawner: Spawner) {
     tim8.set_master_mode(MasterMode::ComparePulse);
 
     // DAC1 CH1: triggered by TIM8_TRGO, output on PA4.
-    let mut dac_ch1 = DacChannel::new_triggered(p.DAC1, p.DMA1_CH5, TIM8_TRGO, Irqs, p.PA4);
-    dac_ch1.set_triggering(true);
+    let dac_ch1 = DacChannel::new_triggered(p.DAC1, p.DMA1_CH5, TIM8_TRGO, Irqs, p.PA4);
 
     // Pre-populate the DMA buffer with the sine table before handing it to the ring buffer.
     // No write_immediate needed — DMA reads the pre-filled data from the first trigger.

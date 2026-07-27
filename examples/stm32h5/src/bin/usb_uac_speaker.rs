@@ -319,7 +319,11 @@ async fn main(spawner: Spawner) {
     );
 
     // Create the UAC1 Speaker class components
-    let (stream, feedback, control_monitor) = Speaker::new(
+    let Speaker {
+        stream,
+        feedback,
+        control_monitor,
+    } = Speaker::new(
         &mut builder,
         state,
         USB_MAX_PACKET_SIZE as u16,

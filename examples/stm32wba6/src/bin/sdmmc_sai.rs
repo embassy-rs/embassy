@@ -114,7 +114,7 @@ fn parse_wav_header(buf: &[u8]) -> Option<WavInfo> {
     })
 }
 
-async fn write_samples(sai_tx: &mut Sai<'static, peripherals::SAI1, u16>, samples: &[u16]) {
+async fn write_samples(sai_tx: &mut Sai<'static, u16>, samples: &[u16]) {
     if samples.is_empty() {
         return;
     }
@@ -124,7 +124,7 @@ async fn write_samples(sai_tx: &mut Sai<'static, peripherals::SAI1, u16>, sample
 }
 
 async fn play_pcm<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
-    sai_tx: &mut Sai<'static, peripherals::SAI1, u16>,
+    sai_tx: &mut Sai<'static, u16>,
     volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     file: RawFile,
 ) where
@@ -162,7 +162,7 @@ async fn play_pcm<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX
 }
 
 async fn play_wav<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
-    sai_tx: &mut Sai<'static, peripherals::SAI1, u16>,
+    sai_tx: &mut Sai<'static, u16>,
     volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     file: RawFile,
 ) where

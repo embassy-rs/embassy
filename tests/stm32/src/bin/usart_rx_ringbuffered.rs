@@ -12,7 +12,7 @@ use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{Config, DataBits, Parity, RingBufferedUartRx, StopBits, Uart, UartTx};
 use embassy_time::Timer;
 use rand_chacha::ChaCha8Rng;
-use rand_core::{RngCore, SeedableRng};
+use rand_core::{Rng, SeedableRng};
 
 const DMA_BUF_SIZE: usize = 256;
 

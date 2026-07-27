@@ -1,17 +1,21 @@
 //! Serial Audio Interface (SAI)
 #![macro_use]
 
+mod regs;
+pub(crate) mod vals;
+
 use core::marker::PhantomData;
+use core::mem;
+use core::sync::atomic::{AtomicU8, Ordering};
 
-use embassy_hal_internal::PeripheralType;
-
+use crate::atomic::AtomicDecrement;
 pub use crate::dma::word;
 use crate::dma::{self, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
-pub use crate::pac::sai::vals::Mckdiv as MasterClockDivider;
-use crate::pac::sai::{Sai as Regs, vals};
-use crate::rcc::{self, RccPeripheral};
-use crate::{Peri, interrupt, peripherals};
+use crate::pac::sai::Sai as Regs;
+use crate::rcc::{self, RccInfo, SealedRccPeripheral};
+pub use crate::sai::vals::Mckdiv as MasterClockDivider;
+use crate::{Peri, interrupt};
 
 /// SAI error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -182,7 +186,7 @@ pub enum SyncInput {
     /// Syncs with the other A/B sub-block within the SAI unit
     Internal,
     /// Syncs with a sub-block in the other SAI unit
-    #[cfg(any(sai_v3, sai_v4))]
+    #[cfg(any(sai_v3, sai_v4, sai_n6))]
     External(SyncInputInstance),
 }
 
@@ -191,14 +195,14 @@ impl SyncInput {
         match self {
             SyncInput::None => vals::Syncen::Asynchronous,
             SyncInput::Internal => vals::Syncen::Internal,
-            #[cfg(any(sai_v3, sai_v4))]
+            #[cfg(any(sai_v3, sai_v4, sai_n6))]
             SyncInput::External(_) => vals::Syncen::External,
         }
     }
 }
 
 /// SAI instance to sync from.
-#[cfg(any(sai_v3, sai_v4))]
+#[cfg(any(sai_v3, sai_v4, sai_n6))]
 #[derive(Copy, Clone, PartialEq)]
 #[allow(missing_docs)]
 pub enum SyncInputInstance {
@@ -485,10 +489,10 @@ fn get_ring_buffer<'d, T: Instance, W: word::Word>(
     };
     match tx_rx {
         TxRx::Transmitter => RingBuffer::Writable(unsafe {
-            WritableRingBuffer::new(dma, request, dr(T::REGS, sub_block) as *mut W, dma_buf, opts)
+            WritableRingBuffer::new(dma, request, dr(T::info().regs, sub_block) as *mut W, dma_buf, opts)
         }),
         TxRx::Receiver => RingBuffer::Readable(unsafe {
-            ReadableRingBuffer::new(dma, request, dr(T::REGS, sub_block) as *mut W, dma_buf, opts)
+            ReadableRingBuffer::new(dma, request, dr(T::info().regs, sub_block) as *mut W, dma_buf, opts)
         }),
     }
 }
@@ -502,7 +506,7 @@ fn update_synchronous_config(config: &mut Config) {
         config.sync_input = SyncInput::Internal;
     }
 
-    #[cfg(any(sai_v3, sai_v4))]
+    #[cfg(any(sai_v3, sai_v4, sai_n6))]
     {
         //this must either be Internal or External
         //The asynchronous sub-block on the same SAI needs to enable sync_output
@@ -516,11 +520,28 @@ pub struct SubBlock<'d, T: Instance, S: SubBlockInstance> {
     _marker: PhantomData<S>,
 }
 
+impl<'d, T: Instance, S: SubBlockInstance> SubBlock<'d, T, S> {
+    fn take(self) -> Peri<'d, T> {
+        let peri = unsafe { self.peri.clone_unchecked() };
+
+        mem::forget(self);
+        peri
+    }
+}
+
+impl<'d, T: Instance, S: SubBlockInstance> Drop for SubBlock<'d, T, S> {
+    fn drop(&mut self) {
+        drop_sb(T::state(), T::info());
+    }
+}
+
 /// Split the main SAIx peripheral into the two subblocks.
 ///
 /// You can then create a [`Sai`] driver for each each half.
 pub fn split_subblocks<'d, T: Instance>(peri: Peri<'d, T>) -> (SubBlock<'d, T, A>, SubBlock<'d, T, B>) {
     rcc::enable_and_reset::<T>();
+
+    T::state().ref_count.store(2, Ordering::Release);
 
     (
         SubBlock {
@@ -535,21 +556,22 @@ pub fn split_subblocks<'d, T: Instance>(peri: Peri<'d, T>) -> (SubBlock<'d, T, A
 }
 
 /// SAI sub-block driver.
-pub struct Sai<'d, T: Instance, W: word::Word> {
-    _peri: Peri<'d, T>,
+pub struct Sai<'d, W: word::Word> {
     _sd: Option<Flex<'d>>,
     _fs: Option<Flex<'d>>,
     _sck: Option<Flex<'d>>,
     _mclk: Option<Flex<'d>>,
     ring_buffer: RingBuffer<'d, W>,
     sub_block: WhichSubBlock,
+    info: &'static Info,
+    state: &'static State,
 }
 
-impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
+impl<'d, W: word::Word> Sai<'d, W> {
     /// Create a new SAI driver in asynchronous mode with MCLK.
     ///
     /// You can obtain the [`SubBlock`] with [`split_subblocks`].
-    pub fn new_asynchronous_with_mclk<S: SubBlockInstance, D: Dma<T, S>>(
+    pub fn new_asynchronous_with_mclk<T: Instance, S: SubBlockInstance, D: Dma<T, S>>(
         peri: SubBlock<'d, T, S>,
         sck: Peri<'d, impl SckPin<T, S>>,
         sd: Peri<'d, impl SdPin<T, S>>,
@@ -569,7 +591,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// Create a new SAI driver in asynchronous mode without MCLK.
     ///
     /// You can obtain the [`SubBlock`] with [`split_subblocks`].
-    pub fn new_asynchronous<S: SubBlockInstance, D: Dma<T, S>>(
+    pub fn new_asynchronous<T: Instance, S: SubBlockInstance, D: Dma<T, S>>(
         peri: SubBlock<'d, T, S>,
         sck: Peri<'d, impl SckPin<T, S>>,
         sd: Peri<'d, impl SdPin<T, S>>,
@@ -579,7 +601,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
-        let peri = peri.peri;
+        let peri = peri.take();
 
         let (sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
 
@@ -601,7 +623,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// Create a new SAI driver in synchronous mode.
     ///
     /// You can obtain the [`SubBlock`] with [`split_subblocks`].
-    pub fn new_synchronous<S: SubBlockInstance, D: Dma<T, S>>(
+    pub fn new_synchronous<T: Instance, S: SubBlockInstance, D: Dma<T, S>>(
         peri: SubBlock<'d, T, S>,
         sd: Peri<'d, impl SdPin<T, S>>,
         dma: Peri<'d, D>,
@@ -611,7 +633,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     ) -> Self {
         update_synchronous_config(&mut config);
 
-        let peri = peri.peri;
+        let peri = peri.take();
 
         let (sd_af_type, _ck_af_type) = get_af_types(config.mode, config.tx_rx);
 
@@ -630,8 +652,8 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         )
     }
 
-    fn new_inner(
-        peri: Peri<'d, T>,
+    fn new_inner<T: Instance>(
+        _peri: Peri<'d, T>,
         sub_block: WhichSubBlock,
         sck: Option<Flex<'d>>,
         mclk: Option<Flex<'d>>,
@@ -640,16 +662,16 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         ring_buffer: RingBuffer<'d, W>,
         config: Config,
     ) -> Self {
-        let ch = T::REGS.ch(sub_block as usize);
+        let ch = T::info().regs.ch(sub_block as usize);
 
         ch.cr1().modify(|w| w.set_saien(false));
 
         ch.cr2().modify(|w| w.set_fflush(true));
 
-        #[cfg(any(sai_v3, sai_v4))]
+        #[cfg(any(sai_v3, sai_v4, sai_n6))]
         {
             if let SyncInput::External(i) = config.sync_input {
-                T::REGS.gcr().modify(|w| {
+                T::info().regs.gcr().modify(|w| {
                     w.set_syncin(i as u8);
                 });
             }
@@ -659,53 +681,21 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
                     WhichSubBlock::A => 0b01,
                     WhichSubBlock::B => 0b10,
                 };
-                T::REGS.gcr().modify(|w| {
+                T::info().regs.gcr().modify(|w| {
                     w.set_syncout(syncout);
                 });
             }
         }
 
-        ch.cr1().modify(|w| {
-            w.set_mode(config.mode.mode(if Self::is_transmitter(&ring_buffer) {
-                TxRx::Transmitter
-            } else {
-                TxRx::Receiver
-            }));
-            w.set_prtcfg(config.protocol.prtcfg());
-            w.set_ds(config.data_size.ds());
-            w.set_lsbfirst(config.bit_order.lsbfirst());
-            w.set_ckstr(config.clock_strobe.ckstr());
-            w.set_syncen(config.sync_input.syncen());
-            w.set_mono(config.stereo_mono.mono());
-            w.set_outdriv(config.output_drive.outdriv());
-            w.set_mckdiv(config.master_clock_divider);
-            w.set_nodiv(config.nodiv);
-            w.set_dmaen(true);
-        });
-
-        ch.cr2().modify(|w| {
-            w.set_fth(config.fifo_threshold.fth());
-            w.set_comp(config.companding.comp());
-            w.set_cpl(config.complement_format.cpl());
-            w.set_muteval(config.mute_value.muteval());
-            w.set_mutecnt(config.mute_detection_counter.0 as u8);
-            w.set_tris(config.is_high_impedance_on_inactive_slot);
-        });
-
-        ch.frcr().modify(|w| {
-            w.set_fsoff(config.frame_sync_offset.fsoff());
-            w.set_fspol(config.frame_sync_polarity.fspol());
-            w.set_fsdef(config.frame_sync_definition.fsdef());
-            w.set_fsall(config.frame_sync_active_level_length.0 as u8 - 1);
-            w.set_frl((config.frame_length - 1).try_into().unwrap());
-        });
-
-        ch.slotr().modify(|w| {
-            w.set_nbslot(config.slot_count.0 as u8 - 1);
-            w.set_slotsz(config.slot_size.slotsz());
-            w.set_fboff(config.first_bit_offset.0 as u8);
-            w.set_sloten(vals::Sloten::from_bits(config.slot_enable as u16));
-        });
+        let tx_rx = if Self::is_transmitter(&ring_buffer) {
+            TxRx::Transmitter
+        } else {
+            TxRx::Receiver
+        };
+        regs::configure_cr1(ch, &config, tx_rx);
+        regs::configure_cr2(ch, &config);
+        regs::configure_frcr(ch, &config);
+        regs::configure_slotr(ch, &config);
 
         ch.cr1().modify(|w| w.set_saien(true));
 
@@ -714,13 +704,14 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         }
 
         Self {
-            _peri: peri,
             sub_block,
             _sck: sck,
             _mclk: mclk,
             _sd: sd,
             _fs: fs,
             ring_buffer,
+            info: T::info(),
+            state: T::state(),
         }
     }
 
@@ -744,14 +735,9 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         }
     }
 
-    /// Reset SAI operation.
-    pub fn reset() {
-        rcc::enable_and_reset::<T>();
-    }
-
     /// Enable or disable mute.
     pub fn set_mute(&mut self, value: bool) {
-        let ch = T::REGS.ch(self.sub_block as usize);
+        let ch = self.info.regs.ch(self.sub_block as usize);
         ch.cr2().modify(|w| w.set_mute(value));
     }
 
@@ -761,7 +747,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     pub fn is_muted(&self) -> Result<bool, Error> {
         match &self.ring_buffer {
             RingBuffer::Readable(_) => {
-                let ch = T::REGS.ch(self.sub_block as usize);
+                let ch = self.info.regs.ch(self.sub_block as usize);
                 let mute_state = ch.sr().read().mutedet();
                 ch.clrfr().write(|w| w.set_cmutedet(true));
                 Ok(mute_state)
@@ -827,16 +813,20 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     }
 }
 
-impl<'d, T: Instance, W: word::Word> Drop for Sai<'d, T, W> {
+impl<'d, W: word::Word> Drop for Sai<'d, W> {
     fn drop(&mut self) {
-        let ch = T::REGS.ch(self.sub_block as usize);
+        let ch = self.info.regs.ch(self.sub_block as usize);
         ch.cr1().modify(|w| w.set_saien(false));
         ch.cr2().modify(|w| w.set_fflush(true));
+
+        drop_sb(self.state, self.info);
     }
 }
 
-trait SealedInstance {
-    const REGS: Regs;
+fn drop_sb(state: &'static State, info: &'static Info) {
+    if state.ref_count.decrement() == 1 {
+        info.rcc.disable();
+    }
 }
 
 #[derive(Copy, Clone)]
@@ -867,9 +857,24 @@ impl SealedSubBlock for B {
 }
 impl SubBlockInstance for B {}
 
-/// SAI instance trait.
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {}
+struct State {
+    ref_count: AtomicU8,
+}
+
+impl State {
+    const fn new() -> Self {
+        Self {
+            ref_count: AtomicU8::new(0),
+        }
+    }
+}
+
+struct Info {
+    regs: Regs,
+    rcc: RccInfo,
+}
+
+peri_trait!();
 
 pin_trait!(SckPin, Instance, SubBlockInstance);
 pin_trait!(FsPin, Instance, SubBlockInstance);
@@ -880,10 +885,9 @@ dma_trait!(Dma, Instance, SubBlockInstance);
 
 foreach_peripheral!(
     (sai, $inst:ident) => {
-        impl SealedInstance for peripherals::$inst {
-            const REGS: Regs = crate::pac::$inst;
-        }
-
-        impl Instance for peripherals::$inst {}
+        peri_trait_impl!($inst, Info {
+            regs: crate::pac::$inst,
+            rcc: crate::peripherals::$inst::RCC_INFO,
+        });
     };
 );

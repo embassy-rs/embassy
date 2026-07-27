@@ -20,17 +20,17 @@ async fn main(_spawner: Spawner) {
         defmt::info!("Toggle LEDs");
 
         red.toggle();
-        Timer::after_millis(250).await;
+        Timer::after_millis(500).await;
 
         red.toggle();
         green.toggle();
-        Timer::after_millis(250).await;
+        Timer::after_millis(500).await;
 
         green.toggle();
         blue.toggle();
-        Timer::after_millis(250).await;
+        Timer::after_millis(500).await;
         blue.toggle();
 
-        Timer::after_millis(250).await;
+        Timer::after_millis(500).await;
     }
 }

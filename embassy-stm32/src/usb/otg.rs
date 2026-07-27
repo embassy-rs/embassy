@@ -723,6 +723,21 @@ mod host_impl {
 
             super::super::common_init::<T>();
 
+            // The ULPI clock has to be disabled for an internal PHY.
+            // Left enabled, the OTG_HS core waits on an absent external ULPI PHY
+            // and never enters host mode, so no downstream device is ever detected.
+            #[cfg(stm32h7)]
+            critical_section::with(|_| {
+                let rcc = crate::pac::RCC;
+                if T::HIGH_SPEED {
+                    rcc.ahb1enr().modify(|w| w.set_usb_otg_hs_ulpien(false));
+                    rcc.ahb1lpenr().modify(|w| w.set_usb_otg_hs_ulpilpen(false));
+                } else {
+                    rcc.ahb1enr().modify(|w| w.set_usb_otg_fs_ulpien(false));
+                    rcc.ahb1lpenr().modify(|w| w.set_usb_otg_fs_ulpilpen(false));
+                }
+            });
+
             let instance = OtgHostInstance {
                 regs: T::regs(),
                 state: T::host_state(),

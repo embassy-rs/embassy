@@ -74,6 +74,9 @@ pub(crate) const FRAME_AVAILABLE_MASK: u32 = I_HMB_SW_MASK;
 pub(crate) const SDIO_INT_STATUS: u32 = 0x20;
 pub(crate) const SDIO_INT_HOST_MASK: u32 = 0x24;
 pub(crate) const SDIO_FUNCTION_INT_MASK: u32 = 0x34;
+pub(crate) const SDIO_INT_HOST_MASK_ALL: u8 = 0xFF;
+pub(crate) const SDIO_FUNC_INT_MASK_F1: u8 = 0x02;
+pub(crate) const CCCR_INT_ENABLE_MASTER: u8 = 0x01;
 pub(crate) const SDIO_TO_SB_MAILBOX: u32 = 0x40;
 pub(crate) const SDIO_TO_SB_MAILBOX_DATA: u32 = 0x48;
 pub(crate) const SDIO_TO_HOST_MAILBOX_DATA: u32 = 0x4C;
@@ -161,6 +164,7 @@ pub(crate) const INC_ADDR: bool = true;
 pub(crate) const FIXED_ADDR: bool = false;
 
 pub(crate) const AES_ENABLED: u32 = 0x0004;
+pub(crate) const WPA3_SECURITY: u32 = 0x01000000;
 pub(crate) const WPA2_SECURITY: u32 = 0x00400000;
 
 pub(crate) const MIN_PSK_LEN: usize = 8;
@@ -204,10 +208,6 @@ pub(crate) const BTSDIO_OFFSET_HOST2BT_OUT: u32 = 0x00002004;
 pub(crate) const BTSDIO_OFFSET_BT2HOST_IN: u32 = 0x00002008;
 pub(crate) const BTSDIO_OFFSET_BT2HOST_OUT: u32 = 0x0000200C;
 
-pub(crate) const SDIOD_CCCR_IOEN: u32 = 0x02;
-pub(crate) const SDIOD_CCCR_IORDY: u32 = 0x03;
-pub(crate) const SDIOD_CCCR_INTEN: u32 = 0x04;
-pub(crate) const SDIOD_CCCR_BICTRL: u32 = 0x07;
 pub(crate) const SDIOD_CCCR_BLKSIZE_0: u32 = 0x10;
 pub(crate) const SDIOD_CCCR_SPEED_CONTROL: u32 = 0x13;
 pub(crate) const SDIOD_CCCR_BRCM_CARDCAP: u32 = 0xf0;
@@ -244,6 +244,8 @@ pub(crate) const SFC_RF_TERM: u8 = 1 << 0;
 pub(crate) enum Security {
     OPEN = 0,
     WPA2_AES_PSK = WPA2_SECURITY | AES_ENABLED,
+    WPA3_SAE = WPA3_SECURITY | AES_ENABLED,
+    WPA3_WPA2_PSK = WPA3_SECURITY | WPA2_SECURITY | AES_ENABLED,
 }
 
 crate::util::enum_from_u8! {

@@ -10,7 +10,7 @@ use defmt::{error, info};
 use defmt_rtt as _;
 use embassy_boot_stm32::*;
 use embassy_stm32::pac::{BSEC, RCC, XSPI1, XSPI2, XSPIM};
-use embassy_stm32::rcc::XspiClkSrc;
+use embassy_stm32::rcc::{SupplyConfig, XspiClkSrc};
 use embassy_stm32::xspi::{ChipSelectHighTime, FIFOThresholdLevel, MemorySize, MemoryType, WrapSize, Xspi};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -88,6 +88,8 @@ fn main() -> ! {
     //    Using PER avoids IC4/PLL routing, so the app's reinit() can use the
     //    same config without touching IC divider registers mid-execution.
     let mut config = embassy_stm32::Config::default();
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    config.rcc.supply_config = SupplyConfig::External;
     config.rcc.mux.xspi2sel = XspiClkSrc::Per;
     config.rcc.vddio3_1v8 = true;
     let p = embassy_stm32::init(config);

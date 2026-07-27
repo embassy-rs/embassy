@@ -11,6 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use pac::dma::vals::DataSize;
 
 use crate::interrupt::typelevel::Interrupt;
+use crate::mode::{Async, Blocking, Mode};
 use crate::pac::dma::vals;
 use crate::{RegExt, interrupt, pac, peripherals};
 
@@ -41,17 +42,16 @@ pub(crate) unsafe fn init() {
 }
 
 /// DMA channel driver.
-pub struct Channel<'d> {
+pub struct Channel<'d, M: Mode> {
     number: u8,
-    phantom: PhantomData<&'d ()>,
+    phantom: PhantomData<&'d M>,
 }
 
-impl<'d> Channel<'d> {
-    /// Create a new DMA channel driver.
-    pub fn new<T: ChannelInstance>(
-        _ch: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+impl<'d> Channel<'d, Blocking> {
+    /// Create a new DMA channel driver, in blocking mode.
+    ///
+    /// SAFETY: You are responsible for polling/irq setup.
+    pub unsafe fn new_blocking<T: ChannelInstance>(_ch: Peri<'d, T>) -> Self {
         let number = T::number();
 
         // Enable interrupt for this channel
@@ -63,7 +63,9 @@ impl<'d> Channel<'d> {
             phantom: PhantomData,
         }
     }
+}
 
+impl<'d, M: Mode> Channel<'d, M> {
     /// Get the channel number.
     pub fn number(&self) -> u8 {
         self.number
@@ -87,9 +89,28 @@ impl<'d> Channel<'d> {
     }
 
     /// Reborrow the channel, allowing it to be used in multiple places.
-    pub fn reborrow(&mut self) -> Channel<'_> {
-        Channel {
+    pub fn reborrow(&mut self) -> Channel<'_, M> {
+        Channel::<M> {
             number: self.number,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d> Channel<'d, Async> {
+    /// Create a new DMA channel driver.
+    pub fn new<T: ChannelInstance>(
+        _ch: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
+        let number = T::number();
+
+        // Enable interrupt for this channel
+        pac::DMA.inte(0).write_set(|v| *v = 1 << number);
+        unsafe { T::Interrupt::enable() };
+
+        Self {
+            number,
             phantom: PhantomData,
         }
     }
@@ -254,11 +275,11 @@ impl<'d> Channel<'d> {
 /// DMA transfer driver.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: Channel<'a>,
+    channel: Channel<'a, Async>,
 }
 
 impl<'a> Transfer<'a> {
-    fn new(channel: Channel<'a>) -> Self {
+    fn new(channel: Channel<'a, Async>) -> Self {
         Self { channel }
     }
 }
