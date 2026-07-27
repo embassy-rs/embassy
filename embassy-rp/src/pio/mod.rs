@@ -660,7 +660,7 @@ pub struct Config<'d, PIO: Instance> {
     // PINCTRL
     pins: PinConfig,
     in_count: u8,
-    input_sync_bypass: u64,
+    input_sync_bypass_mask: u64,
     _pio: PhantomData<&'d mut PIO>,
 }
 
@@ -680,7 +680,7 @@ impl<'d, PIO: Instance> Default for Config<'d, PIO> {
             shift_out: Default::default(),
             pins: Default::default(),
             in_count: Default::default(),
-            input_sync_bypass: Default::default(),
+            input_sync_bypass_mask: Default::default(),
             _pio: Default::default(),
         }
     }
@@ -762,7 +762,7 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     /// [`StateMachine::set_config`] once `GPIOBASE` is established.
     pub fn set_input_sync_bypass(&mut self, pins: &[&Pin<'d, PIO>]) {
         for pin in pins {
-            self.input_sync_bypass |= 1u64 << pin.pin();
+            self.input_sync_bypass_mask |= 1u64 << pin.pin();
         }
     }
 }
@@ -835,10 +835,10 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_out_base(config.pins.out_base);
         });
         #[cfg(feature = "rp2040")]
-        if config.input_sync_bypass != 0 {
+        if config.input_sync_bypass_mask != 0 {
             PIO::PIO
                 .input_sync_bypass()
-                .write_set(|w| *w = config.input_sync_bypass as u32);
+                .write_set(|w| *w = config.input_sync_bypass_mask as u32);
         }
 
         #[cfg(feature = "_rp235x")]
@@ -857,7 +857,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                     high_ok &= pin >= 16;
                 }
             }
-            let mut bypass = config.input_sync_bypass;
+            let mut bypass = config.input_sync_bypass_mask;
             while bypass != 0 {
                 let pin = bypass.trailing_zeros() as u8;
                 low_ok &= pin < 32;
@@ -876,7 +876,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
                     config.pins.set_base + config.pins.set_count - 1,
                     config.pins.out_base,
                     config.pins.out_base + config.pins.out_count - 1,
-                    config.input_sync_bypass,
+                    config.input_sync_bypass_mask,
                 )
             }
             let shift = if low_ok { 0 } else { 16 };
@@ -893,10 +893,10 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
 
             PIO::PIO.gpiobase().write(|w| w.set_gpiobase(shift == 16));
 
-            if config.input_sync_bypass != 0 {
+            if config.input_sync_bypass_mask != 0 {
                 PIO::PIO
                     .input_sync_bypass()
-                    .write_set(|w| *w = (config.input_sync_bypass >> shift) as u32);
+                    .write_set(|w| *w = (config.input_sync_bypass_mask >> shift) as u32);
             }
         }
 
