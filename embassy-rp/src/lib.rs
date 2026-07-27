@@ -38,6 +38,7 @@ pub mod gpio;
 pub mod i2c;
 pub mod i2c_slave;
 pub mod interpolator;
+pub mod mode;
 pub mod multicore;
 #[cfg(feature = "_rp235x")]
 pub mod otp;
