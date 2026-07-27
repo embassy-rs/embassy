@@ -11,7 +11,7 @@ use embedded_storage::nor_flash::{
 };
 
 use crate::peripherals::FLASH;
-use crate::{dma, interrupt, pac};
+use crate::{dma, interrupt, mode, pac};
 
 /// Flash base address.
 pub const FLASH_BASE: *const u32 = 0x10000000 as _;
@@ -113,7 +113,7 @@ impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, '
 
 /// Flash driver.
 pub struct Flash<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> {
-    dma: Option<dma::Channel<'d, dma::Auto>>,
+    dma: Option<dma::Channel<'d, mode::Async>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 

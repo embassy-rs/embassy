@@ -12,7 +12,7 @@ use crate::clocks::clk_sys_freq;
 use crate::gpio::Level;
 use crate::pio::{Common, Direction, Instance, LoadedProgram, Pin, PioPin, ShiftDirection, StateMachine};
 use crate::spi::{Async, Blocking, Config, Mode};
-use crate::{dma, interrupt};
+use crate::{dma, interrupt, mode};
 
 /// This struct represents an SPI program loaded into pio instruction memory.
 struct PioSpiProgram<'d, PIO: Instance> {
@@ -92,8 +92,8 @@ pub struct Spi<'d, PIO: Instance, const SM: usize, M: Mode> {
     cfg: crate::pio::Config<'d, PIO>,
     program: Option<PioSpiProgram<'d, PIO>>,
     clk_pin: Pin<'d, PIO>,
-    tx_dma: Option<dma::Channel<'d, dma::Auto>>,
-    rx_dma: Option<dma::Channel<'d, dma::Auto>>,
+    tx_dma: Option<dma::Channel<'d, mode::Async>>,
+    rx_dma: Option<dma::Channel<'d, mode::Async>>,
     phantom: PhantomData<M>,
 }
 
@@ -105,8 +105,8 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
         clk_pin: Peri<'d, impl PioPin>,
         mosi_pin: Peri<'d, impl PioPin>,
         miso_pin: Peri<'d, impl PioPin>,
-        tx_dma: Option<dma::Channel<'d, dma::Auto>>,
-        rx_dma: Option<dma::Channel<'d, dma::Auto>>,
+        tx_dma: Option<dma::Channel<'d, mode::Async>>,
+        rx_dma: Option<dma::Channel<'d, mode::Async>>,
         config: Config,
     ) -> Self {
         let program = PioSpiProgram::new(pio, config.phase);

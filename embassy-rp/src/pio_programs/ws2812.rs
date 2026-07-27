@@ -8,7 +8,7 @@ use crate::clocks::clk_sys_freq;
 use crate::pio::{
     Common, Config, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
-use crate::{Peri, dma, interrupt};
+use crate::{Peri, dma, interrupt, mode};
 
 const T1: u8 = 2; // start bit
 const T2: u8 = 5; // data bit
@@ -104,7 +104,7 @@ pub struct PioWs2812<'d, P: Instance, const S: usize, ORDER>
 where
     ORDER: RgbColorOrder,
 {
-    dma: dma::Channel<'d, dma::Auto>,
+    dma: dma::Channel<'d, mode::Async>,
     sm: StateMachine<'d, P, S>,
     _order: core::marker::PhantomData<ORDER>,
 }
@@ -213,7 +213,7 @@ pub struct RgbwPioWs2812<'d, P: Instance, const S: usize, ORDER>
 where
     ORDER: RgbwColorOrder,
 {
-    dma: dma::Channel<'d, dma::Auto>,
+    dma: dma::Channel<'d, mode::Async>,
     sm: StateMachine<'d, P, S>,
     _order: core::marker::PhantomData<ORDER>,
 }

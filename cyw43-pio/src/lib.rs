@@ -8,8 +8,9 @@ use core::slice;
 use cyw43::SpiBusCyw43;
 use embassy_rp::Peri;
 use embassy_rp::clocks::clk_sys_freq;
-use embassy_rp::dma::{Auto, Channel};
+use embassy_rp::dma::Channel;
 use embassy_rp::gpio::{Drive, Level, Output, Pull, SlewRate};
+use embassy_rp::mode::Async;
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
 use fixed::FixedU32;
@@ -20,8 +21,8 @@ pub struct PioSpi<'d, PIO: Instance, const SM: usize> {
     cs: Output<'d>,
     sm: StateMachine<'d, PIO, SM>,
     irq: Irq<'d, PIO, 0>,
-    dma_tx: Channel<'d, Auto>,
-    dma_rx: Channel<'d, Auto>,
+    dma_tx: Channel<'d, Async>,
+    dma_rx: Channel<'d, Async>,
     wrap_target: u8,
 }
 
@@ -58,8 +59,8 @@ where
         cs: Output<'d>,
         dio: Peri<'d, impl PioPin>,
         clk: Peri<'d, impl PioPin>,
-        dma_tx: Channel<'d, Auto>,
-        dma_rx: Channel<'d, Auto>,
+        dma_tx: Channel<'d, Async>,
+        dma_rx: Channel<'d, Async>,
     ) -> Self {
         let effective_pio_frequency = (clk_sys_freq() as f32 / clock_divider.to_num::<f32>()) as u32;
 

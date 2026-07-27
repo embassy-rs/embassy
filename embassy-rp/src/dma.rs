@@ -11,6 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use pac::dma::vals::DataSize;
 
 use crate::interrupt::typelevel::Interrupt;
+use crate::mode::{Async, Blocking, Mode};
 use crate::pac::dma::vals;
 use crate::{RegExt, interrupt, pac, peripherals};
 
@@ -40,37 +41,17 @@ pub(crate) unsafe fn init() {
     interrupt::DMA_IRQ_0.set_priority(interrupt::Priority::P3);
 }
 
-trait SealedMode {}
-
-/// Mode.
-#[allow(private_bounds)]
-pub trait Mode: SealedMode {}
-
-macro_rules! impl_mode {
-    ($name:ident) => {
-        impl SealedMode for $name {}
-        impl Mode for $name {}
-    };
-}
-
-/// Use built-in irq handler for DMA transwer completion.
-pub struct Auto;
-/// Handle transwer completion by polling or manual irq handler.
-pub struct Manual;
-
-impl_mode!(Auto);
-impl_mode!(Manual);
-
 /// DMA channel driver.
 pub struct Channel<'d, M: Mode> {
     number: u8,
     phantom: PhantomData<&'d M>,
 }
 
-impl<'d> Channel<'d, Manual> {
-    /// Create a new DMA channel driver.
-    /// SAFETY: You are responsible for pooling/irq setup
-    pub unsafe fn new_manual<T: ChannelInstance>(_ch: Peri<'d, T>) -> Self {
+impl<'d> Channel<'d, Blocking> {
+    /// Create a new DMA channel driver, in blocking mode.
+    ///
+    /// SAFETY: You are responsible for polling/irq setup.
+    pub unsafe fn new_blocking<T: ChannelInstance>(_ch: Peri<'d, T>) -> Self {
         let number = T::number();
 
         // Enable interrupt for this channel
@@ -116,7 +97,7 @@ impl<'d, M: Mode> Channel<'d, M> {
     }
 }
 
-impl<'d> Channel<'d, Auto> {
+impl<'d> Channel<'d, Async> {
     /// Create a new DMA channel driver.
     pub fn new<T: ChannelInstance>(
         _ch: Peri<'d, T>,
@@ -294,11 +275,11 @@ impl<'d> Channel<'d, Auto> {
 /// DMA transfer driver.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: Channel<'a, Auto>,
+    channel: Channel<'a, Async>,
 }
 
 impl<'a> Transfer<'a> {
-    fn new(channel: Channel<'a, Auto>) -> Self {
+    fn new(channel: Channel<'a, Async>) -> Self {
         Self { channel }
     }
 }
