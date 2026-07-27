@@ -1,4 +1,6 @@
 //! This module holds everything that is specific to the async flavor of the driver.
+//!
+//! For async example code, see the docs at the top of the `classic` module.
 
 use core::marker::PhantomData;
 use core::sync::atomic::Ordering;
@@ -38,8 +40,9 @@ impl<const N: usize> Default for RxQueue<N> {
 ///
 /// This driver mode uses interrupts and provides `async` functions for
 /// interacting with FlexCAN.
+///
+/// For async example code, see the docs at the top of the `classic` module.
 #[derive(Clone, Copy)]
-#[doc = docs::doc_async_example!()]
 pub struct Async {
     /// Receiver for the queue the user provides.
     rx_receiver: SendDynamicReceiver<'static, Frame>,
@@ -54,7 +57,8 @@ impl<'d> FlexCan<'d, Async> {
     ///
     /// You must also route this instance's interrupt to an `InterruptHandler` via `bind_interrupts!`,
     /// and provide a `'static` `RxQueue` for received frames to land in.
-    #[doc = docs::doc_async_example!()]
+    ///
+    /// For async example code, see the docs at the top of the `classic` module.
     pub fn new_async<T: Instance, const N: usize>(
         peri: Peri<'d, T>,
         rx: Peri<'d, impl RxPin<T>>,
@@ -85,23 +89,49 @@ impl<'d> FlexCan<'d, Async> {
         Ok(Self { tx, rx })
     }
 
-    #[doc = docs::doc_send!()]
+    /// Sends a CAN message.
+    ///
+    /// If there's no space left in the TX buffers, this call asynchronously waits for space to free up, and then tries again.
+    ///
+    /// Note: During a BusOff event, this function will asynchronously wait until
+    /// the bus recovers. This is due to the behavior mentioned above: The TX mailbox
+    /// doesn't drain during BusOff (and will eventually fill up), causing this
+    /// function to wait until after recovery when buffers start becoming available again.
+    ///
+    /// Unless explicitly disabled, FlexCAN will recover from BusOff automatically. However
+    /// if you need to be notified immediately when a BusOff event occurs, see the `try_send()`
+    /// and `error_mode()` functions.
     pub async fn send(&mut self, frame: &Frame) {
         self.tx.send(frame).await
     }
-    #[doc = docs::doc_try_send!()]
+
+    /// Attempts to send a CAN message.
+    ///
+    /// This function returns immediately upon being called, either with `Ok(())` or
+    /// a `SendError`. For this function's async counterpart, see `send()`.
     pub fn try_send(&mut self, frame: &Frame) -> Result<(), SendError> {
         self.tx.try_send(frame)
     }
-    #[doc = docs::doc_receive!()]
+
+    /// Receives a CAN message.
+    ///
+    /// If there are no new messages, this call asynchronously
+    /// waits for new messages to arrive.
     pub async fn receive(&self) -> Frame {
         self.rx.receive().await
     }
-    #[doc = docs::doc_try_receive!()]
+
+    /// Like `receive()`, but returns immediately if there are no new messages (rather than waiting for more to arrive).
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
         self.rx.try_receive()
     }
-    #[doc = docs::doc_rx_dropped_count!()]
+
+    /// Indicates the number of RX frames dropped so far due to the RX queue being full.
+    /// If you're seeing this number increase, you are receiving messages faster than the RX queue can handle.
+    /// This can be mitigated by increasing the size of the RX queue.
+    ///
+    /// Note: This function tracks frames dropped specifically due to the RX queue being full. It doesn't track other
+    /// sources of dropped frames that may have occured at a lower level.
     pub fn rx_dropped_count(&self) -> u32 {
         self.rx.rx_dropped_count()
     }
@@ -109,7 +139,18 @@ impl<'d> FlexCan<'d, Async> {
 
 /// Functions for `FlexCanTx` that are specific to `Async` mode.
 impl<'d> FlexCanTx<'d, Async> {
-    #[doc = docs::doc_send!()]
+    /// Sends a CAN message.
+    ///
+    /// If there's no space left in the TX buffers, this call asynchronously waits for space to free up, and then tries again.
+    ///
+    /// Note: During a BusOff event, this function will asynchronously wait until
+    /// the bus recovers. This is due to the behavior mentioned above: The TX mailbox
+    /// doesn't drain during BusOff (and will eventually fill up), causing this
+    /// function to wait until after recovery when buffers start becoming available again.
+    ///
+    /// Unless explicitly disabled, FlexCAN will recover from BusOff automatically. However
+    /// if you need to be notified immediately when a BusOff event occurs, see the `try_send()`
+    /// and `error_mode()` functions.
     pub async fn send(&mut self, frame: &Frame) {
         use nb::Error::{Other, WouldBlock};
 
@@ -127,7 +168,11 @@ impl<'d> FlexCanTx<'d, Async> {
             })
             .await;
     }
-    #[doc = docs::doc_try_send!()]
+
+    /// Attempts to send a CAN message.
+    ///
+    /// This function returns immediately upon being called, either with `Ok(())` or
+    /// a `SendError`. For this function's async counterpart, see `send()`.
     pub fn try_send(&mut self, frame: &Frame) -> Result<(), SendError> {
         use nb::Error::{Other, WouldBlock};
 
@@ -149,18 +194,28 @@ impl<'d> FlexCanTx<'d, Async> {
 
 /// Functions for `FlexCanRx` that are specific to `Async` mode.
 impl<'d> FlexCanRx<'d, Async> {
-    #[doc = docs::doc_receive!()]
+    /// Receives a CAN message.
+    ///
+    /// If there are no new messages, this call asynchronously
+    /// waits for new messages to arrive.
     pub async fn receive(&self) -> Frame {
         self.mode.rx_receiver.receive().await
     }
-    #[doc = docs::doc_try_receive!()]
+
+    /// Like `receive()`, but returns immediately if there are no new messages (rather than waiting for more to arrive).
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
         self.mode
             .rx_receiver
             .try_receive()
             .map_err(|_| ReceiveError::NoMessages)
     }
-    #[doc = docs::doc_rx_dropped_count!()]
+
+    /// Indicates the number of RX frames dropped so far due to the RX queue being full.
+    /// If you're seeing this number increase, you are receiving messages faster than the RX queue can handle.
+    /// This can be mitigated by increasing the size of the RX queue.
+    ///
+    /// Note: This function tracks frames dropped specifically due to the RX queue being full. It doesn't track other
+    /// sources of dropped frames that may have occured at a lower level.
     pub fn rx_dropped_count(&self) -> u32 {
         self.info.rx_dropped_count.load(Ordering::Acquire)
     }
@@ -233,83 +288,4 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             let _ = can.esr1().read(); // Make surethe clear lands before returning
         }
     }
-}
-
-/// Shared rustdocs that are used multiple places.
-pub(in crate::flexcan::classic) mod docs {
-    macro_rules! doc_send {
-        () => {
-            concat!(
-                "Sends a CAN message.\n",
-                "\n",
-                "If there's no space left in the TX buffers, this\n",
-                "call asynchronously waits for space to free up, and then tries again.\n",
-                "\n",
-                "Note: During a BusOff event, this function will asynchronously wait until\n",
-                "the bus recovers. This is due to the behavior mentioned above: The TX mailbox\n",
-                "doesn't drain during BusOff (and will eventually fill up), causing this\n",
-                "function to wait until after recovery when buffers start becoming available again.\n",
-                "\n",
-                "Unless explicitly disabled, FlexCAN will recover from BusOff automatically. However,\n",
-                "if you need to be notified immediately when a BusOff event occurs, see the `try_send()`\n",
-                "and `error_mode()` functions.",
-            )
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_send;
-
-    macro_rules! doc_try_send {
-        () => {
-            concat!(
-                "Attempts to send a CAN message.\n",
-                "\n",
-                "This function returns immediately upon being called, either with `Ok(())` or\n",
-                "a `SendError`. For this function's async counterpart, see `send()`.",
-            )
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_try_send;
-
-    macro_rules! doc_receive {
-        () => {
-            concat!(
-                "Receives a CAN message.\n",
-                "\n",
-                "If there are no new messages, this call asynchronously\n",
-                "waits for new messages to arrive.\n",
-            )
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_receive;
-
-    macro_rules! doc_try_receive {
-        () => { concat!(
-            "Like `receive()`, but returns immediately if there are no new messages (rather than waiting for more to arrive).",
-        ) };
-    }
-    pub(in crate::flexcan::classic) use doc_try_receive;
-
-    macro_rules! doc_rx_dropped_count {
-        () => { concat!(
-            "Indicates the number of RX frames dropped so far due to the RX queue being full.",
-            "If you're seeing this number increase, you are receiving messages faster than the RX queue can handle.",
-            "This can be mitigated by increasing the size of the RX queue.\n",
-            "\nNote: This function tracks frames dropped specifically due to the RX queue being full. It doesn't track other
-            sources of dropped frames that may have occured at a lower level.\n",
-        ) };
-    }
-    pub(in crate::flexcan::classic) use doc_rx_dropped_count;
-
-    macro_rules! doc_async_example {
-        () => { concat!(
-            "<details>\n\n",
-            "<summary><h4>Async Example</h4></summary>\n\n",
-            "Here's a short example program that demonstrates how to set up a FlexCAN peripheral in Async mode for Classic CAN using this HAL:\n",
-            "```rust,no_run\n",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/mcxa2xx/src/bin/flexcan-classic-async.rs")),
-            "\n```\n",
-            "</details>",
-        ) };
-    }
-    pub(in crate::flexcan::classic) use doc_async_example;
 }

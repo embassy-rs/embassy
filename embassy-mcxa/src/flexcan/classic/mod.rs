@@ -9,8 +9,27 @@
 //! For most cases, you should probably just use the `Async` mode, unless you specifically need Blocking functionality
 //! and are okay with accepting the risks.
 //!
-#![doc = asynchronous::docs::doc_async_example!()]
-#![doc = blocking::docs::doc_blocking_example!()]
+
+// Async example for cargo doc
+#![doc = concat!(
+    "<details>\n\n",
+    "<summary><h4>Async Example</h4></summary>\n\n",
+    "Here's a short example program that demonstrates how to set up a FlexCAN peripheral in Async mode for Classic CAN using this HAL:\n",
+    "```rust,no_run\n",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/mcxa2xx/src/bin/flexcan-classic-async.rs")),
+    "\n```\n",
+    "</details>",
+)]
+// Blocking example for cargo doc
+#![doc = concat!(
+    "<details>\n\n",
+    "<summary><h4>Blocking Example</h4></summary>\n\n",
+    "Here's a short example program that demonstrates how to set up a FlexCAN peripheral in Blocking mode for Classic CAN using this HAL:\n",
+    "```rust,no_run\n",
+    include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/mcxa2xx/src/bin/flexcan-classic-blocking.rs")),
+    "\n```\n",
+    "</details>",
+)]
 
 pub(crate) mod asynchronous;
 pub(crate) mod blocking;
@@ -272,7 +291,8 @@ impl<'d, M: Mode> FlexCanRx<'d, M> {
         }
     }
 
-    #[doc = docs::doc_error_mode!()]
+    /// Returns the error mode the FlexCAN is currently in.
+    /// See `BusErrorMode`.
     pub fn error_mode(&self) -> BusErrorMode {
         functions::error_mode(self.info)
     }
@@ -300,11 +320,15 @@ impl<'d, M: Mode> FlexCanTx<'d, M> {
         }
     }
 
-    #[doc = docs::doc_error_mode!()]
+    /// Returns the error mode the FlexCAN is currently in.
+    /// See `BusErrorMode`.
     pub fn error_mode(&self) -> BusErrorMode {
         functions::error_mode(self.info)
     }
-    #[doc = docs::doc_tx_mailbox_full_count!()]
+
+    /// Indicates the number of times new transmissions have been blocked or deferred due to the TX mailbox being full so far.
+    ///
+    /// Note: See the docs for `send()` and `try_send()` for each function's behavior when it encounters a full mailbox.
     pub fn tx_mailbox_full_count(&self) -> u32 {
         self.info.tx_mailbox_full_count.load(Ordering::Acquire)
     }
@@ -335,11 +359,15 @@ impl<'d, M: Mode> FlexCan<'d, M> {
         Ok(Self { tx, rx })
     }
 
-    #[doc = docs::doc_error_mode!()]
+    /// Returns the error mode the FlexCAN is currently in.
+    /// See `BusErrorMode`.
     pub fn error_mode(&self) -> BusErrorMode {
         self.tx.error_mode()
     }
-    #[doc = docs::doc_tx_mailbox_full_count!()]
+
+    /// Indicates the number of times new transmissions have been blocked or deferred due to the TX mailbox being full so far.
+    ///
+    /// Note: See the docs for `send()` and `try_send()` for each function's behavior when it encounters a full mailbox.
     pub fn tx_mailbox_full_count(&self) -> u32 {
         self.tx.tx_mailbox_full_count()
     }
@@ -442,9 +470,10 @@ fn init<'d, T: Instance>(
 /// This module contains implementations for functions that are needed on all `FlexCan` structs,
 /// and can't be delegated to TX or RX specifically.
 mod functions {
-    use super::{BusErrorMode, Info, docs, pac};
+    use super::{BusErrorMode, Info, pac};
 
-    #[doc = docs::doc_error_mode!()]
+    /// Returns the error mode the FlexCAN is currently in.
+    /// See `BusErrorMode`.
     pub fn error_mode(info: &Info) -> BusErrorMode {
         match info.control.regs().esr1().read().fltconf() {
             pac::Fltconf::ErrorActive => BusErrorMode::ErrorActive,
@@ -452,26 +481,4 @@ mod functions {
             pac::Fltconf::BusOff | pac::Fltconf::_RESERVED_3 => BusErrorMode::BusOff,
         }
     }
-}
-
-/// Shared rustdocs used multiple times for functions that are identical
-/// between structs.
-pub(in crate::flexcan::classic) mod docs {
-    macro_rules! doc_error_mode {
-        () => {
-            concat!(
-                "Returns the error mode the FlexCAN is currently in.\n",
-                "See `BusErrorMode`.",
-            )
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_error_mode;
-
-    macro_rules! doc_tx_mailbox_full_count {
-        () => { concat!(
-            "Indicates the number of times new transmissions have been blocked or deferred due to the TX mailbox being full so far.\n\n",
-            "Note: See the docs for `send()` and `try_send()` for each function's behavior when it encounters a full mailbox.",
-        )};
-    }
-    pub(in crate::flexcan::classic) use doc_tx_mailbox_full_count;
 }

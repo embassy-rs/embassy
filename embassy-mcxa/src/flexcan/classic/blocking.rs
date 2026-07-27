@@ -45,7 +45,8 @@ pub enum ReceiveErrorWithTimeout {
 /// This mode doesn't use any interrupts. The `blocking_send()`/`blocking_receive()` functions just do a blocking poll
 /// the hardware until they can make progress. For most cases, you should probably just use the
 /// `Async` mode, unless you specifically need Blocking functionality and are okay with accepting the risks.
-#[doc = docs::doc_blocking_example!()]
+///
+/// For blocking example code, see the docs at the top of the `classic` module.
 pub struct Blocking;
 
 impl sealed::Sealed for Blocking {}
@@ -58,7 +59,8 @@ impl<'d> FlexCan<'d, Blocking> {
     /// This mode doesn't use any interrupts. The `blocking_send()`/`blocking_receive()` functions just do a blocking poll
     /// the hardware until they can make progress. For most cases, you should probably just use the
     /// `Async` mode, unless you specifically need Blocking functionality and are okay with accepting the risks.
-    #[doc = docs::doc_blocking_example!()]
+    ///
+    /// For blocking example code, see the docs at the top of the `classic` module.
     pub fn new_blocking<T: Instance>(
         peri: Peri<'d, T>,
         rx: Peri<'d, impl RxPin<T>>,
@@ -74,35 +76,55 @@ impl<'d> FlexCan<'d, Blocking> {
         Ok(Self { tx, rx })
     }
 
-    #[doc = docs::doc_blocking_send!()]
+    /// Sends a CAN message.
+    ///
+    /// If all TX buffers are full, this blocks indefinietely until one
+    /// frees up. If called during a BusOff event, this will block until the
+    /// BusOff event recovers. By default, FlexCAN will recover from BusOff automatically.
+    ///
+    /// Note: If you need to avoid blocking, see `try_send()` (or, just use the `Async` mode).
     pub fn blocking_send(&mut self, frame: &Frame) {
         self.tx.blocking_send(frame)
     }
-    #[doc = docs::doc_try_send!()]
+
+    /// Attempts to send a CAN message.
     pub fn try_send(&mut self, frame: &Frame) -> Result<(), SendError> {
         self.tx.try_send(frame)
     }
-    #[doc = docs::doc_blocking_receive!()]
+
+    /// Receives a CAN message.
+    ///
+    /// If the hardware RX FIFO is empty, this will block until a frame arrives. If you need to
+    /// avoid blocking, see `try_receive()` (or, just use the `Async` mode).
     pub fn blocking_receive(&self) -> Frame {
         self.rx.blocking_receive()
     }
-    #[doc = docs::doc_try_receive!()]
+
+    /// Like `receive()`, but returns immediately with `ReceiveError::NoMessages` if the RX FIFO is empty.
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
         self.rx.try_receive()
     }
-    #[doc = docs::doc_blocking_flush!()]
+
+    /// Blocks until all pending TX mailboxes have completed transmission, or the bus
+    /// enters BusOff. Returns Err(SendError::BusOff) in the latter case.
+    ///
+    /// This function may be useful if you need to be absolutely certain that a frame has
+    /// entered the bus before your program continues.
     pub fn blocking_flush(&mut self) -> Result<(), SendError> {
         self.tx.blocking_flush()
     }
-    #[doc = docs::doc_blocking_send_timeout!()]
+
+    /// Like `blocking_send()`, but bounded by a user-provided timeout.
     pub fn blocking_send_timeout(&mut self, frame: &Frame, timeout: Duration) -> Result<(), SendErrorWithTimeout> {
         self.tx.blocking_send_timeout(frame, timeout)
     }
-    #[doc = docs::doc_blocking_receive_timeout!()]
+
+    /// Like `blocking_receive()`, but bounded by a user-provided timeout.
     pub fn blocking_receive_timeout(&self, timeout: Duration) -> Result<Frame, ReceiveErrorWithTimeout> {
         self.rx.blocking_receive_timeout(timeout)
     }
-    #[doc = docs::doc_blocking_flush_timeout!()]
+
+    /// Like `blocking_flush()`, but bounded by a user-provided timeout.
     pub fn blocking_flush_timeout(&mut self, timeout: Duration) -> Result<(), SendErrorWithTimeout> {
         self.tx.blocking_flush_timeout(timeout)
     }
@@ -110,7 +132,13 @@ impl<'d> FlexCan<'d, Blocking> {
 
 /// Functions for `FlexCanTx` that are specific to `Blocking` mode.
 impl<'d> FlexCanTx<'d, Blocking> {
-    #[doc = docs::doc_blocking_send!()]
+    /// Sends a CAN message.
+    ///
+    /// If all TX buffers are full, this blocks indefinietely until one
+    /// frees up. If called during a BusOff event, this will block until the
+    /// BusOff event recovers. By default, FlexCAN will recover from BusOff automatically.
+    ///
+    /// Note: If you need to avoid blocking, see `try_send()` (or, just use the `Async` mode).
     pub fn blocking_send(&mut self, frame: &Frame) {
         let message = tx::TxMessage::from(frame);
         mailbox::tx::reclaim_completed(self.info);
@@ -129,7 +157,8 @@ impl<'d> FlexCanTx<'d, Blocking> {
             }
         }
     }
-    #[doc = docs::doc_try_send!()]
+
+    /// Attempts to send a CAN message.
     pub fn try_send(&mut self, frame: &Frame) -> Result<(), SendError> {
         if self.error_mode() == BusErrorMode::BusOff {
             return Err(SendError::BusOff);
@@ -145,7 +174,12 @@ impl<'d> FlexCanTx<'d, Blocking> {
             Err(nb::Error::Other(e)) => match e {},
         }
     }
-    #[doc = docs::doc_blocking_flush!()]
+
+    /// Blocks until all pending TX mailboxes have completed transmission, or the bus
+    /// enters BusOff. Returns Err(SendError::BusOff) in the latter case.
+    ///
+    /// This function may be useful if you need to be absolutely certain that a frame has
+    /// entered the bus before your program continues.
     pub fn blocking_flush(&mut self) -> Result<(), SendError> {
         loop {
             if self.error_mode() == BusErrorMode::BusOff {
@@ -160,7 +194,7 @@ impl<'d> FlexCanTx<'d, Blocking> {
         }
     }
 
-    #[doc = docs::doc_blocking_send_timeout!()]
+    /// Like `blocking_send()`, but bounded by a user-provided timeout.
     pub fn blocking_send_timeout(&mut self, frame: &Frame, timeout: Duration) -> Result<(), SendErrorWithTimeout> {
         use embassy_time::Instant;
 
@@ -185,7 +219,8 @@ impl<'d> FlexCanTx<'d, Blocking> {
             core::hint::spin_loop();
         }
     }
-    #[doc = docs::doc_blocking_flush_timeout!()]
+
+    /// Like `blocking_flush()`, but bounded by a user-provided timeout.
     pub fn blocking_flush_timeout(&mut self, timeout: Duration) -> Result<(), SendErrorWithTimeout> {
         use embassy_time::Instant;
 
@@ -208,7 +243,10 @@ impl<'d> FlexCanTx<'d, Blocking> {
 
 /// Functions for `FlexCanRx` that are specific to `Blocking` mode.
 impl<'d> FlexCanRx<'d, Blocking> {
-    #[doc = docs::doc_blocking_receive!()]
+    /// Receives a CAN message.
+    ///
+    /// If the hardware RX FIFO is empty, this will block until a frame arrives. If you need to
+    /// avoid blocking, see `try_receive()` (or, just use the `Async` mode).
     pub fn blocking_receive(&self) -> Frame {
         loop {
             if let Some(frame) = self.poll_fifo() {
@@ -217,11 +255,13 @@ impl<'d> FlexCanRx<'d, Blocking> {
             core::hint::spin_loop();
         }
     }
-    #[doc = docs::doc_try_receive!()]
+
+    /// Like `receive()`, but returns immediately with `ReceiveError::NoMessages` if the RX FIFO is empty.
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
         self.poll_fifo().ok_or(ReceiveError::NoMessages)
     }
-    #[doc = docs::doc_blocking_receive_timeout!()]
+
+    /// Like `blocking_receive()`, but bounded by a user-provided timeout.
     pub fn blocking_receive_timeout(&self, timeout: Duration) -> Result<Frame, ReceiveErrorWithTimeout> {
         use embassy_time::Instant;
 
@@ -242,96 +282,4 @@ impl<'d> FlexCanRx<'d, Blocking> {
         let message = mailbox::rx::fifo::get(self.info)?;
         message.try_into().ok()
     }
-}
-
-/// Shared rustdocs that are re-used multiple places.
-pub(in crate::flexcan::classic) mod docs {
-    macro_rules! doc_blocking_send {
-        () => {
-            concat!(
-                "Sends a CAN message.\n",
-                "\n",
-                "If all TX buffers are full, this blocks indefinietely until one\n",
-                "frees up. If called during a BusOff event, this will block until the\n",
-                "BusOff event recovers. By default, FlexCAN will recover from BusOff automatically.\n",
-                "\n",
-                "Note: If you need to avoid blocking, see `try_send()` (or, just use the `Async` mode).",
-            )
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_blocking_send;
-
-    macro_rules! doc_try_send {
-        () => {
-            concat!("Attempts to send a CAN message.",)
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_try_send;
-
-    macro_rules! doc_blocking_receive {
-        () => {
-            concat!(
-                "Receives a CAN message.\n",
-                "\n",
-                "If the hardware RX FIFO is empty, this will block until a frame arrives. If you need to\n",
-                "avoid blocking, see `try_receive()` (or, just use the `Async` mode).",
-            )
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_blocking_receive;
-
-    macro_rules! doc_try_receive {
-        () => {
-            concat!(
-                "Like `receive()`, but returns immediately with `ReceiveError::NoMessages` if the RX FIFO is empty.",
-            )
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_try_receive;
-
-    macro_rules! doc_blocking_flush {
-        () => {
-            concat!(
-                "Blocks until all pending TX mailboxes have completed transmission, or the bus\n",
-                "enters BusOff. Returns Err(SendError::BusOff) in the latter case.\n\n",
-                "This function may be useful if you need to be absolutely certain that a frame has\n",
-                "entered the bus before your program continues.\n",
-            )
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_blocking_flush;
-
-    macro_rules! doc_blocking_send_timeout {
-        () => {
-            concat!("Like `blocking_send()`, but bounded by a user-provided timeout.\n",)
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_blocking_send_timeout;
-
-    macro_rules! doc_blocking_receive_timeout {
-        () => {
-            concat!("Like `blocking_receive()`, but bounded by a user-provided timeout.\n",)
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_blocking_receive_timeout;
-
-    macro_rules! doc_blocking_flush_timeout {
-        () => {
-            concat!("Like `blocking_flush()`, but bounded by a user-provided timeout.\n",)
-        };
-    }
-    pub(in crate::flexcan::classic) use doc_blocking_flush_timeout;
-
-    macro_rules! doc_blocking_example {
-        () => { concat!(
-            "<details>\n\n",
-            "<summary><h4>Blocking Example</h4></summary>\n\n",
-            "Here's a short example program that demonstrates how to set up a FlexCAN peripheral in Blocking mode for Classic CAN using this HAL:\n",
-            "```rust,no_run\n",
-            include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../examples/mcxa2xx/src/bin/flexcan-classic-blocking.rs")),
-            "\n```\n",
-            "</details>",
-        ) };
-    }
-    pub(in crate::flexcan::classic) use doc_blocking_example;
 }
