@@ -1,7 +1,7 @@
 //! This example uses FIFO with polling, and the maximum FIFO size is 8.
 //! Refer to async example to handle larger packets.
 //!
-//! This example controls AD5171 digital potentiometer via I2C with the LP-MSPM0G3507 board.
+//! This example reads all registers (0-19) of DS3231 Real-Time Clock via I2C with the LP-MSPM0G3507 board.
 
 #![no_std]
 #![no_main]
@@ -13,7 +13,7 @@ use embassy_mspm0::i2c::{Config, I2c};
 use embassy_time::Timer;
 use panic_halt as _;
 
-const ADDRESS: u8 = 0x6a;
+const ADDRESS: u8 = 0x68;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -25,22 +25,18 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut i2c = unwrap!(I2c::new_blocking(instance, scl, sda, Config::default()));
 
-    let mut pot_value: u8 = 0;
-
     loop {
-        let to_write = [0u8, pot_value];
+        for reg in 0..20u8 {
+            let reg_addr = [reg];
+            let mut val = [0u8];
 
-        match i2c.blocking_write(ADDRESS, &to_write) {
-            Ok(()) => info!("New potentioemter value: {}", pot_value),
-            Err(e) => error!("I2c Error: {:?}", e),
+            match i2c.blocking_write_read(ADDRESS, &reg_addr, &mut val) {
+                Ok(()) => info!("reg {}: {}", reg, val[0]),
+                Err(e) => error!("I2c Error: {:?}", e),
+            }
+            Timer::after_millis(100).await;
         }
 
-        pot_value += 1;
-        // if reached 64th position (max)
-        // start over from lowest value
-        if pot_value == 64 {
-            pot_value = 0;
-        }
-        Timer::after_millis(500).await;
+        Timer::after_millis(2000).await;
     }
 }
