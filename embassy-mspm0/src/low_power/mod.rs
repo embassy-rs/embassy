@@ -157,6 +157,7 @@ pub fn shutdown(_cs: CriticalSection) -> ! {
 
     cortex_m::asm::wfi();
 
+    // SAFETY: Setting DSLEEP to SHUTDOWN means WFI will never return.
     unsafe { core::hint::unreachable_unchecked() }
 }
 
