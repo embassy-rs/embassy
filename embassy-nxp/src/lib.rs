@@ -12,6 +12,8 @@ pub mod pint;
 #[cfg(lpc55)]
 pub mod pwm;
 #[cfg(lpc55)]
+pub mod rng;
+#[cfg(lpc55)]
 pub mod sct;
 #[cfg(lpc55)]
 pub mod usart;
@@ -161,6 +163,7 @@ pub fn init(_config: config::Config) -> Peripherals {
     {
         pint::init();
         pwm::Pwm::reset();
+        rng::init();
     }
 
     #[cfg(feature = "_time_driver")]
