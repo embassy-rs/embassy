@@ -19,7 +19,7 @@ if ! command -v cargo-embassy-devtool &> /dev/null; then
 fi
 
 export RUSTFLAGS=-Dwarnings
-export DEFMT_LOG=trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,smoltcp=info
+export DEFMT_LOG=trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,xarxa=info
 if [[ -z "${CARGO_TARGET_DIR}" ]]; then
     export CARGO_TARGET_DIR=target_ci
 fi

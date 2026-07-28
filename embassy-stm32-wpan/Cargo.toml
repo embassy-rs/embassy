@@ -33,8 +33,14 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal" }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal" }
 embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-channel", optional=true}
-smoltcp = { version = "0.13.0", optional=true, default-features = false }
 stm32-bindings = { version = "0.2.2", optional=true, default-features = false }
+
+xarxa = { 
+    git = "https://github.com/embassy-rs/xarxa",
+    rev = "9287315087b3758b0d1177f108ba3b308d3ade63",
+    optional = true,
+    default-features = false,
+}
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
@@ -61,7 +67,7 @@ wb-hci = ["bt-hci", "dep:stm32wb-hci"]
 
 wb = []
 wb-ble = []
-wb-mac = ["dep:bitflags", "dep:embassy-net-driver-channel", "dep:smoltcp", "smoltcp/medium-ieee802154"]
+wb-mac = ["dep:bitflags", "dep:embassy-net-driver-channel", "dep:xarxa", "xarxa/medium-ieee802154"]
 wb-thread = ["dep:stm32-bindings", "stm32-bindings/wb_wpan_openthread"]
 
 wba = [ "dep:stm32-bindings" ]

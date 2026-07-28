@@ -422,7 +422,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             // Enable RX IP header / payload checksum offload (COE). Requires RX
             // store-and-forward (set below). TX insertion is requested per-frame
             // via TDES3.CIC; together with the driver `Capabilities` this lets
-            // smoltcp skip software checksums.
+            // xarxa skip software checksums.
             w.set_ipc(true);
             // TODO: Carrier sense ? ECRSFD
         });

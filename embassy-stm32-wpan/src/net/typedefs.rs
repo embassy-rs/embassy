@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use smoltcp::wire::ieee802154::{Address, AddressingMode, Pan};
+use xarxa::wire::ieee802154::{Address, AddressingMode, Pan};
 
 use crate::numeric_enum;
 
