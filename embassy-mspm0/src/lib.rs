@@ -198,7 +198,7 @@ pub fn init(config: Config) -> Peripherals {
             w.set_mfpclken(true);
         });
 
-        // TODO: Errata PCMU_ERR_03 states that BOR thresholds othre than 0 don't work in STANDBY.
+        // TODO: Errata PCMU_ERR_03 states that BOR thresholds other than 0 don't work in STANDBY.
         pac::SYSCTL.borthreshold().modify(|w| {
             w.set_level(0);
         });
