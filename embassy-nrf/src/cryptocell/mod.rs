@@ -18,21 +18,24 @@ static ACTIVE_USERS: AtomicU16 = AtomicU16::new(0);
 /// CryptoCell is active until the handle is dropped.
 #[must_use]
 pub fn activate() -> CryptoCellActivationHandle {
-    let _ = ACTIVE_USERS.fetch_update(Ordering::Release, Ordering::Acquire, |x| Some(x + 1));
+    ACTIVE_USERS.fetch_add(1, Ordering::Relaxed);
 
-    // Make sure the it's enabled
+    // Make sure the CryptoCell is enabled.
     pac::CRYPTOCELL.enable().write(|w| w.set_enable(true));
 
     CryptoCellActivationHandle::new()
 }
 
 fn release() {
-    // If we released the last one, turn off CRYPTOCELL
-    if let Ok(deps) = ACTIVE_USERS.fetch_update(Ordering::Release, Ordering::Acquire, |x| Some(x - 1))
-        && deps == 1
-    {
-        pac::CRYPTOCELL.enable().write(|w| w.set_enable(false));
-    }
+    // We need to make sure an activation doesn't happen between us checking the value and disabling
+    // the CryptoCell.
+    critical_section::with(|_cs| {
+        // If we released the last one, turn off CRYPTOCELL.
+        // We can use the Relaxed ordering as this happens in a critical section.
+        if ACTIVE_USERS.fetch_sub(1, Ordering::Relaxed) == 1 {
+            pac::CRYPTOCELL.enable().write(|w| w.set_enable(false));
+        }
+    })
 }
 
 /// Cryptocell is active until this is dropped.
