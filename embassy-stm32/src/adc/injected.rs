@@ -5,21 +5,21 @@ use core::task::Poll;
 
 use crate::adc::{BasicAdcRegs, BorrowedAdcChannel, DefaultInstance, InjectedAdcRegs, Instance, State};
 use crate::atomic::AtomicClear;
-use crate::interrupt::typelevel::Handler;
+use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::mode::{Async, Blocking, Mode};
 
 // Implement NoHandler bindings so that when the user requests no interrupt, the binding is satisfied.
 
 #[derive(Clone, Copy)]
-pub struct NoHandler<T: DefaultInstance> {
-    _marker: PhantomData<T>,
+pub struct NoHandler<I: Interrupt> {
+    _marker: PhantomData<I>,
 }
 
-impl<T: DefaultInstance> crate::interrupt::typelevel::Handler<T::Interrupt> for NoHandler<T> {
+impl<I: Interrupt> crate::interrupt::typelevel::Handler<I> for NoHandler<I> {
     unsafe fn on_interrupt() {}
 }
 
-unsafe impl<T: DefaultInstance> crate::interrupt::typelevel::Binding<T::Interrupt, NoHandler<T>> for T {}
+unsafe impl<I: Interrupt + Copy> crate::interrupt::typelevel::Binding<I, NoHandler<I>> for I {}
 
 pub(crate) trait SealedIrqMode: Mode {
     const IRQ: bool;
@@ -34,16 +34,16 @@ impl IrqMode for Async {
     type Handler<T: DefaultInstance> = crate::adc::InterruptHandler<T>;
 }
 
+impl IrqMode for Blocking {
+    type Handler<T: DefaultInstance> = NoHandler<T::Interrupt>;
+}
+
 impl SealedIrqMode for Async {
     const IRQ: bool = true;
 }
 
 impl SealedIrqMode for Blocking {
     const IRQ: bool = false;
-}
-
-impl IrqMode for Blocking {
-    type Handler<T: DefaultInstance> = NoHandler<T>;
 }
 
 /// Injected ADC sequence with owned channels.
