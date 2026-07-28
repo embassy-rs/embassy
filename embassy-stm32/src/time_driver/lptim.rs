@@ -5,7 +5,7 @@ use core::cell::Cell;
 use core::cell::RefCell;
 #[cfg(feature = "low-power")]
 use core::sync::atomic::AtomicBool;
-use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::Mutex;
@@ -375,16 +375,35 @@ impl super::LPTimeDriver for RtcDriver {
 impl Driver for RtcDriver {
     fn now(&self) -> u64 {
         let r = regs_lptim();
-        loop {
-            let period = self.period.load(Ordering::Relaxed);
-            compiler_fence(Ordering::Acquire);
-            let counter = r.cnt().read().cnt();
-            let now = ((period as u64) << 16) + (counter as u64);
 
-            if self.period.load(Ordering::Relaxed) == period {
-                break now;
+        // This CS is needed to prevent race conditions that cause time to go backwards when now()
+        // is called at the exact instant the LPTIM_CNT register overflows. When an overflow
+        // happens, `period` is advanced by the update-event interrupt, so period and LPTIM_CNT
+        // must be sampled atomically, i.e. with that interrupt masked. Otherwise, the counter can
+        // wrap while `period` still has the previous value, and composing them yields a timestamp
+        // a whole period in the past, causing time to go backwards, and any
+        // `Instant::duration_since` spanning that window panics.
+        critical_section::with(|_| {
+            // RM0456 says: "When the LPTIM is running, reading the LPTIM_CNT register may return
+            // unreliable values. In this case it is necessary to perform consecutive reads until
+            // two returned values are identical."
+            let mut counter = r.cnt().read().cnt();
+            loop {
+                let again = r.cnt().read().cnt();
+                if again == counter {
+                    break;
+                }
+                counter = again;
             }
-        }
+
+            // With the period-incrementing, a pending update event unambiguously means
+            // the counter has wrapped and `next_period` has not yet accounted for it. NB: we DO
+            // NOT clear the ue bit, that (and consequently incrementing self.period) is for the
+            // ISR to do once we release this CS.
+            let period = self.period.load(Ordering::Relaxed) + r.isr().read().ue() as u32;
+
+            ((period as u64) << 16) + counter as u64
+        })
     }
 
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
