@@ -372,8 +372,11 @@ fn configure_pwr(cs: CriticalSection) -> bool {
 pub unsafe fn sleep(cs: CriticalSection) {
     let stop = configure_pwr(cs);
 
+    // Only flush defmt if we are actually going into Stop. Avoids flush on every tiny WFE
     #[cfg(feature = "low-power-defmt-flush")]
-    defmt::flush();
+    if stop {
+        defmt::flush();
+    }
 
     cortex_m::asm::dsb();
     cortex_m::asm::wfi();
