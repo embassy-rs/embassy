@@ -19,7 +19,7 @@ async fn main(_spawner: Spawner) {
     // nxp-pac does not provide the access to ADC0 with p.ADC0 yet
     let mut raw_adc0 = embassy_nxp::pac::ADC0;
     let config = Config::default(); // corresponds to Config::new(Resolution::Bits16, Averaging::None);
-    let mut adc = Adc::new(&mut raw_adc0, config);
+    let mut adc = Adc::new(p.ADC0, config);
 
     // PIO0_16 corresponds A0 on the dev board
     let mut adc_pin = p.PIO0_16;

@@ -2,6 +2,9 @@
 
 #![macro_use]
 
+use embassy_hal_internal::Peri;
+
+use crate::peripherals::ADC0;
 use crate::pac::adc0::Adc0;
 use crate::pac::adc0::vals;
 use crate::pac;
@@ -46,14 +49,16 @@ impl Config {
 
 /// The main struct
 pub struct Adc<'d> {
-    adc: &'d mut Adc0,
+    _peri: Peri<'d, ADC0>,
     config: Config,
 }
 
 impl<'d> Adc<'d> {
     /// Creation and initialization of ADC
     /// adc parameter should be reaplced with Peri once nxp-pac implements it
-    pub fn new(adc: &'d mut Adc0, config: Config) -> Self {
+    pub fn new(peri: Peri<'d, ADC0>, config: Config) -> Self {
+        let adc: Adc0 = pac::ADC0;
+        
         // Power & clocks
         defmt::info!("Enabling ADC power and clocks");
         Self::enable_power_clocks();
@@ -97,7 +102,7 @@ impl<'d> Adc<'d> {
         });
 
         // Calibrate
-        Self::calibrate(adc);
+        Self::calibrate(&adc);
 
         let avgs_bit = match config.averaging {
             Averaging::None => 0,
@@ -144,7 +149,7 @@ impl<'d> Adc<'d> {
             w.set_cal_avgs(avgs_bit.into())
         });
 
-        Self { adc, config }
+        Self { _peri: peri, config }
     }
 
     fn enable_power_clocks() {
@@ -181,9 +186,9 @@ impl<'d> Adc<'d> {
         syscon.adcclkdiv().modify(|w| w.set_halt(0.into()));
     }
 
-    /// Helper function to calibrate
+    /// Helper function for calibrating
     /// Reference: https://github.com/lpc55/lpc55-hal/blob/main/examples/adc.rs#L14
-    fn calibrate<'a>(adc: &'a mut Adc0) {
+    fn calibrate<'a>(adc: &Adc0) {
         defmt::info!("Starting the calibration...");
         
         // Offset trimming
@@ -226,13 +231,14 @@ impl<'d> Adc<'d> {
 
     /// Reading the channel synchronously
     pub fn blocking_read<P: AdcPin>(&mut self, pin: &mut P) -> u16 {
+        let adc: Adc0 = pac::ADC0;
         pin.configure_iocon();
-        self.adc.cmdl1().modify(|w| {
+        adc.cmdl1().modify(|w| {
             w.set_adch(pin.channel().into());
             w.set_ctype(pin.ctype().into())
         });
 
-        let cmdl_readback = self.adc.cmdl1().read();
+        let cmdl_readback = adc.cmdl1().read();
         defmt::info!(
             "CMDL1 readback: adch={} ctype={} mode={}",
             cmdl_readback.adch().to_bits(),
@@ -241,15 +247,15 @@ impl<'d> Adc<'d> {
         );
 
         // Trigger the event
-        self.adc.swtrig().write(|w| {
+        adc.swtrig().write(|w| {
             w.set_swt0(1.into())
         });
 
         // wait for results
         defmt::info!("Waiting for results");
-        while self.adc.fctrl(0).read().fcount() == 0 {}
+        while adc.fctrl(0).read().fcount() == 0 {}
 
-        let result_reg = self.adc.resfifo(0).read();
+        let result_reg = adc.resfifo(0).read();
 
         defmt::info!(
             "RESFIFO0: d=0x{:04x} tsrc={} loopcnt={} cmdsrc={} valid={}",
