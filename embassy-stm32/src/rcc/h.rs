@@ -1,14 +1,22 @@
 use core::ops::RangeInclusive;
 
 #[cfg(stm32h7rs)]
-use stm32_metapac::rcc::vals::{Plldivst, Xspisel};
+use stm32_metapac::rcc::vals::Xspisel;
 
 use crate::pac;
+#[cfg(stm32h7rs)]
+use crate::pac::flash::regs::Optkeyr;
+#[cfg(stm32h7rs)]
+pub use crate::pac::rcc::vals::Plldivst as PllDivSt;
 pub use crate::pac::rcc::vals::{
     Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
 };
 use crate::pac::rcc::vals::{Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
+#[cfg(dsihost)]
+use crate::rcc::dsi;
+#[cfg(dsihost)]
+pub use crate::rcc::dsi::{DsiHostPllConfig, DsiPllInput, DsiPllNdiv, DsiPllOutput};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -72,7 +80,7 @@ pub struct Pll {
     /// PLL multiplication factor.
     pub mul: PllMul,
 
-    #[cfg(any(stm32h743))]
+    #[cfg(any(stm32h743, stm32h730))]
     /// PLL Fractional multiplier.
     pub fracn: Option<u16>,
 
@@ -87,25 +95,25 @@ pub struct Pll {
     pub divr: Option<PllDiv>,
     #[cfg(stm32h7rs)]
     /// PLL S division factor. If None, PLL S output is disabled.
-    pub divs: Option<Plldivst>,
+    pub divs: Option<PllDivSt>,
     #[cfg(stm32h7rs)]
     /// PLL T division factor. If None, PLL T output is disabled.
-    pub divt: Option<Plldivst>,
+    pub divt: Option<PllDivSt>,
 }
 
 fn apb_div_tim(apb: &APBPrescaler, clk: Hertz, tim: TimerPrescaler) -> Hertz {
     match (tim, apb) {
-        (TimerPrescaler::DefaultX2, APBPrescaler::DIV1) => clk,
-        (TimerPrescaler::DefaultX2, APBPrescaler::DIV2) => clk,
-        (TimerPrescaler::DefaultX2, APBPrescaler::DIV4) => clk / 2u32,
-        (TimerPrescaler::DefaultX2, APBPrescaler::DIV8) => clk / 4u32,
-        (TimerPrescaler::DefaultX2, APBPrescaler::DIV16) => clk / 8u32,
+        (TimerPrescaler::DefaultX2, APBPrescaler::Div1) => clk,
+        (TimerPrescaler::DefaultX2, APBPrescaler::Div2) => clk,
+        (TimerPrescaler::DefaultX2, APBPrescaler::Div4) => clk / 2u32,
+        (TimerPrescaler::DefaultX2, APBPrescaler::Div8) => clk / 4u32,
+        (TimerPrescaler::DefaultX2, APBPrescaler::Div16) => clk / 8u32,
 
-        (TimerPrescaler::DefaultX4, APBPrescaler::DIV1) => clk,
-        (TimerPrescaler::DefaultX4, APBPrescaler::DIV2) => clk,
-        (TimerPrescaler::DefaultX4, APBPrescaler::DIV4) => clk,
-        (TimerPrescaler::DefaultX4, APBPrescaler::DIV8) => clk / 2u32,
-        (TimerPrescaler::DefaultX4, APBPrescaler::DIV16) => clk / 4u32,
+        (TimerPrescaler::DefaultX4, APBPrescaler::Div1) => clk,
+        (TimerPrescaler::DefaultX4, APBPrescaler::Div2) => clk,
+        (TimerPrescaler::DefaultX4, APBPrescaler::Div4) => clk,
+        (TimerPrescaler::DefaultX4, APBPrescaler::Div8) => clk / 2u32,
+        (TimerPrescaler::DefaultX4, APBPrescaler::Div16) => clk / 4u32,
 
         _ => unreachable!(),
     }
@@ -126,8 +134,8 @@ pub enum TimerPrescaler {
 impl From<TimerPrescaler> for Timpre {
     fn from(value: TimerPrescaler) -> Self {
         match value {
-            TimerPrescaler::DefaultX2 => Timpre::DEFAULT_X2,
-            TimerPrescaler::DefaultX4 => Timpre::DEFAULT_X4,
+            TimerPrescaler::DefaultX2 => Timpre::DefaultX2,
+            TimerPrescaler::DefaultX4 => Timpre::DefaultX4,
         }
     }
 }
@@ -220,6 +228,9 @@ pub struct Config {
     #[cfg(stm32h7rs)]
     pub apb5_pre: APBPrescaler,
 
+    #[cfg(dsihost)]
+    pub dsi: Option<DsiHostPllConfig>,
+
     pub timer_prescaler: TimerPrescaler,
     pub voltage_scale: VoltageScale,
     pub ls: super::LsConfig,
@@ -229,44 +240,81 @@ pub struct Config {
 
     /// Per-peripheral kernel clock selection muxes
     pub mux: super::mux::ClockMux,
+
+    /// Enable HSLV mode for XSPI1.
+    /// CAUTION: enabling when VDD_XSPI1 > 2.7 V may be destructive!
+    #[cfg(stm32h7rs)]
+    pub hslv_xspi1: bool,
+    /// Enable HSLV mode for XSPI2.
+    /// CAUTION: enabling when VDD_XSPI2 > 2.7 V may be destructive!
+    #[cfg(stm32h7rs)]
+    pub hslv_xspi2: bool,
+    /// Enable HSLV mode for I/O pins.
+    /// CAUTION: enabling when VDD > 2.7 V may be destructive!
+    #[cfg(stm32h7rs)]
+    pub hslv_io: bool,
+
+    /// Enable the compensation cell for XSPI1.
+    /// Enabling with no active device connected will fail with time-out.
+    #[cfg(stm32h7rs)]
+    pub comp_xspi1: bool,
+    /// Enable the compensation cell for XSPI2.
+    /// Enabling with no active device connected will fail with time-out.
+    #[cfg(stm32h7rs)]
+    pub comp_xspi2: bool,
 }
 
 impl Config {
     pub const fn new() -> Self {
         Self {
-            hsi: Some(HSIPrescaler::DIV1),
+            hsi: Some(HSIPrescaler::Div1),
             hse: None,
             csi: false,
             hsi48: Some(crate::rcc::Hsi48Config::new()),
-            sys: Sysclk::HSI,
+            sys: Sysclk::Hsi,
             pll1: None,
             pll2: None,
             #[cfg(any(rcc_h5, stm32h7, stm32h7rs))]
             pll3: None,
 
             #[cfg(any(stm32h7, stm32h7rs))]
-            d1c_pre: AHBPrescaler::DIV1,
-            ahb_pre: AHBPrescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
-            apb2_pre: APBPrescaler::DIV1,
+            d1c_pre: AHBPrescaler::Div1,
+            ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
+            apb2_pre: APBPrescaler::Div1,
             #[cfg(not(stm32h7rs))]
-            apb3_pre: APBPrescaler::DIV1,
+            apb3_pre: APBPrescaler::Div1,
             #[cfg(any(stm32h7, stm32h7rs))]
-            apb4_pre: APBPrescaler::DIV1,
+            apb4_pre: APBPrescaler::Div1,
             #[cfg(stm32h7rs)]
-            apb5_pre: APBPrescaler::DIV1,
+            apb5_pre: APBPrescaler::Div1,
+
+            #[cfg(dsihost)]
+            dsi: None,
 
             timer_prescaler: TimerPrescaler::DefaultX2,
             #[cfg(not(rcc_h7rs))]
             voltage_scale: VoltageScale::Scale0,
             #[cfg(rcc_h7rs)]
-            voltage_scale: VoltageScale::HIGH,
+            voltage_scale: VoltageScale::High,
             ls: crate::rcc::LsConfig::new(),
 
             #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468, pwr_h7rs))]
             supply_config: SupplyConfig::LDO,
 
             mux: super::mux::ClockMux::default(),
+
+            #[cfg(stm32h7rs)]
+            hslv_xspi1: false,
+            #[cfg(stm32h7rs)]
+            hslv_xspi2: false,
+            #[cfg(stm32h7rs)]
+            hslv_io: false,
+
+            #[cfg(stm32h7rs)]
+            comp_xspi1: false,
+            #[cfg(stm32h7rs)]
+            comp_xspi2: false,
         }
     }
 }
@@ -301,7 +349,7 @@ pub(crate) unsafe fn init(config: Config) {
         match config.supply_config {
             SupplyConfig::Default => {
                 pwr_reg.modify(|w| {
-                    w.set_sdlevel(Sdlevel::RESET);
+                    w.set_sdlevel(Sdlevel::Reset);
                     w.set_sdexthp(false);
                     w.set_sden(true);
                     w.set_ldoen(true);
@@ -327,9 +375,9 @@ pub(crate) unsafe fn init(config: Config) {
             | SupplyConfig::SMPSExternalLDO(sdlevel)
             | SupplyConfig::SMPSExternalLDOBypass(sdlevel) => {
                 let sdlevel = match sdlevel {
-                    SMPSSupplyVoltage::V1_8 => Sdlevel::V1_8,
+                    SMPSSupplyVoltage::V1_8 => Sdlevel::V18,
                     #[cfg(not(pwr_h7rs))]
-                    SMPSSupplyVoltage::V2_5 => Sdlevel::V2_5,
+                    SMPSSupplyVoltage::V2_5 => Sdlevel::V25,
                 };
                 pwr_reg.modify(|w| {
                     w.set_sdlevel(sdlevel);
@@ -370,10 +418,10 @@ pub(crate) unsafe fn init(config: Config) {
     {
         PWR.voscr().modify(|w| {
             w.set_vos(match config.voltage_scale {
-                VoltageScale::Scale0 => crate::pac::pwr::vals::Vos::SCALE0,
-                VoltageScale::Scale1 => crate::pac::pwr::vals::Vos::SCALE1,
-                VoltageScale::Scale2 => crate::pac::pwr::vals::Vos::SCALE2,
-                VoltageScale::Scale3 => crate::pac::pwr::vals::Vos::SCALE3,
+                VoltageScale::Scale0 => crate::pac::pwr::vals::Vos::Scale0,
+                VoltageScale::Scale1 => crate::pac::pwr::vals::Vos::Scale1,
+                VoltageScale::Scale2 => crate::pac::pwr::vals::Vos::Scale2,
+                VoltageScale::Scale3 => crate::pac::pwr::vals::Vos::Scale3,
             })
         });
         while !PWR.vossr().read().vosrdy() {}
@@ -383,10 +431,10 @@ pub(crate) unsafe fn init(config: Config) {
         // in chips without the overdrive bit, we can go from any scale to any scale directly.
         PWR.d3cr().modify(|w| {
             w.set_vos(match config.voltage_scale {
-                VoltageScale::Scale0 => crate::pac::pwr::vals::Vos::SCALE0,
-                VoltageScale::Scale1 => crate::pac::pwr::vals::Vos::SCALE1,
-                VoltageScale::Scale2 => crate::pac::pwr::vals::Vos::SCALE2,
-                VoltageScale::Scale3 => crate::pac::pwr::vals::Vos::SCALE3,
+                VoltageScale::Scale0 => crate::pac::pwr::vals::Vos::Scale0,
+                VoltageScale::Scale1 => crate::pac::pwr::vals::Vos::Scale1,
+                VoltageScale::Scale2 => crate::pac::pwr::vals::Vos::Scale2,
+                VoltageScale::Scale3 => crate::pac::pwr::vals::Vos::Scale3,
             })
         });
         while !PWR.d3cr().read().vosrdy() {}
@@ -402,7 +450,7 @@ pub(crate) unsafe fn init(config: Config) {
         match config.voltage_scale {
             VoltageScale::Scale0 => {
                 // to go to scale0, we must go to Scale1 first...
-                PWR.d3cr().modify(|w| w.set_vos(crate::pac::pwr::vals::Vos::SCALE1));
+                PWR.d3cr().modify(|w| w.set_vos(crate::pac::pwr::vals::Vos::Scale1));
                 while !PWR.d3cr().read().vosrdy() {}
 
                 // Then enable overdrive.
@@ -414,9 +462,9 @@ pub(crate) unsafe fn init(config: Config) {
                 PWR.d3cr().modify(|w| {
                     w.set_vos(match config.voltage_scale {
                         VoltageScale::Scale0 => unreachable!(),
-                        VoltageScale::Scale1 => crate::pac::pwr::vals::Vos::SCALE1,
-                        VoltageScale::Scale2 => crate::pac::pwr::vals::Vos::SCALE2,
-                        VoltageScale::Scale3 => crate::pac::pwr::vals::Vos::SCALE3,
+                        VoltageScale::Scale1 => crate::pac::pwr::vals::Vos::Scale1,
+                        VoltageScale::Scale2 => crate::pac::pwr::vals::Vos::Scale2,
+                        VoltageScale::Scale3 => crate::pac::pwr::vals::Vos::Scale3,
                     })
                 });
                 while !PWR.d3cr().read().vosrdy() {}
@@ -437,13 +485,13 @@ pub(crate) unsafe fn init(config: Config) {
     #[cfg(stm32h7rs)]
     {
         // Switch the XSPI clock source so it will use HSI
-        RCC.ahbperckselr().modify(|w| w.set_xspi1sel(Xspisel::HCLK5));
-        RCC.ahbperckselr().modify(|w| w.set_xspi2sel(Xspisel::HCLK5));
+        RCC.ahbperckselr().modify(|w| w.set_xspi1sel(Xspisel::Hclk5));
+        RCC.ahbperckselr().modify(|w| w.set_xspi2sel(Xspisel::Hclk5));
     };
 
     // Use the HSI clock as system clock during the actual clock setup
-    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
-    while RCC.cfgr().read().sws() != Sysclk::HSI {}
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsi));
+    while RCC.cfgr().read().sws() != Sysclk::Hsi {}
 
     // Configure HSI
     let hsi = match config.hsi {
@@ -462,8 +510,8 @@ pub(crate) unsafe fn init(config: Config) {
                 w.set_hsebyp(hse.mode != HseMode::Oscillator);
                 #[cfg(any(rcc_h5, rcc_h50, rcc_h7rs))]
                 w.set_hseext(match hse.mode {
-                    HseMode::Oscillator | HseMode::Bypass => pac::rcc::vals::Hseext::ANALOG,
-                    HseMode::BypassDigital => pac::rcc::vals::Hseext::DIGITAL,
+                    HseMode::Oscillator | HseMode::Bypass => pac::rcc::vals::Hseext::Analog,
+                    HseMode::BypassDigital => pac::rcc::vals::Hseext::Digital,
                 });
             });
             RCC.cr().modify(|w| w.set_hseon(true));
@@ -496,17 +544,35 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Configure PLLs.
     let pll_input = PllInput { csi, hse, hsi };
-    let pll1 = init_pll(0, config.pll1, &pll_input);
-    let pll2 = init_pll(1, config.pll2, &pll_input);
+    let pll1 = config.pll1.map_or_else(
+        || {
+            disable_pll(0);
+            PllOutput::default()
+        },
+        |c| init_pll(0, Some(c), &pll_input),
+    );
+    let pll2 = config.pll2.map_or_else(
+        || {
+            disable_pll(1);
+            PllOutput::default()
+        },
+        |c| init_pll(1, Some(c), &pll_input),
+    );
     #[cfg(any(rcc_h5, stm32h7, stm32h7rs))]
-    let pll3 = init_pll(2, config.pll3, &pll_input);
+    let pll3 = config.pll3.map_or_else(
+        || {
+            disable_pll(2);
+            PllOutput::default()
+        },
+        |c| init_pll(2, Some(c), &pll_input),
+    );
 
     // Configure sysclk
     let sys = match config.sys {
-        Sysclk::HSI => unwrap!(hsi),
-        Sysclk::HSE => unwrap!(hse),
-        Sysclk::CSI => unwrap!(csi),
-        Sysclk::PLL1_P => unwrap!(pll1.p),
+        Sysclk::Hsi => unwrap!(hsi),
+        Sysclk::Hse => unwrap!(hse),
+        Sysclk::Csi => unwrap!(csi),
+        Sysclk::Pll1P => unwrap!(pll1.p),
         _ => unreachable!(),
     };
 
@@ -548,15 +614,15 @@ pub(crate) unsafe fn init(config: Config) {
     };
     #[cfg(stm32h7rs)]
     let (d1cpre_clk_max, hclk_max, pclk_max) = match config.voltage_scale {
-        VoltageScale::HIGH => (Hertz(600_000_000), Hertz(300_000_000), Hertz(150_000_000)),
-        VoltageScale::LOW => (Hertz(400_000_000), Hertz(200_000_000), Hertz(100_000_000)),
+        VoltageScale::High => (Hertz(600_000_000), Hertz(300_000_000), Hertz(150_000_000)),
+        VoltageScale::Low => (Hertz(400_000_000), Hertz(200_000_000), Hertz(100_000_000)),
     };
 
     #[cfg(any(stm32h7, stm32h7rs))]
     let hclk = {
         let d1cpre_clk = sys / config.d1c_pre;
         assert!(d1cpre_clk <= d1cpre_clk_max);
-        sys / config.ahb_pre
+        d1cpre_clk / config.ahb_pre
     };
     #[cfg(stm32h5)]
     let hclk = sys / config.ahb_pre;
@@ -587,26 +653,26 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(all(stm32h7rs, peri_usb_otg_hs))]
     let usb_refck = match config.mux.usbphycsel {
-        Usbphycsel::HSE => hse,
-        Usbphycsel::HSE_DIV_2 => hse.map(|hse_val| hse_val / 2u8),
-        Usbphycsel::PLL3_Q => pll3.q,
+        Usbphycsel::Hse => hse,
+        Usbphycsel::HseDiv2 => hse.map(|hse_val| hse_val / 2u8),
+        Usbphycsel::Pll3Q => pll3.q,
         _ => None,
     };
     #[cfg(all(stm32h7rs, peri_usb_otg_hs))]
     let usb_refck_sel = match usb_refck {
         Some(clk_val) => match clk_val {
-            Hertz(16_000_000) => Usbrefcksel::MHZ16,
-            Hertz(19_200_000) => Usbrefcksel::MHZ19_2,
-            Hertz(20_000_000) => Usbrefcksel::MHZ20,
-            Hertz(24_000_000) => Usbrefcksel::MHZ24,
-            Hertz(26_000_000) => Usbrefcksel::MHZ26,
-            Hertz(32_000_000) => Usbrefcksel::MHZ32,
+            Hertz(16_000_000) => Usbrefcksel::Mhz16,
+            Hertz(19_200_000) => Usbrefcksel::Mhz192,
+            Hertz(20_000_000) => Usbrefcksel::Mhz20,
+            Hertz(24_000_000) => Usbrefcksel::Mhz24,
+            Hertz(26_000_000) => Usbrefcksel::Mhz26,
+            Hertz(32_000_000) => Usbrefcksel::Mhz32,
             _ => panic!(
                 "cannot select USBPHYC reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz",
                 clk_val
             ),
         },
-        None => Usbrefcksel::MHZ24,
+        None => Usbrefcksel::Mhz24,
     };
 
     #[cfg(stm32h7)]
@@ -681,8 +747,8 @@ pub(crate) unsafe fn init(config: Config) {
         super::disable_hsi48();
     }
 
-    // IO compensation cell - Requires CSI clock and SYSCFG
-    #[cfg(any(stm32h7))] // TODO h5, h7rs
+    // IO compensation cell(s) - Requires CSI clock and SYSCFG
+    #[cfg(any(stm32h7))] // TODO h5
     if csi.is_some() {
         // Enable the compensation cell, using back-bias voltage code
         // provide by the cell.
@@ -694,6 +760,110 @@ pub(crate) unsafe fn init(config: Config) {
             })
         });
         while !pac::SYSCFG.cccsr().read().rdy() {}
+    }
+    #[cfg(any(stm32h7rs))]
+    if csi.is_some() {
+        // The CSI oscillator must be enabled for this to work.
+        // (RM0477, p.362, Ch. 7.5.2 "Oscillators description".)
+
+        // SBS peripheral clock is required by the compensation cells.
+        RCC.apb4enr().modify(|w| w.set_syscfgen(true));
+
+        // Unlock flash OPTCR, when required, to be able to configure HSLV
+        // (high-speed, low-voltage) mode for the required I/O domains.
+        // The original state of the lock bits will be restored when done.
+        // Note: this also avoids double-unlocking, which is not permitted.
+        // (RM0477, p.581, Ch. 10.3.16: High-speed low-voltage mode)
+        let original_lock_state = FLASH.optcr().read().optlock();
+        let original_opt_pg_state = FLASH.optcr().read().pg_opt();
+        if original_lock_state {
+            FLASH.optkeyr().write_value(Optkeyr(0x08192A3B));
+            FLASH.optkeyr().write_value(Optkeyr(0x4C5D6E7F));
+        }
+        if !original_opt_pg_state {
+            // Enable write access to the option bits.
+            FLASH.optcr().modify(|w| w.set_pg_opt(true));
+            while FLASH.sr().read().busy() {}
+        }
+
+        // Set the HSLV option bits to enable HSLV mode configuratrion for all
+        // three domains. (RM0477, p.272, 5.9.33 "FLASH option byte word 1
+        // status register programming")
+        FLASH.obw1srp().modify(|w| {
+            w.set_octo1_hslv(true);
+            w.set_octo2_hslv(true);
+            w.set_vddio_hslv(true);
+        });
+        while FLASH.sr().read().busy() {}
+
+        // Restore the original state of the optlock and pg_opt bits. This is
+        // effectively a no-op if no state change was originally required.
+        FLASH.optcr().modify(|w| {
+            w.set_pg_opt(original_opt_pg_state);
+            w.set_optlock(original_lock_state);
+        });
+        while FLASH.sr().read().busy() {}
+
+        // Configure the HSLV mode domains and I/O compensation cells.
+        pac::SYSCFG.cccsr().modify(|w| {
+            w.set_octo1_iohslv(config.hslv_xspi1);
+            w.set_octo2_iohslv(config.hslv_xspi2);
+            w.set_iohslv(config.hslv_io);
+
+            // Enable the compensation cells, using automatic compensation at
+            // first. Note that an errata applies, which is handled below.
+            w.set_octo1_comp_codesel(false);
+            w.set_octo2_comp_codesel(false);
+            w.set_comp_codesel(false);
+
+            w.set_octo1_comp_en(config.comp_xspi1);
+            w.set_octo2_comp_en(config.comp_xspi2);
+            w.set_comp_en(true);
+        });
+
+        // Wait for the compensation cells to stabilize.
+        // Note: this may never happen for XSPI ports that have no active
+        //       device connected to them. A basic polling time-out is added
+        //       as fall-back, with a diagnostic message.
+        const COMP_POLL_MAX: u32 = 10000; // Enough for maxed-out clocks.
+        let mut poll_cnt = 0;
+        while config.comp_xspi1 && !pac::SYSCFG.cccsr().read().octo1_comp_rdy() && poll_cnt < COMP_POLL_MAX {
+            poll_cnt += 1;
+        }
+        if poll_cnt == COMP_POLL_MAX {
+            warn!("XSPI1 compensation cell ready-flag time-out.");
+        }
+        poll_cnt = 0;
+        while config.comp_xspi2 && !pac::SYSCFG.cccsr().read().octo2_comp_rdy() && poll_cnt < COMP_POLL_MAX {
+            poll_cnt += 1
+        }
+        if poll_cnt == COMP_POLL_MAX {
+            warn!("XSPI2 compensation cell ready-flag time-out.");
+        }
+        while !pac::SYSCFG.cccsr().read().comp_rdy() {}
+
+        // Now the I/O compensation and HSLV mode are configured, there are
+        // still issues with the automatic tuning of the I/O compensation, when
+        // operating over a wider temperature range. A work-around is required,
+        // as explained in the errata:
+        // - Read the auto-tune values at around 30°C ambient and store in non-
+        //   volatile storage. The values should have a correction applied.
+        // - Apply these stored, correct values at boot.
+        //
+        // The fix is applied here, assuming a sufficiently-constant ambient
+        // temperature, but the user should still do the calibration step and
+        // apply the correct values, before attempting high-speed peripheral
+        // access in real-world applications.
+        //
+        // (ES0596, p. 12, Ch 2.2.15 "I/O compensation could alter duty-cycle of high-frequency output signal")
+        // <https://community.st.com/t5/stm32-mcus-products/stm32h7s7l8h6h-xspi-instability/td-p/749315>
+        //
+        // Note: applying the errata to the GPIO compensation cell, as is done
+        //       here, seems to improve this as well, judging by a signal on
+        //       the MCO output pin, although it is not explicitly stated in
+        //       the errata.
+        let ccv = get_corrected_comp_vals();
+        set_and_enable_comp_vals(&ccv);
     }
 
     config.mux.init();
@@ -732,9 +902,9 @@ pub(crate) unsafe fn init(config: Config) {
         pll2_q: pll2.q,
         pll2_r: pll2.r,
         #[cfg(stm32h7rs)]
-        pll2_s: None, // TODO
+        pll2_s: pll2.s,
         #[cfg(stm32h7rs)]
-        pll2_t: None, // TODO
+        pll2_t: pll2.t,
         #[cfg(any(rcc_h5, stm32h7, stm32h7rs))]
         pll3_p: pll3.p,
         #[cfg(any(rcc_h5, stm32h7, stm32h7rs))]
@@ -750,7 +920,7 @@ pub(crate) unsafe fn init(config: Config) {
         pll3_r: None,
 
         #[cfg(dsihost)]
-        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
+        dsi_phy: config.dsi.map(|config| dsi::configure_pll(hse, config)),
 
         #[cfg(stm32h5)]
         audioclk: None,
@@ -772,6 +942,7 @@ struct PllInput {
     csi: Option<Hertz>,
 }
 
+#[derive(Default)]
 struct PllOutput {
     p: Option<Hertz>,
     #[allow(dead_code)]
@@ -786,64 +957,60 @@ struct PllOutput {
     t: Option<Hertz>,
 }
 
+fn disable_pll(num: usize) {
+    // Stop PLL
+    RCC.cr().modify(|w| w.set_pllon(num, false));
+    while RCC.cr().read().pllrdy(num) {}
+
+    // "To save power when PLL1 is not used, the value of PLL1M must be set to 0.""
+    #[cfg(any(stm32h7, stm32h7rs))]
+    RCC.pllckselr().write(|w| w.set_divm(num, PllPreDiv::from_bits(0)));
+    #[cfg(stm32h5)]
+    RCC.pllcfgr(num).write(|w| w.set_divm(PllPreDiv::from_bits(0)));
+}
+
 fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     let Some(config) = config else {
-        // Stop PLL
-        RCC.cr().modify(|w| w.set_pllon(num, false));
-        while RCC.cr().read().pllrdy(num) {}
+        disable_pll(num);
 
-        // "To save power when PLL1 is not used, the value of PLL1M must be set to 0.""
-        #[cfg(any(stm32h7, stm32h7rs))]
-        RCC.pllckselr().write(|w| w.set_divm(num, PllPreDiv::from_bits(0)));
-        #[cfg(stm32h5)]
-        RCC.pllcfgr(num).write(|w| w.set_divm(PllPreDiv::from_bits(0)));
-
-        return PllOutput {
-            p: None,
-            q: None,
-            r: None,
-            #[cfg(stm32h7rs)]
-            s: None,
-            #[cfg(stm32h7rs)]
-            t: None,
-        };
+        return PllOutput::default();
     };
 
     let in_clk = match config.source {
-        PllSource::DISABLE => panic!("must not set PllSource::Disable"),
-        PllSource::HSI => unwrap!(input.hsi),
-        PllSource::HSE => unwrap!(input.hse),
-        PllSource::CSI => unwrap!(input.csi),
+        PllSource::Disable => panic!("must not set PllSource::Disable"),
+        PllSource::Hsi => unwrap!(input.hsi),
+        PllSource::Hse => unwrap!(input.hse),
+        PllSource::Csi => unwrap!(input.csi),
     };
 
     let ref_clk = in_clk / config.prediv as u32;
 
     let ref_range = match ref_clk.0 {
-        ..=1_999_999 => Pllrge::RANGE1,
-        ..=3_999_999 => Pllrge::RANGE2,
-        ..=7_999_999 => Pllrge::RANGE4,
-        ..=16_000_000 => Pllrge::RANGE8,
+        ..=1_999_999 => Pllrge::Range1,
+        ..=3_999_999 => Pllrge::Range2,
+        ..=7_999_999 => Pllrge::Range4,
+        ..=16_000_000 => Pllrge::Range8,
         x => panic!("pll ref_clk out of range: {} hz", x),
     };
 
     // The smaller range (150 to 420 MHz) must
     // be chosen when the reference clock frequency is lower than 2 MHz.
-    let wide_allowed = ref_range != Pllrge::RANGE1;
+    let wide_allowed = ref_range != Pllrge::Range1;
 
-    #[cfg(stm32h743)]
+    #[cfg(any(stm32h743, stm32h730))]
     let vco_clk = match config.fracn {
         Some(fracn) => {
             Hertz::hz((ref_clk.0 as f32 * ((config.mul.to_bits() + 1) as f32 + (fracn as f32 / 8192.0))) as u32)
         }
         None => ref_clk * config.mul,
     };
-    #[cfg(not(stm32h743))]
+    #[cfg(not(any(stm32h743, stm32h730)))]
     let vco_clk = ref_clk * config.mul;
 
     let vco_range = if VCO_RANGE.contains(&vco_clk) {
-        Pllvcosel::MEDIUM_VCO
+        Pllvcosel::MediumVco
     } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk) {
-        Pllvcosel::WIDE_VCO
+        Pllvcosel::WideVco
     } else {
         panic!("pll vco_clk out of range: {}", vco_clk)
     };
@@ -886,7 +1053,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             w.set_pllsrc(config.source);
         });
 
-        #[cfg(stm32h743)]
+        #[cfg(any(stm32h743, stm32h730))]
         if let Some(fracn) = config.fracn {
             RCC.pllfracr(num).modify(|w| w.set_fracn(fracn))
         }
@@ -895,14 +1062,14 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             w.set_pllvcosel(num, vco_range);
             w.set_pllrge(num, ref_range);
 
-            #[cfg(stm32h743)]
+            #[cfg(any(stm32h743, stm32h730))]
             if config.fracn.is_some() {
                 w.set_pllfracen(num, true);
             } else {
                 w.set_pllfracen(num, false);
             }
 
-            #[cfg(not(stm32h743))]
+            #[cfg(not(any(stm32h743, stm32h730)))]
             w.set_pllfracen(num, false);
 
             w.set_divpen(num, p.is_some());
@@ -917,15 +1084,15 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
 
     RCC.plldivr(num).write(|w| {
         w.set_plln(config.mul);
-        w.set_pllp(config.divp.unwrap_or(PllDiv::DIV2));
-        w.set_pllq(config.divq.unwrap_or(PllDiv::DIV2));
-        w.set_pllr(config.divr.unwrap_or(PllDiv::DIV2));
+        w.set_pllp(config.divp.unwrap_or(PllDiv::Div2));
+        w.set_pllq(config.divq.unwrap_or(PllDiv::Div2));
+        w.set_pllr(config.divr.unwrap_or(PllDiv::Div2));
     });
 
     #[cfg(stm32h7rs)]
     RCC.plldivr2(num).write(|w| {
-        w.set_plls(config.divs.unwrap_or(Plldivst::DIV2));
-        w.set_pllt(config.divt.unwrap_or(Plldivst::DIV2));
+        w.set_plls(config.divs.unwrap_or(PllDivSt::Div2));
+        w.set_pllt(config.divt.unwrap_or(PllDivSt::Div2));
     });
 
     RCC.cr().modify(|w| w.set_pllon(num, true));
@@ -1070,21 +1237,21 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
     #[cfg(flash_h7rs)]
     let (latency, wrhighfreq) = match (vos, clk.0) {
         // VOS high range VCORE 1.30V - 1.40V
-        (VoltageScale::HIGH, ..=40_000_000) => (0, 0),
-        (VoltageScale::HIGH, ..=80_000_000) => (1, 0),
-        (VoltageScale::HIGH, ..=120_000_000) => (2, 1),
-        (VoltageScale::HIGH, ..=160_000_000) => (3, 1),
-        (VoltageScale::HIGH, ..=200_000_000) => (4, 2),
-        (VoltageScale::HIGH, ..=240_000_000) => (5, 2),
-        (VoltageScale::HIGH, ..=280_000_000) => (6, 3),
-        (VoltageScale::HIGH, ..=320_000_000) => (7, 3),
+        (VoltageScale::High, ..=40_000_000) => (0, 0),
+        (VoltageScale::High, ..=80_000_000) => (1, 0),
+        (VoltageScale::High, ..=120_000_000) => (2, 1),
+        (VoltageScale::High, ..=160_000_000) => (3, 1),
+        (VoltageScale::High, ..=200_000_000) => (4, 2),
+        (VoltageScale::High, ..=240_000_000) => (5, 2),
+        (VoltageScale::High, ..=280_000_000) => (6, 3),
+        (VoltageScale::High, ..=320_000_000) => (7, 3),
         // VOS low range VCORE 1.15V - 1.26V
-        (VoltageScale::LOW, ..=36_000_000) => (0, 0),
-        (VoltageScale::LOW, ..=72_000_000) => (1, 0),
-        (VoltageScale::LOW, ..=108_000_000) => (2, 1),
-        (VoltageScale::LOW, ..=144_000_000) => (3, 1),
-        (VoltageScale::LOW, ..=180_000_000) => (4, 2),
-        (VoltageScale::LOW, ..=216_000_000) => (5, 2),
+        (VoltageScale::Low, ..=36_000_000) => (0, 0),
+        (VoltageScale::Low, ..=72_000_000) => (1, 0),
+        (VoltageScale::Low, ..=108_000_000) => (2, 1),
+        (VoltageScale::Low, ..=144_000_000) => (3, 1),
+        (VoltageScale::Low, ..=180_000_000) => (4, 2),
+        (VoltageScale::Low, ..=216_000_000) => (5, 2),
         _ => unreachable!(),
     };
 
@@ -1095,4 +1262,126 @@ fn flash_setup(clk: Hertz, vos: VoltageScale) {
         w.set_latency(latency);
     });
     while FLASH.acr().read().latency() != latency {}
+}
+
+/// Compensation cell calibration values. The N-MOS and P-MOS transistors slew
+/// rate compensation factors are stored for the three different compensation
+/// cells available in the STM32H7RS family.
+#[cfg(stm32h7rs)]
+pub struct CompVals {
+    /// XSPI1 N-MOS transistors slew-rate compensation value [0-15].
+    pub octo1_nsrc: u8,
+    /// XSPI1 P-MOS transistors slew-rate compensation value [0-15].
+    pub octo1_psrc: u8,
+    /// XSPI2 N-MOS transistors slew-rate compensation value [0-15].
+    pub octo2_nsrc: u8,
+    /// XSPI2 P-MOS transistors slew-rate compensation value [0-15].
+    pub octo2_psrc: u8,
+    /// GPIO N-MOS transistors slew-rate compensation value [0-15].
+    pub io_nsrc: u8,
+    /// GPIO P-MOS transistors slew-rate compensation value [0-15].
+    pub io_psrc: u8,
+}
+
+/// Obtain the auto-tuned, slew-rate compensation values for the different
+/// compensation cells. The errata corrections are applied. Following the
+/// errata, these values should be obtained once during production, around
+/// 30°C MCU temperature, for each individual board, and stored in non-volatile
+/// memory for future use. The stored values should then be applied at power-up
+/// to guarantee stable, high-speed operation of the XSPI busses, and other
+/// high-speed I/O. While ST does not discuss the application to the GPIO pins
+/// in general in the errata, applying the errata compensation to those as well
+/// seems to improve the waveform symmetry (eg: MCO).
+/// (ES0596, p. 12, Ch 2.2.15 "I/O compensation could alter duty-cycle of
+/// high-frequency output signal")
+#[cfg(stm32h7rs)]
+pub fn get_corrected_comp_vals() -> CompVals {
+    let ccvalr = pac::SYSCFG.ccvalr().read();
+    return CompVals {
+        octo1_nsrc: ccvalr.octo1_nsrc().saturating_add(2),
+        octo1_psrc: ccvalr.octo1_psrc().saturating_sub(2),
+        octo2_nsrc: ccvalr.octo2_nsrc().saturating_add(2),
+        octo2_psrc: ccvalr.octo2_psrc().saturating_sub(2),
+        io_nsrc: ccvalr.octo2_nsrc().saturating_add(2),
+        io_psrc: ccvalr.octo2_psrc().saturating_sub(2),
+    };
+}
+
+/// Apply static slew-rate compensation values to all compensation cells, and
+/// enable them. These should be the corrected values outlined in the errata.
+/// (ES0596, p. 12, Ch 2.2.15 "I/O compensation could alter duty-cycle of
+/// high-frequency output signal")
+#[cfg(stm32h7rs)]
+pub fn set_and_enable_comp_vals(cv: &CompVals) {
+    pac::SYSCFG.ccswvalr().modify(|w| {
+        // Set the corrected, constant compensation values manually.
+        w.set_octo1_sw_nsrc(cv.octo1_nsrc);
+        w.set_octo1_sw_psrc(cv.octo1_psrc);
+        w.set_octo2_sw_nsrc(cv.octo2_nsrc);
+        w.set_octo2_sw_psrc(cv.octo2_psrc);
+        w.set_sw_nsrc(cv.io_nsrc);
+        w.set_sw_psrc(cv.io_psrc);
+    });
+    pac::SYSCFG.cccsr().modify(|w| {
+        // Switch to use the constant, manual compensation values.
+        w.set_octo1_comp_codesel(true);
+        w.set_octo2_comp_codesel(true);
+        w.set_comp_codesel(true);
+    });
+}
+
+/// CPU Reset Sources
+///
+/// The STM32 RCC peripheral implements the ability for the CPU to detect why a reset
+/// occurred.
+#[cfg(rcc_h7rm0433)]
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ResetReason {
+    PowerOnReset,
+    PinReset,
+    BrownoutReset,
+    SysReset,
+    CpuReset,
+    Wwdg1Reset,
+    Iwdg1Reset,
+    D1ExitStandby,
+    D2ExitStandby,
+    D1ErroneousStandby,
+    Unknown(u32),
+}
+
+#[cfg(rcc_h7rm0433)]
+impl ResetReason {
+    /// Read and clear the reason the core thinks the reset occurred.
+    pub fn read_clear() -> ResetReason {
+        let rsr = RCC.rsr().read();
+        RCC.rsr().modify(|w| w.set_rmvf(true));
+
+        // Refer to Reference Manual (RM0433, Rev 8, Table 56).
+        match (
+            rsr.lpwrrstf(),
+            rsr.wwdg1rstf(),
+            rsr.iwdg1rstf(),
+            rsr.sftrstf(),
+            rsr.porrstf(),
+            rsr.pinrstf(),
+            rsr.borrstf(),
+            rsr.d2rstf(),
+            rsr.d1rstf(),
+            rsr.cpurstf(),
+        ) {
+            (false, false, false, false, true, true, true, true, true, true) => ResetReason::PowerOnReset,
+            (false, false, false, false, false, true, false, false, false, true) => ResetReason::PinReset,
+            (false, false, false, false, false, true, true, false, false, true) => ResetReason::BrownoutReset,
+            (false, false, false, true, false, true, false, false, false, true) => ResetReason::SysReset,
+            (false, false, false, false, false, false, false, false, false, true) => ResetReason::CpuReset,
+            (false, true, false, false, false, true, false, false, false, true) => ResetReason::Wwdg1Reset,
+            (false, false, true, false, false, true, false, false, false, true) => ResetReason::Iwdg1Reset,
+            (false, false, false, false, false, false, false, false, true, false) => ResetReason::D1ExitStandby,
+            (false, false, false, false, false, false, false, true, false, false) => ResetReason::D2ExitStandby,
+            (true, false, false, false, false, true, false, false, false, true) => ResetReason::D1ErroneousStandby,
+            _ => ResetReason::Unknown(rsr.0),
+        }
+    }
 }

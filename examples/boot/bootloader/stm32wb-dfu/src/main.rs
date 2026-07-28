@@ -8,7 +8,7 @@ use cortex_m_rt::{entry, exception};
 use defmt_rtt as _;
 use embassy_boot_stm32::*;
 use embassy_stm32::flash::{BANK1_REGION, Flash, WRITE_SIZE};
-use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb};
 use embassy_sync::blocking_mutex::Mutex;
@@ -34,7 +34,7 @@ static PUBLIC_SIGNING_KEY: &[u8; 32] = include_bytes!("../secrets/key.pub.short"
 #[entry]
 fn main() -> ! {
     let mut config = embassy_stm32::Config::default();
-    config.rcc = WPAN_DEFAULT;
+    config.rcc = RccConfig::new_wpan();
     let p = embassy_stm32::init(config);
 
     // Prevent a hard fault when accessing flash 'too early' after boot.
@@ -106,7 +106,7 @@ fn main() -> ! {
         embassy_futures::block_on(dev.run());
     }
 
-    unsafe { bl.load(BANK1_REGION.base + active_offset) }
+    unsafe { bl.load(BANK1_REGION.base() + active_offset) }
 }
 
 #[unsafe(no_mangle)]

@@ -10,7 +10,7 @@ use embassy_time_queue_utils::Queue;
 
 use crate::interrupt::InterruptExt;
 #[cfg(feature = "_grtc")]
-use crate::pac::grtc::vals::Busy;
+use crate::pac::grtc::vals::{Autoen, Busy};
 use crate::{interrupt, pac};
 
 #[cfg(feature = "_grtc")]
@@ -22,6 +22,33 @@ fn rtc() -> pac::grtc::Grtc {
 fn rtc() -> pac::rtc::Rtc {
     pac::RTC1
 }
+
+// The nRF54 series (which has the GRTC) uses asymmetric channels
+// Namely, CC[0] is the only channel which supports "periodic interval" (page 298 in the datasheet),
+// which supports periodic alarms by adding the value in the INTERVAL register when EVENTS_COMPARE[0] triggers
+// Because the time driver does not make use of periodic alarms (but always reprograms it), it does not need to make use of this.
+// This selects the last CC channel (CC[11]) instead of CC[0] to keep CC[0] free for application use,
+// specifically for PPI-driven events that aim to avoid CPU intervention in periodic tasks.
+const TIME_DRIVER_CC_N: usize = if cfg!(feature = "_grtc") { 11 } else { 0 };
+
+// On nRF54L/LM GRTC, SYSCOUNTER[n], INTENSETn/INTENCLRn/INTENn, and the
+// GRTC_n interrupt all index by "domain":
+//   FLPR              = 0
+//   App Non-Secure    = 1   (GRTC_1, SYSCOUNTER[1])
+//   App Secure        = 2   (GRTC_2, SYSCOUNTER[2])
+// See:
+//    - nRF54L15: https://github.com/NordicSemiconductor/nrfx/blob/master/bsp/stable/mdk/nrf54l15_interim.h#L64-L75
+//    - nRF54LM20A: https://github.com/NordicSemiconductor/nrfx/blob/master/bsp/stable/mdk/nrf54lm20a_interim.h#L64-L75
+//    - nRF54LM20B: https://github.com/NordicSemiconductor/nrfx/blob/master/bsp/stable/mdk/nrf54lm20b_interim.h#L64-L75
+// And:
+//    - https://github.com/NordicSemiconductor/nrfx/blob/master/hal/nrf_grtc.h#L158-L162
+#[cfg(feature = "_grtc")]
+#[cfg(feature = "_ns")]
+const DOMAIN_IDX: usize = 1;
+
+#[cfg(feature = "_grtc")]
+#[cfg(not(feature = "_ns"))]
+const DOMAIN_IDX: usize = 2;
 
 /// Calculate the timestamp from the period count and the tick count.
 ///
@@ -68,7 +95,7 @@ fn rtc() -> pac::rtc::Rtc {
 /// a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
 /// corresponds to the next period.
 ///
-/// `period` is a 32bit integer, so It overflows on 2^32 * 2^23 / 32768 seconds of uptime, which is 34865
+/// `period` is a _32bit integer, so It overflows on 2^32 * 2^23 / 32768 seconds of uptime, which is 34865
 /// years. For comparison, flash memory like the one containing your firmware is usually rated to retain
 /// data for only 10-20 years. 34865 years is long enough!
 #[cfg(not(feature = "_grtc"))]
@@ -76,6 +103,13 @@ fn calc_now(period: u32, counter: u32) -> u64 {
     ((period as u64) << 23) + ((counter ^ ((period & 1) << 23)) as u64)
 }
 
+/// Read the 52-bit GRTC SYSCOUNTER value.
+///
+/// Follows the product spec "Recommendation on reading SYSCOUNTER":
+///   1. Set SYSCOUNTER[m].ACTIVE to Active
+///   2. Wait until SYSCOUNTER[m].SYSCOUNTERH.BUSY is cleared
+///   3. Read SYSCOUNTER[m].SYSCOUNTERL/H
+///   4. Clear SYSCOUNTER[m].ACTIVE
 #[cfg(feature = "_grtc")]
 fn syscounter() -> u64 {
     let r = rtc();
@@ -83,16 +117,15 @@ fn syscounter() -> u64 {
         return 0;
     }
 
-    r.syscounter(0).active().write(|w| w.set_active(true));
+    r.syscounter(DOMAIN_IDX).active().write(|w| w.set_active(true));
     loop {
-        let countl: u32 = r.syscounter(0).syscounterl().read();
-        let counth = r.syscounter(0).syscounterh().read();
+        let countl: u32 = r.syscounter(DOMAIN_IDX).syscounterl().read();
+        let counth = r.syscounter(DOMAIN_IDX).syscounterh().read();
 
-        if counth.busy() == Busy::READY && !counth.overflow() {
+        if counth.busy() == Busy::Ready && !counth.overflow() {
             let counth: u32 = counth.value();
-            let count = countl as u64 | ((counth as u64) << 32);
-            r.syscounter(0).active().write(|w| w.set_active(false));
-            return count;
+            r.syscounter(DOMAIN_IDX).active().write(|w| w.set_active(false));
+            return countl as u64 | ((counth as u64) << 32);
         }
         // If overflow or not ready, loop will re-read both registers
     }
@@ -170,37 +203,70 @@ impl RtcDriver {
                 w.set_ovrflw(true);
                 w.set_compare(3, true);
             });
-        }
 
-        #[cfg(feature = "_grtc")]
-        {
-            r.mode().write(|w| {
-                w.set_syscounteren(true);
-            });
-        }
-        r.tasks_clear().write_value(1);
-        r.tasks_start().write_value(1);
+            r.tasks_clear().write_value(1);
+            r.tasks_start().write_value(1);
 
-        // Wait for clear
-        #[cfg(not(feature = "_grtc"))]
-        while r.counter().read().0 != 0 {}
+            // Wait for clear
+            while r.counter().read().0 != 0 {}
 
-        #[cfg(feature = "_grtc")]
-        loop {
-            if r.status().lftimer().read().ready() {
-                break;
-            }
-        }
-
-        #[cfg(feature = "_grtc")]
-        {
-            interrupt::GRTC_1.set_priority(irq_prio);
-            unsafe { interrupt::GRTC_1.enable() };
-        }
-        #[cfg(not(feature = "_grtc"))]
-        {
             interrupt::RTC1.set_priority(irq_prio);
             unsafe { interrupt::RTC1.enable() };
+        }
+
+        // GRTC initialization for nRF54L/LM series.
+        #[cfg(feature = "_grtc")]
+        {
+            let n = TIME_DRIVER_CC_N;
+
+            // 1. Disable the SYSCOUNTER before reconfiguring
+            r.mode().modify(|w| w.set_syscounteren(false));
+
+            // 2. Clear any stale compare event and mask the IRQ for our channel.
+            r.events_compare(n).write_value(0);
+            r.intenclr(DOMAIN_IDX).write(|w| w.0 = compare_n(n));
+
+            // 3. Clear and start the counter when lftimer is ready
+            while !r.status().lftimer().read().ready() {}
+            r.tasks_clear().write_value(1);
+            while !r.status().lftimer().read().ready() {}
+            r.tasks_start().write_value(1);
+
+            // 4. Configure the sleep/wake mechanism and enable the SYSCOUNTER.
+            //
+            // TIMEOUT and WAKETIME control the GRTC's low-power behaviour.
+            // When SYSCOUNTER goes to sleep, the GRTC configures an internal
+            // LFCLK compare match based on the next CC[n] value. WAKETIME
+            // LFCLK cycles before that match, the GRTC wakes SYSCOUNTER.
+            // TIMEOUT extends the active state after the last wake condition
+            // clears.
+            //
+            // Per the product spec: TIMEOUT > WAKETIME + guard_time
+            // (minimum guard_time = 1 LFCLK cycle).
+            //
+            // AUTOEN = CPU_ACTIVE additionally keeps the SYSCOUNTER
+            // running whenever any local CPU is active.
+            r.timeout().write(|w| w.set_value(5));
+            r.waketime().write(|w| w.set_value(4));
+            r.mode().modify(|w| {
+                w.set_syscounteren(true);
+                w.set_autoen(Autoen::CpuActive);
+            });
+
+            // 5. Wait for SYSCOUNTER readiness
+            let _ = syscounter();
+
+            // 6. Enable the domain IRQ.
+            #[cfg(feature = "_ns")]
+            {
+                interrupt::GRTC_1.set_priority(irq_prio);
+                unsafe { interrupt::GRTC_1.enable() };
+            }
+            #[cfg(not(feature = "_ns"))]
+            {
+                interrupt::GRTC_2.set_priority(irq_prio);
+                unsafe { interrupt::GRTC_2.enable() };
+            }
         }
     }
 
@@ -219,7 +285,7 @@ impl RtcDriver {
             self.next_period();
         }
 
-        let n = 0;
+        let n = TIME_DRIVER_CC_N;
         if r.events_compare(n).read() == 1 {
             r.events_compare(n).write_value(0);
             critical_section::with(|cs| {
@@ -236,7 +302,7 @@ impl RtcDriver {
             self.period.store(period, Ordering::Relaxed);
             let t = (period as u64) << 23;
 
-            let n = 0;
+            let n = TIME_DRIVER_CC_N;
             let alarm = &self.alarms.borrow(cs);
             let at = alarm.timestamp.get();
 
@@ -248,12 +314,12 @@ impl RtcDriver {
     }
 
     fn trigger_alarm(&self, cs: CriticalSection) {
-        let n = 0;
+        let n = TIME_DRIVER_CC_N;
         let r = rtc();
         #[cfg(not(feature = "_grtc"))]
         r.intenclr().write(|w| w.0 = compare_n(n));
         #[cfg(feature = "_grtc")]
-        r.intenclr(1).write(|w| w.0 = compare_n(n));
+        r.intenclr(DOMAIN_IDX).write(|w| w.0 = compare_n(n));
 
         let alarm = &self.alarms.borrow(cs);
         alarm.timestamp.set(u64::MAX);
@@ -266,7 +332,7 @@ impl RtcDriver {
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
-        let n = 0;
+        let n = TIME_DRIVER_CC_N;
         let alarm = &self.alarms.borrow(cs);
         alarm.timestamp.set(timestamp);
 
@@ -280,7 +346,7 @@ impl RtcDriver {
                 #[cfg(not(feature = "_grtc"))]
                 r.intenclr().write(|w| w.0 = compare_n(n));
                 #[cfg(feature = "_grtc")]
-                r.intenclr(1).write(|w| w.0 = compare_n(n));
+                r.intenclr(DOMAIN_IDX).write(|w| w.0 = compare_n(n));
 
                 alarm.timestamp.set(u64::MAX);
 
@@ -330,13 +396,12 @@ impl RtcDriver {
             // can write the expected timestamp and be sure the alarm is triggered.
             #[cfg(feature = "_grtc")]
             {
-                let ccl = timestamp as u32;
-                let cch = (timestamp >> 32) as u32 & 0xFFFFF; // 20 bits for CCH
-
-                r.cc(n).ccl().write_value(ccl);
-                r.cc(n).cch().write(|w| w.set_cch(cch));
-                r.intenset(1).write(|w| w.0 = compare_n(n));
-
+                r.events_compare(n).write_value(0);
+                // Writes to CC[n].CCL disable the corresponding compare channel and writes to CC[n].CCH enable it.
+                // So CC[n].CCL must be written first.
+                r.cc(n).ccl().write_value(timestamp as u32);
+                r.cc(n).cch().write(|w| w.set_cch((timestamp >> 32) as u32 & 0xFFFFF));
+                r.intenset(DOMAIN_IDX).write(|w| w.0 = compare_n(n));
                 return true;
             }
         }
@@ -371,10 +436,15 @@ impl Driver for RtcDriver {
     }
 }
 
-#[cfg(feature = "_grtc")]
-#[cfg(feature = "rt")]
+#[cfg(all(feature = "_grtc", feature = "rt", feature = "_ns"))]
 #[interrupt]
 fn GRTC_1() {
+    DRIVER.on_interrupt()
+}
+
+#[cfg(all(feature = "_grtc", feature = "rt", not(feature = "_ns")))]
+#[interrupt]
+fn GRTC_2() {
     DRIVER.on_interrupt()
 }
 

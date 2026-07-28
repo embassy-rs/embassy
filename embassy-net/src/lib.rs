@@ -25,6 +25,7 @@ pub mod tcp;
 mod time;
 #[cfg(feature = "udp")]
 pub mod udp;
+pub mod vlan;
 
 use core::cell::RefCell;
 use core::future::{Future, poll_fn};
@@ -38,38 +39,54 @@ use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use heapless::Vec;
 #[cfg(feature = "dns")]
-pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
+pub use xarxa::config::DNS_MAX_SERVER_COUNT;
 #[cfg(feature = "multicast")]
-pub use smoltcp::iface::MulticastError;
+pub use xarxa::iface::MulticastError;
 #[cfg(any(feature = "dns", feature = "dhcpv4"))]
-use smoltcp::iface::SocketHandle;
-use smoltcp::iface::{Interface, SocketSet, SocketStorage};
-use smoltcp::phy::Medium;
+use xarxa::iface::SocketHandle;
+use xarxa::iface::{Interface, SocketSet, SocketStorage};
+use xarxa::phy::Medium;
 #[cfg(feature = "dhcpv4")]
-use smoltcp::socket::dhcpv4::{self, RetryConfig};
+use xarxa::socket::dhcpv4::{self, RetryConfig};
 #[cfg(feature = "medium-ethernet")]
-pub use smoltcp::wire::EthernetAddress;
+pub use xarxa::wire::EthernetAddress;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154", feature = "medium-ip"))]
-pub use smoltcp::wire::HardwareAddress;
+pub use xarxa::wire::HardwareAddress;
 #[cfg(any(feature = "udp", feature = "tcp"))]
-pub use smoltcp::wire::IpListenEndpoint;
+pub use xarxa::wire::IpListenEndpoint;
 #[cfg(feature = "medium-ieee802154")]
-pub use smoltcp::wire::{Ieee802154Address, Ieee802154Frame};
-pub use smoltcp::wire::{IpAddress, IpCidr, IpEndpoint};
+pub use xarxa::wire::{Ieee802154Address, Ieee802154Frame};
+pub use xarxa::wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
-pub use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
+pub use xarxa::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
-pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
+pub use xarxa::wire::{Ipv6Address, Ipv6Cidr};
 
 use crate::driver_util::DriverAdapter;
-use crate::time::{instant_from_smoltcp, instant_to_smoltcp};
+use crate::time::{instant_from_xarxa, instant_to_xarxa};
 
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
 #[cfg(feature = "dns")]
 const MAX_QUERIES: usize = 4;
+#[cfg(feature = "dhcpv4-ntp")]
+const DHCP_RX_BUFFER_SIZE: usize = 576;
 #[cfg(feature = "dhcpv4-hostname")]
 const MAX_HOSTNAME_LEN: usize = 32;
+
+/// Error returned by `try_*` socket methods.
+///
+/// `WouldBlock` indicates the operation would block (e.g. no data available,
+/// send buffer full). `Other` wraps the socket-specific error type for any
+/// other failure.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TryError<T> {
+    /// The operation would block; try again later.
+    WouldBlock,
+    /// A socket-specific error occurred.
+    Other(T),
+}
 
 /// Memory resources needed for a network stack.
 pub struct StackResources<const SOCK: usize> {
@@ -79,11 +96,16 @@ pub struct StackResources<const SOCK: usize> {
     queries: MaybeUninit<[Option<dns::DnsQuery>; MAX_QUERIES]>,
     #[cfg(feature = "dhcpv4-hostname")]
     hostname: HostnameResources,
+    // Retains the raw DHCP reply so options not parsed by xarxa (NTP servers, option 42) can be
+    // read out. 576 is the minimum DHCP message size every server must respect (RFC 2131); an
+    // undersized buffer never corrupts the IP configuration, it only drops the extra options.
+    #[cfg(feature = "dhcpv4-ntp")]
+    dhcp_rx_buffer: MaybeUninit<[u8; DHCP_RX_BUFFER_SIZE]>,
 }
 
 #[cfg(feature = "dhcpv4-hostname")]
 struct HostnameResources {
-    option: MaybeUninit<smoltcp::wire::DhcpOption<'static>>,
+    option: MaybeUninit<xarxa::wire::DhcpOption<'static>>,
     data: MaybeUninit<[u8; MAX_HOSTNAME_LEN]>,
 }
 
@@ -100,6 +122,8 @@ impl<const SOCK: usize> StackResources<SOCK> {
                 option: MaybeUninit::uninit(),
                 data: MaybeUninit::uninit(),
             },
+            #[cfg(feature = "dhcpv4-ntp")]
+            dhcp_rx_buffer: MaybeUninit::uninit(),
         }
     }
 }
@@ -115,6 +139,9 @@ pub struct StaticConfigV4 {
     pub gateway: Option<Ipv4Address>,
     /// DNS servers.
     pub dns_servers: Vec<Ipv4Address, 3>,
+    /// NTP servers (DHCP option 42).
+    #[cfg(feature = "dhcpv4-ntp")]
+    pub ntp_servers: Vec<Ipv4Address, 4>,
 }
 
 /// Static IPv6 address configuration
@@ -163,8 +190,8 @@ impl Default for DhcpConfig {
             max_lease_duration: Default::default(),
             retry_config: Default::default(),
             ignore_naks: Default::default(),
-            server_port: smoltcp::wire::DHCP_SERVER_PORT,
-            client_port: smoltcp::wire::DHCP_CLIENT_PORT,
+            server_port: xarxa::wire::DHCP_SERVER_PORT,
+            client_port: xarxa::wire::DHCP_CLIENT_PORT,
             #[cfg(feature = "dhcpv4-hostname")]
             hostname: None,
         }
@@ -208,7 +235,7 @@ impl Config {
     /// IPv4 configuration with dynamic addressing.
     ///
     /// # Example
-    /// ```rust
+    /// ```rust,ignore
     /// # use embassy_net::Config;
     /// let _cfg = Config::dhcpv4(Default::default());
     /// ```
@@ -218,6 +245,16 @@ impl Config {
             ipv4: ConfigV4::Dhcp(config),
             #[cfg(feature = "proto-ipv6")]
             ipv6: ConfigV6::None,
+        }
+    }
+
+    /// Slaac configuration with dynamic addressing.
+    #[cfg(feature = "slaac")]
+    pub const fn slaac() -> Self {
+        Self {
+            #[cfg(feature = "proto-ipv4")]
+            ipv4: ConfigV4::None,
+            ipv6: ConfigV6::Slaac,
         }
     }
 }
@@ -247,6 +284,9 @@ pub enum ConfigV6 {
     None,
     /// Use a static IPv6 address configuration.
     Static(StaticConfigV6),
+    /// Use SLAAC for IPv6 address configuration.
+    #[cfg(feature = "slaac")]
+    Slaac,
 }
 
 /// Network stack runner.
@@ -280,6 +320,8 @@ pub(crate) struct Inner {
     static_v4: Option<StaticConfigV4>,
     #[cfg(feature = "proto-ipv6")]
     static_v6: Option<StaticConfigV6>,
+    #[cfg(feature = "slaac")]
+    slaac: bool,
     #[cfg(feature = "dhcpv4")]
     dhcp_socket: Option<SocketHandle>,
     #[cfg(feature = "dns")]
@@ -288,6 +330,8 @@ pub(crate) struct Inner {
     dns_waker: WakerRegistration,
     #[cfg(feature = "dhcpv4-hostname")]
     hostname: *mut HostnameResources,
+    #[cfg(feature = "dhcpv4-ntp")]
+    dhcp_rx_buffer: *mut [u8],
 }
 
 fn _assert_covariant<'a, 'b: 'a>(x: Stack<'b>) -> Stack<'a> {
@@ -301,18 +345,24 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     resources: &'d mut StackResources<SOCK>,
     random_seed: u64,
 ) -> (Stack<'d>, Runner<'d, D>) {
-    let (hardware_address, medium) = to_smoltcp_hardware_address(driver.hardware_address());
-    let mut iface_cfg = smoltcp::iface::Config::new(hardware_address);
+    let (hardware_address, medium) = to_xarxa_hardware_address(driver.hardware_address());
+    let mut iface_cfg = xarxa::iface::Config::new(hardware_address);
     iface_cfg.random_seed = random_seed;
+    #[cfg(feature = "slaac")]
+    {
+        iface_cfg.slaac = matches!(config.ipv6, ConfigV6::Slaac);
+    }
 
-    let iface = Interface::new(
+    #[allow(unused_mut)]
+    let mut iface = Interface::new(
         iface_cfg,
         &mut DriverAdapter {
             inner: &mut driver,
             cx: None,
             medium,
+            tx_exhausted: false,
         },
-        instant_to_smoltcp(Instant::now()),
+        instant_to_xarxa(Instant::now()),
     );
 
     unsafe fn transmute_slice<T>(x: &mut [T]) -> &'static mut [T] {
@@ -345,6 +395,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         static_v4: None,
         #[cfg(feature = "proto-ipv6")]
         static_v6: None,
+        #[cfg(feature = "slaac")]
+        slaac: false,
         #[cfg(feature = "dhcpv4")]
         dhcp_socket: None,
         #[cfg(feature = "dns")]
@@ -353,6 +405,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         dns_waker: WakerRegistration::new(),
         #[cfg(feature = "dhcpv4-hostname")]
         hostname: &mut resources.hostname,
+        #[cfg(feature = "dhcpv4-ntp")]
+        dhcp_rx_buffer: resources.dhcp_rx_buffer.write([0; DHCP_RX_BUFFER_SIZE]) as *mut [u8],
     };
 
     #[cfg(feature = "proto-ipv4")]
@@ -366,7 +420,37 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     (stack, Runner { driver, stack })
 }
 
-fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddress, Medium) {
+/// Parse the NTP servers (DHCP option 42) out of the raw DHCP reply retained by xarxa.
+///
+/// xarxa does not parse this option itself; it only exposes the raw packet (when a receive
+/// buffer is set), leaving it to consumers to read out the options they care about.
+#[cfg(feature = "dhcpv4-ntp")]
+fn parse_dhcp_ntp_servers(config: &dhcpv4::Config) -> Vec<Ipv4Address, 4> {
+    /// DHCP option code for NTP servers (RFC 2132 §8.3). Length is a multiple of 4, one address each.
+    const OPT_NTP_SERVERS: u8 = 42;
+
+    let mut servers = Vec::new();
+    let Some(packet) = config.packet.as_ref() else {
+        return servers;
+    };
+    for option in packet.options() {
+        if option.kind != OPT_NTP_SERVERS {
+            continue;
+        }
+        for chunk in option.data.chunks_exact(4) {
+            // Drop any servers past our capacity, like xarxa does for DNS servers.
+            if servers
+                .push(Ipv4Address::from_octets(chunk.try_into().unwrap()))
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+    servers
+}
+
+fn to_xarxa_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddress, Medium) {
     match addr {
         #[cfg(feature = "medium-ethernet")]
         driver::HardwareAddress::Ethernet(eth) => (HardwareAddress::Ethernet(EthernetAddress(eth)), Medium::Ethernet),
@@ -486,7 +570,7 @@ impl<'d> Stack<'d> {
                 Poll::Ready(())
             } else {
                 // If the config is not up, we register a waker that is woken up
-                // when a config is applied (static or DHCP).
+                // when a config is applied (static, slaac or DHCP).
                 trace!("Waiting for config up");
 
                 self.with_mut(|i| {
@@ -537,7 +621,7 @@ impl<'d> Stack<'d> {
         &self,
         name: &str,
         qtype: dns::DnsQueryType,
-    ) -> Result<Vec<IpAddress, { smoltcp::config::DNS_MAX_RESULT_COUNT }>, dns::Error> {
+    ) -> Result<Vec<IpAddress, { xarxa::config::DNS_MAX_RESULT_COUNT }>, dns::Error> {
         // For A and AAAA queries we try detect whether `name` is just an IP address
         match qtype {
             #[cfg(feature = "proto-ipv4")]
@@ -651,6 +735,14 @@ impl<'d> Stack<'d> {
 }
 
 impl Inner {
+    #[cfg(feature = "slaac")]
+    fn get_link_local_address(&self) -> IpCidr {
+        let ll_prefix = Ipv6Cidr::new(Ipv6Cidr::LINK_LOCAL_PREFIX.address(), 64);
+        Ipv6Cidr::from_link_prefix(&ll_prefix, self.hardware_address)
+            .unwrap()
+            .into()
+    }
+
     #[allow(clippy::absurd_extreme_comparisons)]
     pub fn get_local_port(&mut self) -> u16 {
         let res = self.next_local_port;
@@ -674,7 +766,18 @@ impl Inner {
             ConfigV4::Dhcp(c) => {
                 // Create the socket if it doesn't exist.
                 if self.dhcp_socket.is_none() {
-                    let socket = smoltcp::socket::dhcpv4::Socket::new();
+                    #[allow(unused_mut)]
+                    let mut socket = xarxa::socket::dhcpv4::Socket::new();
+
+                    #[cfg(feature = "dhcpv4-ntp")]
+                    {
+                        // xarxa doesn't parse options it doesn't know about (e.g. NTP), but it can
+                        // retain the raw reply so we can read them out. safety: this pointer lives as
+                        // long as the stack, since `new()` borrows the resources for `'d`.
+                        let buffer = unsafe { &mut *self.dhcp_rx_buffer };
+                        socket.set_receive_packet_buffer(buffer);
+                    }
+
                     let handle = self.sockets.add(socket);
                     self.dhcp_socket = Some(handle);
                 }
@@ -682,7 +785,7 @@ impl Inner {
                 // Configure it
                 let socket = self.sockets.get_mut::<dhcpv4::Socket>(unwrap!(self.dhcp_socket));
                 socket.set_ignore_naks(c.ignore_naks);
-                socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_smoltcp));
+                socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_xarxa));
                 socket.set_ports(c.server_port, c.client_port);
                 socket.set_retry_config(c.retry_config);
 
@@ -692,7 +795,7 @@ impl Inner {
                     // safety:
                     // - we just did set_outgoing_options([]) so we know the socket is no longer holding a reference.
                     // - we know this pointer lives for as long as the stack exists, because `new()` borrows
-                    //   the resources for `'d`. Therefore it's OK to pass a reference to this to smoltcp.
+                    //   the resources for `'d`. Therefore it's OK to pass a reference to this to xarxa.
                     let hostname = unsafe { &mut *self.hostname };
 
                     // create data
@@ -701,7 +804,7 @@ impl Inner {
                     let data: &[u8] = &data[..h.len()];
 
                     // set the option.
-                    let option = hostname.option.write(smoltcp::wire::DhcpOption { data, kind: 12 });
+                    let option = hostname.option.write(xarxa::wire::DhcpOption { data, kind: 12 });
                     socket.set_outgoing_options(core::slice::from_ref(option));
                 }
 
@@ -719,9 +822,15 @@ impl Inner {
 
     #[cfg(feature = "proto-ipv6")]
     pub fn set_config_v6(&mut self, config: ConfigV6) {
+        #[cfg(feature = "slaac")]
+        {
+            self.slaac = matches!(config, ConfigV6::Slaac);
+        }
         self.static_v6 = match config {
             ConfigV6::None => None,
             ConfigV6::Static(c) => Some(c),
+            #[cfg(feature = "slaac")]
+            ConfigV6::Slaac => None,
         };
     }
 
@@ -736,15 +845,15 @@ impl Inner {
 
         #[cfg(feature = "proto-ipv4")]
         if let Some(config) = &self.static_v4 {
-            debug!("IPv4: UP");
-            debug!("   IP address:      {:?}", config.address);
-            debug!("   Default gateway: {:?}", config.gateway);
+            info!("IPv4: UP");
+            info!("   IP address:      {:?}", config.address);
+            info!("   Default gateway: {:?}", config.gateway);
 
             unwrap!(addrs.push(IpCidr::Ipv4(config.address)).ok());
             gateway_v4 = config.gateway;
             #[cfg(feature = "dns")]
             for s in &config.dns_servers {
-                debug!("   DNS server:      {:?}", s);
+                info!("   DNS server:      {:?}", s);
                 unwrap!(dns_servers.push(s.clone().into()).ok());
             }
         } else {
@@ -753,15 +862,15 @@ impl Inner {
 
         #[cfg(feature = "proto-ipv6")]
         if let Some(config) = &self.static_v6 {
-            debug!("IPv6: UP");
-            debug!("   IP address:      {:?}", config.address);
-            debug!("   Default gateway: {:?}", config.gateway);
+            info!("IPv6: UP");
+            info!("   IP address:      {:?}", config.address);
+            info!("   Default gateway: {:?}", config.gateway);
 
             unwrap!(addrs.push(IpCidr::Ipv6(config.address)).ok());
-            gateway_v6 = config.gateway.into();
+            gateway_v6 = config.gateway;
             #[cfg(feature = "dns")]
             for s in &config.dns_servers {
-                debug!("   DNS server:      {:?}", s);
+                info!("   DNS server:      {:?}", s);
                 unwrap!(dns_servers.push(s.clone().into()).ok());
             }
         } else {
@@ -769,7 +878,18 @@ impl Inner {
         }
 
         // Apply addresses
-        self.iface.update_ip_addrs(|a| *a = addrs);
+        self.iface.update_ip_addrs(|a| {
+            *a = addrs;
+        });
+
+        // Add the link local-address
+        #[cfg(feature = "slaac")]
+        {
+            let ll_address = self.get_link_local_address();
+            self.iface.update_ip_addrs(|a| {
+                let _ = a.push(ll_address);
+            })
+        }
 
         // Apply gateways
         #[cfg(feature = "proto-ipv4")]
@@ -795,7 +915,7 @@ impl Inner {
                 dns_servers.len()
             };
             self.sockets
-                .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
+                .get_mut::<xarxa::socket::dns::Socket>(self.dns_socket)
                 .update_servers(&dns_servers[..count]);
         }
 
@@ -805,7 +925,7 @@ impl Inner {
     fn poll<D: Driver>(&mut self, cx: &mut Context<'_>, driver: &mut D) {
         self.waker.register(cx.waker());
 
-        let (_hardware_addr, medium) = to_smoltcp_hardware_address(driver.hardware_address());
+        let (_hardware_addr, medium) = to_xarxa_hardware_address(driver.hardware_address());
 
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         {
@@ -822,14 +942,6 @@ impl Inner {
             }
         }
 
-        let timestamp = instant_to_smoltcp(Instant::now());
-        let mut smoldev = DriverAdapter {
-            cx: Some(cx),
-            inner: driver,
-            medium,
-        };
-        self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
-
         // Update link up
         let old_link_up = self.link_up;
         self.link_up = driver.link_state(cx) == LinkState::Up;
@@ -840,43 +952,103 @@ impl Inner {
             self.state_waker.wake();
         }
 
+        // Reset the DHCP socket on link-state change before polling, else a stale DISCOVER
+        // is sent by the poll below and discarded, causing a second DISCOVER on the next poll.
         #[cfg(feature = "dhcpv4")]
-        if let Some(dhcp_handle) = self.dhcp_socket {
-            let socket = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
+        if old_link_up != self.link_up
+            && let Some(dhcp_handle) = self.dhcp_socket
+        {
+            self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle).reset();
+        }
 
-            let configure = if self.link_up {
-                if old_link_up != self.link_up {
-                    socket.reset();
-                }
-                match socket.poll() {
-                    None => false,
-                    Some(dhcpv4::Event::Deconfigured) => {
-                        self.static_v4 = None;
-                        true
+        let timestamp = instant_to_xarxa(Instant::now());
+        let mut smoldev = DriverAdapter {
+            cx: Some(cx),
+            inner: driver,
+            medium,
+            tx_exhausted: false,
+        };
+        self.iface.poll(timestamp, &mut smoldev, &mut self.sockets);
+        let tx_exhausted = smoldev.tx_exhausted;
+
+        #[allow(unused_mut)]
+        let mut configure = false;
+
+        #[cfg(feature = "dhcpv4")]
+        {
+            configure |= if let Some(dhcp_handle) = self.dhcp_socket {
+                let socket = self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle);
+
+                if self.link_up {
+                    match socket.poll() {
+                        None => false,
+                        Some(dhcpv4::Event::Deconfigured) => {
+                            self.static_v4 = None;
+                            true
+                        }
+                        Some(dhcpv4::Event::Configured(config)) => {
+                            #[cfg(feature = "dhcpv4-ntp")]
+                            let ntp_servers = parse_dhcp_ntp_servers(&config);
+                            self.static_v4 = Some(StaticConfigV4 {
+                                address: config.address,
+                                gateway: config.router,
+                                dns_servers: config.dns_servers,
+                                #[cfg(feature = "dhcpv4-ntp")]
+                                ntp_servers,
+                            });
+                            true
+                        }
                     }
-                    Some(dhcpv4::Event::Configured(config)) => {
-                        self.static_v4 = Some(StaticConfigV4 {
-                            address: config.address,
-                            gateway: config.router,
-                            dns_servers: config.dns_servers,
-                        });
-                        true
-                    }
+                } else if old_link_up {
+                    self.static_v4 = None;
+                    true
+                } else {
+                    false
                 }
-            } else if old_link_up {
-                socket.reset();
-                self.static_v4 = None;
-                true
             } else {
                 false
-            };
-            if configure {
-                self.apply_static_config()
             }
         }
 
-        if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets) {
-            let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
+        #[cfg(feature = "slaac")]
+        if self.slaac && self.iface.slaac_updated_at() == timestamp {
+            let ipv6_address = self.iface.ip_addrs().iter().find_map(|addr| match addr {
+                IpCidr::Ipv6(ip6_address) if !Ipv6Cidr::LINK_LOCAL_PREFIX.contains_addr(&ip6_address.address()) => {
+                    Some(ip6_address)
+                }
+                _ => None,
+            });
+            self.static_v6 = if let Some(address) = ipv6_address {
+                let gateway = self
+                    .iface
+                    .routes()
+                    .get_default_ipv6_route()
+                    .map(|r| match r.via_router {
+                        IpAddress::Ipv6(gateway) => Some(gateway),
+                        #[cfg(feature = "proto-ipv4")]
+                        _ => None,
+                    })
+                    .flatten();
+                let config = StaticConfigV6 {
+                    address: *address,
+                    gateway,
+                    dns_servers: Vec::new(), // RDNSS not (yet) supported by xarxa.
+                };
+                Some(config)
+            } else {
+                None
+            };
+            configure = true;
+        }
+
+        if configure {
+            self.apply_static_config()
+        }
+
+        if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets)
+            && !tx_exhausted
+        {
+            let t = pin!(Timer::at(instant_from_xarxa(poll_at)));
             if t.poll(cx).is_ready() {
                 cx.waker().wake_by_ref();
             }

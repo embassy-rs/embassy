@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Implement `core::error::Error` for `dns::Error`, `tcp::AcceptError`, `udp::SendError` and `udp::RecvError`.
+- Prevent double DHCP DISCOVER on link state change.
+
+## 0.9.1 - 2026-04-16
+
+- Avoid busy looping if network driver's TX buffer is exhausted
+
+## 0.9.0 - 2026-03-10
+
+- raw: Removed unnecessary Driver type parameter from `RawSocket::new`
+- `{UdpSocket, IcmpSocket}::send_to_with` support writing less than `max_size` into the buffer by returning the number of bytes written from the closure
+- Update embassy-sync 0.8.0
+
 ## 0.8.0 - 2026-01-04
 
 - tcp: Add `set_nagle_enabled()` to control TcpSocket nagle algorithm.
@@ -39,8 +52,8 @@ No unreleased changes yet... Quick, go send a PR!
     - The `run()` method has been moved to a new `Runner` struct.
     - Sockets are covariant wrt their lifetime.
     - An implication of the refactor is now you need only one `StaticCell` instead of two if you need to share the network stack between tasks.
-- Use standard `core::net` IP types instead of custom ones from smoltcp.
-- Update to `smoltcp` v0.12.
+- Use standard `core::net` IP types instead of custom ones from xarxa.
+- Update to `xarxa` v0.12.
 - Add `mdns` Cargo feature.
 - dns: properly handle `AddrType::Either` in `get_host_by_name()`
 - dns: truncate instead of panic if the DHCP server gives us more DNS servers than the configured maximum.
@@ -65,8 +78,8 @@ No unreleased changes yet... Quick, go send a PR!
 
 - Added `ReadReady` and `WriteReady` impls on `TcpSocket`.
 - Avoid never resolving `TcpIo::read` when the output buffer is empty.
-- Update to `smoltcp` v0.11.
-- Forward constants from `smoltcp` in DNS query results so changing DNS result size in `smoltcp` properly propagates.
+- Update to `xarxa` v0.11.
+- Forward constants from `xarxa` in DNS query results so changing DNS result size in `xarxa` properly propagates.
 - Removed the nightly feature.
 
 ## 0.2.1 - 2023-10-31
@@ -76,14 +89,14 @@ No unreleased changes yet... Quick, go send a PR!
 
 ## 0.2.0 - 2023-10-18
 
-- Re-export `smoltcp::wire::IpEndpoint`
+- Re-export `xarxa::wire::IpEndpoint`
 - Add poll functions on UdpSocket
 - Make dual-stack work in embassy-net
 - Fix multicast support
 - Allow ethernet and 802.15.4 to coexist
 - Add IEEE802.15.4 address to embassy net Stack
 - Use HardwareAddress in Driver
-- Add async versions of smoltcp's `send` and `recv` closure based API
+- Add async versions of xarxa's `send` and `recv` closure based API
 - add error translation to tcp errors
 - Forward TCP/UDP socket capacity impls
 - allow changing IP config at runtime

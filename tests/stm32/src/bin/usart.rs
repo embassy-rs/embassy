@@ -6,11 +6,17 @@ mod common;
 use common::*;
 use defmt::{assert, assert_eq, unreachable};
 use embassy_executor::Spawner;
+use embassy_futures::join::join;
 use embassy_stm32::mode::Blocking;
-use embassy_stm32::usart::{Config, ConfigError, Error, Uart};
+use embassy_stm32::usart::{BufferedUart, Config, ConfigError, Error, Uart};
 use embassy_time::{Duration, Instant, block_for};
+use embedded_io_async::{Read, Write};
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");
@@ -20,6 +26,7 @@ async fn main(_spawner: Spawner) {
     let mut usart = peri!(p, UART);
     let mut rx = peri!(p, UART_RX);
     let mut tx = peri!(p, UART_TX);
+    let irq = irqs!(UART);
 
     {
         let config = Config::default();
@@ -127,6 +134,81 @@ async fn main(_spawner: Spawner) {
                 dur,
                 want_dur
             );
+        }
+    }
+
+    // Test buffered usart
+    {
+        debug!("testing buffered usart");
+
+        const LEN: usize = 128;
+        let mut tx_buf = [0; LEN];
+        let mut rx_buf = [0; LEN];
+
+        let config = Config::default();
+        let mut _usart = BufferedUart::new(
+            usart.reborrow(),
+            rx.reborrow(),
+            tx.reborrow(),
+            &mut tx_buf,
+            &mut rx_buf,
+            irq,
+            config,
+        )
+        .unwrap();
+
+        let _test_usart = async |usart: &mut BufferedUart<'_>| -> Result<(), Error> {
+            let (mut writer, mut reader) = usart.split_ref();
+
+            const LEN: usize = 24;
+            let n = 5;
+            let mut tx_buf = [0; LEN];
+            let mut rx_buf = [0; LEN];
+            for i in 0..LEN {
+                tx_buf[i] = (i ^ n) as u8;
+            }
+
+            let mut ok = false;
+            while !ok {
+                join(
+                    async {
+                        reader.read(&mut rx_buf).await.unwrap();
+                    },
+                    async {
+                        writer.write_all(&tx_buf).await.unwrap();
+                    },
+                )
+                .await;
+
+                ok = rx_buf == tx_buf;
+            }
+
+            Ok(())
+        };
+
+        #[cfg(any(
+            feature = "stm32l152re",
+            feature = "stm32h563zi",
+            feature = "stm32g491re",
+            feature = "stm32f207zg",
+            feature = "stm32wl55jc",
+            feature = "stm32h503rb",
+            feature = "stm32wb55rg",
+        ))]
+        {
+            let mut res = Ok(());
+            for _ in 0..5 {
+                res = embassy_time::with_timeout(Duration::from_millis(250), async {
+                    _test_usart(&mut _usart).await.unwrap();
+                })
+                .await;
+
+                if res.is_ok() {
+                    break;
+                }
+            }
+
+            res.unwrap();
         }
     }
 

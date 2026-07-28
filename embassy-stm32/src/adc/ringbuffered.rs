@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 #[allow(unused_imports)]
@@ -7,47 +6,79 @@ use embassy_hal_internal::Peri;
 use super::AdcRegs;
 #[allow(unused_imports)]
 use crate::adc::{Instance, RxDma};
+use crate::dma::Channel;
 #[allow(unused_imports)]
 use crate::dma::{ReadableRingBuffer, TransferOptions};
-use crate::rcc;
+use crate::rcc::{RccInfo, WakeGuard};
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError;
 
-pub struct RingBufferedAdc<'d, T: Instance> {
-    _phantom: PhantomData<T>,
+#[allow(private_bounds)]
+pub struct RingBufferedAdc<'d, R: AdcRegs> {
+    regs: R,
+    info: RccInfo,
     ring_buf: ReadableRingBuffer<'d, u16>,
+    _wake_guard: WakeGuard,
 }
 
-impl<'d, T: Instance> RingBufferedAdc<'d, T> {
-    pub(crate) fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
-        //dma side setup
-        let opts = TransferOptions {
-            half_transfer_ir: true,
-            circular: true,
-            ..Default::default()
-        };
+#[allow(private_bounds)]
+impl<'d, R: AdcRegs> RingBufferedAdc<'d, R> {
+    pub(crate) fn new<T: Instance<Regs = R>, D: RxDma<T>>(
+        dma: Peri<'d, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        dma_buf: &'d mut [u16],
+        sequence_len: usize,
+    ) -> Self {
+        let opts = Default::default();
 
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
 
-        let ring_buf = unsafe { ReadableRingBuffer::new(dma, request, T::regs().data(), dma_buf, opts) };
+        let mut ring_buf =
+            unsafe { ReadableRingBuffer::new(Channel::new(dma, irq), request, T::regs().data(), dma_buf, opts) };
+
+        // Align reads to the scan sequence boundary so that channel assignments
+        // never shift after an overrun recovery.
+        ring_buf.set_alignment(sequence_len);
 
         Self {
-            _phantom: PhantomData,
+            regs: T::regs(),
+            info: T::RCC_INFO,
+            _wake_guard: T::RCC_INFO.wake_guard(),
             ring_buf,
         }
     }
 
     /// Turns on ADC if it is not already turned on and starts continuous DMA transfer.
+    ///
+    /// Can be called after [`stop`] to resume a suspended scan without repeating the
+    /// full channel/DMA configuration — the ring buffer and sequence are preserved.
     pub fn start(&mut self) {
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
 
-        T::regs().start();
+        self.regs.start();
     }
 
+    /// Suspend the continuous DMA scan.
+    ///
+    /// Issues ADSTP on the ADC hardware (leaving the ADC *enabled* and fully
+    /// configured) and pauses the DMA ring buffer.  The channel sequence, DMA
+    /// buffer, and all ADC register settings are preserved; call [`start`] to
+    /// resume from where the scan left off.
+    ///
+    /// This is intended as a lightweight suspend/resume pair for cases such as
+    /// low-power sleep modes where the caller needs to temporarily halt the scan
+    /// and optionally reconfigure the ADC (e.g. change trigger source, enable an
+    /// analog watchdog) before resuming.  It does **not** disable the ADC, so
+    /// CFGR1 and other configuration registers can be written immediately after
+    /// this call without going through the enable sequence again.
     pub fn stop(&mut self) {
+        // Stop ADC hardware first (ADSTP, leave ADEN=1) so it stops issuing DMA
+        // requests before we pause the DMA channel.
+        self.regs.stop();
+
         self.ring_buf.request_pause();
 
         compiler_fence(Ordering::SeqCst);
@@ -55,6 +86,11 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
     pub fn clear(&mut self) {
         self.ring_buf.clear();
+    }
+
+    /// See [`ReadableDmaRingBuffer::set_alignment`] for details.
+    pub fn set_alignment(&mut self, alignment: usize) {
+        self.ring_buf.set_alignment(alignment);
     }
 
     /// Reads measurements from the DMA ring buffer.
@@ -77,15 +113,13 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// use embassy_stm32::adc::{Adc, AdcChannel}
     ///
     /// let mut adc = Adc::new(p.ADC1);
-    /// let mut adc_pin0 = p.PA0.degrade_adc();
-    /// let mut adc_pin1 = p.PA1.degrade_adc();
     /// let adc_dma_buf = [0u16; DMA_BUF_LEN];
     ///
     /// let mut ring_buffered_adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
     ///     p.DMA2_CH0,
     ///      adc_dma_buf, [
-    ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
-    ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
+    ///         (p.PA0.reborrow_adc(), SampleTime::CYCLES160_5),
+    ///         (p.PA1.reborrow_adc(), SampleTime::CYCLES160_5),
     ///     ].into_iter());
     ///
     ///
@@ -129,6 +163,23 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         self.ring_buf.read_exact(measurements).await.map_err(|_| OverrunError)
     }
 
+    /// Read the most recent ADC measurements, discarding any older data.
+    ///
+    /// Returns the number of samples actually read into `measurements`. Unlike [`read`](Self::read),
+    /// this method **never returns an overrun error**. If the DMA has lapped the consumer
+    /// (e.g. because the task was not scheduled quickly enough), old data is silently
+    /// discarded and only the most recent samples are returned.
+    ///
+    /// This is ideal for use cases like ADC oversampling where the consumer only cares about
+    /// the latest values and stale data can be safely ignored.
+    pub fn read_latest(&mut self, measurements: &mut [u16]) -> usize {
+        if !self.ring_buf.is_running() {
+            self.start();
+        }
+
+        self.ring_buf.read_latest(measurements)
+    }
+
     /// Read bytes that are readily available in the ring buffer.
     /// If no bytes are currently available in the buffer the call waits until the some
     /// bytes are available (at least one byte and at most half the buffer size)
@@ -168,13 +219,14 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     }
 }
 
-impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
+impl<R: AdcRegs> Drop for RingBufferedAdc<'_, R> {
     fn drop(&mut self) {
-        T::regs().stop();
+        self.regs.stop();
+        self.regs.power_down();
 
         compiler_fence(Ordering::SeqCst);
 
         self.ring_buf.request_pause();
-        rcc::disable::<T>();
+        self.info.disable();
     }
 }

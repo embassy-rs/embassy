@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usb::{self, Driver, Instance};
@@ -9,24 +10,24 @@ use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USB => usb::InterruptHandler<peripherals::USB>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
         config.rcc.pll = Some(Pll {
-            source: PllSource::HSI,
-            mul: PllMul::MUL6, // PLLVCO = 16*6 = 96Mhz
-            div: PllDiv::DIV3, // 32Mhz clock (16 * 6 / 3)
+            source: PllSource::Hsi,
+            mul: PllMul::Mul6, // PLLVCO = 16*6 = 96Mhz
+            div: PllDiv::Div3, // 32Mhz clock (16 * 6 / 3)
         });
-        config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.sys = Sysclk::Pll1R;
     }
 
     let p = embassy_stm32::init(config);

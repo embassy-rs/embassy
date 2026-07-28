@@ -26,7 +26,7 @@ use crate::{Peri, interrupt, peripherals};
 
 /// Interrupt handler.
 pub struct TxInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::TXInterrupt> for TxInterruptHandler<T> {
@@ -44,7 +44,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::TXInterrupt> for TxInterruptH
 
 /// RX0 interrupt handler.
 pub struct Rx0InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::RX0Interrupt> for Rx0InterruptHandler<T> {
@@ -57,7 +57,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::RX0Interrupt> for Rx0Interrup
 
 /// RX1 interrupt handler.
 pub struct Rx1InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::RX1Interrupt> for Rx1InterruptHandler<T> {
@@ -70,7 +70,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::RX1Interrupt> for Rx1Interrup
 
 /// SCE interrupt handler.
 pub struct SceInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::SCEInterrupt> for SceInterruptHandler<T> {
@@ -127,7 +127,7 @@ impl CanConfig<'_> {
     ///
     /// This is a helper that internally calls `set_bit_timing()`[Self::set_bit_timing].
     pub fn set_bitrate(self, bitrate: u32) -> Self {
-        let bit_timing = util::calc_can_timings(self.periph_clock, bitrate).unwrap();
+        let bit_timing = unwrap!(util::calc_can_timings(self.periph_clock, bitrate));
         self.set_bit_timing(bit_timing)
     }
 
@@ -243,7 +243,7 @@ impl<'d> Can<'d> {
 
     /// Set CAN bit rate.
     pub fn set_bitrate(&mut self, bitrate: u32) {
-        let bit_timing = util::calc_can_timings(self.periph_clock, bitrate).unwrap();
+        let bit_timing = unwrap!(util::calc_can_timings(self.periph_clock, bitrate));
         self.modify_config().set_bit_timing(bit_timing);
     }
 
@@ -270,6 +270,17 @@ impl<'d> Can<'d> {
             // SCE interrupt is only generated for entering sleep mode, but not leaving.
             // Yield to allow other tasks to execute while can bus is initializing.
             embassy_futures::yield_now().await;
+        }
+    }
+
+    /// Blocking version of enable. Enables the peripheral and synchronizes with the bus.
+    ///
+    /// This will wait for 11 consecutive recessive bits (bus idle state).
+    /// In loopback or internal modes, this typically completes very quickly.
+    pub fn blocking_enable(&mut self) {
+        while self.info.regs.enable_non_blocking().is_err() {
+            // CAN initialization is usually quick, especially in loopback mode
+            // Simple busy wait is acceptable for this one-time initialization
         }
     }
 
@@ -343,6 +354,18 @@ impl<'d> Can<'d> {
         self.split().0.write(frame).await
     }
 
+    /// Blocking write frame.
+    ///
+    /// If the TX queue is full, this will wait until there is space.
+    pub fn blocking_write(&mut self, frame: &Frame) -> TransmitStatus {
+        loop {
+            match self.try_write(frame) {
+                Ok(status) => return status,
+                Err(TryWriteError::Full) => continue,
+            }
+        }
+    }
+
     /// Attempts to transmit a frame without blocking.
     ///
     /// Returns [Err(TryWriteError::Full)] if the frame can not be queued for transmission now.
@@ -359,7 +382,7 @@ impl<'d> Can<'d> {
     /// Waits for a specific transmit mailbox to become empty
     pub async fn flush(&self, mb: Mailbox) {
         CanTx {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: TxInfoRef::new(&self.info),
         }
         .flush_inner(mb)
@@ -374,7 +397,7 @@ impl<'d> Can<'d> {
     /// and a frame with equal priority is already queued for transmission.
     pub async fn flush_any(&self) {
         CanTx {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: TxInfoRef::new(&self.info),
         }
         .flush_any_inner()
@@ -384,7 +407,7 @@ impl<'d> Can<'d> {
     /// Waits until all of the transmit mailboxes become empty
     pub async fn flush_all(&self) {
         CanTx {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: TxInfoRef::new(&self.info),
         }
         .flush_all_inner()
@@ -416,6 +439,19 @@ impl<'d> Can<'d> {
         RxMode::read(&self.info).await
     }
 
+    /// Blocking read frame.
+    ///
+    /// If no CAN frame is in the RX buffer, this will wait until there is one.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        loop {
+            match self.try_read() {
+                Ok(envelope) => return Ok(envelope),
+                Err(TryReadError::Empty) => continue,
+                Err(TryReadError::BusError(e)) => return Err(e),
+            }
+        }
+    }
+
     /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
@@ -434,11 +470,11 @@ impl<'d> Can<'d> {
     pub fn split<'c>(&'c mut self) -> (CanTx<'d>, CanRx<'d>) {
         (
             CanTx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 info: TxInfoRef::new(&self.info),
             },
             CanRx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 info: RxInfoRef::new(&self.info),
             },
         )
@@ -480,6 +516,11 @@ impl<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_
         self.tx.write(frame).await
     }
 
+    /// Blocking write frame to TX buffer.
+    pub fn blocking_write(&mut self, frame: &Frame) {
+        self.tx.blocking_write(frame)
+    }
+
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedCanSender {
         self.tx.writer()
@@ -488,6 +529,11 @@ impl<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_
     /// Async read frame from RX buffer.
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         self.rx.read().await
+    }
+
+    /// Blocking read frame from RX buffer.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        self.rx.blocking_read()
     }
 
     /// Attempts to read a CAN frame without blocking.
@@ -518,7 +564,7 @@ impl<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_
 
 /// CAN driver, transmit half.
 pub struct CanTx<'d> {
-    _phantom: PhantomData<&'d ()>,
+    _marker: PhantomData<&'d ()>,
     info: TxInfoRef,
 }
 
@@ -538,6 +584,18 @@ impl<'d> CanTx<'d> {
             Poll::Pending
         })
         .await
+    }
+
+    /// Blocking write frame.
+    ///
+    /// If the TX queue is full, this will wait until there is space.
+    pub fn blocking_write(&mut self, frame: &Frame) -> TransmitStatus {
+        loop {
+            match self.try_write(frame) {
+                Ok(status) => return status,
+                Err(TryWriteError::Full) => continue,
+            }
+        }
     }
 
     /// Attempts to transmit a frame without blocking.
@@ -690,6 +748,20 @@ impl<'d, const TX_BUF_SIZE: usize> BufferedCanTx<'d, TX_BUF_SIZE> {
         waker(); // Wake for Tx
     }
 
+    /// Blocking write frame to TX buffer.
+    pub fn blocking_write(&mut self, frame: &Frame) {
+        loop {
+            match self.tx_buf.try_send(*frame) {
+                Ok(()) => {
+                    let waker = self.info.tx_waker;
+                    waker();
+                    return;
+                }
+                Err(_) => continue, // Channel full, continue waiting
+            }
+        }
+    }
+
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedCanSender {
         BufferedCanSender {
@@ -702,7 +774,7 @@ impl<'d, const TX_BUF_SIZE: usize> BufferedCanTx<'d, TX_BUF_SIZE> {
 /// CAN driver, receive half.
 #[allow(dead_code)]
 pub struct CanRx<'d> {
-    _phantom: PhantomData<&'d ()>,
+    _marker: PhantomData<&'d ()>,
     info: RxInfoRef,
 }
 
@@ -714,6 +786,19 @@ impl<'d> CanRx<'d> {
     /// Returns a tuple of the time the message was received and the message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         RxMode::read(&self.info).await
+    }
+
+    /// Blocking read frame.
+    ///
+    /// If no CAN frame is in the RX buffer, this will wait until there is one.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        loop {
+            match self.try_read() {
+                Ok(envelope) => return Ok(envelope),
+                Err(TryReadError::Empty) => continue,
+                Err(TryReadError::BusError(e)) => return Err(e),
+            }
+        }
     }
 
     /// Attempts to read a CAN frame without blocking.
@@ -781,6 +866,17 @@ impl<'d, const RX_BUF_SIZE: usize> BufferedCanRx<'d, RX_BUF_SIZE> {
     /// Async read frame from RX buffer.
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         self.rx_buf.receive().await
+    }
+
+    /// Blocking read frame from RX buffer.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        loop {
+            match self.try_read() {
+                Ok(envelope) => return Ok(envelope),
+                Err(TryReadError::Empty) => continue,
+                Err(TryReadError::BusError(e)) => return Err(e),
+            }
+        }
     }
 
     /// Attempts to read a CAN frame without blocking.

@@ -2,19 +2,20 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::dac::{DacCh1, Value};
-use {defmt_rtt as _, panic_probe as _};
+use defmt_rtt as _;
+use embassy_stm32::dac::DacChannel;
+use panic_probe as _;
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut dac = DacCh1::new_blocking(p.DAC1, p.PA4);
+    let mut dac = DacChannel::new_blocking(p.DAC1, p.PA4);
 
     loop {
         for v in 0..=255 {
-            dac.set(Value::Bit8(to_sine_wave(v)));
+            dac.set(to_sine_wave(v));
         }
     }
 }

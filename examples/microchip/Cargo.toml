@@ -10,9 +10,9 @@ cortex-m = { version = "0.7", features = ["critical-section-single-core", "inlin
 cortex-m-rt = { version = "0.7", features = ["set-vtor"] }
 defmt = "1.0"
 defmt-rtt = "1.0"
-embassy-executor = { version = "0.9.1", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-microchip = { version = "0.1.0", path = "../../embassy-microchip", features = ["mec1723n_b0_sz", "rt", "defmt", "unstable-pac"] }
-embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 [package.metadata.embassy]

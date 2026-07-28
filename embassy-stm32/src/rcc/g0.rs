@@ -101,18 +101,18 @@ impl Config {
     pub const fn new() -> Self {
         Config {
             hsi: Some(Hsi {
-                sys_div: HsiSysDiv::DIV1,
+                sys_div: HsiSysDiv::Div1,
             }),
             hse: None,
-            sys: Sysclk::HSI,
+            sys: Sysclk::Hsi,
             #[cfg(crs)]
             hsi48: Some(crate::rcc::Hsi48Config::new()),
             pll: None,
-            ahb_pre: AHBPrescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
+            ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
             low_power_run: false,
             ls: crate::rcc::LsConfig::new(),
-            voltage_range: VoltageRange::RANGE1,
+            voltage_range: VoltageRange::Range1,
             mux: super::mux::ClockMux::default(),
         }
     }
@@ -142,8 +142,8 @@ pub(crate) unsafe fn init(config: Config) {
     while !RCC.cr().read().hsirdy() {}
 
     // Use the HSI clock as system clock during the actual clock setup
-    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
-    while RCC.cfgr().read().sws() != Sysclk::HSI {}
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsi));
+    while RCC.cfgr().read().sws() != Sysclk::Hsi {}
 
     // Configure HSI
     let (hsi, hsisys) = match config.hsi {
@@ -178,8 +178,8 @@ pub(crate) unsafe fn init(config: Config) {
         .pll
         .map(|pll_config| {
             let src_freq = match pll_config.source {
-                PllSource::HSI => unwrap!(hsi),
-                PllSource::HSE => unwrap!(hse),
+                PllSource::Hsi => unwrap!(hsi),
+                PllSource::Hse => unwrap!(hse),
                 _ => unreachable!(),
             };
 
@@ -243,14 +243,14 @@ pub(crate) unsafe fn init(config: Config) {
     let rtc = config.ls.init();
 
     let sys = match config.sys {
-        Sysclk::HSI => unwrap!(hsisys),
-        Sysclk::HSE => unwrap!(hse),
-        Sysclk::PLL1_R => unwrap!(pll.pll_r),
-        Sysclk::LSI => {
+        Sysclk::Hsi => unwrap!(hsisys),
+        Sysclk::Hse => unwrap!(hse),
+        Sysclk::Pll1R => unwrap!(pll.pll_r),
+        Sysclk::Lsi => {
             assert!(config.ls.lsi);
             LSI_FREQ
         }
-        Sysclk::LSE => unwrap!(config.ls.lse).frequency,
+        Sysclk::Lse => unwrap!(config.ls.lse).frequency,
         _ => unreachable!(),
     };
 
@@ -264,12 +264,12 @@ pub(crate) unsafe fn init(config: Config) {
     rcc_assert!(max::PCLK.contains(&pclk1));
 
     let latency = match (config.voltage_range, hclk.0) {
-        (VoltageRange::RANGE1, ..=24_000_000) => Latency::WS0,
-        (VoltageRange::RANGE1, ..=48_000_000) => Latency::WS1,
-        (VoltageRange::RANGE1, _) => Latency::WS2,
-        (VoltageRange::RANGE2, ..=8_000_000) => Latency::WS0,
-        (VoltageRange::RANGE2, ..=16_000_000) => Latency::WS1,
-        (VoltageRange::RANGE2, _) => Latency::WS2,
+        (VoltageRange::Range1, ..=24_000_000) => Latency::Ws0,
+        (VoltageRange::Range1, ..=48_000_000) => Latency::Ws1,
+        (VoltageRange::Range1, _) => Latency::Ws2,
+        (VoltageRange::Range2, ..=8_000_000) => Latency::Ws0,
+        (VoltageRange::Range2, ..=16_000_000) => Latency::Ws1,
+        (VoltageRange::Range2, _) => Latency::Ws2,
         _ => unreachable!(),
     };
 

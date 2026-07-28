@@ -20,7 +20,7 @@ use crate::dma::word::Word;
 ///
 /// # Example
 /// ```ignore
-/// let mut channel = pwm.ch1().into_ring_buffered_channel(dma_ch, &mut buffer);
+/// let mut channel = pwm.ch1().into_ring_buffered_channel(dma_ch, &mut buffer, Irqs);
 /// channel.start(); // Start DMA transfer
 /// channel.write(&[100, 200, 300]).ok(); // Update duty cycles
 /// ```
@@ -154,5 +154,10 @@ impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmCha
     /// Set the output compare mode for a given channel.
     pub fn set_output_compare_mode(&mut self, mode: super::low_level::OutputCompareMode) {
         self.timer.set_output_compare_mode(self.channel, mode);
+    }
+
+    /// Enable/disable OCREF clear for this channel.
+    pub fn set_output_compare_clear_enable(&mut self, enable: bool) {
+        self.timer.set_output_compare_clear_enable(self.channel, enable);
     }
 }

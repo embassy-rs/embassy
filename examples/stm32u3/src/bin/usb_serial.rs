@@ -24,10 +24,10 @@ async fn main(_spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi = true;
-        config.rcc.sys = Sysclk::MSIS;
+        config.rcc.sys = Sysclk::Msis;
         config.rcc.voltage_range = VoltageScale::RANGE1;
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true }); // needed for USB
-        config.rcc.mux.iclksel = mux::Iclksel::HSI48; // USB uses ICLK
+        config.rcc.mux.iclksel = mux::Iclksel::Hsi48; // USB uses ICLK
     }
 
     let p = embassy_stm32::init(config);

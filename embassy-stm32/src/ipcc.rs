@@ -2,26 +2,18 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{Ordering, compiler_fence, fence};
 use core::task::Poll;
 
 use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::atomic::AtomicModify;
+use crate::cpu::CoreId;
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::IPCC;
 use crate::rcc::SealedRccPeripheral;
 use crate::{interrupt, rcc};
-
-cfg_if::cfg_if! {
-    if #[cfg(feature = "_core-cm0p")] {
-        const CPU: usize = 1;
-        const OTHER_CPU: usize = 0;
-    } else {
-        const CPU: usize = 0;
-        const OTHER_CPU: usize = 1;
-    }
-}
 
 /// Interrupt handler.
 #[cfg(not(feature = "_core-cm0p"))]
@@ -31,11 +23,12 @@ pub struct ReceiveInterruptHandler {}
 impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_RX> for ReceiveInterruptHandler {
     unsafe fn on_interrupt() {
         let regs = IPCC::regs();
+        let core = CoreId::current();
 
         trace!("ipcc: rx interrupt");
         // Status register gives channel occupied status. For rx, use the other.
-        let sr = regs.cpu(OTHER_CPU).sr().read();
-        regs.cpu(CPU).mr().modify(|w| {
+        let sr = regs.cpu(core.other().to_index().into()).sr().read();
+        regs.cpu(core.to_index().into()).mr().modify(|w| {
             for index in 0..5 {
                 if sr.chf(index as usize) {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
@@ -57,11 +50,12 @@ pub struct TransmitInterruptHandler {}
 impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_TX> for TransmitInterruptHandler {
     unsafe fn on_interrupt() {
         let regs = IPCC::regs();
+        let core = CoreId::current();
 
         trace!("ipcc: rx interrupt");
         // Status register gives channel occupied status. For tx, use cpu0.
-        let sr = regs.cpu(CPU).sr().read();
-        regs.cpu(CPU).mr().modify(|w| {
+        let sr = regs.cpu(core.to_index().into()).sr().read();
+        regs.cpu(core.to_index().into()).mr().modify(|w| {
             for index in 0..5 {
                 if !sr.chf(index as usize) {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
@@ -83,13 +77,14 @@ pub struct InterruptHandler {}
 impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C2_RX_C2_TX> for InterruptHandler {
     unsafe fn on_interrupt() {
         let regs = IPCC::regs();
+        let core = CoreId::current();
 
         // Status register gives channel occupied status. For rx, use the other.
-        let rx_sr = regs.cpu(OTHER_CPU).sr().read();
+        let rx_sr = regs.cpu(core.other().to_index().into()).sr().read();
         // Status register gives channel occupied status. For tx, use cpu0.
-        let tx_sr = regs.cpu(CPU).sr().read();
+        let tx_sr = regs.cpu(core.to_index().into()).sr().read();
 
-        regs.cpu(CPU).mr().modify(|w| {
+        regs.cpu(core.to_index().into()).mr().modify(|w| {
             for index in 0..5 {
                 if rx_sr.chf(index as usize) {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
@@ -128,6 +123,35 @@ impl Default for Config {
     }
 }
 
+struct ActiveTxInterrupt {
+    core: CoreId,
+    index: u8,
+}
+
+impl ActiveTxInterrupt {
+    fn configure_interrupt(&mut self, enabled: bool) {
+        let mr = IPCC::regs().cpu(self.core.to_index().into()).mr();
+
+        match enabled {
+            true => mr.clear_bits(|w| w.set_chfm(self.index as usize, false)),
+            false => mr.set_bits(|w| w.set_chfm(self.index as usize, true)),
+        };
+    }
+
+    fn new(core: CoreId, index: u8) -> Self {
+        let mut this = Self { core, index };
+
+        this.configure_interrupt(true);
+        this
+    }
+}
+
+impl Drop for ActiveTxInterrupt {
+    fn drop(&mut self) {
+        self.configure_interrupt(false);
+    }
+}
+
 /// IPCC TX Channel
 pub struct IpccTxChannel<'a> {
     index: u8,
@@ -144,48 +168,127 @@ impl<'a> IpccTxChannel<'a> {
         }
     }
 
-    /// Send data to an IPCC channel. The closure is called to write the data when appropriate.
-    pub async fn send(&mut self, f: impl FnOnce()) {
-        let _scoped_block_stop = IPCC::RCC_INFO.block_stop();
+    /// Send data to an IPCC channel, but wait until the corresponding rx channel is read
+    /// before writing any data inside of the closure. The closure is called to write
+    /// the data when appropriate.
+    pub async fn send_exclusive<R>(&mut self, f: impl FnOnce() -> R) -> R {
         let regs = IPCC::regs();
+        let core = CoreId::current();
+
+        // Wait for the tx channel to become clear
+        self.flush().await;
+
+        // Wait for the rx channel to become clear
+        if regs
+            .cpu(core.other().to_index().into())
+            .sr()
+            .read()
+            .chf(self.index as usize)
+        {
+            trace!("ipcc: ch {}: wait for rx clear", self.index + 1);
+
+            poll_fn(|cx| {
+                IPCC::state().rx_waker_for(self.index).register(cx.waker());
+
+                compiler_fence(Ordering::SeqCst);
+
+                if !regs
+                    .cpu(core.other().to_index().into())
+                    .sr()
+                    .read()
+                    .chf(self.index as usize)
+                {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
+            .await;
+        }
+
+        let ret = f();
+        fence(Ordering::Release);
+
+        trace!("ipcc: ch {}: send data", self.index + 1);
+        regs.cpu(core.to_index().into())
+            .scr()
+            .write(|w| w.set_chs(self.index as usize, true));
+
+        ret
+    }
+
+    /// Send data to an IPCC channel. The closure is called to write the data when appropriate.
+    pub async fn send<R>(&mut self, f: impl FnOnce() -> R) -> R {
+        let regs = IPCC::regs();
+        let core = CoreId::current();
 
         self.flush().await;
 
-        f();
+        let ret = f();
+        fence(Ordering::Release);
 
-        compiler_fence(Ordering::SeqCst);
+        trace!("ipcc: ch {}: send data", self.index + 1);
+        regs.cpu(core.to_index().into())
+            .scr()
+            .write(|w| w.set_chs(self.index as usize, true));
 
-        trace!("ipcc: ch {}: send data", self.index as u8);
-        regs.cpu(CPU).scr().write(|w| w.set_chs(self.index as usize, true));
+        ret
     }
 
     /// Wait for the tx channel to become clear
     pub async fn flush(&mut self) {
-        let _scoped_block_stop = IPCC::RCC_INFO.block_stop();
+        let _scoped_wake_guard = IPCC::RCC_INFO.wake_guard();
         let regs = IPCC::regs();
+        let core = CoreId::current();
 
         // This is a race, but is nice for debugging
-        if regs.cpu(CPU).sr().read().chf(self.index as usize) {
-            trace!("ipcc: ch {}: wait for tx free", self.index as u8);
+        if regs.cpu(core.to_index().into()).sr().read().chf(self.index as usize) {
+            trace!("ipcc: ch {}: wait for tx free", self.index + 1);
+        } else {
+            return;
         }
 
+        let _irq = ActiveTxInterrupt::new(core, self.index);
         poll_fn(|cx| {
             IPCC::state().tx_waker_for(self.index).register(cx.waker());
-            // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
-            regs.cpu(CPU).mr().modify(|w| w.set_chfm(self.index as usize, false));
-
             compiler_fence(Ordering::SeqCst);
 
-            if !regs.cpu(CPU).sr().read().chf(self.index as usize) {
-                // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
-                regs.cpu(CPU).mr().modify(|w| w.set_chfm(self.index as usize, true));
-
+            if !regs.cpu(core.to_index().into()).sr().read().chf(self.index as usize) {
                 Poll::Ready(())
             } else {
                 Poll::Pending
             }
         })
         .await;
+    }
+}
+
+struct ActiveRxInterrupt {
+    core: CoreId,
+    index: u8,
+}
+
+impl ActiveRxInterrupt {
+    fn configure_interrupt(&mut self, enabled: bool) {
+        let mr = IPCC::regs().cpu(self.core.to_index().into()).mr();
+
+        match enabled {
+            true => mr.clear_bits(|w| w.set_chom(self.index as usize, false)),
+            false => mr.set_bits(|w| w.set_chom(self.index as usize, true)),
+        };
+    }
+
+    fn new(core: CoreId, index: u8) -> Self {
+        let mut this = Self { core, index };
+
+        this.configure_interrupt(true);
+        this
+    }
+}
+
+impl Drop for ActiveRxInterrupt {
+    fn drop(&mut self) {
+        self.configure_interrupt(false);
     }
 }
 
@@ -205,43 +308,66 @@ impl<'a> IpccRxChannel<'a> {
         }
     }
 
+    /// Clear the channel to receive more data
+    pub fn clear(&mut self) {
+        let regs = IPCC::regs();
+        let core = CoreId::current();
+
+        trace!("ipcc: ch {}: clear rx", self.index + 1);
+
+        // If the channel is clear and the read function returns none, fetch more data
+        regs.cpu(core.to_index().into())
+            .scr()
+            .write(|w| w.set_chc(self.index as usize, true));
+
+        IPCC::state().rx_waker_for(self.index).wake();
+    }
+
     /// Receive data from an IPCC channel. The closure is called to read the data when appropriate.
     pub async fn receive<R>(&mut self, mut f: impl FnMut() -> Option<R>) -> R {
-        let _scoped_block_stop = IPCC::RCC_INFO.block_stop();
+        let _scoped_wake_guard = IPCC::RCC_INFO.wake_guard();
         let regs = IPCC::regs();
+        let core = CoreId::current();
 
         loop {
-            // This is a race, but is nice for debugging
-            if !regs.cpu(OTHER_CPU).sr().read().chf(self.index as usize) {
-                trace!("ipcc: ch {}: wait for rx occupied", self.index as u8);
+            if !regs
+                .cpu(core.other().to_index().into())
+                .sr()
+                .read()
+                .chf(self.index as usize)
+            {
+                trace!("ipcc: ch {}: wait for rx occupied", self.index + 1);
+
+                let _irq = ActiveRxInterrupt::new(core, self.index);
+                poll_fn(|cx| {
+                    IPCC::state().rx_waker_for(self.index).register(cx.waker());
+
+                    compiler_fence(Ordering::SeqCst);
+
+                    if regs
+                        .cpu(core.other().to_index().into())
+                        .sr()
+                        .read()
+                        .chf(self.index as usize)
+                    {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
             }
 
-            poll_fn(|cx| {
-                IPCC::state().rx_waker_for(self.index).register(cx.waker());
-                // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
-                regs.cpu(CPU).mr().modify(|w| w.set_chom(self.index as usize, false));
+            trace!("ipcc: ch {}: read data", self.index + 1);
 
-                compiler_fence(Ordering::SeqCst);
-
-                if regs.cpu(OTHER_CPU).sr().read().chf(self.index as usize) {
-                    // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
-                    regs.cpu(CPU).mr().modify(|w| w.set_chfm(self.index as usize, true));
-
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            trace!("ipcc: ch {}: read data", self.index as u8);
-
+            fence(Ordering::Acquire);
             let ret = f();
 
-            trace!("ipcc: ch {}: clear rx", self.index as u8);
             compiler_fence(Ordering::SeqCst);
-            // If the channel is clear and the read function returns none, fetch more data
-            regs.cpu(CPU).scr().write(|w| w.set_chc(self.index as usize, true));
+            if ret.is_none() {
+                self.clear();
+            }
+
             match ret {
                 Some(ret) => return ret,
                 None => {}
@@ -287,7 +413,7 @@ impl Ipcc {
         + 'd,
         _config: Config,
     ) -> Self {
-        rcc::enable_and_reset_without_stop::<IPCC>();
+        rcc::enable_and_reset::<IPCC>();
         IPCC::set_cpu2(_config.c2_boot);
 
         Self::init(_config);
@@ -309,7 +435,7 @@ impl Ipcc {
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C2_RX_C2_TX, InterruptHandler> + 'd,
         _config: Config,
     ) -> Self {
-        rcc::enable_and_reset_without_stop::<IPCC>();
+        rcc::enable_and_reset::<IPCC>();
 
         Self::init(_config);
 
@@ -325,8 +451,9 @@ impl Ipcc {
         let _ = IPCC::frequency();
 
         let regs = IPCC::regs();
+        let core = CoreId::current();
 
-        regs.cpu(CPU).cr().modify(|w| {
+        regs.cpu(core.to_index().into()).cr().modify(|w| {
             w.set_rxoie(true);
             w.set_txfie(true);
         });
@@ -349,6 +476,13 @@ impl Ipcc {
         core::assert!(number > 0 && number <= 6);
 
         IpccRxChannel::new(number - 1).receive(f).await
+    }
+
+    /// Receive from a channel number
+    pub unsafe fn clear(number: u8) {
+        core::assert!(number > 0 && number <= 6);
+
+        IpccRxChannel::new(number - 1).clear();
     }
 
     /// Send to a channel number

@@ -77,7 +77,6 @@ pub struct InterruptHandler<U: UarteInstance> {
 
 impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for InterruptHandler<U> {
     unsafe fn on_interrupt() {
-        info!("irq: start");
         let r = U::regs();
         let ss = U::state();
         let s = U::buffered_state();
@@ -224,7 +223,7 @@ impl<'d, U: UarteInstance> BufferedUarte<'d, U> {
         let tx = BufferedUarteTx::new_innerer(unsafe { peri.clone_unchecked() }, txd, cts, tx_buffer);
         let rx = BufferedUarteRx::new_innerer(peri, rxd, rts, rx_buffer);
 
-        U::regs().enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        U::regs().enable().write(|w| w.set_enable(vals::Enable::Enabled));
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
@@ -325,7 +324,7 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
 
         let this = Self::new_innerer(peri, txd, cts, tx_buffer);
 
-        U::regs().enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        U::regs().enable().write(|w| w.set_enable(vals::Enable::Enabled));
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 
@@ -492,7 +491,7 @@ impl<'d, U: UarteInstance> BufferedUarteRx<'d, U> {
 
         let this = Self::new_innerer(peri, rxd, rts, rx_buffer);
 
-        U::regs().enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        U::regs().enable().write(|w| w.set_enable(vals::Enable::Enabled));
         U::Interrupt::pend();
         unsafe { U::Interrupt::enable() };
 

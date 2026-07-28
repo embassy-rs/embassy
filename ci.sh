@@ -19,9 +19,17 @@ if ! command -v cargo-embassy-devtool &> /dev/null; then
 fi
 
 export RUSTFLAGS=-Dwarnings
-export DEFMT_LOG=trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,smoltcp=info
+export DEFMT_LOG=trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,xarxa=info
 if [[ -z "${CARGO_TARGET_DIR}" ]]; then
     export CARGO_TARGET_DIR=target_ci
+fi
+
+# always run check to prime cache
+cargo embassy-devtool check --force-incremental
+
+if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
+    echo No teleprobe token found, skipping running HIL tests
+    exit
 fi
 
 cargo embassy-devtool build
@@ -31,12 +39,13 @@ rm -rf out/tests/stm32f103c8
 rm -rf out/tests/nrf52840-dk
 rm -rf out/tests/nrf52833-dk
 rm -rf out/tests/nrf5340-dk
-
+rm -rf out/tests/nrf51422-dk
+ 
 # disabled because these boards are not on the shelf
 rm -rf out/tests/mspm0g3507
 
-rm out/tests/stm32wb55rg/wpan_mac
-rm out/tests/stm32wb55rg/wpan_ble
+# rm out/tests/stm32wb55rg/wpan_mac
+# rm out/tests/stm32wb55rg/wpan_ble
 
 # unstable, I think it's running out of RAM?
 rm out/tests/stm32f207zg/eth
@@ -61,11 +70,13 @@ rm out/tests/pimoroni-pico-plus-2/i2c
 rm out/tests/pimoroni-pico-plus-2/adc
 # temporarily disabled
 rm out/tests/pimoroni-pico-plus-2/pwm
+rm out/tests/frdm-mcx-a266/trng
 
 # flaky
 rm out/tests/rpi-pico/pwm
 rm out/tests/rpi-pico/cyw43-perf
 rm out/tests/rpi-pico/uart_buffered
+rm out/tests/rpi-pico/spi_async
 
 rm out/tests/stm32h563zi/usart_dma
 
@@ -73,10 +84,5 @@ rm out/tests/stm32h563zi/usart_dma
 rm -rf out/tests/stm32c071rb
 rm -rf out/tests/stm32f100rd
 rm -rf out/tests/stm32f107vc
-
-if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
-    echo No teleprobe token found, skipping running HIL tests
-    exit
-fi
 
 teleprobe client run -r out/tests

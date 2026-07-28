@@ -40,6 +40,7 @@ pub mod i2c;
 pub mod pwm;
 pub mod tach;
 pub mod time_driver;
+pub mod uart;
 
 // Reexports
 pub use embassy_hal_internal::{Peri, PeripheralType};
@@ -483,6 +484,8 @@ embassy_hal_internal::peripherals! {
     TACH1,
     TACH2,
     TACH3,
+    UART0,
+    UART1,
 }
 
 /// HAL configuration for Microchip.

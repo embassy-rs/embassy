@@ -28,6 +28,10 @@ If a `time-driver-*` feature is enabled, embassy-stm32 provides a time driver fo
 
 embassy-time has a default tick rate of 1MHz, which is fast enough to cause problems with the 16-bit timers currently supported by the embassy-stm32 time driver (specifically, if a critical section delays an IRQ by more than 32ms). To avoid this, it’s recommended to pick a lower tick rate. 32.768kHz is a reasonable default for many purposes.
 
+When using the `low-power` feature and a timer that is not `low-power` capable to keep time, the precision of `Duration` may reduced to the RTC tick rate, which is most commmonly 256 Hz, if stop mode is entered between
+when two `Instant::now()` calls are made. If higher precision is required, then a `WakeGuard` can be held to prevent the chip from entering stop or a timer that is `low-power` capable can be used. If the user does not
+hold a `WakeGuard`, then embassy may enter low-power at any time depending on the internal implemenation of the `low-power` feature. HAL drivers should not be relied upon to block entering stop.
+
 ## Interoperability
 
 This crate can run on any executor.

@@ -16,12 +16,12 @@ use panic_probe as _;
 #[unsafe(link_section = ".shared_data.0")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     config.rcc.ls = embassy_stm32::rcc::LsConfig::default_lsi();
-    config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::RANGE4M);
-    config.rcc.sys = embassy_stm32::rcc::Sysclk::MSI;
+    config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::Range4m);
+    config.rcc.sys = embassy_stm32::rcc::Sysclk::Msi;
     #[cfg(feature = "defmt-serial")]
     {
         // disable debug during sleep to reduce power consumption since we are

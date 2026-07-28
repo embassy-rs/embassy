@@ -17,8 +17,10 @@ use crate::waitqueue::MultiWakerRegistration;
 pub mod publisher;
 pub mod subscriber;
 
-pub use publisher::{DynImmediatePublisher, DynPublisher, ImmediatePublisher, Publisher};
-pub use subscriber::{DynSubscriber, Subscriber};
+pub use publisher::{
+    DynImmediatePublisher, DynPublisher, ImmediatePublisher, Publisher, SendDynImmediatePublisher, SendDynPublisher,
+};
+pub use subscriber::{DynSubscriber, SendDynSubscriber, Subscriber};
 
 /// A broadcast channel implementation where multiple publishers can send messages to multiple subscribers
 ///
@@ -518,7 +520,25 @@ pub enum WaitResult<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blocking_mutex::raw::NoopRawMutex;
+    use crate::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
+
+    #[test]
+    fn send_dyn_are_send_sync() {
+        fn assert_send<T: Send>() {}
+        fn assert_sync<T: Sync>() {}
+
+        assert_send::<SendDynSubscriber<'_, u32>>();
+        assert_sync::<SendDynSubscriber<'_, u32>>();
+        assert_send::<SendDynPublisher<'_, u32>>();
+        assert_sync::<SendDynPublisher<'_, u32>>();
+        assert_send::<SendDynImmediatePublisher<'_, u32>>();
+        assert_sync::<SendDynImmediatePublisher<'_, u32>>();
+
+        let channel = PubSubChannel::<CriticalSectionRawMutex, u32, 4, 4, 4>::new();
+        let _sub: SendDynSubscriber<'_, u32> = channel.subscriber().unwrap().into();
+        let _pubb: SendDynPublisher<'_, u32> = channel.publisher().unwrap().into();
+        let _imm: SendDynImmediatePublisher<'_, u32> = channel.immediate_publisher().into();
+    }
 
     #[futures_test::test]
     async fn dyn_pub_sub_works() {

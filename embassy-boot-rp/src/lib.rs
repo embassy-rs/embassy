@@ -81,6 +81,11 @@ impl<'d, const SIZE: usize> WatchdogFlash<'d, SIZE> {
             timeout,
         }
     }
+
+    /// Split back into separate flash and watchdog.
+    pub fn split(self) -> (Flash<'d, FLASH, Blocking, SIZE>, Watchdog) {
+        (self.flash, self.watchdog)
+    }
 }
 
 impl<'d, const SIZE: usize> ErrorType for WatchdogFlash<'d, SIZE> {

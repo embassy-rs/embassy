@@ -34,7 +34,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
-#[cfg(not(feature = "arch-avr"))]
+#[cfg(not(feature = "platform-avr"))]
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
@@ -42,7 +42,7 @@ use core::task::{Context, Poll, Waker};
 #[cfg(feature = "scheduler-deadline")]
 pub(crate) use deadline::Deadline;
 use embassy_executor_timer_queue::TimerQueueItem;
-#[cfg(feature = "arch-avr")]
+#[cfg(feature = "platform-avr")]
 use portable_atomic::AtomicPtr;
 
 use self::run_queue::{RunQueue, RunQueueItem};
@@ -231,8 +231,7 @@ impl<F: Future + 'static> TaskStorage<F> {
     /// NRVO optimizations.
     ///
     /// This function will fail if the task is already spawned and has not finished running.
-    /// In this case, the error is delayed: a "poisoned" SpawnToken is returned, which will
-    /// cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
+    /// In this case, [`SpawnError::Busy`] is returned.
     ///
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
@@ -381,8 +380,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// See [`TaskStorage::spawn()`] for details.
     ///
     /// This will loop over the pool and spawn the task in the first storage that
-    /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
-    /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
+    /// is currently free. If none is free, [`SpawnError::Busy`] is returned.
     pub fn spawn(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<impl Sized>, SpawnError> {
         self.spawn_impl::<F>(future)
     }
@@ -499,9 +497,9 @@ impl SyncExecutor {
 ///   that "want to run").
 /// - You must supply a pender function, as shown below. The executor will call it to notify you
 ///   it has work to do. You must arrange for `poll()` to be called as soon as possible.
-/// - Enabling `arch-xx` features will define a pender function for you. This means that you
+/// - Enabling `platform-xx` features will define a pender function for you. This means that you
 ///   are limited to using the executors provided to you by the architecture/platform
-///   implementation. If you need a different executor, you must not enable `arch-xx` features.
+///   implementation. If you need a different executor, you must not enable `platform-xx` features.
 ///
 /// The pender can be called from *any* context: any thread, any interrupt priority
 /// level, etc. It may be called synchronously from any `Executor` method call as well.

@@ -96,12 +96,12 @@ impl Config {
         Config {
             hsi: true,
             hse: None,
-            sys: Sysclk::HSI,
+            sys: Sysclk::Hsi,
             hsi48: Some(crate::rcc::Hsi48Config::new()),
             pll: None,
-            ahb_pre: AHBPrescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
-            apb2_pre: APBPrescaler::DIV1,
+            ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
+            apb2_pre: APBPrescaler::Div1,
             low_power_run: false,
             ls: crate::rcc::LsConfig::new(),
             boost: false,
@@ -129,8 +129,8 @@ pub(crate) unsafe fn init(config: Config) {
     while !RCC.cr().read().hsirdy() {}
 
     // Use the HSI clock as system clock during the actual clock setup
-    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
-    while RCC.cfgr().read().sws() != Sysclk::HSI {}
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsi));
+    while RCC.cfgr().read().sws() != Sysclk::Hsi {}
 
     // Configure HSI
     let hsi = match config.hsi {
@@ -164,8 +164,8 @@ pub(crate) unsafe fn init(config: Config) {
         .pll
         .map(|pll_config| {
             let src_freq = match pll_config.source {
-                PllSource::HSI => unwrap!(hsi),
-                PllSource::HSE => unwrap!(hse),
+                PllSource::Hsi => unwrap!(hsi),
+                PllSource::Hse => unwrap!(hse),
                 _ => unreachable!(),
             };
 
@@ -228,9 +228,9 @@ pub(crate) unsafe fn init(config: Config) {
         .unwrap_or_default();
 
     let sys = match config.sys {
-        Sysclk::HSI => unwrap!(hsi),
-        Sysclk::HSE => unwrap!(hse),
-        Sysclk::PLL1_R => unwrap!(pll.pll_r),
+        Sysclk::Hsi => unwrap!(hsi),
+        Sysclk::Hse => unwrap!(hse),
+        Sysclk::Pll1R => unwrap!(pll.pll_r),
         _ => unreachable!(),
     };
 
@@ -250,7 +250,7 @@ pub(crate) unsafe fn init(config: Config) {
         // RM0440 p235
         // “The sequence to switch from Range1 normal mode to Range1 boost mode is:
         // 1. The system clock must be divided by 2 using the AHB prescaler before switching to a higher system frequency.
-        RCC.cfgr().modify(|w| w.set_hpre(AHBPrescaler::DIV2));
+        RCC.cfgr().modify(|w| w.set_hpre(AHBPrescaler::Div2));
         // 2. Clear the R1MODE bit in the PWR_CR5 register. (enables boost mode)
         PWR.cr5().modify(|w| w.set_r1mode(false));
 
@@ -260,17 +260,17 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     let latency = match (config.boost, hclk.0) {
-        (true, ..=34_000_000) => Latency::WS0,
-        (true, ..=68_000_000) => Latency::WS1,
-        (true, ..=102_000_000) => Latency::WS2,
-        (true, ..=136_000_000) => Latency::WS3,
-        (true, _) => Latency::WS4,
+        (true, ..=34_000_000) => Latency::Ws0,
+        (true, ..=68_000_000) => Latency::Ws1,
+        (true, ..=102_000_000) => Latency::Ws2,
+        (true, ..=136_000_000) => Latency::Ws3,
+        (true, _) => Latency::Ws4,
 
-        (false, ..=36_000_000) => Latency::WS0,
-        (false, ..=60_000_000) => Latency::WS1,
-        (false, ..=90_000_000) => Latency::WS2,
-        (false, ..=120_000_000) => Latency::WS3,
-        (false, _) => Latency::WS4,
+        (false, ..=36_000_000) => Latency::Ws0,
+        (false, ..=60_000_000) => Latency::Ws1,
+        (false, ..=90_000_000) => Latency::Ws2,
+        (false, ..=120_000_000) => Latency::Ws3,
+        (false, _) => Latency::Ws4,
     };
 
     // Configure flash read access latency based on boost mode and frequency (RM0440 p98)
@@ -331,6 +331,7 @@ pub(crate) unsafe fn init(config: Config) {
         hse: hse,
         hsi48: hsi48,
         rtc: rtc,
+        i2s_ckin: None,
         lsi: None,
         lse: None,
     );

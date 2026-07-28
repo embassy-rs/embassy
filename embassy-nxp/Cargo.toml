@@ -9,6 +9,7 @@ publish = false
 [package.metadata.embassy]
 build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55-core0"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55s16"]},
     {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1011", "rt", "time-driver-pit"]},
     {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1062", "rt", "time-driver-pit"]},
 ]
@@ -20,6 +21,7 @@ features = ["defmt", "unstable-pac" ] # TODO: Add time-driver-any, as both lpc55
 
 flavors = [
     { regex_feature = "lpc55-core0", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "lpc55s16", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "mimxrt.*", target = "thumbv7em-none-eabihf" },
 ]
 
@@ -27,24 +29,24 @@ flavors = [
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.0"
 critical-section = "1.1.2"
-embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
-embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures"}
 defmt = { version = "1", optional = true }
 log = { version = "0.4.27", optional = true }
-embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
-embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
+embassy-time = { version = "0.5.1", path = "../embassy-time", optional = true }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
 embedded-io = { version = "0.7.1" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 ## Chip dependencies
-nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/i509VCB/nxp-pac", rev = "af5122e1cbe1483833c5d2e5af96b26a34ed5d62"}
+nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/embassy-rs/nxp-pac", rev = "47dada0976da4114c348ea16f5ead31f38f36eea" }
 
 imxrt-rt = { version = "0.1.7", optional = true, features = ["device"] }
 
 [build-dependencies]
 cfg_aliases = "0.2.1"
-nxp-pac = { version = "0.1.0", git = "https://github.com/i509VCB/nxp-pac", rev = "af5122e1cbe1483833c5d2e5af96b26a34ed5d62", features = ["metadata"], optional = true }
+nxp-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nxp-pac", rev = "47dada0976da4114c348ea16f5ead31f38f36eea", features = ["metadata"] }
 proc-macro2 = "1.0.95"
 quote = "1.0.15"
 
@@ -75,11 +77,13 @@ unstable-pac = []
 # This feature is unfortunately a hack around the fact that cfg_aliases cannot apply to the buildscript
 # that creates the aliases.
 _rt1xxx = []
+_lpc55 = []
 
 # A timer driver is enabled.
 _time_driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
 #! ### Chip selection features
 lpc55-core0 = ["nxp-pac/lpc55s69_cm33_core0"]
+lpc55s16 = ["nxp-pac/lpc55s16", "_lpc55"]
 mimxrt1011 = ["nxp-pac/mimxrt1011", "_rt1xxx", "dep:imxrt-rt"]
 mimxrt1062 = ["nxp-pac/mimxrt1062", "_rt1xxx", "dep:imxrt-rt"]

@@ -24,7 +24,6 @@ pub(crate) trait LPTimeDriver {
     fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration;
 
     /// Set the minimum pause time beyond which the executor will enter a low-power state.
-    #[cfg(not(feature = "_lp-time-driver"))]
     fn set_min_stop_pause(&self, cs: CriticalSection, min_stop_pause: embassy_time::Duration);
 
     /// Set the rtc but panic if it's already been set
@@ -36,9 +35,6 @@ pub(crate) trait LPTimeDriver {
 
     /// Resume the timer with the given offset
     fn resume_time(&self, cs: CriticalSection);
-
-    /// Returns whether time is currently stopped
-    fn is_stopped(&self) -> bool;
 }
 
 #[cfg_attr(feature = "_lp-time-driver", path = "lptim.rs")]

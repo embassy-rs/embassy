@@ -4,15 +4,15 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 
-#[cfg(not(any(lptim_v2a, lptim_v2b)))]
+#[cfg(not(any(lptim_v2a, lptim_v2b, lptim_n6)))]
 use super::OutputPin;
 use super::timer::Timer;
 use super::{BasicInstance, Instance};
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 use super::{Channel1Pin, Channel2Pin, channel::Channel, timer::ChannelDirection};
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::time::Hertz;
 
 /// Output marker type.
@@ -26,7 +26,7 @@ pub enum Ch2 {}
 ///
 /// This wraps a pin to make it usable with PWM.
 pub struct PwmPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
+    _pin: Flex<'d>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -53,7 +53,7 @@ macro_rules! channel_impl {
                     set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
                 });
                 PwmPin {
-                    _pin: pin.into(),
+                    _pin: Flex::new(pin),
                     phantom: PhantomData,
                 }
             }
@@ -70,7 +70,7 @@ macro_rules! channel_impl {
                     );
                 });
                 PwmPin {
-                    _pin: pin.into(),
+                    _pin: Flex::new(pin),
                     phantom: PhantomData,
                 }
             }
@@ -78,11 +78,11 @@ macro_rules! channel_impl {
     };
 }
 
-#[cfg(not(any(lptim_v2a, lptim_v2b)))]
+#[cfg(not(any(lptim_v2a, lptim_v2b, lptim_n6)))]
 channel_impl!(new, new_with_config, Output, OutputPin);
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 channel_impl!(new_ch1, new_ch1_with_config, Ch1, Channel1Pin);
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 channel_impl!(new_ch2, new_ch2_with_config, Ch2, Channel2Pin);
 
 /// PWM driver.
@@ -90,7 +90,7 @@ pub struct Pwm<'d, T: Instance> {
     inner: Timer<'d, T>,
 }
 
-#[cfg(not(any(lptim_v2a, lptim_v2b)))]
+#[cfg(not(any(lptim_v2a, lptim_v2b, lptim_n6)))]
 impl<'d, T: Instance> Pwm<'d, T> {
     /// Create a new PWM driver.
     pub fn new(tim: Peri<'d, T>, _output_pin: PwmPin<'d, T, Output>, freq: Hertz) -> Self {
@@ -115,7 +115,7 @@ impl<'d, T: Instance> Pwm<'d, T> {
     fn post_init(&mut self) {}
 }
 
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 impl<'d, T: Instance> Pwm<'d, T> {
     /// Create a new PWM driver.
     pub fn new(

@@ -1,4 +1,4 @@
-use crate::bindings::link_layer::{
+use crate::wba::bindings::link_layer::{
     LINKLAYER_PLAT_DisableIRQ, LINKLAYER_PLAT_DisableSpecificIRQ, LINKLAYER_PLAT_EnableIRQ,
     LINKLAYER_PLAT_EnableSpecificIRQ, LINKLAYER_PLAT_PhyStartClbr, LINKLAYER_PLAT_PhyStopClbr,
 };

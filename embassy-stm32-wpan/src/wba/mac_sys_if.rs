@@ -116,16 +116,16 @@
 //
 
 use super::util_seq;
-use crate::bindings::mac;
+use crate::wba::bindings::mac;
 
 /// Placeholder value used by the original ST middleware when registering tasks.
 const UTIL_SEQ_RFU: u32 = 0;
 
 /// Bit mask identifying the MAC layer task within the sequencer.
-const TASK_MAC_LAYER_MASK: u32 = 1 << mac::CFG_TASK_ID_T_CFG_TASK_MAC_LAYER;
+const TASK_MAC_LAYER_MASK: u32 = 1 << mac::CFG_Task_Id_t_CFG_TASK_MAC_LAYER;
 
 /// Sequencer priority assigned to the MAC layer task.
-const TASK_PRIO_MAC_LAYER: u32 = mac::CFG_SEQ_PRIO_ID_T_CFG_SEQ_PRIO_0 as u32;
+const TASK_PRIO_MAC_LAYER: u32 = mac::CFG_SEQ_Prio_Id_t_CFG_SEQ_PRIO_0 as u32;
 
 /// Event flag consumed by the MAC task while waiting on notifications.
 const EVENT_MAC_LAYER_MASK: u32 = 1 << 0;
@@ -136,7 +136,10 @@ const EVENT_MAC_LAYER_MASK: u32 = 1 << 0;
 /// `UTIL_SEQ_RegTask(TASK_MAC_LAYER, UTIL_SEQ_RFU, mac_baremetal_run);`
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn MacSys_Init() {
-    util_seq::UTIL_SEQ_RegTask(TASK_MAC_LAYER_MASK, UTIL_SEQ_RFU, Some(mac::mac_baremetal_run));
+    unsafe extern "C" fn mac_baremetal_run_wrapper() {
+        mac::mac_baremetal_run();
+    }
+    util_seq::UTIL_SEQ_RegTask(TASK_MAC_LAYER_MASK, UTIL_SEQ_RFU, Some(mac_baremetal_run_wrapper));
 }
 
 /**

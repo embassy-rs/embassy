@@ -9,7 +9,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::dma::ringbuffer::Error as RingbufferError;
 pub use crate::dma::word;
 use crate::dma::{Channel, ReadableRingBuffer, TransferOptions};
-use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
+use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::spdifrx::Spdifrx as Regs;
 use crate::rcc::{RccInfo, SealedRccPeripheral};
@@ -36,7 +36,7 @@ macro_rules! new_spdifrx_pin {
         let pin = $name;
         let input_sel = pin.input_sel();
         set_as_af!(pin, $af_type);
-        (Some(pin.into()), input_sel)
+        (Some(Flex::new(pin)), input_sel)
     }};
 }
 
@@ -58,18 +58,26 @@ macro_rules! impl_spdifrx_pin {
 /// Data is read by DMAs and stored in a ring buffer.
 pub struct Spdifrx<'d, T: Instance> {
     _peri: Peri<'d, T>,
-    spdifrx_in: Option<Peri<'d, AnyPin>>,
+    _spdifrx_in: Option<Flex<'d>>,
     data_ring_buffer: ReadableRingBuffer<'d, u32>,
 }
 
 /// Gives the address of the data register.
 fn dr_address(r: Regs) -> *mut u32 {
-    #[cfg(spdifrx_v1)]
+    #[cfg(any(spdifrx_v1, spdifrx_n6))]
     let address = r.dr().as_ptr() as _;
     #[cfg(spdifrx_h7)]
     let address = r.fmt0_dr().as_ptr() as _; // All fmtx_dr() implementations have the same address.
 
     return address;
+}
+
+#[inline]
+fn set_spdifen(cr: &mut crate::pac::spdifrx::regs::Cr, val: u8) {
+    #[cfg(spdifrx_n6)]
+    cr.set_spdifrxen(val);
+    #[cfg(not(spdifrx_n6))]
+    cr.set_spdifen(val);
 }
 
 /// Gives the address of the channel status register.
@@ -125,25 +133,37 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
     }
 
     /// Create a new `Spdifrx` instance.
-    pub fn new(
+    pub fn new<D>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::GlobalInterrupt, GlobalInterruptHandler<T>> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::GlobalInterrupt, GlobalInterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
         spdifrx_in: Peri<'d, impl InPin<T>>,
-        data_dma: Peri<'d, impl Channel + Dma<T>>,
+        data_dma: Peri<'d, D>,
         data_dma_buf: &'d mut [u32],
-    ) -> Self {
+    ) -> Self
+    where
+        D: Dma<T>,
+    {
         let (spdifrx_in, input_sel) = new_spdifrx_pin!(spdifrx_in, AfType::input(Pull::None));
         Self::setup(config, input_sel);
 
         let regs = T::info().regs;
         let dr_request = data_dma.request();
-        let dr_ring_buffer =
-            unsafe { ReadableRingBuffer::new(data_dma, dr_request, dr_address(regs), data_dma_buf, Self::dma_opts()) };
+        let dr_ring_buffer = unsafe {
+            ReadableRingBuffer::new(
+                Channel::new(data_dma, irq),
+                dr_request,
+                dr_address(regs),
+                data_dma_buf,
+                Self::dma_opts(),
+            )
+        };
 
         Self {
             _peri: peri,
-            spdifrx_in,
+            _spdifrx_in: spdifrx_in,
             data_ring_buffer: dr_ring_buffer,
         }
     }
@@ -161,7 +181,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         });
 
         regs.cr().write(|cr| {
-            cr.set_spdifen(0x00); // Disable SPDIF receiver synchronization.
+            set_spdifen(cr, 0x00); // Disable SPDIF receiver synchronization.
             cr.set_rxdmaen(true); // Use RX DMA for data. Enabled on `read`.
             cr.set_cbdmaen(false); // Do not capture channel info.
             cr.set_rxsteo(true); // Operate in stereo mode.
@@ -196,7 +216,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         self.data_ring_buffer.start();
 
         T::info().regs.cr().modify(|cr| {
-            cr.set_spdifen(0x03); // Enable S/PDIF receiver.
+            set_spdifen(cr, 0x03); // Enable S/PDIF receiver.
         });
     }
 
@@ -234,8 +254,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
 
 impl<'d, T: Instance> Drop for Spdifrx<'d, T> {
     fn drop(&mut self) {
-        T::info().regs.cr().modify(|cr| cr.set_spdifen(0x00));
-        self.spdifrx_in.as_ref().map(|x| x.set_as_disconnected());
+        T::info().regs.cr().modify(|cr| set_spdifen(cr, 0x00));
     }
 }
 
@@ -273,7 +292,7 @@ dma_trait!(Dma, Instance);
 
 /// Global interrupt handler.
 pub struct GlobalInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::GlobalInterrupt> for GlobalInterruptHandler<T> {
@@ -287,8 +306,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::GlobalInterrupt> for GlobalIn
             trace!("SPDIFRX error, resync");
 
             // Clear errors by disabling SPDIFRX, then reenable.
-            regs.cr().modify(|cr| cr.set_spdifen(0x00));
-            regs.cr().modify(|cr| cr.set_spdifen(0x03));
+            regs.cr().modify(|cr| set_spdifen(cr, 0x00));
+            regs.cr().modify(|cr| set_spdifen(cr, 0x03));
         } else if sr.syncd() {
             // Synchronization was successful.
             trace!("SPDIFRX sync success");

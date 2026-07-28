@@ -74,6 +74,29 @@ where
 
 impl<'ch, M, T, const N: usize> Copy for Sender<'ch, M, T, N> where M: RawMutex {}
 
+impl<'ch, M, T, const N: usize> futures_sink::Sink<T> for Sender<'ch, M, T, N>
+where
+    M: RawMutex,
+{
+    type Error = TrySendError<T>;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll_ready_to_send(cx).map(|()| Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+        self.try_send(item)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
 impl<'ch, M, T, const N: usize> Sender<'ch, M, T, N>
 where
     M: RawMutex,
@@ -1009,6 +1032,47 @@ where
         self.poll_receive(cx).map(Some)
     }
 }
+
+impl<M, T, const N: usize> futures_sink::Sink<T> for Channel<M, T, N>
+where
+    M: RawMutex,
+{
+    type Error = TrySendError<T>;
+
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll_ready_to_send(cx).map(|()| Ok(()))
+    }
+
+    fn start_send(self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+        self.try_send(item)
+    }
+
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
+    }
+}
+
+impl core::fmt::Display for TryReceiveError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Empty => f.write_str("Empty"),
+        }
+    }
+}
+impl core::error::Error for TryReceiveError {}
+
+impl<T> core::fmt::Display for TrySendError<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Full(_) => f.write_str("Full"),
+        }
+    }
+}
+impl<T: core::fmt::Debug> core::error::Error for TrySendError<T> {}
 
 #[cfg(test)]
 mod tests {

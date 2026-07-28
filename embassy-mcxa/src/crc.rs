@@ -2,53 +2,44 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::Peri;
-use mcxa_pac::crc0::ctrl::{Fxor, Tcrc, Tot, Totr};
+use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
-use crate::peripherals::CRC0;
+use crate::clocks::{Gate, enable_and_reset};
+use crate::pac;
+use crate::pac::crc::{Fxor, Tcrc, Tot, Totr, Was};
 
 /// CRC driver.
 pub struct Crc<'d, M> {
-    _peri: Peri<'d, CRC0>,
-    _phantom: PhantomData<M>,
+    info: &'static Info,
+    _phantom: PhantomData<&'d mut M>,
 }
 
 impl<'d, M: Mode> Crc<'d, M> {
-    fn new_inner(_peri: Peri<'d, CRC0>) -> Self {
-        _ = unsafe { enable_and_reset::<CRC0>(&NoConfig) };
+    fn new_inner<T: Instance>(_peri: Peri<'d, T>) -> Self {
+        // NoConfig? No WakeGuard!
+        _ = unsafe { enable_and_reset::<T>(&NoConfig) };
 
         Crc {
-            _peri,
+            info: T::info(),
             _phantom: PhantomData,
         }
     }
 
     // Configure the underlying peripheral according to the reference manual.
-    fn configure(config: Config, width: Tcrc) {
-        Self::regs().ctrl().modify(|_, w| {
-            w.fxor()
-                .variant(config.complement_out.into())
-                .totr()
-                .variant(config.reflect_out.into())
-                .tot()
-                .variant(config.reflect_in.into())
-                .was()
-                .data()
-                .tcrc()
-                .variant(width)
+    fn configure(&mut self, config: Config, width: Tcrc) {
+        self.info.regs().ctrl().modify(|w| {
+            w.set_fxor(config.complement_out.into());
+            w.set_totr(config.reflect_out.into());
+            w.set_tot(config.reflect_in.into());
+            w.set_was(Was::Data);
+            w.set_tcrc(width);
         });
 
-        Self::regs().gpoly32().write(|w| unsafe { w.bits(config.polynomial) });
-
-        Self::regs().ctrl().modify(|_, w| w.was().seed());
-        Self::regs().data32().write(|w| unsafe { w.bits(config.seed) });
-        Self::regs().ctrl().modify(|_, w| w.was().data());
-    }
-
-    fn regs() -> &'static crate::pac::crc0::RegisterBlock {
-        unsafe { &*crate::pac::Crc0::ptr() }
+        self.info.regs().gpoly32().write(|w| *w = config.polynomial);
+        self.info.regs().ctrl().modify(|w| w.set_was(Was::Seed));
+        self.info.regs().data32().write(|w| *w = config.seed);
+        self.info.regs().ctrl().modify(|w| w.set_was(Was::Data));
     }
 
     /// Read the computed CRC value
@@ -59,11 +50,11 @@ impl<'d, M: Mode> Crc<'d, M> {
         // clock cycles to read the data from CRC Data (DATA)
         // register."
         cortex_m::asm::delay(2);
-        W::read(Self::regs())
+        W::read(self.info.regs())
     }
 
     fn feed_word<W: Word>(&mut self, word: W) {
-        W::write(Self::regs(), word);
+        W::write(self.info.regs(), word);
     }
 
     /// Feeds a slice of `Word`s into the CRC peripheral. Returns the computed
@@ -90,129 +81,129 @@ impl<'d, M: Mode> Crc<'d, M> {
 
 impl<'d> Crc<'d, Crc16> {
     /// Instantiates a new CRC peripheral driver in 16-bit mode
-    pub fn new_crc16(peri: Peri<'d, CRC0>, config: Config) -> Self {
-        let inst = Self::new_inner(peri);
-        Self::configure(config, Tcrc::B16);
+    pub fn new_crc16<T: Instance>(peri: Peri<'d, T>, config: Config) -> Self {
+        let mut inst = Self::new_inner(peri);
+        inst.configure(config, Tcrc::B16);
         inst
     }
 
     /// Instantiates a new CRC peripheral driver for the given `Algorithm16`.
-    pub fn new_algorithm16(peri: Peri<'d, CRC0>, algorithm: Algorithm16) -> Self {
+    pub fn new_algorithm16<T: Instance>(peri: Peri<'d, T>, algorithm: Algorithm16) -> Self {
         Self::new_crc16(peri, algorithm.into_config())
     }
 
     /// Instantiates a new CRC peripheral for the `A` algorithm.
-    pub fn new_a(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_a<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::A)
     }
 
     /// Instantiates a new CRC peripheral for the `AugCcitt` algorithm.
-    pub fn new_aug_ccitt(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_aug_ccitt<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::AugCcitt)
     }
 
     /// Instantiates a new CRC peripheral for the `Arc` algorithm.
-    pub fn new_arc(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_arc<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Arc)
     }
 
     /// Instantiates a new CRC peripheral for the `Buypass` algorithm.
-    pub fn new_buypass(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_buypass<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Buypass)
     }
 
     /// Instantiates a new CRC peripheral for the `CcittFalse` algorithm.
-    pub fn new_ccitt_false(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_ccitt_false<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::CcittFalse)
     }
 
     /// Instantiates a new CRC peripheral for the `CcittZero` algorithm.
-    pub fn new_ccitt_zero(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_ccitt_zero<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::CcittZero)
     }
 
     /// Instantiates a new CRC peripheral for the `Cdma2000` algorithm.
-    pub fn new_cdma_2000(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_cdma_2000<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Cdma2000)
     }
 
     /// Instantiates a new CRC peripheral for the `Dds110` algorithm.
-    pub fn new_dds_110(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_dds_110<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Dds110)
     }
 
     /// Instantiates a new CRC peripheral for the `DectX` algorithm.
-    pub fn new_dect_x(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_dect_x<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::DectX)
     }
 
     /// Instantiates a new CRC peripheral for the `Dnp` algorithm.
-    pub fn new_dnp(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_dnp<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Dnp)
     }
 
     /// Instantiates a new CRC peripheral for the `En13757` algorithm.
-    pub fn new_en13757(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_en13757<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::En13757)
     }
 
     /// Instantiates a new CRC peripheral for the `Genibus` algorithm.
-    pub fn new_genibus(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_genibus<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Genibus)
     }
 
     /// Instantiates a new CRC peripheral for the `Kermit` algorithm.
-    pub fn new_kermit(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_kermit<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Kermit)
     }
 
     /// Instantiates a new CRC peripheral for the `Maxim` algorithm.
-    pub fn new_maxim(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_maxim<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Maxim)
     }
 
     /// Instantiates a new CRC peripheral for the `Mcrf4xx` algorithm.
-    pub fn new_mcrf4xx(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_mcrf4xx<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Mcrf4xx)
     }
 
     /// Instantiates a new CRC peripheral for the `Modbus` algorithm.
-    pub fn new_modbus(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_modbus<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Modbus)
     }
 
     /// Instantiates a new CRC peripheral for the `Riello` algorithm.
-    pub fn new_riello(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_riello<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Riello)
     }
 
     /// Instantiates a new CRC peripheral for the `T10Dif` algorithm.
-    pub fn new_t10_dif(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_t10_dif<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::T10Dif)
     }
 
     /// Instantiates a new CRC peripheral for the `Teledisk` algorithm.
-    pub fn new_teledisk(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_teledisk<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Teledisk)
     }
 
     /// Instantiates a new CRC peripheral for the `Tms37157` algorithm.
-    pub fn new_tms_37157(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_tms_37157<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Tms37157)
     }
 
     /// Instantiates a new CRC peripheral for the `Usb` algorithm.
-    pub fn new_usb(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_usb<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Usb)
     }
 
     /// Instantiates a new CRC peripheral for the `X25` algorithm.
-    pub fn new_x25(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_x25<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::X25)
     }
 
     /// Instantiates a new CRC peripheral for the `Xmodem` algorithm.
-    pub fn new_xmodem(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_xmodem<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm16(peri, Algorithm16::Xmodem)
     }
 
@@ -233,59 +224,59 @@ impl<'d> Crc<'d, Crc16> {
 
 impl<'d> Crc<'d, Crc32> {
     /// Instantiates a new CRC peripheral driver in 32-bit mode
-    pub fn new_crc32(peri: Peri<'d, CRC0>, config: Config) -> Self {
-        let inst = Self::new_inner(peri);
-        Self::configure(config, Tcrc::B32);
+    pub fn new_crc32<T: Instance>(peri: Peri<'d, T>, config: Config) -> Self {
+        let mut inst = Self::new_inner(peri);
+        inst.configure(config, Tcrc::B32);
         inst
     }
 
     /// Instantiates a new CRC peripheral driver for the given `Algorithm32`.
-    pub fn new_algorithm32(peri: Peri<'d, CRC0>, algorithm: Algorithm32) -> Self {
+    pub fn new_algorithm32<T: Instance>(peri: Peri<'d, T>, algorithm: Algorithm32) -> Self {
         Self::new_crc32(peri, algorithm.into_config())
     }
 
     /// Instantiates a new CRC peripheral for the `Bzip2` algorithm.
-    pub fn new_bzip2(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_bzip2<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm32(peri, Algorithm32::Bzip2)
     }
 
     /// Instantiates a new CRC peripheral for the `C` algorithm.
-    pub fn new_c(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_c<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm32(peri, Algorithm32::C)
     }
 
     /// Instantiates a new CRC peripheral for the `D` algorithm.
-    pub fn new_d(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_d<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm32(peri, Algorithm32::D)
     }
 
     /// Instantiates a new CRC peripheral for the `IsoHdlc` algorithm.
-    pub fn new_iso_hdlc(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_iso_hdlc<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm32(peri, Algorithm32::IsoHdlc)
     }
 
     /// Instantiates a new CRC peripheral for the `JamCrc` algorithm.
-    pub fn new_jam_crc(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_jam_crc<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm32(peri, Algorithm32::JamCrc)
     }
 
     /// Instantiates a new CRC peripheral for the `Mpeg2` algorithm.
-    pub fn new_mpeg2(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_mpeg2<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm32(peri, Algorithm32::Mpeg2)
     }
 
     /// Instantiates a new CRC peripheral for the `Posix` algorithm.
-    pub fn new_posix(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_posix<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm32(peri, Algorithm32::Posix)
     }
 
     /// Instantiates a new CRC peripheral for the `Q` algorithm.
-    pub fn new_q(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_q<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm32(peri, Algorithm32::Q)
     }
 
     /// Instantiates a new CRC peripheral for the `Xfer` algorithm.
-    pub fn new_xfer(peri: Peri<'d, CRC0>) -> Self {
+    pub fn new_xfer<T: Instance>(peri: Peri<'d, T>) -> Self {
         Self::new_algorithm32(peri, Algorithm32::Xfer)
     }
 
@@ -308,8 +299,8 @@ mod sealed {
     pub trait SealedMode {}
 
     pub trait SealedWord: Copy {
-        fn write(regs: &'static crate::pac::crc0::RegisterBlock, word: Self);
-        fn read(regs: &'static crate::pac::crc0::RegisterBlock) -> Self;
+        fn write(regs: crate::pac::crc::Crc, word: Self);
+        fn read(regs: crate::pac::crc::Crc) -> Self;
     }
 }
 
@@ -335,12 +326,12 @@ macro_rules! impl_word {
     ($t:ty, $width:literal, $write:expr, $read:expr) => {
         impl sealed::SealedWord for $t {
             #[inline]
-            fn write(regs: &'static crate::pac::crc0::RegisterBlock, word: Self) {
+            fn write(regs: crate::pac::crc::Crc, word: Self) {
                 $write(regs, word)
             }
 
             #[inline]
-            fn read(regs: &'static crate::pac::crc0::RegisterBlock) -> Self {
+            fn read(regs: crate::pac::crc::Crc) -> Self {
                 $read(regs)
             }
         }
@@ -353,35 +344,35 @@ impl_word!(u8, 8, write_u8, read_u8);
 impl_word!(u16, 16, write_u16, read_u16);
 impl_word!(u32, 32, write_u32, read_u32);
 
-fn write_u8(regs: &'static crate::pac::crc0::RegisterBlock, word: u8) {
-    regs.data8().write(|w| unsafe { w.bits(word) });
+fn write_u8(regs: crate::pac::crc::Crc, word: u8) {
+    regs.data8().write(|w| *w = word);
 }
 
-fn read_u8(regs: &'static crate::pac::crc0::RegisterBlock) -> u8 {
-    regs.data8().read().bits()
+fn read_u8(regs: crate::pac::crc::Crc) -> u8 {
+    regs.data8().read()
 }
 
-fn write_u16(regs: &'static crate::pac::crc0::RegisterBlock, word: u16) {
-    regs.data16().write(|w| unsafe { w.bits(word) });
+fn write_u16(regs: crate::pac::crc::Crc, word: u16) {
+    regs.data16().write(|w| *w = word);
 }
 
-fn read_u16(regs: &'static crate::pac::crc0::RegisterBlock) -> u16 {
+fn read_u16(regs: crate::pac::crc::Crc) -> u16 {
     let ctrl = regs.ctrl().read();
 
     // if transposition is enabled, result sits in the upper 16 bits
-    if ctrl.totr().is_byts_trnps() || ctrl.totr().is_byts_bts_trnps() {
-        (regs.data32().read().bits() >> 16) as u16
+    if matches!(ctrl.totr(), Totr::BytsTrnps | Totr::BytsBtsTrnps) {
+        (regs.data32().read() >> 16) as u16
     } else {
-        regs.data16().read().bits()
+        regs.data16().read()
     }
 }
 
-fn write_u32(regs: &'static crate::pac::crc0::RegisterBlock, word: u32) {
-    regs.data32().write(|w| unsafe { w.bits(word) });
+fn write_u32(regs: crate::pac::crc::Crc, word: u32) {
+    regs.data32().write(|w| *w = word);
 }
 
-fn read_u32(regs: &'static crate::pac::crc0::RegisterBlock) -> u32 {
-    regs.data32().read().bits()
+fn read_u32(regs: crate::pac::crc::Crc) -> u32 {
+    regs.data32().read()
 }
 
 /// CRC configuration.
@@ -755,4 +746,44 @@ impl From<Complement> for Fxor {
             Complement::Yes => Fxor::Invert,
         }
     }
+}
+
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = NoConfig> {
+    fn info() -> &'static Info;
+}
+
+/// CRC Instance
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {}
+
+pub(crate) struct Info {
+    pub(crate) regs: pac::crc::Crc,
+}
+
+impl Info {
+    #[inline(always)]
+    fn regs(&self) -> pac::crc::Crc {
+        self.regs
+    }
+}
+
+unsafe impl Sync for Info {}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_crc_instance {
+    ($n:literal) => {
+        paste::paste! {
+            impl crate::crc::SealedInstance for crate::peripherals::[<CRC $n>] {
+                fn info() -> &'static crate::crc::Info {
+                    static INFO: crate::crc::Info = crate::crc::Info {
+                        regs: crate::pac::[<CRC $n>],
+                    };
+                    &INFO
+                }
+            }
+
+            impl crate::crc::Instance for crate::peripherals::[<CRC $n>] {}
+        }
+    };
 }

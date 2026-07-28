@@ -2,7 +2,7 @@
 
 #![macro_use]
 
-#[cfg_attr(eth_v2, path = "v2.rs")]
+#[cfg_attr(any(eth_v2, eth_v2a), path = "v2.rs")]
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1.rs")]
 mod _version;
 
@@ -29,12 +29,15 @@ pub trait Instance: SealedInstance + PeripheralType + Send + 'static {}
 
 impl SealedInstance for crate::peripherals::ETH_SMA {
     fn regs() -> (Reg<AddressRegister, RW>, Reg<DataRegister, RW>) {
+        #[cfg(not(eth_v2a))]
         let mac = crate::pac::ETH.ethernet_mac();
+        #[cfg(eth_v2a)]
+        let mac = crate::pac::ETH1.ethernet_mac();
 
         #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
         return (mac.macmiiar(), mac.macmiidr());
 
-        #[cfg(eth_v2)]
+        #[cfg(any(eth_v2, eth_v2a))]
         return (mac.macmdioar(), mac.macmdiodr());
     }
 }

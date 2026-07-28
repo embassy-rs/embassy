@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::opamp::OpAmp;
@@ -9,7 +10,7 @@ use embassy_stm32::peripherals::ADC2;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, adc, bind_interrupts};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     ADC1_2 => adc::InterruptHandler<ADC2>;
@@ -26,14 +27,14 @@ async fn main(_spawner: Spawner) -> ! {
         });
         config.rcc.pll = Some(Pll {
             src: PllSource::HSE,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL9,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul9,
         });
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV1;
-        config.rcc.adc = AdcClockSource::Pll(AdcPllPrescaler::DIV1);
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div1;
+        config.rcc.adc = AdcClockSource::Pll(AdcPllPrescaler::Div1);
     }
     let mut p = embassy_stm32::init(config);
 
@@ -49,13 +50,13 @@ async fn main(_spawner: Spawner) -> ! {
     let mut buffer = opamp.buffer_ext(p.PA7.reborrow(), p.PA6.reborrow());
 
     loop {
-        let vref = adc.read(&mut vrefint, SampleTime::CYCLES601_5).await;
+        let vref = adc.irq_read(&mut vrefint, SampleTime::Cycles6015).await;
         info!("read vref: {} (should be {})", vref, vrefint.calibrated_value());
 
-        let temp = adc.read(&mut temperature, SampleTime::CYCLES601_5).await;
+        let temp = adc.irq_read(&mut temperature, SampleTime::Cycles6015).await;
         info!("read temperature: {}", temp);
 
-        let buffer = adc.read(&mut buffer, SampleTime::CYCLES601_5).await;
+        let buffer = adc.irq_read(&mut buffer, SampleTime::Cycles6015).await;
         info!("read buffer: {}", buffer);
 
         let pin_mv = (buffer as u32 * vrefint.calibrated_value() as u32 / vref as u32) * 3300 / 4095;

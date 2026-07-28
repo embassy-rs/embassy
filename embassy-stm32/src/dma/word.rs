@@ -7,6 +7,7 @@ pub enum WordSize {
     OneByte,
     TwoBytes,
     FourBytes,
+    EightBytes,
 }
 
 impl WordSize {
@@ -16,6 +17,7 @@ impl WordSize {
             Self::OneByte => 1,
             Self::TwoBytes => 2,
             Self::FourBytes => 4,
+            Self::EightBytes => 8,
         }
     }
 }
@@ -90,3 +92,4 @@ impl_word!(U29, u32, 29, FourBytes);
 impl_word!(U30, u32, 30, FourBytes);
 impl_word!(U31, u32, 31, FourBytes);
 impl_word!(_, u32, 32, FourBytes);
+impl_word!(_, u64, 64, EightBytes);

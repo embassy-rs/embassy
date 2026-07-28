@@ -2,12 +2,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::sdmmc::sd::{CmdBlock, StorageDevice};
-use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, bind_interrupts, peripherals, sdmmc};
-use {defmt_rtt as _, panic_probe as _};
+use embassy_time::Delay;
+use panic_probe as _;
+use sdio::BlockDevice;
 
 bind_interrupts!(struct Irqs {
     SDMMC1 => sdmmc::InterruptHandler<peripherals::SDMMC1>;
@@ -18,23 +19,23 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        config.rcc.hsi = Some(HSIPrescaler::Div1);
         config.rcc.csi = true;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL50,
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul50,
             fracn: None,
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV4), // default clock chosen by SDMMCSEL. 200 Mhz
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div4), // default clock chosen by SDMMCSEL. 200 Mhz
             divr: None,
         });
-        config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
-        config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
-        config.rcc.apb1_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb2_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb3_pre = APBPrescaler::DIV2; // 100 Mhz
-        config.rcc.apb4_pre = APBPrescaler::DIV2; // 100 Mhz
+        config.rcc.sys = Sysclk::Pll1P; // 400 Mhz
+        config.rcc.ahb_pre = AHBPrescaler::Div2; // 200 Mhz
+        config.rcc.apb1_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb2_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb3_pre = APBPrescaler::Div2; // 100 Mhz
+        config.rcc.apb4_pre = APBPrescaler::Div2; // 100 Mhz
         config.rcc.voltage_scale = VoltageScale::Scale1;
     }
     let p = embassy_stm32::init(config);
@@ -52,11 +53,11 @@ async fn main(_spawner: Spawner) {
         Default::default(),
     );
 
-    let mut cmd_block = CmdBlock::new();
-
-    let storage = StorageDevice::new_sd_card(&mut sdmmc, &mut cmd_block, mhz(25))
-        .await
-        .unwrap();
+    let storage = loop {
+        if let Ok(storage) = BlockDevice::<_, _, _, 512>::new_sd_card(&mut sdmmc, 24_000_000, Delay).await {
+            break storage;
+        }
+    };
 
     let card = storage.card();
 

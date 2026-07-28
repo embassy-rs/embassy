@@ -1,11 +1,12 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 // use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::rcc::{Mco, McoConfig, McoSource};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -13,7 +14,7 @@ async fn main(_spawner: Spawner) -> ! {
     defmt::info!("Hello World!");
 
     // replace PC13 with the right pin for your board.
-    let _mco = Mco::new(p.MCO, p.PA8, McoSource::SYS, McoConfig::default());
+    let _mco = Mco::new(p.MCO, p.PA8, McoSource::Sys, McoConfig::default());
     loop {
         defmt::info!("on!");
         Timer::after_millis(1000).await;

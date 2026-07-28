@@ -5,17 +5,18 @@
 /// If you want to test this example, please pay attention to flash pins and check flash device datasheet
 /// to make sure operations in this example are compatible with your device, especially registers I/O operations.
 use defmt::info;
-use embassy_stm32::mode;
 use embassy_stm32::qspi::enums::{
     AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, MemorySize, QspiWidth, SampleShifting,
 };
 use embassy_stm32::qspi::{self, Instance, TransferConfig};
+use embassy_stm32::{bind_interrupts, dma, mode, peripherals};
 pub struct FlashMemory<I: Instance> {
     qspi: qspi::Qspi<'static, I, mode::Async>,
 }
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const MEMORY_PAGE_SIZE: usize = 256;
 const CMD_READ_SR: u8 = 0x05;
@@ -55,6 +56,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::SING,
             instruction: cmd,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_read(&mut buffer, transaction);
@@ -69,6 +71,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::SING,
             instruction: cmd,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_write(&buffer, transaction);
@@ -81,6 +84,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::SING,
             instruction: CMD_WRITE_SR,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_write(&buffer, transaction);
@@ -105,6 +109,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::NONE,
             instruction: cmd,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_command(transaction);
@@ -121,6 +126,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::SING,
             instruction: CMD_READ_MID,
             address: Some(0),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_read(&mut buffer, transaction);
@@ -134,6 +140,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::SING,
             instruction: CMD_READ_UUID,
             address: Some(0),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_8,
         };
         self.qspi.blocking_read(&mut buffer, transaction);
@@ -147,6 +154,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::SING,
             instruction: CMD_READ_ID,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.qspi.blocking_read(&mut buffer, transaction);
@@ -160,6 +168,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::QUAD,
             instruction: CMD_QUAD_READ,
             address: Some(0),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_8,
         };
         self.qspi.enable_memory_map(&transaction);
@@ -171,6 +180,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::NONE,
             instruction: cmd,
             address: Some(addr),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.enable_write();
@@ -197,6 +207,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::QUAD,
             instruction: CMD_QUAD_WRITE_PG,
             address: Some(addr),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         };
         self.enable_write();
@@ -230,6 +241,7 @@ impl<I: Instance> FlashMemory<I> {
             dwidth: QspiWidth::QUAD,
             instruction: CMD_QUAD_READ,
             address: Some(addr),
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_8,
         };
         if use_dma {
@@ -242,19 +254,25 @@ impl<I: Instance> FlashMemory<I> {
 
 const MEMORY_ADDR: u32 = 0x00000000 as u32;
 
+bind_interrupts!(struct Irqs {
+    DMA2_CHANNEL7 => dma::InterruptHandler<peripherals::DMA2_CH7>;
+    QUADSPI => qspi::InterruptHandler<peripherals::QUADSPI>;
+});
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
 
     let mut config = qspi::Config::default();
     config.memory_size = MemorySize::_16MiB;
-    config.address_size = AddressSize::_24bit;
     config.prescaler = 200;
     config.cs_high_time = ChipSelectHighTime::_1Cycle;
     config.fifo_threshold = FIFOThresholdLevel::_16Bytes;
     config.sample_shifting = SampleShifting::None;
 
-    let driver = qspi::Qspi::new_bank1(p.QUADSPI, p.PB1, p.PB0, p.PA7, p.PA6, p.PA3, p.PA2, p.DMA2_CH7, config);
+    let driver = qspi::Qspi::new_bank1(
+        p.QUADSPI, p.PB1, p.PB0, p.PA7, p.PA6, p.PA3, p.PA2, p.DMA2_CH7, Irqs, config,
+    );
     let mut flash = FlashMemory::new(driver);
     let mut wr_buf = [0u8; 256];
     for i in 0..32 {

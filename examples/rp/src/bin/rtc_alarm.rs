@@ -4,12 +4,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_rp::bind_interrupts;
 use embassy_rp::rtc::{DateTime, DateTimeFilter, DayOfWeek, Rtc};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Bind the RTC interrupt to the handler
 bind_interrupts!(struct Irqs {

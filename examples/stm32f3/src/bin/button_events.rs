@@ -10,14 +10,16 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::mode::Async;
 use embassy_stm32::{bind_interrupts, interrupt};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Timer, with_timeout};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     pub struct Irqs{
@@ -131,7 +133,7 @@ async fn led_blinker(mut leds: Leds<'static>) {
 }
 
 #[embassy_executor::task]
-async fn button_waiter(mut button: ExtiInput<'static>) {
+async fn button_waiter(mut button: ExtiInput<'static, Async>) {
     const DOUBLE_CLICK_DELAY: u64 = 250;
     const HOLD_DELAY: u64 = 1000;
 

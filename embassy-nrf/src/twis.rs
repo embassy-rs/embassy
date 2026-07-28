@@ -159,12 +159,12 @@ impl<'d> Twis<'d> {
 
         // Configure pins
         sda.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::INPUT);
-            w.set_input(gpiovals::Input::CONNECT);
+            w.set_dir(gpiovals::Dir::Input);
+            w.set_input(gpiovals::Input::Connect);
             #[cfg(not(feature = "_nrf54l"))]
             w.set_drive(match config.sda_high_drive {
-                true => gpiovals::Drive::H0D1,
-                false => gpiovals::Drive::S0D1,
+                true => gpiovals::Drive::H0d1,
+                false => gpiovals::Drive::S0d1,
             });
             #[cfg(feature = "_nrf54l")]
             {
@@ -175,16 +175,16 @@ impl<'d> Twis<'d> {
                 w.set_drive1(gpiovals::Drive::D);
             }
             if config.sda_pullup {
-                w.set_pull(gpiovals::Pull::PULLUP);
+                w.set_pull(gpiovals::Pull::Pullup);
             }
         });
         scl.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::INPUT);
-            w.set_input(gpiovals::Input::CONNECT);
+            w.set_dir(gpiovals::Dir::Input);
+            w.set_input(gpiovals::Input::Connect);
             #[cfg(not(feature = "_nrf54l"))]
             w.set_drive(match config.scl_high_drive {
-                true => gpiovals::Drive::H0D1,
-                false => gpiovals::Drive::S0D1,
+                true => gpiovals::Drive::H0d1,
+                false => gpiovals::Drive::S0d1,
             });
             #[cfg(feature = "_nrf54l")]
             {
@@ -195,7 +195,7 @@ impl<'d> Twis<'d> {
                 w.set_drive1(gpiovals::Drive::D);
             }
             if config.sda_pullup {
-                w.set_pull(gpiovals::Pull::PULLUP);
+                w.set_pull(gpiovals::Pull::Pullup);
             }
         });
 
@@ -204,7 +204,7 @@ impl<'d> Twis<'d> {
         r.psel().scl().write_value(scl.psel_bits());
 
         // Enable TWIS instance.
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
         // Disable all events interrupts
         r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
@@ -782,7 +782,7 @@ impl<'a> Drop for Twis<'a> {
 
         // disable!
         let r = self.r;
-        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Disabled));
 
         gpio::deconfigure_pin(r.psel().sda().read());
         gpio::deconfigure_pin(r.psel().scl().read());

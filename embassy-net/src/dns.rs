@@ -5,9 +5,9 @@
 //! not using `embedded-nal-async`.
 
 use heapless::Vec;
-pub use smoltcp::socket::dns::{DnsQuery, Socket};
-pub(crate) use smoltcp::socket::dns::{GetQueryResultError, StartQueryError};
-pub use smoltcp::wire::{DnsQueryType, IpAddress};
+pub use xarxa::socket::dns::{DnsQuery, Socket};
+pub(crate) use xarxa::socket::dns::{GetQueryResultError, StartQueryError};
+pub use xarxa::wire::{DnsQueryType, IpAddress};
 
 use crate::Stack;
 
@@ -61,7 +61,7 @@ impl<'a> DnsSocket<'a> {
         &self,
         name: &str,
         qtype: DnsQueryType,
-    ) -> Result<Vec<IpAddress, { smoltcp::config::DNS_MAX_RESULT_COUNT }>, Error> {
+    ) -> Result<Vec<IpAddress, { xarxa::config::DNS_MAX_RESULT_COUNT }>, Error> {
         self.stack.dns_query(name, qtype).await
     }
 }
@@ -118,3 +118,14 @@ impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
 fn _assert_covariant<'a, 'b: 'a>(x: DnsSocket<'b>) -> DnsSocket<'a> {
     x
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidName => f.write_str("InvalidName"),
+            Self::NameTooLong => f.write_str("NameTooLong"),
+            Self::Failed => f.write_str("Failed"),
+        }
+    }
+}
+impl core::error::Error for Error {}

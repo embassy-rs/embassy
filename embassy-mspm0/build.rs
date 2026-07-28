@@ -57,6 +57,7 @@ fn generate_code(cfgs: &mut CfgSet) {
     let mut singletons = get_singletons(cfgs);
 
     time_driver(&mut singletons, cfgs);
+    pin_features(&mut singletons);
 
     let mut g = TokenStream::new();
 
@@ -333,6 +334,13 @@ fn get_singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
         }
     }
 
+    // TODO: Generate this more generally for other signals (e.g. FCC_IN, HFCLKIN, HFXIN, HFXOUT, etc)
+    // Generate CLK_OUT manually for SYSCTL.
+    singletons.push(Singleton {
+        name: String::from("CLK_OUT"),
+        cfg: None,
+    });
+
     // DMA channels get their own singletons
     for dma_channel in METADATA.dma_channels.iter() {
         singletons.push(Singleton {
@@ -496,6 +504,39 @@ fn time_driver(singletons: &mut Vec<Singleton>, cfgs: &mut CfgSet) {
     }
 }
 
+fn pin_features(singletons: &mut Vec<Singleton>) {
+    let sysctl = METADATA
+        .peripherals
+        .iter()
+        .find(|p| p.name == "SYSCTL")
+        .expect("no SYSCTL peripheral");
+
+    // Some packages make NRST share a physical pin with a GPIO.
+    if let Some(pin) = sysctl.pins.iter().find(|p| p.signal == "NRST" && p.pin != "NRST") {
+        let pin = singletons
+            .iter_mut()
+            .find(|s| s.name == pin.pin)
+            .expect("Could not find NRST pin to cfg gate");
+
+        pin.cfg = Some(quote! { #[cfg(feature = "nrst-pin-as-gpio")] });
+    }
+
+    let debugss = METADATA
+        .peripherals
+        .iter()
+        .find(|p| p.name == "DEBUGSS")
+        .expect("Could not find DEBUGSS peripheral");
+
+    for pin in debugss.pins.iter() {
+        let pin = singletons
+            .iter_mut()
+            .find(|s| s.name == pin.pin)
+            .expect("Could not find SWD pin to cfg gate");
+
+        pin.cfg = Some(quote! { #[cfg(feature = "swd-pins-as-gpio")] });
+    }
+}
+
 fn generate_singletons(singletons: &[Singleton]) -> TokenStream {
     let singletons_peripherals_struct = singletons
         .iter()
@@ -534,7 +575,6 @@ fn generate_timers() -> TokenStream {
         .peripherals
         .iter()
         .filter(|p| p.name.starts_with("TIM"))
-        // TODO: Fix TIMB when used at time driver.
         .filter(|p| !p.name.starts_with("TIMB"))
         .map(|peripheral| {
             let name = Ident::new(&peripheral.name, Span::call_site());
@@ -548,10 +588,46 @@ fn generate_timers() -> TokenStream {
                 quote! { Bits32 }
             };
 
-            quote! {
-                impl_timer!(#name, #bits);
+            let mut impls = Vec::new();
+            let prescaler = timer.prescaler;
+            let channels = timer.ccp_channels_external;
+
+            impls.push(quote! {
+                impl_tim_instance!(
+                    #name,
+                    prescaler: #prescaler,
+                    width: #bits,
+                    channels: #channels
+                );
+            });
+
+            if timer.bits == 32 {
+                impls.push(quote! {
+                    impl_tim_instance_general_32bit!(#name);
+                });
             }
-        });
+
+            if timer.ccp_channels_internal >= 2 {
+                impls.push(quote! {
+                    impl_tim_instance_general_2ch!(#name);
+                });
+            }
+
+            if timer.ccp_channels_internal >= 4 {
+                impls.push(quote! {
+                    impl_tim_instance_general_4ch!(#name);
+                });
+            }
+
+            if peripheral.name.starts_with("TIMA") {
+                impls.push(quote! {
+                    impl_tim_instance_advanced!(#name);
+                });
+            }
+
+            impls
+        })
+        .flatten();
 
     quote! {
         #(#timer_impls)*
@@ -645,22 +721,26 @@ fn generate_pin_trait_impls() -> TokenStream {
             let peri = format_ident!("{}", peripheral.name);
             let pf = pin.pf;
 
-            // Will be filled in when uart implementation is finished
-            let _ = pin_name;
-            let _ = peri;
-            let _ = pf;
-
             let tokens = match key {
-                ("uart", "TX") => Some(quote! { impl_uart_tx_pin!(#peri, #pin_name, #pf); }),
-                ("uart", "RX") => Some(quote! { impl_uart_rx_pin!(#peri, #pin_name, #pf); }),
-                ("uart", "CTS") => Some(quote! { impl_uart_cts_pin!(#peri, #pin_name, #pf); }),
-                ("uart", "RTS") => Some(quote! { impl_uart_rts_pin!(#peri, #pin_name, #pf); }),
-                ("i2c", "SDA") => Some(quote! { impl_i2c_sda_pin!(#peri, #pin_name, #pf); }),
-                ("i2c", "SCL") => Some(quote! { impl_i2c_scl_pin!(#peri, #pin_name, #pf); }),
                 ("adc", s) => {
                     let signal = s.parse::<u8>().unwrap();
                     Some(quote! { impl_adc_pin!(#peri, #pin_name, #signal); })
                 }
+                ("i2c", "SDA") => Some(quote! { impl_i2c_sda_pin!(#peri, #pin_name, #pf); }),
+                ("i2c", "SCL") => Some(quote! { impl_i2c_scl_pin!(#peri, #pin_name, #pf); }),
+                ("sysctl", "CLK_OUT") => Some(quote! { impl_clk_out_pin!(#pin_name, #pf); }),
+                ("tim", "CCP0") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, Ch0); }),
+                ("tim", "CCP1") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, Ch1); }),
+                ("tim", "CCP2") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, Ch2); }),
+                ("tim", "CCP3") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, Ch3); }),
+                ("tim", "CCP0_CMPL") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, CompCh0); }),
+                ("tim", "CCP1_CMPL") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, CompCh1); }),
+                ("tim", "CCP2_CMPL") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, CompCh2); }),
+                ("tim", "CCP3_CMPL") => Some(quote! { impl_tim_pin!(#peri, #pin_name, #pf, CompCh3); }),
+                ("uart", "TX") => Some(quote! { impl_uart_tx_pin!(#peri, #pin_name, #pf); }),
+                ("uart", "RX") => Some(quote! { impl_uart_rx_pin!(#peri, #pin_name, #pf); }),
+                ("uart", "CTS") => Some(quote! { impl_uart_cts_pin!(#peri, #pin_name, #pf); }),
+                ("uart", "RTS") => Some(quote! { impl_uart_rts_pin!(#peri, #pin_name, #pf); }),
 
                 _ => None,
             };
@@ -1041,7 +1121,7 @@ const TIMERS: LazyLock<HashMap<String, TimerDesc>> = LazyLock::new(|| {
             prescaler: true,
             repeat_counter: true,
             ccp_channels_internal: 4,
-            ccp_channels_external: 2,
+            ccp_channels_external: 4,
             external_pwm_channels: 8,
             phase_load: true,
             shadow_load: true,

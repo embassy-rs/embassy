@@ -4,6 +4,7 @@
 // Tested on weact stm32h7b0 board + w25q64 spi flash
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::gpio::{Level, Output, Speed};
@@ -14,7 +15,7 @@ use embassy_stm32::ospi::{
 };
 use embassy_stm32::time::Hertz;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -23,7 +24,7 @@ async fn main(_spawner: Spawner) {
     info!("START");
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        config.rcc.hsi = Some(HSIPrescaler::Div1);
         config.rcc.csi = true;
         // Needed for USB
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true });
@@ -33,19 +34,19 @@ async fn main(_spawner: Spawner) {
             mode: HseMode::Oscillator,
         });
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV5,
-            mul: PllMul::MUL112,
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV2),
-            divr: Some(PllDiv::DIV2),
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div5,
+            mul: PllMul::Mul112,
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div2),
+            divr: Some(PllDiv::Div2),
         });
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV2;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.apb3_pre = APBPrescaler::DIV2;
-        config.rcc.apb4_pre = APBPrescaler::DIV2;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div2;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.apb3_pre = APBPrescaler::Div2;
+        config.rcc.apb4_pre = APBPrescaler::Div2;
         config.rcc.voltage_scale = VoltageScale::Scale0;
     }
 

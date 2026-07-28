@@ -6,12 +6,13 @@ teleprobe_meta::target!(b"rpi-pico");
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Config, InterruptHandler, LoadError, Pio};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -121,6 +122,15 @@ async fn main(_spawner: Spawner) {
         match common.try_load_program(&prg.program) {
             Ok(_) => (),
             _ => panic!("program didn't loaded when it shouldn"),
+        };
+    }
+
+    // program won't fit
+    {
+        let prg = pio_asm!("nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop");
+        match common.try_load_program(&prg.program) {
+            Err(LoadError::InsufficientSpace) => (),
+            _ => panic!("program loaded when it shouldn't"),
         };
     }
 

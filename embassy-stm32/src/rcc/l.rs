@@ -6,6 +6,10 @@ pub use crate::pac::rcc::vals::Hsepre as HsePrescaler;
 pub use crate::pac::rcc::vals::{Hpre as AHBPrescaler, Msirange as MSIRange, Ppre as APBPrescaler, Sw as Sysclk};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::LSI_FREQ;
+#[cfg(dsihost)]
+use crate::rcc::dsi;
+#[cfg(dsihost)]
+pub use crate::rcc::dsi::{DsiHostPllConfig, DsiPllInput, DsiPllNdiv, DsiPllOutput};
 use crate::time::Hertz;
 
 /// HSI speed
@@ -61,6 +65,9 @@ pub struct Config {
     // low speed LSI/LSE/RTC
     pub ls: super::LsConfig,
 
+    #[cfg(dsihost)]
+    pub dsi: Option<DsiHostPllConfig>,
+
     #[cfg(any(stm32l0, stm32l1))]
     pub voltage_scale: VoltageScale,
 
@@ -73,16 +80,18 @@ impl Config {
         Config {
             hse: None,
             hsi: false,
-            msi: Some(MSIRange::RANGE4M),
-            sys: Sysclk::MSI,
-            ahb_pre: AHBPrescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
+            msi: Some(MSIRange::Range4m),
+            sys: Sysclk::Msi,
+            ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
             #[cfg(not(stm32u0))]
-            apb2_pre: APBPrescaler::DIV1,
+            apb2_pre: APBPrescaler::Div1,
             #[cfg(any(stm32wl5x, stm32wb))]
-            core2_ahb_pre: AHBPrescaler::DIV1,
+            core2_ahb_pre: AHBPrescaler::Div1,
             #[cfg(any(stm32wl, stm32wb))]
-            shared_ahb_pre: AHBPrescaler::DIV1,
+            shared_ahb_pre: AHBPrescaler::Div1,
+            #[cfg(dsihost)]
+            dsi: None,
             pll: None,
             #[cfg(any(stm32l4, stm32l5, stm32wb))]
             pllsai1: None,
@@ -92,8 +101,51 @@ impl Config {
             hsi48: Some(crate::rcc::Hsi48Config::new()),
             ls: crate::rcc::LsConfig::new(),
             #[cfg(any(stm32l0, stm32l1))]
-            voltage_scale: VoltageScale::RANGE1,
+            voltage_scale: VoltageScale::Range1,
             mux: super::mux::ClockMux::default(),
+        }
+    }
+
+    #[cfg(stm32wb)]
+    pub const fn new_wpan() -> Self {
+        Self {
+            hse: Some(Hse {
+                freq: Hertz(32_000_000),
+                mode: HseMode::Oscillator,
+                prescaler: HsePrescaler::Div1,
+            }),
+            sys: Sysclk::Pll1R,
+            #[cfg(crs)]
+            hsi48: Some(super::Hsi48Config { sync_from_usb: false }),
+            msi: None,
+            hsi: false,
+
+            ls: super::LsConfig::default_lse(),
+
+            pll: Some(Pll {
+                source: PllSource::Hse,
+                prediv: PllPreDiv::Div2,
+                mul: PllMul::Mul12,
+                divp: Some(PllPDiv::Div3), // 32 / 2 * 12 / 3 = 64Mhz
+                divq: Some(PllQDiv::Div4), // 32 / 2 * 12 / 4 = 48Mhz
+                divr: Some(PllRDiv::Div3), // 32 / 2 * 12 / 3 = 64Mhz
+            }),
+            pllsai1: None,
+
+            ahb_pre: AHBPrescaler::Div1,
+            core2_ahb_pre: AHBPrescaler::Div2,
+            shared_ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
+            apb2_pre: APBPrescaler::Div1,
+
+            mux: {
+                use crate::pac::rcc::vals::Rfwkpsel;
+
+                let mut mux = super::mux::ClockMux::default();
+
+                mux.rfwkpsel = Rfwkpsel::Lse;
+                mux
+            },
         }
     }
 }
@@ -105,51 +157,14 @@ impl Default for Config {
 }
 
 #[cfg(stm32wb)]
-pub const WPAN_DEFAULT: Config = Config {
-    hse: Some(Hse {
-        freq: Hertz(32_000_000),
-        mode: HseMode::Oscillator,
-        prescaler: HsePrescaler::DIV1,
-    }),
-    sys: Sysclk::PLL1_R,
-    #[cfg(crs)]
-    hsi48: Some(super::Hsi48Config { sync_from_usb: false }),
-    msi: None,
-    hsi: false,
-
-    ls: super::LsConfig::default_lse(),
-
-    pll: Some(Pll {
-        source: PllSource::HSE,
-        prediv: PllPreDiv::DIV2,
-        mul: PllMul::MUL12,
-        divp: Some(PllPDiv::DIV3), // 32 / 2 * 12 / 3 = 64Mhz
-        divq: Some(PllQDiv::DIV4), // 32 / 2 * 12 / 4 = 48Mhz
-        divr: Some(PllRDiv::DIV3), // 32 / 2 * 12 / 3 = 64Mhz
-    }),
-    pllsai1: None,
-
-    ahb_pre: AHBPrescaler::DIV1,
-    core2_ahb_pre: AHBPrescaler::DIV2,
-    shared_ahb_pre: AHBPrescaler::DIV1,
-    apb1_pre: APBPrescaler::DIV1,
-    apb2_pre: APBPrescaler::DIV1,
-
-    mux: {
-        use crate::pac::rcc::vals::Rfwkpsel;
-
-        let mut mux = super::mux::ClockMux::default();
-
-        mux.rfwkpsel = Rfwkpsel::LSE;
-        mux
-    },
-};
+#[deprecated = "Use `Config::new_wpan`"]
+pub const WPAN_DEFAULT: Config = Config::new_wpan();
 
 fn msi_enable(range: MSIRange) {
     #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
     RCC.cr().modify(|w| {
         #[cfg(not(stm32wb))]
-        w.set_msirgsel(crate::pac::rcc::vals::Msirgsel::CR);
+        w.set_msirgsel(crate::pac::rcc::vals::Msirgsel::Cr);
         w.set_msirange(range);
         w.set_msipllen(false);
     });
@@ -164,19 +179,18 @@ pub(crate) unsafe fn init(config: Config) {
     // Switch to MSI to prevent problems with PLL configuration.
     if !RCC.cr().read().msion() {
         // Turn on MSI and configure it to 4MHz.
-        msi_enable(MSIRange::RANGE4M)
+        msi_enable(MSIRange::Range4m)
     }
-    if RCC.cfgr().read().sws() != Sysclk::MSI {
+    if RCC.cfgr().read().sws() != Sysclk::Msi {
         // Set MSI as a clock source, reset prescalers.
         RCC.cfgr().write_value(Cfgr::default());
         // Wait for clock switch status bits to change.
-        while RCC.cfgr().read().sws() != Sysclk::MSI {}
+        while RCC.cfgr().read().sws() != Sysclk::Msi {}
     }
 
     #[cfg(stm32wl)]
     {
         // Set max latency
-        FLASH.acr().modify(|w| w.set_prften(true));
         FLASH.acr().modify(|w| w.set_latency(2));
     }
 
@@ -190,7 +204,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(stm32l5)]
     crate::pac::PWR.cr1().modify(|w| {
-        w.set_vos(crate::pac::pwr::vals::Vos::RANGE0);
+        w.set_vos(crate::pac::pwr::vals::Vos::Range0);
     });
 
     let rtc = config.ls.init();
@@ -269,19 +283,37 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
         msi,
     };
-    let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
+    let pll = config.pll.map_or_else(
+        || {
+            pll_enable(PllInstance::Pll, false);
+            PllOutput::default()
+        },
+        |c| init_pll(PllInstance::Pll, Some(c), &pll_input),
+    );
     #[cfg(any(stm32l4, stm32l5, stm32wb))]
-    let pllsai1 = init_pll(PllInstance::Pllsai1, config.pllsai1, &pll_input);
+    let pllsai1 = config.pllsai1.map_or_else(
+        || {
+            pll_enable(PllInstance::Pllsai1, false);
+            PllOutput::default()
+        },
+        |c| init_pll(PllInstance::Pllsai1, Some(c), &pll_input),
+    );
     #[cfg(any(stm32l47x, stm32l48x, stm32l49x, stm32l4ax, rcc_l4plus, stm32l5))]
-    let pllsai2 = init_pll(PllInstance::Pllsai2, config.pllsai2, &pll_input);
+    let pllsai2 = config.pllsai2.map_or_else(
+        || {
+            pll_enable(PllInstance::Pllsai2, false);
+            PllOutput::default()
+        },
+        |c| init_pll(PllInstance::Pllsai2, Some(c), &pll_input),
+    );
 
     let sys_clk = match config.sys {
-        Sysclk::HSE => hse.unwrap(),
-        Sysclk::HSI => hsi.unwrap(),
-        Sysclk::MSI => msi.unwrap(),
-        Sysclk::PLL1_R => pll.r.unwrap(),
+        Sysclk::Hse => hse.unwrap(),
+        Sysclk::Hsi => hsi.unwrap(),
+        Sysclk::Msi => msi.unwrap(),
+        Sysclk::Pll1R => pll.r.unwrap(),
         #[cfg(stm32u0)]
-        Sysclk::LSI | Sysclk::LSE => todo!(),
+        Sysclk::Lsi | Sysclk::Lse => todo!(),
         #[cfg(stm32u0)]
         Sysclk::_RESERVED_6 | Sysclk::_RESERVED_7 => unreachable!(),
     };
@@ -307,9 +339,9 @@ pub(crate) unsafe fn init(config: Config) {
     // Set flash wait states
     #[cfg(any(stm32l0, stm32l1))]
     let latency = match (config.voltage_scale, sys_clk.0) {
-        (VoltageScale::RANGE1, ..=16_000_000) => false,
-        (VoltageScale::RANGE2, ..=8_000_000) => false,
-        (VoltageScale::RANGE3, ..=4_200_000) => false,
+        (VoltageScale::Range1, ..=16_000_000) => false,
+        (VoltageScale::Range2, ..=8_000_000) => false,
+        (VoltageScale::Range3, ..=4_200_000) => false,
         _ => true,
     };
     #[cfg(stm32l4)]
@@ -356,10 +388,13 @@ pub(crate) unsafe fn init(config: Config) {
 
     #[cfg(stm32l1)]
     FLASH.acr().write(|w| w.set_acc64(true));
-    #[cfg(not(stm32l5))]
-    FLASH.acr().modify(|w| w.set_prften(true));
+
     FLASH.acr().modify(|w| w.set_latency(latency));
     while FLASH.acr().read().latency() != latency {}
+
+    // enable prefetch (prft) after switching latency
+    #[cfg(not(stm32l5))]
+    FLASH.acr().modify(|w| w.set_prften(true));
 
     RCC.cfgr().modify(|w| {
         w.set_sw(config.sys);
@@ -449,7 +484,7 @@ pub(crate) unsafe fn init(config: Config) {
         pllsai2_r: pllsai2.r,
 
         #[cfg(dsihost)]
-        dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
+        dsi_phy: config.dsi.map(|config| dsi::configure_pll(hse, config)),
 
         rtc: rtc,
         lse: lse,
@@ -469,18 +504,18 @@ fn msirange_to_hertz(range: MSIRange) -> Hertz {
 #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
 fn msirange_to_hertz(range: MSIRange) -> Hertz {
     match range {
-        MSIRange::RANGE100K => Hertz(100_000),
-        MSIRange::RANGE200K => Hertz(200_000),
-        MSIRange::RANGE400K => Hertz(400_000),
-        MSIRange::RANGE800K => Hertz(800_000),
-        MSIRange::RANGE1M => Hertz(1_000_000),
-        MSIRange::RANGE2M => Hertz(2_000_000),
-        MSIRange::RANGE4M => Hertz(4_000_000),
-        MSIRange::RANGE8M => Hertz(8_000_000),
-        MSIRange::RANGE16M => Hertz(16_000_000),
-        MSIRange::RANGE24M => Hertz(24_000_000),
-        MSIRange::RANGE32M => Hertz(32_000_000),
-        MSIRange::RANGE48M => Hertz(48_000_000),
+        MSIRange::Range100k => Hertz(100_000),
+        MSIRange::Range200k => Hertz(200_000),
+        MSIRange::Range400k => Hertz(400_000),
+        MSIRange::Range800k => Hertz(800_000),
+        MSIRange::Range1m => Hertz(1_000_000),
+        MSIRange::Range2m => Hertz(2_000_000),
+        MSIRange::Range4m => Hertz(4_000_000),
+        MSIRange::Range8m => Hertz(8_000_000),
+        MSIRange::Range16m => Hertz(16_000_000),
+        MSIRange::Range24m => Hertz(24_000_000),
+        MSIRange::Range32m => Hertz(32_000_000),
+        MSIRange::Range48m => Hertz(48_000_000),
         _ => unreachable!(),
     }
 }
@@ -553,8 +588,8 @@ mod pll {
         let Some(pll) = config else { return PllOutput::default() };
 
         let pll_src = match pll.source {
-            PllSource::HSE => unwrap!(input.hse),
-            PllSource::HSI => unwrap!(input.hsi),
+            PllSource::Hse => unwrap!(input.hse),
+            PllSource::Hsi => unwrap!(input.hsi),
         };
 
         let vco_freq = pll_src * pll.mul;
@@ -628,10 +663,10 @@ mod pll {
         let Some(pll) = config else { return PllOutput::default() };
 
         let pll_src = match pll.source {
-            PllSource::DISABLE => panic!("must not select PLL source as DISABLE"),
-            PllSource::HSE => unwrap!(input.hse),
-            PllSource::HSI => unwrap!(input.hsi),
-            PllSource::MSI => unwrap!(input.msi),
+            PllSource::Disable => panic!("must not select PLL source as DISABLE"),
+            PllSource::Hse => unwrap!(input.hse),
+            PllSource::Hsi => unwrap!(input.hsi),
+            PllSource::Msi => unwrap!(input.msi),
         };
 
         let vco_freq = pll_src / pll.prediv * pll.mul;

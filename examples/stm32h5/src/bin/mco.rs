@@ -2,10 +2,11 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::Speed;
 use embassy_stm32::rcc::{Mco, Mco2Source, McoConfig};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -21,7 +22,7 @@ async fn main(_spawner: Spawner) {
         config
     };
 
-    let _mco = Mco::new(p.MCO2, p.PC9, Mco2Source::SYS, config);
+    let _mco = Mco::new(p.MCO2, p.PC9, Mco2Source::Sys, config);
 
     info!("Clock out with low drive strength set on Master Clock Out 2 pin as AF on PC9");
 

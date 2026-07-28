@@ -2,18 +2,20 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::hash::*;
-use embassy_stm32::{Config, bind_interrupts, hash, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dma, hash, peripherals};
 use embassy_time::Instant;
 use hmac::{Hmac, Mac};
+use panic_probe as _;
 use sha2::{Digest, Sha256};
-use {defmt_rtt as _, panic_probe as _};
 
 type HmacSha256 = Hmac<Sha256>;
 
 bind_interrupts!(struct Irqs {
     HASH_RNG => hash::InterruptHandler<peripherals::HASH>;
+    DMA2_STREAM7 => dma::InterruptHandler<peripherals::DMA2_CH7>;
 });
 
 #[embassy_executor::main]

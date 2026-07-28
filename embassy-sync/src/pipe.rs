@@ -2,7 +2,7 @@
 
 use core::cell::{RefCell, UnsafeCell};
 use core::convert::Infallible;
-use core::future::Future;
+use core::future::{Future, poll_fn};
 use core::ops::Range;
 use core::pin::Pin;
 use core::task::{Context, Poll};
@@ -41,6 +41,13 @@ where
     /// See [`Pipe::write()`]
     pub fn write<'a>(&'a self, buf: &'a [u8]) -> WriteFuture<'a, M, N> {
         self.pipe.write(buf)
+    }
+
+    /// Write all bytes to the pipe.
+    ///
+    /// This method writes all bytes from `buf` into the pipe. See [`Pipe::write_all()`]
+    pub async fn write_all<'a>(&'a self, buf: &'a [u8]) {
+        self.pipe.write_all(buf).await;
     }
 
     /// Attempt to immediately write some bytes to the pipe.
@@ -347,6 +354,11 @@ where
             let n = available.len().min(buf.len());
             available[..n].copy_from_slice(&buf[..n]);
             s.buffer.push(n);
+
+            if s.buffer.is_full() {
+                s.read_waker.wake();
+            }
+
             Ok(n)
         })
     }
@@ -394,9 +406,24 @@ where
     ///
     /// This method will either write a nonzero amount of bytes to the pipe immediately,
     /// or return an error if the pipe is full. See [`write`](Self::write) for a variant
-    /// that waits instead of returning an error.
+    /// that waits instead of returning an error. This method might not write all the provided data
+    /// even if there is enough space in the pipe due to implementation details. See
+    /// [Self::try_write_all] for a method which ensures that all bytes are written unless
+    /// an overflow occurs.
     pub fn try_write(&self, buf: &[u8]) -> Result<usize, TryWriteError> {
         self.try_write_with_context(None, buf)
+    }
+
+    /// Attempt to immediately write all provided bytes into the pipe.
+    ///
+    /// This method will try to write all bytes of the buffer into the pipe immediately,
+    /// or return an error if the pipe is full.
+    pub fn try_write_all(&self, mut buf: &[u8]) -> Result<(), TryWriteError> {
+        while !buf.is_empty() {
+            let n = self.try_write(buf)?;
+            buf = &buf[n..];
+        }
+        Ok(())
     }
 
     /// Read some bytes from the pipe.
@@ -434,6 +461,20 @@ where
             s.buffer.clear();
             s.write_waker.wake();
         })
+    }
+
+    /// Wait until the pipe is full (no free space in the buffer)
+    pub async fn wait_full(&self) {
+        poll_fn(|cx| {
+            self.inner.lock(|rc: &RefCell<PipeState<N>>| {
+                let s = &mut *rc.borrow_mut();
+
+                s.read_waker.register(cx.waker());
+            });
+
+            if self.is_full() { Poll::Ready(()) } else { Poll::Pending }
+        })
+        .await;
     }
 
     /// Return whether the pipe is full (no free space in the buffer)
@@ -533,6 +574,10 @@ impl<M: RawMutex, const N: usize> embedded_io_async::ErrorType for Writer<'_, M,
 impl<M: RawMutex, const N: usize> embedded_io_async::Write for Writer<'_, M, N> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         Ok(Writer::write(self, buf).await)
+    }
+
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        Ok(Writer::write_all(self, buf).await)
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
@@ -811,6 +856,48 @@ mod tests {
     }
 
     #[test]
+    fn write_read_across_rollover() {
+        let c = Pipe::<NoopRawMutex, 3>::new();
+        assert_eq!(c.try_write(&[1, 2]).unwrap(), 2);
+        assert_eq!(c.free_capacity(), 1);
+        let mut buf = [0; 1];
+        c.try_read(&mut buf).expect("trying to read pipe failed");
+        assert_eq!(buf, [1]);
+        assert_eq!(c.free_capacity(), 2);
+        // Write across rollover, only one byte is written.
+        assert_eq!(c.try_write(&[3, 4]).unwrap(), 1);
+        assert_eq!(c.free_capacity(), 1);
+        // Write remaining byte.
+        assert_eq!(c.try_write(&[4]).unwrap(), 1);
+        assert_eq!(c.free_capacity(), 0);
+        let mut buf = [0; 3];
+        // Read across rollover, only two bytes are read.
+        assert_eq!(c.try_read(&mut buf).expect("trying to read pipe failed"), 2);
+        assert_eq!(buf, [2, 3, 0]);
+        assert_eq!(c.free_capacity(), 2);
+        // Read remaining byte.
+        assert_eq!(c.try_read(&mut buf).expect("trying to read pipe failed"), 1);
+        assert_eq!(buf[0], 4);
+        assert_eq!(c.free_capacity(), 3);
+    }
+
+    #[test]
+    fn write_all_across_rollover() {
+        let c = Pipe::<NoopRawMutex, 6>::new();
+        assert_eq!(c.try_write(&[1, 2, 3, 4, 5]).unwrap(), 5);
+        assert_eq!(c.free_capacity(), 1);
+        let mut buf = [0; 3];
+        c.try_read(&mut buf).expect("trying to read pipe failed");
+        assert_eq!(buf, [1, 2, 3]);
+        assert_eq!(c.free_capacity(), 4);
+        assert!(c.try_write_all(&[6, 7, 8]).is_ok());
+        assert_eq!(c.free_capacity(), 1);
+        c.try_read(&mut buf).expect("trying to read pipe failed");
+        assert_eq!(buf, [4, 5, 6]);
+        assert_eq!(c.free_capacity(), 4);
+    }
+
+    #[test]
     fn receiving_once_with_one_send() {
         let c = Pipe::<NoopRawMutex, 3>::new();
         assert!(c.try_write(&[42]).is_ok());
@@ -868,6 +955,7 @@ mod tests {
     fn writer_is_cloneable() {
         let mut c = Pipe::<NoopRawMutex, 3>::new();
         let (_r, w) = c.split();
+        #[allow(clippy::clone_on_copy)]
         let _ = w.clone();
     }
 

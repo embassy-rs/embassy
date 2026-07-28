@@ -45,11 +45,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::tsc::{self, *};
 use embassy_stm32::{mode, peripherals};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const SENSOR_THRESHOLD: u16 = 25; // Adjust this value based on your setup
 

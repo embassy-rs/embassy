@@ -6,20 +6,22 @@ mod tx_desc;
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::Peri;
-use stm32_metapac::eth::vals::{Apcs, Dm, DmaomrSr, Fes, Ftf, Ifg, Pbl, Rsf, St, Tsf};
 
 pub(crate) use self::rx_desc::{RDes, RDesRing};
 pub(crate) use self::tx_desc::{TDes, TDesRing};
 use super::*;
 #[cfg(eth_v1a)]
 use crate::gpio::Pull;
-use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt;
 use crate::interrupt::InterruptExt;
 #[cfg(eth_v1a)]
 use crate::pac::AFIO;
 #[cfg(any(eth_v1b, eth_v1c))]
 use crate::pac::SYSCFG;
+#[cfg(any(eth_v1b, eth_v1c))]
+use crate::pac::eth::vals::Ipco;
+use crate::pac::eth::vals::{Apcs, Dm, DmaomrSr, Fes, Ftf, Ifg, Pbl, Rsf, St, Tsf};
 use crate::pac::{ETH, RCC};
 
 /// Interrupt handler.
@@ -46,18 +48,21 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::ETH> for InterruptHandl
 /// Ethernet driver.
 pub struct Ethernet<'d, T: Instance, P: Phy> {
     _peri: Peri<'d, T>,
+    pub(crate) link_state: LinkState,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
 
-    pins: Pins<'d>,
+    _pins: Pins<'d>,
     pub(crate) phy: P,
     pub(crate) mac_addr: [u8; 6],
 }
 
 /// Pins of ethernet driver.
 enum Pins<'d> {
-    Rmii([Peri<'d, AnyPin>; 7]),
-    Mii([Peri<'d, AnyPin>; 12]),
+    #[allow(unused)]
+    Rmii([Flex<'d>; 7]),
+    #[allow(unused)]
+    Mii([Flex<'d>; 12]),
 }
 
 #[cfg(eth_v1a)]
@@ -192,13 +197,13 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         let pins = Pins::Rmii([
-            ref_clk.into(),
-            crs.into(),
-            rx_d0.into(),
-            rx_d1.into(),
-            tx_d0.into(),
-            tx_d1.into(),
-            tx_en.into(),
+            Flex::new(ref_clk),
+            Flex::new(crs),
+            Flex::new(rx_d0),
+            Flex::new(rx_d1),
+            Flex::new(tx_d0),
+            Flex::new(tx_d1),
+            Flex::new(tx_en),
         ]);
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr, true)
@@ -222,7 +227,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             // Must be done prior to enabling peripheral clock
             AFIO.mapr().modify(|w| {
                 w.set_mii_rmii_sel(rmii_mii_sel);
-                w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
+                w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NoOp);
             });
 
             RCC.ahbenr().modify(|w| {
@@ -251,11 +256,19 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         dma.dmabmr().modify(|w| w.set_sr(true));
         while dma.dmabmr().read().sr() {}
 
+        #[cfg(any(eth_v1b, eth_v1c))]
+        // === Enable Enhanced Descriptor Format FIRST (before any descriptor setup) ===
+        // This must be set before the DMA starts fetching descriptors.
+        // It changes descriptor size from 4 words (16 bytes) to 8 words (32 bytes).
+        dma.dmabmr().modify(|w| w.set_edfe(true));
+
         mac.maccr().modify(|w| {
-            w.set_ifg(Ifg::IFG96); // inter frame gap 96 bit times
-            w.set_apcs(Apcs::STRIP); // automatic padding and crc stripping
-            w.set_fes(Fes::FES100); // fast ethernet speed
-            w.set_dm(Dm::FULL_DUPLEX); // full duplex
+            w.set_ifg(Ifg::Ifg96); // inter frame gap 96 bit times
+            w.set_apcs(Apcs::Strip); // automatic padding and crc stripping
+            w.set_fes(Fes::Fes100); // fast ethernet speed
+            w.set_dm(Dm::FullDuplex); // full duplex
+            #[cfg(any(eth_v1b, eth_v1c))]
+            w.set_ipco(Ipco::Offload); // === Enable IPv4/TCP/UDP checksum offload ===
             // TODO: Carrier sense ? ECRSFD
         });
 
@@ -282,23 +295,37 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         // Transfer and Forward, Receive and Forward
         dma.dmaomr().modify(|w| {
-            w.set_tsf(Tsf::STORE_FORWARD);
-            w.set_rsf(Rsf::STORE_FORWARD);
+            w.set_tsf(Tsf::StoreForward);
+            w.set_rsf(Rsf::StoreForward);
         });
 
         dma.dmabmr().modify(|w| {
-            w.set_pbl(Pbl::PBL32) // programmable burst length - 32 ?
+            w.set_pbl(Pbl::Pbl32) // programmable burst length - 32 ?
         });
 
         // TODO MTU size setting not found for v1 ethernet, check if correct
 
+        #[cfg(feature = "ptp")]
+        let (tx_state, rx_state) = queue.packet_state.split();
+
         let mut this = Self {
             _peri: peri,
-            pins,
+            _pins: pins,
             phy: phy,
             mac_addr,
-            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
-            rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
+            link_state: LinkState::Down,
+            tx: TDesRing::new(
+                &mut queue.tx_desc,
+                &mut queue.tx_buf,
+                #[cfg(feature = "ptp")]
+                tx_state,
+            ),
+            rx: RDesRing::new(
+                &mut queue.rx_desc,
+                &mut queue.rx_buf,
+                #[cfg(feature = "ptp")]
+                rx_state,
+            ),
         };
 
         fence(Ordering::SeqCst);
@@ -311,9 +338,9 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_te(true);
         });
         dma.dmaomr().modify(|w| {
-            w.set_ftf(Ftf::FLUSH); // flush transmit fifo (queue)
-            w.set_st(St::STARTED); // start transmitting channel
-            w.set_sr(DmaomrSr::STARTED); // start receiving channel
+            w.set_ftf(Ftf::Flush); // flush transmit fifo (queue)
+            w.set_st(St::Started); // start transmitting channel
+            w.set_sr(DmaomrSr::Started); // start receiving channel
         });
 
         this.rx.demand_poll();
@@ -366,18 +393,18 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         );
 
         let pins = Pins::Mii([
-            rx_clk.into(),
-            tx_clk.into(),
-            rxdv.into(),
-            rx_d0.into(),
-            rx_d1.into(),
-            rx_d2.into(),
-            rx_d3.into(),
-            tx_d0.into(),
-            tx_d1.into(),
-            tx_d2.into(),
-            tx_d3.into(),
-            tx_en.into(),
+            Flex::new(rx_clk),
+            Flex::new(tx_clk),
+            Flex::new(rxdv),
+            Flex::new(rx_d0),
+            Flex::new(rx_d1),
+            Flex::new(rx_d2),
+            Flex::new(rx_d3),
+            Flex::new(tx_d0),
+            Flex::new(tx_d1),
+            Flex::new(tx_d2),
+            Flex::new(tx_d3),
+            Flex::new(tx_en),
         ]);
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr, false)
@@ -390,7 +417,7 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
         let mac = T::regs().ethernet_mac();
 
         // Disable the TX DMA and wait for any previous transmissions to be completed
-        dma.dmaomr().modify(|w| w.set_st(St::STOPPED));
+        dma.dmaomr().modify(|w| w.set_st(St::Stopped));
 
         // Disable MAC transmitter and receiver
         mac.maccr().modify(|w| {
@@ -398,15 +425,6 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
             w.set_te(false);
         });
 
-        dma.dmaomr().modify(|w| w.set_sr(DmaomrSr::STOPPED));
-
-        critical_section::with(|_| {
-            for pin in match self.pins {
-                Pins::Rmii(ref mut pins) => pins.iter_mut(),
-                Pins::Mii(ref mut pins) => pins.iter_mut(),
-            } {
-                pin.set_as_disconnected();
-            }
-        })
+        dma.dmaomr().modify(|w| w.set_sr(DmaomrSr::Stopped));
     }
 }

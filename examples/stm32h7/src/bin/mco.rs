@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::rcc::{Mco, Mco1Source, McoConfig, McoPrescaler};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -17,11 +18,11 @@ async fn main(_spawner: Spawner) {
 
     let config = {
         let mut config = McoConfig::default();
-        config.prescaler = McoPrescaler::DIV8;
+        config.prescaler = McoPrescaler::Div8;
         config
     };
 
-    let _mco = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, config);
+    let _mco = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, config);
 
     loop {
         info!("high");

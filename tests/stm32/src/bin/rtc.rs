@@ -15,14 +15,14 @@ use embassy_stm32::rtc::Rtc;
 #[cfg(not(feature = "stop"))]
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_time::Timer;
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let mut config = config();
     config.rcc.ls = LsConfig::default_lse();
-    #[cfg(feature = "stop")]
-    {
-        config.rtc._disable_rtc = false;
-    }
 
     let p = init_with_config(config);
     info!("Hello World!");

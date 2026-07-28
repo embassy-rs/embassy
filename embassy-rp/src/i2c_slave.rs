@@ -5,8 +5,9 @@ use core::task::Poll;
 
 use pac::i2c;
 
-use crate::i2c::{AbortReason, FIFO_SIZE, Instance, InterruptHandler, SclPin, SdaPin, set_up_i2c_pin};
-use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::i2c::{AbortReason, FIFO_SIZE, Info, Instance, InterruptHandler, SclPin, SdaPin, set_up_i2c_pin};
+use crate::interrupt::InterruptExt;
+use crate::interrupt::typelevel::Binding;
 use crate::{Peri, pac};
 
 /// I2C error
@@ -89,15 +90,16 @@ impl Default for Config {
 }
 
 /// I2CSlave driver.
-pub struct I2cSlave<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+pub struct I2cSlave<'d> {
+    info: &'static Info,
     pending_byte: Option<u8>,
     config: Config,
+    phantom: PhantomData<&'d mut ()>,
 }
 
-impl<'d, T: Instance> I2cSlave<'d, T> {
+impl<'d> I2cSlave<'d> {
     /// Create a new instance.
-    pub fn new(
+    pub fn new<T: Instance>(
         _peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
@@ -111,9 +113,10 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
         set_up_i2c_pin(&sda, config.sda_pullup);
 
         let mut ret = Self {
-            phantom: PhantomData,
+            info: T::info(),
             pending_byte: None,
             config,
+            phantom: PhantomData,
         };
 
         ret.reset();
@@ -125,9 +128,10 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
     /// You can recover the bus by calling this function, but doing so will almost certainly cause
     /// an i/o error in the master.
     pub fn reset(&mut self) {
-        let p = T::regs();
+        let info = self.info;
+        let p = info.regs;
 
-        let reset = T::reset();
+        let reset = (info.reset)();
         crate::reset::reset(reset);
         crate::reset::unreset_wait(reset);
 
@@ -142,7 +146,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
             // This typically makes no sense for a slave, but it is used to
             // tune spike suppression, according to the datasheet.
-            w.set_speed(pac::i2c::vals::Speed::FAST);
+            w.set_speed(pac::i2c::vals::Speed::Fast);
 
             // Generate stop interrupts for general calls
             // This also causes stop interrupts for other devices on the bus but those will not be
@@ -166,8 +170,8 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
         // mask everything initially
         p.ic_intr_mask().write_value(i2c::regs::IcIntrMask(0));
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
+        info.interrupt.unpend();
+        unsafe { info.interrupt.enable() };
     }
 
     /// Calls `f` to check if we are ready or not.
@@ -181,7 +185,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
     {
         future::poll_fn(|cx| {
             // Register prior to checking the condition
-            T::waker().register(cx.waker());
+            self.info.waker.register(cx.waker());
             let r = f(self);
 
             if r.is_pending() {
@@ -195,7 +199,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
     #[inline(always)]
     fn drain_fifo(&mut self, buffer: &mut [u8], offset: &mut usize) {
-        let p = T::regs();
+        let p = self.info.regs;
 
         if let Some(pending) = self.pending_byte.take() {
             buffer[*offset] = pending;
@@ -227,7 +231,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
     /// Wait asynchronously for commands from an I2C master.
     /// `buffer` is provided in case master does a 'write', 'write read', or 'general call' and is unused for 'read'.
     pub async fn listen(&mut self, buffer: &mut [u8]) -> Result<Command, Error> {
-        let p = T::regs();
+        let p = self.info.regs;
 
         // set rx fifo watermark to 1 byte
         p.ic_rx_tl().write(|w| w.set_rx_tl(0));
@@ -295,13 +299,13 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
     /// Respond to an I2C master READ command, asynchronously.
     pub async fn respond_to_read(&mut self, buffer: &[u8]) -> Result<ReadStatus, Error> {
-        let p = T::regs();
+        let p = self.info.regs;
 
         if buffer.is_empty() {
             return Err(Error::InvalidResponseBufferLength);
         }
 
-        let mut chunks = buffer.chunks(FIFO_SIZE as usize);
+        let mut bytes_written = 0;
 
         self.wait_on(
             |me| {
@@ -319,10 +323,11 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                     }
                 }
 
-                if let Some(chunk) = chunks.next() {
-                    for byte in chunk {
+                if bytes_written < buffer.len() {
+                    for _ in 0..((FIFO_SIZE - p.ic_txflr().read().txflr()) as usize).min(buffer.len() - bytes_written) {
                         p.ic_clr_rd_req().read();
-                        p.ic_data_cmd().write(|w| w.set_dat(*byte));
+                        p.ic_data_cmd().write(|w| w.set_dat(buffer[bytes_written]));
+                        bytes_written += 1;
                     }
 
                     Poll::Pending
@@ -376,7 +381,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
 
     #[inline(always)]
     fn read_and_clear_abort_reason(&mut self) -> Result<(), Error> {
-        let p = T::regs();
+        let p = self.info.regs;
         let abort_reason = p.ic_tx_abrt_source().read();
 
         if abort_reason.0 != 0 {

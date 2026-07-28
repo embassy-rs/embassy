@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::rcc::{Mco, Mco1Source, Mco2Source, McoConfig, McoPrescaler};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -15,18 +16,18 @@ async fn main(_spawner: Spawner) {
 
     let config_mco1 = {
         let mut config = McoConfig::default();
-        config.prescaler = McoPrescaler::DIV1;
+        config.prescaler = McoPrescaler::Div1;
         config
     };
 
     let config_mco2 = {
         let mut config = McoConfig::default();
-        config.prescaler = McoPrescaler::DIV4;
+        config.prescaler = McoPrescaler::Div4;
         config
     };
 
-    let _mco1 = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, config_mco1);
-    let _mco2 = Mco::new(p.MCO2, p.PC9, Mco2Source::PLL, config_mco2);
+    let _mco1 = Mco::new(p.MCO1, p.PA8, Mco1Source::Hsi, config_mco1);
+    let _mco2 = Mco::new(p.MCO2, p.PC9, Mco2Source::Pll, config_mco2);
     let mut led = Output::new(p.PB7, Level::High, Speed::Low);
 
     loop {

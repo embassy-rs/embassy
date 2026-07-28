@@ -73,8 +73,18 @@ compile_error!(
 #[cfg(all(feature = "reset-pin-as-gpio", not(feature = "_nrf52")))]
 compile_error!("feature `reset-pin-as-gpio` is only valid for nRF52 series chips.");
 
-#[cfg(all(feature = "nfc-pins-as-gpio", not(any(feature = "_nrf52", feature = "_nrf5340-app"))))]
-compile_error!("feature `nfc-pins-as-gpio` is only valid for nRF52, or nRF53's application core.");
+#[cfg(all(
+    feature = "nfc-pins-as-gpio",
+    not(any(
+        feature = "_nrf52",
+        feature = "_nrf5340-app",
+        feature = "_nrf54l05",
+        feature = "_nrf54l10",
+        feature = "_nrf54l15",
+        feature = "_nrf54lm20-app",
+    ))
+))]
+compile_error!("feature `nfc-pins-as-gpio` is not valid for this chip.");
 
 #[cfg(all(feature = "lfxo-pins-as-gpio", not(feature = "_nrf5340")))]
 compile_error!("feature `lfxo-pins-as-gpio` is only valid for nRF53 series chips.");
@@ -124,10 +134,16 @@ pub use rramc as nvmc;
     feature = "_nrf91",
 ))]
 pub mod pdm;
-#[cfg(not(feature = "_nrf54l"))] // TODO
-#[cfg(any(feature = "nrf52840", feature = "nrf9160-s", feature = "nrf9160-ns"))]
+#[cfg(any(
+    feature = "nrf52840",
+    feature = "nrf9160-s",
+    feature = "nrf9160-ns",
+    feature = "_nrf54l"
+))]
 pub mod power;
 pub mod ppi;
+#[cfg(feature = "_nrf54l")]
+pub mod ppib;
 #[cfg(not(any(
     feature = "_nrf51",
     feature = "nrf52805",
@@ -163,6 +179,14 @@ pub mod reset;
 #[cfg(not(feature = "_nrf54l"))]
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
+
+// Currently supported chips
+#[cfg(any(
+    feature = "nrf52840",
+    all(any(feature = "_nrf91", feature = "_nrf5340-app"), feature = "_s"),
+))]
+pub mod cryptocell;
+
 #[cfg(not(feature = "_nrf54l"))]
 pub mod rtc;
 #[cfg(not(any(feature = "_nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
@@ -171,6 +195,16 @@ pub mod saadc;
 pub mod spim;
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
+#[cfg(all(
+    any(
+        feature = "_nrf54l15-app",
+        feature = "_nrf54l10-app",
+        feature = "_nrf54l05-app",
+        feature = "_nrf54lm20-app"
+    ),
+    feature = "_s"
+))]
+pub mod sqspi;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
 pub mod timer;
@@ -180,14 +214,26 @@ pub mod twim;
 pub mod twis;
 #[cfg(not(feature = "_nrf51"))]
 pub mod uarte;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "_nrf5340-app",
     feature = "nrf52820",
     feature = "nrf52833",
-    feature = "nrf52840"
+    feature = "nrf52840",
+    feature = "_nrf54lm20-app",
 ))]
+#[cfg_attr(feature = "_nrf54lm20-app", path = "usb/usbhs.rs")]
+#[cfg_attr(not(feature = "_nrf54lm20-app"), path = "usb/mod.rs")]
 pub mod usb;
+#[cfg(all(
+    any(
+        feature = "_nrf54l15-app",
+        feature = "_nrf54l10-app",
+        feature = "_nrf54l05-app",
+        feature = "_nrf54lm20-app"
+    ),
+    feature = "_s"
+))]
+pub mod vpr;
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
@@ -308,6 +354,23 @@ pub mod config {
         CK64,
     }
 
+    /// FLPR (VPR coprocessor) startup behavior, applied at the very start of
+    /// [`init`](super::init).
+    ///
+    /// A program loaded onto the FLPR keeps running across a debugger reset
+    /// (`SYSRESETREQ`). A leftover FLPR not only wastes power but can interfere
+    /// with — and even stall — `init`, so by default it is stopped and reset on
+    /// every boot. Select [`FlprReset::Leave`] if your application core boots
+    /// alongside an FLPR program that was started by an earlier stage and must
+    /// keep running.
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    pub enum FlprReset {
+        /// Stop and reset the FLPR, clearing any previously-loaded program.
+        Reset,
+        /// Leave the FLPR untouched.
+        Leave,
+    }
+
     /// High frequency clock source.
     pub enum HfclkSource {
         /// Internal source
@@ -350,7 +413,7 @@ pub mod config {
     /// Settings for enabling the built in DCDC converters.
     #[cfg(not(any(feature = "_nrf5340", feature = "_nrf91")))]
     pub struct DcdcConfig {
-        /// Config for the first stage DCDC (VDDH -> VDD), if disabled LDO will be used.
+        /// Config for the first stage DCDC (VDDH  Vdd), if disabled LDO will be used.
         #[cfg(feature = "nrf52840")]
         pub reg0: bool,
         /// Configure the voltage of the first stage DCDC. It is stored in non-volatile memory (UICR.REGOUT0 register); pass None to not touch it.
@@ -547,10 +610,10 @@ pub mod config {
     impl From<LfxoCapacitance> for super::pac::oscillators::vals::Intcap {
         fn from(t: LfxoCapacitance) -> Self {
             match t {
-                LfxoCapacitance::External => Self::EXTERNAL,
-                LfxoCapacitance::_6pF => Self::C6PF,
-                LfxoCapacitance::_7pF => Self::C7PF,
-                LfxoCapacitance::_9pF => Self::C9PF,
+                LfxoCapacitance::External => Self::External,
+                LfxoCapacitance::_6pF => Self::C6pf,
+                LfxoCapacitance::_7pF => Self::C7pf,
+                LfxoCapacitance::_9pF => Self::C9pf,
             }
         }
     }
@@ -576,10 +639,19 @@ pub mod config {
         #[cfg(feature = "_time-driver")]
         pub time_interrupt_priority: crate::interrupt::Priority,
         /// Enable or disable the debug port.
+        ///
+        /// On nRF9151/9161/9131, [`Debug::Allowed`] additionally applies the
+        /// workaround for erratum 36 by forcing constant-latency mode, which
+        /// keeps the debug access port reachable across `WFI`/`WFE`. Select
+        /// one of the other variants once debugging is no longer required
+        /// to save power.
         pub debug: Debug,
         /// Clock speed configuration.
         #[cfg(feature = "_nrf54l")]
         pub clock_speed: ClockSpeed,
+        /// FLPR (VPR coprocessor) startup behavior.
+        #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+        pub flpr_reset: FlprReset,
     }
 
     impl Default for Config {
@@ -622,6 +694,8 @@ pub mod config {
                 debug: Debug::Allowed,
                 #[cfg(feature = "_nrf54l")]
                 clock_speed: ClockSpeed::CK64,
+                #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+                flpr_reset: FlprReset::Reset,
             }
         }
     }
@@ -712,7 +786,7 @@ pub unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> Wri
     cortex_m::interrupt::free(|_cs| {
         let nvmc = pac::NVMC;
 
-        nvmc.config().write(|w| w.set_wen(pac::nvmc::vals::Wen::WEN));
+        nvmc.config().write(|w| w.set_wen(pac::nvmc::vals::Wen::Wen));
         while !nvmc.ready().read().ready() {}
         address.write_volatile(value | !mask);
         cortex_m::asm::dsb();
@@ -734,6 +808,14 @@ pub fn init(config: config::Config) -> Peripherals {
     // before doing anything important.
     let peripherals = Peripherals::take();
 
+    // Clear an FLPR program left running from a previous boot (it survives a
+    // debugger reset) before it can interfere with the rest of init.
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    if let config::FlprReset::Reset = config.flpr_reset {
+        vpr::make_secure();
+        vpr::stop_reset(pac::VPR00);
+    }
+
     #[allow(unused_mut)]
     let mut needs_reset = false;
 
@@ -748,8 +830,8 @@ pub fn init(config: config::Config) -> Peripherals {
         use pac::oscillators::vals::Freq;
         regs.pll().freq().write(|w| {
             w.set_freq(match config.clock_speed {
-                config::ClockSpeed::CK64 => Freq::CK64M,
-                config::ClockSpeed::CK128 => Freq::CK128M,
+                config::ClockSpeed::CK64 => Freq::Ck64m,
+                config::ClockSpeed::CK128 => Freq::Ck128m,
             });
         });
     }
@@ -889,40 +971,40 @@ pub fn init(config: config::Config) -> Peripherals {
 
                 // Unlock dbgen
                 p.protect().domain(0).dbgen().ctrl().write(|w| {
-                    w.set_key(vals::DomainDbgenCtrlKey::KEY);
-                    w.set_writeprotection(vals::DomainDbgenCtrlWriteprotection::CLEAR);
+                    w.set_key(vals::DomainDbgenCtrlKey::Key);
+                    w.set_writeprotection(vals::DomainDbgenCtrlWriteprotection::Clear);
                 });
                 p.protect().domain(0).dbgen().ctrl().write(|w| {
-                    w.set_key(vals::DomainDbgenCtrlKey::KEY);
-                    w.set_value(vals::DomainDbgenCtrlValue::HIGH);
+                    w.set_key(vals::DomainDbgenCtrlKey::Key);
+                    w.set_value(vals::DomainDbgenCtrlValue::High);
                 });
 
                 // Unlock niden
                 p.protect().domain(0).niden().ctrl().write(|w| {
-                    w.set_key(vals::NidenCtrlKey::KEY);
-                    w.set_writeprotection(vals::NidenCtrlWriteprotection::CLEAR);
+                    w.set_key(vals::NidenCtrlKey::Key);
+                    w.set_writeprotection(vals::NidenCtrlWriteprotection::Clear);
                 });
                 p.protect().domain(0).niden().ctrl().write(|w| {
-                    w.set_key(vals::NidenCtrlKey::KEY);
-                    w.set_value(vals::NidenCtrlValue::HIGH);
+                    w.set_key(vals::NidenCtrlKey::Key);
+                    w.set_value(vals::NidenCtrlValue::High);
                 });
 
                 p.protect().domain(0).spiden().ctrl().write(|w| {
-                    w.set_key(vals::SpidenCtrlKey::KEY);
-                    w.set_writeprotection(vals::SpidenCtrlWriteprotection::CLEAR);
+                    w.set_key(vals::SpidenCtrlKey::Key);
+                    w.set_writeprotection(vals::SpidenCtrlWriteprotection::Clear);
                 });
                 p.protect().domain(0).spiden().ctrl().write(|w| {
-                    w.set_key(vals::SpidenCtrlKey::KEY);
-                    w.set_value(vals::SpidenCtrlValue::HIGH);
+                    w.set_key(vals::SpidenCtrlKey::Key);
+                    w.set_value(vals::SpidenCtrlValue::High);
                 });
 
                 p.protect().domain(0).spniden().ctrl().write(|w| {
-                    w.set_key(vals::SpnidenCtrlKey::KEY);
-                    w.set_writeprotection(vals::SpnidenCtrlWriteprotection::CLEAR);
+                    w.set_key(vals::SpnidenCtrlKey::Key);
+                    w.set_writeprotection(vals::SpnidenCtrlWriteprotection::Clear);
                 });
                 p.protect().domain(0).spniden().ctrl().write(|w| {
-                    w.set_key(vals::SpnidenCtrlKey::KEY);
-                    w.set_value(vals::SpnidenCtrlValue::HIGH);
+                    w.set_key(vals::SpnidenCtrlKey::Key);
+                    w.set_value(vals::SpnidenCtrlValue::High);
                 });
             }
 
@@ -937,17 +1019,19 @@ pub fn init(config: config::Config) -> Peripherals {
                 needs_reset |= res == WriteResult::Written;
                 p.approtect()
                     .disable()
-                    .write(|w| w.set_disable(pac::approtect::vals::ApprotectDisableDisable::SW_UNPROTECTED));
+                    .write(|w| w.set_disable(pac::approtect::vals::ApprotectDisableDisable::SwUnprotected));
 
                 let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_DISABLED);
                 needs_reset |= res == WriteResult::Written;
                 p.secureapprotect()
                     .disable()
-                    .write(|w| w.set_disable(pac::approtect::vals::SecureapprotectDisableDisable::SW_UNPROTECTED));
+                    .write(|w| w.set_disable(pac::approtect::vals::SecureapprotectDisableDisable::SwUnprotected));
 
-                // TODO: maybe add workaround for this errata
-                // It uses extra power, not sure how to let the user choose.
-                // https://docs.nordicsemi.com/bundle/errata_nRF9151_Rev1/page/ERR/nRF9151/Rev1/latest/anomaly_151_36.html#anomaly_151_36
+                // nRF9120 erratum 36: force constant-latency mode so the debug AP survives WFI/WFE.
+                // https://docs.nordicsemi.com/bundle/errata_nRF9151_EngB/page/ERR/nRF9151/EngineeringB/latest/anomaly_151_36.html
+                if matches!(config.debug, config::Debug::Allowed) {
+                    pac::POWER_S.tasks_constlat().write_value(1);
+                }
             }
         }
         config::Debug::Disallowed => {
@@ -1105,27 +1189,27 @@ pub fn init(config: config::Config) -> Peripherals {
     if unsafe { (0x50032420 as *mut u32).read_volatile() } & 0x80000000 != 0 {
         r.events_lfclkstarted().write_value(0);
         r.lfclksrc()
-            .write(|w| w.set_src(nrf_pac::clock::vals::Lfclksrc::LFSYNT));
+            .write(|w| w.set_src(nrf_pac::clock::vals::Lfclksrc::Lfsynt));
         r.tasks_lfclkstart().write_value(1);
         while r.events_lfclkstarted().read() == 0 {}
         r.events_lfclkstarted().write_value(0);
         r.tasks_lfclkstop().write_value(1);
-        r.lfclksrc().write(|w| w.set_src(nrf_pac::clock::vals::Lfclksrc::LFRC));
+        r.lfclksrc().write(|w| w.set_src(nrf_pac::clock::vals::Lfclksrc::Lfrc));
     }
 
     // Configure LFCLK.
     #[cfg(not(any(feature = "_nrf51", feature = "_nrf5340", feature = "_nrf91", feature = "_nrf54l")))]
     match config.lfclk_source {
-        config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::RC)),
-        config::LfclkSource::Synthesized => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::SYNTH)),
-        config::LfclkSource::ExternalXtal => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::XTAL)),
+        config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Rc)),
+        config::LfclkSource::Synthesized => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Synth)),
+        config::LfclkSource::ExternalXtal => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Xtal)),
         config::LfclkSource::ExternalLowSwing => r.lfclksrc().write(|w| {
-            w.set_src(pac::clock::vals::Lfclksrc::XTAL);
+            w.set_src(pac::clock::vals::Lfclksrc::Xtal);
             w.set_external(true);
             w.set_bypass(false);
         }),
         config::LfclkSource::ExternalFullSwing => r.lfclksrc().write(|w| {
-            w.set_src(pac::clock::vals::Lfclksrc::XTAL);
+            w.set_src(pac::clock::vals::Lfclksrc::Xtal);
             w.set_external(true);
             w.set_bypass(true);
         }),
@@ -1135,8 +1219,8 @@ pub fn init(config: config::Config) -> Peripherals {
         #[allow(unused_mut)]
         let mut lfxo = false;
         match config.lfclk_source {
-            config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFRC)),
-            config::LfclkSource::Synthesized => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFSYNT)),
+            config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Lfrc)),
+            config::LfclkSource::Synthesized => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Lfsynt)),
             #[cfg(not(feature = "lfxo-pins-as-gpio"))]
             config::LfclkSource::ExternalXtal => lfxo = true,
             #[cfg(not(feature = "lfxo-pins-as-gpio"))]
@@ -1153,23 +1237,23 @@ pub fn init(config: config::Config) -> Peripherals {
                 // MCUSEL is only accessible from secure code.
                 let p0 = pac::P0;
                 p0.pin_cnf(0)
-                    .write(|w| w.set_mcusel(pac::gpio::vals::Mcusel::PERIPHERAL));
+                    .write(|w| w.set_mcusel(pac::gpio::vals::Mcusel::Peripheral));
                 p0.pin_cnf(1)
-                    .write(|w| w.set_mcusel(pac::gpio::vals::Mcusel::PERIPHERAL));
+                    .write(|w| w.set_mcusel(pac::gpio::vals::Mcusel::Peripheral));
             }
-            r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFXO));
+            r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Lfxo));
         }
     }
     #[cfg(feature = "_nrf91")]
     match config.lfclk_source {
-        config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFRC)),
-        config::LfclkSource::ExternalXtal => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFXO)),
+        config::LfclkSource::InternalRC => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Lfrc)),
+        config::LfclkSource::ExternalXtal => r.lfclksrc().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Lfxo)),
     }
     #[cfg(feature = "_nrf54l")]
     match config.lfclk_source {
-        config::LfclkSource::InternalRC => r.lfclk().src().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFRC)),
-        config::LfclkSource::Synthesized => r.lfclk().src().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFSYNT)),
-        config::LfclkSource::ExternalXtal => r.lfclk().src().write(|w| w.set_src(pac::clock::vals::Lfclksrc::LFXO)),
+        config::LfclkSource::InternalRC => r.lfclk().src().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Lfrc)),
+        config::LfclkSource::Synthesized => r.lfclk().src().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Lfsynt)),
+        config::LfclkSource::ExternalXtal => r.lfclk().src().write(|w| w.set_src(pac::clock::vals::Lfclksrc::Lfxo)),
     }
 
     // Start LFCLK.
@@ -1221,6 +1305,9 @@ pub fn init(config: config::Config) -> Peripherals {
         pac::REGULATORS.vregmain().dcdcen().write(|w| w.set_val(true));
     }
 
+    #[cfg(all(feature = "_nrf54l", feature = "nfc-pins-as-gpio"))]
+    pac::NFCT.padconfig().write(|w| w.set_enable(false));
+
     // Init GPIOTE
     #[cfg(feature = "gpiote")]
     gpiote::init(config.gpiote_interrupt_priority);
@@ -1233,8 +1320,8 @@ pub fn init(config: config::Config) -> Peripherals {
     #[cfg(feature = "_nrf91")]
     {
         use pac::uarte::vals::Enable;
-        pac::UARTE0.enable().write(|w| w.set_enable(Enable::DISABLED));
-        pac::UARTE1.enable().write(|w| w.set_enable(Enable::DISABLED));
+        pac::UARTE0.enable().write(|w| w.set_enable(Enable::Disabled));
+        pac::UARTE1.enable().write(|w| w.set_enable(Enable::Disabled));
     }
 
     peripherals

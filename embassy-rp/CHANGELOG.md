@@ -6,7 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- next-header -->
+
 ## Unreleased - ReleaseDate
+- Fix i2c_slave respond_to_read for buffers larger than one chunk
+
+- DMA: clear channel `EN` bit before `chan_abort` on RP2350, per errata RP2350-E5 (see pico-sdk `dma_channel_abort` docs). Prevents the aborted channel from re-triggering.
+- PIO: add `Config::set_input_sync_bypass` to declare input synchronizer bypass pins; the bypass is applied inside `StateMachine::set_config` once `GPIOBASE` is established, fixing bypass for pins >= 32 on RP2350B.
+- breaking: Remove `<T: Instance>` from `Spi`, `I2c` and `I2cSlave` ([#4900](https://github.com/embassy-rs/embassy/pull/4900))
+- Add set_baudrate() to BufferedUartTx.
+
+## 0.10.0 - 2026-03-10
+- Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes
+- Add output enable inversion API (gpio, pio)
+- Add PIO clock generator
+- Change PioBatch interface
+- Add custom multicore-ready executors
+- breaking: Change watchdog interface — `feed` now takes a duration argument, added `stop`
+- Add DMA `Channel` driver struct
+- breaking: DMA renames — `read_repeated`→`read_discard`, `write_repeated`→`write_zeros`, `dma_push_repeated`→`dma_push_zeros`, `dma_pull_repeated`→`dma_pull_discard`
+- DMA: add byte swap option
+- DMA: made `Channel::regs` private
+- DMA: disallow construction of `Transfer` outside dma.rs
+- Fix race in DMA IRQ handler
+- Add PIO StateMachine `rx_fifo_ptr`, `tx_fifo_ptr`, `rx_treq`, `tx_treq` functions
+- Add I2S start/stop functions
+- Fix onewire bug with multiple family codes
+- Fix PIO freeze regression
+- Increase VCO max frequency to 1600 MHz
+- Allow sourcing gpout clock from LPOSC
+- Complete missing Gpin/GpoutPin impls for RP235x
+- Improve PIO clock divider math
+- Fix chrono compilation
+- Update embassy-sync to 0.8.0
+- Update embassy-embedded-hal to 0.6.0
+- Add PIO NEC ir tx and rx
 
 ## 0.9.0 - 2025-11-27
 
@@ -20,12 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add reset_to_usb_boot for rp235x ([#4705](https://github.com/embassy-rs/embassy/pull/4705))
 - Add fix #4822 in PIO onewire. Change to disable the state machine before setting y register ([#4824](https://github.com/embassy-rs/embassy/pull/4824))
 - Add PIO::Ws2812 color order support
+- Fix configuration of embassy_rp adc div register ([#4815](https://github.com/embassy-rs/embassy/pull/4815))
 - Add TX-only, no SCK SPI support
 - Remove atomic-polyfill with critical-section instead ([#4948](https://github.com/embassy-rs/embassy/pull/4948))
 
 ## 0.8.0 - 2025-08-26
 
 ## 0.7.1 - 2025-08-26
+
 - add `i2c` internal pullup options ([#4564](https://github.com/embassy-rs/embassy/pull/4564))
 
 ## 0.7.0 - 2025-08-04

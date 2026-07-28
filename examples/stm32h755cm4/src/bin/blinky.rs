@@ -4,11 +4,12 @@
 use core::mem::MaybeUninit;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::SharedData;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[unsafe(link_section = ".ram_d3.shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
@@ -21,12 +22,12 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PE1, Level::High, Speed::Low);
 
     loop {
-        info!("high");
+        info!("led on!");
         led.set_high();
-        Timer::after_millis(250).await;
+        Timer::after_millis(500).await;
 
-        info!("low");
+        info!("led off!");
         led.set_low();
-        Timer::after_millis(250).await;
+        Timer::after_millis(500).await;
     }
 }

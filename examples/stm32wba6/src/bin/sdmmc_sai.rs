@@ -2,17 +2,18 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::sai::{self, Sai};
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use embedded_sdmmc::filesystem::ShortFileName;
 use embedded_sdmmc::{BlockDevice, RawFile, SdCard, TimeSource, VolumeIdx, VolumeManager};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 // Simple SD card audio streaming example for SAI.
 // - Supports raw unsigned 16-bit PCM (.pcm)
@@ -114,7 +115,7 @@ fn parse_wav_header(buf: &[u8]) -> Option<WavInfo> {
     })
 }
 
-async fn write_samples(sai_tx: &mut Sai<'static, peripherals::SAI1, u16>, samples: &[u16]) {
+async fn write_samples(sai_tx: &mut Sai<'static, u16>, samples: &[u16]) {
     if samples.is_empty() {
         return;
     }
@@ -124,7 +125,7 @@ async fn write_samples(sai_tx: &mut Sai<'static, peripherals::SAI1, u16>, sample
 }
 
 async fn play_pcm<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
-    sai_tx: &mut Sai<'static, peripherals::SAI1, u16>,
+    sai_tx: &mut Sai<'static, u16>,
     volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     file: RawFile,
 ) where
@@ -162,7 +163,7 @@ async fn play_pcm<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX
 }
 
 async fn play_wav<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
-    sai_tx: &mut Sai<'static, peripherals::SAI1, u16>,
+    sai_tx: &mut Sai<'static, u16>,
     volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     file: RawFile,
 ) where
@@ -255,29 +256,28 @@ async fn play_wav<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX
     }
 }
 
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
+    GPDMA1_CHANNEL2 => dma::InterruptHandler<peripherals::GPDMA1_CH2>;
+});
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL12,
-            divq: Some(PllDiv::DIV4),
-            divr: Some(PllDiv::DIV5),
-            divp: Some(PllDiv::DIV30),
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul12,
+            divq: Some(PllDiv::Div4),
+            divr: Some(PllDiv::Div5),
+            divp: Some(PllDiv::Div30),
             frac: Some(2363),
         });
-
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV1;
-        config.rcc.apb2_pre = APBPrescaler::DIV1;
-        config.rcc.apb7_pre = APBPrescaler::DIV1;
-        config.rcc.ahb5_pre = AHB5Prescaler::DIV2;
-        config.rcc.voltage_scale = VoltageScale::RANGE1;
-
-        config.rcc.mux.sai1sel = mux::Sai1sel::PLL1_Q;
+        config.rcc.ahb5_pre = AHB5Prescaler::Div2;
+        config.rcc.mux.sai1sel = mux::Sai1sel::Pll1Q;
     }
 
     let p = embassy_stm32::init(config);
@@ -304,15 +304,15 @@ async fn main(spawner: Spawner) {
     sai_cfg.frame_length = 32;
     sai_cfg.frame_sync_active_level_length = sai::word::U7(16);
     sai_cfg.fifo_threshold = sai::FifoThreshold::Quarter;
-    sai_cfg.master_clock_divider = sai::MasterClockDivider::DIV4;
+    sai_cfg.master_clock_divider = sai::MasterClockDivider::Div4;
 
-    let mut sai_tx = Sai::new_asynchronous(sai_a, p.PA7, p.PB14, p.PA8, p.GPDMA1_CH2, sai_dma_buf, sai_cfg);
+    let mut sai_tx = Sai::new_asynchronous(sai_a, p.PA7, p.PB14, p.PA8, p.GPDMA1_CH2, sai_dma_buf, Irqs, sai_cfg);
 
     let _max98357a_sd = Output::new(p.PA1, Level::High, Speed::Low);
 
     let mut spi_cfg = spi::Config::default();
     spi_cfg.frequency = Hertz(400_000);
-    let spi = Spi::new(p.SPI1, p.PB4, p.PA15, p.PB3, p.GPDMA1_CH0, p.GPDMA1_CH1, spi_cfg);
+    let spi = Spi::new(p.SPI1, p.PB4, p.PA15, p.PB3, p.GPDMA1_CH0, p.GPDMA1_CH1, Irqs, spi_cfg);
     let cs = Output::new(p.PA6, Level::High, Speed::VeryHigh);
     let spi_dev: SdSpiDev = ExclusiveDevice::new_no_delay(spi, cs).unwrap();
     let sd: SdCardDev = SdCard::new(spi_dev, embassy_time::Delay);
