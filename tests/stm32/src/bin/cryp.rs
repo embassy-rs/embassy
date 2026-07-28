@@ -6,9 +6,47 @@
 mod common;
 
 use aes_gcm::Aes128Gcm;
-use aes_gcm::aead::heapless::Vec;
-use aes_gcm::aead::{AeadInPlace, KeyInit};
+use aes_gcm::aead::{AeadInOut, Buffer, KeyInit};
 use common::*;
+use heapless::Vec;
+
+struct HeaplessBuffer<const N: usize>(Vec<u8, N>);
+
+impl<const N: usize> AsRef<[u8]> for HeaplessBuffer<N> {
+    fn as_ref(&self) -> &[u8] {
+        self.0.as_slice()
+    }
+}
+
+impl<const N: usize> AsMut<[u8]> for HeaplessBuffer<N> {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.0.as_mut_slice()
+    }
+}
+
+impl<const N: usize> Buffer for HeaplessBuffer<N> {
+    fn extend_from_slice(&mut self, other: &[u8]) -> Result<(), aes_gcm::aead::Error> {
+        self.0.extend_from_slice(other).map_err(|_| aes_gcm::aead::Error)
+    }
+
+    fn truncate(&mut self, len: usize) {
+        self.0.truncate(len);
+    }
+}
+
+impl<const N: usize> core::ops::Deref for HeaplessBuffer<N> {
+    type Target = Vec<u8, N>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<const N: usize> core::ops::DerefMut for HeaplessBuffer<N> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::*;
@@ -62,11 +100,12 @@ async fn main(_spawner: Spawner) {
     defmt::assert!(encrypt_tag == decrypt_tag);
 
     // Encrypt in software using AES-GCM 128-bit
-    let mut payload_vec: Vec<u8, { PAYLOAD1.len() + PAYLOAD2.len() + 16 }> = Vec::from_slice(&PAYLOAD1).unwrap();
-    payload_vec.extend_from_slice(&PAYLOAD2).unwrap();
+    let mut payload_vec: HeaplessBuffer<{ PAYLOAD1.len() + PAYLOAD2.len() + 16 }> =
+        HeaplessBuffer(Vec::from_slice(PAYLOAD1).unwrap());
+    payload_vec.extend_from_slice(PAYLOAD2).unwrap();
     let cipher = Aes128Gcm::new(&key.into());
-    let mut aad: Vec<u8, { AAD1.len() + AAD2.len() }> = Vec::from_slice(&AAD1).unwrap();
-    aad.extend_from_slice(&AAD2).unwrap();
+    let mut aad: Vec<u8, { AAD1.len() + AAD2.len() }> = Vec::from_slice(AAD1).unwrap();
+    aad.extend_from_slice(AAD2).unwrap();
     let _ = cipher.encrypt_in_place(&iv.into(), &aad, &mut payload_vec);
 
     defmt::assert!(ciphertext == payload_vec[0..ciphertext.len()]);
