@@ -18,8 +18,10 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_mcxa as hal;
 use embassy_mcxa::clocks::PoweredClock;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::clocks::periph_helpers::LpuartClockSel;
@@ -27,8 +29,8 @@ use embassy_mcxa::dma::DmaChannel;
 use embassy_mcxa::lpuart::{BbqConfig, BbqParts, BbqRxMode, LpuartBbq};
 use embassy_mcxa::{bind_interrupts, lpuart};
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::ConstStaticCell;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     LPUART2 => lpuart::BbqInterruptHandler::<hal::peripherals::LPUART2>;
