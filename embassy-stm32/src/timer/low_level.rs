@@ -1022,13 +1022,14 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 fifo_threshold: Some(FifoThreshold::Full),
                 #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr8,
+                packing: crate::dma::Packing::ZeroExtendOrLeftTruncate,
                 ..Default::default()
             };
 
             WritableRingBuffer::new(
                 dma::Channel::new(dma, irq),
                 req,
-                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut W,
+                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut T::Word,
                 dma_buf,
                 dma_transfer_option,
             )
@@ -1081,6 +1082,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 fifo_threshold: Some(FifoThreshold::Full),
                 #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr8,
+                packing: crate::dma::Packing::ZeroExtendOrLeftTruncate,
                 ..Default::default()
             };
 
@@ -1089,7 +1091,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 .write(
                     request,
                     duty,
-                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
+                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut T::Word,
                     dma_transfer_option,
                 )
                 .unchecked_extend_lifetime()
