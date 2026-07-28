@@ -207,7 +207,7 @@ mod platform {
                 // GPTIM timer state is lost in Stop2/Stop3, needs re-init.
                 // LPTIM (_lp-time-driver) survives all STOP modes autonomously.
                 #[cfg(not(feature = "_lp-time-driver"))]
-                if lpms >= 2 {
+                if lpms.to_bits() >= 2 {
                     trace!("low power: re-initializing timer (STOP2+, GPTIM)");
                     super::get_driver().init_timer(_cs);
                 }
