@@ -3,13 +3,13 @@
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nrf::cryptocell_rng::{self, CcRng};
+use embassy_nrf::cryptocell::rng::{self, CcRng};
 use embassy_nrf::{bind_interrupts, peripherals};
 use panic_probe as _;
 use rand::Rng as _;
 
 bind_interrupts!(struct Irqs {
-    CRYPTOCELL => cryptocell_rng::InterruptHandler<peripherals::CC_RNG>;
+    CRYPTOCELL => rng::InterruptHandler<peripherals::CC_RNG>;
 });
 
 #[embassy_executor::main]
