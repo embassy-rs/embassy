@@ -13,7 +13,9 @@ pub use nema_gfx_hal;
 
 pub(crate) mod fmt;
 
+mod coherency;
 mod color;
+mod command;
 mod driver;
 mod error;
 mod framebuffer;
@@ -27,6 +29,6 @@ pub mod target;
 pub use color::{ColorFormat, Rgba8888};
 pub use driver::{BlendMode, NeoChrom, TextureFilter, TextureWrap};
 pub use error::{Error, InitError};
-pub use framebuffer::FrameBuffer;
+pub use framebuffer::{ExternalFrameBuffer, FrameBuffer, GpuSurface};
 #[cfg(feature = "embedded-graphics")]
 pub use target::NeoChromTarget;

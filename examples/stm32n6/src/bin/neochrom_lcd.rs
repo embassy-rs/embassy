@@ -4,18 +4,26 @@
 //! NeoChrom (GPU2D) + LTDC display example for the STM32N6570-DK.
 //!
 //! Drives the on-board 5" RK050HR18C-B01 panel (800x480 parallel RGB) via LTDC,
-//! using the NeoChrom (GPU2D) hardware accelerator to perform GPU-driven clears and
-//! rendering into double-buffered AXISRAM framebuffers.
+//! using the NeoChrom (GPU2D) hardware accelerator to render directly into
+//! double-buffered RGB565 AXISRAM framebuffers.
 //!
 //! Features integrated:
-//! - NeoChrom / NemaGFX GPU2D driver setup with interrupt handling.
+//! - NeoChrom / NemaGFX GPU2D driver with real peripheral init and interrupt handling.
+//! - GPU-accelerated clears, fills, circles, lines, and blits into LTDC scan-out buffers.
 //! - RIF (Resource Isolation Framework) master attribute promotion for GPU2D & LTDC.
 //! - Run-mode clocking enabled across all AXISRAM banks.
 //! - RK050HR18C panel power sequencing & LTDC 24-bit RGB888 pin muxing.
 //! - Double buffering in AXISRAM with VBlank reload sync (`ltdc.set_buffer().await`).
+//!
+//! Inspired by ST's
+//! [`x-cube-image-processing`](https://github.com/STMicroelectronics/x-cube-image-processing)
+//! DrawPolygon and Resize_GPU examples on the STM32N6570-DK.
+//!
+//! For real GPU2D on hardware:
+//! ```text
+//! cargo run --release --bin neochrom_lcd --no-default-features
+//! ```
 
-#[path = "../framebuffer.rs"]
-mod framebuffer;
 #[path = "../rk050hr18c.rs"]
 mod rk050hr18c;
 
@@ -26,11 +34,10 @@ use embassy_stm32::rcc::mux::Ltdcsel;
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
 use embassy_stm32::rif::{RifMaster, RifMasterAttributes, RifPeripheral, RifPeripheralAttributes};
 use embassy_stm32::{Config, bind_interrupts, gpu2d, pac, peripherals};
-use embassy_stm32_neochrom::{FrameBuffer, NeoChrom, Rgba8888};
+use embassy_stm32_neochrom::{BlendMode, ExternalFrameBuffer, FrameBuffer, GpuSurface, NeoChrom, Rgba8888};
 use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
-use crate::framebuffer::Framebuffer;
 use crate::rk050hr18c::{HEIGHT, LTDC_CONFIG, Rk050Hr18c, WIDTH};
 
 bind_interrupts!(struct Irqs {
@@ -40,7 +47,9 @@ bind_interrupts!(struct Irqs {
 
 const FB0_BASE: usize = 0x3410_0000;
 const FB1_BASE: usize = 0x3420_0000;
-const FB_PIXELS: usize = WIDTH as usize * HEIGHT as usize;
+
+const SPRITE_SIZE: u32 = 64;
+const SPRITE_PIXELS: usize = (SPRITE_SIZE * SPRITE_SIZE) as usize;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -108,41 +117,109 @@ async fn main(_spawner: Spawner) {
         window_y1: HEIGHT,
     };
 
-    let fb0_slice: &'static mut [u16] = unsafe { core::slice::from_raw_parts_mut(FB0_BASE as *mut u16, FB_PIXELS) };
-    let fb1_slice: &'static mut [u16] = unsafe { core::slice::from_raw_parts_mut(FB1_BASE as *mut u16, FB_PIXELS) };
-    let fb0 = Framebuffer::new(fb0_slice, WIDTH, HEIGHT);
-    let fb1 = Framebuffer::new(fb1_slice, WIDTH, HEIGHT);
-
-    let small_fb = FrameBuffer::<64, 64, 4096>::new();
+    let fb0 = ExternalFrameBuffer::rgb565(FB0_BASE, WIDTH as u32, HEIGHT as u32);
+    let fb1 = ExternalFrameBuffer::rgb565(FB1_BASE, WIDTH as u32, HEIGHT as u32);
+    let mut sprite = FrameBuffer::<SPRITE_SIZE, SPRITE_SIZE, SPRITE_PIXELS>::new();
+    init_sprite(&mut sprite);
 
     ltdc.init_layer(&layer_config, None);
-    ltdc.init_buffer(LtdcLayer::Layer1, fb0.as_ptr());
+    ltdc.init_buffer(LtdcLayer::Layer1, FB0_BASE as *const ());
     pac::LTDC.srcr().write(|w| w.set_imr(pac::ltdc::vals::Imr::Reload));
 
-    let fbs = [fb0.as_ptr(), fb1.as_ptr()];
-    let mut back_idx = 1;
-
-    let colors = [Rgba8888::RED, Rgba8888::GREEN, Rgba8888::BLUE, Rgba8888::WHITE];
-    let mut color_idx = 0usize;
+    let scanout = [fb0, fb1];
+    let mut back_idx = 1usize;
+    let mut frame = 0u32;
     let mut fps_start = Instant::now();
     let mut frame_count = 0u32;
 
     loop {
         let frame_start = Instant::now();
-        let color = colors[color_idx];
+        let back = scanout[back_idx];
+        let hue = frame % 360;
+        let bg = hsl_to_rgba(hue, 35, 10);
+        let accent = hsl_to_rgba((hue + 140) % 360, 85, 55);
 
-        gpu.clear(&small_fb, color).expect("GPU clear failed");
+        gpu.begin_frame(&back).expect("begin_frame failed");
+        gpu.clear_in_frame(bg).expect("GPU clear failed");
+        gpu.fill_rect_in_frame(0, 0, WIDTH as i32, 48, Rgba8888::new(24, 6, 10, 0xFF))
+            .expect("title bar fill failed");
+
+        let cx = (WIDTH / 2) as i32;
+        let cy = (HEIGHT / 2) as i32;
+        let radius = 80 + ((frame / 3) % 60) as i32;
+        gpu.fill_circle_in_frame(cx, cy, radius, accent)
+            .expect("fill_circle failed");
+
+        gpu.draw_line_in_frame(0, 48, WIDTH as i32 - 1, HEIGHT as i32 - 1, Rgba8888::WHITE)
+            .expect("draw_line failed");
+        gpu.draw_line_in_frame(WIDTH as i32 - 1, 48, 0, HEIGHT as i32 - 1, Rgba8888::WHITE)
+            .expect("draw_line failed");
+
+        let tri_x = 40 + ((frame / 2) % 120) as i32;
+        gpu.fill_triangle_in_frame(
+            tri_x,
+            HEIGHT as i32 - 40,
+            tri_x + 80,
+            HEIGHT as i32 - 40,
+            tri_x + 40,
+            HEIGHT as i32 - 120,
+            Rgba8888::new(255, 220, 0, 0xFF),
+        )
+        .expect("fill_triangle failed");
+
+        let quad_shift = ((frame / 3) % 40) as i32;
+        gpu.fill_quad_in_frame(
+            520 + quad_shift,
+            80,
+            620 + quad_shift,
+            90,
+            600 + quad_shift,
+            180,
+            500 + quad_shift,
+            170,
+            Rgba8888::new(0, 200, 80, 0xFF),
+        )
+        .expect("fill_quad failed");
+
+        gpu.draw_stroke_triangle_aa_in_frame(
+            tri_x as f32,
+            (HEIGHT - 40) as f32,
+            (tri_x + 80) as f32,
+            (HEIGHT - 40) as f32,
+            (tri_x + 40) as f32,
+            (HEIGHT - 120) as f32,
+            2.0,
+            Rgba8888::WHITE,
+        )
+        .expect("stroke triangle failed");
+
+        gpu.set_blend_blit(BlendMode::Src);
+        let sprite_x = (WIDTH as i32 - SPRITE_SIZE as i32 - 24) - ((frame / 2) % 200) as i32;
+        gpu.blit_in_frame(&sprite, sprite_x, 64).expect("blit failed");
+
+        let preview_w = 160 + ((frame / 4) % 80) as i32;
+        let preview_h = 96 + ((frame / 4) % 48) as i32;
+        gpu.blit_rect_fit_in_frame(&sprite, 24, 64, preview_w, preview_h)
+            .expect("blit_rect_fit failed");
+
+        let angle = (frame * 3) % 360;
+        gpu.blit_rotate_in_frame(&sprite, WIDTH as i32 - 120, HEIGHT as i32 - 120, angle)
+            .expect("blit_rotate failed");
+
+        gpu.end_frame_async().await.expect("GPU frame failed");
 
         let t_flip = Instant::now();
-        ltdc.set_buffer(LtdcLayer::Layer1, fbs[back_idx]).await.unwrap();
+        ltdc.set_buffer(LtdcLayer::Layer1, back.phys_addr() as *const ())
+            .await
+            .unwrap();
         let flip_us = t_flip.elapsed().as_micros();
 
         back_idx = 1 - back_idx;
-        color_idx = (color_idx + 1) % colors.len();
+        frame += 1;
         frame_count += 1;
 
         if fps_start.elapsed().as_millis() >= 1000 {
-            info!("fps={} flip_us={}", frame_count, flip_us);
+            info!("fps={} flip_us={} hue={}", frame_count, flip_us, hue);
             fps_start = Instant::now();
             frame_count = 0;
         }
@@ -152,6 +229,47 @@ async fn main(_spawner: Spawner) {
             Timer::after_millis(16 - elapsed).await;
         }
     }
+}
+
+fn init_sprite(sprite: &mut FrameBuffer<SPRITE_SIZE, SPRITE_SIZE, SPRITE_PIXELS>) {
+    let pixels = sprite.pixels_mut();
+    for y in 0..SPRITE_SIZE {
+        for x in 0..SPRITE_SIZE {
+            let dx = x as i32 - SPRITE_SIZE as i32 / 2;
+            let dy = y as i32 - SPRITE_SIZE as i32 / 2;
+            let dist_sq = dx * dx + dy * dy;
+            let radius_sq = (SPRITE_SIZE as i32 / 2 - 4).pow(2);
+            let color = if dist_sq <= radius_sq {
+                Rgba8888::new(0, 180, 255, 0xFF)
+            } else {
+                Rgba8888::new(0, 0, 0, 0)
+            };
+            pixels[(y * SPRITE_SIZE + x) as usize] = color.bits();
+        }
+    }
+}
+
+fn hsl_to_rgba(h: u32, s: u8, l: u8) -> Rgba8888 {
+    let s = s as f32 / 100.0;
+    let l = l as f32 / 100.0;
+    let h = (h % 360) as f32 / 60.0;
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let x = c * (1.0 - ((h % 2.0) - 1.0).abs());
+    let m = l - c / 2.0;
+    let (r, g, b) = match h as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    Rgba8888::new(
+        ((r + m) * 255.0) as u8,
+        ((g + m) * 255.0) as u8,
+        ((b + m) * 255.0) as u8,
+        0xFF,
+    )
 }
 
 fn enable_all_sram() {

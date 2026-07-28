@@ -3,22 +3,11 @@
 //! Implements the C ABI `nema-gfx-hal`'s baremetal HAL expects from
 //! `hal_gpu2d_shim.h`, backed by [`embassy_stm32::gpu2d::Gpu2d`], instead of
 //! the CI-only stub in `gpu2d_hal_stub.c`.
-//!
-//! `embassy_stm32::gpu2d::Gpu2d` now has a real interrupt handler and an
-//! async `wait_command_list_complete()`, but NemaGFX's own C code
-//! (`nema_wait_irq`/`nema_wait_irq_cl`) is synchronous — it can't `.await`.
-//! So `HAL_GPU2D_PollCompletion` bridges the two by synchronously reading
-//! (and clearing) the same command-list-complete flag from `nema_wait_irq`'s
-//! busy-wait loop, and forwards completions to
-//! `HAL_GPU2D_CommandListCpltCallback`, the hook `nema_hal_baremetal.c`
-//! already defines. This works whether or not the real interrupt fires in
-//! between polls — `command_list_complete()` reads the level-triggered flag
-//! directly. A future async-native API on `NeoChrom` could instead submit
-//! via `nema_cl_submit_no_irq` and `.await` `wait_command_list_complete()`
-//! directly, bypassing this polling bridge entirely.
 
 use core::cell::RefCell;
 use core::ffi::c_void;
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::task::{Context, Waker};
 
 use critical_section::Mutex;
 use embassy_stm32::Peri;
@@ -27,6 +16,8 @@ use embassy_stm32::interrupt::typelevel::Binding;
 use embassy_stm32::peripherals::GPU2D;
 
 static GPU2D_DRIVER: Mutex<RefCell<Option<Gpu2d<'static, GPU2D>>>> = Mutex::new(RefCell::new(None));
+static SYSTEM_ERROR: AtomicBool = AtomicBool::new(false);
+static WAKER: Mutex<RefCell<Option<Waker>>> = Mutex::new(RefCell::new(None));
 
 /// C ABI mirror of `hal_gpu2d_shim.h`'s `GPU2D_HandleTypeDef`.
 #[repr(C)]
@@ -60,6 +51,57 @@ pub fn init(
     }
 }
 
+/// Returns `true` if a GPU2D system error was observed since the last call.
+pub fn take_system_error() -> bool {
+    SYSTEM_ERROR.swap(false, Ordering::AcqRel)
+}
+
+/// Returns whether the command-list-complete flag is currently set.
+pub fn command_list_complete() -> bool {
+    critical_section::with(|cs| {
+        GPU2D_DRIVER
+            .borrow(cs)
+            .borrow()
+            .as_ref()
+            .is_some_and(Gpu2d::command_list_complete)
+    })
+}
+
+/// Clear the command-list-complete flag and notify NemaGFX.
+pub fn complete_command_list() {
+    critical_section::with(|cs| {
+        let mut slot = GPU2D_DRIVER.borrow(cs).borrow_mut();
+        let Some(driver) = slot.as_mut() else {
+            return;
+        };
+
+        if driver.command_list_complete() {
+            let id = driver.last_command_list_id();
+            driver.clear_command_list_complete();
+            unsafe { HAL_GPU2D_CommandListCpltCallback(core::ptr::addr_of_mut!(hgpu2d), id) };
+        }
+    });
+}
+
+/// Register the async waker used by [`poll_wait`].
+pub fn poll_wait(cx: &Context<'_>) {
+    critical_section::with(|cs| {
+        *WAKER.borrow(cs).borrow_mut() = Some(cx.waker().clone());
+    });
+
+    if command_list_complete() {
+        wake();
+    }
+}
+
+fn wake() {
+    critical_section::with(|cs| {
+        if let Some(waker) = WAKER.borrow(cs).borrow_mut().take() {
+            waker.wake();
+        }
+    });
+}
+
 /// # Safety
 /// Called only by `nema-gfx-hal`'s C code with `&hgpu2d`.
 #[unsafe(no_mangle)]
@@ -90,10 +132,12 @@ unsafe extern "C" fn HAL_GPU2D_PollCompletion(handle: *mut Gpu2dHandleTypeDef) {
             let id = driver.last_command_list_id();
             driver.clear_command_list_complete();
             unsafe { HAL_GPU2D_CommandListCpltCallback(handle, id) };
+            wake();
         }
 
-        // TODO: surface hardware SystemError through `crate::Error` instead
-        // of silently draining it.
-        let _ = driver.take_error();
+        if driver.take_error().is_err() {
+            SYSTEM_ERROR.store(true, Ordering::Release);
+            wake();
+        }
     });
 }

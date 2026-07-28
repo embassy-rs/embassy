@@ -1,5 +1,7 @@
 //! RGBA color in the format expected by NemaGFX clear/fill APIs.
 
+use crate::ffi::nema_gfx::{NEMA_A8, NEMA_L8, NEMA_RGB565, NEMA_RGBA4444, NEMA_RGBA8888};
+
 /// Opaque 32-bit RGBA color (`0xAARRGGBB`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Rgba8888(pub u32);
@@ -44,4 +46,17 @@ pub enum ColorFormat {
     A8 = 8,
     /// 8-bit Grayscale (1 byte per pixel).
     L8 = 11,
+}
+
+impl ColorFormat {
+    /// NemaGFX texture format constant for [`crate::ffi::nema_gfx::nema_bind_dst_tex`].
+    pub const fn nema_format(self) -> u32 {
+        match self {
+            Self::Rgba8888 => NEMA_RGBA8888,
+            Self::Rgb565 => NEMA_RGB565,
+            Self::Rgba4444 => NEMA_RGBA4444,
+            Self::A8 => NEMA_A8,
+            Self::L8 => NEMA_L8,
+        }
+    }
 }
