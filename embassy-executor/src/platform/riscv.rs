@@ -68,6 +68,11 @@ mod thread {
                         if SIGNAL_WORK_THREAD_MODE.load(Ordering::Relaxed) {
                             SIGNAL_WORK_THREAD_MODE.store(false, Ordering::Relaxed);
                         } else {
+                            // It is okay to call WFI while interrupts are globally disabled.
+                            // See: https://docs.riscv.org/reference/isa/v20260120/priv/machine.html
+                            //
+                            // Calling this inside the CS also prevents the corner case that an
+                            // interrupt fires between exiting the CS and then calling WFI outside of it.
                             core::arch::asm!("wfi");
                         }
                     });
