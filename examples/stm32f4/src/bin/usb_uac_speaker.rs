@@ -241,12 +241,6 @@ fn TIM2() {
             // Clear trigger interrupt flag.
             timer.clear_input_interrupt(TIMER_CHANNEL);
         };
-
-        // Clear trigger interrupt flag.
-        timer.sr().write(|r| {
-            r.0 = 0xFFFF_FFFF;
-            r.set_tif(false);
-        });
     });
 }
 

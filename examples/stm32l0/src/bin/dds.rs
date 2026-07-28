@@ -49,7 +49,7 @@ fn TIM2() {
         pac::TIM2.ccr(2).modify(|w| w.set_ccr(value));
 
         // reset interrupt flag
-        timer.sr().write(|r| {
+        pac::TIM2.sr().write(|r| {
             r.0 = 0xFFFF_FFFF;
             r.set_uif(false);
         });
