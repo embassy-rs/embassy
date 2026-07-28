@@ -1,6 +1,6 @@
-#![macro_use]
-
 //! ADC driver
+
+#![macro_use]
 
 use crate::pac::adc0::Adc0;
 use crate::pac::adc0::vals;
@@ -52,6 +52,7 @@ pub struct Adc<'d> {
 
 impl<'d> Adc<'d> {
     /// Creation and initialization of ADC
+    /// adc parameter should be reaplced with Peri once nxp-pac implements it
     pub fn new(adc: &'d mut Adc0, config: Config) -> Self {
         // Power & clocks
         defmt::info!("Enabling ADC power and clocks");
