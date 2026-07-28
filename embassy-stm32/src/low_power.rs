@@ -207,7 +207,7 @@ mod platform {
                 // GPTIM timer state is lost in Stop2/Stop3, needs re-init.
                 // LPTIM (_lp-time-driver) survives all STOP modes autonomously.
                 #[cfg(not(feature = "_lp-time-driver"))]
-                if lpms >= 2 {
+                if lpms.to_bits() >= 2 {
                     trace!("low power: re-initializing timer (STOP2+, GPTIM)");
                     super::get_driver().init_timer(_cs);
                 }
@@ -372,8 +372,11 @@ fn configure_pwr(cs: CriticalSection) -> bool {
 pub unsafe fn sleep(cs: CriticalSection) {
     let stop = configure_pwr(cs);
 
+    // Only flush defmt if we are actually going into Stop. Avoids flush on every tiny WFE
     #[cfg(feature = "low-power-defmt-flush")]
-    defmt::flush();
+    if stop {
+        defmt::flush();
+    }
 
     cortex_m::asm::dsb();
     cortex_m::asm::wfi();
