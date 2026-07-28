@@ -108,7 +108,8 @@ macro_rules! impl_can_instance {
                         tx_mailbox_full_count: core::sync::atomic::AtomicU32::new(0),
                         tx_waker: maitake_sync::WaitCell::new(),
                         rx_sender: embassy_sync::blocking_mutex::Mutex::new(core::cell::Cell::new(None)),
-                        rx_dropped_count: core::sync::atomic::AtomicU32::new(0),
+                        rx_dropped_count_channel: core::sync::atomic::AtomicU32::new(0),
+                        rx_dropped_count_fifo: core::sync::atomic::AtomicU32::new(0),
                     };
                     &INFO
                 }

@@ -126,14 +126,57 @@ impl<'d> FlexCan<'d, Async> {
         self.rx.try_receive()
     }
 
-    /// Indicates the number of RX frames dropped so far due to the RX queue being full.
-    /// If you're seeing this number increase, you are receiving messages faster than the RX queue can handle.
-    /// This can be mitigated by increasing the size of the RX queue.
+    /// Indicates the number of RX frames dropped so far due to either the software RX `RxQueue` or the FlexCAN hardware FIFO.
     ///
-    /// Note: This function tracks frames dropped specifically due to the RX queue being full. It doesn't track other
-    /// sources of dropped frames that may have occured at a lower level.
-    pub fn rx_dropped_count(&self) -> u32 {
+    /// If you're seeing this number increase, you are receiving messages faster than the RX queue can handle.
+    /// This may be mitigated by increasing the size of the `RxQueue`.
+    ///
+    /// Note: As mentioned, this only tracks frames that were dropped from the FlexCAN hardware RX FIFO or from the software `RxQueue`, due to either
+    /// being full. Any frame drops that happen at a lower level, or during transmission, are not tracked here.
+    pub fn rx_dropped_count(&self) -> RxDroppedCount {
         self.rx.rx_dropped_count()
+    }
+}
+
+/// Stores information tracking how many RX messages have been dropped thus far, if any.
+///
+/// Note: This struct only tracks frames that were dropped from the FlexCAN hardware RX FIFO and from this
+/// driver's software `RxQueue`, due to either being full. Any frame drops that happened at a lower level, or during
+/// transmission, are not tracked here.
+pub struct RxDroppedCount {
+    /// Tracks the number of frames dropped from the software `RxQueue` used by this driver.
+    pub(in crate::flexcan::classic::asynchronous) software_channel: u32,
+    /// Tracks the number of frames dropped from the FlexCAN peripheral's hardware RX FIFO.
+    pub(in crate::flexcan::classic::asynchronous) hardware_fifo: u32,
+}
+impl RxDroppedCount {
+    /// Indicates the number of RX frames dropped from the software `RxQueue` used by this driver.
+    ///
+    /// For context, a RX frame will get dropped from the software `RxQueue` when the queue is full. If this increases,
+    /// you are likely receiving messages at a higher rate than you are dequeuing/processing them.
+    pub fn software_channel(&self) -> u32 {
+        self.software_channel
+    }
+
+    /// Indicates the number of overflow events experienced by the FlexCAN hardware RX FIFO.
+    ///
+    /// For context, an overflow event occurs when the FlexCAN recieves a message, but there is no room left in the hardware RX FIFO to store it. If this increases,
+    /// you are likely receiving messages at a higher rate than you are dequeuing/processing them.
+    ///
+    /// Note: The "number of overflow events in the hardware FIFO" is not exactly the same thing as "the number of RX frames dropped by the hardware FIFO". Technically,
+    /// a single overflow event (i.e., a single increment to this counter) could indicate more than one frame being dropped if, after a first frame is dropped, a second frame is
+    /// dropped before the ISR can increment this counter for the first frame. This is unlikely to happen in practice under normal interrupt latency though, so for most purposes
+    /// this counter can probably be intepereted as "the number of RX frames dropped by the hardware FIFO".
+    ///
+    pub fn hardware_fifo(&self) -> u32 {
+        self.hardware_fifo
+    }
+
+    /// Indicates the total number of RX frames dropped from the software `RxQueue`, and the number of overflow events that have occured for the FlexCAN hardware RX FIFO.
+    ///
+    /// Note: This is analagous to `software_channel() + hardware_fifo()`.
+    pub fn total(&self) -> u32 {
+        self.software_channel + self.hardware_fifo
     }
 }
 
@@ -161,7 +204,7 @@ impl<'d> FlexCanTx<'d, Async> {
             .wait_for(|| match tx::dispatch(self.info, &message) {
                 Ok(()) => true,
                 Err(WouldBlock) => {
-                    self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
+                    self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Relaxed);
                     false
                 }
                 Err(Other(e)) => match e {},
@@ -184,7 +227,7 @@ impl<'d> FlexCanTx<'d, Async> {
         match tx::dispatch(self.info, &message) {
             Ok(()) => Ok(()),
             Err(WouldBlock) => {
-                self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
+                self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Relaxed);
                 Err(SendError::TxMailboxFull)
             }
             Err(Other(e)) => match e {},
@@ -210,14 +253,18 @@ impl<'d> FlexCanRx<'d, Async> {
             .map_err(|_| ReceiveError::NoMessages)
     }
 
-    /// Indicates the number of RX frames dropped so far due to the RX queue being full.
-    /// If you're seeing this number increase, you are receiving messages faster than the RX queue can handle.
-    /// This can be mitigated by increasing the size of the RX queue.
+    /// Indicates the number of RX frames dropped so far due to either the software RX `RxQueue` or the FlexCAN hardware FIFO.
     ///
-    /// Note: This function tracks frames dropped specifically due to the RX queue being full. It doesn't track other
-    /// sources of dropped frames that may have occured at a lower level.
-    pub fn rx_dropped_count(&self) -> u32 {
-        self.info.rx_dropped_count.load(Ordering::Acquire)
+    /// If you're seeing this number increase, you are receiving messages faster than the RX queue can handle.
+    /// This may be mitigated by increasing the size of the `RxQueue`.
+    ///
+    /// Note: As mentioned, this only tracks frames that were dropped from the FlexCAN hardware RX FIFO or from the software `RxQueue`, due to either
+    /// being full. Any frame drops that happen at a lower level, or during transmission, are not tracked here.
+    pub fn rx_dropped_count(&self) -> RxDroppedCount {
+        RxDroppedCount {
+            software_channel: self.info.rx_dropped_count_channel.load(Ordering::Relaxed),
+            hardware_fifo: self.info.rx_dropped_count_fifo.load(Ordering::Relaxed),
+        }
     }
 }
 
@@ -233,6 +280,14 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let info = T::info();
         let can = info.control.regs();
+
+        // Check if this interrupt was triggered due to a hardware RX fifo overflow
+        // putting this first instead of in RX STUFF since it is good to clear these W1C flags ASAP in case
+        // the flag gets triggered again while we're still in the ISR
+        if can.erfsr().read().erfovf() {
+            can.erfsr().write(|w| w.set_erfovf(true));
+            info.rx_dropped_count_fifo.fetch_add(1, Ordering::Relaxed);
+        }
 
         /* TX STUFF: */
 
@@ -265,8 +320,8 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
                 None => true,
             };
             if dropped {
-                // if the software queue is full, drop the frame, and increment the `rx_dropped_count` counter.
-                info.rx_dropped_count.fetch_add(1, Ordering::Acquire);
+                // if the software queue is full, drop the frame, and increment the `rx_dropped_count_channel` counter.
+                info.rx_dropped_count_channel.fetch_add(1, Ordering::Relaxed);
             }
         }
 

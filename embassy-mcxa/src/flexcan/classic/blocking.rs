@@ -147,7 +147,7 @@ impl<'d> FlexCanTx<'d, Blocking> {
         }
 
         // If the mailbox is full, we need to loop
-        self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
+        self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Relaxed);
         loop {
             mailbox::tx::reclaim_completed(self.info);
             match tx::dispatch(self.info, &message) {
@@ -168,7 +168,7 @@ impl<'d> FlexCanTx<'d, Blocking> {
         match tx::dispatch(self.info, &message) {
             Ok(()) => Ok(()),
             Err(nb::Error::WouldBlock) => {
-                self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
+                self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Relaxed);
                 Err(SendError::TxMailboxFull)
             }
             Err(nb::Error::Other(e)) => match e {},
@@ -204,7 +204,7 @@ impl<'d> FlexCanTx<'d, Blocking> {
             return Ok(());
         }
 
-        self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Acquire);
+        self.info.tx_mailbox_full_count.fetch_add(1, Ordering::Relaxed);
         let deadline = Instant::now() + timeout;
         loop {
             mailbox::tx::reclaim_completed(self.info);

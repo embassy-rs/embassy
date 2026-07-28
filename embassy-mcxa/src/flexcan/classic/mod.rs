@@ -254,8 +254,13 @@ pub(crate) struct Info {
     /// Handle to the RX queue's sender. Only relavent when in `Async` mode.
     pub rx_sender: Mutex<CriticalSectionRawMutex, Cell<Option<SendDynamicSender<'static, Frame>>>>,
 
-    /// Stores a count of the number of RX frames dropped so far due to the RX Channel being full. Only relavent when in `Async` mode.
-    pub rx_dropped_count: AtomicU32,
+    /// Stores a count of the number of RX frames dropped so far due to the Software RX Channel being full. Only relavent when in `Async` mode.
+    pub rx_dropped_count_channel: AtomicU32,
+
+    /// Stores a count of the number of RX frames dropped so far due to the Hardware RX FIFO being full. Only relavent when in `Async` mode
+    ///
+    /// Note: Technically the hardware RX FIFO still exists in blocking mode, but we can't use any interrupts to track it. So that's why this is an async-only feature.
+    pub rx_dropped_count_fifo: AtomicU32,
 }
 
 pub(crate) trait SealedInstance: crate::clocks::Gate<MrccPeriphConfig = CanConfig> {
@@ -330,7 +335,7 @@ impl<'d, M: Mode> FlexCanTx<'d, M> {
     ///
     /// Note: See the docs for `send()` and `try_send()` for each function's behavior when it encounters a full mailbox.
     pub fn tx_mailbox_full_count(&self) -> u32 {
-        self.info.tx_mailbox_full_count.load(Ordering::Acquire)
+        self.info.tx_mailbox_full_count.load(Ordering::Relaxed)
     }
 }
 
