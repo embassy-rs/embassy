@@ -61,13 +61,13 @@ impl<'d> Adc<'d> {
         defmt::info!("Starting ADC init sequence");
 
         // Reset just in case
-        adc.ctrl().write(|w| w.set_rst(vals::Rst::RST_1));
-        adc.ctrl().write(|w| w.set_rst(vals::Rst::RST_0)); 
+        adc.ctrl().write(|w| w.set_rst(vals::Rst::Rst1));
+        adc.ctrl().write(|w| w.set_rst(vals::Rst::Rst0)); 
 
         // Reset results
         adc.ctrl().modify(|w| {
-            w.set_rstfifo0(vals::Rstfifo0::RSTFIFO0_1);
-            w.set_rstfifo1(vals::Rstfifo1::RSTFIFO1_1)
+            w.set_rstfifo0(vals::Rstfifo0::Rstfifo01);
+            w.set_rstfifo1(vals::Rstfifo1::Rstfifo11)
         });
 
         // Enable power and select reference
@@ -91,11 +91,9 @@ impl<'d> Adc<'d> {
             w.set_fwmark(0)
         });
 
-        // embassy_time::block_for(embassy_time::Duration::from_millis(1));
-
         // Enable the ADC
         adc.ctrl().modify(|w| {
-            w.set_adcen(vals::Adcen::ADCEN_1)
+            w.set_adcen(1.into())
         });
 
         // Calibrate
@@ -122,39 +120,28 @@ impl<'d> Adc<'d> {
         // Set up trigger control
         adc.tctrl(0).modify(|w| {
             w.set_hten(0.into());
-            w.set_fifo_sel_a(vals::FifoSelA::FIFO_SEL_A_0);
-            w.set_fifo_sel_b(vals::FifoSelB::FIFO_SEL_B_0);
-            w.set_tcmd(vals::Tcmd::TCMD_1)
+            w.set_fifo_sel_a(0.into());
+            w.set_fifo_sel_b(0.into());
+            w.set_tcmd(vals::Tcmd::Tcmd1)
         });
 
         // Set resolution
         match config.resolution {
             Resolution::Bits12 => {
                 adc.cmdl1().modify(|w| {
-                    w.set_mode(vals::Cmdl1Mode::MODE_0)
+                    w.set_mode(vals::Cmdl1Mode::Mode0)
                 });
             },
             Resolution::Bits16 => {
                 adc.cmdl1().modify(|w| {
-                    w.set_mode(vals::Cmdl1Mode::MODE_1)
+                    w.set_mode(vals::Cmdl1Mode::Mode1)
                 })
             }
         };
 
         // Set averaging
-        let bit_value = match config.averaging {
-            Averaging::None => vals::CalAvgs::CAL_AVGS_0,
-            Averaging::Samples2 => vals::CalAvgs::CAL_AVGS_1,
-            Averaging::Samples4 => vals::CalAvgs::CAL_AVGS_2,
-            Averaging::Samples8 => vals::CalAvgs::CAL_AVGS_3,
-            Averaging::Samples16 => vals::CalAvgs::CAL_AVGS_4,
-            Averaging::Samples32 => vals::CalAvgs::CAL_AVGS_5,
-            Averaging::Samples64 => vals::CalAvgs::CAL_AVGS_6,
-            Averaging::Samples128 => vals::CalAvgs::CAL_AVGS_7,
-        };
-        
         adc.ctrl().modify(|w| {
-            w.set_cal_avgs(bit_value)
+            w.set_cal_avgs(avgs_bit.into())
         });
 
         Self { adc, config }
@@ -200,14 +187,14 @@ impl<'d> Adc<'d> {
         defmt::info!("Starting the calibration...");
         
         // Offset trimming
-        adc.ctrl().modify(|w| w.set_calofs(vals::Calofs::CALOFS_1));
+        adc.ctrl().modify(|w| w.set_calofs(vals::Calofs::Calofs1));
         while adc.stat().read().cal_rdy().to_bits() == 0 {}
         defmt::info!("Offset calibration completed");
 
         // Auto calibration request
         adc.ctrl().modify(|w| {
             // Auto calibration request
-            w.set_cal_req(vals::CalReq::CAL_REQ_1)
+            w.set_cal_req(vals::CalReq::CalReq1)
         });
 
         while (adc.gcc(0).read().rdy().to_bits() == 0) || (adc.gcc(1).read().rdy().to_bits() == 0) {
