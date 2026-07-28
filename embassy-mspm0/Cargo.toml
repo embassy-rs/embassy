@@ -47,6 +47,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
 # TODO: Support other tick rates
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-32_768"] }
 embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
@@ -115,6 +116,12 @@ nrst-pin-as-gpio = []
 
 ## Allow using the SWD pins as regular GPIO pins.
 swd-pins-as-gpio = []
+
+low-power = []
+
+executor-thread = ["_executor"]
+
+_executor = ["dep:embassy-executor", "low-power"]
 
 #! ## Time
 

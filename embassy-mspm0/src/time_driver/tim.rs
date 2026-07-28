@@ -17,6 +17,18 @@ use crate::{peripherals, tim};
 #[cfg(any(time_driver_timg12, time_driver_timg13))]
 compile_error!("TIMG12 and TIMG13 are not supported by the time driver yet");
 
+// Only TIMG0 and TIMG1 remain clocked in STANDBY, so they are the only timers that can wake the
+// core from deep sleep via the time driver. Reject a `low-power` build on any other timer.
+// TODO: Or maybe allow using them, but disable STANDBY? STOP0 will still work.
+// Another option is to leak a wake guard when one of those timers is used.
+
+#[cfg(all(feature = "low-power", not(any(time_driver_timg0, time_driver_timg1))))]
+compile_error!(
+    "the `low-power` feature requires the time driver to run on TIMG0 or TIMG1, as they are the \
+     only timers clocked in STANDBY. Enable `time-driver-timg0`, `time-driver-timg1`, or \
+     `time-driver-any` (which selects TIMG0 when available)."
+);
+
 // Currently TIMG12 and TIMG13 are excluded because those are 32-bit timers.
 #[cfg(time_driver_timg0)]
 type T = peripherals::TIMG0;
@@ -61,22 +73,8 @@ fn regs() -> Tim {
 // - `period` is incremented on overflow (at counter value 0)
 // - `period` is incremented "midway" between overflows (at counter value 0x8000)
 //
-// Therefore, when `period` is even, counter is in 0..0x7FFF. When odd, counter is in 0x8000..0xFFFF
+// When `period` is even, counter is in 0..0x7FFF. When odd, counter is in 0x8000..0xFFFF
 // This allows for now() to return the correct value even if it races an overflow.
-//
-// The overflow half must be counted on the *zero* event, not the load event, or that invariant does
-// not hold. SLAU847F Figure 28-10 shows that in up counting mode the load event is asserted during
-// the `CTR == LOAD` TIMCLK cycle, i.e. one full tick *before* the counter wraps, while the zero
-// event is asserted during the `CTR == 0` cycle. Counting on the load event advances `period` while
-// `counter` still reads 0xFFFF, which is the one pairing the parity repair below cannot fix: it
-// leaves a stale counter against a fresh period for a whole tick on every wrap, worth 2^16 ticks of
-// error. The zero event lands exactly on the parity boundary, same as CCU0 lands exactly on
-// `CTR == 0x8000`. (LOAD is 2^16 - 1, not 2^16: up counting mode has a period of `LOAD + 1`.)
-//
-// To get `now()`, `period` is read first, then `counter` is read. If the counter value matches
-// the expected range for the `period` parity, we're done. If it doesn't, this means that
-// a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
-// corresponds to the next period.
 //
 // `period` is a 32bit integer, so It overflows on 2^32 * 2^15 / 32768 seconds of uptime, which is 136 years.
 fn calc_now(period: u32, counter: u16) -> u64 {
@@ -116,11 +114,13 @@ impl TimxDriver {
 
         // 1. Select TIMCLK source
         regs.clksel().modify(|w| {
+            // Use LFCLK at 32.768 kHz, as it's available all the way down to STANDBY
             w.set_lfclk_sel(true);
         });
 
-        // 2. Divide by TIMCLK, we don't need to divide further for the 32kHz tick rate
+        // 2. Divide by TIMCLK
         regs.clkdiv().modify(|w| {
+            // 32.768 kHz on the LFCLK requires no division.
             w.set_ratio(0); // + 1
         });
 
@@ -140,7 +140,7 @@ impl TimxDriver {
 
         regs.counterregs(0).ctrctl().modify(|w| {
             w.set_repeat(Repeat::REPEAT_1);
-            w.set_cvae(Cvae::ZEROVAL);
+            w.set_cvae(Cvae::NOCHANGE);
             w.set_cm(Cm::UP);
 
             // Must explicitly set CZC, CAC and CLC to 0 in order for all the timers to count.
@@ -158,6 +158,8 @@ impl TimxDriver {
         // Middle
         regs.counterregs(0).cc(0).write_value(0x8000 as u32);
         regs.counterregs(0).load().write_value(u16::MAX as u32);
+        // Start with the counter at 1 to avoid immediately incrementing period.
+        regs.counterregs(0).ctr().write_value(1);
 
         // Enable the period interrupts
         //
@@ -174,15 +176,6 @@ impl TimxDriver {
         // Allow the counter to start counting.
         regs.counterregs(0).ctrctl().modify(|w| {
             w.set_en(true);
-        });
-
-        // Enabling the counter with CVAE = ZEROVAL zeroes it, which can latch a zero event. Discard
-        // anything latched up to here before arming the interrupt, or that event would be counted as
-        // a wrap that never happened and put the whole timebase a one period off.
-        regs.cpu_int(0).iclr().write(|w| {
-            w.set_z(true);
-            w.set_ccu0(true);
-            w.set_ccu1(true);
         });
 
         <T as tim::Instance>::Interrupt::IRQ.unpend();
@@ -295,15 +288,6 @@ impl Driver for TimxDriver {
 
         // On MSPM0 this sequence reread and comparison must be done or else time may
         // appear to go backwards.
-        //
-        // The timer counter and the software period counter are not updated as one
-        // atomic operation. It is possible for the timer interrupt to increment the
-        // period counter while reading the counter.
-        //
-        // For example, `period` may be read as X while the timer is near the end of
-        // that period. The timer then wraps and the interrupt increments `period` to
-        // X + 1 before the counter is read. If the counter read returns 0x0000, using
-        // the stale period X would produce a timestamp 32768 ticks in the past.
         loop {
             let period = self.period.load(Ordering::Relaxed);
             // Ensure the compiler does not read the counter before the period.
