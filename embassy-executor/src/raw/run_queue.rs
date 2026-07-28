@@ -78,6 +78,22 @@ impl RunQueue {
         )
     }
 
+    /// Whether there is definitely nothing to dequeue: a plain load where
+    /// pointer-width atomics exist. Without them the queue is behind a critical
+    /// section and peeking would take a second one, so report "might have work".
+    /// A racing push is safe; see the comment in [`dequeue_all`](Self::dequeue_all).
+    #[inline]
+    fn definitely_empty(&self) -> bool {
+        #[cfg(target_has_atomic = "ptr")]
+        {
+            self.stack.is_empty()
+        }
+        #[cfg(not(target_has_atomic = "ptr"))]
+        {
+            false
+        }
+    }
+
     /// # Standard atomic runqueue
     ///
     /// Empty the queue, then call `on_task` for each task that was in the queue.
@@ -85,6 +101,16 @@ impl RunQueue {
     /// and will be processed by the *next* call to `dequeue_all`, *not* the current one.
     #[cfg(not(any(feature = "scheduler-priority", feature = "scheduler-deadline")))]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
+        // Skip the `take_all` swap when there is nothing to take. A racing push
+        // is safe: `enqueue` reports the empty -> non-empty transition and
+        // `SyncExecutor::enqueue` pends on exactly it, so a push landing here
+        // re-pends the executor and the next poll picks it up; no wake is lost.
+        // Besides the saved write, this matters on RP2350, where any exclusive
+        // access posts an event that keeps the idle `WFE` from ever sleeping.
+        if self.definitely_empty() {
+            return;
+        }
+
         let taken = self.stack.take_all();
         for taskref in taken {
             run_dequeue(&taskref);
@@ -108,6 +134,13 @@ impl RunQueue {
     /// runqueue are both empty, at which point this function will return.
     #[cfg(any(feature = "scheduler-priority", feature = "scheduler-deadline"))]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
+        // Skip the `take_all` when there is nothing to take: `sorted` is freshly
+        // empty here, so an empty runqueue means no work at all. See the
+        // standard `dequeue_all` above for the racing-push argument.
+        if self.definitely_empty() {
+            return;
+        }
+
         let mut sorted = SortedList::<TaskHeader>::new_with_cmp(|lhs, rhs| {
             // compare by priority first
             #[cfg(feature = "scheduler-priority")]
