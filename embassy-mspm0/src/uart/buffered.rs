@@ -13,6 +13,7 @@ use embedded_hal_nb::nb;
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::Binding;
 use crate::pac::uart::Uart as Regs;
+use crate::sysctl::{SleepLevel, WakeGuard};
 use crate::uart::{Config, ConfigError, CtsPin, Error, Info, Instance, RtsPin, RxPin, State, TxPin};
 use crate::{Peri, interrupt};
 
@@ -146,6 +147,7 @@ impl<'d> BufferedUart<'d> {
                 rx: self.rx.rx.as_mut().map(Peri::reborrow),
                 rts: self.rx.rts.as_mut().map(Peri::reborrow),
                 reborrowed: true,
+                wake_guard: None,
             },
         )
     }
@@ -161,6 +163,7 @@ pub struct BufferedUartRx<'d> {
     rx: Option<Peri<'d, AnyPin>>,
     rts: Option<Peri<'d, AnyPin>>,
     reborrowed: bool,
+    wake_guard: Option<WakeGuard>,
 }
 
 impl SetConfig for BufferedUartRx<'_> {
@@ -214,12 +217,25 @@ impl<'d> BufferedUartRx<'d> {
             rts.update_pf(config.rts_pf());
         }
 
-        super::reconfigure(&self.info, &self.state.state, config)
+        super::reconfigure(&self.info, &self.state.state, config)?;
+
+        if !self.reborrowed {
+            self.wake_guard = self.rx_wake_guard(config.low_power_rx_wake);
+        }
+        Ok(())
     }
 
     /// Set baudrate
     pub fn set_baudrate(&mut self, baudrate: u32) -> Result<(), ConfigError> {
         super::set_baudrate(&self.info, self.state.state.clock.load(Ordering::Relaxed), baudrate)
+    }
+
+    fn rx_wake_guard(&self, low_power_rx_wake: bool) -> Option<WakeGuard> {
+        if low_power_rx_wake {
+            Some(WakeGuard::new(SleepLevel::Standby1))
+        } else {
+            SleepLevel::floor_for_clock_hz(self.state.state.clock.load(Ordering::Relaxed)).map(WakeGuard::new)
+        }
     }
 
     /// Read from UART RX buffer, blocking execution until done.
@@ -606,9 +622,11 @@ impl<'d> BufferedUart<'d> {
                 rx,
                 rts,
                 reborrowed: false,
+                wake_guard: None,
             },
         };
         this.enable_and_configure(tx_buffer, rx_buffer, &config)?;
+        this.rx.wake_guard = this.rx.rx_wake_guard(config.low_power_rx_wake);
 
         Ok(this)
     }
@@ -662,8 +680,10 @@ impl<'d> BufferedUartRx<'d> {
             rx,
             rts,
             reborrowed: false,
+            wake_guard: None,
         };
         this.enable_and_configure(rx_buffer, &config)?;
+        this.wake_guard = this.rx_wake_guard(config.low_power_rx_wake);
 
         Ok(this)
     }
@@ -881,6 +901,8 @@ impl<'d> BufferedUartTx<'d> {
     }
 
     async fn flush_inner(&self) -> Result<(), Error> {
+        let _guard = SleepLevel::floor_for_clock_hz(self.state.state.clock.load(Ordering::Relaxed)).map(WakeGuard::new);
+
         poll_fn(move |cx| {
             let state = self.state;
 

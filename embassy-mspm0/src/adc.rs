@@ -525,15 +525,13 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
     #[inline]
     fn wait_for_conversion() -> impl Future<Output = ()> {
         let r = T::info().regs;
-        let state = T::state();
 
         poll_fn(move |cx| {
-            state.waker.register(cx.waker());
-
-            if !r.ctl0().read().enc() {
-                Poll::Ready(())
-            } else {
+            if r.ctl0().read().enc() {
+                cx.waker().wake_by_ref();
                 Poll::Pending
+            } else {
+                Poll::Ready(())
             }
         })
     }

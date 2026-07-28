@@ -2,9 +2,11 @@
 
 use core::convert::Infallible;
 use core::future::Future;
+use core::sync::atomic::Ordering;
 
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use maitake_sync::WaitMap;
+use portable_atomic::AtomicU32;
 
 use crate::pac::gpio::vals::*;
 use crate::pac::gpio::{self};
@@ -336,36 +338,40 @@ impl<'d> Flex<'d> {
     async fn wait_inner(&mut self, polarity: Polarity) {
         let pin = &self.pin;
         let block = pin.block();
+        let bit = pin.bit_index();
+        let key = pin.pin_port();
 
         // Selecting the event to trigger. A RMW operation.
         critical_section::with(|_cs| {
-            if pin.bit_index() >= 16 {
+            if bit >= 16 {
                 block.polarity31_16().modify(|w| {
-                    w.set_dio(pin.bit_index() - 16, polarity);
+                    w.set_dio(bit - 16, Polarity::RiseFall);
                 });
             } else {
                 block.polarity15_0().modify(|w| {
-                    w.set_dio(pin.bit_index(), polarity);
+                    w.set_dio(bit, Polarity::RiseFall);
                 });
             };
         });
 
+        let _arm = EdgeArm::new(block, key, polarity);
+
         // Clear previous edge events. This is done after setting the event to listen for to avoid a redundant write.
         block.cpu_int().iclr().write(|w| {
-            w.set_dio(pin.bit_index(), true);
+            w.set_dio(bit, true);
         });
 
-        let key = pin.pin_port();
+        let (rise, fall, mask) = want_masks(key);
         let result = GPIO_WAIT_MAP
             .wait_for(key, || {
-                if pin.block().cpu_int().ris().read().dio(pin.bit_index()) {
+                if (rise.load(Ordering::Relaxed) | fall.load(Ordering::Relaxed)) & mask == 0 {
                     return true;
                 }
 
                 // Because pin singletons are Send, unmasking interrupts must be guarded by critical section.
                 critical_section::with(|_cs| {
-                    self.pin.block().cpu_int().imask().modify(|w| {
-                        w.set_dio(self.pin.bit_index(), true);
+                    block.cpu_int().imask().modify(|w| {
+                        w.set_dio(bit, true);
                     });
                 });
 
@@ -379,6 +385,46 @@ impl<'d> Flex<'d> {
         // 3. wait_for always causes wait to be added to map (NeverAdded)
         // 4. pin singletons ensure that a wait map entry is ever owned by one entity (Duplicate)
         debug_assert!(result.is_ok(), "GPIO wait map should never result in error");
+    }
+}
+
+struct EdgeArm {
+    block: gpio::Gpio,
+    pin_port: u8,
+}
+
+impl EdgeArm {
+    fn new(block: gpio::Gpio, pin_port: u8, polarity: Polarity) -> Self {
+        let (rise, fall, mask) = want_masks(pin_port);
+
+        if matches!(polarity, Polarity::Rise | Polarity::RiseFall) {
+            rise.fetch_or(mask, Ordering::Relaxed);
+        }
+        if matches!(polarity, Polarity::Fall | Polarity::RiseFall) {
+            fall.fetch_or(mask, Ordering::Relaxed);
+        }
+
+        critical_section::with(|_cs| {
+            block.fastwake().modify(|w| w.set_din(usize::from(pin_port % 32), true));
+        });
+
+        Self { block, pin_port }
+    }
+}
+
+impl Drop for EdgeArm {
+    fn drop(&mut self) {
+        let (rise, fall, mask) = want_masks(self.pin_port);
+        let bit = usize::from(self.pin_port % 32);
+
+        critical_section::with(|_cs| {
+            self.block.fastwake().modify(|w| w.set_din(bit, false));
+            self.block.cpu_int().imask().modify(|w| w.set_dio(bit, false));
+        });
+        self.block.cpu_int().iclr().write(|w| w.set_dio(bit, true));
+
+        rise.fetch_and(!mask, Ordering::Relaxed);
+        fall.fetch_and(!mask, Ordering::Relaxed);
     }
 }
 
@@ -951,6 +997,24 @@ macro_rules! impl_pin {
 /// This map must **never** be closed because gpio wakers may be used forever.
 static GPIO_WAIT_MAP: WaitMap<u8, ()> = WaitMap::new();
 
+const PORT_COUNT: usize = if cfg!(gpio_pc) {
+    3
+} else if cfg!(gpio_pb) {
+    2
+} else {
+    1
+};
+
+static WANT_RISE: [AtomicU32; PORT_COUNT] = [const { AtomicU32::new(0) }; PORT_COUNT];
+
+static WANT_FALL: [AtomicU32; PORT_COUNT] = [const { AtomicU32::new(0) }; PORT_COUNT];
+
+fn want_masks(pin_port: u8) -> (&'static AtomicU32, &'static AtomicU32, u32) {
+    let port = usize::from(pin_port / 32);
+
+    (&WANT_RISE[port], &WANT_FALL[port], 1 << (pin_port % 32))
+}
+
 pub(crate) trait SealedPin {
     fn pin_port(&self) -> u8;
 
@@ -1050,14 +1114,29 @@ fn irq_handler(gpio: gpio::Gpio, port: Port) {
 
     let bits = gpio.cpu_int().mis().read().0;
 
+    let level = gpio.din31_0().read();
+
     for i in BitIter(bits) {
         let id = ((port as u8) * 32) + i as u8;
-        let _ = GPIO_WAIT_MAP.wake(&id, ());
+        let (rise, fall, mask) = want_masks(id);
 
-        // Notify the future that an edge event has occurred by masking the interrupt for this pin.
-        gpio.cpu_int().imask().modify(|w| {
-            w.set_dio(i as usize, false);
-        });
+        let fired = if level.dio(i as usize) { rise } else { fall };
+
+        if fired.load(Ordering::Relaxed) & mask != 0 {
+            rise.fetch_and(!mask, Ordering::Relaxed);
+            fall.fetch_and(!mask, Ordering::Relaxed);
+
+            let _ = GPIO_WAIT_MAP.wake(&id, ());
+
+            // Notify the future that an edge event has occurred by masking the interrupt for this pin.
+            gpio.cpu_int().imask().modify(|w| {
+                w.set_dio(i as usize, false);
+            });
+        } else {
+            gpio.cpu_int().iclr().write(|w| {
+                w.set_dio(i as usize, true);
+            });
+        }
     }
 }
 

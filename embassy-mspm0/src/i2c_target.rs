@@ -18,6 +18,7 @@ use crate::interrupt::InterruptExt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::vals;
 use crate::pac::{self};
+use crate::sysctl::WakeGuard;
 use crate::{Peri, i2c, i2c_target, interrupt};
 
 #[non_exhaustive]
@@ -98,6 +99,7 @@ pub struct I2cTarget<'d, M: Mode> {
     sda: Option<Peri<'d, AnyPin>>,
     config: i2c::Config,
     target_config: i2c_target::Config,
+    wake_guard: Option<WakeGuard>,
     _phantom: PhantomData<M>,
 }
 
@@ -172,6 +174,8 @@ impl<'d> I2cTarget<'d, Async> {
     pub fn reset(&mut self) -> Result<(), ConfigError> {
         self.init()?;
         unsafe { self.info.interrupt.enable() };
+
+        self.wake_guard = self.config.wake_floor().map(WakeGuard::new);
         Ok(())
     }
 }
@@ -235,6 +239,7 @@ impl<'d, M: Mode> I2cTarget<'d, M> {
             sda,
             config,
             target_config,
+            wake_guard: None,
             _phantom: PhantomData,
         }
     }

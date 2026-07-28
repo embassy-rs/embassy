@@ -17,6 +17,7 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::{I2c as Regs, vals};
 use crate::pac::{self};
+use crate::sysctl::{SleepLevel, WakeGuard};
 
 /// The clock source for the I2C.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -223,6 +224,14 @@ impl Config {
         }
     }
 
+    pub(crate) fn wake_floor(&self) -> Option<SleepLevel> {
+        let source_hz = match self.clock_source {
+            ClockSel::MfClk => 4_000_000,
+            ClockSel::BusClk => 32_000_000,
+        };
+        SleepLevel::floor_for_clock_hz(source_hz)
+    }
+
     fn check_clock_i2c(&self) -> bool {
         // make sure source clock is ~20 faster than i2c clock
         let clk_ratio = 20;
@@ -321,6 +330,7 @@ pub struct I2c<'d, M: Mode> {
     state: &'static State,
     scl: Option<Peri<'d, AnyPin>>,
     sda: Option<Peri<'d, AnyPin>>,
+    wake_floor: Option<SleepLevel>,
     _phantom: PhantomData<M>,
 }
 
@@ -424,6 +434,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         self.state
             .clock
             .store(config.calculate_clock_source(), Ordering::Relaxed);
+
+        self.wake_floor = config.wake_floor();
 
         self.info
             .regs
@@ -699,6 +711,8 @@ impl<'d> I2c<'d, Blocking> {
 
 impl<'d> I2c<'d, Async> {
     async fn write_async_internal(&mut self, addr: u8, write: &[u8], end_w_stop: bool) -> Result<(), Error> {
+        let _guard = self.wake_floor.map(WakeGuard::new);
+
         let ctrl = self.info.regs.controller(0);
 
         let mut bytes_to_send = write.len();
@@ -762,6 +776,8 @@ impl<'d> I2c<'d, Async> {
         restart: bool,
         end_w_stop: bool,
     ) -> Result<(), Error> {
+        let _guard = self.wake_floor.map(WakeGuard::new);
+
         let read_len = read.len();
 
         let mut bytes_to_read = read_len;
@@ -1066,6 +1082,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             state: T::state(),
             scl: scl_inner,
             sda: sda_inner,
+            wake_floor: None,
             _phantom: PhantomData,
         };
         this.init(&config)?;
