@@ -71,6 +71,7 @@ impl<'d> Adc<'d> {
         // Enable power and select reference
         adc.cfg().write(|w| {
             w.set_pwren(1.into());
+            w.set_pudly(0x80);
             w.set_refsel(1.into()); // VREFH = VDDA
             w.set_tprictrl(0.into())
         });
@@ -87,6 +88,8 @@ impl<'d> Adc<'d> {
         adc.fctrl(0).write(|w| {
             w.set_fwmark(0)
         });
+
+        // embassy_time::block_for(embassy_time::Duration::from_millis(1));
 
         // Enable the ADC
         adc.ctrl().modify(|w| {
@@ -116,7 +119,7 @@ impl<'d> Adc<'d> {
 
         // Set up trigger control
         adc.tctrl(0).modify(|w| {
-            w.set_hten(1.into());
+            w.set_hten(0.into());
             w.set_fifo_sel_a(vals::FifoSelA::FIFO_SEL_A_0);
             w.set_fifo_sel_b(vals::FifoSelB::FIFO_SEL_B_0);
             w.set_tcmd(vals::Tcmd::TCMD_1)
@@ -218,11 +221,11 @@ impl<'d> Adc<'d> {
             w.set_swt0(1.into())
         });
 
-        let mut result_reg = self.adc.resfifo(0).read();
-        defmt::info!("Waiting for FIFO0 to become valid");
-        while !(result_reg.valid() == vals::Valid::VALID_1) {
-            result_reg = self.adc.resfifo(0).read();
-        }
+        // wait for results
+        defmt::info!("Waiting for results");
+        while self.adc.fctrl(0).read().fcount() == 0 {}
+
+        let result_reg = self.adc.resfifo(0).read();
 
         defmt::info!(
             "RESFIFO0: d=0x{:04x} tsrc={} loopcnt={} cmdsrc={} valid={}",

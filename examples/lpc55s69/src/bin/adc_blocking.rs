@@ -53,6 +53,13 @@ async fn main(_spawner: Spawner) {
     let mut raw_adc0 = embassy_nxp::pac::ADC0;
     let mut adc = Adc::new(&mut raw_adc0, Config::default());
 
+    iocon.pio0(16).modify(|w| {
+        w.set_func(0.into());
+        w.set_mode(0.into());
+        w.set_digimode(0.into());
+        w.set_asw(1.into())
+    });
+
     embassy_time::block_for(Duration::from_micros(100));
 
     // Set pin to input
