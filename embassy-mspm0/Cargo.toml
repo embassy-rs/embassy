@@ -27,6 +27,9 @@ build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1345dgs28", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1106dgs28", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1228pt", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any", "executor-thread"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any", "executor-interrupt"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any", "executor-thread", "executor-interrupt"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -120,6 +123,8 @@ swd-pins-as-gpio = []
 low-power = []
 
 executor-thread = ["_executor"]
+
+executor-interrupt = ["_executor"]
 
 _executor = ["dep:embassy-executor", "low-power"]
 

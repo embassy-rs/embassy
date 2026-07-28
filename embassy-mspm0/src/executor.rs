@@ -4,7 +4,7 @@
 //! Read the `embassy-executor` README for information about what "executor platforms" are and how they work.
 //!
 //! To use it:
-//! - Enable the `executor-thread` feature on this crate.
+//! - Enable the `executor-thread` and/or `executor-interrupt` feature on this crate.
 //! - **Do not** enable features `platform-cortex-m`, `executor-thread` or `executor-interrupt` in the `embassy-executor` crate.
 //! - Tell the `main` macro to use this executor like this:
 //!
@@ -17,9 +17,36 @@
 //! ```
 
 #[unsafe(export_name = "__pender")]
-#[cfg(feature = "executor-thread")]
-fn __pender(_context: *mut ()) {
-    thread::SIGNAL_WORK_THREAD_MODE.store(true, core::sync::atomic::Ordering::SeqCst);
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+fn __pender(context: *mut ()) {
+    // `context` is either `THREAD_PENDER`, or an interrupt number passed to `InterruptExecutor::start`.
+    let context = context as usize;
+
+    #[cfg(feature = "executor-thread")]
+    // Try to optimize away the branch when only thread mode is enabled.
+    if !cfg!(feature = "executor-interrupt") || context == thread::THREAD_PENDER {
+        thread::SIGNAL_WORK_THREAD_MODE.store(true, core::sync::atomic::Ordering::SeqCst);
+        return;
+    }
+
+    #[cfg(feature = "executor-interrupt")]
+    {
+        use cortex_m::interrupt::InterruptNumber;
+        use cortex_m::peripheral::NVIC;
+
+        #[derive(Clone, Copy)]
+        struct Irq(u16);
+
+        // SAFETY: `context` was an `InterruptNumber` when passed to `InterruptExecutor::start`.
+        unsafe impl InterruptNumber for Irq {
+            fn number(self) -> u16 {
+                self.0
+            }
+        }
+
+        // MSPM0 is Cortex-M0+, which has no STIR.
+        NVIC::pend(Irq(context as u16));
+    }
 }
 
 #[cfg(feature = "executor-thread")]
@@ -31,7 +58,7 @@ mod thread {
 
     use embassy_executor::{Spawner, raw};
 
-    const THREAD_PENDER: usize = usize::MAX;
+    pub(super) const THREAD_PENDER: usize = usize::MAX;
 
     /// Set by the pender to signal pending work; checked before sleeping since `WFI` ignores `SEV`.
     pub(crate) static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
@@ -94,6 +121,131 @@ mod thread {
     }
 
     impl Default for Executor {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+}
+
+#[cfg(feature = "executor-interrupt")]
+pub use interrupt::*;
+#[cfg(feature = "executor-interrupt")]
+mod interrupt {
+    use core::cell::{Cell, UnsafeCell};
+    use core::mem::MaybeUninit;
+
+    use cortex_m::interrupt::InterruptNumber;
+    use cortex_m::peripheral::NVIC;
+    use critical_section::Mutex;
+    use embassy_executor::raw;
+
+    /// Interrupt-mode executor.
+    ///
+    /// This executor runs tasks in interrupt mode. The interrupt handler is set up
+    /// to poll tasks, and when a task is woken the interrupt is pended from software.
+    ///
+    /// This allows running async tasks at a priority higher than thread mode. One
+    /// use case is to leave thread mode free for non-async tasks. Another use case is
+    /// to run multiple executors: one in thread mode for low priority tasks and another in
+    /// interrupt mode for higher priority tasks. Higher priority tasks will preempt lower
+    /// priority ones.
+    ///
+    /// It is even possible to run multiple interrupt mode executors at different priorities,
+    /// by assigning different priorities to the interrupts.
+    ///
+    /// To use it, you have to pick an interrupt that won't be used by the hardware.
+    /// MSPM0 has no dedicated software interrupt, so use the interrupt of a peripheral the
+    /// application leaves unused.
+    ///
+    /// It is somewhat more complex to use, it's recommended to use the thread-mode
+    /// `Executor` instead, if it works for your use case.
+    pub struct InterruptExecutor {
+        started: Mutex<Cell<bool>>,
+        executor: UnsafeCell<MaybeUninit<raw::Executor>>,
+    }
+
+    unsafe impl Send for InterruptExecutor {}
+    unsafe impl Sync for InterruptExecutor {}
+
+    impl InterruptExecutor {
+        /// Create a new, not started `InterruptExecutor`.
+        #[inline]
+        pub const fn new() -> Self {
+            Self {
+                started: Mutex::new(Cell::new(false)),
+                executor: UnsafeCell::new(MaybeUninit::uninit()),
+            }
+        }
+
+        /// Executor interrupt callback.
+        ///
+        /// # Safety
+        ///
+        /// - You MUST call this from the interrupt handler, and from nowhere else.
+        /// - You must not call this before calling `start()`.
+        pub unsafe fn on_interrupt(&'static self) {
+            let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
+            executor.poll();
+        }
+
+        /// Start the executor.
+        ///
+        /// This initializes the executor, enables the interrupt, and returns.
+        /// The executor keeps running in the background through the interrupt.
+        ///
+        /// This returns a [`SendSpawner`] you can use to spawn tasks on it. A [`SendSpawner`]
+        /// is returned instead of a [`Spawner`](embassy_executor::Spawner) because the executor effectively runs in a
+        /// different "thread" (the interrupt), so spawning tasks on it is effectively
+        /// sending them.
+        ///
+        /// To obtain a [`Spawner`](embassy_executor::Spawner) for this executor, use [`Spawner::for_current_executor()`](embassy_executor::Spawner::for_current_executor()) from
+        /// a task running in it.
+        ///
+        /// # Interrupt requirements
+        ///
+        /// You must write the interrupt handler yourself, and make it call [`on_interrupt()`](Self::on_interrupt).
+        ///
+        /// This method already enables (unmasks) the interrupt, you must NOT do it yourself.
+        ///
+        /// You must set the interrupt priority before calling this method. You MUST NOT
+        /// do it after.
+        ///
+        /// [`SendSpawner`]: embassy_executor::SendSpawner
+        pub fn start(&'static self, irq: impl InterruptNumber) -> embassy_executor::SendSpawner {
+            if critical_section::with(|cs| self.started.borrow(cs).replace(true)) {
+                panic!("InterruptExecutor::start() called multiple times on the same executor.");
+            }
+
+            unsafe {
+                (&mut *self.executor.get())
+                    .as_mut_ptr()
+                    .write(raw::Executor::new(irq.number() as *mut ()))
+            }
+
+            let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
+
+            unsafe { NVIC::unmask(irq) }
+
+            executor.spawner().make_send()
+        }
+
+        /// Get a SendSpawner for this executor
+        ///
+        /// This returns a [`SendSpawner`](embassy_executor::SendSpawner) you can use to spawn tasks on this
+        /// executor.
+        ///
+        /// This MUST only be called on an executor that has already been started.
+        /// The function will panic otherwise.
+        pub fn spawner(&'static self) -> embassy_executor::SendSpawner {
+            if !critical_section::with(|cs| self.started.borrow(cs).get()) {
+                panic!("InterruptExecutor::spawner() called on uninitialized executor.");
+            }
+            let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
+            executor.spawner().make_send()
+        }
+    }
+
+    impl Default for InterruptExecutor {
         fn default() -> Self {
             Self::new()
         }
