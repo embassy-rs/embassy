@@ -4,14 +4,7 @@
 
 use crate::pac::adc0::Adc0;
 use crate::pac::adc0::vals;
-
-/// Trait that provides channel numbers for pins that support ADC
-pub trait AdcPin {
-    /// Channel number
-    fn channel(&self) -> u8;
-    /// Channel side (A / B), 0 = A, 1 = B
-    fn ctype(&self) -> u8;
-}
+use crate::pac;
 
 /// Resolution selection
 pub enum Resolution {
@@ -37,8 +30,12 @@ pub struct Config {
     pub averaging: Averaging,
 }
 
-/// Default config implementation
 impl Config {
+    pub const fn new(resolution: Resolution, averaging: Averaging) -> Self {
+        Self { resolution, averaging }
+    }
+
+    /// The default config
     pub const fn default() -> Self {
         Self {
             resolution: Resolution::Bits16,
@@ -56,6 +53,10 @@ pub struct Adc<'d> {
 impl<'d> Adc<'d> {
     /// Creation and initialization of ADC
     pub fn new(adc: &'d mut Adc0, config: Config) -> Self {
+        // Power & clocks
+        defmt::info!("Enabling ADC power and clocks");
+        Self::enable_power_clocks();
+        
         defmt::info!("Starting ADC init sequence");
 
         // Reset just in case
@@ -158,6 +159,40 @@ impl<'d> Adc<'d> {
         Self { adc, config }
     }
 
+    fn enable_power_clocks() {
+        let syscon = pac::SYSCON;
+        let pmc = pac::PMC;
+        let anactrl = pac::ANACTRL;
+        
+        // Enable clocks
+        // bit 27 = ADC
+        // bit 13 = IOCON
+        syscon.ahbclkctrlset(0).write(|w| w.set_data((1 << 27) | (1 << 13)));
+        syscon.ahbclkctrlset(2).write(|w| w.set_data(1 << 27));
+
+        // Clear reset
+        syscon.presetctrlclr(0).write(|w| w.set_data(1 << 27));
+
+        // Power up AUXBIAS
+        pmc.pdruncfgclr0().write(|w| w.set_pdruncfgclr0(1 << 19));
+
+        // Enable VREF
+        anactrl.aux_bias().modify(|w| {
+            w.set_vref1venable(true)
+        });
+
+        // Configure the clocks
+        syscon.adcclksel().write(|w| {
+            w.set_sel(0)
+        });
+        syscon.adcclkdiv().write(|w| {
+            w.set_div(6)
+        });
+        syscon.adcclkdiv().modify(|w| w.set_reset(1.into()));
+        syscon.adcclkdiv().modify(|w| w.set_reset(0.into()));
+        syscon.adcclkdiv().modify(|w| w.set_halt(0.into()));
+    }
+
     /// Helper function to calibrate
     /// Reference: https://github.com/lpc55/lpc55-hal/blob/main/examples/adc.rs#L14
     fn calibrate<'a>(adc: &'a mut Adc0) {
@@ -203,6 +238,7 @@ impl<'d> Adc<'d> {
 
     /// Reading the channel synchronously
     pub fn blocking_read<P: AdcPin>(&mut self, pin: &mut P) -> u16 {
+        pin.configure_iocon();
         self.adc.cmdl1().modify(|w| {
             w.set_adch(pin.channel().into());
             w.set_ctype(pin.ctype().into())
@@ -248,12 +284,24 @@ impl<'d> Adc<'d> {
     }
 }
 
+/// Trait that provides channel numbers for pins that support ADC
+pub trait AdcPin {
+    /// Channel number
+    fn channel(&self) -> u8;
+    /// Channel side (A / B), 0 = A, 1 = B
+    fn ctype(&self) -> u8;
+    /// Set up the iocon register for that pin
+    fn configure_iocon(&mut self);
+}
+
 /// Macro to implement the AdcPin trait for pins
 macro_rules! impl_adc_pin {
     // pin     => peripheral struct
+    // port    => gpio port number
+    // pin_num => pin number
     // channel => u8 channel number
     // ctype   => channel side (0=A, 1=B)
-    ($pin:ident, $channel:expr, $ctype:expr) => {
+    ($pin:ident, $port:expr, $pin_num:expr, $channel:expr, $ctype:expr) => {
         impl<'d> crate::adc::AdcPin for crate::Peri<'d, crate::peripherals::$pin> {
             fn channel(&self) -> u8 {
                 $channel
@@ -262,17 +310,44 @@ macro_rules! impl_adc_pin {
             fn ctype(&self) -> u8 {
                 $ctype
             }
+
+            fn configure_iocon(&mut self) {
+                let iocon = pac::IOCON;
+                let port = $port;
+                match port {
+                    0 => {
+                        iocon.pio0($pin_num).modify(|w| {
+                            w.set_func(0.into());
+                            w.set_mode(0.into());
+                            w.set_digimode(0.into());
+                            w.set_asw(1.into())
+                        });
+                    }
+                    1 => {
+                        iocon.pio1($pin_num).modify(|w| {
+                            w.set_func(0.into());
+                            w.set_mode(0.into());
+                            w.set_digimode(0.into());
+                            w.set_asw(1.into())
+                        });
+                    }
+                    _ => unreachable!(),
+                }
+
+                
+            }
         }
     }
 }
 
-impl_adc_pin!(PIO0_23, 0, 0);
-impl_adc_pin!(PIO0_16, 0, 1);
-impl_adc_pin!(PIO0_10, 1, 0);
-impl_adc_pin!(PIO0_11, 1, 1);
-impl_adc_pin!(PIO0_15, 2, 0);
-impl_adc_pin!(PIO0_12, 2, 1);
-impl_adc_pin!(PIO0_31, 3, 0);
-impl_adc_pin!(PIO1_0,  3, 1);
-impl_adc_pin!(PIO1_8,  4, 0);
-impl_adc_pin!(PIO1_9,  4, 1);
+// https://www.nxp.com/docs/en/data-sheet/LPC55S6x.pdf
+impl_adc_pin!(PIO0_23, 0, 23, 0, 0);
+impl_adc_pin!(PIO0_16, 0, 16, 0, 1);
+impl_adc_pin!(PIO0_10, 0, 10, 1, 0);
+impl_adc_pin!(PIO0_11, 0, 11, 1, 1);
+impl_adc_pin!(PIO0_15, 0, 15, 2, 0);
+impl_adc_pin!(PIO0_12, 0, 12, 2, 1);
+impl_adc_pin!(PIO0_31, 0, 31, 3, 0);
+impl_adc_pin!(PIO1_0,  1,  0, 3, 1);
+impl_adc_pin!(PIO1_8,  1,  8, 4, 0);
+impl_adc_pin!(PIO1_9,  1,  9, 4, 1);
