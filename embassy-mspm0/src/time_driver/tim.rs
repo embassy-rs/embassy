@@ -100,14 +100,14 @@ impl TimxDriver {
         // Reset timer
         regs.gprcm(0).rstctl().write(|w| {
             w.set_resetassert(true);
-            w.set_key(ResetKey::KEY);
+            w.set_key(ResetKey::Key);
             w.set_resetstkyclr(true);
         });
 
         // Power up timer
         regs.gprcm(0).pwren().write(|w| {
             w.set_enable(true);
-            w.set_key(PwrenKey::KEY);
+            w.set_key(PwrenKey::Key);
         });
 
         // Following the instructions according to SLAU847D 23.2.1: TIMCLK Configuration
@@ -139,9 +139,9 @@ impl TimxDriver {
         });
 
         regs.counterregs(0).ctrctl().modify(|w| {
-            w.set_repeat(Repeat::REPEAT_1);
-            w.set_cvae(Cvae::NOCHANGE);
-            w.set_cm(Cm::UP);
+            w.set_repeat(Repeat::Repeat1);
+            w.set_cvae(Cvae::Nochange);
+            w.set_cm(Cm::Up);
 
             // Must explicitly set CZC, CAC and CLC to 0 in order for all the timers to count.
             //
@@ -150,9 +150,9 @@ impl TimxDriver {
             // Looking at a bit representation of the reset value, this appears to be an AND
             // of 2-input QEI mode and CCCTL_3 ACOND. Given that TIMG14 and TIMA0 have no QEI
             // and 4 capture and compare channels, this works by accident for those timer units.
-            w.set_czc(CxC::CCTL0);
-            w.set_cac(CxC::CCTL0);
-            w.set_clc(CxC::CCTL0);
+            w.set_czc(CxC::Cctl0);
+            w.set_cac(CxC::Cctl0);
+            w.set_clc(CxC::Cctl0);
         });
 
         // Middle
@@ -165,7 +165,7 @@ impl TimxDriver {
         //
         // This does not appear to ever be set for CPU_INT in the TI SDK and is not technically needed.
         regs.evt_mode().modify(|w| {
-            w.set_evt_cfg(0, EvtCfg::SOFTWARE);
+            w.set_evt_cfg(0, EvtCfg::Software);
         });
 
         regs.cpu_int(0).imask().modify(|w| {
