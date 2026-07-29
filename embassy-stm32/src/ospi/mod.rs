@@ -424,9 +424,24 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                 if use_high_group {
                     w.set_iohen(true);
                     w.set_iohsrc(data_src);
+                    if w.iolsrc() == data_src {
+                        w.set_iolen(false);
+                    }
                 } else {
                     w.set_iolen(true);
                     w.set_iolsrc(data_src);
+                    if w.iohsrc() == data_src {
+                        w.set_iohen(false);
+                    }
+                }
+            });
+            //Make sure that no other pins share the same configuration
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                if w.iohsrc() == data_src {
+                    w.set_iohen(false);
+                }
+                if w.iolsrc() == data_src {
+                    w.set_iolen(false);
                 }
             });
         } else {
@@ -434,9 +449,24 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                 if use_high_group {
                     w.set_iohen(true);
                     w.set_iohsrc(data_src);
+                    if w.iolsrc() == data_src {
+                        w.set_iolen(false);
+                    }
                 } else {
                     w.set_iolen(true);
                     w.set_iolsrc(data_src);
+                    if w.iohsrc() == data_src {
+                        w.set_iohen(false);
+                    }
+                }
+            });
+            //Make sure that no other pins share the same configuration
+            T::OCTOSPIM_REGS.p2cr().modify(|w| {
+                if w.iohsrc() == data_src {
+                    w.set_iohen(false);
+                }
+                if w.iolsrc() == data_src {
+                    w.set_iolen(false);
                 }
             });
         }
@@ -460,6 +490,18 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                     w.set_dqsen(false);
                 }
             });
+            //Make sure that no other pins share the same configuration
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                if w.clksrc() == signal_src {
+                    w.set_clken(false);
+                }
+                if w.ncssrc() == signal_src {
+                    w.set_ncsen(false);
+                }
+                if w.dqssrc() == signal_src {
+                    w.set_dqsen(false);
+                }
+            });
         } else {
             T::OCTOSPIM_REGS.p1cr().modify(|w| {
                 w.set_clken(true);
@@ -471,6 +513,18 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                     w.set_dqsen(true);
                     w.set_dqssrc(signal_src);
                 } else {
+                    w.set_dqsen(false);
+                }
+            });
+            //Make sure that no other pins share the same configuration
+            T::OCTOSPIM_REGS.p2cr().modify(|w| {
+                if w.clksrc() == signal_src {
+                    w.set_clken(false);
+                }
+                if w.ncssrc() == signal_src {
+                    w.set_ncsen(false);
+                }
+                if w.dqssrc() == signal_src {
                     w.set_dqsen(false);
                 }
             });
