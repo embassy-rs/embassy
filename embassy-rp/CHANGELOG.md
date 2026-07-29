@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix configuration of embassy_rp adc div register ([#4815](https://github.com/embassy-rs/embassy/pull/4815))
 - Add TX-only, no SCK SPI support
 - Remove atomic-polyfill with critical-section instead ([#4948](https://github.com/embassy-rs/embassy/pull/4948))
+- Fix i2c_slave respond_to_read for buffers larger than one chunk
 
 ## 0.8.0 - 2025-08-26
 
