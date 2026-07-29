@@ -5,8 +5,7 @@
 use embassy_hal_internal::Peri;
 
 use crate::pac;
-use crate::pac::adc0::Adc0;
-use crate::pac::adc0::vals;
+use crate::pac::adc0::{Adc0, vals};
 use crate::peripherals::ADC0;
 
 /// Resolution selection
