@@ -5,7 +5,8 @@
 pub use crate::flexcan::id::{ExtendedId, Id, StandardId};
 
 /// Represents the possible kinds of CAN frames.
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug, Copy, Clone, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub(in crate::flexcan) enum FrameKind {
     /// A "normal" CAN frame. Corresponds to RTR bit = 0.
     DataFrame,
@@ -15,6 +16,8 @@ pub(in crate::flexcan) enum FrameKind {
 }
 
 /// A CAN frame.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Frame {
     pub(in crate::flexcan) kind: FrameKind,
     pub(in crate::flexcan) id: Id,

@@ -76,6 +76,7 @@ struct FlexcanTimingConfig {
 /// Errors that may occur when configuring timing/bitrate.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum TimingError {
     /// Source clock is not an integer multiple of the requested bitrate. The source clock must be an integer multiple of the requested bitrate.
     BitrateIncompatibleWithClock,
