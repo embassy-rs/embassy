@@ -2,6 +2,8 @@
 
 #![macro_use]
 
+use embassy_hal_internal::PeripheralType;
+
 use crate::gpio::{AnyPin, PfType, Pin, Pull, SealedPin};
 use crate::pac::sysctl::vals;
 use crate::peripherals::CLK_OUT;
@@ -45,61 +47,123 @@ impl SleepLevel {
         SleepLevel::Standby0,
         SleepLevel::Standby1,
     ];
+}
 
-    /// Shallowest level to block so a PD0 peripheral clocked at `clock_hz` keeps running, or `None`
-    /// to block nothing (any sleep depth is fine).
+/// The power domain a peripheral instance belongs to.
+///
+/// Which domain an instance is in is a property of the chip, not of the peripheral kind: the same IP
+/// appears in both domains on one die, and the same instance name differs between chips.
+/// See [`PowerDomainInstance`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum PowerDomain {
+    /// Low-speed domain, clocked by ULPCLK. Powered in every mode but SHUTDOWN.
+    Pd0,
+
+    /// High-performance domain, clocked by MCLK. Powered only in RUN and SLEEP; SYSCTL forces its
+    /// peripherals to a disabled state on deep-sleep entry.
+    Pd1,
+
+    /// Backup domain, powered from `VBAT` and clocked by LFCLK. Survives even SHUTDOWN.
     ///
-    /// `clock_hz` is the frequency of the clock that the peripheral depends on.
-    /// ULPCLK for bus-clocked peripherals, or the LFCLK/MFCLK source rate for those clocked directly.
+    /// Only present on chips with an independent `VBAT` supply.
+    Backup,
+}
+
+impl PowerDomain {
+    /// Whether the domain stays powered through deep sleep.
+    ///
+    /// Takes no [`SleepLevel`]: every level is a STOP or STANDBY mode, and PD1 is disabled in all of
+    /// them. Being powered is not the same as being clocked — see [`Self::floor_to_keep_running`].
+    pub const fn is_powered_in_deep_sleep(self) -> bool {
+        !matches!(self, Self::Pd1)
+    }
+
+    /// Shallowest level to block so an instance in this domain, clocked at `clock_hz`, keeps
+    /// running, or `None` to block nothing (any sleep depth is fine).
+    ///
+    /// `clock_hz` is the frequency of the clock that the peripheral depends on: ULPCLK for
+    /// bus-clocked peripherals, or the LFCLK/MFCLK source rate for those clocked directly. It is
+    /// ignored for the domains deep sleep does not clock down.
     /// The per-mode ceiling is the same across every MSPM0 family: STOP0/STOP1 cap at 4 MHz, STOP2
     /// and STANDBY0 at 32 kHz (LFCLK), and only STANDBY1 unclocks PD0 (there just TIMG0/1 stay clocked).
     ///
+    /// Answers only for peripherals that must run *continuously*. Work merely triggered while asleep
+    /// is a different question: a DMA transfer or an ADC conversion raises an asynchronous request
+    /// that powers PD1 back up on demand, so those must not block sleep on this.
+    ///
     /// NOTE: Assumes the RUN0 run mode, the only one the HAL configures today
     /// (STOP0 reaches 4 MHz only when entered from RUN0).
-    pub const fn floor_for_clock_hz(clock_hz: u32) -> Option<Self> {
+    pub const fn floor_to_keep_running(self, clock_hz: u32) -> Option<SleepLevel> {
         // Per-mode clock ceilings, from the family TRMs' "DMA Operating Mode Support" and "Operating
         // Modes" sections.
         // STANDBY0 clocks all PD0 peripherals from LFCLK; STANDBY1 does not.
         const STOP_HZ: u32 = 4_000_000;
         const LFCLK_HZ: u32 = 32_768;
 
-        if clock_hz > STOP_HZ {
-            // Needs MCLK
-            Some(Self::Stop0)
-        } else if clock_hz > LFCLK_HZ {
-            // Reqires MFCLK
-            Some(Self::Stop2)
-        } else if clock_hz > 0 {
-            // LFCLK is enough, keep PD0 alive
-            Some(Self::Standby1)
-        } else {
-            // No clock
-            None
+        match self {
+            // Disabled by SYSCTL on entry to any deep-sleep mode, whatever it is clocked at.
+            Self::Pd1 => Some(SleepLevel::Stop0),
+
+            // Powered from VBAT, so no mode reaches it.
+            Self::Backup => None,
+
+            Self::Pd0 => {
+                if clock_hz > STOP_HZ {
+                    // Needs MCLK
+                    Some(SleepLevel::Stop0)
+                } else if clock_hz > LFCLK_HZ {
+                    // Requires MFCLK
+                    Some(SleepLevel::Stop2)
+                } else if clock_hz > 0 {
+                    // LFCLK is enough, keep PD0 alive
+                    Some(SleepLevel::Standby1)
+                } else {
+                    // No clock
+                    None
+                }
+            }
         }
     }
 }
 
-// Boundary checks for `floor_for_clock_hz`. `crate::fmt` cannot be used in const.
+// Boundary checks for `floor_to_keep_running`. `crate::fmt` cannot be used in const.
 const _: () = {
-    core::assert!(matches!(
-        SleepLevel::floor_for_clock_hz(4_000_001),
-        Some(SleepLevel::Stop0)
-    ));
-    core::assert!(matches!(
-        SleepLevel::floor_for_clock_hz(4_000_000),
-        Some(SleepLevel::Stop2)
-    ));
-    core::assert!(matches!(
-        SleepLevel::floor_for_clock_hz(32_769),
-        Some(SleepLevel::Stop2)
-    ));
-    core::assert!(matches!(
-        SleepLevel::floor_for_clock_hz(32_768),
-        Some(SleepLevel::Standby1)
-    ));
-    core::assert!(matches!(SleepLevel::floor_for_clock_hz(1), Some(SleepLevel::Standby1)));
-    core::assert!(matches!(SleepLevel::floor_for_clock_hz(0), None));
+    use PowerDomain::{Backup, Pd0, Pd1};
+
+    core::assert!(matches!(Pd0.floor_to_keep_running(4_000_001), Some(SleepLevel::Stop0)));
+    core::assert!(matches!(Pd0.floor_to_keep_running(4_000_000), Some(SleepLevel::Stop2)));
+    core::assert!(matches!(Pd0.floor_to_keep_running(32_769), Some(SleepLevel::Stop2)));
+    core::assert!(matches!(Pd0.floor_to_keep_running(32_768), Some(SleepLevel::Standby1)));
+    core::assert!(matches!(Pd0.floor_to_keep_running(1), Some(SleepLevel::Standby1)));
+    core::assert!(matches!(Pd0.floor_to_keep_running(0), None));
+
+    // No clock rate makes PD1 survive, or stops the backup domain from surviving.
+    core::assert!(matches!(Pd1.floor_to_keep_running(0), Some(SleepLevel::Stop0)));
+    core::assert!(matches!(Pd1.floor_to_keep_running(32_000_000), Some(SleepLevel::Stop0)));
+    core::assert!(matches!(Backup.floor_to_keep_running(32_000_000), None));
+
+    core::assert!(Pd0.is_powered_in_deep_sleep());
+    core::assert!(!Pd1.is_powered_in_deep_sleep());
+    core::assert!(Backup.is_powered_in_deep_sleep());
 };
+
+/// The [`PowerDomain`] a peripheral instance is in.
+///
+/// Implemented for every peripheral singleton from the chip metadata. GPIO pins are excluded: the
+/// GPIO logic is in PD0 on every chip, and its PD1 register interface is only ever reachable in RUN.
+pub trait PowerDomainInstance: PeripheralType {
+    /// The domain this instance is in.
+    const POWER_DOMAIN: PowerDomain;
+}
+
+macro_rules! impl_power_domain {
+    ($instance:ident, $domain:ident) => {
+        impl crate::sysctl::PowerDomainInstance for crate::peripherals::$instance {
+            const POWER_DOMAIN: crate::sysctl::PowerDomain = crate::sysctl::PowerDomain::$domain;
+        }
+    };
+}
 
 /// A token forbidding a deep-sleep mode (and anything deeper) while held.
 ///

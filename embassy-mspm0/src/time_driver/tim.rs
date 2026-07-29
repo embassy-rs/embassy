@@ -61,6 +61,14 @@ type T = peripherals::TIMA0;
 #[cfg(time_driver_tima1)]
 type T = peripherals::TIMA1;
 
+// The timer must also be in PD0 to survive deep sleep. Checked against the chip metadata rather than
+// trusted from the name above, since the same timer name is PD0 on some chips and PD1 on others.
+#[cfg(feature = "low-power")]
+const _: () = core::assert!(
+    <T as crate::sysctl::PowerDomainInstance>::POWER_DOMAIN.is_powered_in_deep_sleep(),
+    "the time driver's timer is in PD1, which deep sleep powers down"
+);
+
 fn regs() -> Tim {
     T::info().regs
 }

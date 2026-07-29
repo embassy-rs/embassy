@@ -175,7 +175,7 @@ impl<'d> I2cTarget<'d, Async> {
         self.init()?;
         unsafe { self.info.interrupt.enable() };
 
-        self.wake_guard = self.config.wake_floor().map(WakeGuard::new);
+        self.wake_guard = self.config.wake_floor(self.info.power_domain).map(WakeGuard::new);
         Ok(())
     }
 }

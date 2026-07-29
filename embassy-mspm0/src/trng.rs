@@ -15,7 +15,7 @@ use rand_core::{TryCryptoRng, TryRngCore};
 use crate::peripherals::TRNG;
 use crate::sealed;
 #[cfg(feature = "rt")]
-use crate::sysctl::{SleepLevel, WakeGuard};
+use crate::sysctl::{PowerDomainInstance, WakeGuard};
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -434,7 +434,9 @@ impl TrngInner<'_> {
 
     #[cfg(feature = "rt")]
     async fn async_read_u32(&mut self) -> Result<u32, Error> {
-        let _guard = SleepLevel::floor_for_clock_hz(crate::sysctl::mclk_frequency()).map(WakeGuard::new);
+        let _guard = <TRNG as PowerDomainInstance>::POWER_DOMAIN
+            .floor_to_keep_running(crate::sysctl::mclk_frequency())
+            .map(WakeGuard::new);
 
         poll_fn(|cx| {
             WAKER.register(cx.waker());

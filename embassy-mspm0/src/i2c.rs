@@ -17,7 +17,7 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::{I2c as Regs, vals};
 use crate::pac::{self};
-use crate::sysctl::{SleepLevel, WakeGuard};
+use crate::sysctl::{PowerDomain, SleepLevel, WakeGuard};
 
 /// The clock source for the I2C.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -224,12 +224,12 @@ impl Config {
         }
     }
 
-    pub(crate) fn wake_floor(&self) -> Option<SleepLevel> {
+    pub(crate) fn wake_floor(&self, power_domain: PowerDomain) -> Option<SleepLevel> {
         let source_hz = match self.clock_source {
             ClockSel::MfClk => 4_000_000,
             ClockSel::BusClk => 32_000_000,
         };
-        SleepLevel::floor_for_clock_hz(source_hz)
+        power_domain.floor_to_keep_running(source_hz)
     }
 
     fn check_clock_i2c(&self) -> bool {
@@ -435,7 +435,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             .clock
             .store(config.calculate_clock_source(), Ordering::Relaxed);
 
-        self.wake_floor = config.wake_floor();
+        self.wake_floor = config.wake_floor(self.info.power_domain);
 
         self.info
             .regs
@@ -1029,6 +1029,7 @@ pub(crate) struct Info {
     pub(crate) regs: Regs,
     pub(crate) interrupt: Interrupt,
     pub fifo_size: usize,
+    pub(crate) power_domain: PowerDomain,
 }
 
 pub(crate) struct State {
@@ -1097,7 +1098,7 @@ pub(crate) trait SealedInstance {
 }
 
 macro_rules! impl_i2c_instance {
-    ($instance: ident, $fifo_size: expr) => {
+    ($instance: ident, $fifo_size: expr, $power_domain: ident) => {
         impl crate::i2c::SealedInstance for crate::peripherals::$instance {
             fn info() -> &'static crate::i2c::Info {
                 use crate::i2c::Info;
@@ -1107,6 +1108,7 @@ macro_rules! impl_i2c_instance {
                     regs: crate::pac::$instance,
                     interrupt: crate::interrupt::typelevel::$instance::IRQ,
                     fifo_size: $fifo_size,
+                    power_domain: crate::sysctl::PowerDomain::$power_domain,
                 };
                 &INFO
             }

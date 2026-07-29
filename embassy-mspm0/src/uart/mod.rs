@@ -14,6 +14,7 @@ use crate::gpio::{AnyPin, PfType, Pull, SealedPin};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Blocking, Mode};
 use crate::pac::uart::{Uart as Regs, vals};
+use crate::sysctl::PowerDomain;
 
 /// The clock source for the UART.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -97,6 +98,12 @@ pub enum ConfigError {
 
     /// The baud rate could not be configured with the given clocks.
     InvalidBaudRate,
+
+    /// [`Config::low_power_rx_wake`] was set on an instance that deep sleep powers down.
+    ///
+    /// SYSCTL disables PD1 peripherals on entry to STOP and STANDBY, so a PD1 UART cannot detect the
+    /// start bit that would wake the chip. Use a PD0 instance.
+    NoDeepSleepWake,
 }
 
 #[non_exhaustive]
@@ -161,6 +168,8 @@ pub struct Config {
 
     /// Let the chip deep-sleep (down to STANDBY0) while an async [`BufferedUart`] receiver is
     /// listening, waking on an incoming RX start bit.
+    ///
+    /// Only PD0 instances can do this; anything else is a [`ConfigError::NoDeepSleepWake`].
     pub low_power_rx_wake: bool,
 }
 
@@ -584,6 +593,7 @@ pub trait RtsPin<T: Instance>: crate::gpio::Pin {
 pub(crate) struct Info {
     pub(crate) regs: Regs,
     pub(crate) interrupt: Interrupt,
+    pub(crate) power_domain: PowerDomain,
 }
 
 pub(crate) struct State {
@@ -759,6 +769,10 @@ fn configure(
 
     if !enable_rx && !enable_tx {
         return Err(ConfigError::RxOrTxNotEnabled);
+    }
+
+    if config.low_power_rx_wake && !info.power_domain.is_powered_in_deep_sleep() {
+        return Err(ConfigError::NoDeepSleepWake);
     }
 
     // SLAU846B says that clocks should be enabled before disabling the uart.
@@ -1094,7 +1108,7 @@ pub(crate) trait SealedInstance {
 }
 
 macro_rules! impl_uart_instance {
-    ($instance: ident) => {
+    ($instance: ident, $power_domain: ident) => {
         impl crate::uart::SealedInstance for crate::peripherals::$instance {
             fn info() -> &'static crate::uart::Info {
                 use crate::interrupt::typelevel::Interrupt;
@@ -1103,6 +1117,7 @@ macro_rules! impl_uart_instance {
                 const INFO: Info = Info {
                     regs: crate::pac::$instance,
                     interrupt: crate::interrupt::typelevel::$instance::IRQ,
+                    power_domain: crate::sysctl::PowerDomain::$power_domain,
                 };
                 &INFO
             }

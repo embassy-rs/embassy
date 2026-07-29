@@ -8,7 +8,7 @@ use std::sync::LazyLock;
 use std::{env, fs};
 
 use common::CfgSet;
-use mspm0_metapac::metadata::{ALL_CHIPS, METADATA};
+use mspm0_metapac::metadata::{ALL_CHIPS, METADATA, PowerDomain};
 use proc_macro2::{Ident, Literal, Span, TokenStream};
 use quote::{format_ident, quote};
 
@@ -67,6 +67,7 @@ fn generate_code(cfgs: &mut CfgSet) {
     g.extend(generate_timers());
     g.extend(generate_interrupts());
     g.extend(generate_peripheral_instances());
+    g.extend(generate_power_domains(&singletons));
     g.extend(generate_pin_trait_impls());
     g.extend(generate_groups());
     g.extend(generate_dma_channel_count());
@@ -672,16 +673,65 @@ fn generate_interrupts() -> TokenStream {
     }
 }
 
+fn power_domain_ident(domain: &PowerDomain) -> Ident {
+    format_ident!(
+        "{}",
+        match domain {
+            PowerDomain::Pd0 => "Pd0",
+            PowerDomain::Pd1 => "Pd1",
+            PowerDomain::Backup => "Backup",
+        }
+    )
+}
+
+/// Implement `PowerDomainInstance` for every peripheral singleton.
+///
+/// Driven off the singleton list rather than the metadata so it cannot emit an impl for a type
+/// `get_singletons` decided not to create.
+fn generate_power_domains(singletons: &[Singleton]) -> TokenStream {
+    let impls = singletons.iter().filter_map(|singleton| {
+        let name = singleton.name.as_str();
+
+        // A pin's domain says nothing useful: GPIO logic is in PD0 on every chip.
+        if METADATA.pins.iter().any(|pin| pin.pin == name) {
+            return None;
+        }
+
+        // Singletons without a metadata entry of their own inherit from the peripheral they belong to.
+        let owner = match name {
+            "CLK_OUT" => "SYSCTL",
+            _ if name.starts_with("DMA_CH") => "DMA",
+            _ => name,
+        };
+
+        let domain = METADATA
+            .peripherals
+            .iter()
+            .find(|peripheral| peripheral.name == owner)
+            .map(|peripheral| power_domain_ident(&peripheral.power_domain))
+            .unwrap_or_else(|| panic!("no power domain for singleton {name} (looked for peripheral {owner})"));
+
+        let peri = format_ident!("{}", name);
+
+        Some(quote! { impl_power_domain!(#peri, #domain); })
+    });
+
+    quote! {
+        #(#impls)*
+    }
+}
+
 fn generate_peripheral_instances() -> TokenStream {
     let mut impls = Vec::<TokenStream>::new();
 
     for peripheral in METADATA.peripherals {
         let peri = format_ident!("{}", peripheral.name);
         let fifo_size = peripheral.sys_fentries;
+        let power_domain = power_domain_ident(&peripheral.power_domain);
 
         let tokens = match peripheral.kind {
-            "uart" => Some(quote! { impl_uart_instance!(#peri); }),
-            "i2c" => Some(quote! { impl_i2c_instance!(#peri, #fifo_size); }),
+            "uart" => Some(quote! { impl_uart_instance!(#peri, #power_domain); }),
+            "i2c" => Some(quote! { impl_i2c_instance!(#peri, #fifo_size, #power_domain); }),
             "wwdt" => Some(quote! { impl_wwdt_instance!(#peri); }),
             "adc" => Some(quote! { impl_adc_instance!(#peri); }),
             "mathacl" => Some(quote! { impl_mathacl_instance!(#peri); }),

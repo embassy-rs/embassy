@@ -234,7 +234,10 @@ impl<'d> BufferedUartRx<'d> {
         if low_power_rx_wake {
             Some(WakeGuard::new(SleepLevel::Standby1))
         } else {
-            SleepLevel::floor_for_clock_hz(self.state.state.clock.load(Ordering::Relaxed)).map(WakeGuard::new)
+            self.info
+                .power_domain
+                .floor_to_keep_running(self.state.state.clock.load(Ordering::Relaxed))
+                .map(WakeGuard::new)
         }
     }
 
@@ -901,7 +904,11 @@ impl<'d> BufferedUartTx<'d> {
     }
 
     async fn flush_inner(&self) -> Result<(), Error> {
-        let _guard = SleepLevel::floor_for_clock_hz(self.state.state.clock.load(Ordering::Relaxed)).map(WakeGuard::new);
+        let _guard = self
+            .info
+            .power_domain
+            .floor_to_keep_running(self.state.state.clock.load(Ordering::Relaxed))
+            .map(WakeGuard::new);
 
         poll_fn(move |cx| {
             let state = self.state;
