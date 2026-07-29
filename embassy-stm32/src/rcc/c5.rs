@@ -190,9 +190,11 @@ pub(crate) unsafe fn init(config: Config) {
         pclk3: Some(apb3),
 
         hsi: hsi,
+        hsidiv3: hsi_div3,
         hsik: None,
         hse: hse,
         psi: None,
+        psidiv3: None,
         psik: None,
 
         // TODO
