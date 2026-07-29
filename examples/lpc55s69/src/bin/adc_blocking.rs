@@ -4,13 +4,10 @@
 #![no_main]
 
 use defmt::*;
-
-use embassy_nxp::adc::{Adc, Config};
-
-use embassy_executor::Spawner;
-use embassy_time::Timer;
-
 use defmt_rtt as _;
+use embassy_executor::Spawner;
+use embassy_nxp::adc::{Adc, Config};
+use embassy_time::Timer;
 use panic_halt as _;
 
 #[embassy_executor::main]
