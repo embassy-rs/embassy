@@ -124,6 +124,8 @@ macro_rules! impl_can_instance {
                 }
 
                 const CLOCK_INSTANCE: crate::clocks::periph_helpers::CanInstance = crate::clocks::periph_helpers::CanInstance::[<Can $n>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_can $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_can $n _wake>];
             }
             impl crate::flexcan::classic::Instance for crate::peripherals::[<CAN $n>] {}
         }

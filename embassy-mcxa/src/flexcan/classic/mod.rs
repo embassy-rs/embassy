@@ -474,6 +474,8 @@ pub(crate) trait SealedInstance: crate::clocks::Gate<MrccPeriphConfig = CanConfi
 
     /// This is used to select the correct `MRCC_FLEXCANn_CLKSEL`/`CLKDIV` registers during clock setup.
     const CLOCK_INSTANCE: CanInstance;
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
 }
 
 /// Represents a hardware CAN instance (e.g., CAN0, CAN1).

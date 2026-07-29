@@ -314,6 +314,7 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
+        T::PERF_INT_INCR();
         let info = T::info();
         let can = info.control.regs();
 
@@ -329,6 +330,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 
         // Reclaim any completed TX buffers. If any were reclaimed, wake tasks waiting in send().
         if mailbox::tx::reclaim_completed(info) {
+            T::PERF_INT_WAKE_INCR();
             info.tx_waker.wake(); // Tell sleepers that there's an available TX buffer now
         }
 
@@ -369,6 +371,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             // Acknowledge the flag (write 1 to clear)
             can.esr1().write(|w| w.set_boffint(true));
             let _ = can.esr1().read(); // make sure the clear lands before returning
+            T::PERF_INT_WAKE_INCR();
             info.tx_waker.wake();
         }
 
