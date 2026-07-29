@@ -60,10 +60,7 @@ impl<'d> Adc<'d> {
         let adc: Adc0 = pac::ADC0;
         
         // Power & clocks
-        defmt::info!("Enabling ADC power and clocks");
         Self::enable_power_clocks();
-        
-        defmt::info!("Starting ADC init sequence");
 
         // Reset just in case
         adc.ctrl().write(|w| w.set_rst(vals::Rst::Rst1));
@@ -189,12 +186,9 @@ impl<'d> Adc<'d> {
     /// Helper function for calibrating
     /// Reference: https://github.com/lpc55/lpc55-hal/blob/main/examples/adc.rs#L14
     fn calibrate<'a>(adc: &Adc0) {
-        defmt::info!("Starting the calibration...");
-        
         // Offset trimming
         adc.ctrl().modify(|w| w.set_calofs(vals::Calofs::Calofs1));
         while adc.stat().read().cal_rdy().to_bits() == 0 {}
-        defmt::info!("Offset calibration completed");
 
         // Auto calibration request
         adc.ctrl().modify(|w| {
@@ -204,13 +198,10 @@ impl<'d> Adc<'d> {
 
         while (adc.gcc(0).read().rdy().to_bits() == 0) || (adc.gcc(1).read().rdy().to_bits() == 0) {
             // Wait for auto calibration
-            defmt::info!("GCC0: {}", adc.gcc(0).read().rdy().to_bits());
-            defmt::info!("GCC1: {}", adc.gcc(1).read().rdy().to_bits());
         }
 
         let gain_a = adc.gcc(0).read().gain_cal();
         let gain_b = adc.gcc(1).read().gain_cal();
-        defmt::info!("gain_a raw = {:#x}, gain_b raw = {:#x}", gain_a, gain_b);
 
         let gcr_a = (((gain_a as u32) << 16) / (0x1FFFFu32 - gain_a as u32)) as u16;
         let gcr_b = (((gain_b as u32) << 16) / (0x1FFFFu32 - gain_b as u32)) as u16;
@@ -225,8 +216,6 @@ impl<'d> Adc<'d> {
         });
 
         while !(adc.stat().read().cal_rdy().to_bits() != 0) {}
-
-        defmt::info!("Calibration completed");
     }
 
     /// Reading the channel synchronously
@@ -238,36 +227,16 @@ impl<'d> Adc<'d> {
             w.set_ctype(pin.ctype().into())
         });
 
-        let cmdl_readback = adc.cmdl1().read();
-        defmt::info!(
-            "CMDL1 readback: adch={} ctype={} mode={}",
-            cmdl_readback.adch().to_bits(),
-            cmdl_readback.ctype().to_bits(),
-            cmdl_readback.mode().to_bits()
-        );
-
         // Trigger the event
         adc.swtrig().write(|w| {
             w.set_swt0(1.into())
         });
 
         // wait for results
-        defmt::info!("Waiting for results");
         while adc.fctrl(0).read().fcount() == 0 {}
 
         let result_reg = adc.resfifo(0).read();
-
-        defmt::info!(
-            "RESFIFO0: d=0x{:04x} tsrc={} loopcnt={} cmdsrc={} valid={}",
-            result_reg.d(),
-            result_reg.tsrc().to_bits(),
-            result_reg.loopcnt().to_bits(),
-            result_reg.cmdsrc().to_bits(),
-            result_reg.valid().to_bits()
-        );
-        
         let data_raw = result_reg.d();
-        defmt::info!("Raw data: {}", data_raw);
 
         let data = match self.config.resolution {
             Resolution::Bits16 => data_raw,

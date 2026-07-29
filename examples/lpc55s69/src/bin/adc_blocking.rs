@@ -15,9 +15,7 @@ use {defmt_rtt as _, panic_halt as _};
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nxp::init(Default::default());
-
-    // nxp-pac does not provide the access to ADC0 with p.ADC0 yet
-    let mut raw_adc0 = embassy_nxp::pac::ADC0;
+    
     let config = Config::default(); // corresponds to Config::new(Resolution::Bits16, Averaging::None);
     let mut adc = Adc::new(p.ADC0, config);
 
