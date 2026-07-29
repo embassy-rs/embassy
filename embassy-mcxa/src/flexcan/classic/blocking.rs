@@ -130,6 +130,47 @@ impl<'d> FlexCan<'d, Blocking> {
     }
 }
 
+impl embedded_can::Error for SendError {
+    fn kind(&self) -> embedded_can::ErrorKind {
+        embedded_can::ErrorKind::Other
+    }
+}
+
+/// `embedded_can::nb::Can` support for blocking FlexCAN.
+impl embedded_can::nb::Can for FlexCan<'_, Blocking> {
+    type Frame = Frame;
+    type Error = SendError;
+
+    fn transmit(&mut self, frame: &Self::Frame) -> nb::Result<Option<Self::Frame>, Self::Error> {
+        match self.try_send(frame) {
+            Ok(()) => Ok(None),
+            Err(SendError::TxMailboxFull) => Err(nb::Error::WouldBlock),
+            Err(error) => Err(nb::Error::Other(error)),
+        }
+    }
+
+    fn receive(&mut self) -> nb::Result<Self::Frame, Self::Error> {
+        match self.try_receive() {
+            Ok(frame) => Ok(frame),
+            Err(ReceiveError::NoMessages) => Err(nb::Error::WouldBlock),
+        }
+    }
+}
+
+/// `embedded_can::blocking::Can` support for blocking FlexCAN.
+impl embedded_can::blocking::Can for FlexCan<'_, Blocking> {
+    type Frame = Frame;
+    type Error = core::convert::Infallible;
+
+    fn transmit(&mut self, frame: &Self::Frame) -> Result<(), Self::Error> {
+        Ok(self.blocking_send(frame))
+    }
+
+    fn receive(&mut self) -> Result<Self::Frame, Self::Error> {
+        Ok(self.blocking_receive())
+    }
+}
+
 /// Functions for `FlexCanTx` that are specific to `Blocking` mode.
 impl<'d> FlexCanTx<'d, Blocking> {
     /// Sends a CAN message.
