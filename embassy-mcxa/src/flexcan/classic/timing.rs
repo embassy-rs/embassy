@@ -18,8 +18,6 @@
 // They're not even that necessary in this project since we have a PAC (i.e., we're not manually doing a bunch of shifting and masking in registers),
 // but having the `MAX` values is kind of nice as iteration bounds, and mirroring the layout keeps this file easy to compare against the upstream driver.
 
-#![allow(dead_code)] // need this since some of the constants are considered unused by rust-analyzer even though they're used by other constants
-
 use embassy_time::Duration;
 
 use crate::flexcan::classic::Info;
@@ -40,13 +38,10 @@ const CAN_ENCBT_NTSEG1_MASK: u32 = 0xFF;
 const CAN_ENCBT_NTSEG1_SHIFT: u32 = 0;
 const CAN_ENCBT_NTSEG2_MASK: u32 = 0x7F000;
 const CAN_ENCBT_NTSEG2_SHIFT: u32 = 12;
-const CAN_ENCBT_NRJW_MASK: u32 = 0x1FC00000;
-const CAN_ENCBT_NRJW_SHIFT: u32 = 22;
 const CAN_EPRS_ENPRESDIV_MASK: u32 = 0x3FF;
 const CAN_EPRS_ENPRESDIV_SHIFT: u32 = 0;
 const MAX_NTSEG1: u32 = CAN_ENCBT_NTSEG1_MASK >> CAN_ENCBT_NTSEG1_SHIFT;
 const MAX_NTSEG2: u32 = CAN_ENCBT_NTSEG2_MASK >> CAN_ENCBT_NTSEG2_SHIFT;
-const MAX_NRJW: u32 = CAN_ENCBT_NRJW_MASK >> CAN_ENCBT_NRJW_SHIFT;
 const MAX_ENPRESDIV: u32 = CAN_EPRS_ENPRESDIV_MASK >> CAN_EPRS_ENPRESDIV_SHIFT;
 const ENCBT_MAX_TIME_QUANTA: u32 = 1 + MAX_NTSEG1 + 1 + MAX_NTSEG2 + 1;
 const ENCBT_MIN_TIME_QUANTA: u32 = 8;
