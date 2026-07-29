@@ -38,11 +38,12 @@ mod mailbox;
 mod timing;
 
 use core::cell::Cell;
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 pub use asynchronous::{Async, InterruptHandler, RxQueue};
 pub use blocking::{Blocking, ReceiveErrorWithTimeout, SendErrorWithTimeout};
 use embassy_hal_internal::Peri;
+use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, SendDynamicSender};
@@ -52,6 +53,7 @@ use nxp_pac::can as pac;
 use crate::clocks::periph_helpers::{CanClockSel, CanConfig, CanInstance, Div4};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::flexcan::classic::frame::Frame;
+use crate::flexcan::classic::halves::FlexCanPins;
 use crate::flexcan::control::Control;
 use crate::flexcan::filter::FilterConfig;
 use crate::flexcan::{RxPin, TxPin};
@@ -90,6 +92,11 @@ pub enum InitError {
     /// requested clock source was not enabled/configured by `embassy_mcxa::init()`,
     /// or the system clocks were never initialized. See the `ClockError` docs.
     ClockSetup(ClockError),
+
+    /// This error indicates that, when reconstructing a previously-dropped FlexCAN peripheral,
+    /// stale descriptors were encountered for the TX and RX pins. This means that there has been a state
+    /// management error internal to the FlexCAN HAL itself.
+    ReconstructionError,
 }
 
 /// Configuration settings for a Classic-mode FlexCAN driver instance.
@@ -261,6 +268,205 @@ pub(crate) struct Info {
     ///
     /// Note: Technically the hardware RX FIFO still exists in blocking mode, but we can't use any interrupts to track it. So that's why this is an async-only feature.
     pub rx_dropped_count_fifo: AtomicU32,
+
+    /// Tracks which havles (TX, RX, or both) are currently active.
+    pub halves: halves::HalfMask,
+
+    /// Callback to disable the FlexCAN interrupt (used for teardown).
+    pub interrupt_disable: fn(),
+    /// Callback to unpend the FlexCAN interrupt (used for teardown).
+    pub interrupt_unpend: fn(),
+    /// Callback to disable the FlexCAN clock (used for teardown).
+    pub clock_disable: unsafe fn(),
+
+    /// Stores the descriptors for the TX and RX pins.
+    pub pins: halves::Pins,
+}
+
+/// Errors that can arise when disabling/dropping the FlexCAN peripheral.
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum DisableError {
+    /// The hardware did not respond within a reasonable time period, so full
+    /// disabling was not able to be completed.
+    Timeout,
+}
+
+impl Info {
+    /// Resets software state that persists across driver constructions.
+    pub(crate) fn reset(&'static self) {
+        self.rx_sender.lock(|sender| sender.set(None));
+        self.tx_waker.wake();
+        self.tx_available.store(0, Ordering::Relaxed);
+        self.tx_remote.store(0, Ordering::Relaxed);
+        self.tx_mailbox_full_count.store(0, Ordering::Relaxed);
+        self.rx_dropped_count_channel.store(0, Ordering::Relaxed);
+        self.rx_dropped_count_fifo.store(0, Ordering::Relaxed);
+    }
+
+    /// Disables shared FlexCAN resources after the final TX/RX half is dropped.
+    pub(crate) fn disable_peripheral(&'static self) -> Result<(), DisableError> {
+        use embassy_time::Duration;
+
+        // Prevent a peripheral source from racing with teardown or repending the NVIC line.
+        (self.interrupt_disable)();
+        self.control.regs().imask1().write(|w| w.0 = 0);
+        self.control.regs().erfier().modify(|w| {
+            w.set_erfufwie(false);
+            w.set_erfovfie(false);
+            w.set_erfwmiie(false);
+            w.set_erfdaie(false);
+        });
+        self.control
+            .regs()
+            .ctrl1()
+            .modify(|w| w.set_boffmsk(pac::Boffmsk::BusOffIntDisabled));
+        self.control.regs().ctrl2().modify(|w| w.set_boffdonemsk(false));
+
+        // Clear all sticky sources before the next construction enables this IRQ again.
+        self.control.regs().iflag1().write(|w| w.0 = u32::MAX);
+        self.control.regs().erfsr().write(|w| {
+            w.set_erfufw(true);
+            w.set_erfovf(true);
+            w.set_erfwmi(pac::Erfwmi::WatermarkYes);
+            w.set_erfda(true);
+        });
+        self.control.regs().esr1().write(|w| {
+            w.set_boffint(true);
+            w.set_boffdoneint(pac::Boffdoneint::BusOffDone);
+        });
+
+        self.rx_sender.lock(|sender| sender.set(None));
+        self.tx_waker.wake();
+
+        // Do not gate the peripheral clock until FlexCAN confirms that it is inactive.
+        const DISABLE_TIMEOUT: Duration = Duration::from_millis(10);
+        let result = match self.control.disable(Some(DISABLE_TIMEOUT)) {
+            Ok(()) => {
+                unsafe {
+                    (self.clock_disable)();
+                }
+                Ok(())
+            }
+            Err(_) => Err(DisableError::Timeout),
+        };
+        (self.interrupt_unpend)();
+
+        result
+    }
+
+    /// Disables the shared pins in `Info`.
+    /// This is meant to be called only when the last living half (`FlexCanTx` or `FlexCanRx`) is dropped.
+    fn disable_registered_pins(&self) {
+        if let Some(pins) = self.pins.take() {
+            pins.disable();
+        }
+    }
+}
+
+/// Contains stuff related to tracking FlexCAN halves. Modelled after `TxRxRef` and `TxRxRefMask` from embassy-mcxa LPUART.
+///
+/// A big part of this module is the tracking of the FlexCAN TX and RX pins (see `FlexCanPins`). Because CAN TX and RX are quite closely
+/// coupled, it isn't really possible to fully drop a TX or RX half independently by disabling its repsective pin as much of the rest of this HAL does,
+/// since that would disrupt the remaining half's ability to ACK/detect bus errors. The solution to this is having `Info` store the `AnyPin` descriptors
+/// of the FlexCAN pins, while the actual TX/RX halves still hold the owned `Peri` instances. This is probably kind of janky, but it makes it possible to
+/// wait for the last TX/RX half to get dropped before actually disabling the pins.
+pub(crate) mod halves {
+    use super::{AnyPin, AtomicU8, Cell, CriticalSectionRawMutex, Mutex, Ordering};
+    use crate::gpio::SealedPin;
+
+    /// TX and RX pins.
+    #[derive(Clone, Copy)]
+    pub struct FlexCanPins {
+        rx: AnyPin,
+        tx: AnyPin,
+    }
+    impl FlexCanPins {
+        /// Creates a new `FlexCanPins` from an RX and a TX pin.
+        pub fn new(tx: AnyPin, rx: AnyPin) -> Self {
+            Self { tx, rx }
+        }
+
+        /// Disables the `FlexCanPins` by calling `set_as_disabled()` on them.
+        pub fn disable(&self) {
+            self.rx.set_as_disabled();
+            self.tx.set_as_disabled();
+        }
+    }
+
+    /// Stores the descriptors of the TX and RX pins for use in `Info`.
+    pub struct Pins {
+        pins: Mutex<CriticalSectionRawMutex, Cell<Option<FlexCanPins>>>,
+    }
+    impl Pins {
+        /// Creates an empty/`None` `Pins`.
+        pub const fn new() -> Self {
+            Self {
+                pins: Mutex::new(Cell::new(None)),
+            }
+        }
+
+        /// Sets the pins stored in a `Pins`.
+        ///
+        /// This function is meant to be called during construction to set up the pins. If this function is called
+        /// on a `Pins` that has already been set up, it will return Err(()). This indicates that the HAL has a lifecycle
+        /// issue in how it is constructing/deconstructing `Pins`.
+        pub fn set(&self, pins: FlexCanPins) -> Result<(), ()> {
+            self.pins.lock(|cell| {
+                // if cell is `Some`, then `set()` has already been called for these `Pins`, which is not allowed
+                if cell.get().is_some() {
+                    return Err(());
+                }
+                cell.set(Some(pins));
+                Ok(())
+            })
+        }
+
+        /// Takes the internal `FlexCanPins`.
+        ///
+        /// This function will return `Some(FlexCanPins)` if the pins have already been set (i.e., `set()` has been called), and will
+        /// return `None` if the pins have already been taken or never set.
+        pub fn take(&self) -> Option<FlexCanPins> {
+            self.pins.lock(|cell| cell.take())
+        }
+    }
+
+    /// Masks representing which halves are active (bit set to `1` means active).
+    /// This is used for the `Drop`/teardown stuff.
+    #[repr(u8)]
+    pub enum Half {
+        Rx = 0b01,
+        Tx = 0b10,
+    }
+    /// Tracks which halves of FlexCAN (TX, RX, or both) are currently active.
+    pub struct HalfMask(AtomicU8);
+    impl HalfMask {
+        pub const fn new() -> Self {
+            Self(AtomicU8::new(0))
+        }
+
+        /// Atomically signal that either the Tx or Rx has been dropped.
+        ///
+        /// Returns `true` if after this call all parts are inactive.
+        pub fn set_inactive_fetch_last(&self, value: Half) -> bool {
+            let value = value as u8;
+            self.0.fetch_and(!value, Ordering::AcqRel) & !value == 0
+        }
+
+        /// Atomically signal that either the Tx or Rx has been created.
+        pub fn set_active(&self, value: Half) {
+            let value = value as u8;
+            self.0.fetch_or(value, Ordering::AcqRel);
+        }
+
+        /// Atomically determine if either channels have been created, but not dropped. Clears the state.
+        ///
+        /// Should only be relevant when any of the parts have been leaked using [core::mem::forget].
+        pub fn fetch_any_alive_reset(&self) -> bool {
+            self.0.swap(0, Ordering::AcqRel) != 0
+        }
+    }
 }
 
 pub(crate) trait SealedInstance: crate::clocks::Gate<MrccPeriphConfig = CanConfig> {
@@ -288,6 +494,8 @@ impl<'d, M: Mode> FlexCanRx<'d, M> {
     /// Creates a new `FlexCanRx` instance.
     /// This isn't a public function, and should only be called via the mode-specific constructors.
     fn new(info: &'static Info, rx: Peri<'d, AnyPin>, wake_guard: Option<WakeGuard>, mode: M) -> Self {
+        info.halves.set_active(halves::Half::Rx);
+
         Self {
             info,
             _rx: rx,
@@ -303,8 +511,66 @@ impl<'d, M: Mode> FlexCanRx<'d, M> {
     }
 }
 
+/// Teardown for `FlexCanRx`.
+impl<M: Mode> Drop for FlexCanRx<'_, M> {
+    fn drop(&mut self) {
+        // Stop ISR delivery into an RX queue that no longer has a receiver.
+        self.info.control.regs().erfier().modify(|w| {
+            w.set_erfdaie(false);
+            w.set_erfovfie(false);
+        });
+        self.info.rx_sender.lock(|sender| sender.set(None));
+
+        let last = self.info.halves.set_inactive_fetch_last(halves::Half::Rx);
+        if last {
+            match self.info.disable_peripheral() {
+                Ok(_) => (),
+                Err(_err) => {
+                    #[cfg(feature = "defmt")]
+                    defmt::error!(
+                        "FlexCAN: FlexCanRx Drop failed: Could not disable FlexCAN peripheral due to a hardware timeout: {}",
+                        _err
+                    );
+                }
+            };
+
+            // only disable both pins when we are the last one standing
+            self.info.disable_registered_pins();
+        }
+    }
+}
+
+/// Teardown for `FlexCanTx`.
+impl<M: Mode> Drop for FlexCanTx<'_, M> {
+    fn drop(&mut self) {
+        // Stop TX mailbox completion interrupts.
+        self.info.control.regs().imask1().write(|w| w.0 = 0);
+        self.info.tx_waker.wake();
+
+        let last = self.info.halves.set_inactive_fetch_last(halves::Half::Tx);
+        if last {
+            match self.info.disable_peripheral() {
+                Ok(_) => (),
+                Err(_err) => {
+                    #[cfg(feature = "defmt")]
+                    defmt::error!(
+                        "FlexCAN: FlexCanTx Drop failed: Could not disable FlexCAN peripheral due to a hardware timeout: {}",
+                        _err
+                    );
+                }
+            }
+
+            // only disable both pins when we are the last one standing
+            self.info.disable_registered_pins();
+        }
+    }
+}
+
 /// TX-specific FlexCAN instance. Can be obtained by calling `.split()`
 /// on your main `FlexCan` instance.
+///
+/// Note: Dropping this handle does not flush pending frames. Call the mode-specific
+/// flush method first (before dropping) when delivery must complete before teardown.
 pub struct FlexCanTx<'d, M: Mode> {
     info: &'static Info,
     _tx: Peri<'d, AnyPin>,
@@ -317,6 +583,8 @@ impl<'d, M: Mode> FlexCanTx<'d, M> {
     /// Creates a new `FlexCanTx` instance.
     /// This isn't a public function, and should only be called via the mode-specific constructors.
     fn new(info: &'static Info, tx: Peri<'d, AnyPin>, wake_guard: Option<WakeGuard>, mode: M) -> Self {
+        info.halves.set_active(halves::Half::Tx);
+
         Self {
             info,
             _tx: tx,
@@ -347,7 +615,7 @@ pub struct FlexCan<'d, M: Mode> {
 
 /// General `FlexCan` functions (available for both `Async` and `Blocking` mode).
 impl<'d, M: Mode> FlexCan<'d, M> {
-    /// Consumes this `FlexCan` and splits it into independent `FlexCanTx` and `FlexCanRx` halves. This is useful
+    /// Consumes this `FlexCan` and splits it into separately owned `FlexCanTx` and `FlexCanRx` halves. This is useful
     /// if you want to have separate dedicated tasks for CAN RX and CAN TX.
     pub fn split(self) -> (FlexCanTx<'d, M>, FlexCanRx<'d, M>) {
         (self.tx, self.rx)
@@ -397,11 +665,55 @@ fn init<'d, T: Instance>(
         return Err(InitError::ProtocolExceptionUnsupported);
     }
 
+    // Recover shared resources if a previous driver was leaked with `mem::forget`,
+    // or if a previous construction was interrupted after registering its pins.
+    let stale_halves = info.halves.fetch_any_alive_reset();
+    let stale_pins = info.pins.take();
+
+    if stale_halves && stale_pins.is_none() {
+        #[cfg(feature = "defmt")]
+        defmt::warn!("FlexCAN: stale half state found without registered pins");
+    } else if !stale_halves && stale_pins.is_some() {
+        #[cfg(feature = "defmt")]
+        defmt::warn!("FlexCAN: registered pins found without stale half state");
+    }
+
+    if stale_halves || stale_pins.is_some() {
+        match info.disable_peripheral() {
+            Ok(()) => (),
+            Err(_err) => {
+                // Preserve the cleanup recipe so a later construction can retry.
+                if let Some(pins) = stale_pins {
+                    let _ = info.pins.set(pins);
+                }
+
+                #[cfg(feature = "defmt")]
+                defmt::error!(
+                    "FlexCAN: Reconstruction failed: Previous FlexCAN driver could not be disabled due to a hardware timeout: {}",
+                    _err
+                );
+
+                return Err(InitError::Timeout);
+            }
+        }
+    }
+
+    if let Some(pins) = stale_pins {
+        pins.disable();
+    }
+    info.reset();
+
     // Mux the pins to their CAN function and take ownership for the driver's lifetime.
     rx.as_rx();
     tx.as_tx();
-    let _rx = rx.into();
-    let _tx = tx.into();
+    let rx: Peri<'_, AnyPin> = rx.into();
+    let tx: Peri<'_, AnyPin> = tx.into();
+    let pin_rollback = OnDrop::new(|| {
+        use crate::gpio::SealedPin;
+
+        rx.set_as_disabled();
+        tx.set_as_disabled();
+    });
 
     // Set up the FlexCAN clock (before messing w/ any registers)
     let clock_cfg = CanConfig {
@@ -416,6 +728,16 @@ fn init<'d, T: Instance>(
     let parts = unsafe { enable_and_reset::<T>(&clock_cfg).map_err(InitError::ClockSetup)? };
     let src_clk_hz = parts.freq;
     let _wake_guard = parts.wake_guard;
+    let peripheral_rollback = OnDrop::new(|| match info.disable_peripheral() {
+        Ok(()) => (),
+        Err(_err) => {
+            #[cfg(feature = "defmt")]
+            defmt::error!(
+                "FlexCAN: Peripheral Rollback failed after Drop: FlexCAN peripheral could not be disabled due to a hardware timeout: {}",
+                _err
+            );
+        }
+    });
 
     // Enable and freeze
     const ENABLE_TIMEOUT: u64 = 10; // Timeout for the `.enable()` call in ms
@@ -469,7 +791,13 @@ fn init<'d, T: Instance>(
     mailbox::tx::setup(info).map_err(|_| InitError::Timeout)?;
     mailbox::rx::setup(info, &config.filters).map_err(|_| InitError::Timeout)?;
 
-    Ok((info, _rx, _tx, _wake_guard))
+    info.pins
+        .set(FlexCanPins::new(*tx, *rx))
+        .map_err(|_| InitError::ReconstructionError)?;
+
+    peripheral_rollback.defuse();
+    pin_rollback.defuse();
+    Ok((info, rx, tx, _wake_guard))
 }
 
 /// This module contains implementations for functions that are needed on all `FlexCan` structs,

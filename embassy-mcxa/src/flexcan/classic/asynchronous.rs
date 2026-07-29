@@ -11,7 +11,7 @@ use embassy_sync::channel::{SendDynamicReceiver, SendDynamicSender};
 use super::mailbox::tx;
 use super::{
     BusErrorMode, Cell, Channel, CriticalSectionRawMutex, FlexCan, FlexCanConfig, FlexCanRx, FlexCanTx, InitError,
-    Instance, Mode, ReceiveError, SendError, mailbox, sealed,
+    Instance, Mode, ReceiveError, SendError, functions, mailbox, sealed,
 };
 use crate::flexcan::classic::frame::Frame;
 use crate::flexcan::{RxPin, TxPin};
@@ -113,6 +113,14 @@ impl<'d> FlexCan<'d, Async> {
         self.tx.try_send(frame)
     }
 
+    /// Waits until all pending TX mailboxes have completed transmission, or the bus
+    /// enters BusOff. Returns `Err(SendError::BusOff)` in the latter case.
+    ///
+    /// Call this before dropping the driver when queued frames must be delivered.
+    pub async fn flush(&mut self) -> Result<(), SendError> {
+        self.tx.flush().await
+    }
+
     /// Receives a CAN message.
     ///
     /// If there are no new messages, this call asynchronously
@@ -142,6 +150,8 @@ impl<'d> FlexCan<'d, Async> {
 ///
 /// Note: This struct only tracks frames that were dropped from the FlexCAN hardware RX FIFO and from this
 /// driver's software `RxQueue`, due to either being full. Any frame drops that happened at a lower level, or during
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// transmission, are not tracked here.
 pub struct RxDroppedCount {
     /// Tracks the number of frames dropped from the software `RxQueue` used by this driver.
@@ -210,6 +220,32 @@ impl<'d> FlexCanTx<'d, Async> {
                 Err(Other(e)) => match e {},
             })
             .await;
+    }
+
+    /// Waits until all pending TX mailboxes have completed transmission, or the bus
+    /// enters BusOff. Returns `Err(SendError::BusOff)` in the latter case.
+    ///
+    /// Call this before dropping the TX half when queued frames must be delivered.
+    pub async fn flush(&mut self) -> Result<(), SendError> {
+        let info = self.info;
+
+        loop {
+            let _ = info
+                .tx_waker
+                .wait_for(|| {
+                    mailbox::tx::reclaim_completed(info);
+                    info.tx_available.load(Ordering::Acquire) == u32::MAX
+                        || functions::error_mode(info) == BusErrorMode::BusOff
+                })
+                .await;
+
+            if self.error_mode() == BusErrorMode::BusOff {
+                return Err(SendError::BusOff);
+            }
+            if info.tx_available.load(Ordering::Acquire) == u32::MAX {
+                return Ok(());
+            }
+        }
     }
 
     /// Attempts to send a CAN message.
@@ -333,6 +369,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             // Acknowledge the flag (write 1 to clear)
             can.esr1().write(|w| w.set_boffint(true));
             let _ = can.esr1().read(); // make sure the clear lands before returning
+            info.tx_waker.wake();
         }
 
         // Handle when BusOff autorecovery has finished

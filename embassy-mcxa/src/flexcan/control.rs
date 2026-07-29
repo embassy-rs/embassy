@@ -54,6 +54,27 @@ impl Control {
         Ok(())
     }
 
+    /// Puts FlexCAN into Module Disable mode.
+    ///
+    /// WARNING: This function is blocking! It doesn't return until the hardware confirms that
+    /// the module has entered low-power mode. Pass `None` as the timeout to wait indefinitely.
+    pub(in crate::flexcan) fn disable(&self, timeout: Option<Duration>) -> Result<(), ControlError> {
+        use embassy_time::Instant;
+
+        self.regs.mcr().modify(|m| m.set_mdis(pac::Mdis::FlexcanDisabled));
+
+        let deadline = timeout.map(|t| Instant::now() + t);
+        while self.regs.mcr().read().lpmack() != pac::Lpmack::LowPowerYes {
+            if let Some(deadline) = deadline {
+                if Instant::now() >= deadline {
+                    return Err(ControlError::DisableTimeout);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Puts the FlexCAN into Freeze mode. If the FlexCAN is already in Freeze mode, returns Ok(()).
     ///
     /// WARNING: This function is blocking! It doesn't return until the hardware confirms that we have entered freeze mode.
@@ -114,4 +135,7 @@ pub(in crate::flexcan) enum ControlError {
 
     /// The hardware did not clear `MCR[LPMACK]` within the requested time bound.
     EnableTimeout,
+
+    /// The hardware did not assert `MCR[LPMACK]` within the requested time bound.
+    DisableTimeout,
 }

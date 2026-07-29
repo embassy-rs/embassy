@@ -71,6 +71,7 @@ macro_rules! impl_flexcan_pin {
                 self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
                 self.set_function(<Self as crate::flexcan::TxPin<crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(false);
+                self.set_input_enabled(true);
             }
         }
     };
@@ -82,6 +83,7 @@ macro_rules! impl_flexcan_pin {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_function(<Self as crate::flexcan::RxPin<crate::peripherals::$inst>>::MUX);
                 self.set_enable_input_buffer(true);
+                self.set_input_enabled(true);
             }
         }
     };
@@ -100,6 +102,8 @@ macro_rules! impl_can_instance {
             // Stuff for classic CAN mode
             impl crate::flexcan::classic::SealedInstance for crate::peripherals::[<CAN $n>] {
                 fn info() -> &'static crate::flexcan::classic::Info {
+                    use crate::_generated::interrupt::typelevel::Interrupt;
+
                     static INFO: crate::flexcan::classic::Info = crate::flexcan::classic::Info {
                         control: crate::flexcan::control::Control::new(crate::pac::[<CAN $n>]),
                         tx_available: core::sync::atomic::AtomicU32::new(0),
@@ -110,6 +114,11 @@ macro_rules! impl_can_instance {
                         rx_sender: embassy_sync::blocking_mutex::Mutex::new(core::cell::Cell::new(None)),
                         rx_dropped_count_channel: core::sync::atomic::AtomicU32::new(0),
                         rx_dropped_count_fifo: core::sync::atomic::AtomicU32::new(0),
+                        halves: crate::flexcan::classic::halves::HalfMask::new(),
+                        interrupt_disable: crate::interrupt::typelevel::[<CAN $n>]::disable,
+                        interrupt_unpend: crate::interrupt::typelevel::[<CAN $n>]::unpend,
+                        clock_disable: crate::clocks::disable::<crate::peripherals::[<CAN $n>]>,
+                        pins: crate::flexcan::classic::halves::Pins::new(),
                     };
                     &INFO
                 }
