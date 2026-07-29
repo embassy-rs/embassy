@@ -84,7 +84,7 @@ impl Timeout {
             | Self::Sec5120
             | Self::Sec6144
             | Self::Sec7168
-            | Self::Sec8192 => vals::Per::EN_25,
+            | Self::Sec8192 => vals::Per::En25,
             //  period count is 2**21
             Self::Sec64
             | Self::Sec128
@@ -93,15 +93,13 @@ impl Timeout {
             | Self::Sec320
             | Self::Sec384
             | Self::Sec448
-            | Self::Sec512 => vals::Per::EN_21,
+            | Self::Sec512 => vals::Per::En21,
             //  period count is 2**18
             Self::Sec8 | Self::Sec16 | Self::Sec24 | Self::Sec32 | Self::Sec40 | Self::Sec48 | Self::Sec56 => {
-                vals::Per::EN_18
+                vals::Per::En18
             }
             //  period count is 2**15
-            Self::Sec1 | Self::Sec2 | Self::Sec3 | Self::Sec4 | Self::Sec5 | Self::Sec6 | Self::Sec7 => {
-                vals::Per::EN_15
-            }
+            Self::Sec1 | Self::Sec2 | Self::Sec3 | Self::Sec4 | Self::Sec5 | Self::Sec6 | Self::Sec7 => vals::Per::En15,
             //  period count is 2**12
             Self::MSec130
             | Self::MSec250
@@ -109,7 +107,7 @@ impl Timeout {
             | Self::MSec500
             | Self::MSec630
             | Self::MSec750
-            | Self::MSec880 => vals::Per::EN_12,
+            | Self::MSec880 => vals::Per::En12,
             //  period count is 2**10
             Self::USec31250
             | Self::USec62500
@@ -117,7 +115,7 @@ impl Timeout {
             | Self::USec125000
             | Self::USec156250
             | Self::USec187500
-            | Self::USec218750 => vals::Per::EN_10,
+            | Self::USec218750 => vals::Per::En10,
             //  period count is 2**8
             Self::USec7810
             | Self::USec15630
@@ -125,10 +123,10 @@ impl Timeout {
             | Self::USec32250
             | Self::USec39060
             | Self::USec46880
-            | Self::USec54690 => vals::Per::EN_8,
+            | Self::USec54690 => vals::Per::En8,
             //  period count is 2**6
             Self::USec1950 | Self::USec3910 | Self::USec5860 | Self::USec9770 | Self::USec11720 | Self::USec13670 => {
-                vals::Per::EN_6
+                vals::Per::En6
             }
         }
     }
@@ -228,14 +226,14 @@ pub enum ClosedWindowPercentage {
 impl ClosedWindowPercentage {
     fn get_native_size(self) -> vals::Window {
         match self {
-            Self::Zero => vals::Window::SIZE_0,
-            Self::Twelve => vals::Window::SIZE_12,
-            Self::Eighteen => vals::Window::SIZE_18,
-            Self::TwentyFive => vals::Window::SIZE_25,
-            Self::Fifty => vals::Window::SIZE_50,
-            Self::SeventyFive => vals::Window::SIZE_75,
-            Self::EightyOne => vals::Window::SIZE_81,
-            Self::EightySeven => vals::Window::SIZE_87,
+            Self::Zero => vals::Window::Size0,
+            Self::Twelve => vals::Window::Size12,
+            Self::Eighteen => vals::Window::Size18,
+            Self::TwentyFive => vals::Window::Size25,
+            Self::Fifty => vals::Window::Size50,
+            Self::SeventyFive => vals::Window::Size75,
+            Self::EightyOne => vals::Window::Size81,
+            Self::EightySeven => vals::Window::Size87,
         }
     }
 }
@@ -271,13 +269,13 @@ impl Watchdog {
         T::regs().gprcm(0).rstctl().write(|w| {
             w.set_resetstkyclr(true);
             w.set_resetassert(true);
-            w.set_key(vals::ResetKey::KEY);
+            w.set_key(vals::ResetKey::Key);
         });
 
         // Enable power for watchdog
         T::regs().gprcm(0).pwren().write(|w| {
             w.set_enable(true);
-            w.set_key(vals::PwrenKey::KEY);
+            w.set_key(vals::PwrenKey::Key);
         });
 
         // init delay, 16 cycles
@@ -301,16 +299,16 @@ impl Watchdog {
         T::regs().wwdtctl0().write(|w| {
             w.set_clkdiv(config.timeout.get_clkdiv());
             w.set_per(config.timeout.get_period());
-            w.set_mode(vals::Mode::WINDOW);
+            w.set_mode(vals::Mode::Window);
             w.set_window0(config.closed_window.get_native_size());
-            w.set_window1(vals::Window::SIZE_0);
-            w.set_key(vals::Wwdtctl0Key::KEY);
+            w.set_window1(vals::Window::Size0);
+            w.set_key(vals::Wwdtctl0Key::Key);
         });
 
         // Set Window0 as active window
         T::regs().wwdtctl1().write(|w| {
-            w.set_winsel(vals::Winsel::WIN0);
-            w.set_key(vals::Wwdtctl1Key::KEY);
+            w.set_winsel(vals::Winsel::Win0);
+            w.set_key(vals::Wwdtctl1Key::Key);
         });
 
         Self { regs: T::regs() }
@@ -319,7 +317,7 @@ impl Watchdog {
     /// Pet (reload, refresh) the watchdog.
     pub fn pet(&mut self) {
         self.regs.wwdtcntrst().write(|w| {
-            w.set_restart(vals::WwdtcntrstRestart::RESTART);
+            w.set_restart(vals::WwdtcntrstRestart::Restart);
         });
     }
 }

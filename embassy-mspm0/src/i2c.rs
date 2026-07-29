@@ -58,14 +58,14 @@ pub enum ClockDiv {
 impl ClockDiv {
     pub(crate) fn into(self) -> vals::Ratio {
         match self {
-            Self::DivBy1 => vals::Ratio::DIV_BY_1,
-            Self::DivBy2 => vals::Ratio::DIV_BY_2,
-            Self::DivBy3 => vals::Ratio::DIV_BY_3,
-            Self::DivBy4 => vals::Ratio::DIV_BY_4,
-            Self::DivBy5 => vals::Ratio::DIV_BY_5,
-            Self::DivBy6 => vals::Ratio::DIV_BY_6,
-            Self::DivBy7 => vals::Ratio::DIV_BY_7,
-            Self::DivBy8 => vals::Ratio::DIV_BY_8,
+            Self::DivBy1 => vals::Ratio::DivBy1,
+            Self::DivBy2 => vals::Ratio::DivBy2,
+            Self::DivBy3 => vals::Ratio::DivBy3,
+            Self::DivBy4 => vals::Ratio::DivBy4,
+            Self::DivBy5 => vals::Ratio::DivBy5,
+            Self::DivBy6 => vals::Ratio::DivBy6,
+            Self::DivBy7 => vals::Ratio::DivBy7,
+            Self::DivBy8 => vals::Ratio::DivBy8,
         }
     }
 
@@ -406,7 +406,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         // set up glitch filter
         self.info.regs.gfctl().modify(|w| {
             w.set_agfen(false);
-            w.set_agfsel(vals::Agfsel::AGLIT_50);
+            w.set_agfsel(vals::Agfsel::Aglit50);
             w.set_chain(true);
         });
 
@@ -436,13 +436,13 @@ impl<'d, M: Mode> I2c<'d, M> {
             .regs
             .controller(0)
             .cfifoctl()
-            .write(|w| w.set_txtrig(vals::CfifoctlTxtrig::EMPTY));
+            .write(|w| w.set_txtrig(vals::CfifoctlTxtrig::Empty));
         // Set Rx Fifo threshold, follow TI example
         self.info
             .regs
             .controller(0)
             .cfifoctl()
-            .write(|w| w.set_rxtrig(vals::CfifoctlRxtrig::LEVEL_1));
+            .write(|w| w.set_rxtrig(vals::CfifoctlRxtrig::Level1));
         // Enable controller clock stretching, follow TI example
 
         self.info.regs.controller(0).ccr().modify(|w| {
@@ -498,8 +498,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         // is BUSY or I2C is in slave mode.
         self.info.regs.controller(0).csa().modify(|w| {
             w.set_taddr(address as u16);
-            w.set_cmode(vals::Mode::MODE7);
-            w.set_dir(vals::Dir::RECEIVE);
+            w.set_cmode(vals::Mode::Mode7);
+            w.set_dir(vals::Dir::Receive);
         });
 
         self.info.regs.controller(0).cctr().modify(|w| {
@@ -517,8 +517,8 @@ impl<'d, M: Mode> I2c<'d, M> {
         // Start transfer of length amount of bytes
         self.info.regs.controller(0).csa().modify(|w| {
             w.set_taddr(address as u16);
-            w.set_cmode(vals::Mode::MODE7);
-            w.set_dir(vals::Dir::TRANSMIT);
+            w.set_cmode(vals::Mode::Mode7);
+            w.set_dir(vals::Dir::Transmit);
         });
         self.info.regs.controller(0).cctr().modify(|w| {
             w.set_cblen(length as u16);
@@ -729,10 +729,10 @@ impl<'d> I2c<'d, Async> {
                 self.state.waker.register(cx.waker());
 
                 let result = match self.info.regs.cpu_int(0).iidx().read().stat() {
-                    CpuIntIidxStat::NO_INTR => Poll::Pending,
-                    CpuIntIidxStat::CNACKFG => Poll::Ready(Err(Error::Nack)),
-                    CpuIntIidxStat::CARBLOSTFG => Poll::Ready(Err(Error::Arbitration)),
-                    CpuIntIidxStat::CTXDONEFG => Poll::Ready(Ok(())),
+                    CpuIntIidxStat::NoIntr => Poll::Pending,
+                    CpuIntIidxStat::Cnackfg => Poll::Ready(Err(Error::Nack)),
+                    CpuIntIidxStat::Carblostfg => Poll::Ready(Err(Error::Arbitration)),
+                    CpuIntIidxStat::Ctxdonefg => Poll::Ready(Ok(())),
                     _ => Poll::Pending,
                 };
 
@@ -790,10 +790,10 @@ impl<'d> I2c<'d, Async> {
                 self.state.waker.register(cx.waker());
 
                 let result = match self.info.regs.cpu_int(0).iidx().read().stat() {
-                    CpuIntIidxStat::NO_INTR => Poll::Pending,
-                    CpuIntIidxStat::CNACKFG => Poll::Ready(Err(Error::Nack)),
-                    CpuIntIidxStat::CARBLOSTFG => Poll::Ready(Err(Error::Arbitration)),
-                    CpuIntIidxStat::CRXDONEFG => Poll::Ready(Ok(())),
+                    CpuIntIidxStat::NoIntr => Poll::Pending,
+                    CpuIntIidxStat::Cnackfg => Poll::Ready(Err(Error::Nack)),
+                    CpuIntIidxStat::Carblostfg => Poll::Ready(Err(Error::Arbitration)),
+                    CpuIntIidxStat::Crxdonefg => Poll::Ready(Ok(())),
                     _ => Poll::Pending,
                 };
 
@@ -1032,12 +1032,12 @@ impl<'d, M: Mode> I2c<'d, M> {
         T::info().regs.gprcm(0).rstctl().write(|w| {
             w.set_resetstkyclr(true);
             w.set_resetassert(true);
-            w.set_key(vals::ResetKey::KEY);
+            w.set_key(vals::ResetKey::Key);
         });
 
         T::info().regs.gprcm(0).pwren().write(|w| {
             w.set_enable(true);
-            w.set_key(vals::PwrenKey::KEY);
+            w.set_key(vals::PwrenKey::Key);
         });
 
         // init delay, 16 cycles

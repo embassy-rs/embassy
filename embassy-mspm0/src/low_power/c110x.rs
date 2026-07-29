@@ -39,8 +39,8 @@ pub unsafe fn enter_sleep(_cs: CriticalSection, mode: SleepMode) {
     let sysctl = pac::SYSCTL;
 
     let dsleep = match mode {
-        SleepMode::Stop0 | SleepMode::Stop2 => Dsleep::STOP,
-        SleepMode::Standby0 | SleepMode::Standby1 => Dsleep::STANDBY,
+        SleepMode::Stop0 | SleepMode::Stop2 => Dsleep::Stop,
+        SleepMode::Standby0 | SleepMode::Standby1 => Dsleep::Standby,
     };
     sysctl.pmodecfg().modify(|w| w.set_dsleep(dsleep));
 

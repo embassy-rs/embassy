@@ -732,12 +732,12 @@ fn enable(regs: Regs) {
     gprcm.rstctl().write(|w| {
         w.set_resetstkyclr(true);
         w.set_resetassert(true);
-        w.set_key(vals::ResetKey::KEY);
+        w.set_key(vals::ResetKey::Key);
     });
 
     gprcm.pwren().write(|w| {
         w.set_enable(true);
-        w.set_key(vals::PwrenKey::KEY);
+        w.set_key(vals::PwrenKey::Key);
     });
 }
 
@@ -784,7 +784,7 @@ fn configure(
         w.set_txe(enable_tx);
         // RXD_OUT_EN and TXD_OUT_EN?
         w.set_menc(false);
-        w.set_mode(vals::Mode::UART);
+        w.set_mode(vals::Mode::Uart);
         w.set_rtsen(enable_rts);
         w.set_ctsen(enable_cts);
         // oversampling is set later
@@ -796,22 +796,22 @@ fn configure(
 
     info.regs.ifls().modify(|w| {
         // TODO: Need power domain info for other options.
-        w.set_txiflsel(vals::Iflssel::AT_LEAST_ONE);
-        w.set_rxiflsel(vals::Iflssel::AT_LEAST_ONE);
+        w.set_txiflsel(vals::Iflssel::AtLeastOne);
+        w.set_rxiflsel(vals::Iflssel::AtLeastOne);
     });
 
     info.regs.lcrh().modify(|w| {
         let eps = if matches!(config.parity, Parity::ParityEven) {
-            vals::Eps::EVEN
+            vals::Eps::Even
         } else {
-            vals::Eps::ODD
+            vals::Eps::Odd
         };
 
         let wlen = match config.data_bits {
-            DataBits::DataBits5 => vals::Wlen::DATABIT5,
-            DataBits::DataBits6 => vals::Wlen::DATABIT6,
-            DataBits::DataBits7 => vals::Wlen::DATABIT7,
-            DataBits::DataBits8 => vals::Wlen::DATABIT8,
+            DataBits::DataBits5 => vals::Wlen::Databit5,
+            DataBits::DataBits6 => vals::Wlen::Databit6,
+            DataBits::DataBits7 => vals::Wlen::Databit7,
+            DataBits::DataBits8 => vals::Wlen::Databit8,
         };
 
         // Used in LIN mode only
@@ -890,14 +890,14 @@ fn set_baudrate_inner(regs: Regs, clock: u32, baudrate: u32) -> Result<(), Confi
     const MAX_FBRD: u8 = 2_u8.pow(6);
 
     const DIVS: [(u8, vals::Clkdiv); 8] = [
-        (1, vals::Clkdiv::DIV_BY_1),
-        (2, vals::Clkdiv::DIV_BY_2),
-        (3, vals::Clkdiv::DIV_BY_3),
-        (4, vals::Clkdiv::DIV_BY_4),
-        (5, vals::Clkdiv::DIV_BY_5),
-        (6, vals::Clkdiv::DIV_BY_6),
-        (7, vals::Clkdiv::DIV_BY_7),
-        (8, vals::Clkdiv::DIV_BY_8),
+        (1, vals::Clkdiv::DivBy1),
+        (2, vals::Clkdiv::DivBy2),
+        (3, vals::Clkdiv::DivBy3),
+        (4, vals::Clkdiv::DivBy4),
+        (5, vals::Clkdiv::DivBy5),
+        (6, vals::Clkdiv::DivBy6),
+        (7, vals::Clkdiv::DivBy7),
+        (8, vals::Clkdiv::DivBy8),
     ];
 
     // Quoting from SLAU 846 section 18.2.3.4:
@@ -910,19 +910,19 @@ fn set_baudrate_inner(regs: Regs, clock: u32, baudrate: u32) -> Result<(), Confi
     // Based on these requirements, prioritize higher oversampling first to increase tolerance to clock
     // deviation. If no valid BRD value can be found satisifying the highest sample rate, then reduce
     // sample rate until valid parameters are found.
-    const OVS: [(u8, vals::Hse); 3] = [(16, vals::Hse::OVS16), (8, vals::Hse::OVS8), (3, vals::Hse::OVS3)];
+    const OVS: [(u8, vals::Hse); 3] = [(16, vals::Hse::Ovs16), (8, vals::Hse::Ovs8), (3, vals::Hse::Ovs3)];
 
     // 3x oversampling is not supported with manchester coding, DALI or IrDA.
     let x3_invalid = {
         let ctl0 = regs.ctl0().read();
         let irctl = regs.irctl().read();
 
-        ctl0.menc() || matches!(ctl0.mode(), vals::Mode::DALI) || irctl.iren()
+        ctl0.menc() || matches!(ctl0.mode(), vals::Mode::Dali) || irctl.iren()
     };
     let mut found = None;
 
     'outer: for &(oversampling, hse_value) in &OVS {
-        if matches!(hse_value, vals::Hse::OVS3) && x3_invalid {
+        if matches!(hse_value, vals::Hse::Ovs3) && x3_invalid {
             continue;
         }
 

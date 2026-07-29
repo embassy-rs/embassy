@@ -147,7 +147,7 @@ pub unsafe fn sleep(cs: CriticalSection) {
 // then `WFI`. This is identical across every MSPM0 family.
 pub fn shutdown(_cs: CriticalSection) -> ! {
     let sysctl = pac::SYSCTL;
-    sysctl.pmodecfg().modify(|w| w.set_dsleep(Dsleep::SHUTDOWN));
+    sysctl.pmodecfg().modify(|w| w.set_dsleep(Dsleep::Shutdown));
 
     let _prefetch = PrefetchSuspend::new();
 
@@ -169,7 +169,7 @@ impl PrefetchSuspend {
     fn new() -> Self {
         let saved = pac::CPUSS.ctl().read();
         let mut disabled = saved;
-        disabled.set_prefetch(Prefetch::DISABLE);
+        disabled.set_prefetch(Prefetch::Disable);
         pac::CPUSS.ctl().write_value(disabled);
 
         // CPU_ERR_02 means the prefetcher will not be disabled until pending flash access is finished.
