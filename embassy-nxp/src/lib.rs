@@ -15,7 +15,9 @@ pub mod pwm;
 pub mod sct;
 #[cfg(lpc55)]
 pub mod usart;
-
+#[cfg(all(lpc55, feature = "crc"))]
+#[path = "crc/crc.rs"]
+pub mod crc;
 #[cfg(rt1xxx)]
 mod iomuxc;
 

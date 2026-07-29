@@ -40,7 +40,7 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 embedded-io = { version = "0.7.1" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 ## Chip dependencies
-nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/embassy-rs/nxp-pac", rev = "47dada0976da4114c348ea16f5ead31f38f36eea" }
+nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/embassy-rs/nxp-pac", rev = "47dada0976da4114c348ea16f5ead31f38f36eea", features = ["metadata", "lpc55s69_cm33_core0"] }
 
 imxrt-rt = { version = "0.1.7", optional = true, features = ["device"] }
 
@@ -87,3 +87,4 @@ lpc55-core0 = ["nxp-pac/lpc55s69_cm33_core0"]
 lpc55s16 = ["nxp-pac/lpc55s16", "_lpc55"]
 mimxrt1011 = ["nxp-pac/mimxrt1011", "_rt1xxx", "dep:imxrt-rt"]
 mimxrt1062 = ["nxp-pac/mimxrt1062", "_rt1xxx", "dep:imxrt-rt"]
+crc = []
