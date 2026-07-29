@@ -625,9 +625,9 @@ impl<'d, M: Mode> FlexCan<'d, M> {
     ///
     /// If the two halves come from different peripherals, this returns `Err((tx, rx))`,
     /// where `tx` and `rx` are the same `tx`/`rx` you passed in. This means you can try again if you need to.
-    pub fn join(tx: FlexCanTx<'d, M>, rx: FlexCanRx<'d, M>) -> Result<Self, (FlexCanRx<'d, M>, FlexCanTx<'d, M>)> {
+    pub fn join(tx: FlexCanTx<'d, M>, rx: FlexCanRx<'d, M>) -> Result<Self, (FlexCanTx<'d, M>, FlexCanRx<'d, M>)> {
         if !core::ptr::eq(tx.info, rx.info) {
-            return Err((rx, tx));
+            return Err((tx, rx));
         }
         Ok(Self { tx, rx })
     }
