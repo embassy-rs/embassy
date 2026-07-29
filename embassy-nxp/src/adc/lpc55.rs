@@ -4,10 +4,10 @@
 
 use embassy_hal_internal::Peri;
 
-use crate::peripherals::ADC0;
+use crate::pac;
 use crate::pac::adc0::Adc0;
 use crate::pac::adc0::vals;
-use crate::pac;
+use crate::peripherals::ADC0;
 
 /// Resolution selection
 pub enum Resolution {
@@ -58,13 +58,13 @@ impl<'d> Adc<'d> {
     /// adc parameter should be reaplced with Peri once nxp-pac implements it
     pub fn new(peri: Peri<'d, ADC0>, config: Config) -> Self {
         let adc: Adc0 = pac::ADC0;
-        
+
         // Power & clocks
         Self::enable_power_clocks();
 
         // Reset just in case
         adc.ctrl().write(|w| w.set_rst(vals::Rst::Rst1));
-        adc.ctrl().write(|w| w.set_rst(vals::Rst::Rst0)); 
+        adc.ctrl().write(|w| w.set_rst(vals::Rst::Rst0));
 
         // Reset results
         adc.ctrl().modify(|w| {
@@ -81,22 +81,14 @@ impl<'d> Adc<'d> {
         });
 
         // No pause
-        adc.pause().write(|w| {
-            w.set_pauseen(0.into())
-        });
+        adc.pause().write(|w| w.set_pauseen(0.into()));
 
         // Disable watermark
-        adc.fctrl(0).write(|w| {
-            w.set_fwmark(0)
-        });
-        adc.fctrl(0).write(|w| {
-            w.set_fwmark(0)
-        });
+        adc.fctrl(0).write(|w| w.set_fwmark(0));
+        adc.fctrl(0).write(|w| w.set_fwmark(0));
 
         // Enable the ADC
-        adc.ctrl().modify(|w| {
-            w.set_adcen(1.into())
-        });
+        adc.ctrl().modify(|w| w.set_adcen(1.into()));
 
         // Calibrate
         Self::calibrate(&adc);
@@ -130,21 +122,13 @@ impl<'d> Adc<'d> {
         // Set resolution
         match config.resolution {
             Resolution::Bits12 => {
-                adc.cmdl1().modify(|w| {
-                    w.set_mode(vals::Cmdl1Mode::Mode0)
-                });
-            },
-            Resolution::Bits16 => {
-                adc.cmdl1().modify(|w| {
-                    w.set_mode(vals::Cmdl1Mode::Mode1)
-                })
+                adc.cmdl1().modify(|w| w.set_mode(vals::Cmdl1Mode::Mode0));
             }
+            Resolution::Bits16 => adc.cmdl1().modify(|w| w.set_mode(vals::Cmdl1Mode::Mode1)),
         };
 
         // Set averaging
-        adc.ctrl().modify(|w| {
-            w.set_cal_avgs(avgs_bit.into())
-        });
+        adc.ctrl().modify(|w| w.set_cal_avgs(avgs_bit.into()));
 
         Self { _peri: peri, config }
     }
@@ -153,7 +137,7 @@ impl<'d> Adc<'d> {
         let syscon = pac::SYSCON;
         let pmc = pac::PMC;
         let anactrl = pac::ANACTRL;
-        
+
         // Enable clocks
         // bit 27 = ADC
         // bit 13 = IOCON
@@ -167,17 +151,11 @@ impl<'d> Adc<'d> {
         pmc.pdruncfgclr0().write(|w| w.set_pdruncfgclr0(1 << 19));
 
         // Enable VREF
-        anactrl.aux_bias().modify(|w| {
-            w.set_vref1venable(true)
-        });
+        anactrl.aux_bias().modify(|w| w.set_vref1venable(true));
 
         // Configure the clocks
-        syscon.adcclksel().write(|w| {
-            w.set_sel(0)
-        });
-        syscon.adcclkdiv().write(|w| {
-            w.set_div(6)
-        });
+        syscon.adcclksel().write(|w| w.set_sel(0));
+        syscon.adcclkdiv().write(|w| w.set_div(6));
         syscon.adcclkdiv().modify(|w| w.set_reset(1.into()));
         syscon.adcclkdiv().modify(|w| w.set_reset(0.into()));
         syscon.adcclkdiv().modify(|w| w.set_halt(0.into()));
@@ -206,11 +184,11 @@ impl<'d> Adc<'d> {
         let gcr_a = (((gain_a as u32) << 16) / (0x1FFFFu32 - gain_a as u32)) as u16;
         let gcr_b = (((gain_b as u32) << 16) / (0x1FFFFu32 - gain_b as u32)) as u16;
 
-        adc.gcr(0).write(|w| { 
+        adc.gcr(0).write(|w| {
             w.set_gcalr(gcr_a);
             w.set_rdy(1.into())
         });
-        adc.gcr(1).write(|w| { 
+        adc.gcr(1).write(|w| {
             w.set_gcalr(gcr_b);
             w.set_rdy(1.into())
         });
@@ -228,9 +206,7 @@ impl<'d> Adc<'d> {
         });
 
         // Trigger the event
-        adc.swtrig().write(|w| {
-            w.set_swt0(1.into())
-        });
+        adc.swtrig().write(|w| w.set_swt0(1.into()));
 
         // wait for results
         while adc.fctrl(0).read().fcount() == 0 {}
@@ -296,11 +272,9 @@ macro_rules! impl_adc_pin {
                     }
                     _ => unreachable!(),
                 }
-
-                
             }
         }
-    }
+    };
 }
 
 // https://www.nxp.com/docs/en/data-sheet/LPC55S6x.pdf
@@ -311,6 +285,6 @@ impl_adc_pin!(PIO0_11, 0, 11, 1, 1);
 impl_adc_pin!(PIO0_15, 0, 15, 2, 0);
 impl_adc_pin!(PIO0_12, 0, 12, 2, 1);
 impl_adc_pin!(PIO0_31, 0, 31, 3, 0);
-impl_adc_pin!(PIO1_0,  1,  0, 3, 1);
-impl_adc_pin!(PIO1_8,  1,  8, 4, 0);
-impl_adc_pin!(PIO1_9,  1,  9, 4, 1);
+impl_adc_pin!(PIO1_0, 1, 0, 3, 1);
+impl_adc_pin!(PIO1_8, 1, 8, 4, 0);
+impl_adc_pin!(PIO1_9, 1, 9, 4, 1);
