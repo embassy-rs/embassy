@@ -265,6 +265,7 @@ macro_rules! impl_adc_pin {
                             w.set_func(0.into());
                             w.set_mode(0.into());
                             w.set_digimode(0.into());
+                            #[cfg(not(feature = "lpc55s16"))]
                             w.set_asw(1.into())
                         });
                     }
@@ -273,6 +274,7 @@ macro_rules! impl_adc_pin {
                             w.set_func(0.into());
                             w.set_mode(0.into());
                             w.set_digimode(0.into());
+                            #[cfg(not(feature = "lpc55s16"))]
                             w.set_asw(1.into())
                         });
                     }
