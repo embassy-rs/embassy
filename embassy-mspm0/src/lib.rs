@@ -13,7 +13,6 @@ pub(crate) mod fmt;
 mod macros;
 
 pub mod adc;
-pub mod clocks;
 mod common;
 pub mod dma;
 pub mod gpio;
@@ -25,6 +24,7 @@ pub mod i2c_target;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x))]
 pub mod mathacl;
 pub mod sysctl;
+
 pub mod tim;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x, mspm0l122x, mspm0l222x))]
 pub mod trng;
@@ -74,7 +74,7 @@ pub use mspm0_metapac as pac;
 pub(crate) use mspm0_metapac as pac;
 
 pub use crate::_generated::interrupt;
-use crate::clocks::ClockConfig;
+use crate::sysctl::clocks::ClockConfig;
 
 /// Macro to bind interrupts to handlers.
 ///
@@ -183,7 +183,7 @@ pub fn init(config: Config) -> Peripherals {
     critical_section::with(|cs| {
         let peripherals = Peripherals::take_with_cs(cs);
 
-        unsafe { crate::clocks::init(config.clock_config) };
+        unsafe { crate::sysctl::clocks::init(config.clock_config) };
 
         pac::SYSCTL.borthreshold().modify(|w| {
             w.set_level(0);

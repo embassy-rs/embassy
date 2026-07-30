@@ -21,6 +21,7 @@ use crate::{Peri, pac};
 #[cfg_attr(any(mspm0l122x, mspm0l222x), path = "l_typeb.rs")]
 mod inner;
 
+pub mod clocks;
 pub use inner::ClkOutSource;
 
 /// Divider applied to the clock source of the CLK_OUT pin.

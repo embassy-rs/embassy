@@ -250,7 +250,9 @@ impl<'d, T: Instance> LLTimer<'d, T> {
         // Frequency is chip-specific & based on power-domain;
 
         // FIXME: usually BusClock is MCLK, but e.g. TIMG0 on G310x is PD0->ULPCLK, currently there is no way to distinguish
-        let clk_freq = crate::clocks::CLOCKS.m_clk.load(core::sync::atomic::Ordering::Relaxed);
+        let clk_freq = crate::sysctl::clocks::CLOCKS
+            .m_clk
+            .load(core::sync::atomic::Ordering::Relaxed);
 
         // TODO: use mathacl for div?
         // NOTE: could also use `FEATUREVER` to find the available features

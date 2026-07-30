@@ -68,10 +68,10 @@ pub struct SysOscConfig {
 #[derive(Clone)]
 pub enum MClkSource {
     #[cfg(mspm0g)]
-    PLL,
-    SYSOSC,
-    LFCLK,
-    HFCLK,
+    Pll,
+    SysOsc,
+    LfClk,
+    HfClk,
 }
 
 #[derive(Clone)]
@@ -98,9 +98,9 @@ impl Default for ClockConfig {
                 speed: SysOscSpeed::HighSpeed,
             },
             #[cfg(mspm0g)]
-            mclk_source: MClkSource::PLL,
+            mclk_source: MClkSource::Pll,
             #[cfg(not(mspm0g))]
-            mclk_source: MClkSource::SYSOSC,
+            mclk_source: MClkSource::SysOsc,
         }
     }
 }
@@ -148,10 +148,10 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     CLOCKS.m_clk.store(
         match config.mclk_source {
             #[cfg(mspm0g)]
-            MClkSource::PLL => 80_000_000, // TODO: calculate
-            MClkSource::SYSOSC => config.sysosc_config.speed.frequency(),
-            MClkSource::LFCLK => unimplemented!("LFCLK is not supported yet"),
-            MClkSource::HFCLK => unimplemented!("HFCLK is not supported yet"),
+            MClkSource::Pll => 80_000_000, // TODO: calculate
+            MClkSource::SysOsc => config.sysosc_config.speed.frequency(),
+            MClkSource::LfClk => unimplemented!("LFCLK is not supported yet"),
+            MClkSource::HfClk => unimplemented!("HFCLK is not supported yet"),
         },
         Ordering::Relaxed,
     );
@@ -243,29 +243,29 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     #[cfg(not(any(mspm0c, mspm0l, mspm0h)))]
     pac::SYSCTL.hsclkcfg().modify(|w| match config.mclk_source {
         #[cfg(mspm0g)]
-        MClkSource::PLL => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::SYSPLL),
-        MClkSource::HFCLK => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::HFCLKCLK),
+        MClkSource::Pll => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::SYSPLL),
+        MClkSource::HfClk => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::HFCLKCLK),
         _ => {}
     });
 
     pac::SYSCTL.mclkcfg().modify(|w| {
         match config.mclk_source {
-            MClkSource::SYSOSC => {
+            MClkSource::SysOsc => {
                 w.set_usemftick(true);
                 w.set_mdiv(0);
             }
             #[cfg(mspm0g)]
-            MClkSource::PLL => {
+            MClkSource::Pll => {
                 w.set_flashwait(mspm0_metapac::sysctl::vals::Flashwait::WAIT2);
                 w.set_usehsclk(true);
             }
-            MClkSource::HFCLK => {
+            MClkSource::HfClk => {
                 // FIXME: this should exist for MSPM0L
                 w.set_flashwait(mspm0_metapac::sysctl::vals::Flashwait::WAIT2);
                 #[cfg(not(mspm0l))]
                 w.set_usehsclk(true);
             }
-            MClkSource::LFCLK => {
+            MClkSource::LfClk => {
                 w.set_uselfclk(true);
             }
         }
