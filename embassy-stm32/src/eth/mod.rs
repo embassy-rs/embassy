@@ -181,7 +181,7 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
         caps.max_burst_size = Some(self.tx.len());
         // The v2 MAC offloads the IPv4 header and TCP/UDP payload
         // checksums in hardware (MACCR.IPC + TDES3.CIC; bad RX frames are dropped
-        // in the descriptor ring), so smoltcp can skip them.
+        // in the descriptor ring), so xarxa can skip them.
         #[cfg(any(eth_v2, eth_v2a, eth_v1b, eth_v1c))]
         {
             use embassy_net_driver::Checksum;

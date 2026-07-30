@@ -12,6 +12,7 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::khz;
@@ -20,7 +21,7 @@ use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::{Duration, Ticker, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA1_STREAM2 => dma::InterruptHandler<peripherals::DMA1_CH2>;

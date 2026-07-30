@@ -4,6 +4,7 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::egu::{Egu, TriggerNumber};
 use embassy_nrf::gpio::{Level, OutputDrive, Pull};
@@ -11,7 +12,7 @@ use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity, OutputChannel, Out
 use embassy_nrf::peripherals::{PPI_CH0, PPI_CH1, PPI_CH2};
 use embassy_nrf::ppi::Ppi;
 use embassy_time::{Duration, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

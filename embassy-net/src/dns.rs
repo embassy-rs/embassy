@@ -5,9 +5,9 @@
 //! not using `embedded-nal-async`.
 
 use heapless::Vec;
-pub use smoltcp::socket::dns::{DnsQuery, Socket};
-pub(crate) use smoltcp::socket::dns::{GetQueryResultError, StartQueryError};
-pub use smoltcp::wire::{DnsQueryType, IpAddress};
+pub use xarxa::socket::dns::{DnsQuery, Socket};
+pub(crate) use xarxa::socket::dns::{GetQueryResultError, StartQueryError};
+pub use xarxa::wire::{DnsQueryType, IpAddress};
 
 use crate::Stack;
 
@@ -61,7 +61,7 @@ impl<'a> DnsSocket<'a> {
         &self,
         name: &str,
         qtype: DnsQueryType,
-    ) -> Result<Vec<IpAddress, { smoltcp::config::DNS_MAX_RESULT_COUNT }>, Error> {
+    ) -> Result<Vec<IpAddress, { xarxa::config::DNS_MAX_RESULT_COUNT }>, Error> {
         self.stack.dns_query(name, qtype).await
     }
 }

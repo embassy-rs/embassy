@@ -4,13 +4,14 @@
 use core::cmp::Ordering;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::pdm::{self, Config, Frequency, OperationMode, Pdm, Ratio, SamplerState};
 use embassy_nrf::{bind_interrupts, peripherals};
 use fixed::types::I7F1;
 use microfft::real::rfft_1024;
 use num_integer::Roots;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Demonstrates both continuous sampling and scanning multiple channels driven by a PPI linked timer
 

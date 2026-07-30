@@ -3,6 +3,7 @@
 #![no_std]
 #![no_main]
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
@@ -11,7 +12,7 @@ use embassy_rp::pio::{Config, InterruptHandler, Pio, ShiftConfig, ShiftDirection
 use embassy_rp::{bind_interrupts, dma};
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -24,7 +25,7 @@ fn swap_nibbles(v: u32) -> u32 {
     (v & 0x0000_ffff) << 16 | (v & 0xffff_0000) >> 16
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let pio = p.PIO0;

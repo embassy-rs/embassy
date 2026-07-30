@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `Instant::try_from_nanos`
 - Added 375KHz tick rate support
 - Upgrade embassy-executor to 0.10.0
+- driver_std: convert to using `LazyLock`
+- driver_std: wrap timer iteration in critical section
+- driver_std: also check timer queue within `schedule_wake()`
 
 ## 0.5.0 - 2025-08-26
 

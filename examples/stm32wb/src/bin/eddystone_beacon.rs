@@ -4,6 +4,7 @@
 use core::time::Duration;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::bind_interrupts;
@@ -13,6 +14,7 @@ use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::sub::ble::ControllerAdapter;
 use embassy_stm32_wpan::sub::mm;
+use panic_probe as _;
 use stm32wb_hci::BdAddr;
 use stm32wb_hci::host::uart::UartHci;
 use stm32wb_hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
@@ -20,7 +22,6 @@ use stm32wb_hci::types::AdvertisingType;
 use stm32wb_hci::vendor::command::gap::{AdvertisingDataType, DiscoverableParameters, GapCommands, Role};
 use stm32wb_hci::vendor::command::gatt::GattCommands;
 use stm32wb_hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;

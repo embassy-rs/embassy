@@ -126,11 +126,11 @@ intrinsics! {
         if f.is_not_finite() {
             return f64::from_repr(
                 // Not finite
-                f64::EXPONENT_MASK |
+                <f64 as Float>::EXPONENT_MASK |
                 // Preserve NaN or inf
                 ((f.repr() & f32::SIGNIFICAND_MASK) as u64) |
                 // Preserve sign
-                ((f.repr() & f32::SIGN_MASK) as u64) << (f64::BITS-f32::BITS)
+                ((f.repr() & <f32 as Float>::SIGN_MASK) as u64) << (<f64 as Float>::BITS - <f32 as Float>::BITS)
             );
         }
         rom_data::float_funcs::float_to_double(f)
@@ -143,9 +143,9 @@ intrinsics! {
         if f.is_not_finite() {
             let mut repr: u32 =
                 // Not finite
-                f32::EXPONENT_MASK |
+                <f32 as Float>::EXPONENT_MASK |
                 // Preserve sign
-                ((f.repr() & f64::SIGN_MASK) >> (f64::BITS-f32::BITS)) as u32;
+                ((f.repr() & <f64 as Float>::SIGN_MASK) >> (<f64 as Float>::BITS - <f32 as Float>::BITS)) as u32;
             // Set NaN
             if  (f.repr() & f64::SIGNIFICAND_MASK) != 0 {
                 repr |= 1;

@@ -19,6 +19,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG};
@@ -34,9 +35,9 @@ use embassy_stm32_wpan::bluetooth::gatt::{
     ServiceHandle, ServiceType, Uuid, is_cccd_handle, is_value_handle,
 };
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
+use panic_probe as _;
 use stm32wb_hci::Event;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
-use {defmt_rtt as _, panic_probe as _};
 
 // ---- Test configuration ----
 const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;

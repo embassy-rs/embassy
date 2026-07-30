@@ -1,12 +1,14 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::lpuart::{Config, Lpuart};
 use embassy_mcxa::{bind_interrupts, lpuart};
 use embedded_io_async::Write;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 // Bind LPUART1 IRQ for the buffered driver
 bind_interrupts!(struct Irqs {

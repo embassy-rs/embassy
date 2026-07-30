@@ -5,12 +5,13 @@ use core::fmt::Write;
 
 use cortex_m_rt::entry;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Executor;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use heapless::String;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     UART7 => usart::InterruptHandler<peripherals::UART7>;

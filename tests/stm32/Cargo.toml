@@ -111,7 +111,7 @@ aligned = "0.4.3"
 chrono = { version = "^0.4", default-features = false, optional = true}
 sha2 = { version = "0.11.0", default-features = false }
 hmac = "0.13.0"
-aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "heapless"] }
+aes-gcm = { version = "0.11.0", default-features = false, features = ["aes"] }
 num-traits = { version="0.2", default-features = false,features = ["libm"], optional = true}
 heapless = "0.9.3"
 

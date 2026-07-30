@@ -2,8 +2,9 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
+use panic_probe as _;
 use rtic_monotonics::stm32::prelude::*;
-use {defmt_rtt as _, panic_probe as _};
 
 // Define rtic-monotick type as `Mono` using macro from rtic_monotonics, using the TIM2 clock and
 // with a tick rate of 1MHz

@@ -17,14 +17,14 @@
 //!
 //! # Supported cipher modes
 //!
-//! | Mode | Padding | Auth | Use case |
-//! |------|---------|------|----------|
-//! | ECB  | Required | No  | Keys only (not recommended for data) |
-//! | CBC  | Required | No  | File/disk encryption |
-//! | CTR  | No | No  | Streaming data, random access |
-//! | GCM  | No | Yes | **Recommended** — modern applications |
-//! | GMAC | No | Yes | Authentication without encryption |
-//! | CCM  | No | Yes | Resource-constrained devices |
+//! | Mode | Padding  | Auth | Use case                                |
+//! |------|----------|------|-----------------------------------------|
+//! | ECB  | Required | No   | Keys only (not recommended for data)    |
+//! | CBC  | Required | No   | File/disk encryption                    |
+//! | CTR  | No       | No   | Streaming data, random access           |
+//! | GCM  | No       | Yes  | **Recommended** — modern applications   |
+//! | GMAC | No       | Yes  | Authentication without encryption       |
+//! | CCM  | No       | Yes  | Resource‑constrained devices            |
 //!
 //! # Key sizes
 //!
