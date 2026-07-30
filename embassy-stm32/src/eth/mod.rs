@@ -5,7 +5,7 @@
 compile_error!("The 'ptp' feature is only supported on STM32 Ethernet MAC v2/v2a peripherals.");
 
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]
-#[cfg_attr(any(eth_v2, eth_v2a), path = "v2/mod.rs")]
+#[cfg_attr(any(eth_v2, eth_v2a, eth_v2b), path = "v2/mod.rs")]
 mod _version;
 mod generic_phy;
 #[cfg(feature = "ptp")]
@@ -283,23 +283,23 @@ trait SealedInstance {
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + Send + 'static {}
 
-#[cfg(not(eth_v2a))]
+#[cfg(not(any(eth_v2a, eth_v2b)))]
 impl SealedInstance for crate::peripherals::ETH {
     fn regs() -> crate::pac::eth::Eth {
         crate::pac::ETH
     }
 }
 
-#[cfg(eth_v2a)]
+#[cfg(any(eth_v2a, eth_v2b))]
 impl SealedInstance for crate::peripherals::ETH1 {
     fn regs() -> crate::pac::eth::Eth {
         crate::pac::ETH1
     }
 }
 
-#[cfg(not(eth_v2a))]
+#[cfg(not(any(eth_v2a, eth_v2b)))]
 impl Instance for crate::peripherals::ETH {}
-#[cfg(eth_v2a)]
+#[cfg(any(eth_v2a, eth_v2b))]
 impl Instance for crate::peripherals::ETH1 {}
 
 pin_trait!(RXClkPin, Instance, @A);

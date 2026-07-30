@@ -8,7 +8,7 @@ pub(crate) use descriptors::{RDes, RDesRing, TDes, TDesRing};
 use embassy_hal_internal::Peri;
 #[cfg(feature = "ptp")]
 pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement, PtpTimeProvider};
-#[cfg(eth_v2)]
+#[cfg(any(eth_v2, eth_v2b))]
 use stm32_metapac::syscfg::vals::EthSelPhy;
 
 use super::*;
@@ -17,14 +17,14 @@ use crate::interrupt;
 use crate::interrupt::InterruptExt;
 #[cfg(eth_v2)]
 use crate::pac::ETH;
-#[cfg(eth_v2a)]
+#[cfg(any(eth_v2a, eth_v2b))]
 use crate::pac::ETH1 as ETH;
 use crate::rcc::WakeGuard;
 
 // The two MACs sit behind different interrupt lines.
 #[cfg(eth_v2)]
 type EthTypelevel = interrupt::typelevel::ETH;
-#[cfg(eth_v2a)]
+#[cfg(any(eth_v2a, eth_v2b))]
 type EthTypelevel = interrupt::typelevel::ETH1;
 
 /// Access a per-channel DMA/MTL register at channel 0.
@@ -33,7 +33,7 @@ type EthTypelevel = interrupt::typelevel::ETH1;
 /// channels); on eth_v2 they are plain registers.
 macro_rules! ch0 {
     ($regs:expr, $reg:ident) => {{
-        #[cfg(eth_v2)]
+        #[cfg(any(eth_v2, eth_v2b))]
         {
             $regs.$reg()
         }
@@ -83,7 +83,7 @@ pub struct Ethernet<'d, T: Instance, P: Phy> {
 enum Pins<'d> {
     #[allow(unused)]
     Rmii([Flex<'d>; 7]),
-    #[cfg(eth_v2)]
+    #[cfg(any(eth_v2, eth_v2b))]
     #[allow(unused)]
     Mii([Flex<'d>; 12]),
     #[cfg(eth_v2a)]
@@ -145,7 +145,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     ///
     /// See [`Ethernet::new_mii_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
-    #[cfg(eth_v2)]
+    #[cfg(any(eth_v2, eth_v2b))]
     pub fn new_mii<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
@@ -257,13 +257,13 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             pins,
             phy,
             mac_addr,
-            #[cfg(eth_v2)]
+            #[cfg(any(eth_v2, eth_v2b))]
             EthSelPhy::Rmii,
         )
     }
 
     /// Create a new MII ethernet driver using 12 pins.
-    #[cfg(eth_v2)]
+    #[cfg(any(eth_v2, eth_v2b))]
     pub fn new_mii_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
@@ -361,7 +361,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         pins: Pins<'d>,
         phy: P,
         mac_addr: [u8; 6],
-        #[cfg(eth_v2)] eth_sel_phy: EthSelPhy,
+        #[cfg(any(eth_v2, eth_v2b))] eth_sel_phy: EthSelPhy,
     ) -> Self {
         // Enable the necessary clocks
         #[cfg(eth_v2)]
@@ -373,6 +373,17 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             });
 
             crate::pac::SYSCFG.pmcr().modify(|w| w.set_eth_sel_phy(eth_sel_phy));
+        });
+        #[cfg(eth_v2b)]
+        critical_section::with(|_| {
+            crate::pac::RCC.ahb1enr().modify(|w| {
+                w.set_eth1en(true);
+                w.set_eth1txen(true);
+                w.set_eth1rxen(true);
+            });
+
+            crate::pac::SYSCFG.pmcr().modify(|w| w.set_eth_sel_phy(eth_sel_phy));
+            assert_eq!(crate::pac::SYSCFG.pmcr().read().eth_sel_phy(), eth_sel_phy);
         });
         #[cfg(eth_v2a)]
         critical_section::with(|_| {
@@ -498,13 +509,13 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         });
 
         ch0!(dma, dmac_tx_cr).modify(|w| {
-            #[cfg(eth_v2)]
+            #[cfg(any(eth_v2, eth_v2b))]
             w.set_txpbl(1); // 32 ?
             #[cfg(eth_v2a)]
             w.set_txpbl(32);
         });
         ch0!(dma, dmac_rx_cr).modify(|w| {
-            #[cfg(eth_v2)]
+            #[cfg(any(eth_v2, eth_v2b))]
             w.set_rxpbl(1); // 32 ?
             #[cfg(eth_v2a)]
             w.set_rxpbl(32);
@@ -567,7 +578,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             interrupt::ETH.unpend();
             unsafe { interrupt::ETH.enable() };
         }
-        #[cfg(eth_v2a)]
+        #[cfg(any(eth_v2a, eth_v2b))]
         {
             interrupt::ETH1.unpend();
             unsafe { interrupt::ETH1.enable() };

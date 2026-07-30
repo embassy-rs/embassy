@@ -9,7 +9,7 @@ use crate::eth::ptp::{PtpTimestamp, RxPacketStateRing, TxPacketStateRing};
 use crate::eth::{Packet, RX_BUFFER_SIZE, TX_BUFFER_SIZE};
 #[cfg(eth_v2)]
 use crate::pac::ETH;
-#[cfg(eth_v2a)]
+#[cfg(any(eth_v2a, eth_v2b))]
 use crate::pac::ETH1 as ETH;
 
 /// Access a per-channel DMA register at channel 0.
@@ -18,7 +18,7 @@ use crate::pac::ETH1 as ETH;
 /// channels); on eth_v2 they are plain registers. We only ever use channel 0.
 macro_rules! dma_ch0 {
     ($dma:expr, $reg:ident) => {{
-        #[cfg(eth_v2)]
+        #[cfg(any(eth_v2, eth_v2b))]
         {
             $dma.$reg()
         }
