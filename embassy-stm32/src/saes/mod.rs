@@ -6,13 +6,13 @@
 //!
 //! # Key Differences from AES
 //!
-//! | Feature | AES | SAES |
-//! |---------|-----|------|
-//! | Key Sources | Software only | Software + Hardware (DHUK, BHK) |
-//! | Key Protection | Basic | KEYPROT + isolation |
-//! | Key Sharing | No | Yes (with AES, other peripherals) |
-//! | Key Wrapping | No | Yes (wrapped/encrypted keys) |
-//! | Security Context | Standard | Enhanced/Secure |
+//! | Feature          | AES           | SAES                               |
+//! |------------------|---------------|------------------------------------|
+//! | Key Sources      | Software only | Software + Hardware (DHUK, BHK)    |
+//! | Key Protection   | Basic         | KEYPROT + isolation                |
+//! | Key Sharing      | No            | Yes (with AES, other peripherals)  |
+//! | Key Wrapping     | No            | Yes (wrapped/encrypted keys)       |
+//! | Security Context | Standard      | Enhanced/Secure                    |
 //!
 //! # Hardware Key Sources
 //!
