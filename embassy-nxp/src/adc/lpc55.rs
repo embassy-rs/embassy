@@ -36,9 +36,11 @@ impl Config {
     pub const fn new(resolution: Resolution, averaging: Averaging) -> Self {
         Self { resolution, averaging }
     }
+}
 
-    /// The default config
-    pub const fn default() -> Self {
+/// The default config
+impl Default for Config {
+    fn default() -> Self {
         Self {
             resolution: Resolution::Bits16,
             averaging: Averaging::None,
