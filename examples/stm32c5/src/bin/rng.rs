@@ -14,7 +14,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
-    config.rcc.mux.clk48sel = embassy_stm32::rcc::mux::Clksel::HsiDiv3;
+    config.rcc.mux.clk48sel = embassy_stm32::rcc::mux::Clksel::Hsidiv3;
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
