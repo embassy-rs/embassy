@@ -1,6 +1,4 @@
-use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
-
-use mspm0_metapac::sysctl::vals::FcccmdKey;
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::pac;
 
@@ -106,6 +104,7 @@ impl Default for ClockConfig {
 }
 
 // TODO:  Debug utils; to be moved
+#[cfg(not(mspm0c))]
 pub fn start_measure_frequency() {
     pac::SYSCTL.genclkcfg().modify(|w| {
         w.set_fccselclk(mspm0_metapac::sysctl::vals::Fccselclk::SYSPLLCLK0);
@@ -114,17 +113,17 @@ pub fn start_measure_frequency() {
         w.set_fcctrigcnt(0x1F);
     });
 
-    compiler_fence(Ordering::SeqCst);
+    core::sync::atomic::compiler_fence(Ordering::SeqCst);
 
     pac::SYSCTL.fcccmd().write(|w| {
         w.set_go(true);
-        w.set_key(FcccmdKey::KEY);
+        w.set_key(mspm0_metapac::sysctl::vals::FcccmdKey::KEY);
     })
 }
 
 pub fn frequency() -> Option<u32> {
     let status = pac::SYSCTL.clkstatus().read();
-    #[cfg(feature = "defmt")]
+    #[cfg(all(feature = "defmt", not(mspm0c)))]
     defmt::warn!(
         "PLL status off={}, good={}; hsclkoff={}, hsclkgood={}, sysosc_freq={}",
         status.sysplloff(),
@@ -261,6 +260,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             }
             MClkSource::HfClk => {
                 // FIXME: this should exist for MSPM0L
+                #[cfg(not(mspm0c))]
                 w.set_flashwait(mspm0_metapac::sysctl::vals::Flashwait::WAIT2);
                 #[cfg(not(mspm0l))]
                 w.set_usehsclk(true);
