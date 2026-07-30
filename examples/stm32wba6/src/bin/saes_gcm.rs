@@ -26,21 +26,25 @@
 
 use defmt::*;
 use defmt_rtt as _;
+use embassy_stm32::rng::Rng;
 use embassy_stm32::saes::{AesGcm, Direction, Saes};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     SAES => embassy_stm32::saes::InterruptHandler<peripherals::SAES>;
+    RNG => embassy_stm32::rng::InterruptHandler<peripherals::RNG>;
 });
 
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
-    let config = Config::default();
+    let mut config = Config::default();
+    config.rcc.mux.rngsel = embassy_stm32::rcc::mux::Rngsel::Hsi;
     let p = embassy_stm32::init(config);
     info!("SAES-GCM Example");
 
-    let mut saes = Saes::new_blocking(p.SAES, Irqs);
+    let rng = Rng::new(p.RNG, Irqs);
+    let mut saes = Saes::new_blocking(p.SAES, Irqs, &rng);
 
     // ─── GCM round-trip: no AAD, 16-byte plaintext ───────────────────────────
     // Uses zero key, IV, and plaintext for a clean baseline test.

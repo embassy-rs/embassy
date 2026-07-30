@@ -278,25 +278,11 @@ pub struct Saes<'d, T: Instance, M: Mode> {
 
 impl<'d, T: Instance> Saes<'d, T, Blocking> {
     /// Instantiates, resets, and enables the SAES peripheral.
-    pub fn new_blocking(
+    pub fn new_blocking<#[cfg(any(rng_wba6, rng_v4))] 'rng, #[cfg(any(rng_wba6, rng_v4))] RNG: crate::rng::Instance>(
         peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        #[cfg(any(rng_wba6, rng_v4))] _rng: &crate::rng::Rng<'rng, RNG>, // On WBA6 and C5, SAES fetches a random seed from the RNG on every reset/enable.
     ) -> Self {
-        // On WBA6, SAES fetches a random seed from the RNG on every reset/enable.
-        // If the RNG is not already running, start it with HSI as the clock source.
-        // This mirrors the same workaround used by the PKA driver on WBA6.
-        #[cfg(rng_wba6)]
-        {
-            let rcc = pac::RCC;
-            if !rcc.ahb2enr().read().rngen() {
-                rcc.ccipr2().modify(|w| w.set_rngsel(pac::rcc::vals::Rngsel::Hsi));
-                rcc.ahb2enr().modify(|w| w.set_rngen(true));
-                pac::RNG.cr().modify(|w| w.set_rngen(true));
-                // Brief settle delay (~100 µs at 96 MHz) before SAES tries to read from RNG
-                cortex_m::asm::delay(10_000);
-            }
-        }
-
         rcc::enable_and_reset::<T>();
 
         let p = T::regs();
@@ -322,7 +308,12 @@ impl<'d, T: Instance> Saes<'d, T, Blocking> {
 
 impl<'d, T: Instance> Saes<'d, T, Async> {
     /// Instantiates, resets, and enables the SAES peripheral with DMA support.
-    pub fn new<D1: DmaIn<T>, D2: DmaOut<T>>(
+    pub fn new<
+        #[cfg(any(rng_wba6, rng_v4))] 'rng,
+        D1: DmaIn<T>,
+        D2: DmaOut<T>,
+        #[cfg(any(rng_wba6, rng_v4))] RNG: crate::rng::Instance,
+    >(
         peripheral: Peri<'d, T>,
         dma_in: Peri<'d, D1>,
         dma_out: Peri<'d, D2>,
@@ -330,21 +321,8 @@ impl<'d, T: Instance> Saes<'d, T, Async> {
         + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
+        #[cfg(any(rng_wba6, rng_v4))] _rng: &crate::rng::Rng<'rng, RNG>, // On WBA6 and C5, SAES fetches a random seed from the RNG on every reset/enable.
     ) -> Self {
-        // On WBA6, SAES fetches a random seed from the RNG on every reset/enable.
-        // If the RNG is not already running, start it with HSI as the clock source.
-        // This mirrors the same workaround used by the PKA driver on WBA6.
-        #[cfg(rng_wba6)]
-        {
-            let rcc = pac::RCC;
-            if !rcc.ahb2enr().read().rngen() {
-                rcc.ccipr2().modify(|w| w.set_rngsel(pac::rcc::vals::Rngsel::Hsi));
-                rcc.ahb2enr().modify(|w| w.set_rngen(true));
-                pac::RNG.cr().modify(|w| w.set_rngen(true));
-                cortex_m::asm::delay(10_000);
-            }
-        }
-
         rcc::enable_and_reset::<T>();
 
         let p = T::regs();

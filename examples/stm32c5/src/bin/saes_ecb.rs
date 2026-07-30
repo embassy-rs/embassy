@@ -18,7 +18,7 @@
 //!   inverses of each other on the same device.
 //!
 //! # What This Example Exercises
-//! - SAES peripheral initialisation (busy-wait + RNG auto-enable on WBA6)
+//! - SAES peripheral initialisation (busy-wait + RNG-error check on startup)
 //! - Key loading and KEYVALID wait
 //! - 128-bit ECB encrypt/decrypt round-trip + coincidental NIST vector check
 //! - 256-bit ECB encrypt/decrypt round-trip (device-specific ciphertext)
@@ -42,7 +42,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
     let mut config = Config::default();
-    config.rcc.mux.rngsel = embassy_stm32::rcc::mux::Rngsel::Hsi;
+    config.rcc.mux.clk48sel = embassy_stm32::rcc::mux::Clksel::Hsidiv3;
     let p = embassy_stm32::init(config);
     info!("SAES-ECB Example");
 
@@ -168,6 +168,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
     saes.finish_blocking(ctx).ok();
 
     info!("=== SAES-ECB complete ===");
+    drop(rng);
+
     loop {
         cortex_m::asm::wfi();
     }
