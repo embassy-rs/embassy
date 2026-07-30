@@ -41,7 +41,7 @@ use core::cell::Cell;
 use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 pub use asynchronous::{Async, InterruptHandler, RxQueue};
-pub use blocking::{Blocking, ReceiveErrorWithTimeout, SendErrorWithTimeout};
+pub use blocking::{Blocking, WithTimeout};
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::Mutex;

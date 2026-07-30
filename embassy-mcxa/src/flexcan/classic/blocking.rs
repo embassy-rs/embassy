@@ -15,25 +15,17 @@ use super::{
 use crate::flexcan::classic::frame::Frame;
 use crate::flexcan::{RxPin, TxPin};
 
-/// Like `SendError`, but for functions that are also bounded by a user-provided timeout.
+/// Wrapper error type for a `SendError` or `ReceiveError` that provides a `Timeout` case (where
+/// a blocking call timed out before it could be completed).
+///
+/// This type is relavent to the `blocking_..._timeout()` functions.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum SendErrorWithTimeout {
-    /// A traditional `SendError`.
-    SendError(SendError),
-
-    /// The function call exceeded the user-provided timeout.
-    Timeout,
-}
-
-/// Like `ReceiveError`, but for functions that are also bounded by a user-provided timeout.
-#[non_exhaustive]
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum ReceiveErrorWithTimeout {
-    /// A traditional `ReceiveError`.
-    ReceiveError(ReceiveError),
+pub enum WithTimeout<E> {
+    /// A traditional `SendError` or `ReceiveError`. This means that the function call completed (i.e., it did not time out), but
+    /// the call returned an error.
+    Error(E),
 
     /// The function call exceeded the user-provided timeout.
     Timeout,
@@ -115,17 +107,17 @@ impl<'d> FlexCan<'d, Blocking> {
     }
 
     /// Like `blocking_send()`, but bounded by a user-provided timeout.
-    pub fn blocking_send_timeout(&mut self, frame: &Frame, timeout: Duration) -> Result<(), SendErrorWithTimeout> {
+    pub fn blocking_send_timeout(&mut self, frame: &Frame, timeout: Duration) -> Result<(), WithTimeout<SendError>> {
         self.tx.blocking_send_timeout(frame, timeout)
     }
 
     /// Like `blocking_receive()`, but bounded by a user-provided timeout.
-    pub fn blocking_receive_timeout(&self, timeout: Duration) -> Result<Frame, ReceiveErrorWithTimeout> {
+    pub fn blocking_receive_timeout(&self, timeout: Duration) -> Result<Frame, WithTimeout<ReceiveError>> {
         self.rx.blocking_receive_timeout(timeout)
     }
 
     /// Like `blocking_flush()`, but bounded by a user-provided timeout.
-    pub fn blocking_flush_timeout(&mut self, timeout: Duration) -> Result<(), SendErrorWithTimeout> {
+    pub fn blocking_flush_timeout(&mut self, timeout: Duration) -> Result<(), WithTimeout<SendError>> {
         self.tx.blocking_flush_timeout(timeout)
     }
 }
@@ -236,7 +228,7 @@ impl<'d> FlexCanTx<'d, Blocking> {
     }
 
     /// Like `blocking_send()`, but bounded by a user-provided timeout.
-    pub fn blocking_send_timeout(&mut self, frame: &Frame, timeout: Duration) -> Result<(), SendErrorWithTimeout> {
+    pub fn blocking_send_timeout(&mut self, frame: &Frame, timeout: Duration) -> Result<(), WithTimeout<SendError>> {
         use embassy_time::Instant;
 
         let message = tx::TxMessage::from(frame);
@@ -255,27 +247,27 @@ impl<'d> FlexCanTx<'d, Blocking> {
                 Err(nb::Error::Other(e)) => match e {},
             }
             if Instant::now() >= deadline {
-                return Err(SendErrorWithTimeout::Timeout);
+                return Err(WithTimeout::Timeout);
             }
             core::hint::spin_loop();
         }
     }
 
     /// Like `blocking_flush()`, but bounded by a user-provided timeout.
-    pub fn blocking_flush_timeout(&mut self, timeout: Duration) -> Result<(), SendErrorWithTimeout> {
+    pub fn blocking_flush_timeout(&mut self, timeout: Duration) -> Result<(), WithTimeout<SendError>> {
         use embassy_time::Instant;
 
         let deadline = Instant::now() + timeout;
         loop {
             if self.error_mode() == BusErrorMode::BusOff {
-                return Err(SendErrorWithTimeout::SendError(SendError::BusOff));
+                return Err(WithTimeout::Error(SendError::BusOff));
             }
             mailbox::tx::reclaim_completed(self.info);
             if self.info.tx_available.load(Ordering::Acquire) == u32::MAX {
                 return Ok(());
             }
             if Instant::now() >= deadline {
-                return Err(SendErrorWithTimeout::Timeout);
+                return Err(WithTimeout::Timeout);
             }
             core::hint::spin_loop();
         }
@@ -303,7 +295,7 @@ impl<'d> FlexCanRx<'d, Blocking> {
     }
 
     /// Like `blocking_receive()`, but bounded by a user-provided timeout.
-    pub fn blocking_receive_timeout(&self, timeout: Duration) -> Result<Frame, ReceiveErrorWithTimeout> {
+    pub fn blocking_receive_timeout(&self, timeout: Duration) -> Result<Frame, WithTimeout<ReceiveError>> {
         use embassy_time::Instant;
 
         let deadline = Instant::now() + timeout;
@@ -312,7 +304,7 @@ impl<'d> FlexCanRx<'d, Blocking> {
                 return Ok(frame);
             }
             if Instant::now() >= deadline {
-                return Err(ReceiveErrorWithTimeout::Timeout);
+                return Err(WithTimeout::Timeout);
             }
             core::hint::spin_loop();
         }
