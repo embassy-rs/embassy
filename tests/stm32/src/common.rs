@@ -584,7 +584,7 @@ pub fn config() -> Config {
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul180,
             divp: Some(PllPDiv::Div2), // 8mhz / 4 * 180 / 2 = 180Mhz.
-            divq: None,
+            divq: Some(PllQDiv::Div2),
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::Div1;
@@ -624,7 +624,7 @@ pub fn config() -> Config {
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul216,
             divp: Some(PllPDiv::Div2), // 8mhz / 4 * 216 / 2 = 216Mhz.
-            divq: None,
+            divq: Some(PllQDiv::Div2),
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::Div1;
