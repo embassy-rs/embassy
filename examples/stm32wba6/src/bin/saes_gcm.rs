@@ -25,8 +25,8 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::rng::Rng;
 use defmt_rtt as _;
+use embassy_stm32::rng::Rng;
 use embassy_stm32::saes::{AesGcm, Direction, Saes};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use panic_probe as _;
