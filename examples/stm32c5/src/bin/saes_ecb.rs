@@ -46,7 +46,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("SAES-ECB Example");
 
     let rng = Rng::new(p.RNG, Irqs);
-    let mut saes = Saes::new_blocking(p.SAES, Irqs);
+    let mut saes = Saes::new_blocking(p.SAES, Irqs, &rng);
 
     // ─── AES-128-ECB round-trip + NIST sanity check ──────────────────────────
     // NIST SP 800-38A F.1.1: key = 2b7e151628aed2a6abf7158809cf4f3c

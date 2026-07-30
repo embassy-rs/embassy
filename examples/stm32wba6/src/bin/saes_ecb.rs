@@ -28,21 +28,25 @@
 #![no_main]
 
 use defmt::*;
+use embassy_stm32::rng::Rng;
 use embassy_stm32::saes::{AesCbc, AesEcb, Direction, Saes};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SAES => embassy_stm32::saes::InterruptHandler<peripherals::SAES>;
+    RNG => embassy_stm32::rng::InterruptHandler<peripherals::RNG>;
 });
 
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
-    let config = Config::default();
+    let mut config = Config::default();
+    config.rcc.mux.rngsel = embassy_stm32::rcc::mux::Rngsel::Hsi;
     let p = embassy_stm32::init(config);
     info!("SAES-ECB Example");
 
-    let mut saes = Saes::new_blocking(p.SAES, Irqs);
+    let rng = Rng::new(p.RNG, Irqs);
+    let mut saes = Saes::new_blocking(p.SAES, Irqs, &rng);
 
     // ─── AES-128-ECB round-trip + NIST sanity check ──────────────────────────
     // NIST SP 800-38A F.1.1: key = 2b7e151628aed2a6abf7158809cf4f3c
