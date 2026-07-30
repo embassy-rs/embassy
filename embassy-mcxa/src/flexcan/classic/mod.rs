@@ -49,6 +49,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::{Channel, SendDynamicSender};
 use maitake_sync::WaitCell;
 use nxp_pac::can as pac;
+pub use timing::TimingError;
 
 use crate::clocks::periph_helpers::{CanClockSel, CanConfig, CanInstance, Div4};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
@@ -85,7 +86,7 @@ pub enum InitError {
     ProtocolExceptionUnsupported,
 
     /// You have attempted to configure an invalid bitrate.
-    /// See the `TimingError` struct docs for more info.
+    /// See the `TimingError` enum docs for more info.
     TimingError(timing::TimingError),
 
     /// Setting up the FlexCAN peripheral clock failed. This usually means the
@@ -108,7 +109,7 @@ pub struct FlexCanConfig<'a> {
     ///
     /// Note: This feature is only available on CAN0. If you attempt to enable this
     /// feature on an instance where it isn't supported, you will get an error
-    /// when calling `FlexCan::new()`.
+    /// when creating a new `FlexCan` instance.
     pub protocol_exception: bool,
 
     /// This setting allows you to configure your peripheral's RX filters.
@@ -141,8 +142,9 @@ pub struct FlexCanConfig<'a> {
     /// Clock source feeding the FlexCAN protocol engine.
     ///
     /// The selected source, after applying `clock_div`, must
-    /// be an integer multiple of `bitrate`, or `FlexCan::new()`
-    /// returns a `InitError::TimingError`. See the docs for `CanClockSel`.
+    /// be an integer multiple of `bitrate`, or you will get a
+    /// `InitError::TimingError` when creating a new `FlexCan` instance.
+    /// See the docs for `CanClockSel`.
     pub clock_source: CanClockSel,
 
     /// Divider applied to `clock_source`.
@@ -188,7 +190,7 @@ pub enum BusErrorMode {
     /// active error frame upon protocol error.
     ErrorActive,
 
-    /// Error passive mode. An error coutner exceeded 127. Controller will
+    /// Error passive mode. An error counter exceeded 127. Controller will
     /// transmit a passive error frame upon protocol error.
     ErrorPassive,
 
@@ -232,11 +234,14 @@ pub(crate) struct Info {
 
     /// Each bit indicates whether that message buffer was last used to transmit a REMOTE
     /// (RTR = 1) frame. This is needed because after a REMOTE frame is transmitted, the hardware automatically
-    /// flips the message buffer to RX-EMPTY instead of TX-INACTIVE (see page 1548 of the datasheet). Because of that,
+    /// flips the message buffer to RX-EMPTY instead of TX-INACTIVE. Because of that,
     /// we need to manually write TX-INACTIVE back to any message buffer where an REMOTE message was sent. These bits
     /// let us track what buffers we need to do this for.
     ///
     /// TLDR: These bits are set by `dispatch()` for REMOTE frames, and cleared by `reclaim_completed()` once the buffer has been neutralized back to TX-INACTIVE.
+    ///
+    /// Note: For more context regarding the RX-EMPTY/TX-INACTIVE message buffer codes, see Table 270 on page 1548 of the datasheet:
+    /// Document Identifier=MCXAP144M240F61RM, Rev. 2, 2025-11-17, Section 38.6.3 - Message buffer structure.
     pub tx_remote: AtomicU32,
 
     /// This flag indicates whether or not Protocol Exception is supported
@@ -244,27 +249,29 @@ pub(crate) struct Info {
     /// Classic mode (MCR[FDEN] = 0) to coexist on an FD-enabled bus without
     /// throwing a bunch of error frames. In other words, it allows the FlexCAN
     /// to recognize that a frame is FD and ignore it, even when not in FD mode.
-    /// See page 1492 of the datasheet.
     ///
     /// This feature is supported by CAN0, but not CAN1. This flag allows the HAL
     /// to specify this constraint internally via `impl_can_instance!()`. This way,
     /// if a user tries to enable this feature in their config on an unsupported peripheral,
     /// they'll get an error at init-time.
+    ///
+    /// Note: For more context regarding MCR[FDEN], see Field 14 (PREXCEN) on page 1492 of the datasheet:
+    /// Document Identifier=MCXAP144M240F61RM, Rev. 2, 2025-11-17, Section 38.6.2.12 - Control 2 (CTRL2).
     pub prexcen_supported: bool,
 
     /// Stores a count of the number of times the TX mailbox has filled up so far.
     pub tx_mailbox_full_count: AtomicU32,
 
-    /// Waker used to wake tasks awaiting on a CAN send() call. Only relavent when in `Async` mode.
+    /// Waker used to wake tasks awaiting on a CAN send() call. Only relevant when in `Async` mode.
     pub tx_waker: WaitCell,
 
-    /// Handle to the RX queue's sender. Only relavent when in `Async` mode.
+    /// Handle to the RX queue's sender. Only relevant when in `Async` mode.
     pub rx_sender: Mutex<CriticalSectionRawMutex, Cell<Option<SendDynamicSender<'static, Frame>>>>,
 
-    /// Stores a count of the number of RX frames dropped so far due to the Software RX Channel being full. Only relavent when in `Async` mode.
+    /// Stores a count of the number of RX frames dropped so far due to the Software RX Channel being full. Only relevant when in `Async` mode.
     pub rx_dropped_count_channel: AtomicU32,
 
-    /// Stores a count of the number of RX frames dropped so far due to the Hardware RX FIFO being full. Only relavent when in `Async` mode
+    /// Stores a count of the number of RX frames dropped so far due to the Hardware RX FIFO being full. Only relevant when in `Async` mode
     ///
     /// Note: Technically the hardware RX FIFO still exists in blocking mode, but we can't use any interrupts to track it. So that's why this is an async-only feature.
     pub rx_dropped_count_fifo: AtomicU32,

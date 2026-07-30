@@ -182,7 +182,7 @@ impl RxDroppedCount {
         self.hardware_fifo
     }
 
-    /// Indicates the total number of RX frames dropped from the software `RxQueue`, and the number of overflow events that have occured for the FlexCAN hardware RX FIFO.
+    /// Indicates the total number of RX frames dropped from the software `RxQueue`, and the number of overflow events that have occurred for the FlexCAN hardware RX FIFO.
     ///
     /// Note: This is analagous to `software_channel() + hardware_fifo()`.
     pub fn total(&self) -> u32 {
@@ -383,7 +383,7 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             // Acknowledge the flag (write 1 to clear)
             can.esr1()
                 .write(|w| w.set_boffdoneint(crate::pac::can::Boffdoneint::BusOffDone));
-            let _ = can.esr1().read(); // Make surethe clear lands before returning
+            let _ = can.esr1().read(); // Make sure the clear lands before returning
 
             // the DEVGUIDE says to "wake all waiters on global events" so we need to wake up tx_waker here
             // even though this doesn't directly correspond to "new TX message buffer available"

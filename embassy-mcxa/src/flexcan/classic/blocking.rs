@@ -18,7 +18,7 @@ use crate::flexcan::{RxPin, TxPin};
 /// Wrapper error type for a `SendError` or `ReceiveError` that provides a `Timeout` case (where
 /// a blocking call timed out before it could be completed).
 ///
-/// This type is relavent to the `blocking_..._timeout()` functions.
+/// This type is relevant to the `blocking_..._timeout()` functions.
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -70,7 +70,7 @@ impl<'d> FlexCan<'d, Blocking> {
 
     /// Sends a CAN message.
     ///
-    /// If all TX buffers are full, this blocks indefinietely until one
+    /// If all TX buffers are full, this blocks indefinitely until one
     /// frees up. If called during a BusOff event, this will block until the
     /// BusOff event recovers. By default, FlexCAN will recover from BusOff automatically.
     ///
@@ -92,7 +92,7 @@ impl<'d> FlexCan<'d, Blocking> {
         self.rx.blocking_receive()
     }
 
-    /// Like `receive()`, but returns immediately with `ReceiveError::NoMessages` if the RX FIFO is empty.
+    /// Like `blocking_receive()`, but returns immediately with `ReceiveError::NoMessages` if the RX FIFO is empty.
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
         self.rx.try_receive()
     }
@@ -167,7 +167,7 @@ impl embedded_can::blocking::Can for FlexCan<'_, Blocking> {
 impl<'d> FlexCanTx<'d, Blocking> {
     /// Sends a CAN message.
     ///
-    /// If all TX buffers are full, this blocks indefinietely until one
+    /// If all TX buffers are full, this blocks indefinitely until one
     /// frees up. If called during a BusOff event, this will block until the
     /// BusOff event recovers. By default, FlexCAN will recover from BusOff automatically.
     ///
@@ -289,7 +289,7 @@ impl<'d> FlexCanRx<'d, Blocking> {
         }
     }
 
-    /// Like `receive()`, but returns immediately with `ReceiveError::NoMessages` if the RX FIFO is empty.
+    /// Like `blocking_receive()`, but returns immediately with `ReceiveError::NoMessages` if the RX FIFO is empty.
     pub fn try_receive(&self) -> Result<Frame, ReceiveError> {
         self.poll_fifo().ok_or(ReceiveError::NoMessages)
     }

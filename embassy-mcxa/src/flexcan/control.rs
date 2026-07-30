@@ -9,9 +9,6 @@ pub(crate) struct Control {
     regs: pac::Can,
 }
 
-// u_Note: default MCR for CAN0: 11011000100100000000000000001111
-// u_Note: default MCR for CAN1: 11011000100100000000010000001111
-
 impl Control {
     pub(crate) const fn new(regs: pac::Can) -> Self {
         Self { regs }
@@ -24,7 +21,8 @@ impl Control {
     }
 
     /// Sets the number of message buffers.
-    /// The hardware deafults to having 16 message buffers (see page 1466 of the datasheet).
+    /// The hardware defaults to having 16 message buffers.
+    /// See page 1466 of the datasheet: Document Identifier=MCXAP144M240F61RM, Rev. 2, 2025-11-17, Section 38.6.22 - Module Configuration (MCR).
     pub(in crate::flexcan) fn set_number_of_message_buffers(&self, num: u8) {
         // We do -1 here since the register value is technically the "Number of the Last Message Buffer".
         // So, if this register stores `15`, for example, you'll have 16 message buffers.
@@ -125,7 +123,7 @@ impl Control {
 }
 
 /// Errors that can occur when controlling/configuring the FlexCAN,
-/// ususally during init-time or when modifying its core operating mode(s).
+/// usually during init-time or when modifying its core operating mode(s).
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

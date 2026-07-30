@@ -1,12 +1,14 @@
 //! This module models the FlexCAN mailbox for Classic CAN (not FD).
 //!
-//! TX/outgoing messages are handled in the FlexCAN message buffer, which uses the memory area 80h - 27Fh (see page 1545 of the datasheet). This memory area is 512 bytes in total.
+//! TX/outgoing messages are handled in the FlexCAN message buffer, which uses the memory area 80h - 27Fh. This memory area is 512 bytes in total.
 //! Each message consists of the CS Register (4 bytes), the Id Register (4 bytes), and the 8-byte message payload. So, each message buffer is 16 bytes in total.
 //! This means that the message buffer can hold a total of 512 / 16 = 32 messages.
+//! Note: For context regarding the above section, see page 1545 of the datasheet: Document Identifier=MCXAP144M240F61RM, Rev. 2, 2025-11-17, Section 38.6.3 - Message buffer structure.
 //!
-//! RX/incoming messages are handeled by the chip's Enhanced RX FIFO (see page 1556 of the datasheet).
+//! RX/incoming messages are handled by the chip's Enhanced RX FIFO.
 //! This FIFO can store 12 messages, which are filled automatically by the hardware as they come in.
 //! Messages can be dequeued from this FIFO by reading the 2000h - 2047h memory area as a message buffer, and then setting the erfda flag (to tell the hardware that the memory area is ready to be filled with the next message from the FIFO).
+//! Note: For context regarding the above section, see page 1556 of the datasheet: Document Identifier=MCXAP144M240F61RM, Rev. 2, 2025-11-17, Section 38.6.7 - Enhanced RX FIFO Structure.
 
 use nxp_pac::can as pac;
 
@@ -141,7 +143,8 @@ pub(in crate::flexcan) mod tx {
     }
 
     /// Represents the possible values of the `CODE` field inside a TX message.
-    /// See pages 1546 - 1548 of the datasheet.
+    /// Note: For more context, see page 1546-1548 of the datasheet: Document Identifier=MCXAP144M240F61RM, Rev. 2, 2025-11-17, Section 38.6.3 - Message buffer structure. These TX codes
+    /// in particular were taken from Table 270.
     #[repr(u8)]
     pub(in crate::flexcan) enum TxCode {
         /// TX: INACTIVE - Message buffer is not active.
@@ -247,7 +250,7 @@ pub(in crate::flexcan) mod tx {
             let n = available.trailing_zeros();
             let mask = 1u32 << n;
 
-            // Try to claim the buffer by clearning it's bit
+            // Try to claim the buffer by clearing it's bit
             // fetch_and returns the previous value, so if our bit was still set, we won
             if info.tx_available.fetch_and(!mask, Ordering::AcqRel) & mask != 0 {
                 // If this is a REMOTE (RTR = 1) frame, flag the buffer so the ISR knows to
@@ -278,7 +281,7 @@ pub(in crate::flexcan) mod tx {
         }
 
         // For more context about this following block, see the comment above `tx_remote`. TLDR: This block of code
-        // is only relavent when we transmit REMOTE frames.
+        // is only relevant when we transmit REMOTE frames.
         let remote_fired = tx_fired & info.tx_remote.load(Ordering::Relaxed);
         if remote_fired != 0 {
             let mut bits = remote_fired;
@@ -301,7 +304,7 @@ pub(in crate::flexcan) mod tx {
     }
 }
 
-/// The RX subsystem (for recieving messages)
+/// The RX subsystem (for receiving messages)
 pub(in crate::flexcan) mod rx {
     use super::{MailboxError, Message, pac};
     use crate::flexcan::classic::Info;
@@ -464,8 +467,10 @@ pub(in crate::flexcan) mod rx {
 
         // Set up the ID filteres
         let standard_slots = filter_config.num_standard.next_multiple_of(2); // Round up to a pair of two since hardware needs it
-        let nexif = filter_config.num_extended; // NEXIF means the number of extended filter elements (see datasheet page 1538)
-        let nfe = nexif + standard_slots / 2 - 1; // Also see datasheet page 1538
+        // for context regarding nexif and nfe, see page 1538 of the datasheet:
+        // Document Identifier=MCXAP144M240F61RM, Rev. 2, 2025-11-17, Section 38.6.2.42 - Enhanced RX FIFO Control (ERFCR).
+        let nexif = filter_config.num_extended;
+        let nfe = nexif + standard_slots / 2 - 1;
         info.control.regs().erfcr().modify(|m| {
             m.set_nexif(nexif as u8);
             m.set_nfe(nfe as u8);

@@ -25,6 +25,7 @@ use crate::interrupt::typelevel::Interrupt;
 /// Note: CANFD isn't supported yet (nor does `flexcan::fd` exist yet) but it will in the future!
 #[allow(private_bounds)]
 pub trait Instance: sealed::SealedInstance + PeripheralType + 'static + Send {
+    /// Interrupt for this FlexCAN instance.
     type Interrupt: Interrupt;
 }
 
@@ -102,6 +103,7 @@ macro_rules! impl_can_instance {
             impl crate::flexcan::sealed::SealedInstance for crate::peripherals::[<CAN $n>] {}
 
             impl crate::flexcan::Instance for crate::peripherals::[<CAN $n>] {
+                /// Interrupt for this FlexCAN instance.
                 type Interrupt = crate::interrupt::typelevel::[<CAN $n>];
             }
 
