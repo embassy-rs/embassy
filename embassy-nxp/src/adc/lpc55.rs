@@ -227,10 +227,10 @@ impl<'d> Adc<'d> {
 pub trait AdcPin: crate::gpio::Pin {
     /// Channel number
     fn channel(&self) -> u8;
-    
+
     /// Channel side (A / B), 0 = A, 1 = B
     fn ctype(&self) -> u8;
-    
+
     /// Set up the iocon register for that pin
     fn configure_iocon(&self) {
         let iocon = pac::IOCON;
