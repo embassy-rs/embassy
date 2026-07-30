@@ -14,6 +14,7 @@ mod macros;
 
 pub mod adc;
 pub mod dma;
+pub mod flash;
 pub mod gpio;
 // TODO: I2C unicomm
 #[cfg(not(unicomm))]
