@@ -21,7 +21,7 @@ use embassy_rp::peripherals::{self, PIN_20, PIN_21};
 use embassy_time::Timer;
 use panic_probe as _;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     // initialize the peripherals
     let p = embassy_rp::init(Default::default());

@@ -16,7 +16,7 @@ use panic_probe as _;
 
 const COUNT_TO: i64 = 10_000_000;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) -> ! {
     // Set up for clock frequency of 200 MHz, setting all necessary defaults.
     let config = Config::new(ClockConfig::system_freq(200_000_000).unwrap());

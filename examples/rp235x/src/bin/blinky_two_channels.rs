@@ -20,7 +20,7 @@ enum LedState {
 }
 static CHANNEL: Channel<ThreadModeRawMutex, LedState, 64> = Channel::new();
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let mut led = Output::new(p.PIN_25, Level::High);

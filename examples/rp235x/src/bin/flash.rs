@@ -18,7 +18,7 @@ bind_interrupts!(struct Irqs {
 const ADDR_OFFSET: u32 = 0x100000;
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Hello World!");

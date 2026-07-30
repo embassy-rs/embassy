@@ -36,7 +36,7 @@ fn configure_manual_overclock() -> Config {
     config
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) -> ! {
     // Initialize with our manual overclock configuration
     let p = embassy_rp::init(configure_manual_overclock());

@@ -52,7 +52,7 @@ embassy_rp::bind_interrupts!(struct Irqs {
     I2C1_IRQ => InterruptHandler<embassy_rp::peripherals::I2C1>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_task_spawner: embassy_executor::Spawner) {
     let p = embassy_rp::init(Default::default());
     let sda = p.PIN_14;

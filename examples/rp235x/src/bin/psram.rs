@@ -14,7 +14,7 @@ use embassy_executor::Spawner;
 use embassy_time::Timer;
 use panic_probe as _;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let config = embassy_rp::config::Config::default();
     let p = embassy_rp::init(config);

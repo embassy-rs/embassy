@@ -36,7 +36,7 @@ struct AdcParts {
     dma: dma::Channel<'static, mode::Async>,
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Here we go!");

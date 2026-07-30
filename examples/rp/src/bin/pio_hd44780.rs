@@ -21,7 +21,7 @@ bind_interrupts!(pub struct Irqs {
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH3>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     // this test assumes a 2x16 HD44780 display attached as follow:
     //   rs  = PIN0

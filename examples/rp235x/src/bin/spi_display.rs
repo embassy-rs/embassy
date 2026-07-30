@@ -36,7 +36,7 @@ use crate::touch::Touch;
 const DISPLAY_FREQ: u32 = 64_000_000;
 const TOUCH_FREQ: u32 = 200_000;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Hello World!");

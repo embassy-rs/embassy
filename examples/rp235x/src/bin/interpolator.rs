@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_rp::interpolator::{INTERP0, INTERP1, Instance, Interpolator, LaneCtrl};
 use panic_probe as _;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let _p = embassy_rp::init(Default::default());
 

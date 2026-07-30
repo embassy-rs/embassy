@@ -33,7 +33,7 @@ const SAMPLE_RATE: u32 = 48_000;
 const BIT_DEPTH: u32 = 16;
 const MASTER_CLOCK_MULTIPLIER: u32 = 8;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut p = embassy_rp::init(Default::default());
 

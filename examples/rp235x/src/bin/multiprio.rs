@@ -59,7 +59,7 @@
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
 use defmt_rtt as _;
-use embassy_executor::{Executor, InterruptExecutor};
+use embassy_rp::executor::{Executor, InterruptExecutor};
 use embassy_rp::interrupt;
 use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_time::{Instant, TICK_HZ, Timer};
