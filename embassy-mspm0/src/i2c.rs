@@ -18,22 +18,6 @@ use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::{I2c as Regs, vals};
 use crate::pac::{self};
 
-/// Max iterations waiting for BUSY/IDLE mode.
-const BUSY_IDLE_SPIN_LIMIT: u32 = 10_000;
-
-/// Max iterations waiting for a FIFO flush.
-const FLUSH_SPIN_LIMIT: u32 = 1_000;
-
-/// Spin until `cond` holds, giving up after `limit` iterations.
-fn spin_until(limit: u32, mut cond: impl FnMut() -> bool) -> Result<(), Error> {
-    for _ in 0..limit {
-        if cond() {
-            return Ok(());
-        }
-    }
-    Err(Error::Timeout)
-}
-
 /// The clock source for the I2C.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -555,41 +539,33 @@ impl<'d, M: Mode> I2c<'d, M> {
         }
         Ok(())
     }
+
+    /// Flush both controller FIFOs.
+    ///
+    /// A flush is only legal while the controller is IDLE (TRM §25.2.3.12), so wait for
+    /// that first.
+    fn flush_fifos(&mut self) {
+        let regs = self.info.regs.controller(0);
+
+        while !regs.csr().read().idle() {}
+
+        regs.cfifoctl().modify(|w| w.set_txflush(true));
+        while (regs.cfifosr().read().txfifocnt() as usize) < self.info.fifo_size {}
+        regs.cfifoctl().modify(|w| w.set_txflush(false));
+
+        regs.cfifoctl().modify(|w| w.set_rxflush(true));
+        while regs.cfifosr().read().rxfifocnt() != 0 {}
+        regs.cfifoctl().modify(|w| w.set_rxflush(false));
+    }
 }
 
 impl<'d> I2c<'d, Blocking> {
-    /// Empty both controller FIFOs.
-    ///
-    /// Only legal while IDLE (TRM §25.2.3.12). Skips if IDLE never comes.
-    fn flush_fifos(&mut self) {
-        let regs = self.info.regs.controller(0);
-        let size = self.info.fifo_size;
-        if spin_until(BUSY_IDLE_SPIN_LIMIT, || regs.csr().read().idle()).is_err() {
-            return;
-        }
-        regs.cfifoctl().modify(|w| {
-            w.set_txflush(true);
-            w.set_rxflush(true);
-        });
-        let _ = spin_until(FLUSH_SPIN_LIMIT, || {
-            let sr = regs.cfifosr().read();
-            sr.rxfifocnt() == 0 && sr.txfifocnt() as usize >= size
-        });
-        // Lower even if the wait gave up: left raised they discard every byte.
-        regs.cfifoctl().modify(|w| {
-            w.set_txflush(false);
-            w.set_rxflush(false);
-        });
-    }
-
     fn master_blocking_continue(&mut self, length: usize, send_ack_nack: bool, send_stop: bool) -> Result<(), Error> {
         // Perform transaction
         self.master_continue(length, send_ack_nack, send_stop)?;
 
         // Poll until the Controller process all bytes or NACK
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busy() {}
 
         Ok(())
     }
@@ -604,34 +580,26 @@ impl<'d> I2c<'d, Blocking> {
     ) -> Result<(), Error> {
         // unless restart, Wait for the controller to be idle,
         if !restart {
-            spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-                self.info.regs.controller(0).csr().read().idle()
-            })?;
+            while !self.info.regs.controller(0).csr().read().idle() {}
         }
 
         self.master_read(address, length, restart, send_ack_nack, send_stop)?;
 
         // Poll until the Controller process all bytes or NACK
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busy() {}
 
         Ok(())
     }
 
     fn master_blocking_write(&mut self, address: u8, length: usize, send_stop: bool) -> Result<(), Error> {
         // Wait for the controller to be idle
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            self.info.regs.controller(0).csr().read().idle()
-        })?;
+        while !self.info.regs.controller(0).csr().read().idle() {}
 
         // Perform writing
         self.master_write(address, length, send_stop)?;
 
         // Poll until the Controller writes all bytes or NACK
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busy() {}
 
         Ok(())
     }
@@ -648,11 +616,6 @@ impl<'d> I2c<'d, Blocking> {
         }
         if read.len() > self.info.fifo_size {
             return Err(Error::TransferLengthIsOverLimit);
-        }
-
-        // Stale bytes offset every transfer. Skipped on repeated START (not IDLE).
-        if !restart {
-            self.flush_fifos();
         }
 
         let read_len = read.len();
@@ -678,15 +641,6 @@ impl<'d> I2c<'d, Blocking> {
 
             // check errors
             if let Err(err) = self.check_error() {
-                self.master_stop();
-                self.flush_fifos();
-                return Err(err);
-            }
-
-            // BUSY clearing ≠ last byte in FIFO. Popping early returns stale data.
-            let want = chunk.len();
-            let regs = self.info.regs.controller(0);
-            if let Err(err) = spin_until(FLUSH_SPIN_LIMIT, || regs.cfifosr().read().rxfifocnt() as usize >= want) {
                 self.master_stop();
                 self.flush_fifos();
                 return Err(err);
@@ -727,8 +681,8 @@ impl<'d> I2c<'d, Blocking> {
             // check errors
             if let Err(err) = self.check_error() {
                 self.master_stop();
-                // NACK leaves queued bytes (TRM §25.2.3.14); flush so they don't
-                // go out ahead of the next write.
+                // A NACK leaves the bytes that were never sent queued (TRM §25.2.3.14);
+                // flush them so they don't go out ahead of the next write.
                 self.flush_fifos();
                 return Err(err);
             }
@@ -742,27 +696,21 @@ impl<'d> I2c<'d, Blocking> {
     /// Blocking read.
     pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
         // wait until bus is free
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busbsy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busbsy() {}
         self.read_blocking_internal(address, read, false, true)
     }
 
     /// Blocking write.
     pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
         // wait until bus is free
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busbsy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busbsy() {}
         self.write_blocking_internal(address, write, true)
     }
 
     /// Blocking write, restart, read.
     pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         // wait until bus is free
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busbsy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busbsy() {}
         let err = self.write_blocking_internal(address, write, false);
         if err != Ok(()) {
             return err;
@@ -899,25 +847,19 @@ impl<'d> I2c<'d, Async> {
 
     pub async fn async_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
         // wait until bus is free
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busbsy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busbsy() {}
         self.write_async_internal(address, write, true).await
     }
 
     pub async fn async_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
         // wait until bus is free
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busbsy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busbsy() {}
         self.read_async_internal(address, read, false, true).await
     }
 
     pub async fn async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         // wait until bus is free
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busbsy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busbsy() {}
 
         let err = self.write_async_internal(address, write, false).await;
         if err != Ok(()) {
@@ -960,9 +902,7 @@ impl<'d> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, Blocking> {
         operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
         // wait until bus is free
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busbsy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busbsy() {}
         for i in 0..operations.len() {
             match &mut operations[i] {
                 embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
@@ -1016,9 +956,7 @@ impl<'d> embedded_hal::i2c::I2c for I2c<'d, Blocking> {
         operations: &mut [embedded_hal::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
         // wait until bus is free
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busbsy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busbsy() {}
         for i in 0..operations.len() {
             match &mut operations[i] {
                 embedded_hal::i2c::Operation::Read(buf) => self.read_blocking_internal(address, buf, false, false)?,
@@ -1049,9 +987,7 @@ impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
         operations: &mut [embedded_hal::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
         // wait until bus is free
-        spin_until(BUSY_IDLE_SPIN_LIMIT, || {
-            !self.info.regs.controller(0).csr().read().busbsy()
-        })?;
+        while self.info.regs.controller(0).csr().read().busbsy() {}
         for i in 0..operations.len() {
             match &mut operations[i] {
                 embedded_hal::i2c::Operation::Read(buf) => self.read_async_internal(address, buf, false, false).await?,
