@@ -12,9 +12,9 @@
 pub(crate) mod fmt;
 mod macros;
 
-pub mod flash;
 pub mod adc;
 pub mod dma;
+pub mod flash;
 pub mod gpio;
 // TODO: I2C unicomm
 #[cfg(not(unicomm))]
