@@ -20,13 +20,17 @@ use embassy_hal_internal::PeripheralType;
 use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::Interrupt;
 
-/// Peripheral identity.
-pub trait Instance: PeripheralType + 'static + Send {
+/// Common FlexCAN peripheral identity for both Classic CAN (`flexcan::classic`) and CANFD (`flexcan::fd`).
+///
+/// Note: CANFD isn't supported yet (nor does `flexcan::fd` exist yet) but it will in the future!
+#[allow(private_bounds)]
+pub trait Instance: sealed::SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: Interrupt;
 }
 
 pub(crate) mod sealed {
     pub trait Sealed {}
+    pub trait SealedInstance {}
 }
 
 // Technically every GPIO pin is allowed to be (potentially) sealed as a FlexCAN pin. The actual
@@ -95,6 +99,8 @@ macro_rules! impl_can_instance {
     ($n:expr) => {
         paste::paste! {
             // Peripheral identity
+            impl crate::flexcan::sealed::SealedInstance for crate::peripherals::[<CAN $n>] {}
+
             impl crate::flexcan::Instance for crate::peripherals::[<CAN $n>] {
                 type Interrupt = crate::interrupt::typelevel::[<CAN $n>];
             }

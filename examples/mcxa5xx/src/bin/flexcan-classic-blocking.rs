@@ -3,13 +3,14 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mcxa::config::Config;
 use embassy_mcxa::flexcan::classic::frame::{ExtendedId, Frame, StandardId};
 use embassy_mcxa::flexcan::classic::{FlexCan, FlexCanConfig};
 use embassy_mcxa::flexcan::filter::{Filter, filters};
 use embassy_time::{Duration, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Outgoing messages
 const EXAMPLE_MESSAGE_ONE: StandardId = StandardId::new(0x01).unwrap();

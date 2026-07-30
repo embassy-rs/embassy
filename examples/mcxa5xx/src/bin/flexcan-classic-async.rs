@@ -3,6 +3,7 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::config::Config;
@@ -11,8 +12,8 @@ use embassy_mcxa::flexcan::classic::{Async, FlexCan, FlexCanConfig, FlexCanRx, F
 use embassy_mcxa::flexcan::filter::{Filter, filters};
 use embassy_mcxa::peripherals::CAN0;
 use embassy_time::{Duration, Timer};
+use panic_probe as _;
 use static_cell::ConstStaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     CAN0 => InterruptHandler<CAN0>;
