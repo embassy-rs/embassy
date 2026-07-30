@@ -64,7 +64,7 @@ impl Config {
             apb1_pre: APBPrescaler::Div1,
             apb2_pre: APBPrescaler::Div1,
             apb3_pre: APBPrescaler::Div1,
-            adcdac_pre: Adcdacpre::Div1,
+            adcdac_pre: Adcdacpre::Div4,
             mux: super::mux::ClockMux::default(),
         }
     }
