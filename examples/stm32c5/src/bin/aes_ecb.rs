@@ -137,6 +137,31 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     aes.finish_blocking(ctx).ok();
 
+    // ========== Decryption Test ==========
+    info!("=== AES-ECB 256-bit Decryption ===");
+    let cipher = AesEcb::new(&key_256);
+    let mut ctx = aes.start(&cipher, Direction::Decrypt);
+
+    let mut decrypted_256 = [0u8; 16];
+    match aes.payload_blocking(&mut ctx, &ciphertext_256, &mut decrypted_256, true) {
+        Ok(()) => {
+            info!("Ciphertext: {:02x}", ciphertext_256);
+            info!("Decrypted:  {:02x}", decrypted_256);
+            info!("Expected:   {:02x}", plaintext_256);
+
+            if decrypted_256 == plaintext_256 {
+                info!("✓ Decryption PASSED!");
+            } else {
+                error!("✗ Decryption FAILED!");
+            }
+        }
+        Err(e) => {
+            error!("Decryption error: {:?}", e);
+        }
+    }
+
+    aes.finish_blocking(ctx).ok();
+
     info!("=== All AES-ECB tests complete ===");
 
     loop {
