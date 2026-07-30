@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Update embassy-sync to 0.8.0
 - Update embassy-embedded-hal to 0.6.0
 - Add PIO NEC ir tx and rx
+- Add I2C async bus lockup detection and recovery
 
 ## 0.9.0 - 2025-11-27
 
