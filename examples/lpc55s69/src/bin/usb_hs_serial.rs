@@ -11,7 +11,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nxp::config::MainClock;
-use embassy_nxp::usb::{Driver, InterruptHandler};
+use embassy_nxp::usb::{Driver, InterruptHandler, Memory};
 use embassy_nxp::{bind_interrupts, peripherals};
 use embassy_usb::UsbDeviceSpeed;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -32,7 +32,7 @@ async fn main(_spawner: Spawner) {
     info!("Initialization complete");
 
     // Create the driver, from the HAL.
-    let driver = Driver::new(p.USBHSD, Irqs);
+    let driver = Driver::<peripherals::USBHSD>::new(p.USBHSD, Irqs, Memory::usb1_sram());
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -95,11 +95,18 @@ impl From<EndpointError> for Disconnected {
 }
 
 async fn echo<'d>(class: &mut CdcAcmClass<'d, Driver<'d, peripherals::USBHSD>>) -> Result<(), Disconnected> {
-    let mut buf = [0; 512];
+    const MPS: usize = 512;
+    let mut buf = [0; MPS];
     loop {
         let n = class.read_packet(&mut buf).await?;
         let data = &buf[..n];
         info!("data: {:x}", data);
         class.write_packet(data).await?;
+        // An echo of exactly one max-packet-size packet needs a zero-length
+        // packet to end the transfer: without it the host keeps waiting for
+        // more and never delivers the reply.
+        if n == MPS {
+            class.write_packet(&[]).await?;
+        }
     }
 }

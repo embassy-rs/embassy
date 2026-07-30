@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 - LPC55: Main clock selection via `config::MainClock` (FRO-HF 96 MHz, PLL0 150 MHz)
 - LPC55: USB1 high-speed device driver
+- LPC55: USB0 full-speed device driver
 - Codegen using `nxp-pac` metadata
 - LPC55: PWM simple
 - LPC55: Move ALT definitions for USART to TX/RX pin impls. 

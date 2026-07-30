@@ -19,7 +19,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nxp::config::MainClock;
-use embassy_nxp::usb::{Driver, InterruptHandler};
+use embassy_nxp::usb::{Driver, InterruptHandler, Memory};
 use embassy_nxp::{bind_interrupts, peripherals};
 use embassy_usb::UsbDeviceSpeed;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Initialization complete");
 
-    let driver = Driver::new(p.USBHSD, Irqs);
+    let driver = Driver::<peripherals::USBHSD>::new(p.USBHSD, Irqs, Memory::usb1_sram());
 
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Embassy");
@@ -94,12 +94,12 @@ impl From<EndpointError> for Disconnected {
 }
 
 async fn bench<'d>(class: &mut CdcAcmClass<'d, Driver<'d, peripherals::USBHSD>>) -> Result<(), Disconnected> {
-    // Chunk sizes match the driver's multi-packet bulk slots: IN slots are
-    // 3584 B (7 packets per command entry), OUT slots 4096 B (8 packets).
-    // Both are multiples of 512 so wire packets stay max-packet-sized and
-    // the host-visible 512-byte pattern ramp stays aligned.
+    // IN writes a whole 3584 B bulk slot per call (7 packets per command
+    // entry, hardware-packetized) and is a multiple of 512, so wire packets
+    // stay max-packet-sized and the host-visible ramp stays aligned. Reads
+    // return one packet at a time, so OUT only ever needs one packet of room.
     const IN_CHUNK: usize = 3584;
-    const OUT_CHUNK: usize = 4096;
+    const OUT_CHUNK: usize = 512;
 
     // Recognizable pattern so the host can spot-check payload integrity:
     // a 0..512 ramp repeating per 512-byte packet.
@@ -125,6 +125,13 @@ async fn bench<'d>(class: &mut CdcAcmClass<'d, Driver<'d, peripherals::USBHSD>>)
                     let chunk = remaining.min(IN_CHUNK);
                     class.write_packet(&tx[..chunk]).await?;
                     remaining -= chunk;
+                }
+                // A stream ending exactly on a max-packet-size boundary needs
+                // a zero-length packet to tell the host the transfer is over;
+                // without it the host waits for more and the last packet is
+                // never delivered.
+                if total % 512 == 0 {
+                    class.write_packet(&[]).await?;
                 }
             }
             b'O' => {
