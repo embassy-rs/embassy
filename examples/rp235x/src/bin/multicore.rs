@@ -7,7 +7,7 @@
 
 use defmt::*;
 use defmt_rtt as _;
-use embassy_executor::Executor;
+use embassy_rp::executor::Executor;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::multicore::{Stack, spawn_core1};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;

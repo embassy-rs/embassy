@@ -37,7 +37,7 @@ const BIT_DEPTH: u32 = 16;
 const CHANNELS: u32 = 2;
 const USE_ONBOARD_PULLDOWN: bool = false; // whether or not to use the onboard pull-down resistor,
 // which has documented issues on many RP235x boards
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 

@@ -16,7 +16,7 @@ bind_interrupts!(struct Irqs {
     RTC_IRQ => embassy_rp::rtc::InterruptHandler;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Wait for 20s");

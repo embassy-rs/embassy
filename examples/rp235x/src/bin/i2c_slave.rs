@@ -95,7 +95,7 @@ async fn controller_task(mut con: i2c::I2c<'static, i2c::Async>) {
     }
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Hello World!");

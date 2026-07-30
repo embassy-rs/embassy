@@ -13,7 +13,7 @@ use embassy_time::Timer;
 use gpio::{Level, Output};
 use panic_probe as _;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_rp::config::Config::default();
     config.clocks = clocks::ClockConfig::rosc();

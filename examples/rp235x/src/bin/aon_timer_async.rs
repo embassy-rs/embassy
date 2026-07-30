@@ -20,7 +20,7 @@ bind_interrupts!(struct Irqs {
     POWMAN_IRQ_TIMER => embassy_rp::aon_timer::InterruptHandler;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let mut led = Output::new(p.PIN_25, Level::Low);

@@ -25,7 +25,7 @@ fn swap_nibbles(v: u32) -> u32 {
     (v & 0x0000_ffff) << 16 | (v & 0xffff_0000) >> 16
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let pio = p.PIO0;

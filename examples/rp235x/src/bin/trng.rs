@@ -17,7 +17,7 @@ bind_interrupts!(struct Irqs {
     TRNG_IRQ => embassy_rp::trng::InterruptHandler<TRNG>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let peripherals = embassy_rp::init(Default::default());
 

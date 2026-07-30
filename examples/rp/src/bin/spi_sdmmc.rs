@@ -31,7 +31,7 @@ impl embedded_sdmmc::TimeSource for DummyTimesource {
     }
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
