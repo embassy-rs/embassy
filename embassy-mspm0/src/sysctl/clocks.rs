@@ -104,7 +104,7 @@ impl Default for ClockConfig {
 }
 
 // TODO:  Debug utils; to be moved
-#[cfg(all(not(mspm0c), not(mspm0l)))]
+#[cfg(any(mspm0g))]
 pub fn start_measure_frequency() {
     pac::SYSCTL.genclkcfg().modify(|w| {
         w.set_fccselclk(mspm0_metapac::sysctl::vals::Fccselclk::SYSPLLCLK0);
@@ -123,7 +123,7 @@ pub fn start_measure_frequency() {
 
 pub fn frequency() -> Option<u32> {
     let status = pac::SYSCTL.clkstatus().read();
-    #[cfg(all(feature = "defmt", not(mspm0c), not(mspm0l)))]
+    #[cfg(all(feature = "defmt", mspm0g))]
     defmt::warn!(
         "PLL status off={}, good={}; hsclkoff={}, hsclkgood={}, sysosc_freq={}",
         status.sysplloff(),
