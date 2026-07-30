@@ -45,7 +45,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let p = embassy_stm32::init(config);
     info!("SAES-ECB Example");
 
-    let _ = Rng::new(p.RNG, Irqs);
+    let rng = Rng::new(p.RNG, Irqs);
     let mut saes = Saes::new_blocking(p.SAES, Irqs);
 
     // ─── AES-128-ECB round-trip + NIST sanity check ──────────────────────────
@@ -167,6 +167,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
     saes.finish_blocking(ctx).ok();
 
     info!("=== SAES-ECB complete ===");
+    drop(rng);
+
     loop {
         cortex_m::asm::wfi();
     }
