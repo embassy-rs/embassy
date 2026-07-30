@@ -371,6 +371,9 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             // Acknowledge the flag (write 1 to clear)
             can.esr1().write(|w| w.set_boffint(true));
             let _ = can.esr1().read(); // make sure the clear lands before returning
+
+            // the DEVGUIDE says to "wake all waiters on global events" so we need to wake up tx_waker here
+            // even though this doesn't directly correspond to "new TX message buffer available"
             T::PERF_INT_WAKE_INCR();
             info.tx_waker.wake();
         }
@@ -381,6 +384,11 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             can.esr1()
                 .write(|w| w.set_boffdoneint(crate::pac::can::Boffdoneint::BusOffDone));
             let _ = can.esr1().read(); // Make surethe clear lands before returning
+
+            // the DEVGUIDE says to "wake all waiters on global events" so we need to wake up tx_waker here
+            // even though this doesn't directly correspond to "new TX message buffer available"
+            T::PERF_INT_WAKE_INCR();
+            info.tx_waker.wake();
         }
     }
 }
