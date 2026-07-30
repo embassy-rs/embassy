@@ -224,7 +224,7 @@ impl<'d> Adc<'d> {
 }
 
 /// Trait that provides channel numbers for pins that support ADC
-pub trait AdcPin : crate::gpio::Pin {
+pub trait AdcPin: crate::gpio::Pin {
     /// Channel number
     fn channel(&self) -> u8;
     
