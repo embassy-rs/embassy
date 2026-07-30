@@ -76,7 +76,6 @@ impl<'d> FlashController<'d> {
             regs,
             _phantom: PhantomData,
         }
-
     }
 
     pub fn disable_dyn_writeprotect(&mut self) {
