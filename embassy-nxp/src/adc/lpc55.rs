@@ -54,7 +54,6 @@ pub struct Adc<'d> {
 
 impl<'d> Adc<'d> {
     /// Creation and initialization of ADC
-    /// adc parameter should be reaplced with Peri once nxp-pac implements it
     pub fn new(peri: Peri<'d, ADC0>, config: Config) -> Self {
         let adc: Adc0 = pac::ADC0;
 
@@ -232,26 +231,32 @@ pub trait AdcPin {
     fn configure_iocon(&mut self);
 }
 
+#[repr(u8)]
+enum ChannelSide {
+    SideA = 0,
+    SideB = 1,
+}
+
 /// Macro to implement the AdcPin trait for pins
 macro_rules! impl_adc_pin {
-    // pin     => pin peripheral struct (e.g.`PIO1_8`)
-    // port    => pin port number (e.g. `1` for `PIO1_8`)
-    // pin_num => pin number (e.g. `8` for `PIO1_8`)
-    // channel => ADC channel number (as u8)
-    // ctype   => channel side (0=A, 1=B)
-    ($pin:ident, $port:expr, $pin_num:expr, $channel:expr, $ctype:expr) => {
+    // pin          => pin peripheral struct (e.g.`PIO1_8`)
+    // pin_port     => pin port number (e.g. `1` for `PIO1_8`)
+    // pin_num      => pin number (e.g. `8` for `PIO1_8`)
+    // adc_channel  => ADC channel number (as u8)
+    // channel_side => channel side (0=A, 1=B)
+    ($pin:ident, $pin_port:expr, $pin_num:expr, $adc_channel:expr, $channel_side:expr) => {
         impl<'d> crate::adc::AdcPin for crate::Peri<'d, crate::peripherals::$pin> {
             fn channel(&self) -> u8 {
-                $channel
+                $adc_channel
             }
 
             fn ctype(&self) -> u8 {
-                $ctype
+                $channel_side as u8
             }
 
             fn configure_iocon(&mut self) {
                 let iocon = pac::IOCON;
-                let port = $port;
+                let port = $pin_port;
                 match port {
                     0 => {
                         iocon.pio0($pin_num).modify(|w| {
@@ -277,13 +282,13 @@ macro_rules! impl_adc_pin {
 }
 
 // https://www.nxp.com/docs/en/data-sheet/LPC55S6x.pdf
-impl_adc_pin!(PIO0_23, 0, 23, 0, 0);
-impl_adc_pin!(PIO0_16, 0, 16, 0, 1);
-impl_adc_pin!(PIO0_10, 0, 10, 1, 0);
-impl_adc_pin!(PIO0_11, 0, 11, 1, 1);
-impl_adc_pin!(PIO0_15, 0, 15, 2, 0);
-impl_adc_pin!(PIO0_12, 0, 12, 2, 1);
-impl_adc_pin!(PIO0_31, 0, 31, 3, 0);
-impl_adc_pin!(PIO1_0, 1, 0, 3, 1);
-impl_adc_pin!(PIO1_8, 1, 8, 4, 0);
-impl_adc_pin!(PIO1_9, 1, 9, 4, 1);
+impl_adc_pin!(PIO0_23, 0, 23, 0, ChannelSide::SideA);
+impl_adc_pin!(PIO0_16, 0, 16, 0, ChannelSide::SideB);
+impl_adc_pin!(PIO0_10, 0, 10, 1, ChannelSide::SideA);
+impl_adc_pin!(PIO0_11, 0, 11, 1, ChannelSide::SideB);
+impl_adc_pin!(PIO0_15, 0, 15, 2, ChannelSide::SideA);
+impl_adc_pin!(PIO0_12, 0, 12, 2, ChannelSide::SideB);
+impl_adc_pin!(PIO0_31, 0, 31, 3, ChannelSide::SideA);
+impl_adc_pin!(PIO1_0, 1, 0, 3, ChannelSide::SideB);
+impl_adc_pin!(PIO1_8, 1, 8, 4, ChannelSide::SideA);
+impl_adc_pin!(PIO1_9, 1, 9, 4, ChannelSide::SideB);
