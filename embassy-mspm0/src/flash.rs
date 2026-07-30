@@ -7,7 +7,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
-use embedded_storage_async::nor_flash::{ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, ReadNorFlash};
+use embedded_storage_async::nor_flash::{ErrorType, NorFlash, NorFlashError, ReadNorFlash};
 use mspm0_metapac::flashctl::{Flashctl, regs, vals};
 
 use crate::{Peri, pac};
