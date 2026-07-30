@@ -876,12 +876,12 @@ where
     }
 
     /// Get a sender for this channel.
-    pub fn sender(&self) -> Sender<'_, M, T, N> {
+    pub const fn sender(&self) -> Sender<'_, M, T, N> {
         Sender { channel: self }
     }
 
     /// Get a receiver for this channel.
-    pub fn receiver(&self) -> Receiver<'_, M, T, N> {
+    pub const fn receiver(&self) -> Receiver<'_, M, T, N> {
         Receiver { channel: self }
     }
 
