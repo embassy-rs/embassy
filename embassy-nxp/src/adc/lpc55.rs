@@ -234,10 +234,10 @@ pub trait AdcPin {
 
 /// Macro to implement the AdcPin trait for pins
 macro_rules! impl_adc_pin {
-    // pin     => peripheral struct
-    // port    => gpio port number
-    // pin_num => pin number
-    // channel => u8 channel number
+    // pin     => pin peripheral struct (e.g.`PIO1_8`)
+    // port    => pin port number (e.g. `1` for `PIO1_8`)
+    // pin_num => pin number (e.g. `8` for `PIO1_8`)
+    // channel => ADC channel number (as u8)
     // ctype   => channel side (0=A, 1=B)
     ($pin:ident, $port:expr, $pin_num:expr, $channel:expr, $ctype:expr) => {
         impl<'d> crate::adc::AdcPin for crate::Peri<'d, crate::peripherals::$pin> {

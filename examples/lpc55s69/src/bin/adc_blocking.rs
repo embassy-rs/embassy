@@ -14,7 +14,8 @@ use panic_halt as _;
 async fn main(_spawner: Spawner) {
     let p = embassy_nxp::init(Default::default());
 
-    let config = Config::default(); // corresponds to Config::new(Resolution::Bits16, Averaging::None);
+    // The default configuration corresponds to Config::new(Resolution::Bits16, Averaging::None);
+    let config = Config::default();
     let mut adc = Adc::new(p.ADC0, config);
 
     // PIO0_16 corresponds A0 on the dev board
