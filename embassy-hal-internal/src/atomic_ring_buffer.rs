@@ -171,14 +171,17 @@ impl RingBuffer {
     /// Reset the ring buffer to its initial state.
     ///
     /// This does not deinitialize the backing buffer.
-    pub fn reset(&self) {
+    ///
+    /// # Safety
+    ///
+    /// This is not atomic, therefore you must not call this method concurrently with other methods.
+    pub unsafe fn reset(&self) {
         trace!("  ringbuf: reset");
 
-        // Ordering: write `start` and `end`, with Release ordering.
-        //
-        // This ensures that the reset will wait until previous values are written.
-        self.end.store(0, Ordering::Release);
-        self.start.store(0, Ordering::Release);
+        // Ordering: Relaxed is OK since this method must not run concurrently
+        // with others.
+        self.end.store(0, Ordering::Relaxed);
+        self.start.store(0, Ordering::Relaxed);
     }
 
     fn wrap(&self, mut n: usize) -> usize {
