@@ -4,6 +4,7 @@
 use core::cell::{Cell, RefCell};
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, timer, usb};
@@ -16,8 +17,8 @@ use embassy_usb::class::uac1::speaker::{self, Speaker};
 use embassy_usb::driver::EndpointError;
 use heapless::Vec;
 use micromath::F32Ext;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USB_DRD_FS => usb::InterruptHandler<peripherals::USB>;
@@ -237,7 +238,10 @@ fn TIM5() {
         };
 
         // Clear trigger interrupt flag.
-        timer.sr().modify(|r| r.set_tif(false));
+        timer.sr().write(|r| {
+            r.0 = 0xFFFF_FFFF;
+            r.set_tif(false);
+        });
     });
 }
 

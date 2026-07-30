@@ -50,6 +50,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
@@ -58,7 +59,7 @@ use embassy_usb::control::{InResponse, OutResponse, Recipient, Request, RequestT
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;
 use embassy_usb::{Builder, Handler};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Randomly generated UUID because Windows requires you provide one to use WinUSB.
 // In principle WinUSB-using software could find this device (or a specific interface

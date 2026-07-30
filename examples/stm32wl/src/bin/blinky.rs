@@ -4,11 +4,12 @@
 use core::mem::MaybeUninit;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::SharedData;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();

@@ -158,7 +158,7 @@ impl<'d> CcRng<'d, Async> {
 
         // In self.start() there are calls to set_enable() that resets the interrupt mask,
         // self.enable_irq() needs to be called after self.start().
-        self.start();
+        let _handle = self.start();
 
         self.enable_irq();
 
@@ -204,11 +204,8 @@ impl<'d> CcRng<'d, Async> {
 }
 
 impl<'d, M: Mode> CcRng<'d, M> {
-    fn start(&self) {
-        // FIXME: CRYPTOCELL is never disabled.
-        if !pac::CRYPTOCELL.enable().read().enable() {
-            pac::CRYPTOCELL.enable().write(|w| w.set_enable(true));
-        }
+    fn start(&self) -> super::CryptoCellActivationHandle {
+        let handle = super::activate();
 
         self.r.rng_clk().write(|w| w.set_enable(true));
         self.r.rng_sw_reset().write(|w| w.set_reset(true));
@@ -226,6 +223,7 @@ impl<'d, M: Mode> CcRng<'d, M> {
             .trng_config()
             .modify(|w| w.set_rosc_len(pac::cc_rng::vals::TrngConfigRoscLen::Rosc1));
         self.r.noise_source().modify(|w| w.set_enable(true));
+        handle
     }
 
     fn stop(&self) {
@@ -236,7 +234,7 @@ impl<'d, M: Mode> CcRng<'d, M> {
 
     /// Fill the buffer with random bytes, blocking version.
     pub fn blocking_fill_bytes(&mut self, dest: &mut [u8]) {
-        self.start();
+        let _handle = self.start();
         self.inner_fill_bytes(dest);
         self.stop();
     }
@@ -389,16 +387,16 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 
 macro_rules! impl_ccrng {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::cryptocell_rng::SealedInstance for peripherals::$type {
+        impl crate::cryptocell::rng::SealedInstance for peripherals::$type {
             fn regs() -> pac::cc_rng::CcRng {
                 pac::$pac_type
             }
-            fn state() -> &'static crate::cryptocell_rng::State {
-                static STATE: crate::cryptocell_rng::State = crate::cryptocell_rng::State::new();
+            fn state() -> &'static crate::cryptocell::rng::State {
+                static STATE: crate::cryptocell::rng::State = crate::cryptocell::rng::State::new();
                 &STATE
             }
         }
-        impl crate::cryptocell_rng::Instance for peripherals::$type {
+        impl crate::cryptocell::rng::Instance for peripherals::$type {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };

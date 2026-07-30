@@ -11,8 +11,9 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::aes::{Aes, AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, AesGmac, Direction};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// Running count of passed and failed checks.
 struct Tally {

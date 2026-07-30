@@ -193,9 +193,9 @@ impl<'d> Flex<'d> {
     /// Set the pull configuration for the pin. To disable the pull, use [Pull::None].
     pub fn set_pull(&mut self, pull: Pull) {
         self.pin.pio().modify(|w| match pull {
-            Pull::None => w.set_mode(PioMode::INACTIVE),
-            Pull::Up => w.set_mode(PioMode::PULL_UP),
-            Pull::Down => w.set_mode(PioMode::PULL_DOWN),
+            Pull::None => w.set_mode(PioMode::Inactive),
+            Pull::Up => w.set_mode(PioMode::PullUp),
+            Pull::Down => w.set_mode(PioMode::PullDown),
         });
     }
 
@@ -203,7 +203,7 @@ impl<'d> Flex<'d> {
     /// setting for pins is (usually) non-digital.
     fn set_as_digital(&mut self) {
         self.pin.pio().modify(|w| {
-            w.set_digimode(PioDigimode::DIGITAL);
+            w.set_digimode(PioDigimode::Digital);
         });
     }
 

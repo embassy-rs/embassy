@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::comp::{Comp, Config, Hysteresis, InvertingInput, OutputPolarity, PowerMode};
 use embassy_stm32::dac::{Ch1, DacChannel, u12r};
@@ -12,7 +13,7 @@ use embassy_stm32::timer::{CaptureCompareInterruptHandler, Channel};
 use embassy_stm32::triggers::COMP1_OUT;
 use embassy_stm32::{bind_interrupts, comp, peripherals};
 use embassy_time::{Duration, Timer, with_timeout};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     TIM1_CC => CaptureCompareInterruptHandler<peripherals::TIM1>;

@@ -4,6 +4,7 @@
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nrf::config::{ClockSpeed, Config as NrfConfig, HfclkSource};
@@ -16,9 +17,9 @@ use embassy_usb::class::hid::{
 };
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler, UsbDeviceSpeed};
+use panic_probe as _;
 use static_cell::StaticCell;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
-use {defmt_rtt as _, panic_probe as _};
 
 static CONFIGURED: AtomicBool = AtomicBool::new(false);
 static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Report as u8);

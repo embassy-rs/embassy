@@ -2,12 +2,14 @@
 #![no_main]
 
 use defmt::{todo, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_nrf as _;
 use embassy_nrf::config::HfclkSource;
 use embassy_nrf::nfct::{Config as NfcConfig, NfcId, NfcT};
 use embassy_nrf::{bind_interrupts, nfct};
 use iso14443_4::{Card, IsoDep};
-use {defmt_rtt as _, embassy_nrf as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     NFCT => nfct::InterruptHandler;

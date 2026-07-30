@@ -204,7 +204,6 @@ trait-set = "0.3.0"
 document-features = "0.2.12"
 
 static_assertions = { version = "1.1" }
-volatile-register = { version = "0.2.2" }
 bitflags = "2.13.1"
 
 block-device-driver = { version = "0.2" }

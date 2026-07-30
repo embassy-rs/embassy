@@ -4,6 +4,7 @@
 use core::net::Ipv6Addr;
 
 use defmt::{info, unwrap, warn};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::udp::{PacketMetadata, UdpMetadata, UdpSocket};
 use embassy_net::{IpAddress, IpEndpoint, IpListenEndpoint, Ipv6Cidr, StackResources, StaticConfigV6};
@@ -12,8 +13,8 @@ use embassy_nrf::rng::Rng;
 use embassy_nrf::{bind_interrupts, embassy_net_802154_driver as net, peripherals, radio};
 use embassy_time::Delay;
 use embedded_hal_async::delay::DelayNs;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RADIO => radio::InterruptHandler<peripherals::RADIO>;

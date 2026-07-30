@@ -4,13 +4,14 @@
 use core::str::from_utf8_mut;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nxp::bind_interrupts;
 use embassy_nxp::gpio::{Level, Output};
 use embassy_nxp::peripherals::USART2;
 use embassy_nxp::usart::{Config, InterruptHandler, Usart};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_halt as _};
+use panic_halt as _;
 
 bind_interrupts!(struct Irqs {
         FLEXCOMM2 => InterruptHandler<USART2>;

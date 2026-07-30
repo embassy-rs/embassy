@@ -5,10 +5,11 @@
 //! codec and dump a hex preview of the resulting bitstream over RTT.
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::jpeg::{ChromaSubsampling, ColorSpace, EncodeConfig, Jpeg};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     JPEG => embassy_stm32::jpeg::InterruptHandler<peripherals::JPEG>;

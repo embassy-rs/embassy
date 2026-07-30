@@ -2,17 +2,18 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::Speed;
 use embassy_stm32::hrtim::stm32_hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, hrtim};
 use embassy_time::Timer;
+use panic_probe as _;
 use stm32_hrtim::compare_register::HrCompareRegister;
 use stm32_hrtim::output::HrOutput;
 use stm32_hrtim::timer::HrTimer;
 use stm32_hrtim::{HrParts, HrPwmAdvExt, PreloadSource};
-use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

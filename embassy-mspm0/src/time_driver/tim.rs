@@ -64,6 +64,15 @@ fn regs() -> Tim {
 // Therefore, when `period` is even, counter is in 0..0x7FFF. When odd, counter is in 0x8000..0xFFFF
 // This allows for now() to return the correct value even if it races an overflow.
 //
+// The overflow half must be counted on the *zero* event, not the load event, or that invariant does
+// not hold. SLAU847F Figure 28-10 shows that in up counting mode the load event is asserted during
+// the `CTR == LOAD` TIMCLK cycle, i.e. one full tick *before* the counter wraps, while the zero
+// event is asserted during the `CTR == 0` cycle. Counting on the load event advances `period` while
+// `counter` still reads 0xFFFF, which is the one pairing the parity repair below cannot fix: it
+// leaves a stale counter against a fresh period for a whole tick on every wrap, worth 2^16 ticks of
+// error. The zero event lands exactly on the parity boundary, same as CCU0 lands exactly on
+// `CTR == 0x8000`. (LOAD is 2^16 - 1, not 2^16: up counting mode has a period of `LOAD + 1`.)
+//
 // To get `now()`, `period` is read first, then `counter` is read. If the counter value matches
 // the expected range for the `period` parity, we're done. If it doesn't, this means that
 // a new period start has raced us between reading `period` and `counter`, so we assume the `counter` value
@@ -162,13 +171,22 @@ impl TimxDriver {
             w.set_ccu0(true);
         });
 
-        <T as tim::Instance>::Interrupt::IRQ.unpend();
-        unsafe { <T as tim::Instance>::Interrupt::IRQ.enable() };
-
         // Allow the counter to start counting.
         regs.counterregs(0).ctrctl().modify(|w| {
             w.set_en(true);
         });
+
+        // Enabling the counter with CVAE = ZEROVAL zeroes it, which can latch a zero event. Discard
+        // anything latched up to here before arming the interrupt, or that event would be counted as
+        // a wrap that never happened and put the whole timebase a one period off.
+        regs.cpu_int(0).iclr().write(|w| {
+            w.set_z(true);
+            w.set_ccu0(true);
+            w.set_ccu1(true);
+        });
+
+        <T as tim::Instance>::Interrupt::IRQ.unpend();
+        unsafe { <T as tim::Instance>::Interrupt::IRQ.enable() };
     }
 
     fn next_period(&self, cs: CriticalSection) {
@@ -196,6 +214,11 @@ impl TimxDriver {
         critical_section::with(|cs| {
             let mis = r.cpu_int(0).mis().read();
 
+            // Clear the flags we are about to handle before handling them. MIS and ICLR have the
+            // same layout, and writing back only the bits we read leaves any event latched during
+            // the handler pending, so it is picked up on re-entry rather than lost.
+            r.cpu_int(0).iclr().write_value(mis);
+
             // Overflow
             if mis.z() {
                 self.next_period(cs);
@@ -209,9 +232,6 @@ impl TimxDriver {
             if mis.ccu1() {
                 self.trigger_alarm(cs);
             }
-
-            // Clear all interrupts. MIS and ICLR have same layout.
-            r.cpu_int(0).iclr().write_value(mis);
         });
     }
 

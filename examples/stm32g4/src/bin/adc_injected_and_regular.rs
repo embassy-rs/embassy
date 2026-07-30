@@ -9,9 +9,11 @@
 use core::cell::RefCell;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_stm32::adc::{
-    self, Adc, AdcChannel as _, Exten, InjectedAdc, InjectedAdcTrigger, RegularAdcTrigger, SampleTime, VrefInt,
+    Adc, AdcChannel as _, Exten, InjectedAdc, InjectedAdcTrigger, RegularAdcTrigger, SampleTime, VrefInt,
 };
+use embassy_stm32::mode::Blocking;
 use embassy_stm32::pac::adc::Adc as AdcRegs;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
@@ -19,24 +21,19 @@ use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::triggers::TIM1_TRGO2;
 use embassy_stm32::{Config, Peri, bind_interrupts, dma, interrupt, peripherals};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
-static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs>>>> =
+static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs, Blocking>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
+
+// static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs, Async>>>> =
+//     CriticalSectionMutex::new(RefCell::new(None));
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+    // ADC1_2 => embassy_stm32::adc::InterruptHandler<ADC1>;
 });
-
-// The interrupt is implemented manually.
-unsafe impl
-    embassy_stm32::interrupt::typelevel::Binding<
-        embassy_stm32::interrupt::typelevel::ADC1_2,
-        adc::InterruptHandler<peripherals::ADC1>,
-    > for Irqs
-{
-}
 
 /// This example showcases how to use both regular ADC conversions with DMA and injected ADC
 /// conversions with ADC interrupt simultaneously. Both conversion types can be configured with
@@ -116,7 +113,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
         injected_sequence,
         InjectedAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
-        true,
+        Blocking,
     );
 
     // Store ADC globally to allow access from ADC interrupt
