@@ -5,28 +5,78 @@
 
 use core::task::Context;
 
-/// Metadata associated with a packet.
+/// Metadata associated to a packet.
 ///
 /// The packet metadata is a set of attributes associated to network packets
 /// as they travel up or down the stack. The metadata is get/set by the
-/// [`Driver`] implementations or by the user when sending/receiving packets
-/// from a socket.
+/// [`Driver`] implementations or by the user when sending/receiving packets from a
+/// socket.
+///
+/// Metadata fields are enabled via Cargo features. If no field is enabled, this
+/// struct becomes zero-sized, which allows the compiler to optimize it out as if
+/// the packet metadata mechanism didn't exist at all.
+///
+/// This struct is marked as `#[non_exhaustive]`. This means it is not possible to
+/// create it directly by specifying all fields. You have to instead create it with
+/// default values and then set the fields you want. This makes adding metadata
+/// fields a non-breaking change.
+///
+/// ```rust
+/// let mut meta = xarxa_driver::PacketMeta::default();
+/// #[cfg(feature = "packetmeta-id")]
+/// {
+///     meta.id = 15;
+/// }
+/// ```
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy, Default)]
 #[non_exhaustive]
 pub struct PacketMeta {
-    /// An identifier associated with a transmitted or received
-    /// packet.
     #[cfg(feature = "packetmeta-id")]
+    /// An opaque identifier for this packet.
+    ///
+    /// On received packets, this is set by the [`Device`]. On packets to transmit,
+    /// this is set by the user and passed down to the [`Device`]; it is also what
+    /// correlates a transmit timestamp back to the packet that produced it, see
+    /// [`Device::poll_tx_timestamp`].
     pub id: u32,
+
+    #[cfg(feature = "packetmeta-timestamp")]
+    /// The time at which this packet was received, as measured by the device.
+    ///
+    /// `None` if the device did not timestamp this packet. Devices commonly only
+    /// timestamp a subset of received packets, e.g. only PTP event messages.
+    ///
+    /// This field is only meaningful on received packets. It is ignored on packets
+    /// to transmit: at the time a packet is handed to the device, it has not been
+    /// transmitted yet, so its transmit timestamp does not exist yet. Use
+    /// [`Self::request_timestamp`] and [`Device::poll_tx_timestamp`] instead.
+    pub timestamp: Option<Timestamp>,
+
+    #[cfg(feature = "packetmeta-timestamp")]
+    /// Request that the device timestamp this packet as it is transmitted.
+    ///
+    /// The resulting timestamp is reported back later, out of band, via
+    /// [`Device::poll_tx_timestamp`], tagged with this packet's [`Self::id`].
+    ///
+    /// This field is only meaningful on packets to transmit. It is ignored on
+    /// received packets.
+    ///
+    /// Timestamping is opt-in per packet because hardware typically has only a
+    /// handful of transmit timestamp slots. Requesting a timestamp for every packet
+    /// will cause most of them to be dropped.
+    pub request_timestamp: bool,
 }
 
-impl PacketMeta {
-    /// Empty packet metadata.
-    pub const EMPTY: Self = Self {
-        #[cfg(feature = "packetmeta-id")]
-        id: 0,
-    };
+/// The timestamp of a transmitted packet, reported by [`Device::poll_tx_timestamp`].
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TxTimestamp {
+    /// The [`PacketMeta::id`] of the packet this timestamp belongs to.
+    pub id: u32,
+
+    /// The time at which the packet was transmitted, as measured by the device.
+    pub timestamp: Timestamp,
 }
 
 /// Representation of an hardware address, such as an Ethernet address or an IEEE802.15.4 address.
@@ -75,7 +125,7 @@ pub trait Driver {
     /// Ids may be reused, and therefore this method should be called before calling
     /// `receive` or `transmit` to avoid deducing an incorrect association.
     #[allow(unused_variables)]
-    fn poll_timestamp(&mut self, cx: &mut Context) -> Option<(u8, Timestamp)> {
+    fn poll_timestamp(&mut self, cx: &mut Context) -> Option<TxTimestamp> {
         None
     }
 
@@ -126,7 +176,7 @@ impl<T: ?Sized + Driver> Driver for &mut T {
     where
         Self: 'a;
 
-    fn poll_timestamp(&mut self, cx: &mut Context) -> Option<(u8, Timestamp)> {
+    fn poll_timestamp(&mut self, cx: &mut Context) -> Option<TxTimestamp> {
         T::poll_timestamp(self, cx)
     }
 
@@ -147,12 +197,21 @@ impl<T: ?Sized + Driver> Driver for &mut T {
     }
 }
 
-/// Represents a packet timestamp
-#[derive(Default, Clone, Copy)]
+/// A representation of a hardware packet timestamp.
+///
+/// This is a reading of the *device's own clock*, not of the `Instant` the stack is polled
+/// with. Such a clock is usually called a "PTP hardware clock" or PHC. It has an arbitrary
+/// epoch (often, but not necessarily, the time since the device was reset) and it drifts
+/// with respect to any other clock in the system unless something is actively disciplining
+/// it. Do not mix `Timestamp` and `Instant` values.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone, Copy, Default)]
 pub struct Timestamp {
-    /// Seconds
+    /// Whole seconds.
     pub seconds: u32,
-    /// Number of quarter-nanoseconds
+    /// Fraction of a second, in units of 0.25 nanoseconds.
+    ///
+    /// Always less than `4_000_000_000`, i.e. less than one whole second.
     pub quarter_nanos: u32,
 }
 
@@ -168,14 +227,6 @@ impl Timestamp {
 
 /// A token to receive a single network packet.
 pub trait RxToken {
-    /// Get the timestamp for this packet
-    fn timestamp(&self) -> Timestamp {
-        Timestamp {
-            seconds: 0,
-            quarter_nanos: 0,
-        }
-    }
-
     /// Get the buffer for this packet.
     fn buf(&mut self) -> &mut [u8] {
         &mut []
@@ -197,11 +248,6 @@ pub trait RxToken {
 
 /// A token to transmit a single network packet.
 pub trait TxToken {
-    /// Get the ID for this packet that will be associated with `poll_timestamp`.
-    fn id(&self) -> u8 {
-        0
-    }
-
     /// Consumes the token to send a single network packet.
     ///
     /// This method constructs a transmit buffer of size `len` and calls the passed
