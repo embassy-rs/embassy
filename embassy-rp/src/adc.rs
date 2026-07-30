@@ -19,6 +19,7 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 /// ADC config.
 #[non_exhaustive]
 #[derive(Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {}
 
 #[derive(Debug)]
