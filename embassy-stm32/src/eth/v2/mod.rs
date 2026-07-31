@@ -13,7 +13,8 @@ use stm32_metapac::syscfg::vals::EthSelPhy;
 
 use super::*;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
-use crate::interrupt;
+use crate::peripherals::SYSCFG;
+use crate::{interrupt, rcc};
 use crate::interrupt::InterruptExt;
 #[cfg(eth_v2)]
 use crate::pac::ETH;
@@ -364,6 +365,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         #[cfg(any(eth_v2, eth_v2b))] eth_sel_phy: EthSelPhy,
     ) -> Self {
         // Enable the necessary clocks
+        rcc::enable_and_reset::<SYSCFG>();
+
         #[cfg(eth_v2)]
         critical_section::with(|_| {
             crate::pac::RCC.ahb1enr().modify(|w| {
@@ -383,7 +386,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             });
 
             crate::pac::SYSCFG.pmcr().modify(|w| w.set_eth_sel_phy(eth_sel_phy));
-            assert_eq!(crate::pac::SYSCFG.pmcr().read().eth_sel_phy(), eth_sel_phy);
         });
         #[cfg(eth_v2a)]
         critical_section::with(|_| {
