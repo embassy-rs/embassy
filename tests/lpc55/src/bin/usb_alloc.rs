@@ -23,12 +23,6 @@ bind_interrupts!(struct Irqs {
     USB1 => InterruptHandler<peripherals::USBHSD>;
 });
 
-/// Endpoint memory for USB0, in main SRAM. 4 KiB is enough for the command
-/// list plus every full-speed endpoint this test allocates.
-#[repr(C, align(256))]
-struct EpMem([u8; 4096]);
-static mut EP_MEM: EpMem = EpMem([0; 4096]);
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_nxp::config::Config::default();
@@ -104,7 +98,10 @@ async fn main(_spawner: Spawner) {
 
     // ---------------------------------------------------------------- USB0 FS
     // EP_COUNT = 5, so data endpoint indices 1..=4 are usable per direction.
-    let mem = Memory::buffer(unsafe { &mut (*(&raw mut EP_MEM)).0 });
+    // 4 KiB is enough for the command list plus every full-speed endpoint this
+    // test allocates.
+    let mut ep_mem = [0u8; 4096];
+    let mem = Memory::buffer(&mut ep_mem);
     let mut fs = Driver::<peripherals::USB0>::new(p.USB0, Irqs, p.PIO0_22, mem);
 
     defmt::assert!(

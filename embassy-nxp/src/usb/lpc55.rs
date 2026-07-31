@@ -65,7 +65,8 @@
 //! data buffers, chosen explicitly via [`Memory`]. [`Memory::usb1_sram`] hands
 //! over the dedicated 16 KiB USB1 SRAM; [`Memory::buffer`] takes a
 //! caller-owned buffer in main SRAM, which is what lets both controllers run
-//! at the same time.
+//! at the same time. `buffer` aligns the base itself, so a plain `[u8; N]`
+//! will do; no `#[repr(align(..))]` newtype is needed.
 //!
 //! # Silicon errata (ES_LPC55S6x, applies to revisions 0A and 1B)
 //!
@@ -785,20 +786,38 @@ impl<'d> Memory<'d> {
         }
     }
 
-    /// A caller-owned buffer, typically a `static mut` in main SRAM.
+    /// A caller-owned buffer, typically a local in `main`.
     ///
-    /// `buf` must be at least 512 bytes and 256-byte aligned. Using this
-    /// instead of [`Memory::usb1_sram`] is what allows USB0 and USB1 to run at
-    /// the same time.
+    /// A local is not a stack allocation: the body of `#[embassy_executor::main]`
+    /// is a task, so its locals live in the task's storage, which is a
+    /// `static`. A `static_cell::ConstStaticCell` works too.
+    ///
+    /// `buf` needs no particular alignment. `EPLISTSTART` reserves the low 8
+    /// bits of the address, so up to 255 bytes at the front of `buf` are
+    /// skipped; at least 512 bytes must be left after that. Using this instead
+    /// of [`Memory::usb1_sram`] is what allows USB0 and USB1 to run at the same
+    /// time.
     pub fn buffer(buf: &'d mut [u8]) -> Self {
-        let base = buf.as_ptr() as u32;
-        assert!(buf.len() >= 512, "USB endpoint memory must be at least 512 bytes");
-        assert!(base % 256 == 0, "USB endpoint memory must be 256-byte aligned");
+        let raw_base = buf.as_mut_ptr() as u32;
+        let base = raw_base.next_multiple_of(256);
+        let len = (buf.len() as u32).saturating_sub(base - raw_base);
+        assert!(
+            len >= 512,
+            "USB endpoint memory must leave at least 512 bytes after alignment"
+        );
         Self {
             base,
-            len: buf.len() as u32,
+            len,
             _lifetime: PhantomData,
         }
+    }
+
+    /// Base address of the region, after alignment.
+    ///
+    /// This is the address the driver programs into `EPLISTSTART` and
+    /// `DATABUFSTART`, and where the endpoint command/status list starts.
+    pub fn base(&self) -> u32 {
+        self.base
     }
 }
 

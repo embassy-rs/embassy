@@ -126,7 +126,7 @@ magnitude below the hardware — always measure with `--release`.
   inherits the same blocker.
 - **`Event::PowerDetected` / `PowerRemoved`**. Needs VBUS to physically drop, i.e. someone
   unplugging P9 or P10 mid-run.
-- **`Memory::usb1_sram` double-take and the `Memory::buffer` size and alignment asserts.** These
+- **`Memory::usb1_sram` double-take and the `Memory::buffer` size assert.** These
   are panicking paths with no non-destructive assertion available; a test for them would have to
   assert that the firmware panicked.
 

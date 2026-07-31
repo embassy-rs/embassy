@@ -47,16 +47,6 @@ static FS_CONFIGURED: AtomicBool = AtomicBool::new(false);
 static HS_ECHOED: AtomicU32 = AtomicU32::new(0);
 static FS_ECHOED: AtomicU32 = AtomicU32::new(0);
 
-/// Endpoint memory for the full-speed controller, in main SRAM.
-///
-/// Only one controller can own the dedicated USB1 SRAM, so running both at once
-/// forces the other onto a caller-provided region. 4 KiB comfortably fits an FS
-/// CDC-ACM device; `Memory::buffer` requires at least 512 bytes and 256-byte
-/// alignment.
-#[repr(C, align(256))]
-struct EpMem([u8; 4096]);
-static mut EP_MEM: EpMem = EpMem([0; 4096]);
-
 /// Records the host's `SET_CONFIGURATION` into a per-device flag.
 struct ConfiguredHandler(&'static AtomicBool);
 
@@ -79,9 +69,13 @@ async fn main(_spawner: Spawner) {
     // High speed takes the dedicated USB1 SRAM.
     let hs_driver = Driver::<peripherals::USBHSD>::new(p.USBHSD, Irqs, Memory::usb1_sram());
 
-    // Full speed takes a region in main SRAM. Edition 2024 forbids references
-    // to `static mut`, so go through a raw pointer.
-    let fs_mem = Memory::buffer(unsafe { &mut (*(&raw mut EP_MEM)).0 });
+    // Full speed takes a region in main SRAM: only one controller can own the
+    // dedicated USB1 SRAM, so running both at once forces the other onto a
+    // caller-provided region. 4 KiB comfortably fits an FS CDC-ACM device. The
+    // local lives in the main task's storage, which is a `static`, not on the
+    // stack.
+    let mut ep_mem = [0u8; 4096];
+    let fs_mem = Memory::buffer(&mut ep_mem);
     let fs_driver = Driver::<peripherals::USB0>::new(p.USB0, Irqs, p.PIO0_22, fs_mem);
 
     // --- High-speed device ---

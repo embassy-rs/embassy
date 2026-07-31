@@ -32,16 +32,6 @@ bind_interrupts!(struct Irqs {
     USB1 => InterruptHandler<peripherals::USBHSD>;
 });
 
-/// Endpoint memory for the full-speed controller, in main SRAM.
-///
-/// 4 KiB comfortably fits an FS CDC-ACM device (command list, SETUP buffer,
-/// EP0, one interrupt endpoint and two double-buffered 512-byte bulk slots ~
-/// 2.5 KiB). `Memory::buffer` requires at least 512 bytes and 256-byte
-/// alignment.
-#[repr(C, align(256))]
-struct EpMem([u8; 4096]);
-static mut EP_MEM: EpMem = EpMem([0; 4096]);
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_nxp::config::Config::default();
@@ -54,9 +44,12 @@ async fn main(_spawner: Spawner) {
     // High speed takes the dedicated USB1 SRAM.
     let hs_driver = Driver::<peripherals::USBHSD>::new(p.USBHSD, Irqs, Memory::usb1_sram());
 
-    // Full speed takes a region in main SRAM. Edition 2024 forbids references
-    // to `static mut`, so go through a raw pointer.
-    let fs_mem = Memory::buffer(unsafe { &mut (*(&raw mut EP_MEM)).0 });
+    // Full speed takes a region in main SRAM. 4 KiB comfortably fits an FS
+    // CDC-ACM device (command list, SETUP buffer, EP0, one interrupt endpoint
+    // and two double-buffered 512-byte bulk slots ~ 2.5 KiB). The local lives
+    // in the main task's storage, which is a `static`, not on the stack.
+    let mut ep_mem = [0u8; 4096];
+    let fs_mem = Memory::buffer(&mut ep_mem);
     let fs_driver = Driver::<peripherals::USB0>::new(p.USB0, Irqs, p.PIO0_22, fs_mem);
 
     // --- High-speed device ---

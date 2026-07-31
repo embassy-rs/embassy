@@ -33,12 +33,6 @@ bind_interrupts!(struct Irqs {
     USB1 => InterruptHandler<peripherals::USBHSD>;
 });
 
-/// Endpoint memory for USB0, in main SRAM: `Memory::usb1_sram` is already taken
-/// by the high-speed half of this test and is never released.
-#[repr(C, align(256))]
-struct EpMem([u8; 4096]);
-static mut EP_MEM: EpMem = EpMem([0; 4096]);
-
 /// PDRUNCFG0 power-down bits, mirroring `PDEN_USBFSPHY` / `PDEN_USBHSPHY` in
 /// `embassy-nxp/src/usb/lpc55.rs`. The bit is *set* when the block is off.
 const PDEN_USBFSPHY: u32 = 1 << 11;
@@ -162,8 +156,11 @@ async fn main(_spawner: Spawner) {
     .await;
 
     // ---------------------------------------------------------------- USB0 FS
-    let mem = Memory::buffer(unsafe { &mut (*(&raw mut EP_MEM)).0 });
-    let fs_base = (&raw const EP_MEM) as u32;
+    // `Memory::usb1_sram` is already taken by the high-speed half of this test
+    // and is never released, so USB0 gets a region in main SRAM.
+    let mut ep_mem = [0u8; 4096];
+    let mem = Memory::buffer(&mut ep_mem);
+    let fs_base = mem.base();
     let fs = Driver::<peripherals::USB0>::new(p.USB0, Irqs, p.PIO0_22, mem);
     // Same ip3511 register map at the USB0 base; this is exactly how the driver
     // reaches USB0's registers.
