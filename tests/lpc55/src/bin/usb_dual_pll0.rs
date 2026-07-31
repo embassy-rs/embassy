@@ -65,15 +65,20 @@ async fn main(_spawner: Spawner) {
     // instead of the 96 MHz FRO every other dual-controller binary uses.
     hal_config.main_clock = MainClock::Pll0_150M;
     let p = embassy_nxp::init(hal_config);
+    let revision = pac::SYSCON.dieid().read().rev_id();
+    let pll_locked = pac::SYSCON.pll0stat().read().lock();
+    let main_clock_source = pac::SYSCON.mainclkselb().read().sel();
+    defmt::assert_eq!(revision, 1, "PLL0 test requires LPC55 revision 1B");
+    defmt::assert!(pll_locked, "PLL0 lost lock after clock initialization");
+    defmt::assert!(
+        main_clock_source == pac::syscon::vals::MainclkselbSel::Enum0x1,
+        "main clock did not select PLL0"
+    );
+    info!("REV_ID={} PLL0STAT.LOCK={} MAINCLKSELB=PLL0", revision, pll_locked);
 
-    // High speed takes the dedicated USB1 SRAM.
+    // USBHSD can write its command list only in the dedicated USB1 SRAM.
+    // USB0 uses main SRAM so both controllers can run at the same time.
     let hs_driver = Driver::<peripherals::USBHSD>::new(p.USBHSD, Irqs, Memory::usb1_sram());
-
-    // Full speed takes a region in main SRAM: only one controller can own the
-    // dedicated USB1 SRAM, so running both at once forces the other onto a
-    // caller-provided region. 4 KiB comfortably fits an FS CDC-ACM device. The
-    // local lives in the main task's storage, which is a `static`, not on the
-    // stack.
     let mut ep_mem = [0u8; 4096];
     let fs_mem = Memory::buffer(&mut ep_mem);
     let fs_driver = Driver::<peripherals::USB0>::new(p.USB0, Irqs, p.PIO0_22, fs_mem);

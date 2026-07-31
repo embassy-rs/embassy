@@ -95,7 +95,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -123,6 +123,11 @@ const USB1_SRAM_SIZE: u32 = 0x4000;
 /// buffer 64-byte aligned for every instance. EP0's `out_buf1` slot holds the
 /// SETUP buffer pointer rather than a command word.
 const EP_LIST_LEN: u32 = 0x80;
+const EP0_SETUP_OFFSET: u32 = EP_LIST_LEN;
+const EP0_OUT_OFFSET: u32 = EP0_SETUP_OFFSET + 64;
+const EP0_IN_OFFSET: u32 = EP0_OUT_OFFSET + 64;
+const DATA_BUFFER_OFFSET: u32 = EP0_IN_OFFSET + 64;
+const SLOT_RECLAIM_SPINS: usize = 1_000_000;
 
 // Endpoint command/status word encoding. The bit flags below are common to
 // both controllers; the NBytes and AddressOffset field positions differ and
@@ -165,6 +170,11 @@ pub(crate) struct State {
     ep_out_wakers: [AtomicWaker; MAX_EP_COUNT],
     ep_in_state: [AtomicU8; MAX_EP_COUNT],
     ep_out_state: [AtomicU8; MAX_EP_COUNT],
+    alive: AtomicBool,
+    setup_pending: AtomicBool,
+    lifecycle_generation: AtomicU32,
+    ep_in_generation: [AtomicU32; MAX_EP_COUNT],
+    ep_out_generation: [AtomicU32; MAX_EP_COUNT],
 }
 
 impl State {
@@ -175,6 +185,11 @@ impl State {
             ep_out_wakers: [const { AtomicWaker::new() }; MAX_EP_COUNT],
             ep_in_state: [const { AtomicU8::new(0) }; MAX_EP_COUNT],
             ep_out_state: [const { AtomicU8::new(0) }; MAX_EP_COUNT],
+            alive: AtomicBool::new(false),
+            setup_pending: AtomicBool::new(false),
+            lifecycle_generation: AtomicU32::new(0),
+            ep_in_generation: [const { AtomicU32::new(0) }; MAX_EP_COUNT],
+            ep_out_generation: [const { AtomicU32::new(0) }; MAX_EP_COUNT],
         }
     }
 
@@ -189,6 +204,43 @@ impl State {
         match dir {
             Direction::Out => &self.ep_out_wakers[index],
             Direction::In => &self.ep_in_wakers[index],
+        }
+    }
+
+    fn ep_generation(&self, index: usize, dir: Direction) -> &AtomicU32 {
+        match dir {
+            Direction::Out => &self.ep_out_generation[index],
+            Direction::In => &self.ep_in_generation[index],
+        }
+    }
+
+    fn wake_all(&self) {
+        self.bus_waker.wake();
+        for waker in &self.ep_in_wakers {
+            waker.wake();
+        }
+        for waker in &self.ep_out_wakers {
+            waker.wake();
+        }
+    }
+
+    fn invalidate_controller(&self) {
+        self.lifecycle_generation.fetch_add(1, Ordering::Relaxed);
+        self.setup_pending.store(false, Ordering::Release);
+        self.wake_all();
+    }
+
+    fn invalidate_endpoint(&self, index: usize, dir: Direction) {
+        self.ep_generation(index, dir).fetch_add(1, Ordering::Relaxed);
+        self.ep_waker(index, dir).wake();
+    }
+
+    fn note_setup(&self) {
+        if !self.setup_pending.swap(true, Ordering::AcqRel) {
+            self.ep_out_generation[0].fetch_add(1, Ordering::Relaxed);
+            self.ep_in_generation[0].fetch_add(1, Ordering::Relaxed);
+            self.ep_out_wakers[0].wake();
+            self.ep_in_wakers[0].wake();
         }
     }
 }
@@ -242,6 +294,65 @@ fn ep_cmd_modify(ep_list: u32, index: usize, dir: Direction, slot: usize, f: imp
         let p = ep_cmd_ptr(ep_list, index, dir, slot != 0);
         unsafe { p.write_volatile(f(p.read_volatile())) }
     });
+}
+fn valid_endpoint<T: Instance>(ep_addr: EndpointAddress) -> Option<(usize, Direction)> {
+    let index = ep_addr.index();
+    (index < T::EP_COUNT).then_some((index, ep_addr.direction()))
+}
+
+fn select_slot<T: Instance>(index: usize, dir: Direction, slot: usize) {
+    if index == 0 {
+        return;
+    }
+    let bit = 1 << (2 * index + (dir == Direction::In) as usize - 2);
+    T::regs().epinuse().modify(|w| {
+        let selected = if slot == 0 { w.buf() & !bit } else { w.buf() | bit };
+        w.set_buf(selected);
+    });
+}
+
+fn reclaim_slot<T: Instance>(ep_list: u32, index: usize, dir: Direction, slot: usize) {
+    let regs = T::regs();
+    let phy_ep = 2 * index + (dir == Direction::In) as usize;
+    select_slot::<T>(index, dir, slot);
+    if ep_cmd_read(ep_list, index, dir, slot) & CMD_A == 0 {
+        return;
+    }
+
+    let mask = 1 << phy_ep;
+    regs.epskip().write_value(pac::usbhsd::regs::Epskip(mask));
+    for _ in 0..SLOT_RECLAIM_SPINS {
+        if regs.epskip().read().0 & mask == 0 && ep_cmd_read(ep_list, index, dir, slot) & CMD_A == 0 {
+            return;
+        }
+    }
+
+    let direction = if dir == Direction::In { "IN" } else { "OUT" };
+    panic!(
+        "USB endpoint {} {} slot {} did not release: command={}, EPSKIP={}, EPINUSE={}, DEVCMDSTAT={}",
+        index,
+        direction,
+        slot,
+        ep_cmd_read(ep_list, index, dir, slot),
+        regs.epskip().read().0,
+        regs.epinuse().read().0,
+        regs.devcmdstat().read().0
+    );
+}
+
+fn reclaim_slots<T: Instance>(ep_list: u32, index: usize, dir: Direction) {
+    let regs = T::regs();
+    let phy_ep = 2 * index + (dir == Direction::In) as usize;
+    if index == 0 {
+        reclaim_slot::<T>(ep_list, index, dir, 0);
+    } else {
+        let bit = 1 << (phy_ep - 2);
+        let current = ((regs.epinuse().read().buf() & bit) != 0) as usize;
+        reclaim_slot::<T>(ep_list, index, dir, current);
+        reclaim_slot::<T>(ep_list, index, dir, current ^ 1);
+    }
+    regs.intstat().write_value(pac::usbhsd::regs::Intstat(1 << phy_ep));
+    select_slot::<T>(index, dir, 0);
 }
 
 /// Arm one buffer slot of a data endpoint.
@@ -380,8 +491,8 @@ fn program_controller<T: Instance>(ep_list: u32) {
 trait SealedInstance {
     fn regs() -> pac::usbhsd::Usbhsd;
     fn state() -> &'static State;
-    /// Power up clocks + PHY for this controller. Idempotent.
-    fn power_up();
+    /// Power up clocks and the PHY for this controller.
+    fn power_up(uses_usb1_sram: bool);
     /// Power the PHY down and gate this controller's clocks.
     fn power_down();
 }
@@ -394,6 +505,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
 
     /// Number of logical endpoints (EP0 plus data endpoints).
     const EP_COUNT: usize;
+    /// Whether this instance accepts only high-speed negotiation.
+    const HIGH_SPEED: bool;
     /// NBytes field of the command/status word.
     const NBYTES_SHIFT: u32;
     /// Mask of the NBytes field, before shifting.
@@ -438,14 +551,15 @@ impl SealedInstance for crate::peripherals::USBHSD {
         &STATE
     }
 
-    fn power_up() {
+    fn power_up(uses_usb1_sram: bool) {
         use pac::syscon::vals::{Usb1DevRst, Usb1HostRst, Usb1PhyRst, Usb1RamRst};
 
-        // Reset the USB1 blocks sequentially, per block, with their clocks
-        // still off — the exact order lpc55-hal's `enabled_as_device` uses
-        // (host, then device + RAM, then PHY). Clocks are enabled per block
-        // further down, right before each block is first used.
         critical_section::with(|_| {
+            let users = USB1_SRAM_USERS.load(Ordering::Relaxed);
+            let reset_ram = users == 0 || (uses_usb1_sram && users == 1);
+            USBHSD_ACTIVE.store(true, Ordering::Release);
+            pac::SYSCON.ahbclkctrl2().modify(|w| w.set_usb1_ram(true));
+
             pac::SYSCON
                 .presetctrl2()
                 .modify(|w| w.set_usb1_host_rst(Usb1HostRst::Asserted));
@@ -454,11 +568,15 @@ impl SealedInstance for crate::peripherals::USBHSD {
                 .modify(|w| w.set_usb1_host_rst(Usb1HostRst::Released));
             pac::SYSCON.presetctrl2().modify(|w| {
                 w.set_usb1_dev_rst(Usb1DevRst::Asserted);
-                w.set_usb1_ram_rst(Usb1RamRst::Asserted);
+                if reset_ram {
+                    w.set_usb1_ram_rst(Usb1RamRst::Asserted);
+                }
             });
             pac::SYSCON.presetctrl2().modify(|w| {
                 w.set_usb1_dev_rst(Usb1DevRst::Released);
-                w.set_usb1_ram_rst(Usb1RamRst::Released);
+                if reset_ram {
+                    w.set_usb1_ram_rst(Usb1RamRst::Released);
+                }
             });
             pac::SYSCON
                 .presetctrl2()
@@ -466,8 +584,6 @@ impl SealedInstance for crate::peripherals::USBHSD {
             pac::SYSCON
                 .presetctrl2()
                 .modify(|w| w.set_usb1_phy_rst(Usb1PhyRst::Released));
-
-            // Host block clock on, only briefly, to hand the shared port over.
             pac::SYSCON.ahbclkctrl2().modify(|w| w.set_usb1_host(true));
         });
 
@@ -559,13 +675,8 @@ impl SealedInstance for crate::peripherals::USBHSD {
         // Power up everything in the PHY.
         phy.pwd().write_value(pac::usbphy::regs::Pwd(0));
 
-        // Device controller + dedicated USB RAM clocks on, last (mirrors
-        // lpc55-hal's `enable_clock(USB1)` which gates both).
         critical_section::with(|_| {
-            pac::SYSCON.ahbclkctrl2().modify(|w| {
-                w.set_usb1_dev(true);
-                w.set_usb1_ram(true);
-            });
+            pac::SYSCON.ahbclkctrl2().modify(|w| w.set_usb1_dev(true));
         });
     }
 
@@ -578,9 +689,11 @@ impl SealedInstance for crate::peripherals::USBHSD {
             .pdruncfgset0()
             .write(|w| w.set_pdruncfgset0(PDEN_USBHSPHY | PDEN_LDOUSBHS));
         critical_section::with(|_| {
+            USBHSD_ACTIVE.store(false, Ordering::Release);
+            let keep_ram = USB1_SRAM_USERS.load(Ordering::Relaxed) != 0;
             pac::SYSCON.ahbclkctrl2().modify(|w| {
                 w.set_usb1_dev(false);
-                w.set_usb1_ram(false);
+                w.set_usb1_ram(keep_ram);
                 w.set_usb1_phy(false);
             });
         });
@@ -591,6 +704,7 @@ impl Instance for crate::peripherals::USBHSD {
     type Interrupt = crate::interrupt::typelevel::USB1;
 
     const EP_COUNT: usize = 6;
+    const HIGH_SPEED: bool = true;
     const NBYTES_SHIFT: u32 = 11;
     const NBYTES_MASK: u32 = 0x7FFF;
     const ADDROFF_MASK: u32 = 0x7FF;
@@ -632,7 +746,7 @@ impl SealedInstance for crate::peripherals::USB0 {
         &STATE
     }
 
-    fn power_up() {
+    fn power_up(_uses_usb1_sram: bool) {
         use pac::syscon::vals::{Usb0DevRst, Usb0clkdivHalt, Usb0clkdivReqflag, Usb0clkselSel};
 
         // The FS controller clocks off FRO-HF regardless of
@@ -720,6 +834,7 @@ impl Instance for crate::peripherals::USB0 {
     /// EP0's pair, `epskip.skip` / `inten.ep_int_en` are 10 bits), matching
     /// lpc55-hal's endpoint-list layout of `ep0out, setup, ep0in, _, eps[4]`.
     const EP_COUNT: usize = 5;
+    const HIGH_SPEED: bool = false;
     const NBYTES_SHIFT: u32 = 16;
     const NBYTES_MASK: u32 = 0x3FF;
     const ADDROFF_MASK: u32 = 0xFFFF;
@@ -759,30 +874,79 @@ impl VbusPin for crate::peripherals::PIO0_22 {}
 pub struct Memory<'d> {
     base: u32,
     len: u32,
-    _lifetime: PhantomData<&'d mut ()>,
+    lease: MemoryLease<'d>,
 }
 
-static USB1_SRAM_TAKEN: AtomicBool = AtomicBool::new(false);
+static USB1_SRAM_USERS: AtomicU8 = AtomicU8::new(0);
+static USBHSD_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+struct Usb1SramLease;
+
+impl Usb1SramLease {
+    fn new() -> Self {
+        critical_section::with(|_| {
+            if USB1_SRAM_USERS.load(Ordering::Relaxed) != 0 {
+                panic!("USB1 SRAM already in use");
+            }
+            USB1_SRAM_USERS.store(1, Ordering::Relaxed);
+            pac::SYSCON.ahbclkctrl2().modify(|w| w.set_usb1_ram(true));
+        });
+        Self
+    }
+
+    fn clone_lease(&self) -> Self {
+        critical_section::with(|_| {
+            let users = USB1_SRAM_USERS.load(Ordering::Relaxed);
+            let next = users.checked_add(1).expect("USB1 SRAM lease count overflow");
+            USB1_SRAM_USERS.store(next, Ordering::Relaxed);
+        });
+        Self
+    }
+}
+
+impl Drop for Usb1SramLease {
+    fn drop(&mut self) {
+        critical_section::with(|_| {
+            let users = USB1_SRAM_USERS.load(Ordering::Relaxed);
+            debug_assert!(users != 0);
+            let remaining = users - 1;
+            USB1_SRAM_USERS.store(remaining, Ordering::Relaxed);
+            if remaining == 0 && !USBHSD_ACTIVE.load(Ordering::Acquire) {
+                pac::SYSCON.ahbclkctrl2().modify(|w| w.set_usb1_ram(false));
+            }
+        });
+    }
+}
+
+enum MemoryLease<'d> {
+    Usb1Sram(Usb1SramLease),
+    Buffer(PhantomData<&'d mut [u8]>),
+}
+
+impl<'d> MemoryLease<'d> {
+    fn clone_lease(&self) -> Self {
+        match self {
+            Self::Usb1Sram(lease) => Self::Usb1Sram(lease.clone_lease()),
+            Self::Buffer(_) => Self::Buffer(PhantomData),
+        }
+    }
+
+    fn uses_usb1_sram(&self) -> bool {
+        matches!(self, Self::Usb1Sram(_))
+    }
+}
 
 impl<'d> Memory<'d> {
     /// The dedicated 16 KiB USB1 SRAM at `0x4010_0000`.
     ///
-    /// Usable by either controller, but only by one at a time: constructing a
-    /// second one panics. There is no release path; the region is held for the
-    /// lifetime of the driver.
+    /// Usable by either controller, but only by one endpoint-memory owner at a
+    /// time. The claim is released after the last split driver object is
+    /// dropped.
     pub fn usb1_sram() -> Self {
-        if USB1_SRAM_TAKEN.swap(true, Ordering::Relaxed) {
-            panic!("USB1 SRAM already in use");
-        }
-        // The dedicated RAM has its own clock gate, independent of whichever
-        // controller ends up addressing it.
-        critical_section::with(|_| {
-            pac::SYSCON.ahbclkctrl2().modify(|w| w.set_usb1_ram(true));
-        });
         Self {
             base: USB1_SRAM_ADDR,
             len: USB1_SRAM_SIZE,
-            _lifetime: PhantomData,
+            lease: MemoryLease::Usb1Sram(Usb1SramLease::new()),
         }
     }
 
@@ -794,9 +958,9 @@ impl<'d> Memory<'d> {
     ///
     /// `buf` needs no particular alignment. `EPLISTSTART` reserves the low 8
     /// bits of the address, so up to 255 bytes at the front of `buf` are
-    /// skipped; at least 512 bytes must be left after that. Using this instead
-    /// of [`Memory::usb1_sram`] is what allows USB0 and USB1 to run at the same
-    /// time.
+    /// skipped; at least 512 bytes must be left after that. USB0 can use this
+    /// memory while USBHSD uses [`Memory::usb1_sram`]. USBHSD itself cannot
+    /// use this memory because its command/status list is fixed to USB1 SRAM.
     pub fn buffer(buf: &'d mut [u8]) -> Self {
         let raw_base = buf.as_mut_ptr() as u32;
         let base = raw_base.next_multiple_of(256);
@@ -808,7 +972,7 @@ impl<'d> Memory<'d> {
         Self {
             base,
             len,
-            _lifetime: PhantomData,
+            lease: MemoryLease::Buffer(PhantomData),
         }
     }
 
@@ -855,8 +1019,11 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let regs = T::regs();
         let state = T::state();
+        if !state.alive.load(Ordering::Acquire) {
+            return;
+        }
+        let regs = T::regs();
         let stat = regs.intstat().read();
         // W1C exactly the bits we saw. Later-arriving bits stay pending and
         // re-fire the interrupt. Losing an edge is safe by design: the futures
@@ -872,11 +1039,8 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
             }
         }
 
-        // A pending SETUP must abort in-flight control transfers in either
-        // direction, so wake both EP0 futures.
         if regs.devcmdstat().read().setup() {
-            state.ep_out_wakers[0].wake();
-            state.ep_in_wakers[0].wake();
+            state.note_setup();
         }
 
         // dev_int: DEVCMDSTAT change bits are consumed by `Bus::poll`.
@@ -885,11 +1049,42 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
         }
     }
 }
+fn shutdown_controller<T: Instance>(ep_list: u32) {
+    let state = T::state();
+    if !state.alive.swap(false, Ordering::AcqRel) {
+        return;
+    }
+    state.invalidate_controller();
+
+    critical_section::with(|_| {
+        let regs = T::regs();
+        devcmdstat_modify(regs, |w| {
+            w.set_dcon(false);
+            w.set_dev_en(false);
+        });
+        for index in 0..T::EP_COUNT {
+            for dir in [Direction::Out, Direction::In] {
+                reclaim_slots::<T>(ep_list, index, dir);
+                ep_cmd_write(ep_list, index, dir, 0, CMD_D);
+                ep_cmd_write(ep_list, index, dir, 1, CMD_D);
+            }
+        }
+        regs.inten().write_value(pac::usbhsd::regs::Inten(0));
+        regs.intstat()
+            .write_value(pac::usbhsd::regs::Intstat(ep_int_mask::<T>() as u32 | (1 << 31)));
+    });
+
+    T::Interrupt::disable();
+    T::Interrupt::unpend();
+    state.wake_all();
+    T::power_down();
+}
 
 /// LPC55 USB device driver.
 pub struct Driver<'d, T: Instance> {
-    _usb: Peri<'d, T>,
+    _usb: Option<Peri<'d, T>>,
     _vbus: Option<Peri<'d, crate::gpio::AnyPin>>,
+    memory: Option<MemoryLease<'d>>,
     ep_in_used: [bool; MAX_EP_COUNT],
     ep_out_used: [bool; MAX_EP_COUNT],
     /// Base of the endpoint memory: the command/status list starts here.
@@ -900,17 +1095,25 @@ pub struct Driver<'d, T: Instance> {
     alloc_offset: u32,
     /// Address of the 8-byte (64-byte aligned) SETUP buffer.
     setup_addr: u32,
+    ep0_out_addr: u32,
+    ep0_in_addr: u32,
 }
 
 impl<'d> Driver<'d, crate::peripherals::USBHSD> {
     /// Create a new USB1 high-speed driver.
     ///
     /// This powers up and configures the USB1 PHY (expects a 16 MHz crystal)
-    /// and the device controller, but does not connect to the bus yet; the
-    /// soft-connect happens in [`driver::Bus::enable`].
+    /// and the device controller. It does not connect to the bus yet;
+    /// [`driver::Bus::enable`] controls the soft-connect.
+    ///
+    /// USBHSD is high-speed-only in this release. The driver disconnects and
+    /// panics if the host negotiates a fallback speed.
     ///
     /// Requires a system clock of at least 96 MHz, see
     /// [`crate::config::MainClock::FroHf96`].
+    ///
+    /// `memory` must be [`Memory::usb1_sram`]. The USBHSD controller cannot
+    /// write its command/status list to main SRAM.
     pub fn new(
         usb: Peri<'d, crate::peripherals::USBHSD>,
         _irq: impl Binding<crate::interrupt::typelevel::USB1, InterruptHandler<crate::peripherals::USBHSD>> + 'd,
@@ -954,47 +1157,59 @@ impl<'d> Driver<'d, crate::peripherals::USB0> {
 
 impl<'d, T: Instance> Driver<'d, T> {
     fn new_inner(usb: Peri<'d, T>, vbus: Option<Peri<'d, crate::gpio::AnyPin>>, memory: Memory<'d>) -> Self {
-        let Memory { base, len, .. } = memory;
+        let Memory { base, len, lease } = memory;
+        let uses_usb1_sram = lease.uses_usb1_sram();
         assert!(
-            len >= EP_LIST_LEN + 64,
-            "USB endpoint memory is too small for the command list and SETUP buffer"
+            !T::HIGH_SPEED || uses_usb1_sram,
+            "USBHSD endpoint memory must use Memory::usb1_sram()"
         );
-        // AddressOffset only carries the low bits of a buffer address; the
-        // rest comes from DATABUFSTART, so the whole region must sit inside
-        // one DATABUFSTART window.
+        assert!(
+            len >= DATA_BUFFER_OFFSET,
+            "USB endpoint memory is too small for EP0 storage"
+        );
         assert!(
             base >> T::DATABUF_WINDOW_SHIFT == (base + len - 1) >> T::DATABUF_WINDOW_SHIFT,
             "endpoint memory crosses the DATABUFSTART window"
         );
 
-        T::power_up();
+        T::power_up(uses_usb1_sram);
 
-        // Zero the endpoint command/status list and reserve the SETUP buffer.
         for i in 0..T::EP_COUNT * 4 {
             unsafe { ((base as usize + i * 4) as *mut u32).write_volatile(0) };
         }
-        let setup_addr = base + EP_LIST_LEN;
+        let setup_addr = base + EP0_SETUP_OFFSET;
+        let ep0_out_addr = base + EP0_OUT_OFFSET;
+        let ep0_in_addr = base + EP0_IN_OFFSET;
         unsafe {
             (setup_addr as *mut u32).write_volatile(0);
             (setup_addr as *mut u32).add(1).write_volatile(0);
-            // EP0 out_buf1 slot holds the SETUP buffer pointer.
             ep_cmd_ptr(base, 0, Direction::Out, true).write_volatile(addroff::<T>(setup_addr));
         }
 
         program_controller::<T>(base);
+        let state = T::state();
+        state.invalidate_controller();
+        for index in 0..T::EP_COUNT {
+            state.ep_in_state[index].store(0, Ordering::Relaxed);
+            state.ep_out_state[index].store(0, Ordering::Relaxed);
+        }
+        state.alive.store(true, Ordering::Release);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
         Self {
-            _usb: usb,
+            _usb: Some(usb),
             _vbus: vbus,
+            memory: Some(lease),
             ep_in_used: [false; MAX_EP_COUNT],
             ep_out_used: [false; MAX_EP_COUNT],
             ep_list: base,
             mem_end: base + len,
-            alloc_offset: EP_LIST_LEN + 64,
+            alloc_offset: DATA_BUFFER_OFFSET,
             setup_addr,
+            ep0_out_addr,
+            ep0_in_addr,
         }
     }
 
@@ -1127,7 +1342,16 @@ impl<'d, T: Instance> Driver<'d, T> {
             buf_addrs,
             slot_len,
             armed_len: [0; 2],
+            _memory: self.memory.as_ref().ok_or(EndpointAllocError)?.clone_lease(),
         })
+    }
+}
+impl<'d, T: Instance> Drop for Driver<'d, T> {
+    fn drop(&mut self) {
+        if self._usb.is_some() {
+            shutdown_controller::<T>(self.ep_list);
+        }
+        drop(self.memory.take());
     }
 }
 
@@ -1160,33 +1384,43 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         assert!(control_max_packet_size <= 64);
         let ep_list = self.ep_list;
-        let ep0_out_addr = self.alloc_buffer(control_max_packet_size).unwrap();
-        let ep0_in_addr = self.alloc_buffer(control_max_packet_size).unwrap();
+        let ep0_out_addr = self.ep0_out_addr;
+        let ep0_in_addr = self.ep0_in_addr;
+        let Some(usb) = self._usb.take() else {
+            unreachable!("USB peripheral token missing at start");
+        };
+        let vbus_pin = self._vbus.take();
+        let Some(memory) = self.memory.take() else {
+            unreachable!("USB endpoint memory lease missing at start");
+        };
+        let bus_memory = memory.clone_lease();
+        let control_memory = memory.clone_lease();
 
-        // EP0 OUT stays armed at all times (lpc55-hal discipline): the ip3511
-        // needs an active EP0 OUT entry to accept SETUP and OUT packets on the
-        // control pipe. `setup()`/`data_out()` re-arm it after every consumed
-        // packet.
-        ep_cmd_write(
-            ep_list,
-            0,
-            Direction::Out,
-            0,
-            CMD_A | nbytes::<T>(control_max_packet_size as u32) | addroff::<T>(ep0_out_addr),
-        );
-        ep_cmd_write(ep_list, 0, Direction::In, 0, addroff::<T>(ep0_in_addr));
+        critical_section::with(|_| {
+            ep_cmd_write(
+                ep_list,
+                0,
+                Direction::Out,
+                0,
+                CMD_A | nbytes::<T>(control_max_packet_size as u32) | addroff::<T>(ep0_out_addr),
+            );
+            ep_cmd_write(ep_list, 0, Direction::In, 0, addroff::<T>(ep0_in_addr));
+            let vbus = T::regs().devcmdstat().read().vbus_debounced();
+            devcmdstat_modify(T::regs(), |w| {
+                w.set_dev_en(true);
+                w.set_dcon(!vbus);
+            });
+        });
 
         trace!("started");
 
         (
             Bus {
-                _phantom: PhantomData,
-                _vbus: self._vbus,
-                // Deliberately `false` rather than sampled from the register:
-                // a `false` start is what makes the first `poll()` emit
-                // `PowerDetected` for an already-attached cable.
+                _usb: Some(usb),
+                _vbus: vbus_pin,
+                memory: Some(bus_memory),
                 vbus: false,
-                powered: true,
+                needs_reset: false,
                 ep_list,
                 setup_addr: self.setup_addr,
                 ep0_out_addr,
@@ -1194,11 +1428,16 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
             },
             ControlPipe {
                 _phantom: PhantomData,
+                _memory: control_memory,
                 max_packet_size: control_max_packet_size,
                 ep_list,
                 setup_addr: self.setup_addr,
                 ep0_out_addr,
                 ep0_in_addr,
+                accepted_lifecycle: 0,
+                accepted_out_generation: 0,
+                accepted_in_generation: 0,
+                setup_valid: false,
             },
         )
     }
@@ -1206,10 +1445,11 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
 /// USB bus.
 pub struct Bus<'d, T: Instance> {
-    _phantom: PhantomData<&'d mut T>,
+    _usb: Option<Peri<'d, T>>,
     _vbus: Option<Peri<'d, crate::gpio::AnyPin>>,
+    memory: Option<MemoryLease<'d>>,
     vbus: bool,
-    powered: bool,
+    needs_reset: bool,
     ep_list: u32,
     setup_addr: u32,
     ep0_out_addr: u32,
@@ -1217,90 +1457,135 @@ pub struct Bus<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Bus<'d, T> {
-    /// Re-apply the controller programming `Driver::new_inner` does, after a
-    /// `power_up` that reset the block.
-    fn reinit(&mut self) {
-        program_controller::<T>(self.ep_list);
-        self.reset_endpoints();
-    }
-
-    /// Disable all data endpoints, reset the double-buffer bookkeeping and
-    /// re-arm EP0. Shared by the bus-reset path and `reinit`.
     fn reset_endpoints(&mut self) {
-        let regs = T::regs();
+        critical_section::with(|_| {
+            let regs = T::regs();
+            let state = T::state();
+            state.invalidate_controller();
+
+            state.ep_out_state[0].store(0, Ordering::Relaxed);
+            state.ep_in_state[0].store(0, Ordering::Relaxed);
+            for index in 0..T::EP_COUNT {
+                for dir in [Direction::Out, Direction::In] {
+                    reclaim_slots::<T>(self.ep_list, index, dir);
+                }
+            }
+            for index in 1..T::EP_COUNT {
+                for dir in [Direction::Out, Direction::In] {
+                    ep_cmd_write(self.ep_list, index, dir, 0, CMD_D);
+                    ep_cmd_write(self.ep_list, index, dir, 1, CMD_D);
+                    let ep_state = state.ep_state(index, dir);
+                    ep_state.store(ep_state.load(Ordering::Relaxed) & ISO, Ordering::Relaxed);
+                }
+            }
+            regs.epinuse().write(|w| w.set_buf(0));
+            regs.epbufcfg().write(|w| w.set_buf_sb(ep_buf_mask::<T>()));
+            ep_cmd_write(
+                self.ep_list,
+                0,
+                Direction::Out,
+                0,
+                CMD_A | nbytes::<T>(self.ep0_mps as u32) | addroff::<T>(self.ep0_out_addr),
+            );
+            ep_cmd_write(self.ep_list, 0, Direction::In, 0, 0);
+            unsafe {
+                ep_cmd_ptr(self.ep_list, 0, Direction::Out, true).write_volatile(addroff::<T>(self.setup_addr));
+            }
+        });
+    }
+
+    fn disable_data_endpoints(&mut self) {
         let state = T::state();
-
-        for i in 1..T::EP_COUNT {
-            for slot in 0..2 {
-                ep_cmd_write(self.ep_list, i, Direction::Out, slot, CMD_D);
-                ep_cmd_write(self.ep_list, i, Direction::In, slot, CMD_D);
-            }
-            // Keep ISO: it describes the endpoint, not its transfer state.
+        for index in 1..T::EP_COUNT {
             for dir in [Direction::Out, Direction::In] {
-                let s = state.ep_state(i, dir);
-                s.store(s.load(Ordering::Relaxed) & ISO, Ordering::Relaxed);
+                reclaim_slots::<T>(self.ep_list, index, dir);
+                ep_cmd_write(self.ep_list, index, dir, 0, CMD_D);
+                ep_cmd_write(self.ep_list, index, dir, 1, CMD_D);
+                let ep_state = state.ep_state(index, dir);
+                ep_state.store(ep_state.load(Ordering::Relaxed) & ISO, Ordering::Relaxed);
             }
-        }
-        regs.epinuse().write(|w| w.set_buf(0));
-        regs.epbufcfg().write(|w| w.set_buf_sb(ep_buf_mask::<T>()));
-
-        // EP0 OUT stays armed at all times; keep the SETUP pointer.
-        ep_cmd_write(
-            self.ep_list,
-            0,
-            Direction::Out,
-            0,
-            CMD_A | nbytes::<T>(self.ep0_mps as u32) | addroff::<T>(self.ep0_out_addr),
-        );
-        ep_cmd_write(self.ep_list, 0, Direction::In, 0, 0);
-        unsafe {
-            ep_cmd_ptr(self.ep_list, 0, Direction::Out, true).write_volatile(addroff::<T>(self.setup_addr));
-        }
-
-        // Unstick any pending endpoint futures; they will observe the
-        // disabled/reset state.
-        for w in &state.ep_in_wakers {
-            w.wake();
-        }
-        for w in &state.ep_out_wakers {
-            w.wake();
         }
     }
+
+    fn shutdown(&mut self) {
+        if self._usb.is_none() {
+            return;
+        }
+        shutdown_controller::<T>(self.ep_list);
+        drop(self.memory.take());
+        self._usb.take();
+        self._vbus.take();
+    }
+}
+
+impl<'d, T: Instance> Drop for Bus<'d, T> {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+const fn negotiated_speed_valid(high_speed: bool, speed: u8) -> bool {
+    // USB0 leaves the SPEED field reserved and reads it as zero.
+    speed == if high_speed { 0b10 } else { 0b00 }
 }
 
 impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn enable(&mut self) {
-        if !self.powered {
-            T::power_up();
-            self.reinit();
-            self.powered = true;
-        }
-        // Soft-connect.
-        devcmdstat_modify(T::regs(), |w| w.set_dcon(true));
+        critical_section::with(|_| {
+            // `start` already programs and arms EP0. Reclaiming that slot on
+            // the first enable would cancel the request that waits for reset.
+            if self.needs_reset {
+                for index in 0..T::EP_COUNT {
+                    for dir in [Direction::Out, Direction::In] {
+                        reclaim_slots::<T>(self.ep_list, index, dir);
+                    }
+                }
+                program_controller::<T>(self.ep_list);
+                self.reset_endpoints();
+                self.needs_reset = false;
+            }
+            devcmdstat_modify(T::regs(), |w| {
+                w.set_dev_en(true);
+                w.set_dcon(true);
+            });
+        });
+        T::state().bus_waker.wake();
     }
 
     async fn disable(&mut self) {
-        devcmdstat_modify(T::regs(), |w| w.set_dcon(false));
-        devcmdstat_modify(T::regs(), |w| w.set_dev_en(false));
-        T::power_down();
-        self.powered = false;
+        critical_section::with(|_| {
+            let regs = T::regs();
+            let vbus = regs.devcmdstat().read().vbus_debounced();
+            T::state().invalidate_controller();
+            // EPSKIP only runs while the endpoint engine is connected.
+            self.disable_data_endpoints();
+            devcmdstat_modify(regs, |w| {
+                w.set_setup(true);
+                w.set_dev_en(true);
+                w.set_dcon(!vbus);
+            });
+            self.vbus = false;
+            self.needs_reset = true;
+        });
     }
 
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
-            T::state().bus_waker.register(cx.waker());
+            let state = T::state();
+            state.bus_waker.register(cx.waker());
+            if !state.alive.load(Ordering::Acquire) {
+                return Poll::Pending;
+            }
 
             let regs = T::regs();
             let dcs = regs.devcmdstat().read();
-
-            // VBUS level changes are reported before anything else: a lost
-            // cable invalidates every other event.
             let vbus = dcs.vbus_debounced();
             if vbus != self.vbus {
                 self.vbus = vbus;
                 let event = if vbus {
                     Event::PowerDetected
                 } else {
+                    critical_section::with(|_| state.invalidate_controller());
                     Event::PowerRemoved
                 };
                 trace!("{}", event);
@@ -1308,13 +1593,23 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             }
 
             if dcs.dres_c() {
+                let speed = dcs.speed();
+                if !negotiated_speed_valid(T::HIGH_SPEED, speed) {
+                    critical_section::with(|_| {
+                        state.invalidate_controller();
+                        devcmdstat_modify(regs, |w| w.set_dcon(false));
+                    });
+                    if T::HIGH_SPEED {
+                        panic!("USBHSD negotiated unsupported speed {}", speed);
+                    }
+                    panic!("USB0 negotiated unsupported speed {}", speed);
+                }
+
                 devcmdstat_modify(regs, |w| {
                     w.set_dres_c(true);
                     w.set_dev_addr(0);
                 });
-
                 self.reset_endpoints();
-
                 trace!("RESET");
                 return Poll::Ready(Event::Reset);
             }
@@ -1327,10 +1622,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             }
 
             if dcs.dcon_c() {
-                // Acknowledge only. Hardware gates the D+ pull-up on
-                // VBUS_DEBOUNCED, so a VBUS change forces a connect-state
-                // change: this is the wake that carries it, and the level was
-                // already picked up above.
                 devcmdstat_modify(regs, |w| w.set_dcon_c(true));
             }
 
@@ -1341,104 +1632,75 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     fn endpoint_set_enabled(&mut self, ep_addr: EndpointAddress, enabled: bool) {
         trace!("set_enabled {:?} {}", ep_addr, enabled);
-        let index = ep_addr.index();
+        let Some((index, dir)) = valid_endpoint::<T>(ep_addr) else {
+            return;
+        };
         if index == 0 {
             return;
         }
-        let dir = ep_addr.direction();
-        let state = T::state().ep_state(index, dir);
-        let iso = state.load(Ordering::Relaxed) & ISO;
 
-        if enabled {
-            // Both slots idle (NAK until armed) with the data toggle reset,
-            // which USB requires whenever a SET_CONFIGURATION or SET_INTERFACE
-            // enables an endpoint. Hardware must also restart on slot 0 to match
-            // the software cursor.
-            //
-            // `TR` has to be in the word here and not only deferred to the first
-            // armed transfer via `TR_PENDING`: the full-speed block otherwise
-            // keeps the pre-disable toggle and silently drops the first packets
-            // after an alternate setting switches the endpoint back on.
-            //
-            // Only slot 0 carries it. `TR` is honoured on an inactive entry, so
-            // arming both slots with it lets hardware reset the toggle a second
-            // time after the first packet has already flipped it, which corrupts
-            // the very next transfer. Isochronous endpoints have no toggle at all.
-            ep_cmd_write(self.ep_list, index, dir, 0, if iso != 0 { 0 } else { CMD_TR });
-            ep_cmd_write(self.ep_list, index, dir, 1, 0);
-            let phy_ep = 2 * index + (dir == Direction::In) as usize;
-            T::regs()
-                .epinuse()
-                .modify(|w| w.set_buf(w.buf() & !(1 << (phy_ep - 2))));
-            state.store(iso | TR_PENDING, Ordering::Relaxed);
-        } else {
-            ep_cmd_write(self.ep_list, index, dir, 0, CMD_D);
-            ep_cmd_write(self.ep_list, index, dir, 1, CMD_D);
-            state.store(iso, Ordering::Relaxed);
-        }
+        critical_section::with(|_| {
+            let shared = T::state();
+            let state = shared.ep_state(index, dir);
+            let iso = state.load(Ordering::Relaxed) & ISO;
+            reclaim_slots::<T>(self.ep_list, index, dir);
+            shared.invalidate_endpoint(index, dir);
 
-        T::state().ep_waker(index, dir).wake();
+            if enabled {
+                ep_cmd_write(self.ep_list, index, dir, 0, if iso != 0 { 0 } else { CMD_TR });
+                ep_cmd_write(self.ep_list, index, dir, 1, 0);
+                select_slot::<T>(index, dir, 0);
+                state.store(iso | if iso == 0 { TR_PENDING } else { 0 }, Ordering::Relaxed);
+            } else {
+                ep_cmd_write(self.ep_list, index, dir, 0, CMD_D);
+                ep_cmd_write(self.ep_list, index, dir, 1, CMD_D);
+                state.store(iso, Ordering::Relaxed);
+            }
+        });
     }
 
     fn endpoint_set_stalled(&mut self, ep_addr: EndpointAddress, stalled: bool) {
         trace!("set_stalled {:?} {}", ep_addr, stalled);
-        let index = ep_addr.index();
-        let dir = ep_addr.direction();
-        let regs = T::regs();
-        let phy_ep = 2 * index + (dir == Direction::In) as usize;
-        // EP0's second OUT slot is the SETUP pointer: never touch it.
-        let slots = if index == 0 { 0..1 } else { 0..2 };
-        // Isochronous endpoints have no handshake phase, so the S bit is
-        // meaningless for them: reclaim and resync, but never stall.
-        let iso = index != 0 && T::state().ep_state(index, dir).load(Ordering::Relaxed) & ISO != 0;
+        let Some((index, dir)) = valid_endpoint::<T>(ep_addr) else {
+            return;
+        };
 
-        if stalled {
-            for slot in slots.clone() {
-                if ep_cmd_read(self.ep_list, index, dir, slot) & CMD_A != 0 {
-                    // Reclaim the in-flight transfer via EPSKIP (skips the
-                    // slot EPINUSE points at).
-                    regs.epskip().write_value(pac::usbhsd::regs::Epskip(1 << phy_ep));
-                    while regs.epskip().read().0 & (1 << phy_ep) != 0 {}
-                    regs.intstat().write_value(pac::usbhsd::regs::Intstat(1 << phy_ep));
-                }
-            }
-            if !iso {
-                for slot in slots {
-                    ep_cmd_modify(self.ep_list, index, dir, slot, |w| (w & !CMD_A) | CMD_S);
-                }
-            }
-        } else if index == 0 {
-            // Clearing a stall resets the data toggle to DATA0.
-            ep_cmd_modify(self.ep_list, index, dir, 0, |w| (w & !CMD_S) | CMD_TR);
-        } else {
-            // Drop any buffered packets, resync the hardware slot cursor and
-            // reset the data toggle, which USB requires when a halt is cleared.
-            //
-            // Both slot words are rewritten whole rather than having `S` and `A`
-            // masked out: keeping the aborted transfer's NBytes and
-            // AddressOffset leaves the full-speed block wedged - it acknowledges
-            // the next OUT packets on the wire and discards them without ever
-            // completing the entry.
-            //
-            // The toggle reset lands on slot 0 only, for the reason spelled out
-            // in `endpoint_set_enabled`.
-            for slot in slots {
-                let word = if slot == 0 && !iso { CMD_TR } else { 0 };
-                ep_cmd_write(self.ep_list, index, dir, slot, word);
-            }
-            regs.epinuse().modify(|w| w.set_buf(w.buf() & !(1 << (phy_ep - 2))));
-            let state = T::state().ep_state(index, dir);
-            let keep = state.load(Ordering::Relaxed) & ISO;
-            state.store(keep | TR_PENDING, Ordering::Relaxed);
-        }
+        critical_section::with(|_| {
+            let shared = T::state();
+            let iso = index != 0 && shared.ep_state(index, dir).load(Ordering::Relaxed) & ISO != 0;
+            reclaim_slots::<T>(self.ep_list, index, dir);
+            shared.invalidate_endpoint(index, dir);
 
-        T::state().ep_waker(index, dir).wake();
+            if stalled {
+                if iso {
+                    ep_cmd_write(self.ep_list, index, dir, 0, 0);
+                    ep_cmd_write(self.ep_list, index, dir, 1, 0);
+                    shared.ep_state(index, dir).store(ISO, Ordering::Relaxed);
+                } else {
+                    ep_cmd_write(self.ep_list, index, dir, 0, CMD_S);
+                    if index != 0 {
+                        ep_cmd_write(self.ep_list, index, dir, 1, CMD_S);
+                    }
+                }
+            } else if index == 0 {
+                ep_cmd_write(self.ep_list, index, dir, 0, CMD_TR);
+            } else {
+                ep_cmd_write(self.ep_list, index, dir, 0, if iso { 0 } else { CMD_TR });
+                ep_cmd_write(self.ep_list, index, dir, 1, 0);
+                let state = shared.ep_state(index, dir);
+                let keep = state.load(Ordering::Relaxed) & ISO;
+                state.store(keep | if keep == 0 { TR_PENDING } else { 0 }, Ordering::Relaxed);
+            }
+        });
     }
 
     fn endpoint_is_stalled(&mut self, ep_addr: EndpointAddress) -> bool {
-        // Isochronous endpoints are never stalled, and `endpoint_set_stalled`
-        // never sets CMD_S on them, so this reports `false` for them.
-        ep_cmd_read(self.ep_list, ep_addr.index(), ep_addr.direction(), 0) & CMD_S != 0
+        let Some((index, dir)) = valid_endpoint::<T>(ep_addr) else {
+            return false;
+        };
+        critical_section::with(|_| {
+            T::state().alive.load(Ordering::Acquire) && ep_cmd_read(self.ep_list, index, dir, 0) & CMD_S != 0
+        })
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
@@ -1447,13 +1709,16 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     }
 
     fn force_reset(&mut self) -> Result<(), Unsupported> {
-        devcmdstat_modify(T::regs(), |w| w.set_dcon(false));
-        // The host needs >= 10 us of SE0 to see a disconnect. This is a
-        // blocking trait method, so busy-wait: 10M cycles is 33-104 ms across
-        // the supported main clocks (300 MHz down to 96 MHz) - generous, but
-        // this path runs at most once per host-visible reconnect.
+        critical_section::with(|_| {
+            T::state().invalidate_controller();
+            devcmdstat_modify(T::regs(), |w| w.set_dcon(false));
+        });
         cortex_m::asm::delay(10_000_000);
-        devcmdstat_modify(T::regs(), |w| w.set_dcon(true));
+        critical_section::with(|_| {
+            if T::state().alive.load(Ordering::Acquire) {
+                devcmdstat_modify(T::regs(), |w| w.set_dcon(true));
+            }
+        });
         Ok(())
     }
 }
@@ -1469,6 +1734,7 @@ pub struct Endpoint<'d, T: Instance, D> {
     /// Length each OUT slot was last armed with; needed to compute the
     /// received count from the NBytes-remaining field on completion.
     armed_len: [u16; 2],
+    _memory: MemoryLease<'d>,
 }
 
 impl<'d, T: Instance, D: Dir> Endpoint<'d, T, D> {
@@ -1485,12 +1751,18 @@ impl<'d, T: Instance, D: Dir> driver::Endpoint for Endpoint<'d, T, D> {
     async fn wait_enabled(&mut self) {
         let index = self.info.addr.index();
         poll_fn(|cx| {
-            T::state().ep_waker(index, D::dir()).register(cx.waker());
-            if ep_cmd_read(self.ep_list, index, D::dir(), 0) & CMD_D == 0 {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            let shared = T::state();
+            shared.ep_waker(index, D::dir()).register(cx.waker());
+            critical_section::with(|_| {
+                if !shared.alive.load(Ordering::Acquire) {
+                    return Poll::Pending;
+                }
+                if ep_cmd_read(self.ep_list, index, D::dir(), 0) & CMD_D == 0 {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
         })
         .await;
         trace!("wait_enabled {:?} OK", self.info.addr);
@@ -1511,85 +1783,105 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let index = self.info.addr.index();
         let arm_len = self.info.max_packet_size as u32;
-        let state = T::state().ep_state(index, Direction::Out);
+        let shared = T::state();
+        let state = shared.ep_state(index, Direction::Out);
         let iso = self.is_iso();
-        // Keep both slots armed so the endpoint does not NAK between packets
-        // while the host streams. A slot with PRIMED set and Active clear
-        // holds a received, not-yet-consumed packet.
-        let mut s = state.load(Ordering::Relaxed);
-        for slot in 0..2 {
-            if s & (PRIMED0 << slot) == 0 {
-                if ep_cmd_read(self.ep_list, index, Direction::Out, slot) & CMD_UNUSABLE != 0 {
-                    return Err(EndpointError::Disabled);
-                }
-                ep_arm_slot::<T>(
-                    self.ep_list,
-                    index,
-                    Direction::Out,
-                    slot,
-                    arm_len,
-                    self.buf_addrs[slot],
-                    s & TR_PENDING != 0,
-                    iso,
-                );
-                self.armed_len[slot] = arm_len as u16;
-                s = (s | (PRIMED0 << slot)) & !TR_PENDING;
-                state.store(s, Ordering::Relaxed);
-            }
-        }
 
-        // Consume in hardware ping-pong order.
+        let s = critical_section::with(|_| {
+            if !shared.alive.load(Ordering::Acquire) {
+                return Err(EndpointError::Disabled);
+            }
+            let lifecycle = shared.lifecycle_generation.load(Ordering::Relaxed);
+            let generation = shared.ep_out_generation[index].load(Ordering::Relaxed);
+            let mut s = state.load(Ordering::Relaxed);
+            for slot in 0..2 {
+                if s & (PRIMED0 << slot) == 0 {
+                    if ep_cmd_read(self.ep_list, index, Direction::Out, slot) & CMD_UNUSABLE != 0 {
+                        return Err(EndpointError::Disabled);
+                    }
+                    ep_arm_slot::<T>(
+                        self.ep_list,
+                        index,
+                        Direction::Out,
+                        slot,
+                        arm_len,
+                        self.buf_addrs[slot],
+                        s & TR_PENDING != 0,
+                        iso,
+                    );
+                    self.armed_len[slot] = arm_len as u16;
+                    s = (s | (PRIMED0 << slot)) & !TR_PENDING;
+                    state.store(s, Ordering::Relaxed);
+                }
+            }
+            if lifecycle != shared.lifecycle_generation.load(Ordering::Relaxed)
+                || generation != shared.ep_out_generation[index].load(Ordering::Relaxed)
+            {
+                return Err(EndpointError::Disabled);
+            }
+            Ok((s, lifecycle, generation))
+        })?;
+
+        let (s, lifecycle, generation) = s;
         let slot = (s & SLOT) as usize;
-        let word = poll_fn(|cx| {
-            T::state().ep_out_wakers[index].register(cx.waker());
-            let word = ep_cmd_read(self.ep_list, index, Direction::Out, slot);
-            if word & CMD_UNUSABLE != 0 {
-                // Disabled by a bus reset, or stalled by the host, while waiting.
-                return Poll::Ready(Err(EndpointError::Disabled));
-            }
-            if state.load(Ordering::Relaxed) & (PRIMED0 << slot) == 0 {
-                // A re-enable or unstall cancelled the armed transfer.
-                return Poll::Ready(Err(EndpointError::Disabled));
-            }
-            if word & CMD_A == 0 {
-                Poll::Ready(Ok(word))
-            } else {
-                Poll::Pending
-            }
+        let (word, snapshot_state) = poll_fn(|cx| {
+            shared.ep_out_wakers[index].register(cx.waker());
+            critical_section::with(|_| {
+                if !shared.alive.load(Ordering::Acquire)
+                    || lifecycle != shared.lifecycle_generation.load(Ordering::Relaxed)
+                    || generation != shared.ep_out_generation[index].load(Ordering::Relaxed)
+                {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                let snapshot_state = state.load(Ordering::Relaxed);
+                if (snapshot_state & SLOT) as usize != slot || snapshot_state & (PRIMED0 << slot) == 0 {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                let word = ep_cmd_read(self.ep_list, index, Direction::Out, slot);
+                if word & CMD_UNUSABLE != 0 {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                if word & CMD_A == 0 {
+                    Poll::Ready(Ok((word, snapshot_state)))
+                } else {
+                    Poll::Pending
+                }
+            })
         })
         .await?;
 
-        // A dropped or errored isochronous packet completes the entry with
-        // NBytes untouched, which this arithmetic turns into `Ok(0)`. That is
-        // the correct report for isochronous: there is no retry, and the
-        // caller sees a lost frame rather than an error. Do not "fix" it.
         let rx_len = (self.armed_len[slot] as u32 - remaining_bytes::<T>(word)) as usize;
         if rx_len > buf.len() {
             return Err(EndpointError::BufferOverflow);
         }
         copy_from_ep_buffer(self.buf_addrs[slot], &mut buf[..rx_len]);
 
-        // A host halt landing between the completion poll and here would be
-        // erased by the re-arm below, so drop the packet instead: the host asked
-        // for the endpoint to stop.
-        if ep_cmd_read(self.ep_list, index, Direction::Out, slot) & CMD_S != 0 {
-            return Err(EndpointError::Disabled);
-        }
-
-        // Hand the drained slot straight back to hardware and advance the
-        // consume cursor.
-        ep_arm_slot::<T>(
-            self.ep_list,
-            index,
-            Direction::Out,
-            slot,
-            arm_len,
-            self.buf_addrs[slot],
-            false,
-            iso,
-        );
-        self.armed_len[slot] = arm_len as u16;
-        state.store((s ^ SLOT) | (PRIMED0 << slot), Ordering::Relaxed);
+        critical_section::with(|_| {
+            if !shared.alive.load(Ordering::Acquire)
+                || lifecycle != shared.lifecycle_generation.load(Ordering::Relaxed)
+                || generation != shared.ep_out_generation[index].load(Ordering::Relaxed)
+            {
+                return Err(EndpointError::Disabled);
+            }
+            let current = state.load(Ordering::Relaxed);
+            let command = ep_cmd_read(self.ep_list, index, Direction::Out, slot);
+            if (current & SLOT) as usize != slot || current & (PRIMED0 << slot) == 0 || command & CMD_UNUSABLE != 0 {
+                return Err(EndpointError::Disabled);
+            }
+            ep_arm_slot::<T>(
+                self.ep_list,
+                index,
+                Direction::Out,
+                slot,
+                arm_len,
+                self.buf_addrs[slot],
+                false,
+                iso,
+            );
+            self.armed_len[slot] = arm_len as u16;
+            state.store((snapshot_state ^ SLOT) | (PRIMED0 << slot), Ordering::Relaxed);
+            Ok(())
+        })?;
 
         trace!("READ {:?} rx_len = {}", self.info.addr, rx_len);
         Ok(rx_len)
@@ -1610,45 +1902,60 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         }
 
         let index = self.info.addr.index();
-        let state = T::state().ep_state(index, Direction::In);
+        let shared = T::state();
+        let state = shared.ep_state(index, Direction::In);
         let iso = self.is_iso();
+        let (slot, lifecycle, generation) = critical_section::with(|_| {
+            if !shared.alive.load(Ordering::Acquire) {
+                return Err(EndpointError::Disabled);
+            }
+            let slot = (state.load(Ordering::Relaxed) & SLOT) as usize;
+            Ok((
+                slot,
+                shared.lifecycle_generation.load(Ordering::Relaxed),
+                shared.ep_in_generation[index].load(Ordering::Relaxed),
+            ))
+        })?;
 
-        // Fill slots in hardware ping-pong order, returning as soon as the
-        // packet is armed: the wire transmits from one slot while software
-        // fills the other, so a saturating writer never lets the endpoint
-        // NAK an IN token.
-        loop {
-            let s = state.load(Ordering::Relaxed);
-            let slot = (s & SLOT) as usize;
-
-            poll_fn(|cx| {
-                T::state().ep_in_wakers[index].register(cx.waker());
+        let snapshot_state = poll_fn(|cx| {
+            shared.ep_in_wakers[index].register(cx.waker());
+            critical_section::with(|_| {
+                if !shared.alive.load(Ordering::Acquire)
+                    || lifecycle != shared.lifecycle_generation.load(Ordering::Relaxed)
+                    || generation != shared.ep_in_generation[index].load(Ordering::Relaxed)
+                {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                let snapshot_state = state.load(Ordering::Relaxed);
+                if (snapshot_state & SLOT) as usize != slot {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
                 let word = ep_cmd_read(self.ep_list, index, Direction::In, slot);
                 if word & CMD_UNUSABLE != 0 {
                     return Poll::Ready(Err(EndpointError::Disabled));
                 }
                 if word & CMD_A == 0 {
-                    Poll::Ready(Ok(()))
+                    Poll::Ready(Ok(snapshot_state))
                 } else {
                     Poll::Pending
                 }
             })
-            .await?;
+        })
+        .await?;
 
-            // A reset or re-enable while waiting may have moved the slot
-            // cursor; re-derive and retry if so.
-            let s = state.load(Ordering::Relaxed);
-            if (s & SLOT) as usize != slot {
-                continue;
-            }
-
-            // Same hazard as in `read`: a host halt landing here would be
-            // erased by the arm below.
-            if ep_cmd_read(self.ep_list, index, Direction::In, slot) & CMD_S != 0 {
+        copy_to_ep_buffer(self.buf_addrs[slot], buf);
+        critical_section::with(|_| {
+            if !shared.alive.load(Ordering::Acquire)
+                || lifecycle != shared.lifecycle_generation.load(Ordering::Relaxed)
+                || generation != shared.ep_in_generation[index].load(Ordering::Relaxed)
+            {
                 return Err(EndpointError::Disabled);
             }
-
-            copy_to_ep_buffer(self.buf_addrs[slot], buf);
+            let current = state.load(Ordering::Relaxed);
+            let command = ep_cmd_read(self.ep_list, index, Direction::In, slot);
+            if (current & SLOT) as usize != slot || command & (CMD_UNUSABLE | CMD_A) != 0 {
+                return Err(EndpointError::Disabled);
+            }
             ep_arm_slot::<T>(
                 self.ep_list,
                 index,
@@ -1656,14 +1963,15 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
                 slot,
                 buf.len() as u32,
                 self.buf_addrs[slot],
-                s & TR_PENDING != 0,
+                snapshot_state & TR_PENDING != 0,
                 iso,
             );
-            state.store((s ^ SLOT) & !TR_PENDING, Ordering::Relaxed);
+            state.store((snapshot_state ^ SLOT) & !TR_PENDING, Ordering::Relaxed);
+            Ok(())
+        })?;
 
-            trace!("WRITE {:?} len = {}", self.info.addr, buf.len());
-            return Ok(());
-        }
+        trace!("WRITE {:?} len = {}", self.info.addr, buf.len());
+        Ok(())
     }
 
     /// Sends all of `buf`, then a zero-length packet if the transfer needs one
@@ -1688,11 +1996,35 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
 /// USB control pipe (endpoint 0, both directions).
 pub struct ControlPipe<'d, T: Instance> {
     _phantom: PhantomData<&'d mut T>,
+    _memory: MemoryLease<'d>,
     max_packet_size: u16,
     ep_list: u32,
     setup_addr: u32,
     ep0_out_addr: u32,
     ep0_in_addr: u32,
+    accepted_lifecycle: u32,
+    accepted_out_generation: u32,
+    accepted_in_generation: u32,
+    setup_valid: bool,
+}
+
+impl<'d, T: Instance> ControlPipe<'d, T> {
+    fn request_valid(&self) -> bool {
+        let state = T::state();
+        if !self.setup_valid
+            || !state.alive.load(Ordering::Acquire)
+            || self.accepted_lifecycle != state.lifecycle_generation.load(Ordering::Relaxed)
+            || self.accepted_out_generation != state.ep_out_generation[0].load(Ordering::Relaxed)
+            || self.accepted_in_generation != state.ep_in_generation[0].load(Ordering::Relaxed)
+        {
+            return false;
+        }
+        if T::regs().devcmdstat().read().setup() {
+            state.note_setup();
+            return false;
+        }
+        true
+    }
 }
 
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
@@ -1701,64 +2033,71 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     }
 
     async fn setup(&mut self) -> [u8; 8] {
-        let regs = T::regs();
-
+        let shared = T::state();
         poll_fn(|cx| {
-            T::state().ep_out_wakers[0].register(cx.waker());
-            if regs.devcmdstat().read().setup() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            shared.ep_out_wakers[0].register(cx.waker());
+            critical_section::with(|_| {
+                if !shared.alive.load(Ordering::Acquire) {
+                    return Poll::Pending;
+                }
+                if T::regs().devcmdstat().read().setup() {
+                    shared.note_setup();
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
         })
         .await;
 
-        // UM procedure: clear Active and Stall on both EP0 directions BEFORE
-        // acknowledging the SETUP bit.
-        ep_cmd_modify(self.ep_list, 0, Direction::Out, 0, |w| w & !(CMD_A | CMD_S));
-        ep_cmd_modify(self.ep_list, 0, Direction::In, 0, |w| w & !(CMD_A | CMD_S));
+        let buf = critical_section::with(|_| {
+            ep_cmd_modify(self.ep_list, 0, Direction::Out, 0, |w| w & !(CMD_A | CMD_S));
+            ep_cmd_modify(self.ep_list, 0, Direction::In, 0, |w| w & !(CMD_A | CMD_S));
 
-        let mut buf = [0; 8];
-        copy_from_ep_buffer(self.setup_addr, &mut buf);
+            let mut buf = [0; 8];
+            copy_from_ep_buffer(self.setup_addr, &mut buf);
+            devcmdstat_modify(T::regs(), |w| w.set_setup(true));
+            unsafe {
+                ep_cmd_ptr(self.ep_list, 0, Direction::Out, true).write_volatile(addroff::<T>(self.setup_addr));
+            }
+            ep_cmd_write(
+                self.ep_list,
+                0,
+                Direction::Out,
+                0,
+                CMD_A | nbytes::<T>(self.max_packet_size as u32) | addroff::<T>(self.ep0_out_addr),
+            );
 
-        devcmdstat_modify(regs, |w| w.set_setup(true));
-
-        // Hardware may overwrite the SETUP slot's address field: re-write it,
-        // and re-arm EP0 OUT for the next packet.
-        unsafe {
-            ep_cmd_ptr(self.ep_list, 0, Direction::Out, true).write_volatile(addroff::<T>(self.setup_addr));
-        }
-        ep_cmd_write(
-            self.ep_list,
-            0,
-            Direction::Out,
-            0,
-            CMD_A | nbytes::<T>(self.max_packet_size as u32) | addroff::<T>(self.ep0_out_addr),
-        );
+            self.accepted_lifecycle = shared.lifecycle_generation.load(Ordering::Relaxed);
+            self.accepted_out_generation = shared.ep_out_generation[0].load(Ordering::Relaxed);
+            self.accepted_in_generation = shared.ep_in_generation[0].load(Ordering::Relaxed);
+            self.setup_valid = true;
+            shared.setup_pending.store(false, Ordering::Release);
+            buf
+        });
 
         trace!("SETUP {=[u8]:x}", buf);
         buf
     }
 
     async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
-        let regs = T::regs();
         let mps = self.max_packet_size as u32;
-
-        // EP0 OUT is already armed (from `setup()` or the previous
-        // `data_out()`); just wait for the packet.
-
         let word = poll_fn(|cx| {
             T::state().ep_out_wakers[0].register(cx.waker());
-            // A new SETUP aborts the transfer (trait contract).
-            if regs.devcmdstat().read().setup() {
-                return Poll::Ready(Err(EndpointError::Disabled));
-            }
-            let word = ep_cmd_read(self.ep_list, 0, Direction::Out, 0);
-            if word & CMD_A == 0 {
-                Poll::Ready(Ok(word))
-            } else {
-                Poll::Pending
-            }
+            critical_section::with(|_| {
+                if !self.request_valid() {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                let word = ep_cmd_read(self.ep_list, 0, Direction::Out, 0);
+                if word & CMD_UNUSABLE != 0 {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                if word & CMD_A == 0 {
+                    Poll::Ready(Ok(word))
+                } else {
+                    Poll::Pending
+                }
+            })
         })
         .await?;
 
@@ -1768,14 +2107,19 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
         copy_from_ep_buffer(self.ep0_out_addr, &mut buf[..rx_len]);
 
-        // Re-arm for the next OUT packet (or the status stage).
-        ep_cmd_write(
-            self.ep_list,
-            0,
-            Direction::Out,
-            0,
-            CMD_A | nbytes::<T>(mps) | addroff::<T>(self.ep0_out_addr),
-        );
+        critical_section::with(|_| {
+            if !self.request_valid() || ep_cmd_read(self.ep_list, 0, Direction::Out, 0) & CMD_UNUSABLE != 0 {
+                return Err(EndpointError::Disabled);
+            }
+            ep_cmd_write(
+                self.ep_list,
+                0,
+                Direction::Out,
+                0,
+                CMD_A | nbytes::<T>(mps) | addroff::<T>(self.ep0_out_addr),
+            );
+            Ok(())
+        })?;
 
         trace!("control: data_out rx_len = {}", rx_len);
         Ok(rx_len)
@@ -1787,82 +2131,123 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             return Err(EndpointError::BufferOverflow);
         }
 
-        let regs = T::regs();
-        if regs.devcmdstat().read().setup() {
+        if !critical_section::with(|_| self.request_valid()) {
             return Err(EndpointError::Disabled);
         }
-
         copy_to_ep_buffer(self.ep0_in_addr, data);
-        ep_cmd_write(
-            self.ep_list,
-            0,
-            Direction::In,
-            0,
-            CMD_A | nbytes::<T>(data.len() as u32) | addroff::<T>(self.ep0_in_addr),
-        );
+        critical_section::with(|_| {
+            if !self.request_valid() || ep_cmd_read(self.ep_list, 0, Direction::In, 0) & CMD_UNUSABLE != 0 {
+                return Err(EndpointError::Disabled);
+            }
+            ep_cmd_write(
+                self.ep_list,
+                0,
+                Direction::In,
+                0,
+                CMD_A | nbytes::<T>(data.len() as u32) | addroff::<T>(self.ep0_in_addr),
+            );
+            Ok(())
+        })?;
 
         poll_fn(|cx| {
             T::state().ep_in_wakers[0].register(cx.waker());
-            if regs.devcmdstat().read().setup() {
-                return Poll::Ready(Err(EndpointError::Disabled));
-            }
-            if ep_cmd_read(self.ep_list, 0, Direction::In, 0) & CMD_A == 0 {
-                Poll::Ready(Ok(()))
-            } else {
-                Poll::Pending
-            }
+            critical_section::with(|_| {
+                if !self.request_valid() {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                let command = ep_cmd_read(self.ep_list, 0, Direction::In, 0);
+                if command & CMD_UNUSABLE != 0 {
+                    return Poll::Ready(Err(EndpointError::Disabled));
+                }
+                if command & CMD_A == 0 {
+                    Poll::Ready(Ok(()))
+                } else {
+                    Poll::Pending
+                }
+            })
         })
         .await?;
 
-        // The status-stage OUT ZLP is accepted by the always-armed EP0 OUT
-        // buffer; nothing else to do for `last`.
         let _ = last;
-
         Ok(())
     }
 
     async fn accept(&mut self) {
         trace!("control: accept");
-
-        // Zero-length status-stage IN packet.
-        ep_cmd_write(
-            self.ep_list,
-            0,
-            Direction::In,
-            0,
-            CMD_A | addroff::<T>(self.ep0_in_addr),
-        );
+        let armed = critical_section::with(|_| {
+            if !self.request_valid() {
+                return false;
+            }
+            ep_cmd_write(
+                self.ep_list,
+                0,
+                Direction::In,
+                0,
+                CMD_A | addroff::<T>(self.ep0_in_addr),
+            );
+            true
+        });
+        if !armed {
+            return;
+        }
 
         poll_fn(|cx| {
             T::state().ep_in_wakers[0].register(cx.waker());
-            // Bail out if the host abandoned the request with a new SETUP.
-            if T::regs().devcmdstat().read().setup() {
-                return Poll::Ready(());
-            }
-            if ep_cmd_read(self.ep_list, 0, Direction::In, 0) & CMD_A == 0 {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            critical_section::with(|_| {
+                if !self.request_valid() {
+                    return Poll::Ready(());
+                }
+                if ep_cmd_read(self.ep_list, 0, Direction::In, 0) & CMD_A == 0 {
+                    Poll::Ready(())
+                } else {
+                    Poll::Pending
+                }
+            })
         })
         .await;
     }
 
     async fn reject(&mut self) {
         trace!("control: reject");
-        // Stall both EP0 directions; `setup()` clears the stalls on the next
-        // SETUP packet.
-        ep_cmd_modify(self.ep_list, 0, Direction::Out, 0, |w| w | CMD_S);
-        ep_cmd_modify(self.ep_list, 0, Direction::In, 0, |w| w | CMD_S);
+        critical_section::with(|_| {
+            if !self.request_valid() {
+                return;
+            }
+            ep_cmd_modify(self.ep_list, 0, Direction::Out, 0, |w| w | CMD_S);
+            ep_cmd_modify(self.ep_list, 0, Direction::In, 0, |w| w | CMD_S);
+        });
     }
 
     async fn accept_set_address(&mut self, addr: u8) {
         trace!("setting addr: {}", addr);
-        // ip3511 quirk (UM11126): the new device address must be programmed
-        // BEFORE the status stage completes, contrary to the USB spec's
-        // "after the status stage" wording. lpc55-hal encodes the same order
-        // via usb-device's `QUIRK_SET_ADDRESS_BEFORE_STATUS`.
-        devcmdstat_modify(T::regs(), |w| w.set_dev_addr(addr));
-        self.accept().await;
+        let valid = critical_section::with(|_| {
+            if !self.request_valid() {
+                return false;
+            }
+            devcmdstat_modify(T::regs(), |w| w.set_dev_addr(addr));
+            true
+        });
+        if valid {
+            self.accept().await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::negotiated_speed_valid;
+
+    #[test]
+    fn usb0_accepts_its_full_speed_encoding() {
+        assert!(negotiated_speed_valid(false, 0b00));
+        assert!(!negotiated_speed_valid(false, 0b01));
+        assert!(!negotiated_speed_valid(false, 0b10));
+    }
+
+    #[test]
+    fn usbhsd_accepts_only_high_speed() {
+        assert!(negotiated_speed_valid(true, 0b10));
+        assert!(!negotiated_speed_valid(true, 0b00));
+        assert!(!negotiated_speed_valid(true, 0b01));
     }
 }

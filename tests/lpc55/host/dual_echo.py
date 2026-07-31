@@ -36,13 +36,18 @@ RAMP_PERIOD = 512
 # `examples/lpc55s69/scripts/usb_throughput.py` and `host/conformance.py`.
 _RAMP = bytes((k % RAMP_PERIOD) & 0xFF for k in range(RAMP_PERIOD))
 
+PAYLOAD_SIZE = 512
 ITERATIONS = 8
 READ_TIMEOUT = 5.0
+BARRIER_TIMEOUT = 5.0
+THREAD_TIMEOUT = ITERATIONS * READ_TIMEOUT + 10.0
+PAYLOAD_SEED = {"HS": 0, "FS": 128}
 
 
-def ramp(n: int) -> bytes:
-    """`n` payload bytes starting at stream offset 0."""
-    return (_RAMP * (n // RAMP_PERIOD + 1))[:n]
+def ramp(n: int, offset: int = 0) -> bytes:
+    """`n` payload bytes starting at the specified stream offset."""
+    repeats = (offset + n) // RAMP_PERIOD + 1
+    return (_RAMP * repeats)[offset : offset + n]
 
 
 def find_ports(wait: float) -> dict[str, str]:
@@ -79,21 +84,35 @@ def read_exact(port: serial.Serial, count: int) -> bytes:
     return bytes(buf)
 
 
-def echo_port(label: str, path: str, size: int, results: dict[str, str | None]) -> None:
+def echo_port(
+    label: str,
+    path: str,
+    barrier: threading.Barrier,
+    results: dict[str, str | None],
+) -> None:
     """Run the echo loop on one port, recording its own failure message."""
-    payload = ramp(size)
+    synchronized = False
     try:
         with serial.Serial(path, timeout=0.2, write_timeout=READ_TIMEOUT) as port:
+            try:
+                barrier.wait(timeout=BARRIER_TIMEOUT)
+            except threading.BrokenBarrierError as exc:
+                raise TimeoutError(f"peer did not reach the barrier in {BARRIER_TIMEOUT:g} s") from exc
+            synchronized = True
             for i in range(ITERATIONS):
-                port.write(payload)
-                port.flush()
-                echoed = read_exact(port, size)
+                payload = ramp(PAYLOAD_SIZE, PAYLOAD_SEED[label] + i)
+                written = port.write(payload)
+                if written != len(payload):
+                    raise TimeoutError(f"iteration {i}: wrote {written} of {len(payload)} bytes")
+                echoed = read_exact(port, PAYLOAD_SIZE)
                 if echoed != payload:
-                    bad = next(k for k in range(size) if echoed[k] != payload[k])
+                    bad = next(k for k in range(PAYLOAD_SIZE) if echoed[k] != payload[k])
                     raise ValueError(
                         f"iteration {i}: byte {bad} is {echoed[bad]:#04x}, expected {payload[bad]:#04x}"
                     )
     except Exception as exc:  # noqa: BLE001 - reported verbatim as the verdict
+        if not synchronized:
+            barrier.abort()
         results[label] = f"{type(exc).__name__}: {exc}"
         return
     results[label] = None
@@ -104,34 +123,39 @@ def main() -> int:
     parser.add_argument(
         "--wait", type=float, default=15.0, help="seconds to wait for both CDC ports to appear (default 15)"
     )
-    parser.add_argument(
-        "--bytes", type=int, default=512, dest="size", help="payload bytes per iteration (default 512)"
-    )
     args = parser.parse_args()
-
-    if args.size <= 0:
-        print("FAIL: args: --bytes must be positive", file=sys.stderr)
-        return 1
-
     try:
         ports = find_ports(args.wait)
     except TimeoutError as exc:
         print(f"FAIL: ports: {exc}", file=sys.stderr)
         return 1
-
+    barrier = threading.Barrier(2)
     results: dict[str, str | None] = {}
     threads = [
-        threading.Thread(target=echo_port, args=(label, ports[label], args.size, results), name=label)
+        threading.Thread(
+            target=echo_port,
+            args=(label, ports[label], barrier, results),
+            name=label,
+            daemon=True,
+        )
         for label, _ in PORTS
     ]
     for thread in threads:
         thread.start()
+    deadline = time.monotonic() + THREAD_TIMEOUT
     for thread in threads:
-        thread.join()
+        thread.join(max(0.0, deadline - time.monotonic()))
+    hung = {thread.name for thread in threads if thread.is_alive()}
+    if hung:
+        barrier.abort()
 
     failed = False
     for label, _ in PORTS:
-        reason = results.get(label, "thread produced no result")
+        reason = (
+            f"thread did not finish in {THREAD_TIMEOUT:g} s"
+            if label in hung
+            else results.get(label, "thread produced no result")
+        )
         if reason is not None:
             print(f"FAIL: {label}: {reason}", file=sys.stderr)
             failed = True
@@ -139,7 +163,10 @@ def main() -> int:
         return 1
 
     for label, _ in PORTS:
-        print(f"{label}: echoed {ITERATIONS} x {args.size} bytes = {ITERATIONS * args.size} bytes, exact match")
+        print(
+            f"{label}: echoed {ITERATIONS} x {PAYLOAD_SIZE} bytes = "
+            f"{ITERATIONS * PAYLOAD_SIZE} bytes, exact match"
+        )
     return 0
 
 

@@ -17,6 +17,9 @@
 #![no_std]
 #![no_main]
 
+#[path = "../throughput.rs"]
+mod throughput;
+
 use defmt::{info, panic};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -26,6 +29,8 @@ use embassy_nxp::{bind_interrupts, peripherals};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use panic_probe as _;
+
+use throughput::{Event, Parser};
 
 bind_interrupts!(struct Irqs {
     USB0 => InterruptHandler<peripherals::USB0>;
@@ -91,60 +96,45 @@ impl From<EndpointError> for Disconnected {
 }
 
 async fn bench<'d>(class: &mut CdcAcmClass<'d, Driver<'d, peripherals::USB0>>) -> Result<(), Disconnected> {
-    // One packet per transfer: unlike the high-speed controller, the
-    // full-speed block does not packetize a command entry, so an endpoint is
-    // armed one max-packet-size packet at a time and `write_packet` rejects
-    // anything larger.
     const CHUNK: usize = 64;
 
-    // Recognizable pattern so the host can spot-check payload integrity:
-    // a 0..512 ramp repeating per 512-byte packet, identical to the HS bench.
-    // The ramp period spans 8 full-speed packets, so index by stream offset.
     let mut tx = [0u8; 512];
-    for (i, b) in tx.iter_mut().enumerate() {
-        *b = (i % 512) as u8;
+    for (i, byte) in tx.iter_mut().enumerate() {
+        *byte = (i % 512) as u8;
     }
     let mut buf = [0u8; CHUNK];
+    let mut parser = Parser::new();
 
     loop {
-        let n = class.read_packet(&mut buf).await?;
-        if n < 5 {
-            continue;
-        }
-        let cmd = buf[0];
-        let total = u32::from_le_bytes([buf[1], buf[2], buf[3], buf[4]]) as usize;
+        let len = class.read_packet(&mut buf).await?;
+        let mut offset = 0;
 
-        match cmd {
-            b'I' => {
-                info!("IN test: {} bytes", total);
-                let mut remaining = total;
-                let mut off = 0usize;
-                while remaining > 0 {
-                    let chunk = remaining.min(CHUNK);
-                    // Walk the 512-byte ramp so the host sees one continuous
-                    // stream rather than the first packet repeated.
-                    class.write_packet(&tx[off..off + chunk]).await?;
-                    off = (off + chunk) % tx.len();
-                    remaining -= chunk;
+        while offset < len {
+            let feed = parser.feed(&buf[offset..len]);
+            offset += feed.consumed;
+
+            match feed.event {
+                Some(Event::In(total)) => {
+                    info!("IN test: {} bytes", total);
+                    let mut remaining = total;
+                    let mut ramp_offset = 0;
+                    while remaining > 0 {
+                        let chunk = remaining.min(CHUNK as u32) as usize;
+                        class.write_packet(&tx[ramp_offset..ramp_offset + chunk]).await?;
+                        ramp_offset = (ramp_offset + chunk) % tx.len();
+                        remaining -= chunk as u32;
+                    }
+                    if total % CHUNK as u32 == 0 {
+                        class.write_packet(&[]).await?;
+                    }
                 }
-                // A stream ending exactly on a max-packet-size boundary needs
-                // a zero-length packet to tell the host the transfer is over;
-                // without it the host waits for more and the last packet is
-                // never delivered.
-                if total % CHUNK == 0 {
-                    class.write_packet(&[]).await?;
+                Some(Event::OutStarted(total)) => info!("OUT test: {} bytes", total),
+                Some(Event::OutComplete(total)) => {
+                    class.write_packet(&total.to_le_bytes()).await?;
                 }
+                Some(Event::Unknown(command)) => info!("unknown command {}", command),
+                None => {}
             }
-            b'O' => {
-                info!("OUT test: {} bytes", total);
-                // Payload may share the header packet.
-                let mut received = n - 5;
-                while received < total {
-                    received += class.read_packet(&mut buf).await?;
-                }
-                class.write_packet(&(received as u32).to_le_bytes()).await?;
-            }
-            _ => info!("unknown command {}", cmd),
         }
     }
 }

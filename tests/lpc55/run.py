@@ -34,10 +34,83 @@ EXAMPLES = os.path.join("examples", "lpc55s69")
 
 READY_TIMEOUT = 90.0
 OK_TIMEOUT = 90.0
+HOST_TIMEOUT = 90.0
 # `probe-rs run` keeps the core halted at the breakpoint, so the child never exits on its own.
 KILL_GRACE = 5.0
 # Lets the previous probe-rs session detach and the host see the device go away.
 SETTLE = 1.5
+
+HANDLED_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+_SIGNAL_NUMBER: int | None = None
+_SIGNAL_DEFERRED = False
+
+
+def handle_signal(signum: int, _frame: object) -> None:
+    global _SIGNAL_NUMBER
+    if _SIGNAL_NUMBER is None:
+        _SIGNAL_NUMBER = signum
+    if not _SIGNAL_DEFERRED:
+        raise KeyboardInterrupt
+
+
+def defer_handled_signals() -> None:
+    global _SIGNAL_DEFERRED
+    _SIGNAL_DEFERRED = True
+
+
+def resume_handled_signals() -> None:
+    global _SIGNAL_DEFERRED
+    _SIGNAL_DEFERRED = False
+    if _SIGNAL_NUMBER is not None:
+        raise KeyboardInterrupt
+
+
+def process_group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def wait_process_group(proc: subprocess.Popen[str], timeout: float) -> bool:
+    deadline = time.monotonic() + timeout
+    while process_group_exists(proc.pid):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        if proc.poll() is None:
+            try:
+                proc.wait(timeout=min(0.1, remaining))
+            except subprocess.TimeoutExpired:
+                pass
+        else:
+            time.sleep(min(0.05, remaining))
+    return True
+
+
+def terminate_group(proc: subprocess.Popen[str], first_signal: int) -> None:
+    for signum in (first_signal, signal.SIGTERM, signal.SIGKILL):
+        if not process_group_exists(proc.pid):
+            break
+        try:
+            os.killpg(proc.pid, signum)
+        except ProcessLookupError:
+            break
+        if wait_process_group(proc, KILL_GRACE):
+            break
+
+    if proc.poll() is None:
+        try:
+            proc.wait(timeout=KILL_GRACE)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait(timeout=KILL_GRACE)
+    else:
+        proc.wait()
 
 FS_PORT = "/dev/serial/by-id/usb-Embassy_USB-FS_throughput_test_12345678-if00"
 HS_PORT = "/dev/serial/by-id/usb-Embassy_USB-HS_throughput_test_12345678-if00"
@@ -68,6 +141,17 @@ def throughput(port: str, direction: str, count: str, min_rate: str) -> list[str
         min_rate,
     ]
 
+def protocol_check(port: str) -> list[str]:
+    return [
+        sys.executable,
+        os.path.join("scripts", "usb_throughput.py"),
+        "--port",
+        port,
+        "--protocol-check",
+        "--wait-port",
+        "15",
+    ]
+
 
 class Test:
     def __init__(
@@ -94,6 +178,7 @@ class Test:
 # Fastest and least cable-dependent first, so a broken setup fails early and cheaply.
 TESTS_LIST = [
     Test("alloc", TESTS, "usb_alloc", note="endpoint allocation limits, no host cable"),
+    Test("alloc_small", TESTS, "usb_alloc_small", note="exact 512-byte endpoint memory"),
     Test("bus_raw", TESTS, "usb_bus_raw", note="raw Bus disable/enable/reinit/force_reset"),
     Test("fs_enumerate", TESTS, "usb_fs_enumerate", note="USB0 reaches Configured (P10)"),
     Test("hs_enumerate", TESTS, "usb_hs_enumerate", note="USBHSD at 480 Mbps (P9)"),
@@ -129,6 +214,7 @@ TESTS_LIST = [
         "usb_fs_throughput",
         ready="Initialization complete",
         host=[
+            protocol_check(FS_PORT),
             throughput(FS_PORT, "in", "1_000_000", FS_IN_MIN),
             throughput(FS_PORT, "out", "1_000_000", FS_OUT_MIN),
         ],
@@ -141,6 +227,7 @@ TESTS_LIST = [
         "usb_hs_throughput",
         ready="Initialization complete",
         host=[
+            protocol_check(HS_PORT),
             throughput(HS_PORT, "in", "4_000_000", HS_IN_MIN),
             throughput(HS_PORT, "out", "4_000_000", HS_OUT_MIN),
         ],
@@ -173,9 +260,14 @@ class Firmware:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            start_new_session=True,
         )
         self._pump = threading.Thread(target=self._read, daemon=True)
-        self._pump.start()
+        try:
+            self._pump.start()
+        except BaseException:
+            terminate_group(self.proc, signal.SIGINT)
+            raise
 
     def _read(self) -> None:
         assert self.proc.stdout is not None
@@ -224,14 +316,10 @@ class Firmware:
         return ": ".join(parts)
 
     def stop(self) -> None:
-        if self.proc.poll() is None:
-            self.proc.send_signal(signal.SIGINT)
-            try:
-                self.proc.wait(KILL_GRACE)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-        self.proc.wait()
-        self._pump.join(timeout=2.0)
+        terminate_group(self.proc, signal.SIGINT)
+        self._pump.join(timeout=KILL_GRACE)
+        if self._pump.is_alive():
+            raise RuntimeError(f"firmware output thread for {self.test.name} did not stop")
 
 
 def run_host(test: Test, argv: list[str]) -> str | None:
@@ -239,15 +327,41 @@ def run_host(test: Test, argv: list[str]) -> str | None:
     cmd = ["sudo", "-n", *argv] if test.sudo else list(argv)
     printable = " ".join(os.path.basename(c) if c == sys.executable else c for c in cmd)
     print(f"  [{test.name}] host: {printable}", flush=True)
-    proc = subprocess.run(
-        cmd,
-        cwd=os.path.join(REPO, test.cwd),
-        capture_output=True,
-        text=True,
-    )
-    for stream in (proc.stdout, proc.stderr):
+    defer_handled_signals()
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=os.path.join(REPO, test.cwd),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+        )
+    except BaseException:
+        resume_handled_signals()
+        raise
+
+    timed_out = False
+    try:
+        resume_handled_signals()
+        try:
+            stdout, stderr = proc.communicate(timeout=HOST_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            terminate_group(proc, signal.SIGINT)
+            stdout, stderr = proc.communicate(timeout=KILL_GRACE)
+    finally:
+        defer_handled_signals()
+        try:
+            terminate_group(proc, signal.SIGINT)
+        finally:
+            resume_handled_signals()
+
+    for stream in (stdout, stderr):
         for line in stream.splitlines():
             print(f"  [{test.name}] | {line}", flush=True)
+    if timed_out:
+        return f"host command timed out after {HOST_TIMEOUT:g} s: {printable}"
     if proc.returncode != 0:
         return f"host command exited {proc.returncode}: {printable}"
     return None
@@ -256,17 +370,24 @@ def run_host(test: Test, argv: list[str]) -> str | None:
 def run_test(test: Test) -> str | None:
     """Runs one entry. Returns None on pass or a one-line reason on failure."""
     print(f"\n=== {test.name}: {test.note} ===", flush=True)
-    fw = Firmware(test)
-
-    def verdict(timeout_reason: str) -> str:
-        # A device panic or a dead probe-rs explains a missing banner far better than a timeout:
-        # a flash that failed means the firmware never ran, so nothing was ever going to appear.
-        panics = fw.panics()
-        if panics:
-            return f"device panicked: {panics[0].strip()}"
-        return fw.probe_failure() or timeout_reason
+    defer_handled_signals()
+    try:
+        fw = Firmware(test)
+    except BaseException:
+        resume_handled_signals()
+        raise
 
     try:
+        resume_handled_signals()
+
+        def verdict(timeout_reason: str) -> str:
+            # A device panic or a dead probe-rs explains a missing banner far better than a timeout:
+            # a flash that failed means the firmware never ran, so nothing was ever going to appear.
+            panics = fw.panics()
+            if panics:
+                return f"device panicked: {panics[0].strip()}"
+            return fw.probe_failure() or timeout_reason
+
         if test.ready is not None and not fw.wait_for(test.ready, READY_TIMEOUT):
             return verdict(f"ready banner {test.ready!r} not seen within {READY_TIMEOUT:.0f} s")
 
@@ -283,8 +404,12 @@ def run_test(test: Test) -> str | None:
             return f"device panicked: {panics[0].strip()}"
         return fw.probe_failure()
     finally:
-        fw.stop()
-        time.sleep(SETTLE)
+        defer_handled_signals()
+        try:
+            fw.stop()
+            time.sleep(SETTLE)
+        finally:
+            resume_handled_signals()
 
 
 def main() -> None:
@@ -334,4 +459,9 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    for caught_signal in HANDLED_SIGNALS:
+        signal.signal(caught_signal, handle_signal)
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(128 + (_SIGNAL_NUMBER or signal.SIGINT))

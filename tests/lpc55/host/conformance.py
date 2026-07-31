@@ -65,6 +65,7 @@ EP_INT_IN = 0x82
 
 ERR_PIPE = 32  # EPIPE: the endpoint answered with a STALL handshake
 ERR_TIMEOUT = 110  # ETIMEDOUT: the endpoint NAKed until the deadline
+ISO_PACKET_TIMEOUT_MS = 100
 
 RAMP_PERIOD = 512
 # Byte k of any payload is `(k % 512) as u8` - the same ramp as
@@ -464,56 +465,71 @@ def phase_alt_and_iso(d: Device, cfg: Config, iso_out_addr: int, iso_in_addr: in
     raw = d.dev.ctrl_transfer(STD_IN_INTERFACE, REQ_GET_INTERFACE, 0, 0, 1, 2000)
     require(raw[0] == 1, f"GET_INTERFACE returned {raw[0]}, expected 1")
 
-    batches, per_batch = 4, 32
+    packet_count = 128
+    min_packets = (packet_count * 4 + 4) // 5
 
     # --- isochronous OUT ---
     before = d.report()
     d.set_mode(MODE_ISO_SINK)
     time.sleep(0.05)
     packet = ramp(cfg.iso_out_mps)
-    for _ in range(batches):
+    for i in range(packet_count):
         try:
-            d.dev.write(iso_out_addr, packet * per_batch, 5000)
+            written = d.dev.write(iso_out_addr, packet, 5000)
         except usb.core.USBError as exc:
-            raise Failure(f"isochronous OUT write failed: {exc}") from exc
+            raise Failure(f"isochronous OUT packet {i} failed: {exc}") from exc
+        require(written == len(packet), f"isochronous OUT packet {i} wrote {written} of {len(packet)} bytes")
     time.sleep(0.2)
     rep = d.report()
-    sent = batches * per_batch
-    received = rep.iso_out_packets - before.iso_out_packets
+    received_packets = rep.iso_out_packets - before.iso_out_packets
+    intended_bytes = packet_count * cfg.iso_out_mps
+    received_bytes = rep.iso_out_bytes - before.iso_out_bytes
+    min_bytes = (intended_bytes * 4 + 4) // 5
     require(
-        received >= sent * 8 // 10,
-        f"device saw {received} of {sent} isochronous OUT packets (under 80 %)",
+        received_packets >= min_packets,
+        f"device saw {received_packets} of {packet_count} isochronous OUT packets (under 80 %)",
     )
-    require(rep.ramp_mismatches == 0, f"{rep.ramp_mismatches} isochronous OUT ramp mismatches")
+    require(
+        received_bytes >= min_bytes,
+        f"device saw {received_bytes} of {intended_bytes} isochronous OUT bytes (under 80 %)",
+    )
+    mismatches = rep.ramp_mismatches - before.ramp_mismatches
+    require(mismatches == 0, f"{mismatches} isochronous OUT ramp mismatches")
 
     # --- isochronous IN ---
     mps = cfg.iso_in_mps
+    before = d.report()
     d.set_mode(MODE_ISO_SOURCE)
     time.sleep(0.05)
-    total = 0
-    for _ in range(batches):
+    received_packets = 0
+    received_bytes = 0
+    for i in range(packet_count):
         try:
-            data = bytes(d.dev.read(iso_in_addr, per_batch * mps, 5000))
+            data = bytes(d.dev.read(iso_in_addr, mps, ISO_PACKET_TIMEOUT_MS))
         except usb.core.USBError as exc:
-            # A whole batch timing out is tolerated and counted as zero bytes;
-            # the aggregate threshold below is what decides the verdict.
             if exc.errno != ERR_TIMEOUT:
-                raise Failure(f"isochronous IN read failed: {exc}") from exc
+                raise Failure(f"isochronous IN packet {i} failed: {exc}") from exc
             continue
-        total += len(data)
-        # libusb lays isochronous packets out at their *nominal* stride but only
-        # reports the summed actual length, so one short packet desynchronises
-        # every later offset. Packet 0 always starts at 0; when the whole batch
-        # came back full, every stride is meaningful.
-        full = len(data) // mps if len(data) == per_batch * mps else min(1, len(data) // mps)
-        for i in range(full):
-            off = i * mps
-            require(
-                data[off : off + mps] == ramp(mps),
-                f"isochronous IN packet {i} does not match the ramp",
-            )
-    want = batches * per_batch * mps
-    require(total >= want * 8 // 10, f"read {total} of {want} isochronous IN bytes (under 80 %)")
+        require(len(data) == mps, f"isochronous IN packet {i} has {len(data)} bytes, expected {mps}")
+        require(data == ramp(mps), f"isochronous IN packet {i} does not match the ramp")
+        received_packets += 1
+        received_bytes += len(data)
+    rep = d.report()
+    intended_bytes = packet_count * mps
+    min_bytes = (intended_bytes * 4 + 4) // 5
+    device_packets = rep.iso_in_packets - before.iso_in_packets
+    require(
+        received_packets >= min_packets,
+        f"host saw {received_packets} of {packet_count} isochronous IN packets (under 80 %)",
+    )
+    require(
+        received_bytes >= min_bytes,
+        f"host saw {received_bytes} of {intended_bytes} isochronous IN bytes (under 80 %)",
+    )
+    require(
+        device_packets >= min_packets,
+        f"device sent {device_packets} of {packet_count} isochronous IN packets (under 80 %)",
+    )
 
     d.set_mode(MODE_IDLE)
     d.dev.set_interface_altsetting(interface=0, alternate_setting=0)

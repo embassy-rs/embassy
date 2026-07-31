@@ -106,9 +106,8 @@ struct ConformanceState {
     int_in_packets: AtomicU16,
     ramp_mismatches: AtomicU16,
     zlp_out_count: AtomicU16,
-    /// Kept as `u32` and clamped into the report's single byte: a halted (but
-    /// still enabled) endpoint reports `Disabled` at roughly 1 kHz for as long
-    /// as the host leaves the halt feature set, which would wrap a `u8`.
+    /// A halted endpoint can report `Disabled` at roughly 1 kHz. Saturation
+    /// prevents a long-running firmware session from wrapping this counter.
     disabled_errors: AtomicU32,
     overflow_errors: AtomicU32,
     /// `wValue`-independent parameter of the last `SET_MODE`.
@@ -145,6 +144,18 @@ static STATE: ConformanceState = ConformanceState {
     overflow_errors: AtomicU32::new(0),
     mode_param: AtomicU16::new(0),
 };
+
+fn saturating_add_u16(counter: &AtomicU16, value: u16) {
+    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        Some(current.saturating_add(value))
+    });
+}
+
+fn saturating_add_u32(counter: &AtomicU32, value: u32) {
+    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+        Some(current.saturating_add(value))
+    });
+}
 
 /// A [`Watch`] and not a [`Signal`]: `Signal::wait` consumes the value, so with
 /// two consumers only one of them would ever see a given mode change. `N = 2`
@@ -235,6 +246,8 @@ impl Handler for ControlHandler {
             }
             RESET => {
                 STATE.reset();
+                STATE.mode_param.store(0, Ordering::Relaxed);
+                MODE.sender().send(Mode::Idle);
                 OutResponse::Accepted
             }
             FINISH_REQ => {
@@ -398,9 +411,9 @@ async fn bulk_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I) -
                     },
                     Either::Second(_) => continue,
                 };
-                STATE.bulk_out_bytes.fetch_add(n as u32, Ordering::Relaxed);
+                saturating_add_u32(&STATE.bulk_out_bytes, n as u32);
                 if n == 0 {
-                    STATE.zlp_out_count.fetch_add(1, Ordering::Relaxed);
+                    saturating_add_u16(&STATE.zlp_out_count, 1);
                 }
                 // `needs_zlp` is what makes an exact-multiple-of-mps echo
                 // terminate; for `n == 0` it is what emits the echoed ZLP.
@@ -410,7 +423,7 @@ async fn bulk_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I) -
                         continue;
                     }
                     Either::First(Ok(())) => {
-                        STATE.bulk_in_bytes.fetch_add(n as u32, Ordering::Relaxed);
+                        saturating_add_u32(&STATE.bulk_in_bytes, n as u32);
                     }
                     Either::Second(_) => continue,
                 }
@@ -423,7 +436,7 @@ async fn bulk_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I) -
                     },
                     Either::Second(_) => continue,
                 };
-                STATE.bulk_out_bytes.fetch_add(n as u32, Ordering::Relaxed);
+                saturating_add_u32(&STATE.bulk_out_bytes, n as u32);
                 check_ramp(&buf[..n], offset);
                 offset += n as u32;
             }
@@ -442,7 +455,7 @@ async fn bulk_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I) -
                         continue;
                     }
                     Either::First(Ok(())) => {
-                        STATE.bulk_in_bytes.fetch_add(chunk as u32, Ordering::Relaxed);
+                        saturating_add_u32(&STATE.bulk_in_bytes, chunk as u32);
                         offset += chunk as u32;
                         remaining -= chunk as u32;
                     }
@@ -472,8 +485,8 @@ async fn iso_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I, is
                 loop {
                     match select(ep_out.read(&mut buf), rx.changed()).await {
                         Either::First(Ok(n)) => {
-                            STATE.iso_out_packets.fetch_add(1, Ordering::Relaxed);
-                            STATE.iso_out_bytes.fetch_add(n as u32, Ordering::Relaxed);
+                            saturating_add_u16(&STATE.iso_out_packets, 1);
+                            saturating_add_u32(&STATE.iso_out_bytes, n as u32);
                             // `Ok(0)` is how the driver reports a dropped or
                             // errored isochronous packet: a lost frame, not a
                             // content error.
@@ -497,7 +510,7 @@ async fn iso_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I, is
                 loop {
                     match select(ep_in.write(&tx[..in_len]), rx.changed()).await {
                         Either::First(Ok(())) => {
-                            STATE.iso_in_packets.fetch_add(1, Ordering::Relaxed);
+                            saturating_add_u16(&STATE.iso_in_packets, 1);
                         }
                         Either::First(Err(e)) => {
                             count_err(e);
@@ -524,7 +537,7 @@ async fn int_task<I: EndpointIn>(mut ep_in: I) -> ! {
         ep_in.wait_enabled().await;
         match ep_in.write(&tx[..len]).await {
             Ok(()) => {
-                STATE.int_in_packets.fetch_add(1, Ordering::Relaxed);
+                saturating_add_u16(&STATE.int_in_packets, 1);
             }
             Err(e) => count_err(e),
         }
@@ -599,8 +612,8 @@ async fn bulk_err<O: EndpointOut>(r: Result<usize, EndpointError>, ep_out: &mut 
 
 fn count_err(e: EndpointError) {
     match e {
-        EndpointError::Disabled => STATE.disabled_errors.fetch_add(1, Ordering::Relaxed),
-        EndpointError::BufferOverflow => STATE.overflow_errors.fetch_add(1, Ordering::Relaxed),
+        EndpointError::Disabled => saturating_add_u32(&STATE.disabled_errors, 1),
+        EndpointError::BufferOverflow => saturating_add_u32(&STATE.overflow_errors, 1),
     };
 }
 
@@ -618,6 +631,6 @@ fn check_ramp(buf: &[u8], offset: u32) {
         }
     }
     if bad != 0 {
-        STATE.ramp_mismatches.fetch_add(bad, Ordering::Relaxed);
+        saturating_add_u16(&STATE.ramp_mismatches, bad);
     }
 }

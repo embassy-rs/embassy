@@ -20,6 +20,9 @@ pub mod usart;
 #[cfg(lpc55)]
 pub mod usb;
 
+#[cfg(lpc55)]
+mod power;
+
 #[cfg(rt1xxx)]
 mod iomuxc;
 
@@ -166,15 +169,9 @@ pub fn init(config: config::Config) -> Peripherals {
     #[cfg(lpc55)]
     {
         if config.main_clock == config::MainClock::FroHf96 {
-            // Flash wait states first, so timing is safe before the frequency rises.
-            // 9 system-clock access time covers rates up to 100 MHz.
-            pac::SYSCON
-                .fmccr()
-                .modify(|w| w.set_flashtim(pac::syscon::vals::Flashtim::Flashtim8));
-            // Ensure the FRO-HF 96 MHz output is enabled (ROM default leaves it on;
-            // set it anyway).
+            power::set_voltage_for_freq(96_000_000);
+            clocks::set_flash_access_cycles(8);
             pac::ANACTRL.fro192m_ctrl().modify(|w| w.set_ena_96mhzclk(true));
-            // AHB divider = 1, then switch main clock to FRO-HF (glitch-free per UM).
             pac::SYSCON.ahbclkdiv().modify(|w| w.set_div(0));
             pac::SYSCON
                 .mainclksela()
@@ -201,73 +198,136 @@ pub fn init(config: config::Config) -> Peripherals {
     peripherals
 }
 
-/// LPC55 clock tree setup beyond the simple FRO paths handled inline in `init`.
+/// LPC55 clock tree setup.
 #[cfg(lpc55)]
 mod clocks {
-    use crate::pac;
+    use crate::{pac, power};
 
-    /// Switch the main (system) clock to PLL0 at 150 MHz, fed from the 16 MHz
-    /// external crystal (clk_in).
-    ///
-    /// PLL parameters (UM11126 §4.6.6): N = 8 (ref 2 MHz), M = 150
-    /// (CCO = 300 MHz, within the 275–550 MHz range), P = 1 (post-divide by
-    /// 2·P = 2) → 150 MHz. SELI/SELP follow the UM11126 bandwidth formulas
-    /// for M = 150 (SELI = 8000/M = 53, SELP = min(M/4 + 1, 31) = 31).
-    ///
-    /// NOTE: NXP's closed-source power library additionally raises the core
-    /// voltage for operation above 100 MHz (`POWER_SetVoltageForFreq`). The
-    /// registers involved are not documented in UM11126, so this runs on the
-    /// reset-default regulator settings; long-duration stress testing is the
-    /// acceptance gate for this configuration.
+    const CMD_SET_READ_MODE: u32 = 2;
+    const FLASH_COMMAND_TIMEOUT_POLLS: u32 = 1_000_000;
+    const XO_READY_TIMEOUT_POLLS: u32 = 1_000_000;
+    const PLL_LOCK_TIMEOUT_POLLS: u32 = 1_000_000;
+
+    const fn supports_pll0_150m(revision: u8) -> bool {
+        revision == 1
+    }
+
+    const fn pll0_output_frequency_hz(input_hz: u32, ndiv: u8, mdiv: u16, pdiv: u8) -> u32 {
+        input_hz / ndiv as u32 * mdiv as u32 / (2 * pdiv as u32)
+    }
+
+    /*
+     * Copyright 2017 - 2021 , NXP
+     * All rights reserved.
+     *
+     * SPDX-License-Identifier: BSD-3-Clause
+     */
+    pub(super) fn set_flash_access_cycles(wait_states: u8) {
+        assert!(
+            wait_states <= 0x0f,
+            "LPC55 flash wait-state value {} exceeds the FMCCR field",
+            wait_states
+        );
+
+        let prefetch_enabled = pac::SYSCON.fmccr().read().prefen();
+        pac::SYSCON.fmccr().modify(|w| w.set_prefen(false));
+
+        pac::FLASH
+            .int_clr_status()
+            .write_value(pac::flash::regs::IntClrStatus(0x1f));
+        pac::FLASH.dataw(0).modify(|w| {
+            w.set_dataw((w.dataw() & !0x0f) | u32::from(wait_states));
+        });
+        pac::FLASH.cmd().write_value(pac::flash::regs::Cmd(CMD_SET_READ_MODE));
+
+        let mut command_done = false;
+        for _ in 0..FLASH_COMMAND_TIMEOUT_POLLS {
+            let status = pac::FLASH.int_status().read();
+            if status.fail() || status.err() {
+                panic!(
+                    "LPC55 FLASH CMD_SET_READ_MODE failed: FAIL={}, ERR={}",
+                    status.fail(),
+                    status.err()
+                );
+            }
+            if status.done() {
+                command_done = true;
+                break;
+            }
+        }
+        if !command_done {
+            panic!(
+                "LPC55 FLASH CMD_SET_READ_MODE timed out after {} polls",
+                FLASH_COMMAND_TIMEOUT_POLLS
+            );
+        }
+
+        pac::SYSCON.fmccr().modify(|w| {
+            w.set_flashtim(pac::syscon::vals::Flashtim::from_bits(wait_states));
+            w.set_prefen(prefetch_enabled);
+        });
+    }
+
     pub(crate) fn setup_pll0_150m_main_clock() {
         const XTAL_HZ: u32 = 16_000_000;
         const NDIV: u8 = 8;
         const MDIV: u16 = 150;
         const PDIV: u8 = 1;
-        const SELI: u8 = 53; // 8000 / M, for 122 <= M < 8000
-        const SELP: u8 = 31; // min(M/4 + 1, 31)
-        const _: () = core::assert!(XTAL_HZ / NDIV as u32 * MDIV as u32 / (2 * PDIV as u32) == 150_000_000);
+        const SELI: u8 = 53;
+        const SELP: u8 = 31;
+        const _: () = core::assert!(pll0_output_frequency_hz(XTAL_HZ, NDIV, MDIV, PDIV) == 150_000_000);
 
-        // Flash wait states first: 12 system-clock access time covers 150 MHz
-        // (UM11126 FMCCR.FLASHTIM = 11).
+        let revision = pac::SYSCON.dieid().read().rev_id();
+        if !supports_pll0_150m(revision) {
+            panic!(
+                "LPC55 PLL0 150 MHz requires die revision 1B (REV_ID 1); observed REV_ID {}",
+                revision
+            );
+        }
+
         pac::SYSCON
-            .fmccr()
-            .modify(|w| w.set_flashtim(pac::syscon::vals::Flashtim::Flashtim11));
+            .mainclksela()
+            .write(|w| w.set_sel(pac::syscon::vals::MainclkselaSel::Enum0x0));
+        pac::SYSCON
+            .mainclkselb()
+            .write(|w| w.set_sel(pac::syscon::vals::MainclkselbSel::Enum0x0));
 
-        // Power up the 16 MHz crystal oscillator + its LDO, and route it to
-        // the system clock tree (clk_in). PDRUNCFG0: bit 8 = XTAL32M,
-        // bit 20 = LDOXO32M; writing 1 to the CLR register powers ON.
+        power::set_voltage_for_freq(150_000_000);
+        set_flash_access_cycles(11);
+
         pac::PMC
             .pdruncfgclr0()
             .write(|w| w.set_pdruncfgclr0((1 << 8) | (1 << 20)));
         pac::ANACTRL.xo32m_ctrl().modify(|w| w.set_enable_system_clk_out(true));
         pac::SYSCON.clock_ctrl().modify(|w| w.set_clkin_ena(true));
-        // Bounded wait for the crystal to be ready (typ. ~350 us).
-        for _ in 0..1_000_000 {
+
+        let mut crystal_ready = false;
+        for _ in 0..XO_READY_TIMEOUT_POLLS {
             if pac::ANACTRL.xo32m_status().read().xo_ready() {
+                crystal_ready = true;
                 break;
             }
         }
+        if !crystal_ready {
+            panic!(
+                "LPC55 16 MHz crystal did not report XO_READY within {} polls",
+                XO_READY_TIMEOUT_POLLS
+            );
+        }
 
-        // Power up PLL0 and its SSCG block (the M-divider lives in the SSCG
-        // wrapper even with spread spectrum disabled). Bits 9 / 23.
         pac::PMC
-            .pdruncfgclr0()
-            .write(|w| w.set_pdruncfgclr0((1 << 9) | (1 << 23)));
-
-        // PLL0 input = clk_in (16 MHz crystal).
+            .pdruncfgset0()
+            .write(|w| w.set_pdruncfgset0((1 << 9) | (1 << 23)));
         pac::SYSCON
             .pll0clksel()
             .write(|w| w.set_sel(pac::syscon::vals::Pll0clkselSel::Enum0x1));
 
-        // Bandwidth + enable the post-divider output clock.
         pac::SYSCON.pll0ctrl().write(|w| {
             w.set_selr(0);
             w.set_seli(SELI);
             w.set_selp(SELP);
             w.set_clken(true);
         });
-        // Dividers: write the ratio, then pulse the change request bit.
         pac::SYSCON.pll0ndec().write(|w| w.set_ndiv(NDIV));
         pac::SYSCON.pll0ndec().write(|w| {
             w.set_ndiv(NDIV);
@@ -278,38 +338,65 @@ mod clocks {
             w.set_pdiv(PDIV);
             w.set_preq(true);
         });
-        // Integer M via the external M-divider (SEL_EXT = 1), no spread
-        // spectrum (MF/MR/MC = 0).
+        pac::SYSCON.pll0sscg0().modify(|w| w.set_md_lbs(0));
         pac::SYSCON.pll0sscg1().write(|w| {
             w.set_mdiv_ext(MDIV);
             w.set_sel_ext(true);
         });
         pac::SYSCON.pll0sscg1().write(|w| {
             w.set_mdiv_ext(MDIV);
-            w.set_sel_ext(true);
+            w.set_md_req(true);
             w.set_mreq(true);
+            w.set_sel_ext(true);
         });
 
-        // Wait for lock (ref = 2 MHz > 100 kHz, so the lock detector is
-        // usable per UM11126), with a generous bound; the UM quotes a
-        // worst-case lock time of ~500 us.
-        let mut locked = false;
-        for _ in 0..1_000_000 {
+        pac::PMC
+            .pdruncfgclr0()
+            .write(|w| w.set_pdruncfgclr0((1 << 9) | (1 << 23)));
+
+        let mut pll_locked = false;
+        for _ in 0..PLL_LOCK_TIMEOUT_POLLS {
             if pac::SYSCON.pll0stat().read().lock() {
-                locked = true;
+                pll_locked = true;
                 break;
             }
         }
-        if !locked {
-            warn!("PLL0 failed to lock, main clock left unchanged");
-            return;
+        if !pll_locked {
+            panic!(
+                "LPC55 PLL0 did not lock at 150 MHz within {} polls",
+                PLL_LOCK_TIMEOUT_POLLS
+            );
         }
 
-        // AHB divider = 1, then glitch-free switch: main clock B = PLL0.
         pac::SYSCON.ahbclkdiv().modify(|w| w.set_div(0));
         pac::SYSCON
             .mainclkselb()
-            .modify(|w| w.set_sel(pac::syscon::vals::MainclkselbSel::Enum0x1));
+            .write(|w| w.set_sel(pac::syscon::vals::MainclkselbSel::Enum0x1));
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{pll0_output_frequency_hz, supports_pll0_150m};
+
+        #[test]
+        fn pll0_150m_rejects_revision_0a() {
+            assert!(!supports_pll0_150m(0));
+        }
+
+        #[test]
+        fn pll0_150m_accepts_revision_1b() {
+            assert!(supports_pll0_150m(1));
+        }
+
+        #[test]
+        fn pll0_150m_rejects_unknown_revision() {
+            assert!(!supports_pll0_150m(2));
+        }
+
+        #[test]
+        fn pll0_equation_yields_150mhz() {
+            assert_eq!(pll0_output_frequency_hz(16_000_000, 8, 150, 1), 150_000_000);
+        }
     }
 }
 
@@ -326,7 +413,9 @@ pub mod config {
         FroHf96,
         /// PLL0 at 150 MHz (from the 16 MHz crystal) as main clock.
         ///
-        /// Also satisfies the USB-HS >= 96 MHz system clock requirement.
+        /// This mode is available only on die revision 1B. It uses the NXP
+        /// power-profile algorithm before raising the system clock.
+        /// It also satisfies the USB-HS >= 96 MHz system clock requirement.
         Pll0_150M,
     }
 

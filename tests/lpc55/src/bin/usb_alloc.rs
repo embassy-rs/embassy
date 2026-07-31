@@ -15,7 +15,7 @@ use embassy_executor::Spawner;
 use embassy_nxp::config::MainClock;
 use embassy_nxp::usb::{Driver, InterruptHandler, Memory};
 use embassy_nxp::{bind_interrupts, peripherals};
-use embassy_usb::driver::{Direction, Driver as _, EndpointAddress, EndpointType};
+use embassy_usb::driver::{Direction, Driver as _, Endpoint as _, EndpointAddress, EndpointType};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -73,27 +73,34 @@ async fn main(_spawner: Spawner) {
         "hs 8: index 1 IN is already taken"
     );
 
-    // The 4096-byte multi-packet slots no longer fit alongside the isochronous
-    // endpoints allocated above, so this exercises the driver's single-packet
-    // fallback: it must succeed anyway.
     defmt::assert!(
-        hs.alloc_endpoint_out(EndpointType::Bulk, None, 512, 0).is_ok(),
-        "hs 9: bulk OUT 512 must fall back to single-packet slots (index 3 OUT)"
+        hs.alloc_endpoint_out(EndpointType::Interrupt, None, 1024, 0).is_ok(),
+        "hs 9: interrupt OUT 1024 must be accepted (index 3 OUT)"
     );
 
-    // Index exhaustion on the IN side, using 64-byte endpoints so the limit
-    // reached is EP_COUNT and not the remaining endpoint memory. Indices 1 and
-    // 2 IN are taken, so exactly three more must fit.
-    for i in 3..=5 {
+    // The extra interrupt-OUT slots leave too little memory for two 3,584-byte
+    // bulk-IN slots. The allocator must fall back to two 512-byte slots.
+    let fallback = match hs.alloc_endpoint_in(EndpointType::Bulk, None, 512, 0) {
+        Ok(endpoint) => endpoint,
+        Err(_) => defmt::panic!("hs 10: bulk IN 512 single-packet fallback failed"),
+    };
+    defmt::assert_eq!(
+        fallback.info().addr,
+        EndpointAddress::from_parts(3, Direction::In),
+        "hs 10: bulk IN fallback must use index 3 IN"
+    );
+
+    // Indices 1 through 3 IN are taken, so only indices 4 and 5 remain.
+    for i in 4..=5 {
         defmt::assert!(
             hs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0).is_ok(),
-            "hs 10: interrupt IN 64 must be accepted at index {}",
+            "hs 11: interrupt IN 64 must be accepted at index {}",
             i
         );
     }
     defmt::assert!(
         hs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0).is_err(),
-        "hs 11: no IN endpoint index is left"
+        "hs 12: no IN endpoint index is left"
     );
 
     // ---------------------------------------------------------------- USB0 FS

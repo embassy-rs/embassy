@@ -45,6 +45,8 @@ def parse_count(text: str) -> int:
     value = int(text.replace("_", ""), 0)
     if value <= 0:
         raise argparse.ArgumentTypeError("byte count must be positive")
+    if value > 0xFFFF_FFFF:
+        raise argparse.ArgumentTypeError("byte count must fit in u32")
     return value
 
 
@@ -59,12 +61,71 @@ def fail(message: str) -> NoReturn:
     sys.exit(1)
 
 
-def run_in(port: serial.Serial, count: int) -> tuple[float, int]:
-    """Device -> host. Returns (elapsed seconds, mismatching byte count)."""
-    port.write(b"I" + struct.pack("<I", count))
+def read_exact(port: serial.Serial, count: int) -> bytes:
+    data = bytearray()
+    while len(data) < count:
+        chunk = port.read(count - len(data))
+        if not chunk:
+            fail(f"timed out after {len(data)} of {count} bytes")
+        data.extend(chunk)
+    return bytes(data)
+
+
+def write_split(port: serial.Serial, frame: bytes, split_at: int) -> None:
+    port.write(frame[:split_at])
+    port.flush()
+    time.sleep(0.02)
+    port.write(frame[split_at:])
     port.flush()
 
+
+def run_protocol_check(port: serial.Serial) -> None:
+    def expect_ack(expected: int, case: str) -> None:
+        acknowledged = struct.unpack("<I", read_exact(port, 4))[0]
+        if acknowledged != expected:
+            fail(f"{case}: device acknowledged {acknowledged} bytes, expected {expected}")
+
+    for split_at in range(1, 5):
+        in_frame = b"I" + struct.pack("<I", 257)
+        write_split(port, in_frame, split_at)
+        received = read_exact(port, 257)
+        if received != ramp_slice(0, 257):
+            fail(f"IN header split at {split_at}: payload mismatch")
+
+        out_frame = b"O" + struct.pack("<I", 257)
+        write_split(port, out_frame, split_at)
+        port.write(ramp_slice(0, 257))
+        port.flush()
+        expect_ack(257, f"OUT header split at {split_at}")
+
+    port.write(b"O" + struct.pack("<I", 0))
+    port.flush()
+    expect_ack(0, "zero-length OUT")
+
+    port.write(b"X" + struct.pack("<I", 0) + b"I" + struct.pack("<I", 17))
+    port.flush()
+    if read_exact(port, 17) != ramp_slice(0, 17):
+        fail("unknown-command recovery: payload mismatch")
+
+    combined = (
+        b"O" + struct.pack("<I", 3) + ramp_slice(0, 3) + b"I" + struct.pack("<I", 17)
+    )
+    port.write(combined)
+    port.flush()
+    expect_ack(3, "coalesced OUT")
+    if read_exact(port, 17) != ramp_slice(0, 17):
+        fail("coalesced IN: payload mismatch")
+
+    print("protocol stream check passed")
+
+
+def run_in(port: serial.Serial, count: int) -> tuple[float, int]:
+    """Device -> host. Returns (elapsed seconds, mismatching byte count)."""
+    frame = b"I" + struct.pack("<I", count)
     start = time.perf_counter()
+    port.write(frame)
+    port.flush()
+
     received = 0
     mismatches = 0
     while received < count:
@@ -72,11 +133,13 @@ def run_in(port: serial.Serial, count: int) -> tuple[float, int]:
         if not chunk:
             fail(f"timed out after {received} of {count} bytes")
         expected = ramp_slice(received, len(chunk))
-        # The whole-buffer compare is a C memcmp; only a failing chunk pays for
-        # the per-byte count. Counting unconditionally caps this script at
-        # roughly 30 MB/s and silently understates the device.
+        # The whole-buffer compare uses C memcmp. Count bytes only after a mismatch.
         if chunk != expected:
-            mismatches += sum(1 for a, b in zip(chunk, expected) if a != b)
+            mismatches += sum(
+                1
+                for actual, expected_byte in zip(chunk, expected)
+                if actual != expected_byte
+            )
         received += len(chunk)
     elapsed = time.perf_counter() - start
     return elapsed, mismatches
@@ -84,10 +147,11 @@ def run_in(port: serial.Serial, count: int) -> tuple[float, int]:
 
 def run_out(port: serial.Serial, count: int) -> float:
     """Host -> device. Returns elapsed seconds."""
-    port.write(b"O" + struct.pack("<I", count))
+    frame = b"O" + struct.pack("<I", count)
+    start = time.perf_counter()
+    port.write(frame)
     port.flush()
 
-    start = time.perf_counter()
     sent = 0
     while sent < count:
         chunk = ramp_slice(sent, min(CHUNK, count - sent))
@@ -99,13 +163,10 @@ def run_out(port: serial.Serial, count: int) -> float:
         sent += written
     port.flush()
 
-    ack = port.read(4)
+    acknowledged = struct.unpack("<I", read_exact(port, 4))[0]
+    if acknowledged != count:
+        fail(f"device acknowledged {acknowledged} bytes, expected {count}")
     elapsed = time.perf_counter() - start
-    if len(ack) != 4:
-        fail(f"short acknowledgement: got {len(ack)} of 4 bytes")
-    acked = struct.unpack("<I", ack)[0]
-    if acked != count:
-        fail(f"device acknowledged {acked} bytes, expected {count}")
     return elapsed
 
 
@@ -120,7 +181,13 @@ def main() -> None:
         default=4_000_000,
         help="payload size in bytes (underscores allowed, default 4_000_000)",
     )
-    parser.add_argument("--dir", required=True, choices=("in", "out"), help="transfer direction")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--dir", choices=("in", "out"), help="transfer direction")
+    mode.add_argument(
+        "--protocol-check",
+        action="store_true",
+        help="check fragmented and coalesced protocol frames",
+    )
     parser.add_argument(
         "--timeout", type=float, default=5.0, help="serial read timeout in seconds (default 5)"
     )
@@ -153,7 +220,9 @@ def main() -> None:
     try:
         port.reset_input_buffer()
         port.reset_output_buffer()
-        if args.dir == "in":
+        if args.protocol_check:
+            run_protocol_check(port)
+        elif args.dir == "in":
             elapsed, mismatches = run_in(port, count)
             print(f"payload mismatches: {mismatches} (0 expected)")
         else:
@@ -163,6 +232,9 @@ def main() -> None:
         fail(f"serial timeout: {exc}")
     finally:
         port.close()
+
+    if args.protocol_check:
+        return
 
     mbps_bytes = count / 1e6 / elapsed
     mbits = count * 8 / 1e6 / elapsed

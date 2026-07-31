@@ -1,4 +1,4 @@
-/* File originally from lpc55-hal repo: https://github.com/lpc55/lpc55-hal/blob/main/memory.x */ 
+/* File originally from lpc55-hal repo: https://github.com/lpc55/lpc55-hal/blob/main/memory.x */
 MEMORY
 {
   FLASH : ORIGIN = 0x00000000, LENGTH = 512K
@@ -25,4 +25,3 @@ MEMORY
   /* above, and use this freed RAM section */
 
 }
-
