@@ -27,6 +27,7 @@ DMA:
 - feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
 
 I2C:
+- feat: stm32/i2cv2: support zero-length transfers instead of returning `Error::ZeroLengthTransfer`, enabling bus scans via `transaction(addr, &mut [Operation::Write(&[])])`. On the slave side an empty `respond_to_write` accepts zero bytes and an empty `respond_to_read` sends `0xFF` filler, since I2C cannot encode "nothing to send"; both previously left ADDR set, holding SCL low and wedging the bus
 - fix: stm32/i2cv2: handle a master RESTART during async slave `respond_to_read` instead of stalling until the transaction times out
 - fix: stm32/i2cv2: re-enable TCIE after starting a DMA write group, so an async `transaction()` whose write group is not the first group completes instead of hanging until it times out
 
