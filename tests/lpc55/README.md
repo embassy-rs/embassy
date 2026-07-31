@@ -9,8 +9,8 @@ script in [`host/`](host).
 
 ## Cabling
 
-- The onboard SEGGER J-Link (debug header) must be connected to the host — `probe-rs` flashes
-  and runs over it.
+- A debug probe on the SWD header must be connected to the host — `probe-rs` flashes and runs
+  over it. The onboard LPC-LINK2 (CMSIS-DAP) and an external probe such as a SEGGER J-Link both work.
 - **P10** (USB0, full speed): host cable required by every test except `alloc` and `bus_raw`.
 - **P9** (USB1, high speed): same.
 - `usb_alloc` and `usb_bus_raw` need no host cable at all: neither ever brings the bus up.

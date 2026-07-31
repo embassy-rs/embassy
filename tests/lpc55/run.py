@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Runs the whole LPC55 USB hardware-in-the-loop suite.
 
-Each entry flashes one firmware over the J-Link with `cargo run --release`, waits for its
+Each entry flashes one firmware over the debug probe with `cargo run --release`, waits for its
 ready banner on the RTT log, drives the host side of the test, and requires the device to
 print `Test OK`.
 
@@ -12,8 +12,9 @@ this interpreter, because raw USB access to the vendor interface needs root and 
 
     python3 tests/lpc55/run.py [--only NAME]... [--list] [--keep-going]
 
-Hardware: an LPCXpresso55S69 EVK with the onboard J-Link connected, plus host cables on both
-**P9** (USB1, high speed) and **P10** (USB0, full speed).
+Hardware: an LPCXpresso55S69 EVK with a debug probe on the SWD header - the onboard LPC-LINK2
+or an external one such as a J-Link - plus host cables on both **P9** (USB1, high speed) and
+**P10** (USB0, full speed).
 """
 
 from __future__ import annotations
