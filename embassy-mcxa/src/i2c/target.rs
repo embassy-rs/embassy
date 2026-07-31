@@ -918,11 +918,8 @@ impl<'d> I2c<'d, Dma<'d>> {
             self.mode.tx_dma.enable_request();
         }
 
-        // Wait for any of:
-        //  - I2C end-of-transfer flag (sdf, rsf) -> controller terminated
-        //  - I2C error flag (fef, bef) -> bus problem
-        //  - DMA channel completion -> chunk exhausted; if controller still
-        //    clocking, caller may want to call again (NeedMore)
+        // First wait for either the controller to terminate the transfer or
+        // DMA to load the entire chunk into the peripheral.
         poll_fn(|cx| {
             let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
             let _ = self.info.wait_cell().poll_wait(cx);
@@ -943,6 +940,8 @@ impl<'d> I2c<'d, Dma<'d>> {
         })
         .await;
 
+        let mut ssr = self.info.regs().ssr().read();
+
         // Cleanup
         self.info.regs().sder().modify(|w| w.set_tdde(false));
         unsafe {
@@ -950,7 +949,24 @@ impl<'d> I2c<'d, Dma<'d>> {
             self.mode.tx_dma.clear_done();
         }
 
-        let ssr = self.info.regs().ssr().read();
+        // DMA completion only means the final byte reached the TX FIFO. The
+        // controller may still NACK that byte and issue STOP, or it may ACK it
+        // and request another byte. Wait for the I2C peripheral to distinguish
+        // those outcomes before reporting NeedMore. Returning on DMA completion
+        // alone races STOP and can cause a continuation call to clear the
+        // latched STOP before observing it.
+        if !(ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()) {
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    self.enable_tx_ints();
+                    let ssr = self.info.regs().ssr().read();
+                    ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() || ssr.tdf()
+                })
+                .await
+                .map_err(|_| IOError::Other)?;
+            ssr = self.info.regs().ssr().read();
+        }
 
         if ssr.fef() {
             Err(IOError::FifoError)
@@ -960,10 +976,13 @@ impl<'d> I2c<'d, Dma<'d>> {
             Ok(TxChunkOutcome::Stopped(self.mode.tx_dma.transferred_bytes()))
         } else if ssr.rsf() {
             Ok(TxChunkOutcome::Restarted(self.mode.tx_dma.transferred_bytes()))
-        } else {
-            // DMA done with no end-of-transfer flag: chunk exhausted,
-            // controller still expects more bytes.
+        } else if ssr.tdf() {
+            // With SCFGR1[TXCFG] at its reset value (0), hardware clears TDF
+            // on NACK, repeated START, or STOP. A surviving TDF therefore
+            // means the controller ACKed the last byte and requested another.
             Ok(TxChunkOutcome::NeedMore(chunk_len))
+        } else {
+            Err(IOError::Other)
         }
     }
 }
