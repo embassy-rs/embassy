@@ -202,7 +202,7 @@ impl<'d> Adc<'d> {
         pin.configure_iocon();
         adc.cmdl1().modify(|w| {
             w.set_adch(pin.channel().into());
-            w.set_ctype(pin.ctype().into())
+            w.set_ctype((pin.channel_side() as u8).into())
         });
 
         // Trigger the event
@@ -242,7 +242,7 @@ pub trait AdcPin: crate::gpio::Pin {
                     w.set_func(0.into());
                     w.set_mode(0.into());
                     w.set_digimode(0.into());
-                    #[cfg(feature = "lpc55s69")]
+                    #[cfg(feature = "lpc55-core0")]
                     w.set_asw(1.into())
                 });
             }
@@ -251,7 +251,7 @@ pub trait AdcPin: crate::gpio::Pin {
                     w.set_func(0.into());
                     w.set_mode(0.into());
                     w.set_digimode(0.into());
-                    #[cfg(feature = "lpc55s69")]
+                    #[cfg(feature = "lpc55-core0")]
                     w.set_asw(1.into())
                 });
             }
@@ -259,8 +259,11 @@ pub trait AdcPin: crate::gpio::Pin {
     }
 }
 
+/// Channel side
+/// There are 2 ADC sides on each channels
+/// Each channel supports either single ended mode (just one channel) or differential (difference between two channels) 
 #[repr(u8)]
-enum ChannelSide {
+pub enum ChannelSide {
     SideA = 0,
     SideB = 1,
 }
@@ -277,7 +280,7 @@ macro_rules! impl_adc_pin {
             }
 
             fn channel_side(&self) -> ChannelSide {
-                $channel_side as u8
+                $channel_side
             }
         }
     };
