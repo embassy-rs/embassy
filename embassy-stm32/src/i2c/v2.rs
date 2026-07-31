@@ -748,6 +748,8 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             }
             if is_last_group {
                 self.wait_stop(timeout)?;
+            } else {
+                self.wait_tc(timeout)?;
             }
             return Ok(());
         }
@@ -995,8 +997,15 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                         Stop::Software,
                         timeout,
                     )?;
-                    self.info.regs.cr1().modify(|w| w.set_tcie(true));
                 }
+                // Re-enable TCIE unconditionally, after START/NBYTES has cleared TC.
+                //
+                // When this is not the first group of a transaction the previous group
+                // leaves TC set, so enabling TCIE before this poll fires the event
+                // interrupt straight away — and the handler disables TCIE again. Without
+                // re-enabling it here the real completion never raises an interrupt and
+                // the future waits until the transaction times out.
+                self.info.regs.cr1().modify(|w| w.set_tcie(true));
             } else if !(isr.tcr() || isr.tc()) {
                 // poll_fn was woken without an interrupt present
                 return Poll::Pending;
@@ -1384,6 +1393,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             }
             if is_last_group {
                 self.wait_stop(timeout)?;
+            } else {
+                self.wait_tc(timeout)?;
             }
             return Ok(());
         }
@@ -2098,6 +2109,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 w.set_txdmaen(true);
                 w.set_stopie(true);
                 w.set_tcie(true);
+                w.set_addrie(true); // Enable to detect RESTART condition
             });
             let dst = regs.txdr().as_ptr() as *mut u8;
 
@@ -2110,6 +2122,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 w.set_txdmaen(false);
                 w.set_stopie(false);
                 w.set_tcie(false);
+                w.set_addrie(false);
             });
             regs.isr().write(|w| w.set_txe(true));
         });
@@ -2127,6 +2140,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 self.info.regs.cr1().modify(|w| {
                     w.set_tcie(true);
                     w.set_stopie(true);
+                    w.set_addrie(true);
                 });
                 Poll::Pending
             } else if isr.tcr() {
@@ -2144,8 +2158,45 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 self.info.regs.cr1().modify(|w| {
                     w.set_tcie(true);
                     w.set_stopie(true);
+                    w.set_addrie(true);
                 });
                 Poll::Pending
+            } else if isr.berr() {
+                // BERR: misplaced START — the master issued a RESTART while we were
+                // transmitting. ERRIE is not enabled on this path, so BERR does not wake us
+                // by itself; we are woken by ADDR (which the hardware sets at the same time)
+                // and clear BERR here so it does not leak into the next transaction.
+                // Do NOT clear ADDR — listen() polls that flag to pick up the new address
+                // that followed the RESTART.
+                self.info.regs.icr().modify(|w| w.set_berrcf(true));
+                let mut leftover = dma_transfer.get_remaining_transfers() as usize;
+                if !self.info.regs.isr().read().txe() {
+                    leftover = leftover.saturating_add(1);
+                }
+                remaining_len = remaining_len.saturating_add(leftover);
+                if remaining_len > 0 {
+                    dma_transfer.request_pause();
+                    Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len)))
+                } else {
+                    Poll::Ready(Ok(SendStatus::Done))
+                }
+            } else if isr.addr() && remaining_len != total_len {
+                // ADDR while transmitting: RESTART with a new address, on chips where BERR was
+                // not also set. The remaining_len != total_len guard mirrors
+                // read_dma_internal_slave: ADDR is still set from the listen() that got us here
+                // until slave_start clears it, so this must not fire before the transfer starts.
+                // Do NOT clear ADDR — let listen() handle the new transaction.
+                let mut leftover = dma_transfer.get_remaining_transfers() as usize;
+                if !self.info.regs.isr().read().txe() {
+                    leftover = leftover.saturating_add(1);
+                }
+                remaining_len = remaining_len.saturating_add(leftover);
+                if remaining_len > 0 {
+                    dma_transfer.request_pause();
+                    Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len)))
+                } else {
+                    Poll::Ready(Ok(SendStatus::Done))
+                }
             } else if isr.stopf() {
                 let mut leftover_bytes = dma_transfer.get_remaining_transfers();
                 if !self.info.regs.isr().read().txe() {
@@ -2168,6 +2219,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 self.info.regs.cr1().modify(|w| {
                     w.set_tcie(true);
                     w.set_stopie(true);
+                    w.set_addrie(true);
                 });
                 Poll::Pending
             }
