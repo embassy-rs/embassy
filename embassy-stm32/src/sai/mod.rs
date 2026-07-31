@@ -13,9 +13,8 @@ pub use crate::dma::word;
 use crate::dma::{self, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::pac::sai::Sai as Regs;
-use crate::rcc::{self, RccInfo};
 pub use crate::sai::vals::Mckdiv as MasterClockDivider;
-use crate::{Peri, interrupt};
+use crate::{Peri, interrupt, rcc};
 
 /// SAI error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

@@ -24,7 +24,7 @@ use crate::gpio::Flex;
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::I2c as Regs;
-use crate::rcc::{RccInfo, SealedRccPeripheral};
+use crate::rcc::SealedRccPeripheral;
 use crate::time::Hertz;
 use crate::{interrupt, peripherals};
 

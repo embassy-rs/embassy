@@ -6,11 +6,16 @@ macro_rules! peri_trait {
     ) => {
         pub(crate) struct Info {
             pub(crate) regs: Regs,
-            pub(crate) rcc: RccInfo,
+            #[allow(unused)]
+            pub(crate) rcc: crate::rcc::RccInfo,
         }
 
         #[allow(private_interfaces)]
         pub(crate) trait SealedInstance {
+            #[allow(unused)]
+            fn regs() -> Regs {
+                Self::info().regs
+            }
             #[allow(unused)]
             fn info() -> &'static Info;
             #[allow(unused)]

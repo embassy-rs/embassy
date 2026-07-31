@@ -18,7 +18,6 @@ use crate::dma::{ChannelAndRequest, word};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{Spi as Regs, regs, vals};
-use crate::rcc::RccInfo;
 use crate::time::Hertz;
 
 /// SPI error.
