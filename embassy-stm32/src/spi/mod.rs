@@ -903,7 +903,7 @@ impl<'d> Spi<'d, Async, Master> {
         // see RM0453 rev 1 section 7.2.13 page 291
         // The SUBGHZSPI_SCK frequency is obtained by PCLK3 divided by two.
         // The SUBGHZSPI_SCK clock maximum speed must not exceed 16 MHz.
-        let pclk3_freq = <crate::peripherals::SUBGHZSPI as SealedRccPeripheral>::frequency().0;
+        let pclk3_freq = <crate::peripherals::SUBGHZSPI as crate::rcc::SealedRccPeripheral>::frequency().0;
         let freq = Hertz(core::cmp::min(pclk3_freq / 2, 16_000_000));
         let mut config = Config::default();
         config.mode = MODE_0;
