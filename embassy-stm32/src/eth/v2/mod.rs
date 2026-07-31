@@ -13,14 +13,14 @@ use stm32_metapac::syscfg::vals::EthSelPhy;
 
 use super::*;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
-use crate::peripherals::SYSCFG;
-use crate::{interrupt, rcc};
 use crate::interrupt::InterruptExt;
 #[cfg(eth_v2)]
 use crate::pac::ETH;
 #[cfg(any(eth_v2a, eth_v2b))]
 use crate::pac::ETH1 as ETH;
+use crate::peripherals::SYSCFG;
 use crate::rcc::WakeGuard;
+use crate::{interrupt, rcc};
 
 // The two MACs sit behind different interrupt lines.
 #[cfg(eth_v2)]
