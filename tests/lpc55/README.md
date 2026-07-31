@@ -15,6 +15,11 @@ script in [`host/`](host).
 - **P9** (USB1, high speed): same.
 - `usb_alloc` and `usb_bus_raw` need no host cable at all: neither ever brings the bus up.
 
+A charge-only cable fails silently and looks like a driver bug: the board is powered, the
+firmware arms the bus, and the host sees nothing at all. Read `DEVCMDSTAT` over the probe to
+tell the two apart — `VBUS_DEBOUNCED=1` with `DCON=1` and `DEV_ADDR=0` means the device is
+attached and waiting, so the fault is in the cable or the port, not the firmware.
+
 ## Running
 
 ```sh
@@ -118,14 +123,45 @@ A `dev`-profile build measures roughly 0.3 MB/s in both directions on either con
 is the unoptimized driver and class layer being CPU-bound, not the bus, and it is two orders of
 magnitude below the hardware — always measure with `--release`.
 
+## VBUS attach and detach
+
+`Event::PowerDetected` / `PowerRemoved` and the attach-armed soft-connect are not in `run.py` —
+no firmware can drop its own VBUS — so they are checked by hand. A hub with per-port power
+switching makes that repeatable without touching a cable:
+
+```sh
+lsusb -t                                                  # locate the board, e.g. bus 1, hub 10, port 3
+lsusb -v -d <hub-vid:pid> | grep -A2 wHubCharacteristic   # must say "Per-port power switching"
+port=/sys/bus/usb/devices/1-10:1.0/1-10-port3/disable
+sudo sh -c "echo 1 > $port"    # VBUS off
+sudo sh -c "echo 0 > $port"    # VBUS on
+```
+
+A hub without per-port power switching only disables the port and leaves VBUS up, which does
+not exercise this path at all.
+
+Checked on both controllers with `usb_fs_serial` (P10), `usb_hs_serial` (P9) and literal cable
+pulls on `usb_dual`:
+
+- echo, VBUS drop, VBUS return, echo again — no reflash in between;
+- firmware started with the cable absent attaches when the cable arrives after `usb.run()` is
+  already polling;
+- a partial protocol header sent to `usb_{fs,hs}_throughput` does not survive the drop:
+  `usb_throughput.py --protocol-check` passes afterwards, because the bench loop builds a fresh
+  `Parser` every time `wait_connection` returns.
+
+Pull one cable at a time. The board is powered from VBUS, so removing both cuts its supply and
+the firmware restarts instead of riding the disconnect out.
+
 ## Not covered
 
 - **Suspend and resume**, including the `enautoclr_phy_pwd` resume workaround. Needs the host to
   suspend the bus on demand, which no unprivileged sysfs knob exposes reliably.
 - **Remote wakeup** (`Bus::remote_wakeup`). Only observable out of a host-driven suspend, so it
   inherits the same blocker.
-- **`Event::PowerDetected` / `PowerRemoved`**. Needs VBUS to physically drop, i.e. someone
-  unplugging P9 or P10 mid-run.
+- **USBHSD rejecting a full-speed link.** The `USBHSD negotiated unsupported speed` panic needs
+  a full-speed-only USB 1.1 hub between P9 and the host. The source-level branch and the normal
+  high-speed P9 path are both retained; the panic itself is untested on hardware.
 - **`Memory::usb1_sram` double-take and the `Memory::buffer` size assert.** These
   are panicking paths with no non-destructive assertion available; a test for them would have to
   assert that the firmware panicked.
