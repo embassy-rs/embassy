@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -151,6 +152,11 @@ TESTS_LIST = [
 # output; only match what the firmware could have printed.
 PANIC_MARKERS = ("panicked", "PANIC", "[ERROR]")
 
+# A `probe-rs` failure is a top-level `Error:` followed by an indented, numbered `Caused by:`
+# chain. The top level says which stage failed, the deepest cause says why.
+PROBE_ERROR = re.compile(r"^\s*Error: (.*\S)")
+PROBE_CAUSE = re.compile(r"^\s*\d+: (.*\S)")
+
 
 class Firmware:
     """`cargo run --release --bin <bin>`, with its output captured line by line."""
@@ -201,6 +207,21 @@ class Firmware:
         with self._lock:
             return [ln for ln in self.lines if any(m in ln for m in PANIC_MARKERS)]
 
+    def probe_failure(self) -> str | None:
+        """Describes an abnormal `probe-rs` exit. It otherwise sits at the breakpoint forever."""
+        code = self.proc.poll()
+        if code is None:
+            return None
+        with self._lock:
+            lines = list(self.lines)
+        parts = [f"probe-rs exited {code}"]
+        for pattern in (PROBE_ERROR, PROBE_CAUSE):
+            hits = [m.group(1) for ln in lines if (m := pattern.match(ln))]
+            if hits:
+                # probe-rs punctuates some messages and not others; `: ` is the separator here.
+                parts.append(hits[-1].rstrip("."))
+        return ": ".join(parts)
+
     def stop(self) -> None:
         if self.proc.poll() is None:
             self.proc.send_signal(signal.SIGINT)
@@ -237,9 +258,12 @@ def run_test(test: Test) -> str | None:
     fw = Firmware(test)
 
     def verdict(timeout_reason: str) -> str:
-        # A device panic explains a missing banner far better than the timeout.
+        # A device panic or a dead probe-rs explains a missing banner far better than a timeout:
+        # a flash that failed means the firmware never ran, so nothing was ever going to appear.
         panics = fw.panics()
-        return f"device panicked: {panics[0].strip()}" if panics else timeout_reason
+        if panics:
+            return f"device panicked: {panics[0].strip()}"
+        return fw.probe_failure() or timeout_reason
 
     try:
         if test.ready is not None and not fw.wait_for(test.ready, READY_TIMEOUT):
@@ -256,7 +280,7 @@ def run_test(test: Test) -> str | None:
         panics = fw.panics()
         if panics:
             return f"device panicked: {panics[0].strip()}"
-        return None
+        return fw.probe_failure()
     finally:
         fw.stop()
         time.sleep(SETTLE)
