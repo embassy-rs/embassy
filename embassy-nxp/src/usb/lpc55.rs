@@ -134,6 +134,17 @@ const CMD_TR: u32 = 1 << 28; // Toggle Reset (write-1)
 const CMD_TV: u32 = 1 << 27; // RF/TV: data toggle value for bulk/interrupt
 const CMD_T: u32 = 1 << 26; // Endpoint type: 0 = generic, 1 = isochronous
 
+/// A slot carrying either of these bits must not be armed or treated as
+/// complete.
+///
+/// `S` and `A` share one command word on ip3511, so a host-requested stall
+/// looks exactly like a completed transfer to a `poll_fn` that only tests `A`.
+/// Re-arming such a slot would overwrite `S` and silently un-halt the endpoint,
+/// so every read and write path reports [`EndpointError::Disabled`] instead -
+/// the trait's only "not usable right now" signal. Note that `wait_enabled`
+/// deliberately keeps testing `D` alone: a stalled endpoint is still enabled.
+const CMD_UNUSABLE: u32 = CMD_D | CMD_S;
+
 /// Per-endpoint state flags, kept in an `AtomicU8`.
 ///
 /// Double-buffer bookkeeping for data endpoints is shared between [`Bus`]
@@ -1320,10 +1331,21 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         let iso = state.load(Ordering::Relaxed) & ISO;
 
         if enabled {
-            // Both slots idle (NAK until armed). Hardware must restart on
-            // slot 0 to match the software cursor, and the data toggle is
-            // reset on the first armed transfer (TR_PENDING).
-            ep_cmd_write(self.ep_list, index, dir, 0, 0);
+            // Both slots idle (NAK until armed) with the data toggle reset,
+            // which USB requires whenever a SET_CONFIGURATION or SET_INTERFACE
+            // enables an endpoint. Hardware must also restart on slot 0 to match
+            // the software cursor.
+            //
+            // `TR` has to be in the word here and not only deferred to the first
+            // armed transfer via `TR_PENDING`: the full-speed block otherwise
+            // keeps the pre-disable toggle and silently drops the first packets
+            // after an alternate setting switches the endpoint back on.
+            //
+            // Only slot 0 carries it. `TR` is honoured on an inactive entry, so
+            // arming both slots with it lets hardware reset the toggle a second
+            // time after the first packet has already flipped it, which corrupts
+            // the very next transfer. Isochronous endpoints have no toggle at all.
+            ep_cmd_write(self.ep_list, index, dir, 0, if iso != 0 { 0 } else { CMD_TR });
             ep_cmd_write(self.ep_list, index, dir, 1, 0);
             let phy_ep = 2 * index + (dir == Direction::In) as usize;
             T::regs()
@@ -1371,9 +1393,19 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             ep_cmd_modify(self.ep_list, index, dir, 0, |w| (w & !CMD_S) | CMD_TR);
         } else {
             // Drop any buffered packets, resync the hardware slot cursor and
-            // defer the toggle reset to the next armed transfer.
+            // reset the data toggle, which USB requires when a halt is cleared.
+            //
+            // Both slot words are rewritten whole rather than having `S` and `A`
+            // masked out: keeping the aborted transfer's NBytes and
+            // AddressOffset leaves the full-speed block wedged - it acknowledges
+            // the next OUT packets on the wire and discards them without ever
+            // completing the entry.
+            //
+            // The toggle reset lands on slot 0 only, for the reason spelled out
+            // in `endpoint_set_enabled`.
             for slot in slots {
-                ep_cmd_modify(self.ep_list, index, dir, slot, |w| w & !(CMD_S | CMD_A));
+                let word = if slot == 0 && !iso { CMD_TR } else { 0 };
+                ep_cmd_write(self.ep_list, index, dir, slot, word);
             }
             regs.epinuse().modify(|w| w.set_buf(w.buf() & !(1 << (phy_ep - 2))));
             let state = T::state().ep_state(index, dir);
@@ -1468,7 +1500,7 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         let mut s = state.load(Ordering::Relaxed);
         for slot in 0..2 {
             if s & (PRIMED0 << slot) == 0 {
-                if ep_cmd_read(self.ep_list, index, Direction::Out, slot) & CMD_D != 0 {
+                if ep_cmd_read(self.ep_list, index, Direction::Out, slot) & CMD_UNUSABLE != 0 {
                     return Err(EndpointError::Disabled);
                 }
                 ep_arm_slot::<T>(
@@ -1492,8 +1524,8 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         let word = poll_fn(|cx| {
             T::state().ep_out_wakers[index].register(cx.waker());
             let word = ep_cmd_read(self.ep_list, index, Direction::Out, slot);
-            if word & CMD_D != 0 {
-                // Disabled by a bus reset while waiting.
+            if word & CMD_UNUSABLE != 0 {
+                // Disabled by a bus reset, or stalled by the host, while waiting.
                 return Poll::Ready(Err(EndpointError::Disabled));
             }
             if state.load(Ordering::Relaxed) & (PRIMED0 << slot) == 0 {
@@ -1517,6 +1549,13 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
             return Err(EndpointError::BufferOverflow);
         }
         copy_from_ep_buffer(self.buf_addrs[slot], &mut buf[..rx_len]);
+
+        // A host halt landing between the completion poll and here would be
+        // erased by the re-arm below, so drop the packet instead: the host asked
+        // for the endpoint to stop.
+        if ep_cmd_read(self.ep_list, index, Direction::Out, slot) & CMD_S != 0 {
+            return Err(EndpointError::Disabled);
+        }
 
         // Hand the drained slot straight back to hardware and advance the
         // consume cursor.
@@ -1566,7 +1605,7 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             poll_fn(|cx| {
                 T::state().ep_in_wakers[index].register(cx.waker());
                 let word = ep_cmd_read(self.ep_list, index, Direction::In, slot);
-                if word & CMD_D != 0 {
+                if word & CMD_UNUSABLE != 0 {
                     return Poll::Ready(Err(EndpointError::Disabled));
                 }
                 if word & CMD_A == 0 {
@@ -1582,6 +1621,12 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
             let s = state.load(Ordering::Relaxed);
             if (s & SLOT) as usize != slot {
                 continue;
+            }
+
+            // Same hazard as in `read`: a host halt landing here would be
+            // erased by the arm below.
+            if ep_cmd_read(self.ep_list, index, Direction::In, slot) & CMD_S != 0 {
+                return Err(EndpointError::Disabled);
             }
 
             copy_to_ep_buffer(self.buf_addrs[slot], buf);
