@@ -1,6 +1,7 @@
 //! Makes `memory.x` available to the linker.
 
-use std::{env, fs, path::PathBuf};
+use std::path::PathBuf;
+use std::{env, fs};
 
 fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());

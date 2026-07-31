@@ -59,19 +59,35 @@ async fn check<T: Instance>(
 
     bus.endpoint_set_enabled(bulk_addr, true);
     bus.endpoint_set_stalled(bulk_addr, true);
-    ensure(bus.endpoint_is_stalled(bulk_addr), name, "bulk endpoint not reported stalled");
+    ensure(
+        bus.endpoint_is_stalled(bulk_addr),
+        name,
+        "bulk endpoint not reported stalled",
+    );
     bus.endpoint_set_stalled(bulk_addr, false);
-    ensure(!bus.endpoint_is_stalled(bulk_addr), name, "bulk endpoint remained stalled");
+    ensure(
+        !bus.endpoint_is_stalled(bulk_addr),
+        name,
+        "bulk endpoint remained stalled",
+    );
 
     bus.endpoint_set_enabled(iso_addr, true);
     bus.endpoint_set_stalled(iso_addr, true);
-    ensure(!bus.endpoint_is_stalled(iso_addr), name, "isochronous endpoint reported stalled");
+    ensure(
+        !bus.endpoint_is_stalled(iso_addr),
+        name,
+        "isochronous endpoint reported stalled",
+    );
 
     for direction in [Direction::Out, Direction::In] {
         let invalid = EndpointAddress::from_parts(127, direction);
         bus.endpoint_set_enabled(invalid, true);
         bus.endpoint_set_stalled(invalid, true);
-        ensure(!bus.endpoint_is_stalled(invalid), name, "invalid endpoint reported stalled");
+        ensure(
+            !bus.endpoint_is_stalled(invalid),
+            name,
+            "invalid endpoint reported stalled",
+        );
     }
 
     let mut packet = [0; 512];
@@ -81,7 +97,11 @@ async fn check<T: Instance>(
         name,
         "disable did not cancel a pending endpoint read",
     );
-    ensure(regs.devcmdstat().read().dev_en(), name, "reversible disable cleared DEV_EN");
+    ensure(
+        regs.devcmdstat().read().dev_en(),
+        name,
+        "reversible disable cleared DEV_EN",
+    );
     let disabled_dcs = regs.devcmdstat().read();
     defmt::assert_eq!(
         disabled_dcs.dcon(),

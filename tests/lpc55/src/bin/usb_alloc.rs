@@ -31,7 +31,6 @@ fn expect_err<T, E>(result: Result<T, E>, message: &'static str) {
     defmt::assert!(result.is_err(), "{}", message);
 }
 
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_nxp::config::Config::default();
@@ -43,8 +42,14 @@ async fn main(_spawner: Spawner) {
     // EP_COUNT = 6, so data endpoint indices 1..=5 are usable per direction.
     let mut hs = Driver::<peripherals::USBHSD>::new(p.USBHSD, Irqs, Memory::usb1_sram());
 
-    expect_ok(hs.alloc_endpoint_out(EndpointType::Bulk, None, 512, 0), "hs 1: bulk OUT 512");
-    expect_err(hs.alloc_endpoint_out(EndpointType::Bulk, None, 1024, 0), "hs 2: bulk OUT 1024");
+    expect_ok(
+        hs.alloc_endpoint_out(EndpointType::Bulk, None, 512, 0),
+        "hs 1: bulk OUT 512",
+    );
+    expect_err(
+        hs.alloc_endpoint_out(EndpointType::Bulk, None, 1024, 0),
+        "hs 2: bulk OUT 1024",
+    );
     expect_ok(
         hs.alloc_endpoint_in(EndpointType::Interrupt, None, 1024, 0),
         "hs 3: interrupt IN 1024",
@@ -61,7 +66,10 @@ async fn main(_spawner: Spawner) {
         hs.alloc_endpoint_in(EndpointType::Isochronous, None, 1023, 0),
         "hs 6: isochronous IN 1023",
     );
-    expect_err(hs.alloc_endpoint_in(EndpointType::Control, None, 64, 0), "hs 7: control beyond EP0");
+    expect_err(
+        hs.alloc_endpoint_in(EndpointType::Control, None, 64, 0),
+        "hs 7: control beyond EP0",
+    );
     expect_err(
         hs.alloc_endpoint_in(
             EndpointType::Bulk,
@@ -94,7 +102,10 @@ async fn main(_spawner: Spawner) {
             "hs 11: interrupt IN 64",
         );
     }
-    expect_err(hs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0), "hs 12: IN index exhaustion");
+    expect_err(
+        hs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0),
+        "hs 12: IN index exhaustion",
+    );
 
     // ---------------------------------------------------------------- USB0 FS
     // EP_COUNT = 5, so data endpoint indices 1..=4 are usable per direction.
@@ -104,8 +115,14 @@ async fn main(_spawner: Spawner) {
     let mem = Memory::buffer(&mut ep_mem);
     let mut fs = Driver::<peripherals::USB0>::new(p.USB0, Irqs, p.PIO0_22, mem);
 
-    expect_ok(fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0), "fs 1: bulk OUT 64");
-    expect_err(fs.alloc_endpoint_out(EndpointType::Bulk, None, 128, 0), "fs 2: bulk OUT 128");
+    expect_ok(
+        fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0),
+        "fs 1: bulk OUT 64",
+    );
+    expect_err(
+        fs.alloc_endpoint_out(EndpointType::Bulk, None, 128, 0),
+        "fs 2: bulk OUT 128",
+    );
     expect_ok(
         fs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0),
         "fs 3: interrupt IN 64",
@@ -125,9 +142,15 @@ async fn main(_spawner: Spawner) {
 
     // Indices 3 and 4 OUT, then index exhaustion.
     for _ in 3..=4 {
-        expect_ok(fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0), "fs 7: bulk OUT 64");
+        expect_ok(
+            fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0),
+            "fs 7: bulk OUT 64",
+        );
     }
-    expect_err(fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0), "fs 8: OUT index exhaustion");
+    expect_err(
+        fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0),
+        "fs 8: OUT index exhaustion",
+    );
 
     defmt::info!("Test OK");
     cortex_m::asm::bkpt();
