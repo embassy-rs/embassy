@@ -124,14 +124,32 @@ def main() -> None:
     parser.add_argument(
         "--timeout", type=float, default=5.0, help="serial read timeout in seconds (default 5)"
     )
+    parser.add_argument(
+        "--wait-port",
+        type=float,
+        default=0.0,
+        help="seconds to wait for the port to appear (default 0, one attempt)",
+    )
+    parser.add_argument(
+        "--min-rate",
+        type=float,
+        default=None,
+        help="fail if measured throughput is below this many MB/s (default: no minimum)",
+    )
     args = parser.parse_args()
 
     count = args.bytes
-    try:
-        port = serial.Serial(args.port, timeout=args.timeout, write_timeout=args.timeout)
-    except serial.SerialException as exc:
-        fail(f"cannot open {args.port}: {exc}")
-
+    deadline = time.monotonic() + args.wait_port
+    while True:
+        try:
+            port = serial.Serial(args.port, timeout=args.timeout, write_timeout=args.timeout)
+            break
+        except serial.SerialException as exc:
+            # With the default --wait-port of 0 the deadline has already passed, so this is
+            # a single attempt followed by the original hard failure.
+            if time.monotonic() >= deadline:
+                fail(f"cannot open {args.port}: {exc}")
+            time.sleep(0.25)
     try:
         port.reset_input_buffer()
         port.reset_output_buffer()
@@ -151,6 +169,12 @@ def main() -> None:
     print(f"direction: {args.dir}  bytes: {count}  elapsed: {elapsed:.3f} s")
     print(f"throughput: {mbps_bytes:.3f} MB/s (MB = 1e6 bytes) = {mbits:.3f} Mbps")
 
+    if args.min_rate is not None and mbps_bytes < args.min_rate:
+        print(
+            f"error: throughput {mbps_bytes:.3f} MB/s below minimum {args.min_rate} MB/s",
+            file=sys.stderr,
+        )
+        sys.exit(1)
     if mismatches:
         sys.exit(1)
 
