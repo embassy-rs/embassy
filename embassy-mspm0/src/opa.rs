@@ -6,6 +6,9 @@
 //!
 //! - **Buffer** (unity gain follower): [`Opa::buffer_ext`] / [`Opa::buffer_int`]
 //! - **Non-inverting PGA** (x2..x32): [`Opa::pga_ext`] / [`Opa::pga_int`]
+//! - **Non-inverting PGA about a reference**: [`Opa::pga_biased_ext`] /
+//!   [`Opa::pga_biased_int`], which drive the bottom of the gain ladder from a
+//!   [`LadderBottom`] source instead of grounding it
 //!
 //! `_ext` variants drive the OPAx_OUT pin; `_int` variants keep the output
 //! off the pins and only route it to the ADC. Both can be sampled by the ADC
@@ -80,11 +83,15 @@ impl Default for Config {
     }
 }
 
-/// Gain for the buffer and non-inverting PGA topologies.
+/// Gain for the non-inverting PGA topology.
+///
+/// The discriminants are the CFG.GAIN encoding. The ladder starts at x2:
+/// GAIN=0x0 is listed as not valid for this topology in the TRM, and unity
+/// gain is reached through the buffer topology instead, which does not go
+/// through the ladder at all.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Gain {
-    X1 = 0,
     X2 = 1,
     X4 = 2,
     X8 = 3,
@@ -142,6 +149,42 @@ impl<'d, T: Instance, P: NonInvertingPin<T>> From<Peri<'d, P>> for NonInvertingI
             _phantom: PhantomData,
         }
     }
+}
+
+/// A source for the bottom of the gain ladder (CFG.MSEL).
+///
+/// In the non-inverting PGA the ladder bottom is the point the gain pivots
+/// about, not merely a return path:
+///
+/// ```text
+/// Vout = gain * Vin + (1 - gain) * Vladder
+/// ```
+///
+/// Grounding it gives the plain `Vout = gain * Vin`, which also means the
+/// input's own DC is multiplied by the gain: at x32 an input sitting 50 mV
+/// away from where it needs to be moves the output by 1.6 V. Driving the
+/// ladder bottom from the DAC12 instead makes the DC operating point of the
+/// output a free variable, settable independently of the gain, which is what
+/// lets a high gain be used on a signal whose DC is not already placed for it.
+///
+/// Only the sources that are unambiguous for this topology are exposed. The
+/// remaining CFG.MSEL values are an external `OPAx_INy-` pin, for which this
+/// driver has no pin trait yet, and the previous instance's ladder top for
+/// cascading, which has no meaning on the first instance.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum LadderBottom {
+    /// Analog ground, giving `Vout = gain * Vin`.
+    #[default]
+    Ground,
+    /// The DAC12 output, giving `Vout = gain * Vin + (1 - gain) * Vdac`.
+    ///
+    /// The DAC must be enabled and settled before the amplifier is: it is the
+    /// reference the whole transfer function is written against, so bringing
+    /// it up afterwards means the first output the ADC sees is referred to
+    /// whatever the DAC pin happened to be sitting at.
+    Dac12,
 }
 
 /// OPA driver.
@@ -244,35 +287,69 @@ impl<'d, T: Instance> Opa<'d, T> {
     }
 
     /// Non-inverting PGA: output is `gain * input`, driving the output pin.
+    ///
+    /// The gain ladder is grounded. Use [`Opa::pga_biased_ext`] to pivot the
+    /// gain about a reference instead.
     pub fn pga_ext<'a>(
         &'a mut self,
         input: impl Into<NonInvertingInput<'a, T>>,
         output: Peri<'a, impl OutputPin<T>>,
         gain: Gain,
     ) -> OpaOutput<'a, T> {
-        SealedOutputPin::setup(&*output);
-        let mut cfg = Self::pga_cfg(input.into(), gain);
-        cfg.set_outpin(true);
-        self.enable(cfg);
-        OpaOutput { _inner: self }
+        self.pga_biased_ext(input, output, gain, LadderBottom::Ground)
     }
 
     /// Non-inverting PGA: output is `gain * input`, routed only to the ADC.
+    ///
+    /// The gain ladder is grounded. Use [`Opa::pga_biased_int`] to pivot the
+    /// gain about a reference instead.
     pub fn pga_int<'a>(
         &'a mut self,
         input: impl Into<NonInvertingInput<'a, T>>,
         gain: Gain,
     ) -> OpaInternalOutput<'a, T> {
-        self.enable(Self::pga_cfg(input.into(), gain));
+        self.pga_biased_int(input, gain, LadderBottom::Ground)
+    }
+
+    /// Non-inverting PGA about `ladder`, driving the output pin.
+    ///
+    /// Output is `gain * input + (1 - gain) * ladder`; see [`LadderBottom`].
+    pub fn pga_biased_ext<'a>(
+        &'a mut self,
+        input: impl Into<NonInvertingInput<'a, T>>,
+        output: Peri<'a, impl OutputPin<T>>,
+        gain: Gain,
+        ladder: LadderBottom,
+    ) -> OpaOutput<'a, T> {
+        SealedOutputPin::setup(&*output);
+        let mut cfg = Self::pga_cfg(input.into(), gain, ladder);
+        cfg.set_outpin(true);
+        self.enable(cfg);
+        OpaOutput { _inner: self }
+    }
+
+    /// Non-inverting PGA about `ladder`, routed only to the ADC.
+    ///
+    /// Output is `gain * input + (1 - gain) * ladder`; see [`LadderBottom`].
+    pub fn pga_biased_int<'a>(
+        &'a mut self,
+        input: impl Into<NonInvertingInput<'a, T>>,
+        gain: Gain,
+        ladder: LadderBottom,
+    ) -> OpaInternalOutput<'a, T> {
+        self.enable(Self::pga_cfg(input.into(), gain, ladder));
         OpaInternalOutput { _inner: self }
     }
 
-    fn pga_cfg(input: NonInvertingInput<'_, T>, gain: Gain) -> regs::Cfg {
-        // Ladder bottom to ground, feedback from the tap.
+    fn pga_cfg(input: NonInvertingInput<'_, T>, gain: Gain, ladder: LadderBottom) -> regs::Cfg {
+        // Feedback from the tap, with the ladder bottom held at `ladder`.
         let mut cfg = regs::Cfg(0);
         cfg.set_psel(input.channel);
         cfg.set_nsel(vals::Nsel::OANRTAP);
-        cfg.set_msel(vals::Msel::VSS);
+        cfg.set_msel(match ladder {
+            LadderBottom::Ground => vals::Msel::VSS,
+            LadderBottom::Dac12 => vals::Msel::DAC12OUT,
+        });
         cfg.set_gain(gain as u8);
         cfg
     }
