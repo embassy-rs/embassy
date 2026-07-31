@@ -19,7 +19,7 @@ use panic_probe as _;
 use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
-    ETH1 => eth::InterruptHandler;
+    ETH1 => eth::InterruptHandler<ETH1>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 

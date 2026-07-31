@@ -2,6 +2,7 @@ mod descriptors;
 #[cfg(feature = "ptp")]
 mod ptp;
 
+use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, fence};
 
 pub(crate) use descriptors::{RDes, RDesRing, TDes, TDesRing};
@@ -22,12 +23,6 @@ use crate::peripherals::SYSCFG;
 use crate::rcc::WakeGuard;
 use crate::{interrupt, rcc};
 
-// The two MACs sit behind different interrupt lines.
-#[cfg(eth_v2)]
-type EthTypelevel = interrupt::typelevel::ETH;
-#[cfg(any(eth_v2a, eth_v2b))]
-type EthTypelevel = interrupt::typelevel::ETH1;
-
 /// Access a per-channel DMA/MTL register at channel 0.
 ///
 /// On eth_v2a the DMA/MTL channel registers are arrays (the MAC has multiple
@@ -46,9 +41,11 @@ macro_rules! ch0 {
 }
 
 /// Interrupt handler.
-pub struct InterruptHandler {}
+pub struct InterruptHandler<T: Instance> {
+    _marker: PhantomData<T>,
+}
 
-impl interrupt::typelevel::Handler<EthTypelevel> for InterruptHandler {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         WAKER.wake();
 
@@ -118,7 +115,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ref_clk: Peri<'d, impl RefClkPin<T>>,
         crs: Peri<'d, impl CRSPin<T>>,
         rx_d0: Peri<'d, impl RXD0Pin<T>>,
@@ -150,7 +147,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     pub fn new_mii<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx_clk: Peri<'d, impl RXClkPin<T>>,
         tx_clk: Peri<'d, impl TXClkPin<T>>,
         rxdv: Peri<'d, impl RXDVPin<T>>,
@@ -194,7 +191,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     pub fn new_rgmii<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         gtx_clk: Peri<'d, impl RGMIIGTXClkPin<T>>,
         tx_ctl: Peri<'d, impl RGMIITXCtlPin<T>>,
         tx_d0: Peri<'d, impl RGMIITXD0Pin<T>>,
@@ -228,7 +225,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     pub fn new_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ref_clk: Peri<'d, impl RefClkPin<T>>,
         crs: Peri<'d, impl CRSPin<T>>,
         rx_d0: Peri<'d, impl RXD0Pin<T>>,
@@ -268,7 +265,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     pub fn new_mii_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx_clk: Peri<'d, impl RXClkPin<T>>,
         tx_clk: Peri<'d, impl TXClkPin<T>>,
         rxdv: Peri<'d, impl RXDVPin<T>>,
@@ -312,7 +309,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     pub fn new_rgmii_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         gtx_clk: Peri<'d, impl RGMIIGTXClkPin<T>>,
         tx_ctl: Peri<'d, impl RGMIITXCtlPin<T>>,
         tx_d0: Peri<'d, impl RGMIITXD0Pin<T>>,
@@ -358,7 +355,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     fn new_inner<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         pins: Pins<'d>,
         phy: P,
         mac_addr: [u8; 6],

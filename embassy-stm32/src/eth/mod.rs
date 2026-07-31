@@ -15,7 +15,6 @@ mod sma;
 use core::mem::MaybeUninit;
 use core::task::Context;
 
-use embassy_hal_internal::PeripheralType;
 #[cfg(feature = "ptp")]
 use embassy_net_driver::PacketMeta;
 use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
@@ -28,7 +27,7 @@ use crate::eth::ptp::{PacketState, PtpTimestampSink};
 #[cfg(feature = "ptp")]
 pub use crate::eth::ptp::{PtpTimestamp, PtpTimestampStore};
 pub use crate::eth::sma::{Instance as SmaInstance, Sma, StationManagement};
-use crate::rcc::RccPeripheral;
+use crate::pac::eth::Eth as Regs;
 
 #[allow(unused)]
 const MTU: usize = 1514;
@@ -275,32 +274,26 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     }
 }
 
-trait SealedInstance {
-    fn regs() -> crate::pac::eth::Eth;
-}
+struct State {}
 
-/// Ethernet instance.
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + Send + 'static {}
-
-#[cfg(not(any(eth_v2a, eth_v2b)))]
-impl SealedInstance for crate::peripherals::ETH {
-    fn regs() -> crate::pac::eth::Eth {
-        crate::pac::ETH
+impl State {
+    const fn new() -> Self {
+        Self {}
     }
 }
 
-#[cfg(any(eth_v2a, eth_v2b))]
-impl SealedInstance for crate::peripherals::ETH1 {
-    fn regs() -> crate::pac::eth::Eth {
-        crate::pac::ETH1
-    }
-}
+peri_trait!(
+    irqs: [Interrupt],
+);
 
-#[cfg(not(any(eth_v2a, eth_v2b)))]
-impl Instance for crate::peripherals::ETH {}
-#[cfg(any(eth_v2a, eth_v2b))]
-impl Instance for crate::peripherals::ETH1 {}
+foreach_interrupt! {
+    ($inst:ident, eth, $block:ident, GLOBAL, $irq:ident) => {
+        peri_trait_impl!(
+            $inst,
+            irqs: [Interrupt : $irq]
+        );
+    };
+}
 
 pin_trait!(RXClkPin, Instance, @A);
 pin_trait!(TXClkPin, Instance, @A);
