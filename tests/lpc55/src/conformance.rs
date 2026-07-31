@@ -96,66 +96,81 @@ impl Mode {
     }
 }
 
-/// Counters the host reads back with `GET_REPORT`.
+/// 32-bit counters in `GET_REPORT` wire order.
+#[derive(Clone, Copy)]
+#[repr(usize)]
+enum Counter32 {
+    BulkOutBytes,
+    BulkInBytes,
+    IsoOutBytes,
+    DisabledErrors,
+    OverflowErrors,
+}
+
+/// 16-bit counters in `GET_REPORT` wire order.
+#[derive(Clone, Copy)]
+#[repr(usize)]
+enum Counter16 {
+    IsoOutPackets,
+    IsoInPackets,
+    IntInPackets,
+    RampMismatches,
+    ZlpOutCount,
+}
+
 struct ConformanceState {
-    bulk_out_bytes: AtomicU32,
-    bulk_in_bytes: AtomicU32,
-    iso_out_bytes: AtomicU32,
-    iso_out_packets: AtomicU16,
-    iso_in_packets: AtomicU16,
-    int_in_packets: AtomicU16,
-    ramp_mismatches: AtomicU16,
-    zlp_out_count: AtomicU16,
-    /// A halted endpoint can report `Disabled` at roughly 1 kHz. Saturation
-    /// prevents a long-running firmware session from wrapping this counter.
-    disabled_errors: AtomicU32,
-    overflow_errors: AtomicU32,
+    counters32: [AtomicU32; 5],
+    counters16: [AtomicU16; 5],
     /// `wValue`-independent parameter of the last `SET_MODE`.
     mode_param: AtomicU16,
 }
 
 impl ConformanceState {
-    /// Zeroes every counter so a host run's absolute expectations hold even
-    /// when the script is re-run against a firmware that is already up.
     fn reset(&self) {
-        self.bulk_out_bytes.store(0, Ordering::Relaxed);
-        self.bulk_in_bytes.store(0, Ordering::Relaxed);
-        self.iso_out_bytes.store(0, Ordering::Relaxed);
-        self.iso_out_packets.store(0, Ordering::Relaxed);
-        self.iso_in_packets.store(0, Ordering::Relaxed);
-        self.int_in_packets.store(0, Ordering::Relaxed);
-        self.ramp_mismatches.store(0, Ordering::Relaxed);
-        self.zlp_out_count.store(0, Ordering::Relaxed);
-        self.disabled_errors.store(0, Ordering::Relaxed);
-        self.overflow_errors.store(0, Ordering::Relaxed);
+        for counter in &self.counters32 {
+            counter.store(0, Ordering::Relaxed);
+        }
+        for counter in &self.counters16 {
+            counter.store(0, Ordering::Relaxed);
+        }
+    }
+
+    fn serialize(&self, buf: &mut [u8]) {
+        let (words, halfwords) = buf[..REPORT_LEN].split_at_mut(20);
+        for (dst, counter) in words.chunks_exact_mut(4).zip(&self.counters32) {
+            dst.copy_from_slice(&counter.load(Ordering::Relaxed).to_le_bytes());
+        }
+        for (dst, counter) in halfwords.chunks_exact_mut(2).zip(&self.counters16) {
+            dst.copy_from_slice(&counter.load(Ordering::Relaxed).to_le_bytes());
+        }
+    }
+
+    fn load32(&self, counter: Counter32) -> u32 {
+        self.counters32[counter as usize].load(Ordering::Relaxed)
+    }
+
+    fn load16(&self, counter: Counter16) -> u16 {
+        self.counters16[counter as usize].load(Ordering::Relaxed)
+    }
+
+    fn add32(&self, counter: Counter32, value: u32) {
+        let _ = self.counters32[counter as usize].fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            Some(current.saturating_add(value))
+        });
+    }
+
+    fn add16(&self, counter: Counter16, value: u16) {
+        let _ = self.counters16[counter as usize].fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            Some(current.saturating_add(value))
+        });
     }
 }
 
 static STATE: ConformanceState = ConformanceState {
-    bulk_out_bytes: AtomicU32::new(0),
-    bulk_in_bytes: AtomicU32::new(0),
-    iso_out_bytes: AtomicU32::new(0),
-    iso_out_packets: AtomicU16::new(0),
-    iso_in_packets: AtomicU16::new(0),
-    int_in_packets: AtomicU16::new(0),
-    ramp_mismatches: AtomicU16::new(0),
-    zlp_out_count: AtomicU16::new(0),
-    disabled_errors: AtomicU32::new(0),
-    overflow_errors: AtomicU32::new(0),
+    counters32: [const { AtomicU32::new(0) }; 5],
+    counters16: [const { AtomicU16::new(0) }; 5],
     mode_param: AtomicU16::new(0),
 };
-
-fn saturating_add_u16(counter: &AtomicU16, value: u16) {
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-        Some(current.saturating_add(value))
-    });
-}
-
-fn saturating_add_u32(counter: &AtomicU32, value: u32) {
-    let _ = counter.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
-        Some(current.saturating_add(value))
-    });
-}
 
 /// A [`Watch`] and not a [`Signal`]: `Signal::wait` consumes the value, so with
 /// two consumers only one of them would ever see a given mode change. `N = 2`
@@ -268,16 +283,7 @@ impl Handler for ControlHandler {
                 if buf.len() < REPORT_LEN {
                     return Some(InResponse::Rejected);
                 }
-                buf[0..4].copy_from_slice(&STATE.bulk_out_bytes.load(Ordering::Relaxed).to_le_bytes());
-                buf[4..8].copy_from_slice(&STATE.bulk_in_bytes.load(Ordering::Relaxed).to_le_bytes());
-                buf[8..12].copy_from_slice(&STATE.iso_out_bytes.load(Ordering::Relaxed).to_le_bytes());
-                buf[12..16].copy_from_slice(&STATE.disabled_errors.load(Ordering::Relaxed).to_le_bytes());
-                buf[16..20].copy_from_slice(&STATE.overflow_errors.load(Ordering::Relaxed).to_le_bytes());
-                buf[20..22].copy_from_slice(&STATE.iso_out_packets.load(Ordering::Relaxed).to_le_bytes());
-                buf[22..24].copy_from_slice(&STATE.iso_in_packets.load(Ordering::Relaxed).to_le_bytes());
-                buf[24..26].copy_from_slice(&STATE.int_in_packets.load(Ordering::Relaxed).to_le_bytes());
-                buf[26..28].copy_from_slice(&STATE.ramp_mismatches.load(Ordering::Relaxed).to_le_bytes());
-                buf[28..30].copy_from_slice(&STATE.zlp_out_count.load(Ordering::Relaxed).to_le_bytes());
+                STATE.serialize(buf);
                 InResponse::Accepted(&buf[..REPORT_LEN])
             }
             ECHO_READ => {
@@ -411,9 +417,9 @@ async fn bulk_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I) -
                     },
                     Either::Second(_) => continue,
                 };
-                saturating_add_u32(&STATE.bulk_out_bytes, n as u32);
+                STATE.add32(Counter32::BulkOutBytes, n as u32);
                 if n == 0 {
-                    saturating_add_u16(&STATE.zlp_out_count, 1);
+                    STATE.add16(Counter16::ZlpOutCount, 1);
                 }
                 // `needs_zlp` is what makes an exact-multiple-of-mps echo
                 // terminate; for `n == 0` it is what emits the echoed ZLP.
@@ -423,7 +429,7 @@ async fn bulk_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I) -
                         continue;
                     }
                     Either::First(Ok(())) => {
-                        saturating_add_u32(&STATE.bulk_in_bytes, n as u32);
+                        STATE.add32(Counter32::BulkInBytes, n as u32);
                     }
                     Either::Second(_) => continue,
                 }
@@ -436,7 +442,7 @@ async fn bulk_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I) -
                     },
                     Either::Second(_) => continue,
                 };
-                saturating_add_u32(&STATE.bulk_out_bytes, n as u32);
+                STATE.add32(Counter32::BulkOutBytes, n as u32);
                 check_ramp(&buf[..n], offset);
                 offset += n as u32;
             }
@@ -455,7 +461,7 @@ async fn bulk_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I) -
                         continue;
                     }
                     Either::First(Ok(())) => {
-                        saturating_add_u32(&STATE.bulk_in_bytes, chunk as u32);
+                        STATE.add32(Counter32::BulkInBytes, chunk as u32);
                         offset += chunk as u32;
                         remaining -= chunk as u32;
                     }
@@ -485,8 +491,8 @@ async fn iso_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I, is
                 loop {
                     match select(ep_out.read(&mut buf), rx.changed()).await {
                         Either::First(Ok(n)) => {
-                            saturating_add_u16(&STATE.iso_out_packets, 1);
-                            saturating_add_u32(&STATE.iso_out_bytes, n as u32);
+                            STATE.add16(Counter16::IsoOutPackets, 1);
+                            STATE.add32(Counter32::IsoOutBytes, n as u32);
                             // `Ok(0)` is how the driver reports a dropped or
                             // errored isochronous packet: a lost frame, not a
                             // content error.
@@ -510,7 +516,7 @@ async fn iso_task<O: EndpointOut, I: EndpointIn>(mut ep_out: O, mut ep_in: I, is
                 loop {
                     match select(ep_in.write(&tx[..in_len]), rx.changed()).await {
                         Either::First(Ok(())) => {
-                            saturating_add_u16(&STATE.iso_in_packets, 1);
+                            STATE.add16(Counter16::IsoInPackets, 1);
                         }
                         Either::First(Err(e)) => {
                             count_err(e);
@@ -537,7 +543,7 @@ async fn int_task<I: EndpointIn>(mut ep_in: I) -> ! {
         ep_in.wait_enabled().await;
         match ep_in.write(&tx[..len]).await {
             Ok(()) => {
-                saturating_add_u16(&STATE.int_in_packets, 1);
+                STATE.add16(Counter16::IntInPackets, 1);
             }
             Err(e) => count_err(e),
         }
@@ -550,23 +556,23 @@ async fn finish_task() -> ! {
     // Let the control status stage finish before the core stops.
     Timer::after_millis(100).await;
 
-    let ramp_mismatches = STATE.ramp_mismatches.load(Ordering::Relaxed);
-    let overflow_errors = STATE.overflow_errors.load(Ordering::Relaxed);
-    let disabled_errors = STATE.disabled_errors.load(Ordering::Relaxed);
-    let bulk_out_bytes = STATE.bulk_out_bytes.load(Ordering::Relaxed);
-    let bulk_in_bytes = STATE.bulk_in_bytes.load(Ordering::Relaxed);
-    let int_in_packets = STATE.int_in_packets.load(Ordering::Relaxed);
+    let ramp_mismatches = STATE.load16(Counter16::RampMismatches);
+    let overflow_errors = STATE.load32(Counter32::OverflowErrors);
+    let disabled_errors = STATE.load32(Counter32::DisabledErrors);
+    let bulk_out_bytes = STATE.load32(Counter32::BulkOutBytes);
+    let bulk_in_bytes = STATE.load32(Counter32::BulkInBytes);
+    let int_in_packets = STATE.load16(Counter16::IntInPackets);
 
     info!(
         "report: bulk_out={} bulk_in={} iso_out_bytes={} iso_out_pkts={} iso_in_pkts={} int_in_pkts={} ramp_mismatches={} zlp_out={} disabled_errors={} overflow_errors={}",
         bulk_out_bytes,
         bulk_in_bytes,
-        STATE.iso_out_bytes.load(Ordering::Relaxed),
-        STATE.iso_out_packets.load(Ordering::Relaxed),
-        STATE.iso_in_packets.load(Ordering::Relaxed),
+        STATE.load32(Counter32::IsoOutBytes),
+        STATE.load16(Counter16::IsoOutPackets),
+        STATE.load16(Counter16::IsoInPackets),
         int_in_packets,
         ramp_mismatches,
-        STATE.zlp_out_count.load(Ordering::Relaxed),
+        STATE.load16(Counter16::ZlpOutCount),
         disabled_errors,
         overflow_errors,
     );
@@ -612,8 +618,8 @@ async fn bulk_err<O: EndpointOut>(r: Result<usize, EndpointError>, ep_out: &mut 
 
 fn count_err(e: EndpointError) {
     match e {
-        EndpointError::Disabled => saturating_add_u32(&STATE.disabled_errors, 1),
-        EndpointError::BufferOverflow => saturating_add_u32(&STATE.overflow_errors, 1),
+        EndpointError::Disabled => STATE.add32(Counter32::DisabledErrors, 1),
+        EndpointError::BufferOverflow => STATE.add32(Counter32::OverflowErrors, 1),
     };
 }
 
@@ -631,6 +637,6 @@ fn check_ramp(buf: &[u8], offset: u32) {
         }
     }
     if bad != 0 {
-        saturating_add_u16(&STATE.ramp_mismatches, bad);
+        STATE.add16(Counter16::RampMismatches, bad);
     }
 }

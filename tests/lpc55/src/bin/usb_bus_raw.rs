@@ -35,6 +35,10 @@ const USB1_SRAM_ADDR: u32 = 0x4010_0000;
 ///
 /// `regs` is the register block for this instance. `assert_powered_up` checks
 /// that ordinary disable does not perform final hardware teardown.
+fn ensure(condition: bool, name: &'static str, failure: &'static str) {
+    defmt::assert!(condition, "{}: {}", name, failure);
+}
+
 async fn check<T: Instance>(
     bus: &mut Bus<'_, T>,
     bulk: &mut Endpoint<'_, T, Out>,
@@ -49,55 +53,35 @@ async fn check<T: Instance>(
 
     bus.enable().await;
     let dcs = regs.devcmdstat().read();
-    defmt::assert!(dcs.dcon(), "{}: enable did not set DCON", name);
-    defmt::assert!(dcs.dev_en(), "{}: enable did not set DEV_EN", name);
+    ensure(dcs.dcon(), name, "enable did not set DCON");
+    ensure(dcs.dev_en(), name, "enable did not set DEV_EN");
     assert_powered_up();
 
     bus.endpoint_set_enabled(bulk_addr, true);
     bus.endpoint_set_stalled(bulk_addr, true);
-    defmt::assert!(
-        bus.endpoint_is_stalled(bulk_addr),
-        "{}: bulk endpoint not reported stalled",
-        name
-    );
+    ensure(bus.endpoint_is_stalled(bulk_addr), name, "bulk endpoint not reported stalled");
     bus.endpoint_set_stalled(bulk_addr, false);
-    defmt::assert!(
-        !bus.endpoint_is_stalled(bulk_addr),
-        "{}: bulk endpoint remained stalled",
-        name
-    );
+    ensure(!bus.endpoint_is_stalled(bulk_addr), name, "bulk endpoint remained stalled");
 
     bus.endpoint_set_enabled(iso_addr, true);
     bus.endpoint_set_stalled(iso_addr, true);
-    defmt::assert!(
-        !bus.endpoint_is_stalled(iso_addr),
-        "{}: isochronous endpoint reported stalled",
-        name
-    );
+    ensure(!bus.endpoint_is_stalled(iso_addr), name, "isochronous endpoint reported stalled");
 
     for direction in [Direction::Out, Direction::In] {
         let invalid = EndpointAddress::from_parts(127, direction);
         bus.endpoint_set_enabled(invalid, true);
         bus.endpoint_set_stalled(invalid, true);
-        defmt::assert!(
-            !bus.endpoint_is_stalled(invalid),
-            "{}: invalid endpoint reported stalled",
-            name
-        );
+        ensure(!bus.endpoint_is_stalled(invalid), name, "invalid endpoint reported stalled");
     }
 
     let mut packet = [0; 512];
     let (read_result, ()) = join(bulk.read(&mut packet), bus.disable()).await;
-    defmt::assert!(
+    ensure(
         matches!(read_result, Err(EndpointError::Disabled)),
-        "{}: disable did not cancel a pending endpoint read",
-        name
+        name,
+        "disable did not cancel a pending endpoint read",
     );
-    defmt::assert!(
-        regs.devcmdstat().read().dev_en(),
-        "{}: reversible disable cleared DEV_EN",
-        name
-    );
+    ensure(regs.devcmdstat().read().dev_en(), name, "reversible disable cleared DEV_EN");
     let disabled_dcs = regs.devcmdstat().read();
     defmt::assert_eq!(
         disabled_dcs.dcon(),
@@ -115,19 +99,19 @@ async fn check<T: Instance>(
         name
     );
     let dcs = regs.devcmdstat().read();
-    defmt::assert!(dcs.dev_en(), "{}: second enable did not set DEV_EN", name);
-    defmt::assert!(dcs.dcon(), "{}: second enable did not set DCON", name);
-    defmt::assert!(
+    ensure(dcs.dev_en(), name, "second enable did not set DEV_EN");
+    ensure(dcs.dcon(), name, "second enable did not set DCON");
+    ensure(
         regs.inten().read().dev_int_en(),
-        "{}: second enable did not restore device interrupts",
-        name
+        name,
+        "second enable did not restore device interrupts",
     );
 
-    defmt::assert!(bus.force_reset().is_ok(), "{}: force_reset reported Unsupported", name);
-    defmt::assert!(
+    ensure(bus.force_reset().is_ok(), name, "force_reset reported Unsupported");
+    ensure(
         regs.devcmdstat().read().dcon(),
-        "{}: force_reset left the device disconnected",
-        name
+        name,
+        "force_reset left the device disconnected",
     );
 }
 
@@ -185,20 +169,23 @@ async fn main(_spawner: Spawner) {
     let hs_clk = pac::SYSCON.ahbclkctrl2().read();
     defmt::assert!(!hs_clk.usb1_dev(), "USB1 device clock remained on after Bus drop");
     defmt::assert!(!hs_clk.usb1_phy(), "USB1 PHY clock remained on after Bus drop");
-    defmt::assert!(
+    ensure(
         pac::PMC.pdruncfg0().read().0 & PDEN_USBHSPHY != 0,
-        "USB1 PHY remained powered after Bus drop"
+        "USB1",
+        "PHY remained powered after Bus drop",
     );
-    defmt::assert!(
+    ensure(
         !embassy_nxp::interrupt::typelevel::USB1::is_enabled(),
-        "USB1 interrupt remained enabled after Bus drop"
+        "USB1",
+        "interrupt remained enabled after Bus drop",
     );
     let hs_dcs = pac::USBHSD.devcmdstat().read();
     defmt::assert!(!hs_dcs.dcon() && !hs_dcs.dev_en(), "USB1 remained live after Bus drop");
 
-    defmt::assert!(
+    ensure(
         !pac::SYSCON.ahbclkctrl2().read().usb1_ram(),
-        "last USB1 SRAM lease did not gate the RAM clock"
+        "USB1",
+        "last SRAM lease did not gate the RAM clock",
     );
     defmt::assert_eq!(
         fs_regs.epliststart().read().0,
@@ -215,15 +202,17 @@ async fn main(_spawner: Spawner) {
     drop(fs_bus);
     defmt::assert!(!pac::SYSCON.ahbclkctrl1().read().usb0_dev());
     defmt::assert!(pac::PMC.pdruncfg0().read().0 & PDEN_USBFSPHY != 0);
-    defmt::assert!(
+    ensure(
         !embassy_nxp::interrupt::typelevel::USB0::is_enabled(),
-        "USB0 interrupt remained enabled after Bus drop"
+        "USB0",
+        "interrupt remained enabled after Bus drop",
     );
     let fs_dcs = fs_regs.devcmdstat().read();
     defmt::assert!(!fs_dcs.dcon() && !fs_dcs.dev_en(), "USB0 remained live after Bus drop");
-    defmt::assert!(
+    ensure(
         !pac::SYSCON.ahbclkctrl2().read().usb1_ram(),
-        "last USB1 SRAM lease did not gate the RAM clock"
+        "USB0",
+        "last USB1 SRAM lease did not gate the RAM clock",
     );
 
     let reacquired = Memory::usb1_sram();

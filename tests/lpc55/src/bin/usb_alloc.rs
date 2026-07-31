@@ -23,6 +23,15 @@ bind_interrupts!(struct Irqs {
     USB1 => InterruptHandler<peripherals::USBHSD>;
 });
 
+fn expect_ok<T, E>(result: Result<T, E>, message: &'static str) {
+    defmt::assert!(result.is_ok(), "{}", message);
+}
+
+fn expect_err<T, E>(result: Result<T, E>, message: &'static str) {
+    defmt::assert!(result.is_err(), "{}", message);
+}
+
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut config = embassy_nxp::config::Config::default();
@@ -34,50 +43,38 @@ async fn main(_spawner: Spawner) {
     // EP_COUNT = 6, so data endpoint indices 1..=5 are usable per direction.
     let mut hs = Driver::<peripherals::USBHSD>::new(p.USBHSD, Irqs, Memory::usb1_sram());
 
-    defmt::assert!(
-        hs.alloc_endpoint_out(EndpointType::Bulk, None, 512, 0).is_ok(),
-        "hs 1: bulk OUT 512 must be accepted (index 1 OUT)"
+    expect_ok(hs.alloc_endpoint_out(EndpointType::Bulk, None, 512, 0), "hs 1: bulk OUT 512");
+    expect_err(hs.alloc_endpoint_out(EndpointType::Bulk, None, 1024, 0), "hs 2: bulk OUT 1024");
+    expect_ok(
+        hs.alloc_endpoint_in(EndpointType::Interrupt, None, 1024, 0),
+        "hs 3: interrupt IN 1024",
     );
-    defmt::assert!(
-        hs.alloc_endpoint_out(EndpointType::Bulk, None, 1024, 0).is_err(),
-        "hs 2: bulk OUT 1024 exceeds the 512-byte high-speed bulk cap"
+    expect_ok(
+        hs.alloc_endpoint_out(EndpointType::Isochronous, None, 1024, 0),
+        "hs 4: isochronous OUT 1024",
     );
-    defmt::assert!(
-        hs.alloc_endpoint_in(EndpointType::Interrupt, None, 1024, 0).is_ok(),
-        "hs 3: interrupt IN 1024 must be accepted (index 1 IN)"
+    expect_err(
+        hs.alloc_endpoint_in(EndpointType::Isochronous, None, 1024, 0),
+        "hs 5: isochronous IN 1024 (erratum USB.6)",
     );
-    defmt::assert!(
-        hs.alloc_endpoint_out(EndpointType::Isochronous, None, 1024, 0).is_ok(),
-        "hs 4: isochronous OUT 1024 must be accepted (index 2 OUT)"
+    expect_ok(
+        hs.alloc_endpoint_in(EndpointType::Isochronous, None, 1023, 0),
+        "hs 6: isochronous IN 1023",
     );
-    defmt::assert!(
-        hs.alloc_endpoint_in(EndpointType::Isochronous, None, 1024, 0).is_err(),
-        "hs 5: isochronous IN 1024 must be rejected (erratum USB.6)"
-    );
-    defmt::assert!(
-        hs.alloc_endpoint_in(EndpointType::Isochronous, None, 1023, 0).is_ok(),
-        "hs 6: isochronous IN 1023 must be accepted (index 2 IN)"
-    );
-    defmt::assert!(
-        hs.alloc_endpoint_in(EndpointType::Control, None, 64, 0).is_err(),
-        "hs 7: control endpoints beyond EP0 must be rejected"
-    );
-    defmt::assert!(
+    expect_err(hs.alloc_endpoint_in(EndpointType::Control, None, 64, 0), "hs 7: control beyond EP0");
+    expect_err(
         hs.alloc_endpoint_in(
             EndpointType::Bulk,
             Some(EndpointAddress::from_parts(1, Direction::In)),
             512,
-            0
-        )
-        .is_err(),
-        "hs 8: index 1 IN is already taken"
+            0,
+        ),
+        "hs 8: index 1 IN already taken",
     );
-
-    defmt::assert!(
-        hs.alloc_endpoint_out(EndpointType::Interrupt, None, 1024, 0).is_ok(),
-        "hs 9: interrupt OUT 1024 must be accepted (index 3 OUT)"
+    expect_ok(
+        hs.alloc_endpoint_out(EndpointType::Interrupt, None, 1024, 0),
+        "hs 9: interrupt OUT 1024",
     );
-
     // The extra interrupt-OUT slots leave too little memory for two 3,584-byte
     // bulk-IN slots. The allocator must fall back to two 512-byte slots.
     let fallback = match hs.alloc_endpoint_in(EndpointType::Bulk, None, 512, 0) {
@@ -91,17 +88,13 @@ async fn main(_spawner: Spawner) {
     );
 
     // Indices 1 through 3 IN are taken, so only indices 4 and 5 remain.
-    for i in 4..=5 {
-        defmt::assert!(
-            hs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0).is_ok(),
-            "hs 11: interrupt IN 64 must be accepted at index {}",
-            i
+    for _ in 4..=5 {
+        expect_ok(
+            hs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0),
+            "hs 11: interrupt IN 64",
         );
     }
-    defmt::assert!(
-        hs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0).is_err(),
-        "hs 12: no IN endpoint index is left"
-    );
+    expect_err(hs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0), "hs 12: IN index exhaustion");
 
     // ---------------------------------------------------------------- USB0 FS
     // EP_COUNT = 5, so data endpoint indices 1..=4 are usable per direction.
@@ -111,43 +104,30 @@ async fn main(_spawner: Spawner) {
     let mem = Memory::buffer(&mut ep_mem);
     let mut fs = Driver::<peripherals::USB0>::new(p.USB0, Irqs, p.PIO0_22, mem);
 
-    defmt::assert!(
-        fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0).is_ok(),
-        "fs 1: bulk OUT 64 must be accepted (index 1 OUT)"
+    expect_ok(fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0), "fs 1: bulk OUT 64");
+    expect_err(fs.alloc_endpoint_out(EndpointType::Bulk, None, 128, 0), "fs 2: bulk OUT 128");
+    expect_ok(
+        fs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0),
+        "fs 3: interrupt IN 64",
     );
-    defmt::assert!(
-        fs.alloc_endpoint_out(EndpointType::Bulk, None, 128, 0).is_err(),
-        "fs 2: bulk OUT 128 exceeds the 64-byte full-speed bulk cap"
+    expect_err(
+        fs.alloc_endpoint_in(EndpointType::Interrupt, None, 128, 0),
+        "fs 4: interrupt IN 128",
     );
-    defmt::assert!(
-        fs.alloc_endpoint_in(EndpointType::Interrupt, None, 64, 0).is_ok(),
-        "fs 3: interrupt IN 64 must be accepted (index 1 IN)"
+    expect_ok(
+        fs.alloc_endpoint_out(EndpointType::Isochronous, None, 1023, 0),
+        "fs 5: isochronous OUT 1023",
     );
-    defmt::assert!(
-        fs.alloc_endpoint_in(EndpointType::Interrupt, None, 128, 0).is_err(),
-        "fs 4: interrupt IN 128 exceeds the 64-byte full-speed interrupt cap"
-    );
-    defmt::assert!(
-        fs.alloc_endpoint_out(EndpointType::Isochronous, None, 1023, 0).is_ok(),
-        "fs 5: isochronous OUT 1023 must be accepted (index 2 OUT)"
-    );
-    defmt::assert!(
-        fs.alloc_endpoint_out(EndpointType::Isochronous, None, 1024, 0).is_err(),
-        "fs 6: isochronous OUT 1024 exceeds the full-speed isochronous cap"
+    expect_err(
+        fs.alloc_endpoint_out(EndpointType::Isochronous, None, 1024, 0),
+        "fs 6: isochronous OUT 1024",
     );
 
     // Indices 3 and 4 OUT, then index exhaustion.
-    for i in 3..=4 {
-        defmt::assert!(
-            fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0).is_ok(),
-            "fs 7: bulk OUT 64 must be accepted at index {}",
-            i
-        );
+    for _ in 3..=4 {
+        expect_ok(fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0), "fs 7: bulk OUT 64");
     }
-    defmt::assert!(
-        fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0).is_err(),
-        "fs 8: no OUT endpoint index is left"
-    );
+    expect_err(fs.alloc_endpoint_out(EndpointType::Bulk, None, 64, 0), "fs 8: OUT index exhaustion");
 
     defmt::info!("Test OK");
     cortex_m::asm::bkpt();

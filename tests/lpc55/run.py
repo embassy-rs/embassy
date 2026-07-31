@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
-"""Runs the whole LPC55 USB hardware-in-the-loop suite.
+"""Run the LPC55 USB hardware-in-the-loop suite.
 
-Each entry flashes one firmware over the debug probe with `cargo run --release`, waits for its
-ready banner on the RTT log, drives the host side of the test, and requires the device to
-print `Test OK`.
+For each entry, the runner flashes release firmware through `probe-rs`, waits for its RTT ready
+banner, starts the host peer, and requires `Test OK`.
 
-Run it unprivileged from anywhere in the repo: `cargo` and `probe-rs` must keep the user's
-`~/.cargo` and target directories. Only the pyusb-based conformance script is elevated, with
-this interpreter, because raw USB access to the vendor interface needs root and a plain
-`sudo python3` would not resolve pyusb.
+Run the suite as an unprivileged user so `cargo` and `probe-rs` retain the user's `~/.cargo` and
+target directories. Only the raw-USB conformance entries use `sudo -n` with this interpreter.
+A plain `sudo python3` might not resolve pyusb.
 
     python3 tests/lpc55/run.py [--only NAME]... [--list] [--keep-going]
 
-Hardware: an LPCXpresso55S69 EVK with a debug probe on the SWD header - the onboard LPC-LINK2
-or an external one such as a J-Link - plus host cables on both **P9** (USB1, high speed) and
-**P10** (USB0, full speed).
+Use an LPCXpresso55S69 EVK with a debug probe on the SWD header. Connect the host to P9
+(USB1, high speed) and P10 (USB0, full speed).
 """
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import os
 import re
 import signal
@@ -119,64 +117,55 @@ HS_PORT = "/dev/serial/by-id/usb-Embassy_USB-HS_throughput_test_12345678-if00"
 # real regression without tripping on host jitter.
 FS_IN_MIN, FS_OUT_MIN = "0.67", "0.61"
 HS_IN_MIN, HS_OUT_MIN = "33.0", "13.0"
+THROUGHPUT = (sys.executable, os.path.join("scripts", "usb_throughput.py"))
 
 
-def conformance(pid: str, speed: str) -> list[str]:
-    return [sys.executable, os.path.join("host", "conformance.py"), "--pid", pid, "--speed", speed]
+
+def conformance_command(pid: str, speed: str) -> tuple[str, ...]:
+    return (sys.executable, os.path.join("host", "conformance.py"), "--pid", pid, "--speed", speed)
 
 
-def throughput(port: str, direction: str, count: str, min_rate: str) -> list[str]:
-    return [
-        sys.executable,
-        os.path.join("scripts", "usb_throughput.py"),
-        "--port",
-        port,
-        "--dir",
-        direction,
-        "--bytes",
-        count,
-        "--wait-port",
-        "15",
-        "--min-rate",
-        min_rate,
-    ]
-
-def protocol_check(port: str) -> list[str]:
-    return [
-        sys.executable,
-        os.path.join("scripts", "usb_throughput.py"),
-        "--port",
-        port,
-        "--protocol-check",
-        "--wait-port",
-        "15",
-    ]
+def throughput_command(port: str, direction: str, count: str, min_rate: str) -> tuple[str, ...]:
+    return (*THROUGHPUT, "--port", port, "--dir", direction, "--bytes", count, "--wait-port", "15", "--min-rate", min_rate)
 
 
+def protocol_check(port: str) -> tuple[str, ...]:
+    return (*THROUGHPUT, "--port", port, "--protocol-check", "--wait-port", "15")
+
+
+@dataclass(frozen=True)
 class Test:
-    def __init__(
-        self,
-        name: str,
-        cwd: str,
-        binary: str,
-        ready: str | None = None,
-        host: list[list[str]] | None = None,
-        sudo: bool = False,
-        expect_ok: bool = True,
-        note: str = "",
-    ) -> None:
-        self.name = name
-        self.cwd = cwd
-        self.binary = binary
-        self.ready = ready
-        self.host = host or []
-        self.sudo = sudo
-        self.expect_ok = expect_ok
-        self.note = note
+    name: str
+    cwd: str
+    binary: str
+    ready: str | None = None
+    host: tuple[tuple[str, ...], ...] = ()
+    sudo: bool = False
+    expect_ok: bool = True
+    note: str = ""
+
+
+def conformance_test(name: str, pid: str, speed: str, note: str) -> Test:
+    return Test(
+        name, TESTS, f"usb_{name}", ready="conformance ready", host=(conformance_command(pid, speed),), sudo=True, note=note
+    )
+
+
+def throughput_test(speed: str, port: str, count: str, in_min: str, out_min: str) -> Test:
+    name = f"{speed}_throughput"
+    return Test(
+        name,
+        EXAMPLES,
+        f"usb_{name}",
+        ready="Initialization complete",
+        host=(protocol_check(port), throughput_command(port, "in", count, in_min), throughput_command(port, "out", count, out_min)),
+        expect_ok=False,
+        note=f"CDC bulk throughput gate, >= {in_min}/{out_min} MB/s",
+    )
 
 
 # Fastest and least cable-dependent first, so a broken setup fails early and cheaply.
-TESTS_LIST = [
+TESTS_LIST = (
     Test("alloc", TESTS, "usb_alloc", note="endpoint allocation limits, no host cable"),
     Test("alloc_small", TESTS, "usb_alloc_small", note="exact 512-byte endpoint memory"),
     Test("bus_raw", TESTS, "usb_bus_raw", note="raw Bus disable/enable/reinit/force_reset"),
@@ -187,54 +176,14 @@ TESTS_LIST = [
         TESTS,
         "usb_dual_pll0",
         ready="dual pll0 ready",
-        host=[[sys.executable, os.path.join("host", "dual_echo.py")]],
+        host=((sys.executable, os.path.join("host", "dual_echo.py")),),
         note="both controllers concurrently on PLL0 at 150 MHz",
     ),
-    Test(
-        "fs_conformance",
-        TESTS,
-        "usb_fs_conformance",
-        ready="conformance ready",
-        host=[conformance("0xcb02", "fs")],
-        sudo=True,
-        note="full-speed control/bulk/iso/interrupt conformance",
-    ),
-    Test(
-        "hs_conformance",
-        TESTS,
-        "usb_hs_conformance",
-        ready="conformance ready",
-        host=[conformance("0xcb01", "hs")],
-        sudo=True,
-        note="high-speed control/bulk/iso/interrupt conformance",
-    ),
-    Test(
-        "fs_throughput",
-        EXAMPLES,
-        "usb_fs_throughput",
-        ready="Initialization complete",
-        host=[
-            protocol_check(FS_PORT),
-            throughput(FS_PORT, "in", "1_000_000", FS_IN_MIN),
-            throughput(FS_PORT, "out", "1_000_000", FS_OUT_MIN),
-        ],
-        expect_ok=False,
-        note=f"CDC bulk throughput gate, >= {FS_IN_MIN}/{FS_OUT_MIN} MB/s",
-    ),
-    Test(
-        "hs_throughput",
-        EXAMPLES,
-        "usb_hs_throughput",
-        ready="Initialization complete",
-        host=[
-            protocol_check(HS_PORT),
-            throughput(HS_PORT, "in", "4_000_000", HS_IN_MIN),
-            throughput(HS_PORT, "out", "4_000_000", HS_OUT_MIN),
-        ],
-        expect_ok=False,
-        note=f"CDC bulk throughput gate, >= {HS_IN_MIN}/{HS_OUT_MIN} MB/s",
-    ),
-]
+    conformance_test("fs_conformance", "0xcb02", "fs", "full-speed control/bulk/iso/interrupt conformance"),
+    conformance_test("hs_conformance", "0xcb01", "hs", "high-speed control/bulk/iso/interrupt conformance"),
+    throughput_test("fs", FS_PORT, "1_000_000", FS_IN_MIN, FS_OUT_MIN),
+    throughput_test("hs", HS_PORT, "4_000_000", HS_IN_MIN, HS_OUT_MIN),
+)
 
 # probe-rs itself is noisy about SWD retries during flashing, and those lines are not device
 # output; only match what the firmware could have printed.
@@ -322,7 +271,7 @@ class Firmware:
             raise RuntimeError(f"firmware output thread for {self.test.name} did not stop")
 
 
-def run_host(test: Test, argv: list[str]) -> str | None:
+def run_host(test: Test, argv: tuple[str, ...]) -> str | None:
     """Runs one host command. Returns None on success or a failure description."""
     cmd = ["sudo", "-n", *argv] if test.sudo else list(argv)
     printable = " ".join(os.path.basename(c) if c == sys.executable else c for c in cmd)

@@ -3,24 +3,22 @@
 # requires-python = ">=3.10"
 # dependencies = ["pyserial>=3.5"]
 # ///
-"""Host-side throughput bench for the LPC55 USB CDC-ACM throughput firmware.
+"""Measure LPC55 USB CDC-ACM throughput.
 
-Wire protocol (identical on the full-speed and high-speed firmware):
+The full-speed and high-speed firmware use the same wire protocol:
 
-  host -> device: one command byte, then the byte count as little-endian u32.
+    host -> device: one command byte, then a little-endian u32 byte count
 
-    b'I' + u32 N   device streams N bytes to the host. Byte k of the stream is
-                   (k % 512), i.e. a repeating 0..511 ramp.
-    b'O' + u32 N   host sends N payload bytes (same ramp); the device consumes
-                   them and replies with exactly 4 bytes, the received count as
-                   little-endian u32.
+    b'I' + u32 N   The device sends N bytes. Byte k is `(k % 512) & 0xff`.
+    b'O' + u32 N   The host sends the same ramp. The device returns the received
+                   byte count as exactly four little-endian bytes.
 
-Build the firmware with `--release`. An unoptimized `dev` build of the driver
-and the `embassy-usb` class layer is CPU-bound at well under 1 MB/s, roughly
-two orders of magnitude below the bus, so a `dev`-profile measurement says
-nothing about the hardware:
+Use a release build:
 
-    cargo run --release --bin usb_hs_throughput   # then --dir in/out here
+    cargo run --release --bin usb_hs_throughput   # then use --dir in/out here
+
+An unoptimized `dev` build makes the driver and `embassy-usb` class layer CPU-bound below
+1 MB/s. This is about two orders of magnitude below the bus rate.
 """
 
 import argparse

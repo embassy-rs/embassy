@@ -168,21 +168,21 @@ pub fn init(config: config::Config) -> Peripherals {
 
     #[cfg(lpc55)]
     {
-        if config.main_clock == config::MainClock::FroHf96 {
-            power::set_voltage_for_freq(96_000_000);
-            clocks::set_flash_access_cycles(8);
-            pac::ANACTRL.fro192m_ctrl().modify(|w| w.set_ena_96mhzclk(true));
-            pac::SYSCON.ahbclkdiv().modify(|w| w.set_div(0));
-            pac::SYSCON
-                .mainclksela()
-                .modify(|w| w.set_sel(pac::syscon::vals::MainclkselaSel::Enum0x3));
-            pac::SYSCON
-                .mainclkselb()
-                .modify(|w| w.set_sel(pac::syscon::vals::MainclkselbSel::Enum0x0));
-        }
-
-        if config.main_clock == config::MainClock::Pll0_150M {
-            clocks::setup_pll0_150m_main_clock();
+        match config.main_clock {
+            config::MainClock::Untouched => {}
+            config::MainClock::FroHf96 => {
+                power::set_voltage_for_freq(96_000_000);
+                clocks::set_flash_access_cycles(8);
+                pac::ANACTRL.fro192m_ctrl().modify(|w| w.set_ena_96mhzclk(true));
+                pac::SYSCON.ahbclkdiv().modify(|w| w.set_div(0));
+                pac::SYSCON
+                    .mainclksela()
+                    .modify(|w| w.set_sel(pac::syscon::vals::MainclkselaSel::Enum0x3));
+                pac::SYSCON
+                    .mainclkselb()
+                    .modify(|w| w.set_sel(pac::syscon::vals::MainclkselbSel::Enum0x0));
+            }
+            config::MainClock::Pll0_150M => clocks::setup_pll0_150m_main_clock(),
         }
 
         pint::init();
@@ -207,6 +207,10 @@ mod clocks {
     const FLASH_COMMAND_TIMEOUT_POLLS: u32 = 1_000_000;
     const XO_READY_TIMEOUT_POLLS: u32 = 1_000_000;
     const PLL_LOCK_TIMEOUT_POLLS: u32 = 1_000_000;
+
+    fn poll_bounded(polls: u32, mut ready: impl FnMut() -> bool) -> bool {
+        (0..polls).any(|_| ready())
+    }
 
     const fn supports_pll0_150m(revision: u8) -> bool {
         revision == 1
@@ -301,13 +305,7 @@ mod clocks {
         pac::ANACTRL.xo32m_ctrl().modify(|w| w.set_enable_system_clk_out(true));
         pac::SYSCON.clock_ctrl().modify(|w| w.set_clkin_ena(true));
 
-        let mut crystal_ready = false;
-        for _ in 0..XO_READY_TIMEOUT_POLLS {
-            if pac::ANACTRL.xo32m_status().read().xo_ready() {
-                crystal_ready = true;
-                break;
-            }
-        }
+        let crystal_ready = poll_bounded(XO_READY_TIMEOUT_POLLS, || pac::ANACTRL.xo32m_status().read().xo_ready());
         if !crystal_ready {
             panic!(
                 "LPC55 16 MHz crystal did not report XO_READY within {} polls",
@@ -354,13 +352,7 @@ mod clocks {
             .pdruncfgclr0()
             .write(|w| w.set_pdruncfgclr0((1 << 9) | (1 << 23)));
 
-        let mut pll_locked = false;
-        for _ in 0..PLL_LOCK_TIMEOUT_POLLS {
-            if pac::SYSCON.pll0stat().read().lock() {
-                pll_locked = true;
-                break;
-            }
-        }
+        let pll_locked = poll_bounded(PLL_LOCK_TIMEOUT_POLLS, || pac::SYSCON.pll0stat().read().lock());
         if !pll_locked {
             panic!(
                 "LPC55 PLL0 did not lock at 150 MHz within {} polls",
@@ -379,18 +371,10 @@ mod clocks {
         use super::{pll0_output_frequency_hz, supports_pll0_150m};
 
         #[test]
-        fn pll0_150m_rejects_revision_0a() {
-            assert!(!supports_pll0_150m(0));
-        }
-
-        #[test]
-        fn pll0_150m_accepts_revision_1b() {
-            assert!(supports_pll0_150m(1));
-        }
-
-        #[test]
-        fn pll0_150m_rejects_unknown_revision() {
-            assert!(!supports_pll0_150m(2));
+        fn pll0_150m_supports_only_revision_1b() {
+            for (revision, supported) in [(0, false), (1, true), (2, false)] {
+                assert_eq!(supports_pll0_150m(revision), supported);
+            }
         }
 
         #[test]

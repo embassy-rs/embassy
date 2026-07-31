@@ -7,3 +7,4 @@
 #![no_std]
 
 pub mod conformance;
+pub mod enumerate;

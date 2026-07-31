@@ -129,6 +129,10 @@ const EP0_IN_OFFSET: u32 = EP0_OUT_OFFSET + 64;
 const DATA_BUFFER_OFFSET: u32 = EP0_IN_OFFSET + 64;
 const SLOT_RECLAIM_SPINS: usize = 1_000_000;
 
+fn poll_bounded(iterations: usize, mut ready: impl FnMut() -> bool) -> bool {
+    (0..iterations).any(|_| ready())
+}
+
 // Endpoint command/status word encoding. The bit flags below are common to
 // both controllers; the NBytes and AddressOffset field positions differ and
 // live on `Instance`.
@@ -163,65 +167,106 @@ const PRIMED0: u8 = 1 << 1; // OUT slot armed or holding an unread packet (`PRIM
 const TR_PENDING: u8 = 1 << 3; // reset the data toggle on the next arm
 const ISO: u8 = 1 << 4; // isochronous endpoint; survives enable/stall/reset
 
+struct EndpointState {
+    wakers: [AtomicWaker; MAX_EP_COUNT],
+    state: [AtomicU8; MAX_EP_COUNT],
+    generation: [AtomicU32; MAX_EP_COUNT],
+}
+
+impl EndpointState {
+    const fn new() -> Self {
+        Self {
+            wakers: [const { AtomicWaker::new() }; MAX_EP_COUNT],
+            state: [const { AtomicU8::new(0) }; MAX_EP_COUNT],
+            generation: [const { AtomicU32::new(0) }; MAX_EP_COUNT],
+        }
+    }
+
+    fn wake_all(&self) {
+        for waker in &self.wakers {
+            waker.wake();
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct TransferGeneration {
+    lifecycle: u32,
+    endpoint: u32,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct ControlGeneration {
+    lifecycle: u32,
+    out: u32,
+    in_: u32,
+}
+
 /// Shared driver state for one controller instance.
 pub(crate) struct State {
     bus_waker: AtomicWaker,
-    ep_in_wakers: [AtomicWaker; MAX_EP_COUNT],
-    ep_out_wakers: [AtomicWaker; MAX_EP_COUNT],
-    ep_in_state: [AtomicU8; MAX_EP_COUNT],
-    ep_out_state: [AtomicU8; MAX_EP_COUNT],
+    ep_in: EndpointState,
+    ep_out: EndpointState,
     alive: AtomicBool,
     setup_pending: AtomicBool,
     lifecycle_generation: AtomicU32,
-    ep_in_generation: [AtomicU32; MAX_EP_COUNT],
-    ep_out_generation: [AtomicU32; MAX_EP_COUNT],
 }
 
 impl State {
     const fn new() -> Self {
         Self {
             bus_waker: AtomicWaker::new(),
-            ep_in_wakers: [const { AtomicWaker::new() }; MAX_EP_COUNT],
-            ep_out_wakers: [const { AtomicWaker::new() }; MAX_EP_COUNT],
-            ep_in_state: [const { AtomicU8::new(0) }; MAX_EP_COUNT],
-            ep_out_state: [const { AtomicU8::new(0) }; MAX_EP_COUNT],
+            ep_in: EndpointState::new(),
+            ep_out: EndpointState::new(),
             alive: AtomicBool::new(false),
             setup_pending: AtomicBool::new(false),
             lifecycle_generation: AtomicU32::new(0),
-            ep_in_generation: [const { AtomicU32::new(0) }; MAX_EP_COUNT],
-            ep_out_generation: [const { AtomicU32::new(0) }; MAX_EP_COUNT],
+        }
+    }
+
+    fn endpoint(&self, dir: Direction) -> &EndpointState {
+        match dir {
+            Direction::Out => &self.ep_out,
+            Direction::In => &self.ep_in,
         }
     }
 
     fn ep_state(&self, index: usize, dir: Direction) -> &AtomicU8 {
-        match dir {
-            Direction::Out => &self.ep_out_state[index],
-            Direction::In => &self.ep_in_state[index],
-        }
+        &self.endpoint(dir).state[index]
     }
 
     fn ep_waker(&self, index: usize, dir: Direction) -> &AtomicWaker {
-        match dir {
-            Direction::Out => &self.ep_out_wakers[index],
-            Direction::In => &self.ep_in_wakers[index],
-        }
+        &self.endpoint(dir).wakers[index]
     }
 
     fn ep_generation(&self, index: usize, dir: Direction) -> &AtomicU32 {
-        match dir {
-            Direction::Out => &self.ep_out_generation[index],
-            Direction::In => &self.ep_in_generation[index],
+        &self.endpoint(dir).generation[index]
+    }
+
+    fn transfer_generation(&self, index: usize, dir: Direction) -> TransferGeneration {
+        TransferGeneration {
+            lifecycle: self.lifecycle_generation.load(Ordering::Relaxed),
+            endpoint: self.ep_generation(index, dir).load(Ordering::Relaxed),
+        }
+    }
+
+    fn transfer_generation_valid(&self, index: usize, dir: Direction, generation: TransferGeneration) -> bool {
+        generation.lifecycle == self.lifecycle_generation.load(Ordering::Relaxed)
+            && generation.endpoint == self.ep_generation(index, dir).load(Ordering::Relaxed)
+    }
+
+    fn control_generation(&self) -> ControlGeneration {
+        ControlGeneration {
+            lifecycle: self.lifecycle_generation.load(Ordering::Relaxed),
+            out: self.ep_generation(0, Direction::Out).load(Ordering::Relaxed),
+            in_: self.ep_generation(0, Direction::In).load(Ordering::Relaxed),
         }
     }
 
     fn wake_all(&self) {
         self.bus_waker.wake();
-        for waker in &self.ep_in_wakers {
-            waker.wake();
-        }
-        for waker in &self.ep_out_wakers {
-            waker.wake();
-        }
+        self.ep_in.wake_all();
+        self.ep_out.wake_all();
     }
 
     fn invalidate_controller(&self) {
@@ -237,10 +282,10 @@ impl State {
 
     fn note_setup(&self) {
         if !self.setup_pending.swap(true, Ordering::AcqRel) {
-            self.ep_out_generation[0].fetch_add(1, Ordering::Relaxed);
-            self.ep_in_generation[0].fetch_add(1, Ordering::Relaxed);
-            self.ep_out_wakers[0].wake();
-            self.ep_in_wakers[0].wake();
+            self.ep_generation(0, Direction::Out).fetch_add(1, Ordering::Relaxed);
+            self.ep_generation(0, Direction::In).fetch_add(1, Ordering::Relaxed);
+            self.ep_waker(0, Direction::Out).wake();
+            self.ep_waker(0, Direction::In).wake();
         }
     }
 }
@@ -272,33 +317,118 @@ fn ep_int_mask<T: Instance>() -> u16 {
     ((1u32 << (2 * T::EP_COUNT)) - 1) as u16
 }
 
-/// Pointer to the command/status word of a physical endpoint buffer slot.
-fn ep_cmd_ptr(ep_list: u32, index: usize, dir: Direction, buf1: bool) -> *mut u32 {
-    let slot = match dir {
-        Direction::Out => 0,
-        Direction::In => 2,
-    } + buf1 as usize;
-    (ep_list as usize + index * 16 + slot * 4) as *mut u32
+/// Volatile command/status word for one physical endpoint buffer slot.
+#[derive(Clone, Copy)]
+struct EndpointCommand(*mut u32);
+
+impl EndpointCommand {
+    fn new(ep_list: u32, index: usize, dir: Direction, slot: usize) -> Self {
+        let direction = match dir {
+            Direction::Out => 0,
+            Direction::In => 2,
+        };
+        Self((ep_list as usize + index * 16 + (direction + slot) * 4) as *mut u32)
+    }
+
+    fn read(self) -> u32 {
+        unsafe { self.0.read_volatile() }
+    }
+
+    fn write(self, word: u32) {
+        unsafe { self.0.write_volatile(word) }
+    }
+
+    fn modify(self, f: impl FnOnce(u32) -> u32) {
+        critical_section::with(|_| self.write(f(self.read())));
+    }
+
+    /// Arms one buffer slot of a data endpoint.
+    ///
+    /// The command word is written whole: the controller tracks the
+    /// bulk/interrupt data toggle internally per endpoint (read-only EPTOGGLE
+    /// register), not in the entry's TV bit, which is only consumed together
+    /// with TR. `tr` requests that toggle reset; it is set exactly once for the
+    /// first transfer after enable/unstall (the NXP SDK's deferred toggle-reset
+    /// discipline).
+    ///
+    /// Isochronous endpoints are marked with `T` and never get `TR`: they have
+    /// no data toggle to reset.
+    fn arm<T: Instance>(self, len: u32, buf_addr: u32, tr: bool, iso: bool) {
+        let flags = if iso {
+            CMD_T
+        } else if tr {
+            CMD_TR
+        } else {
+            0
+        };
+        self.write(CMD_A | nbytes::<T>(len) | addroff::<T>(buf_addr) | flags);
+    }
 }
 
-fn ep_cmd_read(ep_list: u32, index: usize, dir: Direction, slot: usize) -> u32 {
-    unsafe { ep_cmd_ptr(ep_list, index, dir, slot != 0).read_volatile() }
+/// Fixed command-list and endpoint-zero buffer addresses.
+#[derive(Clone, Copy)]
+struct EndpointLayout {
+    list: u32,
+    setup: u32,
+    out: u32,
+    in_: u32,
 }
 
-fn ep_cmd_write(ep_list: u32, index: usize, dir: Direction, slot: usize, word: u32) {
-    unsafe { ep_cmd_ptr(ep_list, index, dir, slot != 0).write_volatile(word) }
+impl EndpointLayout {
+    fn new(base: u32) -> Self {
+        Self {
+            list: base,
+            setup: base + EP0_SETUP_OFFSET,
+            out: base + EP0_OUT_OFFSET,
+            in_: base + EP0_IN_OFFSET,
+        }
+    }
+
+    fn command(self, index: usize, dir: Direction, slot: usize) -> EndpointCommand {
+        EndpointCommand::new(self.list, index, dir, slot)
+    }
 }
 
-fn ep_cmd_modify(ep_list: u32, index: usize, dir: Direction, slot: usize, f: impl FnOnce(u32) -> u32) {
-    critical_section::with(|_| {
-        let p = ep_cmd_ptr(ep_list, index, dir, slot != 0);
-        unsafe { p.write_volatile(f(p.read_volatile())) }
-    });
+/// Waits for a slot to become inactive after registering its interrupt waker.
+///
+/// `validate` rechecks the transfer generation and software-selected slot
+/// inside the same critical section as the hardware command word.
+async fn wait_slot<T: Instance, R>(
+    command: EndpointCommand,
+    index: usize,
+    dir: Direction,
+    mut validate: impl FnMut() -> Result<R, EndpointError>,
+) -> Result<(u32, R), EndpointError> {
+    poll_fn(|cx| {
+        let shared = T::state();
+        shared.ep_waker(index, dir).register(cx.waker());
+
+        critical_section::with(|_| {
+            if !shared.alive.load(Ordering::Acquire) {
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
+            let value = match validate() {
+                Ok(value) => value,
+                Err(error) => return Poll::Ready(Err(error)),
+            };
+            let word = command.read();
+            if word & CMD_UNUSABLE != 0 {
+                Poll::Ready(Err(EndpointError::Disabled))
+            } else if word & CMD_A == 0 {
+                Poll::Ready(Ok((word, value)))
+            } else {
+                Poll::Pending
+            }
+        })
+    })
+    .await
 }
 fn valid_endpoint<T: Instance>(ep_addr: EndpointAddress) -> Option<(usize, Direction)> {
     let index = ep_addr.index();
     (index < T::EP_COUNT).then_some((index, ep_addr.direction()))
 }
+
+const DIRECTIONS: [Direction; 2] = [Direction::Out, Direction::In];
 
 fn select_slot<T: Instance>(index: usize, dir: Direction, slot: usize) {
     if index == 0 {
@@ -315,16 +445,16 @@ fn reclaim_slot<T: Instance>(ep_list: u32, index: usize, dir: Direction, slot: u
     let regs = T::regs();
     let phy_ep = 2 * index + (dir == Direction::In) as usize;
     select_slot::<T>(index, dir, slot);
-    if ep_cmd_read(ep_list, index, dir, slot) & CMD_A == 0 {
+    if EndpointCommand::new(ep_list, index, dir, slot).read() & CMD_A == 0 {
         return;
     }
 
     let mask = 1 << phy_ep;
     regs.epskip().write_value(pac::usbhsd::regs::Epskip(mask));
-    for _ in 0..SLOT_RECLAIM_SPINS {
-        if regs.epskip().read().0 & mask == 0 && ep_cmd_read(ep_list, index, dir, slot) & CMD_A == 0 {
-            return;
-        }
+    if poll_bounded(SLOT_RECLAIM_SPINS, || {
+        regs.epskip().read().0 & mask == 0 && EndpointCommand::new(ep_list, index, dir, slot).read() & CMD_A == 0
+    }) {
+        return;
     }
 
     let direction = if dir == Direction::In { "IN" } else { "OUT" };
@@ -333,7 +463,7 @@ fn reclaim_slot<T: Instance>(ep_list: u32, index: usize, dir: Direction, slot: u
         index,
         direction,
         slot,
-        ep_cmd_read(ep_list, index, dir, slot),
+        EndpointCommand::new(ep_list, index, dir, slot).read(),
         regs.epskip().read().0,
         regs.epinuse().read().0,
         regs.devcmdstat().read().0
@@ -355,40 +485,11 @@ fn reclaim_slots<T: Instance>(ep_list: u32, index: usize, dir: Direction) {
     select_slot::<T>(index, dir, 0);
 }
 
-/// Arm one buffer slot of a data endpoint.
-///
-/// The command word is written whole: the controller tracks the bulk/interrupt
-/// data toggle internally per endpoint (read-only EPTOGGLE register), not in
-/// the entry's TV bit, which is only consumed together with TR. `tr` requests
-/// that toggle reset; it is set exactly once for the first transfer after
-/// enable/unstall (the NXP SDK's deferred toggle-reset discipline).
-///
-/// Isochronous endpoints are marked with `T` and never get `TR`: they have no
-/// data toggle to reset.
-fn ep_arm_slot<T: Instance>(
-    ep_list: u32,
-    index: usize,
-    dir: Direction,
-    slot: usize,
-    len: u32,
-    buf_addr: u32,
-    tr: bool,
-    iso: bool,
-) {
-    let flags = if iso {
-        CMD_T
-    } else if tr {
-        CMD_TR
-    } else {
-        0
-    };
-    ep_cmd_write(
-        ep_list,
-        index,
-        dir,
-        slot,
-        CMD_A | nbytes::<T>(len) | addroff::<T>(buf_addr) | flags,
-    );
+fn reset_endpoint<T: Instance>(ep_list: u32, index: usize, dir: Direction) {
+    EndpointCommand::new(ep_list, index, dir, 0).write(CMD_D);
+    EndpointCommand::new(ep_list, index, dir, 1).write(CMD_D);
+    let state = T::state().ep_state(index, dir);
+    state.store(state.load(Ordering::Relaxed) & ISO, Ordering::Relaxed);
 }
 
 /// Copy into endpoint buffer memory using 32-bit accesses.
@@ -591,8 +692,7 @@ impl SealedInstance for crate::peripherals::USBHSD {
         // write sticks (it is silently dropped while the block is still
         // completing its reset). Use absolute writes: a read-modify-write on
         // the still-resetting block would write garbage read values back.
-        let mut handed_over = false;
-        for _ in 0..10_000 {
+        let handed_over = poll_bounded(10_000, || {
             let mut pm = pac::usbhsh::regs::Portmode(0);
             pm.set_dev_enable(true);
             // Keep the PHY power-down input (PDCOM) under software control
@@ -600,11 +700,8 @@ impl SealedInstance for crate::peripherals::USBHSD {
             // clock-gated host block, it powers the PHY down.
             pm.set_sw_ctrl_pdcom(true);
             pac::USBHSH.portmode().write_value(pm);
-            if pac::USBHSH.portmode().read().dev_enable() {
-                handed_over = true;
-                break;
-            }
-        }
+            pac::USBHSH.portmode().read().dev_enable()
+        });
         if !handed_over {
             warn!("USB1 port handover to device controller failed");
         }
@@ -652,13 +749,9 @@ impl SealedInstance for crate::peripherals::USBHSD {
         });
         // Bounded wait for PLL lock (~100 ms worth); carry on regardless, the
         // device simply won't enumerate if the PLL never locks.
-        let mut locked = false;
-        for _ in 0..1_000_000 {
-            if phy.pll_sic().read().pll_lock() == pac::usbphy::vals::PllSicPllLock::Value1 {
-                locked = true;
-                break;
-            }
-        }
+        let locked = poll_bounded(1_000_000, || {
+            phy.pll_sic().read().pll_lock() == pac::usbphy::vals::PllSicPllLock::Value1
+        });
         if !locked {
             warn!("USB1 PHY PLL failed to lock");
         }
@@ -759,13 +852,9 @@ impl SealedInstance for crate::peripherals::USB0 {
         pac::SYSCON.usb0clkdiv().modify(|w| w.set_div(1));
         pac::SYSCON.usb0clkdiv().modify(|w| w.set_halt(Usb0clkdivHalt::Run));
         pac::SYSCON.usb0clksel().write(|w| w.set_sel(Usb0clkselSel::Enum0x3));
-        let mut stable = false;
-        for _ in 0..1_000_000 {
-            if pac::SYSCON.usb0clkdiv().read().reqflag() == Usb0clkdivReqflag::Stable {
-                stable = true;
-                break;
-            }
-        }
+        let stable = poll_bounded(1_000_000, || {
+            pac::SYSCON.usb0clkdiv().read().reqflag() == Usb0clkdivReqflag::Stable
+        });
         if !stable {
             warn!("USB0 clock divider did not stabilize");
         }
@@ -801,13 +890,7 @@ impl SealedInstance for crate::peripherals::USB0 {
         // which is what makes crystal-less FS operation viable. Not functional
         // through more than one hub — erratum USB.3, see the module docs.
         pac::ANACTRL.fro192m_ctrl().modify(|w| w.set_usbclkadj(true));
-        let mut adjusted = false;
-        for _ in 0..1_000_000 {
-            if !pac::ANACTRL.fro192m_ctrl().read().usbmodchg() {
-                adjusted = true;
-                break;
-            }
-        }
+        let adjusted = poll_bounded(1_000_000, || !pac::ANACTRL.fro192m_ctrl().read().usbmodchg());
         if !adjusted {
             warn!("USB0 FRO clock adjustment did not settle");
         }
@@ -1032,10 +1115,10 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
 
         for i in 0..T::EP_COUNT {
             if stat.0 & (1 << (2 * i)) != 0 {
-                state.ep_out_wakers[i].wake();
+                state.ep_waker(i, Direction::Out).wake();
             }
             if stat.0 & (1 << (2 * i + 1)) != 0 {
-                state.ep_in_wakers[i].wake();
+                state.ep_waker(i, Direction::In).wake();
             }
         }
 
@@ -1063,10 +1146,9 @@ fn shutdown_controller<T: Instance>(ep_list: u32) {
             w.set_dev_en(false);
         });
         for index in 0..T::EP_COUNT {
-            for dir in [Direction::Out, Direction::In] {
+            for dir in DIRECTIONS {
                 reclaim_slots::<T>(ep_list, index, dir);
-                ep_cmd_write(ep_list, index, dir, 0, CMD_D);
-                ep_cmd_write(ep_list, index, dir, 1, CMD_D);
+                reset_endpoint::<T>(ep_list, index, dir);
             }
         }
         regs.inten().write_value(pac::usbhsd::regs::Inten(0));
@@ -1087,16 +1169,12 @@ pub struct Driver<'d, T: Instance> {
     memory: Option<MemoryLease<'d>>,
     ep_in_used: [bool; MAX_EP_COUNT],
     ep_out_used: [bool; MAX_EP_COUNT],
-    /// Base of the endpoint memory: the command/status list starts here.
-    ep_list: u32,
+    /// Command list and fixed endpoint-zero buffers.
+    layout: EndpointLayout,
     /// One past the end of the endpoint memory.
     mem_end: u32,
-    /// Bump allocator offset, relative to `ep_list`.
+    /// Bump allocator offset, relative to `layout.list`.
     alloc_offset: u32,
-    /// Address of the 8-byte (64-byte aligned) SETUP buffer.
-    setup_addr: u32,
-    ep0_out_addr: u32,
-    ep0_in_addr: u32,
 }
 
 impl<'d> Driver<'d, crate::peripherals::USBHSD> {
@@ -1177,21 +1255,19 @@ impl<'d, T: Instance> Driver<'d, T> {
         for i in 0..T::EP_COUNT * 4 {
             unsafe { ((base as usize + i * 4) as *mut u32).write_volatile(0) };
         }
-        let setup_addr = base + EP0_SETUP_OFFSET;
-        let ep0_out_addr = base + EP0_OUT_OFFSET;
-        let ep0_in_addr = base + EP0_IN_OFFSET;
+        let layout = EndpointLayout::new(base);
         unsafe {
-            (setup_addr as *mut u32).write_volatile(0);
-            (setup_addr as *mut u32).add(1).write_volatile(0);
-            ep_cmd_ptr(base, 0, Direction::Out, true).write_volatile(addroff::<T>(setup_addr));
+            (layout.setup as *mut u32).write_volatile(0);
+            (layout.setup as *mut u32).add(1).write_volatile(0);
+            layout.command(0, Direction::Out, 1).write(addroff::<T>(layout.setup));
         }
 
-        program_controller::<T>(base);
+        program_controller::<T>(layout.list);
         let state = T::state();
         state.invalidate_controller();
         for index in 0..T::EP_COUNT {
-            state.ep_in_state[index].store(0, Ordering::Relaxed);
-            state.ep_out_state[index].store(0, Ordering::Relaxed);
+            state.ep_state(index, Direction::In).store(0, Ordering::Relaxed);
+            state.ep_state(index, Direction::Out).store(0, Ordering::Relaxed);
         }
         state.alive.store(true, Ordering::Release);
 
@@ -1204,12 +1280,9 @@ impl<'d, T: Instance> Driver<'d, T> {
             memory: Some(lease),
             ep_in_used: [false; MAX_EP_COUNT],
             ep_out_used: [false; MAX_EP_COUNT],
-            ep_list: base,
+            layout,
             mem_end: base + len,
             alloc_offset: DATA_BUFFER_OFFSET,
-            setup_addr,
-            ep0_out_addr,
-            ep0_in_addr,
         }
     }
 
@@ -1221,13 +1294,26 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// overrun inside the allocation. Do not tighten it.
     fn alloc_buffer(&mut self, len: u16) -> Result<u32, EndpointAllocError> {
         let len = (len as u32).div_ceil(64) * 64;
-        if self.ep_list + self.alloc_offset + len > self.mem_end {
+        if self.layout.list + self.alloc_offset + len > self.mem_end {
             warn!("USB endpoint memory full");
             return Err(EndpointAllocError);
         }
-        let addr = self.ep_list + self.alloc_offset;
+        let addr = self.layout.list + self.alloc_offset;
         self.alloc_offset += len;
         Ok(addr)
+    }
+
+    /// Allocates both slots atomically with respect to the bump pointer.
+    fn alloc_slots(&mut self, len: u16) -> Result<[u32; 2], EndpointAllocError> {
+        let mark = self.alloc_offset;
+        let result = match self.alloc_buffer(len) {
+            Ok(first) => self.alloc_buffer(len).map(|second| [first, second]),
+            Err(error) => Err(error),
+        };
+        if result.is_err() {
+            self.alloc_offset = mark;
+        }
+        result
     }
 
     fn alloc_endpoint<D: Dir>(
@@ -1289,25 +1375,13 @@ impl<'d, T: Instance> Driver<'d, T> {
             (EndpointType::Bulk, Direction::In) if T::MULTI_PACKET => T::BULK_IN_SLOT_LEN.max(max_packet_size),
             _ => max_packet_size,
         };
-        // Every failure path restores the bump allocator, so a rejected
-        // allocation consumes neither memory nor an endpoint index.
-        let mark = self.alloc_offset;
-        let (buf_addrs, slot_len) = match (self.alloc_buffer(want_len), self.alloc_buffer(want_len)) {
-            (Ok(a), Ok(b)) => ([a, b], want_len),
-            _ => {
-                self.alloc_offset = mark;
-                if want_len <= max_packet_size {
-                    return Err(EndpointAllocError);
-                }
+        let (buf_addrs, slot_len) = match self.alloc_slots(want_len) {
+            Ok(addrs) => (addrs, want_len),
+            Err(_) if want_len > max_packet_size => {
                 // The multi-packet slots did not fit; single-packet slots may.
-                match (self.alloc_buffer(max_packet_size), self.alloc_buffer(max_packet_size)) {
-                    (Ok(a), Ok(b)) => ([a, b], max_packet_size),
-                    _ => {
-                        self.alloc_offset = mark;
-                        return Err(EndpointAllocError);
-                    }
-                }
+                (self.alloc_slots(max_packet_size)?, max_packet_size)
             }
+            Err(error) => return Err(error),
         };
 
         // Only now that the allocation succeeded does the index get consumed:
@@ -1325,8 +1399,8 @@ impl<'d, T: Instance> Driver<'d, T> {
             .store(if iso { ISO } else { 0 }, Ordering::Relaxed);
 
         // Disabled until `endpoint_set_enabled`.
-        ep_cmd_write(self.ep_list, index, D::dir(), 0, CMD_D);
-        ep_cmd_write(self.ep_list, index, D::dir(), 1, CMD_D);
+        self.layout.command(index, D::dir(), 0).write(CMD_D);
+        self.layout.command(index, D::dir(), 1).write(CMD_D);
 
         trace!("  index={} addr={:08x}", index, buf_addrs[0]);
 
@@ -1338,7 +1412,7 @@ impl<'d, T: Instance> Driver<'d, T> {
                 max_packet_size,
                 interval_ms,
             },
-            ep_list: self.ep_list,
+            ep_list: self.layout.list,
             buf_addrs,
             slot_len,
             armed_len: [0; 2],
@@ -1349,7 +1423,7 @@ impl<'d, T: Instance> Driver<'d, T> {
 impl<'d, T: Instance> Drop for Driver<'d, T> {
     fn drop(&mut self) {
         if self._usb.is_some() {
-            shutdown_controller::<T>(self.ep_list);
+            shutdown_controller::<T>(self.layout.list);
         }
         drop(self.memory.take());
     }
@@ -1383,9 +1457,7 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         assert!(control_max_packet_size <= 64);
-        let ep_list = self.ep_list;
-        let ep0_out_addr = self.ep0_out_addr;
-        let ep0_in_addr = self.ep0_in_addr;
+        let layout = self.layout;
         let Some(usb) = self._usb.take() else {
             unreachable!("USB peripheral token missing at start");
         };
@@ -1397,14 +1469,10 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
         let control_memory = memory.clone_lease();
 
         critical_section::with(|_| {
-            ep_cmd_write(
-                ep_list,
-                0,
-                Direction::Out,
-                0,
-                CMD_A | nbytes::<T>(control_max_packet_size as u32) | addroff::<T>(ep0_out_addr),
-            );
-            ep_cmd_write(ep_list, 0, Direction::In, 0, addroff::<T>(ep0_in_addr));
+            layout
+                .command(0, Direction::Out, 0)
+                .arm::<T>(control_max_packet_size as u32, layout.out, false, false);
+            layout.command(0, Direction::In, 0).write(addroff::<T>(layout.in_));
             let vbus = T::regs().devcmdstat().read().vbus_debounced();
             devcmdstat_modify(T::regs(), |w| {
                 w.set_dev_en(true);
@@ -1421,23 +1489,15 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
                 memory: Some(bus_memory),
                 vbus: false,
                 needs_reset: false,
-                ep_list,
-                setup_addr: self.setup_addr,
-                ep0_out_addr,
+                layout,
                 ep0_mps: control_max_packet_size,
             },
             ControlPipe {
                 _phantom: PhantomData,
                 _memory: control_memory,
                 max_packet_size: control_max_packet_size,
-                ep_list,
-                setup_addr: self.setup_addr,
-                ep0_out_addr,
-                ep0_in_addr,
-                accepted_lifecycle: 0,
-                accepted_out_generation: 0,
-                accepted_in_generation: 0,
-                setup_valid: false,
+                layout,
+                accepted_generation: None,
             },
         )
     }
@@ -1450,9 +1510,7 @@ pub struct Bus<'d, T: Instance> {
     memory: Option<MemoryLease<'d>>,
     vbus: bool,
     needs_reset: bool,
-    ep_list: u32,
-    setup_addr: u32,
-    ep0_out_addr: u32,
+    layout: EndpointLayout,
     ep0_mps: u16,
 }
 
@@ -1463,46 +1521,35 @@ impl<'d, T: Instance> Bus<'d, T> {
             let state = T::state();
             state.invalidate_controller();
 
-            state.ep_out_state[0].store(0, Ordering::Relaxed);
-            state.ep_in_state[0].store(0, Ordering::Relaxed);
+            state.ep_state(0, Direction::Out).store(0, Ordering::Relaxed);
+            state.ep_state(0, Direction::In).store(0, Ordering::Relaxed);
             for index in 0..T::EP_COUNT {
-                for dir in [Direction::Out, Direction::In] {
-                    reclaim_slots::<T>(self.ep_list, index, dir);
+                for dir in DIRECTIONS {
+                    reclaim_slots::<T>(self.layout.list, index, dir);
                 }
             }
             for index in 1..T::EP_COUNT {
-                for dir in [Direction::Out, Direction::In] {
-                    ep_cmd_write(self.ep_list, index, dir, 0, CMD_D);
-                    ep_cmd_write(self.ep_list, index, dir, 1, CMD_D);
-                    let ep_state = state.ep_state(index, dir);
-                    ep_state.store(ep_state.load(Ordering::Relaxed) & ISO, Ordering::Relaxed);
+                for dir in DIRECTIONS {
+                    reset_endpoint::<T>(self.layout.list, index, dir);
                 }
             }
             regs.epinuse().write(|w| w.set_buf(0));
             regs.epbufcfg().write(|w| w.set_buf_sb(ep_buf_mask::<T>()));
-            ep_cmd_write(
-                self.ep_list,
-                0,
-                Direction::Out,
-                0,
-                CMD_A | nbytes::<T>(self.ep0_mps as u32) | addroff::<T>(self.ep0_out_addr),
-            );
-            ep_cmd_write(self.ep_list, 0, Direction::In, 0, 0);
-            unsafe {
-                ep_cmd_ptr(self.ep_list, 0, Direction::Out, true).write_volatile(addroff::<T>(self.setup_addr));
-            }
+            self.layout
+                .command(0, Direction::Out, 0)
+                .arm::<T>(self.ep0_mps as u32, self.layout.out, false, false);
+            self.layout.command(0, Direction::In, 0).write(0);
+            self.layout
+                .command(0, Direction::Out, 1)
+                .write(addroff::<T>(self.layout.setup));
         });
     }
 
     fn disable_data_endpoints(&mut self) {
-        let state = T::state();
         for index in 1..T::EP_COUNT {
-            for dir in [Direction::Out, Direction::In] {
-                reclaim_slots::<T>(self.ep_list, index, dir);
-                ep_cmd_write(self.ep_list, index, dir, 0, CMD_D);
-                ep_cmd_write(self.ep_list, index, dir, 1, CMD_D);
-                let ep_state = state.ep_state(index, dir);
-                ep_state.store(ep_state.load(Ordering::Relaxed) & ISO, Ordering::Relaxed);
+            for dir in DIRECTIONS {
+                reclaim_slots::<T>(self.layout.list, index, dir);
+                reset_endpoint::<T>(self.layout.list, index, dir);
             }
         }
     }
@@ -1511,7 +1558,7 @@ impl<'d, T: Instance> Bus<'d, T> {
         if self._usb.is_none() {
             return;
         }
-        shutdown_controller::<T>(self.ep_list);
+        shutdown_controller::<T>(self.layout.list);
         drop(self.memory.take());
         self._usb.take();
         self._vbus.take();
@@ -1536,11 +1583,11 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             // the first enable would cancel the request that waits for reset.
             if self.needs_reset {
                 for index in 0..T::EP_COUNT {
-                    for dir in [Direction::Out, Direction::In] {
-                        reclaim_slots::<T>(self.ep_list, index, dir);
+                    for dir in DIRECTIONS {
+                        reclaim_slots::<T>(self.layout.list, index, dir);
                     }
                 }
-                program_controller::<T>(self.ep_list);
+                program_controller::<T>(self.layout.list);
                 self.reset_endpoints();
                 self.needs_reset = false;
             }
@@ -1643,18 +1690,18 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             let shared = T::state();
             let state = shared.ep_state(index, dir);
             let iso = state.load(Ordering::Relaxed) & ISO;
-            reclaim_slots::<T>(self.ep_list, index, dir);
+            reclaim_slots::<T>(self.layout.list, index, dir);
             shared.invalidate_endpoint(index, dir);
 
             if enabled {
-                ep_cmd_write(self.ep_list, index, dir, 0, if iso != 0 { 0 } else { CMD_TR });
-                ep_cmd_write(self.ep_list, index, dir, 1, 0);
+                self.layout
+                    .command(index, dir, 0)
+                    .write(if iso != 0 { 0 } else { CMD_TR });
+                self.layout.command(index, dir, 1).write(0);
                 select_slot::<T>(index, dir, 0);
                 state.store(iso | if iso == 0 { TR_PENDING } else { 0 }, Ordering::Relaxed);
             } else {
-                ep_cmd_write(self.ep_list, index, dir, 0, CMD_D);
-                ep_cmd_write(self.ep_list, index, dir, 1, CMD_D);
-                state.store(iso, Ordering::Relaxed);
+                reset_endpoint::<T>(self.layout.list, index, dir);
             }
         });
     }
@@ -1668,25 +1715,25 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
         critical_section::with(|_| {
             let shared = T::state();
             let iso = index != 0 && shared.ep_state(index, dir).load(Ordering::Relaxed) & ISO != 0;
-            reclaim_slots::<T>(self.ep_list, index, dir);
+            reclaim_slots::<T>(self.layout.list, index, dir);
             shared.invalidate_endpoint(index, dir);
 
             if stalled {
                 if iso {
-                    ep_cmd_write(self.ep_list, index, dir, 0, 0);
-                    ep_cmd_write(self.ep_list, index, dir, 1, 0);
+                    self.layout.command(index, dir, 0).write(0);
+                    self.layout.command(index, dir, 1).write(0);
                     shared.ep_state(index, dir).store(ISO, Ordering::Relaxed);
                 } else {
-                    ep_cmd_write(self.ep_list, index, dir, 0, CMD_S);
+                    self.layout.command(index, dir, 0).write(CMD_S);
                     if index != 0 {
-                        ep_cmd_write(self.ep_list, index, dir, 1, CMD_S);
+                        self.layout.command(index, dir, 1).write(CMD_S);
                     }
                 }
             } else if index == 0 {
-                ep_cmd_write(self.ep_list, index, dir, 0, CMD_TR);
+                self.layout.command(index, dir, 0).write(CMD_TR);
             } else {
-                ep_cmd_write(self.ep_list, index, dir, 0, if iso { 0 } else { CMD_TR });
-                ep_cmd_write(self.ep_list, index, dir, 1, 0);
+                self.layout.command(index, dir, 0).write(if iso { 0 } else { CMD_TR });
+                self.layout.command(index, dir, 1).write(0);
                 let state = shared.ep_state(index, dir);
                 let keep = state.load(Ordering::Relaxed) & ISO;
                 state.store(keep | if keep == 0 { TR_PENDING } else { 0 }, Ordering::Relaxed);
@@ -1699,7 +1746,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             return false;
         };
         critical_section::with(|_| {
-            T::state().alive.load(Ordering::Acquire) && ep_cmd_read(self.ep_list, index, dir, 0) & CMD_S != 0
+            T::state().alive.load(Ordering::Acquire) && self.layout.command(index, dir, 0).read() & CMD_S != 0
         })
     }
 
@@ -1741,6 +1788,20 @@ impl<'d, T: Instance, D: Dir> Endpoint<'d, T, D> {
     fn is_iso(&self) -> bool {
         self.info.ep_type == EndpointType::Isochronous
     }
+
+    fn command(&self, slot: usize) -> EndpointCommand {
+        EndpointCommand::new(self.ep_list, self.info.addr.index(), D::dir(), slot)
+    }
+
+    fn read_slot(&self, slot: usize) -> u32 {
+        self.command(slot).read()
+    }
+
+    fn arm_slot(&mut self, slot: usize, len: u32, tr: bool) {
+        self.command(slot)
+            .arm::<T>(len, self.buf_addrs[slot], tr, self.is_iso());
+        self.armed_len[slot] = len as u16;
+    }
 }
 
 impl<'d, T: Instance, D: Dir> driver::Endpoint for Endpoint<'d, T, D> {
@@ -1757,7 +1818,7 @@ impl<'d, T: Instance, D: Dir> driver::Endpoint for Endpoint<'d, T, D> {
                 if !shared.alive.load(Ordering::Acquire) {
                     return Poll::Pending;
                 }
-                if ep_cmd_read(self.ep_list, index, D::dir(), 0) & CMD_D == 0 {
+                if self.read_slot(0) & CMD_D == 0 {
                     Poll::Ready(())
                 } else {
                     Poll::Pending
@@ -1785,68 +1846,40 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         let arm_len = self.info.max_packet_size as u32;
         let shared = T::state();
         let state = shared.ep_state(index, Direction::Out);
-        let iso = self.is_iso();
 
         let s = critical_section::with(|_| {
             if !shared.alive.load(Ordering::Acquire) {
                 return Err(EndpointError::Disabled);
             }
-            let lifecycle = shared.lifecycle_generation.load(Ordering::Relaxed);
-            let generation = shared.ep_out_generation[index].load(Ordering::Relaxed);
+            let generation = shared.transfer_generation(index, Direction::Out);
             let mut s = state.load(Ordering::Relaxed);
             for slot in 0..2 {
                 if s & (PRIMED0 << slot) == 0 {
-                    if ep_cmd_read(self.ep_list, index, Direction::Out, slot) & CMD_UNUSABLE != 0 {
+                    if self.read_slot(slot) & CMD_UNUSABLE != 0 {
                         return Err(EndpointError::Disabled);
                     }
-                    ep_arm_slot::<T>(
-                        self.ep_list,
-                        index,
-                        Direction::Out,
-                        slot,
-                        arm_len,
-                        self.buf_addrs[slot],
-                        s & TR_PENDING != 0,
-                        iso,
-                    );
-                    self.armed_len[slot] = arm_len as u16;
+                    self.arm_slot(slot, arm_len, s & TR_PENDING != 0);
                     s = (s | (PRIMED0 << slot)) & !TR_PENDING;
                     state.store(s, Ordering::Relaxed);
                 }
             }
-            if lifecycle != shared.lifecycle_generation.load(Ordering::Relaxed)
-                || generation != shared.ep_out_generation[index].load(Ordering::Relaxed)
-            {
+            if !shared.transfer_generation_valid(index, Direction::Out, generation) {
                 return Err(EndpointError::Disabled);
             }
-            Ok((s, lifecycle, generation))
+            Ok((s, generation))
         })?;
 
-        let (s, lifecycle, generation) = s;
+        let (s, generation) = s;
         let slot = (s & SLOT) as usize;
-        let (word, snapshot_state) = poll_fn(|cx| {
-            shared.ep_out_wakers[index].register(cx.waker());
-            critical_section::with(|_| {
-                if !shared.alive.load(Ordering::Acquire)
-                    || lifecycle != shared.lifecycle_generation.load(Ordering::Relaxed)
-                    || generation != shared.ep_out_generation[index].load(Ordering::Relaxed)
-                {
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                let snapshot_state = state.load(Ordering::Relaxed);
-                if (snapshot_state & SLOT) as usize != slot || snapshot_state & (PRIMED0 << slot) == 0 {
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                let word = ep_cmd_read(self.ep_list, index, Direction::Out, slot);
-                if word & CMD_UNUSABLE != 0 {
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                if word & CMD_A == 0 {
-                    Poll::Ready(Ok((word, snapshot_state)))
-                } else {
-                    Poll::Pending
-                }
-            })
+        let (word, snapshot_state) = wait_slot::<T, _>(self.command(slot), index, Direction::Out, || {
+            if !shared.transfer_generation_valid(index, Direction::Out, generation) {
+                return Err(EndpointError::Disabled);
+            }
+            let snapshot_state = state.load(Ordering::Relaxed);
+            if (snapshot_state & SLOT) as usize != slot || snapshot_state & (PRIMED0 << slot) == 0 {
+                return Err(EndpointError::Disabled);
+            }
+            Ok(snapshot_state)
         })
         .await?;
 
@@ -1858,27 +1891,16 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
 
         critical_section::with(|_| {
             if !shared.alive.load(Ordering::Acquire)
-                || lifecycle != shared.lifecycle_generation.load(Ordering::Relaxed)
-                || generation != shared.ep_out_generation[index].load(Ordering::Relaxed)
+                || !shared.transfer_generation_valid(index, Direction::Out, generation)
             {
                 return Err(EndpointError::Disabled);
             }
             let current = state.load(Ordering::Relaxed);
-            let command = ep_cmd_read(self.ep_list, index, Direction::Out, slot);
+            let command = self.read_slot(slot);
             if (current & SLOT) as usize != slot || current & (PRIMED0 << slot) == 0 || command & CMD_UNUSABLE != 0 {
                 return Err(EndpointError::Disabled);
             }
-            ep_arm_slot::<T>(
-                self.ep_list,
-                index,
-                Direction::Out,
-                slot,
-                arm_len,
-                self.buf_addrs[slot],
-                false,
-                iso,
-            );
-            self.armed_len[slot] = arm_len as u16;
+            self.arm_slot(slot, arm_len, false);
             state.store((snapshot_state ^ SLOT) | (PRIMED0 << slot), Ordering::Relaxed);
             Ok(())
         })?;
@@ -1904,68 +1926,39 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         let index = self.info.addr.index();
         let shared = T::state();
         let state = shared.ep_state(index, Direction::In);
-        let iso = self.is_iso();
-        let (slot, lifecycle, generation) = critical_section::with(|_| {
+        let (slot, generation) = critical_section::with(|_| {
             if !shared.alive.load(Ordering::Acquire) {
                 return Err(EndpointError::Disabled);
             }
             let slot = (state.load(Ordering::Relaxed) & SLOT) as usize;
-            Ok((
-                slot,
-                shared.lifecycle_generation.load(Ordering::Relaxed),
-                shared.ep_in_generation[index].load(Ordering::Relaxed),
-            ))
+            Ok((slot, shared.transfer_generation(index, Direction::In)))
         })?;
 
-        let snapshot_state = poll_fn(|cx| {
-            shared.ep_in_wakers[index].register(cx.waker());
-            critical_section::with(|_| {
-                if !shared.alive.load(Ordering::Acquire)
-                    || lifecycle != shared.lifecycle_generation.load(Ordering::Relaxed)
-                    || generation != shared.ep_in_generation[index].load(Ordering::Relaxed)
-                {
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                let snapshot_state = state.load(Ordering::Relaxed);
-                if (snapshot_state & SLOT) as usize != slot {
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                let word = ep_cmd_read(self.ep_list, index, Direction::In, slot);
-                if word & CMD_UNUSABLE != 0 {
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                if word & CMD_A == 0 {
-                    Poll::Ready(Ok(snapshot_state))
-                } else {
-                    Poll::Pending
-                }
-            })
+        let (_, snapshot_state) = wait_slot::<T, _>(self.command(slot), index, Direction::In, || {
+            if !shared.transfer_generation_valid(index, Direction::In, generation) {
+                return Err(EndpointError::Disabled);
+            }
+            let snapshot_state = state.load(Ordering::Relaxed);
+            if (snapshot_state & SLOT) as usize != slot {
+                return Err(EndpointError::Disabled);
+            }
+            Ok(snapshot_state)
         })
         .await?;
 
         copy_to_ep_buffer(self.buf_addrs[slot], buf);
         critical_section::with(|_| {
             if !shared.alive.load(Ordering::Acquire)
-                || lifecycle != shared.lifecycle_generation.load(Ordering::Relaxed)
-                || generation != shared.ep_in_generation[index].load(Ordering::Relaxed)
+                || !shared.transfer_generation_valid(index, Direction::In, generation)
             {
                 return Err(EndpointError::Disabled);
             }
             let current = state.load(Ordering::Relaxed);
-            let command = ep_cmd_read(self.ep_list, index, Direction::In, slot);
+            let command = self.read_slot(slot);
             if (current & SLOT) as usize != slot || command & (CMD_UNUSABLE | CMD_A) != 0 {
                 return Err(EndpointError::Disabled);
             }
-            ep_arm_slot::<T>(
-                self.ep_list,
-                index,
-                Direction::In,
-                slot,
-                buf.len() as u32,
-                self.buf_addrs[slot],
-                snapshot_state & TR_PENDING != 0,
-                iso,
-            );
+            self.arm_slot(slot, buf.len() as u32, snapshot_state & TR_PENDING != 0);
             state.store((snapshot_state ^ SLOT) & !TR_PENDING, Ordering::Relaxed);
             Ok(())
         })?;
@@ -1998,25 +1991,17 @@ pub struct ControlPipe<'d, T: Instance> {
     _phantom: PhantomData<&'d mut T>,
     _memory: MemoryLease<'d>,
     max_packet_size: u16,
-    ep_list: u32,
-    setup_addr: u32,
-    ep0_out_addr: u32,
-    ep0_in_addr: u32,
-    accepted_lifecycle: u32,
-    accepted_out_generation: u32,
-    accepted_in_generation: u32,
-    setup_valid: bool,
+    layout: EndpointLayout,
+    accepted_generation: Option<ControlGeneration>,
 }
 
 impl<'d, T: Instance> ControlPipe<'d, T> {
     fn request_valid(&self) -> bool {
         let state = T::state();
-        if !self.setup_valid
-            || !state.alive.load(Ordering::Acquire)
-            || self.accepted_lifecycle != state.lifecycle_generation.load(Ordering::Relaxed)
-            || self.accepted_out_generation != state.ep_out_generation[0].load(Ordering::Relaxed)
-            || self.accepted_in_generation != state.ep_in_generation[0].load(Ordering::Relaxed)
-        {
+        let Some(generation) = self.accepted_generation else {
+            return false;
+        };
+        if !state.alive.load(Ordering::Acquire) || generation != state.control_generation() {
             return false;
         }
         if T::regs().devcmdstat().read().setup() {
@@ -2024,6 +2009,22 @@ impl<'d, T: Instance> ControlPipe<'d, T> {
             return false;
         }
         true
+    }
+
+    fn command(&self, dir: Direction) -> EndpointCommand {
+        self.layout.command(0, dir, 0)
+    }
+
+    fn arm(&self, dir: Direction, len: u32) {
+        let addr = match dir {
+            Direction::Out => self.layout.out,
+            Direction::In => self.layout.in_,
+        };
+        self.command(dir).arm::<T>(len, addr, false, false);
+    }
+
+    fn validate_request(&self) -> Result<(), EndpointError> {
+        self.request_valid().then_some(()).ok_or(EndpointError::Disabled)
     }
 }
 
@@ -2035,7 +2036,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     async fn setup(&mut self) -> [u8; 8] {
         let shared = T::state();
         poll_fn(|cx| {
-            shared.ep_out_wakers[0].register(cx.waker());
+            shared.ep_waker(0, Direction::Out).register(cx.waker());
             critical_section::with(|_| {
                 if !shared.alive.load(Ordering::Acquire) {
                     return Poll::Pending;
@@ -2051,27 +2052,18 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         .await;
 
         let buf = critical_section::with(|_| {
-            ep_cmd_modify(self.ep_list, 0, Direction::Out, 0, |w| w & !(CMD_A | CMD_S));
-            ep_cmd_modify(self.ep_list, 0, Direction::In, 0, |w| w & !(CMD_A | CMD_S));
+            self.command(Direction::Out).modify(|w| w & !(CMD_A | CMD_S));
+            self.command(Direction::In).modify(|w| w & !(CMD_A | CMD_S));
 
             let mut buf = [0; 8];
-            copy_from_ep_buffer(self.setup_addr, &mut buf);
+            copy_from_ep_buffer(self.layout.setup, &mut buf);
             devcmdstat_modify(T::regs(), |w| w.set_setup(true));
-            unsafe {
-                ep_cmd_ptr(self.ep_list, 0, Direction::Out, true).write_volatile(addroff::<T>(self.setup_addr));
-            }
-            ep_cmd_write(
-                self.ep_list,
-                0,
-                Direction::Out,
-                0,
-                CMD_A | nbytes::<T>(self.max_packet_size as u32) | addroff::<T>(self.ep0_out_addr),
-            );
+            self.layout
+                .command(0, Direction::Out, 1)
+                .write(addroff::<T>(self.layout.setup));
+            self.arm(Direction::Out, self.max_packet_size as u32);
 
-            self.accepted_lifecycle = shared.lifecycle_generation.load(Ordering::Relaxed);
-            self.accepted_out_generation = shared.ep_out_generation[0].load(Ordering::Relaxed);
-            self.accepted_in_generation = shared.ep_in_generation[0].load(Ordering::Relaxed);
-            self.setup_valid = true;
+            self.accepted_generation = Some(shared.control_generation());
             shared.setup_pending.store(false, Ordering::Release);
             buf
         });
@@ -2082,22 +2074,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
     async fn data_out(&mut self, buf: &mut [u8], _first: bool, _last: bool) -> Result<usize, EndpointError> {
         let mps = self.max_packet_size as u32;
-        let word = poll_fn(|cx| {
-            T::state().ep_out_wakers[0].register(cx.waker());
-            critical_section::with(|_| {
-                if !self.request_valid() {
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                let word = ep_cmd_read(self.ep_list, 0, Direction::Out, 0);
-                if word & CMD_UNUSABLE != 0 {
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                if word & CMD_A == 0 {
-                    Poll::Ready(Ok(word))
-                } else {
-                    Poll::Pending
-                }
-            })
+        let (word, ()) = wait_slot::<T, _>(self.command(Direction::Out), 0, Direction::Out, || {
+            self.validate_request()
         })
         .await?;
 
@@ -2105,19 +2083,14 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         if rx_len > buf.len() {
             return Err(EndpointError::BufferOverflow);
         }
-        copy_from_ep_buffer(self.ep0_out_addr, &mut buf[..rx_len]);
+        copy_from_ep_buffer(self.layout.out, &mut buf[..rx_len]);
 
         critical_section::with(|_| {
-            if !self.request_valid() || ep_cmd_read(self.ep_list, 0, Direction::Out, 0) & CMD_UNUSABLE != 0 {
+            self.validate_request()?;
+            if self.command(Direction::Out).read() & CMD_UNUSABLE != 0 {
                 return Err(EndpointError::Disabled);
             }
-            ep_cmd_write(
-                self.ep_list,
-                0,
-                Direction::Out,
-                0,
-                CMD_A | nbytes::<T>(mps) | addroff::<T>(self.ep0_out_addr),
-            );
+            self.arm(Direction::Out, mps);
             Ok(())
         })?;
 
@@ -2134,37 +2107,18 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         if !critical_section::with(|_| self.request_valid()) {
             return Err(EndpointError::Disabled);
         }
-        copy_to_ep_buffer(self.ep0_in_addr, data);
+        copy_to_ep_buffer(self.layout.in_, data);
         critical_section::with(|_| {
-            if !self.request_valid() || ep_cmd_read(self.ep_list, 0, Direction::In, 0) & CMD_UNUSABLE != 0 {
+            self.validate_request()?;
+            if self.command(Direction::In).read() & CMD_UNUSABLE != 0 {
                 return Err(EndpointError::Disabled);
             }
-            ep_cmd_write(
-                self.ep_list,
-                0,
-                Direction::In,
-                0,
-                CMD_A | nbytes::<T>(data.len() as u32) | addroff::<T>(self.ep0_in_addr),
-            );
+            self.arm(Direction::In, data.len() as u32);
             Ok(())
         })?;
 
-        poll_fn(|cx| {
-            T::state().ep_in_wakers[0].register(cx.waker());
-            critical_section::with(|_| {
-                if !self.request_valid() {
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                let command = ep_cmd_read(self.ep_list, 0, Direction::In, 0);
-                if command & CMD_UNUSABLE != 0 {
-                    return Poll::Ready(Err(EndpointError::Disabled));
-                }
-                if command & CMD_A == 0 {
-                    Poll::Ready(Ok(()))
-                } else {
-                    Poll::Pending
-                }
-            })
+        wait_slot::<T, _>(self.command(Direction::In), 0, Direction::In, || {
+            self.validate_request()
         })
         .await?;
 
@@ -2178,31 +2132,15 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             if !self.request_valid() {
                 return false;
             }
-            ep_cmd_write(
-                self.ep_list,
-                0,
-                Direction::In,
-                0,
-                CMD_A | addroff::<T>(self.ep0_in_addr),
-            );
+            self.arm(Direction::In, 0);
             true
         });
         if !armed {
             return;
         }
 
-        poll_fn(|cx| {
-            T::state().ep_in_wakers[0].register(cx.waker());
-            critical_section::with(|_| {
-                if !self.request_valid() {
-                    return Poll::Ready(());
-                }
-                if ep_cmd_read(self.ep_list, 0, Direction::In, 0) & CMD_A == 0 {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
+        let _ = wait_slot::<T, _>(self.command(Direction::In), 0, Direction::In, || {
+            self.validate_request()
         })
         .await;
     }
@@ -2213,8 +2151,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
             if !self.request_valid() {
                 return;
             }
-            ep_cmd_modify(self.ep_list, 0, Direction::Out, 0, |w| w | CMD_S);
-            ep_cmd_modify(self.ep_list, 0, Direction::In, 0, |w| w | CMD_S);
+            self.command(Direction::Out).modify(|w| w | CMD_S);
+            self.command(Direction::In).modify(|w| w | CMD_S);
         });
     }
 

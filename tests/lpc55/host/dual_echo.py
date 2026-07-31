@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Host peer for `tests/lpc55/src/bin/usb_dual_pll0.rs`.
+"""Drive both CDC-ACM ports from `usb_dual_pll0`.
 
-Both LPC55 USB controllers run concurrently off PLL0 at 150 MHz, each exposing a
-CDC-ACM echo port. This script drives the two ports from two threads, so the
-controllers really overlap rather than taking turns: a clock or endpoint-memory
-mistake that only shows under simultaneous traffic still fails the test.
+The firmware runs both LPC55 USB controllers from PLL0 at 150 MHz. Two host threads transfer data
+at the same time, so clock and endpoint-memory faults under concurrent traffic fail the test.
 
-Only CDC nodes are touched, so no root is needed (`/dev/ttyACM*` is
-`root:dialout` and the test user is in `dialout`).
+The script uses only CDC nodes and does not need root. The test user must have access to
+`/dev/ttyACM*`, normally through the `dialout` group.
 
-Exit 0 on pass. On failure, print `FAIL: <port label>: <reason>` to stderr and
-exit 1.
+Exit 0 on success. On failure, print `FAIL: <port label>: <reason>` to stderr and exit 1.
 """
 
 from __future__ import annotations

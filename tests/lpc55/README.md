@@ -1,24 +1,24 @@
 # LPC55 USB HIL tests
 
-Hardware-in-the-loop tests for the `embassy-nxp` LPC55 USB device driver, run on an
+These hardware-in-the-loop tests cover the `embassy-nxp` LPC55 USB device driver on an
 LPCXpresso55S69 EVK (LPC55S69JBD100).
 
-Each firmware prints `Test OK` and halts on a breakpoint on success, and panics via `defmt` on
-failure. Tests that need a host peer print a fixed ready banner first and are driven by a
-script in [`host/`](host).
+Each firmware prints `Test OK` and stops at a breakpoint on success. On failure, it panics through
+`defmt`. A host-driven firmware first prints a fixed ready banner, then a script from
+[`host/`](host) runs its USB peer.
 
 ## Cabling
 
-- A debug probe on the SWD header must be connected to the host — `probe-rs` flashes and runs
-  over it. The onboard LPC-LINK2 (CMSIS-DAP) and an external probe such as a SEGGER J-Link both work.
-- **P10** (USB0, full speed): host cable required by every test except `alloc` and `bus_raw`.
-- **P9** (USB1, high speed): same.
-- `usb_alloc` and `usb_bus_raw` need no host cable at all: neither ever brings the bus up.
+- Connect a debug probe from the host to the SWD header. `probe-rs` flashes and runs through it.
+  The onboard LPC-LINK2 (CMSIS-DAP) and external probes such as the SEGGER J-Link both work.
+- Connect **P10** for USB0 full-speed tests and **P9** for USB1 high-speed tests.
+- The `alloc`, `alloc_small`, and `bus_raw` tests need no host cable. Their firmware never starts
+  either USB bus.
 
-A charge-only cable fails silently and looks like a driver bug: the board is powered, the
-firmware arms the bus, and the host sees nothing at all. Read `DEVCMDSTAT` over the probe to
-tell the two apart — `VBUS_DEBOUNCED=1` with `DCON=1` and `DEV_ADDR=0` means the device is
-attached and waiting, so the fault is in the cable or the port, not the firmware.
+A charge-only cable can look like a driver fault. It powers the board, the firmware arms the bus,
+and the host sees no device. Read `DEVCMDSTAT` through the probe to identify this fault.
+`VBUS_DEBOUNCED=1`, `DCON=1`, and `DEV_ADDR=0` mean that the device is attached and waiting.
+In that state, the cable or host port caused the fault.
 
 ## Running
 
@@ -29,11 +29,11 @@ python3 tests/lpc55/run.py --only hs_conformance
 python3 tests/lpc55/run.py --keep-going # do not stop at the first failure
 ```
 
-Run it **unprivileged**, so `cargo` and `probe-rs` keep the user's `~/.cargo` and target
-directory. The orchestrator elevates only the two conformance host scripts, which need raw USB
-access to a vendor interface, as `sudo -n <this interpreter> host/conformance.py …`. Passwordless
-`sudo` is therefore required for the conformance tests; everything else runs as the user
-(the CDC-based tests only need `/dev/ttyACM*`, which is `root:dialout`).
+Run the suite as an unprivileged user. This keeps `cargo` and `probe-rs` on the user's `~/.cargo`
+and target directories. The orchestrator uses `sudo` only for the two conformance entries:
+`sudo -n <this interpreter> host/conformance.py …`. They need raw USB access to the vendor
+interface, so passwordless `sudo` is required. All other entries run as the current user.
+The CDC tests need access to `/dev/ttyACM*`, which is normally owned by `root:dialout`.
 
 Individual firmwares still run standalone:
 
@@ -43,10 +43,11 @@ cd tests/lpc55 && cargo run --release --bin usb_alloc
 
 | Test | Firmware | Host peer | What it proves |
 |---|---|---|---|
-| `alloc` | `usb_alloc` | — | Max-packet-size caps per type, direction and instance, including the 1023-byte high-speed iso-IN cap from erratum USB.6; the multi-packet to single-packet slot fallback; endpoint-index exhaustion; control-endpoint rejection. Both controllers, no cable. |
-| `bus_raw` | `usb_bus_raw` | — | The `Bus` methods `embassy-usb` never calls: stall/unstall round-trip, iso endpoints never stalling, `disable` gating the clocks and powering down the PHY, a second `enable` taking the `reinit` path, and `force_reset`. Both controllers, no cable. |
-| `fs_enumerate` | `usb_fs_enumerate` | — | USB0 reaches `Configured` with a non-zero device address within 10 s under `Config::default()`, which proves the full-speed driver brings up its own 48 MHz clock. |
-| `hs_enumerate` | `usb_hs_enumerate` | — | The same for USB1 under `MainClock::FroHf96`, plus `DEVCMDSTAT.SPEED == 10b`, so a silent fallback to full speed on P9 fails instead of passing. |
+| `alloc` | `usb_alloc` | None | Max-packet-size caps per type, direction, and instance, including the 1023-byte high-speed iso-IN cap from erratum USB.6. It also covers multi-packet to single-packet slot fallback, endpoint-index exhaustion, and control-endpoint rejection. Both controllers, no cable. |
+| `alloc_small` | `usb_alloc_small` | None | EP0 stays reserved when exactly 512 bytes can hold only one double-buffered 64-byte data endpoint. USB0, no cable. |
+| `bus_raw` | `usb_bus_raw` | None | Covers `Bus` methods that `embassy-usb` does not call: stall/unstall round-trip, iso endpoints never stalling, `disable` clock and PHY gating, the second-`enable` `reinit` path, and `force_reset`. Both controllers, no cable. |
+| `fs_enumerate` | `usb_fs_enumerate` | None | USB0 reaches `Configured` with a non-zero device address within 10 s under `Config::default()`, which proves the full-speed driver brings up its own 48 MHz clock. |
+| `hs_enumerate` | `usb_hs_enumerate` | None | The same for USB1 under `MainClock::FroHf96`, plus `DEVCMDSTAT.SPEED == 10b`, so a silent fallback to full speed on P9 fails instead of passing. |
 | `dual_pll0` | `usb_dual_pll0` | `host/dual_echo.py` | Both controllers live at once under `MainClock::Pll0_150M`, high speed asserted on USB1, and a concurrent CDC-ACM echo on both ports driven from two host threads. |
 | `fs_conformance` | `usb_fs_conformance` | `host/conformance.py` | See below. Full speed. |
 | `hs_conformance` | `usb_hs_conformance` | `host/conformance.py` | See below. High speed. |
@@ -55,51 +56,53 @@ cd tests/lpc55 && cargo run --release --bin usb_alloc
 
 ## Conformance test
 
-`usb_{hs,fs}_conformance` expose one vendor interface with two alternate settings — alt 0 has
-bulk OUT, bulk IN and interrupt IN, alt 1 has isochronous OUT and IN — plus a vendor control
-protocol the host uses to set a mode, trigger single transfers and read back device-side
-counters. The firmware is one generic implementation in [`src/conformance.rs`](src/conformance.rs)
-parameterised per controller, so the two runs are directly comparable.
+`usb_{hs,fs}_conformance` expose one vendor interface with two alternate settings. Alt 0 has bulk
+OUT, bulk IN, and interrupt IN. Alt 1 has isochronous OUT and IN. The host uses a vendor control
+protocol to set modes, trigger transfers, and read device counters.
+
+Both controller binaries use the generic implementation in
+[`src/conformance.rs`](src/conformance.rs), so their results are directly comparable.
 
 `host/conformance.py` owns every host-observable expectation and runs these phases in order:
 
-1. **descriptors** — negotiated link speed from sysfs (480 or 12 Mbps), endpoint packet sizes,
-   two alternate settings on interface 0.
-2. **control_data** — vendor control echo at 0, 1, 63, 64, 65 and 200 bytes, covering the
-   multi-packet `ControlPipe::data_out` loop, the exact-EP0-packet boundary and a request with
+1. **descriptors**: negotiated link speed from sysfs (480 or 12 Mbps), endpoint packet sizes,
+   and two alternate settings on interface 0.
+2. **control_data**: vendor control echo at 0, 1, 63, 64, 65 and 200 bytes, covering the
+   multi-packet `ControlPipe::data_out` loop, the exact-EP0-packet boundary, and a request with
    no data stage.
-3. **control_reject** — an unsupported vendor request must STALL, and the next request must
-   succeed, proving `ControlPipe::setup` cleared the EP0 stall.
-4. **bulk_echo** — round-trip at 0, 1, 7, 8, 63, 64, 65, mps−1, mps, mps+1 and 3·mps bytes.
-   The odd lengths cover erratum USB.5 on high speed, the multiples of mps cover zero-length
-   packet termination, and 0 must round-trip a ZLP.
-5. **bulk_sink** — a sustained multi-packet OUT stream checked against a stream-offset ramp.
-6. **multi_packet_in** — a device-driven IN stream, which on high speed is one 3584-byte
-   hardware-packetized slot write plus a 512-byte one.
-7. **halt** — `SET_FEATURE(ENDPOINT_HALT)` on bulk IN with a reply already armed (the EPSKIP
-   reclaim path) and on bulk OUT with a read pending; `GET_STATUS` in both states; a transfer
-   that must STALL on the wire; `clear_halt`; and an exact echo afterwards, which is the
-   data-toggle-reset proof.
-8. **configuration_cycle** — `SET_CONFIGURATION(0)` must surface as `Disabled` to the endpoint
+3. **control_reject**: an unsupported vendor request must STALL. The next request must succeed
+   to prove that `ControlPipe::setup` cleared the EP0 stall.
+4. **bulk_echo**: round-trip at 0, 1, 7, 8, 63, 64, 65, mps−1, mps, mps+1 and 3·mps bytes.
+   The odd lengths cover erratum USB.5 on high speed. The mps multiples cover zero-length packet
+   termination, and 0 must round-trip a ZLP.
+5. **bulk_sink**: a sustained multi-packet OUT stream checked against a stream-offset ramp.
+6. **multi_packet_in**: a device-driven IN stream. At high speed, this uses one 3584-byte
+   hardware-packetized slot write followed by a 512-byte write.
+7. **halt**: `SET_FEATURE(ENDPOINT_HALT)` on bulk IN with a reply already armed (the EPSKIP
+   reclaim path), and on bulk OUT with a read pending. The phase checks `GET_STATUS` in both
+   states and requires a transfer to STALL on the wire. It then clears the halt and requires
+   an exact echo to prove that the data toggle reset.
+8. **configuration_cycle**: `SET_CONFIGURATION(0)` must surface as `Disabled` to the endpoint
    tasks, and `SET_CONFIGURATION(1)` must bring the endpoints back.
-9. **alt_and_iso** — switching to alt setting 1 must disable the bulk endpoints, `GET_INTERFACE`
-   must report 1, then 128 isochronous OUT packets and 128 isochronous IN packets each way with
-   an 80 % delivery floor and a per-packet payload check, then a return to alt 0 and an exact
-   bulk echo.
-10. **interrupt_in** — four triggered interrupt IN packets of 1, 8, 15 and 16 bytes.
+9. **alt_and_iso**: switching to alt setting 1 must disable the bulk endpoints, and
+   `GET_INTERFACE` must report 1. The host then transfers 128 isochronous OUT packets and 128
+   isochronous IN packets, with an 80 % delivery floor and a per-packet payload check. The phase
+   ends by returning to alt 0 and checking an exact bulk echo.
+10. **interrupt_in**: four triggered interrupt IN packets of 1, 8, 15 and 16 bytes.
 
-The device then checks what only it can see — no payload mismatches, no buffer overflows, at
-least two `Disabled` reports, traffic in both bulk directions, exactly four interrupt packets —
-and prints `Test OK`.
+The device then checks its private state: no payload mismatches, no buffer overflows, at least
+two `Disabled` reports, traffic in both bulk directions, and exactly four interrupt packets.
+It prints `Test OK` if all checks pass.
 
 Both host scripts and the firmware use the same ramp as
 `examples/lpc55s69/scripts/usb_throughput.py`: byte `k` of a payload is `(k % 512) as u8`.
 
-Full speed runs its isochronous endpoints at **512** bytes rather than the 1023-byte full-speed
-maximum. Two 1023-byte isochronous endpoints do not fit the 1 ms frame's 90 % periodic budget,
-and a 1023-byte full-speed isochronous IN through a high-speed hub's transaction translator only
-survives one packet per URB on a typical host — multi-packet URBs come back truncated. The
-1023-byte allocation boundary itself is covered by `usb_alloc` on both controllers.
+Full speed uses **512-byte** isochronous endpoints instead of the 1023-byte maximum. Two
+1023-byte isochronous endpoints exceed the 1 ms frame's 90 % periodic budget.
+
+A high-speed hub's transaction translator limits 1023-byte full-speed isochronous IN transfers
+to one packet per URB on a typical host. Multi-packet URBs return truncated data. `usb_alloc`
+covers the 1023-byte allocation boundary on both controllers.
 
 ## Throughput reference and gate
 
@@ -115,19 +118,19 @@ The gate is roughly 75 % of the measured figure, low enough to absorb host jitte
 enough to catch a real regression. `run.py` enforces it with the script's `--min-rate` option.
 
 FS is ~74 % of the 1.216 MB/s full-speed bulk ceiling (19 packets x 64 B per 1 ms frame).
-HS IN writes a whole 3584-byte bulk slot per call, which hardware packetizes; HS OUT reads one
-packet per call because [`EndpointOut::read`] owes its caller a single packet, so it pays a
+HS IN writes a whole 3584-byte bulk slot per call, which hardware packetizes. HS OUT reads one
+packet per call because [`EndpointOut::read`] owes its caller a single packet. This adds a
 per-packet turnaround.
 
-A `dev`-profile build measures roughly 0.3 MB/s in both directions on either controller. That
-is the unoptimized driver and class layer being CPU-bound, not the bus, and it is two orders of
-magnitude below the hardware — always measure with `--release`.
+A `dev`-profile build reaches roughly 0.3 MB/s in both directions on either controller. The
+unoptimized driver and class layer limit this rate, not the bus. This result is two orders of
+magnitude below the hardware rate, so always measure with `--release`.
 
 ## VBUS attach and detach
 
-`Event::PowerDetected` / `PowerRemoved` and the attach-armed soft-connect are not in `run.py` —
-no firmware can drop its own VBUS — so they are checked by hand. A hub with per-port power
-switching makes that repeatable without touching a cable:
+Manual checks cover `Event::PowerDetected`, `PowerRemoved`, and the attach-armed soft-connect.
+No firmware can remove its own VBUS. A hub with per-port power switching makes these checks
+repeatable without touching a cable:
 
 ```sh
 lsusb -t                                                  # locate the board, e.g. bus 1, hub 10, port 3
@@ -140,30 +143,28 @@ sudo sh -c "echo 0 > $port"    # VBUS on
 A hub without per-port power switching only disables the port and leaves VBUS up, which does
 not exercise this path at all.
 
-Checked on both controllers with `usb_fs_serial` (P10), `usb_hs_serial` (P9) and literal cable
+We checked both controllers with `usb_fs_serial` (P10), `usb_hs_serial` (P9), and literal cable
 pulls on `usb_dual`:
 
-- echo, VBUS drop, VBUS return, echo again — no reflash in between;
-- firmware started with the cable absent attaches when the cable arrives after `usb.run()` is
-  already polling;
-- a partial protocol header sent to `usb_{fs,hs}_throughput` does not survive the drop:
-  `usb_throughput.py --protocol-check` passes afterwards, because the bench loop builds a fresh
+- echo, VBUS drop, VBUS return, and echo again (no reflash in between).
+- firmware starts with the cable absent and attaches when the cable arrives after `usb.run()`
+  starts polling.
+- a partial protocol header sent to `usb_{fs,hs}_throughput` does not survive the drop.
+  `usb_throughput.py --protocol-check` passes afterwards because the bench loop builds a fresh
   `Parser` every time `wait_connection` returns.
 
-Pull one cable at a time. The board is powered from VBUS, so removing both cuts its supply and
-the firmware restarts instead of riding the disconnect out.
+Pull one cable at a time. VBUS powers the board, so removing both cables cuts its supply.
+The firmware then restarts instead of riding the disconnect out.
 
 ## Not covered
 
-- **Suspend and resume**, including the `enautoclr_phy_pwd` resume workaround. Needs the host to
-  suspend the bus on demand, which no unprivileged sysfs knob exposes reliably.
-- **Remote wakeup** (`Bus::remote_wakeup`). Only observable out of a host-driven suspend, so it
-  inherits the same blocker.
+- **Suspend and resume**, including the `enautoclr_phy_pwd` resume workaround. This needs the host
+  to suspend the bus on demand, which no unprivileged sysfs control exposes reliably.
+- **Remote wakeup** (`Bus::remote_wakeup`). It requires the same host-driven suspend.
 - **USBHSD rejecting a full-speed link.** The `USBHSD negotiated unsupported speed` panic needs
-  a full-speed-only USB 1.1 hub between P9 and the host. The source-level branch and the normal
-  high-speed P9 path are both retained; the panic itself is untested on hardware.
-- **`Memory::usb1_sram` double-take and the `Memory::buffer` size assert.** These
-  are panicking paths with no non-destructive assertion available; a test for them would have to
-  assert that the firmware panicked.
+  a full-speed-only USB 1.1 hub between P9 and the host. The driver retains the source branch and
+  the normal high-speed P9 path, but this panic remains untested on hardware.
+- **`Memory::usb1_sram` double-take and the `Memory::buffer` size assert.** These paths panic,
+  and no non-destructive assertion is available. A test would have to assert the firmware panic.
 
 [`EndpointOut::read`]: https://docs.rs/embassy-usb-driver/latest/embassy_usb_driver/trait.EndpointOut.html#tymethod.read

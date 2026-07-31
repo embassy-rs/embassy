@@ -20,7 +20,7 @@ use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use defmt::{info, panic};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_futures::join::join5;
+use embassy_futures::join::{join, join3};
 use embassy_nxp::config::MainClock;
 use embassy_nxp::usb::{Driver, InterruptHandler, Memory};
 use embassy_nxp::{bind_interrupts, pac, peripherals};
@@ -47,7 +47,6 @@ static FS_CONFIGURED: AtomicBool = AtomicBool::new(false);
 static HS_ECHOED: AtomicU32 = AtomicU32::new(0);
 static FS_ECHOED: AtomicU32 = AtomicU32::new(0);
 
-/// Records the host's `SET_CONFIGURATION` into a per-device flag.
 struct ConfiguredHandler(&'static AtomicBool);
 
 impl Handler for ConfiguredHandler {
@@ -56,6 +55,35 @@ impl Handler for ConfiguredHandler {
             self.0.store(true, Ordering::Relaxed);
         }
     }
+}
+
+struct Resources<'d> {
+    config_descriptor: [u8; 256],
+    bos_descriptor: [u8; 256],
+    control_buf: [u8; 64],
+    state: State<'d>,
+    handler: ConfiguredHandler,
+    echoed: &'static AtomicU32,
+}
+
+impl<'d> Resources<'d> {
+    const fn new(configured: &'static AtomicBool, echoed: &'static AtomicU32) -> Self {
+        Self {
+            config_descriptor: [0; 256],
+            bos_descriptor: [0; 256],
+            control_buf: [0; 64],
+            state: State::new(),
+            handler: ConfiguredHandler(configured),
+            echoed,
+        }
+    }
+}
+
+struct Params {
+    pid: u16,
+    product: &'static str,
+    serial: &'static str,
+    max_speed: UsbDeviceSpeed,
 }
 
 #[embassy_executor::main]
@@ -80,84 +108,69 @@ async fn main(_spawner: Spawner) {
     // USB0 uses main SRAM so both controllers can run at the same time.
     let hs_driver = Driver::<peripherals::USBHSD>::new(p.USBHSD, Irqs, Memory::usb1_sram());
     let mut ep_mem = [0u8; 4096];
-    let fs_mem = Memory::buffer(&mut ep_mem);
-    let fs_driver = Driver::<peripherals::USB0>::new(p.USB0, Irqs, p.PIO0_22, fs_mem);
+    let fs_driver = Driver::<peripherals::USB0>::new(p.USB0, Irqs, p.PIO0_22, Memory::buffer(&mut ep_mem));
+    let mut hs_resources = Resources::new(&HS_CONFIGURED, &HS_ECHOED);
+    let mut fs_resources = Resources::new(&FS_CONFIGURED, &FS_ECHOED);
 
-    // --- High-speed device ---
-    //
-    // The manufacturer, product and serial strings below are load-bearing: the
-    // Linux `/dev/serial/by-id/` symlink name is derived from them, and
-    // `host/dual_echo.py` matches on `USB-HS_dual_pll0` / `USB-FS_dual_pll0` to
-    // find the two CDC nodes. Changing them breaks the host peer.
-    let mut hs_config = embassy_usb::Config::new(0xc0de, 0xcb03);
-    hs_config.manufacturer = Some("Embassy");
-    hs_config.product = Some("USB-HS dual pll0");
-    hs_config.serial_number = Some("hs-dual");
-    hs_config.max_power = 100;
-    hs_config.max_packet_size_0 = 64;
-    hs_config.max_speed = UsbDeviceSpeed::High;
-
-    let mut hs_config_descriptor = [0; 256];
-    let mut hs_bos_descriptor = [0; 256];
-    let mut hs_control_buf = [0; 64];
-    let mut hs_state = State::new();
-    let mut hs_handler = ConfiguredHandler(&HS_CONFIGURED);
-
-    let mut hs_builder = embassy_usb::Builder::new(
+    // These strings are load-bearing: Linux derives `/dev/serial/by-id/` names
+    // from them, and `host/dual_echo.py` uses the product names to find both ports.
+    let hs = device::<_, 512>(
         hs_driver,
-        hs_config,
-        &mut hs_config_descriptor,
-        &mut hs_bos_descriptor,
-        &mut [], // no msos descriptors
-        &mut hs_control_buf,
+        &mut hs_resources,
+        Params {
+            pid: 0xcb03,
+            product: "USB-HS dual pll0",
+            serial: "hs-dual",
+            max_speed: UsbDeviceSpeed::High,
+        },
     );
-    let mut hs_class = CdcAcmClass::new(&mut hs_builder, &mut hs_state, 512);
-    hs_builder.handler(&mut hs_handler);
-    let mut hs_usb = hs_builder.build();
-
-    // --- Full-speed device ---
-    let mut fs_config = embassy_usb::Config::new(0xc0de, 0xcb04);
-    fs_config.manufacturer = Some("Embassy");
-    fs_config.product = Some("USB-FS dual pll0");
-    fs_config.serial_number = Some("fs-dual");
-    fs_config.max_power = 100;
-    fs_config.max_packet_size_0 = 64;
-
-    let mut fs_config_descriptor = [0; 256];
-    let mut fs_bos_descriptor = [0; 256];
-    let mut fs_control_buf = [0; 64];
-    let mut fs_state = State::new();
-    let mut fs_handler = ConfiguredHandler(&FS_CONFIGURED);
-
-    let mut fs_builder = embassy_usb::Builder::new(
+    let fs = device::<_, 64>(
         fs_driver,
-        fs_config,
-        &mut fs_config_descriptor,
-        &mut fs_bos_descriptor,
-        &mut [], // no msos descriptors
-        &mut fs_control_buf,
+        &mut fs_resources,
+        Params {
+            pid: 0xcb04,
+            product: "USB-FS dual pll0",
+            serial: "fs-dual",
+            max_speed: UsbDeviceSpeed::Full,
+        },
     );
-    let mut fs_class = CdcAcmClass::new(&mut fs_builder, &mut fs_state, 64);
-    fs_builder.handler(&mut fs_handler);
-    let mut fs_usb = fs_builder.build();
 
-    let hs_echo = async {
+    join3(hs, fs, verdict()).await;
+}
+
+async fn device<'d, D: embassy_usb::driver::Driver<'d>, const MPS: usize>(
+    driver: D,
+    resources: &'d mut Resources<'d>,
+    params: Params,
+) {
+    let mut config = embassy_usb::Config::new(0xc0de, params.pid);
+    config.manufacturer = Some("Embassy");
+    config.product = Some(params.product);
+    config.serial_number = Some(params.serial);
+    config.max_power = 100;
+    config.max_packet_size_0 = 64;
+    config.max_speed = params.max_speed;
+
+    let echoed = resources.echoed;
+    let mut builder = embassy_usb::Builder::new(
+        driver,
+        config,
+        &mut resources.config_descriptor,
+        &mut resources.bos_descriptor,
+        &mut [],
+        &mut resources.control_buf,
+    );
+    let mut class = CdcAcmClass::new(&mut builder, &mut resources.state, MPS as u16);
+    builder.handler(&mut resources.handler);
+    let mut usb = builder.build();
+
+    let echo = async {
         loop {
-            hs_class.wait_connection().await;
-            let _ = echo_hs(&mut hs_class).await;
+            class.wait_connection().await;
+            let _ = echo::<D, MPS>(&mut class, echoed).await;
         }
     };
-
-    let fs_echo = async {
-        loop {
-            fs_class.wait_connection().await;
-            let _ = echo_fs(&mut fs_class).await;
-        }
-    };
-
-    // Both device stacks, both echo loops and the verdict task run concurrently
-    // on one executor.
-    join5(hs_usb.run(), fs_usb.run(), hs_echo, fs_echo, verdict()).await;
+    join(usb.run(), echo).await;
 }
 
 /// Waits for both devices to enumerate, checks what only the device can see,
@@ -200,28 +213,27 @@ async fn verdict() -> ! {
     info!("Test OK");
     cortex_m::asm::bkpt();
 
-    // `bkpt` halts under a debugger, but keep the future's type honest.
     loop {
         Timer::after_millis(1000).await;
     }
 }
 
-struct Disconnected {}
+struct Disconnected;
 
 impl From<EndpointError> for Disconnected {
-    fn from(val: EndpointError) -> Self {
-        match val {
+    fn from(error: EndpointError) -> Self {
+        match error {
             EndpointError::BufferOverflow => panic!("Buffer overflow"),
-            EndpointError::Disabled => Disconnected {},
+            EndpointError::Disabled => Disconnected,
         }
     }
 }
 
-/// An echo of exactly one max-packet-size packet needs a trailing zero-length
-/// packet to end the transfer: without it the host keeps waiting for more and
-/// never delivers the reply.
-async fn echo_hs<'d>(class: &mut CdcAcmClass<'d, Driver<'d, peripherals::USBHSD>>) -> Result<(), Disconnected> {
-    const MPS: usize = 512;
+/// A full packet needs a trailing zero-length packet to terminate the transfer.
+async fn echo<'d, D: embassy_usb::driver::Driver<'d>, const MPS: usize>(
+    class: &mut CdcAcmClass<'d, D>,
+    echoed: &AtomicU32,
+) -> Result<(), Disconnected> {
     let mut buf = [0; MPS];
     loop {
         let n = class.read_packet(&mut buf).await?;
@@ -229,20 +241,6 @@ async fn echo_hs<'d>(class: &mut CdcAcmClass<'d, Driver<'d, peripherals::USBHSD>
         if n == MPS {
             class.write_packet(&[]).await?;
         }
-        HS_ECHOED.fetch_add(n as u32, Ordering::Relaxed);
-    }
-}
-
-/// See [`echo_hs`] for the trailing zero-length packet.
-async fn echo_fs<'d>(class: &mut CdcAcmClass<'d, Driver<'d, peripherals::USB0>>) -> Result<(), Disconnected> {
-    const MPS: usize = 64;
-    let mut buf = [0; MPS];
-    loop {
-        let n = class.read_packet(&mut buf).await?;
-        class.write_packet(&buf[..n]).await?;
-        if n == MPS {
-            class.write_packet(&[]).await?;
-        }
-        FS_ECHOED.fetch_add(n as u32, Ordering::Relaxed);
+        echoed.fetch_add(n as u32, Ordering::Relaxed);
     }
 }

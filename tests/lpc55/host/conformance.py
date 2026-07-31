@@ -17,6 +17,7 @@ import argparse
 from array import array
 import glob
 import os
+import struct
 import sys
 import time
 from typing import NamedTuple, NoReturn
@@ -73,7 +74,7 @@ RAMP_PERIOD = 512
 _RAMP = bytes((k % RAMP_PERIOD) & 0xFF for k in range(RAMP_PERIOD))
 
 
-REPORT_LEN = 30
+REPORT = struct.Struct("<IIIIIHHHHH")
 
 
 class Report(NamedTuple):
@@ -126,27 +127,9 @@ class Device:
         return bytes(self.dev.ctrl_transfer(VENDOR_IN, request, w_value, 0, length, 5000))
 
     def report(self) -> Report:
-        raw = self.ctrl_in(GET_REPORT, REPORT_LEN)
-        require(len(raw) == REPORT_LEN, f"GET_REPORT returned {len(raw)} bytes")
-
-        def u32(o: int) -> int:
-            return int.from_bytes(raw[o : o + 4], "little")
-
-        def u16(o: int) -> int:
-            return int.from_bytes(raw[o : o + 2], "little")
-
-        return Report(
-            bulk_out_bytes=u32(0),
-            bulk_in_bytes=u32(4),
-            iso_out_bytes=u32(8),
-            disabled_errors=u32(12),
-            overflow_errors=u32(16),
-            iso_out_packets=u16(20),
-            iso_in_packets=u16(22),
-            int_in_packets=u16(24),
-            ramp_mismatches=u16(26),
-            zlp_out_count=u16(28),
-        )
+        raw = self.ctrl_in(GET_REPORT, REPORT.size)
+        require(len(raw) == REPORT.size, f"GET_REPORT returned {len(raw)} bytes")
+        return Report(*REPORT.unpack(raw))
 
     def set_mode(self, mode: int, param: int = 0) -> None:
         self.ctrl_out(SET_MODE, 0, bytes([mode, 0, param & 0xFF, (param >> 8) & 0xFF]))
