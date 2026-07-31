@@ -4,6 +4,11 @@ macro_rules! peri_trait {
     (
         $(irqs: [$($irq:ident),*],)?
     ) => {
+        pub(crate) struct Info {
+            pub(crate) regs: Regs,
+            pub(crate) rcc: RccInfo,
+        }
+
         #[allow(private_interfaces)]
         pub(crate) trait SealedInstance {
             #[allow(unused)]
@@ -24,11 +29,14 @@ macro_rules! peri_trait {
 }
 
 macro_rules! peri_trait_impl {
-    ($instance:ident, $info:expr) => {
+    ($instance:ident $(, irqs: [$($irq:ident : $impl:ident),* $(,)?])?) => {
         #[allow(private_interfaces)]
         impl SealedInstance for crate::peripherals::$instance {
             fn info() -> &'static Info {
-                static INFO: Info = $info;
+                static INFO: Info = Info {
+                    regs: crate::pac::$instance,
+                    rcc: <crate::peripherals::$instance as crate::rcc::SealedRccPeripheral>::RCC_INFO,
+                };
                 &INFO
             }
             fn state() -> &'static State {
@@ -36,7 +44,11 @@ macro_rules! peri_trait_impl {
                 &STATE
             }
         }
-        impl Instance for crate::peripherals::$instance {}
+        impl Instance for crate::peripherals::$instance {
+            $($(
+                type $irq = crate::interrupt::typelevel::$impl;
+            )*)?
+        }
     };
 }
 

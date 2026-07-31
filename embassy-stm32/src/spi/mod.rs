@@ -18,7 +18,7 @@ use crate::dma::{ChannelAndRequest, word};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{Spi as Regs, regs, vals};
-use crate::rcc::{RccInfo, SealedRccPeripheral};
+use crate::rcc::RccInfo;
 use crate::time::Hertz;
 
 /// SPI error.
@@ -1743,11 +1743,6 @@ mod word_impl {
     impl_word!(u32, 32 - 1);
 }
 
-pub(crate) struct Info {
-    pub(crate) regs: Regs,
-    pub(crate) rcc: RccInfo,
-}
-
 struct State {}
 
 impl State {
@@ -1774,10 +1769,7 @@ dma_trait!(RxDmaExt, Instance);
 
 foreach_peripheral!(
     (spi, $inst:ident) => {
-        peri_trait_impl!($inst, Info {
-            regs: crate::pac::$inst,
-            rcc: crate::peripherals::$inst::RCC_INFO,
-        });
+        peri_trait_impl!($inst);
     };
 );
 

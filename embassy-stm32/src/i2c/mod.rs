@@ -23,6 +23,7 @@ use crate::dma::ChannelAndRequest;
 use crate::gpio::Flex;
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
+use crate::pac::i2c::I2c as Regs;
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::{interrupt, peripherals};
@@ -301,11 +302,6 @@ impl State {
             waker: AtomicWaker::new(),
         }
     }
-}
-
-struct Info {
-    regs: crate::pac::i2c::I2c,
-    rcc: RccInfo,
 }
 
 peri_trait!(

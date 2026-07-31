@@ -271,11 +271,6 @@ impl State {
     }
 }
 
-struct Info {
-    regs: crate::pac::spdifrx::Spdifrx,
-    rcc: RccInfo,
-}
-
 peri_trait!(
     irqs: [GlobalInterrupt],
 );
