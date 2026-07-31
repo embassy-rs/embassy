@@ -16,7 +16,7 @@ cargo install --git https://github.com/embassy-rs/docserver --locked --rev 2fb83
 
 mv rust-toolchain-nightly.toml rust-toolchain.toml
 
-cargo embassy-devtool doc -o webroot --monitor
+cargo embassy-devtool doc -o webroot
 
 export KUBECONFIG=/ci/secrets/kubeconfig.yml
 POD=$(kubectl get po -l app=docserver -o jsonpath={.items[0].metadata.name})
