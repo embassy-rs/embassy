@@ -3,6 +3,7 @@
 mod rx_desc;
 mod tx_desc;
 
+use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::Peri;
