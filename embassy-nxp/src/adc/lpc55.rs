@@ -229,7 +229,7 @@ pub trait AdcPin: crate::gpio::Pin {
     fn channel(&self) -> u8;
 
     /// Channel side (A / B), 0 = A, 1 = B
-    fn ctype(&self) -> u8;
+    fn channel_side(&self) -> ChannelSide;
 
     /// Set up the iocon register for that pin
     fn configure_iocon(&self) {
@@ -242,7 +242,7 @@ pub trait AdcPin: crate::gpio::Pin {
                     w.set_func(0.into());
                     w.set_mode(0.into());
                     w.set_digimode(0.into());
-                    #[cfg(not(feature = "lpc55s16"))]
+                    #[cfg(feature = "lpc55s69")]
                     w.set_asw(1.into())
                 });
             }
@@ -251,7 +251,7 @@ pub trait AdcPin: crate::gpio::Pin {
                     w.set_func(0.into());
                     w.set_mode(0.into());
                     w.set_digimode(0.into());
-                    #[cfg(not(feature = "lpc55s16"))]
+                    #[cfg(feature = "lpc55s69")]
                     w.set_asw(1.into())
                 });
             }
@@ -276,7 +276,7 @@ macro_rules! impl_adc_pin {
                 $adc_channel
             }
 
-            fn ctype(&self) -> u8 {
+            fn channel_side(&self) -> ChannelSide {
                 $channel_side as u8
             }
         }
