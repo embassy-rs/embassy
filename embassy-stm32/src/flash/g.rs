@@ -184,6 +184,19 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     ret
 }
 
+/// Whether an operation is still in flight (bank-2 ops on dual-bank G0 assert
+/// BSY2/CFGBSY, not BSY1).
+fn sr_busy(sr: Sr) -> bool {
+    #[cfg(any(flash_g0x0, flash_g0x1))]
+    {
+        sr.bsy() | sr.bsy2() | sr.cfgbsy()
+    }
+    #[cfg(not(any(flash_g0x0, flash_g0x1)))]
+    {
+        sr.bsy()
+    }
+}
+
 pub(crate) async fn wait_ready() -> Result<(), Error> {
     use core::future::poll_fn;
     use core::task::Poll;
@@ -192,7 +205,7 @@ pub(crate) async fn wait_ready() -> Result<(), Error> {
         WAKER.register(cx.waker());
 
         let sr = pac::FLASH.sr().read();
-        if !sr.bsy() {
+        if !sr_busy(sr) {
             Poll::Ready(get_result(sr))
         } else {
             Poll::Pending
@@ -204,7 +217,7 @@ pub(crate) async fn wait_ready() -> Result<(), Error> {
 pub(crate) unsafe fn wait_ready_blocking() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
-        if !sr.bsy() {
+        if !sr_busy(sr) {
             return get_result(sr);
         }
     }
@@ -232,14 +245,8 @@ pub(crate) unsafe fn clear_all_err() {
     pac::FLASH.sr().modify(|_| {});
 }
 
-#[cfg(any(flash_g0x0, flash_g0x1))]
 fn wait_busy() {
-    while pac::FLASH.sr().read().bsy() | pac::FLASH.sr().read().bsy2() {}
-}
-
-#[cfg(not(any(flash_g0x0, flash_g0x1)))]
-fn wait_busy() {
-    while pac::FLASH.sr().read().bsy() {}
+    while sr_busy(pac::FLASH.sr().read()) {}
 }
 
 // G4 data cache handling - must disable during flash operations
