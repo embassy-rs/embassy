@@ -21,3 +21,8 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf" }
+]

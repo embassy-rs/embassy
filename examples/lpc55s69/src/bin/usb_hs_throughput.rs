@@ -28,7 +28,6 @@ use embassy_usb::UsbDeviceSpeed;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use panic_probe as _;
-
 use throughput::{Event, Parser};
 
 bind_interrupts!(struct Irqs {
