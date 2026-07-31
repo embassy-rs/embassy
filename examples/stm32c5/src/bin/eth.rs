@@ -59,15 +59,15 @@ async fn main(spawner: Spawner) -> ! {
         p.ETH1,
         Irqs,
         p.PA1,
-        p.PA7,
+        p.PD1,
         p.PC4,
         p.PC5,
         p.PG13,
-        p.PB15,
+        p.PG12,
         p.PG11,
         mac_addr,
         p.ETH_SMA,
-        p.PA2,
+        p.PE12,
         p.PC1,
     );
 
