@@ -6,13 +6,14 @@ use core::str;
 
 use cyw43::{Cyw4373, aligned_bytes};
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::{Config, SharedData, bind_interrupts, peripherals, sdmmc};
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 #[unsafe(link_section = ".ram_d3.shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
@@ -127,7 +128,7 @@ async fn main(spawner: Spawner) {
     wl_reg.set_high();
     Timer::after_millis(500).await;
 
-    let (_net_device, mut control, runner) = cyw43::new_4373_sdio(state, sdmmc, fw, nvram).await.unwrap();
+    let (_net_device, mut control, runner) = cyw43::new_4373_sdio(state, sdmmc, fw, nvram, 12_500_000).await.unwrap();
 
     info!("spawn task");
     spawner.spawn(unwrap!(cyw43_task(runner)));

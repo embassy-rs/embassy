@@ -128,6 +128,38 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
         ))
     }
 
+    /// Create a new LPUART TX driver with DMA support and CTS flow control.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
+    pub fn new_async_with_dma_cts<T: Instance>(
+        _inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        cts_pin: Peri<'a, impl CtsPin<T>>,
+        tx_dma_ch: Peri<'a, impl Channel>,
+        config: Config,
+    ) -> Result<Self, Error> {
+        tx_pin.as_tx();
+        cts_pin.as_cts();
+        let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
+        let cts_pin: Peri<'a, AnyPin> = cts_pin.into();
+
+        // Initialize LPUART with TX enabled, RX disabled, CTS flow control enabled
+        let wg = Lpuart::<Dma<'_>>::init::<T>(true, false, true, false, config)?;
+
+        let dma = DmaChannel::new(tx_dma_ch);
+        dma.enable_interrupt();
+
+        Ok(Self::new_inner::<T>(
+            tx_pin,
+            Some(cts_pin),
+            Dma {
+                dma,
+                request: T::TX_DMA_REQUEST,
+            },
+            wg,
+        ))
+    }
+
     /// Write data using DMA.
     ///
     /// This configures the DMA channel for a memory-to-peripheral transfer
@@ -247,6 +279,38 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
                 request: T::RX_DMA_REQUEST,
             },
             _wg,
+        ))
+    }
+
+    /// Create a new LPUART RX driver with DMA support and RTS flow control.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
+    pub fn new_async_with_dma_rts<T: Instance>(
+        _inner: Peri<'a, T>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        rts_pin: Peri<'a, impl RtsPin<T>>,
+        rx_dma_ch: Peri<'a, impl Channel>,
+        config: Config,
+    ) -> Result<Self, Error> {
+        rx_pin.as_rx();
+        rts_pin.as_rts();
+        let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
+        let rts_pin: Peri<'a, AnyPin> = rts_pin.into();
+
+        // Initialize LPUART with TX disabled, RX enabled, RTS flow control enabled
+        let wg = Lpuart::<Dma<'_>>::init::<T>(false, true, false, true, config)?;
+
+        let dma = DmaChannel::new(rx_dma_ch);
+        dma.enable_interrupt();
+
+        Ok(Self::new_inner::<T>(
+            rx_pin,
+            Some(rts_pin),
+            Dma {
+                dma,
+                request: T::RX_DMA_REQUEST,
+            },
+            wg,
         ))
     }
 
@@ -497,6 +561,59 @@ impl<'a> Lpuart<'a, Dma<'a>> {
             rx: LpuartRx::new_inner::<T>(
                 rx_pin,
                 None,
+                Dma {
+                    dma: rx_dma,
+                    request: T::RX_DMA_REQUEST,
+                },
+                wg,
+            ),
+        })
+    }
+
+    /// Create a new full-duplex LPUART DMA driver with RTS/CTS flow control.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
+    pub fn new_async_with_dma_rtscts<T: Instance>(
+        _inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        cts_pin: Peri<'a, impl CtsPin<T>>,
+        rts_pin: Peri<'a, impl RtsPin<T>>,
+        tx_dma_ch: Peri<'a, impl Channel>,
+        rx_dma_ch: Peri<'a, impl Channel>,
+        config: Config,
+    ) -> Result<Self, Error> {
+        tx_pin.as_tx();
+        rx_pin.as_rx();
+        cts_pin.as_cts();
+        rts_pin.as_rts();
+
+        let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
+        let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
+        let cts_pin: Peri<'a, AnyPin> = cts_pin.into();
+        let rts_pin: Peri<'a, AnyPin> = rts_pin.into();
+
+        // Initialize LPUART with both TX and RX enabled, and both flow controls enabled
+        let wg = Lpuart::<Dma<'a>>::init::<T>(true, true, true, true, config)?;
+
+        let tx_dma = DmaChannel::new(tx_dma_ch);
+        let rx_dma = DmaChannel::new(rx_dma_ch);
+        tx_dma.enable_interrupt();
+        rx_dma.enable_interrupt();
+
+        Ok(Self {
+            tx: LpuartTx::new_inner::<T>(
+                tx_pin,
+                Some(cts_pin),
+                Dma {
+                    dma: tx_dma,
+                    request: T::TX_DMA_REQUEST,
+                },
+                wg.clone(),
+            ),
+            rx: LpuartRx::new_inner::<T>(
+                rx_pin,
+                Some(rts_pin),
                 Dma {
                     dma: rx_dma,
                     request: T::RX_DMA_REQUEST,

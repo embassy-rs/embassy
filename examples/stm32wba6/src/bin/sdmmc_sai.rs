@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::sai::{self, Sai};
@@ -11,8 +12,8 @@ use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use embedded_sdmmc::filesystem::ShortFileName;
 use embedded_sdmmc::{BlockDevice, RawFile, SdCard, TimeSource, VolumeIdx, VolumeManager};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 // Simple SD card audio streaming example for SAI.
 // - Supports raw unsigned 16-bit PCM (.pcm)
@@ -114,7 +115,7 @@ fn parse_wav_header(buf: &[u8]) -> Option<WavInfo> {
     })
 }
 
-async fn write_samples(sai_tx: &mut Sai<'static, peripherals::SAI1, u16>, samples: &[u16]) {
+async fn write_samples(sai_tx: &mut Sai<'static, u16>, samples: &[u16]) {
     if samples.is_empty() {
         return;
     }
@@ -124,7 +125,7 @@ async fn write_samples(sai_tx: &mut Sai<'static, peripherals::SAI1, u16>, sample
 }
 
 async fn play_pcm<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
-    sai_tx: &mut Sai<'static, peripherals::SAI1, u16>,
+    sai_tx: &mut Sai<'static, u16>,
     volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     file: RawFile,
 ) where
@@ -162,7 +163,7 @@ async fn play_pcm<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX
 }
 
 async fn play_wav<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX_VOLUMES: usize>(
-    sai_tx: &mut Sai<'static, peripherals::SAI1, u16>,
+    sai_tx: &mut Sai<'static, u16>,
     volume_mgr: &mut VolumeManager<D, T, MAX_DIRS, MAX_FILES, MAX_VOLUMES>,
     file: RawFile,
 ) where

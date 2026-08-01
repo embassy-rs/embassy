@@ -104,6 +104,20 @@ pub enum JoinAuth {
     Wpa2Wpa3,
 }
 
+/// Authentication type for an access point.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ApAuth {
+    /// Open network.
+    Open,
+    /// WPA2 only.
+    Wpa2,
+    /// WPA3 only. Requires compatible CYW43 firmware and client support.
+    Wpa3,
+    /// WPA2 + WPA3 transition mode. WPA3 requires compatible CYW43 firmware and client support.
+    Wpa2Wpa3,
+}
+
 /// Options for [`Control::join`].
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -449,18 +463,46 @@ impl<'a> Control<'a> {
 
     /// Start open access point.
     pub async fn start_ap_open(&mut self, ssid: &str, channel: u8) {
-        self.start_ap(ssid, "", Security::OPEN, channel).await;
+        self.start_ap(ssid, "", ApAuth::Open, channel).await;
     }
 
     /// Start WPA2 protected access point.
     pub async fn start_ap_wpa2(&mut self, ssid: &str, passphrase: &str, channel: u8) {
-        self.start_ap(ssid, passphrase, Security::WPA2_AES_PSK, channel).await;
+        self.start_ap(ssid, passphrase, ApAuth::Wpa2, channel).await;
     }
 
-    async fn start_ap(&mut self, ssid: &str, passphrase: &str, security: Security, channel: u8) {
-        if security != Security::OPEN && (passphrase.len() < MIN_PSK_LEN || passphrase.len() > MAX_PSK_LEN) {
+    /// Start WPA3 protected access point.
+    ///
+    /// Requires compatible CYW43 firmware and client support.
+    pub async fn start_ap_wpa3(&mut self, ssid: &str, passphrase: &str, channel: u8) {
+        self.start_ap(ssid, passphrase, ApAuth::Wpa3, channel).await;
+    }
+
+    /// Start WPA2/WPA3 transition mode access point.
+    ///
+    /// WPA3 requires compatible CYW43 firmware and client support.
+    pub async fn start_ap_wpa2_wpa3(&mut self, ssid: &str, passphrase: &str, channel: u8) {
+        self.start_ap(ssid, passphrase, ApAuth::Wpa2Wpa3, channel).await;
+    }
+
+    /// Start an access point with the specified authentication type.
+    ///
+    /// WPA3 requires compatible CYW43 firmware and client support.
+    pub async fn start_ap(&mut self, ssid: &str, passphrase: &str, auth: ApAuth, channel: u8) {
+        if auth != ApAuth::Open && (passphrase.len() < MIN_PSK_LEN || passphrase.len() > MAX_PSK_LEN) {
             panic!("Passphrase is too short or too long");
         }
+
+        let (security, mfp, wpa_auth) = match auth {
+            ApAuth::Open => (Security::OPEN, MFP_NONE, WPA_AUTH_DISABLED),
+            ApAuth::Wpa2 => (Security::WPA2_AES_PSK, MFP_NONE, WPA_AUTH_WPA2_PSK | WPA_AUTH_WPA_PSK),
+            ApAuth::Wpa3 => (Security::WPA3_SAE, MFP_REQUIRED, WPA_AUTH_WPA3_SAE_PSK),
+            ApAuth::Wpa2Wpa3 => (
+                Security::WPA3_WPA2_PSK,
+                MFP_CAPABLE,
+                WPA_AUTH_WPA2_PSK | WPA_AUTH_WPA3_SAE_PSK,
+            ),
+        };
 
         // Temporarily set wifi down
         self.down().await;
@@ -494,20 +536,24 @@ impl<'a> Control<'a> {
         // Set security
         self.set_iovar_u32x2("bsscfg:wsec", 0, (security as u32) & 0xFF).await;
 
-        if security != Security::OPEN {
-            self.set_iovar_u32x2("bsscfg:wpa_auth", 0, 0x0084).await; // wpa_auth = WPA2_AUTH_PSK | WPA_AUTH_PSK
+        // Set management frame protection
+        self.set_iovar_u32("mfp", mfp).await;
 
+        // Set WPA authentication
+        self.set_iovar_u32x2("bsscfg:wpa_auth", 0, wpa_auth).await;
+
+        if auth != ApAuth::Open {
             Timer::after_millis(100).await;
 
-            // Set passphrase
-            let mut pfi = PassphraseInfo {
-                len: passphrase.len() as _,
-                flags: 1, // WSEC_PASSPHRASE
-                passphrase: [0; 64],
-            };
-            pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
-            self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes().clone())
-                .await;
+            match auth {
+                ApAuth::Open => unreachable!(),
+                ApAuth::Wpa2 => self.set_ap_wpa2_passphrase(passphrase).await,
+                ApAuth::Wpa3 => self.set_ap_sae_passphrase(passphrase).await,
+                ApAuth::Wpa2Wpa3 => {
+                    self.set_ap_sae_passphrase(passphrase).await;
+                    self.set_ap_wpa2_passphrase(passphrase).await;
+                }
+            }
         }
 
         // Change mutlicast rate from 1 Mbps to 11 Mbps
@@ -515,6 +561,26 @@ impl<'a> Control<'a> {
 
         // Start AP
         self.set_iovar_u32x2("bss", 0, 1).await; // bss = BSS_UP
+    }
+
+    async fn set_ap_wpa2_passphrase(&mut self, passphrase: &str) {
+        let mut pfi = PassphraseInfo {
+            len: passphrase.len() as _,
+            flags: 1, // WSEC_PASSPHRASE
+            passphrase: [0; 64],
+        };
+        pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
+        self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes().clone())
+            .await;
+    }
+
+    async fn set_ap_sae_passphrase(&mut self, passphrase: &str) {
+        let mut pfi = SaePassphraseInfo {
+            len: passphrase.len() as _,
+            passphrase: [0; 128],
+        };
+        pfi.passphrase[..passphrase.len()].copy_from_slice(passphrase.as_bytes());
+        self.set_iovar("sae_password", pfi.to_bytes()).await;
     }
 
     /// Closes access point.

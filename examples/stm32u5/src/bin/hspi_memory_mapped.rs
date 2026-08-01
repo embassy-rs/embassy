@@ -7,6 +7,7 @@
 // Use embassy-stm32 feature "stm32u5g9zj" and probe-rs chip "STM32U5G9ZJTxQ"
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::hspi::{
     AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, Hspi, HspiWidth, Instance, MemorySize,
@@ -15,7 +16,7 @@ use embassy_stm32::hspi::{
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, dma, peripherals, rcc};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL7 => dma::InterruptHandler<peripherals::GPDMA1_CH7>;

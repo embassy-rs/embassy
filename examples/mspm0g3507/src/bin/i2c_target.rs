@@ -6,12 +6,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mspm0::i2c::Config;
 use embassy_mspm0::i2c_target::{Command, Config as TargetConfig, I2cTarget, ReadStatus};
 use embassy_mspm0::peripherals::I2C1;
 use embassy_mspm0::{bind_interrupts, i2c};
-use {defmt_rtt as _, panic_halt as _};
+use panic_halt as _;
 
 bind_interrupts!(struct Irqs {
     I2C1 => i2c::InterruptHandler<I2C1>;

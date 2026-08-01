@@ -1,12 +1,13 @@
 #![macro_use]
 
 pub use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::Config;
 #[allow(unused)]
 use embassy_stm32::rcc::*;
 #[allow(unused)]
 use embassy_stm32::time::Hertz;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[cfg(feature = "stm32f103c8")]
 teleprobe_meta::target!(b"bluepill-stm32f103c8");
@@ -583,7 +584,7 @@ pub fn config() -> Config {
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul180,
             divp: Some(PllPDiv::Div2), // 8mhz / 4 * 180 / 2 = 180Mhz.
-            divq: None,
+            divq: Some(PllQDiv::Div2),
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::Div1;
@@ -623,7 +624,7 @@ pub fn config() -> Config {
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul216,
             divp: Some(PllPDiv::Div2), // 8mhz / 4 * 216 / 2 = 216Mhz.
-            divq: None,
+            divq: Some(PllQDiv::Div2),
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::Div1;

@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+
 use crate::pac::common::{Read, Reg, Write};
 
 #[allow(dead_code)]
@@ -73,5 +75,51 @@ impl<T: Copy, A: Read + Write> AtomicModify<T> for Reg<T, A> {
             #[cfg(target_has_atomic = "32")]
             compiler_fence(Ordering::Release);
         }
+    }
+}
+
+#[allow(dead_code)]
+pub trait AtomicClear {
+    /// Clear the boolean value and return its state
+    fn clear(&self) -> bool;
+}
+
+impl AtomicClear for AtomicBool {
+    #[cfg(target_has_atomic = "8")]
+    fn clear(&self) -> bool {
+        self.swap(false, Ordering::Acquire)
+    }
+
+    #[cfg(not(target_has_atomic = "8"))]
+    fn clear(&self) -> bool {
+        if self.load(Ordering::Acquire) {
+            self.store(false, Ordering::Relaxed);
+
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub trait AtomicDecrement {
+    fn decrement(&self) -> u8;
+}
+
+impl AtomicDecrement for AtomicU8 {
+    #[cfg(not(target_has_atomic = "8"))]
+    fn decrement(&self) -> u8 {
+        critical_section::with(|_| {
+            let refcount = self.load(Ordering::Relaxed);
+            assert!(refcount >= 1);
+            self.store(refcount - 1, Ordering::Relaxed);
+            refcount
+        })
+    }
+
+    #[cfg(target_has_atomic = "8")]
+    fn decrement(&self) -> u8 {
+        self.fetch_sub(1, Ordering::Acquire)
     }
 }

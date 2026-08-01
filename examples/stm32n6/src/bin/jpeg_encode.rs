@@ -5,10 +5,11 @@
 //! codec and dump a hex preview of the resulting bitstream over RTT.
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::jpeg::{ChromaSubsampling, ColorSpace, EncodeConfig, Jpeg};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     JPEG => embassy_stm32::jpeg::InterruptHandler<peripherals::JPEG>;
@@ -24,7 +25,10 @@ struct Aligned<const N: usize>([u8; N]);
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    let p = embassy_stm32::init(Config::default());
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    let mut config = Config::default();
+    config.rcc.supply_config = embassy_stm32::rcc::SupplyConfig::External;
+    let p = embassy_stm32::init(config);
 
     // Build an MCU-ordered grayscale source: 64×64 image is 8×8 = 64 MCUs of
     // 8×8 pixels each. For grayscale the buffer layout is identical to a

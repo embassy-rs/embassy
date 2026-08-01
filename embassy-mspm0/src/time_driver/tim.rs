@@ -17,6 +17,18 @@ use crate::{peripherals, tim};
 #[cfg(any(time_driver_timg12, time_driver_timg13))]
 compile_error!("TIMG12 and TIMG13 are not supported by the time driver yet");
 
+// Only TIMG0 and TIMG1 remain clocked in STANDBY, so they are the only timers that can wake the
+// core from deep sleep via the time driver. Reject a `low-power` build on any other timer.
+// TODO: Or maybe allow using them, but disable STANDBY? STOP0 will still work.
+// Another option is to leak a wake guard when one of those timers is used.
+
+#[cfg(all(feature = "low-power", not(any(time_driver_timg0, time_driver_timg1))))]
+compile_error!(
+    "the `low-power` feature requires the time driver to run on TIMG0 or TIMG1, as they are the \
+     only timers clocked in STANDBY. Enable `time-driver-timg0`, `time-driver-timg1`, or \
+     `time-driver-any` (which selects TIMG0 when available)."
+);
+
 // Currently TIMG12 and TIMG13 are excluded because those are 32-bit timers.
 #[cfg(time_driver_timg0)]
 type T = peripherals::TIMG0;
@@ -49,29 +61,27 @@ type T = peripherals::TIMA0;
 #[cfg(time_driver_tima1)]
 type T = peripherals::TIMA1;
 
-// TODO: RTC
-
 fn regs() -> Tim {
     T::info().regs
 }
 
-/// Clock timekeeping works with something we call "periods", which are time intervals
-/// of 2^15 ticks. The Clock counter value is 16 bits, so one "overflow cycle" is 2 periods.
+// Clock timekeeping works with something we call "periods", which are time intervals
+// of 2^15 ticks. The Clock counter value is 16 bits, so one "overflow cycle" is 2 periods.
+//
+// A `period` count is maintained in parallel to the Timer hardware `counter`, like this:
+// - `period` and `counter` start at 0
+// - `period` is incremented on overflow (at counter value 0)
+// - `period` is incremented "midway" between overflows (at counter value 0x8000)
+//
+// When `period` is even, counter is in 0..0x7FFF. When odd, counter is in 0x8000..0xFFFF
+// This allows for now() to return the correct value even if it races an overflow.
+//
+// `period` is a 32bit integer, so It overflows on 2^32 * 2^15 / 32768 seconds of uptime, which is 136 years.
 fn calc_now(period: u32, counter: u16) -> u64 {
     ((period as u64) << 15) + ((counter as u32 ^ ((period & 1) << 15)) as u64)
 }
 
-/// The TIMx driver uses one of the `TIMG` or `TIMA` timer instances to implement a timer with a 32.768 kHz
-/// tick rate. (TODO: Allow setting the tick rate)
-///
-/// This driver defines a period to be 2^15 ticks. 16-bit timers of course count to 2^16 ticks.
-///
-/// To generate a period every 2^15 ticks, the CC0 value is set to 2^15 and the load value set to 2^16.
-/// Incrementing the period on a CCU0 and load results in the a period of 2^15 ticks.
-///
-/// For a specific timestamp, load the lower 16 bits into the CC1 value. When the period where the timestamp
-/// should be enabled is reached, then the CCU1 (CC1 up) interrupt runs to actually wake the timer.
-///
+/// TODO: Configurable tick rate
 /// TODO: Compensate for per part variance. This can supposedly be done with the FCC system.
 /// TODO: Allow using 32-bit timers (TIMG12 and TIMG13).
 struct TimxDriver {
@@ -104,19 +114,14 @@ impl TimxDriver {
 
         // 1. Select TIMCLK source
         regs.clksel().modify(|w| {
-            // FIXME (bug): Using LFCLK at 32.768 kHz results in a race condition where time goes backwards.
-            // w.set_lfclk_sel(true);
-
-            // TODO: Allow MFCLK for configurable tick rate up to 4 MHz
-            w.set_mfclk_sel(true);
+            // Use LFCLK at 32.768 kHz, as it's available all the way down to STANDBY
+            w.set_lfclk_sel(true);
         });
 
-        // 2. Divide by TIMCLK, we don't need to divide further for the 32kHz tick rate
+        // 2. Divide by TIMCLK
         regs.clkdiv().modify(|w| {
-            // FIXME (bug): For 32.768 kHz we would do no division
-            // w.set_ratio(0); // + 1
-
-            w.set_ratio(3); // divide by 4
+            // 32.768 kHz on the LFCLK requires no division.
+            w.set_ratio(0); // + 1
         });
 
         // Not every timer supports the prescaler so we should zero it.
@@ -135,7 +140,7 @@ impl TimxDriver {
 
         regs.counterregs(0).ctrctl().modify(|w| {
             w.set_repeat(Repeat::REPEAT_1);
-            w.set_cvae(Cvae::ZEROVAL);
+            w.set_cvae(Cvae::NOCHANGE);
             w.set_cm(Cm::UP);
 
             // Must explicitly set CZC, CAC and CLC to 0 in order for all the timers to count.
@@ -153,6 +158,8 @@ impl TimxDriver {
         // Middle
         regs.counterregs(0).cc(0).write_value(0x8000 as u32);
         regs.counterregs(0).load().write_value(u16::MAX as u32);
+        // Start with the counter at 1 to avoid immediately incrementing period.
+        regs.counterregs(0).ctr().write_value(1);
 
         // Enable the period interrupts
         //
@@ -162,17 +169,17 @@ impl TimxDriver {
         });
 
         regs.cpu_int(0).imask().modify(|w| {
-            w.set_l(true);
+            w.set_z(true);
             w.set_ccu0(true);
         });
-
-        <T as tim::Instance>::Interrupt::IRQ.unpend();
-        unsafe { <T as tim::Instance>::Interrupt::IRQ.enable() };
 
         // Allow the counter to start counting.
         regs.counterregs(0).ctrctl().modify(|w| {
             w.set_en(true);
         });
+
+        <T as tim::Instance>::Interrupt::IRQ.unpend();
+        unsafe { <T as tim::Instance>::Interrupt::IRQ.enable() };
     }
 
     fn next_period(&self, cs: CriticalSection) {
@@ -200,8 +207,13 @@ impl TimxDriver {
         critical_section::with(|cs| {
             let mis = r.cpu_int(0).mis().read();
 
+            // Clear the flags we are about to handle before handling them. MIS and ICLR have the
+            // same layout, and writing back only the bits we read leaves any event latched during
+            // the handler pending, so it is picked up on re-entry rather than lost.
+            r.cpu_int(0).iclr().write_value(mis);
+
             // Overflow
-            if mis.l() {
+            if mis.z() {
                 self.next_period(cs);
             }
 
@@ -213,9 +225,6 @@ impl TimxDriver {
             if mis.ccu1() {
                 self.trigger_alarm(cs);
             }
-
-            // Clear all interrupts. MIS and ICLR have same layout.
-            r.cpu_int(0).iclr().write_value(mis);
         });
     }
 
@@ -277,13 +286,25 @@ impl Driver for TimxDriver {
     fn now(&self) -> u64 {
         let regs = regs();
 
-        let period = self.period.load(Ordering::Relaxed);
-        // Ensure the compiler does not read the counter before the period.
-        compiler_fence(Ordering::Acquire);
+        // On MSPM0 this sequence reread and comparison must be done or else time may
+        // appear to go backwards.
+        loop {
+            let period = self.period.load(Ordering::Relaxed);
+            // Ensure the compiler does not read the counter before the period.
+            compiler_fence(Ordering::Acquire);
 
-        let counter = regs.counterregs(0).ctr().read() as u16;
+            let counter = regs.counterregs(0).ctr().read() as u16;
 
-        calc_now(period, counter)
+            // Ensure the compiler does not read the period again before the counter.
+            compiler_fence(Ordering::Acquire);
+            let period2 = self.period.load(Ordering::Relaxed);
+
+            if period != period2 {
+                continue;
+            }
+
+            return calc_now(period, counter);
+        }
     }
 
     fn schedule_wake(&self, at: u64, waker: &Waker) {

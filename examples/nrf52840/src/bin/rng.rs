@@ -1,11 +1,12 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::rng::Rng;
 use embassy_nrf::{bind_interrupts, peripherals, rng};
+use panic_probe as _;
 use rand::Rng as _;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;

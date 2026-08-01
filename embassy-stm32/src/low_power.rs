@@ -25,7 +25,7 @@
 //! executor is the preferred way to lower power consumption if you're using `async`, instead of calling `sleep()` directly.
 
 use core::ops::{Deref, DerefMut};
-use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::{mem, ptr};
 
 use cortex_m::peripheral::SCB;
@@ -83,9 +83,7 @@ mod platform {
     /// Enter stop mode
     pub fn enter_stop(_cs: CriticalSection, stop_mode: StopMode) -> Result<(), ()> {
         #[cfg(stm32wb)]
-        fn enter_stop_stm32wb(
-            _cs: CriticalSection<'_>,
-        ) -> Result<crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM>, ()> {
+        let mutex = {
             use crate::hsem::get_hsem;
             use crate::pac::rcc::vals::{Smps, Sw};
             use crate::pac::{PWR, RCC};
@@ -96,47 +94,35 @@ mod platform {
 
             trace!("low power: got sem3");
 
-            let sem4_mutex = get_hsem(4).try_fast_lock();
-            if let Some(sem4_mutex) = sem4_mutex {
+            let mut sem4_mutex = get_hsem(4).try_fast_lock();
+            if sem4_mutex.is_some() {
                 trace!("low power: got sem4");
-
-                if PWR.extscr().read().c2ds() {
-                    drop(sem4_mutex);
-                } else {
-                    return Ok(sem3_mutex);
-                }
             }
 
-            // Sem4 not granted
-            // Set HSION
-            RCC.cr().modify(|w| {
-                w.set_hsion(true);
-            });
+            if !(sem4_mutex.is_some() && !PWR.extscr().read().c2ds()) {
+                sem4_mutex.take();
 
-            // Wait for HSIRDY
-            while !RCC.cr().read().hsirdy() {}
+                // Set HSION
+                RCC.cr().modify(|w| {
+                    w.set_hsion(true);
+                });
 
-            // Set SW to HSI
-            RCC.cfgr().modify(|w| {
-                w.set_sw(Sw::Hsi);
-            });
+                // Wait for HSIRDY
+                while !RCC.cr().read().hsirdy() {}
 
-            // Wait for SWS to report HSI
-            while !RCC.cfgr().read().sws().eq(&Sw::Hsi) {}
+                // Set SW to HSI
+                RCC.cfgr().modify(|w| {
+                    w.set_sw(Sw::Hsi);
+                });
 
-            // Set SMPSSEL to HSI
-            RCC.smpscr().modify(|w| {
-                w.set_smpssel(Smps::Hsi);
-            });
+                // Wait for SWS to report HSI
+                while !RCC.cfgr().read().sws().eq(&Sw::Hsi) {}
 
-            Ok(sem3_mutex)
-        }
-
-        #[cfg(stm32wb)]
-        let mutex = {
-            use crate::pac::{PWR, RCC};
-
-            let mutex = enter_stop_stm32wb(_cs)?;
+                // Set SMPSSEL to HSI
+                RCC.smpscr().modify(|w| {
+                    w.set_smpssel(Smps::Hsi);
+                });
+            }
 
             // on PWR
             RCC.apb1enr1().modify(|r| r.0 |= 1 << 28);
@@ -152,7 +138,7 @@ mod platform {
 
             cortex_m::asm::delay(1000);
 
-            mutex
+            sem3_mutex
         };
 
         #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32u0, stm32wb, stm32wba, stm32wl))]
@@ -207,6 +193,30 @@ mod platform {
 
     /// Exit stop mode, reinitializing timer and rcc if required
     pub fn exit_stop(_cs: CriticalSection) {
+        #[cfg(any(stm32u5, stm32u3))]
+        {
+            let sr = crate::pac::PWR.sr().read();
+            if sr.stopf() {
+                let lpms = crate::pac::PWR.cr1().read().lpms();
+                debug!("low power: U5/U3 woke from STOP (LPMS={})", lpms);
+
+                // HSE and all PLLs stop in any STOP mode on U5/U3.
+                // Full RCC restore from saved config on every STOP exit.
+                crate::rcc::reinit_saved(_cs);
+
+                // GPTIM timer state is lost in Stop2/Stop3, needs re-init.
+                // LPTIM (_lp-time-driver) survives all STOP modes autonomously.
+                #[cfg(not(feature = "_lp-time-driver"))]
+                if lpms.to_bits() >= 2 {
+                    trace!("low power: re-initializing timer (STOP2+, GPTIM)");
+                    super::get_driver().init_timer(_cs);
+                }
+            }
+
+            // Clear STOPF by writing CSSF
+            crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
+        }
+
         #[cfg(any(stm32wl, stm32wb, stm32wba))]
         {
             // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
@@ -307,47 +317,43 @@ mod platform {
     }
 }
 
-static STOP_ENTERED: AtomicBool = AtomicBool::new(false);
-
 unsafe fn on_wakeup(cs: CriticalSection) {
-    if STOP_ENTERED.load(Ordering::Acquire) {
-        platform::exit_stop(cs);
+    platform::exit_stop(cs);
 
-        get_driver().resume_time(cs);
-        trace!("low power: resumed");
-    }
-
-    STOP_ENTERED.store(false, Ordering::Release);
+    get_driver().resume_time(cs);
+    trace!("low power: resumed");
 }
 
-fn configure_pwr(cs: CriticalSection) {
-    const fn get_scb() -> SCB {
-        unsafe { mem::transmute(()) }
-    }
+fn configure_pwr(cs: CriticalSection) -> bool {
+    let mut scb: SCB = unsafe { mem::transmute(()) };
 
-    get_scb().clear_sleepdeep();
+    scb.clear_sleepdeep();
     platform::clear_flags();
 
     compiler_fence(Ordering::Acquire);
 
     let Some(stop_mode) = get_stop_mode(cs) else {
-        return;
+        return false;
     };
 
     if get_driver().pause_time(cs).is_err() {
         trace!("low_power: failed to pause time, not entering stop");
+
+        false
     } else if platform::enter_stop(cs, stop_mode).is_err() {
         trace!("low_power: failed to enter stop");
+
+        false
     } else {
         #[cfg(stm32l0)]
         trace!("low power: enter stop");
         #[cfg(not(stm32l0))]
         trace!("low power: enter stop: {}", stop_mode);
 
-        STOP_ENTERED.store(true, Ordering::Release);
-
         #[cfg(not(feature = "low-power-debug-with-sleep"))]
-        get_scb().set_sleepdeep();
+        scb.set_sleepdeep();
+
+        true
     }
 }
 
@@ -364,18 +370,24 @@ fn configure_pwr(cs: CriticalSection) {
 /// sleep as needed, but you might have to do it manually if you're using some peripherals
 /// with the PAC directly.
 pub unsafe fn sleep(cs: CriticalSection) {
-    configure_pwr(cs);
+    let stop = configure_pwr(cs);
 
+    // Only flush defmt if we are actually going into Stop. Avoids flush on every tiny WFE
     #[cfg(feature = "low-power-defmt-flush")]
-    defmt::flush();
+    if stop {
+        defmt::flush();
+    }
 
     cortex_m::asm::dsb();
     cortex_m::asm::wfi();
 
     cortex_m::asm::isb();
     cortex_m::asm::dsb();
+    cortex_m::asm::dmb();
 
-    on_wakeup(cs);
+    if stop {
+        on_wakeup(cs);
+    }
 }
 
 trait_set::trait_set! {

@@ -1,8 +1,7 @@
 use core::task::Context;
 
 use embassy_net_driver::{Capabilities, Checksum, Driver, PacketMeta, RxToken, TxToken};
-use smoltcp::phy::{self, Medium};
-use smoltcp::time::Instant;
+use xarxa::phy::{self, Medium};
 
 pub(crate) struct DriverAdapter<'d, 'c, T>
 where
@@ -28,14 +27,14 @@ where
     where
         Self: 'a;
 
-    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+    fn receive(&mut self) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         self.inner
             .receive(unwrap!(self.cx.as_deref_mut()))
             .map(|(rx, tx)| (RxTokenAdapter(rx), TxTokenAdapter(tx)))
     }
 
     /// Construct a transmit token.
-    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
+    fn transmit(&mut self) -> Option<Self::TxToken<'_>> {
         let token = self.inner.transmit(unwrap!(self.cx.as_deref_mut())).map(TxTokenAdapter);
 
         self.tx_exhausted = token.is_none();
@@ -58,7 +57,7 @@ where
 
         smolcaps.max_transmission_unit = caps.max_transmission_unit;
         smolcaps.max_burst_size = caps.max_burst_size;
-        smolcaps.medium = self.medium;
+        smolcaps.medium = self.medium.to_driver();
         smolcaps.checksum.ipv4 = convert(caps.checksum.ipv4);
         smolcaps.checksum.tcp = convert(caps.checksum.tcp);
         smolcaps.checksum.udp = convert(caps.checksum.udp);
@@ -95,7 +94,7 @@ where
     }
 
     fn meta(&self) -> phy::PacketMeta {
-        into_smoltcp_meta(self.0.meta())
+        into_xarxa_meta(self.0.meta())
     }
 }
 
@@ -125,7 +124,7 @@ where
 }
 
 #[allow(unused, reason = "meta isn't used if no features are enabled")]
-pub(crate) fn into_smoltcp_meta(meta: PacketMeta) -> phy::PacketMeta {
+pub(crate) fn into_xarxa_meta(meta: PacketMeta) -> phy::PacketMeta {
     let mut out_meta = phy::PacketMeta::default();
     #[cfg(feature = "packetmeta-id")]
     {

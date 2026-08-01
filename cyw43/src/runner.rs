@@ -1,12 +1,12 @@
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::Relaxed;
 
-use ::sdio::sdio::CCCR_INT_ENABLE;
 use aligned::{A4, Aligned};
 use embassy_futures::select::{Either4, select4};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::Duration;
+use sdio::sdio::{CCCR_INT_ENABLE, CCCR_IO_ENABLE, CCCR_IO_READY};
 
 use crate::chip::{
     check_device_core_is_up, chip_specific_socsram_init, disable_device_core, reset_core, reset_device_core,
@@ -47,9 +47,8 @@ pub(crate) enum BusType {
 
 pub(crate) trait SealedBus {
     const TYPE: BusType;
-    type Config;
 
-    async fn init<'a>(&mut self, bluetooth: bool, config: &'a Self::Config) -> crate::Result<()>;
+    async fn init<'a>(&mut self, bluetooth: bool) -> crate::Result<()>;
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
     /// The first 4 bytes of this buffer are reserved for the cmd word
     async fn wlan_write(&mut self, buf: &mut Aligned<A4, [u8]>) -> crate::Result<()>;
@@ -316,13 +315,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
         // 4. Enable SDIO CCCR interrupt signaling (F0 INT_ENABLE)
         //    Bit 0 = master interrupt enable
-        self.bus
-            .write8(
-                0, // Function 0 (CCCR)
-                CCCR_INT_ENABLE,
-                CCCR_INT_ENABLE_MASTER,
-            )
-            .await;
+        self.bus.write8(FUNC_BUS, CCCR_INT_ENABLE, CCCR_INT_ENABLE_MASTER).await;
     }
 
     async fn read_chip_id_sdio(&mut self) -> u16 {
@@ -330,14 +323,14 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
 
         self.bus
-            .write8(FUNC_BUS, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
+            .write8(FUNC_BUS, CCCR_IO_ENABLE, SDIO_FUNC_ENABLE_1 as u8)
             .await;
 
         // Enable f1 and f2
         self.bus
             .write8(
                 FUNC_BUS,
-                SDIOD_CCCR_INTEN,
+                CCCR_INT_ENABLE,
                 (INTR_CTL_MASTER_EN | INTR_CTL_FUNC1_EN | INTR_CTL_FUNC2_EN) as u8,
             )
             .await;
@@ -348,7 +341,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         self.bus
             .write8(
                 FUNC_BUS,
-                SDIOD_CCCR_IOEN,
+                CCCR_IO_ENABLE,
                 (SDIO_FUNC_ENABLE_1 | SDIO_FUNC_ENABLE_2) as u8,
             )
             .await;
@@ -357,12 +350,12 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         self.bus
             .write8(
                 FUNC_BUS,
-                SDIOD_CCCR_INTEN,
+                CCCR_INT_ENABLE,
                 (INTR_CTL_MASTER_EN | INTR_CTL_FUNC2_EN) as u8,
             )
             .await;
 
-        let _ = self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await;
+        let _ = self.bus.read8(FUNC_BUS, CCCR_IO_READY).await;
 
         let reg = self.bus.read8(FUNC_BUS, SDIOD_CCCR_BRCM_CARDCAP).await;
         if reg & SDIOD_CCCR_BRCM_CARDCAP_SECURE_MODE as u8 != 0 {
@@ -482,7 +475,6 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         wifi_fw: &Aligned<A4, [u8]>,
         nvram: &Aligned<A4, [u8]>,
         bt_fw: Option<&[u8]>,
-        config: &BUS::Config,
     ) -> crate::Result<()> {
         let mut buf = Aligned([0u8; 4 + BLOCK_BUFFER_SIZE]);
 
@@ -491,7 +483,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             ChipId::C4373 => debug!("using cyw43437"),
         }
 
-        self.bus.init(bt_fw.is_some(), config).await?;
+        self.bus.init(bt_fw.is_some()).await?;
 
         // Init ALP (Active Low Power) clock
         debug!("init alp");
@@ -669,7 +661,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
         debug!("waiting for F2 to be ready...");
         try_until(
             async || match self.bus.bus_type() {
-                BusType::Sdio => self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_2 != 0,
+                BusType::Sdio => self.bus.read8(FUNC_BUS, CCCR_IO_READY).await as u32 & SDIO_FUNC_READY_2 != 0,
                 BusType::Spi => self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY != 0,
             },
             Duration::from_millis(1000),
@@ -885,6 +877,27 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                     .bus
                     .bp_read32(self.chip.sdiod_core_base_address() + SDIO_INT_STATUS)
                     .await;
+
+                //                if irq & FRAME_AVAILABLE_MASK != 0 {
+                //                    const CCCR_INT_ENABLE: u32 = 0x04;
+                //                    const CCCR_INT_PENDING: u32 = 0x05;
+                //
+                //                    let int_en = self.bus.read8(0, CCCR_INT_ENABLE).await;
+                //                    let int_pending = self.bus.read8(0, CCCR_INT_PENDING).await;
+                //
+                //                    let master_ie = (int_en & 0x01) != 0;
+                //                    debug!("master ie: {}", master_ie);
+                //
+                //                    for func in 1..=7 {
+                //                        let func_ie = (int_en & (1 << func)) != 0;
+                //                        if !func_ie {
+                //                            continue;
+                //                        }
+                //
+                //                        let pending = (int_pending & (1 << func)) != 0;
+                //                        debug!("func {} pending: {}", func, pending);
+                //                    }
+                //                }
 
                 let mut irq = irq;
                 if irq & I_HMB_HOST_INT != 0 {

@@ -17,11 +17,12 @@
 use core::mem::MaybeUninit;
 
 use defmt::{assert_eq, info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::sqspi::{self, Config};
 use embassy_nrf::{bind_interrupts, peripherals};
+use panic_probe as _;
 use static_cell::ConstStaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     VPR00 => sqspi::InterruptHandler<peripherals::VPR>;

@@ -2,17 +2,19 @@
 
 Embassy provides HALs for several microcontroller families:
 
+* `embassy-mcxa` for MCX-A microcontrollers from NXP.
+* `embassy-mspm0` for the MSPM0 and MSPS003 microcontrollers from Texas Instruments
 * `embassy-nrf` for the nRF microcontrollers from Nordic Semiconductor
 * `embassy-stm32` for STM32 microcontrollers from ST Microelectronics
 * `embassy-rp` for the Raspberry Pi RP2040 and RP235x microcontrollers
 
+Outside of the Embassy project there are several Embassy compatible HALs:
+
+* link:https://github.com/ch32-rs/ch32-hal[`ch32-hal`] for the WCH 32-bit RISC-V series
+* link:https://github.com/esp-rs/esp-hal[`esp-hal`] for the ESP32 series
+* link:https://github.com/AlexCharlton/mpfs-hal[`mpfs-hal`] for the Microchip PolarFire SoC
+* link:https://github.com/py32-rs/py32-hal[`py32-hal`] for the Puya Semiconductor PY32 series
+* link:https://git.sr.ht/~az1/ra-hal[`ra-hal`] for the Renesas RA series
+
 These HALs implement async/await functionality for most peripherals while also implementing the
 async traits in `embedded-hal` and `embedded-hal-async`. You can also use these HALs with another executor.
-
-For the ESP32 series, there is an link:https://github.com/esp-rs/esp-hal[esp-hal] which you can use.
-
-For the WCH 32-bit RISC-V series, there is an link:https://github.com/ch32-rs/ch32-hal[ch32-hal], which you can use.
-
-For the Microchip PolarFire SoC, there is link:https://github.com/AlexCharlton/mpfs-hal[mpfs-hal].
-
-For the Puya Semiconductor PY32 series, there is link:https://github.com/py32-rs/py32-hal[py32-hal].

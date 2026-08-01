@@ -2,13 +2,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::mode::Async;
 use embassy_stm32::{bind_interrupts, interrupt};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     pub struct Irqs{
@@ -25,7 +26,10 @@ async fn button_task(mut button: ExtiInput<'static, Async>) {
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    let mut config = embassy_stm32::Config::default();
+    config.rcc.supply_config = embassy_stm32::rcc::SupplyConfig::External;
+    let p = embassy_stm32::init(config);
     info!("Hello World!");
 
     let mut led = Output::new(p.PG10, Level::High, Speed::Low);
@@ -36,9 +40,11 @@ async fn main(spawner: Spawner) {
     spawner.spawn(button_task(button).unwrap());
 
     loop {
+        info!("led on!");
         led.set_high();
         Timer::after_millis(500).await;
 
+        info!("led off!");
         led.set_low();
         Timer::after_millis(500).await;
     }

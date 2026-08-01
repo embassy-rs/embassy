@@ -31,16 +31,19 @@
 //! should pass.
 
 use defmt::{error, info};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode::Blocking;
-use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SysClk, XspiClkSrc};
+use embassy_stm32::rcc::{
+    CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk, XspiClkSrc,
+};
 use embassy_stm32::xspi::{
     AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, Instance, MemorySize, MemoryType, TransferConfig,
     WrapSize, Xspi, XspiWidth,
 };
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// APS256XX Commands
 #[allow(dead_code)]
@@ -90,6 +93,8 @@ unsafe fn psram_write_byte(addr: *mut u8, val: u8) {
 async fn main(_spawner: Spawner) {
     // Configure RCC with full clock tree for 200MHz XSPI operation
     let mut config = embassy_stm32::Config::default();
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    config.rcc.supply_config = SupplyConfig::External;
 
     // Configure PLL1: HSI 64MHz / 4 * 75 = 1200MHz
     config.rcc.pll1 = Some(Pll::Oscillator {

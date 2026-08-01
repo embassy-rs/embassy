@@ -631,6 +631,9 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
                 #[cfg(not(stm32wba))]
                 {
                     use crate::pac::rcc::vals::Lptimsel;
+                    #[cfg(any(stm32u5, stm32u3))]
+                    ensure_lptim_clk!(lptim1sel, Lptimsel, Lptimsel::Msik);
+                    #[cfg(not(any(stm32u5, stm32u3)))]
                     ensure_lptim_clk!(lptim1sel, Lptimsel, Lptimsel::Pclk1);
                 }
                 #[cfg(stm32wba)]

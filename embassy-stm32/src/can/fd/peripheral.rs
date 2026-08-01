@@ -80,7 +80,11 @@ impl Registers {
         let cantime = { self.regs.tscv().read().tsc() };
         let delta = cantime.overflowing_sub(ts_val).0 as u64;
         let ns = ns_per_timer_tick * delta as u64;
-        now_embassy - embassy_time::Duration::from_nanos(ns)
+        // Saturate instead of panicking: shortly after boot `now_embassy` can be
+        // smaller than the peripheral-timer-derived `ns` delta (the FDCAN
+        // timestamp counter and the embassy clock aren't reset in lockstep), which
+        // would otherwise underflow this subtraction on the very first RX frame.
+        now_embassy.saturating_sub(embassy_time::Duration::from_nanos(ns))
     }
 
     #[cfg(not(feature = "time"))]
@@ -707,13 +711,13 @@ fn put_tx_data(mailbox: &mut TxBufferElement, buffer: &[u8]) {
     data[..len].copy_from_slice(&buffer[..len]);
     let data_len = ((len) + 3) / 4;
     for (register, byte) in mailbox.data.iter_mut().zip(lbuffer[..data_len].iter()) {
-        unsafe { register.write(*byte) };
+        register.set(*byte);
     }
 }
 
 fn data_from_fifo(buffer: &mut [u8], mailbox: &RxFifoElement, len: usize) {
     for (i, register) in mailbox.data.iter().enumerate() {
-        let register_value = register.read();
+        let register_value = register.get();
         let register_bytes = unsafe { slice::from_raw_parts(&register_value as *const u32 as *const u8, 4) };
         let num_bytes = (len) - i * 4;
         if num_bytes <= 4 {
@@ -726,7 +730,7 @@ fn data_from_fifo(buffer: &mut [u8], mailbox: &RxFifoElement, len: usize) {
 
 fn data_from_tx_buffer(buffer: &mut [u8], mailbox: &TxBufferElement, len: usize) {
     for (i, register) in mailbox.data.iter().enumerate() {
-        let register_value = register.read();
+        let register_value = register.get();
         let register_bytes = unsafe { slice::from_raw_parts(&register_value as *const u32 as *const u8, 4) };
         let num_bytes = (len) - i * 4;
         if num_bytes <= 4 {

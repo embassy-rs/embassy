@@ -7,7 +7,7 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    DeviceEvent, HostError, PipeError, SplitInfo, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
+    DeviceEvent, HostError, PipeError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 use portable_atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
@@ -567,14 +567,27 @@ impl<'d> UsbHostAllocator<'d> for OtgHostAllocator<'d> {
         &self,
         addr: u8,
         endpoint: &EndpointInfo,
-        _split: Option<SplitInfo>,
+        split: Option<SplitInfo>,
     ) -> Result<Self::Pipe<T, D>, HostError> {
         let ep_number = endpoint.addr.index() as u8;
         let max_packet_size = endpoint.max_packet_size;
 
-        // Read device speed from port_speed atomic (stored by ISR)
+        // Read root-port speed from port_speed atomic (stored by ISR)
         let speed_code = self.state.fields.port_speed.load(Ordering::Acquire);
-        let is_low_speed = speed_code == 1;
+
+        let is_low_speed = match split {
+            // Behind a hub the root port reports the *hub's* speed, so the
+            // target device's speed has to come from the split metadata.
+            Some(_) if speed_code == 2 => {
+                // A high-speed root port reaches LS/FS devices only through
+                // real split transactions (HCSPLT plus start/complete-split
+                // scheduling), which this driver does not implement. Fail
+                // loudly instead of emitting tokens the device can't see.
+                return Err(HostError::Other("high-speed split transactions not supported"));
+            }
+            Some(split) => split.device_speed() == SplitSpeed::Low,
+            None => speed_code == 1,
+        };
 
         let max_ch = self.state.channels.len();
         // Find a free channel using atomic CAS

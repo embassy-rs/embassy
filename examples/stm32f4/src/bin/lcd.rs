@@ -6,6 +6,7 @@
 #![no_main]
 
 use defmt::{error, info};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dma2d::{self, Buffer2D, Dma2d};
 use embassy_stm32::gpio::{Level, Output, Speed};
@@ -16,8 +17,8 @@ use embassy_stm32::spi::{self};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(
     struct Irqs {

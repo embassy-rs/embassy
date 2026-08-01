@@ -1,13 +1,15 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::adc::{Command, CommandConfig, CommandId, Trigger};
 use embassy_time::{Duration, Ticker};
 use hal::adc::{self, Adc};
 use hal::clocks::config::Div8;
 use hal::config::Config;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

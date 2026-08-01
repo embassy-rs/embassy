@@ -3,14 +3,15 @@
 
 use cyw43::{Cyw43439, aligned_bytes};
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::{Config, bind_interrupts, exti, interrupt, peripherals, sdmmc};
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SDMMC1 => sdmmc::InterruptHandler<peripherals::SDMMC1>;
@@ -139,7 +140,9 @@ async fn main(spawner: Spawner) {
 
     info!("new sdio");
 
-    let (_net_device, mut control, runner) = cyw43::new_43439_sdio(state, sdmmc, fw, nvram).await.unwrap();
+    let (_net_device, mut control, runner) = cyw43::new_43439_sdio(state, sdmmc, fw, nvram, 12_500_000)
+        .await
+        .unwrap();
 
     info!("spawn task");
 

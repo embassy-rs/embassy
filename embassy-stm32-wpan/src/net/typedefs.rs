@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use smoltcp::wire::ieee802154::{Address, AddressingMode, Pan};
+use xarxa::wire::ieee802154::{Address, AddressingMode, Pan};
 
 use crate::numeric_enum;
 
@@ -29,23 +29,18 @@ impl From<u8> for MacError {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Debug, Default)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum MacStatus {
-        #[default]
         Success = 0x00,
         Failure = 0xFF
     }
+    default = Success;
 }
 
 numeric_enum! {
     #[repr(u8)]
     /// this enum contains all the MAC PIB Ids
-    #[derive(Default, Debug)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum PibId {
         // PHY
-        #[default]
         CurrentChannel = 0x00,
         ChannelsSupported = 0x01,
         TransmitPower = 0x02,
@@ -96,19 +91,18 @@ numeric_enum! {
         AssociatedPanCoordinator = 0x56,
         PromiscuousMode = 0x51,
     }
+    default = CurrentChannel;
 }
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default, Clone, Copy, Debug)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum AddressMode {
-        #[default]
         NoAddress = 0x00,
         Reserved = 0x01,
         Short = 0x02,
         Extended = 0x03,
-}
+    }
+    default = NoAddress;
 }
 
 impl TryFrom<AddressingMode> for AddressMode {
@@ -150,8 +144,7 @@ impl From<MacAddressAndMode> for Address {
         match mode {
             AddressMode::Short => Address::Short(unsafe { address.short }),
             AddressMode::Extended => Address::Extended(unsafe { address.extended }),
-            AddressMode::NoAddress => Address::Absent,
-            AddressMode::Reserved => Address::Absent,
+            _ => Address::Absent,
         }
     }
 }
@@ -228,7 +221,7 @@ pub struct PanDescriptor {
     /// The current channel page occupied by the network
     pub channel_page: u8,
     /// PAN coordinator is accepting GTS requests or not
-    pub gts_permit: bool,
+    pub gts_permit: u8,
     /// Superframe specification as specified in the received beacon frame
     pub superframe_spec: [u8; 2],
     /// The time at which the beacon frame was received, in symbols
@@ -248,25 +241,24 @@ impl TryFrom<&[u8]> for PanDescriptor {
             return Err(());
         }
 
-        let coord_addr_mode = AddressMode::try_from(buf[2])?;
+        let coord_addr_mode = AddressMode::from(buf[2]);
         let coord_addr = match coord_addr_mode {
-            AddressMode::NoAddress => MacAddress { short: [0, 0] },
-            AddressMode::Reserved => MacAddress { short: [0, 0] },
             AddressMode::Short => MacAddress {
                 short: [buf[4], buf[5]],
             },
             AddressMode::Extended => MacAddress {
                 extended: [buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10], buf[11]],
             },
+            _ => MacAddress { short: [0, 0] },
         };
 
         Ok(Self {
             coord_pan_id: PanId([buf[0], buf[1]]),
             coord_addr_mode,
-            logical_channel: MacChannel::try_from(buf[3])?,
+            logical_channel: MacChannel::from(buf[3]),
             coord_addr,
             channel_page: buf[12],
-            gts_permit: buf[13] != 0,
+            gts_permit: buf[13],
             superframe_spec: [buf[14], buf[15]],
             time_stamp: [buf[16], buf[17], buf[18], buf[19]],
             link_quality: buf[20],
@@ -278,8 +270,6 @@ impl TryFrom<&[u8]> for PanDescriptor {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default, Clone, Copy, Debug)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     /// Building wireless applications with STM32WB series MCUs - Application note 13.10.3
     pub enum MacChannel {
         Channel11 = 0x0B,
@@ -287,7 +277,6 @@ numeric_enum! {
         Channel13 = 0x0D,
         Channel14 = 0x0E,
         Channel15 = 0x0F,
-        #[default]
         Channel16 = 0x10,
         Channel17 = 0x11,
         Channel18 = 0x12,
@@ -300,10 +289,12 @@ numeric_enum! {
         Channel25 = 0x19,
         Channel26 = 0x1A,
     }
+    default = Channel16;
 }
 
 #[cfg(not(feature = "defmt"))]
 bitflags::bitflags! {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct Capabilities: u8 {
         /// 1 if the device is capabaleof becoming a PAN coordinator
         const IS_COORDINATOR_CAPABLE = 0b00000001;
@@ -344,10 +335,7 @@ defmt::bitflags! {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default, Clone, Copy, Debug)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum KeyIdMode {
-        #[default]
         /// the key is determined implicitly from the originator and recipient(s) of the frame
         Implicite = 0x00,
         /// the key is determined explicitly using a 1 bytes key source and a 1 byte key index
@@ -357,12 +345,11 @@ numeric_enum! {
         /// the key is determined explicitly using a 8 bytes key source and a 1 byte key index
         Explicite8Byte = 0x03,
     }
+    default = Implicite;
 }
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Debug)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum AssociationStatus {
         /// Association successful
         Success = 0x00,
@@ -375,8 +362,6 @@ numeric_enum! {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Clone, Copy, Debug)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum DisassociationReason {
         /// The coordinator wishes the device to leave the PAN.
         CoordRequested = 0x01,
@@ -387,23 +372,19 @@ numeric_enum! {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default, Clone, Copy, Debug, PartialEq)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum SecurityLevel {
         /// MAC Unsecured Mode Security
-        #[default]
         Unsecure = 0x00,
         /// MAC ACL Mode Security
         AclMode = 0x01,
         /// MAC Secured Mode Security
         Secured = 0x02,
     }
+    default = Unsecure;
 }
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Debug)]
-    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum ScanType {
         EdScan = 0x00,
         Active = 0x01,
