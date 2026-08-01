@@ -17,9 +17,11 @@ use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(feature = "embassy-time")]
+use embassy_time::{Duration, Instant};
 use embassy_usb_driver::{
-    Bus as _, Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut,
-    EndpointType, Event, Unsupported,
+    Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointIn, EndpointInfo, EndpointOut, EndpointType,
+    Event, Unsupported,
 };
 
 use crate::fmt::Bytes;
@@ -64,11 +66,7 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<'_>) {
 
                 // flushing TX if something stuck in control endpoint
                 if r.dieptsiz(ep_num).read().pktcnt() != 0 {
-                    r.grstctl().modify(|w| {
-                        w.set_txfnum(ep_num as _);
-                        w.set_txfflsh(true);
-                    });
-                    while r.grstctl().read().txfflsh() {}
+                    flush_tx_fifo(r, ep_num as _);
                 }
 
                 let data = &state.cp_state.setup_data;
@@ -192,19 +190,10 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<'_>) {
             trace!("Unsent message at EOF for ep: {}, frame: {}", ep_num, frame_number);
 
             let ep_diepctl = r.diepctl(ep_num);
-            let ep_diepint = r.diepint(ep_num);
 
-            // Set NAK
-            ep_diepctl.modify(|m| m.set_snak(true));
-            while !ep_diepint.read().inepne() {}
-
-            // Disable the endpoint
-            ep_diepctl.modify(|m| {
-                m.set_snak(true);
-                m.set_epdis(true);
-            });
-            while !ep_diepint.read().epdisd() {}
-            ep_diepint.modify(|m| m.set_epdisd(true));
+            // Set NAK and disable the endpoint. Do not flush the transmit FIFO: the packet in
+            // that FIFO is the packet that this function sends again in the next frame.
+            abort_in_endpoint(r, ep_num);
 
             // Switch the packet polarity
             ep_diepctl.modify(|r| {
@@ -656,6 +645,133 @@ impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
     }
 }
 
+/// The maximum time to wait for a handshake from the core.
+///
+/// The core completes each of these handshakes in one or two USB frames. The limit prevents an
+/// unlimited wait if the core does not answer. These waits occur on the control path.
+#[cfg(feature = "embassy-time")]
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_millis(10);
+
+/// The TXFNUM value that selects all the transmit FIFOs.
+const TX_FIFO_ALL: u8 = 0x10;
+
+/// Waits until `cond` is true.
+///
+/// Returns false if `cond` does not become true before [`HANDSHAKE_TIMEOUT`].
+///
+/// Loops indefinitely without `embassy-time`.
+fn wait_for(mut cond: impl FnMut() -> bool) -> bool {
+    #[cfg(feature = "embassy-time")]
+    let deadline = Instant::now() + HANDSHAKE_TIMEOUT;
+    loop {
+        if cond() {
+            return true;
+        }
+
+        #[cfg(feature = "embassy-time")]
+        if Instant::now() >= deadline {
+            return false;
+        }
+    }
+}
+
+/// Flushes one transmit FIFO, or all of them if `txfnum` is [`TX_FIFO_ALL`].
+fn flush_tx_fifo(regs: Otg, txfnum: u8) {
+    regs.grstctl().write(|w| {
+        w.set_txfflsh(true);
+        w.set_txfnum(txfnum);
+    });
+    if !wait_for(|| !regs.grstctl().read().txfflsh()) {
+        warn!("timeout during the flush of tx fifo {}", txfnum);
+    }
+}
+
+/// Flushes the receive FIFO. All the OUT endpoints share this FIFO.
+fn flush_rx_fifo(regs: Otg) {
+    regs.grstctl().write(|w| w.set_rxfflsh(true));
+    if !wait_for(|| !regs.grstctl().read().rxfflsh()) {
+        warn!("timeout during the flush of the rx fifo");
+    }
+}
+
+/// Stops a transfer that is in progress on an IN endpoint.
+///
+/// The NAK must be effective before the software sets EPDIS. If the software does not do these
+/// steps, EPENA stays set. The endpoint then does not operate again, because no other code
+/// clears EPENA.
+///
+/// The transmit FIFO of the endpoint keeps the data of the stopped transfer. The caller must
+/// flush that FIFO if the data is no longer necessary.
+fn abort_in_endpoint(regs: Otg, index: usize) {
+    let ctl = regs.diepctl(index);
+    let int = regs.diepint(index);
+
+    ctl.modify(|w| w.set_snak(true));
+    if !wait_for(|| int.read().inepne()) {
+        warn!("timeout during the wait for inepne on in ep={}", index);
+    }
+
+    ctl.modify(|w| {
+        w.set_snak(true);
+        w.set_epdis(true);
+    });
+    if !wait_for(|| int.read().epdisd()) {
+        warn!("timeout during the wait for epdisd on in ep={}", index);
+    }
+    int.write(|w| w.set_epdisd(true));
+}
+
+/// Stops a transfer that is in progress on an OUT endpoint.
+///
+/// The core disables an OUT endpoint only when the global OUT NAK is effective. All the OUT
+/// endpoints share the receive FIFO. Thus this function does not flush that FIFO.
+///
+/// # Interrupts
+///
+/// Do not call this function with the interrupts masked. The core makes the global OUT NAK
+/// effective only after the software reads a status entry from the receive FIFO.
+/// [`on_interrupt`] does that read. If the interrupt cannot occur, the wait for GOUTNAKEFF is
+/// never successful, and the subsequent wait for EPDISD is also never successful, because the
+/// core does not obey EPDIS before the global OUT NAK is effective.
+///
+/// # Duration
+///
+/// This function keeps control for approximately 1.2 ms. The measurements show an almost
+/// constant value, thus the core appears to make the global OUT NAK effective on a boundary
+/// between two frames. The caller pays this time one time for each OUT endpoint that it
+/// disables while the endpoint is active.
+fn abort_out_endpoint(regs: Otg, index: usize) {
+    let ctl = regs.doepctl(index);
+    let int = regs.doepint(index);
+
+    regs.dctl().modify(|w| w.set_sgonak(true));
+    if !wait_for(|| regs.gintsts().read().goutnakeff()) {
+        warn!("timeout during the wait for goutnakeff on out ep={}", index);
+    }
+
+    ctl.modify(|w| {
+        w.set_snak(true);
+        w.set_epdis(true);
+    });
+    // The interrupts are not masked here, thus [`on_interrupt`] can clear all the bits of
+    // DOEPINT before this loop reads EPDISD. Thus also accept a clear EPENA, which the core
+    // sets to 0 when it disables the endpoint. The interrupt handler does not write DOEPCTL.
+    if !wait_for(|| int.read().epdisd() || !ctl.read().epena()) {
+        warn!("timeout during the wait for epdisd on out ep={}", index);
+    }
+    int.write(|w| w.set_epdisd(true));
+
+    regs.dctl().modify(|w| w.set_cgonak(true));
+}
+
+/// Tells if an endpoint of this type has a data toggle that the software must set to DATA0.
+///
+/// A control endpoint gets its toggle from the stage of the transfer. For an isochronous
+/// endpoint, the same register bit selects the parity of the frame.
+fn has_data_toggle(ep_type: EndpointType) -> bool {
+    matches!(ep_type, EndpointType::Bulk | EndpointType::Interrupt)
+}
+
 /// USB bus.
 pub struct Bus<'d> {
     config: Config,
@@ -906,15 +1022,8 @@ impl<'d> Bus<'d> {
             );
 
             // Flush fifos, separately
-            regs.grstctl().write(|w| {
-                w.set_txfflsh(true);
-                w.set_txfnum(0x10);
-            });
-            while regs.grstctl().read().txfflsh() {}
-            regs.grstctl().write(|w| {
-                w.set_rxfflsh(true);
-            });
-            while regs.grstctl().read().rxfflsh() {}
+            flush_tx_fifo(regs, TX_FIFO_ALL);
+            flush_rx_fifo(regs);
         });
     }
 
@@ -924,10 +1033,27 @@ impl<'d> Bus<'d> {
         let regs = self.instance.regs;
         let st = self.instance.state;
 
+        // Discard the data that the device received before the reset. The FIFOs are empty now.
+        // A packet or a SETUP in these buffers is from the previous session. If the software
+        // keeps this data, the stack receives it as data from after the reset.
+        st.cp_state.setup_ready.store(false, Ordering::Release);
+        for ep in st.ep_states {
+            ep.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
+        }
+
         // Configure IN endpoints
         for index in 0..st.endpoint_count() {
             if let Some(ep) = st.ep_alloc_get(Direction::In, index) {
                 critical_section::with(|_| {
+                    // A write of 0 to EPENA does not stop a transfer. If the connection stopped
+                    // during a transfer, EPENA stays set, and it stays set through each
+                    // subsequent reset. The endpoint then does not operate again. For endpoint
+                    // 0 this makes the device permanently unusable.
+                    if regs.diepctl(index).read().epena() {
+                        abort_in_endpoint(regs, index);
+                        flush_tx_fifo(regs, index as _);
+                    }
+
                     regs.diepctl(index).write(|w| {
                         if index == 0 {
                             w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
@@ -985,13 +1111,42 @@ impl<'d> Bus<'d> {
             w.set_iepm(st.ep_irq_mask_in());
             w.set_oepm(st.ep_irq_mask_out());
         });
+
+        // The stores above disabled each endpoint that is not endpoint 0. Wake the futures that
+        // wait on these endpoints. The futures then read the new value and report `Disabled`. If
+        // the software does not wake them, they continue to wait with data from the previous
+        // session.
+        for ep in st.ep_states {
+            ep.in_waker.wake();
+            ep.out_waker.wake();
+        }
     }
 
     fn disable_all_endpoints(&mut self) {
+        let regs = self.instance.regs;
         let st = self.instance.state;
+
+        // This function runs when the bus power is no longer present. Thus it does not use the
+        // stop sequences of [`abort_in_endpoint`] and [`abort_out_endpoint`]: the core cannot
+        // complete a handshake without a bus, and each wait would use all of its timeout. It is
+        // also not necessary to stop the transfers, because the connection is no longer present.
+        //
+        // A stale EPENA can stay set on an endpoint. For an IN endpoint, `configure_endpoints`
+        // clears it at the next reset. For an OUT endpoint it stays set, but it has no effect:
+        // USBAEP is clear, thus the endpoint is not active, `configure_endpoints` programs
+        // DOEPTSIZ again, and `endpoint_set_enabled` sets EPENA again when it primes the
+        // endpoint.
         for i in 0..st.endpoint_count() {
-            self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::In), false);
-            self.endpoint_set_enabled(EndpointAddress::from_parts(i, Direction::Out), false);
+            critical_section::with(|_| {
+                regs.diepctl(i).modify(|w| w.set_usbaep(false));
+                regs.doepctl(i).modify(|w| w.set_usbaep(false));
+            });
+
+            st.ep_states[i].in_enabled.store(false, Ordering::Release);
+            st.ep_states[i].out_enabled.store(false, Ordering::Release);
+            // Wake the futures that wait on these endpoints, so that they report `Disabled`.
+            st.ep_states[i].in_waker.wake();
+            st.ep_states[i].out_waker.wake();
         }
     }
 
@@ -1010,6 +1165,10 @@ impl<'d> Bus<'d> {
             for ep in self.instance.state.ep_states {
                 ep.in_enabled.store(false, Ordering::Release);
                 ep.out_enabled.store(false, Ordering::Release);
+                // Wake the futures that wait on these endpoints, so that they report `Disabled`.
+                // If the software does not wake them, they wait for data that cannot come.
+                ep.in_waker.wake();
+                ep.out_waker.wake();
             }
         }
     }
@@ -1029,7 +1188,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
             let regs = self.instance.regs;
             self.instance.state.bus_waker.register(cx.waker());
 
-            let ints = regs.gintsts().read();
+            let mut ints = regs.gintsts().read();
 
             if ints.srqint() {
                 trace!("vbus detected");
@@ -1069,7 +1228,18 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     });
                 });
 
-                regs.gintsts().write(|w| w.set_usbrst(true)); // clear
+                // A suspend from before the reset is no longer applicable, because the reset
+                // signal ends the suspend state. If this bit stays set, the next poll reports a
+                // suspend that did not occur. `embassy-usb` then waits for a resume and does not
+                // answer SETUP packets. Thus the enumeration does not complete.
+                regs.gintsts().write(|w| {
+                    w.set_usbrst(true);
+                    w.set_usbsusp(true);
+                });
+                // `ints` is a copy of the register from before this clear. The software must
+                // also clear the bit in the copy. If it does not, the suspend condition below
+                // uses the old value.
+                ints.set_usbsusp(false);
                 self.restore_irqs();
             }
 
@@ -1081,7 +1251,12 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 trace!("  speed={} trdt={}", speed.to_bits(), trdt);
                 regs.gusbcfg().modify(|w| w.set_trdt(trdt));
 
-                regs.gintsts().write(|w| w.set_enumdne(true)); // clear
+                // Clear a suspend that is no longer applicable here also. An earlier poll can
+                // process the reset. The core can set USBSUSP again after that poll.
+                regs.gintsts().write(|w| {
+                    w.set_usbsusp(true);
+                    w.set_enumdne(true);
+                });
                 self.restore_irqs();
 
                 return Poll::Ready(Event::Reset);
@@ -1118,24 +1293,48 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
             ep_addr.index()
         );
 
-        match ep_addr.direction() {
+        let index = ep_addr.index();
+        let dir = ep_addr.direction();
+        // The software must set the data toggle to DATA0 when it clears a halt (USB 2.0
+        // §9.4.5). If it does not, the host and the device do not agree. The receiver then
+        // ignores each subsequent packet, because the packet looks like a re-transmission.
+        let reset_toggle = !stalled
+            && st
+                .ep_alloc_get(dir, index)
+                .is_some_and(|ep| has_data_toggle(ep.ep_type));
+
+        match dir {
             Direction::Out => {
                 critical_section::with(|_| {
-                    regs.doepctl(ep_addr.index()).modify(|w| {
+                    regs.doepctl(index).modify(|w| {
                         w.set_stall(stalled);
+                        if reset_toggle {
+                            w.set_sd0pid_sevnfrm(true);
+                        }
                     });
                 });
 
-                st.ep_states[ep_addr.index()].out_waker.wake();
+                st.ep_states[index].out_waker.wake();
             }
             Direction::In => {
                 critical_section::with(|_| {
-                    regs.diepctl(ep_addr.index()).modify(|w| {
+                    // A stall of an endpoint with a transfer in progress needs the full stop
+                    // sequence. If the software only sets STALL, EPENA stays set. The endpoint
+                    // then does not operate again.
+                    if stalled && regs.diepctl(index).read().epena() {
+                        abort_in_endpoint(regs, index);
+                        flush_tx_fifo(regs, index as _);
+                    }
+
+                    regs.diepctl(index).modify(|w| {
                         w.set_stall(stalled);
+                        if reset_toggle {
+                            w.set_sd0pid_sevnfrm(true);
+                        }
                     });
                 });
 
-                st.ep_states[ep_addr.index()].in_waker.wake();
+                st.ep_states[index].in_waker.wake();
             }
         }
     }
@@ -1165,19 +1364,27 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
 
         let regs = self.instance.regs;
         let st = self.instance.state;
+        let reset_toggle = st
+            .ep_alloc_get(ep_addr.direction(), ep_addr.index())
+            .is_some_and(|ep| has_data_toggle(ep.ep_type));
+
         match ep_addr.direction() {
             Direction::Out => {
-                critical_section::with(|_| {
-                    // cancel transfer if active
-                    if !enabled && regs.doepctl(ep_addr.index()).read().epena() {
-                        regs.doepctl(ep_addr.index()).modify(|w| {
-                            w.set_snak(true);
-                            w.set_epdis(true);
-                        })
-                    }
+                // Cancel a transfer that is active. This step is not in the critical section
+                // below, because the interrupt handler must run for the global OUT NAK to
+                // become effective. Refer to [`abort_out_endpoint`].
+                if !enabled && regs.doepctl(ep_addr.index()).read().epena() {
+                    abort_out_endpoint(regs, ep_addr.index());
+                }
 
+                critical_section::with(|_| {
                     regs.doepctl(ep_addr.index()).modify(|w| {
                         w.set_usbaep(enabled);
+                        // A change of the configuration or of the alternate setting sets the
+                        // data toggle of each related endpoint to DATA0 (USB 2.0 §9.1.1.5).
+                        if enabled && reset_toggle {
+                            w.set_sd0pid_sevnfrm(true);
+                        }
                     });
 
                     // When re-enabling a non-EP0 OUT endpoint, prime it to receive a packet.
@@ -1206,10 +1413,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 critical_section::with(|_| {
                     // cancel transfer if active
                     if !enabled && regs.diepctl(ep_addr.index()).read().epena() {
-                        regs.diepctl(ep_addr.index()).modify(|w| {
-                            w.set_snak(true); // set NAK
-                            w.set_epdis(true);
-                        })
+                        abort_in_endpoint(regs, ep_addr.index());
                     }
 
                     regs.diepctl(ep_addr.index()).modify(|w| {
@@ -1220,19 +1424,14 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                         if enabled {
                             w.set_snak(true);
                         }
+                        // A change of the configuration or of the alternate setting sets the
+                        // data toggle of each related endpoint to DATA0 (USB 2.0 §9.1.1.5).
+                        if enabled && reset_toggle {
+                            w.set_sd0pid_sevnfrm(true);
+                        }
                     });
 
-                    // Flush tx fifo
-                    regs.grstctl().write(|w| {
-                        w.set_txfflsh(true);
-                        w.set_txfnum(ep_addr.index() as _);
-                    });
-                    loop {
-                        let x = regs.grstctl().read();
-                        if !x.txfflsh() {
-                            break;
-                        }
-                    }
+                    flush_tx_fifo(regs, ep_addr.index() as _);
                 });
 
                 st.ep_states[ep_addr.index()]
