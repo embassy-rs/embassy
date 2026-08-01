@@ -17,14 +17,15 @@ use embassy_futures::select::{Either, select};
 use embassy_futures::yield_now;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv6Address, Ipv6Cidr, Stack, StackResources, StaticConfigV6};
-use embassy_net_adin1110::{ADIN1110, Device, Runner, Tc6};
+use embassy_net_adin1110::{ADIN1110, Device, Runner, Tc6, TxPort};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rng::{self, Rng};
+use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{Config as SPI_Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, exti, pac, peripherals};
+use embassy_stm32::{bind_interrupts, exti, interrupt, pac, peripherals};
 use embassy_time::{Delay, Duration, Ticker, Timer};
 use embedded_hal_async::i2c::I2c as I2cBus;
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -39,6 +40,11 @@ bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
+    EXTI8 => exti::InterruptHandler<interrupt::typelevel::EXTI8>;
+    GPDMA1_CHANNEL8 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH8>;
+    GPDMA1_CHANNEL9 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH9>;
+    GPDMA1_CHANNEL12 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH12>;
+    GPDMA1_CHANNEL13 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH13>;
 });
 
 // Basic settings
@@ -49,9 +55,9 @@ const IP_ADDRESS: Ipv6Cidr = Ipv6Cidr::new(Ipv6Address::new(0xfd00, 0, 0, 0, 0xc
 // Listen port for the webserver
 const HTTP_LISTEN_PORT: u16 = 80;
 
-pub type SpeSpi = Spi<'static, Async>;
+pub type SpeSpi = Spi<'static, Async, Master>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
-pub type SpeInt = exti::ExtiInput<'static>;
+pub type SpeInt = exti::ExtiInput<'static, Async>;
 pub type SpeRst = Output<'static>;
 pub type Adin1110T = ADIN1110<Tc6<SpeSpiCs>>;
 pub type TempSensI2c = I2c<'static, Async, i2c::Master>;
@@ -64,17 +70,18 @@ async fn main(spawner: Spawner) {
 
     let mut config = embassy_stm32::Config::default();
     {
-        use embassy_stm32::rcc::{Msirange, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk};
-        config.rcc.sys = Sysclk::PLL1_R;
+        use embassy_stm32::rcc::{MSIRange, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk};
+        // sysclk 160 MHz: MSIS 48 MHz / 3 * 10 / 1
+        config.rcc.sys = Sysclk::Pll1R;
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::MSIS,
-            prediv: PllPreDiv::DIV3,
-            mul: PllMul::MUL10,
-            divp: Some(PllDiv::DIV2),
-            divq: Some(PllDiv::DIV2),
-            divr: Some(PllDiv::DIV1),
+            source: PllSource::Msis,
+            prediv: PllPreDiv::Div3,
+            mul: PllMul::Mul10,
+            divp: Some(PllDiv::Div2),
+            divq: Some(PllDiv::Div2),
+            divr: Some(PllDiv::Div1),
         });
-        config.rcc.msis = Some(Msirange::RANGE_48MHZ);
+        config.rcc.msis = Some(MSIRange::Range48mhz);
     }
 
     let dp = embassy_stm32::init(config);
@@ -89,9 +96,9 @@ async fn main(spawner: Spawner) {
         dp.I2C1,
         dp.PB6,
         dp.PB7,
-        Irqs,
         dp.GPDMA1_CH9,
         dp.GPDMA1_CH8,
+        Irqs,
         I2C_Config::default(),
     );
 
@@ -106,7 +113,7 @@ async fn main(spawner: Spawner) {
 
     // Setup IO and SPI for the SPE chip
     let spe_reset_n = Output::new(dp.PA0, Level::Low, Speed::Low);
-    let spe_int = exti::ExtiInput::new(dp.PB8, dp.EXTI8, Pull::None);
+    let spe_int = exti::ExtiInput::new(dp.PB8, dp.EXTI8, Pull::None, Irqs);
     let spe_spi_cs_n = Output::new(dp.PA15, Level::High, Speed::High);
     let spe_spi_sclk = dp.PB3;
     let spe_spi_miso = dp.PB4;
@@ -122,6 +129,7 @@ async fn main(spawner: Spawner) {
         spe_spi_miso,
         dp.GPDMA1_CH13,
         dp.GPDMA1_CH12,
+        Irqs,
         spi_config,
     );
     let spe_spi = SpeSpiCs::new(spe_spi, spe_spi_cs_n, Delay);
@@ -135,7 +143,8 @@ async fn main(spawner: Spawner) {
     // From page 22 of the ADIN2111 datasheet
     Timer::after_millis(90).await;
 
-    let (device, runner) = embassy_net_adin1110::new_tc6(MAC, state, spe_spi, spe_int, spe_reset_n, false).await;
+    let (device, runner) =
+        embassy_net_adin1110::new_tc6(MAC, state, spe_spi, spe_int, spe_reset_n, false, TxPort::Flood).await;
 
     // Start task blink_led
     // spawner.spawn(unwrap!(heartbeat_led(led_uc2_green)));

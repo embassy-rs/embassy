@@ -2,16 +2,19 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
+use panic_probe as _;
 use pca9535::{GPIOBank, Pca9535Immediate, StandardExpanderInterface};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    GPDMA1_CHANNEL12 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH12>;
+    GPDMA1_CHANNEL13 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH13>;
 });
 
 #[embassy_executor::main]
@@ -23,9 +26,9 @@ async fn main(_spawner: Spawner) -> ! {
         dp.I2C1,
         dp.PB6,
         dp.PB7,
-        Irqs,
         dp.GPDMA1_CH13,
         dp.GPDMA1_CH12,
+        Irqs,
         I2C_Config::default(),
     );
 
