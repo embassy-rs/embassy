@@ -641,3 +641,35 @@ macro_rules! impl_adc_pin {
         }
     };
 }
+
+/// The ADC0 channel the temperature sensor is connected to.
+///
+/// See `SYS_TEMP_SENSE_CHANNEL` in the device specific data sheet. ADC1 uses a different
+/// channel (12 on the G-series), which is not exposed.
+#[cfg(any(
+    mspm0c110x, mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0l110x, mspm0l130x,
+    mspm0l134x
+))]
+const TEMP_SENSOR_CHANNEL: u8 = 11;
+
+#[cfg(any(mspm0c1105_c1106, mspm0h321x))]
+const TEMP_SENSOR_CHANNEL: u8 = 28;
+
+#[cfg(any(mspm0g518x, mspm0l122x, mspm0l222x))]
+const TEMP_SENSOR_CHANNEL: u8 = 29;
+
+/// Internal temperature sensor channel.
+///
+/// Uses an internal ADC0 channel, no external pin is required. It can be sampled like a
+/// regular [`AdcChannel`].
+#[cfg(temp_sensor)]
+pub struct TempSensorChannel;
+
+#[cfg(temp_sensor)]
+impl crate::adc::AdcChannel<crate::peripherals::ADC0> for TempSensorChannel {}
+#[cfg(temp_sensor)]
+impl crate::adc::SealedAdcChannel<crate::peripherals::ADC0> for TempSensorChannel {
+    fn channel(&self) -> u8 {
+        TEMP_SENSOR_CHANNEL
+    }
+}
