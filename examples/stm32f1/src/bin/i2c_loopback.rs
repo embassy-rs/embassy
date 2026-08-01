@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     join(
         async {
-            let mut i2c_peripheral = I2c::new(p.I2C1, p.PB6, p.PB7, Irqs, p.DMA1_CH6, p.DMA1_CH7, {
+            let mut i2c_peripheral = I2c::new(p.I2C1, p.PB6, p.PB7, p.DMA1_CH6, p.DMA1_CH7, Irqs, {
                 let mut config = i2c::Config::default();
                 config.frequency = i2c_frequency;
                 config
@@ -64,7 +64,7 @@ async fn main(_spawner: Spawner) -> ! {
             }
         },
         async {
-            let mut i2c_controller = I2c::new(p.I2C2, p.PB10, p.PB11, Irqs, p.DMA1_CH4, p.DMA1_CH5, {
+            let mut i2c_controller = I2c::new(p.I2C2, p.PB10, p.PB11, p.DMA1_CH4, p.DMA1_CH5, Irqs, {
                 let mut config = i2c::Config::default();
                 config.frequency = i2c_frequency;
                 config
