@@ -90,7 +90,7 @@
 //!     let mut dst2 = [0u8; 4];
 //!     let mut dst3 = [0u8; 4];
 //!
-//!     let mut ch0 = DmaChannel::new(p.DMA_CH0);
+//!     let mut ch0 = DmaChannel::new(p.DMA0_CH0);
 //!     let mut builder = ScatterGatherBuilder::<u8>::new();
 //!
 //!     builder.add_transfer(&src1, &mut dst1);
@@ -114,7 +114,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
 
-pub(crate) use crate::_generated::DmaRequest;
+pub use crate::_generated::DmaRequest;
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::dma::sealed::SealedChannel;
@@ -1057,14 +1057,14 @@ impl DmaChannel<'_> {
     /// # Example
     ///
     /// ```rust,ignore
-    /// use embassy_mcxa::dma::{DmaChannel, Lpuart2RxRequest};
+    /// use embassy_mcxa::dma::{DmaChannel, DmaRequest};
     ///
     /// unsafe {
-    ///     channel.set_request_source(Lpuart2RxRequest::REQUEST_NUMBER);
+    ///     channel.set_request_source(DmaRequest::Lpuart2Rx);
     /// }
     /// ```
     #[inline]
-    pub(crate) unsafe fn set_request_source(&self, source: DmaRequest) {
+    pub unsafe fn set_request_source(&self, source: DmaRequest) {
         // Two-step write per NXP SDK: clear to 0, then set actual source.
         self.tcd().ch_mux().write(|w| w.set_src(0));
         cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
@@ -1962,10 +1962,98 @@ impl<'a> DmaChannel<'a> {
 /// Maximum number of TCDs in a scatter-gather chain.
 pub(crate) const MAX_SCATTER_GATHER_TCDS: usize = 16;
 
+// ============================================================================
+// Scatter-gather pacing makers
+// ============================================================================
+
+mod sealed_pacing {
+    pub trait Sealed {}
+}
+
+/// Marker for software-paced scatter-gather chains.
+pub struct SoftwarePaced;
+
+/// Marker for peripheral-paced scatter-gather chains.
+pub struct PeripheralPaced;
+
+impl sealed_pacing::Sealed for SoftwarePaced {}
+impl sealed_pacing::Sealed for PeripheralPaced {}
+
+/// Compile-time pacing mode for [`ScatterGatherBuilder`].
+///
+/// Implemented by [`SoftwarePaced`] and [`PeripheralPaced`].  The sealed trait
+/// prevents external implementations.
+#[allow(private_bounds)]
+pub trait ScatterGatherPacing: sealed_pacing::Sealed {
+    #[doc(hidden)]
+    fn is_peripheral() -> bool;
+}
+
+impl ScatterGatherPacing for SoftwarePaced {
+    fn is_peripheral() -> bool {
+        false
+    }
+}
+
+impl ScatterGatherPacing for PeripheralPaced {
+    fn is_peripheral() -> bool {
+        true
+    }
+}
+
+// ============================================================================
+// Peripheral segment descriptor
+// ============================================================================
+
+/// A segment for peripheral-paced scatter-gather chains.
+pub enum PeripheralSegment<'b, W: Word> {
+    /// Transfer from a memory buffer to a fixed peripheral address (TX gather).
+    MemoryToPeripheral { src: &'b [W], peri_addr: *mut W },
+    /// Transfer from a fixed peripheral address to a memory buffer (RX scatter).
+    PeripheralToMemory { peri_addr: *const W, dst: &'b mut [W] },
+}
+
+impl<'b, W: Word> PeripheralSegment<'b, W> {
+    /// Create a memory-to-peripheral (TX) segment.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - Source buffer in memory to transmit
+    /// * `peri_addr` - Fixed destination peripheral register address
+    ///
+    /// # Returns
+    ///
+    /// A [`PeripheralSegment::MemoryToPeripheral`] variant ready for use with
+    /// [`ScatterGatherBuilder<W, PeripheralPaced>::add_transfer_segment`].
+    pub fn memory_to_peripheral(src: &'b [W], peri_addr: *mut W) -> Self {
+        Self::MemoryToPeripheral { src, peri_addr }
+    }
+
+    /// Create a peripheral-to-memory (RX) segment.
+    ///
+    /// # Arguments
+    ///
+    /// * `peri_addr` - Fixed source peripheral register address
+    /// * `dst` - Destination buffer in memory to receive into
+    ///
+    /// # Returns
+    ///
+    /// A [`PeripheralSegment::PeripheralToMemory`] variant ready for use with
+    /// [`ScatterGatherBuilder<W, PeripheralPaced>::add_transfer_segment`].
+    pub fn peripheral_to_memory(peri_addr: *const W, dst: &'b mut [W]) -> Self {
+        Self::PeripheralToMemory { peri_addr, dst }
+    }
+}
+
 /// A builder for constructing scatter-gather DMA transfer chains.
 ///
 /// This provides a type-safe way to build TCD chains for scatter-gather
-/// transfers without manual TCD manipulation.
+/// transfers without manual TCD manipulation. The type parameter `P` encodes the pacing mode at compile time:
+///
+/// | Type | Pacing | Segment method |
+/// |------|--------|----------------|
+/// | `ScatterGatherBuilder<W>` | [`SoftwarePaced`] (default) | `add_transfer_segment(src, dst)` |
+/// | `ScatterGatherBuilder<W, PeripheralPaced>` | [`PeripheralPaced`] | `add_transfer_segment(PeripheralSegment)` |
 ///
 /// # Example
 ///
@@ -1981,7 +2069,7 @@ pub(crate) const MAX_SCATTER_GATHER_TCDS: usize = 16;
 /// # use embassy_hal_internal::Peri;
 /// # use embassy_mcxa::clocks::config::Div8;
 /// # use embassy_mcxa::config::Config;
-/// # use embassy_mcxa::dma::{DmaChannel, ScatterGatherBuilder};
+/// # use embassy_mcxa::dma::{DmaChannel, ScatterGatherBuilder, SoftwarePaced};
 /// #
 /// # #[embassy_executor::main]
 /// # async fn main(_spawner: Spawner) {
@@ -1998,7 +2086,7 @@ pub(crate) const MAX_SCATTER_GATHER_TCDS: usize = 16;
 ///     let mut dst2 = [0x00u32; 128];
 ///     let mut dst3 = [0x00u32; 128];
 ///
-///     let mut ch0 = DmaChannel::new(p.DMA_CH0);
+///     let mut ch0 = DmaChannel::new(p.DMA0_CH0);
 ///     let mut builder = ScatterGatherBuilder::<u32>::new();
 ///
 ///     // Add transfer segments
@@ -2011,49 +2099,55 @@ pub(crate) const MAX_SCATTER_GATHER_TCDS: usize = 16;
 ///     transfer.await;
 /// # }
 /// ```
-pub struct ScatterGatherBuilder<'a, W: Word> {
+pub struct ScatterGatherBuilder<'a, W: Word, P: ScatterGatherPacing = SoftwarePaced> {
     /// TCD pool (must be 32-byte aligned)
     tcds: [Tcd; MAX_SCATTER_GATHER_TCDS],
     /// Number of TCDs configured
     count: usize,
-    /// Phantom marker for word type
-    _phantom: core::marker::PhantomData<W>,
-
-    _plt: core::marker::PhantomData<&'a mut W>,
+    _phantom: core::marker::PhantomData<(W, P, &'a mut ())>,
 }
 
-impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
-    /// Create a new scatter-gather builder.
+// ============================================================================
+// Software-paced API — memory-to-memory segments only
+// ============================================================================
+
+impl<'a, W: Word> ScatterGatherBuilder<'a, W, SoftwarePaced> {
+    /// Create a new software-paced scatter-gather builder.
     pub fn new() -> Self {
         ScatterGatherBuilder {
             tcds: [Tcd::default(); MAX_SCATTER_GATHER_TCDS],
             count: 0,
             _phantom: core::marker::PhantomData,
-            _plt: core::marker::PhantomData,
         }
     }
 
-    /// Add a memory-to-memory transfer segment to the chain.
+    /// Add a memory-to-memory segment.
     ///
     /// # Arguments
     ///
     /// * `src` - Source buffer for this segment
-    /// * `dst` - Destination buffer for this segment
+    /// * `dst` - Destination buffer for this segment (must be at least as large as `src`)
     ///
-    /// # Panics
+    /// # Returns
     ///
-    /// Panics if the maximum number of segments (16) is exceeded.
-    pub fn add_transfer<'b: 'a>(&mut self, src: &'b [W], dst: &'b mut [W]) -> &mut Self {
-        assert!(self.count < MAX_SCATTER_GATHER_TCDS, "Too many scatter-gather segments");
-        assert!(!src.is_empty());
-        assert!(dst.len() >= src.len());
+    /// `Ok(&mut Self)` for method chaining, or `Err(InvalidParameters)` if the chain
+    /// is full or the buffers are invalid (empty, mismatched length, or larger than
+    /// [`DMA_MAX_TRANSFER_SIZE`]).
+    pub fn add_transfer_segment<'b: 'a>(&mut self, src: &'b [W], dst: &'b mut [W]) -> Result<&mut Self, InvalidParameters> {
+        if self.count >= MAX_SCATTER_GATHER_TCDS {
+            return Err(InvalidParameters);
+        }
+
+        if src.is_empty() || dst.len() < src.len() || src.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
+        }
 
         let size = W::size();
         let byte_size = size.bytes();
         let hw_size = size.to_hw_size();
         let nbytes = (src.len() * byte_size) as u32;
 
-        // Build the TCD for this segment
+        // Software-paced memory copy: transfer all bytes in a single major loop iteration.
         self.tcds[self.count] = Tcd {
             saddr: src.as_ptr() as u32,
             soff: byte_size as i16,
@@ -2064,12 +2158,202 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
             doff: byte_size as i16,
             citer: 1,
             dlast_sga: 0, // Will be filled in by build()
-            csr: 0x0002,  // INTMAJOR only (ESG will be set for non-last TCDs)
+            csr: 0, // Will be filled in by build()
             biter: 1,
         };
 
         self.count += 1;
+        Ok(self)
+    }
+
+    /// Add a memory-to-memory segment.
+    ///
+    /// Backwards compatible wrapper over [`add_transfer_segment`](Self::add_transfer_segment)
+    /// that panics instead of returning an error.
+    ///
+    /// # Arguments
+    ///
+    /// * `src` - Source buffer for this segment
+    /// * `dst` - Destination buffer for this segment (must be at least as large as `src`)
+    ///
+    /// # Returns
+    ///
+    /// `&mut Self` for method chaining.
+    pub fn add_transfer<'b: 'a>(&mut self, src: &'b [W], dst: &'b mut [W]) -> &mut Self {
+        self.add_transfer_segment(src, dst)
+            .expect("Too many scatter-gather segments or invalid segment");
         self
+    }
+}
+
+impl<W: Word> Default for ScatterGatherBuilder<'_, W, SoftwarePaced> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Peripheral-paced API — memory-to-peripheral / peripheral-to-memory segments
+// ============================================================================
+
+impl<'a, W: Word> ScatterGatherBuilder<'a, W, PeripheralPaced> {
+    /// Create a new peripheral-paced scatter-gather builder.
+    pub fn new() -> Self {
+        ScatterGatherBuilder {
+            tcds: [Tcd::default(); MAX_SCATTER_GATHER_TCDS],
+            count: 0,
+            _phantom: core::marker::PhantomData,
+        }
+    }
+
+    /// Add a peripheral-paced segment (memory-to-peripheral or peripheral-to-memory).
+    ///
+    /// # Arguments
+    ///
+    /// * `segment` - A [`PeripheralSegment`] describing the transfer direction and buffers
+    ///
+    /// # Returns
+    ///
+    /// `Ok(&mut Self)` for method chaining, or `Err(InvalidParameters)` if the chain
+    /// is full or the buffer is invalid (empty or larger than [`DMA_MAX_TRANSFER_SIZE`]).
+    pub fn add_transfer_segment<'b: 'a>(
+        &mut self,
+        segment: PeripheralSegment<'b, W>,
+    ) -> Result<&mut Self, InvalidParameters> {
+        if self.count >= MAX_SCATTER_GATHER_TCDS {
+            return Err(InvalidParameters);
+        }
+
+        let size = W::size();
+        let byte_size = size.bytes();
+        let hw_size = size.to_hw_size();
+
+        // Peripheral-paced: one word per minor loop, element count in major loop.
+        let (saddr, soff, daddr, doff, major_count) = match segment {
+            PeripheralSegment::MemoryToPeripheral { src, peri_addr } => {
+                if src.is_empty() || src.len() > DMA_MAX_TRANSFER_SIZE {
+                    return Err(InvalidParameters);
+                }
+                let major_count = u16::try_from(src.len()).map_err(|_| InvalidParameters)?;
+                (src.as_ptr() as u32, byte_size as i16, peri_addr as u32, 0i16, major_count)
+            }
+            PeripheralSegment::PeripheralToMemory { peri_addr, dst } => {
+                if dst.is_empty() || dst.len() > DMA_MAX_TRANSFER_SIZE {
+                    return Err(InvalidParameters);
+                }
+                let major_count = u16::try_from(dst.len()).map_err(|_| InvalidParameters)?;
+                (peri_addr as u32, 0i16, dst.as_mut_ptr() as u32, byte_size as i16, major_count)
+            }
+        };
+
+        self.tcds[self.count] = Tcd {
+            saddr,
+            soff,
+            attr: ((hw_size as u16) << 8) | (hw_size as u16), // SSIZE | DSIZE 
+            nbytes: byte_size as u32,
+            slast: 0,
+            daddr,
+            doff,
+            citer: major_count,
+            dlast_sga: 0, // Will be filled in by build()
+            csr: 0, // Will be filled in by build()
+            biter: major_count,
+        };
+
+        self.count += 1;
+        Ok(self)
+    }
+}
+
+impl<W: Word> Default for ScatterGatherBuilder<'_, W, PeripheralPaced> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// ScatterGatherBuilder Shared API — available on both pacing modes
+// ============================================================================
+
+impl<'a, W: Word, P: ScatterGatherPacing> ScatterGatherBuilder<'a, W, P> {
+    /// Arms the scatter-gather chain on the given DMA channel.
+    ///
+    /// # Arguments
+    ///
+    /// * `channel` - The DMA channel to arm with this scatter-gather chain.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` if the chain was successfully armed, or `Err(Error::Configuration)` if the chain is empty.
+    fn arm(&mut self, channel: &mut DmaChannel<'_>) -> Result<(), Error> {
+        if self.count == 0 {
+            return Err(Error::Configuration);
+        }
+
+        // Link the TCDs together
+        for i in 0..self.count {
+            let is_last = i == self.count - 1;
+
+            if !is_last {
+                // For all but the last TCD, set dlast_sga to point to the next TCD in the chain.
+                self.tcds[i].dlast_sga = &self.tcds[i + 1] as *const Tcd as i32;
+            } else {
+                self.tcds[i].dlast_sga = 0;
+            }
+
+            let mut csr = TcdCsr(0);
+            if !is_last {
+                // Set ESG=ScatterGatherFormat for all but the last TCD to enable chaining.
+                csr.set_esg(Esg::ScatterGatherFormat);
+            }
+            if is_last {
+                // For the last TCD, clear DREQ to auto-disable requests on completion.
+                csr.set_dreq(Dreq::ErqFieldClear);
+                // Enable INTMAJOR to fire a completion interrupt when the last TCD finishes.
+                csr.set_intmajor(true);
+            }
+
+            // Non-first software-paced TCDs need START pre-encoded so that when ESG
+            // loads the next TCD the hardware immediately starts the burst without
+            // needing another software trigger. Peripheral-paced TCDs are started
+            // by ERQ, so they must NOT have START set here.
+            if !P::is_peripheral() && i > 0 {
+                csr.set_start(Start::ChannelStarted);
+            }
+            self.tcds[i].csr = csr.0;
+        }
+
+        let t = channel.tcd();
+
+        // Reset channel state - clear DONE, disable requests, clear errors
+        // This ensures the channel is in a clean state before loading the TCD
+        DmaChannel::reset_channel_state(&t);
+
+        // Memory barrier to ensure channel state is reset before loading TCD
+        cortex_m::asm::dsb();
+
+        // SAFETY:
+        // 1. TCD properly initialized: self.tcds[0] was fully populated by add_transfer_segment()
+        //    and its dlast_sga/csr fields were written by the linking loop above.
+        // 2. No concurrent access: arm() takes &mut DmaChannel, enforcing exclusive ownership
+        //    of the channel at compile time for the duration of this call.
+        unsafe {
+            channel.load_tcd(&self.tcds[0]);
+        }
+
+        // Memory barrier before setting START or enabling request
+        cortex_m::asm::dsb();
+
+        // Start the transfer. If peripheral-paced, enable request; otherwise, start the channel
+        if P::is_peripheral() {
+            unsafe {
+                channel.enable_request();
+            }
+        } else {
+            t.tcd_csr().modify(|w| w.set_start(Start::ChannelStarted));
+        }
+
+        Ok(())
     }
 
     /// Get the number of transfer segments added.
@@ -2086,83 +2370,28 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
     /// # Returns
     ///
     /// A `Transfer` future that completes when the entire chain has executed.
-    pub fn build(&mut self, channel: DmaChannel<'a>) -> Result<Transfer<'a>, Error> {
-        if self.count == 0 {
-            return Err(Error::Configuration);
-        }
-
-        // Link TCDs together
-        //
-        // CSR bit definitions:
-        // - START = bit 0 = 0x0001 (triggers transfer when set)
-        // - INTMAJOR = bit 1 = 0x0002 (interrupt on major loop complete)
-        // - ESG = bit 4 = 0x0010 (enable scatter-gather, loads next TCD on complete)
-        //
-        // When hardware loads a TCD via scatter-gather (ESG), it copies the TCD's
-        // CSR directly into the hardware register. If START is not set in that CSR,
-        // the hardware will NOT auto-execute the loaded TCD.
-        //
-        // Strategy:
-        // - First TCD: ESG | INTMAJOR (no START - we add it manually after loading)
-        // - Middle TCDs: ESG | INTMAJOR | START (auto-execute when loaded via S/G)
-        // - Last TCD: INTMAJOR | START (auto-execute, no further linking)
-        for i in 0..self.count {
-            let is_first = i == 0;
-            let is_last = i == self.count - 1;
-
-            if is_first {
-                if is_last {
-                    // Only one TCD - no ESG, no START (we add START manually)
-                    self.tcds[i].dlast_sga = 0;
-                    self.tcds[i].csr = 0x0002; // INTMAJOR only
-                } else {
-                    // First of multiple - ESG to link, no START (we add START manually)
-                    self.tcds[i].dlast_sga = &self.tcds[i + 1] as *const Tcd as i32;
-                    self.tcds[i].csr = 0x0012; // ESG | INTMAJOR
-                }
-            } else if is_last {
-                // Last TCD (not first) - no ESG, but START so it auto-executes
-                self.tcds[i].dlast_sga = 0;
-                self.tcds[i].csr = 0x0003; // INTMAJOR | START
-            } else {
-                // Middle TCD - ESG to link, and START so it auto-executes
-                self.tcds[i].dlast_sga = &self.tcds[i + 1] as *const Tcd as i32;
-                self.tcds[i].csr = 0x0013; // ESG | INTMAJOR | START
-            }
-        }
-
-        let t = channel.tcd();
-
-        // Reset channel state - clear DONE, disable requests, clear errors
-        // This ensures the channel is in a clean state before loading the TCD
-        DmaChannel::reset_channel_state(&t);
-
-        // Memory barrier to ensure channel state is reset before loading TCD
-        cortex_m::asm::dsb();
-
-        // Load first TCD into hardware
-        unsafe {
-            channel.load_tcd(&self.tcds[0]);
-        }
-
-        // Memory barrier before setting START
-        cortex_m::asm::dsb();
-
-        // Start the transfer
-        t.tcd_csr().modify(|w| w.set_start(Start::ChannelStarted));
-
+    pub fn build(&mut self, mut channel: DmaChannel<'a>) -> Result<Transfer<'a>, Error> {
+        self.arm(&mut channel)?;
         Ok(Transfer::new(channel))
+    }
+
+    /// Build the scatter-gather chain with a borrowed channel.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `channel` - A mutable reference to the DMA channel to use for the transfer
+    /// 
+    /// # Returns
+    /// 
+    /// A `Transfer` future that completes when the entire chain has executed.
+    pub fn build_borrowed<'ch>(&mut self, channel: &'ch mut DmaChannel<'_>) -> Result<Transfer<'ch>, Error> {
+        self.arm(channel)?;
+        Ok(Transfer::new(channel.reborrow()))
     }
 
     /// Reset the builder for reuse.
     pub fn clear(&mut self) {
         self.count = 0;
-    }
-}
-
-impl<W: Word> Default for ScatterGatherBuilder<'_, W> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
