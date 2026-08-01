@@ -1078,7 +1078,12 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 trace!("  speed={} trdt={}", speed.to_bits(), trdt);
                 regs.gusbcfg().modify(|w| w.set_trdt(trdt));
 
-                regs.gintsts().write(|w| w.set_enumdne(true)); // clear
+                // Clear the handled interrupt
+                regs.gintsts().write(|w| {
+                    // The reset ended suspend state, so USBSUSP needs to be also cleared.
+                    w.set_usbsusp(true);
+                    w.set_enumdne(true);
+                });
                 self.restore_irqs();
 
                 return Poll::Ready(Event::Reset);
