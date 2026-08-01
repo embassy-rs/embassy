@@ -53,6 +53,7 @@ pub mod rom_data;
 #[cfg(feature = "rp2040")]
 pub mod rtc;
 pub mod spi;
+pub mod spi_slave;
 mod spinlock;
 pub mod spinlock_mutex;
 #[cfg(feature = "time-driver")]
