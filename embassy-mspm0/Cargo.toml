@@ -27,6 +27,9 @@ build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1345dgs28", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1106dgs28", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1228pt", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any", "executor-thread"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any", "executor-interrupt"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any", "executor-thread", "executor-interrupt"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -47,6 +50,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
 # TODO: Support other tick rates
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-32_768"] }
 embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
@@ -115,6 +119,14 @@ nrst-pin-as-gpio = []
 
 ## Allow using the SWD pins as regular GPIO pins.
 swd-pins-as-gpio = []
+
+low-power = []
+
+executor-thread = ["_executor"]
+
+executor-interrupt = ["_executor"]
+
+_executor = ["dep:embassy-executor", "low-power"]
 
 #! ## Time
 
