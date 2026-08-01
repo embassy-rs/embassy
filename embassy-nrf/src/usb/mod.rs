@@ -735,9 +735,11 @@ impl<'d> driver::ControlPipe for ControlPipe<'d> {
 
 fn dma_start() {
     compiler_fence(Ordering::Release);
+    errata::dma_start();
 }
 
 fn dma_end() {
+    errata::dma_end();
     compiler_fence(Ordering::Acquire);
 }
 
@@ -848,6 +850,31 @@ mod errata {
     #[cfg(feature = "nrf52840")]
     unsafe fn peek(addr: u32) -> u32 {
         (addr as *mut u32).read_volatile()
+    }
+
+    /// Works around Erratum 199: "USBD cannot receive tasks during DMA". A USBD
+    /// task triggered while an EasyDMA transfer is in progress is silently
+    /// dropped instead of being performed.
+    ///
+    /// Applies to every nRF52840 revision — Nordic's `nrf52_errata_199()`
+    /// returns true for all of them, including its default arm — so unlike
+    /// errata 187 and 171 above there is no revision to check against.
+    ///
+    /// Called around every USBD EasyDMA transfer, matching nrfx's
+    /// `usbd_dma_pending_set` / `usbd_dma_pending_clear`.
+    pub fn dma_start() {
+        #[cfg(feature = "nrf52840")]
+        unsafe {
+            poke(0x40027C1C, 0x00000082);
+        }
+    }
+
+    /// Counterpart to [`dma_start`]. Works around Erratum 199.
+    pub fn dma_end() {
+        #[cfg(feature = "nrf52840")]
+        unsafe {
+            poke(0x40027C1C, 0x00000000);
+        }
     }
 
     pub fn pre_enable() {
