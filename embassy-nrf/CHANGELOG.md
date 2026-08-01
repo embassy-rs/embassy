@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * added: expose uicr write functions
 * added: support for nrf54lm20a
 - added: support buffered rram for nrf54
+- changed: removed unused generic from `Saadc::run_timer_sample`
 
 ## 0.8.0 - 2025-09-30
 

@@ -35,7 +35,7 @@ const LCD_Y_RES: i32 = 240;
 const FERRIS_WIDTH: u32 = 86;
 const FERRIS_HEIGHT: u32 = 64;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let mut rng = RoscRng;

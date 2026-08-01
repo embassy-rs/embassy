@@ -30,7 +30,7 @@ async fn cyw43_task(
     runner.run().await
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let fw = aligned_bytes!("../../../../cyw43-firmware/43439A0.bin");

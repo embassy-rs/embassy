@@ -4,10 +4,10 @@ use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
-use smoltcp::iface::{Interface, SocketHandle};
-use smoltcp::socket::raw;
-pub use smoltcp::socket::raw::PacketMetadata;
-pub use smoltcp::wire::{IpProtocol, IpVersion};
+use xarxa::iface::{Interface, SocketHandle};
+use xarxa::socket::raw;
+pub use xarxa::socket::raw::PacketMetadata;
+pub use xarxa::wire::{IpProtocol, IpVersion};
 
 use crate::{Stack, TryError};
 

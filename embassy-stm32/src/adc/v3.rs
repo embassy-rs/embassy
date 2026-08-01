@@ -17,11 +17,6 @@ use crate::adc::{Adc, Averaging, ConversionMode, Instance, Resolution, SampleTim
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
-#[cfg(adc_h5)]
-mod injected;
-#[cfg(adc_h5)]
-pub use injected::InjectedAdc;
-
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
 #[cfg(any(adc_v3, adc_g0, adc_u0))]

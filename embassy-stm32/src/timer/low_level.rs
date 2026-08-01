@@ -609,7 +609,8 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         let regs = self.regs_core();
         let sr = regs.sr().read();
         if sr.uif() {
-            regs.sr().modify(|r| {
+            regs.sr().write(|r| {
+                r.0 = 0xFFFF_FFFF;
                 r.set_uif(false);
             });
             true
@@ -815,7 +816,10 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
     /// Clear input interrupt.
     pub fn clear_input_interrupt(&self, channel: Channel) {
-        self.regs_gp16().sr().modify(|r| r.set_ccif(channel.index(), false));
+        self.regs_gp16().sr().write(|r| {
+            r.0 = 0xFFFF_FFFF;
+            r.set_ccif(channel.index(), false);
+        });
     }
 
     /// Get input interrupt.
@@ -1022,13 +1026,14 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 fifo_threshold: Some(FifoThreshold::Full),
                 #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr8,
+                packing: crate::dma::Packing::ZeroExtendOrLeftTruncate,
                 ..Default::default()
             };
 
             WritableRingBuffer::new(
                 dma::Channel::new(dma, irq),
                 req,
-                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut W,
+                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut T::Word,
                 dma_buf,
                 dma_transfer_option,
             )
@@ -1081,6 +1086,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 fifo_threshold: Some(FifoThreshold::Full),
                 #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr8,
+                packing: crate::dma::Packing::ZeroExtendOrLeftTruncate,
                 ..Default::default()
             };
 
@@ -1089,7 +1095,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 .write(
                     request,
                     duty,
-                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
+                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut T::Word,
                     dma_transfer_option,
                 )
                 .unchecked_extend_lifetime()

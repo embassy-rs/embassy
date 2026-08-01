@@ -5,10 +5,10 @@ use core::mem;
 use core::task::{Context, Poll};
 
 pub use embassy_net_driver::PacketMeta;
-use smoltcp::iface::{Interface, SocketHandle};
-use smoltcp::socket::udp;
-pub use smoltcp::socket::udp::PacketMetadata;
-use smoltcp::wire::IpListenEndpoint;
+use xarxa::iface::{Interface, SocketHandle};
+use xarxa::socket::udp;
+pub use xarxa::socket::udp::PacketMetadata;
+use xarxa::wire::IpListenEndpoint;
 
 use crate::{IpAddress, IpEndpoint, Stack, TryError};
 
@@ -30,7 +30,7 @@ pub struct UdpMetadata {
 }
 
 impl UdpMetadata {
-    fn from_smoltcp(value: udp::UdpMetadata) -> Self {
+    fn from_xarxa(value: udp::UdpMetadata) -> Self {
         UdpMetadata {
             endpoint: value.endpoint,
             local_address: value.local_address,
@@ -38,11 +38,11 @@ impl UdpMetadata {
         }
     }
 
-    fn into_smoltcp(self) -> udp::UdpMetadata {
+    fn into_xarxa(self) -> udp::UdpMetadata {
         udp::UdpMetadata {
             endpoint: self.endpoint,
             local_address: self.local_address,
-            meta: crate::driver_util::into_smoltcp_meta(self.meta),
+            meta: crate::driver_util::into_xarxa_meta(self.meta),
         }
     }
 }
@@ -208,7 +208,7 @@ impl<'a> UdpSocket<'a> {
     /// Returns the number of bytes received and the remote endpoint.
     pub fn try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, UdpMetadata), TryError<RecvError>> {
         self.with_mut(|s, _| match s.recv_slice(buf) {
-            Ok((n, meta)) => Ok((n, UdpMetadata::from_smoltcp(meta))),
+            Ok((n, meta)) => Ok((n, UdpMetadata::from_xarxa(meta))),
             Err(udp::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
             Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
         })
@@ -227,7 +227,7 @@ impl<'a> UdpSocket<'a> {
         cx: &mut Context<'_>,
     ) -> Poll<Result<(usize, UdpMetadata), RecvError>> {
         self.with_mut(|s, _| match s.recv_slice(buf) {
-            Ok((n, meta)) => Poll::Ready(Ok((n, UdpMetadata::from_smoltcp(meta)))),
+            Ok((n, meta)) => Poll::Ready(Ok((n, UdpMetadata::from_xarxa(meta)))),
             // No data ready
             Err(udp::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
             Err(udp::RecvError::Exhausted) => {
@@ -253,9 +253,7 @@ impl<'a> UdpSocket<'a> {
         poll_fn(move |cx| {
             self.with_mut(|s, _| {
                 match s.recv() {
-                    Ok((buffer, endpoint)) => {
-                        Poll::Ready(unwrap!(f.take())(buffer, UdpMetadata::from_smoltcp(endpoint)))
-                    }
+                    Ok((buffer, endpoint)) => Poll::Ready(unwrap!(f.take())(buffer, UdpMetadata::from_xarxa(endpoint))),
                     Err(udp::RecvError::Truncated) => unreachable!(),
                     Err(udp::RecvError::Exhausted) => {
                         // socket buffer is empty wait until at least one byte has arrived
@@ -278,7 +276,7 @@ impl<'a> UdpSocket<'a> {
         F: FnOnce(&[u8], UdpMetadata) -> R,
     {
         self.with_mut(|s, _| match s.recv() {
-            Ok((buffer, endpoint)) => Ok(f(buffer, UdpMetadata::from_smoltcp(endpoint))),
+            Ok((buffer, endpoint)) => Ok(f(buffer, UdpMetadata::from_xarxa(endpoint))),
             Err(udp::RecvError::Truncated) => unreachable!(),
             Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
         })
@@ -346,7 +344,7 @@ impl<'a> UdpSocket<'a> {
             return Err(TryError::Other(SendError::PacketTooLarge));
         }
 
-        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint.into_smoltcp()) {
+        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint.into_xarxa()) {
             // Entire datagram has been sent
             Ok(()) => Ok(()),
             Err(udp::SendError::BufferFull) => Err(TryError::WouldBlock),
@@ -381,7 +379,7 @@ impl<'a> UdpSocket<'a> {
             return Poll::Ready(Err(SendError::PacketTooLarge));
         }
 
-        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint.into().into_smoltcp()) {
+        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint.into().into_xarxa()) {
             // Entire datagram has been sent
             Ok(()) => Poll::Ready(Ok(())),
             Err(udp::SendError::BufferFull) => {
@@ -424,7 +422,7 @@ impl<'a> UdpSocket<'a> {
             self.with_mut(|s, _| {
                 let mut ret = None;
 
-                match s.send_with(max_size, remote_endpoint.into().into_smoltcp(), |buf| {
+                match s.send_with(max_size, remote_endpoint.into().into_xarxa(), |buf| {
                     let (size, r) = unwrap!(f.take())(buf);
                     ret = Some(r);
                     size
@@ -468,7 +466,7 @@ impl<'a> UdpSocket<'a> {
             return Err(TryError::Other(SendError::PacketTooLarge));
         }
 
-        self.with_mut(|s, _| match s.send(size, remote_endpoint.into_smoltcp()) {
+        self.with_mut(|s, _| match s.send(size, remote_endpoint.into_xarxa()) {
             Ok(buffer) => Ok(f(buffer)),
             Err(udp::SendError::BufferFull) => Err(TryError::WouldBlock),
             Err(udp::SendError::Unaddressable) => {

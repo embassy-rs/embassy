@@ -14,8 +14,8 @@
 //! passed from exception mode e.g. out of an interrupt handler.
 //!
 //! This module provides a bounded channel that has a limit on the number of
-//! messages that it can store, and if this limit is reached, trying to send
-//! another message will result in an error being returned.
+//! messages that it can store. If this limit is reached, trying to send
+//! another message either waits or returns an error depending on the function.
 //!
 //! # Example: Message passing between task and interrupt handler
 //!
@@ -876,12 +876,12 @@ where
     }
 
     /// Get a sender for this channel.
-    pub fn sender(&self) -> Sender<'_, M, T, N> {
+    pub const fn sender(&self) -> Sender<'_, M, T, N> {
         Sender { channel: self }
     }
 
     /// Get a receiver for this channel.
-    pub fn receiver(&self) -> Receiver<'_, M, T, N> {
+    pub const fn receiver(&self) -> Receiver<'_, M, T, N> {
         Receiver { channel: self }
     }
 

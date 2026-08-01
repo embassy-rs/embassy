@@ -31,7 +31,7 @@ static ADC: Mutex<CriticalSectionRawMutex, RefCell<Option<(Adc<Blocking>, adc::C
     Mutex::new(RefCell::new(None));
 static ADC_VALUES: Channel<CriticalSectionRawMutex, u16, 2048> = Channel::new();
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 

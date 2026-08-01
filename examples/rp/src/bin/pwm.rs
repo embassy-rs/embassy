@@ -16,7 +16,7 @@ use embassy_rp::pwm::{Config, Pwm, SetDutyCycle};
 use embassy_time::Timer;
 use panic_probe as _;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     spawner.spawn(pwm_set_config(p.PWM_SLICE4, p.PIN_25).unwrap());

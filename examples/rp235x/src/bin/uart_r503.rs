@@ -55,7 +55,7 @@ fn compute_checksum(buf: Vec<u8, 32>) -> u16 {
     return checksum;
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     info!("Start");
 

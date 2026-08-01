@@ -30,6 +30,7 @@ pub enum Error {
 
 /// PSRAM device verification type.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum VerificationType {
     /// Skip device verification
     None,
@@ -39,6 +40,7 @@ pub enum VerificationType {
 
 /// Memory configuration.
 #[derive(Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// System clock frequency in Hz
     pub clock_hz: u32,
@@ -76,6 +78,7 @@ pub struct Config {
 
 /// Page break configuration for memory window operations.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PageBreak {
     /// No page breaks
     None,
@@ -89,6 +92,7 @@ pub enum PageBreak {
 
 /// Format configuration for read/write operations.
 #[derive(Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FormatConfig {
     /// Width of command prefix phase
     pub prefix_width: Width,
@@ -108,6 +112,7 @@ pub struct FormatConfig {
 
 /// Interface width for different phases of SPI transfer.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Width {
     /// Single-bit (standard SPI)
     Single,

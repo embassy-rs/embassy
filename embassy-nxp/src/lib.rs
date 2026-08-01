@@ -113,12 +113,12 @@ pub fn init(_config: config::Config) -> Peripherals {
         // The RT1010 Reference manual states that core clock root must be switched before
         // reprogramming PLL2.
         pac::CCM.cbcdr().modify(|w| {
-            w.set_periph_clk_sel(pac::ccm::vals::PeriphClkSel::PERIPH_CLK_SEL_1);
+            w.set_periph_clk_sel(pac::ccm::vals::PeriphClkSel::PeriphClkSel1);
         });
 
         while matches!(
             pac::CCM.cdhipr().read().periph_clk_sel_busy(),
-            pac::ccm::vals::PeriphClkSelBusy::PERIPH_CLK_SEL_BUSY_1
+            pac::ccm::vals::PeriphClkSelBusy::PeriphClkSelBusy1
         ) {}
 
         info!("Core clock root switched");
@@ -137,16 +137,16 @@ pub fn init(_config: config::Config) -> Peripherals {
         // Clock core clock with PLL 2.
         pac::CCM
             .cbcdr()
-            .modify(|x| x.set_periph_clk_sel(pac::ccm::vals::PeriphClkSel::PERIPH_CLK_SEL_0)); // false
+            .modify(|x| x.set_periph_clk_sel(pac::ccm::vals::PeriphClkSel::PeriphClkSel0)); // false
 
         while matches!(
             pac::CCM.cdhipr().read().periph_clk_sel_busy(),
-            pac::ccm::vals::PeriphClkSelBusy::PERIPH_CLK_SEL_BUSY_1
+            pac::ccm::vals::PeriphClkSelBusy::PeriphClkSelBusy1
         ) {}
 
         pac::CCM
             .cbcmr()
-            .write(|v| v.set_pre_periph_clk_sel(pac::ccm::vals::PrePeriphClkSel::PRE_PERIPH_CLK_SEL_0));
+            .write(|v| v.set_pre_periph_clk_sel(pac::ccm::vals::PrePeriphClkSel::PrePeriphClkSel0));
 
         // TODO: Some for USB PLLs
 

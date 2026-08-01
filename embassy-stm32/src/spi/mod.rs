@@ -18,7 +18,6 @@ use crate::dma::{ChannelAndRequest, word};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{Spi as Regs, regs, vals};
-use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 
 /// SPI error.
@@ -904,7 +903,7 @@ impl<'d> Spi<'d, Async, Master> {
         // see RM0453 rev 1 section 7.2.13 page 291
         // The SUBGHZSPI_SCK frequency is obtained by PCLK3 divided by two.
         // The SUBGHZSPI_SCK clock maximum speed must not exceed 16 MHz.
-        let pclk3_freq = <crate::peripherals::SUBGHZSPI as SealedRccPeripheral>::frequency().0;
+        let pclk3_freq = <crate::peripherals::SUBGHZSPI as crate::rcc::SealedRccPeripheral>::frequency().0;
         let freq = Hertz(core::cmp::min(pclk3_freq / 2, 16_000_000));
         let mut config = Config::default();
         config.mode = MODE_0;
@@ -1743,11 +1742,6 @@ mod word_impl {
     impl_word!(u32, 32 - 1);
 }
 
-pub(crate) struct Info {
-    pub(crate) regs: Regs,
-    pub(crate) rcc: RccInfo,
-}
-
 struct State {}
 
 impl State {
@@ -1774,10 +1768,7 @@ dma_trait!(RxDmaExt, Instance);
 
 foreach_peripheral!(
     (spi, $inst:ident) => {
-        peri_trait_impl!($inst, Info {
-            regs: crate::pac::$inst,
-            rcc: crate::peripherals::$inst::RCC_INFO,
-        });
+        peri_trait_impl!($inst);
     };
 );
 

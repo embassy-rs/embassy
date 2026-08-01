@@ -15,6 +15,7 @@ use crate::{Peri, pac};
 
 /// The reason for a system reset from the watchdog.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ResetReason {
     /// The reset was forced.
     Forced,

@@ -64,7 +64,7 @@ impl Config {
             apb1_pre: APBPrescaler::Div1,
             apb2_pre: APBPrescaler::Div1,
             apb3_pre: APBPrescaler::Div1,
-            adcdac_pre: Adcdacpre::Div1,
+            adcdac_pre: Adcdacpre::Div4,
             mux: super::mux::ClockMux::default(),
         }
     }
@@ -190,9 +190,11 @@ pub(crate) unsafe fn init(config: Config) {
         pclk3: Some(apb3),
 
         hsi: hsi,
+        hsidiv3: hsi_div3,
         hsik: None,
         hse: hse,
         psi: None,
+        psidiv3: None,
         psik: None,
 
         // TODO

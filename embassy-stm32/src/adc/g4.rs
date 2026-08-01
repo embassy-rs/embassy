@@ -12,9 +12,6 @@ use crate::time::Hertz;
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
 
-mod injected;
-pub use injected::InjectedAdc;
-
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
