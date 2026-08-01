@@ -23,19 +23,24 @@ use crate::{EASY_DMA_SIZE, interrupt, pac};
 pub type DoubleBuffering<S, const NS: usize> = MultiBuffering<S, 2, NS>;
 
 /// I2S transfer error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// The buffer is too long.
+    #[error("buffer is too long")]
     BufferTooLong,
     /// The buffer is empty.
+    #[error("buffer is empty")]
     BufferZeroLength,
     /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
     /// The buffer address is not aligned.
+    #[error("buffer address is not aligned")]
     BufferMisaligned,
     /// The buffer length is not a multiple of the alignment.
+    #[error("buffer length is not a multiple of the alignment")]
     BufferLengthMisaligned,
 }
 

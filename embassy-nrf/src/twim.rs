@@ -62,27 +62,36 @@ impl Default for Config {
 }
 
 /// TWI error.
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// TX buffer was too long.
+    #[error("tx buffer was too long")]
     TxBufferTooLong,
     /// RX buffer was too long.
+    #[error("rx buffer was too long")]
     RxBufferTooLong,
     /// Data transmit failed.
+    #[error("data transmit failed")]
     Transmit,
     /// Data reception failed.
+    #[error("data reception failed")]
     Receive,
     /// The buffer is not in data RAM and is larger than the RAM buffer. It's most likely in flash, and nRF's DMA cannot access flash.
+    #[error("RAM buffer too small: buffer is likely in flash which nRF DMA cannot access")]
     RAMBufferTooSmall,
     /// Didn't receive an ACK bit after the address byte. Address might be wrong, or the i2c device chip might not be connected properly.
+    #[error("address NACK: no ACK received after address byte, address may be wrong or device not connected")]
     AddressNack,
     /// Didn't receive an ACK bit after a data byte.
+    #[error("data NACK: no ACK received after data byte")]
     DataNack,
     /// Overrun error.
+    #[error("overrun error")]
     Overrun,
     /// Timeout error.
+    #[error("timeout error")]
     Timeout,
 }
 

@@ -128,11 +128,12 @@ impl Into<pac::spim::vals::Frequency> for Frequency {
 }
 
 /// SPIM error
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// EasyDMA can only read from data memory, read only buffers in flash will fail.
+    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
 }
 

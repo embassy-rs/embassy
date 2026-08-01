@@ -44,11 +44,12 @@ pub(crate) struct State {
 }
 
 /// UART error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Buffer Overrun
+    #[error("buffer overrun")]
     Overrun,
 }
 
@@ -874,15 +875,6 @@ impl<'a> Drop for BufferedUarteRx<'a> {
         drop_tx_rx(r, s);
     }
 }
-
-impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match *self {
-            Error::Overrun => write!(f, "Buffer Overrun"),
-        }
-    }
-}
-impl core::error::Error for Error {}
 
 mod _embedded_io {
     use super::*;

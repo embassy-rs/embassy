@@ -60,17 +60,21 @@ pub struct Pdm<'d> {
 }
 
 /// PDM error
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Buffer is too long
+    #[error("buffer is too long")]
     BufferTooLong,
     /// Buffer is empty
+    #[error("buffer is empty")]
     BufferZeroLength,
     /// PDM is not running
+    #[error("PDM is not running")]
     NotRunning,
     /// PDM is already running
+    #[error("PDM is already running")]
     AlreadyRunning,
 }
 
