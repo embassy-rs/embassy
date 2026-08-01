@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::i2c::{self, I2c, SlaveAddrConfig, SlaveCommandKind};
 use embassy_stm32::time::khz;
-use embassy_stm32::{Config, bind_interrupts, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -17,6 +17,10 @@ bind_interrupts!(struct Irqs {
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    DMA1_CHANNEL4 => dma::InterruptHandler<peripherals::DMA1_CH4>;
+    DMA1_CHANNEL5 => dma::InterruptHandler<peripherals::DMA1_CH5>;
+    DMA1_CHANNEL6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
+    DMA1_CHANNEL7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
 });
 
 #[embassy_executor::main]
