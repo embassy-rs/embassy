@@ -5,7 +5,7 @@
 //! - `PeripheralSegment::memory_to_peripheral()` gather TX segments
 //! - `PeripheralSegment::peripheral_to_memory()` scatter RX segments
 //! - `build_borrowed()` to start a chain without consuming the channel
-//! 
+//!
 //! Connect LPUART2 TX and RX pins together to form a loopback.
 #![no_std]
 #![no_main]
@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
     )
     .unwrap();
 
-    // LPUART2 DATA register address for DMA. 
+    // LPUART2 DATA register address for DMA.
     //
     // We access the PAC directly here because the `Lpuart` HAL
     // does not  expose the data register address or DMA enable methods. This is only used for the purpose of this example.
@@ -75,15 +75,21 @@ async fn main(_spawner: Spawner) {
     // Build both scatter-gather chains.
     let mut rx_sg = ScatterGatherBuilder::<u8, PeripheralPaced>::new();
     rx_sg
-        .add_transfer_segment(PeripheralSegment::peripheral_to_memory(data_rx, &mut rx1)).unwrap()
-        .add_transfer_segment(PeripheralSegment::peripheral_to_memory(data_rx, &mut rx2)).unwrap()
-        .add_transfer_segment(PeripheralSegment::peripheral_to_memory(data_rx, &mut rx3)).unwrap();
+        .add_transfer_segment(PeripheralSegment::peripheral_to_memory(data_rx, &mut rx1))
+        .unwrap()
+        .add_transfer_segment(PeripheralSegment::peripheral_to_memory(data_rx, &mut rx2))
+        .unwrap()
+        .add_transfer_segment(PeripheralSegment::peripheral_to_memory(data_rx, &mut rx3))
+        .unwrap();
 
     let mut tx_sg = ScatterGatherBuilder::<u8, PeripheralPaced>::new();
     tx_sg
-        .add_transfer_segment(PeripheralSegment::memory_to_peripheral(&PAYLOAD1, data_tx)).unwrap()
-        .add_transfer_segment(PeripheralSegment::memory_to_peripheral(&PAYLOAD2, data_tx)).unwrap()
-        .add_transfer_segment(PeripheralSegment::memory_to_peripheral(&PAYLOAD3, data_tx)).unwrap();
+        .add_transfer_segment(PeripheralSegment::memory_to_peripheral(&PAYLOAD1, data_tx))
+        .unwrap()
+        .add_transfer_segment(PeripheralSegment::memory_to_peripheral(&PAYLOAD2, data_tx))
+        .unwrap()
+        .add_transfer_segment(PeripheralSegment::memory_to_peripheral(&PAYLOAD3, data_tx))
+        .unwrap();
 
     defmt::info!(
         "TX chain: {} segments, RX chain: {} segments",
