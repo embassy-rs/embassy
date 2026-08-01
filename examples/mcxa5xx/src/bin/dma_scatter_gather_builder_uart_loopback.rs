@@ -10,12 +10,14 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_mcxa as hal;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{DmaChannel, DmaRequest, PeripheralPaced, PeripheralSegment, ScatterGatherBuilder};
 use embassy_mcxa::lpuart::{Config, Lpuart};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 const PAYLOAD1_SIZE: usize = 4;
 const PAYLOAD2_SIZE: usize = 8;
@@ -40,11 +42,7 @@ async fn main(_spawner: Spawner) {
         p.P2_11, // RX
         Config {
             baudrate_bps: 115_200,
-            // RXWATER must be 0 for DMA-paced RX: RDRF (and therefore the RX DMA
-            // request) only asserts while RXCOUNT > RXWATER. With the default
-            // watermark of 1 the final byte of a transfer is stranded in the RX
-            // FIFO, no DMA request is generated, and the scatter chain stalls
-            // with CITER=1.
+            // Ensure DMA request is generated when FIFO is not empty.
             rx_fifo_watermark: 0,
             ..Default::default()
         },
