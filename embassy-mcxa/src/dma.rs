@@ -2133,7 +2133,11 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W, SoftwarePaced> {
     /// `Ok(&mut Self)` for method chaining, or `Err(InvalidParameters)` if the chain
     /// is full or the buffers are invalid (empty, mismatched length, or larger than
     /// [`DMA_MAX_TRANSFER_SIZE`]).
-    pub fn add_transfer_segment<'b: 'a>(&mut self, src: &'b [W], dst: &'b mut [W]) -> Result<&mut Self, InvalidParameters> {
+    pub fn add_transfer_segment<'b: 'a>(
+        &mut self,
+        src: &'b [W],
+        dst: &'b mut [W],
+    ) -> Result<&mut Self, InvalidParameters> {
         if self.count >= MAX_SCATTER_GATHER_TCDS {
             return Err(InvalidParameters);
         }
@@ -2158,7 +2162,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W, SoftwarePaced> {
             doff: byte_size as i16,
             citer: 1,
             dlast_sga: 0, // Will be filled in by build()
-            csr: 0, // Will be filled in by build()
+            csr: 0,       // Will be filled in by build()
             biter: 1,
         };
 
@@ -2235,28 +2239,40 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W, PeripheralPaced> {
                     return Err(InvalidParameters);
                 }
                 let major_count = u16::try_from(src.len()).map_err(|_| InvalidParameters)?;
-                (src.as_ptr() as u32, byte_size as i16, peri_addr as u32, 0i16, major_count)
+                (
+                    src.as_ptr() as u32,
+                    byte_size as i16,
+                    peri_addr as u32,
+                    0i16,
+                    major_count,
+                )
             }
             PeripheralSegment::PeripheralToMemory { peri_addr, dst } => {
                 if dst.is_empty() || dst.len() > DMA_MAX_TRANSFER_SIZE {
                     return Err(InvalidParameters);
                 }
                 let major_count = u16::try_from(dst.len()).map_err(|_| InvalidParameters)?;
-                (peri_addr as u32, 0i16, dst.as_mut_ptr() as u32, byte_size as i16, major_count)
+                (
+                    peri_addr as u32,
+                    0i16,
+                    dst.as_mut_ptr() as u32,
+                    byte_size as i16,
+                    major_count,
+                )
             }
         };
 
         self.tcds[self.count] = Tcd {
             saddr,
             soff,
-            attr: ((hw_size as u16) << 8) | (hw_size as u16), // SSIZE | DSIZE 
+            attr: ((hw_size as u16) << 8) | (hw_size as u16), // SSIZE | DSIZE
             nbytes: byte_size as u32,
             slast: 0,
             daddr,
             doff,
             citer: major_count,
             dlast_sga: 0, // Will be filled in by build()
-            csr: 0, // Will be filled in by build()
+            csr: 0,       // Will be filled in by build()
             biter: major_count,
         };
 
@@ -2376,13 +2392,13 @@ impl<'a, W: Word, P: ScatterGatherPacing> ScatterGatherBuilder<'a, W, P> {
     }
 
     /// Build the scatter-gather chain with a borrowed channel.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `channel` - A mutable reference to the DMA channel to use for the transfer
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A `Transfer` future that completes when the entire chain has executed.
     pub fn build_borrowed<'ch>(&mut self, channel: &'ch mut DmaChannel<'_>) -> Result<Transfer<'ch>, Error> {
         self.arm(channel)?;
