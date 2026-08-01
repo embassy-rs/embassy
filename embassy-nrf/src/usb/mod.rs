@@ -541,7 +541,14 @@ unsafe fn read_dma(regs: pac::usbd::Usbd, i: usize, buf: &mut [u8]) -> Result<us
     regs.events_endepout(i).write_value(0);
     dma_end();
 
-    regs.size().epout(i).write(|_| ());
+    // Do NOT write SIZE.EPOUT here. A bulk/interrupt OUT endpoint resumes
+    // accepting packets when the EasyDMA transfer completes *or* when
+    // SIZE.EPOUT[n] is written — either one on its own re-arms it. ENDEPOUT
+    // above has already done so, and writing SIZE here arms it a second time,
+    // letting the endpoint accept a further packet on top of one it has not yet
+    // handed to software. That packet is overwritten in the endpoint's internal
+    // buffer and lost. Initial arming, before any DMA has run, is done in
+    // `endpoint_set_enabled`.
 
     Ok(size)
 }
