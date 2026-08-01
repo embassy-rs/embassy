@@ -63,6 +63,16 @@ impl<'d> Channel<'d, Blocking> {
             phantom: PhantomData,
         }
     }
+
+    /// Create a new DMA channel driver, without an interrupt.
+    pub fn new_no_interrupt<T: ChannelInstance>(_ch: Peri<'d, T>) -> Self {
+        let number = T::number();
+
+        Self {
+            number,
+            phantom: PhantomData,
+        }
+    }
 }
 
 impl<'d, M: Mode> Channel<'d, M> {

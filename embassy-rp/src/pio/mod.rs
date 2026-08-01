@@ -418,8 +418,20 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         FifoInFuture::new(self)
     }
 
-    fn dreq() -> crate::pac::dma::vals::TreqSel {
+    /// Get the Data Request value for the RX FIFO.
+    ///
+    /// This value can be used to configure DMA channel pacing.
+    pub fn dreq(&self) -> crate::pac::dma::vals::TreqSel {
         crate::pac::dma::vals::TreqSel::from(PIO::PIO_NO * 8 + SM as u8 + 4)
+    }
+
+    /// Get the address of the RX FIFO.
+    ///
+    /// This address can be used to configure DMA transfers from the FIFO.
+    /// To manually read a word from the FIFO, use [`try_pull`][`Self::try_pull`]
+    /// or [`pull`][`Self::pull`].
+    pub fn fifo_address(&self) -> *mut u32 {
+        PIO::PIO.rxf(SM).as_ptr()
     }
 
     /// Prepare DMA transfer from RX FIFO.
@@ -429,7 +441,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         data: &'a mut [W],
         bswap: bool,
     ) -> Transfer<'a> {
-        unsafe { ch.read(PIO::PIO.rxf(SM).as_ptr() as *const W, data, Self::dreq(), bswap) }
+        unsafe { ch.read(self.fifo_address() as *const W, data, self.dreq(), bswap) }
     }
 
     /// Prepare a repeated DMA transfer from RX FIFO.
@@ -438,7 +450,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         ch: &'a mut dma::Channel<'_, mode::Async>,
         len: usize,
     ) -> Transfer<'a> {
-        unsafe { ch.read_discard(PIO::PIO.rxf(SM).as_ptr(), len, Self::dreq()) }
+        unsafe { ch.read_discard(self.fifo_address(), len, self.dreq()) }
     }
 }
 
@@ -502,8 +514,19 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         FifoOutFuture::new(self, value)
     }
 
-    fn dreq() -> crate::pac::dma::vals::TreqSel {
+    /// Get the Data Request value for the TX FIFO.
+    ///
+    /// This value can be used to configure DMA channel pacing.
+    pub fn dreq(&self) -> crate::pac::dma::vals::TreqSel {
         crate::pac::dma::vals::TreqSel::from(PIO::PIO_NO * 8 + SM as u8)
+    }
+
+    /// Get the address of the TX FIFO.
+    ///
+    /// To manually read a word from the FIFO, use [`try_push`][`Self::try_push`]
+    /// or [`push`][`Self::push`].
+    pub fn fifo_address(&self) -> *mut u32 {
+        PIO::PIO.txf(SM).as_ptr()
     }
 
     /// Prepare a DMA transfer to TX FIFO.
@@ -513,7 +536,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         data: &'a [W],
         bswap: bool,
     ) -> Transfer<'a> {
-        unsafe { ch.write(data, PIO::PIO.txf(SM).as_ptr() as *mut W, Self::dreq(), bswap) }
+        unsafe { ch.write(data, self.fifo_address() as *mut W, self.dreq(), bswap) }
     }
 
     /// Prepare a repeated DMA transfer to TX FIFO.
@@ -522,7 +545,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         ch: &'a mut dma::Channel<'_, mode::Async>,
         len: usize,
     ) -> Transfer<'a> {
-        unsafe { ch.write_zeros(len, PIO::PIO.txf(SM).as_ptr() as *mut W, Self::dreq()) }
+        unsafe { ch.write_zeros(len, self.fifo_address() as *mut W, self.dreq()) }
     }
 }
 
@@ -918,12 +941,12 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
 
     /// Get dma Treq of rx fifo
     pub fn rx_treq(&self) -> crate::pac::dma::vals::TreqSel {
-        StateMachineRx::<PIO, SM>::dreq()
+        self.rx.dreq()
     }
 
     /// Get dma Treq of tx fifo
     pub fn tx_treq(&self) -> crate::pac::dma::vals::TreqSel {
-        StateMachineTx::<PIO, SM>::dreq()
+        self.tx.dreq()
     }
 
     /// Read current instruction address for this state machine
@@ -1474,6 +1497,12 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
             },
             _pio: PhantomData,
         }
+    }
+
+    /// Get the PIO register block.
+    #[cfg(feature = "unstable-pac")]
+    pub fn regs(&self) -> &rp_pac::pio::Pio {
+        PIO::PIO
     }
 }
 
