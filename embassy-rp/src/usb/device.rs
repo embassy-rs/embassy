@@ -368,6 +368,9 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                 regs.sie_status().write(|w| {
                     w.set_bus_reset(true);
                     w.set_setup_rec(true);
+                    // clear a suspend latched before the reset, else the next poll reports a
+                    // spurious Suspend and embassy-usb waits for a resume that never comes.
+                    w.set_suspended(true);
                 });
                 regs.buff_status().write(|w| w.0 = 0xFFFF_FFFF);
                 regs.addr_endp().write(|w| w.set_address(0));
@@ -421,7 +424,30 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
             T::dpram().ep_out_buffer_control(n)
         };
 
-        ctrl.modify(|w| w.set_stall(stalled));
+        match (stalled, ep_addr.direction()) {
+            // write, not modify: clears AVAILABLE so an in-flight packet can't complete instead of stalling.
+            (true, _) => ctrl.write(|w| w.set_stall(true)),
+
+            // the control pipe resets EP0's toggle on every SETUP, so only drop the stall.
+            (false, _) if n == 0 => ctrl.modify(|w| w.set_stall(false)),
+
+            // clearing a halt resets the toggle to DATA0 (USB 2.0 §9.4.5), but PID is flipped before use.
+            (false, Direction::In) => ctrl.write(|w| w.set_pid(0, true)),
+
+            // same, plus re-arm the buffer that stalling un-armed.
+            (false, Direction::Out) => {
+                ctrl.write(|w| {
+                    w.set_pid(0, false);
+                    w.set_length(0, self.ep_out[n].max_packet_size);
+                });
+                cortex_m::asm::delay(12);
+                ctrl.write(|w| {
+                    w.set_pid(0, false);
+                    w.set_length(0, self.ep_out[n].max_packet_size);
+                    w.set_available(0, true);
+                });
+            }
+        }
 
         let wakers = if ep_addr.is_in() { &EP_IN_WAKERS } else { &EP_OUT_WAKERS };
         wakers[n].wake();
@@ -531,7 +557,8 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         let val = poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let val = T::dpram().ep_out_buffer_control(index).read();
-            if val.available(0) {
+            // stay parked while stalled, otherwise the re-arm below would clear the stall.
+            if val.available(0) || val.stall() {
                 Poll::Pending
             } else {
                 Poll::Ready(val)
@@ -575,7 +602,8 @@ impl<'d, T: Instance> driver::EndpointIn for Endpoint<'d, T, In> {
         let val = poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let val = T::dpram().ep_in_buffer_control(index).read();
-            if val.available(0) {
+            // stay parked while stalled, otherwise the write below would clear the stall.
+            if val.available(0) || val.stall() {
                 Poll::Pending
             } else {
                 Poll::Ready(val)
