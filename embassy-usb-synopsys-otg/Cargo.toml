@@ -36,6 +36,8 @@ target = "thumbv7em-none-eabi"
 critical-section = "1.1"
 portable-atomic = { version = "1" }
 
+document-features = "0.2.7"
+
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-time = { version = "0.5.1", path = "../embassy-time", optional = true }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
@@ -47,7 +49,9 @@ log = { version = "0.4.14", optional = true }
 default = []
 defmt = ["dep:defmt", "embassy-usb-driver/defmt"]
 log = ["dep:log"]
+
+## Enables USB host mode support.
 host = ["embassy-time"]
 
-## Enables remote wakeup
+## Enables remote wakeup support in device mode.
 embassy-time = ["dep:embassy-time"]
