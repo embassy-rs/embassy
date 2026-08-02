@@ -9,6 +9,23 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-usb-synopsys-otg"
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7m-none-eabi", features = ["defmt"]},
+    {target = "thumbv7m-none-eabi", features = ["log"]},
+    {target = "thumbv7m-none-eabi", features = ["defmt", "embassy-time"]},
+    {target = "thumbv7m-none-eabi", features = ["log", "embassy-time"]},
+    {target = "thumbv7m-none-eabi", features = ["defmt", "host"]},
+    {target = "thumbv7m-none-eabi", features = ["log", "host"]},
+    # Xtensa builds
+    {group = "xtensa", build-std = ["core", "alloc"], target = "xtensa-esp32s2-none-elf", features = ["portable-atomic/critical-section", "defmt"]},
+    {group = "xtensa", build-std = ["core", "alloc"], target = "xtensa-esp32s2-none-elf", features = ["portable-atomic/critical-section", "log"]},
+    {group = "xtensa", build-std = ["core", "alloc"], target = "xtensa-esp32s2-none-elf", features = ["portable-atomic/critical-section", "defmt", "embassy-time"]},
+    {group = "xtensa", build-std = ["core", "alloc"], target = "xtensa-esp32s2-none-elf", features = ["portable-atomic/critical-section", "log", "embassy-time"]},
+    {group = "xtensa", build-std = ["core", "alloc"], target = "xtensa-esp32s2-none-elf", features = ["portable-atomic/critical-section", "defmt", "host"]},
+    {group = "xtensa", build-std = ["core", "alloc"], target = "xtensa-esp32s2-none-elf", features = ["portable-atomic/critical-section", "log", "host"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-synopsys-otg-v$VERSION/embassy-usb-synopsys-otg/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-synopsys-otg/src/"
