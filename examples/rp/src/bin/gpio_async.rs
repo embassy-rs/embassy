@@ -6,11 +6,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio;
 use embassy_time::Timer;
 use gpio::{Input, Level, Output, Pull};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// It requires an external signal to be manually triggered on PIN 16. For
 /// example, this could be accomplished using an external power source with a
@@ -20,7 +21,7 @@ use {defmt_rtt as _, panic_probe as _};
 /// high signal on PIN 16. Once the high event/signal occurs the program will
 /// continue and turn off the LED, and then wait for 2 seconds before completing
 /// the loop and starting over again.
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let mut led = Output::new(p.PIN_25, Level::Low);

@@ -5,9 +5,10 @@ use core::future::poll_fn;
 use core::task::Poll;
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_time::{Instant, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::task]
 async fn run1() {

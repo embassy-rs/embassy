@@ -2,13 +2,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{Config, Uart, UartRx};
 use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USART2 => usart::InterruptHandler<peripherals::USART2>;

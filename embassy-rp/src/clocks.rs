@@ -134,6 +134,7 @@ static CLOCKS: Clocks = Clocks {
 #[repr(u8)]
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PeriClkSrc {
     /// SYS.
     Sys = ClkPeriCtrlAuxsrc::ClkSys as _,
@@ -273,6 +274,7 @@ impl CoreVoltage {
 
 /// Clock configuration.
 #[non_exhaustive]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClockConfig {
     /// Ring oscillator configuration.
     pub rosc: Option<RoscConfig>,
@@ -633,6 +635,7 @@ pub enum RoscRange {
 }
 
 /// On-chip ring oscillator configuration.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RoscConfig {
     /// Final frequency of the oscillator, after the divider has been applied.
     /// The oscillator has a nominal frequency of 6.5MHz at medium range with
@@ -648,6 +651,7 @@ pub struct RoscConfig {
 }
 
 /// Crystal oscillator configuration.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct XoscConfig {
     /// Final frequency of the oscillator.
     pub hz: u32,
@@ -661,6 +665,7 @@ pub struct XoscConfig {
 
 /// PLL configuration.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PllConfig {
     /// Reference divisor.
     pub refdiv: u8,
@@ -717,6 +722,7 @@ impl PllConfig {
 }
 
 /// Reference clock config.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RefClkConfig {
     /// Reference clock source.
     pub src: RefClkSrc,
@@ -761,6 +767,7 @@ pub enum SysClkSrc {
 }
 
 /// SYS clock config.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SysClkConfig {
     /// SYS clock source.
     pub src: SysClkSrc,
@@ -798,6 +805,7 @@ pub enum UsbClkSrc {
 }
 
 /// USB clock config.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct UsbClkConfig {
     /// USB clock source.
     pub src: UsbClkSrc,
@@ -827,6 +835,7 @@ pub enum AdcClkSrc {
 }
 
 /// ADC clock config.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AdcClkConfig {
     /// ADC clock source.
     pub src: AdcClkSrc,
@@ -858,6 +867,7 @@ pub enum RtcClkSrc {
 
 /// RTC clock config.
 #[cfg(feature = "rp2040")]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct RtcClkConfig {
     /// RTC clock source.
     pub src: RtcClkSrc,
@@ -1043,12 +1053,20 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             #[cfg(feature = "rp2040")]
             vreg.vreg().modify(|w| w.set_vsel(target_vsel));
             #[cfg(feature = "_rp235x")]
-            // For rp235x changes to the voltage regulator are protected by a password, see datasheet section 6.4 Power Management (POWMAN) Registers
-            // The password is "5AFE" (0x5AFE), it must be set in the top 16 bits of the register
-            vreg.vreg().modify(|w| {
-                w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Set the password
-                w.set_vsel(target_vsel);
-            });
+            {
+                // For rp235x changes to the voltage regulator are protected by a password, see datasheet section 6.4 Power Management (POWMAN) Registers
+                // The password is "5AFE" (0x5AFE), it must be set in the top 16 bits of the registers
+                // Unlock the VREG control interface, this cannot be locked after being unlocked
+                vreg.vreg_ctrl().modify(|w| {
+                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Password
+                    w.set_unlock(true);
+                });
+                // Set the regulator to the target voltage
+                vreg.vreg().modify(|w| {
+                    w.0 = (w.0 & 0x0000FFFF) | (0x5AFE << 16); // Password
+                    w.set_vsel(target_vsel);
+                });
+            }
 
             // Wait for the voltage to stabilize. Use the provided delay or default based on voltage
             let settling_time_us = config.voltage_stabilization_delay_us.unwrap_or_else(|| {
@@ -1111,7 +1129,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     CLOCKS.pll_usb.store(pll_usb_freq, Ordering::Relaxed);
 
     let (ref_src, ref_aux, clk_ref_freq) = {
-        use {ClkRefCtrlAuxsrc as Aux, ClkRefCtrlSrc as Src};
+        use ClkRefCtrlAuxsrc as Aux;
+        use ClkRefCtrlSrc as Src;
         let div = config.ref_clk.div as u32;
         assert!(div >= 1 && div <= 4);
         match config.ref_clk.src {
@@ -1156,7 +1175,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     }
 
     let (sys_src, sys_aux, clk_sys_freq) = {
-        use {ClkSysCtrlAuxsrc as Aux, ClkSysCtrlSrc as Src};
+        use ClkSysCtrlAuxsrc as Aux;
+        use ClkSysCtrlSrc as Src;
         let (src, aux, freq) = match config.sys_clk.src {
             SysClkSrc::Ref => (Src::ClkRef, Aux::ClksrcPllSys, clk_ref_freq),
             SysClkSrc::PllSys => (Src::ClksrcClkSysAux, Aux::ClksrcPllSys, pll_sys_freq),
@@ -1647,6 +1667,7 @@ impl_gpoutpin!(PIN_25, 3);
 
 /// Gpout clock source.
 #[repr(u8)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum GpoutSrc {
     /// Sys PLL.
     PllSys = ClkGpoutCtrlAuxsrc::ClksrcPllSys as _,

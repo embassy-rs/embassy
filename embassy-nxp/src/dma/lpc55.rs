@@ -49,10 +49,10 @@ pub(crate) fn init() {
     // Reset DMA
     SYSCON
         .presetctrl0()
-        .modify(|w| w.set_dma0_rst(syscon::vals::Dma0Rst::ASSERTED));
+        .modify(|w| w.set_dma0_rst(syscon::vals::Dma0Rst::Asserted));
     SYSCON
         .presetctrl0()
-        .modify(|w| w.set_dma0_rst(syscon::vals::Dma0Rst::RELEASED));
+        .modify(|w| w.set_dma0_rst(syscon::vals::Dma0Rst::Released));
 
     // Address bits 31:9 of the beginning of the DMA descriptor table
     critical_section::with(|cs| {
@@ -180,14 +180,14 @@ fn copy_inner<'a, C: Channel>(
         w.set_setintb(false);
         w.set_width(data_size);
         w.set_srcinc(if incr_src {
-            dma::vals::Srcinc::WIDTH_X_1
+            dma::vals::Srcinc::WidthX1
         } else {
-            dma::vals::Srcinc::NO_INCREMENT
+            dma::vals::Srcinc::NoIncrement
         });
         w.set_dstinc(if incr_dest {
-            dma::vals::Dstinc::WIDTH_X_1
+            dma::vals::Dstinc::WidthX1
         } else {
-            dma::vals::Dstinc::NO_INCREMENT
+            dma::vals::Dstinc::NoIncrement
         });
         // Total number of transfers to be performed, minus 1 encoded.
         w.set_xfercount((len as u16) - 1);
@@ -308,21 +308,21 @@ pub trait Word: SealedWord {
 impl SealedWord for u8 {}
 impl Word for u8 {
     fn size() -> crate::pac::dma::vals::Width {
-        crate::pac::dma::vals::Width::BIT_8
+        crate::pac::dma::vals::Width::Bit8
     }
 }
 
 impl SealedWord for u16 {}
 impl Word for u16 {
     fn size() -> crate::pac::dma::vals::Width {
-        crate::pac::dma::vals::Width::BIT_16
+        crate::pac::dma::vals::Width::Bit16
     }
 }
 
 impl SealedWord for u32 {}
 impl Word for u32 {
     fn size() -> crate::pac::dma::vals::Width {
-        crate::pac::dma::vals::Width::BIT_32
+        crate::pac::dma::vals::Width::Bit32
     }
 }
 

@@ -150,7 +150,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, injected: bool) {
         let mut sqr1 = Sqr1::default();
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
@@ -162,17 +162,21 @@ impl AdcRegs for crate::pac::adc::Adc {
         let mut smpr2 = Smpr2::default();
         let mut smpr3 = Smpr3::default();
 
-        // Check the sequence is long enough
-        sqr1.set_l((sequence.len() - 1).try_into().unwrap());
+        if !injected {
+            // Check the sequence is long enough
+            sqr1.set_l((sequence.len() - 1).try_into().unwrap());
+        }
 
         for (i, ((ch, _), sample_time)) in sequence.enumerate() {
-            match i {
-                0..=5 => sqr5.set_sq(i, ch),
-                6..=11 => sqr4.set_sq(i - 6, ch),
-                12..=15 => sqr3.set_sq(i - 12, ch),
-                18..=23 => sqr2.set_sq(i - 18, ch),
-                24..=27 => sqr1.set_sq(i - 24, ch),
-                _ => unreachable!(),
+            if !injected {
+                match i {
+                    0..=5 => sqr5.set_sq(i, ch),
+                    6..=11 => sqr4.set_sq(i - 6, ch),
+                    12..=15 => sqr3.set_sq(i - 12, ch),
+                    18..=23 => sqr2.set_sq(i - 18, ch),
+                    24..=27 => sqr1.set_sq(i - 24, ch),
+                    _ => unreachable!(),
+                }
             }
 
             let sample_time = sample_time.into();
@@ -185,11 +189,13 @@ impl AdcRegs for crate::pac::adc::Adc {
             }
         }
 
-        self.sqr1().write_value(sqr1);
-        self.sqr2().write_value(sqr2);
-        self.sqr3().write_value(sqr3);
-        self.sqr4().write_value(sqr4);
-        self.sqr5().write_value(sqr5);
+        if !injected {
+            self.sqr1().write_value(sqr1);
+            self.sqr2().write_value(sqr2);
+            self.sqr3().write_value(sqr3);
+            self.sqr4().write_value(sqr4);
+            self.sqr5().write_value(sqr5);
+        }
 
         self.smpr0().write_value(smpr0);
         self.smpr1().write_value(smpr1);

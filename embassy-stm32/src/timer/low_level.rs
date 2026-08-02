@@ -472,6 +472,14 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cnt().write(|r| r.set_cnt(0));
     }
 
+    /// Get the current counter value.
+    pub fn get_counter(&self) -> T::Word {
+        #[cfg(not(stm32l0))]
+        return unwrap!(self.regs_gp32_unchecked().cnt().read().try_into());
+        #[cfg(stm32l0)]
+        return unwrap!(self.regs_gp32_unchecked().cnt().read().cnt().try_into());
+    }
+
     /// get the capability of the timer
     pub fn bits(&self) -> TimerBits {
         match T::Word::bits() {
@@ -601,7 +609,8 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         let regs = self.regs_core();
         let sr = regs.sr().read();
         if sr.uif() {
-            regs.sr().modify(|r| {
+            regs.sr().write(|r| {
+                r.0 = 0xFFFF_FFFF;
                 r.set_uif(false);
             });
             true
@@ -689,6 +698,11 @@ impl<'d, T: BasicInstance> Timer<'d, T> {
     /// more capable timers.
     pub fn regs_basic(&self) -> crate::pac::timer::TimBasic {
         unsafe { crate::pac::timer::TimBasic::from_ptr(T::regs()) }
+    }
+
+    /// Set Timer Master Mode
+    pub fn set_master_mode(&self, mms: MasterMode) {
+        self.regs_basic().cr2().modify(|w| w.set_mms(mms));
     }
 }
 
@@ -802,7 +816,10 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
     /// Clear input interrupt.
     pub fn clear_input_interrupt(&self, channel: Channel) {
-        self.regs_gp16().sr().modify(|r| r.set_ccif(channel.index(), false));
+        self.regs_gp16().sr().write(|r| {
+            r.0 = 0xFFFF_FFFF;
+            r.set_ccif(channel.index(), false);
+        });
     }
 
     /// Get input interrupt.
@@ -1009,13 +1026,14 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 fifo_threshold: Some(FifoThreshold::Full),
                 #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr8,
+                packing: crate::dma::Packing::ZeroExtendOrLeftTruncate,
                 ..Default::default()
             };
 
             WritableRingBuffer::new(
                 dma::Channel::new(dma, irq),
                 req,
-                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut W,
+                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut T::Word,
                 dma_buf,
                 dma_transfer_option,
             )
@@ -1068,6 +1086,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 fifo_threshold: Some(FifoThreshold::Full),
                 #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr8,
+                packing: crate::dma::Packing::ZeroExtendOrLeftTruncate,
                 ..Default::default()
             };
 
@@ -1076,7 +1095,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 .write(
                     request,
                     duty,
-                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
+                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut T::Word,
                     dma_transfer_option,
                 )
                 .unchecked_extend_lifetime()
@@ -1193,11 +1212,6 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Set capture compare DMA enable state
     pub fn set_cc_dma_enable_state(&self, channel: Channel, ccde: bool) {
         self.regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
-    }
-
-    /// Set Timer Master Mode
-    pub fn set_master_mode(&self, mms: MasterMode) {
-        self.regs_gp16().cr2().modify(|w| w.set_mms(mms));
     }
 
     /// Set Timer Slave Mode

@@ -6,7 +6,7 @@ use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence, fence};
 use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::AtomicWaker;
-use linked_list::Table;
+use linked_list::{LinkedListItem, Table};
 #[cfg(not(lpdma))]
 use pac::gpdma::{Channel as BaseChannel, Gpdma as BaseRegs, vals};
 #[cfg(lpdma)]
@@ -21,6 +21,8 @@ use crate::rcc::WakeGuard;
 
 pub mod linked_list;
 pub mod ringbuffered;
+#[cfg(gpdma2d)]
+pub mod two_d;
 
 pub use vals::Pam as Packing;
 
@@ -58,6 +60,8 @@ impl DmaInfo {
 pub(crate) struct ChannelInfo {
     pub(crate) dma: DmaInfo,
     pub(crate) num: usize,
+    #[cfg(gpdma2d)]
+    pub(crate) supports_2d: bool,
     #[cfg(feature = "_dual-core")]
     pub(crate) irq: pac::Interrupt,
     #[cfg(feature = "low-power")]
@@ -113,6 +117,46 @@ impl From<RequestMode> for vals::Breq {
         match value {
             RequestMode::Burst => vals::Breq::Burst,
             RequestMode::Block => vals::Breq::Block,
+        }
+    }
+}
+
+/// Transfer complete event mode (`TR2.TCEM`).
+///
+/// Controls when the transfer-complete (and half-transfer) events are
+/// generated. For linked-list transfers, this is a per-item field loaded
+/// from each LLI when `UT2` is set.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TransferCompleteMode {
+    /// Generate TC/HT events at the end of each block transfer.
+    EachBlock,
+    /// Generate TC at the end of each LLI transfer (including loading the
+    /// next LLI). HT is generated at the half of the LLI data transfer.
+    EachLinkedListItem,
+    /// Generate TC only at the end of the last LLI transfer. HT is
+    /// generated at the half of the last LLI's data transfer.
+    LastLinkedListItem,
+}
+
+#[cfg(gpdma)]
+impl From<TransferCompleteMode> for pac::gpdma::vals::Tcem {
+    fn from(value: TransferCompleteMode) -> Self {
+        match value {
+            TransferCompleteMode::EachBlock => Self::EachBlock,
+            TransferCompleteMode::EachLinkedListItem => Self::EachLinkedListItem,
+            TransferCompleteMode::LastLinkedListItem => Self::LastLinkedListItem,
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<TransferCompleteMode> for pac::lpdma::vals::Tcem {
+    fn from(value: TransferCompleteMode) -> Self {
+        match value {
+            TransferCompleteMode::EachBlock => Self::EachBlock,
+            TransferCompleteMode::EachLinkedListItem => Self::EachLinkedListItem,
+            TransferCompleteMode::LastLinkedListItem => Self::LastLinkedListItem,
         }
     }
 }
@@ -347,6 +391,12 @@ pub struct TransferOptions {
     pub burst_length: Burst,
     /// Select whether peripheral handshaking is done at burst or block level.
     pub request_mode: RequestMode,
+    /// Transfer complete event mode. Default `EachBlock`.
+    ///
+    /// For linked-list transfers, this is configured per-item via the item's
+    /// config (e.g. [`LinearItemConfig`](linked_list::LinearItemConfig)) since
+    /// the channel TR2 register is overwritten by each LLI when `UT2` is set.
+    pub transfer_complete_mode: TransferCompleteMode,
     /// Optional trigger-gated transfer configuration.
     pub trigger: Option<TriggerConfig>,
 }
@@ -364,6 +414,7 @@ impl Default for TransferOptions {
             #[cfg(not(stm32c5))]
             burst_length: Burst::_1Beats,
             request_mode: RequestMode::Burst,
+            transfer_complete_mode: TransferCompleteMode::EachBlock,
             trigger: None,
         }
     }
@@ -662,6 +713,7 @@ impl<'d> Channel<'d> {
             });
             w.set_breq(options.request_mode.into());
             w.set_reqsel(request);
+            w.set_tcem(options.transfer_complete_mode.into());
             if let Some(trigger) = options.trigger {
                 w.set_trigsel(trigger.signal);
                 w.set_trigpol(trigger.polarity.into());
@@ -698,11 +750,19 @@ impl<'d> Channel<'d> {
         state.lli_state.transfer_count.store(0, Ordering::Relaxed)
     }
 
-    /// Configure a linked-list transfer.
-    unsafe fn configure_linked_list<const ITEM_COUNT: usize>(
+    /// Internal helper: configure the channel for a linked-list transfer.
+    ///
+    /// Accepts the raw table-derived values so that both `Table` and
+    /// `TwoDTable` can share the same channel setup logic.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn configure_linked_list_raw(
         &self,
-        table: &Table<ITEM_COUNT>,
+        base_address: u16,
+        first_offset: u16,
+        item_count: usize,
+        total_transfer_count: usize,
         options: TransferOptions,
+        is_2d: bool,
     ) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
@@ -721,22 +781,28 @@ impl<'d> Channel<'d> {
             w.set_ulef(true);
             w.set_usef(true);
         });
-        ch.lbar().write(|reg| reg.set_lba(table.base_address()));
+        ch.lbar().write(|reg| reg.set_lba(base_address));
 
         // Empty LLI0.
         ch.br1().write(|w| w.set_bndt(0));
 
-        // Enable all linked-list field updates.
+        // Enable linked-list field updates. For 2D items the DMA must also
+        // load TR3 and BR2, so UT3/UB2 must be set in the initial LLR to
+        // match the 8-word TwoDItem layout (vs the 6-word LinearItem layout).
         ch.llr().write(|w| {
             w.set_ut1(true);
             w.set_ut2(true);
             w.set_ub1(true);
             w.set_usa(true);
             w.set_uda(true);
+            if is_2d {
+                w.set_ut3(true);
+                w.set_ub2(true);
+            }
             w.set_ull(true);
 
             // Lower two bits are ignored: 32 bit aligned.
-            w.set_la(table.offset_address(0) >> 2);
+            w.set_la(first_offset >> 2);
         });
 
         ch.tr3().write(|_| {}); // no address offsets.
@@ -752,12 +818,12 @@ impl<'d> Channel<'d> {
         });
 
         let state = &STATE[self.channel as usize];
-        state.lli_state.count.store(ITEM_COUNT, Ordering::Relaxed);
+        state.lli_state.count.store(item_count, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
         state
             .lli_state
             .transfer_count
-            .store(table.transfer_count(), Ordering::Relaxed)
+            .store(total_transfer_count, Ordering::Relaxed)
     }
 
     fn start(&self) {
@@ -954,12 +1020,31 @@ impl<'d> Channel<'d> {
     }
 
     /// Create a linked-list DMA transfer.
-    pub unsafe fn linked_list<'a, const ITEM_COUNT: usize>(
+    ///
+    /// Works with both linear (`Table<LinearItem, N>`) and 2D
+    /// (`Table<TwoDItem, N>`) tables. When a 2D table is used, the channel
+    /// must support 2D addressing or this will panic.
+    pub unsafe fn linked_list<'a, T: LinkedListItem, const N: usize>(
         &'a mut self,
-        table: Table<ITEM_COUNT>,
+        table: &'a Table<T, N>,
         options: TransferOptions,
-    ) -> LinkedListTransfer<'a, ITEM_COUNT> {
-        self.configure_linked_list(&table, options);
+    ) -> LinkedListTransfer<'a> {
+        #[cfg(gpdma2d)]
+        if T::IS_2D {
+            assert!(
+                self.info().supports_2d,
+                "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+            );
+        }
+
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            T::IS_2D,
+        );
         self.start();
 
         LinkedListTransfer {
@@ -967,16 +1052,55 @@ impl<'d> Channel<'d> {
             channel: self.reborrow(),
         }
     }
+
+    /// Reconfigure and restart a linked-list transfer from item[0].
+    ///
+    /// Resets the channel, clears all flags, reconfigures LBAR/BR1/LLR/CR
+    /// from the table and options, and re-enables the channel. This is
+    /// intended for use cases that need to restart the same linked-list
+    /// chain from the beginning.
+    ///
+    /// Works with both linear and 2D tables. When a 2D table is used, the
+    /// channel must support 2D addressing or this will panic.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that no other code is concurrently accessing
+    /// the channel registers, and that the `table` remains valid for the
+    /// duration of the transfer.
+    pub unsafe fn restart_linked_list<T: LinkedListItem, const N: usize>(
+        &self,
+        table: &Table<T, N>,
+        options: TransferOptions,
+    ) {
+        #[cfg(gpdma2d)]
+        if T::IS_2D {
+            assert!(
+                self.info().supports_2d,
+                "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+            );
+        }
+
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            T::IS_2D,
+        );
+        self.start();
+    }
 }
 
 /// Linked-list DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
+pub struct LinkedListTransfer<'a> {
     channel: Channel<'a>,
     _wake_guard: WakeGuard,
 }
 
-impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> LinkedListTransfer<'a> {
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     ///
     /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
@@ -1023,7 +1147,7 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
     }
 }
 
-impl<'a, const ITEM_COUNT: usize> Drop for LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> Drop for LinkedListTransfer<'a> {
     fn drop(&mut self) {
         self.request_reset();
 
@@ -1032,8 +1156,8 @@ impl<'a, const ITEM_COUNT: usize> Drop for LinkedListTransfer<'a, ITEM_COUNT> {
     }
 }
 
-impl<'a, const ITEM_COUNT: usize> Unpin for LinkedListTransfer<'a, ITEM_COUNT> {}
-impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> Unpin for LinkedListTransfer<'a> {}
+impl<'a> Future for LinkedListTransfer<'a> {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let state = &STATE[self.channel.channel as usize];

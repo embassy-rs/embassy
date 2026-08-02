@@ -972,6 +972,22 @@ impl<'d> Channel<'d> {
         }
     }
 
+    fn enable_circular_mode(&self) {
+        let info = self.info();
+        match self.info().dma {
+            #[cfg(dma)]
+            DmaInfo::Dma(regs) => regs.st(info.num).cr().modify(|w| {
+                w.set_circ(true);
+            }),
+            #[cfg(bdma)]
+            DmaInfo::Bdma(regs) => regs.ch(info.num).cr().modify(|w| {
+                w.set_circ(true);
+            }),
+            #[cfg(mdma)]
+            DmaInfo::Mdma(_regs) => (),
+        }
+    }
+
     fn poll_stop(&self) -> Poll<()> {
         compiler_fence(Ordering::SeqCst);
 
@@ -1321,6 +1337,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
+        self.channel.enable_circular_mode();
         self.channel.start();
     }
 
@@ -1497,6 +1514,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
+        self.channel.enable_circular_mode();
         self.channel.start();
     }
 

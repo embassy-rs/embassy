@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::unwrap;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// Create the message bus. It has a queue of 4, supports 3 subscribers and 1 publisher
 static MESSAGE_BUS: PubSubChannel<ThreadModeRawMutex, Message, 4, 3, 1> = PubSubChannel::new();

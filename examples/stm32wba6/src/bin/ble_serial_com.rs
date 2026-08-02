@@ -27,6 +27,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG, USART1};
@@ -44,10 +45,10 @@ use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, ne
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embedded_io_async::{Read, Write};
+use panic_probe as _;
 use static_cell::StaticCell;
 use stm32wb_hci::Event;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;

@@ -18,13 +18,14 @@
 use core::mem;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::i2s::{PioI2sIn, PioI2sInProgram};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -36,7 +37,7 @@ const BIT_DEPTH: u32 = 16;
 const CHANNELS: u32 = 2;
 const USE_ONBOARD_PULLDOWN: bool = false; // whether or not to use the onboard pull-down resistor,
 // which has documented issues on many RP235x boards
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 

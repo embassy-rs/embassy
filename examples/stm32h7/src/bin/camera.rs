@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
@@ -9,7 +10,7 @@ use embassy_stm32::rcc::{Mco, Mco1Source, McoConfig, McoPrescaler};
 use embassy_stm32::{Config, bind_interrupts, dma, i2c, peripherals};
 use embassy_time::Timer;
 use ov7725::*;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const WIDTH: usize = 100;
 const HEIGHT: usize = 100;

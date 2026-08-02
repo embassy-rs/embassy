@@ -9,10 +9,11 @@
 use core::cell::RefCell;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_stm32::adc::{
     Adc, AdcChannel as _, Exten, InjectedAdc, InjectedAdcTrigger, RegularAdcTrigger, SampleTime, VrefInt,
 };
-use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
+use embassy_stm32::mode::Blocking;
 use embassy_stm32::pac::adc::Adc as AdcRegs;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
@@ -20,14 +21,18 @@ use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::triggers::TIM1_TRGO2;
 use embassy_stm32::{Config, Peri, bind_interrupts, dma, interrupt, peripherals};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
-static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs>>>> =
+static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs, Blocking>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
+
+// static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<AdcRegs, Async>>>> =
+//     CriticalSectionMutex::new(RefCell::new(None));
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+    // ADC1_2 => embassy_stm32::adc::InterruptHandler<ADC1>;
 });
 
 /// This example showcases how to use both regular ADC conversions with DMA and injected ADC
@@ -108,15 +113,13 @@ async fn main(_spawner: embassy_executor::Spawner) {
         RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
         injected_sequence,
         InjectedAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge),
-        true,
+        Blocking,
     );
 
     // Store ADC globally to allow access from ADC interrupt
     critical_section::with(|cs| {
         ADC1_HANDLE.borrow(cs).replace(Some(injected_adc));
     });
-    // Enable interrupt for ADC1_2
-    unsafe { ADC1_2::enable() };
 
     // Main loop for reading regular ADC measurements periodically
     let mut data = [0u16; 2];
@@ -144,7 +147,7 @@ unsafe fn ADC1_2() {
     critical_section::with(|cs| {
         if let Some(injected_adc) = ADC1_HANDLE.borrow(cs).borrow_mut().as_mut() {
             let mut injected_data = [0u16; 1];
-            injected_adc.read_injected_samples(&mut injected_data);
+            injected_adc.read_latest(&mut injected_data);
             info!("Injected reading of PA2: {}", injected_data[0]);
         }
     });

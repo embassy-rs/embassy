@@ -4,6 +4,7 @@
 use core::cell::RefCell;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, I2c};
@@ -13,8 +14,8 @@ use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::{Duration, Timer};
 use embedded_hal_1::i2c::I2c as _;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 const TMP117_ADDR: u8 = 0x48;
 const TMP117_TEMP_RESULT: u8 = 0x00;

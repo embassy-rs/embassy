@@ -224,6 +224,7 @@ pub const PARTITION_TABLE_MAX_ITEMS: usize = 128;
 
 /// Describes a unpartitioned space
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct UnpartitionedSpace {
     permissions_and_location: u32,
     permissions_and_flags: u32,
@@ -341,6 +342,7 @@ impl core::fmt::Display for UnpartitionedSpace {
 
 /// Describes a Partition
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Partition {
     permissions_and_location: u32,
     permissions_and_flags: u32,
@@ -588,6 +590,7 @@ impl core::fmt::Display for Partition {
 ///
 /// Don't store this as a static - make sure you convert it to a block.
 #[derive(Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct PartitionTableBlock {
     /// This must look like a block, including the 1 word header and the 3 word footer.
     contents: [u32; PARTITION_TABLE_MAX_ITEMS],
@@ -773,6 +776,7 @@ impl Default for PartitionTableBlock {
 
 /// Flags that a Partition can have
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u32)]
 #[allow(missing_docs)]
 pub enum PartitionFlag {
@@ -789,6 +793,7 @@ pub enum PartitionFlag {
 
 /// Flags that a Partition can have
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u32)]
 #[allow(missing_docs)]
 pub enum UnpartitionedFlag {
@@ -803,6 +808,7 @@ pub enum UnpartitionedFlag {
 
 /// Kinds of linked partition
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Link {
     /// Not linked to anything
     Nothing,
@@ -820,6 +826,7 @@ pub enum Link {
 
 /// Permissions that a Partition can have
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u32)]
 pub enum Permission {
     /// Can be read in Secure Mode
@@ -857,6 +864,7 @@ impl Permission {
 
 /// The supported RP2350 CPU architectures
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Architecture {
     /// Core is in Arm Cortex-M33 mode
     Arm,
@@ -866,6 +874,7 @@ pub enum Architecture {
 
 /// The kinds of Secure Boot we support
 #[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Security {
     /// Security mode not given
     Unspecified,

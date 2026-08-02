@@ -1,0 +1,141 @@
+//! FlexCAN support.
+//!
+//! This module provides an interface for interacting with the FlexCAN peripheral on MCXA chips.
+//!
+//! ### Getting Started
+//!
+//! #### Classic CAN
+//! See the [classic] module for docs/example code pertaining to getting everything set up for classic CAN.
+//!
+//! #### CAN FD
+//! This HAL does not yet support FlexCAN's CAN FD mode.
+
+pub mod classic;
+pub(crate) mod control;
+pub mod filter;
+pub mod id;
+
+use embassy_hal_internal::PeripheralType;
+
+use crate::gpio::AnyPin;
+use crate::interrupt::typelevel::Interrupt;
+
+/// Common FlexCAN peripheral identity for both Classic CAN (`flexcan::classic`) and CANFD (`flexcan::fd`).
+///
+/// Note: CANFD isn't supported yet (nor does `flexcan::fd` exist yet) but it will in the future!
+#[allow(private_bounds)]
+pub trait Instance: sealed::SealedInstance + PeripheralType + 'static + Send {
+    /// Interrupt for this FlexCAN instance.
+    type Interrupt: Interrupt;
+}
+
+pub(crate) mod sealed {
+    pub trait Sealed {}
+    pub trait SealedInstance {}
+}
+
+// Technically every GPIO pin is allowed to be (potentially) sealed as a FlexCAN pin. The actual
+// `TxPin`/`RxPin` impls (generated in the build script) restrict which concrete pins
+// are valid for which CAN instance.
+impl<T: crate::gpio::SealedPin> sealed::Sealed for T {}
+
+/// CAN TX pin.
+///
+/// This trait is implemented for each pin that can be muxed to a
+/// given FlexCAN instance's TXD function. These implementations are generated
+/// automatically by `embassy-mcxa`'s `build.rs`.
+pub trait TxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
+    /// The port mux setting that selects the TXD function for this pin.
+    const MUX: crate::pac::port::Mux;
+    /// Configure the pin for FlexCAN TXD usage.
+    fn as_tx(&self);
+}
+
+/// CAN RX pin.
+///
+/// This trait is implemented for each pin that can be muxed to a
+/// given FlexCAN instance's RXD function. These implementations are
+/// generated automatically by `embassy-mcxa`'s `build.rs`.
+pub trait RxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
+    /// The port mux setting that selects the RXD function for this pin.
+    const MUX: crate::pac::port::Mux;
+    /// Configure the pin for FlexCAN RXD usage.
+    fn as_rx(&self);
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_flexcan_pin {
+    ($inst:ident, $pin:ident, $alt:ident, TXD) => {
+        impl crate::flexcan::TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
+            fn as_tx(&self) {
+                use crate::gpio::SealedPin;
+                self.set_pull(crate::gpio::Pull::Disabled);
+                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
+                self.set_function(<Self as crate::flexcan::TxPin<crate::peripherals::$inst>>::MUX);
+                self.set_enable_input_buffer(false);
+                self.set_input_enabled(true);
+            }
+        }
+    };
+    ($inst:ident, $pin:ident, $alt:ident, RXD) => {
+        impl crate::flexcan::RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+            const MUX: crate::pac::port::Mux = crate::pac::port::Mux::$alt;
+            fn as_rx(&self) {
+                use crate::gpio::SealedPin;
+                self.set_pull(crate::gpio::Pull::Disabled);
+                self.set_function(<Self as crate::flexcan::RxPin<crate::peripherals::$inst>>::MUX);
+                self.set_enable_input_buffer(true);
+                self.set_input_enabled(true);
+            }
+        }
+    };
+}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_can_instance {
+    ($n:expr) => {
+        paste::paste! {
+            // Peripheral identity
+            impl crate::flexcan::sealed::SealedInstance for crate::peripherals::[<CAN $n>] {}
+
+            impl crate::flexcan::Instance for crate::peripherals::[<CAN $n>] {
+                /// Interrupt for this FlexCAN instance.
+                type Interrupt = crate::interrupt::typelevel::[<CAN $n>];
+            }
+
+            // Stuff for classic CAN mode
+            impl crate::flexcan::classic::SealedInstance for crate::peripherals::[<CAN $n>] {
+                fn info() -> &'static crate::flexcan::classic::Info {
+                    use crate::_generated::interrupt::typelevel::Interrupt;
+
+                    static INFO: crate::flexcan::classic::Info = crate::flexcan::classic::Info {
+                        control: crate::flexcan::control::Control::new(crate::pac::[<CAN $n>]),
+                        tx_available: core::sync::atomic::AtomicU32::new(0),
+                        tx_remote: core::sync::atomic::AtomicU32::new(0),
+                        prexcen_supported: $n == 0, // Protocol Exception is only supported on CAN0.
+                        tx_mailbox_full_count: core::sync::atomic::AtomicU32::new(0),
+                        tx_waker: maitake_sync::WaitCell::new(),
+                        rx_sender: embassy_sync::blocking_mutex::Mutex::new(core::cell::Cell::new(None)),
+                        rx_dropped_count_channel: core::sync::atomic::AtomicU32::new(0),
+                        rx_dropped_count_fifo: core::sync::atomic::AtomicU32::new(0),
+                        halves: crate::flexcan::classic::halves::HalfMask::new(),
+                        interrupt_disable: crate::interrupt::typelevel::[<CAN $n>]::disable,
+                        interrupt_unpend: crate::interrupt::typelevel::[<CAN $n>]::unpend,
+                        clock_disable: crate::clocks::disable::<crate::peripherals::[<CAN $n>]>,
+                        pins: crate::flexcan::classic::halves::Pins::new(),
+                    };
+                    &INFO
+                }
+
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::CanInstance = crate::clocks::periph_helpers::CanInstance::[<Can $n>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_can $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_can $n _wake>];
+            }
+            impl crate::flexcan::classic::Instance for crate::peripherals::[<CAN $n>] {}
+        }
+    };
+}

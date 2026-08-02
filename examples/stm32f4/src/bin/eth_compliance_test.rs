@@ -2,16 +2,18 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::eth::{Ethernet, PacketQueue, StationManagement};
+use embassy_stm32::peripherals::ETH;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    ETH => eth::InterruptHandler;
+    ETH => eth::InterruptHandler<ETH>;
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 

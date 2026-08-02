@@ -4,6 +4,7 @@
 use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
@@ -16,9 +17,9 @@ use embassy_usb::class::hid::{
 };
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
+use panic_probe as _;
 use rand::Rng;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
@@ -26,7 +27,7 @@ bind_interrupts!(struct Irqs {
 
 static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     // Create the driver, from the HAL.

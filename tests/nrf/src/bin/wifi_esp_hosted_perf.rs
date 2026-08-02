@@ -5,8 +5,10 @@ teleprobe_meta::target!(b"nrf52840-dk");
 teleprobe_meta::timeout!(120);
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::{Config, StackResources};
+use embassy_net_esp_hosted as hosted;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};
@@ -14,8 +16,8 @@ use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use hosted::iface::spi::SpiInterface;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, embassy_net_esp_hosted as hosted, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;

@@ -5,12 +5,13 @@ use core::mem::MaybeUninit;
 
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, SharedData};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();

@@ -2,10 +2,11 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const DMA_BUF_LEN: usize = 512;
 

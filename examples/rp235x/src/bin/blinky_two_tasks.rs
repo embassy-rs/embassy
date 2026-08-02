@@ -6,18 +6,19 @@
 /// to interference and the 'beats' you can hear if you play two frequencies close to one another
 /// [Link explaining it](https://www.physicsclassroom.com/class/sound/Lesson-3/Interference-and-Beats)
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Ticker};
 use gpio::{Level, Output};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 type LedType = Mutex<ThreadModeRawMutex, Option<Output<'static>>>;
 static LED: LedType = Mutex::new(None);
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     // set the content of the global LED reference to the real LED pin

@@ -1,6 +1,6 @@
 use embassy_futures::join;
 use embassy_net_driver_channel as ch;
-use smoltcp::wire::Ieee802154Frame;
+use xarxa::wire::Ieee802154Frame;
 
 use crate::net::commands::DataRequest;
 use crate::net::iface::{Controller, ControllerToHostPacket, ControllerToHostPacketBox, mcps};

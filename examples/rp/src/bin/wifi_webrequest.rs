@@ -9,6 +9,7 @@ use core::str::from_utf8;
 use cyw43::{JoinOptions, aligned_bytes};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::dns::DnsSocket;
 use embassy_net::tcp::client::{TcpClient, TcpClientState};
@@ -19,6 +20,7 @@ use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::{Duration, Timer};
+use panic_probe as _;
 use reqwless::client::HttpClient;
 // Uncomment these for TLS requests:
 // use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
@@ -26,7 +28,6 @@ use reqwless::request::Method;
 use serde::Deserialize;
 use serde_json_core::from_slice;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -48,7 +49,7 @@ async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'sta
     runner.run().await
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     info!("Hello World!");
 

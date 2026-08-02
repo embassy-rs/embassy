@@ -2,13 +2,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::Config as RccConfig;
 use embassy_stm32_wpan::TlMbox;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;

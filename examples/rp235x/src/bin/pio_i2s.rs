@@ -12,14 +12,15 @@
 
 use core::mem;
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::i2s::{PioI2sOut, PioI2sOutProgram};
 use embassy_rp::{bind_interrupts, dma};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -29,7 +30,7 @@ bind_interrupts!(struct Irqs {
 const SAMPLE_RATE: u32 = 48_000;
 const BIT_DEPTH: u32 = 16;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 

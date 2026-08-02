@@ -2,10 +2,11 @@
 #![no_main]
 
 use defmt::{assert_eq, info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::qspi::Frequency;
 use embassy_nrf::{bind_interrupts, peripherals, qspi};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const PAGE_SIZE: usize = 4096;
 

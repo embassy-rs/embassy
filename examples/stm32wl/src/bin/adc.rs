@@ -4,11 +4,12 @@
 use core::mem::MaybeUninit;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::SharedData;
 use embassy_stm32::adc::{Adc, CkModePclk, Clock, SampleTime};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 

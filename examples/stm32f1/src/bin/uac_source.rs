@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
@@ -11,8 +12,8 @@ use embassy_usb::class::uac1::source::{AudioSource, AudioSourceControlHandler, A
 use embassy_usb::class::uac1::terminal_type::TerminalType;
 use embassy_usb::class::uac1::{self};
 use embassy_usb::{Builder, UsbVersion};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USB_LP_CAN1_RX0 => embassy_stm32::usb::InterruptHandler<peripherals::USB>;
@@ -145,7 +146,11 @@ async fn main(spawner: Spawner) {
     let mut builder = Builder::new(driver, usb_cfg, cfg_descr, bos_descr, &mut [], ctrl_buf);
 
     debug!("Create audio stream, feedback endpoints and handler");
-    let (audio_ep_in, feedback_ep_in, handler) = AudioSource::new(
+    let AudioSource {
+        audio_ep_in,
+        feedback_ep_in,
+        handler,
+    } = AudioSource::new(
         &mut builder,
         &SUPPORTED_SAMPLE_RATES,
         SAMPLE_WIDTH,

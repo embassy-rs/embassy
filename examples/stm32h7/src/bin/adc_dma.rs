@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel as _, SampleTime};
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[unsafe(link_section = ".ram_d3")]
 static mut DMA_BUF: [u16; 2] = [0; 2];

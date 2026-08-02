@@ -9,6 +9,7 @@
 use core::cell::RefCell;
 
 use defmt::*;
+use defmt_rtt as _;
 use display_interface_spi::SPIInterface;
 use embassy_embedded_hal::shared_bus::blocking::spi::SpiDeviceWithConfig;
 use embassy_executor::Spawner;
@@ -28,14 +29,14 @@ use embedded_graphics::text::Text;
 use mipidsi::Builder;
 use mipidsi::models::ST7789;
 use mipidsi::options::{Orientation, Rotation};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 use crate::touch::Touch;
 
 const DISPLAY_FREQ: u32 = 64_000_000;
 const TOUCH_FREQ: u32 = 200_000;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Hello World!");
@@ -60,7 +61,7 @@ async fn main(_spawner: Spawner) {
     touch_config.phase = spi::Phase::CaptureOnSecondTransition;
     touch_config.polarity = spi::Polarity::IdleHigh;
 
-    let spi: Spi<'_, _, Blocking> = Spi::new_blocking(p.SPI1, clk, mosi, miso, touch_config.clone());
+    let spi: Spi<'_, Blocking> = Spi::new_blocking(p.SPI1, clk, mosi, miso, touch_config.clone());
     let spi_bus: Mutex<NoopRawMutex, _> = Mutex::new(RefCell::new(spi));
 
     let display_spi = SpiDeviceWithConfig::new(&spi_bus, Output::new(display_cs, Level::High), display_config);

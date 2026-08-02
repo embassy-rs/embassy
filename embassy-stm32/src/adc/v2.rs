@@ -1,19 +1,16 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use crate::adc::{
-    Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Resolution, SampleTime, Temperature, Vbat, VrefInt,
+    Adc, AdcRegs, ConversionMode, DefaultInstance, InjectedRegs, Instance, Resolution, SampleTime, Temperature, Vbat,
+    VrefInt,
 };
+use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3};
 use crate::pac::adc::vals;
+use crate::pac::adc::vals::Dds;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
 use crate::wait::block_for_us;
 use crate::{Peri, rcc};
-
-mod injected;
-pub use injected::InjectedAdc;
-
-use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3};
-use crate::pac::adc::vals::Dds;
 
 fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
     r.sr().modify(|regs| {
@@ -28,6 +25,30 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 pub const VREF_CALIB_MV: u32 = 3300;
 
 pub const NR_INJECTED_RANKS: usize = 4;
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _marker: core::marker::PhantomData<T>,
+}
+
+impl<T: DefaultInstance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let mut sr = T::regs().sr().read();
+        if sr.eoc() || sr.jeoc() {
+            if sr.jeoc() {
+                T::state()
+                    .injected_done
+                    .store(true, core::sync::atomic::Ordering::Release);
+            }
+
+            sr.set_eoc(false);
+            sr.set_jeoc(false);
+            T::regs().sr().write_value(sr);
+
+            T::state().waker.wake();
+        }
+    }
+}
 
 impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;
@@ -167,7 +188,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, injected: bool) {
         let mut sqr1 = Sqr1::default();
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
@@ -176,14 +197,30 @@ impl AdcRegs for crate::pac::adc::Adc {
         let mut smpr2 = self.smpr2().read();
 
         // Check the sequence is long enough
-        sqr1.set_l((sequence.len() - 1).try_into().unwrap());
+        let len: u8 = sequence.len().try_into().unwrap();
+        if injected {
+            // Set injected sequence length
+            self.jsqr().modify(|w| w.set_jl(len - 1));
+        } else {
+            sqr1.set_l(len - 1);
+        }
 
         for (i, ((ch, _), sample_time)) in sequence.enumerate() {
-            match i {
-                0..=5 => sqr3.set_sq(i, ch),
-                6..=11 => sqr2.set_sq(i - 6, ch),
-                12..=15 => sqr1.set_sq(i - 12, ch),
-                _ => unreachable!(),
+            if injected {
+                // On adc_v2/F4, injected JSQ rank field placement depends on the
+                // programmed sequence length (JL). ST's HAL uses:
+                //   shift = 5 * ((rank + 3) - sequence_len)
+                // with rank starting at 1.
+                let idx = i + (4usize - len as usize);
+
+                self.jsqr().modify(|w| w.set_jsq(idx, ch));
+            } else {
+                match i {
+                    0..=5 => sqr3.set_sq(i, ch),
+                    6..=11 => sqr2.set_sq(i - 6, ch),
+                    12..=15 => sqr1.set_sq(i - 12, ch),
+                    _ => unreachable!(),
+                }
             }
 
             let sample_time = sample_time.into();
@@ -194,39 +231,17 @@ impl AdcRegs for crate::pac::adc::Adc {
             }
         }
 
-        self.sqr1().write_value(sqr1);
-        self.sqr2().write_value(sqr2);
-        self.sqr3().write_value(sqr3);
+        if !injected {
+            self.sqr1().write_value(sqr1);
+            self.sqr2().write_value(sqr2);
+            self.sqr3().write_value(sqr3);
+        }
         self.smpr1().write_value(smpr1);
         self.smpr2().write_value(smpr2);
     }
 }
 
 impl InjectedRegs for crate::pac::adc::Adc {
-    fn configure_injected_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
-        let len: u8 = sequence.len().try_into().unwrap();
-        self.cr1().modify(|w| w.set_jauto(false));
-        // Set injected sequence length
-        self.jsqr().modify(|w| w.set_jl(len - 1));
-
-        for (n, ((channel, _), sample_time)) in sequence.enumerate() {
-            let sample_time = sample_time.clone().into();
-            if channel <= 9 {
-                self.smpr2().modify(|reg| reg.set_smp(channel as _, sample_time));
-            } else {
-                self.smpr1().modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
-            }
-
-            // On adc_v2/F4, injected JSQ rank field placement depends on the
-            // programmed sequence length (JL). ST's HAL uses:
-            //   shift = 5 * ((rank + 3) - sequence_len)
-            // with rank starting at 1.
-            let idx = n + (4usize - len as usize);
-
-            self.jsqr().modify(|w| w.set_jsq(idx, channel));
-        }
-    }
-
     fn configure_injected_trigger(&self, trigger: (u8, vals::Exten), interrupt: bool) {
         self.cr1().modify(|w| {
             w.set_scan(true);

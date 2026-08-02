@@ -21,9 +21,13 @@ impl<'d, T: Instance> Sma<'d, T> {
     pub fn new(peri: Peri<'d, T>, mdio: Peri<'d, impl MDIOPin<T>>, mdc: Peri<'d, impl MDCPin<T>>) -> Self {
         // Enable necessary clocks.
         critical_section::with(|_| {
-            #[cfg(not(eth_v2a))]
+            #[cfg(eth_v2)]
             crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_ethen(true);
+            });
+            #[cfg(eth_v2b)]
+            crate::pac::RCC.ahb1enr().modify(|w| {
+                w.set_eth1en(true);
             });
             #[cfg(eth_v2a)]
             crate::pac::RCC.ahb5enr().modify(|w| {

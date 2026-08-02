@@ -4,10 +4,11 @@
 use core::mem::MaybeUninit;
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::SharedData;
 use embassy_stm32::flash::Flash;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
