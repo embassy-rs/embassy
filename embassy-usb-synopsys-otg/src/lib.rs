@@ -35,7 +35,7 @@ pub mod host;
 use otg_v1::{Otg, regs, vals};
 
 /// Handle interrupts.
-pub unsafe fn on_interrupt<M: RawMutex>(r: Otg, state: &State<'_, M>) {
+pub unsafe fn on_interrupt<M: RawMutex + Copy>(r: Otg, state: &State<'_, M>) {
     trace!("irq");
     let ep_count = state.endpoint_count();
 
@@ -300,14 +300,14 @@ struct EndpointData {
 /// and [`on_interrupt`].
 ///
 /// Build from [`State::as_state`].
-pub struct State<'d, M: RawMutex = CriticalSectionRawMutex> {
+pub struct State<'d, M: RawMutex + Copy = CriticalSectionRawMutex> {
     cp_state: &'d ControlPipeSetupState,
     ep_states: &'d [EpState],
     bus_waker: &'d AtomicWaker,
-    mutex: &'d M,
+    mutex: M,
 }
 
-impl<'d, M: RawMutex> Clone for State<'d, M> {
+impl<'d, M: RawMutex + Copy> Clone for State<'d, M> {
     fn clone(&self) -> Self {
         Self {
             cp_state: self.cp_state,
@@ -318,16 +318,16 @@ impl<'d, M: RawMutex> Clone for State<'d, M> {
     }
 }
 
-impl<'d, M: RawMutex> Copy for State<'d, M> {}
+impl<'d, M: RawMutex + Copy> Copy for State<'d, M> {}
 
-impl<M: RawMutex> State<'_, M> {
+impl<M: RawMutex + Copy> State<'_, M> {
     /// Returns the number of device endpoints supported by this state.
     pub fn endpoint_count(&self) -> usize {
         self.ep_states.len()
     }
 }
 
-impl<'d, M: RawMutex> State<'d, M> {
+impl<'d, M: RawMutex + Copy> State<'d, M> {
     pub(crate) fn ep_alloc_get(&self, dir: Direction, index: usize) -> Option<&EndpointData> {
         unsafe {
             match dir {
@@ -383,16 +383,16 @@ impl<'d, M: RawMutex> State<'d, M> {
 }
 
 /// Storage object for USB OTG driver state.
-pub struct StateStorage<const EP_COUNT: usize, M: RawMutex = CriticalSectionRawMutex> {
+pub struct StateStorage<const EP_COUNT: usize, M: RawMutex + Copy = CriticalSectionRawMutex> {
     cp_state: ControlPipeSetupState,
     ep_states: [EpState; EP_COUNT],
     bus_waker: AtomicWaker,
     mutex: M,
 }
 
-impl<const EP_COUNT: usize, M: RawMutex> StateStorage<EP_COUNT, M> {
+impl<const EP_COUNT: usize, M: RawMutex + Copy> StateStorage<EP_COUNT, M> {
     /// Create a new StateStorage.
-    pub const fn new() -> Self {
+    pub const fn new(mutex: M) -> Self {
         Self {
             cp_state: ControlPipeSetupState {
                 setup_data: [const { AtomicU32::new(0) }; 2],
@@ -411,7 +411,7 @@ impl<const EP_COUNT: usize, M: RawMutex> StateStorage<EP_COUNT, M> {
                 }
             }; EP_COUNT],
             bus_waker: AtomicWaker::new(),
-            mutex: M::INIT,
+            mutex,
         }
     }
 
@@ -421,7 +421,7 @@ impl<const EP_COUNT: usize, M: RawMutex> StateStorage<EP_COUNT, M> {
             cp_state: &self.cp_state,
             ep_states: self.ep_states.as_slice(),
             bus_waker: &self.bus_waker,
-            mutex: &self.mutex,
+            mutex: self.mutex,
         }
     }
 }
@@ -465,14 +465,14 @@ impl Default for Config {
 }
 
 /// USB OTG driver.
-pub struct Driver<'d, M: RawMutex = CriticalSectionRawMutex> {
+pub struct Driver<'d, M: RawMutex + Copy = CriticalSectionRawMutex> {
     config: Config,
     ep_out_buffer: &'d mut [u8],
     ep_out_buffer_offset: usize,
     instance: OtgInstance<'d, M>,
 }
 
-impl<'d, M: RawMutex> Driver<'d, M> {
+impl<'d, M: RawMutex + Copy> Driver<'d, M> {
     /// Initializes the USB OTG peripheral.
     ///
     /// # Arguments
@@ -606,7 +606,7 @@ impl<'d, M: RawMutex> Driver<'d, M> {
     }
 }
 
-impl<'d, M: RawMutex> embassy_usb_driver::Driver<'d> for Driver<'d, M> {
+impl<'d, M: RawMutex + Copy + 'd> embassy_usb_driver::Driver<'d> for Driver<'d, M> {
     type EndpointOut = Endpoint<'d, Out, M>;
     type EndpointIn = Endpoint<'d, In, M>;
     type ControlPipe = ControlPipe<'d, M>;
@@ -793,13 +793,13 @@ fn has_data_toggle(ep_type: EndpointType) -> bool {
 }
 
 /// USB bus.
-pub struct Bus<'d, M: RawMutex = CriticalSectionRawMutex> {
+pub struct Bus<'d, M: RawMutex + Copy = CriticalSectionRawMutex> {
     config: Config,
     instance: OtgInstance<'d, M>,
     inited: bool,
 }
 
-impl<'d, M: RawMutex> Bus<'d, M> {
+impl<'d, M: RawMutex + Copy> Bus<'d, M> {
     fn restore_irqs(&mut self) {
         self.instance.regs.gintmsk().write(|w| {
             w.set_usbrst(true);
@@ -1194,7 +1194,7 @@ impl<'d, M: RawMutex> Bus<'d, M> {
     }
 }
 
-impl<'d, M: RawMutex> embassy_usb_driver::Bus for Bus<'d, M> {
+impl<'d, M: RawMutex + Copy> embassy_usb_driver::Bus for Bus<'d, M> {
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
             if !self.inited {
@@ -1535,10 +1535,10 @@ pub struct Endpoint<'d, D, M: RawMutex = CriticalSectionRawMutex> {
     regs: Otg,
     info: EndpointInfo,
     state: &'d EpState,
-    mutex: &'d M,
+    mutex: M,
 }
 
-impl<'d, M: RawMutex> embassy_usb_driver::Endpoint for Endpoint<'d, In, M> {
+impl<'d, M: RawMutex + Copy> embassy_usb_driver::Endpoint for Endpoint<'d, In, M> {
     fn info(&self) -> &EndpointInfo {
         &self.info
     }
@@ -1557,7 +1557,7 @@ impl<'d, M: RawMutex> embassy_usb_driver::Endpoint for Endpoint<'d, In, M> {
     }
 }
 
-impl<'d, M: RawMutex> embassy_usb_driver::Endpoint for Endpoint<'d, Out, M> {
+impl<'d, M: RawMutex + Copy> embassy_usb_driver::Endpoint for Endpoint<'d, Out, M> {
     fn info(&self) -> &EndpointInfo {
         &self.info
     }
@@ -1576,7 +1576,7 @@ impl<'d, M: RawMutex> embassy_usb_driver::Endpoint for Endpoint<'d, Out, M> {
     }
 }
 
-impl<'d, M: RawMutex> embassy_usb_driver::EndpointOut for Endpoint<'d, Out, M> {
+impl<'d, M: RawMutex + Copy> embassy_usb_driver::EndpointOut for Endpoint<'d, Out, M> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         trace!("read start len={}", buf.len());
 
@@ -1644,7 +1644,7 @@ impl<'d, M: RawMutex> embassy_usb_driver::EndpointOut for Endpoint<'d, Out, M> {
     }
 }
 
-impl<'d, M: RawMutex> embassy_usb_driver::EndpointIn for Endpoint<'d, In, M> {
+impl<'d, M: RawMutex + Copy> embassy_usb_driver::EndpointIn for Endpoint<'d, In, M> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
         trace!("write ep={:?} data={:?}", self.info.addr, Bytes(buf));
 
@@ -1761,16 +1761,16 @@ impl<'d, M: RawMutex> embassy_usb_driver::EndpointIn for Endpoint<'d, In, M> {
 }
 
 /// USB control pipe.
-pub struct ControlPipe<'d, M: RawMutex = CriticalSectionRawMutex> {
+pub struct ControlPipe<'d, M: RawMutex + Copy = CriticalSectionRawMutex> {
     max_packet_size: u16,
     regs: Otg,
     setup_state: &'d ControlPipeSetupState,
     ep_in: Endpoint<'d, In, M>,
     ep_out: Endpoint<'d, Out, M>,
-    mutex: &'d M,
+    mutex: M,
 }
 
-impl<'d, M: RawMutex> embassy_usb_driver::ControlPipe for ControlPipe<'d, M> {
+impl<'d, M: RawMutex + Copy> embassy_usb_driver::ControlPipe for ControlPipe<'d, M> {
     fn max_packet_size(&self) -> usize {
         usize::from(self.max_packet_size)
     }
@@ -1882,7 +1882,7 @@ fn ep0_mpsiz(max_packet_size: u16) -> u16 {
 
 /// Hardware-dependent USB IP configuration.
 #[derive(Copy, Clone)]
-pub struct OtgInstance<'d, M: RawMutex> {
+pub struct OtgInstance<'d, M: RawMutex + Copy = CriticalSectionRawMutex> {
     /// The USB peripheral.
     pub regs: Otg,
     /// Shared driver/interrupt state from [`State::as_state`].
