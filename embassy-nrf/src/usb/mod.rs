@@ -862,6 +862,7 @@ mod errata {
     ///
     /// Called around every USBD EasyDMA transfer, matching nrfx's
     /// `usbd_dma_pending_set` / `usbd_dma_pending_clear`.
+    /// based on https://docs.nordicsemi.com/r/bundle/errata_nrf52840_rev3/page/err/nrf52840/rev3/latest/anomaly_840_199.html
     pub fn dma_start() {
         #[cfg(feature = "nrf52840")]
         unsafe {
