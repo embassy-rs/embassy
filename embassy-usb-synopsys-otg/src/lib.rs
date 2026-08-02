@@ -392,7 +392,7 @@ pub struct StateStorage<const EP_COUNT: usize, M: RawMutex = CriticalSectionRawM
 
 impl<const EP_COUNT: usize, M: RawMutex> StateStorage<EP_COUNT, M> {
     /// Create a new StateStorage.
-    pub const fn new(mutex: M) -> Self {
+    pub const fn new() -> Self {
         Self {
             cp_state: ControlPipeSetupState {
                 setup_data: [const { AtomicU32::new(0) }; 2],
@@ -411,7 +411,7 @@ impl<const EP_COUNT: usize, M: RawMutex> StateStorage<EP_COUNT, M> {
                 }
             }; EP_COUNT],
             bus_waker: AtomicWaker::new(),
-            mutex,
+            mutex: M::INIT,
         }
     }
 

@@ -8,7 +8,6 @@ use core::task::Poll;
 
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::{Peri, PeripheralType};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, Unsupported};
 pub use embassy_usb_synopsys_otg::Config;
@@ -324,7 +323,7 @@ impl SealedInstance for crate::peripherals::USBHS {
     }
 
     fn state() -> State<'static> {
-        static STATE: StateStorage<MAX_EP_COUNT> = StateStorage::new(CriticalSectionRawMutex::new());
+        static STATE: StateStorage<MAX_EP_COUNT> = StateStorage::new();
         STATE.as_state()
     }
 }

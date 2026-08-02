@@ -546,10 +546,9 @@ foreach_interrupt!(
 
             fn state() -> State<'static> {
                 use embassy_usb_synopsys_otg::StateStorage;
-                use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
                 const EP_COUNT: usize = crate::peripherals::USB_OTG_FS::ENDPOINT_COUNT;
-                static STATE: StateStorage<EP_COUNT> = StateStorage::new(CriticalSectionRawMutex::new());
+                static STATE: StateStorage<EP_COUNT> = StateStorage::new();
                 STATE.as_state()
             }
         }
@@ -628,10 +627,9 @@ foreach_interrupt!(
 
             fn state() -> State<'static> {
                 use embassy_usb_synopsys_otg::StateStorage;
-                use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
                 const EP_COUNT: usize = crate::peripherals::USB_OTG_HS::ENDPOINT_COUNT;
-                static STATE: StateStorage<EP_COUNT> = StateStorage::new(CriticalSectionRawMutex::new());
+                static STATE: StateStorage<EP_COUNT> = StateStorage::new();
                 STATE.as_state()
             }
         }
@@ -666,10 +664,9 @@ mod host_impl {
             impl SealedHostInstance for crate::peripherals::USB_OTG_FS {
                 fn host_state() -> HostState<'static> {
                     use embassy_usb_synopsys_otg::host::HostStateStorage;
-                    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
                     const CH_COUNT:usize = crate::peripherals::USB_OTG_FS::ENDPOINT_COUNT;
-                    static STATE: HostStateStorage<CH_COUNT> = HostStateStorage::new(CriticalSectionRawMutex::new());
+                    static STATE: HostStateStorage<CH_COUNT> = HostStateStorage::new();
                     STATE.as_host_state()
                 }
             }
@@ -678,10 +675,9 @@ mod host_impl {
             impl SealedHostInstance for crate::peripherals::USB_OTG_HS {
                 fn host_state() -> HostState<'static> {
                     use embassy_usb_synopsys_otg::host::HostStateStorage;
-                    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
                     const CH_COUNT:usize = crate::peripherals::USB_OTG_HS::ENDPOINT_COUNT;
-                    static STATE: HostStateStorage<CH_COUNT> = HostStateStorage::new(CriticalSectionRawMutex::new());
+                    static STATE: HostStateStorage<CH_COUNT> = HostStateStorage::new();
                     STATE.as_host_state()
                 }
             }

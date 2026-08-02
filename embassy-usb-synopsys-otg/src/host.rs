@@ -79,7 +79,7 @@ pub struct HostStateStorage<const CH_COUNT: usize, M: RawMutex = CriticalSection
 
 impl<const CH_COUNT: usize, M: RawMutex> HostStateStorage<CH_COUNT, M> {
     /// Create a new host state.
-    pub const fn new(mutex: M) -> Self {
+    pub const fn new() -> Self {
         Self {
             channels: [const {
                 ChannelState {
@@ -96,7 +96,7 @@ impl<const CH_COUNT: usize, M: RawMutex> HostStateStorage<CH_COUNT, M> {
                 port_event: AtomicU8::new(0),
                 port_speed: AtomicU8::new(0),
             },
-            mutex,
+            mutex: M::INIT,
         }
     }
 
