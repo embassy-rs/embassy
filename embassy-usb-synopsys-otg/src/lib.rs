@@ -16,6 +16,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, Ordering};
 use core::task::Poll;
 
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "embassy-time")]
 use embassy_time::{Duration, Instant};
@@ -131,7 +132,7 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<'_>) {
 
                 // TXFE is cleared in DIEPEMPMSK
                 if ep_ints.txfe() {
-                    critical_section::with(|_| {
+                    CriticalSectionRawMutex::new().lock(|| {
                         r.diepempmsk().modify(|w| {
                             w.set_ineptxfem(w.ineptxfem() & !(1 << ep_num));
                         });
@@ -988,7 +989,7 @@ impl<'d> Bus<'d> {
         // ERRATA NOTE: Don't interrupt FIFOs being written to. The interrupt
         // handler COULD interrupt us here and do FIFO operations, so ensure
         // the interrupt does not occur.
-        critical_section::with(|_| {
+        CriticalSectionRawMutex::new().lock(|| {
             // Configure RX fifo size. All endpoints share the same FIFO area.
             let st = self.instance.state;
             let rx_fifo_size_words = self.instance.extra_rx_fifo_words + st.ep_fifo_size_out();
@@ -1044,7 +1045,7 @@ impl<'d> Bus<'d> {
         // Configure IN endpoints
         for index in 0..st.endpoint_count() {
             if let Some(ep) = st.ep_alloc_get(Direction::In, index) {
-                critical_section::with(|_| {
+                CriticalSectionRawMutex::new().lock(|| {
                     // A write of 0 to EPENA does not stop a transfer. If the connection stopped
                     // during a transfer, EPENA stays set, and it stays set through each
                     // subsequent reset. The endpoint then does not operate again. For endpoint
@@ -1074,7 +1075,7 @@ impl<'d> Bus<'d> {
         // Configure OUT endpoints
         for index in 0..st.endpoint_count() {
             if let Some(ep) = st.ep_alloc_get(Direction::Out, index) {
-                critical_section::with(|_| {
+                CriticalSectionRawMutex::new().lock(|| {
                     regs.doepctl(index).write(|w| {
                         if index == 0 {
                             w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
@@ -1137,7 +1138,7 @@ impl<'d> Bus<'d> {
         // DOEPTSIZ again, and `endpoint_set_enabled` sets EPENA again when it primes the
         // endpoint.
         for i in 0..st.endpoint_count() {
-            critical_section::with(|_| {
+            CriticalSectionRawMutex::new().lock(|| {
                 regs.diepctl(i).modify(|w| w.set_usbaep(false));
                 regs.doepctl(i).modify(|w| w.set_usbaep(false));
             });
@@ -1222,7 +1223,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 self.configure_endpoints();
 
                 // Reset address
-                critical_section::with(|_| {
+                CriticalSectionRawMutex::new().lock(|| {
                     regs.dcfg().modify(|w| {
                         w.set_dad(0);
                     });
@@ -1305,7 +1306,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
 
         match dir {
             Direction::Out => {
-                critical_section::with(|_| {
+                CriticalSectionRawMutex::new().lock(|| {
                     regs.doepctl(index).modify(|w| {
                         w.set_stall(stalled);
                         if reset_toggle {
@@ -1317,7 +1318,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 st.ep_states[index].out_waker.wake();
             }
             Direction::In => {
-                critical_section::with(|_| {
+                CriticalSectionRawMutex::new().lock(|| {
                     // A stall of an endpoint with a transfer in progress needs the full stop
                     // sequence. If the software only sets STALL, EPENA stays set. The endpoint
                     // then does not operate again.
@@ -1377,7 +1378,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     abort_out_endpoint(regs, ep_addr.index());
                 }
 
-                critical_section::with(|_| {
+                CriticalSectionRawMutex::new().lock(|| {
                     regs.doepctl(ep_addr.index()).modify(|w| {
                         w.set_usbaep(enabled);
                         // A change of the configuration or of the alternate setting sets the
@@ -1410,7 +1411,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 st.ep_states[ep_addr.index()].out_waker.wake();
             }
             Direction::In => {
-                critical_section::with(|_| {
+                CriticalSectionRawMutex::new().lock(|| {
                     // cancel transfer if active
                     if !enabled && regs.diepctl(ep_addr.index()).read().epena() {
                         abort_in_endpoint(regs, ep_addr.index());
@@ -1582,7 +1583,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                 // Release buffer
                 self.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
 
-                critical_section::with(|_| {
+                CriticalSectionRawMutex::new().lock(|| {
                     // Receive 1 packet
                     self.regs.doeptsiz(index).modify(|w| {
                         w.set_xfrsiz(self.info.max_packet_size as _);
@@ -1665,7 +1666,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
                 let fifo_space = self.regs.dtxfsts(index).read().ineptfsav() as usize;
                 if size_words > fifo_space {
                     // Not enough space in fifo, enable tx fifo empty interrupt
-                    critical_section::with(|_| {
+                    CriticalSectionRawMutex::new().lock(|| {
                         self.regs.diepempmsk().modify(|w| {
                             w.set_ineptxfem(w.ineptxfem() | (1 << index));
                         });
@@ -1686,7 +1687,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
         // accesses to certain OTG_FS registers.
         //
         // Prevent the interrupt (which might poke FIFOs) from executing while copying data to FIFOs.
-        critical_section::with(|_| {
+        CriticalSectionRawMutex::new().lock(|| {
             // Setup transfer size
             self.regs.dieptsiz(index).write(|w| {
                 w.set_mcnt(1);
@@ -1825,7 +1826,7 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
 
     async fn accept_set_address(&mut self, addr: u8) {
         trace!("setting addr: {}", addr);
-        critical_section::with(|_| {
+        CriticalSectionRawMutex::new().lock(|| {
             self.regs.dcfg().modify(|w| {
                 w.set_dad(addr);
             });

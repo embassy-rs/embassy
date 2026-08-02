@@ -5,6 +5,7 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
     DeviceEvent, HostError, PipeError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
@@ -487,7 +488,7 @@ impl<'d> OtgHost<'d> {
         let nptx_size = total / 4;
         let ptx_size = total - rx_size - nptx_size;
 
-        critical_section::with(|_| {
+        CriticalSectionRawMutex::new().lock(|| {
             r.grxfsiz().modify(|w| w.set_rxfd(rx_size));
 
             // Non-periodic TX FIFO (used for control and bulk OUT)
@@ -856,7 +857,7 @@ impl<T: pipe::Type, D: pipe::Direction> Drop for Channel<'_, T, D> {
 
         // Mask this channel's interrupt so the ISR won't deliver stale
         // results to whatever gets allocated at this index next.
-        critical_section::with(|_| {
+        CriticalSectionRawMutex::new().lock(|| {
             r.haintmsk().modify(|w| {
                 w.set_haintm(w.haintm() & !(1 << ch));
             });
@@ -953,7 +954,7 @@ impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
         });
 
         // Enable this channel in HAINTMSK (critical section guards the RMW against concurrent alloc_pipe)
-        critical_section::with(|_| {
+        CriticalSectionRawMutex::new().lock(|| {
             r.haintmsk().modify(|w| {
                 w.set_haintm(w.haintm() | (1 << ch));
             });
