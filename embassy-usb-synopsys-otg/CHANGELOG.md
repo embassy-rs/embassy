@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - Changed: `embassy-time` is now an optional feature for device mode. Remote wakeup is now supported via `embassy-time`.
+- Changed: The driver can be configured with any `embassy_sync` raw mutex implementation.
 - Fixed: Clearing an endpoint halt now resets the data toggle to DATA0, as does enabling an endpoint for a new configuration or alternate setting.
 - Fixed: Stalling an IN endpoint with a transfer in flight no longer leaves it permanently unusable.
 - Fixed: Disabling an endpoint now waits for the core to acknowledge, and OUT endpoints are disabled under global OUT NAK.

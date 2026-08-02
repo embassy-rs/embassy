@@ -35,7 +35,7 @@ pub mod host;
 use otg_v1::{Otg, regs, vals};
 
 /// Handle interrupts.
-pub unsafe fn on_interrupt(r: Otg, state: &State<'_>) {
+pub unsafe fn on_interrupt<M: RawMutex>(r: Otg, state: &State<'_, M>) {
     trace!("irq");
     let ep_count = state.endpoint_count();
 
@@ -132,7 +132,7 @@ pub unsafe fn on_interrupt(r: Otg, state: &State<'_>) {
 
                 // TXFE is cleared in DIEPEMPMSK
                 if ep_ints.txfe() {
-                    CriticalSectionRawMutex::new().lock(|| {
+                    state.mutex.lock(|| {
                         r.diepempmsk().modify(|w| {
                             w.set_ineptxfem(w.ineptxfem() & !(1 << ep_num));
                         });
@@ -300,21 +300,34 @@ struct EndpointData {
 /// and [`on_interrupt`].
 ///
 /// Build from [`State::as_state`].
-#[derive(Clone, Copy)]
-pub struct State<'d> {
+pub struct State<'d, M: RawMutex = CriticalSectionRawMutex> {
     cp_state: &'d ControlPipeSetupState,
     ep_states: &'d [EpState],
     bus_waker: &'d AtomicWaker,
+    mutex: &'d M,
 }
 
-impl State<'_> {
+impl<'d, M: RawMutex> Clone for State<'d, M> {
+    fn clone(&self) -> Self {
+        Self {
+            cp_state: self.cp_state,
+            ep_states: self.ep_states,
+            bus_waker: self.bus_waker,
+            mutex: self.mutex,
+        }
+    }
+}
+
+impl<'d, M: RawMutex> Copy for State<'d, M> {}
+
+impl<M: RawMutex> State<'_, M> {
     /// Returns the number of device endpoints supported by this state.
     pub fn endpoint_count(&self) -> usize {
         self.ep_states.len()
     }
 }
 
-impl<'d> State<'d> {
+impl<'d, M: RawMutex> State<'d, M> {
     pub(crate) fn ep_alloc_get(&self, dir: Direction, index: usize) -> Option<&EndpointData> {
         unsafe {
             match dir {
@@ -370,15 +383,16 @@ impl<'d> State<'d> {
 }
 
 /// Storage object for USB OTG driver state.
-pub struct StateStorage<const EP_COUNT: usize> {
+pub struct StateStorage<const EP_COUNT: usize, M: RawMutex = CriticalSectionRawMutex> {
     cp_state: ControlPipeSetupState,
     ep_states: [EpState; EP_COUNT],
     bus_waker: AtomicWaker,
+    mutex: M,
 }
 
-impl<const EP_COUNT: usize> StateStorage<EP_COUNT> {
+impl<const EP_COUNT: usize, M: RawMutex> StateStorage<EP_COUNT, M> {
     /// Create a new StateStorage.
-    pub const fn new() -> Self {
+    pub const fn new(mutex: M) -> Self {
         Self {
             cp_state: ControlPipeSetupState {
                 setup_data: [const { AtomicU32::new(0) }; 2],
@@ -397,15 +411,17 @@ impl<const EP_COUNT: usize> StateStorage<EP_COUNT> {
                 }
             }; EP_COUNT],
             bus_waker: AtomicWaker::new(),
+            mutex,
         }
     }
 
     /// Borrow this [`StateStorage`] as a [`State`] for [`OtgInstance`] and the Synopsys [`Driver`](crate::Driver).
-    pub fn as_state(&self) -> State<'_> {
+    pub fn as_state(&self) -> State<'_, M> {
         State {
             cp_state: &self.cp_state,
             ep_states: self.ep_states.as_slice(),
             bus_waker: &self.bus_waker,
+            mutex: &self.mutex,
         }
     }
 }
@@ -449,14 +465,14 @@ impl Default for Config {
 }
 
 /// USB OTG driver.
-pub struct Driver<'d> {
+pub struct Driver<'d, M: RawMutex = CriticalSectionRawMutex> {
     config: Config,
     ep_out_buffer: &'d mut [u8],
     ep_out_buffer_offset: usize,
-    instance: OtgInstance<'d>,
+    instance: OtgInstance<'d, M>,
 }
 
-impl<'d> Driver<'d> {
+impl<'d, M: RawMutex> Driver<'d, M> {
     /// Initializes the USB OTG peripheral.
     ///
     /// # Arguments
@@ -466,7 +482,7 @@ impl<'d> Driver<'d> {
     /// Endpoint allocation will fail if it is too small.
     /// * `instance` - The USB OTG peripheral instance and its configuration.
     /// * `config` - The USB driver configuration.
-    pub fn new(ep_out_buffer: &'d mut [u8], instance: OtgInstance<'d>, config: Config) -> Self {
+    pub fn new(ep_out_buffer: &'d mut [u8], instance: OtgInstance<'d, M>, config: Config) -> Self {
         Self {
             config,
             ep_out_buffer,
@@ -488,7 +504,7 @@ impl<'d> Driver<'d> {
         ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
-    ) -> Result<Endpoint<'d, D>, EndpointAllocError> {
+    ) -> Result<Endpoint<'d, D, M>, EndpointAllocError> {
         trace!(
             "allocating type={:?} mps={:?} interval_ms={}, dir={:?}",
             ep_type,
@@ -578,6 +594,7 @@ impl<'d> Driver<'d> {
         Ok(Endpoint {
             _phantom: PhantomData,
             regs: self.instance.regs,
+            mutex: self.instance.state.mutex,
             state: ep_state,
             info: EndpointInfo {
                 addr: EndpointAddress::from_parts(index, D::dir()),
@@ -589,11 +606,11 @@ impl<'d> Driver<'d> {
     }
 }
 
-impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
-    type EndpointOut = Endpoint<'d, Out>;
-    type EndpointIn = Endpoint<'d, In>;
-    type ControlPipe = ControlPipe<'d>;
-    type Bus = Bus<'d>;
+impl<'d, M: RawMutex> embassy_usb_driver::Driver<'d> for Driver<'d, M> {
+    type EndpointOut = Endpoint<'d, Out, M>;
+    type EndpointIn = Endpoint<'d, In, M>;
+    type ControlPipe = ControlPipe<'d, M>;
+    type Bus = Bus<'d, M>;
 
     fn alloc_endpoint_in(
         &mut self,
@@ -629,6 +646,7 @@ impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
 
         let regs = self.instance.regs;
         let setup_state = self.instance.state.cp_state;
+        let mutex = self.instance.state.mutex;
         (
             Bus {
                 config: self.config,
@@ -641,6 +659,7 @@ impl<'d> embassy_usb_driver::Driver<'d> for Driver<'d> {
                 ep_out,
                 ep_in,
                 regs,
+                mutex,
             },
         )
     }
@@ -774,13 +793,13 @@ fn has_data_toggle(ep_type: EndpointType) -> bool {
 }
 
 /// USB bus.
-pub struct Bus<'d> {
+pub struct Bus<'d, M: RawMutex = CriticalSectionRawMutex> {
     config: Config,
-    instance: OtgInstance<'d>,
+    instance: OtgInstance<'d, M>,
     inited: bool,
 }
 
-impl<'d> Bus<'d> {
+impl<'d, M: RawMutex> Bus<'d, M> {
     fn restore_irqs(&mut self) {
         self.instance.regs.gintmsk().write(|w| {
             w.set_usbrst(true);
@@ -986,12 +1005,12 @@ impl<'d> Bus<'d> {
         trace!("init_fifo");
 
         let regs = self.instance.regs;
+        // Configure RX fifo size. All endpoints share the same FIFO area.
+        let st = self.instance.state;
         // ERRATA NOTE: Don't interrupt FIFOs being written to. The interrupt
         // handler COULD interrupt us here and do FIFO operations, so ensure
         // the interrupt does not occur.
-        CriticalSectionRawMutex::new().lock(|| {
-            // Configure RX fifo size. All endpoints share the same FIFO area.
-            let st = self.instance.state;
+        st.mutex.lock(|| {
             let rx_fifo_size_words = self.instance.extra_rx_fifo_words + st.ep_fifo_size_out();
             trace!("configuring rx fifo size={}", rx_fifo_size_words);
 
@@ -1045,7 +1064,7 @@ impl<'d> Bus<'d> {
         // Configure IN endpoints
         for index in 0..st.endpoint_count() {
             if let Some(ep) = st.ep_alloc_get(Direction::In, index) {
-                CriticalSectionRawMutex::new().lock(|| {
+                st.mutex.lock(|| {
                     // A write of 0 to EPENA does not stop a transfer. If the connection stopped
                     // during a transfer, EPENA stays set, and it stays set through each
                     // subsequent reset. The endpoint then does not operate again. For endpoint
@@ -1075,7 +1094,7 @@ impl<'d> Bus<'d> {
         // Configure OUT endpoints
         for index in 0..st.endpoint_count() {
             if let Some(ep) = st.ep_alloc_get(Direction::Out, index) {
-                CriticalSectionRawMutex::new().lock(|| {
+                st.mutex.lock(|| {
                     regs.doepctl(index).write(|w| {
                         if index == 0 {
                             w.set_mpsiz(ep0_mpsiz(ep.max_packet_size));
@@ -1138,7 +1157,7 @@ impl<'d> Bus<'d> {
         // DOEPTSIZ again, and `endpoint_set_enabled` sets EPENA again when it primes the
         // endpoint.
         for i in 0..st.endpoint_count() {
-            CriticalSectionRawMutex::new().lock(|| {
+            st.mutex.lock(|| {
                 regs.diepctl(i).modify(|w| w.set_usbaep(false));
                 regs.doepctl(i).modify(|w| w.set_usbaep(false));
             });
@@ -1175,7 +1194,7 @@ impl<'d> Bus<'d> {
     }
 }
 
-impl<'d> embassy_usb_driver::Bus for Bus<'d> {
+impl<'d, M: RawMutex> embassy_usb_driver::Bus for Bus<'d, M> {
     async fn poll(&mut self) -> Event {
         poll_fn(move |cx| {
             if !self.inited {
@@ -1187,7 +1206,8 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
             }
 
             let regs = self.instance.regs;
-            self.instance.state.bus_waker.register(cx.waker());
+            let st = self.instance.state;
+            st.bus_waker.register(cx.waker());
 
             let mut ints = regs.gintsts().read();
 
@@ -1223,7 +1243,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 self.configure_endpoints();
 
                 // Reset address
-                CriticalSectionRawMutex::new().lock(|| {
+                st.mutex.lock(|| {
                     regs.dcfg().modify(|w| {
                         w.set_dad(0);
                     });
@@ -1286,7 +1306,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
         trace!("endpoint_set_stalled ep={:?} en={}", ep_addr, stalled);
 
         let regs = self.instance.regs;
-        let st = &self.instance.state;
+        let st = self.instance.state;
 
         assert!(
             ep_addr.index() < st.endpoint_count(),
@@ -1306,7 +1326,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
 
         match dir {
             Direction::Out => {
-                CriticalSectionRawMutex::new().lock(|| {
+                st.mutex.lock(|| {
                     regs.doepctl(index).modify(|w| {
                         w.set_stall(stalled);
                         if reset_toggle {
@@ -1318,7 +1338,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 st.ep_states[index].out_waker.wake();
             }
             Direction::In => {
-                CriticalSectionRawMutex::new().lock(|| {
+                st.mutex.lock(|| {
                     // A stall of an endpoint with a transfer in progress needs the full stop
                     // sequence. If the software only sets STALL, EPENA stays set. The endpoint
                     // then does not operate again.
@@ -1378,7 +1398,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                     abort_out_endpoint(regs, ep_addr.index());
                 }
 
-                CriticalSectionRawMutex::new().lock(|| {
+                st.mutex.lock(|| {
                     regs.doepctl(ep_addr.index()).modify(|w| {
                         w.set_usbaep(enabled);
                         // A change of the configuration or of the alternate setting sets the
@@ -1411,7 +1431,7 @@ impl<'d> embassy_usb_driver::Bus for Bus<'d> {
                 st.ep_states[ep_addr.index()].out_waker.wake();
             }
             Direction::In => {
-                CriticalSectionRawMutex::new().lock(|| {
+                st.mutex.lock(|| {
                     // cancel transfer if active
                     if !enabled && regs.diepctl(ep_addr.index()).read().epena() {
                         abort_in_endpoint(regs, ep_addr.index());
@@ -1510,14 +1530,15 @@ impl Dir for Out {
 }
 
 /// USB endpoint.
-pub struct Endpoint<'d, D> {
+pub struct Endpoint<'d, D, M: RawMutex = CriticalSectionRawMutex> {
     _phantom: PhantomData<D>,
     regs: Otg,
     info: EndpointInfo,
     state: &'d EpState,
+    mutex: &'d M,
 }
 
-impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, In> {
+impl<'d, M: RawMutex> embassy_usb_driver::Endpoint for Endpoint<'d, In, M> {
     fn info(&self) -> &EndpointInfo {
         &self.info
     }
@@ -1536,7 +1557,7 @@ impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, In> {
     }
 }
 
-impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, Out> {
+impl<'d, M: RawMutex> embassy_usb_driver::Endpoint for Endpoint<'d, Out, M> {
     fn info(&self) -> &EndpointInfo {
         &self.info
     }
@@ -1555,7 +1576,7 @@ impl<'d> embassy_usb_driver::Endpoint for Endpoint<'d, Out> {
     }
 }
 
-impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
+impl<'d, M: RawMutex> embassy_usb_driver::EndpointOut for Endpoint<'d, Out, M> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         trace!("read start len={}", buf.len());
 
@@ -1583,7 +1604,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
                 // Release buffer
                 self.state.out_size.store(EP_OUT_BUFFER_EMPTY, Ordering::Release);
 
-                CriticalSectionRawMutex::new().lock(|| {
+                self.mutex.lock(|| {
                     // Receive 1 packet
                     self.regs.doeptsiz(index).modify(|w| {
                         w.set_xfrsiz(self.info.max_packet_size as _);
@@ -1623,7 +1644,7 @@ impl<'d> embassy_usb_driver::EndpointOut for Endpoint<'d, Out> {
     }
 }
 
-impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
+impl<'d, M: RawMutex> embassy_usb_driver::EndpointIn for Endpoint<'d, In, M> {
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
         trace!("write ep={:?} data={:?}", self.info.addr, Bytes(buf));
 
@@ -1666,7 +1687,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
                 let fifo_space = self.regs.dtxfsts(index).read().ineptfsav() as usize;
                 if size_words > fifo_space {
                     // Not enough space in fifo, enable tx fifo empty interrupt
-                    CriticalSectionRawMutex::new().lock(|| {
+                    self.mutex.lock(|| {
                         self.regs.diepempmsk().modify(|w| {
                             w.set_ineptxfem(w.ineptxfem() | (1 << index));
                         });
@@ -1687,7 +1708,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
         // accesses to certain OTG_FS registers.
         //
         // Prevent the interrupt (which might poke FIFOs) from executing while copying data to FIFOs.
-        CriticalSectionRawMutex::new().lock(|| {
+        self.mutex.lock(|| {
             // Setup transfer size
             self.regs.dieptsiz(index).write(|w| {
                 w.set_mcnt(1);
@@ -1740,15 +1761,16 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
 }
 
 /// USB control pipe.
-pub struct ControlPipe<'d> {
+pub struct ControlPipe<'d, M: RawMutex = CriticalSectionRawMutex> {
     max_packet_size: u16,
     regs: Otg,
     setup_state: &'d ControlPipeSetupState,
-    ep_in: Endpoint<'d, In>,
-    ep_out: Endpoint<'d, Out>,
+    ep_in: Endpoint<'d, In, M>,
+    ep_out: Endpoint<'d, Out, M>,
+    mutex: &'d M,
 }
 
-impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
+impl<'d, M: RawMutex> embassy_usb_driver::ControlPipe for ControlPipe<'d, M> {
     fn max_packet_size(&self) -> usize {
         usize::from(self.max_packet_size)
     }
@@ -1826,7 +1848,7 @@ impl<'d> embassy_usb_driver::ControlPipe for ControlPipe<'d> {
 
     async fn accept_set_address(&mut self, addr: u8) {
         trace!("setting addr: {}", addr);
-        CriticalSectionRawMutex::new().lock(|| {
+        self.mutex.lock(|| {
             self.regs.dcfg().modify(|w| {
                 w.set_dad(addr);
             });
@@ -1860,11 +1882,11 @@ fn ep0_mpsiz(max_packet_size: u16) -> u16 {
 
 /// Hardware-dependent USB IP configuration.
 #[derive(Copy, Clone)]
-pub struct OtgInstance<'d> {
+pub struct OtgInstance<'d, M: RawMutex> {
     /// The USB peripheral.
     pub regs: Otg,
     /// Shared driver/interrupt state from [`State::as_state`].
-    pub state: State<'d>,
+    pub state: State<'d, M>,
     /// FIFO depth in words.
     pub fifo_depth_words: u16,
     /// The PHY type.
