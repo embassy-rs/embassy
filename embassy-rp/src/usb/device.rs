@@ -611,6 +611,21 @@ pub struct ControlPipe<'d, T: Instance> {
     max_packet_size: u16,
 }
 
+/// Tells if a new SETUP arrived, meaning the host abandoned the transfer in progress. Without
+/// this the stage waits on an AVAILABLE bit that never clears, wedging the whole USB task.
+fn setup_pending<T: Instance>() -> bool {
+    // on_interrupt masks setup_req when it fires, and only setup() re-arms it.
+    T::regs().inte().write_set(|w| w.set_setup_req(true));
+    // leave setup_rec set, setup() consumes it and clears the ep0 buffer controls.
+    T::regs().sie_status().read().setup_rec()
+}
+
+/// Wake on either the transfer completing or a new SETUP arriving.
+fn register_ep0_wakers(cx: &mut core::task::Context) {
+    EP_IN_WAKERS[0].register(cx.waker());
+    EP_OUT_WAKERS[0].register(cx.waker());
+}
+
 impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
     fn max_packet_size(&self) -> usize {
         64
@@ -664,15 +679,19 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
 
         trace!("control: data_out len={} first={} last={}", buf.len(), first, last);
         let val = poll_fn(|cx| {
-            EP_OUT_WAKERS[0].register(cx.waker());
+            register_ep0_wakers(cx);
+            if setup_pending::<T>() {
+                trace!("control: data_out aborted by new SETUP");
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
             let val = T::dpram().ep_out_buffer_control(0).read();
             if val.available(0) {
                 Poll::Pending
             } else {
-                Poll::Ready(val)
+                Poll::Ready(Ok(val))
             }
         })
-        .await;
+        .await?;
 
         let rx_len = val.length(0) as _;
         trace!("control data_out DONE, rx_len = {}", rx_len);
@@ -709,15 +728,19 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         });
 
         poll_fn(|cx| {
-            EP_IN_WAKERS[0].register(cx.waker());
+            register_ep0_wakers(cx);
+            if setup_pending::<T>() {
+                trace!("control: data_in aborted by new SETUP");
+                return Poll::Ready(Err(EndpointError::Disabled));
+            }
             let bufcontrol = T::dpram().ep_in_buffer_control(0);
             if bufcontrol.read().available(0) {
                 Poll::Pending
             } else {
-                Poll::Ready(())
+                Poll::Ready(Ok(()))
             }
         })
-        .await;
+        .await?;
         trace!("control: data_in DONE");
 
         if last {
@@ -758,7 +781,12 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         // wait for completion before returning, needed so
         // set_address() doesn't happen early.
         poll_fn(|cx| {
-            EP_IN_WAKERS[0].register(cx.waker());
+            register_ep0_wakers(cx);
+            // accept has no error channel, returning early is enough.
+            if setup_pending::<T>() {
+                trace!("control: accept aborted by new SETUP");
+                return Poll::Ready(());
+            }
             if bufcontrol.read().available(0) {
                 Poll::Pending
             } else {
