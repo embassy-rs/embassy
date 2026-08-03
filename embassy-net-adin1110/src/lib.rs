@@ -153,13 +153,13 @@ impl<P: Adin1110Protocol> ADIN1110<P> {
         self.protocol.write_reg(reg.into(), value).await
     }
 
-    /// helper function for write to `MDIO_ACC` register and wait for ready!
-    async fn write_mdio_acc_reg(&mut self, mdio_acc_val: u32) -> AEResult<u32, P::SpiError> {
-        self.write_reg(sr::MDIO_ACC, mdio_acc_val).await?;
+    /// helper function for write to an `MDIO_ACC` register and wait for ready!
+    async fn write_mdio_acc_reg(&mut self, reg: sr, mdio_acc_val: u32) -> AEResult<u32, P::SpiError> {
+        self.write_reg(reg, mdio_acc_val).await?;
 
         // TODO: Add proper timeout!
         loop {
-            let val = self.read_reg(sr::MDIO_ACC).await?;
+            let val = self.read_reg(reg).await?;
             if val & 0x8000_0000 != 0 {
                 return Ok(val);
             }
@@ -236,20 +236,29 @@ impl<P: Adin1110Protocol> mdio::MdioBus for ADIN1110<P> {
 
         // Result is in the lower half of the answer.
         #[allow(clippy::cast_possible_truncation)]
-        self.write_mdio_acc_reg(mdio_acc_val).await.map(|val| val as u16)
+        self.write_mdio_acc_reg(sr::MDIO_ACC, mdio_acc_val)
+            .await
+            .map(|val| val as u16)
     }
 
     /// Read from the PHY Registers as Clause 45.
+    ///
+    /// A clause 45 access is two MDIO transactions: an address phase and the
+    /// read itself. They must be queued in *separate* `MDIOACC` registers, the
+    /// chip executes them in order. Putting both in `MDIOACC_0` makes the
+    /// second overwrite the first and the read returns zero.
     async fn read_cl45(&mut self, phy_id: u8, regc45: (u8, u16)) -> Result<u16, Self::Error> {
         let mdio_acc_val = u32::from(phy_id & 0x1F) << 21 | u32::from(regc45.0 & 0x1F) << 16 | u32::from(regc45.1);
 
-        self.write_mdio_acc_reg(mdio_acc_val).await?;
+        self.write_reg(sr::MDIO_ACC, mdio_acc_val).await?;
 
         let mdio_acc_val = u32::from(phy_id & 0x1F) << 21 | u32::from(regc45.0 & 0x1F) << 16 | (0x03 << 26);
 
         // Result is in the lower half of the answer.
         #[allow(clippy::cast_possible_truncation)]
-        self.write_mdio_acc_reg(mdio_acc_val).await.map(|val| val as u16)
+        self.write_mdio_acc_reg(sr::MDIO_ACC_1, mdio_acc_val)
+            .await
+            .map(|val| val as u16)
     }
 
     /// Write to the PHY Registers as Clause 22.
@@ -257,20 +266,23 @@ impl<P: Adin1110Protocol> mdio::MdioBus for ADIN1110<P> {
         let mdio_acc_val: u32 =
             (0x1 << 28) | u32::from(phy_id & 0x1F) << 21 | u32::from(reg & 0x1F) << 16 | (0x1 << 26) | u32::from(val);
 
-        self.write_mdio_acc_reg(mdio_acc_val).await.map(|_| ())
+        self.write_mdio_acc_reg(sr::MDIO_ACC, mdio_acc_val).await.map(|_| ())
     }
 
     /// Write to the PHY Registers as Clause 45.
+    ///
+    /// See [`read_cl45`](Self::read_cl45): the address phase and the write must
+    /// go in separate `MDIOACC` registers.
     async fn write_cl45(&mut self, phy_id: u8, regc45: (u8, u16), value: u16) -> AEResult<(), P::SpiError> {
         let phy_id = u32::from(phy_id & 0x1F) << 21;
         let dev_addr = u32::from(regc45.0 & 0x1F) << 16;
         let reg = u32::from(regc45.1);
 
         let mdio_acc_val: u32 = phy_id | dev_addr | reg;
-        self.write_mdio_acc_reg(mdio_acc_val).await?;
+        self.write_reg(sr::MDIO_ACC, mdio_acc_val).await?;
 
         let mdio_acc_val: u32 = phy_id | dev_addr | (0x01 << 26) | u32::from(value);
-        self.write_mdio_acc_reg(mdio_acc_val).await.map(|_| ())
+        self.write_mdio_acc_reg(sr::MDIO_ACC_1, mdio_acc_val).await.map(|_| ())
     }
 }
 
