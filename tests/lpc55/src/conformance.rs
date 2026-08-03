@@ -26,6 +26,7 @@ use embassy_time::Timer;
 use embassy_usb::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use embassy_usb::descriptor::{SynchronizationType, UsageType};
 use embassy_usb::driver::{EndpointError, EndpointIn, EndpointOut};
+use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Handler, UsbDeviceSpeed};
 
 /// Per-controller parameters. Everything else about the device is identical
@@ -49,6 +50,16 @@ const BULK_BUF: usize = 3584;
 const ISO_BUF: usize = 1024;
 /// Largest control-OUT payload `ECHO_WRITE` accepts.
 const ECHO_MAX: usize = 200;
+
+/// Windows binds no driver to a vendor-class interface on its own, so `libusb`
+/// cannot open the device and `host/conformance.py` has nothing to talk to.
+/// These MS OS 2.0 descriptors make Windows load WinUSB by itself, which needs
+/// no driver install and no elevation. Linux ignores them.
+const DEVICE_INTERFACE_GUIDS: &[&str] = &["{6E4D2F2A-9C31-4B7E-9A2C-1F0B5E7A3D41}"];
+/// `bMS_VendorCode`, the request Windows uses to fetch the descriptor set above.
+/// Its recipient is the device, so [`ControlHandler::ours`] never claims it.
+const MSOS_VENDOR_CODE: u8 = 0x20;
+
 /// Size of the `GET_REPORT` payload. Layout, little-endian:
 ///
 /// ```text
@@ -310,6 +321,7 @@ pub async fn run<'d, T: Instance>(driver: Driver<'d, T>, params: Params) -> ! {
 
     let mut config_descriptor = [0u8; 256];
     let mut bos_descriptor = [0u8; 256];
+    let mut msos_descriptor = [0u8; 256];
     // Must exceed the 200-byte `ECHO_WRITE` payload.
     let mut control_buf = [0u8; 256];
     let mut handler = ControlHandler::new(params.int_mps);
@@ -319,9 +331,18 @@ pub async fn run<'d, T: Instance>(driver: Driver<'d, T>, params: Params) -> ! {
         config,
         &mut config_descriptor,
         &mut bos_descriptor,
-        &mut [], // no msos descriptors
+        &mut msos_descriptor,
         &mut control_buf,
     );
+
+    // Device-level, so Windows binds WinUSB to the whole device: there is only
+    // one function. Must precede `builder.function`, which starts a subset.
+    builder.msos_descriptor(windows_version::WIN8_1, MSOS_VENDOR_CODE);
+    builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+    builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+        "DeviceInterfaceGUIDs",
+        msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+    ));
 
     // One vendor-specific function, one interface, two alternate settings. The
     // vendor class keeps the kernel from binding a driver, so the host script
