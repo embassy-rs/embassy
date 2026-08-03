@@ -4,9 +4,14 @@
 For each entry, the runner flashes release firmware through `probe-rs`, waits for its RTT ready
 banner, starts the host peer, and requires `Test OK`.
 
+Runs on Linux and Windows. This file is stdlib-only; every host peer declares its own
+dependencies inline and runs through `uv run --script`.
+
 Run the suite as an unprivileged user so `cargo` and `probe-rs` retain the user's `~/.cargo` and
-target directories. Only the raw-USB conformance entries use `sudo -n` with this interpreter.
-A plain `sudo python3` might not resolve pyusb.
+target directories. On Linux the two conformance entries need root for raw USB access and are
+the only ones run with `sudo -n`. On Windows the conformance firmware's MS OS 2.0 descriptors
+make Windows bind WinUSB by itself, which an unprivileged process can open, so the suite
+elevates nothing.
 
     python3 tests/lpc55/run.py [--only NAME]... [--list] [--keep-going]
 
@@ -17,9 +22,11 @@ Use an LPCXpresso55S69 EVK with a debug probe on the SWD header. Connect the hos
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 from dataclasses import dataclass
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -38,7 +45,15 @@ KILL_GRACE = 5.0
 # Lets the previous probe-rs session detach and the host see the device go away.
 SETTLE = 1.5
 
-HANDLED_SIGNALS = (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)
+WINDOWS = sys.platform == "win32"
+
+# `uv` runs the host peers. Absolute, so `sudo -n` finds it whatever `secure_path` says.
+UV = shutil.which("uv")
+
+# SIGHUP is POSIX-only. SIGBREAK is what a Windows console raises in its place.
+HANDLED_SIGNALS = tuple(
+    getattr(signal, name) for name in ("SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK") if hasattr(signal, name)
+)
 _SIGNAL_NUMBER: int | None = None
 _SIGNAL_DEFERRED = False
 
@@ -110,27 +125,142 @@ def terminate_group(proc: subprocess.Popen[str], first_signal: int) -> None:
     else:
         proc.wait()
 
-FS_PORT = "/dev/serial/by-id/usb-Embassy_USB-FS_throughput_test_12345678-if00"
-HS_PORT = "/dev/serial/by-id/usb-Embassy_USB-HS_throughput_test_12345678-if00"
+
+if WINDOWS:
+    import ctypes
+    from ctypes import wintypes
+
+    _KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _KERNEL32.CreateJobObjectW.argtypes = (wintypes.LPVOID, wintypes.LPCWSTR)
+    _KERNEL32.CreateJobObjectW.restype = wintypes.HANDLE
+    _KERNEL32.AssignProcessToJobObject.argtypes = (wintypes.HANDLE, wintypes.HANDLE)
+    _KERNEL32.AssignProcessToJobObject.restype = wintypes.BOOL
+    _KERNEL32.TerminateJobObject.argtypes = (wintypes.HANDLE, wintypes.UINT)
+    _KERNEL32.TerminateJobObject.restype = wintypes.BOOL
+    _KERNEL32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    _KERNEL32.CloseHandle.restype = wintypes.BOOL
+
+
+class Child:
+    """A child process and everything it spawns, stoppable as one unit.
+
+    `cargo run` execs `probe-rs`, and a `probe-rs` that outlives its test keeps the debug
+    probe and fails every entry after it, so stopping a test has to reach the whole tree.
+    POSIX gets a process group. Windows gets a job object, because `taskkill /T` walks
+    parent links that are already gone once `cargo` itself has exited, while
+    `TerminateJobObject` does not care about parentage.
+    """
+
+    def __init__(self, cmd: Sequence[str], cwd: str, merge_stderr: bool) -> None:
+        self._job = None
+        if WINDOWS:
+            self._job = _KERNEL32.CreateJobObjectW(None, None)
+            if not self._job:
+                raise ctypes.WinError(ctypes.get_last_error())
+            group: dict[str, object] = {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        else:
+            group = {"start_new_session": True}
+        try:
+            self.proc = subprocess.Popen(
+                list(cmd),
+                cwd=cwd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                **group,
+            )
+        except BaseException:
+            self._close_job()
+            raise
+        if self._job is not None:
+            # `cargo` still has to reach the filesystem before it can fork `probe-rs`, so
+            # it is childless here and nothing escapes the job.
+            handle = wintypes.HANDLE(int(self.proc._handle))
+            if not _KERNEL32.AssignProcessToJobObject(self._job, handle):
+                error = ctypes.get_last_error()
+                self.stop()
+                raise ctypes.WinError(error)
+
+    def stop(self) -> None:
+        """Interrupts the tree, then makes sure nothing in it survived."""
+        if WINDOWS:
+            self._stop_windows()
+        else:
+            terminate_group(self.proc, signal.SIGINT)
+
+    def _stop_windows(self) -> None:
+        if self._job is None:
+            return
+        if self.proc.poll() is None:
+            try:
+                # SIGINT's counterpart here. `probe-rs` installs a console handler, so it
+                # gets to release the debug probe: a hard kill leaves the probe wedged and
+                # the next session fails to open it. `cargo` shares the group and forwards
+                # nothing, so the event has to go to the group rather than the child.
+                self.proc.send_signal(signal.CTRL_C_EVENT)
+            except OSError:
+                pass
+            try:
+                self.proc.wait(timeout=KILL_GRACE)
+            except subprocess.TimeoutExpired:
+                pass
+        _KERNEL32.TerminateJobObject(self._job, 1)
+        try:
+            self.proc.wait(timeout=KILL_GRACE)
+        except subprocess.TimeoutExpired:
+            pass
+        self._close_job()
+
+    def _close_job(self) -> None:
+        if self._job is not None:
+            _KERNEL32.CloseHandle(self._job)
+            self._job = None
+
+# A USB id is the only peer identity Linux and Windows share: device names
+# (`/dev/serial/by-id/...`, `COM7`) have nothing in common, and on Windows these two
+# firmwares are not serial ports at all. One id per firmware, distinct from the serial
+# examples' `c0de:cafe`, so a stale binding or a leftover node can never be mistaken for
+# the peer under test.
+FS_USB_ID = "c0de:cb07"
+HS_USB_ID = "c0de:cb08"
 
 # Roughly 75 % of the release-profile numbers recorded in README.md, so the gate catches a
 # real regression without tripping on host jitter.
 FS_IN_MIN, FS_OUT_MIN = "0.67", "0.61"
 HS_IN_MIN, HS_OUT_MIN = "33.0", "13.0"
-THROUGHPUT = (sys.executable, os.path.join("scripts", "usb_throughput.py"))
+THROUGHPUT = os.path.join("scripts", "usb_throughput.py")
 
+
+def uv_command(argv: Sequence[str]) -> list[str]:
+    """`uv run --script` resolves each peer's inline PEP 723 dependencies, so neither pyusb
+    nor pyserial has to be installed for the suite."""
+    assert UV is not None  # `main` refuses to run the suite without it
+    return [UV, "run", "--script", *argv]
 
 
 def conformance_command(pid: str, speed: str) -> tuple[str, ...]:
-    return (sys.executable, os.path.join("host", "conformance.py"), "--pid", pid, "--speed", speed)
+    return (os.path.join("host", "conformance.py"), "--pid", pid, "--speed", speed)
 
 
-def throughput_command(port: str, direction: str, count: str, min_rate: str) -> tuple[str, ...]:
-    return (*THROUGHPUT, "--port", port, "--dir", direction, "--bytes", count, "--wait-port", "15", "--min-rate", min_rate)
+def throughput_command(usb_id: str, direction: str, count: str, min_rate: str) -> tuple[str, ...]:
+    return (
+        THROUGHPUT,
+        "--port",
+        usb_id,
+        "--dir",
+        direction,
+        "--bytes",
+        count,
+        "--wait-port",
+        "15",
+        "--min-rate",
+        min_rate,
+    )
 
 
-def protocol_check(port: str) -> tuple[str, ...]:
-    return (*THROUGHPUT, "--port", port, "--protocol-check", "--wait-port", "15")
+def protocol_check(usb_id: str) -> tuple[str, ...]:
+    return (THROUGHPUT, "--port", usb_id, "--protocol-check", "--wait-port", "15")
 
 
 @dataclass(frozen=True)
@@ -140,25 +270,36 @@ class Test:
     binary: str
     ready: str | None = None
     host: tuple[tuple[str, ...], ...] = ()
-    sudo: bool = False
+    # Raw USB access to the vendor interface. Only Linux needs a privilege for it.
+    raw_usb: bool = False
     expect_ok: bool = True
     note: str = ""
 
 
 def conformance_test(name: str, pid: str, speed: str, note: str) -> Test:
     return Test(
-        name, TESTS, f"usb_{name}", ready="conformance ready", host=(conformance_command(pid, speed),), sudo=True, note=note
+        name,
+        TESTS,
+        f"usb_{name}",
+        ready="conformance ready",
+        host=(conformance_command(pid, speed),),
+        raw_usb=True,
+        note=note,
     )
 
 
-def throughput_test(speed: str, port: str, count: str, in_min: str, out_min: str) -> Test:
+def throughput_test(speed: str, usb_id: str, count: str, in_min: str, out_min: str) -> Test:
     name = f"{speed}_throughput"
     return Test(
         name,
         EXAMPLES,
         f"usb_{name}",
         ready="Initialization complete",
-        host=(protocol_check(port), throughput_command(port, "in", count, in_min), throughput_command(port, "out", count, out_min)),
+        host=(
+            protocol_check(usb_id),
+            throughput_command(usb_id, "in", count, in_min),
+            throughput_command(usb_id, "out", count, out_min),
+        ),
         expect_ok=False,
         note=f"CDC bulk throughput gate, >= {in_min}/{out_min} MB/s",
     )
@@ -176,13 +317,13 @@ TESTS_LIST = (
         TESTS,
         "usb_dual_pll0",
         ready="dual pll0 ready",
-        host=((sys.executable, os.path.join("host", "dual_echo.py")),),
+        host=((os.path.join("host", "dual_echo.py"),),),
         note="both controllers concurrently on PLL0 at 150 MHz",
     ),
     conformance_test("fs_conformance", "0xcb02", "fs", "full-speed control/bulk/iso/interrupt conformance"),
     conformance_test("hs_conformance", "0xcb01", "hs", "high-speed control/bulk/iso/interrupt conformance"),
-    throughput_test("fs", FS_PORT, "1_000_000", FS_IN_MIN, FS_OUT_MIN),
-    throughput_test("hs", HS_PORT, "4_000_000", HS_IN_MIN, HS_OUT_MIN),
+    throughput_test("fs", FS_USB_ID, "1_000_000", FS_IN_MIN, FS_OUT_MIN),
+    throughput_test("hs", HS_USB_ID, "4_000_000", HS_IN_MIN, HS_OUT_MIN),
 )
 
 # probe-rs itself is noisy about SWD retries during flashing, and those lines are not device
@@ -202,25 +343,21 @@ class Firmware:
         self.test = test
         self.lines: list[str] = []
         self._lock = threading.Lock()
-        self.proc = subprocess.Popen(
+        self.child = Child(
             ["cargo", "run", "--release", "--bin", test.binary],
             cwd=os.path.join(REPO, test.cwd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            start_new_session=True,
+            merge_stderr=True,
         )
         self._pump = threading.Thread(target=self._read, daemon=True)
         try:
             self._pump.start()
         except BaseException:
-            terminate_group(self.proc, signal.SIGINT)
+            self.child.stop()
             raise
 
     def _read(self) -> None:
-        assert self.proc.stdout is not None
-        for line in self.proc.stdout:
+        assert self.child.proc.stdout is not None
+        for line in self.child.proc.stdout:
             line = line.rstrip("\n")
             with self._lock:
                 self.lines.append(line)
@@ -236,7 +373,7 @@ class Firmware:
                 panicked = any(m in ln for ln in self.lines for m in PANIC_MARKERS)
             if panicked:
                 return False
-            if self.proc.poll() is not None:
+            if self.child.proc.poll() is not None:
                 # One last look: the child may have exited right after printing.
                 time.sleep(0.2)
                 with self._lock:
@@ -251,7 +388,7 @@ class Firmware:
 
     def probe_failure(self) -> str | None:
         """Describes an abnormal `probe-rs` exit. It otherwise sits at the breakpoint forever."""
-        code = self.proc.poll()
+        code = self.child.proc.poll()
         if code is None:
             return None
         with self._lock:
@@ -265,7 +402,7 @@ class Firmware:
         return ": ".join(parts)
 
     def stop(self) -> None:
-        terminate_group(self.proc, signal.SIGINT)
+        self.child.stop()
         self._pump.join(timeout=KILL_GRACE)
         if self._pump.is_alive():
             raise RuntimeError(f"firmware output thread for {self.test.name} did not stop")
@@ -273,19 +410,14 @@ class Firmware:
 
 def run_host(test: Test, argv: tuple[str, ...]) -> str | None:
     """Runs one host command. Returns None on success or a failure description."""
-    cmd = ["sudo", "-n", *argv] if test.sudo else list(argv)
-    printable = " ".join(os.path.basename(c) if c == sys.executable else c for c in cmd)
+    cmd = uv_command(argv)
+    if test.raw_usb and not WINDOWS:
+        cmd = ["sudo", "-n", *cmd]
+    printable = " ".join(os.path.basename(c) if c == UV else c for c in cmd)
     print(f"  [{test.name}] host: {printable}", flush=True)
     defer_handled_signals()
     try:
-        proc = subprocess.Popen(
-            cmd,
-            cwd=os.path.join(REPO, test.cwd),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            start_new_session=True,
-        )
+        child = Child(cmd, cwd=os.path.join(REPO, test.cwd), merge_stderr=False)
     except BaseException:
         resume_handled_signals()
         raise
@@ -294,15 +426,15 @@ def run_host(test: Test, argv: tuple[str, ...]) -> str | None:
     try:
         resume_handled_signals()
         try:
-            stdout, stderr = proc.communicate(timeout=HOST_TIMEOUT)
+            stdout, stderr = child.proc.communicate(timeout=HOST_TIMEOUT)
         except subprocess.TimeoutExpired:
             timed_out = True
-            terminate_group(proc, signal.SIGINT)
-            stdout, stderr = proc.communicate(timeout=KILL_GRACE)
+            child.stop()
+            stdout, stderr = child.proc.communicate(timeout=KILL_GRACE)
     finally:
         defer_handled_signals()
         try:
-            terminate_group(proc, signal.SIGINT)
+            child.stop()
         finally:
             resume_handled_signals()
 
@@ -311,13 +443,13 @@ def run_host(test: Test, argv: tuple[str, ...]) -> str | None:
             print(f"  [{test.name}] | {line}", flush=True)
     if timed_out:
         return f"host command timed out after {HOST_TIMEOUT:g} s: {printable}"
-    if proc.returncode != 0:
-        return f"host command exited {proc.returncode}: {printable}"
+    if child.proc.returncode != 0:
+        return f"host command exited {child.proc.returncode}: {printable}"
     return None
 
 
-def run_test(test: Test) -> str | None:
-    """Runs one entry. Returns None on pass or a one-line reason on failure."""
+def attempt_test(test: Test) -> str | None:
+    """Runs one entry once. Returns None on pass or a one-line reason on failure."""
     print(f"\n=== {test.name}: {test.note} ===", flush=True)
     defer_handled_signals()
     try:
@@ -361,6 +493,32 @@ def run_test(test: Test) -> str | None:
             resume_handled_signals()
 
 
+# The debug probe sometimes refuses the next session right after the previous one released
+# it. probe-rs reports that as a failure to open, before the firmware has run at all, and it
+# clears by itself, so it is worth another attempt rather than a verdict on the test.
+PROBE_NOT_READY = (
+    "Failed to open the debug probe",
+    "bulk write timed out",
+    "endpoint stalled",
+    "Access to the probe was denied",
+)
+PROBE_RETRIES = 2
+PROBE_RETRY_SETTLE = 4.0
+
+
+def run_test(test: Test) -> str | None:
+    """Runs one entry, retrying while only the probe is at fault."""
+    for attempt in range(PROBE_RETRIES + 1):
+        failure = attempt_test(test)
+        if failure is None or not any(marker in failure for marker in PROBE_NOT_READY):
+            return failure
+        if attempt < PROBE_RETRIES:
+            print(f"  [{test.name}] probe not ready: {failure}", flush=True)
+            print(f"  [{test.name}] retrying in {PROBE_RETRY_SETTLE:g} s", flush=True)
+            time.sleep(PROBE_RETRY_SETTLE)
+    return failure
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
@@ -379,6 +537,9 @@ def main() -> None:
         for test in TESTS_LIST:
             print(f"{test.name:16} {test.cwd}/{test.binary:22} {test.note}")
         return
+
+    if UV is None:
+        sys.exit("error: `uv` is not on PATH; the host peers run through `uv run --script`")
 
     selected = TESTS_LIST
     if args.only:

@@ -1,9 +1,20 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pyusb>=1.3", "libusb-package>=1.0.26"]
+# ///
 """Host driver for the LPC55 USB conformance firmware.
 
 Pairs with `tests/lpc55/src/conformance.rs` (bins `usb_hs_conformance` and
-`usb_fs_conformance`). Needs raw USB access, so it runs as root; the orchestrator
-(`tests/lpc55/run.py`) elevates only this script.
+`usb_fs_conformance`). Needs raw USB access to a vendor interface:
+
+- Linux: runs as root, and the orchestrator (`tests/lpc55/run.py`) elevates only
+  this script.
+- Windows: the firmware's MS OS 2.0 descriptors make Windows bind WinUSB, which
+  an unprivileged process can open. No elevation, no driver install.
+
+`libusb-package` supplies the libusb binary, so the same command works on either
+host without a system libusb.
 
 Every host-observable expectation lives here. The device only asserts the
 invariants it alone can see, once this script sends FINISH.
@@ -15,13 +26,12 @@ from __future__ import annotations
 
 import argparse
 from array import array
-import glob
-import os
 import struct
 import sys
 import time
 from typing import NamedTuple, NoReturn
 
+import libusb_package
 import usb.core
 import usb.util
 
@@ -66,7 +76,9 @@ EP_INT_IN = 0x82
 
 ERR_PIPE = 32  # EPIPE: the endpoint answered with a STALL handshake
 ERR_TIMEOUT = 110  # ETIMEDOUT: the endpoint NAKed until the deadline
-ISO_PACKET_TIMEOUT_MS = 100
+# The whole isochronous stream, not one packet: 128 packets take 128 ms at full speed and
+# 16 ms at high speed, so this leaves ample room without hanging the suite.
+ISO_STREAM_TIMEOUT_MS = 2000
 
 RAMP_PERIOD = 512
 # Byte k of any payload is `(k % 512) as u8` - the same ramp as
@@ -178,16 +190,26 @@ class Device:
         return int.from_bytes(bytes(raw), "little")
 
 
+# The bundled libusb: on Windows it also has to be the backend that opens the
+# WinUSB device, and on Linux it replaces a system libusb that may be absent.
+BACKEND = libusb_package.get_libusb1_backend()
+
+# `libusb_speed_t` to the link rate in Mbps, matching what Linux sysfs reports.
+LINK_SPEED_MBPS = {1: "1.5", 2: "12", 3: "480", 4: "5000"}
+
+
 def find_device(pid: int, budget: float) -> Device:
     """Waits for a device that is present *and* answers GET_REPORT.
 
     A previous test's firmware halted at a breakpoint stays enumerated but
-    unresponsive, so presence alone is not enough.
+    unresponsive, so presence alone is not enough. On Windows, a device that
+    Windows has not yet bound WinUSB to enumerates but cannot be opened, which
+    lands here as an open failure until the binding completes.
     """
     deadline = time.monotonic() + budget
     last = f"no device {VID:04x}:{pid:04x}"
     while time.monotonic() < deadline:
-        dev = usb.core.find(idVendor=VID, idProduct=pid)
+        dev = usb.core.find(idVendor=VID, idProduct=pid, backend=BACKEND)
         if dev is None:
             last = f"no device {VID:04x}:{pid:04x}"
         else:
@@ -195,29 +217,35 @@ def find_device(pid: int, budget: float) -> Device:
             try:
                 d.report()
                 return d
-            except (usb.core.USBError, Failure) as exc:
+            except (usb.core.USBError, NotImplementedError, Failure) as exc:
                 last = f"device present but GET_REPORT failed: {exc}"
                 usb.util.dispose_resources(dev)
         time.sleep(0.25)
     raise Failure(f"{last} (waited {budget:.0f} s)")
 
 
-def sysfs_speed(pid: int) -> str:
-    """The negotiated link speed in Mbps, as the kernel reports it."""
-    for vid_path in glob.glob("/sys/bus/usb/devices/*/idVendor"):
-        base = os.path.dirname(vid_path)
-        try:
-            with open(vid_path) as f:
-                if int(f.read().strip(), 16) != VID:
-                    continue
-            with open(os.path.join(base, "idProduct")) as f:
-                if int(f.read().strip(), 16) != pid:
-                    continue
-            with open(os.path.join(base, "speed")) as f:
-                return f.read().strip()
-        except (OSError, ValueError):
-            continue
-    raise Failure(f"no sysfs entry for {VID:04x}:{pid:04x}")
+def link_speed(dev: usb.core.Device) -> str:
+    """The negotiated link speed in Mbps.
+
+    `libusb_get_device_speed` is the only speed source both hosts share: pyusb
+    does not wrap it, and Linux sysfs has no Windows counterpart.
+    """
+    code = BACKEND.lib.libusb_get_device_speed(dev._ctx.dev.devid)
+    speed = LINK_SPEED_MBPS.get(code)
+    if speed is None:
+        raise Failure(f"libusb reports link speed code {code}, which is not a USB speed")
+    return speed
+
+
+# Phases the host stack cannot run, whatever the device does. WinUSB rejects
+# SET_CONFIGURATION from user mode: the hub driver owns the device configuration,
+# so `WinUsb_ControlTransfer` refuses the request and libusb reports it as
+# unsupported. Linux runs the phase and covers the driver path.
+UNSUPPORTED_PHASES = (
+    {"configuration_cycle": "WinUSB forbids SET_CONFIGURATION from user mode"}
+    if sys.platform == "win32"
+    else {}
+)
 
 
 # ------------------------------------------------------------------ phases
@@ -226,7 +254,7 @@ def sysfs_speed(pid: int) -> str:
 def phase_descriptors(d: Device, cfg: Config) -> tuple[int, int]:
     """Returns the isochronous OUT and IN endpoint addresses of alt setting 1."""
     want = "480" if cfg.speed == "hs" else "12"
-    got = sysfs_speed(cfg.pid)
+    got = link_speed(d.dev)
     require(got == want, f"negotiated {got} Mbps, expected {want} Mbps")
 
     conf = d.dev[0]
@@ -455,13 +483,21 @@ def phase_alt_and_iso(d: Device, cfg: Config, iso_out_addr: int, iso_in_addr: in
     before = d.report()
     d.set_mode(MODE_ISO_SINK)
     time.sleep(0.05)
-    packet = ramp(cfg.iso_out_mps)
-    for i in range(packet_count):
-        try:
-            written = d.dev.write(iso_out_addr, packet, 5000)
-        except usb.core.USBError as exc:
-            raise Failure(f"isochronous OUT packet {i} failed: {exc}") from exc
-        require(written == len(packet), f"isochronous OUT packet {i} wrote {written} of {len(packet)} bytes")
+    # One transfer carrying every packet. pyusb packetizes it at wMaxPacketSize, so the
+    # device still sees `packet_count` separate packets and its per-packet ramp check is
+    # unchanged. Submitting them as `packet_count` separate transfers instead measures the
+    # host's isochronous scheduler rather than the driver: WinUSB restarts the pipe at
+    # every transfer boundary, which both drops frames and replays already-buffered
+    # packets, so the device sees 54 % to 180 % of them. One transfer is byte-exact on
+    # both controllers for every size from 1 to 128 packets. 128 is also the most
+    # isochronous packets Linux accepts in a single URB, so the stream stays in one piece
+    # on either host.
+    stream = ramp(cfg.iso_out_mps * packet_count)
+    try:
+        written = d.dev.write(iso_out_addr, stream, 5000)
+    except usb.core.USBError as exc:
+        raise Failure(f"isochronous OUT stream failed: {exc}") from exc
+    require(written == len(stream), f"isochronous OUT wrote {written} of {len(stream)} bytes")
     time.sleep(0.2)
     rep = d.report()
     received_packets = rep.iso_out_packets - before.iso_out_packets
@@ -484,19 +520,28 @@ def phase_alt_and_iso(d: Device, cfg: Config, iso_out_addr: int, iso_in_addr: in
     before = d.report()
     d.set_mode(MODE_ISO_SOURCE)
     time.sleep(0.05)
+    # One transfer, for the same reason as the isochronous OUT stream above: a read per
+    # packet costs half the frames on Windows, and WinUSB reports a frame it missed as a
+    # full-length run of zeros instead of a timeout, so a per-packet read cannot even tell
+    # a dropped frame from a corrupt one.
+    expected = ramp(mps)
+    missing = bytes(mps)
     received_packets = 0
-    received_bytes = 0
-    for i in range(packet_count):
-        try:
-            data = bytes(d.dev.read(iso_in_addr, mps, ISO_PACKET_TIMEOUT_MS))
-        except usb.core.USBError as exc:
-            if exc.errno != ERR_TIMEOUT:
-                raise Failure(f"isochronous IN packet {i} failed: {exc}") from exc
-            continue
-        require(len(data) == mps, f"isochronous IN packet {i} has {len(data)} bytes, expected {mps}")
-        require(data == ramp(mps), f"isochronous IN packet {i} does not match the ramp")
-        received_packets += 1
-        received_bytes += len(data)
+    try:
+        data = bytes(d.dev.read(iso_in_addr, mps * packet_count, ISO_STREAM_TIMEOUT_MS))
+    except usb.core.USBError as exc:
+        if exc.errno != ERR_TIMEOUT:
+            raise Failure(f"isochronous IN stream failed: {exc}") from exc
+        data = b""
+    # libusb leaves every packet at its own `mps` stride and only truncates the tail, so
+    # the slices stay aligned even when a frame went missing.
+    for i in range(0, len(data) - mps + 1, mps):
+        packet = data[i : i + mps]
+        if packet == expected:
+            received_packets += 1
+        elif packet != missing:
+            raise Failure(f"isochronous IN packet {i // mps} does not match the ramp")
+    received_bytes = received_packets * mps
     rep = d.report()
     intended_bytes = packet_count * mps
     min_bytes = (intended_bytes * 4 + 4) // 5
@@ -613,6 +658,9 @@ def main() -> None:
             ("alt_and_iso", lambda: phase_alt_and_iso(d, cfg, iso_out_addr, iso_in_addr)),
             ("interrupt_in", lambda: phase_interrupt_in(d)),
         ):
+            if phase in UNSUPPORTED_PHASES:
+                print(f"[{phase}] skipped: {UNSUPPORTED_PHASES[phase]}")
+                continue
             fn()
             print(f"[{phase}] ok")
 

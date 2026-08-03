@@ -1,11 +1,16 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.10"
+# dependencies = ["pyserial>=3.5"]
+# ///
 """Drive both CDC-ACM ports from `usb_dual_pll0`.
 
 The firmware runs both LPC55 USB controllers from PLL0 at 150 MHz. Two host threads transfer data
 at the same time, so clock and endpoint-memory faults under concurrent traffic fail the test.
 
-The script uses only CDC nodes and does not need root. The test user must have access to
-`/dev/ttyACM*`, normally through the `dialout` group.
+The script uses only CDC nodes and needs no elevation. On Linux the test user must have access to
+`/dev/ttyACM*`, normally through the `dialout` group. On Windows, `usbser.sys` binds the ports
+automatically.
 
 Exit 0 on success. On failure, print `FAIL: <port label>: <reason>` to stderr and exit 1.
 """
@@ -13,20 +18,19 @@ Exit 0 on success. On failure, print `FAIL: <port label>: <reason>` to stderr an
 from __future__ import annotations
 
 import argparse
-import glob
 import sys
 import threading
 import time
 
 import serial
+import serial.tools.list_ports
 
-BY_ID = "/dev/serial/by-id/*"
+VID = 0xC0DE
 
-# Substrings of the `by-id` symlink, which Linux derives from the manufacturer,
-# product and serial strings the firmware reports. Matching on a substring keeps
-# a `by-id` naming variation (interface suffix, separator changes) from breaking
-# the test.
-PORTS = (("HS", "USB-HS_dual_pll0"), ("FS", "USB-FS_dual_pll0"))
+# `idProduct` per controller, from `tests/lpc55/src/bin/usb_dual_pll0.rs`. The USB IDs are the
+# only port identity both hosts expose: Linux `by-id` symlinks and Windows COM names share
+# nothing else.
+PORTS = (("HS", 0xCB03), ("FS", 0xCB04))
 
 RAMP_PERIOD = 512
 # Byte k of the stream is `(k % 512) as u8` - the same ramp as
@@ -48,23 +52,25 @@ def ramp(n: int, offset: int = 0) -> bytes:
 
 
 def find_ports(wait: float) -> dict[str, str]:
-    """Poll `/dev/serial/by-id` until both nodes exist or `wait` elapses."""
+    """Poll the serial ports until both controllers are present or `wait` elapses."""
     deadline = time.monotonic() + wait
     found: dict[str, str] = {}
     while True:
-        links = glob.glob(BY_ID)
-        for label, needle in PORTS:
+        present = serial.tools.list_ports.comports()
+        for label, pid in PORTS:
             if label in found:
                 continue
-            for link in links:
-                if needle in link:
-                    found[label] = link
+            for info in present:
+                if info.vid == VID and info.pid == pid:
+                    found[label] = info.device
                     break
         if len(found) == len(PORTS):
             return found
         if time.monotonic() >= deadline:
-            missing = ", ".join(label for label, _ in PORTS if label not in found)
-            raise TimeoutError(f"no {missing} CDC port in {BY_ID} after {wait:g} s")
+            missing = ", ".join(
+                f"{label} ({VID:04x}:{pid:04x})" for label, pid in PORTS if label not in found
+            )
+            raise TimeoutError(f"no CDC port for {missing} after {wait:g} s")
         time.sleep(0.2)
 
 
