@@ -34,7 +34,13 @@ use core::pin::pin;
 use core::task::{Context, Poll};
 
 pub use embassy_net_driver as driver;
+#[cfg(feature = "packetmeta-timestamp")]
+use embassy_net_driver::TxTimestamp;
 use embassy_net_driver::{Driver, LinkState};
+#[cfg(feature = "packetmeta-timestamp")]
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+#[cfg(feature = "packetmeta-timestamp")]
+use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use heapless::Vec;
@@ -332,6 +338,8 @@ pub(crate) struct Inner {
     hostname: *mut HostnameResources,
     #[cfg(feature = "dhcpv4-ntp")]
     dhcp_rx_buffer: *mut [u8],
+    #[cfg(feature = "packetmeta-timestamp")]
+    timestamps: Channel<NoopRawMutex, TxTimestamp, 5>,
 }
 
 fn _assert_covariant<'a, 'b: 'a>(x: Stack<'b>) -> Stack<'a> {
@@ -407,6 +415,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         hostname: &mut resources.hostname,
         #[cfg(feature = "dhcpv4-ntp")]
         dhcp_rx_buffer: resources.dhcp_rx_buffer.write([0; DHCP_RX_BUFFER_SIZE]) as *mut [u8],
+        #[cfg(feature = "packetmeta-timestamp")]
+        timestamps: Channel::new(),
     };
 
     #[cfg(feature = "proto-ipv4")]
@@ -514,6 +524,12 @@ impl<'d> Stack<'d> {
         }
 
         v4_up || v6_up
+    }
+
+    #[cfg(feature = "packetmeta-timestamp")]
+    /// Poll tx timestamps
+    pub async fn poll_tx_timestamps(&self) -> TxTimestamp {
+        poll_fn(|cx| self.with(|i| i.timestamps.poll_receive(cx))).await
     }
 
     /// Wait for the network device to obtain a link signal.
@@ -940,6 +956,21 @@ impl Inner {
             if do_set {
                 self.iface.set_hardware_addr(_hardware_addr);
             }
+        }
+
+        #[cfg(feature = "packetmeta-timestamp")]
+        while !self.timestamps.is_full()
+            && let Some(timestamp) = driver.poll_timestamp(cx)
+        {
+            self.timestamps.try_send(timestamp).unwrap();
+        }
+
+        #[cfg(feature = "packetmeta-timestamp")]
+        if self.timestamps.is_full() {
+            let _ = self.timestamps.poll_ready_to_send(cx);
+            warn!("iface is stalled because timestamp channel is full.");
+
+            return;
         }
 
         // Update link up
