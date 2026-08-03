@@ -1,11 +1,9 @@
 use core::sync::atomic::{Ordering, fence};
 
 #[cfg(feature = "ptp")]
-use embassy_net_driver::PacketMeta;
+use embassy_net_driver::{PacketMeta, Timestamp};
 use vcell::VolatileCell;
 
-#[cfg(feature = "ptp")]
-use crate::eth::ptp::{PtpTimestamp, RxPacketStateRing, TxPacketStateRing};
 use crate::eth::{Packet, RX_BUFFER_SIZE, TX_BUFFER_SIZE};
 #[cfg(eth_v2)]
 use crate::pac::ETH;
@@ -96,11 +94,9 @@ impl TDes {
     }
 
     #[cfg(feature = "ptp")]
-    fn timestamp(&self) -> Option<PtpTimestamp> {
-        (self.tdes3.get() & EMAC_TDES3_TTSS != 0).then(|| PtpTimestamp {
-            seconds: self.tdes1.get(),
-            nanos: self.tdes0.get(),
-        })
+    fn timestamp(&self) -> Option<embassy_net_driver::Timestamp> {
+        (self.tdes3.get() & EMAC_TDES3_TTSS != 0)
+            .then(|| embassy_net_driver::Timestamp::from_seconds_and_nanos(self.tdes1.get(), self.tdes0.get()))
     }
 }
 
@@ -108,10 +104,12 @@ pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
     buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
     #[cfg(feature = "ptp")]
-    state: TxPacketStateRing<'a>,
+    ids: &'a mut [u32],
     index: usize,
     #[cfg(feature = "ptp")]
     completion_index: usize,
+    #[cfg(feature = "ptp")]
+    enable_timestamp: bool,
 }
 
 impl<'a> TDesRing<'a> {
@@ -119,7 +117,7 @@ impl<'a> TDesRing<'a> {
     pub fn new(
         descriptors: &'a mut [TDes],
         buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-        #[cfg(feature = "ptp")] state: TxPacketStateRing<'a>,
+        #[cfg(feature = "ptp")] ids: &'a mut [u32],
     ) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
@@ -139,10 +137,12 @@ impl<'a> TDesRing<'a> {
             descriptors,
             buffers,
             #[cfg(feature = "ptp")]
-            state,
+            ids,
             index: 0,
             #[cfg(feature = "ptp")]
             completion_index: 0,
+            #[cfg(feature = "ptp")]
+            enable_timestamp: false,
         }
     }
 
@@ -161,15 +161,15 @@ impl<'a> TDesRing<'a> {
     }
 
     #[cfg(feature = "ptp")]
-    pub(crate) fn collect_completed(&mut self) {
-        while self.state.pending(self.completion_index) {
+    pub(crate) fn poll_timestamp(&mut self) -> Option<embassy_net_driver::TxTimestamp> {
+        loop {
             let descriptor = &self.descriptors[self.completion_index];
-            if !descriptor.available() {
-                break;
+            if self.completion_index == self.index || !descriptor.available() {
+                break None;
             }
 
             let timestamp = descriptor.timestamp();
-            let packet_id = self.state.id(self.completion_index);
+            let packet_id = self.ids[self.completion_index];
             if packet_id != 0 {
                 if timestamp.is_some() {
                     trace!(
@@ -190,14 +190,22 @@ impl<'a> TDesRing<'a> {
                     );
                 }
             }
-            self.state.complete(self.completion_index, timestamp);
+
             self.completion_index = (self.completion_index + 1) % self.descriptors.len();
+
+            if let Some(timestamp) = timestamp {
+                break Some(embassy_net_driver::TxTimestamp {
+                    id: packet_id,
+                    timestamp: timestamp,
+                });
+            }
         }
     }
 
     #[cfg(feature = "ptp")]
     pub(crate) fn set_meta(&mut self, meta: PacketMeta) {
-        self.state.set_id(meta.id);
+        self.enable_timestamp = meta.request_timestamp;
+        self.ids[self.index] = meta.id;
     }
 
     /// Transmit the packet written in a buffer returned by `available`.
@@ -211,19 +219,14 @@ impl<'a> TDesRing<'a> {
         let mut tdes2 = len as u32 & EMAC_TDES2_B1L;
         tdes2 |= EMAC_TDES2_IOC;
         #[cfg(feature = "ptp")]
-        if self.state.timestamp_enabled() {
+        if self.enable_timestamp {
             tdes2 |= EMAC_TDES2_TTSE;
             trace!(
                 "eth ptp tx submit idx={} packet_id={} len={} tdes2={:#010x}",
-                self.index,
-                self.state.next_id(),
-                len,
-                tdes2
+                self.index, self.ids[self.index], len, tdes2
             );
         }
         td.tdes2.set(tdes2);
-        #[cfg(feature = "ptp")]
-        self.state.commit(self.index);
 
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
@@ -242,6 +245,13 @@ impl<'a> TDesRing<'a> {
         // See issue #2129
         dma_ch0!(ETH.ethernet_dma(), dmac_tx_dtpr).write(|w| w.0 = &td as *const _ as u32);
 
+        // Invalidate state
+        #[cfg(feature = "ptp")]
+        {
+            self.enable_timestamp = false;
+        }
+
+        // Increment index.
         self.index = (self.index + 1) % self.descriptors.len();
     }
 }
@@ -330,15 +340,12 @@ impl RDes {
     }
 
     #[cfg(feature = "ptp")]
-    fn context_timestamp(&self) -> Option<PtpTimestamp> {
+    fn context_timestamp(&self) -> Option<Timestamp> {
         let rdes0 = self.rdes0.get();
         let rdes1 = self.rdes1.get();
 
         if !(rdes0 == u32::MAX && rdes1 == u32::MAX) {
-            Some(PtpTimestamp {
-                seconds: rdes1,
-                nanos: rdes0,
-            })
+            Some(Timestamp::from_seconds_and_nanos(rdes1, rdes0))
         } else {
             None
         }
@@ -349,17 +356,13 @@ impl RDes {
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
     buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
-    #[cfg(feature = "ptp")]
-    state: RxPacketStateRing<'a>,
     index: usize,
+    #[cfg(feature = "ptp")]
+    timestamp: Option<Timestamp>,
 }
 
 impl<'a> RDesRing<'a> {
-    pub(crate) fn new(
-        descriptors: &'a mut [RDes],
-        buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
-        #[cfg(feature = "ptp")] state: RxPacketStateRing<'a>,
-    ) -> Self {
+    pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Packet<RX_BUFFER_SIZE>]) -> Self {
         assert!(descriptors.len() > 1);
         assert!(descriptors.len() == buffers.len());
 
@@ -376,9 +379,9 @@ impl<'a> RDesRing<'a> {
         Self {
             descriptors,
             buffers,
-            #[cfg(feature = "ptp")]
-            state,
             index: 0,
+            #[cfg(feature = "ptp")]
+            timestamp: None,
         }
     }
 
@@ -416,29 +419,29 @@ impl<'a> RDesRing<'a> {
         let info = self.fast_forward()?;
 
         #[cfg(feature = "ptp")]
-        if !self.state.captured() {
-            self.state.capture(self.index, self.timestamp(&info, self.index)?);
+        if self.timestamp.is_none() {
+            self.timestamp = Some(self.timestamp(&info)?);
         }
 
         return Some(&mut self.buffers[self.index].0[..info.len() as usize]);
     }
 
     #[cfg(feature = "ptp")]
-    fn timestamp(&self, info: &RDesInfo, index: usize) -> Option<Option<PtpTimestamp>> {
+    fn timestamp(&self, info: &RDesInfo) -> Option<Timestamp> {
         // RDES1 write-back status is valid only when RS1V is set in RDES3.
         // Descriptors returned to DMA are not required to clear RDES1, so do
         // not interpret TSA unless the hardware says the status word is valid.
         if !info.has_timestamp() {
-            return Some(None);
+            return Some(Timestamp::default());
         }
 
-        let next = (index + 1) % self.descriptors.len();
+        let next = (self.index + 1) % self.descriptors.len();
         let context = &self.descriptors[next];
         let info = context.info();
         if info.context_available() {
-            Some(context.context_timestamp())
+            Some(context.context_timestamp().unwrap_or_default())
         } else if info.available() {
-            Some(None)
+            Some(Timestamp::default())
         } else {
             // Keep the packet queued until the following timestamp context
             // descriptor has been written back. If it becomes a normal packet
@@ -452,15 +455,19 @@ impl<'a> RDesRing<'a> {
     pub(crate) fn meta(&self) -> PacketMeta {
         let mut meta = PacketMeta::default();
 
-        meta.id = self.state.id(self.index);
+        meta.timestamp = match self.timestamp {
+            None
+            | Some(Timestamp {
+                seconds: 0,
+                quarter_nanos: 0,
+            }) => None,
+            Some(timestamp) => Some(timestamp),
+        };
         meta
     }
 
     /// Pop the packet previously returned by `available`.
     pub(crate) fn pop_packet(&mut self) {
-        #[cfg(feature = "ptp")]
-        self.state.clear(self.index);
-
         self.pop_current();
         self.fast_forward();
     }
@@ -477,6 +484,10 @@ impl<'a> RDesRing<'a> {
         // signal DMA it can try again.
         // See issue #2129
         dma_ch0!(ETH.ethernet_dma(), dmac_rx_dtpr).write(|w| w.0 = &rd as *const _ as u32);
+
+        // Invalidate state
+        #[cfg(feature = "ptp")]
+        self.timestamp.take();
 
         // Increment index.
         self.index = (self.index + 1) % self.descriptors.len();

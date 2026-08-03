@@ -959,14 +959,15 @@ impl Inner {
         }
 
         #[cfg(feature = "packetmeta-timestamp")]
-        while !self.timestamps.is_full()
+        while driver.capabilities().timestamp
+            && !self.timestamps.is_full()
             && let Some(timestamp) = driver.poll_timestamp(cx)
         {
             self.timestamps.try_send(timestamp).unwrap();
         }
 
         #[cfg(feature = "packetmeta-timestamp")]
-        if self.timestamps.is_full() {
+        if driver.capabilities().timestamp && self.timestamps.is_full() {
             let _ = self.timestamps.poll_ready_to_send(cx);
             warn!("iface is stalled because timestamp channel is full.");
 
