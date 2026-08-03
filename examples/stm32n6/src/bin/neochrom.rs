@@ -32,7 +32,9 @@ use embassy_executor::Spawner;
 use embassy_stm32::rcc::SupplyConfig;
 use embassy_stm32::{Config, pac};
 #[cfg(not(feature = "stub-gpu2d"))]
-use embassy_stm32::{bind_interrupts, gpu2d, peripherals};
+use embassy_stm32::{bind_interrupts, peripherals};
+#[cfg(not(feature = "stub-gpu2d"))]
+use embassy_stm32_neochrom::InterruptHandler as Gpu2dInterruptHandler;
 use embassy_stm32_neochrom::{FrameBuffer, NeoChrom, Rgba8888};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -43,7 +45,7 @@ const FB_PIXELS: usize = (FB_WIDTH * FB_HEIGHT) as usize;
 
 #[cfg(not(feature = "stub-gpu2d"))]
 bind_interrupts!(struct Irqs {
-    GPU2D_ER => gpu2d::InterruptHandler<peripherals::GPU2D>;
+    GPU2D_ER => Gpu2dInterruptHandler;
 });
 
 #[embassy_executor::main]

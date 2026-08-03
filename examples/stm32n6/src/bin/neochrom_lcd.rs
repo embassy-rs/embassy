@@ -33,8 +33,11 @@ use embassy_stm32::ltdc::{self, Ltdc, LtdcLayer, LtdcLayerConfig, PixelFormat};
 use embassy_stm32::rcc::mux::Ltdcsel;
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
 use embassy_stm32::rif::{RifMaster, RifMasterAttributes, RifPeripheral, RifPeripheralAttributes};
-use embassy_stm32::{Config, bind_interrupts, gpu2d, pac, peripherals};
-use embassy_stm32_neochrom::{BlendMode, ExternalFrameBuffer, FrameBuffer, GpuSurface, NeoChrom, Rgba8888};
+use embassy_stm32::{Config, bind_interrupts, pac, peripherals};
+use embassy_stm32_neochrom::{
+    BlendMode, ExternalFrameBuffer, FrameBuffer, GpuSurface, InterruptHandler as Gpu2dInterruptHandler, NeoChrom,
+    Rgba8888,
+};
 use embassy_time::{Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -42,7 +45,7 @@ use crate::rk050hr18c::{HEIGHT, LTDC_CONFIG, Rk050Hr18c, WIDTH};
 
 bind_interrupts!(struct Irqs {
     LTDC_LO => ltdc::InterruptHandler<peripherals::LTDC>;
-    GPU2D_ER => gpu2d::InterruptHandler<peripherals::GPU2D>;
+    GPU2D_ER => Gpu2dInterruptHandler;
 });
 
 const FB0_BASE: usize = 0x3410_0000;
@@ -95,18 +98,21 @@ async fn main(_spawner: Spawner) {
 
     let mut panel = Rk050Hr18c::new(p.PE1, p.PQ3, p.PQ6);
     panel.power_on().await;
+    info!("panel powered on");
 
     let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
         p.LTDC, Irqs, p.PB13, p.PB14, p.PE11, p.PG13, p.PG15, p.PA7, p.PB2, p.PG6, p.PH3, p.PH6, p.PA8, p.PA2, p.PG12,
         p.PG1, p.PA1, p.PA0, p.PB15, p.PB12, p.PB11, p.PG8, p.PG0, p.PD9, p.PD15, p.PB4, p.PH4, p.PA15, p.PG11, p.PD8,
     );
     ltdc.init(&LTDC_CONFIG);
+    info!("ltdc initialized");
 
     #[cfg(feature = "stub-gpu2d")]
     let mut gpu = NeoChrom::new().expect("NeoChrom init failed");
 
     #[cfg(not(feature = "stub-gpu2d"))]
     let mut gpu = NeoChrom::new(p.GPU2D, Irqs).expect("NeoChrom init failed");
+    info!("neochrom initialized");
 
     let layer_config = LtdcLayerConfig {
         pixel_format: PixelFormat::RGB565,

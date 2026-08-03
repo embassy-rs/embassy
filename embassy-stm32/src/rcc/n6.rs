@@ -1053,7 +1053,7 @@ fn init_osc(config: Config) -> OscOutput {
     // If config wants a non-IC1 CPU source (HSI/HSE/MSI), switch now before
     // touching PLLs. This prevents panicking when trying to reconfigure a PLL
     // that's currently in use by IC1.
-    let cpu_src = if cpu_src == Cpusws::Ic1 && !matches!(config.cpu, CpuClk::Ic1 { .. }) {
+    let mut cpu_src = if cpu_src == Cpusws::Ic1 && !matches!(config.cpu, CpuClk::Ic1 { .. }) {
         // Switch CPU clock to the target source first
         debug!("switching CPU away from IC1 before PLL reconfiguration");
         let cpusw = Cpusw::from_bits(config.cpu.to_bits());
@@ -1068,7 +1068,7 @@ fn init_osc(config: Config) -> OscOutput {
     // If config wants a non-IC2 sys source (HSI/HSE/MSI), switch now before
     // touching PLLs. This prevents panicking when trying to reconfigure a PLL
     // that's currently in use by IC2, IC6, or IC11.
-    let sys_src = if sys_src == Syssws::Ic2 && !matches!(config.sys, SysClk::Ic2 { .. }) {
+    let mut sys_src = if sys_src == Syssws::Ic2 && !matches!(config.sys, SysClk::Ic2 { .. }) {
         // Switch system clock to the target source first
         debug!("switching sys clock away from IC2 before PLL reconfiguration");
         let syssw = Syssw::from_bits(config.sys.to_bits());
@@ -1080,21 +1080,48 @@ fn init_osc(config: Config) -> OscOutput {
         sys_src
     };
 
+    // probe-rs dev-mode reloads often leave the previous firmware's clock tree
+    // active (CPU on IC1 ← PLL1, etc.). Temporarily fall back to HSI so PLLs
+    // that feed those ICs can be reconfigured even when the final config keeps
+    // CpuClk::Ic1 / SysClk::Ic2.
+    for (n, &pll) in pll_configs.iter().enumerate() {
+        if !is_new_pll_config(pll, n) {
+            continue;
+        }
+
+        let this_pll = Icsel::from_bits(n as u8);
+        let needs_cpu_switch = cpu_src == Cpusws::Ic1 && ic1_src == this_pll;
+        let needs_sys_switch =
+            sys_src == Syssws::Ic2 && (ic2_src == this_pll || ic6_src == this_pll || ic11_src == this_pll);
+
+        if !needs_cpu_switch && !needs_sys_switch {
+            continue;
+        }
+
+        debug!("switching to HSI before PLL{} reconfiguration", n + 1);
+        if !RCC.sr().read().hsirdy() {
+            RCC.csr().write(|w| w.set_hsions(true));
+            while !RCC.sr().read().hsirdy() {}
+        }
+
+        if needs_cpu_switch {
+            RCC.cfgr().modify(|w| w.set_cpusw(Cpusw::Hsi));
+            while RCC.cfgr().read().cpusws() != Cpusws::Hsi {}
+            cpu_src = Cpusws::Hsi;
+        }
+
+        if needs_sys_switch {
+            RCC.cfgr().modify(|w| w.set_syssw(Syssw::Hsi));
+            while RCC.cfgr().read().syssws() != Syssws::Hsi {}
+            sys_src = Syssws::Hsi;
+        }
+    }
+
     for (n, (&pll, out)) in pll_configs.iter().zip(pll_outputs.iter_mut()).enumerate() {
         debug!("configuring PLL{}", n + 1);
         let pll_ready = RCC.sr().read().pllrdy(n);
 
         if is_new_pll_config(pll, n) {
-            let this_pll = Icsel::from_bits(n as u8);
-
-            if cpu_src == Cpusws::Ic1 && ic1_src == this_pll {
-                panic!("PLL should not be disabled / reconfigured if used for IC1 (cpuclksrc)")
-            }
-
-            if sys_src == Syssws::Ic2 && (ic2_src == this_pll || ic6_src == this_pll || ic11_src == this_pll) {
-                panic!("PLL should not be disabled / reconfigured if used for IC2, IC6 or IC11 (sysclksrc)")
-            }
-
             *out = pll.map_or_else(
                 || {
                     disable_pll(n);

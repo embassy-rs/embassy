@@ -8,9 +8,9 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::pac::gpu2d::Gpu2d as Regs;
-use crate::{Peri, interrupt};
+use crate::{Peri, interrupt, rcc};
 
 // GPU2D has exactly one instance per chip today (see stm32-data), so a single
 // static waker is sufficient — unlike peripherals with multiple instances
@@ -30,12 +30,10 @@ pub struct Gpu2d<'d, T: Instance> {
     _peri: Peri<'d, T>,
 }
 
-impl<'d, T: Instance> Gpu2d<'d, T> {
+impl<'d, T: Instance + crate::rcc::RccPeripheral> Gpu2d<'d, T> {
     /// Create a GPU2D instance.
-    pub fn new(
-        peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+    pub fn new<H: Handler<T::Interrupt>>(peri: Peri<'d, T>, _irq: impl Binding<T::Interrupt, H> + 'd) -> Self {
+        rcc::enable_and_reset::<T>();
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
         Self { _peri: peri }
