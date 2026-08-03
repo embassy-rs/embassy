@@ -21,6 +21,12 @@ impl<const MTU: usize, const N_RX: usize, const N_TX: usize> State<MTU, N_RX, N_
     }
 }
 
+impl<const MTU: usize, const N_RX: usize, const N_TX: usize> Default for State<MTU, N_RX, N_TX> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Background runner for the CDC-NCM class.
 ///
 /// You must call `.run()` in a background task for the class to operate.

@@ -7,15 +7,17 @@
 #[path = "../i2c_loopback.rs"]
 mod i2c_loopback;
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
+use embassy_mcxa as hal;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::i2c::controller::{self, I2c, InterruptHandler as ControllerIH, Speed};
 use hal::i2c::target::InterruptHandler as TargetIH;
 use hal::peripherals::{LPI2C0, LPI2C3};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     struct Irqs {

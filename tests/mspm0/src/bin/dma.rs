@@ -10,10 +10,11 @@ teleprobe_meta::target!(b"lp-mspm0g3519");
 use core::slice;
 
 use defmt::{assert, assert_eq, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mspm0::dma::{Channel, Transfer, TransferMode, TransferOptions, Word};
 use embassy_mspm0::{bind_interrupts, dma, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     struct Irqs {

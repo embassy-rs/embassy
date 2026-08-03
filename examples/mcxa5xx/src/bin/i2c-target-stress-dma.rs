@@ -17,14 +17,16 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_time::Instant;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::i2c::target::{self, InterruptHandler};
 use hal::peripherals::LPI2C3;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     struct Irqs {

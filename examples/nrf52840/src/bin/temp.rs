@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::temp::Temp;
 use embassy_nrf::{bind_interrupts, temp};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     TEMP => temp::InterruptHandler;

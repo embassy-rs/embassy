@@ -15,7 +15,9 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::clkout::{self, ClockOut, ClockOutSel, Div4};
 use embassy_mcxa::clocks::config::{
     CoreSleep, Div8, FlashSleep, MainClockConfig, MainClockSource, SoscConfig, SoscMode, SpllConfig, SpllMode,
@@ -24,7 +26,7 @@ use embassy_mcxa::clocks::config::{
 use embassy_mcxa::clocks::{PoweredClock, WakeGuard};
 use embassy_time::Timer;
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 #[cfg_attr(
     feature = "executor-platform",

@@ -7,7 +7,7 @@ use core::sync::atomic::{Ordering, fence};
 use core::task::Waker;
 
 use super::{Channel, STATE, TransferOptions};
-use crate::dma::gpdma::linked_list::{RunMode, Table};
+use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
 use crate::dma::{Dir, Request};
@@ -85,7 +85,7 @@ pub struct ReadableRingBuffer<'a, W: Word> {
     channel: Channel<'a>,
     _wake_guard: WakeGuard,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
-    table: Table<1>,
+    table: Table<LinearItem, 1>,
     options: TransferOptions,
 }
 
@@ -105,7 +105,13 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
 
-        let table = Table::<1>::new_circular::<W, PW>(request, peri_addr, buffer, Dir::PeripheralToMemory);
+        let table = Table::<LinearItem, 1>::new_circular::<W, PW>(
+            request,
+            peri_addr,
+            buffer,
+            Dir::PeripheralToMemory,
+            Default::default(),
+        );
 
         Self {
             _wake_guard: channel.info().wake_guard(),
@@ -118,8 +124,16 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     pub fn start(&mut self) {
-        // Apply the default configuration to the channel.
-        unsafe { self.channel.configure_linked_list(&self.table, self.options) };
+        unsafe {
+            self.channel.configure_linked_list_raw(
+                self.table.base_address(),
+                self.table.offset_address(0),
+                1,
+                self.table.transfer_count(),
+                self.options,
+                false,
+            );
+        }
         self.table.link(RunMode::Circular);
         self.channel.start();
     }
@@ -251,7 +265,7 @@ pub struct WritableRingBuffer<'a, W: Word> {
     channel: Channel<'a>,
     _wake_guard: WakeGuard,
     ringbuf: WritableDmaRingBuffer<'a, W>,
-    table: Table<1>,
+    table: Table<LinearItem, 1>,
     options: TransferOptions,
 }
 
@@ -271,7 +285,13 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
 
-        let table = Table::<1>::new_circular::<W, PW>(request, peri_addr, buffer, Dir::MemoryToPeripheral);
+        let table = Table::<LinearItem, 1>::new_circular::<W, PW>(
+            request,
+            peri_addr,
+            buffer,
+            Dir::MemoryToPeripheral,
+            Default::default(),
+        );
 
         Self {
             _wake_guard: channel.info().wake_guard(),
@@ -284,8 +304,16 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     pub fn start(&mut self) {
-        // Apply the default configuration to the channel.
-        unsafe { self.channel.configure_linked_list(&self.table, self.options) };
+        unsafe {
+            self.channel.configure_linked_list_raw(
+                self.table.base_address(),
+                self.table.offset_address(0),
+                1,
+                self.table.transfer_count(),
+                self.options,
+                false,
+            );
+        }
         self.table.link(RunMode::Circular);
 
         self.channel.start();

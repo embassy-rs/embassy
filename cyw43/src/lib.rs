@@ -34,7 +34,7 @@ use events::Events;
 use ioctl::IoctlState;
 
 pub use crate::control::{
-    AddMulticastAddressError, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
+    AddMulticastAddressError, ApAuth, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
 };
 pub use crate::runner::Runner;
 pub use crate::sdio::SdioBus;

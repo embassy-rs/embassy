@@ -23,6 +23,13 @@ DMA:
 - feat: stm32/dma: ungate `TransferOptions::burst_length` on GPDMA (was stm32n6-only)
 - fix: stm32/dma: auto-set `TR1.PAM = Pack` on GPDMA when source and destination widths differ, instead of silently zero-extending one beat per destination beat
 - fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
+- feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
+- feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
+
+I2C:
+- feat: stm32/i2cv2: support zero-length transfers instead of returning `Error::ZeroLengthTransfer`, enabling bus scans via `transaction(addr, &mut [Operation::Write(&[])])`. On the slave side an empty `respond_to_write` accepts zero bytes and an empty `respond_to_read` sends `0xFF` filler, since I2C cannot encode "nothing to send"; both previously left ADDR set, holding SCL low and wedging the bus
+- fix: stm32/i2cv2: handle a master RESTART during async slave `respond_to_read` instead of stalling until the transaction times out
+- fix: stm32/i2cv2: re-enable TCIE after starting a DMA write group, so an async `transaction()` whose write group is not the first group completes instead of hanging until it times out
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
@@ -37,6 +44,10 @@ Timer:
 - feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
 - feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
 - feat: stm32/timer: add low-level timer status helpers for UIF remap control and counting direction (`is_counting_up`/`is_counting_down`)
+- feat: stm32/timer: add `low_level::Timer::get_counter()` to read the counter register as `T::Word`
+
+QEI:
+- fix: stm32/qei: `count()`, `reset()`, and `auto_reload` always used the 16-bit register view, so on 32-bit timers `reset()` only cleared the lower 16 bits of the counter (leaving the upper bits stale) and `auto_reload`/`count()` were truncated to `u16`; `Config`/`AdvancedConfig` are now generic over the timer instance and `auto_reload` uses `T::Word`, while `count()` returns `u32` so 32-bit timers work correctly across their full range (breaking change)
 
 PKA:
 - feat: stm32/pka: extend ECC point buffer support to 640-bit operands (80-byte coordinates) in public point types and Jacobian conversion paths
@@ -203,6 +214,7 @@ Misc:
 - fix: Avoid generating timer update events when updating the frequency ([#4890](https://github.com/embassy-rs/embassy/pull/4890))
 - chore: cleanup low-power add time
 - fix: Allow setting SAI peripheral `frame_length` to `256`
+- fix: stm32/i2c fix busy waiting on BUSY flag in v2
 - fix: flash erase on dual-bank STM32Gxxx
 - feat: Add support for STM32N657X0
 - feat: timer: Add 32-bit timer support to SimplePwm waveform_up method following waveform pattern ([#4717](https://github.com/embassy-rs/embassy/pull/4717))

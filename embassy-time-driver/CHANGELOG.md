@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add 27MHz tick rate support
+
 ## 0.2.2 - 2026-03-20
 
 - Add 375KHz tick rate support

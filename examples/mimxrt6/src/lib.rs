@@ -1,7 +1,8 @@
 #![no_std]
 
+use defmt_rtt as _;
 use mimxrt600_fcb::FlexSPIFlashConfigurationBlock;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // auto-generated version information from Cargo.toml
 include!(concat!(env!("OUT_DIR"), "/biv.rs"));

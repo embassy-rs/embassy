@@ -40,7 +40,7 @@ trait SealedInstance {
 
     /// Write value to WDATA
     fn write_q32(&self, arg: Q32<31>) {
-        self.write_argument(arg.inner as u32);
+        self.write_argument(arg.into_bits() as u32);
     }
 
     /// Read value from RDATA
@@ -50,7 +50,7 @@ trait SealedInstance {
 
     /// Read value from RDATA
     fn read_q32(&self) -> Q32<31> {
-        Q32::new(self.read_result() as i32)
+        Q32::from_bits(self.read_result() as i32)
     }
 }
 

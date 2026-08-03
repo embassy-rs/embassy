@@ -8,6 +8,7 @@ use core::task::Poll;
 
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, Unsupported};
 pub use embassy_usb_synopsys_otg::Config;
@@ -23,7 +24,8 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac};
 
 const MAX_EP_COUNT: usize = 16;
-const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 30;
+// USB-HS needs more FIFO space.
+const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 256;
 const FIFO_DEPTH_WORDS: u16 = 3040;
 
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
@@ -322,7 +324,7 @@ impl SealedInstance for crate::peripherals::USBHS {
     }
 
     fn state() -> State<'static> {
-        static STATE: StateStorage<MAX_EP_COUNT> = StateStorage::new();
+        static STATE: StateStorage<MAX_EP_COUNT> = StateStorage::new(CriticalSectionRawMutex::new());
         STATE.as_state()
     }
 }

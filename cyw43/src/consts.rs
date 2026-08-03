@@ -164,6 +164,7 @@ pub(crate) const INC_ADDR: bool = true;
 pub(crate) const FIXED_ADDR: bool = false;
 
 pub(crate) const AES_ENABLED: u32 = 0x0004;
+pub(crate) const WPA3_SECURITY: u32 = 0x01000000;
 pub(crate) const WPA2_SECURITY: u32 = 0x00400000;
 
 pub(crate) const MIN_PSK_LEN: usize = 8;
@@ -243,6 +244,8 @@ pub(crate) const SFC_RF_TERM: u8 = 1 << 0;
 pub(crate) enum Security {
     OPEN = 0,
     WPA2_AES_PSK = WPA2_SECURITY | AES_ENABLED,
+    WPA3_SAE = WPA3_SECURITY | AES_ENABLED,
+    WPA3_WPA2_PSK = WPA3_SECURITY | WPA2_SECURITY | AES_ENABLED,
 }
 
 crate::util::enum_from_u8! {

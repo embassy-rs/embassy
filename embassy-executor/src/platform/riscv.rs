@@ -17,7 +17,9 @@ mod thread {
 
     #[unsafe(export_name = "__pender")]
     fn __pender(_context: *mut ()) {
-        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
+        // Relaxed ordering is sufficient because interrupts are disabled when the executor reads
+        // this variable.
+        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::Relaxed);
     }
 
     /// RISC-V Executor
@@ -59,16 +61,18 @@ mod thread {
             loop {
                 unsafe {
                     self.inner.poll();
-                    // we do not care about race conditions between the load and store operations, interrupts
-                    //will only set this value to true.
+                    // we do not care about race conditions between the load and store operations,
+                    // interrupts will only set this value to true.
                     critical_section::with(|_| {
-                        // if there is work to do, loop back to polling
-                        // TODO can we relax this?
-                        if SIGNAL_WORK_THREAD_MODE.load(Ordering::SeqCst) {
-                            SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);
-                        }
-                        // if not, wait for interrupt
-                        else {
+                        // if there is work to do, loop back to polling. otherwise wait for interrupt
+                        if SIGNAL_WORK_THREAD_MODE.load(Ordering::Relaxed) {
+                            SIGNAL_WORK_THREAD_MODE.store(false, Ordering::Relaxed);
+                        } else {
+                            // It is okay to call WFI while interrupts are globally disabled.
+                            // See: https://docs.riscv.org/reference/isa/v20260120/priv/machine.html
+                            //
+                            // Calling this inside the CS also prevents the corner case that an
+                            // interrupt fires between exiting the CS and then calling WFI outside of it.
                             self.inner.trace_system_idle();
                             core::arch::asm!("wfi");
                         }

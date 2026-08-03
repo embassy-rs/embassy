@@ -104,7 +104,7 @@ impl<H: Handler> crate::Handler for DfuState<H> {
                     self.state as u8,
                     0x00,
                 ]);
-                Some(InResponse::Accepted(buf))
+                Some(InResponse::Accepted(&buf[0..6]))
             }
             _ => None,
         }

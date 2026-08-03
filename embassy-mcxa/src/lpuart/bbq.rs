@@ -16,13 +16,14 @@ use grounded::uninit::GroundedCell;
 use maitake_sync::WaitCell;
 use nxp_pac::lpuart::Tc;
 
-use super::{DataBits, IdleConfig, Info, MsbFirst, Parity, RxPin, StopBits, TxPin, TxPins};
+use super::{CtsPin, DataBits, IdleConfig, Info, MsbFirst, Parity, RtsPin, RxPin, StopBits, TxPin, TxPins};
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel};
 use crate::clocks::{PoweredClock, WakeGuard};
 use crate::dma::{DMA_MAX_TRANSFER_SIZE, DmaChannel, DmaRequest, InvalidParameters, TransferOptions};
 use crate::gpio::{AnyPin, HasGpioInstance, PeriGpioExt};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::lpuart::{Instance, RxPins};
+use crate::pac::lpuart::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
 
 /// Error Type
 #[derive(Debug, PartialEq)]
@@ -113,6 +114,10 @@ pub struct BbqConfig {
     pub stop_bits_count: StopBits,
     /// RX IDLE configuration
     pub rx_idle_config: IdleConfig,
+    /// TX CTS source
+    pub tx_cts_source: TxCtsSource,
+    /// TX CTS configuration
+    pub tx_cts_config: TxCtsConfig,
 }
 
 impl Default for BbqConfig {
@@ -127,6 +132,8 @@ impl Default for BbqConfig {
             power: PoweredClock::AlwaysEnabled,
             source: LpuartClockSel::FroLfDiv,
             div: Div4::no_div(),
+            tx_cts_source: TxCtsSource::Cts,
+            tx_cts_config: TxCtsConfig::Start,
         }
     }
 }
@@ -144,6 +151,8 @@ impl From<BbqConfig> for super::Config {
             msb_first,
             stop_bits_count,
             rx_idle_config,
+            tx_cts_source,
+            tx_cts_config,
         } = value;
 
         // User selectable
@@ -156,6 +165,8 @@ impl From<BbqConfig> for super::Config {
         cfg.msb_first = msb_first;
         cfg.stop_bits_count = stop_bits_count;
         cfg.rx_idle_config = rx_idle_config;
+        cfg.tx_cts_source = tx_cts_source;
+        cfg.tx_cts_config = tx_cts_config;
 
         // Manually set
         cfg.tx_fifo_watermark = 0;
@@ -216,6 +227,10 @@ pub struct BbqHalfParts {
     info: &'static Info,
     state: &'static BbqState,
     vtable: BbqVtable,
+
+    // flow control (optional)
+    flow_pin: Option<Peri<'static, AnyPin>>,
+    flow_mux: Option<crate::pac::port::Mux>,
 }
 
 pub struct BbqParts {
@@ -235,6 +250,12 @@ pub struct BbqParts {
     info: &'static Info,
     state: &'static BbqState,
     vtable: BbqVtable,
+
+    // flow control (optional)
+    cts_pin: Option<Peri<'static, AnyPin>>,
+    cts_mux: Option<crate::pac::port::Mux>,
+    rts_pin: Option<Peri<'static, AnyPin>>,
+    rts_mux: Option<crate::pac::port::Mux>,
 }
 
 impl BbqParts {
@@ -262,6 +283,45 @@ impl BbqParts {
             info: T::info(),
             state: T::bbq_state(),
             vtable: BbqVtable::for_lpuart::<T>(),
+            cts_pin: None,
+            cts_mux: None,
+            rts_pin: None,
+            rts_mux: None,
+        })
+    }
+
+    /// Create a full-duplex `BbqParts` with RTS/CTS hardware flow control.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_with_rtscts<T: BbqInstance, Tx: TxPin<T>, Rx: RxPin<T>, Cts: CtsPin<T>, Rts: RtsPin<T>>(
+        _inner: Peri<'static, T>,
+        _irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>> + 'static,
+        tx_pin: Peri<'static, Tx>,
+        tx_buffer: &'static mut [u8],
+        tx_dma_ch: impl Into<DmaChannel<'static>>,
+        rx_pin: Peri<'static, Rx>,
+        rx_buffer: &'static mut [u8],
+        rx_dma_ch: impl Into<DmaChannel<'static>>,
+        cts_pin: Peri<'static, Cts>,
+        rts_pin: Peri<'static, Rts>,
+    ) -> Result<Self, BbqError> {
+        Ok(Self {
+            tx_buffer,
+            tx_dma_ch: tx_dma_ch.into(),
+            tx_pin: tx_pin.into(),
+            rx_buffer,
+            rx_dma_ch: rx_dma_ch.into(),
+            rx_pin: rx_pin.into(),
+            tx_dma_req: T::TX_DMA_REQUEST.number(),
+            tx_mux: Tx::MUX,
+            rx_dma_req: T::RX_DMA_REQUEST.number(),
+            rx_mux: Rx::MUX,
+            info: T::info(),
+            state: T::bbq_state(),
+            vtable: BbqVtable::for_lpuart::<T>(),
+            cts_pin: Some(cts_pin.into()),
+            cts_mux: Some(Cts::MUX),
+            rts_pin: Some(rts_pin.into()),
+            rts_mux: Some(Rts::MUX),
         })
     }
 
@@ -304,6 +364,32 @@ impl BbqHalfParts {
             dma_req: T::TX_DMA_REQUEST.number(),
             vtable: BbqVtable::for_lpuart::<T>(),
             which: WhichHalf::Tx,
+            flow_pin: None,
+            flow_mux: None,
+        }
+    }
+
+    /// Create a TX-only `BbqHalfParts` with CTS hardware flow control.
+    pub fn new_tx_half_with_cts<T: BbqInstance, P: TxPin<T>, C: CtsPin<T>>(
+        _inner: Peri<'static, T>,
+        _irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>> + 'static,
+        tx_pin: Peri<'static, P>,
+        buffer: &'static mut [u8],
+        dma_ch: impl Into<DmaChannel<'static>>,
+        cts_pin: Peri<'static, C>,
+    ) -> Self {
+        Self {
+            buffer,
+            dma_ch: dma_ch.into(),
+            pin: tx_pin.into(),
+            mux: P::MUX,
+            info: T::info(),
+            state: T::bbq_state(),
+            dma_req: T::TX_DMA_REQUEST.number(),
+            vtable: BbqVtable::for_lpuart::<T>(),
+            which: WhichHalf::Tx,
+            flow_pin: Some(cts_pin.into()),
+            flow_mux: Some(C::MUX),
         }
     }
 
@@ -324,6 +410,32 @@ impl BbqHalfParts {
             dma_req: T::RX_DMA_REQUEST.number(),
             vtable: BbqVtable::for_lpuart::<T>(),
             which: WhichHalf::Rx,
+            flow_pin: None,
+            flow_mux: None,
+        }
+    }
+
+    /// Create an RX-only `BbqHalfParts` with RTS hardware flow control.
+    pub fn new_rx_half_with_rts<T: BbqInstance, P: RxPin<T>, R: RtsPin<T>>(
+        _inner: Peri<'static, T>,
+        _irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>> + 'static,
+        rx_pin: Peri<'static, P>,
+        buffer: &'static mut [u8],
+        dma_ch: impl Into<DmaChannel<'static>>,
+        rts_pin: Peri<'static, R>,
+    ) -> Self {
+        Self {
+            buffer,
+            dma_ch: dma_ch.into(),
+            pin: rx_pin.into(),
+            mux: P::MUX,
+            info: T::info(),
+            state: T::bbq_state(),
+            dma_req: T::RX_DMA_REQUEST.number(),
+            vtable: BbqVtable::for_lpuart::<T>(),
+            which: WhichHalf::Rx,
+            flow_pin: Some(rts_pin.into()),
+            flow_mux: Some(R::MUX),
         }
     }
 
@@ -348,6 +460,35 @@ impl BbqHalfParts {
             dma_req: T::RX_DMA_REQUEST.number(),
             vtable: BbqVtable::for_lpuart::<T>(),
             which: WhichHalf::Rx,
+            flow_pin: None,
+            flow_mux: None,
+        }
+    }
+
+    /// Setup an RX-only half with RTS flow control while binding GPIO to the RX pin.
+    /// This allows later use of async functions on the RX pin.
+    pub fn new_rx_half_with_rts_async<T: BbqInstance, P: RxPin<T> + HasGpioInstance, R: RtsPin<T>>(
+        _inner: Peri<'static, T>,
+        irq: impl Binding<T::Interrupt, BbqInterruptHandler<T>>
+        + Binding<<P::Instance as crate::gpio::Instance>::Interrupt, crate::gpio::InterruptHandler<P::Instance>>
+        + 'static,
+        rx_pin: Peri<'static, P>,
+        buffer: &'static mut [u8],
+        dma_ch: impl Into<DmaChannel<'static>>,
+        rts_pin: Peri<'static, R>,
+    ) -> Self {
+        Self {
+            buffer,
+            dma_ch: dma_ch.into(),
+            pin: rx_pin.degrade_async(irq),
+            mux: P::MUX,
+            info: T::info(),
+            state: T::bbq_state(),
+            dma_req: T::RX_DMA_REQUEST.number(),
+            vtable: BbqVtable::for_lpuart::<T>(),
+            which: WhichHalf::Rx,
+            flow_pin: Some(rts_pin.into()),
+            flow_mux: Some(R::MUX),
         }
     }
 }
@@ -362,11 +503,22 @@ impl LpuartBbq {
         any_as_tx(&parts.tx_pin, parts.tx_mux);
         any_as_rx(&parts.rx_pin, parts.rx_mux);
 
+        // Configure optional flow-control pins (only when a mux is present; a
+        // teardown-reclaimed pin arrives already configured with mux == None).
+        if let (Some(cts), Some(mux)) = (&parts.cts_pin, parts.cts_mux) {
+            any_as_cts(cts, mux);
+        }
+        if let (Some(rts), Some(mux)) = (&parts.rts_pin, parts.rts_mux) {
+            any_as_rts(rts, mux);
+        }
+        let enable_cts = parts.cts_pin.is_some();
+        let enable_rts = parts.rts_pin.is_some();
+
         // Configure UART peripheral
         // TODO make this a specific Bbq mode instead of using blocking
-        // TODO support CTS/RTS pins?
 
-        let _wg = (parts.vtable.lpuart_init)(true, true, false, false, config.into()).map_err(BbqError::Basic)?;
+        let _wg =
+            (parts.vtable.lpuart_init)(true, true, enable_cts, enable_rts, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the TX state
         //
@@ -427,7 +579,7 @@ impl LpuartBbq {
                 mux: parts.tx_mux,
                 _tx_pins: TxPins {
                     tx_pin: parts.tx_pin,
-                    cts_pin: None,
+                    cts_pin: parts.cts_pin,
                 },
                 _wg: _wg.clone(),
             },
@@ -438,7 +590,7 @@ impl LpuartBbq {
                 mux: parts.rx_mux,
                 _rx_pins: RxPins {
                     rx_pin: parts.rx_pin,
-                    rts_pin: None,
+                    rts_pin: parts.rts_pin,
                 },
                 _wg,
             },
@@ -499,6 +651,10 @@ impl LpuartBbq {
             info: tx_parts.info,
             state: tx_parts.state,
             vtable: tx_parts.vtable,
+            cts_pin: tx_parts.flow_pin,
+            cts_mux: tx_parts.flow_mux,
+            rts_pin: rx_parts.flow_pin,
+            rts_mux: rx_parts.flow_mux,
         }
     }
 }
@@ -585,10 +741,15 @@ impl LpuartBbqTx {
         // Set as TX pin mode
         any_as_tx(&parts.pin, parts.mux);
 
+        // Configure optional CTS pin (skip reconfig for a teardown-reclaimed pin, mux == None).
+        if let (Some(cts), Some(mux)) = (&parts.flow_pin, parts.flow_mux) {
+            any_as_cts(cts, mux);
+        }
+        let enable_cts = parts.flow_pin.is_some();
+
         // Configure UART peripheral
         // TODO make this a specific Bbq mode instead of using blocking
-        // TODO support CTS pin?
-        let _wg = (parts.vtable.lpuart_init)(true, false, false, false, config.into()).map_err(BbqError::Basic)?;
+        let _wg = (parts.vtable.lpuart_init)(true, false, enable_cts, false, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the TX Half state
         //
@@ -619,7 +780,7 @@ impl LpuartBbqTx {
             vtable: parts.vtable,
             _tx_pins: TxPins {
                 tx_pin: parts.pin,
-                cts_pin: None,
+                cts_pin: parts.flow_pin,
             },
             _wg,
             mux: parts.mux,
@@ -769,16 +930,23 @@ impl LpuartBbqTx {
         // SAFETY: see above.
         let _wg: Option<WakeGuard> = unsafe { core::ptr::read(&self._wg) };
 
+        // Reclaim the data pin and (already-configured) CTS pin. The flow mux is
+        // intentionally None: the reclaimed pin stays configured across a
+        // teardown->rebuild cycle (take() forgets, so Drop never disabled it).
+        let (data_pin, cts_pin) = tx_pins.take();
+
         let parts = BbqHalfParts {
             buffer: tx_buffer,
             dma_ch: tx_dma,
-            pin: tx_pins.take().0,
+            pin: data_pin,
             dma_req: self.state.txdma_num.load(Ordering::Relaxed),
             mux: self.mux,
             info: self.info,
             state: self.state,
             vtable: self.vtable,
             which: WhichHalf::Tx,
+            flow_pin: cts_pin,
+            flow_mux: None,
         };
 
         // Prevent Drop::drop from re-running teardown_inner (which would re-enter the
@@ -917,10 +1085,15 @@ impl LpuartBbqRx {
         // Set RX pin mode
         any_as_rx(&parts.pin, parts.mux);
 
+        // Configure optional RTS pin (skip reconfig for a teardown-reclaimed pin, mux == None).
+        if let (Some(rts), Some(mux)) = (&parts.flow_pin, parts.flow_mux) {
+            any_as_rts(rts, mux);
+        }
+        let enable_rts = parts.flow_pin.is_some();
+
         // Configure UART peripheral
         // TODO make this a specific Bbq mode instead of using blocking
-        // TODO support RTS pin?
-        let _wg = (parts.vtable.lpuart_init)(false, true, false, false, config.into()).map_err(BbqError::Basic)?;
+        let _wg = (parts.vtable.lpuart_init)(false, true, false, enable_rts, config.into()).map_err(BbqError::Basic)?;
 
         // Setup the RX half state
         let len = parts.buffer.len();
@@ -974,7 +1147,7 @@ impl LpuartBbqRx {
             mux: parts.mux,
             _rx_pins: RxPins {
                 rx_pin: parts.pin,
-                rts_pin: None,
+                rts_pin: parts.flow_pin,
             },
             _wg,
         })
@@ -1119,16 +1292,23 @@ impl LpuartBbqRx {
         // SAFETY: see above.
         let _wg: Option<WakeGuard> = unsafe { core::ptr::read(&self._wg) };
 
+        // Reclaim the data pin and (already-configured) RTS pin. The flow mux is
+        // intentionally None: the reclaimed pin stays configured across a
+        // teardown->rebuild cycle (take() forgets, so Drop never disabled it).
+        let (data_pin, rts_pin) = rx_pins.take();
+
         let parts = BbqHalfParts {
             buffer: rx_buffer,
             dma_ch: rx_dma,
-            pin: rx_pins.take().0,
+            pin: data_pin,
             dma_req: self.state.rxdma_num.load(Ordering::Relaxed),
             mux: self.mux,
             info: self.info,
             state: self.state,
             vtable: self.vtable,
             which: WhichHalf::Rx,
+            flow_pin: rts_pin,
+            flow_mux: None,
         };
 
         // Prevent Drop::drop from re-running teardown_inner (which would re-enter the
@@ -1682,4 +1862,18 @@ fn any_as_rx(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::Mux) {
     pin.set_pull(crate::gpio::Pull::Disabled);
     pin.set_function(mux);
     pin.set_enable_input_buffer(true);
+}
+
+fn any_as_cts(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::Mux) {
+    pin.set_pull(crate::gpio::Pull::Disabled);
+    pin.set_function(mux);
+    pin.set_enable_input_buffer(true);
+}
+
+fn any_as_rts(pin: &Peri<'_, AnyPin>, mux: crate::pac::port::Mux) {
+    pin.set_pull(crate::gpio::Pull::Disabled);
+    pin.set_slew_rate(crate::gpio::SlewRate::Fast.into());
+    pin.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
+    pin.set_function(mux);
+    pin.set_enable_input_buffer(false);
 }

@@ -16,6 +16,7 @@ use crate::{RegExt, pac, peripherals};
 /// `(top + 1) * (phase_correct ? 1 : 2) * divider`
 #[non_exhaustive]
 #[derive(Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Inverts the PWM output signal on channel A.
     pub invert_a: bool,
@@ -63,6 +64,7 @@ impl Default for Config {
 }
 
 /// PWM input mode.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InputMode {
     /// Level mode.
     Level,
@@ -84,6 +86,7 @@ impl From<InputMode> for Divmode {
 
 /// PWM error.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum PwmError {
     /// Invalid Duty Cycle.
     InvalidDutyCycle,

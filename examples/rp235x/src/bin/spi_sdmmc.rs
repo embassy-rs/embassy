@@ -7,6 +7,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
 use embassy_rp::spi::Spi;
@@ -14,7 +15,7 @@ use embassy_rp::{gpio, spi};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_sdmmc::sdcard::{DummyCsPin, SdCard};
 use gpio::{Level, Output};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 struct DummyTimesource();
 
@@ -31,7 +32,7 @@ impl embedded_sdmmc::TimeSource for DummyTimesource {
     }
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 

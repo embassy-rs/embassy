@@ -6,9 +6,10 @@ use core::cell::RefCell;
 use cortex_m::interrupt::Mutex;
 use cortex_m::peripheral::NVIC;
 use cortex_m_rt::entry;
+use defmt_rtt as _;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::{interrupt, pac};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 static BUTTON: Mutex<RefCell<Option<Input<'static>>>> = Mutex::new(RefCell::new(None));
 static LED: Mutex<RefCell<Option<Output<'static>>>> = Mutex::new(RefCell::new(None));

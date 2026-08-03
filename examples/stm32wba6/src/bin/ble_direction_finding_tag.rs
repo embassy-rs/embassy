@@ -34,6 +34,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::aes::{self, Aes};
@@ -49,8 +50,8 @@ use embassy_stm32_wpan::bluetooth::gatt::{
 };
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
+use panic_probe as _;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;

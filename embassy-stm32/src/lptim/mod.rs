@@ -2,13 +2,14 @@
 
 pub mod pwm;
 pub mod timer;
+pub(crate) mod vals;
 
 use crate::rcc::RccPeripheral;
 
 /// Timer channel.
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 mod channel;
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 pub use channel::Channel;
 use embassy_hal_internal::PeripheralType;
 

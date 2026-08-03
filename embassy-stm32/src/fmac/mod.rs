@@ -24,7 +24,7 @@ trait SealedInstance {
     }
 
     fn read_q16(&self) -> Q16<15> {
-        Q16::new(self.read_result() as i16)
+        Q16::from_bits(self.read_result() as i16)
     }
 
     fn write_input(&self, x: u16) {
@@ -32,12 +32,8 @@ trait SealedInstance {
     }
 
     fn write_q16(&self, x: Q16<15>) {
-        self.write_input(x.inner as u16);
+        self.write_input(x.into_bits() as u16);
     }
-
-    //fn rdata() -> *const u16 {
-    //    Self::regs().rdata().as_ptr() as *const u16
-    //}
 
     #[allow(dead_code)]
     fn wdata() -> *mut u32 {

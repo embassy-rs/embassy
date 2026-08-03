@@ -513,7 +513,7 @@ fn enable_low_power_peripherals() {
         w.set_eth1rxlpen(true);
         w.set_eth1txlpen(true);
         w.set_eth1maclpen(true);
-        w.set_gpulpen(true);
+        w.set_gpu2dlpen(true);
         w.set_gfxmmulpen(true);
         w.set_mce4lpen(true);
         w.set_xspi3lpen(true);
@@ -1397,6 +1397,7 @@ pub(crate) unsafe fn init(config: Config) {
         // dedicated prescaler in `RCC_*` — derived from sys through the
         // common AHB prescaler.
         hclku: Some(clocks.ahb),
+        hclke: Some(clocks.ahb),
         pclk1: Some(clocks.apb1),
         pclk2: Some(clocks.apb2),
         pclk1_tim: Some(clocks.pclk_tim),
@@ -1407,6 +1408,7 @@ pub(crate) unsafe fn init(config: Config) {
         per: Some(clocks.perclk),
         rtc: osc.rtc,
         i2s_ckin: None,
+        spdif_symb: None,
         ic1: clock_inputs.ic1,
         ic2: clock_inputs.ic2,
         ic3: clock_inputs.ic3,

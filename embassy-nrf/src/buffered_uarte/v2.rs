@@ -443,6 +443,9 @@ impl<'a, U: UarteInstance> Drop for BufferedUarteTx<'a, U> {
         let s = U::buffered_state();
         unsafe { s.tx_buf.deinit() }
 
+        // This is used during the interrupt to check if it is its first execution
+        s.rx_started.swap(false, Ordering::Relaxed);
+
         let s = U::state();
         drop_tx_rx(r, s);
     }

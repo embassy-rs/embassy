@@ -47,7 +47,7 @@ impl ROMFunctions for f32 {
 
     fn to_trig_range(self) -> Self {
         // -128 < X < 128, logic from the Pico SDK
-        let exponent = (self.repr() & Self::EXPONENT_MASK) >> Self::SIGNIFICAND_BITS;
+        let exponent = (self.repr() & <Self as Float>::EXPONENT_MASK) >> Self::SIGNIFICAND_BITS;
         if exponent < 134 {
             self
         } else {
@@ -86,7 +86,7 @@ impl ROMFunctions for f64 {
 
     fn to_trig_range(self) -> Self {
         // -1024 < X < 1024, logic from the Pico SDK
-        let exponent = (self.repr() & Self::EXPONENT_MASK) >> Self::SIGNIFICAND_BITS;
+        let exponent = (self.repr() & <Self as Float>::EXPONENT_MASK) >> Self::SIGNIFICAND_BITS;
         if exponent < 1033 {
             self
         } else {

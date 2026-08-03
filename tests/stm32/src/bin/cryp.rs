@@ -6,12 +6,13 @@
 mod common;
 
 use aes_gcm::Aes128Gcm;
-use aes_gcm::aead::heapless::Vec;
-use aes_gcm::aead::{AeadInPlace, KeyInit};
+use aes_gcm::aead::{AeadInOut, KeyInit};
+use aes_gcm::aes::cipher::InOutBuf;
 use common::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::*;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[cfg_attr(
     feature = "stop",
@@ -31,10 +32,12 @@ async fn main(_spawner: Spawner) {
     let irq = irqs!(UART);
 
     let mut hw_cryp = Cryp::new(p.CRYP, in_dma, out_dma, irq);
+
     let key: [u8; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+    let iv: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
     let mut ciphertext: [u8; PAYLOAD1.len() + PAYLOAD2.len()] = [0; PAYLOAD1.len() + PAYLOAD2.len()];
     let mut plaintext: [u8; PAYLOAD1.len() + PAYLOAD2.len()] = [0; PAYLOAD1.len() + PAYLOAD2.len()];
-    let iv: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
     // Encrypt in hardware using AES-GCM 128-bit in blocking mode.
     let aes_gcm = AesGcm::new(&key, &iv);
@@ -61,18 +64,37 @@ async fn main(_spawner: Spawner) {
     defmt::assert!(encrypt_tag == decrypt_tag);
 
     // Encrypt in software using AES-GCM 128-bit
-    let mut payload_vec: Vec<u8, { PAYLOAD1.len() + PAYLOAD2.len() + 16 }> = Vec::from_slice(&PAYLOAD1).unwrap();
-    payload_vec.extend_from_slice(&PAYLOAD2).unwrap();
     let cipher = Aes128Gcm::new(&key.into());
-    let mut aad: Vec<u8, { AAD1.len() + AAD2.len() }> = Vec::from_slice(&AAD1).unwrap();
-    aad.extend_from_slice(&AAD2).unwrap();
-    let _ = cipher.encrypt_in_place(&iv.into(), &aad, &mut payload_vec);
 
-    defmt::assert!(ciphertext == payload_vec[0..ciphertext.len()]);
-    defmt::assert!(encrypt_tag == payload_vec[ciphertext.len()..ciphertext.len() + encrypt_tag.len()]);
+    // Build AAD on the stack
+    let mut aad = [0u8; AAD1.len() + AAD2.len()];
+    aad[..AAD1.len()].copy_from_slice(AAD1);
+    aad[AAD1.len()..].copy_from_slice(AAD2);
 
-    // Decrypt in software using AES-GCM 128-bit
-    cipher.decrypt_in_place(&iv.into(), &aad, &mut payload_vec).unwrap();
+    // Build software payload buffer on the stack
+    let mut sw_buf = [0u8; PAYLOAD1.len() + PAYLOAD2.len()];
+    sw_buf[..PAYLOAD1.len()].copy_from_slice(PAYLOAD1);
+    sw_buf[PAYLOAD1.len()..].copy_from_slice(PAYLOAD2);
+
+    // Encrypt in-place; tag returned separately (no Buffer trait needed)
+    let sw_tag = cipher
+        .encrypt_inout_detached(&iv.into(), &aad, InOutBuf::from(&mut sw_buf[..]))
+        .unwrap();
+
+    defmt::assert!(ciphertext == sw_buf);
+
+    // Explicit type annotation avoids ambiguous AsRef impls on hybrid_array::Array
+    let encrypt_tag_slice: &[u8] = encrypt_tag.as_ref();
+    let sw_tag_slice: &[u8] = sw_tag.as_ref();
+    defmt::assert!(encrypt_tag_slice == sw_tag_slice);
+
+    // Decrypt in-place; pass the tag back for verification
+    cipher
+        .decrypt_inout_detached(&iv.into(), &aad, InOutBuf::from(&mut sw_buf[..]), &sw_tag)
+        .unwrap();
+
+    defmt::assert!(PAYLOAD1 == &sw_buf[..PAYLOAD1.len()]);
+    defmt::assert!(PAYLOAD2 == &sw_buf[PAYLOAD1.len()..]);
 
     info!("Test OK");
     cortex_m::asm::bkpt();

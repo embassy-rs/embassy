@@ -1,8 +1,10 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use pac::gpio::vals;
-use {defmt_rtt as _, panic_probe as _, stm32_metapac as pac};
+use panic_probe as _;
+use stm32_metapac as pac;
 
 #[cortex_m_rt::entry]
 fn main() -> ! {

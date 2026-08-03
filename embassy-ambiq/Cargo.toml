@@ -1,0 +1,79 @@
+[package]
+name = "embassy-ambiq"
+version = "0.1.0"
+edition = "2024"
+description = "Embassy Hardware Abstraction Layer for Ambiq microcontrollers"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-ambiq"
+
+[package.metadata.embassy]
+build = [
+    { target = "thumbv7em-none-eabihf", features = ["apollo3", "time-driver-stimer-xtal-32768"] }
+]
+
+[package.metadata.docs.rs]
+features = ["apollo3", "time-driver-stimer-xtal-32768"]
+rustdoc-args = ["--cfg", "docsrs"]
+[dependencies]
+# Embassy Core
+embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
+
+# HAL Traits
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+
+# ARM Cortex-M basics
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+critical-section = "1.1"
+
+# Logging
+defmt = { version = "0.3", optional = true }
+
+# Macro helpers
+paste = "1.0"
+
+# Device PACs 
+[dependencies.apollo3-pac]
+version = "0.2.0"
+optional = true
+features = ["rt"]
+
+[features]
+default = ["apollo3", "time-driver-stimer-xtal-32768"]
+
+# --- Time driver ---
+# Enable AT MOST ONE `time-driver-*` backend. Each one bundles the hardware timer, its
+# clock source, AND the matching embassy-time tick rate, so there is no separate knob to
+# get wrong.
+_time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
+
+## STIMER from the 32.768 kHz crystal — the divider sets the tick rate:
+time-driver-stimer-xtal-32768 = ["_time-driver", "_stimer", "_xtal-div1",  "embassy-time-driver?/tick-hz-32_768"] # XTAL/1  = 32768 Hz
+time-driver-stimer-xtal-16384 = ["_time-driver", "_stimer", "_xtal-div2",  "embassy-time-driver?/tick-hz-16_384"] # XTAL/2  = 16384 Hz
+time-driver-stimer-xtal-1024  = ["_time-driver", "_stimer", "_xtal-div32", "embassy-time-driver?/tick-hz-1_024"]  # XTAL/32 = 1024 Hz
+## STIMER from the LFRC (~1 kHz, uncalibrated, lowest power).
+time-driver-stimer-lfrc       = ["_time-driver", "_stimer", "_lfrc",       "embassy-time-driver?/tick-hz-1_024"]
+## CTIMER0 @ 1 MHz, HFRC/16. EXPERIMENTAL: the continuous-mode compare is one-shot, so
+## alarms do not re-arm (blinks once). Kept for reference only.
+time-driver-ctimer0           = ["_time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
+
+# Internal markers — do not enable directly.
+_stimer = []
+_xtal-div1 = []
+_xtal-div2 = []
+_xtal-div32 = []
+_lfrc = []
+
+# Chip features
+apollo3 = ["dep:apollo3-pac"]
+
+# Bootloader features
+svl-vtor = []
+
+# Other features
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "apollo3-pac?/defmt"]

@@ -497,9 +497,9 @@ impl SyncExecutor {
 ///   that "want to run").
 /// - You must supply a pender function, as shown below. The executor will call it to notify you
 ///   it has work to do. You must arrange for `poll()` to be called as soon as possible.
-/// - Enabling `arch-xx` features will define a pender function for you. This means that you
+/// - Enabling `platform-xx` features will define a pender function for you. This means that you
 ///   are limited to using the executors provided to you by the architecture/platform
-///   implementation. If you need a different executor, you must not enable `arch-xx` features.
+///   implementation. If you need a different executor, you must not enable `platform-xx` features.
 ///
 /// The pender can be called from *any* context: any thread, any interrupt priority
 /// level, etc. It may be called synchronously from any `Executor` method call as well.

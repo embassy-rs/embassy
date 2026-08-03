@@ -8,20 +8,21 @@ use core::slice;
 use core::str::FromStr;
 
 use defmt::{info, unwrap, warn};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Cidr, Stack, StackResources};
 use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{Runner, State, TraceBuffer, TraceReader, context};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
-use embassy_nrf::cryptocell_rng::CcRng;
+use embassy_nrf::cryptocell::rng::CcRng;
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_nrf::uarte::Baudrate;
 use embassy_nrf::{Peri, bind_interrupts, interrupt, peripherals, uarte};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
 use heapless::Vec;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 #[interrupt]
 fn IPC() {

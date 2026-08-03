@@ -6,6 +6,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
@@ -14,13 +15,13 @@ use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, SPI0};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1};
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
@@ -31,7 +32,7 @@ async fn ethernet_task(
     runner: Runner<
         'static,
         W5500,
-        ExclusiveDevice<Spi<'static, SPI0, Async>, Output<'static>, Delay>,
+        ExclusiveDevice<Spi<'static, Async>, Output<'static>, Delay>,
         Input<'static>,
         Output<'static>,
     >,
@@ -44,7 +45,7 @@ async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> 
     runner.run().await
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let mut rng = RoscRng;

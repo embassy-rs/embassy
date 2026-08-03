@@ -3,13 +3,14 @@
 
 use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::vals::Exten;
 use embassy_stm32::adc::{Adc, AdcChannel, RegularAdcTrigger, SampleTime, Temperature, VrefInt};
 use embassy_stm32::triggers::TIM1_CH1;
 use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::{Delay, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA2_STREAM2 => dma::InterruptHandler<peripherals::DMA2_CH2>;

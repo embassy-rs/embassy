@@ -20,7 +20,7 @@ use crate::time::Hertz;
 use crate::timer::TimerChannel;
 #[cfg(timer_v2)]
 use crate::timer::low_level::DitheringConfig;
-use crate::timer::low_level::OutputCompareMode;
+use crate::timer::low_level::{MasterMode, OutputCompareMode};
 use crate::timer::simple_pwm::PwmPinConfig;
 
 /// Complementary PWM pin wrapper.
@@ -443,6 +443,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.get_break2_input_pin_enable()
     }
 
+    /// Set Master Slave Mode
+    pub fn set_master_mode(&mut self, mms: MasterMode) {
+        self.inner.set_master_mode(mms);
+    }
+
     /// Set Master Slave Mode 2
     pub fn set_mms2(&mut self, mms2: Mms2) {
         self.inner.set_mms2_selection(mms2);
@@ -478,6 +483,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// occurs.
     pub fn set_frequency(&mut self, freq: Hertz) {
         self.inner.set_frequency(freq, RoundTo::Slower);
+    }
+
+    /// Get the PWM driver frequency.
+    pub fn get_frequency(&self) -> Hertz {
+        self.inner.get_frequency()
     }
 
     /// Set the PWM period in milliseconds.

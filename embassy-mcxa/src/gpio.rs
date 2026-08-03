@@ -324,6 +324,8 @@ pub(crate) trait SealedPin {
     fn set_enable_input_buffer(&self, buffer_enabled: bool);
 
     fn set_as_disabled(&self);
+
+    fn set_input_enabled(&self, input_enabled: bool);
 }
 
 /// GPIO pin trait.
@@ -412,6 +414,15 @@ impl SealedPin for AnyPin {
         // Set pin as disabled
         self.gpio().pidr().modify(|w| w.set_pid(self.pin() as usize, Pid::Pid1));
     }
+
+    #[inline(always)]
+    fn set_input_enabled(&self, input_enabled: bool) {
+        // if `input_enabled` is true then we want Pid0 since this means "Configured for general-purpose input."
+        // if `input_enabled` is false then we want Pid1 since this means "Disabled for general-purpose input".
+        self.gpio()
+            .pidr()
+            .modify(|w| w.set_pid(self.pin() as usize, if input_enabled { Pid::Pid0 } else { Pid::Pid1 }))
+    }
 }
 
 impl GpioPin for AnyPin {}
@@ -486,7 +497,14 @@ macro_rules! impl_gpio_pin {
                     // Set mode as GPIO (vs other potential functions)
                     self.set_function(crate::pac::port::Mux::Mux0);
                     // Set pin as disabled
-                    self.gpio().pidr().modify(|w| w.set_pid(self.pin() as usize, crate::pac::gpio::Pid::Pid1));
+                    self.set_input_enabled(false);
+                }
+
+                #[inline(always)]
+                fn set_input_enabled(&self, input_enabled: bool) {
+                    // if `input_enabled` is true then we want Pid0 since this means "Configured for general-purpose input."
+                    // if `input_enabled` is false then we want Pid1 since this means "Disabled for general-purpose input".
+                    self.gpio().pidr().modify(|w| w.set_pid(self.pin() as usize, if input_enabled { crate::pac::gpio::Pid::Pid0 } else { crate::pac::gpio::Pid::Pid1 }))
                 }
             }
 

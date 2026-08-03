@@ -1,6 +1,9 @@
 use core::ptr::write_volatile;
 use core::sync::atomic::{Ordering, fence};
 
+use pac::flash::regs::Nssr;
+use stm32_metapac::flash::vals;
+
 use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
@@ -98,12 +101,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     clear_all_err();
 
     pac::FLASH.nscr().modify(|r| {
-        // TODO: later check bank swap
-        r.set_bksel(match sector.bank {
-            crate::flash::FlashBank::Bank1 => stm32_metapac::flash::vals::NscrBksel::B0x0,
-            crate::flash::FlashBank::Bank2 => stm32_metapac::flash::vals::NscrBksel::B0x1,
-            _ => unreachable!(),
-        });
+        r.set_bksel(bank_logical_to_physical(sector.bank));
         r.set_snb(sector.index_in_bank);
         r.set_ser(true);
     });
@@ -162,5 +160,72 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
 
             return Ok(());
         }
+    }
+}
+
+/// Get the current SWAP_BANK option.
+///
+/// This value is only loaded on system or power-on reset. `perform_bank_swap()`
+/// will not reflect here.
+pub fn banks_swapped() -> bool {
+    pac::FLASH.optcr().read().swap_bank() == vals::OptcrSwapBank::B0x1
+}
+
+/// Logical, persistent swap of flash banks 1 and 2.
+///
+/// This allows the application to write a new firmware blob into bank 2, then
+/// swap the banks and perform a reset, loading the new firmware.
+///
+/// Swap does not take effect until system or power-on reset.
+///
+/// PLEASE READ THE REFERENCE MANUAL - there are nuances to this feature. For
+/// instance, erase commands and interrupt enables which take a flash bank as a
+/// parameter ignore the swap!
+pub fn perform_bank_swap() {
+    while busy() {}
+
+    unsafe {
+        clear_all_err();
+    }
+
+    // unlock OPTLOCK
+    pac::FLASH.optkeyr().write(|w| *w = 0x0819_2A3B);
+    pac::FLASH.optkeyr().write(|w| *w = 0x4C5D_6E7F);
+    while pac::FLASH.optcr().read().optlock() {}
+
+    let new_state = if banks_swapped() {
+        vals::OptsrSwapBank::B0x0
+    } else {
+        vals::OptsrSwapBank::B0x1
+    };
+
+    // toggle SWAP_BANK option
+    pac::FLASH.optsr_prg().modify(|w| w.set_swap_bank(new_state));
+
+    // load option bytes
+    pac::FLASH.optcr().modify(|w| w.set_optstrt(true));
+    while pac::FLASH.optcr().read().optstrt() {}
+
+    // re-lock OPTLOCK
+    pac::FLASH.optcr().modify(|w| w.set_optlock(true));
+}
+
+fn sr_busy(sr: Nssr) -> bool {
+    // Note: RM0492 sometimes incorrectly refers to WBNE as NSWBNE
+    sr.bsy() || sr.dbne() || sr.wbne()
+}
+
+fn busy() -> bool {
+    let sr = pac::FLASH.nssr().read();
+    sr_busy(sr)
+}
+
+fn bank_logical_to_physical(logical: crate::flash::FlashBank) -> vals::NscrBksel {
+    match (logical, banks_swapped()) {
+        (crate::flash::FlashBank::Bank1, false) => vals::NscrBksel::B0x0, // Bank1
+        (crate::flash::FlashBank::Bank1, true) => vals::NscrBksel::B0x1,  // Bank2
+        (crate::flash::FlashBank::Bank2, false) => vals::NscrBksel::B0x1, // Bank2
+        (crate::flash::FlashBank::Bank2, true) => vals::NscrBksel::B0x0,  // Bank1
+        _ => unreachable!(),
     }
 }
