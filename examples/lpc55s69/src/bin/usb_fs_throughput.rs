@@ -41,7 +41,7 @@ async fn main(_spawner: Spawner) {
         driver,
         &mut resources,
         Params {
-            pid: 0xcafe,
+            pid: 0xcb07,
             product: "USB-FS throughput test",
             serial: "12345678",
             max_speed: UsbDeviceSpeed::Full,

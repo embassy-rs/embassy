@@ -22,7 +22,7 @@ pub async fn run<
     resources: &'d mut Resources<'d>,
     params: Params,
 ) {
-    let (mut usb, mut class) = crate::cdc(driver, resources, params, MPS as u16);
+    let (mut usb, mut class) = crate::cdc_winusb(driver, resources, params, MPS as u16);
 
     let benchmark = async {
         loop {
