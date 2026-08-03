@@ -4,9 +4,25 @@
 #![allow(clippy::doc_markdown)]
 #![allow(clippy::missing_errors_doc)]
 
-// This example works on a Bristlemouth dev kit from Sofar Ocean.
-// The webserver shows the actual temperature of the onboard i2c temp sensor.
+//! 10BASE-T1L networking over an ADIN2111 in OPEN Alliance TC6 mode, on a
+//! Bristlemouth dev kit from Sofar Ocean.
+//!
+//! Each kit:
+//!   - derives a stable identity (node id, MAC, IPv6 address) from its factory
+//!     chip UID, the same way the Bristlemouth C firmware does, so no board
+//!     needs to be individually programmed;
+//!   - serves a small web page showing the temperature read from the on-board
+//!     BME280 over I2C;
+//!   - finds its neighbors on the segment with a UDP multicast beacon, and
+//!     fetches their page every few seconds;
+//!   - uses the two Bristlefin LEDs for activity: LED 1 green while serving a
+//!     request, LED 2 a green heartbeat flash per sensor reading, red on a
+//!     sensor fault.
+//!
+//! Point two kits at each other over Bristlemouth and each will discover and
+//! poll the other with no configuration.
 
+use core::cell::Cell;
 use core::sync::atomic::{AtomicI32, Ordering};
 
 use defmt::{Format, error, info, println, unwrap};
@@ -16,7 +32,8 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_futures::yield_now;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv6Address, Ipv6Cidr, Stack, StackResources, StaticConfigV6};
+use embassy_net::udp::{PacketMetadata, UdpSocket};
+use embassy_net::{IpAddress, IpEndpoint, Ipv6Address, Ipv6Cidr, Stack, StackResources, StaticConfigV6};
 use embassy_net_adin1110::{ADIN1110, Device, Runner, Tc6, TxPort};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
@@ -26,7 +43,8 @@ use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{Config as SPI_Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, exti, interrupt, pac, peripherals};
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_sync::blocking_mutex::Mutex as BlockingMutex;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Delay, Duration, Ticker, Timer};
 use embedded_hal_async::i2c::I2c as I2cBus;
@@ -229,12 +247,15 @@ async fn main(spawner: Spawner) {
     });
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(device, ip_cfg, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
 
+    // Announce ourselves and listen for peers, then poll whichever peer we find.
+    spawner.spawn(unwrap!(discovery_task(stack, node_id)));
+    spawner.spawn(unwrap!(neighbor_fetch_task(stack)));
 
     let cfg = wait_for_config(stack).await;
     let local_addr = cfg.address.address();
@@ -300,6 +321,209 @@ async fn main(spawner: Spawner) {
                 error!("LED 1 update failed: {}", e);
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Peer discovery
+//
+// A node's address is a pure function of its node id, so learning a peer's id
+// is the same as learning its address: no address exchange or configuration is
+// needed, and every board can run byte-identical firmware.
+//
+// Each node multicasts its own id once a second and remembers the ids it hears.
+// This is the same idea as the heartbeat in Bristlemouth's own BCMP
+// (`bm_core/bcmp/heartbeat.c`), reduced to the few lines this example needs. It
+// is deliberately *not* wire-compatible with BCMP, and uses its own multicast
+// group so these packets cannot be mistaken for real Bristlemouth traffic.
+// ---------------------------------------------------------------------------
+
+/// Multicast group for the discovery beacon. Link-local scope, because one
+/// Bristlemouth segment is a single L2 broadcast domain.
+const DISCOVERY_GROUP: Ipv6Address = Ipv6Address::new(0xff02, 0, 0, 0, 0, 0, 0, 0x0042);
+/// UDP port for the discovery beacon.
+const DISCOVERY_PORT: u16 = 4242;
+/// How often each node announces itself.
+const BEACON_INTERVAL: Duration = Duration::from_secs(1);
+/// A beacon payload is just the sender's node id, big endian.
+const BEACON_LEN: usize = 8;
+
+/// Node id of the most recently heard peer, or 0 before we have heard any.
+///
+/// One slot is enough to have two kits find each other, which is what this
+/// example demonstrates. A node that had to talk to several peers at once would
+/// keep a table of (node id, last heard) instead and expire stale entries, the
+/// way BCMP's neighbor table does.
+static PEER_NODE_ID: BlockingMutex<CriticalSectionRawMutex, Cell<u64>> = BlockingMutex::new(Cell::new(0));
+
+/// Announce this node's id on the discovery group, and record the ids of peers.
+#[embassy_executor::task]
+async fn discovery_task(stack: Stack<'static>, my_node_id: u64) -> ! {
+    let mut rx_meta = [PacketMetadata::EMPTY; 8];
+    let mut rx_buffer = [0u8; 256];
+    let mut tx_meta = [PacketMetadata::EMPTY; 8];
+    let mut tx_buffer = [0u8; 256];
+
+    // Without joining the group the interface drops the peers' beacons, so we
+    // would still announce ourselves but never hear anybody.
+    if let Err(e) = stack.join_multicast_group(DISCOVERY_GROUP) {
+        error!("Discovery: could not join {}: {:?}", DISCOVERY_GROUP, e);
+    }
+
+    let mut socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
+    unwrap!(socket.bind(DISCOVERY_PORT));
+
+    let group = IpEndpoint::new(IpAddress::Ipv6(DISCOVERY_GROUP), DISCOVERY_PORT);
+    let mut beacon = Ticker::every(BEACON_INTERVAL);
+    let mut buf = [0u8; 64];
+
+    loop {
+        match select(beacon.next(), socket.recv_from(&mut buf)).await {
+            // Time to announce ourselves.
+            Either::First(()) => {
+                if let Err(e) = socket.send_to(&my_node_id.to_be_bytes(), group).await {
+                    error!("Discovery: beacon send failed: {:?}", e);
+                }
+            }
+            // Somebody else announced themselves.
+            Either::Second(Ok((len, _meta))) => {
+                let Ok(payload) = <[u8; BEACON_LEN]>::try_from(&buf[..len.min(buf.len())]) else {
+                    // Not one of ours; something else is using this group.
+                    continue;
+                };
+                let peer = u64::from_be_bytes(payload);
+                // A node receives its own multicasts, so filter ourselves out.
+                if peer == 0 || peer == my_node_id {
+                    continue;
+                }
+                if PEER_NODE_ID.lock(|p| p.replace(peer)) != peer {
+                    info!("Discovery: found peer {:016x} at {}", peer, node_ip(peer).address());
+                }
+            }
+            Either::Second(Err(e)) => error!("Discovery: beacon receive failed: {:?}", e),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Neighbour fetch
+//
+// Acts as a client against the identical web server running on the discovered
+// peer, which exercises the link in both directions at once: each kit is
+// serving its own page while fetching the other's.
+// ---------------------------------------------------------------------------
+
+/// How often to fetch the neighbor's page.
+const NEIGHBOR_FETCH_INTERVAL: Duration = Duration::from_secs(5);
+/// Give up on a connect or a read that takes longer than this.
+const NEIGHBOR_FETCH_TIMEOUT: Duration = Duration::from_secs(3);
+/// Treat the response as complete once the peer has been quiet this long.
+const NEIGHBOR_QUIET_TIME: Duration = Duration::from_millis(500);
+
+/// Pull the temperature out of a page served by [`PAGE`].
+///
+/// Coupled to the markup in `PAGE`: the reading sits between the sensor label
+/// and the degree sign. Keep the two in step if the page changes.
+fn scrape_temperature(body: &str) -> Option<&str> {
+    body.split("BME280:</td><td> ").nth(1)?.split(" &deg;").next()
+}
+
+/// Fetch `http://[peer]/` from the discovered neighbor, once every
+/// [`NEIGHBOR_FETCH_INTERVAL`], and log what came back.
+#[embassy_executor::task]
+async fn neighbor_fetch_task(stack: Stack<'static>) -> ! {
+    let mut rx_buffer = [0u8; 2048];
+    let mut tx_buffer = [0u8; 512];
+    let mut response = [0u8; 2048];
+
+    let mut ticker = Ticker::every(NEIGHBOR_FETCH_INTERVAL);
+    let mut seq: u32 = 0;
+
+    loop {
+        ticker.next().await;
+        seq += 1;
+
+        let peer = PEER_NODE_ID.lock(Cell::get);
+        if peer == 0 {
+            info!("Fetch #{}: no peer discovered yet", seq);
+            continue;
+        }
+        let neighbor_ip = node_ip(peer).address();
+        let remote = IpEndpoint::new(IpAddress::Ipv6(neighbor_ip), HTTP_LISTEN_PORT);
+
+        let started = embassy_time::Instant::now();
+        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+        socket.set_timeout(Some(NEIGHBOR_FETCH_TIMEOUT));
+
+        info!("Fetch #{}: connecting to {}...", seq, remote);
+        match embassy_time::with_timeout(NEIGHBOR_FETCH_TIMEOUT, socket.connect(remote)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                error!("Fetch #{}: connect failed: {:?}", seq, e);
+                continue;
+            }
+            Err(_) => {
+                error!(
+                    "Fetch #{}: connect timed out after {}ms",
+                    seq,
+                    NEIGHBOR_FETCH_TIMEOUT.as_millis()
+                );
+                continue;
+            }
+        }
+
+        let mut request = [0u8; 128];
+        let capacity = request.len();
+        let request_len = {
+            let mut cursor = &mut request[..];
+            let _ = write!(cursor, "GET / HTTP/1.1\r\nHost: [{neighbor_ip}]\r\nX-Fetch-Seq: {seq}\r\n\r\n");
+            capacity - cursor.len()
+        };
+
+        if let Err(e) = socket.write_all(&request[..request_len]).await {
+            error!("Fetch #{}: write failed: {:?}", seq, e);
+            socket.abort();
+            continue;
+        }
+
+        // The server keeps the connection open waiting for another request
+        // rather than closing after one response, so treat a pause as the end
+        // of the body instead of waiting for EOF.
+        let mut total = 0usize;
+        loop {
+            match embassy_time::with_timeout(NEIGHBOR_QUIET_TIME, socket.read(&mut response[total..])).await {
+                // Clean EOF, or the peer has gone quiet: the response is complete.
+                Ok(Ok(0)) | Err(_) => break,
+                Ok(Ok(n)) => {
+                    total += n;
+                    if total == response.len() {
+                        break;
+                    }
+                }
+                Ok(Err(e)) => {
+                    error!("Fetch #{}: read failed after {} bytes: {:?}", seq, total, e);
+                    break;
+                }
+            }
+        }
+
+        let elapsed = started.elapsed().as_millis();
+        if total == 0 {
+            error!("Fetch #{}: no response ({}ms)", seq, elapsed);
+        } else {
+            let body = core::str::from_utf8(&response[..total]);
+            let status = body.map_or("<invalid utf8>", |b| b.split("\r\n").next().unwrap_or("<empty>"));
+            let temperature = body.ok().and_then(scrape_temperature).unwrap_or("<not found>");
+            info!(
+                "Fetch #{}: {} | {} bytes in {}ms | neighbor temperature: {}",
+                seq, status, total, elapsed, temperature
+            );
+        }
+
+        // Close rather than abort: the server reads until EOF, so sending a FIN
+        // lets it finish its request loop cleanly instead of seeing a reset.
+        socket.close();
+        let _ = embassy_time::with_timeout(NEIGHBOR_QUIET_TIME, socket.flush()).await;
     }
 }
 
