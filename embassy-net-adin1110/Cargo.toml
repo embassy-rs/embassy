@@ -29,8 +29,13 @@ critical-section = { version = "1.1.2", features = ["std"] }
 futures-test = "0.3.28"
 
 [features]
+default = ["generic-spi"]
 defmt = ["dep:defmt", "embedded-hal-1/defmt-03"]
 log = ["dep:log"]
+## Enable the generic SPI protocol (SPI_CFG0 strap high or low with CRC)
+generic-spi = []
+## Enable the OPEN Alliance TC6 (10BASE-T1x MAC-PHY serial interface) SPI protocol
+tc6 = []
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-adin1110-v$VERSION/embassy-net-adin1110/src/"

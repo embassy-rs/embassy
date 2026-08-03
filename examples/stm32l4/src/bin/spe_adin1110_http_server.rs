@@ -23,7 +23,7 @@ use embassy_futures::select::{Either, select};
 use embassy_futures::yield_now;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
-use embassy_net_adin1110::{ADIN1110, Device, Runner};
+use embassy_net_adin1110::{ADIN1110, Device, GenericSpi, Runner};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
@@ -62,7 +62,7 @@ const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 5), 24)
 const HTTP_LISTEN_PORT: u16 = 80;
 
 pub type SpeSpi = Spi<'static, Async, Master>;
-pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
+pub type SpeSpiCs = GenericSpi<ExclusiveDevice<SpeSpi, Output<'static>, Delay>>;
 pub type SpeInt = exti::ExtiInput<'static, Async>;
 pub type SpeRst = Output<'static>;
 pub type Adin1110T = ADIN1110<SpeSpiCs>;
@@ -152,7 +152,7 @@ async fn main(spawner: Spawner) {
         Irqs,
         spi_config,
     );
-    let spe_spi = SpeSpiCs::new(spe_spi, spe_spi_cs_n, Delay);
+    let spe_spi = ExclusiveDevice::new(spe_spi, spe_spi_cs_n, Delay);
 
     let cfg0_without_crc = spe_cfg0.is_high();
     let cfg1_spi_mode = spe_cfg1.is_high();

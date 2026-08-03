@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Added OPEN Alliance TC6 SPI protocol support (ADIN2111 in OPEN Alliance SPI mode)
+
 ## 0.4.0 - 2026-03-10
 
 - Update embassy-net-driver-channel to 0.4.0
