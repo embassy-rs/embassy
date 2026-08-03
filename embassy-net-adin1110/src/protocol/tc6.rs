@@ -165,6 +165,9 @@ pub struct Tc6<SPI> {
     rx_len: usize,
     /// A frame start (SV) was seen and its end (EV) is still pending.
     in_frame: bool,
+    /// `CONFIG0.PROTE` is set: every control data word is followed by its
+    /// bitwise complement, in both directions.
+    protected: bool,
 }
 
 impl<SPI> Tc6<SPI> {
@@ -180,7 +183,19 @@ impl<SPI> Tc6<SPI> {
             rx_buf: [0; MAX_FRAME_SIZE],
             rx_len: 0,
             in_frame: false,
+            protected: false,
         }
+    }
+
+    /// Select whether control transactions use the protected format, in which
+    /// each data word is followed by its bitwise complement.
+    ///
+    /// This must match `CONFIG0.PROTE`, which some boards strap on at reset. A
+    /// mismatch is silent in one direction: an unprotected read of a protected
+    /// MAC-PHY still returns the right value in the first word, but an
+    /// unprotected *write* is discarded without any error indication.
+    pub fn set_protected(&mut self, protected: bool) {
+        self.protected = protected;
     }
 
     /// Receive chunks are available in the MAC-PHY, as of the last footer.
@@ -477,11 +492,12 @@ impl<SPI: SpiDevice> Adin1110Protocol for Tc6<SPI> {
         let header = Self::control_header(false, addr);
         let header_bytes = header.to_be_bytes();
 
-        // Transaction layout on the wire (3 words):
-        //   MOSI: header, dummy, dummy
-        //   MISO: dummy, echoed header, register value
-        let mut rx_buf = [0u8; 8];
-        let mut ops = [Operation::Write(&header_bytes), Operation::Read(&mut rx_buf)];
+        // Transaction layout on the wire (3 words, 4 when protected):
+        //   MOSI: header, dummy, dummy[, dummy]
+        //   MISO: dummy, echoed header, register value[, !register value]
+        let mut rx_buf = [0u8; 12];
+        let rx = if self.protected { &mut rx_buf[..] } else { &mut rx_buf[..8] };
+        let mut ops = [Operation::Write(&header_bytes), Operation::Read(rx)];
         self.spi.transaction(&mut ops).await.map_err(AdinError::Spi)?;
 
         let echoed = u32::from_be_bytes(rx_buf[0..4].try_into().unwrap());
@@ -490,6 +506,13 @@ impl<SPI: SpiDevice> Adin1110Protocol for Tc6<SPI> {
         }
 
         let value = u32::from_be_bytes(rx_buf[4..8].try_into().unwrap());
+
+        if self.protected {
+            let complement = u32::from_be_bytes(rx_buf[8..12].try_into().unwrap());
+            if complement != !value {
+                return Err(AdinError::TC6_PROTECTION);
+            }
+        }
 
         trace!("TC6 REG Read {:04x} = {:08x}", addr, value);
 
@@ -503,17 +526,33 @@ impl<SPI: SpiDevice> Adin1110Protocol for Tc6<SPI> {
 
         trace!("TC6 REG Write {:04x} = {:08x}", addr, value);
 
-        // Transaction layout on the wire (3 words):
-        //   MOSI: header, value, dummy
-        //   MISO: dummy, echoed header, echoed value
+        // Transaction layout on the wire, one word longer when protected:
+        //   MOSI: header, value[, !value], dummy
+        //   MISO: dummy, echoed header, echoed value[, echoed !value]
+        // The total length must match exactly what the MAC-PHY expects for the
+        // configured format, a longer transaction is a framing error.
+        let complement_bytes = (!value).to_be_bytes();
         let mut echo = [0u8; 4];
         let mut ignored = [0u8; 4];
-        let mut ops = [
-            Operation::Write(&header_bytes),
-            Operation::Transfer(&mut echo, &value_bytes),
-            Operation::Read(&mut ignored),
-        ];
-        self.spi.transaction(&mut ops).await.map_err(AdinError::Spi)?;
+        let mut protected_ops;
+        let mut plain_ops;
+        let ops: &mut [Operation<'_, u8>] = if self.protected {
+            protected_ops = [
+                Operation::Write(&header_bytes),
+                Operation::Transfer(&mut echo, &value_bytes),
+                Operation::Write(&complement_bytes),
+                Operation::Read(&mut ignored),
+            ];
+            &mut protected_ops
+        } else {
+            plain_ops = [
+                Operation::Write(&header_bytes),
+                Operation::Transfer(&mut echo, &value_bytes),
+                Operation::Read(&mut ignored),
+            ];
+            &mut plain_ops
+        };
+        self.spi.transaction(ops).await.map_err(AdinError::Spi)?;
 
         if u32::from_be_bytes(echo) != header {
             return Err(AdinError::SPI_TC6_HEADER_MISMATCH);

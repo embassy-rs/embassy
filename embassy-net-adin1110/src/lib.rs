@@ -73,6 +73,8 @@ pub enum AdinError<E> {
     TC6_SYNC,
     /// Timed out waiting for TC6 transmit credits or receive chunks
     TC6_TIMEOUT,
+    /// A protected control read returned data that did not match its complement
+    TC6_PROTECTION,
 }
 
 /// Type alias `Result` type with `AdinError` as error type.
@@ -223,6 +225,12 @@ impl<SPI: SpiDevice> ADIN1110<Tc6<SPI>> {
     /// Create a driver instance using the OPEN Alliance TC6 SPI protocol.
     pub fn new_tc6(spi: SPI, append_fcs_on_tx: bool, tx_port: TxPort) -> Self {
         Self::new(Tc6::new(spi, append_fcs_on_tx, tx_port))
+    }
+
+    /// Match the control transaction format to `CONFIG0.PROTE`.
+    /// See [`Tc6::set_protected`].
+    pub fn set_protected(&mut self, protected: bool) {
+        self.protocol.set_protected(protected);
     }
 }
 
@@ -517,6 +525,7 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
             AdinError::SPI_TC6_HEADER_MISMATCH => error!("{} TC6 header rejected/mismatched", ctx),
             AdinError::TC6_SYNC => error!("{} TC6 configuration lost (SYNC=0)!", ctx),
             AdinError::TC6_TIMEOUT => error!("{} TC6 timeout waiting for the MAC-PHY", ctx),
+            AdinError::TC6_PROTECTION => error!("{} TC6 protected read integrity check failed", ctx),
             AdinError::MDIO_ACC_TIMEOUT => error!("{} MDIO access timeout", ctx),
             AdinError::Spi(e) => error!("{} SPI bus error {}", ctx, e.kind()),
         }
@@ -804,6 +813,15 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
 
     debug!("SPE: CHIP MAC/ID: {:08x}", PHYID_ADIN2111);
 
+    // `CONFIG0.PROTE` is strap-configurable, so read back what the MAC-PHY came
+    // up with and match the control transaction format to it. This read is
+    // still correct in the unprotected format: the protected format only
+    // appends a complement word we have not clocked out yet.
+    let strapped_config0 = Config0(mac.read_reg(sr::CONFIG0).await.unwrap());
+    let protected = strapped_config0.prote();
+    debug!("SPE: control data protection: {}", protected);
+    mac.set_protected(protected);
+
     #[cfg(any(feature = "defmt", feature = "log"))]
     {
         let adin_phy = Phy10BaseT1x::default();
@@ -828,8 +846,11 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
 
     // Config0: keep the default 64-byte chunk payload size (CPS=6), configure
     // who appends the FCS on transmit. SYNC is set at the end of init.
+    // PROTE must keep the value it was strapped to, it selects the control
+    // transaction format we are talking to the chip with.
     let mut config0 = Config0(0x0000_0006);
     config0.set_txfcsve(append_fcs_on_tx);
+    config0.set_prote(protected);
     mac.write_reg(sr::CONFIG0, config0.0).await.unwrap();
 
     // Config2, matching the ADI reference driver configuration for the
