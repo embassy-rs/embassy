@@ -48,13 +48,54 @@ bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL13 => embassy_stm32::dma::InterruptHandler<peripherals::GPDMA1_CH13>;
 });
 
-// Basic settings
-// MAC-address used by the adin1110
-const MAC: [u8; 6] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
-// Static IP settings
-const IP_ADDRESS: Ipv6Cidr = Ipv6Cidr::new(Ipv6Address::new(0xfd00, 0, 0, 0, 0xc0ff, 0xeef0, 0xcacc, 0x1a99), 64);
 // Listen port for the webserver
 const HTTP_LISTEN_PORT: u16 = 80;
+
+/// Bristlemouth node ID: an FNV-1a 64 hash of the 96-bit factory chip UID, so
+/// every board gets a stable identity with nothing to program per unit.
+///
+/// This mirrors `getNodeId()` in bm_protocol (`src/lib/common/device_info.c`),
+/// which is `fnv_64a_buf(UID, 12, 0)`. Note the starting hash value is 0, not
+/// the usual FNV-1a offset basis of 0xcbf29ce484222325 that `fnv.h` itself
+/// recommends. That is what the C code passes, and matching it is what makes a
+/// board running this firmware keep the identity it had under the C firmware.
+fn node_id() -> u64 {
+    const FNV_64_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    // `uid()` hands back the three 32-bit UID words as little-endian bytes,
+    // which is the same byte order the C code hashes them in.
+    let mut hash: u64 = 0;
+    for byte in embassy_stm32::uid::uid() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_64_PRIME);
+    }
+    hash
+}
+
+/// The node's IPv6 address: `fd00::` with the node ID as the bottom 64 bits.
+/// Matches `bm_ip_init()` in bm_core (`network/bm_lwip.c`).
+fn node_ip(id: u64) -> Ipv6Cidr {
+    let b = id.to_be_bytes();
+    let addr = Ipv6Address::new(
+        0xfd00,
+        0,
+        0,
+        0,
+        u16::from_be_bytes([b[0], b[1]]),
+        u16::from_be_bytes([b[2], b[3]]),
+        u16::from_be_bytes([b[4], b[5]]),
+        u16::from_be_bytes([b[6], b[7]]),
+    );
+    Ipv6Cidr::new(addr, 64)
+}
+
+/// The node's MAC address: two zero bytes followed by the bottom 32 bits of the
+/// node ID. Matches `mac_address()` in bm_core (`common/device.c`); the leading
+/// 16 bits are common to all Bristlemouth devices and are zero for now.
+fn node_mac(id: u64) -> [u8; 6] {
+    let b = id.to_be_bytes();
+    [0x00, 0x00, b[4], b[5], b[6], b[7]]
+}
 
 pub type SpeSpi = Spi<'static, Async, Master>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
@@ -97,6 +138,14 @@ async fn main(spawner: Spawner) {
 
     let reset_status = pac::RCC.bdcr().read().0;
     defmt::println!("bdcr before: 0x{:X}", reset_status);
+
+    // Derive this board's stable identity from its factory chip UID.
+    let node_id = node_id();
+    let mac = node_mac(node_id);
+    let ip_address = node_ip(node_id);
+    info!("Bristlemouth node id: {:016x}", node_id);
+    info!("  MAC: {:02x}", mac);
+    info!("  IP:  {}", ip_address.address());
 
     defmt::println!("Setup IO pins");
 
@@ -162,7 +211,7 @@ async fn main(spawner: Spawner) {
     Timer::after_millis(90).await;
 
     let (device, runner) =
-        embassy_net_adin1110::new_tc6(MAC, state, spe_spi, spe_int, spe_reset_n, false, TxPort::Flood).await;
+        embassy_net_adin1110::new_tc6(mac, state, spe_spi, spe_int, spe_reset_n, false, TxPort::Flood).await;
 
     // Start the environmental sensor task, which doubles as the heartbeat.
     spawner.spawn(unwrap!(temp_task(I2cDevice::new(i2c_bus), leds)));
@@ -174,7 +223,7 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     let ip_cfg = embassy_net::Config::ipv6_static(StaticConfigV6 {
-        address: IP_ADDRESS,
+        address: ip_address,
         gateway: None,
         dns_servers: Vec::new(),
     });
