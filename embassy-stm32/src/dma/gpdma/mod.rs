@@ -529,7 +529,7 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
 
     let state = &STATE[channel as usize];
 
-    let ch = info.dma.cast().ch(info.num);
+    let ch = info.dma.ch(info.num);
     let sr = ch.sr().read();
 
     if sr.dtef() {
