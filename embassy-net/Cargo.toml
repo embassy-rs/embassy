@@ -109,7 +109,7 @@ std = ["xarxa/std"]
 alloc = ["xarxa/alloc"]
 ## Enable xarxa packetmeta-id feature
 packetmeta-id = [ "xarxa/packetmeta-id", "embassy-net-driver/packetmeta-id" ]
-packetmeta-timestamp = [ "xarxa/packetmeta-timestamp", "embassy-net-driver/packetmeta-timestamp", "packetmeta-id" ]
+packetmeta-timestamp = [ "xarxa/packetmeta-timestamp", "embassy-net-driver/packetmeta-timestamp" ]
 
 [dependencies]
 

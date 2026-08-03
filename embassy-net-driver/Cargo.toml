@@ -32,4 +32,4 @@ defmt = { version = "1.0.1", optional = true }
 [features]
 defmt = ["dep:defmt"]
 packetmeta-id = []
-packetmeta-timestamp = []
+packetmeta-timestamp = ["packetmeta-id"]
