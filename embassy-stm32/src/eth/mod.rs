@@ -8,8 +8,6 @@ compile_error!("The 'ptp' feature is only supported on STM32 Ethernet MAC v2/v2a
 #[cfg_attr(any(eth_v2, eth_v2a, eth_v2b), path = "v2/mod.rs")]
 mod _version;
 mod generic_phy;
-#[cfg(feature = "ptp")]
-mod ptp;
 mod sma;
 
 use core::mem::MaybeUninit;
@@ -22,10 +20,6 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 pub use crate::eth::_version::{InterruptHandler, *};
 pub use crate::eth::generic_phy::*;
-#[cfg(feature = "ptp")]
-use crate::eth::ptp::{PacketState, PtpTimestampSink};
-#[cfg(feature = "ptp")]
-pub use crate::eth::ptp::{PtpTimestamp, PtpTimestampStore};
 pub use crate::eth::sma::{Instance as SmaInstance, Sma, StationManagement};
 use crate::pac::eth::Eth as Regs;
 
@@ -52,40 +46,23 @@ pub struct PacketQueue<const TX: usize, const RX: usize> {
     tx_buf: [Packet<TX_BUFFER_SIZE>; TX],
     rx_buf: [Packet<RX_BUFFER_SIZE>; RX],
     #[cfg(feature = "ptp")]
-    packet_state: PacketState<TX, RX>,
+    tx_id: [u32; TX],
 }
 
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     /// Create a new packet queue.
     pub const fn new() -> Self {
-        Self::new_inner(
-            #[cfg(feature = "ptp")]
-            PtpTimestampSink::new(),
-        )
+        Self::new_inner()
     }
 
-    /// Create a new packet queue with Ethernet PTP packet timestamps.
-    ///
-    /// The queue records hardware RX/TX timestamps in `timestamps`. Use the
-    /// [`PacketMeta`] supplied by `embassy-net` to retrieve them from the store.
-    ///
-    /// The MAC PTP clock and timestamping registers must be configured
-    /// separately before the hardware will produce timestamps.
-    #[cfg(feature = "ptp")]
-    pub const fn new_with_ptp<const PTP_TX: usize, const PTP_RX: usize>(
-        timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,
-    ) -> Self {
-        Self::new_inner(PtpTimestampSink::from_store(timestamps))
-    }
-
-    const fn new_inner(#[cfg(feature = "ptp")] ptp: PtpTimestampSink) -> Self {
+    const fn new_inner() -> Self {
         Self {
             tx_desc: [const { TDes::new() }; TX],
             rx_desc: [const { RDes::new() }; RX],
             tx_buf: [Packet([0; TX_BUFFER_SIZE]); TX],
             rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
             #[cfg(feature = "ptp")]
-            packet_state: PacketState::new(ptp),
+            tx_id: [0u32; TX],
         }
     }
 
@@ -104,25 +81,6 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     pub fn init(this: &mut MaybeUninit<Self>) {
         unsafe {
             this.as_mut_ptr().write_bytes(0u8, 1);
-            #[cfg(feature = "ptp")]
-            (&raw mut (*this.as_mut_ptr()).packet_state).write(PacketState::new(PtpTimestampSink::new()));
-        }
-    }
-
-    /// Initialize a packet queue in-place with Ethernet PTP packet timestamps.
-    ///
-    /// This is the PTP equivalent of [`PacketQueue::init`]. It avoids a
-    /// temporary stack allocation of the full packet queue while still attaching
-    /// the timestamp store used for packet timestamp lookup.
-    #[cfg(feature = "ptp")]
-    pub fn init_with_ptp<const PTP_TX: usize, const PTP_RX: usize>(
-        this: &mut MaybeUninit<Self>,
-        timestamps: &'static PtpTimestampStore<PTP_TX, PTP_RX>,
-    ) {
-        unsafe {
-            this.as_mut_ptr().write_bytes(0u8, 1);
-            (&raw mut (*this.as_mut_ptr()).packet_state)
-                .write(PacketState::new(PtpTimestampSink::from_store(timestamps)));
         }
     }
 }
@@ -141,8 +99,6 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         WAKER.register(cx.waker());
-        #[cfg(feature = "ptp")]
-        self.tx.collect_completed();
 
         if let Some(rx) = self.rx.available()
             && let Some(tx) = self.tx.available()
@@ -174,6 +130,7 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
         }
     }
 
+    #[inline]
     fn capabilities(&self) -> Capabilities {
         let mut caps = Capabilities::default();
         caps.max_transmission_unit = MTU;
@@ -188,7 +145,19 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
             caps.checksum.tcp = Checksum::None;
             caps.checksum.udp = Checksum::None;
         }
+        #[cfg(feature = "ptp")]
+        {
+            caps.timestamp = true;
+        }
+
         caps
+    }
+
+    #[cfg(feature = "ptp")]
+    fn poll_timestamp(&mut self, cx: &mut Context) -> Option<embassy_net_driver::TxTimestamp> {
+        WAKER.register(cx.waker());
+
+        self.tx.poll_timestamp()
     }
 
     fn link_state(&mut self, cx: &mut Context) -> LinkState {

@@ -1,12 +1,10 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
 #[cfg(feature = "ptp")]
-use embassy_net_driver::PacketMeta;
+use embassy_net_driver::{PacketMeta, Timestamp};
 use vcell::VolatileCell;
 
 use crate::eth::TX_BUFFER_SIZE;
-#[cfg(feature = "ptp")]
-use crate::eth::packet_state::TxPacketStateRing;
 use crate::pac::ETH;
 
 /// Transmit and Receive Descriptor fields
@@ -49,6 +47,13 @@ mod tx_consts {
     // Transmit buffer size
     pub const TXDESC_1_TBS_SHIFT: usize = 0;
     pub const TXDESC_1_TBS_MASK: u32 = 0x0fff << TXDESC_1_TBS_SHIFT;
+
+    #[cfg(any(eth_v1b, eth_v1c))]
+    // Transmit Time Stamp Enable
+    pub const TXDESC_0_TTSE: u32 = 1 << 25;
+    #[cfg(any(eth_v1b, eth_v1c))]
+    // Transmit Time Stamp Status (write-back)
+    pub const TXDESC_0_TTSS: u32 = 1 << 17;
 }
 use tx_consts::*;
 
@@ -157,14 +162,31 @@ impl TDes {
             }
         }
     }
+
+    #[cfg(feature = "ptp")]
+    fn timestamp(&self) -> Option<Timestamp> {
+        #[cfg(any(eth_v1b, eth_v1c))]
+        {
+            (self.tdes0.get() & TXDESC_0_TTSS != 0)
+                .then(|| Timestamp::from_seconds_and_nanos(self.tdes7.get(), self.tdes6.get()))
+        }
+        #[cfg(not(any(eth_v1b, eth_v1c)))]
+        {
+            None
+        }
+    }
 }
 
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
     buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
     #[cfg(feature = "ptp")]
-    state: TxPacketStateRing<'a>,
+    ids: &'a mut [u32],
     index: usize,
+    #[cfg(feature = "ptp")]
+    completion_index: usize,
+    #[cfg(feature = "ptp")]
+    enable_timestamp: bool,
 }
 
 impl<'a> TDesRing<'a> {
@@ -172,10 +194,12 @@ impl<'a> TDesRing<'a> {
     pub(crate) fn new(
         descriptors: &'a mut [TDes],
         buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-        #[cfg(feature = "ptp")] state: TxPacketStateRing<'a>,
+        #[cfg(feature = "ptp")] ids: &'a mut [u32],
     ) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
+        #[cfg(feature = "ptp")]
+        assert!(ids.len() == descriptors.len());
 
         for (i, entry) in descriptors.iter().enumerate() {
             entry.setup(descriptors.get(i + 1));
@@ -190,8 +214,12 @@ impl<'a> TDesRing<'a> {
             descriptors,
             buffers,
             #[cfg(feature = "ptp")]
-            state,
+            ids,
             index: 0,
+            #[cfg(feature = "ptp")]
+            completion_index: 0,
+            #[cfg(feature = "ptp")]
+            enable_timestamp: false,
         }
     }
 
@@ -210,8 +238,51 @@ impl<'a> TDesRing<'a> {
     }
 
     #[cfg(feature = "ptp")]
+    pub(crate) fn poll_timestamp(&mut self) -> Option<embassy_net_driver::TxTimestamp> {
+        loop {
+            let descriptor = &self.descriptors[self.completion_index];
+            if self.completion_index == self.index || !descriptor.available() {
+                break None;
+            }
+
+            let timestamp = descriptor.timestamp();
+            let packet_id = self.ids[self.completion_index];
+            if packet_id != 0 {
+                if timestamp.is_some() {
+                    trace!(
+                        "eth ptp tx complete idx={} packet_id={} tdes0={:#010x} tdes7={} tdes6={}",
+                        self.completion_index,
+                        packet_id,
+                        descriptor.tdes0.get(),
+                        descriptor.tdes7.get(),
+                        descriptor.tdes6.get()
+                    );
+                } else {
+                    trace!(
+                        "eth ptp tx complete no-ts idx={} packet_id={} tdes0={:#010x} tdes1={:#010x}",
+                        self.completion_index,
+                        packet_id,
+                        descriptor.tdes0.get(),
+                        descriptor.tdes1.get()
+                    );
+                }
+            }
+
+            self.completion_index = (self.completion_index + 1) % self.descriptors.len();
+
+            if let Some(timestamp) = timestamp {
+                break Some(embassy_net_driver::TxTimestamp {
+                    id: packet_id,
+                    timestamp: timestamp,
+                });
+            }
+        }
+    }
+
+    #[cfg(feature = "ptp")]
     pub(crate) fn set_meta(&mut self, meta: PacketMeta) {
-        self.state.set_meta(meta);
+        self.enable_timestamp = meta.request_timestamp;
+        self.ids[self.index] = meta.id;
     }
 
     /// Transmit the packet written in a buffer returned by `available`.
@@ -221,8 +292,20 @@ impl<'a> TDesRing<'a> {
 
         descriptor.set_buffer1(self.buffers[self.index].0.as_ptr());
         descriptor.set_buffer1_len(len);
+
         #[cfg(feature = "ptp")]
-        self.state.commit(self.index);
+        if self.enable_timestamp {
+            descriptor.tdes0.set(descriptor.tdes0.get() | TXDESC_0_TTSE);
+            trace!(
+                "eth ptp tx submit idx={} packet_id={} len={} tdes0={:#010x}",
+                self.index,
+                self.ids[self.index],
+                len,
+                descriptor.tdes0.get()
+            );
+        } else {
+            descriptor.tdes0.set(descriptor.tdes0.get() & !TXDESC_0_TTSE);
+        }
 
         descriptor.set_owned();
 
@@ -231,12 +314,16 @@ impl<'a> TDesRing<'a> {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::Release);
 
-        // Move the index to the next descriptor
-        self.index += 1;
-        if self.index == self.descriptors.len() {
-            self.index = 0
-        }
         // Request the DMA engine to poll the latest tx descriptor
-        ETH.ethernet_dma().dmatpdr().modify(|w| w.0 = 1)
+        ETH.ethernet_dma().dmatpdr().modify(|w| w.0 = 1);
+
+        // Invalidate state
+        #[cfg(feature = "ptp")]
+        {
+            self.enable_timestamp = false;
+        }
+
+        // Increment index.
+        self.index = (self.index + 1) % self.descriptors.len();
     }
 }
