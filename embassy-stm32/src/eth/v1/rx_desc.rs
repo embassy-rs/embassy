@@ -315,7 +315,7 @@ impl<'a> RDesRing<'a> {
 
             // If packet is invalid, pop it and try again.
             if !info.valid() {
-                warn!("invalid packet: {:08x}", info.rdes0);
+                debug!("invalid packet: {:08x}", info.rdes0);
                 self.pop_packet();
                 continue;
             }

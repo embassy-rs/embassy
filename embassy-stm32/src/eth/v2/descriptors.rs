@@ -400,7 +400,7 @@ impl<'a> RDesRing<'a> {
 
             // If packet is invalid, pop it and try again.
             if !info.valid() {
-                warn!("invalid packet: {:08x}", self.descriptors[self.index].rdes0.get());
+                debug!("invalid packet: {:08x}", self.descriptors[self.index].rdes0.get());
                 self.pop_current();
                 continue;
             }
