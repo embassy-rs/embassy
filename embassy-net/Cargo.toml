@@ -29,7 +29,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp", "packetmeta-id"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp", "packetmeta-id", "packetmeta-timestamp"]},
     # Xtensa builds
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "medium-ethernet", "packet-trace"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "multicast", "medium-ethernet"]},
