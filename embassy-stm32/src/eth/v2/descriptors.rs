@@ -107,7 +107,7 @@ pub(crate) struct TDesRing<'a> {
     ids: &'a mut [u32],
     index: usize,
     #[cfg(feature = "ptp")]
-    completion_index: usize,
+    in_flight: usize,
     #[cfg(feature = "ptp")]
     enable_timestamp: bool,
 }
@@ -121,6 +121,8 @@ impl<'a> TDesRing<'a> {
     ) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
+        #[cfg(feature = "ptp")]
+        assert!(ids.len() == descriptors.len());
 
         for td in descriptors.iter_mut() {
             *td = TDes::new();
@@ -140,7 +142,7 @@ impl<'a> TDesRing<'a> {
             ids,
             index: 0,
             #[cfg(feature = "ptp")]
-            completion_index: 0,
+            in_flight: 0,
             #[cfg(feature = "ptp")]
             enable_timestamp: false,
         }
@@ -152,6 +154,13 @@ impl<'a> TDesRing<'a> {
 
     /// Return the next available packet buffer for transmitting, or None
     pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
+        #[cfg(feature = "ptp")]
+        // If every descriptor is already submitted but not yet polled,
+        // the slot at `index` has not been polled and must not be reused.
+        if self.in_flight == self.len() {
+            return None;
+        }
+
         let d = &mut self.descriptors[self.index];
         if d.available() {
             Some(&mut self.buffers[self.index].0)
@@ -163,18 +172,20 @@ impl<'a> TDesRing<'a> {
     #[cfg(feature = "ptp")]
     pub(crate) fn poll_timestamp(&mut self) -> Option<embassy_net_driver::TxTimestamp> {
         loop {
-            let descriptor = &self.descriptors[self.completion_index];
-            if self.completion_index == self.index || !descriptor.available() {
+            let completion_index = (self.index + self.descriptors.len() - self.in_flight) % self.descriptors.len();
+            let descriptor = &self.descriptors[completion_index];
+
+            if self.in_flight == 0 || !descriptor.available() {
                 break None;
             }
 
             let timestamp = descriptor.timestamp();
-            let packet_id = self.ids[self.completion_index];
+            let packet_id = self.ids[completion_index];
             if packet_id != 0 {
                 if timestamp.is_some() {
                     trace!(
                         "eth ptp tx complete idx={} packet_id={} tdes3={:#010x} tdes1={} tdes0={}",
-                        self.completion_index,
+                        completion_index,
                         packet_id,
                         descriptor.tdes3.get(),
                         descriptor.tdes1.get(),
@@ -183,7 +194,7 @@ impl<'a> TDesRing<'a> {
                 } else {
                     trace!(
                         "eth ptp tx complete no-ts idx={} packet_id={} tdes3={:#010x} tdes2={:#010x}",
-                        self.completion_index,
+                        completion_index,
                         packet_id,
                         descriptor.tdes3.get(),
                         descriptor.tdes2.get()
@@ -191,7 +202,7 @@ impl<'a> TDesRing<'a> {
                 }
             }
 
-            self.completion_index = (self.completion_index + 1) % self.descriptors.len();
+            self.in_flight -= 1;
 
             if let Some(timestamp) = timestamp {
                 break Some(embassy_net_driver::TxTimestamp {
@@ -249,6 +260,7 @@ impl<'a> TDesRing<'a> {
         #[cfg(feature = "ptp")]
         {
             self.enable_timestamp = false;
+            self.in_flight += 1;
         }
 
         // Increment index.

@@ -8,6 +8,12 @@ use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::Peri;
 
+#[cfg(feature = "ptp")]
+mod ptp;
+
+#[cfg(feature = "ptp")]
+pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement, PtpTimeProvider};
+
 pub(crate) use self::rx_desc::{RDes, RDesRing};
 pub(crate) use self::tx_desc::{TDes, TDesRing};
 use super::*;
@@ -58,6 +64,8 @@ pub struct Ethernet<'d, T: Instance, P: Phy> {
     _pins: Pins<'d>,
     pub(crate) phy: P,
     pub(crate) mac_addr: [u8; 6],
+    #[cfg(feature = "ptp")]
+    ptp_clock_taken: bool,
 }
 
 /// Pins of ethernet driver.
@@ -309,7 +317,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         // TODO MTU size setting not found for v1 ethernet, check if correct
 
         #[cfg(feature = "ptp")]
-        let (tx_state, rx_state) = queue.packet_state.split();
+        let tx_ids = &mut queue.tx_id;
 
         let mut this = Self {
             _peri: peri,
@@ -321,14 +329,11 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
                 &mut queue.tx_desc,
                 &mut queue.tx_buf,
                 #[cfg(feature = "ptp")]
-                tx_state,
+                tx_ids,
             ),
-            rx: RDesRing::new(
-                &mut queue.rx_desc,
-                &mut queue.rx_buf,
-                #[cfg(feature = "ptp")]
-                rx_state,
-            ),
+            rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
+            #[cfg(feature = "ptp")]
+            ptp_clock_taken: false,
         };
 
         fence(Ordering::SeqCst);
@@ -411,6 +416,18 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         ]);
 
         Self::new_inner(queue, peri, irq, pins, phy, mac_addr, false)
+    }
+
+    /// Start the Ethernet MAC PTP clock.
+    #[cfg(feature = "ptp")]
+    pub fn start_ptp(&mut self, config: PtpClockConfig) -> PtpClock<T> {
+        if self.ptp_clock_taken {
+            panic!("Ethernet PTP clock already started");
+        }
+
+        let clock = PtpClock::start(config);
+        self.ptp_clock_taken = true;
+        clock
     }
 }
 
