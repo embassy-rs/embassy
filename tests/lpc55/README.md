@@ -11,6 +11,10 @@ Each firmware prints `Test OK` and stops at a breakpoint on success. On failure,
 
 - Connect a debug probe from the host to the SWD header. `probe-rs` flashes and runs through it.
   The onboard LPC-LINK2 (CMSIS-DAP) and external probes such as the SEGGER J-Link both work.
+  On Windows, `probe-rs` opens the probe through WinUSB. The onboard LPC-LINK2 brings its own,
+  while a J-Link normally arrives bound to SEGGER's driver, which probe-rs refuses with
+  `incompatible driver is installed`. [Zadig](https://zadig.akeo.ie/) rebinds it to WinUSB,
+  after which SEGGER's own tools no longer see that probe.
 - Connect **P10** for USB0 full-speed tests and **P9** for USB1 high-speed tests.
 - The `alloc`, `alloc_small`, and `bus_raw` tests need no host cable. Their firmware never starts
   either USB bus.
@@ -29,11 +33,19 @@ python3 tests/lpc55/run.py --only hs_conformance
 python3 tests/lpc55/run.py --keep-going # do not stop at the first failure
 ```
 
+The orchestrator itself needs only the standard library. Every host peer declares its
+dependencies inline (PEP 723) and runs through `uv run --script`, so `uv` has to be on `PATH`
+and nothing else has to be installed.
+
 Run the suite as an unprivileged user. This keeps `cargo` and `probe-rs` on the user's `~/.cargo`
-and target directories. The orchestrator uses `sudo` only for the two conformance entries:
-`sudo -n <this interpreter> host/conformance.py …`. They need raw USB access to the vendor
-interface, so passwordless `sudo` is required. All other entries run as the current user.
-The CDC tests need access to `/dev/ttyACM*`, which is normally owned by `root:dialout`.
+and target directories.
+
+- **Linux**: the two conformance entries need raw USB access to a vendor interface, so those two
+  and only those run as `sudo -n <uv> run --script host/conformance.py …`, which means
+  passwordless `sudo` is required. The CDC tests need access to `/dev/ttyACM*`, normally owned by
+  `root:dialout`.
+- **Windows**: nothing is elevated. The conformance firmware advertises WinUSB, which Windows
+  binds by itself and an ordinary user can open.
 
 Individual firmwares still run standalone:
 
@@ -63,10 +75,18 @@ protocol to set modes, trigger transfers, and read device counters.
 Both controller binaries use the generic implementation in
 [`src/conformance.rs`](src/conformance.rs), so their results are directly comparable.
 
+The firmware also carries MS OS 2.0 descriptors advertising WinUSB compatibility. Windows binds
+no driver at all to a vendor interface on its own, so without them `libusb` cannot even open the
+device; Linux ignores them. One phase still cannot run there: WinUSB rejects `SET_CONFIGURATION`
+from user mode, because the hub driver owns the device configuration. `configuration_cycle`
+therefore prints `skipped: …` on Windows and runs normally on Linux. The device-side invariant it
+contributes to (`disabled_errors >= 2`) is satisfied by the halt and alt-setting phases anyway.
+
 `host/conformance.py` owns every host-observable expectation and runs these phases in order:
 
-1. **descriptors**: negotiated link speed from sysfs (480 or 12 Mbps), endpoint packet sizes,
-   and two alternate settings on interface 0.
+1. **descriptors**: negotiated link speed from `libusb_get_device_speed` (480 or 12 Mbps, the
+   one speed source Linux and Windows share), endpoint packet sizes, and two alternate settings
+   on interface 0.
 2. **control_data**: vendor control echo at 0, 1, 63, 64, 65 and 200 bytes, covering the
    multi-packet `ControlPipe::data_out` loop, the exact-EP0-packet boundary, and a request with
    no data stage.
@@ -83,11 +103,16 @@ Both controller binaries use the generic implementation in
    states and requires a transfer to STALL on the wire. It then clears the halt and requires
    an exact echo to prove that the data toggle reset.
 8. **configuration_cycle**: `SET_CONFIGURATION(0)` must surface as `Disabled` to the endpoint
-   tasks, and `SET_CONFIGURATION(1)` must bring the endpoints back.
+   tasks, and `SET_CONFIGURATION(1)` must bring the endpoints back. Linux only; see above.
 9. **alt_and_iso**: switching to alt setting 1 must disable the bulk endpoints, and
-   `GET_INTERFACE` must report 1. The host then transfers 128 isochronous OUT packets and 128
-   isochronous IN packets, with an 80 % delivery floor and a per-packet payload check. The phase
-   ends by returning to alt 0 and checking an exact bulk echo.
+   `GET_INTERFACE` must report 1. The host then streams 128 isochronous OUT packets and reads 128
+   isochronous IN packets, one transfer per direction, with an 80 % delivery floor and a
+   per-packet payload check. Submitting a transfer per packet instead measures the host's
+   isochronous scheduler rather than the driver: WinUSB restarts the pipe at every transfer
+   boundary, which both drops frames and replays buffered ones, so the device sees anywhere from
+   54 % to 180 % of them. One transfer is byte-exact on both controllers for every size from 1 to
+   128 packets, and 128 is also the most isochronous packets Linux accepts in a single URB. The
+   phase ends by returning to alt 0 and checking an exact bulk echo.
 10. **interrupt_in**: four triggered interrupt IN packets of 1, 8, 15 and 16 bytes.
 
 The device then checks its private state: no payload mismatches, no buffer overflows, at least
@@ -109,13 +134,16 @@ covers the 1023-byte allocation boundary on both controllers.
 Measured on an LPC55S69JBD100 with `examples/lpc55s69/scripts/usb_throughput.py`, CDC-ACM bulk,
 **release builds**:
 
-| Controller | IN (device to host) | OUT (host to device) | Gate (IN / OUT) |
-|------------|---------------------|----------------------|-----------------|
-| USB0 (FS)  | 0.90 MB/s           | 0.82 MB/s            | 0.67 / 0.61     |
-| USBHSD (HS)| 44.5 MB/s           | 17.5 MB/s            | 33.0 / 13.0     |
+| Controller | Host transport | IN (device to host) | OUT (host to device) | Gate (IN / OUT) |
+|------------|----------------|---------------------|----------------------|-----------------|
+| USB0 (FS)  | Linux `cdc_acm` | 0.90 MB/s | 0.82 MB/s | 0.67 / 0.61 |
+| USB0 (FS)  | Windows libusb  | 0.89 MB/s | 0.83 MB/s | 0.67 / 0.61 |
+| USBHSD (HS)| Linux `cdc_acm` | 44.5 MB/s | 17.5 MB/s | 33.0 / 13.0 |
+| USBHSD (HS)| Windows libusb  | 44.9 MB/s | 19.0 MB/s | 33.0 / 13.0 |
 
 The gate is roughly 75 % of the measured figure, low enough to absorb host jitter and high
-enough to catch a real regression. `run.py` enforces it with the script's `--min-rate` option.
+enough to catch a real regression. `run.py` enforces it with the script's `--min-rate` option,
+and both hosts clear the same numbers.
 
 FS is ~74 % of the 1.216 MB/s full-speed bulk ceiling (19 packets x 64 B per 1 ms frame).
 HS IN writes a whole 3584-byte bulk slot per call, which hardware packetizes. HS OUT reads one
@@ -126,7 +154,28 @@ A `dev`-profile build reaches roughly 0.3 MB/s in both directions on either cont
 unoptimized driver and class layer limit this rate, not the bus. This result is two orders of
 magnitude below the hardware rate, so always measure with `--release`.
 
-## VBUS attach and detach
+### Why the throughput firmwares are WinUSB devices
+
+`usb_fs_throughput` and `usb_hs_throughput` carry MS OS 2.0 descriptors too, so Windows binds
+WinUSB and the script drives their endpoints through `libusb` rather than a COM port. Linux
+ignores the descriptors and still binds `cdc_acm`, so the port stays an ordinary CDC node there.
+
+Windows' CDC driver cannot carry the high-speed stream. `usbser.sys` discards data that arrives
+while no read request is outstanding, which costs whole 512-byte packets: 512 to 4096 bytes per
+4 MB transfer, in roughly half of all attempts, through pyserial, through blocking reads on a
+dedicated reader thread, and at every read and receive-buffer size tried. Keeping several
+overlapped requests queued does stop the loss, but the same transfer then runs at 0.78 MB/s
+instead of 38. Reading the endpoints directly is both loss-free and faster.
+
+The driver is not at fault, and the same firmware shows it twice: read through libusb it
+delivered 25 consecutive 4 MB transfers without losing a byte, and in every failing CDC run its
+write loop had already handed over all 4,000,000 bytes and was serving the next command.
+
+These two binaries therefore carry their own product ids, `c0de:cb07` (FS) and `c0de:cb08` (HS),
+instead of sharing `c0de:cafe` with the serial examples: Windows caches its driver choice per id,
+so an id that has ever enumerated as a CDC port keeps `usbser.sys`.
+
+## VBUS attach and detach (checked on Linux)
 
 Manual checks cover `Event::PowerDetected`, `PowerRemoved`, and the attach-armed soft-connect.
 No firmware can remove its own VBUS. A hub with per-port power switching makes these checks
@@ -166,5 +215,7 @@ The firmware then restarts instead of riding the disconnect out.
   the normal high-speed P9 path, but this panic remains untested on hardware.
 - **`Memory::usb1_sram` double-take and the `Memory::buffer` size assert.** These paths panic,
   and no non-destructive assertion is available. A test would have to assert the firmware panic.
+- **`SET_CONFIGURATION` from the host on Windows.** WinUSB refuses the request, so
+  `configuration_cycle` runs on Linux only.
 
 [`EndpointOut::read`]: https://docs.rs/embassy-usb-driver/latest/embassy_usb_driver/trait.EndpointOut.html#tymethod.read
