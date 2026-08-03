@@ -1,13 +1,11 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
 #[cfg(feature = "ptp")]
-use embassy_net_driver::PacketMeta;
+use embassy_net_driver::{PacketMeta, Timestamp};
 use stm32_metapac::eth::vals::{Rpd, Rps};
 use vcell::VolatileCell;
 
 use crate::eth::RX_BUFFER_SIZE;
-#[cfg(feature = "ptp")]
-use crate::eth::packet_state::RxPacketStateRing;
 use crate::pac::ETH;
 
 mod rx_consts {
@@ -42,6 +40,9 @@ mod rx_consts {
     #[cfg(any(eth_v1b, eth_v1c))]
     /// IP header error
     pub const RXDESC_4_IPHE: u32 = 1 << 3;
+    #[cfg(feature = "ptp")]
+    /// Timestamp available
+    pub const RXDESC_4_TSA: u32 = 1 << 14;
 }
 
 use rx_consts::*;
@@ -165,6 +166,20 @@ impl RDes {
         }
     }
 
+    #[cfg(feature = "ptp")]
+    fn timestamp(&self) -> Option<Timestamp> {
+        if self.rdes4.get() & RXDESC_4_TSA == 0 {
+            return None;
+        }
+        let rdes6 = self.rdes6.get();
+        let rdes7 = self.rdes7.get();
+        if rdes6 == u32::MAX && rdes7 == u32::MAX {
+            None
+        } else {
+            Some(Timestamp::from_seconds_and_nanos(rdes7, rdes6))
+        }
+    }
+
     /// Configures the reception buffer address and length and passed descriptor ownership to the DMA
     #[inline(always)]
     fn set_ready(&self, buf: *mut u8) {
@@ -232,17 +247,11 @@ pub enum RunningState {
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
     buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
-    #[cfg(feature = "ptp")]
-    state: RxPacketStateRing<'a>,
     index: usize,
 }
 
 impl<'a> RDesRing<'a> {
-    pub(crate) fn new(
-        descriptors: &'a mut [RDes],
-        buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
-        #[cfg(feature = "ptp")] state: RxPacketStateRing<'a>,
-    ) -> Self {
+    pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Packet<RX_BUFFER_SIZE>]) -> Self {
         assert!(descriptors.len() > 1);
         assert!(descriptors.len() == buffers.len());
 
@@ -259,8 +268,6 @@ impl<'a> RDesRing<'a> {
         Self {
             descriptors,
             buffers,
-            #[cfg(feature = "ptp")]
-            state,
             index: 0,
         }
     }
@@ -317,14 +324,16 @@ impl<'a> RDesRing<'a> {
         };
 
         let len = info.packet_len();
-        #[cfg(feature = "ptp")]
-        self.state.capture(self.index, None);
+
         return Some(&mut self.buffers[self.index].0[..len]);
     }
 
     #[cfg(feature = "ptp")]
     pub(crate) fn meta(&self) -> PacketMeta {
-        self.state.meta(self.index)
+        let mut meta = PacketMeta::default();
+
+        meta.timestamp = self.descriptors[self.index].timestamp();
+        meta
     }
 
     /// Pop the packet previously returned by `available`.
@@ -332,16 +341,11 @@ impl<'a> RDesRing<'a> {
         let descriptor = &mut self.descriptors[self.index];
         debug_assert!(descriptor.info().available());
 
-        #[cfg(feature = "ptp")]
-        self.state.clear(self.index);
         self.descriptors[self.index].set_ready(self.buffers[self.index].0.as_mut_ptr());
 
         self.demand_poll();
 
         // Increment index.
-        self.index += 1;
-        if self.index == self.descriptors.len() {
-            self.index = 0
-        }
+        self.index = (self.index + 1) % self.descriptors.len();
     }
 }
