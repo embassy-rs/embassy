@@ -305,7 +305,12 @@ async fn main(spawner: Spawner) {
             let cel = temp / 1000;
             let mcel = temp % 1000;
 
-            info!("Served page to {:?}, temperature {}.{} C", socket.remote_endpoint(), cel, mcel);
+            info!(
+                "Served page to {:?}, temperature {}.{} C",
+                socket.remote_endpoint(),
+                cel,
+                mcel
+            );
 
             let _ = write!(&mut mb_buf[loc..loc + 7], "{cel}.{mcel}");
 
@@ -476,7 +481,10 @@ async fn neighbor_fetch_task(stack: Stack<'static>) -> ! {
         let capacity = request.len();
         let request_len = {
             let mut cursor = &mut request[..];
-            let _ = write!(cursor, "GET / HTTP/1.1\r\nHost: [{neighbor_ip}]\r\nX-Fetch-Seq: {seq}\r\n\r\n");
+            let _ = write!(
+                cursor,
+                "GET / HTTP/1.1\r\nHost: [{neighbor_ip}]\r\nX-Fetch-Seq: {seq}\r\n\r\n"
+            );
             capacity - cursor.len()
         };
 
@@ -728,7 +736,10 @@ where
         // In the PCA9535 config register a 0 bit means "output".
         let config = !outputs;
         self.bus
-            .write(BRISTLEFIN_ADDR, &[PCA9535_CONFIG0, config.to_le_bytes()[0], config.to_le_bytes()[1]])
+            .write(
+                BRISTLEFIN_ADDR,
+                &[PCA9535_CONFIG0, config.to_le_bytes()[0], config.to_le_bytes()[1]],
+            )
             .await
             .map_err(Error::I2c)
     }

@@ -496,7 +496,11 @@ impl<SPI: SpiDevice> Adin1110Protocol for Tc6<SPI> {
         //   MOSI: header, dummy, dummy[, dummy]
         //   MISO: dummy, echoed header, register value[, !register value]
         let mut rx_buf = [0u8; 12];
-        let rx = if self.protected { &mut rx_buf[..] } else { &mut rx_buf[..8] };
+        let rx = if self.protected {
+            &mut rx_buf[..]
+        } else {
+            &mut rx_buf[..8]
+        };
         let mut ops = [Operation::Write(&header_bytes), Operation::Read(rx)];
         self.spi.transaction(&mut ops).await.map_err(AdinError::Spi)?;
 
