@@ -242,7 +242,6 @@ pub trait AdcPin: crate::gpio::Pin {
                     w.set_func(0.into());
                     w.set_mode(0.into());
                     w.set_digimode(0.into());
-                    #[cfg(feature = "lpc55-core0")]
                     w.set_asw(1.into())
                 });
             }
@@ -251,7 +250,6 @@ pub trait AdcPin: crate::gpio::Pin {
                     w.set_func(0.into());
                     w.set_mode(0.into());
                     w.set_digimode(0.into());
-                    #[cfg(feature = "lpc55-core0")]
                     w.set_asw(1.into())
                 });
             }
