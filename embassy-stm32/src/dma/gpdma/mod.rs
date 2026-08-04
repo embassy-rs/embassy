@@ -630,12 +630,15 @@ impl<'d> Channel<'d> {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
 
+        // The reset is effective when the channel is in steady state, meaning one of the following:
+        // - active channel in suspended state (GPDMA_CxSR.SUSPF = 1 and GPDMA_CxSR.IDLEF = GPDMA_CxCR.EN = 1)
+        // - channel in disabled state (GPDMA_CxSR.IDLEF = 1 and GPDMA_CxCR.EN = 0).
         if ch.cr().read().en() {
             ch.cr().modify(|w| w.set_susp(true));
             while !ch.sr().read().suspf() {}
         }
-
         ch.cr().write(|w| w.set_reset(true));
+
         ch.fcr().write(|w| {
             // Clear all irqs
             w.set_dtef(true);
@@ -770,7 +773,15 @@ impl<'d> Channel<'d> {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
 
+        // The reset is effective when the channel is in steady state, meaning one of the following:
+        // - active channel in suspended state (GPDMA_CxSR.SUSPF = 1 and GPDMA_CxSR.IDLEF = GPDMA_CxCR.EN = 1)
+        // - channel in disabled state (GPDMA_CxSR.IDLEF = 1 and GPDMA_CxCR.EN = 0).
+        if ch.cr().read().en() {
+            ch.cr().modify(|w| w.set_susp(true));
+            while !ch.sr().read().suspf() {}
+        }
         ch.cr().write(|w| w.set_reset(true));
+
         ch.fcr().write(|w| {
             // Clear all irqs
             w.set_dtef(true);
