@@ -14,11 +14,11 @@ pub enum WatchdogChannels {
 }
 
 impl WatchdogChannels {
-    pub fn from_channel<T>(channel: &impl AdcChannel<T>) -> Self {
+    pub fn from_channel<'d, T>(channel: &impl AdcChannel<'d, T>) -> Self {
         Self::Single(channel.channel())
     }
 
-    pub fn add_channel<T>(self, channel: &impl AdcChannel<T>) -> Self {
+    pub fn add_channel<'d, T>(self, channel: &impl AdcChannel<'d, T>) -> Self {
         WatchdogChannels::Multiple(
             (match self {
                 WatchdogChannels::Single(ch) => 1 << ch,

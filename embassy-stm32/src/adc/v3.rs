@@ -112,7 +112,7 @@ impl<T: Instance> super::ConverterFor<super::Vbat> for T {
 cfg_if! {
     if #[cfg(any(adc_h5, adc_h7rs))] {
         pub struct VddCore;
-        impl<T: Instance> super::AdcChannel<T> for VddCore {}
+        impl<'d, T: Instance> super::AdcChannel<'d, T> for VddCore {}
         impl<T: Instance> super::SealedAdcChannel<T> for VddCore {
             fn channel(&self) -> u8 {
                 17
@@ -124,7 +124,7 @@ cfg_if! {
 cfg_if! {
     if #[cfg(adc_u0)] {
         pub struct DacOut;
-        impl<T: Instance> super::AdcChannel<T> for DacOut {}
+        impl<'d, T: Instance> super::AdcChannel<'d, T> for DacOut {}
         impl<T: Instance> super::SealedAdcChannel<T> for DacOut {
             fn channel(&self) -> u8 {
                 19

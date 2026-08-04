@@ -76,8 +76,8 @@ async fn adc_task<'a, T, D, I>(
     adc: Peri<'a, T>,
     mut dma: Peri<'a, D>,
     irq: I,
-    mut pin1: impl AdcChannel<T>,
-    mut pin2: impl AdcChannel<T>,
+    mut pin1: impl AdcChannel<'_, T>,
+    mut pin2: impl AdcChannel<'_, T>,
 ) where
     T: adc::DefaultInstance,
     D: RxDma<T>,
