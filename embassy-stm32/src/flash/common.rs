@@ -7,7 +7,7 @@ use super::{
     Async, Blocking, Error, FLASH_SIZE, FlashBank, FlashLayout, FlashRegion, FlashSector, MAX_ERASE_SIZE, READ_SIZE,
     WRITE_SIZE, family, get_flash_regions,
 };
-use crate::_generated::FLASH_BASE;
+use crate::_generated::{FLASH_BASE, FLASH_CONTIGUOUS_REGIONS};
 use crate::Peri;
 use crate::peripherals::FLASH;
 
@@ -44,7 +44,8 @@ impl<'d, MODE> Flash<'d, MODE> {
     /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     /// For example, to read address `0x0800_1234` you have to use offset `0x1234`.
     pub fn blocking_read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-        blocking_read(FLASH_BASE as u32, flash_addressable_size(), offset, bytes)
+        let (base, size, offset) = check_flash_address(FLASH_BASE as u32, offset)?;
+        blocking_read(base, size, offset, bytes)
     }
 
     /// Blocking write.
@@ -52,15 +53,8 @@ impl<'d, MODE> Flash<'d, MODE> {
     /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     /// For example, to write address `0x0800_1234` you have to use offset `0x1234`.
     pub fn blocking_write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-        unsafe {
-            blocking_write(
-                FLASH_BASE as u32,
-                flash_addressable_size(),
-                offset,
-                bytes,
-                write_chunk_unlocked,
-            )
-        }
+        let (base, size, offset) = check_flash_address(FLASH_BASE as u32, offset)?;
+        unsafe { blocking_write(base, size, offset, bytes, write_chunk_unlocked) }
     }
 
     /// Blocking erase.
@@ -177,17 +171,19 @@ pub(super) unsafe fn erase_sector_with_critical_section(sector: &FlashSector) ->
     critical_section::with(|_| erase_sector_unlocked(sector))
 }
 
-/// Size of the address range spanned by all flash regions, from the start of the first
-/// region to the end of the last region.
-///
-/// This can be larger than `FLASH_SIZE` (the sum of region sizes) on chips where the banks
-/// are not contiguous, e.g. STM32G473CB has a 192KB gap between bank 1 and bank 2. Bounding
-/// offsets by `FLASH_SIZE` in that case would make the later bank unreachable even though
-/// `get_sector` can resolve its addresses just fine.
-pub(super) fn flash_addressable_size() -> u32 {
-    let regions = get_flash_regions();
-    let end = regions.iter().map(|r| r.end()).max().unwrap();
-    end - FLASH_BASE as u32
+/// Returns (base, size, offset) for the contiguous region specified by the offset
+pub(super) fn check_flash_address(base: u32, offset: u32) -> Result<(u32, u32, u32), Error> {
+    let addr = base + offset;
+    for (base, size) in FLASH_CONTIGUOUS_REGIONS {
+        let (base, size) = (base as u32, size as u32);
+        let end = base + size;
+
+        if addr >= base && addr < end {
+            return Ok((base, end - base, addr - base));
+        }
+    }
+
+    Err(Error::Size)
 }
 
 pub(super) fn get_sector(address: u32, regions: &[&FlashRegion]) -> Result<FlashSector, Error> {

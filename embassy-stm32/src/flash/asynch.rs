@@ -5,9 +5,9 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use super::{
-    Async, Error, FLASH_BASE, FLASH_SIZE, Flash, FlashLayout, WRITE_SIZE, blocking_read, ensure_sector_aligned, family,
-    flash_addressable_size, get_flash_regions, get_sector,
+use crate::flash::{
+    Async, Error, FLASH_BASE, FLASH_SIZE, Flash, FlashLayout, WRITE_SIZE, blocking_read, check_flash_address,
+    ensure_sector_aligned, family, get_flash_regions, get_sector,
 };
 use crate::interrupt::InterruptExt;
 use crate::peripherals::FLASH;
@@ -46,7 +46,8 @@ impl<'d> Flash<'d, Async> {
     /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     /// For example, to write address `0x0800_1234` you have to use offset `0x1234`.
     pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-        unsafe { write_chunked(FLASH_BASE as u32, flash_addressable_size(), offset, bytes).await }
+        let (base, size, offset) = check_flash_address(FLASH_BASE as u32, offset)?;
+        unsafe { write_chunked(base, size, offset, bytes).await }
     }
 
     /// Async erase.
