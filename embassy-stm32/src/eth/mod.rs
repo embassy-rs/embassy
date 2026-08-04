@@ -185,6 +185,10 @@ impl<'a, 'd> embassy_net_driver::RxToken for RxToken<'a, 'd> {
         self.rx.meta()
     }
 
+    fn buf(&mut self) -> &mut [u8] {
+        unsafe { &mut *self.pkt }
+    }
+
     #[inline]
     fn consume<R, F>(self, f: F) -> R
     where
