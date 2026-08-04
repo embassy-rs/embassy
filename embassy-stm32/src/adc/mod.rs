@@ -815,7 +815,7 @@ pub trait SpecialConverter<T: SpecialChannel + Sized>: ConverterFor<T> {}
 
 impl<C: SpecialChannel + Sized, T: ConverterFor<C>> SpecialConverter<C> for T {}
 
-impl<C: SpecialChannel, T: Instance + ConverterFor<C>> AdcChannel<T> for C {}
+impl<'d, C: SpecialChannel, T: Instance + ConverterFor<C>> AdcChannel<'d, T> for C {}
 impl<C: SpecialChannel, T: Instance + ConverterFor<C>> SealedAdcChannel<T> for C {
     fn channel(&self) -> u8 {
         T::CHANNEL
@@ -871,10 +871,15 @@ pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeri
 
 /// ADC channel.
 #[allow(private_bounds)]
-pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
-    #[deprecated = "use `reborrow_adc`"]
-    fn degrade_adc<'a>(&'a mut self) -> BorrowedAdcChannel<'a, T> {
-        self.reborrow_adc()
+pub trait AdcChannel<'d, T>: SealedAdcChannel<T> + Sized {
+    fn degrade_adc(mut self) -> BorrowedAdcChannel<'d, T> {
+        self.setup();
+
+        BorrowedAdcChannel {
+            channel: self.channel(),
+            is_differential: self.is_differential(),
+            _marker: PhantomData,
+        }
     }
 
     #[allow(unused_mut)]
@@ -923,7 +928,11 @@ impl<'a, T: Instance> SealedAdcChannel<T> for BorrowedAdcChannel<'a, T> {
     }
 }
 
-impl<'a, T: Instance> AdcChannel<T> for BorrowedAdcChannel<'a, T> {
+impl<'a, T: Instance> AdcChannel<'a, T> for BorrowedAdcChannel<'a, T> {
+    fn degrade_adc(self) -> BorrowedAdcChannel<'a, T> {
+        self
+    }
+
     #[inline]
     fn reborrow_adc<'b>(&'b mut self) -> BorrowedAdcChannel<'b, T> {
         Self { ..*self }
@@ -938,7 +947,7 @@ trait SealedBorrowedChannel<'a, T> {
 pub trait BorrowedChannel<'a, T>: SealedBorrowedChannel<'a, T> {}
 impl<'a, T, C: SealedBorrowedChannel<'a, T>> BorrowedChannel<'a, T> for C {}
 
-impl<'a, T, C: AdcChannel<T>> SealedBorrowedChannel<'a, T> for &'a mut C {
+impl<'a, 'd, T, C: AdcChannel<'d, T>> SealedBorrowedChannel<'a, T> for &'a mut C {
     #[inline]
     fn reborrow_adc(self) -> BorrowedAdcChannel<'a, T> {
         self.reborrow_adc()
@@ -1113,7 +1122,7 @@ macro_rules! impl_analog_pin {
 
 macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
+        impl<'d> crate::adc::AdcChannel<'d, peripherals::$inst> for crate::Peri<'d, crate::peripherals::$pin> {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::adc::AnalogPin>::set_as_analog(self);
@@ -1129,10 +1138,10 @@ macro_rules! impl_adc_pin {
 #[allow(unused_macros)]
 macro_rules! impl_adc_pair {
     ($inst:ident, $pin:ident, $npin:ident, $ch:expr) => {
-        impl crate::adc::AdcChannel<peripherals::$inst>
+        impl<'d> crate::adc::AdcChannel<'d, peripherals::$inst>
             for (
-                crate::Peri<'_, crate::peripherals::$pin>,
-                crate::Peri<'_, crate::peripherals::$npin>,
+                crate::Peri<'d, crate::peripherals::$pin>,
+                crate::Peri<'d, crate::peripherals::$npin>,
             )
         {
         }
