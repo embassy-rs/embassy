@@ -601,6 +601,9 @@ impl<'d> Channel<'d> {
         ch.br1().read().bndt() / word_size.bytes() as u16
     }
 
+    /// Configure a channel.
+    ///
+    /// This function also causes the channel to reset, which unsuspends (resumes) it.
     unsafe fn configure(
         &self,
         request: Request,
@@ -754,6 +757,8 @@ impl<'d> Channel<'d> {
     ///
     /// Accepts the raw table-derived values so that both `Table` and
     /// `TwoDTable` can share the same channel setup logic.
+    ///
+    /// This function also causes the channel to reset, which unsuspends (resumes) it.
     #[allow(clippy::too_many_arguments)]
     unsafe fn configure_linked_list_raw(
         &self,
@@ -826,6 +831,10 @@ impl<'d> Channel<'d> {
             .store(total_transfer_count, Ordering::Relaxed)
     }
 
+    /// Starts the channel by enabling it.
+    ///
+    /// If then channel was suspended (paused) earlier, it stays suspended.
+    /// The channel must be unsuspended (resumed) manually if needed.
     fn start(&self) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
@@ -847,6 +856,9 @@ impl<'d> Channel<'d> {
         ch.cr().modify(|w| w.set_susp(false));
     }
 
+    /// Resets the channel. The configuration is not preserved.
+    ///
+    /// Additionally reset causes the channel to unsuspend (resume).
     fn request_reset(&self) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
