@@ -907,9 +907,26 @@ impl<'a, T: Instance> BorrowedAdcChannel<'a, T> {
         self.is_differential
     }
 
-    #[allow(unused)]
+    #[inline]
     pub fn get_hw_channel(&self) -> u8 {
         self.channel
+    }
+}
+
+impl<'a, T: Instance> SealedAdcChannel<T> for BorrowedAdcChannel<'a, T> {
+    fn channel(&self) -> u8 {
+        self.channel
+    }
+
+    fn is_differential(&self) -> bool {
+        self.is_differential
+    }
+}
+
+impl<'a, T: Instance> AdcChannel<T> for BorrowedAdcChannel<'a, T> {
+    #[inline]
+    fn reborrow_adc<'b>(&'b mut self) -> BorrowedAdcChannel<'b, T> {
+        Self { ..*self }
     }
 }
 
@@ -922,6 +939,7 @@ pub trait BorrowedChannel<'a, T>: SealedBorrowedChannel<'a, T> {}
 impl<'a, T, C: SealedBorrowedChannel<'a, T>> BorrowedChannel<'a, T> for C {}
 
 impl<'a, T, C: AdcChannel<T>> SealedBorrowedChannel<'a, T> for &'a mut C {
+    #[inline]
     fn reborrow_adc(self) -> BorrowedAdcChannel<'a, T> {
         self.reborrow_adc()
     }
