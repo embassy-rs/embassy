@@ -1,0 +1,25 @@
+[package]
+name = "embassy-atmega328p-examples"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata.embassy]
+build = [
+    { target = "avr-none", artifact-dir = "out/examples/atmega328p", build-std = ["core"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" } },
+]
+
+[dependencies]
+avr-device = { version = "0.8.1", features = ["atmega328p", "rt"] }
+embassy-atmega328p = { path = "../../embassy-atmega328p", features = ["time-driver-16mhz"] }
+embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["nightly", "platform-avr", "executor-thread"] }
+embassy-time = { version = "0.5.1", path = "../../embassy-time" }
+embedded-hal = "1.0"
+panic-halt = "1.0"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

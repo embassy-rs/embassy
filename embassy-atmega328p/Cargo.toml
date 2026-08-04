@@ -1,0 +1,42 @@
+[package]
+name = "embassy-atmega328p"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Embassy-compatible hardware abstraction layer for the ATmega328P"
+keywords = ["embedded", "async", "avr", "atmega328p", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std"]
+repository = "https://github.com/nursude355/embassy"
+publish = false
+
+[package.metadata.embassy]
+build = [
+    { group = "nightly", target = "avr-none", features = ["time-driver-16mhz"], build-std = ["core"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" } },
+]
+
+[features]
+default = ["rt", "clock-16mhz"]
+rt = ["avr-device/rt"]
+unstable-pac = []
+clock-16mhz = []
+clock-8mhz = []
+time-driver-16mhz = [
+    "rt",
+    "clock-16mhz",
+    "dep:embassy-time-driver",
+    "dep:embassy-time-queue-utils",
+    "embassy-time-driver/tick-hz-2_000_000",
+]
+time-driver-8mhz = [
+    "rt",
+    "clock-8mhz",
+    "dep:embassy-time-driver",
+    "dep:embassy-time-queue-utils",
+    "embassy-time-driver/tick-hz-1_000_000",
+]
+
+[dependencies]
+avr-device = { version = "0.8.1", default-features = false, features = ["atmega328p", "critical-section"] }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
+embedded-hal = "1.0"
