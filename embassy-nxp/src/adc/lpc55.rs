@@ -262,6 +262,7 @@ pub trait AdcPin: crate::gpio::Pin {
 /// Channel side
 /// There are 2 ADC sides on each channels
 /// Each channel supports either single ended mode (just one channel) or differential (difference between two channels)
+/// Differential mode is not supported by this driver yet
 #[repr(u8)]
 pub enum ChannelSide {
     SideA = 0,
