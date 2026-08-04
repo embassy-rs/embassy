@@ -7,7 +7,7 @@ publish = false
 
 [package.metadata.embassy]
 build = [
-    { target = "avr-none", artifact-dir = "out/examples/atmega328p", build-std = ["core"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" } },
+    { group = "nightly", target = "avr-none", artifact-dir = "out/examples/atmega328p", build-std = ["core"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" } },
 ]
 
 [dependencies]
