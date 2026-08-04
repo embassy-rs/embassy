@@ -223,8 +223,13 @@ impl<'a> TDesRing<'a> {
         }
     }
 
-    pub(crate) fn len(&self) -> usize {
+    pub(crate) const fn len(&self) -> usize {
         self.descriptors.len()
+    }
+
+    #[cfg(feature = "ptp")]
+    pub(crate) const fn completion_index(&self) -> usize {
+        (self.index + self.len() - self.in_flight) % self.len()
     }
 
     /// Return the next available packet buffer for transmitting, or None
@@ -247,7 +252,7 @@ impl<'a> TDesRing<'a> {
     #[cfg(feature = "ptp")]
     pub(crate) fn poll_timestamp(&mut self) -> Option<embassy_net_driver::TxTimestamp> {
         loop {
-            let completion_index = (self.index + self.descriptors.len() - self.in_flight) % self.descriptors.len();
+            let completion_index = self.completion_index();
             let descriptor = &self.descriptors[completion_index];
 
             if self.in_flight == 0 || !descriptor.available() {
@@ -256,28 +261,28 @@ impl<'a> TDesRing<'a> {
 
             let timestamp = descriptor.timestamp();
             let packet_id = self.ids[completion_index];
-            if packet_id != 0 {
-                if timestamp.is_some() {
-                    trace!(
-                        "eth ptp tx complete idx={} packet_id={} tdes0={:#010x} tdes7={} tdes6={}",
-                        completion_index,
-                        packet_id,
-                        descriptor.tdes0.get(),
-                        descriptor.tdes7.get(),
-                        descriptor.tdes6.get()
-                    );
-                } else {
-                    trace!(
-                        "eth ptp tx complete no-ts idx={} packet_id={} tdes0={:#010x} tdes1={:#010x}",
-                        completion_index,
-                        packet_id,
-                        descriptor.tdes0.get(),
-                        descriptor.tdes1.get()
-                    );
-                }
+
+            if packet_id != 0 && timestamp.is_some() {
+                trace!(
+                    "eth ptp tx complete idx={} packet_id={} tdes0={:#010x} tdes7={} tdes6={}",
+                    completion_index,
+                    packet_id,
+                    descriptor.tdes0.get(),
+                    descriptor.tdes7.get(),
+                    descriptor.tdes6.get()
+                );
+            } else if packet_id != 0 {
+                trace!(
+                    "eth ptp tx complete no-ts idx={} packet_id={} tdes0={:#010x} tdes1={:#010x}",
+                    completion_index,
+                    packet_id,
+                    descriptor.tdes0.get(),
+                    descriptor.tdes1.get()
+                );
             }
 
             self.in_flight -= 1;
+            self.ids[completion_index] = 0;
 
             if let Some(timestamp) = timestamp {
                 break Some(embassy_net_driver::TxTimestamp {
