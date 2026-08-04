@@ -889,7 +889,22 @@ impl<'d> I2c<'d, Dma<'d>> {
         let peri_addr = self.info.regs().stdr().as_ptr() as *mut u8;
         let chunk_len = data.len();
 
-        self.clear_status();
+        // Preserve and consume a terminal status that arrived after the
+        // previous chunk reported NeedMore instead of clearing it here.
+        let ssr = self.info.regs().ssr().read();
+        if ssr.fef() {
+            self.reset_fifos();
+            return Err(IOError::FifoError);
+        } else if ssr.bef() {
+            self.reset_fifos();
+            return Err(IOError::BitError);
+        } else if ssr.sdf() {
+            self.reset_fifos();
+            return Ok(TxChunkOutcome::Stopped(0));
+        } else if ssr.rsf() {
+            self.reset_fifos();
+            return Ok(TxChunkOutcome::Restarted(0));
+        }
 
         unsafe {
             // Clean up channel state
@@ -949,12 +964,11 @@ impl<'d> I2c<'d, Dma<'d>> {
             self.mode.tx_dma.clear_done();
         }
 
-        // DMA completion only means the final byte reached the TX FIFO. The
-        // controller may still NACK that byte and issue STOP, or it may ACK it
-        // and request another byte. Wait for the I2C peripheral to distinguish
-        // those outcomes before reporting NeedMore. Returning on DMA completion
-        // alone races STOP and can cause a continuation call to clear the
-        // latched STOP before observing it.
+        // DMA completion only means the final byte reached the TX FIFO. TDF
+        // can assert before the controller's ninth-bit NACK and STOP, so a
+        // NeedMore result is provisional. If STOP arrives after this function
+        // returns, the continuation call above consumes it before re-arming
+        // DMA.
         if !(ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()) {
             self.info
                 .wait_cell()
@@ -969,17 +983,22 @@ impl<'d> I2c<'d, Dma<'d>> {
         }
 
         if ssr.fef() {
+            self.reset_fifos();
             Err(IOError::FifoError)
         } else if ssr.bef() {
+            self.reset_fifos();
             Err(IOError::BitError)
         } else if ssr.sdf() {
-            Ok(TxChunkOutcome::Stopped(self.mode.tx_dma.transferred_bytes()))
+            let count = self.mode.tx_dma.transferred_bytes();
+            self.reset_fifos();
+            Ok(TxChunkOutcome::Stopped(count))
         } else if ssr.rsf() {
-            Ok(TxChunkOutcome::Restarted(self.mode.tx_dma.transferred_bytes()))
+            let count = self.mode.tx_dma.transferred_bytes();
+            self.reset_fifos();
+            Ok(TxChunkOutcome::Restarted(count))
         } else if ssr.tdf() {
-            // With SCFGR1[TXCFG] at its reset value (0), hardware clears TDF
-            // on NACK, repeated START, or STOP. A surviving TDF therefore
-            // means the controller ACKed the last byte and requested another.
+            // The TX register is empty. The controller may request another
+            // byte, or it may still terminate this byte with NACK and STOP.
             Ok(TxChunkOutcome::NeedMore(chunk_len))
         } else {
             Err(IOError::Other)
@@ -1076,13 +1095,14 @@ where
     /// The future services the transfer to a clean termination point
     /// (STOP, repeated START, or buffer exhausted) before resolving.
     ///
-    /// If the controller continues clocking after the buffer has been
-    /// fully transmitted (for example, an I2C-HID host that reads a fixed
-    /// block size larger than the prepared response), this call resolves
-    /// with [`ReadStatus::NeedMore`] so the caller can decide what to do:
-    /// call `async_respond_to_read` again with more bytes (or fill data),
-    /// or let the bus clock-stretch (with TXDSTALL enabled) until the
-    /// controller eventually terminates the transfer.
+    /// When the transmit register becomes empty after the buffer has been
+    /// loaded, this call resolves with [`ReadStatus::NeedMore`]. Because the
+    /// transmit-data flag can precede the controller's ninth-bit NACK and
+    /// STOP, callers must continue with `async_respond_to_read` while
+    /// `NeedMore` is returned. A continuation either supplies the next byte
+    /// or consumes a terminal status that arrived after the previous call.
+    /// With TXDSTALL enabled, the bus clock-stretches while genuinely waiting
+    /// for more data.
     ///
     /// # Parameters
     ///
@@ -1233,8 +1253,6 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
     async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<ReadStatus, IOError> {
         let mut count = 0;
-
-        self.clear_status();
 
         // perform corrective action if the future is dropped
         let on_drop = OnDrop::new(|| {
