@@ -2827,10 +2827,42 @@ fn main() {
         let total_flash_size = total_flash_size as usize;
         let write_size = (*write_sizes.iter().next().unwrap()) as usize;
 
+        // Merge adjacent/overlapping flash regions into contiguous blocks
+        let mut flash_regions_sorted: Vec<(usize, usize)> = flash_regions
+            .iter()
+            .map(|r| (r.address as usize, r.size as usize))
+            .collect();
+        flash_regions_sorted.sort_by_key(|(addr, _)| *addr);
+
+        let mut contiguous_regions: Vec<(usize, usize)> = Vec::new();
+        for (addr, size) in flash_regions_sorted {
+            if let Some((last_addr, last_size)) = contiguous_regions.last_mut() {
+                let last_end = *last_addr + *last_size;
+                if addr <= last_end {
+                    // Overlapping or adjacent — extend the current region
+                    let new_end = addr + size;
+                    if new_end > last_end {
+                        *last_size = new_end - *last_addr;
+                    }
+                } else {
+                    // Gap — start a new region
+                    contiguous_regions.push((addr, size));
+                }
+            } else {
+                contiguous_regions.push((addr, size));
+            }
+        }
+
+        let flash_region_count = contiguous_regions.len();
+        let region_tokens = contiguous_regions.iter().map(|(addr, size)| quote!((#addr, #size)));
+
         g.extend(quote!(
             pub const FLASH_BASE: usize = #flash_base;
             pub const FLASH_SIZE: usize = #total_flash_size;
             pub const WRITE_SIZE: usize = #write_size;
+            pub const FLASH_CONTIGUOUS_REGIONS: [(usize, usize); #flash_region_count] = [
+                #(#region_tokens),*
+            ];
         ));
     }
 
