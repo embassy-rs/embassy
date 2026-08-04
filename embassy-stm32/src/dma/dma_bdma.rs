@@ -798,6 +798,9 @@ impl<'d> Channel<'d> {
         }
     }
 
+    /// Starts the channel by enabling it.
+    ///
+    /// This function also unsuspends (resumes) the channel.
     fn start(&self) {
         let info = self.info();
         match self.info().dma {
@@ -894,6 +897,7 @@ impl<'d> Channel<'d> {
         self.start()
     }
 
+    /// Resets the channel. The configuration is not preserved.
     fn request_reset(&self) {
         let info = self.info();
         match self.info().dma {
@@ -1336,6 +1340,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Start the ring buffer operation.
     ///
     /// You must call this after creating it for it to work.
+    ///
+    /// It starts the channel and makes it run, even if earlier it was suspended (paused).
     pub fn start(&mut self) {
         self.channel.enable_circular_mode();
         self.channel.start();

@@ -123,6 +123,10 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     }
 
     /// Start the ring buffer operation.
+    ///
+    /// This function configures the channel which also causes it to reset.
+    /// Then it starts the channel and makes it run, even if earlier it was
+    /// suspended (paused), because reset unsuspends (resumes) the channel.
     pub fn start(&mut self) {
         unsafe {
             self.channel.configure_linked_list_raw(
@@ -221,6 +225,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
     /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
+    ///
+    /// Additionally reset causes the channel to unsuspend (resume).
     pub fn request_reset(&mut self) {
         self.channel.request_reset()
     }
