@@ -6,7 +6,8 @@ license = "MIT OR Apache-2.0"
 description = "Embassy-compatible hardware abstraction layer for the ATmega328P"
 keywords = ["embedded", "async", "avr", "atmega328p", "embedded-hal"]
 categories = ["embedded", "hardware-support", "no-std"]
-repository = "https://github.com/nursude355/embassy"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-atmega328p"
 publish = false
 
 [package.metadata.embassy]

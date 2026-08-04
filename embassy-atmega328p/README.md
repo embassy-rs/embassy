@@ -62,10 +62,9 @@ durations will be scaled incorrectly. Since the default clock is 16 MHz, an
 8 MHz application must also set `default-features = false` and explicitly
 enable `rt` if it needs the runtime.
 
-The crate can also be used directly from this fork. Cargo searches the complete
-Git repository for the requested package, so the crate does not have to be at
-the repository root. Since the repository is private, GitHub authentication
-must already work on the development machine.
+The crate can also be used directly from the Embassy Git repository. Cargo
+searches the complete repository for the requested package, so the crate does
+not have to be at the repository root.
 
 Pin applications to a tested commit with `rev`; otherwise Cargo follows the
 latest commit on the repository's default branch:
@@ -73,7 +72,7 @@ latest commit on the repository's default branch:
 ```toml
 [dependencies]
 embassy-atmega328p = {
-    git = "https://github.com/nursude355/embassy.git",
+    git = "https://github.com/embassy-rs/embassy.git",
     rev = "<tested-commit-sha>",
 }
 avr-device = { version = "0.8.1", features = ["atmega328p", "rt"] }
@@ -83,17 +82,17 @@ For an async 16 MHz application, enable the matching time-driver feature:
 
 ```toml
 embassy-atmega328p = {
-    git = "https://github.com/nursude355/embassy.git",
+    git = "https://github.com/embassy-rs/embassy.git",
     rev = "<tested-commit-sha>",
     features = ["time-driver-16mhz"],
 }
 embassy-executor = {
-    git = "https://github.com/nursude355/embassy.git",
+    git = "https://github.com/embassy-rs/embassy.git",
     rev = "<same-tested-commit-sha>",
     features = ["nightly", "platform-avr", "executor-thread"],
 }
 embassy-time = {
-    git = "https://github.com/nursude355/embassy.git",
+    git = "https://github.com/embassy-rs/embassy.git",
     rev = "<same-tested-commit-sha>",
 }
 ```
