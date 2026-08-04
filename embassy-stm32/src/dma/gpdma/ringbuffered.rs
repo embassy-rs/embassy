@@ -44,11 +44,25 @@ impl<'a> DmaCtrlImpl<'a> {
             let single_transfer_count = state.lli_state.transfer_count.load(Ordering::Relaxed) / lli_count;
             let current_remaining = self.channel.get_remaining_transfers() as usize;
 
-            // During LLI reload, BNDT can momentarily read as 0. In a critical section
-            // the ISR can't run, so lli_index is consistent with BNDT. If BNDT is 0,
-            // the LLI just completed. Treat it as 1 to avoid pos = cap which would
-            // double-count with the pending complete_count increment.
-            let current_remaining = current_remaining.max(1);
+            // BNDT reads 0 both before the first LLI load (channel just enabled) AND at the exact
+            // moment a lap completes. Treating that as `1` yields pos = cap-1, i.e. very nearly a
+            // whole lap of data reported as available, which is wrong either way: Before the first
+            // load the buffer holds no new data at all, so a reader is handed whatever the buffer
+            // contained beforehand. After a lap completes those words are already accounted for by
+            // `complete_count`, so counting them again in `pos` double-counts and a channel that
+            // has stopped reports `Overrun` instead of stalling.
+            //
+            // Treat it as a *full* remaining instead, i.e. pos = 0: nothing has been written into
+            // the current lap. Where a lap genuinely did just complete, `complete_count` already
+            // records that. If the transfer-complete interrupt has not been serviced yet this
+            // under-reports by one lap for a single sync and self-corrects on the next;
+            // under-reporting is the safe direction, as it can only make the reader wait, never
+            // read ahead of the DMA.
+            let current_remaining = if current_remaining == 0 {
+                single_transfer_count
+            } else {
+                current_remaining
+            };
 
             (lli_count - lli_index - 1) * single_transfer_count + current_remaining
         } else {
@@ -128,6 +142,13 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Then it starts the channel and makes it run, even if earlier it was
     /// suspended (paused), because reset unsuspends (resumes) the channel.
     pub fn start(&mut self) {
+        // `complete_count` lives in the per-channel `STATE`, not in this struct, so a lap count
+        // left behind by a previous user of the channel would be picked up by the first `dma_sync`
+        // of this ring buffer and would be reported as a full lap of available data.
+        // `configure_linked_list_raw` resets `lli_state` but not `complete_count`, so clear it
+        // here while the channel is still stopped.
+        DmaCtrlImpl::new(self.channel.reborrow()).reset_complete_count();
+
         unsafe {
             self.channel.configure_linked_list_raw(
                 self.table.base_address(),
@@ -310,6 +331,10 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Start the ring buffer operation.
     pub fn start(&mut self) {
+        // See `ReadableRingBuffer::start`: `complete_count` is per-channel state that
+        // outlives this struct, so clear it before the indices are first synced.
+        DmaCtrlImpl::new(self.channel.reborrow()).reset_complete_count();
+
         unsafe {
             self.channel.configure_linked_list_raw(
                 self.table.base_address(),
