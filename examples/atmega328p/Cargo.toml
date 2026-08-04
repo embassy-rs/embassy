@@ -7,7 +7,9 @@ publish = false
 
 [package.metadata.embassy]
 build = [
-    { group = "nightly", target = "avr-none", artifact-dir = "out/examples/atmega328p", build-std = ["core"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" } },
+    # The default Embassy CI image does not currently provide avr-gcc. Keep
+    # AVR binaries in a separate group until that linker is available there.
+    { group = "avr", target = "avr-none", artifact-dir = "out/examples/atmega328p", build-std = ["core"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" } },
 ]
 
 [dependencies]
