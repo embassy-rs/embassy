@@ -609,8 +609,15 @@ pub mod socket {
 
         async fn send(&mut self, _local: SocketAddr, remote: SocketAddr, data: &[u8]) -> Result<(), Self::Error> {
             let remote: IpEndpoint = match remote {
+                #[cfg(feature = "proto-ipv4")]
                 SocketAddr::V4(v4) => v4.into(),
+                #[cfg(not(feature = "proto-ipv4"))]
+                SocketAddr::V4(_) => return Err(UnconnectedUdpError::SendError(SendError::NoRoute)),
+
+                #[cfg(feature = "proto-ipv6")]
                 SocketAddr::V6(v6) => v6.into(),
+                #[cfg(not(feature = "proto-ipv6"))]
+                SocketAddr::V6(_) => return Err(UnconnectedUdpError::SendError(SendError::NoRoute)),
             };
             self.send_to(data, remote).await.map_err(UnconnectedUdpError::SendError)
         }
