@@ -100,7 +100,7 @@ impl DmaIndex {
     /// space. A negative result means `self` is behind `rhs`, which indicates
     /// a driver bug or an out-of-band DMA reset.
     fn diff(&self, cap: usize, rhs: &DmaIndex) -> isize {
-        (self.complete_count * cap + self.pos) as isize - (rhs.complete_count * cap + rhs.pos) as isize
+        self.total(cap) as isize - rhs.total(cap) as isize
     }
 
     fn total(&self, cap: usize) -> usize {
