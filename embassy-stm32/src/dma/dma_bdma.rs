@@ -1308,7 +1308,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
-        let channel: Channel<'a> = channel.into();
+        let mut channel: Channel<'a> = channel.into();
 
         let buffer_ptr = buffer.as_mut_ptr();
         let len = buffer.len();
@@ -1329,6 +1329,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             PW::size(),
             options,
         );
+
+        DmaCtrlImpl(channel.reborrow()).reset_complete_count();
 
         Self {
             _wake_guard: channel.info().wake_guard(),
@@ -1487,7 +1489,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
-        let channel: Channel<'a> = channel.into();
+        let mut channel: Channel<'a> = channel.into();
 
         let len = buffer.len();
         let dir = Dir::MemoryToPeripheral;
@@ -1508,6 +1510,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             PW::size(),
             options,
         );
+
+        DmaCtrlImpl(channel.reborrow()).reset_complete_count();
 
         Self {
             _wake_guard: channel.info().wake_guard(),
