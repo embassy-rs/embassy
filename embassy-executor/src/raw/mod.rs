@@ -169,6 +169,26 @@ impl TaskRef {
         self.ptr.as_ptr()
     }
 
+    /// An opaque pointer identifying this task.
+    ///
+    /// Lets a `TaskRef` be stored where only one word fits. Recover it with [`from_raw`](Self::from_raw).
+    ///
+    /// The pointer must not be dereferenced.
+    pub fn as_raw(self) -> NonNull<()> {
+        self.ptr.cast()
+    }
+
+    /// Recover the task that [`as_raw`](Self::as_raw) was called on.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must have been returned by `as_raw`, and the task it identifies must still be alive.
+    /// A task lives as long as its `TaskStorage`, which is `'static`, so this holds for any pointer taken
+    /// from a task that had been spawned.
+    pub unsafe fn from_raw(ptr: NonNull<()>) -> Self {
+        Self { ptr: ptr.cast() }
+    }
+
     /// Returns the task ID.
     /// This can be used in combination with rtos-trace to match task names with IDs
     pub fn id(&self) -> u32 {
