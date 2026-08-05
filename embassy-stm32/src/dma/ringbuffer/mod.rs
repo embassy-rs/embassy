@@ -49,10 +49,19 @@ impl DmaIndex {
 
     /// Synchronise the index against the live DMA hardware state.
     fn dma_sync(&mut self, cap: usize, dma: &mut impl DmaCtrl) {
-        // Reset complete_count BEFORE reading NDTR. If the DMA wraps between
-        // these two reads, laps_completed will be 0 while pos appears to go
-        // backwards — the wrap-around guard below detects this and clamps pos
-        // to cap-1 until the next sync picks up the increment.
+        // The ordering of the these lines matters.
+        // FIRST reset complete count, THEN read remaining transfers.
+        //
+        // With this order when DMA wraps between these two reads,
+        // `laps_completed` will be 0 while `pos` appears to go
+        // backwards comparing to the previous value in `self.pos`.
+        // This ensures that the approximated position never goes ahead of
+        // the real DMA position.
+        //
+        // If the order was reversed and DMA wrapped between these two reads,
+        // `laps_completed` will be 1 while `pos` has a value before wrap.
+        // This is not acceptable since the approximated position will jump
+        // ahead of the real DMA position.
         let laps_completed = dma.reset_complete_count();
         let pos = cap - dma.get_remaining_transfers();
         self.pos = if pos < self.pos && laps_completed == 0 {
