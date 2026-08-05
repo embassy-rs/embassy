@@ -87,6 +87,141 @@ fn dma_index_advancing_increases_as_index() {
     assert_eq!(index.as_index(CAP, 0), 1);
 }
 
+#[test]
+fn dma_index_dma_sync_single_transfer() {
+    let mut dma = TestCircularTransfer::new(CAP);
+
+    let mut index = DmaIndex::default();
+    assert_eq!(index.total(CAP), 0);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(0),
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 0);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(5),
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 5);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(10),
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 10);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(15),
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 15);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(16),
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 16);
+}
+
+/// simulates reading 11 each time, while buffer is 16
+#[test]
+fn dma_index_dma_sync_wrap_common() {
+    let mut dma = TestCircularTransfer::new(CAP);
+
+    let mut index = DmaIndex::default();
+    assert_eq!(index.total(CAP), 0);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(11),
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 11);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(1),
+        TestCircularTransferRequest::PositionRequest(6), // wrap
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 22);
+}
+
+/// simulates reading 11 each time, while buffer is 16
+/// but DMA wraps between reads in dma_sync
+#[test]
+fn dma_index_dma_sync_wrap_rare() {
+    let mut dma = TestCircularTransfer::new(CAP);
+
+    let mut index = DmaIndex::default();
+    assert_eq!(index.total(CAP), 0);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(11),
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 11);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(6), // wrap
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 15);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(1),
+        TestCircularTransferRequest::PositionRequest(6),
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 22);
+}
+
+/// simulates reading 8 each time, while buffer is 16
+/// but 0 is read from NDTR and then DMA wraps between reads in dma_sync
+#[test]
+fn dma_index_dma_sync_wrap_very_rare() {
+    let mut dma = TestCircularTransfer::new(CAP);
+
+    let mut index = DmaIndex::default();
+    assert_eq!(index.total(CAP), 0);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(8),
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 8);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(16), // NDTR=0
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 16);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(0),
+        TestCircularTransferRequest::PositionRequest(0), // wrap
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 16);
+
+    dma.setup(vec![
+        TestCircularTransferRequest::ResetCompleteCount(1),
+        TestCircularTransferRequest::PositionRequest(0),
+    ]);
+    index.dma_sync(CAP, &mut dma);
+    assert_eq!(index.total(CAP), 16);
+}
+
 /// Test that after an overrun recovery lands on a misaligned position,
 /// subsequent reads skip forward to the next frame boundary.
 #[test]

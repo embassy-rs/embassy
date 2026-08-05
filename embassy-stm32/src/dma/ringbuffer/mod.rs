@@ -96,6 +96,10 @@ impl DmaIndex {
     fn diff(&self, cap: usize, rhs: &DmaIndex) -> isize {
         (self.complete_count * cap + self.pos) as isize - (rhs.complete_count * cap + rhs.pos) as isize
     }
+
+    fn total(&self, cap: usize) -> usize {
+        self.complete_count * cap + self.pos
+    }
 }
 
 pub struct ReadableDmaRingBuffer<'a, W: Word> {
