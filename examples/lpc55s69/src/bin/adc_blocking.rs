@@ -6,7 +6,7 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nxp::adc::{Adc, Config};
+use embassy_nxp::adc::{Adc, Config, Resolution, resolution_to_max_count};
 use embassy_time::Timer;
 use panic_halt as _;
 
@@ -21,9 +21,12 @@ async fn main(_spawner: Spawner) {
     // PIO0_16 corresponds A0 on the dev board
     let mut adc_pin = p.PIO0_16;
 
+    let max = resolution_to_max_count(Resolution::Bits16);
+
     loop {
         let reading = adc.blocking_read(&mut adc_pin);
-        info!("ADC reading: {}", reading);
+        info!("Raw ADC reading: {}", reading);
+        info!("Scaled: {}%", reading as f32 / max as f32 * 100f32);
         Timer::after_millis(500).await;
     }
 }

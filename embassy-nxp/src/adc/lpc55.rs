@@ -223,6 +223,14 @@ impl<'d> Adc<'d> {
     }
 }
 
+/// Getting maximum value for current resolution
+pub fn resolution_to_max_count(resolution: Resolution) -> u16 {
+    match resolution {
+        Resolution::Bits12 => (1 << 12) - 1,
+        Resolution::Bits16 => u16::MAX,
+    }
+}
+
 /// Trait that provides channel numbers for pins that support ADC
 pub trait AdcPin: crate::gpio::Pin {
     /// Channel number
