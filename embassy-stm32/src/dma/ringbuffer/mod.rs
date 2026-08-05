@@ -65,11 +65,10 @@ impl DmaIndex {
         let laps_completed = dma.reset_complete_count();
         let pos = cap - dma.get_remaining_transfers();
         self.pos = if pos < self.pos && laps_completed == 0 {
-            cap - 1
+            cap
         } else {
             pos
         };
-
         self.complete_count += laps_completed;
     }
 
