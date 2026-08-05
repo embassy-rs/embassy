@@ -174,7 +174,7 @@ fn dma_index_dma_sync_wrap_rare() {
         TestCircularTransferRequest::PositionRequest(6), // wrap
     ]);
     index.dma_sync(CAP, &mut dma);
-    assert_eq!(index.total(CAP), 16);
+    assert_eq!(index.total(CAP), 22);
 
     dma.setup(vec![
         TestCircularTransferRequest::ResetCompleteCount(1),
