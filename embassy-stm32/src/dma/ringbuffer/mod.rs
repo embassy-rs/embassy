@@ -64,7 +64,14 @@ impl DmaIndex {
         // ahead of the real DMA position.
         let laps_completed = dma.reset_complete_count();
         let pos = cap - dma.get_remaining_transfers();
+        // It is also not acceptable for approximated position to go backward, so it
+        // must be modified such that it is at least not behind previous position.
         self.pos = if pos < self.pos && laps_completed == 0 {
+            // `self.complete_count` cannot be manually incremented here because in
+            // next call to this function `laps_completed` will be 1, so it would
+            // be applied twice. However `self.pos` can temporarily be extended
+            // beyond normal range. The next call will set it back to normal value
+            // and increment `self.complete_count` compensating `cap` added here.
             pos + cap
         } else {
             pos
