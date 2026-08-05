@@ -1,6 +1,8 @@
 #![macro_use]
 
+use core::cell::UnsafeCell;
 use core::future::Future;
+use core::mem::MaybeUninit;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence, fence};
 use core::task::{Context, Poll};
@@ -15,6 +17,7 @@ use pac::lpdma::{Channel as BaseChannel, Lpdma as BaseRegs, vals};
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Request, STATE};
 use crate::_generated::DmaChannel;
+use crate::dma::LinearItem;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::rcc::WakeGuard;
@@ -25,6 +28,29 @@ pub mod ringbuffered;
 pub mod two_d;
 
 pub use vals::Pam as Packing;
+
+/// Per-channel static storage for the GPDMA linked-list descriptor used by
+/// ringbuffers.  `Table<LinearItem, 1>` is 24 bytes.
+pub(crate) struct RingbufferTableSlot {
+    inner: UnsafeCell<MaybeUninit<Table<LinearItem, 1>>>,
+}
+
+unsafe impl Sync for RingbufferTableSlot {}
+
+impl RingbufferTableSlot {
+    pub const fn new() -> Self {
+        Self {
+            inner: UnsafeCell::new(MaybeUninit::uninit()),
+        }
+    }
+
+    /// # Safety
+    /// The caller must ensure this is the only live mutable access.
+    #[inline]
+    pub unsafe fn get_mut(&self) -> &'static mut MaybeUninit<Table<LinearItem, 1>> {
+        &mut *self.inner.get()
+    }
+}
 
 pub(crate) enum DmaInfo {
     #[cfg(gpdma)]
@@ -864,7 +890,10 @@ impl<'d> Channel<'d> {
         let info = self.info();
         let ch = info.dma.ch(info.num);
 
-        ch.cr().modify(|w| w.set_susp(false));
+        ch.cr().modify(|w| {
+            w.set_susp(false);
+            w.set_en(true);
+        });
     }
 
     /// Resets the channel. The configuration is not preserved.
@@ -1173,6 +1202,7 @@ impl<'a> LinkedListTransfer<'a> {
 impl<'a> Drop for LinkedListTransfer<'a> {
     fn drop(&mut self) {
         self.request_reset();
+        while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);
@@ -1256,7 +1286,7 @@ impl<'a> Transfer<'a> {
 
 impl<'a> Drop for Transfer<'a> {
     fn drop(&mut self) {
-        self.request_pause();
+        self.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."

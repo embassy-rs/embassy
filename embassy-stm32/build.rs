@@ -2747,6 +2747,40 @@ fn main() {
         }
     });
 
+    // Generate per-channel ringbuffer table statics and lookup function.
+    let mut ringbuffer_statics = TokenStream::new();
+    let mut ringbuffer_arms = TokenStream::new();
+
+    for ch in METADATA.dma_channels.iter() {
+        let dma_peri = peripheral_map.get(ch.dma).unwrap().0;
+        let bi = dma_peri.registers.as_ref().unwrap();
+        if bi.kind == "gpdma" || bi.kind == "lpdma" {
+            let ch_name = format_ident!("{}", ch.name);
+            let static_name = format_ident!("_RINGBUFFER_TABLE_{}", ch.name);
+
+            ringbuffer_statics.extend(quote! {
+                static #static_name: crate::dma::RingbufferTableSlot = crate::dma::RingbufferTableSlot::new();
+            });
+
+            ringbuffer_arms.extend(quote! {
+                DmaChannel::#ch_name => #static_name.get_mut(),
+            });
+        }
+    }
+
+    g.extend(quote! {
+        #[cfg(any(gpdma, lpdma))]
+        #[allow(unused)]
+        pub(crate) unsafe fn ringbuffer_table(channel: DmaChannel) -> &'static mut core::mem::MaybeUninit<crate::dma::Table<crate::dma::LinearItem, 1>> {
+            #ringbuffer_statics
+            match channel {
+                #ringbuffer_arms
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
+            }
+        }
+    });
+
     // ========
     // Generate gpio_block() function
 
