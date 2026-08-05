@@ -593,6 +593,7 @@ impl core::fmt::Display for RecvError {
 impl core::error::Error for RecvError {}
 
 pub mod socket {
+    use core::error::Error;
     use core::net::SocketAddr;
     use embedded_nal_async::UnconnectedUdp;
     use super::*;
@@ -622,6 +623,14 @@ pub mod socket {
     pub enum UnconnectedUdpError {
         SendError(SendError),
         RecvError(RecvError),
+    }
+
+    impl Error for UnconnectedUdpError {}
+
+    impl core::fmt::Display for UnconnectedUdpError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            core::fmt::Debug::fmt(self, f)
+        }
     }
 }
 
