@@ -103,6 +103,8 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
         if let Some(rx) = self.rx.available()
             && let Some(tx) = self.tx.available()
         {
+            self.wake_guard.disable();
+
             Some((
                 RxToken {
                     pkt: rx,
@@ -114,6 +116,8 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
                 },
             ))
         } else {
+            self.wake_guard.enable();
+
             None
         }
     }
@@ -121,11 +125,15 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
     fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
         WAKER.register(cx.waker());
         if let Some(tx) = self.tx.available() {
+            self.wake_guard.disable();
+
             Some(TxToken {
                 pkt: tx,
                 tx: &mut self.tx,
             })
         } else {
+            self.wake_guard.enable();
+
             None
         }
     }
@@ -157,7 +165,15 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
     fn poll_timestamp(&mut self, cx: &mut Context) -> Option<embassy_net_driver::TxTimestamp> {
         WAKER.register(cx.waker());
 
-        self.tx.poll_timestamp()
+        if let Some(timestamp) = self.tx.poll_timestamp() {
+            self.wake_guard.disable();
+
+            Some(timestamp)
+        } else {
+            self.wake_guard.enable();
+
+            None
+        }
     }
 
     fn link_state(&mut self, cx: &mut Context) -> LinkState {
