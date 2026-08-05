@@ -595,6 +595,7 @@ impl core::fmt::Display for RecvError {
 }
 impl core::error::Error for RecvError {}
 
+/// `embedded-nal-async` compatibility.
 pub mod socket {
     use core::error::Error;
     use core::net::SocketAddr;
@@ -629,10 +630,13 @@ pub mod socket {
         }
     }
 
+    /// Error returned by [`UnconnectedUdp`] operations.
     #[derive(PartialEq, Eq, Clone, Copy, Debug)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum UnconnectedUdpError {
+        /// An error occurred while sending.
         SendError(SendError),
+        /// An error occurred while receiving.
         RecvError(RecvError),
     }
 
