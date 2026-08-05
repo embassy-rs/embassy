@@ -6,7 +6,7 @@ use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::{Stack, StackResources};
+use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources};
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::tcp::client::{TcpClient, TcpClientState};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
@@ -16,11 +16,11 @@ use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
 use embassy_time::Timer;
 use embedded_io_async::Write;
 use embedded_nal_async::{TcpConnect, UnconnectedUdp};
-use embassy_net::udp::socket::UnconnectedUdpError;
 use panic_probe as _;
 use static_cell::StaticCell;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
+use heapless::Vec;
 
 enum TcpState {
     Connecting,
@@ -97,16 +97,21 @@ async fn main(spawner: Spawner) -> ! {
         p.PC1,
     );
 
-    let config = embassy_net::Config::dhcpv4(Default::default());
-    //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-    //    address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 18, 64), 24),
-    //    dns_servers: Vec::new(),
-    //    gateway: Some(Ipv4Address::new(192, 168, 18, 1)),
-    //});
+    const HAVE_DHCP: bool = true;
+
+    let net_config = if HAVE_DHCP {
+        embassy_net::Config::dhcpv4(Default::default())
+    } else {
+        embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
+            address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 18, 64), 24),
+            dns_servers: Vec::new(),
+            gateway: Some(Ipv4Address::new(192, 168, 18, 1)),
+        })
+    };
 
     // Init network stack
     static RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+    let (stack, runner) = embassy_net::new(device, net_config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
@@ -122,11 +127,13 @@ async fn main(spawner: Spawner) -> ! {
     let broadcast_socket_address: SocketAddr = SocketAddrV4::new(config_v4.address.broadcast().unwrap().into(), 8001).into();
     info!("udp broadcast address: {}", broadcast_socket_address);
 
+    const HOST_ADDRESS: Ipv4Addr = Ipv4Addr::new(192, 168, 18, 54);
+
     // You need to start a server on the host machine, for example: `nc -b -l 8001`
-    let udp_address = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 168, 18, 41), 8001));
+    let udp_address = SocketAddr::V4(SocketAddrV4::new(HOST_ADDRESS, 8001));
 
     // You need to start a server on the host machine, for example: `nc -l 8000`
-    let tcp_address = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 168, 18, 41), 8000));
+    let tcp_address = SocketAddr::V4(SocketAddrV4::new(HOST_ADDRESS, 8000));
 
     spawner.spawn(unwrap!(broadcast_task(stack, local_socket_address, broadcast_socket_address, udp_address, &MESSAGE)));
     spawner.spawn(unwrap!(tcp_communication_task(stack, tcp_address, &MESSAGE)));
