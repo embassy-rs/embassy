@@ -30,6 +30,7 @@ use crate::pac::SYSCFG;
 use crate::pac::eth::vals::Ipco;
 use crate::pac::eth::vals::{Apcs, Dm, DmaomrSr, Fes, Ftf, Ifg, Pbl, Rsf, St, Tsf};
 use crate::pac::{ETH, RCC};
+use crate::rcc::WakeGuard;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -57,6 +58,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 /// Ethernet driver.
 pub struct Ethernet<'d, T: Instance, P: Phy> {
     _peri: Peri<'d, T>,
+    _wake_guard: WakeGuard,
     pub(crate) link_state: LinkState,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
@@ -321,6 +323,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         let mut this = Self {
             _peri: peri,
+            _wake_guard: T::RCC_INFO.wake_guard(),
             _pins: pins,
             phy: phy,
             mac_addr,
