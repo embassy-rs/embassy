@@ -606,7 +606,11 @@ pub mod socket {
     impl<'a> UnconnectedUdp for UdpSocket<'a> {
         type Error = UnconnectedUdpError;
 
-        async fn send(&mut self, local: SocketAddr, remote: SocketAddr, data: &[u8]) -> Result<(), Self::Error> {
+        async fn send(&mut self, _local: SocketAddr, remote: SocketAddr, data: &[u8]) -> Result<(), Self::Error> {
+            let remote: IpEndpoint = match remote {
+                SocketAddr::V4(v4) => v4.into(),
+                SocketAddr::V6(v6) => v6.into(),
+            };
             self.send_to(data, remote).await.map_err(UnconnectedUdpError::SendError)
         }
 
