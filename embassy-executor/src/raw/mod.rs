@@ -182,9 +182,7 @@ impl TaskRef {
     ///
     /// # Safety
     ///
-    /// `ptr` must have been returned by `as_raw`, and the task it identifies must still be alive.
-    /// A task lives as long as its `TaskStorage`, which is `'static`, so this holds for any pointer taken
-    /// from a task that had been spawned.
+    /// `ptr` must have been returned by `as_raw`.
     pub unsafe fn from_raw(ptr: NonNull<()>) -> Self {
         Self { ptr: ptr.cast() }
     }
