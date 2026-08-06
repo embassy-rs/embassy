@@ -62,6 +62,10 @@ SAES:
 OSPI:
 - feat: stm32/ospi: add `Ospi::configure_hyperbus` + `HyperbusConfig`/`HyperbusLatencyMode` to program the HyperBus latency register (HLCR), enabling HyperBus/HyperRAM memory-mapped bring-up without reaching for `unstable-pac`
 
+RCC:
+- fix: stm32/rcc/c0: raise the flash read access latency before anything that can raise the core frequency, so a configuration handed over from a bootloader without a reset cannot run above 24 MHz with too few wait states
+
+
 ## 0.6.0 - 2026-03-10
 
 ADC:

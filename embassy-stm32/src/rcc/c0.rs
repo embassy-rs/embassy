@@ -89,18 +89,19 @@ impl Default for Config {
 }
 
 pub(crate) unsafe fn init(config: Config) {
-    // Turn on the HSI
-    match config.hsi {
-        None => RCC.cr().modify(|w| w.set_hsion(true)),
-        Some(hsi) => RCC.cr().modify(|w| {
-            w.set_hsidiv(hsi.sys_div);
-            w.set_hsikerdiv(hsi.ker_div);
-            w.set_hsion(true);
-        }),
-    }
+    // Configure the maximum flash read access latency up front, before anything that can raise the
+    // core frequency. Nothing below knows what the incoming configuration is: after a bootloader
+    // hands over without an intervening reset, HSIDIV may already be at /1, so even the switch to
+    // HSISYS a few lines down can take the core to 48 MHz. The latency is relaxed to the value the
+    // final HCLK actually requires once the clock tree has settled.
+    FLASH.acr().modify(|w| w.set_latency(Latency::Ws1));
+    while FLASH.acr().read().latency() != Latency::Ws1 {}
+
+    // Turn on the HSI and use it, at whatever divider it is currently set to, as system clock
+    // during the actual clock setup.
+    RCC.cr().modify(|w| w.set_hsion(true));
     while !RCC.cr().read().hsirdy() {}
 
-    // Use the HSI clock as system clock during the actual clock setup
     RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsisys));
     while RCC.cfgr().read().sws() != Sysclk::Hsisys {}
 
@@ -164,21 +165,28 @@ pub(crate) unsafe fn init(config: Config) {
         _ => Latency::Ws1,
     };
 
-    // Configure flash read access latency based on voltage scale and frequency
-    FLASH.acr().modify(|w| {
-        w.set_latency(latency);
-    });
+    // Configure the HSI dividers.
+    if let Some(hsi) = config.hsi {
+        RCC.cr().modify(|w| {
+            w.set_hsidiv(hsi.sys_div);
+            w.set_hsikerdiv(hsi.ker_div);
+        });
+    }
 
-    // Spin until the effective flash latency is set.
-    while FLASH.acr().read().latency() != latency {}
-
-    // Now that boost mode and flash read access latency are configured, set up SYSCLK
+    // Now that the flash read access latency is configured, set up SYSCLK
     RCC.cfgr().modify(|w| {
         w.set_sw(config.sys);
         w.set_hpre(config.ahb_pre);
         w.set_ppre(config.apb1_pre);
     });
     while RCC.cfgr().read().sws() != config.sys {}
+
+    // The clock tree has settled, so the flash read access latency can be relaxed to the value the
+    // final HCLK actually requires. Spin until the effective flash latency is set.
+    if latency != Latency::Ws1 {
+        FLASH.acr().modify(|w| w.set_latency(latency));
+        while FLASH.acr().read().latency() != latency {}
+    }
 
     // Disable HSI if not used
     if config.hsi.is_none() {
