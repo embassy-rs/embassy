@@ -26,6 +26,8 @@ pub mod i2c_target;
 pub mod low_power;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x))]
 pub mod mathacl;
+#[cfg(opa)]
+pub mod opa;
 pub mod sysctl;
 pub mod tim;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x, mspm0l122x, mspm0l222x))]
