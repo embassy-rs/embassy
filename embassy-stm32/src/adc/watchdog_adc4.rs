@@ -133,7 +133,7 @@ impl<T: Instance<Regs = crate::pac::adc::Adc4>> AnalogWatchdog<T> {
     pub async fn monitor(
         &mut self,
         _adc: &mut Adc<'_, T>,
-        channel: &mut impl AdcChannel<T>,
+        channel: &mut impl AdcChannel<'_, T>,
         sample_time: super::SampleTime,
     ) -> u16 {
         let _scoped_wake_guard = <T as crate::rcc::SealedRccPeripheral>::RCC_INFO.wake_guard();

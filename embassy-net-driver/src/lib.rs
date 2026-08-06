@@ -217,11 +217,18 @@ pub struct Timestamp {
 
 impl Timestamp {
     /// Construct a timestamp from seconds and nanoseconds
+    #[inline]
     pub const fn from_seconds_and_nanos(seconds: u32, nanos: u32) -> Self {
         Self {
             seconds,
             quarter_nanos: nanos << 2,
         }
+    }
+
+    /// Get the nanoseconds for this timestamp
+    #[inline]
+    pub const fn nanos(&self) -> u32 {
+        self.quarter_nanos >> 2
     }
 }
 

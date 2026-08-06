@@ -539,6 +539,24 @@ impl<'d, M: Mode> I2c<'d, M> {
         }
         Ok(())
     }
+
+    /// Flush both controller FIFOs.
+    ///
+    /// A flush is only legal while the controller is IDLE (TRM §25.2.3.12), so wait for
+    /// that first.
+    fn flush_fifos(&mut self) {
+        let regs = self.info.regs.controller(0);
+
+        while !regs.csr().read().idle() {}
+
+        regs.cfifoctl().modify(|w| w.set_txflush(true));
+        while (regs.cfifosr().read().txfifocnt() as usize) < self.info.fifo_size {}
+        regs.cfifoctl().modify(|w| w.set_txflush(false));
+
+        regs.cfifoctl().modify(|w| w.set_rxflush(true));
+        while regs.cfifosr().read().rxfifocnt() != 0 {}
+        regs.cfifoctl().modify(|w| w.set_rxflush(false));
+    }
 }
 
 impl<'d> I2c<'d, Blocking> {
@@ -624,6 +642,7 @@ impl<'d> I2c<'d, Blocking> {
             // check errors
             if let Err(err) = self.check_error() {
                 self.master_stop();
+                self.flush_fifos();
                 return Err(err);
             }
 
@@ -662,6 +681,9 @@ impl<'d> I2c<'d, Blocking> {
             // check errors
             if let Err(err) = self.check_error() {
                 self.master_stop();
+                // A NACK leaves the bytes that were never sent queued (TRM §25.2.3.14);
+                // flush them so they don't go out ahead of the next write.
+                self.flush_fifos();
                 return Err(err);
             }
         }

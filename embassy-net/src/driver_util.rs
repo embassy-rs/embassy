@@ -123,6 +123,14 @@ where
     }
 }
 
+#[cfg(feature = "packetmeta-timestamp")]
+pub(crate) fn into_xarxa_timestamp(timestamp: embassy_net_driver::Timestamp) -> xarxa::phy::Timestamp {
+    xarxa::phy::Timestamp {
+        seconds: timestamp.seconds,
+        quarter_nanos: timestamp.quarter_nanos,
+    }
+}
+
 #[allow(unused, reason = "meta isn't used if no features are enabled")]
 pub(crate) fn into_xarxa_meta(meta: PacketMeta) -> phy::PacketMeta {
     let mut out_meta = phy::PacketMeta::default();
@@ -130,7 +138,20 @@ pub(crate) fn into_xarxa_meta(meta: PacketMeta) -> phy::PacketMeta {
     {
         out_meta.id = meta.id;
     }
+    #[cfg(feature = "packetmeta-timestamp")]
+    {
+        out_meta.timestamp = meta.timestamp.map(into_xarxa_timestamp);
+        out_meta.request_timestamp = meta.request_timestamp;
+    }
     out_meta
+}
+
+#[cfg(feature = "packetmeta-timestamp")]
+pub(crate) fn into_embassy_net_timestamp(timestamp: xarxa::phy::Timestamp) -> embassy_net_driver::Timestamp {
+    embassy_net_driver::Timestamp {
+        seconds: timestamp.seconds,
+        quarter_nanos: timestamp.quarter_nanos,
+    }
 }
 
 #[allow(unused, reason = "meta isn't used if no features are enabled")]
@@ -139,6 +160,11 @@ pub(crate) fn into_embassy_net_meta(meta: phy::PacketMeta) -> PacketMeta {
     #[cfg(feature = "packetmeta-id")]
     {
         out_meta.id = meta.id;
+    }
+    #[cfg(feature = "packetmeta-timestamp")]
+    {
+        out_meta.timestamp = meta.timestamp.map(into_embassy_net_timestamp);
+        out_meta.request_timestamp = meta.request_timestamp;
     }
     out_meta
 }
