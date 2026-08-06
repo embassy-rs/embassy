@@ -1,6 +1,8 @@
 use crate::pac::flash::vals::Latency;
+#[cfg(rcc_c0v2)]
+pub use crate::pac::rcc::vals::Sysdiv as SysDiv;
 pub use crate::pac::rcc::vals::{
-    Hpre as AHBPrescaler, Hsidiv as HsiSysDiv, Hsikerdiv as HsiKerDiv, Ppre as APBPrescaler, Sw as Sysclk,
+    Hpre as AHBPrescaler, Hsidiv as HsiDiv, Hsikerdiv as HsiKerDiv, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, RCC};
 use crate::rcc::LSI_FREQ;
@@ -30,8 +32,8 @@ pub struct Hse {
 /// HSI Configuration
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Hsi {
-    /// Division factor for HSISYS clock. Default is 4.
-    pub sys_div: HsiSysDiv,
+    /// Division factor (HSIDIV) applied to HSI to produce HSISYS. Default is 4.
+    pub div: HsiDiv,
     /// Division factor for HSIKER clock. Default is 3.
     pub ker_div: HsiKerDiv,
 }
@@ -48,6 +50,10 @@ pub struct Config {
 
     /// System Clock Configuration
     pub sys: Sysclk,
+
+    /// Division factor (SYSDIV) applied to the output of the system clock mux to produce SYSCLK.
+    #[cfg(rcc_c0v2)]
+    pub sys_div: SysDiv,
 
     /// HSI48 Configuration
     #[cfg(crs)]
@@ -67,11 +73,13 @@ impl Config {
     pub const fn new() -> Self {
         Config {
             hsi: Some(Hsi {
-                sys_div: HsiSysDiv::Div4,
+                div: HsiDiv::Div4,
                 ker_div: HsiKerDiv::Div3,
             }),
             hse: None,
             sys: Sysclk::Hsisys,
+            #[cfg(rcc_c0v2)]
+            sys_div: SysDiv::Div1,
             #[cfg(crs)]
             hsi48: Some(crate::rcc::Hsi48Config::new()),
             ahb_pre: AHBPrescaler::Div1,
@@ -108,11 +116,7 @@ pub(crate) unsafe fn init(config: Config) {
     // Configure HSI
     let (hsi, hsisys, hsiker) = match config.hsi {
         None => (None, None, None),
-        Some(hsi) => (
-            Some(HSI_FREQ),
-            Some(HSI_FREQ / hsi.sys_div),
-            Some(HSI_FREQ / hsi.ker_div),
-        ),
+        Some(hsi) => (Some(HSI_FREQ), Some(HSI_FREQ / hsi.div), Some(HSI_FREQ / hsi.ker_div)),
     };
 
     // Configure HSE
@@ -140,6 +144,7 @@ pub(crate) unsafe fn init(config: Config) {
 
     let rtc = config.ls.init();
 
+    // Output of the system clock mux.
     let sys = match config.sys {
         Sysclk::Hsisys => unwrap!(hsisys),
         Sysclk::Hse => unwrap!(hse),
@@ -150,6 +155,10 @@ pub(crate) unsafe fn init(config: Config) {
         Sysclk::Lse => unwrap!(config.ls.lse).frequency,
         _ => unreachable!(),
     };
+
+    // SYSDIV divides the mux output to produce SYSCLK.
+    #[cfg(rcc_c0v2)]
+    let sys = sys / config.sys_div;
 
     rcc_assert!(max::SYSCLK.contains(&sys));
 
@@ -168,12 +177,20 @@ pub(crate) unsafe fn init(config: Config) {
     // Configure the HSI dividers.
     if let Some(hsi) = config.hsi {
         RCC.cr().modify(|w| {
-            w.set_hsidiv(hsi.sys_div);
+            w.set_hsidiv(hsi.div);
             w.set_hsikerdiv(hsi.ker_div);
         });
     }
 
-    // Now that the flash read access latency is configured, set up SYSCLK
+    // Now that the flash read access latency is configured, set up SYSCLK. SYSDIV has no ready
+    // flag; RM0490 documents reading a divider back to check its content, which also keeps the
+    // write from still being in flight when the latency is relaxed below.
+    #[cfg(rcc_c0v2)]
+    {
+        RCC.cr().modify(|w| w.set_sysdiv(config.sys_div));
+        while RCC.cr().read().sysdiv() != config.sys_div {}
+    }
+
     RCC.cfgr().modify(|w| {
         w.set_sw(config.sys);
         w.set_hpre(config.ahb_pre);
