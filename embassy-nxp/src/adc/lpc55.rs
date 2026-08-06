@@ -64,9 +64,10 @@ pub(crate) trait SealedInstance {
     fn info() -> &'static Info;
 }
 
+/// ADC instance
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType {
-    /// Interrupt for this instance.
+    /// Interrupt for this instance
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
@@ -83,7 +84,7 @@ impl Instance for ADC0 {
     type Interrupt = crate::interrupt::typelevel::ADC0;
 }
 
-/// Interrupt handler.
+/// Interrupt handler
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
@@ -254,11 +255,12 @@ impl<'d, M: Mode> Adc<'d, M> {
 
 /// Blocking mode implementation
 impl<'d> Adc<'d, Blocking> {
+    /// Create a blocking ADC instance
     pub fn new_blocking(peri: Peri<'d, ADC0>, config: Config) -> Self {
         Self::new_inner(peri, config)
     }
 
-    /// Reading the channel synchronously
+    /// Read the channel synchronously
     pub fn blocking_read<P: AdcPin>(&mut self, pin: &mut crate::Peri<'_, P>) -> u16 {
         let adc: Adc0 = pac::ADC0;
         pin.configure_iocon();
@@ -287,6 +289,7 @@ impl<'d> Adc<'d, Blocking> {
 
 /// Async mode implementation
 impl<'d> Adc<'d, Async> {
+    /// Create an async ADC instance
     pub fn new<T: Instance>(
         peri: Peri<'d, ADC0>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
@@ -300,6 +303,7 @@ impl<'d> Adc<'d, Async> {
         adc
     }
 
+    /// Read the channel asyncronously
     pub async fn read<P: AdcPin>(&mut self, pin: &mut Peri<'_, P>) -> u16 {
         let adc: Adc0 = pac::ADC0;
         pin.configure_iocon();
