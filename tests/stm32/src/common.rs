@@ -469,10 +469,18 @@ pub fn config() -> Config {
     #[cfg(any(feature = "stm32c031c6", feature = "stm32c071rb"))]
     {
         config.rcc.hsi = Some(Hsi {
-            sys_div: HsiSysDiv::Div1, // 48Mhz
+            div: HsiDiv::Div1,        // 48Mhz
             ker_div: HsiKerDiv::Div3, // 16Mhz
         });
         config.rcc.sys = Sysclk::Hsisys;
+        // C071 is the only C0 board in the test rack with SYSDIV, so use it to prove the field
+        // reaches hardware: HSISYS stays at 48 MHz and SYSDIV halves it to a 24 MHz SYSCLK. If the
+        // write did not take effect the core would run at twice the frequency the driver assumes,
+        // and the timer and usart tests would fail. C031 has no SYSDIV and stays at 48 MHz.
+        #[cfg(feature = "stm32c071rb")]
+        {
+            config.rcc.sys_div = SysDiv::Div2; // 24Mhz
+        }
         config.rcc.ahb_pre = AHBPrescaler::Div1;
         config.rcc.apb1_pre = APBPrescaler::Div1;
     }

@@ -62,6 +62,11 @@ SAES:
 OSPI:
 - feat: stm32/ospi: add `Ospi::configure_hyperbus` + `HyperbusConfig`/`HyperbusLatencyMode` to program the HyperBus latency register (HLCR), enabling HyperBus/HyperRAM memory-mapped bring-up without reaching for `unstable-pac`
 
+RCC:
+- feat: stm32/rcc/c0: add `Config::sys_div` to configure the SYSDIV divider on chips that have it (C051, C071, C091/C092). It was previously never programmed and not accounted for in the reported SYSCLK
+- change: stm32/rcc/c0: rename `Hsi::sys_div` to `Hsi::div` and `HsiSysDiv` to `HsiDiv` (breaking change). The field sets HSIDIV, not SYSDIV; the old name suggested otherwise
+- fix: stm32/rcc/c0: raise the flash read access latency before anything that can raise the core frequency, so a configuration handed over from a bootloader without a reset cannot run above 24 MHz with too few wait states
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
