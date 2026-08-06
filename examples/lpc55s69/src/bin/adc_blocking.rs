@@ -16,7 +16,7 @@ async fn main(_spawner: Spawner) {
 
     // The default configuration corresponds to Config::new(Resolution::Bits16, Averaging::None);
     let config = Config::default();
-    let mut adc = Adc::new(p.ADC0, config);
+    let mut adc = Adc::new_blocking(p.ADC0, config);
 
     // PIO0_16 corresponds A0 on the dev board
     let mut adc_pin = p.PIO0_16;
