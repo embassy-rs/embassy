@@ -31,7 +31,8 @@ impl Driver for TimeDriver {
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
         let mut queue = self.queue.lock().unwrap();
         if queue.schedule_wake(at, waker) {
-            let next_alarm = critical_section::with(|_cs| queue.next_expiration(self.now()));
+            let next_alarm = queue.next_expiration(self.now());
+            drop(queue);
             if next_alarm < u64::MAX {
                 self.signaler.signal();
             }
@@ -44,7 +45,7 @@ fn alarm_thread() {
     loop {
         let now = DRIVER.now();
 
-        let next_alarm = critical_section::with(|_cs| DRIVER.queue.lock().unwrap().next_expiration(now));
+        let next_alarm = DRIVER.queue.lock().unwrap().next_expiration(now);
 
         // Ensure we don't overflow
         let until = zero
