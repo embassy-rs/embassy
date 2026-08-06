@@ -30,6 +30,7 @@ I2C:
 - feat: stm32/i2cv2: support zero-length transfers instead of returning `Error::ZeroLengthTransfer`, enabling bus scans via `transaction(addr, &mut [Operation::Write(&[])])`. On the slave side an empty `respond_to_write` accepts zero bytes and an empty `respond_to_read` sends `0xFF` filler, since I2C cannot encode "nothing to send"; both previously left ADDR set, holding SCL low and wedging the bus
 - fix: stm32/i2cv2: handle a master RESTART during async slave `respond_to_read` instead of stalling until the transaction times out
 - fix: stm32/i2cv2: re-enable TCIE after starting a DMA write group, so an async `transaction()` whose write group is not the first group completes instead of hanging until it times out
+- fix: stm32/i2cv2: program `CR2.SADD` without the 7-bit left shift when addressing a 10-bit target, which was putting every `Address::TenBit` on the bus one bit too far left and so addressing a different device
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
