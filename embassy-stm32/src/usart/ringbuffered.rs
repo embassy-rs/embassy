@@ -195,6 +195,11 @@ impl<'d> RingBufferedUartRx<'d> {
         compiler_fence(Ordering::SeqCst);
     }
 
+    /// Clears ring buffer.
+    pub fn clear(&mut self) {
+        self.ring_buf.clear();
+    }
+
     /// (Re-)start DMA and Uart if it is not running (has not been started yet or has failed), and
     /// check for errors in status register. Error flags are checked/cleared first.
     fn start_dma_or_check_errors(&mut self) -> Result<(), Error> {
