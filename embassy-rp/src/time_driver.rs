@@ -290,6 +290,7 @@ fn TIMER_IRQ_0() {
 }
 
 #[cfg(all(
+    feature = "rt",
     feature = "_rp235x",
     not(any(
         feature = "time-driver-timer1",
@@ -314,7 +315,7 @@ fn POWMAN_IRQ_TIMER() {
     DRIVER.check_alarm()
 }
 
-#[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
+#[cfg(all(feature = "rt", feature = "_rp235x", feature = "time-driver-mtime"))]
 #[interrupt]
 fn SIO_IRQ_MTIMECMP() {
     DRIVER.check_alarm()
