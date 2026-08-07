@@ -8,9 +8,9 @@ use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
 #[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
-use embassy_rp::clocks;
+use crate::clocks;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
-use embassy_rp::clocks;
+use crate::clocks;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-aot"))]
 use pac::POWMAN as TIMER;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
@@ -193,17 +193,9 @@ impl TimerDriver {
     }
 
     fn trigger_alarm(&self, cs: CriticalSection) {
-        let mut next = self
-            .queue
-            .borrow(cs)
-            .borrow_mut()
-            .next_expiration(self.now());
+        let mut next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
         while !self.set_alarm(cs, next) {
-            next = self
-                .queue
-                .borrow(cs)
-                .borrow_mut()
-                .next_expiration(self.now());
+            next = self.queue.borrow(cs).borrow_mut().next_expiration(self.now());
         }
     }
 }
@@ -331,7 +323,7 @@ fn SIO_IRQ_MTIMECMP() {
 #[cfg(all(feature = "_rp235x", feature = "time-driver-aot"))]
 mod timer_aon {
     use super::TIMER;
-    use embassy_rp::pac::powman;
+    use crate::pac::powman;
     use powman::regs;
     use regs::{AlarmTime15to0, AlarmTime31to16, AlarmTime47to32, AlarmTime63to48, Int, Timer};
 
