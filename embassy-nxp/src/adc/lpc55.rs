@@ -2,11 +2,19 @@
 
 #![macro_use]
 
-use embassy_hal_internal::Peri;
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::task::Poll;
 
+use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_sync::waitqueue::AtomicWaker;
+
+use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac;
 use crate::pac::adc0::{Adc0, vals};
 use crate::peripherals::ADC0;
+
+use crate::{Async, Blocking, Mode};
 
 /// Resolution selection
 pub enum Resolution {
@@ -48,15 +56,58 @@ impl Default for Config {
     }
 }
 
-/// The main struct
-pub struct Adc<'d> {
-    _peri: Peri<'d, ADC0>,
-    config: Config,
+pub(crate) struct Info {
+    pub(crate) waker: AtomicWaker,
 }
 
-impl<'d> Adc<'d> {
+pub(crate) trait SealedInstance {
+    fn info() -> &'static Info;
+}
+
+/// ADC instance
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType {
+    /// Interrupt for this instance
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
+}
+
+impl SealedInstance for ADC0 {
+    fn info() -> &'static Info {
+        static INFO: Info = Info {
+            waker: AtomicWaker::new(),
+        };
+        &INFO
+    }
+}
+
+impl Instance for ADC0 {
+    type Interrupt = crate::interrupt::typelevel::ADC0;
+}
+
+/// Interrupt handler
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let adc: Adc0 = pac::ADC0;
+        adc.ie().modify(|w| w.set_fwmie0(0.into()));
+        T::info().waker.wake();
+    }
+}
+
+/// The main struct
+pub struct Adc<'d, M: Mode> {
+    _peri: Peri<'d, ADC0>,
+    config: Config,
+    _phantom: PhantomData<M>,
+}
+
+/// Shared mode-generic implementation
+impl<'d, M: Mode> Adc<'d, M> {
     /// Creation and initialization of ADC
-    pub fn new(peri: Peri<'d, ADC0>, config: Config) -> Self {
+    fn new_inner(peri: Peri<'d, ADC0>, config: Config) -> Self {
         let adc: Adc0 = pac::ADC0;
 
         // Power & clocks
@@ -130,9 +181,14 @@ impl<'d> Adc<'d> {
         // Set averaging
         adc.ctrl().modify(|w| w.set_cal_avgs(avgs_bit.into()));
 
-        Self { _peri: peri, config }
+        Self {
+            _peri: peri,
+            config,
+            _phantom: PhantomData,
+        }
     }
 
+    /// Enable clocks and provide power
     fn enable_power_clocks() {
         let syscon = pac::SYSCON;
         let pmc = pac::PMC;
@@ -195,8 +251,16 @@ impl<'d> Adc<'d> {
 
         while !(adc.stat().read().cal_rdy().to_bits() != 0) {}
     }
+}
 
-    /// Reading the channel synchronously
+/// Blocking mode implementation
+impl<'d> Adc<'d, Blocking> {
+    /// Create a blocking ADC instance
+    pub fn new_blocking(peri: Peri<'d, ADC0>, config: Config) -> Self {
+        Self::new_inner(peri, config)
+    }
+
+    /// Read the channel synchronously
     pub fn blocking_read<P: AdcPin>(&mut self, pin: &mut crate::Peri<'_, P>) -> u16 {
         let adc: Adc0 = pac::ADC0;
         pin.configure_iocon();
@@ -223,6 +287,64 @@ impl<'d> Adc<'d> {
     }
 }
 
+/// Async mode implementation
+impl<'d> Adc<'d, Async> {
+    /// Create an async ADC instance
+    pub fn new<T: Instance>(
+        peri: Peri<'d, ADC0>,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
+        config: Config,
+    ) -> Self {
+        let adc = Self::new_inner(peri, config);
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        adc
+    }
+
+    /// Read the channel asyncronously
+    pub async fn read<P: AdcPin>(&mut self, pin: &mut Peri<'_, P>) -> u16 {
+        let adc: Adc0 = pac::ADC0;
+        pin.configure_iocon();
+        adc.cmdl1().modify(|w| {
+            w.set_adch(pin.channel().into());
+            w.set_ctype((pin.channel_side() as u8).into())
+        });
+
+        poll_fn(|cx| {
+            ADC0::info().waker.register(cx.waker());
+            if adc.fctrl(0).read().fcount() == 0 {
+                // ADC is not ready
+                adc.ie().modify(|w| w.set_fwmie0(1.into()));
+                adc.swtrig().write(|w| w.set_swt0(1.into()));
+
+                Poll::Pending
+            } else {
+                // ADC is ready
+                let result_reg = adc.resfifo(0).read();
+                let data_raw = result_reg.d();
+
+                let data = match self.config.resolution {
+                    Resolution::Bits16 => data_raw,
+                    Resolution::Bits12 => data_raw >> 3,
+                };
+
+                Poll::Ready(data)
+            }
+        })
+        .await
+    }
+}
+
+/// Getting maximum value for current resolution
+pub fn resolution_to_max_count(resolution: Resolution) -> u16 {
+    match resolution {
+        Resolution::Bits12 => (1 << 12) - 1,
+        Resolution::Bits16 => u16::MAX,
+    }
+}
+
 /// Trait that provides channel numbers for pins that support ADC
 pub trait AdcPin: crate::gpio::Pin {
     /// Channel number
@@ -242,7 +364,6 @@ pub trait AdcPin: crate::gpio::Pin {
                     w.set_func(0.into());
                     w.set_mode(0.into());
                     w.set_digimode(0.into());
-                    #[cfg(feature = "lpc55-core0")]
                     w.set_asw(1.into())
                 });
             }
@@ -251,7 +372,6 @@ pub trait AdcPin: crate::gpio::Pin {
                     w.set_func(0.into());
                     w.set_mode(0.into());
                     w.set_digimode(0.into());
-                    #[cfg(feature = "lpc55-core0")]
                     w.set_asw(1.into())
                 });
             }
@@ -262,6 +382,7 @@ pub trait AdcPin: crate::gpio::Pin {
 /// Channel side
 /// There are 2 ADC sides on each channels
 /// Each channel supports either single ended mode (just one channel) or differential (difference between two channels)
+/// Differential mode is not supported by this driver yet
 #[repr(u8)]
 pub enum ChannelSide {
     SideA = 0,
@@ -279,22 +400,9 @@ macro_rules! impl_adc_pin {
                 $adc_channel
             }
 
-            fn channel_side(&self) -> ChannelSide {
+            fn channel_side(&self) -> crate::adc::ChannelSide {
                 $channel_side
             }
         }
     };
 }
-
-// https://www.nxp.com/docs/en/data-sheet/LPC55S6x.pdf
-// Table 3 (starts at page 8)
-impl_adc_pin!(PIO0_23, 0, ChannelSide::SideA);
-impl_adc_pin!(PIO0_16, 0, ChannelSide::SideB);
-impl_adc_pin!(PIO0_10, 1, ChannelSide::SideA);
-impl_adc_pin!(PIO0_11, 1, ChannelSide::SideB);
-impl_adc_pin!(PIO0_15, 2, ChannelSide::SideA);
-impl_adc_pin!(PIO0_12, 2, ChannelSide::SideB);
-impl_adc_pin!(PIO0_31, 3, ChannelSide::SideA);
-impl_adc_pin!(PIO1_0, 3, ChannelSide::SideB);
-impl_adc_pin!(PIO1_8, 4, ChannelSide::SideA);
-impl_adc_pin!(PIO1_9, 4, ChannelSide::SideB);
