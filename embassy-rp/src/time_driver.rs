@@ -6,11 +6,6 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
-
-#[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
-use crate::clocks;
-#[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
-use crate::clocks;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-aot"))]
 use pac::POWMAN as TIMER;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
@@ -29,6 +24,10 @@ use pac::TIMER0 as TIMER;
 #[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
 use pac::TIMER1 as TIMER;
 
+#[cfg(all(feature = "_rp235x", feature = "time-driver-timer1"))]
+use crate::clocks;
+#[cfg(all(feature = "_rp235x", feature = "time-driver-mtime"))]
+use crate::clocks;
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
 
@@ -323,10 +322,11 @@ fn SIO_IRQ_MTIMECMP() {
 
 #[cfg(all(feature = "_rp235x", feature = "time-driver-aot"))]
 mod timer_aon {
-    use super::TIMER;
-    use crate::pac::powman;
     use powman::regs;
     use regs::{AlarmTime15to0, AlarmTime31to16, AlarmTime47to32, AlarmTime63to48, Int, Timer};
+
+    use super::TIMER;
+    use crate::pac::powman;
 
     const POWMAN_KEY: u32 = 0x5afeu32 << 16;
     pub const LPOSC_TICK: u64 = 1000;
@@ -367,9 +367,10 @@ mod timer_aon {
         timer_reg.write_value_key(timer_reg_value);
     }
 
-    use super::TimerDriver;
     use critical_section::CriticalSection;
     use embassy_time_driver::Driver;
+
+    use super::TimerDriver;
     impl TimerDriver {
         pub fn set_aon_alarm_value(&self, timestamp_ticks: u64) {
             let timestamp_lposc_ticks = timestamp_ticks / TICKS_PER_LPOSC_TICK;
