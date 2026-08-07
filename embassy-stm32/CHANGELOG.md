@@ -68,6 +68,9 @@ RCC:
 - change: stm32/rcc/c0: rename `Hsi::sys_div` to `Hsi::div` and `HsiSysDiv` to `HsiDiv` (breaking change). The field sets HSIDIV, not SYSDIV; the old name suggested otherwise
 - fix: stm32/rcc/c0: raise the flash read access latency before anything that can raise the core frequency, so a configuration handed over from a bootloader without a reset cannot run above 24 MHz with too few wait states
 
+SPI:
+- change default NSS configuration from active-high to active-low
+
 ## 0.6.0 - 2026-03-10
 
 ADC:
@@ -613,4 +616,3 @@ Misc:
 ## 0.1.0 - 2024-01-12
 
 First release.
-
