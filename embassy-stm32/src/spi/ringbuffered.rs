@@ -15,12 +15,10 @@ use crate::gpio::{Flex, Pin};
 use crate::interrupt::typelevel::Binding;
 use crate::mode::Async;
 use crate::rcc::WakeGuard;
-#[cfg(any(spi_v4, spi_v5, spi_v6))]
-use crate::spi::SlaveSelectPolarity;
 use crate::spi::mode::Slave;
-use crate::spi::{
-    Config, Error, Info, Regs, RegsExt, Spi, Word, check_error_flags, flush_rx_fifo, reconfigure, set_rxdmaen,
-};
+use crate::spi::{Config, Error, Info, Regs, RegsExt, Spi, Word, check_error_flags, reconfigure, set_rxdmaen};
+#[cfg(any(spi_v4, spi_v5, spi_v6))]
+use crate::spi::{SlaveSelectPolarity, flush_rx_fifo};
 use crate::time::Hertz;
 
 /// Rx-only Ring-buffered SPI Driver
