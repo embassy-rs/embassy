@@ -121,7 +121,7 @@ impl Default for Config {
             gpio_speed: Speed::VeryHigh,
             nss_output_disable: false,
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
-            nss_polarity: SlaveSelectPolarity::ActiveHigh,
+            nss_polarity: SlaveSelectPolarity::ActiveLow,
         }
     }
 }
