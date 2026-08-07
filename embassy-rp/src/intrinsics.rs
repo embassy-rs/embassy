@@ -223,7 +223,7 @@ macro_rules! intrinsics {
 
         #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         mod $name {
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[$($attr)*])*
             pub extern $abi fn $name( $($argname: $ty),* ) -> $ret {
                 super::$name($($argname),*)
@@ -257,7 +257,7 @@ macro_rules! intrinsics {
 
         #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         mod $name {
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[$($attr)*])*
             pub unsafe extern $abi fn $name( $($argname: $ty),* ) -> $ret {
                 super::$name($($argname),*)
@@ -335,10 +335,9 @@ core::arch::global_asm!(
     // result ourselves correctly. This sets DIRTY, so any interruptor will
     // save the state.
     "str    r3, [r2, #0x060]", // DIV_UDIVIDEND
-    // If we are interrupted here, the the interruptor may start the
-    // calculation using incorrectly signed inputs, but we'll restore the
-    // result ourselves. This sets DIRTY, so any interruptor will save the
-    // state.
+    // If we are interrupted here, the interruptor may start the calculation
+    // using incorrectly signed inputs, but we'll restore the result ourselves.
+    // This sets DIRTY, so any interruptor will save the state.
     "str    r4, [r2, #0x064]", // DIV_UDIVISOR
     // If we are interrupted here, the interruptor will have restored
     // everything but the quotient may be wrongly signed.  If the calculation
@@ -393,7 +392,7 @@ macro_rules! division_function {
         );
 
         #[cfg(target_arch = "arm")]
-        extern "aapcs" {
+        unsafe extern "aapcs" {
             // Connect a local name to global symbol above through FFI.
             #[link_name = concat!("_erphal_", stringify!($name)) ]
             fn $name(n: $argty, d: $argty) -> u64;

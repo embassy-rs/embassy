@@ -1,0 +1,8 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+runner = "teleprobe local run --chip MSPM0G3507 --protocol swd --elf"
+
+[build]
+target = "thumbv6m-none-eabi"
+
+[env]
+DEFMT_LOG = "trace,embassy_hal_internal=debug"

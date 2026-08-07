@@ -1,0 +1,9 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace MSPM0L1306 with your chip as listed in `probe-rs chip list`
+runner = "probe-rs run --chip MSPM0L1306 --protocol=swd"
+
+[build]
+target = "thumbv6m-none-eabi"
+
+[env]
+DEFMT_LOG = "trace"

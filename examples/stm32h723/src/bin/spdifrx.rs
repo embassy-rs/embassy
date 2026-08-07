@@ -6,16 +6,20 @@
 #![no_main]
 
 use defmt::{info, trace};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_futures::select::{self, select, Either};
+use embassy_futures::select::{Either, select};
+use embassy_stm32 as hal;
 use embassy_stm32::spdifrx::{self, Spdifrx};
-use embassy_stm32::{bind_interrupts, peripherals, sai};
+use embassy_stm32::{Peri, bind_interrupts, dma, peripherals, sai};
 use grounded::uninit::GroundedArrayCell;
 use hal::sai::*;
-use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     SPDIF_RX => spdifrx::GlobalInterruptHandler<peripherals::SPDIFRX1>;
+    DMA2_STREAM7 => dma::InterruptHandler<peripherals::DMA2_CH7>;
+    BDMA_CHANNEL0 => dma::InterruptHandler<peripherals::BDMA_CH0>;
 });
 
 const CHANNEL_COUNT: usize = 2;
@@ -24,34 +28,34 @@ const HALF_DMA_BUFFER_LENGTH: usize = BLOCK_LENGTH * CHANNEL_COUNT;
 const DMA_BUFFER_LENGTH: usize = HALF_DMA_BUFFER_LENGTH * 2; //  2 half-blocks
 
 // DMA buffers must be in special regions. Refer https://embassy.dev/book/#_stm32_bdma_only_working_out_of_some_ram_regions
-#[link_section = ".sram1"]
-static mut SPDIFRX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+#[unsafe(link_section = ".sram1")]
+static SPDIFRX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
 
-#[link_section = ".sram4"]
-static mut SAI_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+#[unsafe(link_section = ".sram4")]
+static SAI_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut peripheral_config = embassy_stm32::Config::default();
     {
         use embassy_stm32::rcc::*;
-        peripheral_config.rcc.hsi = Some(HSIPrescaler::DIV1);
+        peripheral_config.rcc.hsi = Some(HSIPrescaler::Div1);
         peripheral_config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSI,
-            prediv: PllPreDiv::DIV16,
-            mul: PllMul::MUL200,
-            divp: Some(PllDiv::DIV2), // 400 MHz
-            divq: Some(PllDiv::DIV2),
-            divr: Some(PllDiv::DIV2),
+            source: PllSource::Hsi,
+            prediv: PllPreDiv::Div16,
+            mul: PllMul::Mul200,
+            divp: Some(PllDiv::Div2), // 400 MHz
+            divq: Some(PllDiv::Div2),
+            divr: Some(PllDiv::Div2),
         });
-        peripheral_config.rcc.sys = Sysclk::PLL1_P;
-        peripheral_config.rcc.ahb_pre = AHBPrescaler::DIV2;
-        peripheral_config.rcc.apb1_pre = APBPrescaler::DIV2;
-        peripheral_config.rcc.apb2_pre = APBPrescaler::DIV2;
-        peripheral_config.rcc.apb3_pre = APBPrescaler::DIV2;
-        peripheral_config.rcc.apb4_pre = APBPrescaler::DIV2;
+        peripheral_config.rcc.sys = Sysclk::Pll1P;
+        peripheral_config.rcc.ahb_pre = AHBPrescaler::Div2;
+        peripheral_config.rcc.apb1_pre = APBPrescaler::Div2;
+        peripheral_config.rcc.apb2_pre = APBPrescaler::Div2;
+        peripheral_config.rcc.apb3_pre = APBPrescaler::Div2;
+        peripheral_config.rcc.apb4_pre = APBPrescaler::Div2;
 
-        peripheral_config.rcc.mux.spdifrxsel = mux::Spdifrxsel::PLL1_Q;
+        peripheral_config.rcc.mux.spdifrxsel = mux::Spdifrxsel::Pll1Q;
     }
     let mut p = embassy_stm32::init(peripheral_config);
 
@@ -77,14 +81,19 @@ async fn main(_spawner: Spawner) {
     };
 
     let mut sai_transmitter = new_sai_transmitter(
-        &mut p.SAI4,
-        &mut p.PD13,
-        &mut p.PC1,
-        &mut p.PD12,
-        &mut p.BDMA_CH0,
+        p.SAI4.reborrow(),
+        p.PD13.reborrow(),
+        p.PC1.reborrow(),
+        p.PD12.reborrow(),
+        p.BDMA_CH0.reborrow(),
         sai_buffer,
     );
-    let mut spdif_receiver = new_spdif_receiver(&mut p.SPDIFRX1, &mut p.PD7, &mut p.DMA2_CH7, spdifrx_buffer);
+    let mut spdif_receiver = new_spdif_receiver(
+        p.SPDIFRX1.reborrow(),
+        p.PD7.reborrow(),
+        p.DMA2_CH7.reborrow(),
+        spdifrx_buffer,
+    );
     spdif_receiver.start();
 
     let mut renew_sai = false;
@@ -96,11 +105,11 @@ async fn main(_spawner: Spawner) {
             trace!("Renew SAI.");
             drop(sai_transmitter);
             sai_transmitter = new_sai_transmitter(
-                &mut p.SAI4,
-                &mut p.PD13,
-                &mut p.PC1,
-                &mut p.PD12,
-                &mut p.BDMA_CH0,
+                p.SAI4.reborrow(),
+                p.PD13.reborrow(),
+                p.PC1.reborrow(),
+                p.PD12.reborrow(),
+                p.BDMA_CH0.reborrow(),
                 sai_buffer,
             );
         }
@@ -111,7 +120,12 @@ async fn main(_spawner: Spawner) {
                 Err(spdifrx::Error::RingbufferError(_)) => {
                     trace!("SPDIFRX ringbuffer error. Renew.");
                     drop(spdif_receiver);
-                    spdif_receiver = new_spdif_receiver(&mut p.SPDIFRX1, &mut p.PD7, &mut p.DMA2_CH7, spdifrx_buffer);
+                    spdif_receiver = new_spdif_receiver(
+                        p.SPDIFRX1.reborrow(),
+                        p.PD7.reborrow(),
+                        p.DMA2_CH7.reborrow(),
+                        spdifrx_buffer,
+                    );
                     spdif_receiver.start();
                     continue;
                 }
@@ -134,9 +148,9 @@ async fn main(_spawner: Spawner) {
 ///
 /// Used (again) after dropping the SPDIFRX instance, in case of errors (e.g. source disconnect).
 fn new_spdif_receiver<'d>(
-    spdifrx: &'d mut peripherals::SPDIFRX1,
-    input_pin: &'d mut peripherals::PD7,
-    dma: &'d mut peripherals::DMA2_CH7,
+    spdifrx: Peri<'d, peripherals::SPDIFRX1>,
+    input_pin: Peri<'d, peripherals::PD7>,
+    dma: Peri<'d, peripherals::DMA2_CH7>,
     buf: &'d mut [u32],
 ) -> Spdifrx<'d, peripherals::SPDIFRX1> {
     Spdifrx::new(spdifrx, Irqs, spdifrx::Config::default(), input_pin, dma, buf)
@@ -146,20 +160,19 @@ fn new_spdif_receiver<'d>(
 ///
 /// Used (again) after dropping the SAI4 instance, in case of errors (e.g. buffer overrun).
 fn new_sai_transmitter<'d>(
-    sai: &'d mut peripherals::SAI4,
-    sck: &'d mut peripherals::PD13,
-    sd: &'d mut peripherals::PC1,
-    fs: &'d mut peripherals::PD12,
-    dma: &'d mut peripherals::BDMA_CH0,
+    sai: Peri<'d, peripherals::SAI4>,
+    sck: Peri<'d, peripherals::PD13>,
+    sd: Peri<'d, peripherals::PC1>,
+    fs: Peri<'d, peripherals::PD12>,
+    dma: Peri<'d, peripherals::BDMA_CH0>,
     buf: &'d mut [u32],
-) -> Sai<'d, peripherals::SAI4, u32> {
+) -> Sai<'d, u32> {
     let mut sai_config = hal::sai::Config::default();
     sai_config.slot_count = hal::sai::word::U4(CHANNEL_COUNT as u8);
     sai_config.slot_enable = 0xFFFF; // All slots
     sai_config.data_size = sai::DataSize::Data32;
-    sai_config.frame_length = (CHANNEL_COUNT * 32) as u8;
-    sai_config.master_clock_divider = hal::sai::MasterClockDivider::MasterClockDisabled;
+    sai_config.frame_length = (CHANNEL_COUNT * 32) as u16;
 
     let (sub_block_tx, _) = hal::sai::split_subblocks(sai);
-    Sai::new_asynchronous(sub_block_tx, sck, sd, fs, dma, buf, sai_config)
+    Sai::new_asynchronous(sub_block_tx, sck, sd, fs, dma, buf, Irqs, sai_config)
 }

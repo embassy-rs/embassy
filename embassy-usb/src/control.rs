@@ -99,6 +99,12 @@ impl Request {
     /// Standard USB feature Device Remote Wakeup for Set/Clear Feature
     pub const FEATURE_DEVICE_REMOTE_WAKEUP: u16 = 1;
 
+    /// Standard USB feature Device Test Mode for Set Feature
+    pub const FEATURE_DEVICE_TEST_MODE: u16 = 2;
+
+    /// Standard USB feature Device Debug Mode for Set Feature
+    pub const FEATURE_DEVICE_DEBUG_MODE: u16 = 6;
+
     /// Parses a USB control request from a byte array.
     pub fn parse(buf: &[u8; 8]) -> Request {
         let rt = buf[0];
@@ -106,9 +112,9 @@ impl Request {
 
         Request {
             direction: if rt & 0x80 == 0 { Direction::Out } else { Direction::In },
-            request_type: unsafe { mem::transmute((rt >> 5) & 0b11) },
+            request_type: unsafe { mem::transmute::<u8, RequestType>((rt >> 5) & 0b11) },
             recipient: if recipient <= 3 {
-                unsafe { mem::transmute(recipient) }
+                unsafe { mem::transmute::<u8, Recipient>(recipient) }
             } else {
                 Recipient::Reserved
             },

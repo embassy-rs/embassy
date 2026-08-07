@@ -3,10 +3,11 @@
 teleprobe_meta::target!(b"rpi-pico");
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::pac;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -18,7 +19,7 @@ async fn main(_spawner: Spawner) {
 
     pac::BUSCTRL
         .perfsel(0)
-        .write(|r| r.set_perfsel(pac::busctrl::vals::Perfsel::ROM));
+        .write(|r| r.set_perfsel(pac::busctrl::vals::Perfsel::Rom));
 
     for i in 0..=360 {
         let rad_f = (i as f32) * PI_F / 180.0;

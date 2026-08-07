@@ -3,7 +3,6 @@ resolver = "2"
 members = [
     "blinky-pac",
     "blinky-hal",
-    "blinky-irq",
     "blinky-async",
 ]
 

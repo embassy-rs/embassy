@@ -115,22 +115,22 @@ impl R {
 impl W {
     #[doc = "Byte 0 - Bits 0:28 - EFID1"]
     #[inline(always)]
-    pub fn efid1(&mut self) -> EFID1_W {
+    pub fn efid1(&mut self) -> EFID1_W<'_> {
         EFID1_W { w: self }
     }
     #[doc = "Byte 0 - Bits 29:31 - EFEC"]
     #[inline(always)]
-    pub fn efec(&mut self) -> EFEC_W {
+    pub fn efec(&mut self) -> EFEC_W<'_> {
         EFEC_W { w: self }
     }
     #[doc = "Byte 1 - Bits 0:28 - EFID2"]
     #[inline(always)]
-    pub fn efid2(&mut self) -> EFID2_W {
+    pub fn efid2(&mut self) -> EFID2_W<'_> {
         EFID2_W { w: self }
     }
     #[doc = "Byte 1 - Bits 30:31 - EFT"]
     #[inline(always)]
-    pub fn eft(&mut self) -> EFT_W {
+    pub fn eft(&mut self) -> EFT_W<'_> {
         EFT_W { w: self }
     }
 }

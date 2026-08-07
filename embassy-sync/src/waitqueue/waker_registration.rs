@@ -2,6 +2,10 @@ use core::mem;
 use core::task::Waker;
 
 /// Utility struct to register and wake a waker.
+/// If a waker is registered, registering another waker will replace the previous one.
+/// The previous waker will be woken in this case, giving it a chance to reregister itself.
+/// Although it is possible to wake multiple tasks this way,
+/// this will cause them to wake each other in a loop registering themselves.
 #[derive(Debug, Default)]
 pub struct WakerRegistration {
     waker: Option<Waker>,

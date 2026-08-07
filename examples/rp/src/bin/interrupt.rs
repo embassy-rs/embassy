@@ -11,18 +11,19 @@
 use core::cell::{Cell, RefCell};
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Blocking};
 use embassy_rp::gpio::Pull;
 use embassy_rp::interrupt;
 use embassy_rp::pwm::{Config, Pwm};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Ticker};
+use panic_probe as _;
 use portable_atomic::{AtomicU32, Ordering};
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 static PWM: Mutex<CriticalSectionRawMutex, RefCell<Option<Pwm>>> = Mutex::new(RefCell::new(None));
@@ -30,9 +31,8 @@ static ADC: Mutex<CriticalSectionRawMutex, RefCell<Option<(Adc<Blocking>, adc::C
     Mutex::new(RefCell::new(None));
 static ADC_VALUES: Channel<CriticalSectionRawMutex, u16, 2048> = Channel::new();
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
-    embassy_rp::pac::SIO.spinlock(31).write_value(1);
     let p = embassy_rp::init(Default::default());
 
     let adc = Adc::new_blocking(p.ADC, Default::default());
@@ -52,7 +52,7 @@ async fn main(spawner: Spawner) {
     // No Mutex needed when sharing within the same executor/prio level
     static AVG: StaticCell<Cell<u32>> = StaticCell::new();
     let avg = AVG.init(Default::default());
-    spawner.must_spawn(processing(avg));
+    spawner.spawn(processing(avg).unwrap());
 
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {
@@ -70,7 +70,7 @@ async fn main(spawner: Spawner) {
 
 #[embassy_executor::task]
 async fn processing(avg: &'static Cell<u32>) {
-    let mut buffer: heapless::HistoryBuffer<u16, 100> = Default::default();
+    let mut buffer: heapless::HistoryBuf<u16, 100> = Default::default();
     loop {
         let val = ADC_VALUES.receive().await;
         buffer.write(val);

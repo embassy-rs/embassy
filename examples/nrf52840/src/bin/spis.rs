@@ -2,10 +2,11 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::spis::{Config, Spis};
 use embassy_nrf::{bind_interrupts, peripherals, spis};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     SPI2 => spis::InterruptHandler<peripherals::SPI2>;

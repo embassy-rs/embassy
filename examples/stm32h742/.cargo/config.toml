@@ -1,0 +1,9 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace STM32H742VITx with your chip as listed in `probe-rs chip list`
+runner = "probe-rs run --chip STM32H742VITx"
+
+[build]
+target = "thumbv7em-none-eabihf"
+
+[env]
+DEFMT_LOG = "trace"

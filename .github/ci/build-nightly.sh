@@ -7,7 +7,7 @@ set -euo pipefail
 export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
-mv rust-toolchain-nightly.toml rust-toolchain.toml
+export PATH=$CARGO_HOME/bin:$PATH
 
 # needed for "dumb HTTP" transport support
 # used when pointing stm32-metapac to a CI-built one.
@@ -21,6 +21,10 @@ fi
 
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
+
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev f8a8cce4092ef2566fbae04f088daa70c9e1fe93
+
+mv rust-toolchain-nightly.toml rust-toolchain.toml
 
 ./ci-nightly.sh
 

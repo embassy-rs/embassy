@@ -7,6 +7,7 @@ set -euo pipefail
 export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
+export PATH=$CARGO_HOME/bin:$PATH
 if [ -f /ci/secrets/teleprobe-token.txt ]; then
     echo Got teleprobe token!
     export TELEPROBE_HOST=https://teleprobe.embassy.dev
@@ -26,6 +27,8 @@ fi
 
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
+
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev f8a8cce4092ef2566fbae04f088daa70c9e1fe93
 
 ./ci.sh
 

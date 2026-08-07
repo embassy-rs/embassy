@@ -2,17 +2,18 @@
 
 use core::cell::{RefCell, UnsafeCell};
 use core::convert::Infallible;
-use core::future::Future;
+use core::future::{Future, poll_fn};
 use core::ops::Range;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::ring_buffer::RingBuffer;
 use crate::waitqueue::WakerRegistration;
 
 /// Write-only access to a [`Pipe`].
+#[derive(Debug)]
 pub struct Writer<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -42,6 +43,13 @@ where
         self.pipe.write(buf)
     }
 
+    /// Write all bytes to the pipe.
+    ///
+    /// This method writes all bytes from `buf` into the pipe. See [`Pipe::write_all()`]
+    pub async fn write_all<'a>(&'a self, buf: &'a [u8]) {
+        self.pipe.write_all(buf).await;
+    }
+
     /// Attempt to immediately write some bytes to the pipe.
     ///
     /// See [`Pipe::try_write()`]
@@ -52,6 +60,7 @@ where
 
 /// Future returned by [`Pipe::write`] and  [`Writer::write`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
 pub struct WriteFuture<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -77,6 +86,7 @@ where
 impl<'p, M, const N: usize> Unpin for WriteFuture<'p, M, N> where M: RawMutex {}
 
 /// Read-only access to a [`Pipe`].
+#[derive(Debug)]
 pub struct Reader<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -128,6 +138,7 @@ where
 
 /// Future returned by [`Pipe::read`] and  [`Reader::read`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
 pub struct ReadFuture<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -152,8 +163,9 @@ where
 
 impl<'p, M, const N: usize> Unpin for ReadFuture<'p, M, N> where M: RawMutex {}
 
-/// Future returned by [`Pipe::fill_buf`] and  [`Reader::fill_buf`].
+/// Future returned by [`Reader::fill_buf`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
 pub struct FillBufFuture<'p, M, const N: usize>
 where
     M: RawMutex,
@@ -199,6 +211,7 @@ pub enum TryWriteError {
     Full,
 }
 
+#[derive(Debug)]
 struct PipeState<const N: usize> {
     buffer: RingBuffer<N>,
     read_waker: WakerRegistration,
@@ -206,6 +219,7 @@ struct PipeState<const N: usize> {
 }
 
 #[repr(transparent)]
+#[derive(Debug)]
 struct Buffer<const N: usize>(UnsafeCell<[u8; N]>);
 
 impl<const N: usize> Buffer<N> {
@@ -230,6 +244,7 @@ unsafe impl<const N: usize> Sync for Buffer<N> {}
 /// buffer is full, attempts to `write` new bytes will wait until buffer space is freed up.
 ///
 /// All data written will become available in the same order as it was written.
+#[derive(Debug)]
 pub struct Pipe<M, const N: usize>
 where
     M: RawMutex,
@@ -339,6 +354,11 @@ where
             let n = available.len().min(buf.len());
             available[..n].copy_from_slice(&buf[..n]);
             s.buffer.push(n);
+
+            if s.buffer.is_full() {
+                s.read_waker.wake();
+            }
+
             Ok(n)
         })
     }
@@ -385,10 +405,25 @@ where
     /// Attempt to immediately write some bytes to the pipe.
     ///
     /// This method will either write a nonzero amount of bytes to the pipe immediately,
-    /// or return an error if the pipe is empty. See [`write`](Self::write) for a variant
-    /// that waits instead of returning an error.
+    /// or return an error if the pipe is full. See [`write`](Self::write) for a variant
+    /// that waits instead of returning an error. This method might not write all the provided data
+    /// even if there is enough space in the pipe due to implementation details. See
+    /// [Self::try_write_all] for a method which ensures that all bytes are written unless
+    /// an overflow occurs.
     pub fn try_write(&self, buf: &[u8]) -> Result<usize, TryWriteError> {
         self.try_write_with_context(None, buf)
+    }
+
+    /// Attempt to immediately write all provided bytes into the pipe.
+    ///
+    /// This method will try to write all bytes of the buffer into the pipe immediately,
+    /// or return an error if the pipe is full.
+    pub fn try_write_all(&self, mut buf: &[u8]) -> Result<(), TryWriteError> {
+        while !buf.is_empty() {
+            let n = self.try_write(buf)?;
+            buf = &buf[n..];
+        }
+        Ok(())
     }
 
     /// Read some bytes from the pipe.
@@ -428,6 +463,20 @@ where
         })
     }
 
+    /// Wait until the pipe is full (no free space in the buffer)
+    pub async fn wait_full(&self) {
+        poll_fn(|cx| {
+            self.inner.lock(|rc: &RefCell<PipeState<N>>| {
+                let s = &mut *rc.borrow_mut();
+
+                s.read_waker.register(cx.waker());
+            });
+
+            if self.is_full() { Poll::Ready(()) } else { Poll::Pending }
+        })
+        .await;
+    }
+
     /// Return whether the pipe is full (no free space in the buffer)
     pub fn is_full(&self) -> bool {
         self.len() == N
@@ -441,7 +490,7 @@ where
     /// Total byte capacity.
     ///
     /// This is the same as the `N` generic param.
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         N
     }
 
@@ -527,6 +576,10 @@ impl<M: RawMutex, const N: usize> embedded_io_async::Write for Writer<'_, M, N> 
         Ok(Writer::write(self, buf).await)
     }
 
+    async fn write_all(&mut self, buf: &[u8]) -> Result<(), Self::Error> {
+        Ok(Writer::write_all(self, buf).await)
+    }
+
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -587,7 +640,7 @@ where
     }
 }
 
-/// Write-only access to a [`DynamicPipe`].
+/// Write-only access to the dynamic pipe.
 pub struct DynamicWriter<'p> {
     pipe: &'p dyn DynamicPipe,
 }
@@ -657,7 +710,7 @@ where
     }
 }
 
-/// Read-only access to a [`DynamicPipe`].
+/// Read-only access to a dynamic pipe.
 pub struct DynamicReader<'p> {
     pipe: &'p dyn DynamicPipe,
 }
@@ -742,7 +795,7 @@ where
     }
 }
 
-/// Future returned by [`DynamicPipe::fill_buf`] and  [`DynamicReader::fill_buf`].
+/// Future returned by [`DynamicReader::fill_buf`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct DynamicFillBufFuture<'p> {
     pipe: Option<&'p dyn DynamicPipe>,
@@ -803,6 +856,48 @@ mod tests {
     }
 
     #[test]
+    fn write_read_across_rollover() {
+        let c = Pipe::<NoopRawMutex, 3>::new();
+        assert_eq!(c.try_write(&[1, 2]).unwrap(), 2);
+        assert_eq!(c.free_capacity(), 1);
+        let mut buf = [0; 1];
+        c.try_read(&mut buf).expect("trying to read pipe failed");
+        assert_eq!(buf, [1]);
+        assert_eq!(c.free_capacity(), 2);
+        // Write across rollover, only one byte is written.
+        assert_eq!(c.try_write(&[3, 4]).unwrap(), 1);
+        assert_eq!(c.free_capacity(), 1);
+        // Write remaining byte.
+        assert_eq!(c.try_write(&[4]).unwrap(), 1);
+        assert_eq!(c.free_capacity(), 0);
+        let mut buf = [0; 3];
+        // Read across rollover, only two bytes are read.
+        assert_eq!(c.try_read(&mut buf).expect("trying to read pipe failed"), 2);
+        assert_eq!(buf, [2, 3, 0]);
+        assert_eq!(c.free_capacity(), 2);
+        // Read remaining byte.
+        assert_eq!(c.try_read(&mut buf).expect("trying to read pipe failed"), 1);
+        assert_eq!(buf[0], 4);
+        assert_eq!(c.free_capacity(), 3);
+    }
+
+    #[test]
+    fn write_all_across_rollover() {
+        let c = Pipe::<NoopRawMutex, 6>::new();
+        assert_eq!(c.try_write(&[1, 2, 3, 4, 5]).unwrap(), 5);
+        assert_eq!(c.free_capacity(), 1);
+        let mut buf = [0; 3];
+        c.try_read(&mut buf).expect("trying to read pipe failed");
+        assert_eq!(buf, [1, 2, 3]);
+        assert_eq!(c.free_capacity(), 4);
+        assert!(c.try_write_all(&[6, 7, 8]).is_ok());
+        assert_eq!(c.free_capacity(), 1);
+        c.try_read(&mut buf).expect("trying to read pipe failed");
+        assert_eq!(buf, [4, 5, 6]);
+        assert_eq!(c.free_capacity(), 4);
+    }
+
+    #[test]
     fn receiving_once_with_one_send() {
         let c = Pipe::<NoopRawMutex, 3>::new();
         assert!(c.try_write(&[42]).is_ok());
@@ -860,6 +955,7 @@ mod tests {
     fn writer_is_cloneable() {
         let mut c = Pipe::<NoopRawMutex, 3>::new();
         let (_r, w) = c.split();
+        #[allow(clippy::clone_on_copy)]
         let _ = w.clone();
     }
 

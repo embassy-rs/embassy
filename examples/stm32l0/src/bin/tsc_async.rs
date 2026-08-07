@@ -41,18 +41,19 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::tsc::{self, *};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     TSC => InterruptHandler<embassy_stm32::peripherals::TSC>;
 });
 const SENSOR_THRESHOLD: u16 = 25; // Adjust this value based on your setup
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: embassy_executor::Spawner) {
     let device_config = embassy_stm32::Config::default();
     let context = embassy_stm32::init(device_config);

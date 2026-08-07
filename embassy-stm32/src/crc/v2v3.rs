@@ -1,17 +1,15 @@
-use embassy_hal_internal::{into_ref, PeripheralRef};
-
-use crate::pac::crc::vals;
 use crate::pac::CRC as PAC_CRC;
+use crate::pac::crc::vals;
 use crate::peripherals::CRC;
-use crate::{rcc, Peripheral};
+use crate::{Peri, rcc};
 
 /// CRC driver.
 pub struct Crc<'d> {
-    _peripheral: PeripheralRef<'d, CRC>,
+    _peripheral: Peri<'d, CRC>,
     _config: Config,
 }
 
-/// CRC configuration errlr
+/// CRC configuration error
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ConfigError {
@@ -36,9 +34,9 @@ pub enum InputReverseConfig {
     None,
     /// Reverse bytes
     Byte,
-    /// Reverse 16-bit halfwords.
+    /// Reverse 16-bit halfwords
     Halfword,
-    /// Reverse 32-bit words.
+    /// Reverse 32-bit words
     Word,
 }
 
@@ -80,11 +78,10 @@ pub enum PolySize {
 
 impl<'d> Crc<'d> {
     /// Instantiates the CRC32 peripheral and initializes it to default values.
-    pub fn new(peripheral: impl Peripheral<P = CRC> + 'd, config: Config) -> Self {
+    pub fn new(peripheral: Peri<'d, CRC>, config: Config) -> Self {
         // Note: enable and reset come from RccPeripheral.
         // reset to default values and enable CRC clock in RCC.
         rcc::enable_and_reset::<CRC>();
-        into_ref!(peripheral);
         let mut instance = Self {
             _peripheral: peripheral,
             _config: config,
@@ -111,64 +108,65 @@ impl<'d> Crc<'d> {
         PAC_CRC.cr().write(|w| {
             // configure reverse output
             w.set_rev_out(match self._config.reverse_out {
-                true => vals::RevOut::REVERSED,
-                false => vals::RevOut::NORMAL,
+                true => vals::RevOut::Reversed,
+                false => vals::RevOut::Normal,
             });
             // configure reverse input
             w.set_rev_in(match self._config.reverse_in {
-                InputReverseConfig::None => vals::RevIn::NORMAL,
-                InputReverseConfig::Byte => vals::RevIn::BYTE,
-                InputReverseConfig::Halfword => vals::RevIn::HALF_WORD,
-                InputReverseConfig::Word => vals::RevIn::WORD,
+                InputReverseConfig::None => vals::RevIn::Normal,
+                InputReverseConfig::Byte => vals::RevIn::Byte,
+                InputReverseConfig::Halfword => vals::RevIn::HalfWord,
+                InputReverseConfig::Word => vals::RevIn::Word,
             });
             // configure the polynomial.
             #[cfg(crc_v3)]
             w.set_polysize(match self._config.poly_size {
-                PolySize::Width7 => vals::Polysize::POLYSIZE7,
-                PolySize::Width8 => vals::Polysize::POLYSIZE8,
-                PolySize::Width16 => vals::Polysize::POLYSIZE16,
-                PolySize::Width32 => vals::Polysize::POLYSIZE32,
+                PolySize::Width7 => vals::Polysize::Polysize7,
+                PolySize::Width8 => vals::Polysize::Polysize8,
+                PolySize::Width16 => vals::Polysize::Polysize16,
+                PolySize::Width32 => vals::Polysize::Polysize32,
             });
         });
-
-        self.reset();
     }
 
-    /// Feeds a byte into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_byte(&mut self, byte: u8) -> u32 {
-        PAC_CRC.dr8().write_value(byte);
+    /// Read the CRC result value.
+    pub fn read(&self) -> u32 {
         PAC_CRC.dr32().read()
     }
 
-    /// Feeds an slice of bytes into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_bytes(&mut self, bytes: &[u8]) -> u32 {
+    /// Feeds a byte into the CRC peripheral.
+    pub fn feed_byte(&mut self, byte: u8) {
+        PAC_CRC.dr8().write_value(byte);
+    }
+
+    /// Feeds a slice of bytes into the CRC peripheral.
+    pub fn feed_bytes(&mut self, bytes: &[u8]) {
         for byte in bytes {
             PAC_CRC.dr8().write_value(*byte);
         }
-        PAC_CRC.dr32().read()
     }
-    /// Feeds a halfword into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_halfword(&mut self, halfword: u16) -> u32 {
+
+    /// Feeds a halfword into the CRC peripheral.
+    pub fn feed_halfword(&mut self, halfword: u16) {
         PAC_CRC.dr16().write_value(halfword);
-        PAC_CRC.dr32().read()
     }
-    /// Feeds an slice of halfwords into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_halfwords(&mut self, halfwords: &[u16]) -> u32 {
+
+    /// Feeds a slice of halfwords into the CRC peripheral.
+    pub fn feed_halfwords(&mut self, halfwords: &[u16]) {
         for halfword in halfwords {
             PAC_CRC.dr16().write_value(*halfword);
         }
-        PAC_CRC.dr32().read()
     }
-    /// Feeds a words into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_word(&mut self, word: u32) -> u32 {
+
+    /// Feeds a word into the CRC peripheral.
+    pub fn feed_word(&mut self, word: u32) {
         PAC_CRC.dr32().write_value(word as u32);
-        PAC_CRC.dr32().read()
     }
-    /// Feeds an slice of words into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_words(&mut self, words: &[u32]) -> u32 {
+
+    /// Feeds a slice of words into the CRC peripheral.
+    pub fn feed_words(&mut self, words: &[u32]) {
         for word in words {
             PAC_CRC.dr32().write_value(*word as u32);
         }
-        PAC_CRC.dr32().read()
     }
 }

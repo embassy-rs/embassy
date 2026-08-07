@@ -1,23 +1,25 @@
 //! Hash generator (HASH)
 use core::cmp::min;
-#[cfg(hash_v2)]
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
 use core::future::poll_fn;
 use core::marker::PhantomData;
-#[cfg(hash_v2)]
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
 use core::ptr;
-#[cfg(hash_v2)]
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use stm32_metapac::hash::regs::*;
 
-use crate::dma::NoDma;
-#[cfg(hash_v2)]
-use crate::dma::Transfer;
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
+use crate::dma::ChannelAndRequest;
 use crate::interrupt::typelevel::Interrupt;
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
+use crate::mode::Async;
+use crate::mode::{Blocking, Mode};
 use crate::peripherals::HASH;
-use crate::{interrupt, pac, peripherals, rcc, Peripheral};
+use crate::{Peri, interrupt, pac, peripherals, rcc};
 
 #[cfg(hash_v1)]
 const NUM_CONTEXT_REGS: usize = 51;
@@ -26,14 +28,30 @@ const NUM_CONTEXT_REGS: usize = 103;
 #[cfg(any(hash_v2, hash_v4))]
 const NUM_CONTEXT_REGS: usize = 54;
 
-const HASH_BUFFER_LEN: usize = 132;
+const HASH_BUFFER_LEN: usize = 260;
 const DIGEST_BLOCK_SIZE: usize = 128;
 
 static HASH_WAKER: AtomicWaker = AtomicWaker::new();
 
+/// Message block size of the selected algorithm, in bytes.
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
+fn block_bytes(algo: Algorithm) -> usize {
+    #[cfg(hash_v3)]
+    match algo {
+        Algorithm::SHA384 | Algorithm::SHA512_224 | Algorithm::SHA512_256 | Algorithm::SHA512 => 128,
+        _ => 64,
+    }
+
+    #[cfg(any(hash_v2, hash_v4))]
+    {
+        let _ = algo;
+        64
+    }
+}
+
 /// HASH interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -99,6 +117,7 @@ pub enum DataType {
 
 /// Stores the state of the HASH peripheral for suspending/resuming
 /// digest calculation.
+#[derive(Clone)]
 pub struct Context<'c> {
     first_word_sent: bool,
     key_sent: bool,
@@ -116,24 +135,25 @@ pub struct Context<'c> {
 type HmacKey<'k> = Option<&'k [u8]>;
 
 /// HASH driver.
-pub struct Hash<'d, T: Instance, D = NoDma> {
-    _peripheral: PeripheralRef<'d, T>,
-    #[allow(dead_code)]
-    dma: PeripheralRef<'d, D>,
+pub struct Hash<'d, T: Instance, M: Mode> {
+    _peripheral: Peri<'d, T>,
+    _marker: PhantomData<M>,
+    #[cfg(any(hash_v2, hash_v3, hash_v4))]
+    dma: Option<ChannelAndRequest<'d>>,
 }
 
-impl<'d, T: Instance, D> Hash<'d, T, D> {
+impl<'d, T: Instance> Hash<'d, T, Blocking> {
     /// Instantiates, resets, and enables the HASH peripheral.
-    pub fn new(
-        peripheral: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = D> + 'd,
+    pub fn new_blocking(
+        peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<HASH>();
-        into_ref!(peripheral, dma);
         let instance = Self {
             _peripheral: peripheral,
-            dma: dma,
+            _marker: PhantomData,
+            #[cfg(any(hash_v2, hash_v3, hash_v4))]
+            dma: None,
         };
 
         T::Interrupt::unpend();
@@ -141,7 +161,9 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
 
         instance
     }
+}
 
+impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
     /// Starts computation of a new hash and returns the saved peripheral state.
     pub fn start<'c>(&mut self, algorithm: Algorithm, format: DataType, key: HmacKey<'c>) -> Context<'c> {
         // Define a context for this new computation.
@@ -192,6 +214,8 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
             if key.len() > 64 {
                 T::regs().cr().modify(|w| w.set_lkey(true));
             }
+        } else {
+            T::regs().cr().modify(|w| w.set_mode(false));
         }
 
         T::regs().cr().modify(|w| w.set_init(true));
@@ -282,73 +306,6 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
         self.store_context(ctx);
     }
 
-    /// Restores the peripheral state using the given context,
-    /// then updates the state with the provided data.
-    /// Peripheral state is saved upon return.
-    #[cfg(hash_v2)]
-    pub async fn update<'c>(&mut self, ctx: &mut Context<'c>, input: &[u8])
-    where
-        D: crate::hash::Dma<T>,
-    {
-        // Restore the peripheral state.
-        self.load_context(&ctx);
-
-        // Load the HMAC key if provided.
-        if !ctx.key_sent {
-            if let Some(key) = ctx.key {
-                self.accumulate(key).await;
-            }
-            ctx.key_sent = true;
-        }
-
-        let data_waiting = input.len() + ctx.buflen;
-        if data_waiting < DIGEST_BLOCK_SIZE {
-            // There isn't enough data to digest a block, so append it to the buffer.
-            ctx.buffer[ctx.buflen..ctx.buflen + input.len()].copy_from_slice(input);
-            ctx.buflen += input.len();
-            self.store_context(ctx);
-            return;
-        }
-
-        // Enable multiple DMA transfers.
-        T::regs().cr().modify(|w| w.set_mdmat(true));
-
-        let mut ilen_remaining = input.len();
-        let mut input_start = 0;
-
-        // First ingest the data in the buffer.
-        let empty_len = DIGEST_BLOCK_SIZE - ctx.buflen;
-        if empty_len > 0 {
-            let copy_len = min(empty_len, ilen_remaining);
-            ctx.buffer[ctx.buflen..ctx.buflen + copy_len].copy_from_slice(&input[input_start..input_start + copy_len]);
-            ctx.buflen += copy_len;
-            ilen_remaining -= copy_len;
-            input_start += copy_len;
-        }
-        self.accumulate(&ctx.buffer[..DIGEST_BLOCK_SIZE]).await;
-        ctx.buflen = 0;
-
-        // Move any extra data to the now-empty buffer.
-        let leftovers = ilen_remaining % DIGEST_BLOCK_SIZE;
-        if leftovers > 0 {
-            assert!(ilen_remaining >= leftovers);
-            ctx.buffer[0..leftovers].copy_from_slice(&input[input.len() - leftovers..input.len()]);
-            ctx.buflen += leftovers;
-            ilen_remaining -= leftovers;
-        } else {
-            ctx.buffer
-                .copy_from_slice(&input[input.len() - DIGEST_BLOCK_SIZE..input.len()]);
-            ctx.buflen += DIGEST_BLOCK_SIZE;
-            ilen_remaining -= DIGEST_BLOCK_SIZE;
-        }
-
-        // Hash the remaining data.
-        self.accumulate(&input[input_start..input_start + ilen_remaining]).await;
-
-        // Save the peripheral context.
-        self.store_context(ctx);
-    }
-
     /// Computes a digest for the given context.
     /// The digest buffer must be large enough to accomodate a digest for the selected algorithm.
     /// The largest returned digest size is 128 bytes for SHA-512.
@@ -406,27 +363,188 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
         digest_len_bytes
     }
 
+    /// Push data into the hash core.
+    fn accumulate_blocking(&mut self, input: &[u8]) {
+        // Set the number of valid bits.
+        let num_valid_bits: u8 = (8 * (input.len() % 4)) as u8;
+        T::regs().str().modify(|w| w.set_nblw(num_valid_bits));
+
+        let mut chunks = input.chunks_exact(4);
+        for chunk in &mut chunks {
+            T::regs()
+                .din()
+                .write_value(u32::from_ne_bytes(chunk.try_into().unwrap()));
+        }
+        let rem = chunks.remainder();
+        if !rem.is_empty() {
+            let mut word: [u8; 4] = [0; 4];
+            word[0..rem.len()].copy_from_slice(rem);
+            T::regs().din().write_value(u32::from_ne_bytes(word));
+        }
+    }
+
+    /// Save the peripheral state to a context.
+    fn store_context<'c>(&mut self, ctx: &mut Context<'c>) {
+        // Block waiting for data in ready.
+        while !T::regs().sr().read().dinis() {}
+
+        // Store peripheral context.
+        ctx.imr = T::regs().imr().read().0;
+        ctx.str = T::regs().str().read().0;
+        ctx.cr = T::regs().cr().read().0;
+        let mut i = 0;
+        while i < NUM_CONTEXT_REGS {
+            ctx.csr[i] = T::regs().csr(i).read();
+            i += 1;
+        }
+    }
+
+    /// Restore the peripheral state from a context.
+    fn load_context(&mut self, ctx: &Context) {
+        // Restore the peripheral state from the context.
+        T::regs().imr().write_value(Imr { 0: ctx.imr });
+        T::regs().str().write_value(Str { 0: ctx.str });
+        T::regs().cr().write_value(Cr { 0: ctx.cr });
+        T::regs().cr().modify(|w| w.set_init(true));
+        let mut i = 0;
+        while i < NUM_CONTEXT_REGS {
+            T::regs().csr(i).write_value(ctx.csr[i]);
+            i += 1;
+        }
+    }
+}
+
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
+impl<'d, T: Instance> Hash<'d, T, Async> {
+    /// Instantiates, resets, and enables the HASH peripheral.
+    pub fn new<D: Dma<T>>(
+        peripheral: Peri<'d, T>,
+        dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
+    ) -> Self {
+        rcc::enable_and_reset::<HASH>();
+        let instance = Self {
+            _peripheral: peripheral,
+            _marker: PhantomData,
+            dma: new_dma!(dma, _irq),
+        };
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        instance
+    }
+
+    /// Restores the peripheral state using the given context,
+    /// then updates the state with the provided data.
+    /// Peripheral state is saved upon return.
+    pub async fn update(&mut self, ctx: &mut Context<'_>, input: &[u8]) {
+        // Restore the peripheral state.
+        self.load_context(&ctx);
+
+        // Load the HMAC key if provided.
+        if !ctx.key_sent {
+            if let Some(key) = ctx.key {
+                self.accumulate(key).await;
+                T::regs().str().write(|w| w.set_dcal(true));
+                while !T::regs().sr().read().dinis() {}
+            }
+            ctx.key_sent = true;
+        }
+
+        let bs = block_bytes(ctx.algo);
+        let total = ctx.buflen + input.len();
+        // Buffer data if there isn't enough to both DMA and leave a block for the context-save release.
+        if total < 2 * bs {
+            ctx.buffer[ctx.buflen..ctx.buflen + input.len()].copy_from_slice(input);
+            ctx.buflen += input.len();
+            self.store_context(ctx);
+            return;
+        }
+
+        // Enable multiple DMA transfers.
+        T::regs().cr().modify(|w| w.set_mdmat(true));
+
+        // Reserve the last full block and any tail bytes.
+        let tail = total % bs;
+        let reserve = bs + tail;
+        let feed = total - reserve;
+
+        // Extract the reserve before DMA starts to ensure a contiguous buffer for manual writing.
+        let mut scratch = [0u8; 2 * DIGEST_BLOCK_SIZE];
+        for (i, p) in (feed..total).enumerate() {
+            scratch[i] = if p < ctx.buflen {
+                ctx.buffer[p]
+            } else {
+                input[p - ctx.buflen]
+            };
+        }
+
+        // DMA the data in block-aligned chunks.
+        if feed <= ctx.buflen {
+            self.accumulate(&ctx.buffer[..feed]).await;
+        } else {
+            let buf_blocks = ctx.buflen / bs * bs;
+            if buf_blocks > 0 {
+                self.accumulate(&ctx.buffer[..buf_blocks]).await;
+            }
+            let buf_rem = ctx.buflen - buf_blocks;
+            let mut in_idx = 0;
+            if buf_rem > 0 {
+                ctx.buffer.copy_within(buf_blocks..ctx.buflen, 0);
+                let need = bs - buf_rem;
+                ctx.buffer[buf_rem..bs].copy_from_slice(&input[..need]);
+                self.accumulate(&ctx.buffer[..bs]).await;
+                in_idx = need;
+            }
+            let in_blocks = feed - buf_blocks - if buf_rem > 0 { bs } else { 0 };
+            if in_blocks > 0 {
+                self.accumulate(&input[in_idx..in_idx + in_blocks]).await;
+            }
+        }
+
+        // The peripheral holds the last DMA'd block in DIN. Push reserved words
+        // manually to force the core to drain, making the context saveable.
+        let mut rp = 0;
+        while rp + 4 <= reserve && !T::regs().sr().read().dinis() {
+            T::regs()
+                .din()
+                .write_value(u32::from_ne_bytes(scratch[rp..rp + 4].try_into().unwrap()));
+            while T::regs().sr().read().busy() {}
+            rp += 4;
+        }
+        ctx.buffer[..reserve - rp].copy_from_slice(&scratch[rp..reserve]);
+        ctx.buflen = reserve - rp;
+
+        // Save the peripheral context.
+        self.store_context(ctx);
+    }
+
     /// Computes a digest for the given context.
     /// The digest buffer must be large enough to accomodate a digest for the selected algorithm.
     /// The largest returned digest size is 128 bytes for SHA-512.
     /// Panics if the supplied digest buffer is too short.
-    #[cfg(hash_v2)]
-    pub async fn finish<'c>(&mut self, mut ctx: Context<'c>, digest: &mut [u8]) -> usize
-    where
-        D: crate::hash::Dma<T>,
-    {
+    pub async fn finish<'c>(&mut self, mut ctx: Context<'c>, digest: &mut [u8]) -> usize {
         // Restore the peripheral state.
         self.load_context(&ctx);
 
         // Must be cleared prior to the last DMA transfer.
         T::regs().cr().modify(|w| w.set_mdmat(false));
 
-        // Hash the leftover bytes, if any.
-        self.accumulate(&ctx.buffer[0..ctx.buflen]).await;
+        // Finalize the hash. Carried bytes automatically trigger the digest;
+        // otherwise, we must trigger it manually.
+        if ctx.buflen > 0 {
+            self.accumulate(&ctx.buffer[0..ctx.buflen]).await;
+        } else {
+            T::regs().str().write(|w| w.set_dcal(true));
+        }
         ctx.buflen = 0;
 
         // Load the HMAC key if provided.
         if let Some(key) = ctx.key {
+            while !T::regs().sr().read().dinis() {}
             self.accumulate(key).await;
         }
 
@@ -442,11 +560,7 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
             T::regs().imr().modify(|reg| reg.set_dcie(true));
             // Check for completion.
             let bits = T::regs().sr().read();
-            if bits.dcis() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            if bits.dcis() { Poll::Ready(()) } else { Poll::Pending }
         })
         .await;
 
@@ -483,27 +597,7 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
     }
 
     /// Push data into the hash core.
-    fn accumulate_blocking(&mut self, input: &[u8]) {
-        // Set the number of valid bits.
-        let num_valid_bits: u8 = (8 * (input.len() % 4)) as u8;
-        T::regs().str().modify(|w| w.set_nblw(num_valid_bits));
-
-        let mut i = 0;
-        while i < input.len() {
-            let mut word: [u8; 4] = [0; 4];
-            let copy_idx = min(i + 4, input.len());
-            word[0..copy_idx - i].copy_from_slice(&input[i..copy_idx]);
-            T::regs().din().write_value(u32::from_ne_bytes(word));
-            i += 4;
-        }
-    }
-
-    /// Push data into the hash core.
-    #[cfg(hash_v2)]
-    async fn accumulate(&mut self, input: &[u8])
-    where
-        D: crate::hash::Dma<T>,
-    {
+    async fn accumulate(&mut self, input: &[u8]) {
         // Ignore an input length of 0.
         if input.len() == 0 {
             return;
@@ -514,56 +608,19 @@ impl<'d, T: Instance, D> Hash<'d, T, D> {
         T::regs().str().modify(|w| w.set_nblw(num_valid_bits));
 
         // Configure DMA to transfer input to hash core.
-        let dma_request = self.dma.request();
         let dst_ptr: *mut u32 = T::regs().din().as_ptr();
         let mut num_words = input.len() / 4;
         if input.len() % 4 > 0 {
             num_words += 1;
         }
-        let src_ptr: *const [u8] = ptr::slice_from_raw_parts(input.as_ptr().cast(), num_words);
-        let dma_transfer = unsafe {
-            Transfer::new_write_raw(
-                &mut self.dma,
-                dma_request,
-                src_ptr,
-                dst_ptr as *mut u32,
-                Default::default(),
-            )
-        };
+        let src_ptr: *const [u8] = ptr::slice_from_raw_parts(input.as_ptr().cast(), num_words * 4);
+
+        let dma = self.dma.as_mut().unwrap();
+        let dma_transfer = unsafe { dma.write_raw(src_ptr, dst_ptr as *mut u32, Default::default()) };
         T::regs().cr().modify(|w| w.set_dmae(true));
 
         // Wait for the transfer to complete.
         dma_transfer.await;
-    }
-
-    /// Save the peripheral state to a context.
-    fn store_context<'c>(&mut self, ctx: &mut Context<'c>) {
-        // Block waiting for data in ready.
-        while !T::regs().sr().read().dinis() {}
-
-        // Store peripheral context.
-        ctx.imr = T::regs().imr().read().0;
-        ctx.str = T::regs().str().read().0;
-        ctx.cr = T::regs().cr().read().0;
-        let mut i = 0;
-        while i < NUM_CONTEXT_REGS {
-            ctx.csr[i] = T::regs().csr(i).read();
-            i += 1;
-        }
-    }
-
-    /// Restore the peripheral state from a context.
-    fn load_context(&mut self, ctx: &Context) {
-        // Restore the peripheral state from the context.
-        T::regs().imr().write_value(Imr { 0: ctx.imr });
-        T::regs().str().write_value(Str { 0: ctx.str });
-        T::regs().cr().write_value(Cr { 0: ctx.cr });
-        T::regs().cr().modify(|w| w.set_init(true));
-        let mut i = 0;
-        while i < NUM_CONTEXT_REGS {
-            T::regs().csr(i).write_value(ctx.csr[i]);
-            i += 1;
-        }
     }
 }
 
@@ -573,7 +630,7 @@ trait SealedInstance {
 
 /// HASH instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + crate::rcc::RccPeripheral + 'static + Send {
     /// Interrupt for this HASH instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

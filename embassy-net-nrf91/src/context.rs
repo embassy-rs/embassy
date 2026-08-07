@@ -4,6 +4,7 @@ use core::str::FromStr;
 
 use at_commands::builder::CommandBuilder;
 use at_commands::parser::CommandParser;
+use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Timer};
 use heapless::Vec;
 
@@ -274,13 +275,17 @@ impl<'a> Control<'a> {
 
         let mut dns = Vec::new();
         if let Some(ip) = dns1 {
-            dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
-                .unwrap();
+            if !ip.is_empty() {
+                dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
+                    .unwrap();
+            }
         }
 
         if let Some(ip) = dns2 {
-            dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
-                .unwrap();
+            if !ip.is_empty() {
+                dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
+                    .unwrap();
+            }
         }
 
         Ok(Status {
@@ -344,16 +349,19 @@ impl<'a> Control<'a> {
         self.enable().await?;
         let status = self.wait_attached().await?;
         let mut fd = self.control.open_raw_socket().await;
+        self.control.set_link_state(LinkState::Up);
         reattach(&status);
 
         loop {
             if !self.attached().await? {
+                self.control.set_link_state(LinkState::Down);
                 trace!("detached");
 
                 self.control.close_raw_socket(fd).await;
                 let status = self.wait_attached().await?;
                 trace!("attached");
                 fd = self.control.open_raw_socket().await;
+                self.control.set_link_state(LinkState::Up);
                 reattach(&status);
             }
             Timer::after(Duration::from_secs(10)).await;

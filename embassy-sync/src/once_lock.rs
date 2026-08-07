@@ -1,7 +1,8 @@
 //! Synchronization primitive for initializing a value once, allowing others to await a reference to the value.
 
 use core::cell::Cell;
-use core::future::{poll_fn, Future};
+use core::fmt::{Debug, Formatter};
+use core::future::{Future, poll_fn};
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
@@ -42,7 +43,16 @@ pub struct OnceLock<T> {
     data: Cell<MaybeUninit<T>>,
 }
 
-unsafe impl<T> Sync for OnceLock<T> {}
+impl<T> Debug for OnceLock<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("OnceLock")
+            .field("init", &self.init)
+            .field("data", &"Cell<MaybeUninit<{unprintable}>>")
+            .finish()
+    }
+}
+
+unsafe impl<T> Sync for OnceLock<T> where T: Sync {}
 
 impl<T> OnceLock<T> {
     /// Create a new uninitialized `OnceLock`.
@@ -67,7 +77,7 @@ impl<T> OnceLock<T> {
 
     /// Try to get a reference to the underlying value if it exists.
     pub fn try_get(&self) -> Option<&T> {
-        if self.init.load(Ordering::Relaxed) {
+        if self.init.load(Ordering::Acquire) {
             Some(unsafe { self.get_ref_unchecked() })
         } else {
             None
@@ -82,7 +92,7 @@ impl<T> OnceLock<T> {
             // If the value is not set, set it and return Ok.
             if !self.init.load(Ordering::Relaxed) {
                 self.data.set(MaybeUninit::new(value));
-                self.init.store(true, Ordering::Relaxed);
+                self.init.store(true, Ordering::Release);
                 Ok(())
 
             // Otherwise return an error with the given value.
@@ -103,7 +113,7 @@ impl<T> OnceLock<T> {
             // If the value is not set, set it.
             if !self.init.load(Ordering::Relaxed) {
                 self.data.set(MaybeUninit::new(f()));
-                self.init.store(true, Ordering::Relaxed);
+                self.init.store(true, Ordering::Release);
             }
         });
 

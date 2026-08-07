@@ -6,16 +6,17 @@ use core::str::from_utf8;
 
 use cortex_m_rt::entry;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Executor;
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::spi;
 use embassy_stm32::time::mhz;
 use heapless::String;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
-async fn main_task(mut spi: spi::Spi<'static, Blocking>) {
+async fn main_task(mut spi: spi::Spi<'static, Blocking, spi::mode::Master>) {
     for n in 0u32.. {
         let mut write: String<128> = String::new();
         core::write!(&mut write, "Hello DMA World {}!\r\n", n).unwrap();
@@ -44,6 +45,6 @@ fn main() -> ! {
     let executor = EXECUTOR.init(Executor::new());
 
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task(spi)));
+        spawner.spawn(unwrap!(main_task(spi)));
     })
 }

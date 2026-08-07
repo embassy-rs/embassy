@@ -19,20 +19,20 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, Peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{ChannelAndRequest, TransferOptions};
-use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, Rxordset, TypecVstateCc as CcVState};
 use crate::rcc::{self, RccPeripheral};
+use crate::{Peri, interrupt};
 
 pub(crate) fn init(
     _cs: critical_section::CriticalSection,
-    #[cfg(peri_ucpd1)] ucpd1_db_enable: bool,
+    #[cfg(all(peri_ucpd1, not(stm32n6)))] ucpd1_db_enable: bool,
     #[cfg(peri_ucpd2)] ucpd2_db_enable: bool,
 ) {
     #[cfg(stm32g0x1)]
@@ -122,13 +122,12 @@ pub struct Ucpd<'d, T: Instance> {
 impl<'d, T: Instance> Ucpd<'d, T> {
     /// Creates a new UCPD driver instance.
     pub fn new(
-        _peri: impl Peripheral<P = T> + 'd,
+        _peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cc1: impl Peripheral<P = impl Cc1Pin<T>> + 'd,
-        cc2: impl Peripheral<P = impl Cc2Pin<T>> + 'd,
+        cc1: Peri<'d, impl Cc1Pin<T>>,
+        cc2: Peri<'d, impl Cc2Pin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(cc1, cc2);
         cc1.set_as_analog();
         cc2.set_as_analog();
 
@@ -148,7 +147,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             // "The receiver is designed to work in the clock frequency range from 6 to 18 MHz.
             // However, the optimum performance is ensured in the range from 6 to 12 MHz"
             // UCPD is driven by HSI16 (16MHz internal oscillator), which we need to divide by 2.
-            w.set_psc_usbpdclk(PscUsbpdclk::DIV2);
+            w.set_psc_usbpdclk(PscUsbpdclk::Div2);
 
             // Prescaler to produce a target half-bit frequency of 600kHz which is required
             // to produce transmit with a nominal nominal bit rate of 300Kbps+-10% using
@@ -194,6 +193,18 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             });
         }
 
+        // Software trim according to RM0456, p. 3480/3462
+        #[cfg(stm32u5)]
+        {
+            let trim_rd_cc1 = unsafe { *(0x0BFA_0544 as *const u8) & 0xF };
+            let trim_rd_cc2 = unsafe { *(0x0BFA_0546 as *const u8) & 0xF };
+
+            r.cfgr3().write(|w| {
+                w.set_trim_cc1_rd(trim_rd_cc1);
+                w.set_trim_cc2_rd(trim_rd_cc2);
+            });
+        }
+
         Self {
             cc_phy: CcPhy { _lifetime: PhantomData },
         }
@@ -206,16 +217,20 @@ impl<'d, T: Instance> Ucpd<'d, T> {
 
     /// Splits the UCPD driver into a TypeC PHY to control and monitor CC voltage
     /// and a Power Delivery (PD) PHY with receiver and transmitter.
-    pub fn split_pd_phy(
+    pub fn split_pd_phy<RX, TX>(
         self,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: Peri<'d, RX>,
+        tx_dma: Peri<'d, TX>,
+        irqs: impl interrupt::typelevel::Binding<RX::Interrupt, crate::dma::InterruptHandler<RX>>
+        + interrupt::typelevel::Binding<TX::Interrupt, crate::dma::InterruptHandler<TX>>
+        + 'd,
         cc_sel: CcSel,
-    ) -> (CcPhy<'d, T>, PdPhy<'d, T>) {
+    ) -> (CcPhy<'d, T>, PdPhy<'d, T>)
+    where
+        RX: RxDma<T>,
+        TX: TxDma<T>,
+    {
         let r = T::REGS;
-
-        // TODO: Currently only SOP messages are supported.
-        r.tx_ordsetr().write(|w| w.set_txordset(0b10001_11000_11000_11000));
 
         // Enable the receiver on one of the two CC lines.
         r.cr().modify(|w| w.set_phyccsel(cc_sel));
@@ -229,21 +244,14 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         // Both parts must be dropped before the peripheral can be disabled.
         T::state().drop_not_ready.store(true, Ordering::Relaxed);
 
-        into_ref!(rx_dma, tx_dma);
-        let rx_dma_req = rx_dma.request();
-        let tx_dma_req = tx_dma.request();
+        let rx_dma = new_dma_nonopt!(rx_dma, irqs);
+        let tx_dma = new_dma_nonopt!(tx_dma, irqs);
         (
             self.cc_phy,
             PdPhy {
                 _lifetime: PhantomData,
-                rx_dma: ChannelAndRequest {
-                    channel: rx_dma.map_into(),
-                    request: rx_dma_req,
-                },
-                tx_dma: ChannelAndRequest {
-                    channel: tx_dma.map_into(),
-                    request: tx_dma_req,
-                },
+                rx_dma,
+                tx_dma,
             },
         )
     }
@@ -260,13 +268,13 @@ impl<'d, T: Instance> Drop for CcPhy<'d, T> {
         r.cr().modify(|w| {
             w.set_cc1tcdis(true);
             w.set_cc2tcdis(true);
-            w.set_ccenable(Ccenable::DISABLED);
+            w.set_ccenable(Ccenable::Disabled);
         });
 
         // Check if the PdPhy part was dropped already.
         let drop_not_ready = &T::state().drop_not_ready;
         if drop_not_ready.load(Ordering::Relaxed) {
-            drop_not_ready.store(true, Ordering::Relaxed);
+            drop_not_ready.store(false, Ordering::Relaxed);
         } else {
             r.cfgr1().write(|w| w.set_ucpden(false));
             rcc::disable::<T>();
@@ -280,9 +288,9 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     pub fn set_pull(&mut self, cc_pull: CcPull) {
         T::REGS.cr().modify(|w| {
             w.set_anamode(if cc_pull == CcPull::Sink {
-                Anamode::SINK
+                Anamode::Sink
             } else {
-                Anamode::SOURCE
+                Anamode::Source
             });
             w.set_anasubmode(match cc_pull {
                 CcPull::SourceDefaultUsb => 1,
@@ -291,9 +299,9 @@ impl<'d, T: Instance> CcPhy<'d, T> {
                 _ => 0,
             });
             w.set_ccenable(if cc_pull == CcPull::Disabled {
-                Ccenable::DISABLED
+                Ccenable::Disabled
             } else {
-                Ccenable::BOTH
+                Ccenable::Both
             });
         });
 
@@ -316,10 +324,30 @@ impl<'d, T: Instance> CcPhy<'d, T> {
             }
         });
 
+        // Software trim according to RM0456, p. 3480/3462
+        #[cfg(stm32u5)]
+        T::REGS.cfgr3().modify(|w| match cc_pull {
+            CcPull::Source1_5A => {
+                let trim_1a5_cc1 = unsafe { *(0x0BFA_07A7 as *const u8) & 0xF };
+                let trim_1a5_cc2 = unsafe { *(0x0BFA_07A8 as *const u8) & 0xF };
+
+                w.set_trim_cc1_rp(trim_1a5_cc1);
+                w.set_trim_cc2_rp(trim_1a5_cc2);
+            }
+            _ => {
+                let trim_3a0_cc1 = unsafe { *(0x0BFA_0545 as *const u8) & 0xF };
+                let trim_3a0_cc2 = unsafe { *(0x0BFA_0547 as *const u8) & 0xF };
+
+                w.set_trim_cc1_rp(trim_3a0_cc1);
+                w.set_trim_cc2_rp(trim_3a0_cc2);
+            }
+        });
+
         // Disable dead-battery pull-down resistors which are enabled by default on boot.
         critical_section::with(|cs| {
             init(
                 cs,
+                #[cfg(not(stm32n6))]
                 false,
                 #[cfg(peri_ucpd2)]
                 false,
@@ -361,7 +389,7 @@ impl<'d, T: Instance> CcPhy<'d, T> {
     }
 }
 
-/// Receive SOP.
+/// Start of Packet.
 #[derive(Debug, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Sop {
@@ -375,6 +403,18 @@ pub enum Sop {
     SopPrimeDebug,
     /// SOP''_Debug
     SopDoublePrimeDebug,
+}
+
+impl Sop {
+    fn value(&self) -> u32 {
+        match self {
+            Sop::Sop => 0b10001_11000_11000_11000,
+            Sop::SopPrime => 0b00110_00110_11000_11000,
+            Sop::SopDoublePrime => 0b00110_11000_00110_11000,
+            Sop::SopPrimeDebug => 0b00110_11001_11001_11000,
+            Sop::SopDoublePrimeDebug => 0b10001_00110_11001_11000,
+        }
+    }
 }
 
 /// Receive Error.
@@ -411,13 +451,14 @@ pub struct PdPhy<'d, T: Instance> {
 
 impl<'d, T: Instance> Drop for PdPhy<'d, T> {
     fn drop(&mut self) {
-        T::REGS.cr().modify(|w| w.set_phyrxen(false));
-        // Check if the Type-C part was dropped already.
+        let r = T::REGS;
+        r.cr().modify(|w| w.set_phyrxen(false));
+        // Check if the CcPhy part was dropped already.
         let drop_not_ready = &T::state().drop_not_ready;
         if drop_not_ready.load(Ordering::Relaxed) {
-            drop_not_ready.store(true, Ordering::Relaxed);
+            drop_not_ready.store(false, Ordering::Relaxed);
         } else {
-            T::REGS.cfgr1().write(|w| w.set_ucpden(false));
+            r.cfgr1().write(|w| w.set_ucpden(false));
             rcc::disable::<T>();
             T::Interrupt::disable();
         }
@@ -453,19 +494,23 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             });
         });
 
+        let mut rxpaysz = 0;
+
         // Stop DMA reception immediately after receiving a packet, to prevent storing multiple packets in the same buffer.
         poll_fn(|cx| {
             let sr = r.sr().read();
 
             if sr.rxhrstdet() {
-                dma.request_stop();
+                dma.request_pause();
 
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
                 r.imr().modify(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(RxError::HardReset))
             } else if sr.rxmsgend() {
-                dma.request_stop();
+                dma.request_pause();
+                // Should be read immediately on interrupt.
+                rxpaysz = r.rx_payszr().read().rxpaysz().into();
 
                 let ret = if sr.rxovr() {
                     Err(RxError::Overrun)
@@ -491,25 +536,30 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         }
 
         let sop = match r.rx_ordsetr().read().rxordset() {
-            Rxordset::SOP => Sop::Sop,
-            Rxordset::SOP_PRIME => Sop::SopPrime,
-            Rxordset::SOP_DOUBLE_PRIME => Sop::SopDoublePrime,
-            Rxordset::SOP_PRIME_DEBUG => Sop::SopPrimeDebug,
-            Rxordset::SOP_DOUBLE_PRIME_DEBUG => Sop::SopDoublePrimeDebug,
-            Rxordset::CABLE_RESET => return Err(RxError::HardReset),
+            Rxordset::Sop => Sop::Sop,
+            Rxordset::SopPrime => Sop::SopPrime,
+            Rxordset::SopDoublePrime => Sop::SopDoublePrime,
+            Rxordset::SopPrimeDebug => Sop::SopPrimeDebug,
+            Rxordset::SopDoublePrimeDebug => Sop::SopDoublePrimeDebug,
+            Rxordset::CableReset => return Err(RxError::HardReset),
             // Extension headers are not supported
             _ => unreachable!(),
         };
 
-        Ok((sop, r.rx_payszr().read().rxpaysz().into()))
+        Ok((sop, rxpaysz))
     }
 
     fn enable_rx_interrupt(enable: bool) {
         T::REGS.imr().modify(|w| w.set_rxmsgendie(enable));
     }
 
-    /// Transmits a PD message.
+    /// Transmits an SOP PD message.
     pub async fn transmit(&mut self, buf: &[u8]) -> Result<(), TxError> {
+        self.transmit_with_sop(Sop::Sop, buf).await
+    }
+
+    /// Transmits a PD message with a given SOP.
+    pub async fn transmit_with_sop(&mut self, sop: Sop, buf: &[u8]) -> Result<(), TxError> {
         let r = T::REGS;
 
         // When a previous transmission was dropped before it had finished it
@@ -527,6 +577,8 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             w.set_txmsgsentcf(true);
         });
 
+        r.tx_ordsetr().write(|w| w.set_txordset(sop.value()));
+
         // Start the DMA and let it do its thing in the background.
         let _dma = unsafe {
             self.tx_dma
@@ -536,7 +588,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         // Configure and start the transmission.
         r.tx_payszr().write(|w| w.set_txpaysz(buf.len() as _));
         r.cr().modify(|w| {
-            w.set_txmode(Txmode::PACKET);
+            w.set_txmode(Txmode::Packet);
             w.set_txsend(true);
         });
 
@@ -620,7 +672,7 @@ impl<'d, T: Instance> PdPhy<'d, T> {
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -684,7 +736,7 @@ trait SealedInstance {
 
 /// UCPD instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral {
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {
     /// Interrupt for this instance.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }

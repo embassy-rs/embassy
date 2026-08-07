@@ -1,0 +1,86 @@
+//! This example shows powerful PIO module in the RP235x chip.
+
+#![no_std]
+#![no_main]
+use defmt::info;
+use defmt_rtt as _;
+use embassy_executor::Spawner;
+use embassy_futures::join::join;
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
+use embassy_rp::pio::program::pio_asm;
+use embassy_rp::pio::{Config, InterruptHandler, Pio, ShiftConfig, ShiftDirection};
+use embassy_rp::{bind_interrupts, dma};
+use fixed::traits::ToFixed;
+use fixed_macro::types::U56F8;
+use panic_probe as _;
+
+bind_interrupts!(struct Irqs {
+    PIO0_IRQ_0 => InterruptHandler<PIO0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
+});
+
+fn swap_nibbles(v: u32) -> u32 {
+    let v = (v & 0x0f0f_0f0f) << 4 | (v & 0xf0f0_f0f0) >> 4;
+    let v = (v & 0x00ff_00ff) << 8 | (v & 0xff00_ff00) >> 8;
+    (v & 0x0000_ffff) << 16 | (v & 0xffff_0000) >> 16
+}
+
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
+async fn main(_spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
+    let pio = p.PIO0;
+    let Pio {
+        mut common,
+        sm0: mut sm,
+        ..
+    } = Pio::new(pio, Irqs);
+
+    let prg = pio_asm!(
+        ".origin 0",
+        "set pindirs,1",
+        ".wrap_target",
+        "set y,7",
+        "loop:",
+        "out x,4",
+        "in x,4",
+        "jmp y--, loop",
+        ".wrap",
+    );
+
+    let mut cfg = Config::default();
+    cfg.use_program(&common.load_program(&prg.program), &[]);
+    cfg.clock_divider = (U56F8!(125_000_000) / U56F8!(10_000)).to_fixed();
+    cfg.shift_in = ShiftConfig {
+        auto_fill: true,
+        threshold: 32,
+        direction: ShiftDirection::Left,
+    };
+    cfg.shift_out = ShiftConfig {
+        auto_fill: true,
+        threshold: 32,
+        direction: ShiftDirection::Right,
+    };
+
+    sm.set_config(&cfg);
+    sm.set_enable(true);
+
+    let mut dma_out_ref = dma::Channel::new(p.DMA_CH0, Irqs);
+    let mut dma_in_ref = dma::Channel::new(p.DMA_CH1, Irqs);
+    let mut dout = [0x12345678u32; 29];
+    for i in 1..dout.len() {
+        dout[i] = (dout[i - 1] & 0x0fff_ffff) * 13 + 7;
+    }
+    let mut din = [0u32; 29];
+    loop {
+        let (rx, tx) = sm.rx_tx();
+        join(
+            tx.dma_push(&mut dma_out_ref, &dout, false),
+            rx.dma_pull(&mut dma_in_ref, &mut din, false),
+        )
+        .await;
+        for i in 0..din.len() {
+            assert_eq!(din[i], swap_nibbles(dout[i]));
+        }
+        info!("Swapped {} words", dout.len());
+    }
+}

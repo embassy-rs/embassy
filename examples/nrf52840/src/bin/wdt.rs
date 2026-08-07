@@ -2,10 +2,11 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
 use embassy_nrf::wdt::{Config, HaltConfig, Watchdog};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -17,7 +18,7 @@ async fn main(_spawner: Spawner) {
 
     // This is needed for `probe-rs run` to be able to catch the panic message
     // in the WDT interrupt. The core resets 2 ticks after firing the interrupt.
-    config.action_during_debug_halt = HaltConfig::PAUSE;
+    config.action_during_debug_halt = HaltConfig::Pause;
 
     let (_wdt, [mut handle]) = match Watchdog::try_new(p.WDT, config) {
         Ok(x) => x,

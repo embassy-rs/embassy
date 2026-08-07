@@ -1,3 +1,7 @@
 [profile.release]
 # Allows defmt to display log locations even in release
 debug = true
+
+[build]
+# Enable incremental compilation for all examples to speed-up the CI
+incremental = true

@@ -8,7 +8,11 @@ use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Flex, Input, Level, Output, OutputOpenDrain, Pull, Speed};
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");
@@ -20,10 +24,10 @@ async fn main(_spawner: Spawner) {
 
     // Test initial output
     {
-        let b = Input::new(&mut b, Pull::None);
+        let b = Input::new(b.reborrow(), Pull::None);
 
         {
-            let a = Output::new(&mut a, Level::Low, Speed::Low);
+            let a = Output::new(a.reborrow(), Level::Low, Speed::Low);
             delay();
             assert!(b.is_low());
             assert!(!b.is_high());
@@ -31,7 +35,7 @@ async fn main(_spawner: Spawner) {
             assert!(!a.is_set_high());
         }
         {
-            let mut a = Output::new(&mut a, Level::High, Speed::Low);
+            let mut a = Output::new(a.reborrow(), Level::High, Speed::Low);
             delay();
             assert!(!b.is_low());
             assert!(b.is_high());
@@ -68,10 +72,10 @@ async fn main(_spawner: Spawner) {
 
     // Test input no pull
     {
-        let b = Input::new(&mut b, Pull::None);
+        let b = Input::new(b.reborrow(), Pull::None);
         // no pull, the status is undefined
 
-        let mut a = Output::new(&mut a, Level::Low, Speed::Low);
+        let mut a = Output::new(a.reborrow(), Level::Low, Speed::Low);
         delay();
         assert!(b.is_low());
         a.set_high();
@@ -81,11 +85,11 @@ async fn main(_spawner: Spawner) {
 
     // Test input pulldown
     {
-        let b = Input::new(&mut b, Pull::Down);
+        let b = Input::new(b.reborrow(), Pull::Down);
         delay();
         assert!(b.is_low());
 
-        let mut a = Output::new(&mut a, Level::Low, Speed::Low);
+        let mut a = Output::new(a.reborrow(), Level::Low, Speed::Low);
         delay();
         assert!(b.is_low());
         a.set_high();
@@ -95,11 +99,11 @@ async fn main(_spawner: Spawner) {
 
     // Test input pullup
     {
-        let b = Input::new(&mut b, Pull::Up);
+        let b = Input::new(b.reborrow(), Pull::Up);
         delay();
         assert!(b.is_high());
 
-        let mut a = Output::new(&mut a, Level::Low, Speed::Low);
+        let mut a = Output::new(a.reborrow(), Level::Low, Speed::Low);
         delay();
         assert!(b.is_low());
         a.set_high();
@@ -109,10 +113,10 @@ async fn main(_spawner: Spawner) {
 
     // Test output open drain
     {
-        let b = Input::new(&mut b, Pull::Down);
+        let b = Input::new(b.reborrow(), Pull::Down);
         // no pull, the status is undefined
 
-        let mut a = OutputOpenDrain::new(&mut a, Level::Low, Speed::Low);
+        let mut a = OutputOpenDrain::new(a.reborrow(), Level::Low, Speed::Low);
         delay();
         assert!(b.is_low());
         a.set_high(); // High-Z output
@@ -124,12 +128,12 @@ async fn main(_spawner: Spawner) {
     // Test initial output
     {
         //Flex pin configured as input
-        let mut b = Flex::new(&mut b);
+        let mut b = Flex::new(b.reborrow());
         b.set_as_input(Pull::None);
 
         {
             //Flex pin configured as output
-            let mut a = Flex::new(&mut a); //Flex pin configured as output
+            let mut a = Flex::new(a.reborrow()); //Flex pin configured as output
             a.set_low(); // Pin state must be set before configuring the pin, thus we avoid unknown state
             a.set_as_output(Speed::Low);
             delay();
@@ -137,7 +141,7 @@ async fn main(_spawner: Spawner) {
         }
         {
             //Flex pin configured as output
-            let mut a = Flex::new(&mut a);
+            let mut a = Flex::new(a.reborrow());
             a.set_high();
             a.set_as_output(Speed::Low);
 
@@ -148,10 +152,10 @@ async fn main(_spawner: Spawner) {
 
     // Test input no pull
     {
-        let mut b = Flex::new(&mut b);
+        let mut b = Flex::new(b.reborrow());
         b.set_as_input(Pull::None); // no pull, the status is undefined
 
-        let mut a = Flex::new(&mut a);
+        let mut a = Flex::new(a.reborrow());
         a.set_low();
         a.set_as_output(Speed::Low);
 
@@ -164,12 +168,12 @@ async fn main(_spawner: Spawner) {
 
     // Test input pulldown
     {
-        let mut b = Flex::new(&mut b);
+        let mut b = Flex::new(b.reborrow());
         b.set_as_input(Pull::Down);
         delay();
         assert!(b.is_low());
 
-        let mut a = Flex::new(&mut a);
+        let mut a = Flex::new(a.reborrow());
         a.set_low();
         a.set_as_output(Speed::Low);
         delay();
@@ -181,12 +185,12 @@ async fn main(_spawner: Spawner) {
 
     // Test input pullup
     {
-        let mut b = Flex::new(&mut b);
+        let mut b = Flex::new(b.reborrow());
         b.set_as_input(Pull::Up);
         delay();
         assert!(b.is_high());
 
-        let mut a = Flex::new(&mut a);
+        let mut a = Flex::new(a.reborrow());
         a.set_high();
         a.set_as_output(Speed::Low);
         delay();
@@ -198,10 +202,10 @@ async fn main(_spawner: Spawner) {
 
     // Test output open drain
     {
-        let mut b = Flex::new(&mut b);
+        let mut b = Flex::new(b.reborrow());
         b.set_as_input(Pull::Down);
 
-        let mut a = Flex::new(&mut a);
+        let mut a = Flex::new(a.reborrow());
         a.set_low();
         a.set_as_input_output(Speed::Low);
         delay();

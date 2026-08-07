@@ -2,8 +2,8 @@
 
 `embassy-net` is a no-std no-alloc async network stack, designed for embedded systems.
 
-It builds on [`smoltcp`](https://github.com/smoltcp-rs/smoltcp). It provides a higher-level and more opinionated
-API. It glues together the components provided by `smoltcp`, handling the low-level details with defaults and
+It builds on [`xarxa`](https://github.com/embassy-rs/xarxa). It provides a higher-level and more opinionated
+API. It glues together the components provided by `xarxa`, handling the low-level details with defaults and
 memory management designed to work well for embedded systems, aiming for a more "Just Works" experience.
 
 ## Features
@@ -14,8 +14,23 @@ memory management designed to work well for embedded systems, aiming for a more 
 - TCP sockets implement the `embedded-io` async traits.
 - Multicast
 
-See the [`smoltcp`](https://github.com/smoltcp-rs/smoltcp) README for a detailed list of implemented and
+See the [`xarxa`](https://github.com/embassy-rs/xarxa) README for a detailed list of implemented and
 unimplemented features of the network protocols.
+
+## Scope
+
+Embassy-net aims to provide an equivalent to an OS network stack, which includes a DHCP client, TCP, UDP, ICMP, and
+other OS sockets, and VLAN support. Higher-level protocols such as HTTP, and DHCP server are out of scope for this
+project. For implementations of these protocols, see [`edge-net`](https://crates.io/crates/edge-net). See
+[`nstpc`](https://crates.io/crates/sntpc) for an ntp client.
+
+## PTP
+
+Packet-time protocol support is partially in scope for this project; specifically providing timestamps for UDP and raw
+socket ethernet requests. Clock calibration and other functions are not in-scope for this project and should be implemented
+with another trait.
+
+Implementation of this protocol is ongoing.
 
 ## Hardware support
 
@@ -25,6 +40,7 @@ unimplemented features of the network protocols.
 - [`embassy-stm32`](https://github.com/embassy-rs/embassy/tree/main/embassy-stm32) for the builtin Ethernet MAC in all STM32 chips (STM32F1, STM32F2, STM32F4, STM32F7, STM32H7, STM32H5).
 - [`embassy-net-wiznet`](https://github.com/embassy-rs/embassy/tree/main/embassy-net-wiznet) for Wiznet SPI Ethernet MAC+PHY chips (W5100S, W5500)
 - [`embassy-net-esp-hosted`](https://github.com/embassy-rs/embassy/tree/main/embassy-net-esp-hosted) for using ESP32 chips with the [`esp-hosted`](https://github.com/espressif/esp-hosted) firmware as WiFi adapters for another non-ESP32 MCU.
+- [`embassy-nrf`](https://github.com/embassy-rs/embassy/tree/main/embassy-nrf) for IEEE 802.15.4 support on nrf chips.
 
 ## Examples
 

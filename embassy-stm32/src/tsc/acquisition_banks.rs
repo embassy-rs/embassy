@@ -1,11 +1,11 @@
+use super::TSC_NUM_GROUPS;
 use super::io_pin::*;
 #[cfg(any(tsc_v2, tsc_v3))]
 use super::pin_groups::G7;
 #[cfg(tsc_v3)]
 use super::pin_groups::G8;
-use super::pin_groups::{pin_roles, G1, G2, G3, G4, G5, G6};
+use super::pin_groups::{G1, G2, G3, G4, G5, G6, pin_roles};
 use super::types::{Group, GroupStatus};
-use super::TSC_NUM_GROUPS;
 
 /// Represents a collection of TSC (Touch Sensing Controller) pins for an acquisition bank.
 ///
@@ -32,7 +32,7 @@ impl AcquisitionBankPins {
     /// Returns an iterator over the pins in this acquisition bank.
     ///
     /// This method allows for easy traversal of all configured pins in the bank.
-    pub fn iter(&self) -> AcquisitionBankPinsIterator {
+    pub fn iter(&self) -> AcquisitionBankPinsIterator<'_> {
         AcquisitionBankPinsIterator(AcquisitionBankIterator::new(self))
     }
 }
@@ -90,7 +90,7 @@ impl<'a> Iterator for AcquisitionBankPinsIterator<'a> {
 
 impl AcquisitionBankPins {
     /// Returns an iterator over the available pins in the bank
-    pub fn pins_iterator(&self) -> AcquisitionBankPinsIterator {
+    pub fn pins_iterator(&self) -> AcquisitionBankPinsIterator<'_> {
         AcquisitionBankPinsIterator(AcquisitionBankIterator::new(self))
     }
 }
@@ -107,7 +107,7 @@ pub struct AcquisitionBank {
 
 impl AcquisitionBank {
     /// Returns an iterator over the available pins in the bank.
-    pub fn pins_iterator(&self) -> AcquisitionBankPinsIterator {
+    pub fn pins_iterator(&self) -> AcquisitionBankPinsIterator<'_> {
         self.pins.pins_iterator()
     }
 

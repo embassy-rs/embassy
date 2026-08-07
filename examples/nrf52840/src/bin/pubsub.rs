@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::unwrap;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::pubsub::{DynSubscriber, PubSubChannel, Subscriber};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// Create the message bus. It has a queue of 4, supports 3 subscribers and 1 publisher
 static MESSAGE_BUS: PubSubChannel<ThreadModeRawMutex, Message, 4, 3, 1> = PubSubChannel::new();
@@ -26,9 +27,9 @@ async fn main(spawner: Spawner) {
     // It's good to set up the subscribers before publishing anything.
     // A subscriber will only yield messages that have been published after its creation.
 
-    spawner.must_spawn(fast_logger(unwrap!(MESSAGE_BUS.subscriber())));
-    spawner.must_spawn(slow_logger(unwrap!(MESSAGE_BUS.dyn_subscriber())));
-    spawner.must_spawn(slow_logger_pure(unwrap!(MESSAGE_BUS.dyn_subscriber())));
+    spawner.spawn(fast_logger(unwrap!(MESSAGE_BUS.subscriber())).unwrap());
+    spawner.spawn(slow_logger(unwrap!(MESSAGE_BUS.dyn_subscriber())).unwrap());
+    spawner.spawn(slow_logger_pure(unwrap!(MESSAGE_BUS.dyn_subscriber())).unwrap());
 
     // Get a publisher
     let message_publisher = unwrap!(MESSAGE_BUS.publisher());

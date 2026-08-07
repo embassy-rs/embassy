@@ -8,20 +8,21 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::UART0;
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, Config};
 use embassy_time::Timer;
 use embedded_io_async::{Read, Write};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     UART0_IRQ => BufferedInterruptHandler<UART0>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let (tx_pin, rx_pin, uart) = (p.PIN_0, p.PIN_1, p.UART0);
@@ -30,10 +31,10 @@ async fn main(spawner: Spawner) {
     let tx_buf = &mut TX_BUF.init([0; 16])[..];
     static RX_BUF: StaticCell<[u8; 16]> = StaticCell::new();
     let rx_buf = &mut RX_BUF.init([0; 16])[..];
-    let uart = BufferedUart::new(uart, Irqs, tx_pin, rx_pin, tx_buf, rx_buf, Config::default());
+    let uart = BufferedUart::new(uart, tx_pin, rx_pin, Irqs, tx_buf, rx_buf, Config::default());
     let (mut tx, rx) = uart.split();
 
-    unwrap!(spawner.spawn(reader(rx)));
+    spawner.spawn(unwrap!(reader(rx)));
 
     info!("Writing...");
     loop {
@@ -48,7 +49,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn reader(mut rx: BufferedUartRx<'static, UART0>) {
+async fn reader(mut rx: BufferedUartRx) {
     info!("Reading...");
     loop {
         let mut buf = [0; 31];

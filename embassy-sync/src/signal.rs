@@ -1,12 +1,12 @@
 //! A synchronization primitive for passing the latest value to a task.
 use core::cell::Cell;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::task::{Context, Poll, Waker};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 
-/// Single-slot signaling primitive.
+/// Single-slot signaling primitive for a _single_ consumer.
 ///
 /// This is similar to a [`Channel`](crate::channel::Channel) with a buffer size of 1, except
 /// "sending" to it (calling [`Signal::signal`]) when full will overwrite the previous value instead
@@ -17,6 +17,7 @@ use crate::blocking_mutex::Mutex;
 /// updates.
 ///
 /// For more advanced use cases, you might want to use [`Channel`](crate::channel::Channel) instead.
+/// For multiple consumers, use [`Watch`](crate::watch::Watch) instead.
 ///
 /// Signals are generally declared as `static`s and then borrowed as required.
 ///
@@ -38,6 +39,7 @@ where
     state: Mutex<M, Cell<State<T>>>,
 }
 
+#[derive(Debug)]
 enum State<T> {
     None,
     Waiting(Waker),
@@ -81,10 +83,11 @@ where
 
     /// Remove the queued value in this `Signal`, if any.
     pub fn reset(&self) {
-        self.state.lock(|cell| cell.set(State::None));
+        self.try_take();
     }
 
-    fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
+    /// Poll for state changes of this Signal.
+    pub fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {
         self.state.lock(|cell| {
             let state = cell.replace(State::None);
             match state {
@@ -106,7 +109,9 @@ where
         })
     }
 
-    /// Future that completes when this Signal has been signaled.
+    /// Future that completes when this Signal has been signaled, taking the value out of the signal.
+    ///
+    /// The returned Future is cancel-safe. No value will be lost even if it isn't polled to completion.
     pub fn wait(&self) -> impl Future<Output = T> + '_ {
         poll_fn(move |cx| self.poll_wait(cx))
     }

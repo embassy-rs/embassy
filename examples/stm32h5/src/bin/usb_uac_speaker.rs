@@ -4,11 +4,12 @@
 use core::cell::{Cell, RefCell};
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, interrupt, peripherals, timer, usb, Config};
-use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
+use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, timer, usb};
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::signal::Signal;
 use embassy_sync::zerocopy_channel;
 use embassy_usb::class::uac1;
@@ -16,8 +17,8 @@ use embassy_usb::class::uac1::speaker::{self, Speaker};
 use embassy_usb::driver::EndpointError;
 use heapless::Vec;
 use micromath::F32Ext;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USB_DRD_FS => usb::InterruptHandler<peripherals::USB>;
@@ -117,7 +118,7 @@ async fn stream_handler<'d, T: usb::Instance + 'd>(
 
         if word_count * SAMPLE_SIZE == data_size {
             // Obtain a buffer from the channel
-            let samples = sender.send().await;
+            let mut samples = sender.send().await;
             samples.clear();
 
             for w in 0..word_count {
@@ -128,7 +129,7 @@ async fn stream_handler<'d, T: usb::Instance + 'd>(
                 samples.push(sample).unwrap();
             }
 
-            sender.send_done();
+            samples.send_done();
         } else {
             debug!("Invalid USB buffer size of {}, skipped.", data_size);
         }
@@ -139,11 +140,11 @@ async fn stream_handler<'d, T: usb::Instance + 'd>(
 #[embassy_executor::task]
 async fn audio_receiver_task(mut usb_audio_receiver: zerocopy_channel::Receiver<'static, NoopRawMutex, SampleBlock>) {
     loop {
-        let _samples = usb_audio_receiver.receive().await;
+        let samples = usb_audio_receiver.receive().await;
         // Use the samples, for example play back via the SAI peripheral.
 
         // Notify the channel that the buffer is now ready to be reused
-        usb_audio_receiver.receive_done();
+        samples.receive_done();
     }
 }
 
@@ -237,7 +238,10 @@ fn TIM5() {
         };
 
         // Clear trigger interrupt flag.
-        timer.sr().modify(|r| r.set_tif(false));
+        timer.sr().write(|r| {
+            r.0 = 0xFFFF_FFFF;
+            r.set_tif(false);
+        });
     });
 }
 
@@ -258,29 +262,29 @@ async fn main(spawner: Spawner) {
             mode: HseMode::BypassDigital,
         });
         config.rcc.pll1 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV2,
-            mul: PllMul::MUL125,
-            divp: Some(PllDiv::DIV2), // 250 Mhz
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div2,
+            mul: PllMul::Mul125,
+            divp: Some(PllDiv::Div2), // 250 Mhz
             divq: None,
             divr: None,
         });
         config.rcc.pll2 = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV4,
-            mul: PllMul::MUL123,
-            divp: Some(PllDiv::DIV20), // 12.3 Mhz, close to 12.288 MHz for 48 kHz audio
+            source: PllSource::Hse,
+            prediv: PllPreDiv::Div4,
+            mul: PllMul::Mul123,
+            divp: Some(PllDiv::Div20), // 12.3 Mhz, close to 12.288 MHz for 48 kHz audio
             divq: None,
             divr: None,
         });
-        config.rcc.ahb_pre = AHBPrescaler::DIV2;
-        config.rcc.apb1_pre = APBPrescaler::DIV4;
-        config.rcc.apb2_pre = APBPrescaler::DIV2;
-        config.rcc.apb3_pre = APBPrescaler::DIV4;
-        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::Div2;
+        config.rcc.apb1_pre = APBPrescaler::Div4;
+        config.rcc.apb2_pre = APBPrescaler::Div2;
+        config.rcc.apb3_pre = APBPrescaler::Div4;
+        config.rcc.sys = Sysclk::Pll1P;
         config.rcc.voltage_scale = VoltageScale::Scale0;
-        config.rcc.mux.usbsel = mux::Usbsel::HSI48;
-        config.rcc.mux.sai2sel = mux::Saisel::PLL2_P;
+        config.rcc.mux.usbsel = mux::Usbsel::Hsi48;
+        config.rcc.mux.sai2sel = mux::Saisel::Pll2P;
     }
     let p = embassy_stm32::init(config);
 
@@ -319,7 +323,11 @@ async fn main(spawner: Spawner) {
     );
 
     // Create the UAC1 Speaker class components
-    let (stream, feedback, control_monitor) = Speaker::new(
+    let Speaker {
+        stream,
+        feedback,
+        control_monitor,
+    } = Speaker::new(
         &mut builder,
         state,
         USB_MAX_PACKET_SIZE as u16,
@@ -343,12 +351,12 @@ async fn main(spawner: Spawner) {
     // Run a timer for counting between SOF interrupts.
     let mut tim5 = timer::low_level::Timer::new(p.TIM5);
     tim5.set_tick_freq(Hertz(FEEDBACK_COUNTER_TICK_RATE));
-    tim5.set_trigger_source(timer::low_level::TriggerSource::ITR12); // The USB SOF signal.
+    tim5.set_trigger_source(timer::low_level::TriggerSource::Itr12); // The USB SOF signal.
 
     const TIMER_CHANNEL: timer::Channel = timer::Channel::Ch1;
-    tim5.set_input_ti_selection(TIMER_CHANNEL, timer::low_level::InputTISelection::TRC);
+    tim5.set_input_capture_selection(TIMER_CHANNEL, timer::low_level::InputCaptureSelection::TRC);
     tim5.set_input_capture_prescaler(TIMER_CHANNEL, 0);
-    tim5.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FCK_INT_N2);
+    tim5.set_input_capture_filter(TIMER_CHANNEL, timer::low_level::FilterValue::FckIntN2);
 
     // Reset all interrupt flags.
     tim5.regs_gp32().sr().write(|r| r.0 = 0);
@@ -366,9 +374,9 @@ async fn main(spawner: Spawner) {
     }
 
     // Launch USB audio tasks.
-    unwrap!(spawner.spawn(usb_control_task(control_monitor)));
-    unwrap!(spawner.spawn(usb_streaming_task(stream, sender)));
-    unwrap!(spawner.spawn(usb_feedback_task(feedback)));
-    unwrap!(spawner.spawn(usb_task(usb_device)));
-    unwrap!(spawner.spawn(audio_receiver_task(receiver)));
+    spawner.spawn(unwrap!(usb_control_task(control_monitor)));
+    spawner.spawn(unwrap!(usb_streaming_task(stream, sender)));
+    spawner.spawn(unwrap!(usb_feedback_task(feedback)));
+    spawner.spawn(unwrap!(usb_task(usb_device)));
+    spawner.spawn(unwrap!(audio_receiver_task(receiver)));
 }

@@ -18,6 +18,7 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
@@ -26,8 +27,9 @@ use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler};
 use embassy_usb::class::web_usb::{Config as WebUsbConfig, State, Url, WebUsb};
 use embassy_usb::driver::{Driver, Endpoint, EndpointIn, EndpointOut};
 use embassy_usb::msos::{self, windows_version};
+use embassy_usb::types::InterfaceNumber;
 use embassy_usb::{Builder, Config};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
@@ -36,7 +38,7 @@ bind_interrupts!(struct Irqs {
 // This is a randomly generated GUID to allow clients on Windows to find our device
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
@@ -51,18 +53,12 @@ async fn main(_spawner: Spawner) {
     config.max_power = 100;
     config.max_packet_size_0 = 64;
 
-    // Required for windows compatibility.
-    // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
-    config.device_class = 0xff;
-    config.device_sub_class = 0x00;
-    config.device_protocol = 0x00;
-
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
-    let mut msos_descriptor = [0; 256];
+    let mut msos_descriptor = [0; 512];
 
     let webusb_config = WebUsbConfig {
         max_packet_size: 64,
@@ -89,6 +85,14 @@ async fn main(_spawner: Spawner) {
     // In principle you might want to call msos_feature() just on a specific function,
     // if your device also has other functions that still use standard class drivers.
     builder.msos_descriptor(windows_version::WIN8_1, 0);
+    builder.msos_writer().configuration(0);
+    builder.msos_writer().function(InterfaceNumber(0));
+    builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+    builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+        "DeviceInterfaceGUIDs",
+        msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+    ));
+    builder.msos_writer().function(InterfaceNumber(1));
     builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
     builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
         "DeviceInterfaceGUIDs",
@@ -131,8 +135,8 @@ impl<'d, D: Driver<'d>> WebEndpoints<'d, D> {
         let mut iface = func.interface();
         let mut alt = iface.alt_setting(0xff, 0x00, 0x00, None);
 
-        let write_ep = alt.endpoint_bulk_in(config.max_packet_size);
-        let read_ep = alt.endpoint_bulk_out(config.max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, config.max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, config.max_packet_size);
 
         WebEndpoints { write_ep, read_ep }
     }

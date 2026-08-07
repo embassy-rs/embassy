@@ -1,5 +1,6 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "probe-run --chip STM32L475VG"
+# replace your chip as listed in `probe-rs chip list`
+runner = "probe-rs run --chip STM32L475VG"
 
 rustflags = [
     "-C", "link-arg=--nmagic",

@@ -1,13 +1,11 @@
 use core::marker::PhantomData;
 use core::ops::BitOr;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
-
+use super::Instance;
 use super::errors::GroupError;
 use super::io_pin::*;
-use super::Instance;
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
-use crate::Peripheral;
+use crate::Peri;
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 
 /// Pin type definition to control IO parameters
 #[derive(PartialEq, Clone, Copy)]
@@ -23,7 +21,7 @@ pub enum PinType {
 /// Pin struct that maintains usage
 #[allow(missing_docs)]
 pub struct Pin<'d, T, Group> {
-    _pin: PeripheralRef<'d, AnyPin>,
+    _pin: Flex<'d>,
     role: PinType,
     tsc_io_pin: IOPin,
     phantom: PhantomData<(T, Group)>,
@@ -169,14 +167,14 @@ pub struct PinGroupWithRoles<
 > {
     /// The underlying pin group without role information.
     pub pin_group: PinGroup<'d, T, G>,
-    _phantom: PhantomData<(R1, R2, R3, R4)>,
+    _marker: PhantomData<(R1, R2, R3, R4)>,
 }
 
 impl<'d, T: Instance, G, R1, R2, R3, R4> Default for PinGroupWithRoles<'d, T, G, R1, R2, R3, R4> {
     fn default() -> Self {
         Self {
             pin_group: PinGroup::default(),
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
@@ -426,17 +424,13 @@ macro_rules! trait_to_io_pin {
 macro_rules! impl_set_io {
     ($method:ident, $group:ident, $trait:ident, $index:expr) => {
         #[doc = concat!("Create a new pin1 for ", stringify!($group), " TSC group instance.")]
-        pub fn $method<Role: pin_roles::Role>(
-            &mut self,
-            pin: impl Peripheral<P = impl $trait<T>> + 'd,
-        ) -> IOPinWithRole<$group, Role> {
-            into_ref!(pin);
+        pub fn $method<Role: pin_roles::Role>(&mut self, pin: Peri<'d, impl $trait<T>>) -> IOPinWithRole<$group, Role> {
             critical_section::with(|_| {
                 pin.set_low();
-                pin.set_as_af(pin.af_num(), AfType::output(Role::output_type(), Speed::VeryHigh));
+                set_as_af!(pin, AfType::output(Role::output_type(), Speed::VeryHigh));
                 let tsc_io_pin = trait_to_io_pin!($trait);
                 let new_pin = Pin {
-                    _pin: pin.map_into(),
+                    _pin: Flex::new(pin),
                     role: Role::pin_type(),
                     tsc_io_pin,
                     phantom: PhantomData,

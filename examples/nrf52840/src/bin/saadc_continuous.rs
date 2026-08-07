@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::saadc::{CallbackResult, ChannelConfig, Config, Saadc};
 use embassy_nrf::timer::Frequency;
 use embassy_nrf::{bind_interrupts, saadc};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Demonstrates both continuous sampling and scanning multiple channels driven by a PPI linked timer
 
@@ -18,9 +19,9 @@ bind_interrupts!(struct Irqs {
 async fn main(_p: Spawner) {
     let mut p = embassy_nrf::init(Default::default());
     let config = Config::default();
-    let channel_1_config = ChannelConfig::single_ended(&mut p.P0_02);
-    let channel_2_config = ChannelConfig::single_ended(&mut p.P0_03);
-    let channel_3_config = ChannelConfig::single_ended(&mut p.P0_04);
+    let channel_1_config = ChannelConfig::single_ended(p.P0_02.reborrow());
+    let channel_2_config = ChannelConfig::single_ended(p.P0_03.reborrow());
+    let channel_3_config = ChannelConfig::single_ended(p.P0_04.reborrow());
     let mut saadc = Saadc::new(
         p.SAADC,
         Irqs,
@@ -40,9 +41,9 @@ async fn main(_p: Spawner) {
 
     saadc
         .run_task_sampler(
-            &mut p.TIMER0,
-            &mut p.PPI_CH0,
-            &mut p.PPI_CH1,
+            p.TIMER0.reborrow(),
+            p.PPI_CH0.reborrow(),
+            p.PPI_CH1.reborrow(),
             Frequency::F1MHz,
             1000, // We want to sample at 1KHz
             &mut bufs,

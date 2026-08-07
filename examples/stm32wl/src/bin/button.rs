@@ -5,11 +5,12 @@ use core::mem::MaybeUninit;
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use defmt_rtt as _;
 use embassy_stm32::SharedData;
-use {defmt_rtt as _, panic_probe as _};
+use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use panic_probe as _;
 
-#[link_section = ".shared_data"]
+#[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 #[entry]

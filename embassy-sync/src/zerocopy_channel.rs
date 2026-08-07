@@ -11,16 +11,17 @@
 //! passed from exception mode e.g. out of an interrupt handler.
 //!
 //! This module provides a bounded channel that has a limit on the number of
-//! messages that it can store, and if this limit is reached, trying to send
-//! another message will result in an error being returned.
+//! messages that it can store. If this limit is reached, trying to send
+//! another message either waits or returns an error depending on the function.
 
 use core::cell::RefCell;
-use core::future::{poll_fn, Future};
+use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::ops::{Deref, DerefMut};
 use core::task::{Context, Poll};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::WakerRegistration;
 
 /// A bounded zero-copy channel for communicating between asynchronous tasks
@@ -34,6 +35,7 @@ use crate::waitqueue::WakerRegistration;
 ///
 /// The channel requires a buffer of recyclable elements.  Writing to the channel is done through
 /// an `&mut T`.
+#[derive(Debug)]
 pub struct Channel<'a, M: RawMutex, T> {
     buf: BufferPtr<T>,
     phantom: PhantomData<&'a mut T>,
@@ -45,9 +47,9 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
     ///
     /// The provided buffer will be used and reused by the channel's logic, and thus dictates the
     /// channel's capacity.
-    pub fn new(buf: &'a mut [T]) -> Self {
+    pub const fn new(buf: &'a mut [T]) -> Self {
         let len = buf.len();
-        assert!(len != 0);
+        core::assert!(len != 0);
 
         Self {
             buf: BufferPtr(buf.as_mut_ptr()),
@@ -95,6 +97,7 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
 }
 
 #[repr(transparent)]
+#[derive(Debug)]
 struct BufferPtr<T>(*mut T);
 
 impl<T> BufferPtr<T> {
@@ -107,6 +110,7 @@ unsafe impl<T> Send for BufferPtr<T> {}
 unsafe impl<T> Sync for BufferPtr<T> {}
 
 /// Send-only access to a [`Channel`].
+#[derive(Debug)]
 pub struct Sender<'a, M: RawMutex, T> {
     channel: &'a Channel<'a, M, T>,
 }
@@ -118,22 +122,28 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
     }
 
     /// Attempts to send a value over the channel.
-    pub fn try_send(&mut self) -> Option<&mut T> {
+    pub fn try_send(&mut self) -> Option<SendSlot<'_, M, T>> {
         self.channel.state.lock(|s| {
             let s = &mut *s.borrow_mut();
             match s.push_index() {
-                Some(i) => Some(unsafe { &mut *self.channel.buf.add(i) }),
+                Some(i) => Some(SendSlot {
+                    value: unsafe { &mut *self.channel.buf.add(i) },
+                    state: &self.channel.state,
+                }),
                 None => None,
             }
         })
     }
 
     /// Attempts to send a value over the channel.
-    pub fn poll_send(&mut self, cx: &mut Context) -> Poll<&mut T> {
-        self.channel.state.lock(|s| {
+    pub fn poll_send(&mut self, cx: &mut Context) -> Poll<SendSlot<'_, M, T>> {
+        self.channel.state.lock(move |s| {
             let s = &mut *s.borrow_mut();
             match s.push_index() {
-                Some(i) => Poll::Ready(unsafe { &mut *self.channel.buf.add(i) }),
+                Some(i) => Poll::Ready(SendSlot {
+                    value: unsafe { &mut *self.channel.buf.add(i) },
+                    state: &self.channel.state,
+                }),
                 None => {
                     s.receive_waker.register(cx.waker());
                     Poll::Pending
@@ -143,15 +153,15 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
     }
 
     /// Asynchronously send a value over the channel.
-    pub fn send(&mut self) -> impl Future<Output = &mut T> {
+    pub fn send(&mut self) -> impl Future<Output = SendSlot<'_, M, T>> {
         poll_fn(|cx| {
             self.channel.state.lock(|s| {
                 let s = &mut *s.borrow_mut();
                 match s.push_index() {
-                    Some(i) => {
-                        let r = unsafe { &mut *self.channel.buf.add(i) };
-                        Poll::Ready(r)
-                    }
+                    Some(i) => Poll::Ready(SendSlot {
+                        value: unsafe { &mut *self.channel.buf.add(i) },
+                        state: &self.channel.state,
+                    }),
                     None => {
                         s.receive_waker.register(cx.waker());
                         Poll::Pending
@@ -161,18 +171,6 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
         })
     }
 
-    /// Notify the channel that the sending of the value has been finalized.
-    pub fn send_done(&mut self) {
-        self.channel.state.lock(|s| s.borrow_mut().push_done())
-    }
-
-    /// Clears all elements in the channel.
-    pub fn clear(&mut self) {
-        self.channel.state.lock(|s| {
-            s.borrow_mut().clear();
-        });
-    }
-
     /// Returns the number of elements currently in the channel.
     pub fn len(&self) -> usize {
         self.channel.state.lock(|s| s.borrow().len())
@@ -189,34 +187,70 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
     }
 }
 
+/// A slot for sending in the channel
+///
+/// The slot is only marked as sent when [`SendSlot::send_done`] is called.
+pub struct SendSlot<'a, M: RawMutex, T> {
+    state: &'a Mutex<M, RefCell<State>>,
+    value: &'a mut T,
+}
+
+impl<M: RawMutex, T> Deref for SendSlot<'_, M, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.value
+    }
+}
+
+impl<M: RawMutex, T> DerefMut for SendSlot<'_, M, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.value
+    }
+}
+
+impl<M: RawMutex, T> SendSlot<'_, M, T> {
+    /// Notify the channel that the sending of the value has been finalized.
+    pub fn send_done(self) {
+        self.state.lock(|s| s.borrow_mut().push_done());
+    }
+}
+
 /// Receive-only access to a [`Channel`].
+#[derive(Debug)]
 pub struct Receiver<'a, M: RawMutex, T> {
     channel: &'a Channel<'a, M, T>,
 }
 
 impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
-    /// Creates one further [`Sender`] over the same channel.
+    /// Creates one further [`Receiver`] over the same channel.
     pub fn borrow(&mut self) -> Receiver<'_, M, T> {
         Receiver { channel: self.channel }
     }
 
     /// Attempts to receive a value over the channel.
-    pub fn try_receive(&mut self) -> Option<&mut T> {
+    pub fn try_receive(&mut self) -> Option<ReceiveSlot<'_, M, T>> {
         self.channel.state.lock(|s| {
             let s = &mut *s.borrow_mut();
             match s.pop_index() {
-                Some(i) => Some(unsafe { &mut *self.channel.buf.add(i) }),
+                Some(i) => Some(ReceiveSlot {
+                    value: unsafe { &mut *self.channel.buf.add(i) },
+                    state: &self.channel.state,
+                }),
                 None => None,
             }
         })
     }
 
     /// Attempts to asynchronously receive a value over the channel.
-    pub fn poll_receive(&mut self, cx: &mut Context) -> Poll<&mut T> {
+    pub fn poll_receive(&mut self, cx: &mut Context) -> Poll<ReceiveSlot<'_, M, T>> {
         self.channel.state.lock(|s| {
             let s = &mut *s.borrow_mut();
             match s.pop_index() {
-                Some(i) => Poll::Ready(unsafe { &mut *self.channel.buf.add(i) }),
+                Some(i) => Poll::Ready(ReceiveSlot {
+                    value: unsafe { &mut *self.channel.buf.add(i) },
+                    state: &self.channel.state,
+                }),
                 None => {
                     s.send_waker.register(cx.waker());
                     Poll::Pending
@@ -226,15 +260,15 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
     }
 
     /// Asynchronously receive a value over the channel.
-    pub fn receive(&mut self) -> impl Future<Output = &mut T> {
+    pub fn receive(&mut self) -> impl Future<Output = ReceiveSlot<'_, M, T>> {
         poll_fn(|cx| {
             self.channel.state.lock(|s| {
                 let s = &mut *s.borrow_mut();
                 match s.pop_index() {
-                    Some(i) => {
-                        let r = unsafe { &mut *self.channel.buf.add(i) };
-                        Poll::Ready(r)
-                    }
+                    Some(i) => Poll::Ready(ReceiveSlot {
+                        value: unsafe { &mut *self.channel.buf.add(i) },
+                        state: &self.channel.state,
+                    }),
                     None => {
                         s.send_waker.register(cx.waker());
                         Poll::Pending
@@ -242,11 +276,6 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
                 }
             })
         })
-    }
-
-    /// Notify the channel that the receiving of the value has been finalized.
-    pub fn receive_done(&mut self) {
-        self.channel.state.lock(|s| s.borrow_mut().pop_done())
     }
 
     /// Clears all elements in the channel.
@@ -272,6 +301,36 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
     }
 }
 
+/// A slot for receiving in the channel.
+///
+/// The slot is only marked as received when [`ReceiveSlot::receive_done`] is called.
+pub struct ReceiveSlot<'a, M: RawMutex, T> {
+    state: &'a Mutex<M, RefCell<State>>,
+    value: &'a mut T,
+}
+
+impl<M: RawMutex, T> Deref for ReceiveSlot<'_, M, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.value
+    }
+}
+
+impl<M: RawMutex, T> DerefMut for ReceiveSlot<'_, M, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.value
+    }
+}
+
+impl<M: RawMutex, T> ReceiveSlot<'_, M, T> {
+    /// Notify the channel that the receiving of the value has been finalized.
+    pub fn receive_done(self) {
+        self.state.lock(|s| s.borrow_mut().pop_done());
+    }
+}
+
+#[derive(Debug)]
 struct State {
     /// Maximum number of elements the channel can hold.
     capacity: usize,
@@ -291,11 +350,7 @@ struct State {
 
 impl State {
     fn increment(&self, i: usize) -> usize {
-        if i + 1 == self.capacity {
-            0
-        } else {
-            i + 1
-        }
+        if i + 1 == self.capacity { 0 } else { i + 1 }
     }
 
     fn clear(&mut self) {
@@ -335,7 +390,6 @@ impl State {
     }
 
     fn push_done(&mut self) {
-        assert!(!self.is_full());
         self.back = self.increment(self.back);
         if self.back == self.front {
             self.full = true;
@@ -351,7 +405,6 @@ impl State {
     }
 
     fn pop_done(&mut self) {
-        assert!(!self.is_empty());
         self.front = self.increment(self.front);
         self.full = false;
         self.receive_waker.wake();

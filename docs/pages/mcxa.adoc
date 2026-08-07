@@ -1,0 +1,26 @@
+= Embassy MCX-A HAL
+
+The link:https://github.com/embassy-rs/embassy/tree/main/embassy-mcxa[Embassy MCX-A HAL] is based on the following PAC (Peripheral Access Crate):
+
+* link:https://github.com/embassy-rs/nxp-pac[nxp-pac]
+
+== Peripherals
+
+The following peripherals have a HAL implementation at present
+
+* Clocks
+* GPIO
+* ADC
+* CLKOUT
+* I2C
+* I3C
+* LPUart
+* OSTimer
+* RTC
+* SPI controller
+* TRNG
+* WWDT
+* CDOG
+* CTIMER
+* CRC
+* DMA

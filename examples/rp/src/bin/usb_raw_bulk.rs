@@ -28,6 +28,7 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_rp::bind_interrupts;
@@ -36,7 +37,7 @@ use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_usb::driver::{Endpoint, EndpointIn, EndpointOut};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::{Builder, Config};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // This is a randomly generated GUID to allow clients on Windows to find our device
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{AFB9A6FB-30BA-44BC-9232-806CFC875321}"];
@@ -45,7 +46,7 @@ bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     info!("Hello there!");
 
@@ -96,8 +97,8 @@ async fn main(_spawner: Spawner) {
     let mut function = builder.function(0xFF, 0, 0);
     let mut interface = function.interface();
     let mut alt = interface.alt_setting(0xFF, 0, 0, None);
-    let mut read_ep = alt.endpoint_bulk_out(64);
-    let mut write_ep = alt.endpoint_bulk_in(64);
+    let mut read_ep = alt.endpoint_bulk_out(None, 64);
+    let mut write_ep = alt.endpoint_bulk_in(None, 64);
     drop(function);
 
     // Build the builder.

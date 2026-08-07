@@ -1,23 +1,15 @@
 /// STM32H50 series flash impl. See RM0492
 use core::{
     ptr::write_volatile,
-    sync::atomic::{fence, Ordering},
+    sync::atomic::{Ordering, fence},
 };
 
 use cortex_m::interrupt;
 use pac::flash::regs::Nssr;
 use pac::flash::vals::Bksel;
 
-use super::{Error, FlashBank, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{Error, FlashBank, FlashSector, WRITE_SIZE};
 use crate::pac;
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
-}
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.nscr().modify(|w| w.set_lock(true));
@@ -55,6 +47,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    assert!(sector.bank != FlashBank::Otp);
     assert!(sector.index_in_bank < 8);
 
     while busy() {}
@@ -63,10 +56,11 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         pac::FLASH.nscr().modify(|w| {
             // BKSEL ignores SWAP_BANK, so we must take it into account here
             w.set_bksel(match (sector.bank, banks_swapped()) {
-                (FlashBank::Bank1, false) => Bksel::BANK1,
-                (FlashBank::Bank2, true) => Bksel::BANK1,
-                (FlashBank::Bank2, false) => Bksel::BANK2,
-                (FlashBank::Bank1, true) => Bksel::BANK2,
+                (FlashBank::Bank1, false) => Bksel::Bank1,
+                (FlashBank::Bank2, true) => Bksel::Bank1,
+                (FlashBank::Bank2, false) => Bksel::Bank2,
+                (FlashBank::Bank1, true) => Bksel::Bank2,
+                _ => unreachable!(),
             });
             w.set_snb(sector.index_in_bank);
             w.set_ser(true);

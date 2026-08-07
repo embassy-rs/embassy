@@ -2,28 +2,27 @@
 
 #![macro_use]
 
-use core::future::{poll_fn, Future};
+use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::mem::MaybeUninit;
-use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
+use core::sync::atomic::compiler_fence;
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
 use embedded_hal_1::i2c::Operation;
 pub use pac::twim::vals::Frequency;
 
-use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::Pin as GpioPin;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::twim::vals;
 use crate::util::slice_in_ram;
-use crate::{gpio, interrupt, pac, Peripheral};
+use crate::{gpio, interrupt, pac};
 
 /// TWIM config.
 #[non_exhaustive]
@@ -75,8 +74,8 @@ pub enum Error {
     Transmit,
     /// Data reception failed.
     Receive,
-    /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
-    BufferNotInRAM,
+    /// The buffer is not in data RAM and is larger than the RAM buffer. It's most likely in flash, and nRF's DMA cannot access flash.
+    RAMBufferTooSmall,
     /// Didn't receive an ACK bit after the address byte. Address might be wrong, or the i2c device chip might not be connected properly.
     AddressNack,
     /// Didn't receive an ACK bit after a data byte.
@@ -113,44 +112,72 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// TWI driver.
-pub struct Twim<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+pub struct Twim<'d> {
+    r: pac::twim::Twim,
+    state: &'static State,
+    tx_ram_buffer: &'d mut [u8],
+    _p: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Twim<'d, T> {
+impl<'d> Twim<'d> {
     /// Create a new TWI driver.
-    pub fn new(
-        twim: impl Peripheral<P = T> + 'd,
+    ///
+    /// `tx_ram_buffer` is required if any write operations will be performed with data that is not in RAM.
+    /// Usually this is static data that the compiler locates in flash instead of RAM. The `tx_ram_buffer`
+    /// needs to be at least as large as the largest write operation that will be executed with a buffer
+    /// that is not in RAM. If all write operations will be performed from RAM, an empty buffer (`&[]`) may
+    /// be used.
+    pub fn new<T: Instance>(
+        _twim: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        sda: impl Peripheral<P = impl GpioPin> + 'd,
-        scl: impl Peripheral<P = impl GpioPin> + 'd,
+        sda: Peri<'d, impl GpioPin>,
+        scl: Peri<'d, impl GpioPin>,
         config: Config,
+        tx_ram_buffer: &'d mut [u8],
     ) -> Self {
-        into_ref!(twim, sda, scl);
-
         let r = T::regs();
 
         // Configure pins
+        sda.set_high();
+        scl.set_high();
         sda.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::OUTPUT);
-            w.set_input(gpiovals::Input::CONNECT);
+            w.set_dir(gpiovals::Dir::Output);
+            w.set_input(gpiovals::Input::Connect);
+            #[cfg(not(feature = "_nrf54l"))]
             w.set_drive(match config.sda_high_drive {
-                true => gpiovals::Drive::H0D1,
-                false => gpiovals::Drive::S0D1,
+                true => gpiovals::Drive::H0d1,
+                false => gpiovals::Drive::S0d1,
             });
+            #[cfg(feature = "_nrf54l")]
+            {
+                w.set_drive0(match config.sda_high_drive {
+                    true => gpiovals::Drive::H,
+                    false => gpiovals::Drive::S,
+                });
+                w.set_drive1(gpiovals::Drive::D);
+            }
             if config.sda_pullup {
-                w.set_pull(gpiovals::Pull::PULLUP);
+                w.set_pull(gpiovals::Pull::Pullup);
             }
         });
         scl.conf().write(|w| {
-            w.set_dir(gpiovals::Dir::OUTPUT);
-            w.set_input(gpiovals::Input::CONNECT);
+            w.set_dir(gpiovals::Dir::Output);
+            w.set_input(gpiovals::Input::Connect);
+            #[cfg(not(feature = "_nrf54l"))]
             w.set_drive(match config.scl_high_drive {
-                true => gpiovals::Drive::H0D1,
-                false => gpiovals::Drive::S0D1,
+                true => gpiovals::Drive::H0d1,
+                false => gpiovals::Drive::S0d1,
             });
-            if config.sda_pullup {
-                w.set_pull(gpiovals::Pull::PULLUP);
+            #[cfg(feature = "_nrf54l")]
+            {
+                w.set_drive0(match config.scl_high_drive {
+                    true => gpiovals::Drive::H,
+                    false => gpiovals::Drive::S,
+                });
+                w.set_drive1(gpiovals::Drive::D);
+            }
+            if config.scl_pullup {
+                w.set_pull(gpiovals::Pull::Pullup);
             }
         });
 
@@ -159,9 +186,14 @@ impl<'d, T: Instance> Twim<'d, T> {
         r.psel().scl().write_value(scl.psel_bits());
 
         // Enable TWIM instance.
-        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
-        let mut twim = Self { _p: twim };
+        let mut twim = Self {
+            r: T::regs(),
+            state: T::state(),
+            tx_ram_buffer,
+            _p: PhantomData {},
+        };
 
         // Apply runtime peripheral configuration
         Self::set_config(&mut twim, &config).unwrap();
@@ -176,34 +208,30 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     /// Set TX buffer, checking that it is in RAM and has suitable length.
-    unsafe fn set_tx_buffer(
-        &mut self,
-        buffer: &[u8],
-        ram_buffer: Option<&mut [MaybeUninit<u8>; FORCE_COPY_BUFFER_SIZE]>,
-    ) -> Result<(), Error> {
+    unsafe fn set_tx_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let buffer = if slice_in_ram(buffer) {
             buffer
         } else {
-            let ram_buffer = ram_buffer.ok_or(Error::BufferNotInRAM)?;
+            if buffer.len() > self.tx_ram_buffer.len() {
+                return Err(Error::RAMBufferTooSmall);
+            }
             trace!("Copying TWIM tx buffer into RAM for DMA");
-            let ram_buffer = &mut ram_buffer[..buffer.len()];
-            // Inline implementation of the nightly API MaybeUninit::copy_from_slice(ram_buffer, buffer)
-            let uninit_src: &[MaybeUninit<u8>] = unsafe { core::mem::transmute(buffer) };
-            ram_buffer.copy_from_slice(uninit_src);
-            unsafe { &*(ram_buffer as *const [MaybeUninit<u8>] as *const [u8]) }
+            let ram_buffer = &mut self.tx_ram_buffer[..buffer.len()];
+            ram_buffer.copy_from_slice(buffer);
+            &*ram_buffer
         };
 
         if buffer.len() > EASY_DMA_SIZE {
             return Err(Error::TxBufferTooLong);
         }
 
-        let r = T::regs();
+        let r = self.r;
 
         // We're giving the register a pointer to the stack. Since we're
         // waiting for the I2C transaction to end before this stack pointer
         // becomes invalid, there's nothing wrong here.
-        r.txd().ptr().write_value(buffer.as_ptr() as u32);
-        r.txd().maxcnt().write(|w|
+        r.dma().tx().ptr().write_value(buffer.as_ptr() as u32);
+        r.dma().tx().maxcnt().write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to `u8` is also fine.
@@ -224,13 +252,13 @@ impl<'d, T: Instance> Twim<'d, T> {
             return Err(Error::RxBufferTooLong);
         }
 
-        let r = T::regs();
+        let r = self.r;
 
         // We're giving the register a pointer to the stack. Since we're
         // waiting for the I2C transaction to end before this stack pointer
         // becomes invalid, there's nothing wrong here.
-        r.rxd().ptr().write_value(buffer.as_mut_ptr() as u32);
-        r.rxd().maxcnt().write(|w|
+        r.dma().rx().ptr().write_value(buffer.as_mut_ptr() as u32);
+        r.dma().rx().maxcnt().write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to the type of maxcnt
@@ -246,7 +274,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     fn clear_errorsrc(&mut self) {
-        let r = T::regs();
+        let r = self.r;
         r.errorsrc().write(|w| {
             w.set_anack(true);
             w.set_dnack(true);
@@ -255,8 +283,8 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     /// Get Error instance, if any occurred.
-    fn check_errorsrc() -> Result<(), Error> {
-        let r = T::regs();
+    fn check_errorsrc(&mut self) -> Result<(), Error> {
+        let r = self.r;
 
         let err = r.errorsrc().read();
         if err.anack() {
@@ -272,8 +300,8 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     fn check_rx(&self, len: usize) -> Result<(), Error> {
-        let r = T::regs();
-        if r.rxd().amount().read().0 != len as u32 {
+        let r = self.r;
+        if r.dma().rx().amount().read().0 != len as u32 {
             Err(Error::Receive)
         } else {
             Ok(())
@@ -281,8 +309,8 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     fn check_tx(&self, len: usize) -> Result<(), Error> {
-        let r = T::regs();
-        if r.txd().amount().read().0 != len as u32 {
+        let r = self.r;
+        if r.dma().tx().amount().read().0 != len as u32 {
             Err(Error::Transmit)
         } else {
             Ok(())
@@ -291,7 +319,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     /// Wait for stop or error
     fn blocking_wait(&mut self) {
-        let r = T::regs();
+        let r = self.r;
         loop {
             if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
                 r.events_suspended().write_value(0);
@@ -308,7 +336,7 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// Wait for stop or error
     #[cfg(feature = "time")]
     fn blocking_wait_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
-        let r = T::regs();
+        let r = self.r;
         let deadline = Instant::now() + timeout;
         loop {
             if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
@@ -329,10 +357,10 @@ impl<'d, T: Instance> Twim<'d, T> {
     }
 
     /// Wait for stop or error
-    fn async_wait(&mut self) -> impl Future<Output = Result<(), Error>> {
-        poll_fn(move |cx| {
-            let r = T::regs();
-            let s = T::state();
+    async fn async_wait(&mut self) -> Result<(), Error> {
+        poll_fn(|cx| {
+            let r = self.r;
+            let s = self.state;
 
             s.end_waker.register(cx.waker());
             if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
@@ -345,26 +373,26 @@ impl<'d, T: Instance> Twim<'d, T> {
             if r.events_error().read() != 0 {
                 r.events_error().write_value(0);
                 r.tasks_stop().write_value(1);
-                if let Err(e) = Self::check_errorsrc() {
+                if let Err(e) = self.check_errorsrc() {
                     return Poll::Ready(Err(e));
                 } else {
-                    panic!("Found events_error bit without an error in errorsrc reg");
+                    return Poll::Ready(Err(Error::Timeout));
                 }
             }
 
             Poll::Pending
         })
+        .await
     }
 
     fn setup_operations(
         &mut self,
         address: u8,
         operations: &mut [Operation<'_>],
-        tx_ram_buffer: Option<&mut [MaybeUninit<u8>; FORCE_COPY_BUFFER_SIZE]>,
         last_op: Option<&Operation<'_>>,
         inten: bool,
     ) -> Result<usize, Error> {
-        let r = T::regs();
+        let r = self.r;
 
         compiler_fence(SeqCst);
 
@@ -399,12 +427,12 @@ impl<'d, T: Instance> Twim<'d, T> {
 
                 // Set up DMA buffers.
                 unsafe {
-                    self.set_tx_buffer(wr_buffer, tx_ram_buffer)?;
+                    self.set_tx_buffer(wr_buffer)?;
                     self.set_rx_buffer(rd_buffer)?;
                 }
 
                 r.shorts().write(|w| {
-                    w.set_lastrx_starttx(true);
+                    w.set_lastrx_dma_tx_start(true);
                     if stop {
                         w.set_lasttx_stop(true);
                     } else {
@@ -413,7 +441,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 });
 
                 // Start read+write operation.
-                r.tasks_startrx().write_value(1);
+                r.tasks_dma().rx().start().write_value(1);
                 if last_op.is_some() {
                     r.tasks_resume().write_value(1);
                 }
@@ -421,7 +449,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 // TODO: Handle empty write buffer
                 if rd_buffer.is_empty() {
                     // With a zero-length buffer, LASTRX doesn't fire (because there's no last byte!), so do the STARTTX ourselves.
-                    r.tasks_starttx().write_value(1);
+                    r.tasks_dma().tx().start().write_value(1);
                 }
 
                 Ok(2)
@@ -435,7 +463,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                 r.shorts().write(|w| w.set_lastrx_stop(true));
 
                 // Start read operation.
-                r.tasks_startrx().write_value(1);
+                r.tasks_dma().rx().start().write_value(1);
                 if last_op.is_some() {
                     r.tasks_resume().write_value(1);
                 }
@@ -452,17 +480,17 @@ impl<'d, T: Instance> Twim<'d, T> {
             {
                 // Set up DMA buffers.
                 unsafe {
-                    self.set_tx_buffer(wr_buffer, tx_ram_buffer)?;
+                    self.set_tx_buffer(wr_buffer)?;
                     self.set_rx_buffer(rd_buffer)?;
                 }
 
                 // Start write+read operation.
                 r.shorts().write(|w| {
-                    w.set_lasttx_startrx(true);
+                    w.set_lasttx_dma_rx_start(true);
                     w.set_lastrx_stop(true);
                 });
 
-                r.tasks_starttx().write_value(1);
+                r.tasks_dma().tx().start().write_value(1);
                 if last_op.is_some() {
                     r.tasks_resume().write_value(1);
                 }
@@ -474,7 +502,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
                 // Set up DMA buffers.
                 unsafe {
-                    self.set_tx_buffer(buffer, tx_ram_buffer)?;
+                    self.set_tx_buffer(buffer)?;
                 }
 
                 // Start write operation.
@@ -486,7 +514,7 @@ impl<'d, T: Instance> Twim<'d, T> {
                     }
                 });
 
-                r.tasks_starttx().write_value(1);
+                r.tasks_dma().tx().start().write_value(1);
                 if last_op.is_some() {
                     r.tasks_resume().write_value(1);
                 }
@@ -508,7 +536,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     fn check_operations(&mut self, operations: &[Operation<'_>]) -> Result<(), Error> {
         compiler_fence(SeqCst);
-        Self::check_errorsrc()?;
+        self.check_errorsrc()?;
 
         assert!(operations.len() == 1 || operations.len() == 2);
         match operations {
@@ -541,28 +569,9 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// An `Operation::Write` following an `Operation::Read` must have a
     /// non-empty buffer.
     pub fn blocking_transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
         let mut last_op = None;
         while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, false)?;
-            let (in_progress, rest) = operations.split_at_mut(ops);
-            self.blocking_wait();
-            self.check_operations(in_progress)?;
-            last_op = in_progress.last();
-            operations = rest;
-        }
-        Ok(())
-    }
-
-    /// Same as [`blocking_transaction`](Twim::blocking_transaction) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub fn blocking_transaction_from_ram(
-        &mut self,
-        address: u8,
-        mut operations: &mut [Operation<'_>],
-    ) -> Result<(), Error> {
-        let mut last_op = None;
-        while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, None, last_op, false)?;
+            let ops = self.setup_operations(address, operations, last_op, false)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
             self.blocking_wait();
             self.check_operations(in_progress)?;
@@ -574,7 +583,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     /// Execute the provided operations on the I2C bus with timeout.
     ///
-    /// See [`blocking_transaction`].
+    /// See [Self::blocking_transaction].
     #[cfg(feature = "time")]
     pub fn blocking_transaction_timeout(
         &mut self,
@@ -582,30 +591,9 @@ impl<'d, T: Instance> Twim<'d, T> {
         mut operations: &mut [Operation<'_>],
         timeout: Duration,
     ) -> Result<(), Error> {
-        let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
         let mut last_op = None;
         while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, false)?;
-            let (in_progress, rest) = operations.split_at_mut(ops);
-            self.blocking_wait_timeout(timeout)?;
-            self.check_operations(in_progress)?;
-            last_op = in_progress.last();
-            operations = rest;
-        }
-        Ok(())
-    }
-
-    /// Same as [`blocking_transaction_timeout`](Twim::blocking_transaction_timeout) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    #[cfg(feature = "time")]
-    pub fn blocking_transaction_from_ram_timeout(
-        &mut self,
-        address: u8,
-        mut operations: &mut [Operation<'_>],
-        timeout: Duration,
-    ) -> Result<(), Error> {
-        let mut last_op = None;
-        while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, None, last_op, false)?;
+            let ops = self.setup_operations(address, operations, last_op, false)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
             self.blocking_wait_timeout(timeout)?;
             self.check_operations(in_progress)?;
@@ -626,28 +614,9 @@ impl<'d, T: Instance> Twim<'d, T> {
     /// An `Operation::Write` following an `Operation::Read` must have a
     /// non-empty buffer.
     pub async fn transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let mut tx_ram_buffer = [MaybeUninit::uninit(); FORCE_COPY_BUFFER_SIZE];
         let mut last_op = None;
         while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, Some(&mut tx_ram_buffer), last_op, true)?;
-            let (in_progress, rest) = operations.split_at_mut(ops);
-            self.async_wait().await?;
-            self.check_operations(in_progress)?;
-            last_op = in_progress.last();
-            operations = rest;
-        }
-        Ok(())
-    }
-
-    /// Same as [`transaction`](Twim::transaction) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub async fn transaction_from_ram(
-        &mut self,
-        address: u8,
-        mut operations: &mut [Operation<'_>],
-    ) -> Result<(), Error> {
-        let mut last_op = None;
-        while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, None, last_op, true)?;
+            let ops = self.setup_operations(address, operations, last_op, true)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
             self.async_wait().await?;
             self.check_operations(in_progress)?;
@@ -667,11 +636,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         self.blocking_transaction(address, &mut [Operation::Write(buffer)])
     }
 
-    /// Same as [`blocking_write`](Twim::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub fn blocking_write_from_ram(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.blocking_transaction_from_ram(address, &mut [Operation::Write(buffer)])
-    }
-
     /// Read from an I2C slave.
     ///
     /// The buffer must have a length of at most 255 bytes on the nRF52832
@@ -689,35 +653,14 @@ impl<'d, T: Instance> Twim<'d, T> {
         self.blocking_transaction(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
     }
 
-    /// Same as [`blocking_write_read`](Twim::blocking_write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub fn blocking_write_read_from_ram(
-        &mut self,
-        address: u8,
-        wr_buffer: &[u8],
-        rd_buffer: &mut [u8],
-    ) -> Result<(), Error> {
-        self.blocking_transaction_from_ram(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
-    }
-
     // ===========================================
 
     /// Write to an I2C slave with timeout.
     ///
-    /// See [`blocking_write`].
+    /// See [Self::blocking_write].
     #[cfg(feature = "time")]
     pub fn blocking_write_timeout(&mut self, address: u8, buffer: &[u8], timeout: Duration) -> Result<(), Error> {
         self.blocking_transaction_timeout(address, &mut [Operation::Write(buffer)], timeout)
-    }
-
-    /// Same as [`blocking_write`](Twim::blocking_write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    #[cfg(feature = "time")]
-    pub fn blocking_write_from_ram_timeout(
-        &mut self,
-        address: u8,
-        buffer: &[u8],
-        timeout: Duration,
-    ) -> Result<(), Error> {
-        self.blocking_transaction_from_ram_timeout(address, &mut [Operation::Write(buffer)], timeout)
     }
 
     /// Read from an I2C slave.
@@ -749,22 +692,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         )
     }
 
-    /// Same as [`blocking_write_read`](Twim::blocking_write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    #[cfg(feature = "time")]
-    pub fn blocking_write_read_from_ram_timeout(
-        &mut self,
-        address: u8,
-        wr_buffer: &[u8],
-        rd_buffer: &mut [u8],
-        timeout: Duration,
-    ) -> Result<(), Error> {
-        self.blocking_transaction_from_ram_timeout(
-            address,
-            &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)],
-            timeout,
-        )
-    }
-
     // ===========================================
 
     /// Read from an I2C slave.
@@ -783,12 +710,6 @@ impl<'d, T: Instance> Twim<'d, T> {
         self.transaction(address, &mut [Operation::Write(buffer)]).await
     }
 
-    /// Same as [`write`](Twim::write) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub async fn write_from_ram(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.transaction_from_ram(address, &mut [Operation::Write(buffer)])
-            .await
-    }
-
     /// Write data to an I2C slave, then read data from the slave without
     /// triggering a stop condition between the two.
     ///
@@ -798,28 +719,17 @@ impl<'d, T: Instance> Twim<'d, T> {
         self.transaction(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
             .await
     }
-
-    /// Same as [`write_read`](Twim::write_read) but will fail instead of copying data into RAM. Consult the module level documentation to learn more.
-    pub async fn write_read_from_ram(
-        &mut self,
-        address: u8,
-        wr_buffer: &[u8],
-        rd_buffer: &mut [u8],
-    ) -> Result<(), Error> {
-        self.transaction_from_ram(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
-            .await
-    }
 }
 
-impl<'a, T: Instance> Drop for Twim<'a, T> {
+impl<'a> Drop for Twim<'a> {
     fn drop(&mut self) {
         trace!("twim drop");
 
         // TODO: check for abort
 
         // disable!
-        let r = T::regs();
-        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
+        let r = self.r;
+        r.enable().write(|w| w.set_enable(vals::Enable::Disabled));
 
         gpio::deconfigure_pin(r.psel().sda().read());
         gpio::deconfigure_pin(r.psel().scl().read());
@@ -847,7 +757,7 @@ pub(crate) trait SealedInstance {
 
 /// TWIM peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -874,7 +784,7 @@ macro_rules! impl_twim {
 mod eh02 {
     use super::*;
 
-    impl<'a, T: Instance> embedded_hal_02::blocking::i2c::Write for Twim<'a, T> {
+    impl<'a> embedded_hal_02::blocking::i2c::Write for Twim<'a> {
         type Error = Error;
 
         fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
@@ -882,7 +792,7 @@ mod eh02 {
         }
     }
 
-    impl<'a, T: Instance> embedded_hal_02::blocking::i2c::Read for Twim<'a, T> {
+    impl<'a> embedded_hal_02::blocking::i2c::Read for Twim<'a> {
         type Error = Error;
 
         fn read(&mut self, addr: u8, bytes: &mut [u8]) -> Result<(), Error> {
@@ -890,7 +800,7 @@ mod eh02 {
         }
     }
 
-    impl<'a, T: Instance> embedded_hal_02::blocking::i2c::WriteRead for Twim<'a, T> {
+    impl<'a> embedded_hal_02::blocking::i2c::WriteRead for Twim<'a> {
         type Error = Error;
 
         fn write_read<'w>(&mut self, addr: u8, bytes: &'w [u8], buffer: &'w mut [u8]) -> Result<(), Error> {
@@ -906,7 +816,7 @@ impl embedded_hal_1::i2c::Error for Error {
             Self::RxBufferTooLong => embedded_hal_1::i2c::ErrorKind::Other,
             Self::Transmit => embedded_hal_1::i2c::ErrorKind::Other,
             Self::Receive => embedded_hal_1::i2c::ErrorKind::Other,
-            Self::BufferNotInRAM => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::RAMBufferTooSmall => embedded_hal_1::i2c::ErrorKind::Other,
             Self::AddressNack => {
                 embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
             }
@@ -919,27 +829,27 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<'d, T: Instance> embedded_hal_1::i2c::ErrorType for Twim<'d, T> {
+impl<'d> embedded_hal_1::i2c::ErrorType for Twim<'d> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_hal_1::i2c::I2c for Twim<'d, T> {
+impl<'d> embedded_hal_1::i2c::I2c for Twim<'d> {
     fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
         self.blocking_transaction(address, operations)
     }
 }
 
-impl<'d, T: Instance> embedded_hal_async::i2c::I2c for Twim<'d, T> {
+impl<'d> embedded_hal_async::i2c::I2c for Twim<'d> {
     async fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
         self.transaction(address, operations).await
     }
 }
 
-impl<'d, T: Instance> SetConfig for Twim<'d, T> {
+impl<'d> SetConfig for Twim<'d> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
-        let r = T::regs();
+        let r = self.r;
         r.frequency().write(|w| w.set_frequency(config.frequency));
 
         Ok(())

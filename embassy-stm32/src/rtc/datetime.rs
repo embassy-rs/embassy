@@ -22,6 +22,8 @@ pub enum Error {
     InvalidMinute,
     /// The [DateTime] contains an invalid second value. Must be between `0..=59`.
     InvalidSecond,
+    /// The [DateTime] contains an invalid microsecond value. Must be between `0..=999_999`.
+    InvalidMicrosecond,
 }
 
 /// Structure containing date and time information
@@ -41,9 +43,39 @@ pub struct DateTime {
     minute: u8,
     /// 0..59
     second: u8,
+    /// 0..999_999
+    usecond: u32,
 }
 
 impl DateTime {
+    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+    pub(crate) const fn millis_from_unix_epoch(&self) -> i64 {
+        // overflows 292_471_209 years from 1_970 with a precision less than 1 / 256 (an RTC tick)
+
+        const fn julian(year: i32, month: i32, day: i32) -> i32 {
+            let (mut y, mut m) = (year, month);
+
+            // Adjust months so that March is month 1
+            if m <= 2 {
+                y -= 1;
+                m += 12;
+            }
+
+            let a = y / 100;
+            let b = 2 - a + (a / 4);
+
+            (36525 * (y + 4716)) / 100 + (306001 * (m + 1)) / 10000 + day + b - 1524
+        }
+
+        let days = julian(self.year as i32, self.month as i32, self.day as i32) - julian(1970i32, 1i32, 1i32);
+        let hour = self.hour;
+        let minute = self.minute;
+        let second = self.second;
+        let seconds = days as i64 * 86_400 + ((hour as i32) * 3_600 + (minute as i32) * 60 + (second as i32)) as i64;
+
+        seconds * 1_000i64 + (self.usecond / 1_000u32) as i64
+    }
+
     /// Get the year (0..=4095)
     pub const fn year(&self) -> u16 {
         self.year
@@ -79,6 +111,11 @@ impl DateTime {
         self.second
     }
 
+    /// Get the microsecond (0..=999_999)
+    pub const fn microsecond(&self) -> u32 {
+        self.usecond
+    }
+
     /// Create a new DateTime with the given information.
     pub fn from(
         year: u16,
@@ -88,6 +125,7 @@ impl DateTime {
         hour: u8,
         minute: u8,
         second: u8,
+        usecond: u32,
     ) -> Result<Self, Error> {
         if year > 4095 {
             Err(Error::InvalidYear)
@@ -101,6 +139,8 @@ impl DateTime {
             Err(Error::InvalidMinute)
         } else if second > 59 {
             Err(Error::InvalidSecond)
+        } else if usecond > 999_999 {
+            Err(Error::InvalidMicrosecond)
         } else {
             Ok(Self {
                 year,
@@ -110,6 +150,7 @@ impl DateTime {
                 hour,
                 minute,
                 second,
+                usecond,
             })
         }
     }
@@ -126,6 +167,7 @@ impl From<chrono::NaiveDateTime> for DateTime {
             hour: date_time.hour() as u8,
             minute: date_time.minute() as u8,
             second: date_time.second() as u8,
+            usecond: date_time.and_utc().timestamp_subsec_micros(),
         }
     }
 }
@@ -135,7 +177,12 @@ impl From<DateTime> for chrono::NaiveDateTime {
     fn from(date_time: DateTime) -> Self {
         NaiveDate::from_ymd_opt(date_time.year as i32, date_time.month as u32, date_time.day as u32)
             .unwrap()
-            .and_hms_opt(date_time.hour as u32, date_time.minute as u32, date_time.second as u32)
+            .and_hms_micro_opt(
+                date_time.hour as u32,
+                date_time.minute as u32,
+                date_time.second as u32,
+                date_time.usecond,
+            )
             .unwrap()
     }
 }
@@ -192,4 +239,24 @@ pub(super) const fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
 
 pub(super) const fn day_of_week_to_u8(dotw: DayOfWeek) -> u8 {
     dotw as u8
+}
+
+#[cfg(all(feature = "low-power", feature = "chrono", not(feature = "_lp-time-driver")))]
+#[test]
+fn test_millis_from_unix_epoch() {
+    for d in 1..1_000_000 {
+        for (h, m, s) in [(1, 1, 1), (3, 4, 5), (13, 14, 15), (18, 19, 20)] {
+            let date_time = chrono::NaiveDate::from_epoch_days(d)
+                .unwrap()
+                .and_hms_opt(h, m, s)
+                .unwrap();
+
+            let chrono_millis = date_time.and_utc().timestamp_millis();
+
+            let date_time: DateTime = date_time.into();
+            let our_millis = date_time.millis_from_unix_epoch();
+
+            assert!(chrono_millis.abs_diff(our_millis) < 5);
+        }
+    }
 }

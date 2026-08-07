@@ -25,14 +25,15 @@
 //! let display2 = ST7735::new(spi_dev2, dc2, rst2, Default::default(), 160, 128);
 //! ```
 
+use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_1::spi::Operation;
 use embedded_hal_async::spi;
 
-use crate::shared_bus::SpiDeviceError;
 use crate::SetConfig;
+use crate::shared_bus::SpiDeviceError;
 
 /// SPI device on a shared bus.
 pub struct SpiDevice<'a, M: RawMutex, BUS, CS> {
@@ -70,6 +71,14 @@ where
         let mut bus = self.bus.lock().await;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
+        let cs_drop = OnDrop::new(|| {
+            // This drop guard deasserts CS pin if the async operation is cancelled.
+            // Errors are ignored in this drop handler, as there's nothing we can do about them.
+            // If the async operation is completed without cancellation, this handler will not
+            // be run, and the CS pin will be deasserted with proper error handling.
+            let _ = self.cs.set_high();
+        });
+
         let op_res = 'ops: {
             for op in operations {
                 let res = match op {
@@ -97,13 +106,17 @@ where
 
         // On failure, it's important to still flush and deassert CS.
         let flush_res = bus.flush().await;
+
+        // Now that all the async operations are done, we defuse the CS guard,
+        // and manually set the CS pin low (to better handle the possible errors).
+        cs_drop.defuse();
         let cs_res = self.cs.set_high();
 
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+        op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
         cs_res.map_err(SpiDeviceError::Cs)?;
 
-        Ok(op_res)
+        Ok(())
     }
 }
 
@@ -155,6 +168,11 @@ where
         bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
         self.cs.set_low().map_err(SpiDeviceError::Cs)?;
 
+        let cs_drop = OnDrop::new(|| {
+            // Please see comment in SpiDevice for an explanation of this drop handler.
+            let _ = self.cs.set_high();
+        });
+
         let op_res = 'ops: {
             for op in operations {
                 let res = match op {
@@ -182,12 +200,13 @@ where
 
         // On failure, it's important to still flush and deassert CS.
         let flush_res = bus.flush().await;
+        cs_drop.defuse();
         let cs_res = self.cs.set_high();
 
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+        op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
         cs_res.map_err(SpiDeviceError::Cs)?;
 
-        Ok(op_res)
+        Ok(())
     }
 }

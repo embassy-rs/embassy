@@ -20,6 +20,11 @@ Async USB device stack for embedded devices in Rust.
 To add `embassy-usb` support for new hardware (i.e. a new MCU chip), you have to write a driver that implements
 the [`embassy-usb-driver`](https://crates.io/crates/embassy-usb-driver) traits.
 
+Before writing a new driver, you can first verify whether the chip uses a common USB IP. Several widely used USB IPs already have implementations available, such as:
+
+- **Synopsys OTG (dwc2)**: Available at [embassy-usb-synopsys-otg](https://crates.io/crates/embassy-usb-synopsys-otg). This IP is used by vendors like STMicroelectronics, Espressif, and others.
+- **Musbmhdrc (musb)**: Available at [musb](https://crates.io/crates/musb). This IP is used by vendors like TI, MediaTek, Puya, and others.
+
 Driver crates should depend only on `embassy-usb-driver`, not on the main `embassy-usb` crate.
 This allows existing drivers to continue working for newer `embassy-usb` major versions, without needing an update, if the driver
 trait has not had breaking changes.
@@ -32,11 +37,11 @@ and counts of buffers.
 They can be set in two ways:
 
 - Via Cargo features: enable a feature like `<name>-<value>`. `name` must be in lowercase and
-use dashes instead of underscores. For example. `max-interface-count-3`. Only a selection of values
-is available, check `Cargo.toml` for the list.
+  use dashes instead of underscores. For example. `max-interface-count-3`. Only a selection of values
+  is available, check `Cargo.toml` for the list.
 - Via environment variables at build time: set the variable named `EMBASSY_USB_<value>`. For example
-`EMBASSY_USB_MAX_INTERFACE_COUNT=3 cargo build`. You can also set them in the `[env]` section of `.cargo/config.toml`.
-Any value can be set, unlike with Cargo features.
+  `EMBASSY_USB_MAX_INTERFACE_COUNT=3 cargo build`. You can also set them in the `[env]` section of `.cargo/config.toml`.
+  Any value can be set, unlike with Cargo features.
 
 Environment variables take precedence over Cargo features. If two Cargo features are enabled for the same setting
 with different values, compilation fails.

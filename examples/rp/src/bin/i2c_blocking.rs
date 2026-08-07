@@ -7,11 +7,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::i2c::{self, Config};
 use embassy_time::Timer;
 use embedded_hal_1::i2c::I2c;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[allow(dead_code)]
 mod mcp23017 {
@@ -41,7 +42,7 @@ mod mcp23017 {
     pub const OLATB: u8 = 0x15;
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
@@ -49,7 +50,9 @@ async fn main(_spawner: Spawner) {
     let scl = p.PIN_15;
 
     info!("set up i2c ");
-    let mut i2c = i2c::I2c::new_blocking(p.I2C1, scl, sda, Config::default());
+    // Default I2C config enables internal pull-up resistors.
+    let config = Config::default();
+    let mut i2c = i2c::I2c::new_blocking(p.I2C1, scl, sda, config);
 
     use mcp23017::*;
 

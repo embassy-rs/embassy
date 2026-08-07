@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::can::filter::Mask32;
@@ -11,7 +12,7 @@ use embassy_stm32::can::{
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN1;
 use embassy_time::Instant;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     CAN1_RX0 => Rx0InterruptHandler<CAN1>;
@@ -30,7 +31,7 @@ async fn main(_spawner: Spawner) {
     // To synchronise to the bus the RX input needs to see a high level.
     // Use `mem::forget()` to release the borrow on the pin but keep the
     // pull-up resistor enabled.
-    let rx_pin = Input::new(&mut p.PA11, Pull::Up);
+    let rx_pin = Input::new(p.PA11.reborrow(), Pull::Up);
     core::mem::forget(rx_pin);
 
     let mut can = Can::new(p.CAN1, p.PA11, p.PA12, Irqs);

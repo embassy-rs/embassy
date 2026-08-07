@@ -5,11 +5,12 @@ use core::mem;
 
 use cortex_m_rt::entry;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::raw::TaskStorage;
-use embassy_executor::Executor;
+use embassy_stm32::executor::Executor;
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 async fn run1() {
     loop {
@@ -42,11 +43,11 @@ fn main() -> ! {
     let run2_task = unsafe { make_static(&run2_task) };
 
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(run1_task.spawn(|| run1())));
-        unwrap!(spawner.spawn(run2_task.spawn(|| run2())));
+        spawner.spawn(unwrap!(run1_task.spawn(|| run1())));
+        spawner.spawn(unwrap!(run2_task.spawn(|| run2())));
     });
 }
 
 unsafe fn make_static<T>(t: &T) -> &'static T {
-    mem::transmute(t)
+    unsafe { mem::transmute(t) }
 }

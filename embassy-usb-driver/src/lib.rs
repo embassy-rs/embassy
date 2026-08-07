@@ -1,7 +1,33 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+
+pub mod host;
+
+/// Speed of a device or port
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Speed {
+    /// 1.5 Mbit/s
+    Low,
+    /// 12 Mbit/s
+    Full,
+    /// 480 Mbit/s
+    High,
+}
+
+impl Speed {
+    /// Provides the default max_packet_size for a given port speed
+    pub const fn max_packet_size(self) -> u16 {
+        match self {
+            Speed::Low => 8,
+            Speed::Full => 64,
+            Speed::High => 64, // USB 2.0 spec requires 64 for high-speed control EP0
+        }
+    }
+}
 
 /// Direction of USB traffic. Note that in the USB standard the direction is always indicated from
 /// the perspective of the host, which is backward for devices, but the standard directions are used
@@ -59,7 +85,7 @@ impl EndpointAddress {
 
     /// Constructs a new EndpointAddress with the given index and direction.
     #[inline]
-    pub fn from_parts(index: usize, dir: Direction) -> Self {
+    pub const fn from_parts(index: usize, dir: Direction) -> Self {
         let dir_u8 = match dir {
             Direction::Out => 0x00,
             Direction::In => Self::INBITS,
@@ -69,7 +95,7 @@ impl EndpointAddress {
 
     /// Gets the direction part of the address.
     #[inline]
-    pub fn direction(&self) -> Direction {
+    pub const fn direction(&self) -> Direction {
         if (self.0 & Self::INBITS) != 0 {
             Direction::In
         } else {
@@ -79,19 +105,19 @@ impl EndpointAddress {
 
     /// Returns true if the direction is IN, otherwise false.
     #[inline]
-    pub fn is_in(&self) -> bool {
+    pub const fn is_in(&self) -> bool {
         (self.0 & Self::INBITS) != 0
     }
 
     /// Returns true if the direction is OUT, otherwise false.
     #[inline]
-    pub fn is_out(&self) -> bool {
+    pub const fn is_out(&self) -> bool {
         (self.0 & Self::INBITS) == 0
     }
 
     /// Gets the index part of the endpoint address.
     #[inline]
-    pub fn index(&self) -> usize {
+    pub const fn index(&self) -> usize {
         (self.0 & !Self::INBITS) as usize
     }
 }
@@ -110,7 +136,7 @@ pub struct EndpointInfo {
     pub interval_ms: u8,
 }
 
-/// Main USB driver trait.
+/// Main USB device driver trait.
 ///
 /// Implement this to add support for a new hardware platform.
 pub trait Driver<'a> {
@@ -136,6 +162,7 @@ pub trait Driver<'a> {
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError>;
@@ -153,6 +180,7 @@ pub trait Driver<'a> {
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError>;
@@ -203,7 +231,7 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`] - This UsbBus implementation doesn't support
     ///   simulating a disconnect or it has not been enabled at creation time.
     fn force_reset(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
@@ -213,12 +241,14 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`] - This UsbBus implementation doesn't support
     ///   remote wakeup or it has not been enabled at creation time.
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported>;
 }
 
 /// Endpoint trait, common for OUT and IN.
+/// Endpoint is a buffer on a device that stores rx/tx data.
+/// Endpoint can be thought of as one end of a pipe/channel.
 pub trait Endpoint {
     /// Get the endpoint address
     fn info(&self) -> &EndpointInfo;
@@ -234,6 +264,22 @@ pub trait EndpointOut: Endpoint {
     ///
     /// This should also clear any NAK flags and prepare the endpoint to receive the next packet.
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
+
+    /// Read until the buffer is full or we receive a short packet from the USB host returning the
+    /// actual length of the entire data block.
+    ///
+    /// This should also clear any NAK flags and prepare the endpoint to receive the next packet or
+    /// data block.
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let mut n = 0;
+        loop {
+            let i = self.read(&mut buf[n..]).await?;
+            n += i;
+            if i < self.info().max_packet_size as usize || n == buf.len() {
+                return Ok(n);
+            }
+        }
+    }
 }
 
 /// USB control pipe trait.
@@ -321,10 +367,46 @@ pub trait ControlPipe {
     /// and `length` greater than zero.
     async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError>;
 
+    /// Read a DATA OUT packet into `buf` in response to a control write request.
+    ///
+    /// Must be called after `setup()` for requests with `direction` of `Out`
+    /// and request length greater than zero.
+    ///
+    /// `buf` must be **at most** as large as the request length.
+    async fn data_out_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let mut total = 0;
+
+        let req_len = buf.len();
+
+        let chunks = buf.chunks_mut(self.max_packet_size());
+        for (first, last, chunk) in first_last(chunks) {
+            let size = self.data_out(chunk, first, last).await?;
+            total += size;
+            if size < self.max_packet_size() || total == req_len {
+                break;
+            }
+        }
+
+        Ok(total)
+    }
+
     /// Send a DATA IN packet with `data` in response to a control read request.
     ///
-    /// If `last_packet` is true, the STATUS packet will be ACKed following the transfer of `data`.
+    /// If `last` is true, the STATUS packet will be ACKed following the transfer of `data`.
     async fn data_in(&mut self, data: &[u8], first: bool, last: bool) -> Result<(), EndpointError>;
+
+    /// Send a number of DATA IN packets with `data` in response to a control read request.
+    async fn data_in_transfer(&mut self, data: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
+        let chunks = data
+            .chunks(self.max_packet_size())
+            .chain(needs_zlp.then(|| -> &[u8] { &[] }));
+
+        for (first, last, chunk) in first_last(chunks) {
+            self.data_in(chunk, first, last).await?;
+        }
+
+        Ok(())
+    }
 
     /// Accept a control request.
     ///
@@ -343,10 +425,36 @@ pub trait ControlPipe {
     async fn accept_set_address(&mut self, addr: u8);
 }
 
+fn first_last<T: Iterator>(iter: T) -> impl Iterator<Item = (bool, bool, T::Item)> {
+    let mut iter = iter.peekable();
+    let mut first = true;
+    core::iter::from_fn(move || {
+        let val = iter.next()?;
+        let is_first = first;
+        first = false;
+        let is_last = iter.peek().is_none();
+        Some((is_first, is_last, val))
+    })
+}
+
 /// IN Endpoint trait.
 pub trait EndpointIn: Endpoint {
     /// Write a single packet of data to the endpoint.
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
+
+    /// Write all the data from buf to the endpoint one wMaxPacketSize chunk at a time.
+    ///
+    /// If the buffer size is evenly divisible by wMaxPacketSize, this will also ensure the
+    /// terminating zero-length-packet is transmitted.
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
+        for chunk in buf.chunks(self.info().max_packet_size as usize) {
+            self.write(chunk).await?;
+        }
+        if needs_zlp && buf.len() % self.info().max_packet_size as usize == 0 {
+            self.write(&[]).await?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -395,3 +503,31 @@ pub enum EndpointError {
     /// The endpoint is disabled.
     Disabled,
 }
+
+// TODO: remove before releasing embassy-usb-driver v0.3
+impl embedded_io_async_06::Error for EndpointError {
+    fn kind(&self) -> embedded_io_async_06::ErrorKind {
+        match self {
+            Self::BufferOverflow => embedded_io_async_06::ErrorKind::OutOfMemory,
+            Self::Disabled => embedded_io_async_06::ErrorKind::NotConnected,
+        }
+    }
+}
+impl embedded_io_async_07::Error for EndpointError {
+    fn kind(&self) -> embedded_io_async_07::ErrorKind {
+        match self {
+            Self::BufferOverflow => embedded_io_async_07::ErrorKind::OutOfMemory,
+            Self::Disabled => embedded_io_async_07::ErrorKind::NotConnected,
+        }
+    }
+}
+
+impl core::fmt::Display for EndpointError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BufferOverflow => write!(f, "Buffer overflow"),
+            Self::Disabled => write!(f, "Endpoint disabled"),
+        }
+    }
+}
+impl core::error::Error for EndpointError {}

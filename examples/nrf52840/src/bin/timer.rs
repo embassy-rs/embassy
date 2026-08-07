@@ -2,9 +2,10 @@
 #![no_main]
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::task]
 async fn run1() {
@@ -25,6 +26,6 @@ async fn run2() {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let _p = embassy_nrf::init(Default::default());
-    unwrap!(spawner.spawn(run1()));
-    unwrap!(spawner.spawn(run2()));
+    spawner.spawn(unwrap!(run1()));
+    spawner.spawn(unwrap!(run2()));
 }

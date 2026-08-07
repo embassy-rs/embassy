@@ -3,23 +3,25 @@
 #![no_std]
 #![no_main]
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
+use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Common, Config, InterruptHandler, Irq, Pio, PioPin, ShiftDirection, StateMachine};
+use embassy_rp::{Peri, bind_interrupts};
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
 });
 
-fn setup_pio_task_sm0<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, PIO0, 0>, pin: impl PioPin) {
+fn setup_pio_task_sm0<'d>(pio: &mut Common<'d, PIO0>, sm: &mut StateMachine<'d, PIO0, 0>, pin: Peri<'d, impl PioPin>) {
     // Setup sm0
 
     // Send data serially to pin
-    let prg = pio_proc::pio_asm!(
+    let prg = pio_asm!(
         ".origin 16",
         "set pindirs, 1",
         ".wrap_target",
@@ -49,11 +51,11 @@ async fn pio_task_sm0(mut sm: StateMachine<'static, PIO0, 0>) {
     }
 }
 
-fn setup_pio_task_sm1<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, PIO0, 1>) {
+fn setup_pio_task_sm1<'d>(pio: &mut Common<'d, PIO0>, sm: &mut StateMachine<'d, PIO0, 1>) {
     // Setupm sm1
 
     // Read 0b10101 repeatedly until ISR is full
-    let prg = pio_proc::pio_asm!(
+    let prg = pio_asm!(
         //
         ".origin 8",
         "set x, 0x15",
@@ -79,11 +81,11 @@ async fn pio_task_sm1(mut sm: StateMachine<'static, PIO0, 1>) {
     }
 }
 
-fn setup_pio_task_sm2<'a>(pio: &mut Common<'a, PIO0>, sm: &mut StateMachine<'a, PIO0, 2>) {
+fn setup_pio_task_sm2<'d>(pio: &mut Common<'d, PIO0>, sm: &mut StateMachine<'d, PIO0, 2>) {
     // Setup sm2
 
     // Repeatedly trigger IRQ 3
-    let prg = pio_proc::pio_asm!(
+    let prg = pio_asm!(
         ".origin 0",
         ".wrap_target",
         "set x,10",
@@ -107,7 +109,7 @@ async fn pio_task_sm2(mut irq: Irq<'static, PIO0, 3>, mut sm: StateMachine<'stat
     }
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let pio = p.PIO0;
@@ -124,7 +126,7 @@ async fn main(spawner: Spawner) {
     setup_pio_task_sm0(&mut common, &mut sm0, p.PIN_0);
     setup_pio_task_sm1(&mut common, &mut sm1);
     setup_pio_task_sm2(&mut common, &mut sm2);
-    spawner.spawn(pio_task_sm0(sm0)).unwrap();
-    spawner.spawn(pio_task_sm1(sm1)).unwrap();
-    spawner.spawn(pio_task_sm2(irq3, sm2)).unwrap();
+    spawner.spawn(pio_task_sm0(sm0).unwrap());
+    spawner.spawn(pio_task_sm1(sm1).unwrap());
+    spawner.spawn(pio_task_sm2(irq3, sm2).unwrap());
 }

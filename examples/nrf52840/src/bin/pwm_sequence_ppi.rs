@@ -4,12 +4,13 @@
 use core::future::pending;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{Input, Pull};
+use embassy_nrf::gpio::Pull;
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
 use embassy_nrf::pwm::{Config, Prescaler, SequenceConfig, SequencePwm, SingleSequenceMode, SingleSequencer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -30,17 +31,9 @@ async fn main(_spawner: Spawner) {
     // pwm.stop() deconfigures pins, and then the task_start_seq0 task cant work
     // so its going to have to start running in order load the configuration
 
-    let button1 = InputChannel::new(
-        p.GPIOTE_CH0,
-        Input::new(p.P0_11, Pull::Up),
-        InputChannelPolarity::HiToLo,
-    );
+    let button1 = InputChannel::new(p.GPIOTE_CH0, p.P0_11, Pull::Up, InputChannelPolarity::HiToLo);
 
-    let button2 = InputChannel::new(
-        p.GPIOTE_CH1,
-        Input::new(p.P0_12, Pull::Up),
-        InputChannelPolarity::HiToLo,
-    );
+    let button2 = InputChannel::new(p.GPIOTE_CH1, p.P0_12, Pull::Up, InputChannelPolarity::HiToLo);
 
     // messing with the pwm tasks is ill advised
     // Times::Ininite and Times even are seq0, Times odd is seq1

@@ -6,21 +6,32 @@
 mod common;
 
 use defmt::{assert_eq, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nrf::uarte::{UarteRx, UarteTx};
 use embassy_nrf::{peripherals, uarte};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut p = embassy_nrf::init(Default::default());
     let mut config = uarte::Config::default();
-    config.parity = uarte::Parity::EXCLUDED;
-    config.baudrate = uarte::Baudrate::BAUD1M;
+    config.parity = uarte::Parity::Excluded;
+    config.baudrate = uarte::Baudrate::Baud1m;
 
-    let mut tx = UarteTx::new(&mut peri!(p, UART0), irqs!(UART0), &mut peri!(p, PIN_A), config.clone());
-    let mut rx = UarteRx::new(&mut peri!(p, UART1), irqs!(UART1), &mut peri!(p, PIN_B), config.clone());
+    let mut tx = UarteTx::new(
+        peri!(p, UART0).reborrow(),
+        irqs!(UART0),
+        peri!(p, PIN_A).reborrow(),
+        config.clone(),
+    );
+    let mut rx = UarteRx::new(
+        peri!(p, UART1).reborrow(),
+        irqs!(UART1),
+        peri!(p, PIN_B).reborrow(),
+        config.clone(),
+    );
 
     let data = [
         0x42, 0x43, 0x44, 0x45, 0x66, 0x12, 0x23, 0x34, 0x45, 0x19, 0x91, 0xaa, 0xff, 0xa5, 0x5a, 0x77,

@@ -2,10 +2,10 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{Error, I2c};
-use embassy_stm32::time::Hertz;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const ADDRESS: u8 = 0x5F;
 const WHOAMI: u8 = 0x0F;
@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello world!");
     let p = embassy_stm32::init(Default::default());
 
-    let mut i2c = I2c::new_blocking(p.I2C2, p.PB10, p.PB11, Hertz(100_000), Default::default());
+    let mut i2c = I2c::new_blocking(p.I2C2, p.PB10, p.PB11, Default::default());
 
     let mut data = [0u8; 1];
 

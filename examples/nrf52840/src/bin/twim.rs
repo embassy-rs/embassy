@@ -6,10 +6,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::twim::{self, Twim};
 use embassy_nrf::{bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
+use static_cell::ConstStaticCell;
 
 const ADDRESS: u8 = 0x50;
 
@@ -22,7 +24,8 @@ async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Initializing TWI...");
     let config = twim::Config::default();
-    let mut twi = Twim::new(p.TWISPI0, Irqs, p.P0_03, p.P0_04, config);
+    static RAM_BUFFER: ConstStaticCell<[u8; 16]> = ConstStaticCell::new([0; 16]);
+    let mut twi = Twim::new(p.TWISPI0, Irqs, p.P0_03, p.P0_04, config, RAM_BUFFER.take());
 
     info!("Reading...");
 

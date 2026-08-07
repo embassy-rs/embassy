@@ -2,14 +2,15 @@
 #![no_main]
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
+use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::Builder;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USB_UCPD1_2 => usb::InterruptHandler<peripherals::USB>;
@@ -21,7 +22,7 @@ async fn main(_spawner: Spawner) {
     {
         use embassy_stm32::rcc::*;
         config.rcc.hsi48 = Some(Hsi48Config { sync_from_usb: true });
-        config.rcc.mux.usbsel = mux::Usbsel::HSI48;
+        config.rcc.mux.usbsel = mux::Usbsel::Hsi48;
     }
     let p = embassy_stm32::init(config);
 

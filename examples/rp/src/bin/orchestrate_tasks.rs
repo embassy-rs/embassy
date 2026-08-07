@@ -19,18 +19,18 @@
 
 use assign_resources::assign_resources;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Pull};
-use embassy_rp::{bind_interrupts, peripherals};
+use embassy_rp::{Peri, bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::{channel, signal};
 use embassy_time::{Duration, Timer};
-use rand::RngCore;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Hardware resource assignment. See other examples for different ways of doing this.
 assign_resources! {
@@ -125,18 +125,18 @@ static STOP_FIRST_RANDOM_SIGNAL: signal::Signal<CriticalSectionRawMutex, Command
 /// Signal for notifying about state changes
 static STATE_CHANGED: signal::Signal<CriticalSectionRawMutex, ()> = signal::Signal::new();
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let r = split_resources! {p};
 
-    spawner.spawn(orchestrate(spawner)).unwrap();
-    spawner.spawn(random_60s(spawner)).unwrap();
-    spawner.spawn(random_90s(spawner)).unwrap();
+    spawner.spawn(orchestrate(spawner).unwrap());
+    spawner.spawn(random_60s(spawner).unwrap());
+    spawner.spawn(random_90s(spawner).unwrap());
     // `random_30s` is not spawned here, butin the orchestrate task depending on state
-    spawner.spawn(usb_power(spawner, r.vbus)).unwrap();
-    spawner.spawn(vsys_voltage(spawner, r.vsys)).unwrap();
-    spawner.spawn(consumer(spawner)).unwrap();
+    spawner.spawn(usb_power(spawner, r.vbus).unwrap());
+    spawner.spawn(vsys_voltage(spawner, r.vsys).unwrap());
+    spawner.spawn(consumer(spawner).unwrap());
 }
 
 /// Main task that processes all events and updates system state.
@@ -199,7 +199,7 @@ async fn orchestrate(spawner: Spawner) {
                     drop(state);
                     if respawn_first_random_seed_task {
                         info!("(Re)-Starting the first random signal task");
-                        spawner.spawn(random_30s(spawner)).unwrap();
+                        spawner.spawn(random_30s(spawner).unwrap());
                     }
                 }
                 _ => {}

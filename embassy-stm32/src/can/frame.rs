@@ -59,6 +59,11 @@ impl Header {
         &self.id
     }
 
+    /// Get mutable reference to ID
+    pub fn id_mut(&mut self) -> &mut embedded_can::Id {
+        &mut self.id
+    }
+
     /// Return length as u8
     pub fn len(&self) -> u8 {
         self.len
@@ -104,15 +109,13 @@ pub trait CanHeader: Sized {
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct ClassicData {
-    pub(crate) bytes: [u8; Self::MAX_DATA_LEN],
+    pub(crate) bytes: [u8; 8],
 }
 
 impl ClassicData {
-    pub(crate) const MAX_DATA_LEN: usize = 8;
     /// Creates a data payload from a raw byte slice.
     ///
-    /// Returns `None` if `data` is more than 64 bytes (which is the maximum) or
-    /// cannot be represented with an FDCAN DLC.
+    /// Returns `FrameCreateError` if `data` is more than 8 bytes (which is the maximum).
     pub fn new(data: &[u8]) -> Result<Self, FrameCreateError> {
         if data.len() > 8 {
             return Err(FrameCreateError::InvalidDataLength);
@@ -127,6 +130,11 @@ impl ClassicData {
     /// Raw read access to data.
     pub fn raw(&self) -> &[u8] {
         &self.bytes
+    }
+
+    /// Raw mutable read access to data.
+    pub fn raw_mut(&mut self) -> &mut [u8] {
+        &mut self.bytes
     }
 
     /// Checks if the length can be encoded in FDCAN DLC field.
@@ -204,9 +212,24 @@ impl Frame {
         &self.can_header.id
     }
 
+    /// Get mutable reference to ID
+    pub fn id_mut(&mut self) -> &mut embedded_can::Id {
+        &mut self.can_header.id
+    }
+
     /// Get reference to data
     pub fn data(&self) -> &[u8] {
-        &self.data.raw()
+        &self.data.raw()[..self.can_header.len as usize]
+    }
+
+    /// Get reference to underlying 8-byte raw data buffer, some bytes on the tail might be undefined.
+    pub fn raw_data(&self) -> &[u8] {
+        self.data.raw()
+    }
+
+    /// Get mutable reference to data
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        &mut self.data.raw_mut()[..self.can_header.len as usize]
     }
 
     /// Get priority of frame
@@ -250,7 +273,7 @@ impl embedded_can::Frame for Frame {
         self.can_header.len as usize
     }
     fn data(&self) -> &[u8] {
-        &self.data.raw()
+        &self.data()
     }
 }
 
@@ -314,6 +337,11 @@ impl FdData {
         &self.bytes
     }
 
+    /// Raw mutable read access to data.
+    pub fn raw_mut(&mut self) -> &mut [u8] {
+        &mut self.bytes
+    }
+
     /// Checks if the length can be encoded in FDCAN DLC field.
     pub const fn is_valid_len(len: usize) -> bool {
         match len {
@@ -354,7 +382,7 @@ impl FdFrame {
     /// Create new extended frame
     pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::ExtendedId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new_fd(id.into(), raw_data.len() as u8, false, true), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
@@ -363,7 +391,7 @@ impl FdFrame {
     /// Create new standard frame
     pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::StandardId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new_fd(id.into(), raw_data.len() as u8, false, true), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
@@ -372,7 +400,7 @@ impl FdFrame {
     /// Create new remote frame
     pub fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Result<Self, FrameCreateError> {
         if len <= 8 {
-            Self::new(Header::new(id.into(), len as u8, true), &[0; 8])
+            Self::new(Header::new_fd(id.into(), len as u8, true, true), &[0; 8])
         } else {
             Err(FrameCreateError::InvalidDataLength)
         }
@@ -390,7 +418,12 @@ impl FdFrame {
 
     /// Get reference to data
     pub fn data(&self) -> &[u8] {
-        &self.data.raw()
+        &self.data.raw()[..self.can_header.len as usize]
+    }
+
+    /// Get mutable reference to data
+    pub fn data_mut(&mut self) -> &mut [u8] {
+        &mut self.data.raw_mut()[..self.can_header.len as usize]
     }
 }
 
@@ -428,7 +461,7 @@ impl embedded_can::Frame for FdFrame {
         self.can_header.len as usize
     }
     fn data(&self) -> &[u8] {
-        &self.data.raw()
+        &self.data()
     }
 }
 
@@ -459,5 +492,32 @@ impl FdEnvelope {
     /// Convert into a tuple
     pub fn parts(self) -> (FdFrame, Timestamp) {
         (self.frame, self.ts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fd_frame_new_extended_has_fdcan_and_brs_flags() {
+        let frame = FdFrame::new_extended(0x12345, &[1, 2, 3]).unwrap();
+        assert!(frame.header().fdcan());
+        assert!(frame.header().bit_rate_switching());
+    }
+
+    #[test]
+    fn test_fd_frame_new_standard_has_fdcan_and_brs_flags() {
+        let frame = FdFrame::new_standard(0x123, &[1, 2, 3]).unwrap();
+        assert!(frame.header().fdcan());
+        assert!(frame.header().bit_rate_switching());
+    }
+
+    #[test]
+    fn test_fd_frame_new_remote_has_fdcan_and_brs_flags() {
+        let id = embedded_can::ExtendedId::new(0x1a2b3c).unwrap();
+        let frame = FdFrame::new_remote(id, 8).unwrap();
+        assert!(frame.header().fdcan());
+        assert!(frame.header().bit_rate_switching());
     }
 }

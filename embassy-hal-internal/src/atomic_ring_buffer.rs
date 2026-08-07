@@ -1,4 +1,5 @@
 //! Atomic reusable ringbuffer.
+use core::iter::FusedIterator;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 use core::{ptr, slice};
 
@@ -133,6 +134,18 @@ impl RingBuffer {
         self.len.load(Ordering::Relaxed)
     }
 
+    /// Return number of items available to read.
+    pub fn available(&self) -> usize {
+        let end = self.end.load(Ordering::Relaxed);
+        let len = self.len.load(Ordering::Relaxed);
+        let start = self.start.load(Ordering::Relaxed);
+        if end >= start {
+            end - start
+        } else {
+            2 * len - start + end
+        }
+    }
+
     /// Check if buffer is full.
     pub fn is_full(&self) -> bool {
         let len = self.len.load(Ordering::Relaxed);
@@ -142,12 +155,33 @@ impl RingBuffer {
         self.wrap(start + len) == end
     }
 
+    /// Check if buffer is at least half full.
+    pub fn is_half_full(&self) -> bool {
+        self.available() >= self.len.load(Ordering::Relaxed) / 2
+    }
+
     /// Check if buffer is empty.
     pub fn is_empty(&self) -> bool {
         let start = self.start.load(Ordering::Relaxed);
         let end = self.end.load(Ordering::Relaxed);
 
         start == end
+    }
+
+    /// Reset the ring buffer to its initial state.
+    ///
+    /// This does not deinitialize the backing buffer.
+    ///
+    /// # Safety
+    ///
+    /// This is not atomic, therefore you must not call this method concurrently with other methods.
+    pub unsafe fn reset(&self) {
+        trace!("  ringbuf: reset");
+
+        // Ordering: Relaxed is OK since this method must not run concurrently
+        // with others.
+        self.end.store(0, Ordering::Relaxed);
+        self.start.store(0, Ordering::Relaxed);
     }
 
     fn wrap(&self, mut n: usize) -> usize {
@@ -291,6 +325,67 @@ impl<'a> Writer<'a> {
         // will guarantee the reader sees them after reading from `end`.
         self.0.end.store(self.0.wrap(end + n), Ordering::Release);
     }
+
+    /// Return an iterator that can be used to iterate over the ringbufffer,
+    /// consuming the bytes as it iterates. This uses local variables to cache
+    /// buffer position, allowing the compiler to optimize the iterator.
+    ///
+    /// Note that this iterator is a fused iterator, meaning that once it is
+    /// exhausted, it can no longer be used to write to the buffer.
+    pub fn iter<'b>(&'b mut self) -> WriterIterator<'a, 'b> {
+        let [(d0, l0), (d1, l1)] = self.push_bufs();
+        let bufs = unsafe { [slice::from_raw_parts_mut(d0, l0), slice::from_raw_parts_mut(d1, l1)] };
+
+        WriterIterator {
+            writer: self,
+            bufs,
+            i: 0,
+        }
+    }
+}
+
+/// Iterator that efficiently iterates over the writer.
+pub struct WriterIterator<'a, 'b> {
+    writer: &'b mut Writer<'a>,
+    bufs: [&'b mut [u8]; 2],
+    i: usize,
+}
+
+impl<'a, 'b> Iterator for WriterIterator<'a, 'b> {
+    type Item = &'b mut u8;
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let size = self.bufs[0].len() + self.bufs[1].len() - self.i;
+
+        (size, Some(size))
+    }
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (i, buf) = if self.i < self.bufs[0].len() {
+            (self.i, &mut self.bufs[0])
+        } else {
+            (self.i - self.bufs[0].len(), &mut self.bufs[1])
+        };
+
+        let item = buf.get_mut(i);
+
+        if item.is_some() {
+            self.i += 1;
+        }
+
+        // We can be certain that item will not move for the lifetime that writer is borrowed
+        item.map(|item| unsafe { &mut *(item as *mut u8) })
+    }
+}
+
+impl<'a, 'b> FusedIterator for WriterIterator<'a, 'b> {}
+
+impl<'a, 'b> Drop for WriterIterator<'a, 'b> {
+    fn drop(&mut self) {
+        if self.i > 0 {
+            self.writer.push_done(self.i);
+        }
+    }
 }
 
 impl<'a> Reader<'a> {
@@ -380,6 +475,69 @@ impl<'a> Reader<'a> {
         // Therefore, all buffer accesses must be completed before this.
         self.0.start.store(self.0.wrap(start + n), Ordering::Release);
     }
+
+    /// Return an iterator that can be used to iterate over the ringbufffer,
+    /// consuming the bytes as it iterates. This uses local variables to cache
+    /// buffer position, allowing the compiler to optimize the iterator.
+    ///
+    /// Note that this iterator is a fused iterator, meaning that once it is
+    /// exhausted, it can no longer be used to read the buffer.
+    pub fn iter<'b>(&'b mut self) -> ReaderIterator<'a, 'b> {
+        let (data, len) = self.pop_buf();
+        let buf = unsafe { slice::from_raw_parts_mut(data, len) };
+
+        ReaderIterator {
+            reader: self,
+            buf,
+            i: 0,
+        }
+    }
+}
+
+/// Iterator that efficiently iterates over the reader.
+pub struct ReaderIterator<'a, 'b> {
+    reader: &'b mut Reader<'a>,
+    buf: &'b mut [u8],
+    i: usize,
+}
+
+impl<'a, 'b> Iterator for ReaderIterator<'a, 'b> {
+    type Item = u8;
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self.buf.len() {
+            0 => (0, Some(0)),
+            l => (l, None),
+        }
+    }
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let item = self.buf.get(self.i).map(|x| *x);
+
+        if item.is_some() {
+            self.i += 1;
+        }
+
+        if item.is_some() && self.i == self.buf.len() {
+            self.reader.pop_done(self.i);
+            self.i = 0;
+
+            let (data, len) = self.reader.pop_buf();
+            self.buf = unsafe { slice::from_raw_parts_mut(data, len) };
+        }
+
+        item
+    }
+}
+
+impl<'a, 'b> FusedIterator for ReaderIterator<'a, 'b> {}
+
+impl<'a, 'b> Drop for ReaderIterator<'a, 'b> {
+    fn drop(&mut self) {
+        if self.i > 0 {
+            self.reader.pop_done(self.i);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -394,6 +552,7 @@ mod tests {
             rb.init(b.as_mut_ptr(), 4);
 
             assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_half_full(), false);
             assert_eq!(rb.is_full(), false);
 
             rb.writer().push(|buf| {
@@ -406,6 +565,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), true);
 
             rb.writer().push(|buf| {
@@ -415,6 +575,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), true);
 
             rb.reader().pop(|buf| {
@@ -424,6 +585,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), false);
 
             rb.reader().pop(|buf| {
@@ -432,6 +594,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), false);
 
             rb.reader().pop(|buf| {
@@ -447,6 +610,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_half_full(), false);
             assert_eq!(rb.is_full(), false);
 
             rb.reader().pop(|buf| {
@@ -460,14 +624,28 @@ mod tests {
                 1
             });
 
+            assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), false);
+            assert_eq!(rb.is_full(), false);
+
             rb.writer().push(|buf| {
                 assert_eq!(3, buf.len());
                 buf[0] = 11;
-                buf[1] = 12;
-                2
+                1
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
+            assert_eq!(rb.is_full(), false);
+
+            rb.writer().push(|buf| {
+                assert_eq!(2, buf.len());
+                buf[0] = 12;
+                1
+            });
+
+            assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), false);
 
             rb.writer().push(|buf| {
@@ -477,6 +655,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), true);
         }
     }
@@ -490,6 +669,7 @@ mod tests {
             rb.init(b.as_mut_ptr(), b.len());
 
             assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), true);
 
             rb.writer().push(|buf| {
@@ -599,6 +779,71 @@ mod tests {
                     1
                 });
             }
+        }
+    }
+
+    #[test]
+    fn push_and_reset() {
+        let mut b = [0; 4];
+        let rb = RingBuffer::new();
+        unsafe {
+            rb.init(b.as_mut_ptr(), 4);
+
+            assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_half_full(), false);
+            assert_eq!(rb.is_full(), false);
+
+            rb.writer().push(|buf| {
+                assert_eq!(4, buf.len());
+                buf[0] = 1;
+                buf[1] = 2;
+                buf[2] = 3;
+                buf[3] = 4;
+                4
+            });
+
+            assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
+            assert_eq!(rb.is_full(), true);
+            assert_eq!(rb.available(), 4);
+
+            // Erasing should make the buffer empty.
+            rb.reset();
+
+            assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_half_full(), false);
+            assert_eq!(rb.is_full(), false);
+            // There are no available items after a reset.
+            assert_eq!(rb.available(), 0);
+
+            // The reader should see nothing
+            rb.reader().pop(|buf| {
+                assert_eq!(0, buf.len());
+                0
+            });
+
+            // The writer should be able to fill the buffer again
+            rb.writer().push(|buf| {
+                assert_eq!(4, buf.len());
+                buf[0] = 5;
+                buf[1] = 6;
+                buf[2] = 7;
+                buf[3] = 8;
+                4
+            });
+
+            assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
+            assert_eq!(rb.is_full(), true);
+
+            rb.reader().pop(|buf| {
+                assert_eq!(4, buf.len());
+                assert_eq!(5, buf[0]);
+                assert_eq!(6, buf[1]);
+                assert_eq!(7, buf[2]);
+                assert_eq!(8, buf[3]);
+                4
+            });
         }
     }
 }

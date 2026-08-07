@@ -3,9 +3,15 @@ target_ci
 target_ci_stable
 Cargo.lock
 third_party
+webroot
 /Cargo.toml
 out/
 # editor artifacts
 .zed
 .neoconf.json
 *.vim
+**/.idea
+**/.nvim.lua
+**/.cargo
+!**/tests/**/.cargo
+!**/examples/**/.cargo

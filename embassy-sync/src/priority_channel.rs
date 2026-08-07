@@ -1,18 +1,18 @@
 //! A queue for sending values between asynchronous tasks.
 //!
 //! Similar to a [`Channel`](crate::channel::Channel), however [`PriorityChannel`] sifts higher priority items to the front of the queue.
-//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`](heapless::binary_heap::Kind) parameter of the channel.
+//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`] parameter of the channel.
 
 use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-pub use heapless::binary_heap::{Kind, Max, Min};
 use heapless::BinaryHeap;
+pub use heapless::binary_heap::{Kind, Max, Min};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::channel::{DynamicChannel, DynamicReceiver, DynamicSender, TryReceiveError, TrySendError};
 use crate::waitqueue::WakerRegistration;
 
@@ -173,6 +173,16 @@ where
     /// See [`PriorityChannel::try_receive()`]
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.channel.try_receive()
+    }
+
+    /// Peek at the next value without removing it from the queue.
+    ///
+    /// See [`PriorityChannel::try_peek()`]
+    pub fn try_peek(&self) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.channel.try_peek_with_context(None)
     }
 
     /// Allows a poll_fn to poll until the channel is ready to receive
@@ -343,6 +353,31 @@ where
         self.try_receive_with_context(None)
     }
 
+    fn try_peek(&mut self) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.try_peek_with_context(None)
+    }
+
+    fn try_peek_with_context(&mut self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        if self.queue.len() == self.queue.capacity() {
+            self.senders_waker.wake();
+        }
+
+        if let Some(message) = self.queue.peek() {
+            Ok(message.clone())
+        } else {
+            if let Some(cx) = cx {
+                self.receiver_waker.register(cx.waker());
+            }
+            Err(TryReceiveError::Empty)
+        }
+    }
+
     fn try_receive_with_context(&mut self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
         if self.queue.len() == self.queue.capacity() {
             self.senders_waker.wake();
@@ -403,7 +438,7 @@ where
     fn poll_ready_to_send(&mut self, cx: &mut Context<'_>) -> Poll<()> {
         self.senders_waker.register(cx.waker());
 
-        if !self.queue.len() == self.queue.capacity() {
+        if self.queue.len() != self.queue.capacity() {
             Poll::Ready(())
         } else {
             Poll::Pending
@@ -438,7 +473,7 @@ where
 /// received from the channel.
 ///
 /// Sent data may be reordered based on their priority within the channel.
-/// For example, in a [`Max`](heapless::binary_heap::Max) [`PriorityChannel`]
+/// For example, in a [`Max`] [`PriorityChannel`]
 /// containing `u32`'s, data sent in the following order `[1, 2, 3]` will be received as `[3, 2, 1]`.
 pub struct PriorityChannel<M, T, K, const N: usize>
 where
@@ -478,6 +513,13 @@ where
         self.lock(|c| c.try_receive_with_context(cx))
     }
 
+    fn try_peek_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.lock(|c| c.try_peek_with_context(cx))
+    }
+
     /// Poll the channel for the next message
     pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
         self.lock(|c| c.poll_receive(cx))
@@ -498,12 +540,12 @@ where
     }
 
     /// Get a sender for this channel.
-    pub fn sender(&self) -> Sender<'_, M, T, K, N> {
+    pub const fn sender(&self) -> Sender<'_, M, T, K, N> {
         Sender { channel: self }
     }
 
     /// Get a receiver for this channel.
-    pub fn receiver(&self) -> Receiver<'_, M, T, K, N> {
+    pub const fn receiver(&self) -> Receiver<'_, M, T, K, N> {
         Receiver { channel: self }
     }
 
@@ -546,6 +588,17 @@ where
     /// if the channel is empty.
     pub fn try_receive(&self) -> Result<T, TryReceiveError> {
         self.lock(|c| c.try_receive())
+    }
+
+    /// Peek at the next value without removing it from the queue.
+    ///
+    /// This method will either receive a copy of the message from the channel immediately or return
+    /// an error if the channel is empty.
+    pub fn try_peek(&self) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.lock(|c| c.try_peek())
     }
 
     /// Removes elements from the channel based on the given predicate.
@@ -615,6 +668,13 @@ where
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
         PriorityChannel::try_receive_with_context(self, cx)
+    }
+
+    fn try_peek_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        PriorityChannel::try_peek_with_context(self, cx)
     }
 
     fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
@@ -705,6 +765,8 @@ mod tests {
     fn simple_send_and_receive() {
         let c = PriorityChannel::<NoopRawMutex, u32, Max, 3>::new();
         assert!(c.try_send(1).is_ok());
+        assert_eq!(c.try_peek().unwrap(), 1);
+        assert_eq!(c.try_peek().unwrap(), 1);
         assert_eq!(c.try_receive().unwrap(), 1);
     }
 
@@ -725,6 +787,8 @@ mod tests {
         let r: DynamicReceiver<'_, u32> = c.receiver().into();
 
         assert!(s.try_send(1).is_ok());
+        assert_eq!(r.try_peek().unwrap(), 1);
+        assert_eq!(r.try_peek().unwrap(), 1);
         assert_eq!(r.try_receive().unwrap(), 1);
     }
 
@@ -735,11 +799,13 @@ mod tests {
         static CHANNEL: StaticCell<PriorityChannel<CriticalSectionRawMutex, u32, Max, 3>> = StaticCell::new();
         let c = &*CHANNEL.init(PriorityChannel::new());
         let c2 = c;
-        assert!(executor
-            .spawn(async move {
-                assert!(c2.try_send(1).is_ok());
-            })
-            .is_ok());
+        assert!(
+            executor
+                .spawn(async move {
+                    assert!(c2.try_send(1).is_ok());
+                })
+                .is_ok()
+        );
         assert_eq!(c.receive().await, 1);
     }
 
@@ -766,13 +832,15 @@ mod tests {
         // However, I've used the debugger to observe that the send does indeed wait.
         Delay::new(Duration::from_millis(500)).await;
         assert_eq!(c.receive().await, 1);
-        assert!(executor
-            .spawn(async move {
-                loop {
-                    c.receive().await;
-                }
-            })
-            .is_ok());
+        assert!(
+            executor
+                .spawn(async move {
+                    loop {
+                        c.receive().await;
+                    }
+                })
+                .is_ok()
+        );
         send_task_1.unwrap().await;
         send_task_2.unwrap().await;
     }

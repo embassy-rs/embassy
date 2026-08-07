@@ -1,0 +1,692 @@
+//! True Random Number Generator
+
+use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU32, Ordering};
+
+use embassy_hal_internal::{Peri, PeripheralType};
+use maitake_sync::WaitCell;
+
+use crate::clocks::periph_helpers::NoConfig;
+use crate::clocks::{Gate, enable_and_reset};
+use crate::interrupt::typelevel;
+use crate::interrupt::typelevel::{Handler, Interrupt};
+use crate::pac;
+use crate::pac::trng::{IntStatus, TrngEntCtl};
+
+const BLOCK_SIZE: usize = 8;
+
+#[allow(private_bounds)]
+pub trait Mode: sealed::SealedMode {}
+
+mod sealed {
+    pub trait SealedMode {}
+}
+
+/// Blocking driver mode.
+pub struct Blocking;
+impl sealed::SealedMode for Blocking {}
+impl Mode for Blocking {}
+
+/// Async driver mode.
+pub struct Async;
+impl sealed::SealedMode for Async {}
+impl Mode for Async {}
+
+/// TRNG Driver
+pub struct Trng<'d, M: Mode> {
+    info: &'static Info,
+    _phantom: PhantomData<&'d mut M>,
+}
+
+impl<'d, M: Mode> Trng<'d, M> {
+    fn new_inner<T: Instance>(_peri: Peri<'d, T>, config: Config) -> Self {
+        // No clock: No WakeGuard!
+        _ = unsafe { enable_and_reset::<T>(&NoConfig) };
+
+        let mut inst = Self {
+            info: T::info(),
+            _phantom: PhantomData,
+        };
+
+        inst.configure(config);
+        inst
+    }
+
+    fn configure(&mut self, config: Config) {
+        self.info.regs().mctl().modify(|w| {
+            w.set_rst_def(true);
+            w.set_prgm(true);
+            w.set_err(true)
+        });
+
+        self.info.regs().scml().write(|w| {
+            w.set_mono_max(config.monobit_limit_max);
+            w.set_mono_rng(config.monobit_limit_range);
+        });
+
+        self.info.regs().scr1l().write(|w| {
+            w.set_run1_max(config.run_length1_limit_max);
+            w.set_run1_rng(config.run_length1_limit_range);
+        });
+
+        self.info.regs().scr2l().write(|w| {
+            w.set_run2_max(config.run_length2_limit_max);
+            w.set_run2_rng(config.run_length2_limit_range);
+        });
+
+        self.info.regs().scr3l().write(|w| {
+            w.set_run3_max(config.run_length3_limit_max);
+            w.set_run3_rng(config.run_length3_limit_range);
+        });
+
+        self.info.regs().scr4l().write(|w| {
+            w.set_run4_max(config.run_length4_limit_max);
+            w.set_run4_rng(config.run_length4_limit_range);
+        });
+
+        self.info.regs().scr5l().write(|w| {
+            w.set_run5_max(config.run_length5_limit_max);
+            w.set_run5_rng(config.run_length5_limit_range);
+        });
+
+        self.info.regs().scr6pl().write(|w| {
+            w.set_run6p_max(config.run_length6_limit_max);
+            w.set_run6p_rng(config.run_length6_limit_range);
+        });
+
+        self.info
+            .regs()
+            .pkrmax()
+            .write(|w| w.set_pkr_max(config.poker_limit_max));
+
+        self.info
+            .regs()
+            .frqmax()
+            .write(|w| w.set_frq_max(config.freq_counter_max));
+
+        self.info
+            .regs()
+            .frqmin()
+            .write(|w| w.set_frq_min(config.freq_counter_min));
+
+        self.info
+            .regs()
+            .sblim()
+            .write(|w| w.set_sb_lim(config.sparse_bit_limit));
+
+        self.info.regs().scmisc().write(|w| {
+            w.set_lrun_max(config.long_run_limit_max);
+            w.set_rty_ct(config.retry_count);
+        });
+
+        self.info
+            .regs()
+            .mctl()
+            .modify(|w| w.set_dis_slf_tst(config.self_test.into()));
+
+        self.info.regs().sdctl().write(|w| {
+            w.set_samp_size(config.sample_size);
+            w.set_ent_dly(config.entropy_delay);
+        });
+
+        self.info
+            .regs()
+            .osc2_ctl()
+            .modify(|w| w.set_trng_ent_ctl(config.osc_mode.into()));
+
+        self.info.regs().mctl().modify(|w| w.set_prgm(false));
+
+        let _ = self.info.regs().ent(7).read();
+
+        self.start();
+    }
+
+    fn start(&mut self) {
+        #[cfg(feature = "mcxa2xx")]
+        self.info.regs().mctl().modify(|w| w.set_trng_acc(true));
+    }
+
+    fn stop(&mut self) {
+        #[cfg(feature = "mcxa2xx")]
+        self.info.regs().mctl().modify(|w| w.set_trng_acc(false));
+    }
+
+    fn blocking_wait_for_generation(&mut self) {
+        while !self.info.regs().mctl().read().ent_val() {
+            if self.info.regs().mctl().read().err() {
+                self.info.regs().mctl().modify(|w| w.set_err(true));
+            }
+        }
+    }
+
+    fn fill_chunk(&mut self, chunk: &mut [u8]) {
+        let mut entropy = [0u32; 8];
+
+        for (i, item) in entropy.iter_mut().enumerate() {
+            *item = self.info.regs().ent(i).read().ent();
+        }
+
+        let entropy: [u8; 32] = unsafe { core::mem::transmute(entropy) };
+
+        chunk.copy_from_slice(&entropy[..chunk.len()]);
+    }
+
+    // Blocking API
+
+    /// Fill the buffer with random bytes, blocking version.
+    pub fn blocking_fill_bytes(&mut self, buf: &mut [u8]) {
+        if buf.is_empty() {
+            return; // nothing to fill
+        }
+
+        for chunk in buf.chunks_mut(32) {
+            self.blocking_wait_for_generation();
+            self.fill_chunk(chunk);
+        }
+    }
+
+    /// Return a random u32, blocking version.
+    pub fn blocking_next_u32(&mut self) -> u32 {
+        self.blocking_wait_for_generation();
+        // New random bytes are generated only after reading ENT7
+        self.info.regs().ent(7).read().ent()
+    }
+
+    /// Return a random u64, blocking version.
+    pub fn blocking_next_u64(&mut self) -> u64 {
+        self.blocking_wait_for_generation();
+
+        let mut result = u64::from(self.info.regs().ent(6).read().ent()) << 32;
+        // New random bytes are generated only after reading ENT7
+        result |= u64::from(self.info.regs().ent(7).read().ent());
+        result
+    }
+
+    /// Return the full block of `[u32; 8]` generated by the hardware,
+    /// blocking version.
+    pub fn blocking_next_block(&mut self, block: &mut [u32; BLOCK_SIZE]) {
+        self.blocking_wait_for_generation();
+        for (reg, result) in (0..8).map(|i| self.info.regs().ent(i)).zip(block.iter_mut()) {
+            *result = reg.read().ent();
+        }
+    }
+}
+
+impl<'d> Trng<'d, Blocking> {
+    /// Instantiates a new TRNG peripheral driver.
+    ///
+    /// NOTE: this constructor makes no attempt at validating the
+    /// parameters. If you get this wrong, the security guarantees of
+    /// the TRNG with regards to entropy may be violated
+    pub fn new_blocking<T: Instance>(_peri: Peri<'d, T>, config: Config) -> Self {
+        Self::new_inner(_peri, config)
+    }
+}
+
+impl<'d> Trng<'d, Async> {
+    /// Instantiates a new TRNG peripheral driver.
+    ///
+    /// NOTE: this constructor makes no attempt at validating the
+    /// parameters. If you get this wrong, the security guarantees of
+    /// the TRNG with regards to entropy may be violated
+    pub fn new_async<T: Instance>(
+        _peri: Peri<'d, T>,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        let inst = Self::new_inner(_peri, config);
+
+        T::Interrupt::unpend();
+        INT_STAT.store(0, Ordering::Release);
+        unsafe {
+            T::Interrupt::enable();
+        }
+        inst
+    }
+
+    fn enable_ints(&mut self) {
+        self.info.regs().int_mask().write(|w| {
+            w.set_hw_err(true);
+            w.set_ent_val(true);
+            w.set_frq_ct_fail(true);
+            w.set_intg_flt(true);
+        });
+    }
+
+    async fn wait_for_generation(&mut self) -> Result<(), Error> {
+        self.info
+            .wait_cell()
+            .wait_for_value(|| {
+                self.enable_ints();
+                let status = INT_STAT.swap(0, Ordering::AcqRel);
+                if status == 0 {
+                    return None;
+                }
+
+                let status = IntStatus(status);
+
+                if status.ent_val() {
+                    Some(Ok(()))
+                } else if status.frq_ct_fail() {
+                    Some(Err(Error::FrequencyCountFail))
+                } else if status.hw_err() {
+                    Some(Err(Error::HardwareFail))
+                } else if status.intg_flt() {
+                    Some(Err(Error::IntegrityError))
+                } else {
+                    Some(Err(Error::ErrorStatus))
+                }
+            })
+            .await
+            .map_err(|_| Error::ErrorStatus)
+            .flatten()
+    }
+
+    // Async API
+
+    /// Fill the buffer with random bytes, async version.
+    pub async fn async_fill_bytes(&mut self, buf: &mut [u8]) -> Result<(), Error> {
+        if buf.is_empty() {
+            return Ok(()); // nothing to fill
+        }
+
+        for chunk in buf.chunks_mut(32) {
+            self.wait_for_generation().await?;
+            self.fill_chunk(chunk);
+        }
+
+        Ok(())
+    }
+
+    /// Return a random u32, async version.
+    pub async fn async_next_u32(&mut self) -> Result<u32, Error> {
+        self.wait_for_generation().await?;
+        // New random bytes are generated only after reading ENT7
+        Ok(self.info.regs().ent(7).read().ent())
+    }
+
+    /// Return a random u64, async version.
+    pub async fn async_next_u64(&mut self) -> Result<u64, Error> {
+        self.wait_for_generation().await?;
+
+        let mut result = u64::from(self.info.regs().ent(6).read().ent()) << 32;
+        // New random bytes are generated only after reading ENT7
+        result |= u64::from(self.info.regs().ent(7).read().ent());
+
+        Ok(result)
+    }
+
+    /// Return the full block of `[u32; 8]` generated by the hardware,
+    /// async version.
+    pub async fn async_next_block(&mut self, block: &mut [u32; BLOCK_SIZE]) -> Result<(), Error> {
+        self.wait_for_generation().await?;
+
+        for (reg, result) in (0..8).map(|i| self.info.regs().ent(i)).zip(block.iter_mut()) {
+            *result = reg.read().ent();
+        }
+
+        Ok(())
+    }
+}
+
+impl<M: Mode> Drop for Trng<'_, M> {
+    fn drop(&mut self) {
+        // wait until allowed to stop
+        while !self.info.regs().mctl().read().tstop_ok() {}
+        // stop
+        self.stop();
+        // reset the TRNG
+        self.info.regs().mctl().write(|w| w.set_rst_def(true));
+    }
+}
+
+/// Trng errors
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    /// Integrity error.
+    IntegrityError,
+
+    /// Frequency counter fail
+    FrequencyCountFail,
+
+    /// Error status
+    ErrorStatus,
+
+    /// Buffer argument is invalid
+    InvalidBuffer,
+
+    /// Hardware fail
+    HardwareFail,
+}
+
+static INT_STAT: AtomicU32 = AtomicU32::new(0);
+
+/// TRNG interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        T::PERF_INT_INCR();
+        let int_status = T::info().regs().int_status().read().0;
+        INT_STAT.fetch_or(int_status, Ordering::AcqRel);
+        if int_status != 0 {
+            T::info().regs().int_ctrl().write(|w| {
+                w.set_hw_err(false);
+                w.set_ent_val(false);
+                w.set_frq_ct_fail(false);
+                w.set_intg_flt(false);
+            });
+            T::PERF_INT_WAKE_INCR();
+            T::info().wait_cell().wake();
+        }
+    }
+}
+
+/// True random number generator configuration parameters.
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct Config {
+    /// Total number of Entropy samples that will be taken during
+    /// Entropy generation.
+    pub sample_size: u16,
+
+    /// Length (in system clocks) of each Entropy sample taken.
+    pub entropy_delay: u16,
+
+    /// Enable or disable internal self-tests.
+    pub self_test: SelfTest,
+
+    /// Frequency Counter Maximum Limit
+    pub freq_counter_max: u32,
+
+    /// Frequency Counter Minimum Limit
+    pub freq_counter_min: u32,
+
+    /// Statistical check monobit max limit
+    pub monobit_limit_max: u16,
+
+    /// Statistical check monobit range
+    pub monobit_limit_range: u16,
+
+    /// Statistical check run length 1 limit max
+    pub run_length1_limit_max: u16,
+
+    /// Statistical check run length 1 limit range
+    pub run_length1_limit_range: u16,
+
+    /// Statistical check run length 2 limit max
+    pub run_length2_limit_max: u16,
+
+    /// Statistical check run length 2 limit range
+    pub run_length2_limit_range: u16,
+
+    /// Statistical check run length 3 limit max
+    pub run_length3_limit_max: u16,
+
+    /// Statistical check run length 3 limit range
+    pub run_length3_limit_range: u16,
+
+    /// Statistical check run length 4 limit max
+    pub run_length4_limit_max: u16,
+
+    /// Statistical check run length 4 limit range
+    pub run_length4_limit_range: u16,
+
+    /// Statistical check run length 5 limit max
+    pub run_length5_limit_max: u16,
+
+    /// Statistical check run length 5 limit range
+    pub run_length5_limit_range: u16,
+
+    /// Statistical check run length 6 limit max
+    pub run_length6_limit_max: u16,
+
+    /// Statistical check run length 6 limit range
+    pub run_length6_limit_range: u16,
+
+    /// Retry count
+    pub retry_count: u8,
+
+    /// Long run limit max
+    pub long_run_limit_max: u8,
+
+    /// Sparse bit limit
+    pub sparse_bit_limit: u16,
+
+    /// Poker limit max
+    pub poker_limit_max: u32,
+
+    /// Oscillator mode
+    pub osc_mode: OscMode,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            sample_size: 1024,
+            entropy_delay: 32_000,
+            self_test: SelfTest::Enabled,
+            freq_counter_max: 75_000,
+            freq_counter_min: 30_000,
+            monobit_limit_max: 596,
+            monobit_limit_range: 169,
+            run_length1_limit_max: 187,
+            run_length1_limit_range: 112,
+            run_length2_limit_max: 105,
+            run_length2_limit_range: 77,
+            run_length3_limit_max: 97,
+            run_length3_limit_range: 64,
+            run_length4_limit_max: 0,
+            run_length4_limit_range: 0,
+            run_length5_limit_max: 0,
+            run_length5_limit_range: 0,
+            run_length6_limit_max: 0,
+            run_length6_limit_range: 0,
+            retry_count: 2,
+            long_run_limit_max: 32,
+            sparse_bit_limit: 0,
+            poker_limit_max: 0,
+            osc_mode: OscMode::DualOscs,
+        }
+    }
+}
+
+/// Sample size.
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum SampleSize {
+    /// 128 bits
+    _128,
+
+    /// 256 bits
+    _256,
+
+    /// 512 bits
+    _512,
+}
+
+/// Enable or disable internal self-tests.
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum SelfTest {
+    /// Disabled.
+    Disabled,
+
+    /// Enabled.
+    Enabled,
+}
+
+impl From<SelfTest> for bool {
+    fn from(value: SelfTest) -> Self {
+        match value {
+            SelfTest::Disabled => true,
+            SelfTest::Enabled => false,
+        }
+    }
+}
+
+/// Oscillator mode.
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum OscMode {
+    /// Single oscillator using OSC1.
+    SingleOsc1,
+
+    /// Dual oscillator.
+    DualOscs,
+
+    /// Single oscillator using OSC2.
+    SingleOsc2,
+}
+
+impl From<OscMode> for TrngEntCtl {
+    fn from(value: OscMode) -> Self {
+        match value {
+            OscMode::SingleOsc1 => Self::TrngEntCtlSingleOsc1,
+            OscMode::DualOscs => Self::TrngEntCtlDualOscs,
+            OscMode::SingleOsc2 => Self::TrngEntCtlSingleOsc2,
+        }
+    }
+}
+
+impl<'d, M: Mode> rand_core_06::RngCore for Trng<'d, M> {
+    fn next_u32(&mut self) -> u32 {
+        self.blocking_next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.blocking_next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.blocking_fill_bytes(dest);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
+        self.blocking_fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl<'d, M: Mode> rand_core_06::CryptoRng for Trng<'d, M> {}
+
+impl<'d, M: Mode> rand_core_09::RngCore for Trng<'d, M> {
+    fn next_u32(&mut self) -> u32 {
+        self.blocking_next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.blocking_next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.blocking_fill_bytes(dest);
+    }
+}
+
+impl<'d, M: Mode> rand_core_09::CryptoRng for Trng<'d, M> {}
+
+impl<'d, M: Mode> rand_core_10::TryRng for Trng<'d, M> {
+    type Error = core::convert::Infallible;
+
+    fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
+        Ok(self.blocking_next_u32())
+    }
+
+    fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
+        Ok(self.blocking_next_u64())
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_fill_bytes(dest);
+        Ok(())
+    }
+}
+
+impl<'d, M: Mode> rand_core_10::TryCryptoRng for Trng<'d, M> {}
+
+impl<'d, M: Mode> rand_core_06::block::BlockRngCore for Trng<'d, M> {
+    type Item = u32;
+    type Results = [Self::Item; BLOCK_SIZE];
+
+    fn generate(&mut self, results: &mut Self::Results) {
+        self.blocking_next_block(results);
+    }
+}
+
+impl<'d, M: Mode> rand_core_09::block::BlockRngCore for Trng<'d, M> {
+    type Item = u32;
+    type Results = [Self::Item; BLOCK_SIZE];
+
+    fn generate(&mut self, results: &mut Self::Results) {
+        self.blocking_next_block(results);
+    }
+}
+
+impl<'d, M: Mode> rand_core_09::block::CryptoBlockRng for Trng<'d, M> {}
+
+pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = NoConfig> {
+    fn info() -> &'static Info;
+
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
+}
+
+/// CRC Instance
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
+    /// Interrupt for this TRNG instance.
+    type Interrupt: typelevel::Interrupt;
+}
+
+pub(crate) struct Info {
+    pub(crate) regs: pac::trng::Trng,
+    pub(crate) wait_cell: WaitCell,
+}
+
+impl Info {
+    #[inline(always)]
+    fn regs(&self) -> pac::trng::Trng {
+        self.regs
+    }
+
+    #[inline(always)]
+    fn wait_cell(&self) -> &WaitCell {
+        &self.wait_cell
+    }
+}
+
+unsafe impl Sync for Info {}
+
+#[doc(hidden)]
+#[macro_export]
+macro_rules! impl_trng_instance {
+    ($n:literal) => {
+        paste::paste! {
+            impl crate::trng::SealedInstance for crate::peripherals::[<TRNG $n>] {
+                fn info() -> &'static crate::trng::Info {
+                    static INFO: crate::trng::Info = crate::trng::Info {
+                        regs: crate::pac::[<TRNG $n>],
+                        wait_cell: maitake_sync::WaitCell::new(),
+                    };
+                    &INFO
+                }
+
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_trng $n _wake>];
+            }
+
+            impl crate::trng::Instance for crate::peripherals::[<TRNG $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<TRNG $n>];
+            }
+        }
+    };
+}

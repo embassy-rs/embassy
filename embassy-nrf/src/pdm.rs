@@ -4,16 +4,16 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::I7F1;
 
 use crate::chip::EASY_DMA_SIZE;
-use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin, DISCONNECTED};
+use crate::gpio::{AnyPin, DISCONNECTED, Pin as GpioPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pdm::vals;
@@ -25,7 +25,7 @@ pub use crate::pac::pdm::vals::Freq as Frequency;
     feature = "_nrf91",
 ))]
 pub use crate::pac::pdm::vals::Ratio;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// Interrupt handler
 pub struct InterruptHandler<T: Instance> {
@@ -53,8 +53,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// PDM microphone interface
-pub struct Pdm<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
+pub struct Pdm<'d> {
+    r: pac::pdm::Pdm,
+    state: &'static State,
+    _phantom: PhantomData<&'d ()>,
 }
 
 /// PDM error
@@ -86,34 +88,26 @@ pub enum SamplerState {
     Stopped,
 }
 
-impl<'d, T: Instance> Pdm<'d, T> {
+impl<'d> Pdm<'d> {
     /// Create PDM driver
-    pub fn new(
-        pdm: impl Peripheral<P = T> + 'd,
+    pub fn new<T: Instance>(
+        pdm: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        clk: impl Peripheral<P = impl GpioPin> + 'd,
-        din: impl Peripheral<P = impl GpioPin> + 'd,
+        clk: Peri<'d, impl GpioPin>,
+        din: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(pdm, clk, din);
-        Self::new_inner(pdm, clk.map_into(), din.map_into(), config)
+        Self::new_inner(pdm, clk.into(), din.into(), config)
     }
 
-    fn new_inner(
-        pdm: PeripheralRef<'d, T>,
-        clk: PeripheralRef<'d, AnyPin>,
-        din: PeripheralRef<'d, AnyPin>,
-        config: Config,
-    ) -> Self {
-        into_ref!(pdm);
-
+    fn new_inner<T: Instance>(_pdm: Peri<'d, T>, clk: Peri<'d, AnyPin>, din: Peri<'d, AnyPin>, config: Config) -> Self {
         let r = T::regs();
 
         // setup gpio pins
-        din.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+        din.conf().write(|w| w.set_input(gpiovals::Input::Connect));
         r.psel().din().write_value(din.psel_bits());
         clk.set_low();
-        clk.conf().write(|w| w.set_dir(gpiovals::Dir::OUTPUT));
+        clk.conf().write(|w| w.set_dir(gpiovals::Dir::Output));
         r.psel().clk().write_value(clk.psel_bits());
 
         // configure
@@ -141,7 +135,11 @@ impl<'d, T: Instance> Pdm<'d, T> {
 
         r.enable().write(|w| w.set_enable(true));
 
-        Self { _peri: pdm }
+        Self {
+            r: T::regs(),
+            state: T::state(),
+            _phantom: PhantomData,
+        }
     }
 
     fn _set_gain(r: pac::pdm::Pdm, gain_left: I7F1, gain_right: I7F1) {
@@ -155,26 +153,26 @@ impl<'d, T: Instance> Pdm<'d, T> {
 
     /// Adjust the gain of the PDM microphone on the fly
     pub fn set_gain(&mut self, gain_left: I7F1, gain_right: I7F1) {
-        Self::_set_gain(T::regs(), gain_left, gain_right)
+        Self::_set_gain(self.r, gain_left, gain_right)
     }
 
     /// Start sampling microphone data into a dummy buffer.
     /// Useful to start the microphone and keep it active between recording samples.
     pub async fn start(&mut self) {
-        let r = T::regs();
-
         // start dummy sampling because microphone needs some setup time
-        r.sample().ptr().write_value(DUMMY_BUFFER.as_ptr() as u32);
-        r.sample().maxcnt().write(|w| w.set_buffsize(DUMMY_BUFFER.len() as _));
+        self.r.sample().ptr().write_value(DUMMY_BUFFER.as_ptr() as u32);
+        self.r
+            .sample()
+            .maxcnt()
+            .write(|w| w.set_buffsize(DUMMY_BUFFER.len() as _));
 
-        r.tasks_start().write_value(1);
+        self.r.tasks_start().write_value(1);
     }
 
     /// Stop sampling microphone data inta a dummy buffer
     pub async fn stop(&mut self) {
-        let r = T::regs();
-        r.tasks_stop().write_value(1);
-        r.events_started().write_value(0);
+        self.r.tasks_stop().write_value(1);
+        self.r.events_started().write_value(0);
     }
 
     /// Sample data into the given buffer
@@ -186,12 +184,11 @@ impl<'d, T: Instance> Pdm<'d, T> {
             return Err(Error::BufferTooLong);
         }
 
-        let r = T::regs();
-
-        if r.events_started().read() == 0 {
+        if self.r.events_started().read() == 0 {
             return Err(Error::NotRunning);
         }
 
+        let r = self.r;
         let drop = OnDrop::new(move || {
             r.intenclr().write(|w| w.set_end(true));
             r.events_stopped().write_value(0);
@@ -206,34 +203,37 @@ impl<'d, T: Instance> Pdm<'d, T> {
         // setup user buffer
         let ptr = buffer.as_ptr();
         let len = buffer.len();
-        r.sample().ptr().write_value(ptr as u32);
-        r.sample().maxcnt().write(|w| w.set_buffsize(len as _));
+        self.r.sample().ptr().write_value(ptr as u32);
+        self.r.sample().maxcnt().write(|w| w.set_buffsize(len as _));
 
         // wait till the current sample is finished and the user buffer sample is started
-        Self::wait_for_sample().await;
+        self.wait_for_sample().await;
 
         // reset the buffer back to the dummy buffer
-        r.sample().ptr().write_value(DUMMY_BUFFER.as_ptr() as u32);
-        r.sample().maxcnt().write(|w| w.set_buffsize(DUMMY_BUFFER.len() as _));
+        self.r.sample().ptr().write_value(DUMMY_BUFFER.as_ptr() as u32);
+        self.r
+            .sample()
+            .maxcnt()
+            .write(|w| w.set_buffsize(DUMMY_BUFFER.len() as _));
 
         // wait till the user buffer is sampled
-        Self::wait_for_sample().await;
+        self.wait_for_sample().await;
 
         drop.defuse();
 
         Ok(())
     }
 
-    async fn wait_for_sample() {
-        let r = T::regs();
-
-        r.events_end().write_value(0);
-        r.intenset().write(|w| w.set_end(true));
+    async fn wait_for_sample(&mut self) {
+        self.r.events_end().write_value(0);
+        self.r.intenset().write(|w| w.set_end(true));
 
         compiler_fence(Ordering::SeqCst);
 
+        let state = self.state;
+        let r = self.r;
         poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
+            state.waker.register(cx.waker());
             if r.events_end().read() != 0 {
                 return Poll::Ready(());
             }
@@ -263,20 +263,18 @@ impl<'d, T: Instance> Pdm<'d, T> {
     where
         S: FnMut(&[i16; N]) -> SamplerState,
     {
-        let r = T::regs();
-
-        if r.events_started().read() != 0 {
+        if self.r.events_started().read() != 0 {
             return Err(Error::AlreadyRunning);
         }
 
-        r.sample().ptr().write_value(bufs[0].as_mut_ptr() as u32);
-        r.sample().maxcnt().write(|w| w.set_buffsize(N as _));
+        self.r.sample().ptr().write_value(bufs[0].as_mut_ptr() as u32);
+        self.r.sample().maxcnt().write(|w| w.set_buffsize(N as _));
 
         // Reset and enable the events
-        r.events_end().write_value(0);
-        r.events_started().write_value(0);
-        r.events_stopped().write_value(0);
-        r.intenset().write(|w| {
+        self.r.events_end().write_value(0);
+        self.r.events_started().write_value(0);
+        self.r.events_stopped().write_value(0);
+        self.r.intenset().write(|w| {
             w.set_end(true);
             w.set_started(true);
             w.set_stopped(true);
@@ -286,23 +284,24 @@ impl<'d, T: Instance> Pdm<'d, T> {
         // wouldn't happen anyway
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_start().write_value(1);
+        self.r.tasks_start().write_value(1);
 
         let mut current_buffer = 0;
 
         let mut done = false;
 
-        let drop = OnDrop::new(|| {
+        let r = self.r;
+        let drop = OnDrop::new(move || {
             r.tasks_stop().write_value(1);
             // N.B. It would be better if this were async, but Drop only support sync code
             while r.events_stopped().read() != 0 {}
         });
 
+        let state = self.state;
+        let r = self.r;
         // Wait for events and complete when the sampler indicates it has had enough
         poll_fn(|cx| {
-            let r = T::regs();
-
-            T::state().waker.register(cx.waker());
+            state.waker.register(cx.waker());
 
             if r.events_end().read() != 0 {
                 compiler_fence(Ordering::SeqCst);
@@ -369,14 +368,14 @@ impl Default for Config {
         Self {
             operation_mode: OperationMode::Mono,
             edge: Edge::LeftFalling,
-            frequency: Frequency::DEFAULT,
+            frequency: Frequency::Default,
             #[cfg(any(
                 feature = "nrf52840",
                 feature = "nrf52833",
                 feature = "_nrf5340-app",
                 feature = "_nrf91",
             ))]
-            ratio: Ratio::RATIO80,
+            ratio: Ratio::Ratio80,
             gain_left: I7F1::ZERO,
             gain_right: I7F1::ZERO,
         }
@@ -395,8 +394,8 @@ pub enum OperationMode {
 impl From<OperationMode> for vals::Operation {
     fn from(mode: OperationMode) -> Self {
         match mode {
-            OperationMode::Mono => vals::Operation::MONO,
-            OperationMode::Stereo => vals::Operation::STEREO,
+            OperationMode::Mono => vals::Operation::Mono,
+            OperationMode::Stereo => vals::Operation::Stereo,
         }
     }
 }
@@ -413,22 +412,20 @@ pub enum Edge {
 impl From<Edge> for vals::Edge {
     fn from(edge: Edge) -> Self {
         match edge {
-            Edge::LeftRising => vals::Edge::LEFT_RISING,
-            Edge::LeftFalling => vals::Edge::LEFT_FALLING,
+            Edge::LeftRising => vals::Edge::LeftRising,
+            Edge::LeftFalling => vals::Edge::LeftFalling,
         }
     }
 }
 
-impl<'d, T: Instance> Drop for Pdm<'d, T> {
+impl<'d> Drop for Pdm<'d> {
     fn drop(&mut self) {
-        let r = T::regs();
+        self.r.tasks_stop().write_value(1);
 
-        r.tasks_stop().write_value(1);
+        self.r.enable().write(|w| w.set_enable(false));
 
-        r.enable().write(|w| w.set_enable(false));
-
-        r.psel().din().write_value(DISCONNECTED);
-        r.psel().clk().write_value(DISCONNECTED);
+        self.r.psel().din().write_value(DISCONNECTED);
+        self.r.psel().clk().write_value(DISCONNECTED);
     }
 }
 
@@ -452,7 +449,7 @@ pub(crate) trait SealedInstance {
 
 /// PDM peripheral instance
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral
     type Interrupt: interrupt::typelevel::Interrupt;
 }

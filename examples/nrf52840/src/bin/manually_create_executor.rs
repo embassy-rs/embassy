@@ -6,10 +6,11 @@
 
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Executor;
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
 async fn run1() {
@@ -42,7 +43,7 @@ fn main() -> ! {
     // `run` calls the closure then runs the executor forever. It never returns.
     executor.run(|spawner| {
         // Here we get access to a spawner to spawn the initial tasks.
-        unwrap!(spawner.spawn(run1()));
-        unwrap!(spawner.spawn(run2()));
+        spawner.spawn(unwrap!(run1()));
+        spawner.spawn(unwrap!(run2()));
     });
 }

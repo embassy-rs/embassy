@@ -5,22 +5,26 @@
 #[cfg_attr(any(i2c_v2, i2c_v3), path = "v2.rs")]
 mod _version;
 
+mod config;
+
 use core::future::Future;
 use core::iter;
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{Peripheral, PeripheralRef};
+pub use config::*;
+use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
+use mode::MasterMode;
+pub use mode::{Master, MultiMaster};
 
 use crate::dma::ChannelAndRequest;
-#[cfg(gpio_v2)]
-use crate::gpio::Pull;
-use crate::gpio::{AfType, AnyPin, OutputType, SealedPin as _, Speed};
+use crate::gpio::Flex;
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
-use crate::rcc::{RccInfo, SealedRccPeripheral};
+use crate::pac::i2c::I2c as Regs;
+use crate::rcc::SealedRccPeripheral;
 use crate::time::Hertz;
 use crate::{interrupt, peripherals};
 
@@ -44,117 +48,151 @@ pub enum Error {
     ZeroLengthTransfer,
 }
 
-/// I2C config
-#[non_exhaustive]
-#[derive(Copy, Clone)]
-pub struct Config {
-    /// Enable internal pullup on SDA.
-    ///
-    /// Using external pullup resistors is recommended for I2C. If you do
-    /// have external pullups you should not enable this.
-    #[cfg(gpio_v2)]
-    pub sda_pullup: bool,
-    /// Enable internal pullup on SCL.
-    ///
-    /// Using external pullup resistors is recommended for I2C. If you do
-    /// have external pullups you should not enable this.
-    #[cfg(gpio_v2)]
-    pub scl_pullup: bool,
-    /// Timeout.
-    #[cfg(feature = "time")]
-    pub timeout: embassy_time::Duration,
-}
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let message = match self {
+            Self::Bus => "Bus Error",
+            Self::Arbitration => "Arbitration Lost",
+            Self::Nack => "ACK Not Received",
+            Self::Timeout => "Request Timed Out",
+            Self::Crc => "CRC Mismatch",
+            Self::Overrun => "Buffer Overrun",
+            Self::ZeroLengthTransfer => "Zero-Length Transfers are not allowed",
+        };
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            #[cfg(gpio_v2)]
-            sda_pullup: false,
-            #[cfg(gpio_v2)]
-            scl_pullup: false,
-            #[cfg(feature = "time")]
-            timeout: embassy_time::Duration::from_millis(1000),
-        }
+        write!(f, "{}", message)
     }
 }
 
-impl Config {
-    fn scl_af(&self) -> AfType {
-        #[cfg(gpio_v1)]
-        return AfType::output(OutputType::OpenDrain, Speed::Medium);
-        #[cfg(gpio_v2)]
-        return AfType::output_pull(
-            OutputType::OpenDrain,
-            Speed::Medium,
-            match self.scl_pullup {
-                true => Pull::Up,
-                false => Pull::None,
-            },
-        );
-    }
+impl core::error::Error for Error {}
 
-    fn sda_af(&self) -> AfType {
-        #[cfg(gpio_v1)]
-        return AfType::output(OutputType::OpenDrain, Speed::Medium);
-        #[cfg(gpio_v2)]
-        return AfType::output_pull(
-            OutputType::OpenDrain,
-            Speed::Medium,
-            match self.sda_pullup {
-                true => Pull::Up,
-                false => Pull::None,
-            },
-        );
+/// I2C modes
+pub mod mode {
+    trait SealedMode {}
+
+    /// Trait for I2C master operations.
+    #[allow(private_bounds)]
+    pub trait MasterMode: SealedMode {}
+
+    /// Mode allowing for I2C master operations.
+    pub struct Master;
+    /// Mode allowing for I2C master and slave operations.
+    pub struct MultiMaster;
+
+    impl SealedMode for Master {}
+    impl MasterMode for Master {}
+
+    impl SealedMode for MultiMaster {}
+    impl MasterMode for MultiMaster {}
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The command kind to the slave from the master
+pub enum SlaveCommandKind {
+    /// Write to the slave
+    Write,
+    /// Read from the slave
+    Read,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The command kind to the slave from the master and the address that the slave matched
+pub struct SlaveCommand {
+    /// The kind of command
+    pub kind: SlaveCommandKind,
+    /// The address that the slave matched
+    pub address: Address,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The status of the slave send operation
+pub enum SendStatus {
+    /// The slave send operation is done, all bytes have been sent and the master is not requesting more
+    Done,
+    /// The slave send operation is done, but there are leftover bytes that the master did not read
+    LeftoverBytes(usize),
+}
+
+struct I2CDropGuard<'d> {
+    info: &'static Info,
+    _scl: Option<Flex<'d>>,
+    _sda: Option<Flex<'d>>,
+}
+impl<'d> Drop for I2CDropGuard<'d> {
+    fn drop(&mut self) {
+        self.info.rcc.disable();
     }
 }
 
 /// I2C driver.
-pub struct I2c<'d, M: Mode> {
+pub struct I2c<'d, M: Mode, IM: MasterMode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    scl: Option<PeripheralRef<'d, AnyPin>>,
-    sda: Option<PeripheralRef<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
     #[cfg(feature = "time")]
     timeout: Duration,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
+    _marker2: PhantomData<IM>,
+    _drop_guard: I2CDropGuard<'d>,
 }
 
-impl<'d> I2c<'d, Async> {
+impl<'d> I2c<'d, Async, Master> {
     /// Create a new I2C driver.
-    pub fn new<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
+    pub fn new<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
+        sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
         _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
-            + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
-        freq: Hertz,
+        + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
             peri,
             new_pin!(scl, config.scl_af()),
             new_pin!(sda, config.sda_af()),
-            new_dma!(tx_dma),
-            new_dma!(rx_dma),
-            freq,
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
+            config,
+        )
+    }
+
+    /// Create a new I2C driver.
+    pub fn new_no_dma<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
+        sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
+        _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
+        + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
+        + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(scl, config.scl_af()),
+            new_pin!(sda, config.sda_af()),
+            None,
+            None,
             config,
         )
     }
 }
 
-impl<'d> I2c<'d, Blocking> {
+impl<'d> I2c<'d, Blocking, Master> {
     /// Create a new blocking I2C driver.
-    pub fn new_blocking<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        scl: impl Peripheral<P = impl SclPin<T>> + 'd,
-        sda: impl Peripheral<P = impl SdaPin<T>> + 'd,
-        freq: Hertz,
+    pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
+        sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -163,21 +201,19 @@ impl<'d> I2c<'d, Blocking> {
             new_pin!(sda, config.sda_af()),
             None,
             None,
-            freq,
             config,
         )
     }
 }
 
-impl<'d, M: Mode> I2c<'d, M> {
+impl<'d, M: Mode> I2c<'d, M, Master> {
     /// Create a new I2C driver.
     fn new_inner<T: Instance>(
-        _peri: impl Peripheral<P = T> + 'd,
-        scl: Option<PeripheralRef<'d, AnyPin>>,
-        sda: Option<PeripheralRef<'d, AnyPin>>,
+        _peri: Peri<'d, T>,
+        _scl: Option<Flex<'d>>,
+        _sda: Option<Flex<'d>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
-        freq: Hertz,
         config: Config,
     ) -> Self {
         unsafe { T::EventInterrupt::enable() };
@@ -187,37 +223,36 @@ impl<'d, M: Mode> I2c<'d, M> {
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
-            scl,
-            sda,
             tx_dma,
             rx_dma,
             #[cfg(feature = "time")]
             timeout: config.timeout,
-            _phantom: PhantomData,
+            _marker: PhantomData,
+            _marker2: PhantomData,
+            _drop_guard: I2CDropGuard {
+                info: T::info(),
+                _scl,
+                _sda,
+            },
         };
-        this.enable_and_init(freq, config);
+
+        this.enable_and_init(config);
+
         this
     }
 
-    fn enable_and_init(&mut self, freq: Hertz, config: Config) {
+    fn enable_and_init(&mut self, config: Config) {
         self.info.rcc.enable_and_reset();
-        self.init(freq, config);
+        self.init(config);
     }
+}
 
+impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     fn timeout(&self) -> Timeout {
         Timeout {
             #[cfg(feature = "time")]
             deadline: Instant::now() + self.timeout,
         }
-    }
-}
-
-impl<'d, M: Mode> Drop for I2c<'d, M> {
-    fn drop(&mut self) {
-        self.scl.as_ref().map(|x| x.set_as_disconnected());
-        self.sda.as_ref().map(|x| x.set_as_disconnected());
-
-        self.info.rcc.disable()
     }
 }
 
@@ -269,23 +304,18 @@ impl State {
     }
 }
 
-struct Info {
-    regs: crate::pac::i2c::I2c,
-    rcc: RccInfo,
-}
-
 peri_trait!(
     irqs: [EventInterrupt, ErrorInterrupt],
 );
 
-pin_trait!(SclPin, Instance);
-pin_trait!(SdaPin, Instance);
+pin_trait!(SclPin, Instance, @A);
+pin_trait!(SdaPin, Instance, @A);
 dma_trait!(RxDma, Instance);
 dma_trait!(TxDma, Instance);
 
 /// Event interrupt handler.
 pub struct EventInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::EventInterrupt> for EventInterruptHandler<T> {
@@ -296,7 +326,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::EventInterrupt> for EventInte
 
 /// Error interrupt handler.
 pub struct ErrorInterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::ErrorInterrupt> for ErrorInterruptHandler<T> {
@@ -329,7 +359,7 @@ foreach_peripheral!(
     };
 );
 
-impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M, IM> {
     type Error = Error;
 
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -337,7 +367,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M, IM> {
     type Error = Error;
 
     fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
@@ -345,7 +375,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M, IM> {
     type Error = Error;
 
     fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
@@ -369,11 +399,11 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_1::i2c::ErrorType for I2c<'d, M, IM> {
     type Error = Error;
 }
 
-impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_1::i2c::I2c for I2c<'d, M, IM> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_read(address, read)
     }
@@ -395,7 +425,7 @@ impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
     }
 }
 
-impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
+impl<'d, IM: MasterMode> embedded_hal_async::i2c::I2c for I2c<'d, Async, IM> {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.read(address, read).await
     }
@@ -419,15 +449,15 @@ impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
 
 /// Frame type in I2C transaction.
 ///
-/// This tells each method what kind of framing to use, to generate a (repeated) start condition (ST
+/// This tells each method what kind of frame to use, to generate a (repeated) start condition (ST
 /// or SR), and/or a stop condition (SP). For read operations, this also controls whether to send an
 /// ACK or NACK after the last byte received.
 ///
 /// For write operations, the following options are identical because they differ only in the (N)ACK
 /// treatment relevant for read operations:
 ///
-/// - `FirstFrame` and `FirstAndNextFrame`
-/// - `NextFrame` and `LastFrameNoStop`
+/// - `FirstFrame` and `FirstAndNextFrame` behave identically for writes
+/// - `NextFrame` and `LastFrameNoStop` behave identically for writes
 ///
 /// Abbreviations used below:
 ///
@@ -456,7 +486,7 @@ enum FrameOptions {
 
 #[allow(dead_code)]
 impl FrameOptions {
-    /// Sends start or repeated start condition before transfer.
+    /// Returns true if a start or repeated start condition should be generated before this operation.
     fn send_start(self) -> bool {
         match self {
             Self::FirstAndLastFrame | Self::FirstFrame | Self::FirstAndNextFrame => true,
@@ -464,7 +494,7 @@ impl FrameOptions {
         }
     }
 
-    /// Sends stop condition after transfer.
+    /// Returns true if a stop condition should be generated after this operation.
     fn send_stop(self) -> bool {
         match self {
             Self::FirstAndLastFrame | Self::LastFrame => true,
@@ -472,7 +502,10 @@ impl FrameOptions {
         }
     }
 
-    /// Sends NACK after last byte received, indicating end of read operation.
+    /// Returns true if NACK should be sent after the last byte received in a read operation.
+    ///
+    /// This signals the end of a read sequence and releases the bus for the master's
+    /// next transmission (or stop condition).
     fn send_nack(self) -> bool {
         match self {
             Self::FirstAndLastFrame | Self::FirstFrame | Self::LastFrame | Self::LastFrameNoStop => true,
@@ -481,24 +514,44 @@ impl FrameOptions {
     }
 }
 
-/// Iterates over operations in transaction.
+/// Analyzes I2C transaction operations and assigns appropriate frame to each.
 ///
-/// Returns necessary frame options for each operation to uphold the [transaction contract] and have
-/// the right start/stop/(N)ACK conditions on the wire.
+/// This function processes a sequence of I2C operations and determines the correct
+/// frame configuration for each operation to ensure proper I2C protocol compliance.
+/// It handles the complex logic of:
 ///
-/// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
+/// - Generating start conditions for the first operation of each type (read/write)
+/// - Generating stop conditions for the final operation in the entire transaction
+/// - Managing ACK/NACK behavior for read operations, including merging consecutive reads
+/// - Ensuring proper bus handoff between different operation types
+///
+/// **Transaction Contract Compliance:**
+/// The frame assignments ensure compliance with the embedded-hal I2C transaction contract,
+/// where consecutive operations of the same type are logically merged while maintaining
+/// proper protocol boundaries.
+///
+/// **Error Handling:**
+/// Returns an error if any read operation has an empty buffer, as this would create
+/// an invalid I2C transaction that could halt mid-execution.
+///
+/// # Arguments
+/// * `operations` - Mutable slice of I2C operations from embedded-hal
+///
+/// # Returns
+/// An iterator over (operation, frame) pairs, or an error if the transaction is invalid
+///
 #[allow(dead_code)]
 fn operation_frames<'a, 'b: 'a>(
     operations: &'a mut [embedded_hal_1::i2c::Operation<'b>],
 ) -> Result<impl IntoIterator<Item = (&'a mut embedded_hal_1::i2c::Operation<'b>, FrameOptions)>, Error> {
     use embedded_hal_1::i2c::Operation::{Read, Write};
 
-    // Check empty read buffer before starting transaction. Otherwise, we would risk halting with an
-    // error in the middle of the transaction.
+    // Validate that no read operations have empty buffers before starting the transaction.
+    // Empty read operations would risk halting with an error mid-transaction.
     //
-    // In principle, we could allow empty read frames within consecutive read operations, as long as
-    // at least one byte remains in the final (merged) read operation, but that makes the logic more
-    // complicated and error-prone.
+    // Note: We could theoretically allow empty read operations within consecutive read
+    // sequences as long as the final merged read has at least one byte, but this would
+    // complicate the logic significantly and create error-prone edge cases.
     if operations.iter().any(|op| match op {
         Read(read) => read.is_empty(),
         Write(_) => false,
@@ -507,48 +560,52 @@ fn operation_frames<'a, 'b: 'a>(
     }
 
     let mut operations = operations.iter_mut().peekable();
-
-    let mut next_first_frame = true;
+    let mut next_first_operation = true;
 
     Ok(iter::from_fn(move || {
-        let Some(op) = operations.next() else {
-            return None;
-        };
+        let current_op = operations.next()?;
 
-        // Is `op` first frame of its type?
-        let first_frame = next_first_frame;
+        // Determine if this is the first operation of its type (read or write)
+        let is_first_of_type = next_first_operation;
         let next_op = operations.peek();
 
-        // Get appropriate frame options as combination of the following properties:
+        // Compute the appropriate frame based on three key properties:
         //
-        // - For each first operation of its type, generate a (repeated) start condition.
-        // - For the last operation overall in the entire transaction, generate a stop condition.
-        // - For read operations, check the next operation: if it is also a read operation, we merge
-        //   these and send ACK for all bytes in the current operation; send NACK only for the final
-        //   read operation's last byte (before write or end of entire transaction) to indicate last
-        //   byte read and release the bus for transmission of the bus master's next byte (or stop).
+        // 1. **Start Condition**: Generate (repeated) start for first operation of each type
+        // 2. **Stop Condition**: Generate stop for the final operation in the entire transaction
+        // 3. **ACK/NACK for Reads**: For read operations, send ACK if more reads follow in the
+        //    sequence, or NACK for the final read in a sequence (before write or transaction end)
         //
-        // We check the third property unconditionally, i.e. even for write opeartions. This is okay
-        // because the resulting frame options are identical for write operations.
-        let frame = match (first_frame, next_op) {
+        // The third property is checked for all operations since the resulting frame
+        // configurations are identical for write operations regardless of ACK/NACK treatment.
+        let frame = match (is_first_of_type, next_op) {
+            // First operation of type, and it's also the final operation overall
             (true, None) => FrameOptions::FirstAndLastFrame,
+            // First operation of type, next operation is also a read (continue read sequence)
             (true, Some(Read(_))) => FrameOptions::FirstAndNextFrame,
+            // First operation of type, next operation is write (end current sequence)
             (true, Some(Write(_))) => FrameOptions::FirstFrame,
-            //
+
+            // Continuation operation, and it's the final operation overall
             (false, None) => FrameOptions::LastFrame,
+            // Continuation operation, next operation is also a read (continue read sequence)
             (false, Some(Read(_))) => FrameOptions::NextFrame,
+            // Continuation operation, next operation is write (end current sequence, no stop)
             (false, Some(Write(_))) => FrameOptions::LastFrameNoStop,
         };
 
-        // Pre-calculate if `next_op` is the first operation of its type. We do this here and not at
-        // the beginning of the loop because we hand out `op` as iterator value and cannot access it
-        // anymore in the next iteration.
-        next_first_frame = match (&op, next_op) {
+        // Pre-calculate whether the next operation will be the first of its type.
+        // This is done here because we consume `current_op` as the iterator value
+        // and cannot access it in the next iteration.
+        next_first_operation = match (&current_op, next_op) {
+            // No next operation
             (_, None) => false,
+            // Operation type changes: next will be first of its type
             (Read(_), Some(Write(_))) | (Write(_), Some(Read(_))) => true,
+            // Operation type continues: next will not be first of its type
             (Read(_), Some(Read(_))) | (Write(_), Some(Write(_))) => false,
         };
 
-        Some((op, frame))
+        Some((current_op, frame))
     }))
 }

@@ -1,0 +1,259 @@
+use crate::adc::{Adc, AdcRegs, ConversionMode, Instance, Resolution};
+use crate::pac::adc::vals::{Adstp, Align, Ckmode, Dmacfg, Exten, Ovrmod, SampleTime, Scandir};
+use crate::pac::adccommon::vals::Presc;
+use crate::time::Hertz;
+use crate::wait::block_for_us;
+use crate::{Peri, rcc};
+
+/// Default VREF voltage used for sample conversion to millivolts.
+pub const VREF_DEFAULT_MV: u32 = 3300;
+/// VREF voltage used for factory calibration of VREFINTCAL register.
+pub const VREF_CALIB_MV: u32 = 3300;
+
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(25);
+
+const TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US: u32 = 20;
+
+const CHSELR_SQ_SIZE: usize = 8;
+const CHSELR_SQ_MAX_CHANNEL: u8 = 14;
+const CHSELR_SQ_SEQUENCE_END_MARKER: u8 = 0b1111;
+
+impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
+    const CHANNEL: u8 = 10;
+}
+
+impl<T: Instance> super::ConverterFor<super::Temperature> for T {
+    const CHANNEL: u8 = 9;
+}
+
+fn from_ker_ck(frequency: Hertz) -> Presc {
+    let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
+    match raw_prescaler {
+        0 => Presc::Div1,
+        1 => Presc::Div2,
+        2..=3 => Presc::Div4,
+        4..=5 => Presc::Div6,
+        6..=7 => Presc::Div8,
+        8..=9 => Presc::Div10,
+        10..=11 => Presc::Div12,
+        _ => unimplemented!(),
+    }
+}
+
+impl AdcRegs for crate::pac::adc::Adc {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
+    }
+
+    fn enable(&self) {
+        if !self.cr().read().aden() {
+            self.isr().modify(|w| w.set_adrdy(true));
+            self.cr().modify(|w| w.set_aden(true));
+            // ADRDY is "ADC ready". Wait until it will be True.
+            while !self.isr().read().adrdy() {}
+        }
+    }
+
+    fn start(&self) {
+        // Start conversion
+        self.cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+    }
+
+    fn stop(&self) {
+        if self.cr().read().adstart() && !self.cr().read().addis() {
+            self.cr().modify(|reg| {
+                reg.set_adstp(Adstp::Stop);
+            });
+            while self.cr().read().adstart() {}
+        }
+
+        // Reset configuration.
+        self.cfgr1().modify(|reg| {
+            reg.set_cont(false);
+            reg.set_dmacfg(Dmacfg::from_bits(0));
+            reg.set_dmaen(false);
+        });
+    }
+
+    fn power_down(&self) {
+        if self.cr().read().aden() {
+            self.cr().modify(|reg| reg.set_addis(true));
+            while self.cr().read().aden() {}
+        }
+    }
+
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
+        // Enable overrun control, so no new DMA requests will be generated until
+        // previous DR values is read.
+        self.isr().modify(|reg| {
+            reg.set_ovr(true);
+        });
+
+        self.cfgr1().modify(|w| {
+            w.set_cont(matches!(conversion_mode, ConversionMode::Repeated(None)));
+            w.set_discen(false);
+            w.set_dmacfg(Dmacfg::DmaCircular);
+            w.set_dmaen(!matches!(conversion_mode, ConversionMode::NoDma));
+            w.set_ovrmod(match conversion_mode {
+                ConversionMode::Singular => Ovrmod::Preserve,
+                _ => Ovrmod::Overwrite,
+            });
+
+            if let ConversionMode::Repeated(Some((signal, edge))) = conversion_mode {
+                w.set_extsel(signal);
+                w.set_exten(edge);
+            }
+        });
+    }
+
+    fn configure_sequence(
+        &self,
+        sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>,
+        _injected: bool,
+    ) {
+        let mut needs_hw = sequence.len() == 1 || sequence.len() > CHSELR_SQ_SIZE;
+        let mut is_ordered_up = true;
+        let mut is_ordered_down = true;
+
+        let sequence_len = sequence.len();
+        let mut hw_channel_selection: u32 = 0;
+        let mut last_channel: u8 = 0;
+        let mut sample_time: Self::SampleTime = SampleTime::Cycles25;
+
+        self.chselr_sq().write(|w| {
+            for (i, ((channel, _), _sample_time)) in sequence.enumerate() {
+                assert!(
+                    sample_time == _sample_time || i == 0,
+                    "C0 only supports one sample time for the sequence."
+                );
+
+                sample_time = _sample_time;
+                needs_hw = needs_hw || channel > CHSELR_SQ_MAX_CHANNEL;
+                is_ordered_up = is_ordered_up && (channel > last_channel || i == 0);
+                is_ordered_down = is_ordered_down && (channel < last_channel || i == 0);
+                hw_channel_selection |= 1 << channel;
+                last_channel = channel;
+
+                if !needs_hw {
+                    w.set_sq(i, channel);
+                }
+            }
+
+            for i in sequence_len..CHSELR_SQ_SIZE {
+                w.set_sq(i, CHSELR_SQ_SEQUENCE_END_MARKER);
+            }
+        });
+
+        if needs_hw {
+            assert!(
+                sequence_len <= CHSELR_SQ_SIZE || is_ordered_up || is_ordered_down,
+                "Sequencer is required because of unordered channels, but read set cannot be more than {} in size.",
+                CHSELR_SQ_SIZE
+            );
+            assert!(
+                sequence_len > CHSELR_SQ_SIZE || is_ordered_up || is_ordered_down,
+                "Sequencer is required because of unordered channels, but only support HW channels smaller than {}.",
+                CHSELR_SQ_MAX_CHANNEL
+            );
+
+            // Set required channels for multi-convert.
+            unsafe { (self.chselr().as_ptr() as *mut u32).write_volatile(hw_channel_selection) }
+        }
+
+        self.smpr().modify(|w| {
+            w.set_smp1(sample_time);
+        });
+
+        self.cfgr1().modify(|reg| {
+            reg.set_chselrmod(!needs_hw);
+            reg.set_align(Align::Right);
+            reg.set_scandir(if is_ordered_up { Scandir::Up } else { Scandir::Back });
+        });
+
+        // Trigger and wait for the channel selection procedure to complete.
+        self.isr().modify(|w| w.set_ccrdy(false));
+        while !self.isr().read().ccrdy() {}
+    }
+
+    fn wait_done(&self) -> bool {
+        self.isr().read().eoc()
+    }
+}
+
+impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
+    /// Create a new ADC driver.
+    pub fn new(adc: Peri<'d, T>, resolution: Resolution) -> Self {
+        rcc::enable_and_reset::<T>();
+
+        T::regs().cfgr2().modify(|w| w.set_ckmode(Ckmode::Sysclk));
+
+        let prescaler = from_ker_ck(T::frequency());
+        T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
+
+        let frequency = T::frequency() / prescaler;
+        debug!("ADC frequency set to {}", frequency);
+
+        if frequency > MAX_ADC_CLK_FREQ {
+            panic!(
+                "Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.",
+                MAX_ADC_CLK_FREQ.0 / 1_000_000
+            );
+        }
+
+        T::regs().cr().modify(|reg| {
+            reg.set_advregen(true);
+        });
+
+        // "The software must wait for the ADC voltage regulator startup time."
+        // See datasheet for the value.
+        block_for_us(TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US as u64 + 1);
+
+        T::regs().cfgr1().modify(|reg| reg.set_res(resolution));
+
+        // We have to make sure AUTOFF is OFF, but keep its value after calibration.
+        let autoff_value = T::regs().cfgr1().read().autoff();
+        T::regs().cfgr1().modify(|w| w.set_autoff(false));
+
+        T::regs().cr().modify(|w| w.set_adcal(true));
+
+        // "ADCAL bit stays at 1 during all the calibration sequence."
+        // "It is then cleared by hardware as soon the calibration completes."
+        while T::regs().cr().read().adcal() {}
+
+        debug!("ADC calibration value: {}.", T::regs().dr().read().data());
+
+        T::regs().cfgr1().modify(|w| w.set_autoff(autoff_value));
+
+        T::regs().enable();
+
+        // single conversion mode, software trigger
+        T::regs().cfgr1().modify(|w| {
+            w.set_cont(false);
+            w.set_exten(Exten::Disabled);
+            w.set_align(Align::Right);
+        });
+
+        Self { adc }
+    }
+
+    /// Enable reading the voltage reference internal channel.
+    pub fn enable_vrefint(&mut self) -> super::VrefInt {
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_vrefen(true);
+        });
+
+        super::VrefInt {}
+    }
+
+    /// Enable reading the temperature internal channel.
+    pub fn enable_temperature(&mut self) -> super::Temperature {
+        debug!("Ensure that sample time is set to more than temperature sensor T_start from the datasheet!");
+        T::common_regs().ccr().modify(|reg| {
+            reg.set_tsen(true);
+        });
+
+        super::Temperature {}
+    }
+}

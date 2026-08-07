@@ -1,6 +1,6 @@
 //! WebUSB API capability implementation.
 //!
-//! See https://wicg.github.io/webusb
+//! See <https://wicg.github.io/webusb>
 
 use core::mem::MaybeUninit;
 
@@ -84,25 +84,24 @@ impl<'d> Control<'d> {
 }
 
 impl<'d> Handler for Control<'d> {
-    fn control_in(&mut self, req: Request, _data: &mut [u8]) -> Option<InResponse> {
+    fn control_in(&mut self, req: Request, _data: &mut [u8]) -> Option<InResponse<'_>> {
         let landing_value = if self.landing_url.is_some() { 1 } else { 0 };
         if req.request_type == RequestType::Vendor
             && req.recipient == Recipient::Device
             && req.request == self.vendor_code
             && req.value == landing_value
             && req.index == WEB_USB_REQUEST_GET_URL
+            && let Some(url) = self.landing_url
         {
-            if let Some(url) = self.landing_url {
-                let url_bytes = url.as_bytes();
-                let len = url_bytes.len();
+            let url_bytes = url.as_bytes();
+            let len = url_bytes.len();
 
-                self.ep_buf[0] = len as u8 + 3;
-                self.ep_buf[1] = WEB_USB_DESCRIPTOR_TYPE_URL;
-                self.ep_buf[2] = url.scheme();
-                self.ep_buf[3..3 + len].copy_from_slice(url_bytes);
+            self.ep_buf[0] = len as u8 + 3;
+            self.ep_buf[1] = WEB_USB_DESCRIPTOR_TYPE_URL;
+            self.ep_buf[2] = url.scheme();
+            self.ep_buf[3..3 + len].copy_from_slice(url_bytes);
 
-                return Some(InResponse::Accepted(&self.ep_buf[..3 + len]));
-            }
+            return Some(InResponse::Accepted(&self.ep_buf[..3 + len]));
         }
         None
     }
@@ -131,7 +130,7 @@ impl<'d> State<'d> {
 /// WebUSB capability implementation.
 ///
 /// WebUSB is a W3C standard that allows a web page to communicate with USB devices.
-/// See See https://wicg.github.io/webusb for more information and the browser API.
+/// See <https://wicg.github.io/webusb> for more information and the browser API.
 /// This implementation provides one read and one write endpoint.
 pub struct WebUsb<'d, D: Driver<'d>> {
     _driver: core::marker::PhantomData<&'d D>,
@@ -140,7 +139,7 @@ pub struct WebUsb<'d, D: Driver<'d>> {
 impl<'d, D: Driver<'d>> WebUsb<'d, D> {
     /// Builder for the WebUSB capability implementation.
     ///
-    /// Pass in a USB `Builder`, a `State`, which holds the the control endpoint state, and a `Config` for the WebUSB configuration.
+    /// Pass in a USB `Builder`, a `State`, which holds the control endpoint state, and a `Config` for the WebUSB configuration.
     pub fn configure(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: &'d Config<'d>) {
         let mut func = builder.function(USB_CLASS_VENDOR, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
         let mut iface = func.interface();

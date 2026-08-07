@@ -5,7 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+<!-- next-header -->
+
+## Unreleased - ReleaseDate
+
+- Changed: `embassy-time` is now an optional feature for device mode. Remote wakeup is now supported via `embassy-time`.
+- Changed: The driver can be configured with any `embassy_sync` raw mutex implementation.
+- Fixed: Clearing an endpoint halt now resets the data toggle to DATA0, as does enabling an endpoint for a new configuration or alternate setting.
+- Fixed: Stalling an IN endpoint with a transfer in flight no longer leaves it permanently unusable.
+- Fixed: Disabling an endpoint now waits for the core to acknowledge, and OUT endpoints are disabled under global OUT NAK.
+- Fixed: A suspend latched before a bus reset no longer wedges enumeration.
+- Fixed: A bus reset now wakes endpoint futures so they observe the endpoint being disabled, and discards data received before the reset.
+- Fixed: Periodic IN transfer future can no longer park forever.
+- Fixed: Later events no longer override earlier ones.
+- Fixed: Correctly work with low-speed devices over high-speed hubs.
+
+## 0.4.0 - 2026-05-28
+
+- **Breaking:** type-erased `State`/`HostState`, non-generic `OtgInstance`/`OtgHostInstance`, endpoint allocation in `State`, const generics removed from device/host drivers. Static state now needs to be constructed as `StateStorage::new()`/`HostStateStorage::new()` and then `as_state()`/`as_host_state()` must be called to obtain the state reference.
+- **Breaking:** type-erased `OtgState`/`OtgHostState`, non-generic `OtgInstance`/`OtgHostInstance`, endpoint allocation in `State`, const generics removed from device/host drivers.
+- **Breaking:** `OtgInstance::endpoint_count`, `OtgHostInstance::channel_count` have been removed.
+- **Breaking:** `endpoint_count`, and `channel_count` parameters have been removed from the interrupt handler functions.
+- Allow using 16 host channels
+
+## 0.3.3 - 2026-05-04
+
+- New feature: "host" for embassy-usb-host support
+- Implemented remote wakeup support
+
+## 0.3.2 - 2026-03-10
+
+- Disabling an OUT endpoint no longer flushes the TX FIFO of the corresponding IN endpoint
+- Upgrade embassy-sync to 0.8.0
+
+## 0.3.1 - 2025-08-26
+
+- Improve receive performance, more efficient copy from FIFO
+
+## 0.3.0 - 2025-07-22
+
+- Bump `embassy-usb-driver` to v0.2.0
 
 ## 0.2.0 - 2024-12-06
 

@@ -10,6 +10,7 @@ use super::{PubSubBehavior, PubSubChannel, WaitResult};
 use crate::blocking_mutex::raw::RawMutex;
 
 /// A subscriber to a channel
+#[derive(Debug)]
 pub struct Sub<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     /// The message id of the next message we are yet to receive
     next_message_id: u64,
@@ -30,6 +31,12 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Sub<'a, PSB, T> {
     /// Wait for a published message
     pub fn next_message<'s>(&'s mut self) -> SubscriberWaitFuture<'s, 'a, PSB, T> {
         SubscriberWaitFuture { subscriber: self }
+    }
+
+    /// Poll for the next published message, preserving lag results.
+    pub fn poll_next_message(&mut self, cx: &mut Context<'_>) -> Poll<WaitResult<T>> {
+        self.channel
+            .get_message_with_context(&mut self.next_message_id, Some(cx))
     }
 
     /// Wait for a published message (ignoring lag results)
@@ -115,7 +122,7 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Unpin for Sub<'a, PSB, T> {}
 
 /// Warning: The stream implementation ignores lag results and returns all messages.
 /// This might miss some messages without you knowing it.
-impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> futures_util::Stream for Sub<'a, PSB, T> {
+impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> futures_core::Stream for Sub<'a, PSB, T> {
     type Item = T;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -150,7 +157,41 @@ impl<'a, T: Clone> DerefMut for DynSubscriber<'a, T> {
     }
 }
 
+/// A subscriber that holds a dynamic reference to the channel.
+/// This version can be sent between threads but can only be created if the underlying mutex is Send + Sync.
+pub struct SendDynSubscriber<'a, T: Clone>(pub(super) Sub<'a, dyn PubSubBehavior<T> + 'a, T>);
+
+unsafe impl<'a, T: Clone + Send> Send for SendDynSubscriber<'a, T> {}
+unsafe impl<'a, T: Clone + Send> Sync for SendDynSubscriber<'a, T> {}
+
+impl<'a, T: Clone> Deref for SendDynSubscriber<'a, T> {
+    type Target = Sub<'a, dyn PubSubBehavior<T> + 'a, T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<'a, T: Clone> DerefMut for SendDynSubscriber<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<'a, M, T, const CAP: usize, const SUBS: usize, const PUBS: usize> From<Subscriber<'a, M, T, CAP, SUBS, PUBS>>
+    for SendDynSubscriber<'a, T>
+where
+    M: RawMutex + Send + Sync,
+    T: Clone,
+{
+    fn from(s: Subscriber<'a, M, T, CAP, SUBS, PUBS>) -> Self {
+        let s = core::mem::ManuallyDrop::new(s);
+        Self(Sub::new(s.0.next_message_id, s.0.channel))
+    }
+}
+
 /// A subscriber that holds a generic reference to the channel
+#[derive(Debug)]
 pub struct Subscriber<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
     pub(super) Sub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
 );
@@ -175,6 +216,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
 
 /// Future for the subscriber wait action
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
 pub struct SubscriberWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     subscriber: &'s mut Sub<'a, PSB, T>,
 }

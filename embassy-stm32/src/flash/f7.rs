@@ -1,16 +1,14 @@
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
-use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
+impl FlashSector {
+    const fn snb(&self) -> u8 {
+        ((self.bank as u8) << 4) + self.index_in_bank
+    }
 }
 
 pub(crate) unsafe fn lock() {
@@ -29,7 +27,7 @@ pub(crate) unsafe fn enable_blocking_write() {
 
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
-        w.set_psize(pac::flash::vals::Psize::PSIZE32);
+        w.set_psize(pac::flash::vals::Psize::Psize32);
     });
 }
 
@@ -53,7 +51,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     pac::FLASH.cr().modify(|w| {
         w.set_ser(true);
-        w.set_snb(sector.index_in_bank)
+        w.set_snb(sector.snb())
     });
 
     pac::FLASH.cr().modify(|w| {
@@ -101,7 +99,7 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flash::{get_sector, FlashBank};
+    use crate::flash::{FlashBank, get_sector};
 
     #[test]
     #[cfg(stm32f732)]
@@ -118,7 +116,7 @@ mod tests {
                     start,
                     size
                 },
-                get_sector(address, &FLASH_REGIONS)
+                unwrap!(get_sector(address, crate::flash::get_flash_regions()))
             )
         };
 
@@ -137,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(stm32f769)]
+    #[cfg(all(stm32f769, feature = "single-bank"))]
     fn can_get_sector() {
         const SMALL_SECTOR_SIZE: u32 = 32 * 1024;
         const MEDIUM_SECTOR_SIZE: u32 = 128 * 1024;
@@ -151,7 +149,7 @@ mod tests {
                     start,
                     size
                 },
-                get_sector(address, &FLASH_REGIONS)
+                unwrap!(get_sector(address, crate::flash::get_flash_regions()))
             )
         };
 
@@ -167,5 +165,19 @@ mod tests {
         assert_sector(5, 0x0804_0000, LARGE_SECTOR_SIZE, 0x0807_FFFF);
         assert_sector(7, 0x080C_0000, LARGE_SECTOR_SIZE, 0x080C_0000);
         assert_sector(7, 0x080C_0000, LARGE_SECTOR_SIZE, 0x080F_FFFF);
+    }
+}
+
+#[cfg(all(bank_setup_configurable))]
+pub(crate) fn check_bank_setup() {
+    if cfg!(feature = "single-bank") && !pac::FLASH.optcr().read().n_dbank() {
+        panic!(
+            "Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the ndbank value in the user option bytes or configure embassy to use dual-bank config"
+        );
+    }
+    if cfg!(feature = "dual-bank") && pac::FLASH.optcr().read().n_dbank() {
+        panic!(
+            "Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the ndbank value in the user option bytes or configure embassy to use single-bank config"
+        );
     }
 }

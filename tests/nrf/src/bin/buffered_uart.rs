@@ -6,18 +6,19 @@
 mod common;
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nrf::buffered_uarte::{self, BufferedUarte};
 use embassy_nrf::{peripherals, uarte};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut p = embassy_nrf::init(Default::default());
     let mut config = uarte::Config::default();
-    config.parity = uarte::Parity::EXCLUDED;
-    config.baudrate = uarte::Baudrate::BAUD1M;
+    config.parity = uarte::Parity::Excluded;
+    config.baudrate = uarte::Baudrate::Baud1m;
 
     let mut tx_buffer = [0u8; 1024];
     let mut rx_buffer = [0u8; 1024];
@@ -25,14 +26,14 @@ async fn main(_spawner: Spawner) {
     // test teardown + recreate of the buffereduarte works fine.
     for _ in 0..2 {
         let u = BufferedUarte::new(
-            &mut peri!(p, UART0),
-            &mut p.TIMER0,
-            &mut p.PPI_CH0,
-            &mut p.PPI_CH1,
-            &mut p.PPI_GROUP0,
+            peri!(p, UART0).reborrow(),
+            p.TIMER0.reborrow(),
+            p.PPI_CH0.reborrow(),
+            p.PPI_CH1.reborrow(),
+            p.PPI_GROUP0.reborrow(),
+            peri!(p, PIN_A).reborrow(),
+            peri!(p, PIN_B).reborrow(),
             irqs!(UART0_BUFFERED),
-            &mut peri!(p, PIN_A),
-            &mut peri!(p, PIN_B),
             config.clone(),
             &mut rx_buffer,
             &mut tx_buffer,

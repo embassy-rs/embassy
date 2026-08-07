@@ -6,7 +6,7 @@
 //!
 //! - Define a struct `MyDriver`
 //! - Implement [`Driver`] for it
-//! - Register it as the global driver with [`time_driver_impl`](crate::time_driver_impl).
+//! - Register it as the global driver with [`time_driver_impl`].
 //!
 //! If your driver has a single set tick rate, enable the corresponding [`tick-hz-*`](crate#tick-rate) feature,
 //! which will prevent users from needing to configure it themselves (or selecting an incorrect configuration).
@@ -89,7 +89,7 @@
 //! Instead of the usual "trait + generic params" approach, calls from embassy to the driver are done via `extern` functions.
 //!
 //! `embassy` internally defines the driver function as `extern "Rust" { fn _embassy_time_now() -> u64; }` and calls it.
-//! The driver crate defines the function as `#[no_mangle] fn _embassy_time_now() -> u64`. The linker will resolve the
+//! The driver crate defines the function as `#[unsafe(no_mangle)] fn _embassy_time_now() -> u64`. The linker will resolve the
 //! calls from the `embassy` crate to call into the driver crate.
 //!
 //! If there is none or multiple drivers in the crate tree, linking will fail.
@@ -126,6 +126,11 @@ pub trait Driver: Send + Sync + 'static {
     ///   10_000 years from now.). This means if your hardware only has 16bit/32bit timers
     ///   you MUST extend them to 64-bit, for example by counting overflows in software,
     ///   or chaining multiple timers together.
+    /// - It never fails, including any kind of access fault, even if the underlying
+    ///   hardware has not yet been initialized. In these cases, it may be necessary to
+    ///   check if the hardware is initialized (using an atomic boolean, or similar),
+    ///   and if not, return a default value, such as zero (while still respecting
+    ///   the other requirements above).
     fn now(&self) -> u64;
 
     /// Schedules a waker to be awoken at moment `at`.
@@ -133,7 +138,7 @@ pub trait Driver: Send + Sync + 'static {
     fn schedule_wake(&self, at: u64, waker: &Waker);
 }
 
-extern "Rust" {
+unsafe extern "Rust" {
     fn _embassy_time_now() -> u64;
     fn _embassy_time_schedule_wake(at: u64, waker: &Waker);
 }
@@ -158,13 +163,13 @@ macro_rules! time_driver_impl {
     (static $name:ident: $t: ty = $val:expr) => {
         static $name: $t = $val;
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         #[inline]
         fn _embassy_time_now() -> u64 {
             <$t as $crate::Driver>::now(&$name)
         }
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         #[inline]
         fn _embassy_time_schedule_wake(at: u64, waker: &core::task::Waker) {
             <$t as $crate::Driver>::schedule_wake(&$name, at, waker);

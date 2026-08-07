@@ -2,17 +2,18 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::usart::{BufferedUart, Config};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
 use embedded_io_async::{Read, Write};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USART2 => usart::BufferedInterruptHandler<peripherals::USART2>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hi!");
@@ -21,7 +22,7 @@ async fn main(_spawner: Spawner) {
     config.baudrate = 9600;
     let mut tx_buf = [0u8; 256];
     let mut rx_buf = [0u8; 256];
-    let mut usart = BufferedUart::new(p.USART2, Irqs, p.PA3, p.PA2, &mut tx_buf, &mut rx_buf, config).unwrap();
+    let mut usart = BufferedUart::new(p.USART2, p.PA3, p.PA2, &mut tx_buf, &mut rx_buf, Irqs, config).unwrap();
 
     usart.write_all(b"Hello Embassy World!\r\n").await.unwrap();
     info!("wrote Hello, starting echo");

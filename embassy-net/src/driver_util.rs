@@ -1,8 +1,7 @@
 use core::task::Context;
 
-use embassy_net_driver::{Capabilities, Checksum, Driver, RxToken, TxToken};
-use smoltcp::phy::{self, Medium};
-use smoltcp::time::Instant;
+use embassy_net_driver::{Capabilities, Checksum, Driver, PacketMeta, RxToken, TxToken};
+use xarxa::phy::{self, Medium};
 
 pub(crate) struct DriverAdapter<'d, 'c, T>
 where
@@ -12,6 +11,7 @@ where
     pub cx: Option<&'d mut Context<'c>>,
     pub inner: &'d mut T,
     pub medium: Medium,
+    pub tx_exhausted: bool,
 }
 
 impl<'d, 'c, T> phy::Device for DriverAdapter<'d, 'c, T>
@@ -27,15 +27,19 @@ where
     where
         Self: 'a;
 
-    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+    fn receive(&mut self) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         self.inner
             .receive(unwrap!(self.cx.as_deref_mut()))
             .map(|(rx, tx)| (RxTokenAdapter(rx), TxTokenAdapter(tx)))
     }
 
     /// Construct a transmit token.
-    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
-        self.inner.transmit(unwrap!(self.cx.as_deref_mut())).map(TxTokenAdapter)
+    fn transmit(&mut self) -> Option<Self::TxToken<'_>> {
+        let token = self.inner.transmit(unwrap!(self.cx.as_deref_mut())).map(TxTokenAdapter);
+
+        self.tx_exhausted = token.is_none();
+
+        token
     }
 
     /// Get a description of device capabilities.
@@ -53,7 +57,7 @@ where
 
         smolcaps.max_transmission_unit = caps.max_transmission_unit;
         smolcaps.max_burst_size = caps.max_burst_size;
-        smolcaps.medium = self.medium;
+        smolcaps.medium = self.medium.to_driver();
         smolcaps.checksum.ipv4 = convert(caps.checksum.ipv4);
         smolcaps.checksum.tcp = convert(caps.checksum.tcp);
         smolcaps.checksum.udp = convert(caps.checksum.udp);
@@ -88,6 +92,10 @@ where
             f(buf)
         })
     }
+
+    fn meta(&self) -> phy::PacketMeta {
+        into_xarxa_meta(self.0.meta())
+    }
 }
 
 pub(crate) struct TxTokenAdapter<T>(T)
@@ -109,4 +117,54 @@ where
             r
         })
     }
+
+    fn set_meta(&mut self, meta: phy::PacketMeta) {
+        self.0.set_meta(into_embassy_net_meta(meta));
+    }
+}
+
+#[cfg(feature = "packetmeta-timestamp")]
+pub(crate) fn into_xarxa_timestamp(timestamp: embassy_net_driver::Timestamp) -> xarxa::phy::Timestamp {
+    xarxa::phy::Timestamp {
+        seconds: timestamp.seconds,
+        quarter_nanos: timestamp.quarter_nanos,
+    }
+}
+
+#[allow(unused, reason = "meta isn't used if no features are enabled")]
+pub(crate) fn into_xarxa_meta(meta: PacketMeta) -> phy::PacketMeta {
+    let mut out_meta = phy::PacketMeta::default();
+    #[cfg(feature = "packetmeta-id")]
+    {
+        out_meta.id = meta.id;
+    }
+    #[cfg(feature = "packetmeta-timestamp")]
+    {
+        out_meta.timestamp = meta.timestamp.map(into_xarxa_timestamp);
+        out_meta.request_timestamp = meta.request_timestamp;
+    }
+    out_meta
+}
+
+#[cfg(feature = "packetmeta-timestamp")]
+pub(crate) fn into_embassy_net_timestamp(timestamp: xarxa::phy::Timestamp) -> embassy_net_driver::Timestamp {
+    embassy_net_driver::Timestamp {
+        seconds: timestamp.seconds,
+        quarter_nanos: timestamp.quarter_nanos,
+    }
+}
+
+#[allow(unused, reason = "meta isn't used if no features are enabled")]
+pub(crate) fn into_embassy_net_meta(meta: phy::PacketMeta) -> PacketMeta {
+    let mut out_meta = PacketMeta::default();
+    #[cfg(feature = "packetmeta-id")]
+    {
+        out_meta.id = meta.id;
+    }
+    #[cfg(feature = "packetmeta-timestamp")]
+    {
+        out_meta.timestamp = meta.timestamp.map(into_embassy_net_timestamp);
+        out_meta.request_timestamp = meta.request_timestamp;
+    }
+    out_meta
 }

@@ -7,32 +7,35 @@
 
 use core::str::from_utf8;
 
-use cyw43::JoinOptions;
-use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
+use cyw43::{JoinOptions, aligned_bytes};
+use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Config, StackResources};
-use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::peripherals::{DMA_CH0, PIO0};
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
-use embassy_time::{Duration, Timer};
+use embassy_rp::{bind_interrupts, dma};
+use embassy_time::Duration;
 use embedded_io_async::Write;
-use rand::RngCore;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });
 
-const WIFI_NETWORK: &str = "LadronDeWifi";
-const WIFI_PASSWORD: &str = "MBfcaedHmyRFE4kaQ1O5SsY8";
+const WIFI_NETWORK: &str = "ssid"; // change to your network SSID
+const WIFI_PASSWORD: &str = "pwd"; // change to your network password
 
 #[embassy_executor::task]
-async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
+async fn cyw43_task(
+    runner: cyw43::Runner<'static, cyw43::SpiBus<Output<'static>, PioSpi<'static, PIO0, 0>>, cyw43::Cyw43439>,
+) -> ! {
     runner.run().await
 }
 
@@ -41,15 +44,16 @@ async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'sta
     runner.run().await
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let p = embassy_rp::init(Default::default());
     let mut rng = RoscRng;
 
-    let fw = include_bytes!("../../../../cyw43-firmware/43439A0.bin");
-    let clm = include_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
+    let fw = aligned_bytes!("../../../../cyw43-firmware/43439A0.bin");
+    let clm = aligned_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
+    let nvram = aligned_bytes!("../../../../cyw43-firmware/nvram_rp2040.bin");
 
     // To make flashing faster for development, you may want to flash the firmwares independently
     // at hardcoded addresses, instead of baking them into the program with `include_bytes!`:
@@ -69,13 +73,14 @@ async fn main(spawner: Spawner) {
         cs,
         p.PIN_24,
         p.PIN_29,
-        p.DMA_CH0,
+        dma::Channel::new(p.DMA_CH0, Irqs),
+        dma::Channel::new(p.DMA_CH1, Irqs),
     );
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
-    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
-    unwrap!(spawner.spawn(cyw43_task(runner)));
+    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw, nvram).await;
+    spawner.spawn(unwrap!(cyw43_task(runner)));
 
     control.init(clm).await;
     control
@@ -96,28 +101,23 @@ async fn main(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(net_device, config, RESOURCES.init(StackResources::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
-    loop {
-        match control
-            .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
-            .await
-        {
-            Ok(_) => break,
-            Err(err) => {
-                info!("join failed with status={}", err.status);
-            }
-        }
+    while let Err(err) = control
+        .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
+        .await
+    {
+        info!("join failed: {:?}", err);
     }
 
-    // Wait for DHCP, not necessary when using static IP
+    info!("waiting for link...");
+    stack.wait_link_up().await;
+
     info!("waiting for DHCP...");
-    while !stack.is_config_up() {
-        Timer::after_millis(100).await;
-    }
-    info!("DHCP is now up!");
+    stack.wait_config_up().await;
 
     // And now we can use it!
+    info!("Stack is up!");
 
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];

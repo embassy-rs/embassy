@@ -4,22 +4,21 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embedded_storage::nor_flash::{
-    check_erase, check_read, check_write, ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind,
-    ReadNorFlash,
+    ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash, check_erase, check_read,
+    check_write,
 };
 
-use crate::dma::{AnyChannel, Channel, Transfer};
-use crate::pac;
 use crate::peripherals::FLASH;
+use crate::{dma, interrupt, mode, pac};
 
 /// Flash base address.
 pub const FLASH_BASE: *const u32 = 0x10000000 as _;
 
 /// Address for xip setup function set up by the 235x bootrom.
 #[cfg(feature = "_rp235x")]
-pub const BOOTROM_BASE: *const u32 = 0x400e0000 as _;
+pub const BOOTRAM_BASE: *const u32 = 0x400e0000 as _;
 
 /// If running from RAM, we might have no boot2. Use bootrom `flash_enter_cmd_xip` instead.
 // TODO: when run-from-ram is set, completely skip the "pause cores and jumpp to RAM" dance.
@@ -79,7 +78,7 @@ impl NorFlashError for Error {
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct BackgroundRead<'a, 'd, T: Instance, const FLASH_SIZE: usize> {
     flash: PhantomData<&'a mut Flash<'d, T, Async, FLASH_SIZE>>,
-    transfer: Transfer<'a, AnyChannel>,
+    transfer: dma::Transfer<'a>,
 }
 
 impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Future for BackgroundRead<'a, 'd, T, FLASH_SIZE> {
@@ -114,7 +113,7 @@ impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, '
 
 /// Flash driver.
 pub struct Flash<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> {
-    dma: Option<PeripheralRef<'d, AnyChannel>>,
+    dma: Option<dma::Channel<'d, mode::Async>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
@@ -253,7 +252,7 @@ impl<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> Flash<'d, T, M, FLASH_SI
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE> {
     /// Create a new flash driver in blocking mode.
-    pub fn new_blocking(_flash: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new_blocking(_flash: Peri<'d, T>) -> Self {
         Self {
             dma: None,
             phantom: PhantomData,
@@ -263,10 +262,13 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Blocking, FLASH_SIZE
 
 impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
     /// Create a new flash driver in async mode.
-    pub fn new(_flash: impl Peripheral<P = T> + 'd, dma: impl Peripheral<P = impl Channel> + 'd) -> Self {
-        into_ref!(dma);
+    pub fn new<D: dma::ChannelInstance>(
+        _flash: Peri<'d, T>,
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
+    ) -> Self {
         Self {
-            dma: Some(dma.map_into()),
+            dma: Some(dma::Channel::new(dma, irq)),
             phantom: PhantomData,
         }
     }
@@ -315,12 +317,10 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
         #[cfg(feature = "_rp235x")]
         const XIP_AUX_BASE: *const u32 = 0x50500000 as *const _;
         let transfer = unsafe {
-            crate::dma::read(
-                self.dma.as_mut().unwrap(),
-                XIP_AUX_BASE,
-                data,
-                pac::dma::vals::TreqSel::XIP_STREAM,
-            )
+            self.dma
+                .as_mut()
+                .unwrap()
+                .read(XIP_AUX_BASE, data, pac::dma::vals::TreqSel::XipStream, false)
         };
 
         Ok(BackgroundRead {
@@ -483,7 +483,11 @@ mod ram_helpers {
     /// # Safety
     ///
     /// `boot2` must contain a valid 2nd stage boot loader which can be called to re-initialize XIP mode
-    unsafe fn flash_function_pointers_with_boot2(erase: bool, write: bool, boot2: &[u32; 64]) -> FlashFunctionPointers {
+    unsafe fn flash_function_pointers_with_boot2(
+        erase: bool,
+        write: bool,
+        boot2: &[u32; 64],
+    ) -> FlashFunctionPointers<'_> {
         let boot2_fn_ptr = (boot2 as *const u32 as *const u8).offset(1);
         let boot2_fn: unsafe extern "C" fn() -> () = core::mem::transmute(boot2_fn_ptr);
         FlashFunctionPointers {
@@ -527,7 +531,7 @@ mod ram_helpers {
             #[cfg(feature = "rp2040")]
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             #[cfg(feature = "_rp235x")]
-            core::ptr::copy_nonoverlapping(BOOTROM_BASE as *const u8, boot2.as_mut_ptr() as *mut u8, 256);
+            core::ptr::copy_nonoverlapping(BOOTRAM_BASE as *const u8, boot2.as_mut_ptr() as *mut u8, 256);
             flash_function_pointers_with_boot2(true, false, &boot2)
         } else {
             flash_function_pointers(true, false)
@@ -560,7 +564,7 @@ mod ram_helpers {
             #[cfg(feature = "rp2040")]
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             #[cfg(feature = "_rp235x")]
-            core::ptr::copy_nonoverlapping(BOOTROM_BASE as *const u8, (boot2).as_mut_ptr() as *mut u8, 256);
+            core::ptr::copy_nonoverlapping(BOOTRAM_BASE as *const u8, (boot2).as_mut_ptr() as *mut u8, 256);
             flash_function_pointers_with_boot2(true, true, &boot2)
         } else {
             flash_function_pointers(true, true)
@@ -598,7 +602,7 @@ mod ram_helpers {
             #[cfg(feature = "rp2040")]
             rom_data::memcpy44(&mut boot2 as *mut _, FLASH_BASE, 256);
             #[cfg(feature = "_rp235x")]
-            core::ptr::copy_nonoverlapping(BOOTROM_BASE as *const u8, boot2.as_mut_ptr() as *mut u8, 256);
+            core::ptr::copy_nonoverlapping(BOOTRAM_BASE as *const u8, boot2.as_mut_ptr() as *mut u8, 256);
             flash_function_pointers_with_boot2(false, true, &boot2)
         } else {
             flash_function_pointers(false, true)
@@ -624,7 +628,7 @@ mod ram_helpers {
     /// Length of data must be a multiple of 4096
     /// addr must be aligned to 4096
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "rp2040")]
     unsafe fn write_flash_inner(addr: u32, len: u32, data: Option<&[u8]>, ptrs: *const FlashFunctionPointers) {
         #[cfg(target_arch = "arm")]
@@ -689,7 +693,7 @@ mod ram_helpers {
     /// Length of data must be a multiple of 4096
     /// addr must be aligned to 4096
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "_rp235x")]
     unsafe fn write_flash_inner(addr: u32, len: u32, data: Option<&[u8]>, ptrs: *const FlashFunctionPointers) {
         let data = data.map(|d| d.as_ptr()).unwrap_or(core::ptr::null());
@@ -808,7 +812,7 @@ mod ram_helpers {
     ///
     /// Credit: taken from `rp2040-flash` (also licensed Apache+MIT)
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "rp2040")]
     unsafe fn read_flash_inner(cmd: FlashCommand, ptrs: *const FlashFunctionPointers) {
         #[cfg(target_arch = "arm")]
@@ -965,7 +969,7 @@ trait SealedMode {}
 
 /// Flash instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance {}
+pub trait Instance: SealedInstance + PeripheralType {}
 /// Flash mode.
 #[allow(private_bounds)]
 pub trait Mode: SealedMode {}

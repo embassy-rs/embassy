@@ -1,5 +1,7 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
+#![allow(unused_unsafe)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -20,27 +22,39 @@ mod intrinsics;
 
 pub mod adc;
 #[cfg(feature = "_rp235x")]
+pub mod aon_timer;
+#[cfg(feature = "_rp235x")]
 pub mod block;
-#[cfg(feature = "rp2040")]
 pub mod bootsel;
 pub mod clocks;
+pub(crate) mod datetime;
 pub mod dma;
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+pub mod executor;
 pub mod flash;
 #[cfg(feature = "rp2040")]
 mod float;
 pub mod gpio;
 pub mod i2c;
 pub mod i2c_slave;
+pub mod interpolator;
+pub mod mode;
 pub mod multicore;
 #[cfg(feature = "_rp235x")]
 pub mod otp;
 pub mod pio_programs;
+#[cfg(feature = "_rp235x")]
+pub mod psram;
 pub mod pwm;
+#[cfg(feature = "_rp235x")]
+pub mod qmi_cs1;
 mod reset;
 pub mod rom_data;
 #[cfg(feature = "rp2040")]
 pub mod rtc;
 pub mod spi;
+mod spinlock;
+pub mod spinlock_mutex;
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
 #[cfg(feature = "_rp235x")]
@@ -54,7 +68,7 @@ pub mod pio;
 pub(crate) mod relocate;
 
 // Reexports
-pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use rp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
@@ -139,6 +153,8 @@ embassy_hal_internal::interrupt_mod!(
     TRNG_IRQ,
     PLL_SYS_IRQ,
     PLL_USB_IRQ,
+    POWMAN_IRQ_POW,
+    POWMAN_IRQ_TIMER,
     SWI_IRQ_0,
     SWI_IRQ_1,
     SWI_IRQ_2,
@@ -158,15 +174,18 @@ embassy_hal_internal::interrupt_mod!(
 /// ```rust,ignore
 /// use embassy_rp::{bind_interrupts, usb, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the USB Interrupts.
+///     struct Irqs {
+///         USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
+///     }
+/// );
 /// ```
 ///
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident {
         $(
             $(#[cfg($cond_irq:meta)])?
             $irq:ident => $(
@@ -176,18 +195,21 @@ macro_rules! bind_interrupts {
         )*
     }) => {
         #[derive(Copy, Clone)]
+        $(#[$attr])*
         $vis struct $name;
 
         $(
             #[allow(non_snake_case)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
-                $(
-                    $(#[cfg($cond_handler)])?
-                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                unsafe {
+                    $(
+                        $(#[cfg($cond_handler)])?
+                        <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
 
-                )*
+                    )*
+                }
             }
 
             $(#[cfg($cond_irq)])?
@@ -373,6 +395,8 @@ embassy_hal_internal::peripherals! {
     SPI0,
     SPI1,
 
+    QMI_CS1,
+
     I2C0,
     I2C1,
 
@@ -424,7 +448,8 @@ embassy_hal_internal::peripherals! {
     WATCHDOG,
     BOOTSEL,
 
-    TRNG
+    POWMAN,
+    TRNG,
 }
 
 #[cfg(all(not(feature = "boot2-none"), feature = "rp2040"))]
@@ -432,13 +457,13 @@ macro_rules! select_bootloader {
     ( $( $feature:literal => $loader:ident, )+ default => $default:ident ) => {
         $(
             #[cfg(feature = $feature)]
-            #[link_section = ".boot2"]
+            #[unsafe(link_section = ".boot2")]
             #[used]
             static BOOT2: [u8; 256] = rp2040_boot2::$loader;
         )*
 
         #[cfg(not(any( $( feature = $feature),* )))]
-        #[link_section = ".boot2"]
+        #[unsafe(link_section = ".boot2")]
         #[used]
         static BOOT2: [u8; 256] = rp2040_boot2::$default;
     }
@@ -454,6 +479,30 @@ select_bootloader! {
     "boot2-w25q080" => BOOT_LOADER_W25Q080,
     "boot2-w25x10cl" => BOOT_LOADER_W25X10CL,
     default => BOOT_LOADER_W25Q080
+}
+
+#[cfg(all(not(feature = "imagedef-none"), feature = "_rp235x"))]
+macro_rules! select_imagedef {
+    ( $( $feature:literal => $imagedef:ident, )+ default => $default:ident ) => {
+        $(
+            #[cfg(feature = $feature)]
+            #[unsafe(link_section = ".start_block")]
+            #[used]
+            static IMAGE_DEF: crate::block::ImageDef = crate::block::ImageDef::$imagedef();
+        )*
+
+        #[cfg(not(any( $( feature = $feature),* )))]
+        #[unsafe(link_section = ".start_block")]
+        #[used]
+        static IMAGE_DEF: crate::block::ImageDef = crate::block::ImageDef::$default();
+    }
+}
+
+#[cfg(all(not(feature = "imagedef-none"), feature = "_rp235x"))]
+select_imagedef! {
+    "imagedef-secure-exe" => secure_exe,
+    "imagedef-nonsecure-exe" => non_secure_exe,
+    default => secure_exe
 }
 
 /// Installs a stack guard for the CORE0 stack in MPU region 0.
@@ -490,7 +539,7 @@ select_bootloader! {
 /// }
 /// ```
 pub fn install_core0_stack_guard() -> Result<(), ()> {
-    extern "C" {
+    unsafe extern "C" {
         static mut _stack_end: usize;
     }
     unsafe { install_stack_guard(core::ptr::addr_of_mut!(_stack_end)) }
@@ -527,18 +576,10 @@ unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
 #[cfg(all(feature = "_rp235x", not(feature = "_test")))]
 #[inline(always)]
 unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
-    let core = unsafe { cortex_m::Peripherals::steal() };
+    // The RP2350 arm cores are cortex-m33 and can use the MSPLIM register to guard the end of stack.
+    // We'll need to do something else for the riscv cores.
+    cortex_m::register::msplim::write(stack_bottom.addr() as u32);
 
-    // Fail if MPU is already configured
-    if core.MPU.ctrl.read() != 0 {
-        return Err(());
-    }
-
-    unsafe {
-        core.MPU.ctrl.write(5); // enable mpu with background default map
-        core.MPU.rbar.write(stack_bottom as u32 & !0xff); // set address
-        core.MPU.rlar.write(1); // enable region
-    }
     Ok(())
 }
 
@@ -556,6 +597,7 @@ pub mod config {
 
     /// HAL configuration passed when initializing.
     #[non_exhaustive]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Config {
         /// Clock configuration.
         pub clocks: ClockConfig,

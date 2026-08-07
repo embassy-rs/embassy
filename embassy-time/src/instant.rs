@@ -1,7 +1,7 @@
 use core::fmt;
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
-use super::{Duration, GCD_1K, GCD_1M, TICK_HZ};
+use super::{Duration, GCD_1G, GCD_1K, GCD_1M, TICK_HZ};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -29,6 +29,13 @@ impl Instant {
         Self { ticks }
     }
 
+    /// Create an Instant from a nanosecond count since system boot.
+    pub const fn from_nanos(nanos: u64) -> Self {
+        Self {
+            ticks: nanos * (TICK_HZ / GCD_1G) / (1_000_000_000 / GCD_1G),
+        }
+    }
+
     /// Create an Instant from a microsecond count since system boot.
     pub const fn from_micros(micros: u64) -> Self {
         Self {
@@ -48,6 +55,48 @@ impl Instant {
         Self {
             ticks: seconds * TICK_HZ,
         }
+    }
+
+    /// Try to create an Instant from a nanosecond count since system boot.
+    /// Fails if the number of nanoseconds is too large.
+    pub const fn try_from_nanos(nanos: u64) -> Option<Self> {
+        let Some(value) = nanos.checked_mul(TICK_HZ / GCD_1G) else {
+            return None;
+        };
+        Some(Self {
+            ticks: value / (1_000_000_000 / GCD_1G),
+        })
+    }
+
+    /// Try to create an Instant from a microsecond count since system boot.
+    /// Fails if the number of microseconds is too large.
+    pub const fn try_from_micros(micros: u64) -> Option<Self> {
+        let Some(value) = micros.checked_mul(TICK_HZ / GCD_1M) else {
+            return None;
+        };
+        Some(Self {
+            ticks: value / (1_000_000 / GCD_1M),
+        })
+    }
+
+    /// Try to create an Instant from a millisecond count since system boot.
+    /// Fails if the number of milliseconds is too large.
+    pub const fn try_from_millis(millis: u64) -> Option<Self> {
+        let Some(value) = millis.checked_mul(TICK_HZ / GCD_1K) else {
+            return None;
+        };
+        Some(Self {
+            ticks: value / (1000 / GCD_1K),
+        })
+    }
+
+    /// Try to create an Instant from a second count since system boot.
+    /// Fails if the number of seconds is too large.
+    pub const fn try_from_secs(seconds: u64) -> Option<Self> {
+        let Some(ticks) = seconds.checked_mul(TICK_HZ) else {
+            return None;
+        };
+        Some(Self { ticks })
     }
 
     /// Tick count since system boot.
@@ -70,8 +119,17 @@ impl Instant {
         self.ticks * (1_000_000 / GCD_1M) / (TICK_HZ / GCD_1M)
     }
 
+    /// Nanoseconds since system boot.
+    pub const fn as_nanos(&self) -> u64 {
+        self.ticks * (1_000_000_000 / GCD_1G) / (TICK_HZ / GCD_1G)
+    }
+
     /// Duration between this Instant and another Instant
-    /// Panics on over/underflow.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed duration overflows.
+    /// Avoid panics with [`Instant::checked_duration_since()`] or [`Instant::saturating_duration_since()`].
     pub fn duration_since(&self, earlier: Instant) -> Duration {
         Duration {
             ticks: unwrap!(self.ticks.checked_sub(earlier.ticks)),
@@ -79,7 +137,10 @@ impl Instant {
     }
 
     /// Duration between this Instant and another Instant
-    pub fn checked_duration_since(&self, earlier: Instant) -> Option<Duration> {
+    ///
+    /// This is a panic-free [`Instant::duration_since()`].
+    #[inline]
+    pub const fn checked_duration_since(&self, earlier: Instant) -> Option<Duration> {
         if self.ticks < earlier.ticks {
             None
         } else {
@@ -91,7 +152,10 @@ impl Instant {
 
     /// Returns the duration since the "earlier" Instant.
     /// If the "earlier" instant is in the future, the duration is set to zero.
-    pub fn saturating_duration_since(&self, earlier: Instant) -> Duration {
+    ///
+    /// This is a panic-free alternative to [`Instant::duration_since()`].
+    #[inline]
+    pub const fn saturating_duration_since(&self, earlier: Instant) -> Duration {
         Duration {
             ticks: if self.ticks < earlier.ticks {
                 0
@@ -102,6 +166,10 @@ impl Instant {
     }
 
     /// Duration elapsed since this Instant.
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed duration overflows.
     pub fn elapsed(&self) -> Duration {
         Instant::now() - *self
     }
@@ -117,13 +185,15 @@ impl Instant {
     }
 
     /// Adds a Duration to self. In case of overflow, the maximum value is returned.
-    pub fn saturating_add(mut self, duration: Duration) -> Self {
+    #[inline]
+    pub const fn saturating_add(mut self, duration: Duration) -> Self {
         self.ticks = self.ticks.saturating_add(duration.ticks);
         self
     }
 
     /// Subtracts a Duration from self. In case of overflow, the minimum value is returned.
-    pub fn saturating_sub(mut self, duration: Duration) -> Self {
+    #[inline]
+    pub const fn saturating_sub(mut self, duration: Duration) -> Self {
         self.ticks = self.ticks.saturating_sub(duration.ticks);
         self
     }
@@ -132,6 +202,11 @@ impl Instant {
 impl Add<Duration> for Instant {
     type Output = Instant;
 
+    /// Computes `Instant + Duration`. [Read more](Add)
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
     fn add(self, other: Duration) -> Instant {
         self.checked_add(other)
             .expect("overflow when adding duration to instant")
@@ -139,6 +214,11 @@ impl Add<Duration> for Instant {
 }
 
 impl AddAssign<Duration> for Instant {
+    /// Computes `Instant += Duration`. [Read more](AddAssign)
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
     fn add_assign(&mut self, other: Duration) {
         *self = *self + other;
     }
@@ -147,6 +227,11 @@ impl AddAssign<Duration> for Instant {
 impl Sub<Duration> for Instant {
     type Output = Instant;
 
+    /// Computes `Instant - Duration`. [Read more](Sub)
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
     fn sub(self, other: Duration) -> Instant {
         self.checked_sub(other)
             .expect("overflow when subtracting duration from instant")
@@ -154,6 +239,11 @@ impl Sub<Duration> for Instant {
 }
 
 impl SubAssign<Duration> for Instant {
+    /// Computes `Instant -= Duration`. [Read more](SubAssign)
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed instant overflows.
     fn sub_assign(&mut self, other: Duration) {
         *self = *self - other;
     }
@@ -162,6 +252,11 @@ impl SubAssign<Duration> for Instant {
 impl Sub<Instant> for Instant {
     type Output = Duration;
 
+    /// Computes `Instant - Instant`. [Read more](Sub)
+    ///
+    /// ## Panics
+    ///
+    /// Panics if the computed duration overflows in [`Instant::duration_since`].
     fn sub(self, other: Instant) -> Duration {
         self.duration_since(other)
     }

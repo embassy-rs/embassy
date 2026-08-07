@@ -13,18 +13,19 @@ pub mod enums;
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::{GetConfig, SetConfig};
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 pub use enums::*;
 
-use crate::dma::{word, ChannelAndRequest};
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::dma::{ChannelAndRequest, word};
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::hspi::Hspi as Regs;
+use crate::peripherals;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
 
 /// HSPI driver config.
-#[derive(Clone, Copy, defmt::Format)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Fifo threshold used by the peripheral to generate the interrupt indicating data
     /// or space is available in the FIFO
@@ -85,6 +86,8 @@ impl Default for Config {
 }
 
 /// HSPI transfer configuration.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TransferConfig {
     /// Instruction width (IMODE)
     pub iwidth: HspiWidth,
@@ -115,7 +118,7 @@ pub struct TransferConfig {
 
     /// Data width (DMODE)
     pub dwidth: HspiWidth,
-    /// Data buffer
+    /// Data Double Transfer rate enable
     pub ddtr: bool,
 
     /// Number of dummy cycles (DCYC)
@@ -162,29 +165,29 @@ pub enum HspiError {
 
 /// HSPI driver.
 pub struct Hspi<'d, T: Instance, M: PeriMode> {
-    _peri: PeripheralRef<'d, T>,
-    sck: Option<PeripheralRef<'d, AnyPin>>,
-    d0: Option<PeripheralRef<'d, AnyPin>>,
-    d1: Option<PeripheralRef<'d, AnyPin>>,
-    d2: Option<PeripheralRef<'d, AnyPin>>,
-    d3: Option<PeripheralRef<'d, AnyPin>>,
-    d4: Option<PeripheralRef<'d, AnyPin>>,
-    d5: Option<PeripheralRef<'d, AnyPin>>,
-    d6: Option<PeripheralRef<'d, AnyPin>>,
-    d7: Option<PeripheralRef<'d, AnyPin>>,
-    d8: Option<PeripheralRef<'d, AnyPin>>,
-    d9: Option<PeripheralRef<'d, AnyPin>>,
-    d10: Option<PeripheralRef<'d, AnyPin>>,
-    d11: Option<PeripheralRef<'d, AnyPin>>,
-    d12: Option<PeripheralRef<'d, AnyPin>>,
-    d13: Option<PeripheralRef<'d, AnyPin>>,
-    d14: Option<PeripheralRef<'d, AnyPin>>,
-    d15: Option<PeripheralRef<'d, AnyPin>>,
-    nss: Option<PeripheralRef<'d, AnyPin>>,
-    dqs0: Option<PeripheralRef<'d, AnyPin>>,
-    dqs1: Option<PeripheralRef<'d, AnyPin>>,
+    _peri: Peri<'d, T>,
+    _sck: Option<Flex<'d>>,
+    _d0: Option<Flex<'d>>,
+    _d1: Option<Flex<'d>>,
+    _d2: Option<Flex<'d>>,
+    _d3: Option<Flex<'d>>,
+    _d4: Option<Flex<'d>>,
+    _d5: Option<Flex<'d>>,
+    _d6: Option<Flex<'d>>,
+    _d7: Option<Flex<'d>>,
+    _d8: Option<Flex<'d>>,
+    _d9: Option<Flex<'d>>,
+    _d10: Option<Flex<'d>>,
+    _d11: Option<Flex<'d>>,
+    _d12: Option<Flex<'d>>,
+    _d13: Option<Flex<'d>>,
+    _d14: Option<Flex<'d>>,
+    _d15: Option<Flex<'d>>,
+    _nss: Option<Flex<'d>>,
+    _dqs0: Option<Flex<'d>>,
+    _dqs1: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
     config: Config,
     width: HspiWidth,
 }
@@ -246,34 +249,32 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
     }
 
     fn new_inner(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: Option<PeripheralRef<'d, AnyPin>>,
-        d1: Option<PeripheralRef<'d, AnyPin>>,
-        d2: Option<PeripheralRef<'d, AnyPin>>,
-        d3: Option<PeripheralRef<'d, AnyPin>>,
-        d4: Option<PeripheralRef<'d, AnyPin>>,
-        d5: Option<PeripheralRef<'d, AnyPin>>,
-        d6: Option<PeripheralRef<'d, AnyPin>>,
-        d7: Option<PeripheralRef<'d, AnyPin>>,
-        d8: Option<PeripheralRef<'d, AnyPin>>,
-        d9: Option<PeripheralRef<'d, AnyPin>>,
-        d10: Option<PeripheralRef<'d, AnyPin>>,
-        d11: Option<PeripheralRef<'d, AnyPin>>,
-        d12: Option<PeripheralRef<'d, AnyPin>>,
-        d13: Option<PeripheralRef<'d, AnyPin>>,
-        d14: Option<PeripheralRef<'d, AnyPin>>,
-        d15: Option<PeripheralRef<'d, AnyPin>>,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
-        nss: Option<PeripheralRef<'d, AnyPin>>,
-        dqs0: Option<PeripheralRef<'d, AnyPin>>,
-        dqs1: Option<PeripheralRef<'d, AnyPin>>,
+        peri: Peri<'d, T>,
+        d0: Option<Flex<'d>>,
+        d1: Option<Flex<'d>>,
+        d2: Option<Flex<'d>>,
+        d3: Option<Flex<'d>>,
+        d4: Option<Flex<'d>>,
+        d5: Option<Flex<'d>>,
+        d6: Option<Flex<'d>>,
+        d7: Option<Flex<'d>>,
+        d8: Option<Flex<'d>>,
+        d9: Option<Flex<'d>>,
+        d10: Option<Flex<'d>>,
+        d11: Option<Flex<'d>>,
+        d12: Option<Flex<'d>>,
+        d13: Option<Flex<'d>>,
+        d14: Option<Flex<'d>>,
+        d15: Option<Flex<'d>>,
+        sck: Option<Flex<'d>>,
+        nss: Option<Flex<'d>>,
+        dqs0: Option<Flex<'d>>,
+        dqs1: Option<Flex<'d>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         width: HspiWidth,
         dual_memory_mode: bool,
     ) -> Self {
-        into_ref!(peri);
-
         // System configuration
         rcc::enable_and_reset::<T>();
 
@@ -286,28 +287,28 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
 
         Self {
             _peri: peri,
-            sck,
-            d0,
-            d1,
-            d2,
-            d3,
-            d4,
-            d5,
-            d6,
-            d7,
-            d8,
-            d9,
-            d10,
-            d11,
-            d12,
-            d13,
-            d14,
-            d15,
-            nss,
-            dqs0,
-            dqs1,
+            _sck: sck,
+            _d0: d0,
+            _d1: d1,
+            _d2: d2,
+            _d3: d3,
+            _d4: d4,
+            _d5: d5,
+            _d6: d6,
+            _d7: d7,
+            _d8: d8,
+            _d9: d9,
+            _d10: d10,
+            _d11: d11,
+            _d12: d12,
+            _d13: d13,
+            _d14: d14,
+            _d15: d15,
+            _nss: nss,
+            _dqs0: dqs0,
+            _dqs1: dqs1,
             dma,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config,
             width,
         }
@@ -390,17 +391,12 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
         while T::REGS.sr().read().busy() {}
 
         T::REGS.cr().modify(|w| {
-            w.set_fmode(0.into());
+            w.set_fmode(FunctionalMode::IndirectWrite.into());
         });
 
         // Configure alternate bytes
         if let Some(ab) = command.alternate_bytes {
             T::REGS.abr().write(|v| v.set_alternate(ab));
-            T::REGS.ccr().modify(|w| {
-                w.set_abmode(command.abwidth.into());
-                w.set_abdtr(command.abdtr);
-                w.set_absize(command.absize.into());
-            })
         }
 
         // Configure dummy cycles
@@ -412,14 +408,14 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
         if let Some(data_length) = data_len {
             T::REGS.dlr().write(|v| {
                 v.set_dl((data_length - 1) as u32);
-            })
+            });
         } else {
             T::REGS.dlr().write(|v| {
                 v.set_dl((0) as u32);
-            })
+            });
         }
 
-        // Configure instruction/address/data modes
+        // Configure instruction/address/alternate bytes/data modes
         T::REGS.ccr().modify(|w| {
             w.set_imode(command.iwidth.into());
             w.set_idtr(command.idtr);
@@ -428,6 +424,10 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
             w.set_admode(command.adwidth.into());
             w.set_addtr(command.addtr);
             w.set_adsize(command.adsize.into());
+
+            w.set_abmode(command.abwidth.into());
+            w.set_abdtr(command.abdtr);
+            w.set_absize(command.absize.into());
 
             w.set_dmode(command.dwidth.into());
             w.set_ddtr(command.ddtr);
@@ -498,7 +498,8 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -537,7 +538,8 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         T::REGS
             .cr()
@@ -578,11 +580,11 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
 impl<'d, T: Instance> Hspi<'d, T, Blocking> {
     /// Create new blocking HSPI driver for single spi external chip
     pub fn new_blocking_singlespi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -619,18 +621,18 @@ impl<'d, T: Instance> Hspi<'d, T, Blocking> {
 
     /// Create new blocking HSPI driver for octospi external chip
     pub fn new_blocking_octospi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dqs0: impl Peripheral<P = impl DQS0Pin<T>> + 'd,
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dqs0: Peri<'d, impl DQS0Pin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -668,13 +670,14 @@ impl<'d, T: Instance> Hspi<'d, T, Blocking> {
 
 impl<'d, T: Instance> Hspi<'d, T, Async> {
     /// Create new HSPI driver for a single spi external chip
-    pub fn new_singlespi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl HspiDma<T>> + 'd,
+    pub fn new_singlespi<D: HspiDma<T>>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -702,7 +705,7 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             ),
             None,
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             HspiWidth::SING,
             false,
@@ -710,20 +713,21 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
     }
 
     /// Create new HSPI driver for octospi external chip
-    pub fn new_octospi(
-        peri: impl Peripheral<P = T> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        nss: impl Peripheral<P = impl NSSPin<T>> + 'd,
-        dqs0: impl Peripheral<P = impl DQS0Pin<T>> + 'd,
-        dma: impl Peripheral<P = impl HspiDma<T>> + 'd,
+    pub fn new_octospi<D: HspiDma<T>>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dqs0: Peri<'d, impl DQS0Pin<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -751,7 +755,7 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             ),
             new_pin!(dqs0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             HspiWidth::OCTO,
             false,
@@ -767,7 +771,8 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -782,16 +787,18 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
-        };
+        for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.blocking_wait();
+            transfer.blocking_wait();
+        }
 
         finish_dma(T::REGS);
 
@@ -807,21 +814,24 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(FunctionalMode::IndirectWrite.into()));
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .write(buf, T::REGS.dr().as_ptr() as *mut W, Default::default())
-        };
+        for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.blocking_wait();
+            transfer.blocking_wait();
+        }
 
         finish_dma(T::REGS);
 
@@ -837,7 +847,8 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -852,16 +863,18 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
-        };
+        for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.await;
+            transfer.await;
+        }
 
         finish_dma(T::REGS);
 
@@ -877,21 +890,25 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(FunctionalMode::IndirectWrite.into()));
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .write(buf, T::REGS.dr().as_ptr() as *mut W, Default::default())
-        };
+        // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
+        for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.await;
+            transfer.await;
+        }
 
         finish_dma(T::REGS);
 
@@ -901,27 +918,6 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
 
 impl<'d, T: Instance, M: PeriMode> Drop for Hspi<'d, T, M> {
     fn drop(&mut self) {
-        self.sck.as_ref().map(|x| x.set_as_disconnected());
-        self.d0.as_ref().map(|x| x.set_as_disconnected());
-        self.d1.as_ref().map(|x| x.set_as_disconnected());
-        self.d2.as_ref().map(|x| x.set_as_disconnected());
-        self.d3.as_ref().map(|x| x.set_as_disconnected());
-        self.d4.as_ref().map(|x| x.set_as_disconnected());
-        self.d5.as_ref().map(|x| x.set_as_disconnected());
-        self.d6.as_ref().map(|x| x.set_as_disconnected());
-        self.d7.as_ref().map(|x| x.set_as_disconnected());
-        self.d8.as_ref().map(|x| x.set_as_disconnected());
-        self.d9.as_ref().map(|x| x.set_as_disconnected());
-        self.d10.as_ref().map(|x| x.set_as_disconnected());
-        self.d11.as_ref().map(|x| x.set_as_disconnected());
-        self.d12.as_ref().map(|x| x.set_as_disconnected());
-        self.d13.as_ref().map(|x| x.set_as_disconnected());
-        self.d14.as_ref().map(|x| x.set_as_disconnected());
-        self.d15.as_ref().map(|x| x.set_as_disconnected());
-        self.nss.as_ref().map(|x| x.set_as_disconnected());
-        self.dqs0.as_ref().map(|x| x.set_as_disconnected());
-        self.dqs1.as_ref().map(|x| x.set_as_disconnected());
-
         rcc::disable::<T>();
     }
 }
@@ -942,7 +938,7 @@ pub(crate) trait SealedInstance {
 
 /// HSPI instance trait.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(NckPin, Instance);

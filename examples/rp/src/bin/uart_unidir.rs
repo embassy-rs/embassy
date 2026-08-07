@@ -9,25 +9,27 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_rp::bind_interrupts;
-use embassy_rp::peripherals::UART1;
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, UART1};
 use embassy_rp::uart::{Async, Config, InterruptHandler, UartRx, UartTx};
+use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     UART1_IRQ => InterruptHandler<UART1>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
-    let mut uart_tx = UartTx::new(p.UART0, p.PIN_0, p.DMA_CH0, Config::default());
+    let mut uart_tx = UartTx::new(p.UART0, p.PIN_0, p.DMA_CH0, Irqs, Config::default());
     let uart_rx = UartRx::new(p.UART1, p.PIN_5, Irqs, p.DMA_CH1, Config::default());
 
-    unwrap!(spawner.spawn(reader(uart_rx)));
+    spawner.spawn(unwrap!(reader(uart_rx)));
 
     info!("Writing...");
     loop {
@@ -39,7 +41,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn reader(mut rx: UartRx<'static, UART1, Async>) {
+async fn reader(mut rx: UartRx<'static, Async>) {
     info!("Reading...");
     loop {
         // read a total of 4 transmissions (32 / 8) and then print the result

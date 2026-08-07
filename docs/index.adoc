@@ -5,6 +5,7 @@
 :toc-placement: left
 :toclevels: 2
 :imagesdir: images
+:source-highlighter: rouge
 
 # Embassy Book
 
@@ -12,5 +13,6 @@ Welcome to the Embassy Book. The Embassy Book is for everyone who wants to use E
 
 include::pages/overview.adoc[leveloffset = 1]
 include::pages/beginners.adoc[leveloffset = 1]
+include::pages/developer.adoc[leveloffset = 1]
 include::pages/system.adoc[leveloffset = 1]
 include::pages/faq.adoc[leveloffset = 1]

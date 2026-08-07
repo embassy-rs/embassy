@@ -3,12 +3,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::{I2C0, I2C1};
 use embassy_rp::{bind_interrupts, i2c, i2c_slave};
 use embassy_time::Timer;
 use embedded_hal_async::i2c::I2c;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     I2C0_IRQ => i2c::InterruptHandler<I2C0>;
@@ -18,7 +19,7 @@ bind_interrupts!(struct Irqs {
 const DEV_ADDR: u8 = 0x42;
 
 #[embassy_executor::task]
-async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
+async fn device_task(mut dev: i2c_slave::I2cSlave<'static>) -> ! {
     info!("Device start");
 
     let mut state = 0;
@@ -69,7 +70,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn controller_task(mut con: i2c::I2c<'static, I2C0, i2c::Async>) {
+async fn controller_task(mut con: i2c::I2c<'static, i2c::Async>) {
     info!("Controller start");
 
     loop {
@@ -94,24 +95,24 @@ async fn controller_task(mut con: i2c::I2c<'static, I2C0, i2c::Async>) {
     }
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Hello World!");
 
-    let d_sda = p.PIN_3;
-    let d_scl = p.PIN_2;
+    let d_sda = p.PIN_2;
+    let d_scl = p.PIN_3;
     let mut config = i2c_slave::Config::default();
     config.addr = DEV_ADDR as u16;
-    let device = i2c_slave::I2cSlave::new(p.I2C1, d_sda, d_scl, Irqs, config);
+    let device = i2c_slave::I2cSlave::new(p.I2C1, d_scl, d_sda, Irqs, config);
 
-    unwrap!(spawner.spawn(device_task(device)));
+    spawner.spawn(unwrap!(device_task(device)));
 
-    let c_sda = p.PIN_1;
-    let c_scl = p.PIN_0;
+    let c_sda = p.PIN_0;
+    let c_scl = p.PIN_1;
     let mut config = i2c::Config::default();
     config.frequency = 1_000_000;
-    let controller = i2c::I2c::new_async(p.I2C0, c_sda, c_scl, Irqs, config);
+    let controller = i2c::I2c::new_async(p.I2C0, c_scl, c_sda, Irqs, config);
 
-    unwrap!(spawner.spawn(controller_task(controller)));
+    spawner.spawn(unwrap!(controller_task(controller)));
 }

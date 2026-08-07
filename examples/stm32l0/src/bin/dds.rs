@@ -11,8 +11,8 @@ use embassy_stm32::rcc::*;
 use embassy_stm32::time::hz;
 use embassy_stm32::timer::low_level::{Timer as LLTimer, *};
 use embassy_stm32::timer::simple_pwm::PwmPin;
-use embassy_stm32::timer::Channel;
-use embassy_stm32::{interrupt, pac, Config};
+use embassy_stm32::timer::{Ch3, Channel};
+use embassy_stm32::{Config, interrupt, pac};
 use panic_probe as _;
 
 const DDS_SINE_DATA: [u8; 256] = [
@@ -49,28 +49,31 @@ fn TIM2() {
         pac::TIM2.ccr(2).modify(|w| w.set_ccr(value));
 
         // reset interrupt flag
-        pac::TIM2.sr().modify(|r| r.set_uif(false));
+        pac::TIM2.sr().write(|r| {
+            r.0 = 0xFFFF_FFFF;
+            r.set_uif(false);
+        });
     }
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     // configure for 32MHz (HSI16 * 6 / 3)
     let mut config = Config::default();
-    config.rcc.sys = Sysclk::PLL1_R;
+    config.rcc.sys = Sysclk::Pll1R;
     config.rcc.hsi = true;
     config.rcc.pll = Some(Pll {
-        source: PllSource::HSI,
-        div: PllDiv::DIV3,
-        mul: PllMul::MUL6,
+        source: PllSource::Hsi,
+        div: PllDiv::Div3,
+        mul: PllMul::Mul6,
     });
 
     let p = embassy_stm32::init(config);
 
     // setup PWM pin in AF mode
-    let _ch3 = PwmPin::new_ch3(p.PA2, OutputType::PushPull);
+    let _ch3 = PwmPin::<_, Ch3>::new(p.PA2, OutputType::PushPull);
 
     // initialize timer
     // we cannot use SimplePWM here because the Time is privately encapsulated
@@ -80,7 +83,7 @@ async fn main(_spawner: Spawner) {
     timer.set_counting_mode(CountingMode::EdgeAlignedUp);
 
     // set pwm sample frequency
-    timer.set_frequency(hz(15625));
+    timer.set_frequency(hz(15625), RoundTo::Slower);
 
     // enable outputs
     timer.enable_outputs();

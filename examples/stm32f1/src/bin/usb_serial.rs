@@ -2,17 +2,18 @@
 #![no_main]
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_time::Timer;
+use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::Builder;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USB_LP_CAN1_RX0 => usb::InterruptHandler<peripherals::USB>;
@@ -30,13 +31,13 @@ async fn main(_spawner: Spawner) {
         });
         config.rcc.pll = Some(Pll {
             src: PllSource::HSE,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL9,
+            prediv: PllPreDiv::Div1,
+            mul: PllMul::Mul9,
         });
-        config.rcc.sys = Sysclk::PLL1_P;
-        config.rcc.ahb_pre = AHBPrescaler::DIV1;
-        config.rcc.apb1_pre = APBPrescaler::DIV2;
-        config.rcc.apb2_pre = APBPrescaler::DIV1;
+        config.rcc.sys = Sysclk::Pll1P;
+        config.rcc.ahb_pre = AHBPrescaler::Div1;
+        config.rcc.apb1_pre = APBPrescaler::Div2;
+        config.rcc.apb2_pre = APBPrescaler::Div1;
     }
     let mut p = embassy_stm32::init(config);
 
@@ -47,7 +48,7 @@ async fn main(_spawner: Spawner) {
         // Pull the D+ pin down to send a RESET condition to the USB bus.
         // This forced reset is needed only for development, without it host
         // will not reset your device when you upload new firmware.
-        let _dp = Output::new(&mut p.PA12, Level::Low, Speed::Low);
+        let _dp = Output::new(p.PA12.reborrow(), Level::Low, Speed::Low);
         Timer::after_millis(10).await;
     }
 

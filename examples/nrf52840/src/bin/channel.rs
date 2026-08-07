@@ -2,12 +2,13 @@
 #![no_main]
 
 use defmt::unwrap;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 enum LedState {
     On,
@@ -31,7 +32,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
 
-    unwrap!(spawner.spawn(my_task()));
+    spawner.spawn(unwrap!(my_task()));
 
     loop {
         match CHANNEL.receive().await {

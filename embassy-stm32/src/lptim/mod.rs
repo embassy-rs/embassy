@@ -2,14 +2,18 @@
 
 pub mod pwm;
 pub mod timer;
+pub(crate) mod vals;
 
 use crate::rcc::RccPeripheral;
 
 /// Timer channel.
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 mod channel;
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 pub use channel::Channel;
+use embassy_hal_internal::PeripheralType;
+
+use crate::interrupt;
 
 pin_trait!(OutputPin, BasicInstance);
 pin_trait!(Channel1Pin, BasicInstance);
@@ -18,11 +22,14 @@ pin_trait!(Channel2Pin, BasicInstance);
 pub(crate) trait SealedInstance: RccPeripheral {
     fn regs() -> crate::pac::lptim::Lptim;
 }
-pub(crate) trait SealedBasicInstance: RccPeripheral {}
+
+pub(crate) trait SealedBasicInstance: RccPeripheral {
+    type GlobalInterrupt: interrupt::typelevel::Interrupt;
+}
 
 /// LPTIM basic instance trait.
 #[allow(private_bounds)]
-pub trait BasicInstance: SealedBasicInstance + 'static {}
+pub trait BasicInstance: PeripheralType + SealedBasicInstance + 'static {}
 
 /// LPTIM instance trait.
 #[allow(private_bounds)]
@@ -36,12 +43,14 @@ foreach_interrupt! {
             }
         }
         impl SealedBasicInstance for crate::peripherals::$inst {
+            type GlobalInterrupt = crate::interrupt::typelevel::$irq;
         }
         impl BasicInstance for crate::peripherals::$inst {}
         impl Instance for crate::peripherals::$inst {}
     };
     ($inst:ident, lptim, LPTIM_BASIC, GLOBAL, $irq:ident) => {
         impl SealedBasicInstance for crate::peripherals::$inst {
+            type GlobalInterrupt = crate::interrupt::typelevel::$irq;
         }
         impl BasicInstance for crate::peripherals::$inst {}
     };

@@ -1,8 +1,11 @@
 use crate::pac::flash::vals::Latency;
+#[cfg(rcc_c0v2)]
+pub use crate::pac::rcc::vals::Sysdiv as SysDiv;
 pub use crate::pac::rcc::vals::{
-    Hpre as AHBPrescaler, Hsidiv as HsiSysDiv, Hsikerdiv as HsiKerDiv, Ppre as APBPrescaler, Sw as Sysclk,
+    Hpre as AHBPrescaler, Hsidiv as HsiDiv, Hsikerdiv as HsiKerDiv, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, RCC};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -29,8 +32,8 @@ pub struct Hse {
 /// HSI Configuration
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Hsi {
-    /// Division factor for HSISYS clock. Default is 4.
-    pub sys_div: HsiSysDiv,
+    /// Division factor (HSIDIV) applied to HSI to produce HSISYS. Default is 4.
+    pub div: HsiDiv,
     /// Division factor for HSIKER clock. Default is 3.
     pub ker_div: HsiKerDiv,
 }
@@ -48,6 +51,14 @@ pub struct Config {
     /// System Clock Configuration
     pub sys: Sysclk,
 
+    /// Division factor (SYSDIV) applied to the output of the system clock mux to produce SYSCLK.
+    #[cfg(rcc_c0v2)]
+    pub sys_div: SysDiv,
+
+    /// HSI48 Configuration
+    #[cfg(crs)]
+    pub hsi48: Option<super::Hsi48Config>,
+
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
 
@@ -58,48 +69,54 @@ pub struct Config {
     pub mux: super::mux::ClockMux,
 }
 
-impl Default for Config {
-    #[inline]
-    fn default() -> Config {
+impl Config {
+    pub const fn new() -> Self {
         Config {
             hsi: Some(Hsi {
-                sys_div: HsiSysDiv::DIV4,
-                ker_div: HsiKerDiv::DIV3,
+                div: HsiDiv::Div4,
+                ker_div: HsiKerDiv::Div3,
             }),
             hse: None,
-            sys: Sysclk::HSISYS,
-            ahb_pre: AHBPrescaler::DIV1,
-            apb1_pre: APBPrescaler::DIV1,
-            ls: Default::default(),
-            mux: Default::default(),
+            sys: Sysclk::Hsisys,
+            #[cfg(rcc_c0v2)]
+            sys_div: SysDiv::Div1,
+            #[cfg(crs)]
+            hsi48: Some(crate::rcc::Hsi48Config::new()),
+            ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
+            ls: crate::rcc::LsConfig::new(),
+            mux: super::mux::ClockMux::default(),
         }
     }
 }
 
-pub(crate) unsafe fn init(config: Config) {
-    // Turn on the HSI
-    match config.hsi {
-        None => RCC.cr().modify(|w| w.set_hsion(true)),
-        Some(hsi) => RCC.cr().modify(|w| {
-            w.set_hsidiv(hsi.sys_div);
-            w.set_hsikerdiv(hsi.ker_div);
-            w.set_hsion(true);
-        }),
+impl Default for Config {
+    fn default() -> Config {
+        Self::new()
     }
+}
+
+pub(crate) unsafe fn init(config: Config) {
+    // Configure the maximum flash read access latency up front, before anything that can raise the
+    // core frequency. Nothing below knows what the incoming configuration is: after a bootloader
+    // hands over without an intervening reset, HSIDIV may already be at /1, so even the switch to
+    // HSISYS a few lines down can take the core to 48 MHz. The latency is relaxed to the value the
+    // final HCLK actually requires once the clock tree has settled.
+    FLASH.acr().modify(|w| w.set_latency(Latency::Ws1));
+    while FLASH.acr().read().latency() != Latency::Ws1 {}
+
+    // Turn on the HSI and use it, at whatever divider it is currently set to, as system clock
+    // during the actual clock setup.
+    RCC.cr().modify(|w| w.set_hsion(true));
     while !RCC.cr().read().hsirdy() {}
 
-    // Use the HSI clock as system clock during the actual clock setup
-    RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSISYS));
-    while RCC.cfgr().read().sws() != Sysclk::HSISYS {}
+    RCC.cfgr().modify(|w| w.set_sw(Sysclk::Hsisys));
+    while RCC.cfgr().read().sws() != Sysclk::Hsisys {}
 
     // Configure HSI
     let (hsi, hsisys, hsiker) = match config.hsi {
         None => (None, None, None),
-        Some(hsi) => (
-            Some(HSI_FREQ),
-            Some(HSI_FREQ / hsi.sys_div),
-            Some(HSI_FREQ / hsi.ker_div),
-        ),
+        Some(hsi) => (Some(HSI_FREQ), Some(HSI_FREQ / hsi.div), Some(HSI_FREQ / hsi.ker_div)),
     };
 
     // Configure HSE
@@ -121,11 +138,27 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    // Configure HSI48 if required
+    #[cfg(crs)]
+    let hsi48 = config.hsi48.map(super::init_hsi48);
+
+    let rtc = config.ls.init();
+
+    // Output of the system clock mux.
     let sys = match config.sys {
-        Sysclk::HSISYS => unwrap!(hsisys),
-        Sysclk::HSE => unwrap!(hse),
+        Sysclk::Hsisys => unwrap!(hsisys),
+        Sysclk::Hse => unwrap!(hse),
+        Sysclk::Lsi => {
+            assert!(config.ls.lsi);
+            LSI_FREQ
+        }
+        Sysclk::Lse => unwrap!(config.ls.lse).frequency,
         _ => unreachable!(),
     };
+
+    // SYSDIV divides the mux output to produce SYSCLK.
+    #[cfg(rcc_c0v2)]
+    let sys = sys / config.sys_div;
 
     rcc_assert!(max::SYSCLK.contains(&sys));
 
@@ -137,19 +170,27 @@ pub(crate) unsafe fn init(config: Config) {
     rcc_assert!(max::PCLK.contains(&pclk1));
 
     let latency = match hclk.0 {
-        ..=24_000_000 => Latency::WS0,
-        _ => Latency::WS1,
+        ..=24_000_000 => Latency::Ws0,
+        _ => Latency::Ws1,
     };
 
-    // Configure flash read access latency based on voltage scale and frequency
-    FLASH.acr().modify(|w| {
-        w.set_latency(latency);
-    });
+    // Configure the HSI dividers.
+    if let Some(hsi) = config.hsi {
+        RCC.cr().modify(|w| {
+            w.set_hsidiv(hsi.div);
+            w.set_hsikerdiv(hsi.ker_div);
+        });
+    }
 
-    // Spin until the effective flash latency is set.
-    while FLASH.acr().read().latency() != latency {}
+    // Now that the flash read access latency is configured, set up SYSCLK. SYSDIV has no ready
+    // flag; RM0490 documents reading a divider back to check its content, which also keeps the
+    // write from still being in flight when the latency is relaxed below.
+    #[cfg(rcc_c0v2)]
+    {
+        RCC.cr().modify(|w| w.set_sysdiv(config.sys_div));
+        while RCC.cr().read().sysdiv() != config.sys_div {}
+    }
 
-    // Now that boost mode and flash read access latency are configured, set up SYSCLK
     RCC.cfgr().modify(|w| {
         w.set_sw(config.sys);
         w.set_hpre(config.ahb_pre);
@@ -157,12 +198,23 @@ pub(crate) unsafe fn init(config: Config) {
     });
     while RCC.cfgr().read().sws() != config.sys {}
 
+    // The clock tree has settled, so the flash read access latency can be relaxed to the value the
+    // final HCLK actually requires. Spin until the effective flash latency is set.
+    if latency != Latency::Ws1 {
+        FLASH.acr().modify(|w| w.set_latency(latency));
+        while FLASH.acr().read().latency() != latency {}
+    }
+
     // Disable HSI if not used
     if config.hsi.is_none() {
         RCC.cr().modify(|w| w.set_hsion(false));
     }
 
-    let rtc = config.ls.init();
+    // Disable the HSI48, if not used
+    #[cfg(crs)]
+    if config.hsi48.is_none() {
+        super::disable_hsi48();
+    }
 
     config.mux.init();
 
@@ -174,12 +226,17 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: hsi,
         hsiker: hsiker,
         hse: hse,
+        #[cfg(crs)]
+        hsi48: hsi48,
         rtc: rtc,
 
         // TODO
         lsi: None,
         lse: None,
     );
+
+    RCC.ccipr()
+        .modify(|w| w.set_adc1sel(stm32_metapac::rcc::vals::Adcsel::Sys));
 }
 
 mod max {

@@ -2,19 +2,20 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let ch1_pin = PwmPin::new_ch1(p.PC0, OutputType::PushPull);
+    let ch1_pin = PwmPin::new(p.PC0, OutputType::PushPull);
     let mut pwm = SimplePwm::new(p.TIM1, Some(ch1_pin), None, None, None, khz(10), Default::default());
     let mut ch1 = pwm.ch1();
     ch1.enable();

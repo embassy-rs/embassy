@@ -1,8 +1,10 @@
 use embassy_futures::yield_now;
 
+use crate::SetConfig;
+
 /// Wrapper that yields for each operation to the wrapped instance
 ///
-/// This can be used in combination with BlockingAsync<T> to enforce yields
+/// This can be used in combination with [super::BlockingAsync] to enforce yields
 /// between long running blocking operations.
 pub struct YieldingAsync<T> {
     wrapped: T,
@@ -105,6 +107,18 @@ where
 }
 
 ///
+/// Implementations relating to both I2C and SPI
+///
+
+impl<T: SetConfig> SetConfig for YieldingAsync<T> {
+    type Config = T::Config;
+    type ConfigError = T::ConfigError;
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.wrapped.set_config(config)
+    }
+}
+
+///
 /// NOR flash implementations
 ///
 impl<T: embedded_storage::nor_flash::ErrorType> embedded_storage::nor_flash::ErrorType for YieldingAsync<T> {
@@ -145,6 +159,11 @@ impl<T: embedded_storage_async::nor_flash::NorFlash> embedded_storage_async::nor
         }
         Ok(())
     }
+}
+
+impl<T: embedded_storage_async::nor_flash::MultiwriteNorFlash> embedded_storage_async::nor_flash::MultiwriteNorFlash
+    for YieldingAsync<T>
+{
 }
 
 #[cfg(test)]

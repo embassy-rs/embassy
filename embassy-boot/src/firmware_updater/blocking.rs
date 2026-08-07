@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
-use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{BOOT_MAGIC, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, State};
 
 /// Blocking FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
@@ -55,7 +55,7 @@ impl<'a, DFU: NorFlash, STATE: NorFlash>
         dfu_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<DFU>>,
         state_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<STATE>>,
     ) -> Self {
-        extern "C" {
+        unsafe extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
             static __bootloader_dfu_start: u32;
@@ -150,6 +150,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
             use salty::{PublicKey, Signature};
 
             use crate::digest_adapters::salty::Sha512;
+            use crate::fmt::Bytes;
 
             fn into_signature_error<E>(_: E) -> FirmwareUpdaterError {
                 FirmwareUpdaterError::Signature(signature::Error::default())
@@ -165,9 +166,9 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
             let r = public_key.verify(&message, &signature);
             trace!(
                 "Verifying with public key {}, signature {} and message {} yields ok: {}",
-                public_key.to_bytes(),
-                signature.to_bytes(),
-                message,
+                Bytes(&public_key.to_bytes()),
+                Bytes(&signature.to_bytes()),
+                Bytes(&message),
                 r.is_ok()
             );
             r.map_err(into_signature_error)?;
@@ -193,6 +194,17 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
             digest.update(&chunk_buf[..len]);
         }
         output.copy_from_slice(digest.finalize().as_slice());
+        Ok(())
+    }
+
+    /// Read a slice of data from the DFU storage peripheral, starting the read
+    /// operation at the given address offset, and reading `buf.len()` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the arguments are not aligned or out of bounds.
+    pub fn read_dfu(&mut self, offset: u32, buf: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
+        self.dfu.read(offset, buf)?;
         Ok(())
     }
 
@@ -388,8 +400,8 @@ mod tests {
     use core::cell::RefCell;
 
     use embassy_embedded_hal::flash::partition::BlockingPartition;
-    use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     use embassy_sync::blocking_mutex::Mutex;
+    use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     use sha1::{Digest, Sha1};
 
     use super::*;

@@ -9,3 +9,7 @@ include::project_structure.adoc[leveloffset = 2]
 include::new_project.adoc[leveloffset = 2]
 include::best_practices.adoc[leveloffset = 2]
 include::layer_by_layer.adoc[leveloffset = 2]
+
+== What's next?
+
+Now that you're familiar with the basics, the xref:_system_description[System description] section covers the executor, HALs, bootloader, and other Embassy components in more detail.

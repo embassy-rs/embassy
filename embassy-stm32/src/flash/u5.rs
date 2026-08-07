@@ -1,17 +1,9 @@
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
-use super::{FlashBank, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashBank, FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
-}
 
 pub(crate) unsafe fn lock() {
     #[cfg(feature = "trustzone-secure")]
@@ -35,25 +27,46 @@ pub(crate) unsafe fn unlock() {
 
 pub(crate) unsafe fn enable_blocking_write() {
     assert_eq!(0, WRITE_SIZE % 4);
+    // STM32WBA: quad-word programming only; WRITE_SIZE must be 16.
+    #[cfg(flash_wba)]
+    const _: () = core::assert!(WRITE_SIZE == 16);
 
     #[cfg(feature = "trustzone-secure")]
     pac::FLASH.seccr().write(|w| {
-        w.set_pg(pac::flash::vals::SeccrPg::B_0X1);
+        w.set_pg(true);
     });
     #[cfg(not(feature = "trustzone-secure"))]
     pac::FLASH.nscr().write(|w| {
-        w.set_pg(pac::flash::vals::NscrPg::B_0X1);
+        w.set_pg(true);
     });
 }
 
 pub(crate) unsafe fn disable_blocking_write() {
     #[cfg(feature = "trustzone-secure")]
-    pac::FLASH.seccr().write(|w| w.set_pg(pac::flash::vals::SeccrPg::B_0X0));
+    pac::FLASH.seccr().write(|w| w.set_pg(false));
     #[cfg(not(feature = "trustzone-secure"))]
-    pac::FLASH.nscr().write(|w| w.set_pg(pac::flash::vals::NscrPg::B_0X0));
+    pac::FLASH.nscr().write(|w| w.set_pg(false));
+}
+
+/// Wait until write buffer is empty (WDW) and no operation is in progress (BSY).
+/// Per RM: check before starting a new program; after writing, wait WDW then BSY.
+unsafe fn blocking_wait_wdw_and_bsy() {
+    loop {
+        #[cfg(feature = "trustzone-secure")]
+        let sr = pac::FLASH.secsr().read();
+        #[cfg(not(feature = "trustzone-secure"))]
+        let sr = pac::FLASH.nssr().read();
+
+        if !sr.wdw() && !sr.bsy() {
+            return;
+        }
+    }
 }
 
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
+    // Per RM: before programming, ensure WDW (write buffer empty) and BSY (no op ongoing).
+    blocking_wait_wdw_and_bsy();
+
     let mut address = start_address;
     for val in buf.chunks(4) {
         write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
@@ -69,22 +82,24 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
     #[cfg(feature = "trustzone-secure")]
     pac::FLASH.seccr().modify(|w| {
-        w.set_per(pac::flash::vals::SeccrPer::B_0X1);
+        w.set_per(pac::flash::vals::SeccrPer::B0x1);
         w.set_pnb(sector.index_in_bank);
         // TODO: add check for bank swap
         w.set_bker(match sector.bank {
-            FlashBank::Bank1 => pac::flash::vals::SeccrBker::B_0X0,
-            FlashBank::Bank2 => pac::flash::vals::SeccrBker::B_0X1,
+            FlashBank::Bank1 => false,
+            FlashBank::Bank2 => true,
+            _ => unreachable!(),
         });
     });
     #[cfg(not(feature = "trustzone-secure"))]
     pac::FLASH.nscr().modify(|w| {
-        w.set_per(pac::flash::vals::NscrPer::B_0X1);
+        w.set_per(true);
         w.set_pnb(sector.index_in_bank);
         // TODO: add check for bank swap
         w.set_bker(match sector.bank {
-            FlashBank::Bank1 => pac::flash::vals::NscrBker::B_0X0,
-            FlashBank::Bank2 => pac::flash::vals::NscrBker::B_0X1,
+            FlashBank::Bank1 => false,
+            FlashBank::Bank2 => true,
+            _ => unreachable!(),
         });
     });
 
@@ -99,34 +114,49 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 
     let ret: Result<(), Error> = blocking_wait_ready();
     #[cfg(feature = "trustzone-secure")]
-    pac::FLASH
-        .seccr()
-        .modify(|w| w.set_per(pac::flash::vals::SeccrPer::B_0X0));
+    pac::FLASH.seccr().modify(|w| w.set_per(false));
     #[cfg(not(feature = "trustzone-secure"))]
-    pac::FLASH
-        .nscr()
-        .modify(|w| w.set_per(pac::flash::vals::NscrPer::B_0X0));
+    pac::FLASH.nscr().modify(|w| w.set_per(false));
     clear_all_err();
     ret
 }
 
 pub(crate) unsafe fn clear_all_err() {
-    // read and write back the same value.
-    // This clears all "write 1 to clear" bits.
+    // Explicit clear of all "write 1 to clear" bits in NSSR/SECSR (per RM).
+    // EOP, OPERR, PROGERR, WRPERR, PGAERR, SIZERR, PGSERR, OPTWERR.
     #[cfg(feature = "trustzone-secure")]
-    pac::FLASH.secsr().modify(|_| {});
+    pac::FLASH.secsr().modify(|w| {
+        w.set_eop(true);
+        w.set_operr(true);
+        w.set_progerr(true);
+        w.set_wrperr(true);
+        w.set_pgaerr(true);
+        w.set_sizerr(true);
+        w.set_pgserr(true);
+        w.set_optwerr(true);
+    });
     #[cfg(not(feature = "trustzone-secure"))]
-    pac::FLASH.nssr().modify(|_| {});
+    pac::FLASH.nssr().modify(|w| {
+        w.set_eop(true);
+        w.set_operr(true);
+        w.set_progerr(true);
+        w.set_wrperr(true);
+        w.set_pgaerr(true);
+        w.set_sizerr(true);
+        w.set_pgserr(true);
+        w.set_optwerr(true);
+    });
 }
 
 unsafe fn blocking_wait_ready() -> Result<(), Error> {
+    // Per RM: wait until WDW is cleared, then until BSY is cleared.
     loop {
         #[cfg(feature = "trustzone-secure")]
         let sr = pac::FLASH.secsr().read();
         #[cfg(not(feature = "trustzone-secure"))]
         let sr = pac::FLASH.nssr().read();
 
-        if !sr.bsy() {
+        if !sr.wdw() && !sr.bsy() {
             if sr.pgserr() {
                 return Err(Error::Seq);
             }
@@ -144,6 +174,10 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
             }
 
             if sr.progerr() {
+                return Err(Error::Prog);
+            }
+
+            if sr.operr() {
                 return Err(Error::Prog);
             }
 

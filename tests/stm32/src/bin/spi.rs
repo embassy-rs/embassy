@@ -8,10 +8,15 @@ use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode::Blocking;
+use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{self, Spi, Word};
 use embassy_stm32::time::Hertz;
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");
@@ -25,10 +30,10 @@ async fn main(_spawner: Spawner) {
     spi_config.frequency = Hertz(1_000_000);
 
     let mut spi = Spi::new_blocking(
-        &mut spi_peri,
-        &mut sck,  // Arduino D13
-        &mut mosi, // Arduino D11
-        &mut miso, // Arduino D12
+        spi_peri.reborrow(),
+        sck.reborrow(),  // Arduino D13
+        mosi.reborrow(), // Arduino D11
+        miso.reborrow(), // Arduino D12
         spi_config,
     );
 
@@ -43,20 +48,20 @@ async fn main(_spawner: Spawner) {
     defmt::assert!(!embassy_stm32::pac::RCC.apb2enr().read().spi1en());
 
     // test rx-only configuration
-    let mut spi = Spi::new_blocking_rxonly(&mut spi_peri, &mut sck, &mut miso, spi_config);
-    let mut mosi_out = Output::new(&mut mosi, Level::Low, Speed::VeryHigh);
+    let mut spi = Spi::new_blocking_rxonly(spi_peri.reborrow(), sck.reborrow(), miso.reborrow(), spi_config);
+    let mut mosi_out = Output::new(mosi.reborrow(), Level::Low, Speed::VeryHigh);
 
     test_rx::<u8>(&mut spi, &mut mosi_out);
     test_rx::<u16>(&mut spi, &mut mosi_out);
     drop(spi);
     drop(mosi_out);
 
-    let mut spi = Spi::new_blocking_txonly(&mut spi_peri, &mut sck, &mut mosi, spi_config);
+    let mut spi = Spi::new_blocking_txonly(spi_peri.reborrow(), sck.reborrow(), mosi.reborrow(), spi_config);
     test_tx::<u8>(&mut spi);
     test_tx::<u16>(&mut spi);
     drop(spi);
 
-    let mut spi = Spi::new_blocking_txonly_nosck(&mut spi_peri, &mut mosi, spi_config);
+    let mut spi = Spi::new_blocking_txonly_nosck(spi_peri.reborrow(), mosi.reborrow(), spi_config);
     test_tx::<u8>(&mut spi);
     test_tx::<u16>(&mut spi);
     drop(spi);
@@ -65,7 +70,7 @@ async fn main(_spawner: Spawner) {
     cortex_m::asm::bkpt();
 }
 
-fn test_txrx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking>)
+fn test_txrx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking, Master>)
 where
     W: core::ops::Not<Output = W>,
 {
@@ -109,7 +114,7 @@ where
     spi.blocking_write::<u8>(&[]).unwrap();
 }
 
-fn test_rx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking>, mosi_out: &mut Output<'_>)
+fn test_rx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking, Master>, mosi_out: &mut Output<'_>)
 where
     W: core::ops::Not<Output = W>,
 {
@@ -125,7 +130,7 @@ where
     spi.blocking_read::<u8>(&mut []).unwrap();
 }
 
-fn test_tx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking>)
+fn test_tx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking, Master>)
 where
     W: core::ops::Not<Output = W>,
 {

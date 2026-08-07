@@ -1,14 +1,14 @@
 #![no_std]
 #![no_main]
-#![feature(type_alias_impl_trait)]
 
-use {defmt_rtt as _, panic_probe as _};
+use defmt_rtt as _;
+use panic_probe as _;
 
 #[rtic::app(device = embassy_nrf, peripherals = false, dispatchers = [EGU0_SWI0, EGU1_SWI1])]
 mod app {
     use defmt::info;
     use embassy_nrf::gpio::{Level, Output, OutputDrive};
-    use embassy_nrf::peripherals;
+    use embassy_nrf::{Peri, peripherals};
     use embassy_time::Timer;
 
     #[shared]
@@ -28,16 +28,17 @@ mod app {
     }
 
     #[task(priority = 1)]
-    async fn blink(_cx: blink::Context, pin: peripherals::P0_13) {
+    async fn blink(_cx: blink::Context, pin: Peri<'static, peripherals::P0_13>) {
         let mut led = Output::new(pin, Level::Low, OutputDrive::Standard);
 
         loop {
-            info!("off!");
+            info!("led on!");
             led.set_high();
-            Timer::after_millis(300).await;
-            info!("on!");
+            Timer::after_millis(500).await;
+
+            info!("led off!");
             led.set_low();
-            Timer::after_millis(300).await;
+            Timer::after_millis(500).await;
         }
     }
 }

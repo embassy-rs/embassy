@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 static MUTEX: Mutex<ThreadModeRawMutex, u32> = Mutex::new(0);
 
@@ -30,7 +31,7 @@ async fn my_task() {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let _p = embassy_nrf::init(Default::default());
-    unwrap!(spawner.spawn(my_task()));
+    spawner.spawn(unwrap!(my_task()));
 
     loop {
         Timer::after_millis(300).await;

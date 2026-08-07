@@ -40,7 +40,7 @@ where
     // using a wrong divisor, but we'll restore the divisor and result ourselves correctly.
     // This sets DIRTY, so any interruptor will save the state.
     sio.div().udividend().write_value(dividend);
-    // If we are interrupted here, the the interruptor may start the calculation using
+    // If we are interrupted here, the interruptor may start the calculation using
     // incorrectly signed inputs, but we'll restore the result ourselves.
     // This sets DIRTY, so any interruptor will save the state.
     sio.div().udivisor().write_value(divisor);

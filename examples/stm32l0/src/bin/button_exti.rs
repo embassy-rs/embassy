@@ -2,18 +2,24 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::Config;
-use {defmt_rtt as _, panic_probe as _};
+use embassy_stm32::{Config, bind_interrupts, interrupt};
+use panic_probe as _;
 
-#[embassy_executor::main]
+bind_interrupts!(
+    pub struct Irqs{
+        EXTI2_3 => exti::InterruptHandler<interrupt::typelevel::EXTI2_3>;
+});
+
+#[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let config = Config::default();
     let p = embassy_stm32::init(config);
 
-    let mut button = ExtiInput::new(p.PB2, p.EXTI2, Pull::Up);
+    let mut button = ExtiInput::new(p.PB2, p.EXTI2, Pull::Up, Irqs);
 
     info!("Press the USER button...");
 

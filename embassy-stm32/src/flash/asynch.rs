@@ -1,28 +1,29 @@
 use core::marker::PhantomData;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::into_ref;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use super::{
-    blocking_read, ensure_sector_aligned, family, get_sector, Async, Error, Flash, FlashLayout, FLASH_BASE, FLASH_SIZE,
-    WRITE_SIZE,
+use crate::flash::{
+    Async, Error, FLASH_BASE, FLASH_SIZE, Flash, FlashLayout, WRITE_SIZE, blocking_read, check_flash_address,
+    ensure_sector_aligned, family, get_flash_regions, get_sector,
 };
 use crate::interrupt::InterruptExt;
 use crate::peripherals::FLASH;
-use crate::{interrupt, Peripheral};
+use crate::{Peri, interrupt};
 
 pub(super) static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 
 impl<'d> Flash<'d, Async> {
     /// Create a new flash driver with async capabilities.
     pub fn new(
-        p: impl Peripheral<P = FLASH> + 'd,
+        p: Peri<'d, FLASH>,
         _irq: impl interrupt::typelevel::Binding<crate::interrupt::typelevel::FLASH, InterruptHandler> + 'd,
     ) -> Self {
-        into_ref!(p);
+        #[cfg(bank_setup_configurable)]
+        // Check if the hardware bank mode matches the selected embassy feature.
+        super::check_bank_setup();
 
         crate::interrupt::FLASH.unpend();
         unsafe { crate::interrupt::FLASH.enable() };
@@ -37,7 +38,6 @@ impl<'d> Flash<'d, Async> {
     ///
     /// See module-level documentation for details on how memory regions work.
     pub fn into_regions(self) -> FlashLayout<'d, Async> {
-        assert!(family::is_default_layout());
         FlashLayout::new(self.inner)
     }
 
@@ -46,7 +46,8 @@ impl<'d> Flash<'d, Async> {
     /// NOTE: `offset` is an offset from the flash start, NOT an absolute address.
     /// For example, to write address `0x0800_1234` you have to use offset `0x1234`.
     pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
-        unsafe { write_chunked(FLASH_BASE as u32, FLASH_SIZE as u32, offset, bytes).await }
+        let (base, size, offset) = check_flash_address(FLASH_BASE as u32, offset)?;
+        unsafe { write_chunked(base, size, offset, bytes).await }
     }
 
     /// Async erase.
@@ -126,7 +127,7 @@ pub(super) async unsafe fn write_chunked(base: u32, size: u32, offset: u32, byte
 pub(super) async unsafe fn erase_sectored(base: u32, from: u32, to: u32) -> Result<(), Error> {
     let start_address = base + from;
     let end_address = base + to;
-    let regions = family::get_flash_regions();
+    let regions = get_flash_regions();
 
     ensure_sector_aligned(start_address, end_address, regions)?;
 
@@ -134,7 +135,7 @@ pub(super) async unsafe fn erase_sectored(base: u32, from: u32, to: u32) -> Resu
 
     let mut address = start_address;
     while address < end_address {
-        let sector = get_sector(address, regions);
+        let sector = get_sector(address, regions)?;
         trace!("Erasing sector: {:?}", sector);
 
         family::clear_all_err();
@@ -157,19 +158,19 @@ foreach_flash_region! {
             ///
             /// Note: reading from flash can't actually block, so this is the same as `blocking_read`.
             pub async fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Error> {
-                blocking_read(self.0.base, self.0.size, offset, bytes)
+                blocking_read(self.0.base(), self.0.size, offset, bytes)
             }
 
             /// Async write.
             pub async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Error> {
                 let _guard = REGION_ACCESS.lock().await;
-                unsafe { write_chunked(self.0.base, self.0.size, offset, bytes).await }
+                unsafe { write_chunked(self.0.base(), self.0.size, offset, bytes).await }
             }
 
             /// Async erase.
             pub async fn erase(&mut self, from: u32, to: u32) -> Result<(), Error> {
                 let _guard = REGION_ACCESS.lock().await;
-                unsafe { erase_sectored(self.0.base, from, to).await }
+                unsafe { erase_sectored(self.0.base(), from, to).await }
             }
         }
 

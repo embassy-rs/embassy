@@ -5,6 +5,7 @@ teleprobe_meta::target!(b"ak-gwe-r7");
 teleprobe_meta::timeout!(120);
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_enc28j60::Enc28j60;
@@ -14,15 +15,15 @@ use embassy_nrf::spim::{self, Spim};
 use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;
     RNG => embassy_nrf::rng::InterruptHandler<peripherals::RNG>;
 });
 
-type MyDriver = Enc28j60<ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>, Output<'static>>;
+type MyDriver = Enc28j60<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Output<'static>>;
 
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, MyDriver>) -> ! {
@@ -68,7 +69,7 @@ async fn main(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
         stack,

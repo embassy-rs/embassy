@@ -376,47 +376,47 @@ impl R {
 impl W {
     #[doc = "Byte 0 - Bits 0:28 - ID"]
     #[inline(always)]
-    pub fn id(&mut self) -> ID_W {
+    pub fn id(&mut self) -> ID_W<'_> {
         ID_W { w: self }
     }
     #[doc = "Byte 0 - Bit 29 - RTR"]
     #[inline(always)]
-    pub fn rtr(&mut self) -> RTR_W {
+    pub fn rtr(&mut self) -> RTR_W<'_> {
         RTR_W { w: self }
     }
     #[doc = "Byte 0 - Bit 30 - XTD"]
     #[inline(always)]
-    pub fn xtd(&mut self) -> XTD_W {
+    pub fn xtd(&mut self) -> XTD_W<'_> {
         XTD_W { w: self }
     }
     #[doc = "Byte 0 - Bit 31 - ESI"]
     #[inline(always)]
-    pub fn esi(&mut self) -> ESI_W {
+    pub fn esi(&mut self) -> ESI_W<'_> {
         ESI_W { w: self }
     }
     #[doc = "Byte 1 - Bit 16:19 - DLC"]
     #[inline(always)]
-    pub fn dlc(&mut self) -> DLC_W {
+    pub fn dlc(&mut self) -> DLC_W<'_> {
         DLC_W { w: self }
     }
     #[doc = "Byte 1 - Bit 20 - BRS"]
     #[inline(always)]
-    pub fn brs(&mut self) -> BRS_W {
+    pub fn brs(&mut self) -> BRS_W<'_> {
         BRS_W { w: self }
     }
     #[doc = "Byte 1 - Bit 21 - FDF"]
     #[inline(always)]
-    pub fn fdf(&mut self) -> FDF_W {
+    pub fn fdf(&mut self) -> FDF_W<'_> {
         FDF_W { w: self }
     }
     #[doc = "Byte 1 - Bit 23 - EFC"]
     #[inline(always)]
-    pub fn efc(&mut self) -> EFC_W {
+    pub fn efc(&mut self) -> EFC_W<'_> {
         EFC_W { w: self }
     }
     #[doc = "Byte 1 - Bit 24:31 - MM"]
     #[inline(always)]
-    pub fn mm(&mut self) -> MM_W {
+    pub fn mm(&mut self) -> MM_W<'_> {
         MM_W { w: self }
     }
     #[doc = "Convenience function for setting the data length and frame format"]

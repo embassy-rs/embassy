@@ -5,7 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+<!-- next-header -->
+## Unreleased - ReleaseDate
+
+- `CriticalSectionRawMutex` now implements `Clone + Copy`.
+- Add `write_all` as a method to `pipe::Writer`, trait import not strictly necessary anymore.
+- `AtomicWaker` is now lockless: `register()` and `wake()` no longer enter a critical section,
+  using a small atomic state machine (ported from `futures::task::AtomicWaker`).
+- `AtomicWaker`: document that callers must re-register the waker on every `poll()`.  The new
+  implementation may consume the stored waker as part of resolving a `register`/`wake` race
+  (the consumed waker is always woken, never dropped), so a caller that relied on a one-shot
+  registration surviving multiple polls without re-registering will need to re-register. This
+  matches the `Future::poll` contract ("on multiple calls to poll, only the `Waker` from the
+  most recent `Context` should be scheduled to receive a wakeup") and the pattern used by every
+  in-tree waker site, so no in-tree caller is affected; out-of-tree callers that worked by
+  accident on the previous lock-based implementation may need to adjust.
+- Added `CriticalSectionWaker`, a non-generic convenience wrapper around
+  `GenericAtomicWaker<CriticalSectionRawMutex>` for callers that want the previous
+  critical-section-based semantics without spelling out the mutex parameter.
+- Added `Pipe::try_write_all` method which repeatedly calls `Pipe::try_write` until all
+  bytes were written.
+- Implement `core::error::Error` for `channel::TryReceiveError` and `channel::TrySendError`.
+- Made `Signal::poll_wait` public.
+- Made `Subscriber::poll_next_message` public.
+- Made `watch::Receiver::poll_changed` public.
+
+## 0.8.0 - 2026-03-10
+- Fix wakers getting dropped by `Signal::reset`
+- Remove `Sized` trait bound from `MutexGuard::map`
+- Update to `embedded-io-async` 0.7.0
+- Fix `Pipe::try_write` docs
+- Implement `futures_sink::Sink` for `Channel` and `channel::Sender`
+
+## 0.7.2 - 2025-08-26
+
+- Add `get_mut` to `LazyLock`
+- Add more `Debug` impls to `embassy-sync`, particularly on `OnceLock`
+
+## 0.7.0 - 2025-05-28
+
+- Add `remove_if` to `priority_channel::{Receiver, PriorityChannel}`.
+- impl `Stream` for `channel::{Receiver, Channel}`.
+- Fix channels to wake senders on `clear()`.
+  For `Channel`, `PriorityChannel`, `PubSub`, `zerocopy_channel::Channel`.
+- Allow `zerocopy_channel::Channel` to auto-implement `Sync`/`Send`.
+- Add `must_use` to `MutexGuard`.
+- Add a `RwLock`.
+- Add `lock_mut` to `blocking_mutex::Mutex`.
+- Don't select a critical-section implementation when `std` feature is enabled.
+- Improve waker documentation.
+- Improve `Signal` and `Watch` documentation.
+- Update to defmt 1.0. This remains compatible with latest defmt 0.3.
+- Add `peek` method on `channel` and `priority_channel`.
+- Add dynamic sender and receiver that are Send + Sync for `channel`.
 
 ## 0.6.2 - 2025-01-15
 

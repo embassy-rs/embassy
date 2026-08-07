@@ -1,9 +1,9 @@
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering, fence};
 
 use pac::flash::regs::Sr;
 
-use super::{FlashBank, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashBank, FlashSector, WRITE_SIZE, get_flash_regions};
 use crate::flash::Error;
 use crate::pac;
 
@@ -13,14 +13,6 @@ impl FlashSector {
     const fn snb(&self) -> u8 {
         ((self.bank as u8) << 4) + self.index_in_bank
     }
-}
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
 }
 
 pub(crate) unsafe fn lock() {
@@ -40,7 +32,7 @@ pub(crate) unsafe fn enable_blocking_write() {
 
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
-        w.set_psize(pac::flash::vals::Psize::PSIZE32);
+        w.set_psize(pac::flash::vals::Psize::Psize32);
     });
 }
 

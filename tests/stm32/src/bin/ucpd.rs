@@ -9,11 +9,15 @@ use defmt::{assert, assert_eq};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::ucpd::{self, CcPhy, CcPull, CcSel, CcVState, RxError, Ucpd};
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_time::Timer;
 
 bind_interrupts!(struct Irqs {
     UCPD1_2 => ucpd::InterruptHandler<peripherals::UCPD1>, ucpd::InterruptHandler<peripherals::UCPD2>;
+    DMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH1>;
+    DMA1_CHANNEL2_3 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH2>,
+    embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH3>;
+    DMA1_CH4_7_DMAMUX1_OVR => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::DMA1_CH4>;
 });
 
 static SRC_TO_SNK: [u8; 6] = [0, 1, 2, 3, 4, 5];
@@ -28,21 +32,21 @@ async fn wait_for_vstate<T: ucpd::Instance>(cc_phy: &mut CcPhy<'_, T>, vstate: C
 
 async fn source(
     mut ucpd: Ucpd<'static, peripherals::UCPD1>,
-    rx_dma: peripherals::DMA1_CH1,
-    tx_dma: peripherals::DMA1_CH2,
+    rx_dma: Peri<'static, peripherals::DMA1_CH1>,
+    tx_dma: Peri<'static, peripherals::DMA1_CH2>,
 ) {
     debug!("source: setting default current pull-up");
     ucpd.cc_phy().set_pull(CcPull::SourceDefaultUsb);
 
     // Wait for default sink.
     debug!("source: wait for sink");
-    wait_for_vstate(ucpd.cc_phy(), CcVState::LOW).await;
+    wait_for_vstate(ucpd.cc_phy(), CcVState::Low).await;
 
     // Advertise a higher current by changing the pull-up resistor.
     debug!("source: sink detected, setting 3.0A current pull-up");
     ucpd.cc_phy().set_pull(CcPull::Source3_0A);
 
-    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, CcSel::CC1);
+    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1);
 
     // Listen for an incoming message
     debug!("source: wait for message from sink");
@@ -65,15 +69,15 @@ async fn source(
 
 async fn sink(
     mut ucpd: Ucpd<'static, peripherals::UCPD2>,
-    rx_dma: peripherals::DMA1_CH3,
-    tx_dma: peripherals::DMA1_CH4,
+    rx_dma: Peri<'static, peripherals::DMA1_CH3>,
+    tx_dma: Peri<'static, peripherals::DMA1_CH4>,
 ) {
     debug!("sink: setting pull down");
     ucpd.cc_phy().set_pull(CcPull::Sink);
 
     // Wait for default source.
     debug!("sink: waiting for default vstate");
-    wait_for_vstate(ucpd.cc_phy(), CcVState::LOW).await;
+    wait_for_vstate(ucpd.cc_phy(), CcVState::Low).await;
 
     // Wait higher current pull-up.
     //debug!("sink: source default vstate detected, waiting for 3.0A vstate");
@@ -82,7 +86,7 @@ async fn sink(
     // TODO: not working yet, why? no idea, replace with timer for now
     Timer::after_millis(100).await;
 
-    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, CcSel::CC1);
+    let (_, mut pd_phy) = ucpd.split_pd_phy(rx_dma, tx_dma, Irqs, CcSel::Cc1);
 
     // Send message
     debug!("sink: sending message");
@@ -100,14 +104,18 @@ async fn sink(
     unwrap!(pd_phy.transmit_hardreset().await);
 }
 
-#[embassy_executor::main]
+#[cfg_attr(
+    feature = "stop",
+    embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")
+)]
+#[cfg_attr(not(feature = "stop"), embassy_executor::main)]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");
 
     // Wire between PD0 and PA8
-    let ucpd1 = Ucpd::new(p.UCPD1, Irqs {}, p.PA8, p.PB15, Default::default());
-    let ucpd2 = Ucpd::new(p.UCPD2, Irqs {}, p.PD0, p.PD2, Default::default());
+    let ucpd1 = Ucpd::new(p.UCPD1, Irqs, p.PA8, p.PB15, Default::default());
+    let ucpd2 = Ucpd::new(p.UCPD2, Irqs, p.PD0, p.PD2, Default::default());
 
     join(
         source(ucpd1, p.DMA1_CH1, p.DMA1_CH2),

@@ -5,7 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+<!-- next-header -->
+## Unreleased - ReleaseDate
+
+- Bump usbd-hid from 0.9.0 to 0.10.0
+- `UAC1`: Add audio source
+- `UAC1`: `Speaker::new` now returns `Self` with the parts inside instead of a tuple
+
+## 0.6.0 - 2026-03-10
+
+- Add support for USB HID Boot Protocol Mode
+- Bump usbd-hid from 0.8.1 to 0.9.0
+- Fix a bug where CDC ACM BufferedReceiver repeats data when its future is dropped
+- Expose `dtr()` and `rts()` on `cdc_acm::ControlChanged`
+- Add standalone DFU class implementation
+- Add method to signal firmware error in DFU
+- Allow `dfu_mode::Handler::start` to return a `Result` (fail gracefully)
+- Fix bug in USB DFU transition
+- Fix DFU GetStatus handler
+- Upgrade embassy-sync to 0.8.0
+- Upgrade embassy-net-driver-channel to 0.4.0
+
+## 0.5.1 - 2025-08-26
+
+## 0.5.0 - 2025-07-16
+
+- `UAC1`: unmute by default ([#3992](https://github.com/embassy-rs/embassy/pull/3992))
+- `cdc_acm`: `State::new` is now `const` ([#4000](https://github.com/embassy-rs/embassy/pull/4000))
+- Add support for CMSIS-DAP v2 USB class ([#4107](https://github.com/embassy-rs/embassy/pull/4107))
+- Reduce `UsbDevice` builder logs to `trace` ([#4130](https://github.com/embassy-rs/embassy/pull/4130))
+- Implement `embedded-io-async` traits for USB CDC ACM ([#4176](https://github.com/embassy-rs/embassy/pull/4176))
+- Update `embassy-sync` to v0.7.0
+- Fix CDC ACM BufferedReceiver buffer calculation
 
 ## 0.4.0 - 2025-01-15
 

@@ -2,12 +2,15 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::word::U5;
+use embassy_stm32::dma::{self};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const NR_PIXELS: usize = 15;
 const BITS_PER_PIXEL: usize = 24; // 24 for rgb, 32 for rgbw
@@ -69,6 +72,10 @@ impl Ws2812 {
     }
 }
 
+bind_interrupts!(struct Irqs {
+    DMA1_CHANNEL2_3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
+});
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
@@ -76,7 +83,7 @@ async fn main(_spawner: Spawner) {
 
     let mut config = Config::default();
     config.frequency = Hertz(4_000_000);
-    let mut spi = Spi::new_txonly(p.SPI1, p.PB3, p.PB5, p.DMA1_CH3, config); // SCK is unused.
+    let mut spi = Spi::new_txonly(p.SPI1, p.PB3, p.PB5, p.DMA1_CH3, Irqs, config); // SCK is unused.
 
     let mut neopixels = Ws2812::new();
 

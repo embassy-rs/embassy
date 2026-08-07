@@ -33,6 +33,7 @@ impl super::SealedChip for W5500 {
     const SOCKET_RX_DATA_READ_PTR: Self::Address = (RegisterBlock::Socket0, 0x28);
     const SOCKET_INTR_MASK: Self::Address = (RegisterBlock::Socket0, 0x2C);
     const SOCKET_INTR: Self::Address = (RegisterBlock::Socket0, 0x02);
+    const SOCKET_INTR_CLR: Self::Address = (RegisterBlock::Socket0, 0x02);
 
     const SOCKET_MODE_VALUE: u8 = (1 << 2) | (1 << 7);
 
@@ -52,25 +53,16 @@ impl super::SealedChip for W5500 {
         address: Self::Address,
         data: &mut [u8],
     ) -> Result<(), SPI::Error> {
-        let address_phase = address.1.to_be_bytes();
-        let control_phase = [(address.0 as u8) << 3];
-        let operations = &mut [
-            Operation::Write(&address_phase),
-            Operation::Write(&control_phase),
-            Operation::TransferInPlace(data),
-        ];
+        let addr = address.1.to_be_bytes();
+        let header = [addr[0], addr[1], (address.0 as u8) << 3];
+        let operations = &mut [Operation::Write(&header), Operation::TransferInPlace(data)];
         spi.transaction(operations).await
     }
 
     async fn bus_write<SPI: SpiDevice>(spi: &mut SPI, address: Self::Address, data: &[u8]) -> Result<(), SPI::Error> {
-        let address_phase = address.1.to_be_bytes();
-        let control_phase = [(address.0 as u8) << 3 | 0b0000_0100];
-        let data_phase = data;
-        let operations = &mut [
-            Operation::Write(&address_phase[..]),
-            Operation::Write(&control_phase),
-            Operation::Write(&data_phase),
-        ];
+        let addr = address.1.to_be_bytes();
+        let header = [addr[0], addr[1], (address.0 as u8) << 3 | 0b0000_0100];
+        let operations = &mut [Operation::Write(&header), Operation::Write(data)];
         spi.transaction(operations).await
     }
 }

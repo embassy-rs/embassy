@@ -24,5 +24,5 @@ async fn ticker() {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     wasm_logger::init(wasm_logger::Config::default());
-    spawner.spawn(ticker()).unwrap();
+    spawner.spawn(ticker().unwrap());
 }

@@ -1,8 +1,8 @@
 = Sharing peripherals between tasks
 
-Often times, more than one task needs access to the same resource (pin, communication interface, etc.). Embassy provides many different synchronization primitives in the link:https://crates.io/crates/embassy-sync[embassy-sync] crate.
+Often, more than one task needs to access the same resource (pin, communication interface, etc.). Embassy provides many different synchronization primitives in the link:https://crates.io/crates/embassy-sync[embassy-sync] crate.
 
-The following examples shows different ways to use the on-board LED on a Raspberry Pi Pico board by two tasks simultaneously.
+The following examples show different ways for two tasks to use the on-board LED on a Raspberry Pi Pico board simultaneously.
 
 == Sharing using a Mutex
 

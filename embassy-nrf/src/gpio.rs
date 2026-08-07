@@ -5,14 +5,14 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
 use cfg_if::cfg_if;
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
-use crate::pac::common::{Reg, RW};
+use crate::pac;
+use crate::pac::common::{RW, Reg};
 use crate::pac::gpio;
 use crate::pac::gpio::vals;
 #[cfg(not(feature = "_nrf51"))]
 use crate::pac::shared::{regs::Psel, vals::Connect};
-use crate::{pac, Peripheral};
 
 /// A GPIO port with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
@@ -49,7 +49,7 @@ pub struct Input<'d> {
 impl<'d> Input<'d> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
 
@@ -72,6 +72,15 @@ impl<'d> Input<'d> {
     #[inline]
     pub fn get_level(&self) -> Level {
         self.pin.get_level()
+    }
+}
+
+impl Input<'static> {
+    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
+    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
+    /// reuse of the underlying peripheral.
+    pub fn persist(self) {
+        self.pin.persist()
     }
 }
 
@@ -208,9 +217,9 @@ pub struct Output<'d> {
 }
 
 impl<'d> Output<'d> {
-    /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDriver] configuration.
+    /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDrive] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, drive: OutputDrive) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, drive: OutputDrive) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -264,18 +273,27 @@ impl<'d> Output<'d> {
     }
 }
 
+impl Output<'static> {
+    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
+    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
+    /// reuse of the underlying peripheral.
+    pub fn persist(self) {
+        self.pin.persist()
+    }
+}
+
 pub(crate) fn convert_drive(w: &mut pac::gpio::regs::PinCnf, drive: OutputDrive) {
     #[cfg(not(feature = "_nrf54l"))]
     {
         let drive = match drive {
-            OutputDrive::Standard => vals::Drive::S0S1,
-            OutputDrive::HighDrive0Standard1 => vals::Drive::H0S1,
-            OutputDrive::Standard0HighDrive1 => vals::Drive::S0H1,
-            OutputDrive::HighDrive => vals::Drive::H0H1,
-            OutputDrive::Disconnect0Standard1 => vals::Drive::D0S1,
-            OutputDrive::Disconnect0HighDrive1 => vals::Drive::D0H1,
-            OutputDrive::Standard0Disconnect1 => vals::Drive::S0D1,
-            OutputDrive::HighDrive0Disconnect1 => vals::Drive::H0D1,
+            OutputDrive::Standard => vals::Drive::S0s1,
+            OutputDrive::HighDrive0Standard1 => vals::Drive::H0s1,
+            OutputDrive::Standard0HighDrive1 => vals::Drive::S0h1,
+            OutputDrive::HighDrive => vals::Drive::H0h1,
+            OutputDrive::Disconnect0Standard1 => vals::Drive::D0s1,
+            OutputDrive::Disconnect0HighDrive1 => vals::Drive::D0h1,
+            OutputDrive::Standard0Disconnect1 => vals::Drive::S0d1,
+            OutputDrive::HighDrive0Disconnect1 => vals::Drive::H0d1,
         };
         w.set_drive(drive);
     }
@@ -292,15 +310,15 @@ pub(crate) fn convert_drive(w: &mut pac::gpio::regs::PinCnf, drive: OutputDrive)
         }
 
         w.set_drive0(convert(drive.low));
-        w.set_drive0(convert(drive.high));
+        w.set_drive1(convert(drive.high));
     }
 }
 
 fn convert_pull(pull: Pull) -> vals::Pull {
     match pull {
-        Pull::None => vals::Pull::DISABLED,
-        Pull::Up => vals::Pull::PULLUP,
-        Pull::Down => vals::Pull::PULLDOWN,
+        Pull::None => vals::Pull::Disabled,
+        Pull::Up => vals::Pull::Pullup,
+        Pull::Down => vals::Pull::Pulldown,
     }
 }
 
@@ -310,7 +328,7 @@ fn convert_pull(pull: Pull) -> vals::Pull {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d> {
-    pub(crate) pin: PeripheralRef<'d, AnyPin>,
+    pub(crate) pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -319,21 +337,20 @@ impl<'d> Flex<'d> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
-        into_ref!(pin);
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         // Pin will be in disconnected state.
-        Self { pin: pin.map_into() }
+        Self { pin: pin.into() }
     }
 
     /// Put the pin into input mode.
     #[inline]
     pub fn set_as_input(&mut self, pull: Pull) {
         self.pin.conf().write(|w| {
-            w.set_dir(vals::Dir::INPUT);
-            w.set_input(vals::Input::CONNECT);
+            w.set_dir(vals::Dir::Input);
+            w.set_input(vals::Input::Connect);
             w.set_pull(convert_pull(pull));
             convert_drive(w, OutputDrive::Standard);
-            w.set_sense(vals::Sense::DISABLED);
+            w.set_sense(vals::Sense::Disabled);
         });
     }
 
@@ -344,11 +361,11 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_as_output(&mut self, drive: OutputDrive) {
         self.pin.conf().write(|w| {
-            w.set_dir(vals::Dir::OUTPUT);
-            w.set_input(vals::Input::DISCONNECT);
-            w.set_pull(vals::Pull::DISABLED);
+            w.set_dir(vals::Dir::Output);
+            w.set_input(vals::Input::Disconnect);
+            w.set_pull(vals::Pull::Disabled);
             convert_drive(w, drive);
-            w.set_sense(vals::Sense::DISABLED);
+            w.set_sense(vals::Sense::Disabled);
         });
     }
 
@@ -364,11 +381,11 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_as_input_output(&mut self, pull: Pull, drive: OutputDrive) {
         self.pin.conf().write(|w| {
-            w.set_dir(vals::Dir::OUTPUT);
-            w.set_input(vals::Input::CONNECT);
+            w.set_dir(vals::Dir::Output);
+            w.set_input(vals::Input::Connect);
             w.set_pull(convert_pull(pull));
             convert_drive(w, drive);
-            w.set_sense(vals::Sense::DISABLED);
+            w.set_sense(vals::Sense::Disabled);
         });
     }
 
@@ -376,7 +393,7 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_as_disconnected(&mut self) {
         self.pin.conf().write(|w| {
-            w.set_input(vals::Input::DISCONNECT);
+            w.set_input(vals::Input::Disconnect);
         });
     }
 
@@ -448,6 +465,15 @@ impl<'d> Flex<'d> {
     }
 }
 
+impl Flex<'static> {
+    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
+    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
+    /// reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
+}
+
 impl<'d> Drop for Flex<'d> {
     fn drop(&mut self) {
         self.set_as_disconnected();
@@ -503,7 +529,7 @@ pub(crate) trait SealedPin {
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
 #[allow(private_bounds)]
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> u8 {
@@ -529,19 +555,11 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
     fn psel_bits(&self) -> pac::shared::regs::Psel {
         pac::shared::regs::Psel(self.pin_port() as u32)
     }
-
-    /// Convert from concrete pin type PX_XX to type erased `AnyPin`.
-    #[inline]
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_port: self.pin_port(),
-        }
-    }
 }
 
 /// Type-erased GPIO pin
 pub struct AnyPin {
-    pin_port: u8,
+    pub(crate) pin_port: u8,
 }
 
 impl AnyPin {
@@ -550,8 +568,8 @@ impl AnyPin {
     /// # Safety
     /// - `pin_port` should not in use by another driver.
     #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Self {
-        Self { pin_port }
+    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
+        Peri::new_unchecked(Self { pin_port })
     }
 }
 
@@ -567,13 +585,12 @@ impl SealedPin for AnyPin {
 // ====================
 
 #[cfg(not(feature = "_nrf51"))]
-#[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) trait PselBits {
     fn psel_bits(&self) -> pac::shared::regs::Psel;
 }
 
 #[cfg(not(feature = "_nrf51"))]
-impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
+impl<'a, P: Pin> PselBits for Option<Peri<'a, P>> {
     #[inline]
     fn psel_bits(&self) -> pac::shared::regs::Psel {
         match self {
@@ -584,17 +601,16 @@ impl<'a, P: Pin> PselBits for Option<PeripheralRef<'a, P>> {
 }
 
 #[cfg(not(feature = "_nrf51"))]
-#[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) const DISCONNECTED: Psel = Psel(1 << 31);
 
 #[cfg(not(feature = "_nrf51"))]
 #[allow(dead_code)]
 pub(crate) fn deconfigure_pin(psel: Psel) {
-    if psel.connect() == Connect::DISCONNECTED {
+    if psel.connect() == Connect::Disconnected {
         return;
     }
     unsafe { AnyPin::steal(psel.0 as _) }.conf().write(|w| {
-        w.set_input(vals::Input::DISCONNECT);
+        w.set_input(vals::Input::Disconnect);
     })
 }
 
@@ -611,8 +627,10 @@ macro_rules! impl_pin {
         }
 
         impl From<peripherals::$type> for crate::gpio::AnyPin {
-            fn from(val: peripherals::$type) -> Self {
-                crate::gpio::Pin::degrade(val)
+            fn from(_val: peripherals::$type) -> Self {
+                Self {
+                    pin_port: $port_num * 32 + $pin_num,
+                }
             }
         }
     };
@@ -761,7 +779,7 @@ impl<'d> embedded_hal_1::digital::ErrorType for Flex<'d> {
     type Error = Infallible;
 }
 
-/// Implement [`InputPin`] for [`Flex`];
+/// Implement [embedded_hal_1::digital::InputPin] for [`Flex`];
 ///
 /// If the pin is not in input mode the result is unspecified.
 impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {
