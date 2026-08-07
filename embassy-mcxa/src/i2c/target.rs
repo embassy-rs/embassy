@@ -70,6 +70,7 @@ use core::ops::Range;
 use core::sync::atomic::{Ordering, fence};
 use core::task::Poll;
 
+use embassy_futures::select::select;
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 
@@ -892,18 +893,17 @@ impl<'d> I2c<'d, Dma<'d>> {
         // Preserve and consume a terminal status that arrived after the
         // previous chunk reported NeedMore instead of clearing it here.
         let ssr = self.info.regs().ssr().read();
-        if ssr.fef() {
+        if ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() {
             self.reset_fifos();
-            return Err(IOError::FifoError);
-        } else if ssr.bef() {
-            self.reset_fifos();
-            return Err(IOError::BitError);
-        } else if ssr.sdf() {
-            self.reset_fifos();
-            return Ok(TxChunkOutcome::Stopped(0));
-        } else if ssr.rsf() {
-            self.reset_fifos();
-            return Ok(TxChunkOutcome::Restarted(0));
+            if ssr.fef() {
+                return Err(IOError::FifoError);
+            } else if ssr.bef() {
+                return Err(IOError::BitError);
+            } else if ssr.sdf() {
+                return Ok(TxChunkOutcome::Stopped(0));
+            } else {
+                return Ok(TxChunkOutcome::Restarted(0));
+            }
         }
 
         unsafe {
@@ -933,27 +933,20 @@ impl<'d> I2c<'d, Dma<'d>> {
             self.mode.tx_dma.enable_request();
         }
 
-        // First wait for either the controller to terminate the transfer or
-        // DMA to load the entire chunk into the peripheral.
-        poll_fn(|cx| {
-            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
-            let _ = self.info.wait_cell().poll_wait(cx);
-
+        // Wait for i2c interrupt (error or end-of-transfer).
+        let i2c_interrupt = self.info.wait_cell().wait_for(|| {
             self.info.regs().sier().write(|w| {
                 w.set_feie(true);
                 w.set_beie(true);
                 w.set_sdie(true);
                 w.set_rsie(true);
             });
-
             let ssr = self.info.regs().ssr().read();
-            if ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() || self.mode.tx_dma.is_done() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
+            ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()
+        });
+        // DMA to load the entire chunk into the peripheral.
+        let dma_is_done = self.mode.tx_dma.wait_cell().wait_for(|| self.mode.tx_dma.is_done());
+        let _ = select(i2c_interrupt, dma_is_done).await;
 
         let mut ssr = self.info.regs().ssr().read();
 
