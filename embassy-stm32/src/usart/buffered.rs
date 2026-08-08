@@ -532,7 +532,7 @@ impl<'d> BufferedUart<'d> {
                 .min(config.rx_fifo_threshold),
             );
         });
-        configure(info, self.rx.kernel_clock, &config, true, true)?;
+        configure(info, self.rx.kernel_clock, &config, true, true, false)?;
 
         info.regs.cr1().modify(|w| {
             w.set_rxneie(cfg!(not(usart_v4)));

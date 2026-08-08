@@ -261,6 +261,14 @@ pub struct Config {
     /// Set this to true to enable the IrDA mode register
     pub irda_enable: bool,
 
+    /// Clock polarity for synchronous mode.
+    /// `false` = idle low (CPOL=0), `true` = idle high (CPOL=1).
+    pub cpol: bool,
+
+    /// Clock phase for synchronous mode.
+    /// `false` = data captured on first edge (CPHA=0), `true` = captured on second edge (CPHA=1).
+    pub cpha: bool,
+
     /// Set the pull configuration for the RX pin.
     pub rx_pull: Pull,
 
@@ -333,6 +341,8 @@ impl Default for Config {
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
             irda_enable: false,
+            cpol: false,
+            cpha: false,
             rx_pull: Pull::None,
             cts_pull: Pull::None,
             tx_config: OutputConfig::PushPull,
@@ -425,6 +435,7 @@ pub struct UartTx<'d, M: Mode> {
     _tx: Option<Flex<'d>>,
     cts: Option<Flex<'d>>,
     _de: Option<Flex<'d>>,
+    ck: Option<Flex<'d>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     duplex: Duplex,
     _marker: PhantomData<M>,
@@ -499,7 +510,14 @@ impl<'d> UartTx<'d, Async> {
         _irq: impl interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, new_dma!(tx_dma, _irq), config)
+        Self::new_inner(
+            peri,
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            new_dma!(tx_dma, _irq),
+            config,
+        )
     }
 
     /// Create a new tx-only UART with a clear-to-send pin
@@ -515,6 +533,26 @@ impl<'d> UartTx<'d, Async> {
             peri,
             new_pin!(tx, config.tx_af()),
             new_pin!(cts, AfType::input(config.cts_pull)),
+            None,
+            new_dma!(tx_dma, _irq),
+            config,
+        )
+    }
+
+    /// Create a new tx-only UART with a clock pin
+    pub fn new_with_ck<T: Instance, D: TxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        tx_dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(tx, config.tx_af()),
+            None,
+            new_pin!(ck, AfType::output(OutputType::PushPull, Speed::Medium)),
             new_dma!(tx_dma, _irq),
             config,
         )
@@ -583,7 +621,7 @@ impl<'d> UartTx<'d, Blocking> {
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, None, config)
+        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, None, None, config)
     }
 
     /// Create a new blocking tx-only UART with a clear-to-send pin
@@ -598,6 +636,24 @@ impl<'d> UartTx<'d, Blocking> {
             new_pin!(tx, config.tx_af()),
             new_pin!(cts, AfType::input(config.cts_pull)),
             None,
+            None,
+            config,
+        )
+    }
+
+    /// Create a new blocking tx-only UART with a clock pin.
+    pub fn new_blocking_with_ck<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(tx, config.tx_af()),
+            None,
+            new_pin!(ck, AfType::output(OutputType::PushPull, Speed::Medium)),
+            None,
             config,
         )
     }
@@ -608,6 +664,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
         _peri: Peri<'d, T>,
         tx: Option<Flex<'d>>,
         cts: Option<Flex<'d>>,
+        ck: Option<Flex<'d>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -618,6 +675,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
             _tx: tx,
             cts,
             _de: None,
+            ck,
             tx_dma,
             duplex: config.duplex,
             _marker: PhantomData,
@@ -636,7 +694,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
         info.regs.cr3().modify(|w| {
             w.set_ctse(self.cts.is_some());
         });
-        configure(info, self.kernel_clock, config, false, true)?;
+        configure(info, self.kernel_clock, config, false, true, self.ck.is_some())?;
 
         Ok(())
     }
@@ -1101,7 +1159,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         info.regs.cr3().write(|w| {
             w.set_rtse(self.rts.is_some());
         });
-        configure(info, self.kernel_clock, &config, true, false)?;
+        configure(info, self.kernel_clock, &config, true, false, false)?;
 
         info.interrupt.unpend();
         unsafe { info.interrupt.enable() };
@@ -1251,6 +1309,7 @@ impl<'d> Uart<'d, Async> {
             None,
             None,
             None,
+            None,
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
@@ -1278,6 +1337,7 @@ impl<'d> Uart<'d, Async> {
             new_pin!(tx, config.tx_af()),
             new_pin!(rts, config.rts_config.af_type()),
             new_pin!(cts, AfType::input(config.cts_pull)),
+            None,
             None,
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
@@ -1307,6 +1367,35 @@ impl<'d> Uart<'d, Async> {
             None,
             None,
             new_pin!(de, config.de_config.af_type()),
+            None,
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
+            config,
+        )
+    }
+
+    /// Create a new bidirectional UART with a clock pin
+    pub fn new_with_ck<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            None,
+            new_pin!(ck, AfType::output(OutputType::PushPull, Speed::Medium)),
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
@@ -1350,6 +1439,7 @@ impl<'d> Uart<'d, Async> {
             None,
             None,
             None,
+            None,
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
@@ -1387,6 +1477,7 @@ impl<'d> Uart<'d, Async> {
             None,
             None,
             new_pin!(rx, config.rx_af()),
+            None,
             None,
             None,
             new_dma!(tx_dma, _irq),
@@ -1433,6 +1524,7 @@ impl<'d> Uart<'d, Blocking> {
             None,
             None,
             None,
+            None,
             config,
         )
     }
@@ -1452,6 +1544,7 @@ impl<'d> Uart<'d, Blocking> {
             new_pin!(tx, config.tx_af()),
             new_pin!(rts, config.rts_config.af_type()),
             new_pin!(cts, AfType::input(config.cts_pull)),
+            None,
             None,
             None,
             None,
@@ -1475,6 +1568,29 @@ impl<'d> Uart<'d, Blocking> {
             None,
             None,
             new_pin!(de, config.de_config.af_type()),
+            None,
+            None,
+            None,
+            config,
+        )
+    }
+
+    /// Create a new blocking bidirectional UART with a clock pin.
+    pub fn new_blocking_with_ck<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            None,
+            new_pin!(ck, AfType::output(OutputType::PushPull, Speed::Medium)),
             None,
             None,
             config,
@@ -1513,6 +1629,7 @@ impl<'d> Uart<'d, Blocking> {
             None,
             None,
             None,
+            None,
             config,
         )
     }
@@ -1546,6 +1663,7 @@ impl<'d> Uart<'d, Blocking> {
             None,
             None,
             None,
+            None,
             config,
         )
     }
@@ -1559,6 +1677,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         rts: Option<Flex<'d>>,
         cts: Option<Flex<'d>>,
         de: Option<Flex<'d>>,
+        ck: Option<Flex<'d>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
@@ -1576,6 +1695,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 _tx: tx,
                 cts,
                 _de: de,
+                ck,
                 tx_dma,
                 duplex: config.duplex,
             },
@@ -1612,7 +1732,7 @@ impl<'d, M: Mode> Uart<'d, M> {
             #[cfg(not(any(usart_v1, usart_v2)))]
             w.set_dem(self.tx._de.is_some());
         });
-        configure(info, self.rx.kernel_clock, config, true, true)?;
+        configure(info, self.rx.kernel_clock, config, true, true, self.tx.ck.is_some())?;
 
         info.interrupt.unpend();
         unsafe { info.interrupt.enable() };
@@ -1672,7 +1792,7 @@ fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), 
     let r = info.regs;
 
     let cr = r.cr1().read();
-    configure(info, kernel_clock, config, cr.re(), cr.te())?;
+    configure(info, kernel_clock, config, cr.re(), cr.te(), r.cr2().read().clken())?;
 
     info.interrupt.unpend();
     unsafe { info.interrupt.enable() };
@@ -1823,6 +1943,7 @@ fn configure(
     config: &Config,
     enable_rx: bool,
     enable_tx: bool,
+    enable_ck: bool,
 ) -> Result<(), ConfigError> {
     let r = info.regs;
     let kind = info.kind;
@@ -1874,6 +1995,14 @@ fn configure(
         if config.irda_enable {
             w.set_clken(false);
             w.set_linen(false);
+        } else if enable_ck {
+            w.set_clken(true);
+            w.set_cpol(if config.cpol { vals::Cpol::High } else { vals::Cpol::Low });
+            w.set_cpha(if config.cpha {
+                vals::Cpha::Second
+            } else {
+                vals::Cpha::First
+            });
         }
 
         #[cfg(any(usart_v3, usart_v4))]
