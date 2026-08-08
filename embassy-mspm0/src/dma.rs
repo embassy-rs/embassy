@@ -202,7 +202,7 @@ pub trait Word: SealedWord + 'static {
 
 impl SealedWord for u8 {
     fn width() -> vals::Wdth {
-        vals::Wdth::BYTE
+        vals::Wdth::Byte
     }
 }
 impl Word for u8 {
@@ -213,7 +213,7 @@ impl Word for u8 {
 
 impl SealedWord for u16 {
     fn width() -> vals::Wdth {
-        vals::Wdth::HALF
+        vals::Wdth::Half
     }
 }
 impl Word for u16 {
@@ -224,7 +224,7 @@ impl Word for u16 {
 
 impl SealedWord for u32 {
     fn width() -> vals::Wdth {
-        vals::Wdth::WORD
+        vals::Wdth::Word
     }
 }
 impl Word for u32 {
@@ -235,7 +235,7 @@ impl Word for u32 {
 
 impl SealedWord for u64 {
     fn width() -> vals::Wdth {
-        vals::Wdth::LONG
+        vals::Wdth::Long
     }
 }
 impl Word for u64 {
@@ -399,17 +399,17 @@ fn verify_transfer<W: Word>(ptr: *const [W]) -> Result<(), Error> {
 
 fn convert_burst_size(value: BurstSize) -> vals::Burstsz {
     match value {
-        BurstSize::Complete => vals::Burstsz::INFINITI,
-        BurstSize::_8 => vals::Burstsz::BURST_8,
-        BurstSize::_16 => vals::Burstsz::BURST_16,
-        BurstSize::_32 => vals::Burstsz::BURST_32,
+        BurstSize::Complete => vals::Burstsz::Infiniti,
+        BurstSize::_8 => vals::Burstsz::Burst8,
+        BurstSize::_16 => vals::Burstsz::Burst16,
+        BurstSize::_32 => vals::Burstsz::Burst32,
     }
 }
 
 fn convert_mode(mode: TransferMode) -> vals::Tm {
     match mode {
-        TransferMode::Single => vals::Tm::SINGLE,
-        TransferMode::Block => vals::Tm::BLOCK,
+        TransferMode::Single => vals::Tm::Single,
+        TransferMode::Block => vals::Tm::Block,
     }
 }
 
@@ -517,22 +517,22 @@ impl<'d> Channel<'d> {
             w.set_req(false);
 
             // Not every part supports auto enable, so force its value to 0.
-            w.set_autoen(Autoen::NONE);
-            w.set_preirq(Preirq::PREIRQ_DISABLE);
+            w.set_autoen(Autoen::None);
+            w.set_preirq(Preirq::PreirqDisable);
             w.set_srcwdth(src_wdth);
             w.set_dstwdth(dst_wdth);
             w.set_srcincr(if increment_src {
-                Incr::INCREMENT
+                Incr::Increment
             } else {
-                Incr::UNCHANGED
+                Incr::Unchanged
             });
             w.set_dstincr(if increment_dst {
-                Incr::INCREMENT
+                Incr::Increment
             } else {
-                Incr::UNCHANGED
+                Incr::Unchanged
             });
 
-            w.set_em(Em::NORMAL);
+            w.set_em(Em::Normal);
             // Single and block will clear the enable bit when the transfers finish.
             w.set_tm(convert_mode(options.mode));
         });
@@ -540,7 +540,7 @@ impl<'d> Channel<'d> {
         self.tctl().write(|w| {
             w.set_tsel(trigger_sel);
             // Basic channels do not implement cross triggering.
-            w.set_tint(vals::Tint::EXTERNAL);
+            w.set_tint(vals::Tint::External);
         });
 
         self.sz().write(|w| {

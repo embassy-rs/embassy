@@ -47,12 +47,12 @@ impl ClkOutSource {
 
     pub(super) fn convert_src(self) -> vals::Exclksrc {
         match self {
-            ClkOutSource::Sysosc(_) => vals::Exclksrc::SYSOSC,
-            ClkOutSource::UlpClk(_) => vals::Exclksrc::ULPCLK,
-            ClkOutSource::LfClk(_) => vals::Exclksrc::LFCLK,
+            ClkOutSource::Sysosc(_) => vals::Exclksrc::Sysosc,
+            ClkOutSource::UlpClk(_) => vals::Exclksrc::Ulpclk,
+            ClkOutSource::LfClk(_) => vals::Exclksrc::Lfclk,
             // FIXME: Wrong name from SVD
-            ClkOutSource::MfpClk(_) => vals::Exclksrc::MFPCLK,
-            ClkOutSource::Hfclk(_) => vals::Exclksrc::HFCLK,
+            ClkOutSource::MfpClk(_) => vals::Exclksrc::Mfpclk,
+            ClkOutSource::Hfclk(_) => vals::Exclksrc::Hfclk,
         }
     }
 }
