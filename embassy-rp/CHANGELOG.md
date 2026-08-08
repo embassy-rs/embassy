@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 
 ## Unreleased - ReleaseDate
+- USB device: clearing an endpoint halt now resets the data toggle to DATA0.
+- USB device: stalling an endpoint with a transfer in flight no longer lets that transfer complete, and the queued packet is no longer delivered once the halt is cleared.
+- USB device: a suspend latched before a bus reset no longer produces a spurious Suspend event that wedges enumeration.
 - Fix i2c_slave respond_to_read for buffers larger than one chunk
 
 - Update `fixed` dependency
