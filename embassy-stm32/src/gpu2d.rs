@@ -6,10 +6,16 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
+use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::pac::gpu2d::Gpu2d as Regs;
 use crate::{Peri, interrupt, rcc};
+
+// GPU2D has exactly one instance per chip today (see stm32-data), so a single
+// static waker is sufficient — unlike peripherals with multiple instances
+// (e.g. USART), which need one waker per instance.
+static WAKER: AtomicWaker = AtomicWaker::new();
 
 /// GPU2D driver error flag.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -24,12 +30,9 @@ pub struct Gpu2d<'d, T: Instance> {
     _peri: Peri<'d, T>,
 }
 
-impl<'d, T: Instance> Gpu2d<'d, T> {
+impl<'d, T: Instance + crate::rcc::RccPeripheral> Gpu2d<'d, T> {
     /// Create a GPU2D instance.
-    pub fn new(
-        peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+    pub fn new<H: Handler<T::Interrupt>>(peri: Peri<'d, T>, _irq: impl Binding<T::Interrupt, H> + 'd) -> Self {
         rcc::enable_and_reset::<T>();
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -61,6 +64,28 @@ impl<'d, T: Instance> Gpu2d<'d, T> {
             Ok(())
         }
     }
+
+    /// Wait for the current command list to complete.
+    ///
+    /// Note: [`Error::SystemError`] is not observed here — check
+    /// [`Self::take_error`] separately if you need to detect hardware errors.
+    pub async fn wait_command_list_complete(&mut self) {
+        core::future::poll_fn(|cx| {
+            WAKER.register(cx.waker());
+            if self.command_list_complete() {
+                self.clear_command_list_complete();
+                // SAFETY: re-arming after consuming the flag we were woken for.
+                unsafe { T::Interrupt::enable() };
+                core::task::Poll::Ready(())
+            } else {
+                // First poll, or a spurious wake: make sure the interrupt is
+                // armed before parking on the waker.
+                unsafe { T::Interrupt::enable() };
+                core::task::Poll::Pending
+            }
+        })
+        .await
+    }
 }
 
 /// GPU2D error interrupt handler.
@@ -70,11 +95,15 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let _ = T::regs();
+        // Neither CLC nor ER (see gpu2d_v1.yaml) has a separate
+        // interrupt-enable field, so mask at the NVIC level to avoid an
+        // interrupt storm; the waiting task clears the flag and re-enables.
+        T::Interrupt::disable();
+        WAKER.wake();
     }
 }
 
-trait SealedInstance: crate::rcc::RccPeripheral {
+trait SealedInstance {
     fn regs() -> Regs;
 }
 
