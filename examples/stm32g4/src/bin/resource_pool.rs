@@ -4,14 +4,15 @@
 use core::fmt::Write;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::resource_pool::{MappedResourceGuard, ResourceGuard, ResourcePool};
 use embassy_time::Timer;
 use heapless::String;
+use panic_probe as _;
 use static_cell::{ConstStaticCell, StaticCell};
-use {defmt_rtt as _, panic_probe as _};
 
 const N_BUFFERS: usize = 3;
 const N_BYTES: usize = 256;
