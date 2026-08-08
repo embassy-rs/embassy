@@ -323,12 +323,12 @@ pub fn read_reset_cause() -> Result<ResetCause, u8> {
     use pac::sysctl::vals::Id;
 
     match cause_raw {
-        Id::NORST => Ok(NoReset),
-        Id::PORHWFAIL => Ok(PorHwFailure),
-        Id::POREXNRST => Ok(PorExternalNrst),
-        Id::PORSW => Ok(PorSwTriggered),
-        Id::BORSUPPLY => Ok(BorSupplyFailure),
-        Id::BORWAKESHUTDN => Ok(BorWakeFromShutdown),
+        Id::Norst => Ok(NoReset),
+        Id::Porhwfail => Ok(PorHwFailure),
+        Id::Porexnrst => Ok(PorExternalNrst),
+        Id::Porsw => Ok(PorSwTriggered),
+        Id::Borsupply => Ok(BorSupplyFailure),
+        Id::Borwakeshutdn => Ok(BorWakeFromShutdown),
         #[cfg(not(any(
             mspm0c110x,
             mspm0c1105_c1106,
@@ -340,22 +340,37 @@ pub fn read_reset_cause() -> Result<ResetCause, u8> {
             mspm0g351x,
             mspm0g518x,
         )))]
-        Id::BOOTNONPMUPARITY => Ok(BootrstNonPmuParityFault),
-        Id::BOOTCLKFAIL => Ok(BootrstClockFault),
-        Id::BOOTSW => Ok(BootrstSwTriggered),
-        Id::BOOTEXNRST => Ok(BootrstExternalNrst),
-        Id::BOOTWWDT0 => Ok(BootrstWwdt0Violation),
-        Id::SYSBSLEXIT => Ok(SysrstBslExit),
-        Id::SYSBSLENTRY => Ok(SysrstBslEntry),
+        Id::Bootnonpmuparity => Ok(BootrstNonPmuParityFault),
+        Id::Bootclkfail => Ok(BootrstClockFault),
+        Id::Bootsw => Ok(BootrstSwTriggered),
+        Id::Bootexnrst => Ok(BootrstExternalNrst),
+        Id::Bootwwdt0 => Ok(BootrstWwdt0Violation),
+        Id::Sysbslexit => Ok(SysrstBslExit),
+        Id::Sysbslentry => Ok(SysrstBslEntry),
         #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0g518x))]
-        Id::SYSWWDT1 => Ok(SysrstWwdt1Violation),
+        Id::Syswwdt1 => Ok(SysrstWwdt1Violation),
         #[cfg(not(any(mspm0c110x, mspm0c1105_c1106, mspm0g351x, mspm0g151x)))]
-        Id::SYSFLASHECC => Ok(SysrstFlashEccError),
-        Id::SYSCPULOCK => Ok(SysrstCpuLockupViolation),
-        Id::SYSDBG => Ok(SysrstDebugTriggered),
-        Id::SYSSW => Ok(SysrstSwTriggered),
-        Id::CPUDBG => Ok(CpurstDebugTriggered),
-        Id::CPUSW => Ok(CpurstSwTriggered),
+        Id::Sysflashecc => Ok(SysrstFlashEccError),
+        Id::Syscpulock => Ok(SysrstCpuLockupViolation),
+        Id::Sysdbg => Ok(SysrstDebugTriggered),
+        Id::Syssw => Ok(SysrstSwTriggered),
+        Id::Cpudbg => Ok(CpurstDebugTriggered),
+        Id::Cpusw => Ok(CpurstSwTriggered),
         other => Err(other as u8),
     }
+}
+
+/// Read the factory-region temperature sensor calibration constant.
+///
+/// This reads `FACTORYREGION.TEMP_SENSE0`, the reading of the internal temperature sensor
+/// at the factory trim temperature, used to convert raw ADC readings to a temperature.
+///
+/// The value is a right-aligned 12-bit ADC code sampled with the 1.4V internal reference.
+///
+/// Only available on devices with an internal temperature sensor, see
+/// [`adc::TempSensorChannel`].
+#[cfg(temp_sensor)]
+#[must_use = "The calibration constant should be used to convert ADC readings to temperature"]
+pub fn read_temp_calibration_constant() -> u32 {
+    pac::FACTORYREGION.temp_sense0().read()
 }

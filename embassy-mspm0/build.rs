@@ -145,6 +145,29 @@ fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
         cfgs.push("mspm0l222x".to_string());
     }
 
+    // Devices with an internal temperature sensor, see `TEMP_SENSOR_CHANNEL` in `adc.rs`.
+    const TEMP_SENSOR_FAMILIES: &[&str] = &[
+        "mspm0c110x",
+        "mspm0c1105_c1106",
+        "mspm0g110x",
+        "mspm0g150x",
+        "mspm0g151x",
+        "mspm0g310x",
+        "mspm0g350x",
+        "mspm0g351x",
+        "mspm0g518x",
+        "mspm0h321x",
+        "mspm0l110x",
+        "mspm0l122x",
+        "mspm0l130x",
+        "mspm0l134x",
+        "mspm0l222x",
+    ];
+
+    if cfgs.iter().any(|cfg| TEMP_SENSOR_FAMILIES.contains(&cfg.as_str())) {
+        cfgs.push("temp_sensor".to_string());
+    }
+
     cfgs
 }
 
@@ -202,11 +225,11 @@ fn generate_groups() -> TokenStream {
                 let stat = group.iidx().read().stat();
 
                 // check for spurious interrupts
-                if stat == crate::pac::cpuss::vals::Iidx::NO_INTR {
+                if stat == crate::pac::cpuss::vals::Iidx::NoIntr {
                     return;
                 }
 
-                // MUST subtract by 1 because NO_INTR offsets IIDX values.
+                // MUST subtract by 1 because NoIntr offsets IIDX values.
                 let iidx = stat.to_bits() - 1;
 
                 let Ok(group) = #group_enum::try_from(iidx as u8) else {

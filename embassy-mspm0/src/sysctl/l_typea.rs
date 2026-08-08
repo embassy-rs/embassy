@@ -41,10 +41,10 @@ impl ClkOutSource {
 
     pub(super) fn convert_src(self) -> vals::Exclksrc {
         match self {
-            ClkOutSource::Sysosc(_) => vals::Exclksrc::SYSOSC,
-            ClkOutSource::UlpClk(_) => vals::Exclksrc::ULPCLK,
-            ClkOutSource::LfClk(_) => vals::Exclksrc::LFCLK,
-            ClkOutSource::MfpClk(_) => vals::Exclksrc::MFPCLK,
+            ClkOutSource::Sysosc(_) => vals::Exclksrc::Sysosc,
+            ClkOutSource::UlpClk(_) => vals::Exclksrc::Ulpclk,
+            ClkOutSource::LfClk(_) => vals::Exclksrc::Lfclk,
+            ClkOutSource::MfpClk(_) => vals::Exclksrc::Mfpclk,
         }
     }
 }

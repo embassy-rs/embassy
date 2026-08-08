@@ -211,7 +211,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
         });
 
         r.ctl1().modify(|w| {
-            w.set_sc(vals::Sc::START);
+            w.set_sc(vals::Sc::Start);
         });
 
         // Wait for conversion
@@ -297,7 +297,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
         });
 
         r.ctl1().modify(|w| {
-            w.set_sc(vals::Sc::START);
+            w.set_sc(vals::Sc::Start);
         });
 
         Self::wait_for_conversion().await;
@@ -344,7 +344,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
         });
 
         r.ctl1().modify(|w| {
-            w.set_sc(vals::Sc::START);
+            w.set_sc(vals::Sc::Start);
         });
 
         Self::wait_for_conversion().await;
@@ -432,20 +432,20 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
         r.gprcm(0).rstctl().write(|w| {
             w.set_resetstkyclr(true);
             w.set_resetassert(true);
-            w.set_key(vals::ResetKey::KEY);
+            w.set_key(vals::ResetKey::Key);
         });
 
         r.gprcm(0).pwren().modify(|reg| {
             reg.set_enable(true);
-            reg.set_key(vals::PwrenKey::KEY);
+            reg.set_key(vals::PwrenKey::Key);
         });
 
         // Wait for power up
         cortex_m::asm::delay(16);
 
         r.gprcm(0).clkcfg().write(|w| {
-            w.set_key(vals::ClkcfgKey::KEY);
-            w.set_sampclk(vals::Sampclk::SYSOSC);
+            w.set_key(vals::ClkcfgKey::Key);
+            w.set_sampclk(vals::Sampclk::Sysosc);
         });
 
         // FIXME: Consider clock config
@@ -453,20 +453,20 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
         r.ctl0().write(|w| {
             w.set_enc(false);
             // TODO: power down config
-            w.set_pwrdn(vals::Pwrdn::MANUAL);
-            w.set_sclkdiv(vals::Sclkdiv::DIV_BY_4);
+            w.set_pwrdn(vals::Pwrdn::Manual);
+            w.set_sclkdiv(vals::Sclkdiv::DivBy4);
         });
 
         r.clkfreq().write(|w| {
-            w.set_frange(vals::Frange::RANGE24TO32);
+            w.set_frange(vals::Frange::Range24to32);
         });
 
         r.ctl1().write(|w| {
-            w.set_trigsrc(vals::Trigsrc::SOFTWARE);
-            w.set_sc(vals::Sc::STOP);
-            w.set_conseq(vals::Conseq::SEQUENCE);
-            w.set_sampmode(vals::Sampmode::AUTO);
-            w.set_avgn(vals::Avgn::DISABLE);
+            w.set_trigsrc(vals::Trigsrc::Software);
+            w.set_sc(vals::Sc::Stop);
+            w.set_conseq(vals::Conseq::Sequence);
+            w.set_sampmode(vals::Sampmode::Auto);
+            w.set_avgn(vals::Avgn::Disable);
             w.set_avgd(0);
         });
 
@@ -477,7 +477,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
             w.set_rstsampcapen(false);
             w.set_dmaen(false);
             w.set_fifoen(false);
-            w.set_sampcnt(vals::Sampcnt::MIN);
+            w.set_sampcnt(vals::Sampcnt::Min);
             w.set_startadd(0);
             w.set_endadd(0);
         });
@@ -510,7 +510,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
                 // TODO: More parameters
                 w.set_avgen(false);
                 w.set_bcsen(false);
-                w.set_trig(vals::Trig::AUTO_NEXT);
+                w.set_trig(vals::Trig::AutoNext);
                 w.set_wincomp(false);
             });
         }
@@ -576,17 +576,17 @@ trait SealedBorrowedChannel<'a, T> {
 
 const fn to_res(resolution: Resolution) -> vals::Res {
     match resolution {
-        Resolution::Bits12 => vals::Res::BIT_12,
-        Resolution::Bits10 => vals::Res::BIT_10,
-        Resolution::Bits8 => vals::Res::BIT_8,
+        Resolution::Bits12 => vals::Res::Bit12,
+        Resolution::Bits10 => vals::Res::Bit10,
+        Resolution::Bits8 => vals::Res::Bit8,
     }
 }
 
 const fn from_res(res: vals::Res) -> Resolution {
     match res {
-        vals::Res::BIT_12 => Resolution::Bits12,
-        vals::Res::BIT_10 => Resolution::Bits10,
-        vals::Res::BIT_8 => Resolution::Bits8,
+        vals::Res::Bit12 => Resolution::Bits12,
+        vals::Res::Bit10 => Resolution::Bits10,
+        vals::Res::Bit8 => Resolution::Bits8,
         // SAFETY: The HAL will never program an invalid valid.
         vals::Res::_RESERVED_3 => unsafe { unreachable_unchecked() },
     }
@@ -594,8 +594,8 @@ const fn from_res(res: vals::Res) -> Resolution {
 
 const fn convert_stime(stime: SampleTimeComparator) -> vals::Stime {
     match stime {
-        SampleTimeComparator::Scomp0 => vals::Stime::SEL_SCOMP0,
-        SampleTimeComparator::Scomp1 => vals::Stime::SEL_SCOMP1,
+        SampleTimeComparator::Scomp0 => vals::Stime::SelScomp0,
+        SampleTimeComparator::Scomp1 => vals::Stime::SelScomp1,
     }
 }
 
@@ -640,4 +640,36 @@ macro_rules! impl_adc_pin {
             }
         }
     };
+}
+
+/// The ADC0 channel the temperature sensor is connected to.
+///
+/// See `SYS_TEMP_SENSE_CHANNEL` in the device specific data sheet. ADC1 uses a different
+/// channel (12 on the G-series), which is not exposed.
+#[cfg(any(
+    mspm0c110x, mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0l110x, mspm0l130x,
+    mspm0l134x
+))]
+const TEMP_SENSOR_CHANNEL: u8 = 11;
+
+#[cfg(any(mspm0c1105_c1106, mspm0h321x))]
+const TEMP_SENSOR_CHANNEL: u8 = 28;
+
+#[cfg(any(mspm0g518x, mspm0l122x, mspm0l222x))]
+const TEMP_SENSOR_CHANNEL: u8 = 29;
+
+/// Internal temperature sensor channel.
+///
+/// Uses an internal ADC0 channel, no external pin is required. It can be sampled like a
+/// regular [`AdcChannel`].
+#[cfg(temp_sensor)]
+pub struct TempSensorChannel;
+
+#[cfg(temp_sensor)]
+impl crate::adc::AdcChannel<crate::peripherals::ADC0> for TempSensorChannel {}
+#[cfg(temp_sensor)]
+impl crate::adc::SealedAdcChannel<crate::peripherals::ADC0> for TempSensorChannel {
+    fn channel(&self) -> u8 {
+        TEMP_SENSOR_CHANNEL
+    }
 }
