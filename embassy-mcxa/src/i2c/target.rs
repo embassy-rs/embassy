@@ -70,6 +70,7 @@ use core::ops::Range;
 use core::sync::atomic::{Ordering, fence};
 use core::task::Poll;
 
+use embassy_futures::select::select;
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 
@@ -889,7 +890,21 @@ impl<'d> I2c<'d, Dma<'d>> {
         let peri_addr = self.info.regs().stdr().as_ptr() as *mut u8;
         let chunk_len = data.len();
 
-        self.clear_status();
+        // Preserve and consume a terminal status that arrived after the
+        // previous chunk reported NeedMore instead of clearing it here.
+        let ssr = self.info.regs().ssr().read();
+        if ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() {
+            self.reset_fifos();
+            if ssr.fef() {
+                return Err(IOError::FifoError);
+            } else if ssr.bef() {
+                return Err(IOError::BitError);
+            } else if ssr.sdf() {
+                return Ok(TxChunkOutcome::Stopped(0));
+            } else {
+                return Ok(TxChunkOutcome::Restarted(0));
+            }
+        }
 
         unsafe {
             // Clean up channel state
@@ -918,30 +933,22 @@ impl<'d> I2c<'d, Dma<'d>> {
             self.mode.tx_dma.enable_request();
         }
 
-        // Wait for any of:
-        //  - I2C end-of-transfer flag (sdf, rsf) -> controller terminated
-        //  - I2C error flag (fef, bef) -> bus problem
-        //  - DMA channel completion -> chunk exhausted; if controller still
-        //    clocking, caller may want to call again (NeedMore)
-        poll_fn(|cx| {
-            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
-            let _ = self.info.wait_cell().poll_wait(cx);
-
+        // Wait for i2c interrupt (error or end-of-transfer).
+        let i2c_interrupt = self.info.wait_cell().wait_for(|| {
             self.info.regs().sier().write(|w| {
                 w.set_feie(true);
                 w.set_beie(true);
                 w.set_sdie(true);
                 w.set_rsie(true);
             });
-
             let ssr = self.info.regs().ssr().read();
-            if ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() || self.mode.tx_dma.is_done() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
+            ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()
+        });
+        // DMA to load the entire chunk into the peripheral.
+        let dma_is_done = self.mode.tx_dma.wait_cell().wait_for(|| self.mode.tx_dma.is_done());
+        let _ = select(i2c_interrupt, dma_is_done).await;
+
+        let mut ssr = self.info.regs().ssr().read();
 
         // Cleanup
         self.info.regs().sder().modify(|w| w.set_tdde(false));
@@ -950,20 +957,44 @@ impl<'d> I2c<'d, Dma<'d>> {
             self.mode.tx_dma.clear_done();
         }
 
-        let ssr = self.info.regs().ssr().read();
+        // DMA completion only means the final byte reached the TX FIFO. TDF
+        // can assert before the controller's ninth-bit NACK and STOP, so a
+        // NeedMore result is provisional. If STOP arrives after this function
+        // returns, the continuation call above consumes it before re-arming
+        // DMA.
+        if !(ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()) {
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    self.enable_tx_ints();
+                    let ssr = self.info.regs().ssr().read();
+                    ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() || ssr.tdf()
+                })
+                .await
+                .map_err(|_| IOError::Other)?;
+            ssr = self.info.regs().ssr().read();
+        }
 
         if ssr.fef() {
+            self.reset_fifos();
             Err(IOError::FifoError)
         } else if ssr.bef() {
+            self.reset_fifos();
             Err(IOError::BitError)
         } else if ssr.sdf() {
-            Ok(TxChunkOutcome::Stopped(self.mode.tx_dma.transferred_bytes()))
+            let count = self.mode.tx_dma.transferred_bytes();
+            self.reset_fifos();
+            Ok(TxChunkOutcome::Stopped(count))
         } else if ssr.rsf() {
-            Ok(TxChunkOutcome::Restarted(self.mode.tx_dma.transferred_bytes()))
-        } else {
-            // DMA done with no end-of-transfer flag: chunk exhausted,
-            // controller still expects more bytes.
+            let count = self.mode.tx_dma.transferred_bytes();
+            self.reset_fifos();
+            Ok(TxChunkOutcome::Restarted(count))
+        } else if ssr.tdf() {
+            // The TX register is empty. The controller may request another
+            // byte, or it may still terminate this byte with NACK and STOP.
             Ok(TxChunkOutcome::NeedMore(chunk_len))
+        } else {
+            Err(IOError::Other)
         }
     }
 }
@@ -1057,13 +1088,14 @@ where
     /// The future services the transfer to a clean termination point
     /// (STOP, repeated START, or buffer exhausted) before resolving.
     ///
-    /// If the controller continues clocking after the buffer has been
-    /// fully transmitted (for example, an I2C-HID host that reads a fixed
-    /// block size larger than the prepared response), this call resolves
-    /// with [`ReadStatus::NeedMore`] so the caller can decide what to do:
-    /// call `async_respond_to_read` again with more bytes (or fill data),
-    /// or let the bus clock-stretch (with TXDSTALL enabled) until the
-    /// controller eventually terminates the transfer.
+    /// When the transmit register becomes empty after the buffer has been
+    /// loaded, this call resolves with [`ReadStatus::NeedMore`]. Because the
+    /// transmit-data flag can precede the controller's ninth-bit NACK and
+    /// STOP, callers must continue with `async_respond_to_read` while
+    /// `NeedMore` is returned. A continuation either supplies the next byte
+    /// or consumes a terminal status that arrived after the previous call.
+    /// With TXDSTALL enabled, the bus clock-stretches while genuinely waiting
+    /// for more data.
     ///
     /// # Parameters
     ///
@@ -1214,8 +1246,6 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
     async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<ReadStatus, IOError> {
         let mut count = 0;
-
-        self.clear_status();
 
         // perform corrective action if the future is dropped
         let on_drop = OnDrop::new(|| {
