@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - added: System OFF support for the nRF54L series.
+- changed: allow configuring I2S in master mode without master clock output pin
 
 ## 0.11.0 - 2026-06-16
 
