@@ -73,6 +73,7 @@ mod thread {
                             //
                             // Calling this inside the CS also prevents the corner case that an
                             // interrupt fires between exiting the CS and then calling WFI outside of it.
+                            self.inner.trace_system_idle();
                             core::arch::asm!("wfi");
                         }
                     });

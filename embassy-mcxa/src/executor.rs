@@ -104,6 +104,7 @@ impl Executor {
                 if let Some(s) = sleep {
                     break s;
                 }
+                self.inner.trace_system_idle();
                 debug_lo();
                 do_wfe();
                 debug_hi();
@@ -123,6 +124,7 @@ impl Executor {
                         continue;
                     }
 
+                    self.inner.trace_system_idle();
                     debug_lo();
                     do_wfe();
                     debug_hi();
@@ -144,6 +146,7 @@ impl Executor {
                     //
                     // We STAY in the CS for the deep sleep to ensure that we handle wake-up
                     // completely BEFORE yielding control flow back to interrupts.
+                    self.inner.trace_system_idle();
                     debug_lo();
                     let do_wfe_sleep = critical_section::with(|cs| {
                         let did_deep_sleep = crate::clocks::deep_sleep_if_possible(&cs);

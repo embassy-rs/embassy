@@ -304,6 +304,15 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
     unsafe {
         _embassy_trace_executor_idle(executor as *const _ as u32)
     }
+    // NOTE: `rtos_trace::trace::system_idle()` is intentionally NOT emitted here.
+    // In case of multiple executors, executor_idle does NOT necessarily mean
+    // that the entire system is going to idle, another executor could take over.
+    // Executors are responsible for calling `trace_system_idle()`
+    // before putting the entire system into idle.
+}
+
+#[inline]
+pub(crate) fn system_idle() {
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::system_idle();
 }
