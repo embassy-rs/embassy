@@ -8,6 +8,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::Peri;
 use embedded_io_async::ReadReady;
 use futures_util::future::select;
+use stm32_metapac::spi::regs;
 
 use super::mode::Slave;
 use super::{Config, Error, Info, RegsExt, Spi, Word, check_error_flags, reconfigure, set_rxdmaen};
@@ -185,12 +186,28 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         self.ring_buf.clear();
     }
 
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    fn clear_interrupt_flags(&mut self, _sr: regs::Sr) {}
+
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    fn clear_interrupt_flags(&mut self, sr: regs::Sr) {
+        #[cfg(spi_v4)]
+        let mask = 0xFF4;
+        #[cfg(any(spi_v5, spi_v6))]
+        let mask = 0xBF4;
+
+        let r = self.info.regs;
+        r.ifcr().write(|w| *w = regs::Ifcr(sr.0 & mask));
+    }
+
     /// (Re-)start DMA and SPI if it is not running (has not been started yet or has failed), and
     /// check for errors in status register. Error flags are checked/cleared first.
     fn start_or_check_errors(&mut self) -> Result<(), Error> {
         let r = self.info.regs;
 
-        check_error_flags(r.sr().read(), true)?;
+        let sr = r.sr().read();
+        self.clear_interrupt_flags(sr);
+        check_error_flags(sr, true)?;
 
         if !self.ring_buf.is_running() {
             self.start();
