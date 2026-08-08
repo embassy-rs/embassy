@@ -3,21 +3,9 @@
 //! The `trace` feature enables a number of callbacks that can be used to track the
 //! lifecycle of tasks and/or executors.
 //!
-//! Callbacks will have one or both of the following IDs passed to them:
-//!
-//! 1. A `task_id`, a `u32` value unique to a task for the duration of the time it is valid
-//! 2. An `executor_id`, a `u32` value unique to an executor for the duration of the time it is
-//!    valid
-//!
-//! Today, both `task_id` and `executor_id` are u32s containing the least significant 32 bits of
-//! the address of the task or executor, however this is NOT a stable guarantee, and MAY change
-//! at any time.
-//!
-//! IDs are only guaranteed to be unique for the duration of time the item is valid. If a task
-//! ends, and is re-spawned, it MAY or MAY NOT have the same ID. For tasks, this valid time is defined
-//! as the time between `_embassy_trace_task_new` and `_embassy_trace_task_end` for a given task.
-//! For executors, this time is not defined, but is often "forever" for practical embedded
-//! programs.
+//! The passed IDs are only guaranteed to be unique for the duration of time the item is valid. If a task
+//! ends, and is re-spawned, it MAY or MAY NOT have the same ID. While a task is active, the id will not change.
+//! For executors, the same applies, but the IDs will be stable for practical embedded programs.
 //!
 //! Callbacks can be used by enabling the `trace` feature, and providing implementations of the
 //! `extern "Rust"` functions below. All callbacks must be implemented.
@@ -87,6 +75,8 @@ use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 #[cfg(feature = "rtos-trace")]
 use rtos_trace::TaskInfo;
 
+#[cfg(feature = "trace")]
+use crate::ExecutorId;
 use crate::raw::{SyncExecutor, TaskHeader, TaskRef};
 use crate::spawner::{SpawnError, SpawnToken, Spawner};
 
@@ -174,18 +164,18 @@ unsafe extern "Rust" {
     /// be paired with a later call to `_embassy_trace_executor_idle`.
     ///
     /// This marks the EXECUTOR state transition from IDLE -> SCHEDULING.
-    fn _embassy_trace_poll_start(executor_id: u32);
+    fn _embassy_trace_poll_start(executor: ExecutorId);
 
     /// This callback is called AFTER a task is initialized/allocated, and BEFORE
     /// it is enqueued to run for the first time. If the task ends (and does not
     /// loop "forever"), there will be a matching call to `_embassy_trace_task_end`.
     ///
     /// Tasks start life in the SPAWNED state.
-    fn _embassy_trace_task_new(executor_id: u32, task_id: u32);
+    fn _embassy_trace_task_new(executor: ExecutorId, task: TaskRef);
 
     /// This callback is called AFTER a task is destructed/freed. This will always
     /// have a prior matching call to `_embassy_trace_task_new`.
-    fn _embassy_trace_task_end(executor_id: u32, task_id: u32);
+    fn _embassy_trace_task_end(executor: ExecutorId, task: TaskRef);
 
     /// This callback is called AFTER a task has been dequeued from the runqueue,
     /// and BEFORE the task is polled. There will always be a matching call to
@@ -193,7 +183,7 @@ unsafe extern "Rust" {
     ///
     /// This marks the TASK state transition from WAITING -> RUNNING
     /// This marks the EXECUTOR state transition from SCHEDULING -> POLLING
-    fn _embassy_trace_task_exec_begin(executor_id: u32, task_id: u32);
+    fn _embassy_trace_task_exec_begin(executor: ExecutorId, task: TaskRef);
 
     /// This callback is called AFTER a task has completed polling. There will
     /// always be a matching call to `_embassy_trace_task_exec_begin`.
@@ -205,7 +195,7 @@ unsafe extern "Rust" {
     ///     for this task since the last `_embassy_trace_task_exec_begin` for THIS task
     ///
     /// This marks the EXECUTOR state transition from POLLING -> SCHEDULING
-    fn _embassy_trace_task_exec_end(excutor_id: u32, task_id: u32);
+    fn _embassy_trace_task_exec_end(executor: ExecutorId, task: TaskRef);
 
     /// This callback is called AFTER the waker for a task is awoken, and BEFORE it
     /// is added to the run queue.
@@ -218,29 +208,42 @@ unsafe extern "Rust" {
     ///
     /// NOTE: This may be called from an interrupt, outside the context of the current
     /// task or executor.
-    fn _embassy_trace_task_ready_begin(executor_id: u32, task_id: u32);
+    fn _embassy_trace_task_ready_begin(executor: ExecutorId, task: TaskRef);
 
     /// This callback is called AFTER all dequeued tasks in a single call to poll
     /// have been processed. This will always be paired with a call to
     /// `_embassy_trace_executor_idle`.
     ///
     /// This marks the EXECUTOR state transition from SCHEDULING -> IDLE
-    fn _embassy_trace_executor_idle(executor_id: u32);
+    fn _embassy_trace_executor_idle(executor: ExecutorId);
+
+    /// This callback is called AFTER the name of a task is set.
+    ///
+    /// This function can be called when the task is not running and it does not signal a state change.
+    fn _embassy_trace_task_name_set(task: TaskRef, name: &'static str);
+    /// This callback is called AFTER the priority of a task is set
+    ///
+    /// This function can be called when the task is not running and it does not signal a state change.
+    fn _embassy_trace_task_priority_set(task: TaskRef, priority: u8);
+    /// This callback is called AFTER the deadline of a task is set
+    ///
+    /// This function can be called when the task is not running and it does not signal a state change.
+    fn _embassy_trace_task_deadline_set(task: TaskRef, deadline: u64);
 }
 
 #[inline]
-pub(crate) fn poll_start(executor: &SyncExecutor) {
+pub(crate) fn poll_start(executor: &'static SyncExecutor) {
     #[cfg(feature = "trace")]
     unsafe {
-        _embassy_trace_poll_start(executor as *const _ as u32)
+        _embassy_trace_poll_start(executor.id())
     }
 }
 
 #[inline]
-pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_new(executor: &'static SyncExecutor, task: TaskRef) {
     #[cfg(feature = "trace")]
     unsafe {
-        _embassy_trace_task_new(executor as *const _ as u32, task.as_ptr() as u32)
+        _embassy_trace_task_new(executor.id(), task)
     }
 
     #[cfg(feature = "rtos-trace")]
@@ -253,59 +256,83 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
             stack_base: 0,
             stack_size: 0,
         };
-        rtos_trace::trace::task_send_info(task.id(), info);
+        rtos_trace::trace::task_send_info(task.id().get() as u32, info);
     }
 
     #[cfg(feature = "rtos-trace")]
-    TASK_TRACKER.add(*task);
+    TASK_TRACKER.add(task);
 }
 
 #[inline]
-pub(crate) fn task_end(executor: *const SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_end(executor: *const SyncExecutor, task: TaskRef) {
     #[cfg(feature = "trace")]
     unsafe {
-        _embassy_trace_task_end(executor as u32, task.as_ptr() as u32)
+        _embassy_trace_task_end((&*executor).id(), task)
     }
 }
 
 #[inline]
-pub(crate) fn task_ready_begin(executor: &SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_ready_begin(executor: &'static SyncExecutor, task: TaskRef) {
     #[cfg(feature = "trace")]
     unsafe {
-        _embassy_trace_task_ready_begin(executor as *const _ as u32, task.as_ptr() as u32)
+        _embassy_trace_task_ready_begin(executor.id(), task)
     }
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::task_ready_begin(task.as_ptr() as u32);
 }
 
 #[inline]
-pub(crate) fn task_exec_begin(executor: &SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_exec_begin(executor: &'static SyncExecutor, task: TaskRef) {
     #[cfg(feature = "trace")]
     unsafe {
-        _embassy_trace_task_exec_begin(executor as *const _ as u32, task.as_ptr() as u32)
+        _embassy_trace_task_exec_begin(executor.id(), task)
     }
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::task_exec_begin(task.as_ptr() as u32);
 }
 
 #[inline]
-pub(crate) fn task_exec_end(executor: &SyncExecutor, task: &TaskRef) {
+pub(crate) fn task_exec_end(executor: &'static SyncExecutor, task: TaskRef) {
     #[cfg(feature = "trace")]
     unsafe {
-        _embassy_trace_task_exec_end(executor as *const _ as u32, task.as_ptr() as u32)
+        _embassy_trace_task_exec_end(executor.id(), task)
     }
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::task_exec_end();
 }
 
 #[inline]
-pub(crate) fn executor_idle(executor: &SyncExecutor) {
+pub(crate) fn executor_idle(executor: &'static SyncExecutor) {
     #[cfg(feature = "trace")]
     unsafe {
-        _embassy_trace_executor_idle(executor as *const _ as u32)
+        _embassy_trace_executor_idle(executor.id())
     }
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::system_idle();
+}
+
+#[inline]
+pub(crate) fn task_name_set(task: TaskRef, name: &'static str) {
+    #[cfg(feature = "trace")]
+    unsafe {
+        _embassy_trace_task_name_set(task, name)
+    }
+}
+
+#[inline]
+pub(crate) fn task_priority_set(task: TaskRef, priority: u8) {
+    #[cfg(feature = "trace")]
+    unsafe {
+        _embassy_trace_task_priority_set(task, priority)
+    }
+}
+
+#[inline]
+pub(crate) fn task_deadline_set(task: TaskRef, deadline: u64) {
+    #[cfg(feature = "trace")]
+    unsafe {
+        _embassy_trace_task_deadline_set(task, deadline)
+    }
 }
 
 /// Returns an iterator over all active tasks in the system
@@ -363,7 +390,7 @@ impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
                 stack_base: 0,
                 stack_size: 0,
             };
-            rtos_trace::trace::task_send_info(task.id(), info);
+            rtos_trace::trace::task_send_info(task.id().get() as u32, info);
         });
     }
     fn time() -> u64 {
