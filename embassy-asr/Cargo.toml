@@ -17,10 +17,21 @@ features = ["asr6601", "time-driver-rtc"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
+embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
 
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+embedded-io = "0.7.1"
+embedded-io-async = "0.7.0"
+embedded-storage = "0.3.1"
+rand_core = "0.9"
+
+defmt = { version = "1.0.1", optional = true }
 cortex-m = "0.7"
 cortex-m-rt = "0.7"
 critical-section = "1.1"
@@ -34,6 +45,14 @@ features = ["critical-section", "rt"]
 [features]
 default = ["asr6601", "time-driver-rtc"]
 
+defmt = [
+    "dep:defmt",
+    "embassy-embedded-hal/defmt",
+    "embassy-futures/defmt",
+    "embassy-hal-internal/defmt",
+    "embassy-sync/defmt",
+]
+
 _time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
 # RTC is clocked from the always-on XO32K domain. Its calendar provides the
@@ -44,4 +63,5 @@ time-driver-rtc = [
     "embassy-time-driver?/tick-hz-32_768",
 ]
 
-asr6601 = ["dep:asr6601-pac"]
+rt = []
+asr6601 = ["dep:asr6601-pac", "rt"]

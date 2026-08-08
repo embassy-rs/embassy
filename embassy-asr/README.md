@@ -1,14 +1,15 @@
 # embassy-asr
 
-Minimal [Embassy](https://embassy.dev/) support for ASR microcontrollers.
+[Embassy](https://embassy.dev/) support for ASR microcontrollers.
 
 ## Current support
 
 - ASR6601
+- Peripheral ownership and type-level interrupt infrastructure
 - `embassy-time` driver using the always-on RTC at 32,768 Hz
 - Cortex-M thread executor support through `embassy-executor`
-
-There is no peripheral HAL yet.
+- Early HAL drivers for GPIO, UART, SPI, I2C, timers, DMA, ADC, DAC,
+  LPUART, LPTIMER, CRC, RNG, flash, power, AFEC, and RCC
 
 ## RTC time driver
 
@@ -19,7 +20,7 @@ The driver:
 
 - requires a working 32.768 kHz crystal on XO32K;
 - resets RTC and starts its calendar at `2000-01-01 00:00:00` during
-  `embassy_asr::init()`;
+  `embassy_asr::init(Config::default())`;
 - owns RTC exclusively, so application code must not access RTC through the
   raw PAC;
 - rounds hardware wakeups shorter than 164 ticks up to about 5 ms;

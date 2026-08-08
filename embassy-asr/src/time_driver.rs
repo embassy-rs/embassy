@@ -12,7 +12,9 @@ use embassy_hal_internal::interrupt::{InterruptExt, Priority};
 use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
 
+use crate::afec;
 use crate::pac::{self, Interrupt, interrupt};
+use crate::rcc::{self, Peripheral as RccPeripheral};
 
 const TIMER_TICK_HZ: u64 = 32_768;
 const MIN_ALARM_TICKS: u64 = 164; // Five milliseconds, as required by the vendor timer.
@@ -24,12 +26,9 @@ const RTC_CYC_ENABLE: u32 = 1 << 24;
 const RTC_CYC_INTERRUPT: u32 = 1 << 4;
 const RTC_CYC_STATUS: u32 = 1 << 4;
 
-const RCC_SR_ALL_DONE: u32 = 0x3f;
-const RCC_SR_RTC_AON_DONE: u32 = 1 << 1;
-
-// AFEC analog register 0x02 controls the 32 kHz oscillators. Clearing bits
-// 13 and 14 enables XO32K, matching rcc_enable_oscillator(RCC_OSC_XO32K).
-const AFEC_ANALOG_02: *mut u32 = 0x4000_8008 as *mut u32;
+// AFEC analog register 0x02 bits 13/14 power-gate XO32K. Clearing them matches
+// `rcc_enable_oscillator(RCC_OSC_XO32K)`.
+const ANALOG_XO32K_POWER_DOWN: u32 = (1 << 13) | (1 << 14);
 
 struct AsrTimeDriver {
     initialized: AtomicBool,
@@ -77,8 +76,7 @@ fn calendar_ticks(time: u32, date: u32, subsecond: u32) -> u64 {
     let month = ((date >> 6) & 0x0f) + ((date >> 10) & 0x01) * 10;
     let year = 2000 + ((date >> 14) & 0x0f) + ((date >> 18) & 0x0f) * 10;
 
-    const DAYS_BEFORE_MONTH: [u32; 12] =
-        [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+    const DAYS_BEFORE_MONTH: [u32; 12] = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
 
     let years = year.saturating_sub(2000);
     let mut days = years * 365 + (years + 3) / 4;
@@ -110,37 +108,22 @@ fn read_calendar_ticks() -> u64 {
 
 impl AsrTimeDriver {
     fn init(&'static self) {
-        assert!(
-            TICK_HZ == TIMER_TICK_HZ,
-            "embassy-asr: time tick rate must be 32768 Hz"
-        );
+        assert!(TICK_HZ == TIMER_TICK_HZ, "embassy-asr: time tick rate must be 32768 Hz");
 
-        let rcc = unsafe { pac::Rcc::steal() };
-        rcc.cgr0().modify(|_, w| w.afec_clk_en().set_bit());
-
-        unsafe {
-            let value = core::ptr::read_volatile(AFEC_ANALOG_02);
-            core::ptr::write_volatile(AFEC_ANALOG_02, value & !((1 << 13) | (1 << 14)));
-        }
+        // Shared AFEC analog helper also gates the AFEC clock.
+        afec::analog::REG_02.clear_bits(ANALOG_XO32K_POWER_DOWN);
 
         // Reinitialize RTC and select XO32K while its functional clock is off.
-        // The ordering and synchronization match rcc_enable_peripheral_clk().
-        rcc.cgr1().modify(|_, w| w.rtc_clk_en().clear_bit());
-        while rcc.sr().read().bits() & RCC_SR_ALL_DONE != RCC_SR_ALL_DONE {}
-        while rcc.sr1().read().rtc_clk_en_sync().bit_is_set() {}
-        rcc.cgr2()
-            .modify(|_, w| w.rtc_aon_clk_en().clear_bit());
-        while rcc.sr().read().bits() & RCC_SR_RTC_AON_DONE == 0 {}
+        // Clock/reset helpers match `rcc_enable_peripheral_clk` / reset sequencing,
+        // including the vendor 92 µs asynchronous-domain delay after reset release.
+        rcc::disable_peripheral(RccPeripheral::Rtc).expect("embassy-asr: failed to disable RTC clock");
+        rcc::reset_peripheral(RccPeripheral::Rtc).expect("embassy-asr: failed to reset RTC");
 
-        rcc.rst0().modify(|_, w| w.rtc_rst_n().clear_bit());
-        rcc.rst0().modify(|_, w| w.rtc_rst_n().set_bit());
-        cortex_m::asm::delay(5_000);
+        unsafe { pac::Rcc::steal() }
+            .cr1()
+            .modify(|_, w| w.rtc_clk_sel().xo32k());
 
-        rcc.cr1().modify(|_, w| w.rtc_clk_sel().xo32k());
-        rcc.cgr1().modify(|_, w| w.rtc_clk_en().set_bit());
-        while rcc.sr().read().bits() & RCC_SR_ALL_DONE != RCC_SR_ALL_DONE {}
-        rcc.cgr2().modify(|_, w| w.rtc_aon_clk_en().set_bit());
-        while rcc.sr().read().bits() & RCC_SR_RTC_AON_DONE == 0 {}
+        rcc::enable_peripheral(RccPeripheral::Rtc).expect("embassy-asr: failed to enable RTC clock");
 
         wait_sync();
         unsafe {
@@ -150,9 +133,7 @@ impl AsrTimeDriver {
 
             // Epoch: Saturday 2000-01-01 00:00:00.
             rtc().calendar().write_with_zero(|w| w.bits(0));
-            rtc()
-                .calendar_h()
-                .write_with_zero(|w| w.bits((6 << 11) | (1 << 6) | 1));
+            rtc().calendar_h().write_with_zero(|w| w.bits((6 << 11) | (1 << 6) | 1));
         }
         wait_sync();
         rtc()
@@ -166,14 +147,20 @@ impl AsrTimeDriver {
         unsafe { Interrupt::RTC.enable() };
     }
 
-    fn stop_alarm(&self) {
-        wait_sync();
+    /// Disable the cyclic counter and its interrupt. Caller must ensure RTC
+    /// register writes are allowed (`wait_sync` / `sync_ready`).
+    fn disable_cyc(&self) {
         rtc()
             .ctrl()
             .modify(|r, w| unsafe { w.bits(r.bits() & !RTC_CYC_ENABLE) });
         rtc()
             .cr1()
             .modify(|r, w| unsafe { w.bits(r.bits() & !RTC_CYC_INTERRUPT) });
+    }
+
+    fn stop_alarm(&self) {
+        wait_sync();
+        self.disable_cyc();
     }
 
     fn on_interrupt(&self) {
@@ -188,12 +175,12 @@ impl AsrTimeDriver {
             return;
         }
 
-        self.stop_alarm();
+        // Already synchronized above; avoid a second wait before disable.
+        self.disable_cyc();
+        // Clearing status requires a sync after the control-register writes.
         wait_sync();
         unsafe {
-            rtc()
-                .sr()
-                .write_with_zero(|w| w.bits(RTC_CYC_STATUS));
+            rtc().sr().write_with_zero(|w| w.bits(RTC_CYC_STATUS));
         }
 
         critical_section::with(|cs| self.trigger_alarm(cs));
@@ -220,20 +207,17 @@ impl AsrTimeDriver {
             return false;
         }
 
-        let duration = (timestamp - now)
-            .clamp(MIN_ALARM_TICKS, u32::MAX as u64) as u32;
+        let duration = (timestamp - now).clamp(MIN_ALARM_TICKS, u32::MAX as u64) as u32;
 
         wait_sync();
         unsafe {
             rtc().cyc_max().write_with_zero(|w| w.bits(duration));
-            rtc()
-                .sr()
-                .write_with_zero(|w| w.bits(RTC_CYC_STATUS));
+            rtc().sr().write_with_zero(|w| w.bits(RTC_CYC_STATUS));
         }
         wait_sync();
-        rtc().ctrl().modify(|r, w| unsafe {
-            w.bits(r.bits() | RTC_CYC_WAKE_ENABLE | RTC_CYC_ENABLE)
-        });
+        rtc()
+            .ctrl()
+            .modify(|r, w| unsafe { w.bits(r.bits() | RTC_CYC_WAKE_ENABLE | RTC_CYC_ENABLE) });
         rtc()
             .cr1()
             .modify(|r, w| unsafe { w.bits(r.bits() | RTC_CYC_INTERRUPT) });
@@ -277,4 +261,66 @@ pub(crate) fn init() {
 #[interrupt]
 fn RTC() {
     DRIVER.on_interrupt();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pack BCD calendar date fields the same way the driver writes `calendar_h`.
+    fn pack_date(year: u32, month: u32, day: u32, weekday: u32) -> u32 {
+        let y = year - 2000;
+        let y_ones = y % 10;
+        let y_tens = y / 10;
+        let m_ones = month % 10;
+        let m_tens = month / 10;
+        let d_ones = day % 10;
+        let d_tens = day / 10;
+        d_ones | (d_tens << 4) | (m_ones << 6) | (m_tens << 10) | (weekday << 11) | (y_ones << 14) | (y_tens << 18)
+    }
+
+    fn pack_time(hour: u32, minute: u32, second: u32) -> u32 {
+        let s_ones = second % 10;
+        let s_tens = second / 10;
+        let m_ones = minute % 10;
+        let m_tens = minute / 10;
+        let h_ones = hour % 10;
+        let h_tens = hour / 10;
+        s_ones | (s_tens << 4) | (m_ones << 7) | (m_tens << 11) | (h_ones << 14) | (h_tens << 18)
+    }
+
+    #[test]
+    fn epoch_is_zero() {
+        let date = pack_date(2000, 1, 1, 6);
+        assert_eq!(calendar_ticks(0, date, 0), 0);
+        assert_eq!(date, (6 << 11) | (1 << 6) | 1);
+    }
+
+    #[test]
+    fn one_second_and_subsecond() {
+        let date = pack_date(2000, 1, 1, 6);
+        let time = pack_time(0, 0, 1);
+        assert_eq!(calendar_ticks(time, date, 0), TIMER_TICK_HZ);
+        assert_eq!(calendar_ticks(0, date, 100), 100);
+    }
+
+    #[test]
+    fn leap_day_2000() {
+        let jan1 = pack_date(2000, 1, 1, 6);
+        let mar1 = pack_date(2000, 3, 1, 3);
+        let jan1_ticks = calendar_ticks(0, jan1, 0);
+        let mar1_ticks = calendar_ticks(0, mar1, 0);
+        // 2000 is a leap year in the RTC's simplified %4 rule: 31 + 29 days.
+        assert_eq!(mar1_ticks - jan1_ticks, 60 * 86_400 * TIMER_TICK_HZ);
+    }
+
+    #[test]
+    fn non_leap_feb_2001() {
+        let jan1 = pack_date(2001, 1, 1, 1);
+        let mar1 = pack_date(2001, 3, 1, 4);
+        assert_eq!(
+            calendar_ticks(0, mar1, 0) - calendar_ticks(0, jan1, 0),
+            59 * 86_400 * TIMER_TICK_HZ
+        );
+    }
 }
