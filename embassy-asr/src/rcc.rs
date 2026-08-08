@@ -15,12 +15,6 @@ const XO24M_HZ: u32 = 24_000_000;
 const XO32M_HZ: u32 = 32_000_000;
 const LOW_SPEED_HZ: u32 = 32_768;
 
-// The analog oscillator control registers occupy the otherwise-unmodelled
-// first 0x200 bytes of the AFEC address range.
-const AFEC_ANALOG_BASE: usize = 0x4000_8000;
-const AFEC_ANALOG_OSC32K: usize = 0x02;
-const AFEC_ANALOG_OSC_HIGH_SPEED: usize = 0x06;
-
 const ANALOG_RCO32K_POWER_DOWN: u32 = 1 << 15;
 const ANALOG_XO32K_POWER_DOWN: u32 = (1 << 13) | (1 << 14);
 const ANALOG_XO24M_ENABLE: u32 = 1 << 3;
@@ -288,8 +282,15 @@ pub fn clocks() -> Option<Clocks> {
 /// selected oscillator is enabled before it is selected. PCLKs are temporarily
 /// divided by 16, and HCLK/source ordering is chosen to avoid a transient clock
 /// faster than either the existing or requested clock.
+///
+/// Matches vendor `system_init()` by enabling the AFEC clock before any
+/// analog-window or `RAW_SR` access. Without that gate, oscillator readiness
+/// bits read as clear and [`Error::Timeout`] is reported.
 pub fn init(_rcc: Peri<'_, peripherals::RCC>, config: Config) -> Result<Clocks, Error> {
     CLOCKS_INITIALIZED.store(false, Ordering::Release);
+
+    // Vendor `system_cm4.c` enables AFEC before oscillator or clock work.
+    crate::afec::analog::enable_clock();
 
     enable_oscillator(
         config.system_clock.oscillator(),
@@ -388,14 +389,6 @@ fn configure_clock_tree(config: Config) {
     set_pclk_dividers(config.pclk0_divider, config.pclk1_divider);
 }
 
-fn modify_analog(register: usize, f: impl FnOnce(u32) -> u32) {
-    critical_section::with(|_| unsafe {
-        let address = (AFEC_ANALOG_BASE + register * size_of::<u32>()) as *mut u32;
-        let value = core::ptr::read_volatile(address);
-        core::ptr::write_volatile(address, f(value));
-    });
-}
-
 fn wait_until(poll_limit: u32, target: WaitTarget, mut ready: impl FnMut() -> bool) -> Result<(), Error> {
     for _ in 0..poll_limit {
         if ready() {
@@ -408,25 +401,31 @@ fn wait_until(poll_limit: u32, target: WaitTarget, mut ready: impl FnMut() -> bo
 }
 
 fn enable_oscillator(oscillator: Oscillator, xo32m_uses_tcxo: bool, poll_limit: u32) -> Result<(), Error> {
+    use crate::afec::analog::{REG_02, REG_06};
+
+    // Analog-window helpers gate AFEC; keep the digital block live for RAW_SR.
+    crate::afec::analog::enable_clock();
+
     match oscillator {
         Oscillator::Rco48m => {
-            modify_analog(AFEC_ANALOG_OSC_HIGH_SPEED, |value| value & !ANALOG_RCO48M_POWER_DOWN);
+            REG_06.clear_bits(ANALOG_RCO48M_POWER_DOWN);
             wait_until(poll_limit, WaitTarget::Rco48m, || {
                 afec().raw_sr().read().rco24m_ready().bit_is_set()
             })
         }
         Oscillator::Rco32k => {
-            modify_analog(AFEC_ANALOG_OSC32K, |value| value & !ANALOG_RCO32K_POWER_DOWN);
+            REG_02.clear_bits(ANALOG_RCO32K_POWER_DOWN);
             Ok(())
         }
         Oscillator::Xo32k => {
-            modify_analog(AFEC_ANALOG_OSC32K, |value| value & !ANALOG_XO32K_POWER_DOWN);
+            REG_02.clear_bits(ANALOG_XO32K_POWER_DOWN);
             Ok(())
         }
         Oscillator::Xo24m => {
-            modify_analog(AFEC_ANALOG_OSC_HIGH_SPEED, |value| {
-                (value | ANALOG_XO24M_ENABLE) & !ANALOG_XO24M_POWER_DOWN
-            });
+            REG_06.modify(
+                ANALOG_XO24M_ENABLE | ANALOG_XO24M_POWER_DOWN,
+                ANALOG_XO24M_ENABLE,
+            );
             Ok(())
         }
         Oscillator::Xo32m => {
@@ -452,7 +451,7 @@ fn enable_oscillator(oscillator: Oscillator, xo32m_uses_tcxo: bool, poll_limit: 
             })
         }
         Oscillator::Rco4m => {
-            modify_analog(AFEC_ANALOG_OSC_HIGH_SPEED, |value| value & !ANALOG_RCO4M_POWER_DOWN);
+            REG_06.clear_bits(ANALOG_RCO4M_POWER_DOWN);
             wait_until(poll_limit, WaitTarget::Rco4m, || {
                 afec().raw_sr().read().rco4m_ready().bit_is_set()
             })
