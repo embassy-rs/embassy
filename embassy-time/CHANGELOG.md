@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add 27MHz tick rate support
 - Implement `core::error::Error` for `TimeoutError`.
+- Implement experimental embedded-hal-timer `Timer` and `Alarm` traits
 
 ## 0.5.1 - 2026-03-11
 
