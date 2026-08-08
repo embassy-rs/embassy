@@ -22,6 +22,9 @@
 
 use core::task::Waker;
 
+#[unsafe(no_mangle)]
+static __EMBASSY_EXECUTOR_TIME_QUEUE_ONLY_ONCE_IN_DEPENDENCY_TREE: () = ();
+
 const ITEM_WORDS: usize = if cfg!(feature = "timer-item-size-8-words") {
     8
 } else if cfg!(feature = "timer-item-size-6-words") {
