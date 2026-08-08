@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.12.0 - 2026-06-16
+
+- Update embassy-nrf to 0.11.0
+
 ## 0.11.0 - 2026-03-10
 
 - Update embassy-sync to 0.8.0

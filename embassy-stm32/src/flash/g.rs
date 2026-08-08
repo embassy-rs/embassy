@@ -7,6 +7,10 @@ use cortex_m::interrupt;
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::flash::regs::Sr;
 
+#[cfg(flash_g4c3)]
+use super::FlashBank;
+#[cfg(flash_g4c3)]
+use super::get_flash_regions;
 use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
@@ -99,6 +103,21 @@ unsafe fn write_start(start_address: u32, buf: &[u8; WRITE_SIZE]) {
     }
 }
 
+#[cfg(flash_g4c3)]
+fn pnb_for_sector(sector: &FlashSector) -> u8 {
+    let bank1_pages: u8 = get_flash_regions()
+        .iter()
+        .take_while(|region| region.bank == FlashBank::Bank1)
+        .map(|region| region.sectors())
+        .sum();
+
+    if sector.bank == FlashBank::Bank2 {
+        bank1_pages + sector.index_in_bank
+    } else {
+        sector.index_in_bank
+    }
+}
+
 pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
     wait_busy();
     clear_all_err();
@@ -107,11 +126,15 @@ pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Erro
     interrupt::free(|_| {
         pac::FLASH.cr().modify(|w| {
             w.set_per(true);
-            #[cfg(any(flash_g0x0, flash_g0x1, flash_g4c3))]
+            #[cfg(any(flash_g0x0, flash_g0x1))]
             w.set_bker(sector.bank == crate::flash::FlashBank::Bank2);
+            #[cfg(flash_g4c3)]
+            w.set_bker(false);
             #[cfg(flash_g0x0)]
             w.set_pnb(sector.index_in_bank as u16);
-            #[cfg(not(flash_g0x0))]
+            #[cfg(flash_g4c3)]
+            w.set_pnb(pnb_for_sector(sector));
+            #[cfg(all(not(flash_g0x0), not(flash_g4c3)))]
             w.set_pnb(sector.index_in_bank as u8);
             w.set_eopie(true);
             w.set_errie(true);
@@ -140,11 +163,15 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     interrupt::free(|_| {
         pac::FLASH.cr().modify(|w| {
             w.set_per(true);
-            #[cfg(any(flash_g0x0, flash_g0x1, flash_g4c3))]
+            #[cfg(any(flash_g0x0, flash_g0x1))]
             w.set_bker(sector.bank == crate::flash::FlashBank::Bank2);
+            #[cfg(flash_g4c3)]
+            w.set_bker(false);
             #[cfg(flash_g0x0)]
             w.set_pnb(sector.index_in_bank as u16);
-            #[cfg(not(flash_g0x0))]
+            #[cfg(flash_g4c3)]
+            w.set_pnb(pnb_for_sector(sector));
+            #[cfg(all(not(flash_g0x0), not(flash_g4c3)))]
             w.set_pnb(sector.index_in_bank as u8);
             w.set_strt(true);
         });
@@ -157,6 +184,19 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     ret
 }
 
+/// Whether an operation is still in flight (bank-2 ops on dual-bank G0 assert
+/// BSY2/CFGBSY, not BSY1).
+fn sr_busy(sr: Sr) -> bool {
+    #[cfg(any(flash_g0x0, flash_g0x1))]
+    {
+        sr.bsy() | sr.bsy2() | sr.cfgbsy()
+    }
+    #[cfg(not(any(flash_g0x0, flash_g0x1)))]
+    {
+        sr.bsy()
+    }
+}
+
 pub(crate) async fn wait_ready() -> Result<(), Error> {
     use core::future::poll_fn;
     use core::task::Poll;
@@ -165,7 +205,7 @@ pub(crate) async fn wait_ready() -> Result<(), Error> {
         WAKER.register(cx.waker());
 
         let sr = pac::FLASH.sr().read();
-        if !sr.bsy() {
+        if !sr_busy(sr) {
             Poll::Ready(get_result(sr))
         } else {
             Poll::Pending
@@ -177,7 +217,7 @@ pub(crate) async fn wait_ready() -> Result<(), Error> {
 pub(crate) unsafe fn wait_ready_blocking() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
-        if !sr.bsy() {
+        if !sr_busy(sr) {
             return get_result(sr);
         }
     }
@@ -205,14 +245,8 @@ pub(crate) unsafe fn clear_all_err() {
     pac::FLASH.sr().modify(|_| {});
 }
 
-#[cfg(any(flash_g0x0, flash_g0x1))]
 fn wait_busy() {
-    while pac::FLASH.sr().read().bsy() | pac::FLASH.sr().read().bsy2() {}
-}
-
-#[cfg(not(any(flash_g0x0, flash_g0x1)))]
-fn wait_busy() {
-    while pac::FLASH.sr().read().bsy() {}
+    while sr_busy(pac::FLASH.sr().read()) {}
 }
 
 // G4 data cache handling - must disable during flash operations

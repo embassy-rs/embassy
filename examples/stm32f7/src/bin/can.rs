@@ -4,6 +4,7 @@
 use core::num::{NonZeroU8, NonZeroU16};
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::can::filter::Mask32;
 use embassy_stm32::can::{
@@ -13,8 +14,8 @@ use embassy_stm32::can::{
 use embassy_stm32::gpio::{Input, Pull};
 use embassy_stm32::peripherals::CAN3;
 use embassy_stm32::{bind_interrupts, can};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     CAN3_RX0 => Rx0InterruptHandler<CAN3>;

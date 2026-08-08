@@ -1,8 +1,8 @@
 #[cfg(arm_profile = "legacy")]
-compile_error!("`arch-cortex-ar` does not support the legacy ARM profile, WFE/SEV are not available.");
+compile_error!("`platform-cortex-ar` does not support the legacy ARM profile, WFE/SEV are not available.");
 
 #[cfg(feature = "executor-interrupt")]
-compile_error!("`executor-interrupt` is not supported with `arch-cortex-ar`.");
+compile_error!("`executor-interrupt` is not supported with `platform-cortex-ar`.");
 
 #[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]

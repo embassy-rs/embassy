@@ -59,8 +59,21 @@ pub fn check_erased(base: u32, buffer: &[u8]) -> Option<u32> {
 
 const ENTER_OPI_SEQ: u8 = Command::WriteStatus as u8;
 
+/// Flash configuration for the FRDM-MCXA577's on-board NOR flash.
+///
+/// The board carries a Winbond **W25Q64** (64 Mbit = 8 MiB), driven here in
+/// 1-4-4 quad mode. The read/erase/program LUT sequences below all use a 3-byte
+/// (24-bit) address, which reaches 16 MiB and so covers this part in full; a
+/// flash larger than 16 MiB would need 4-byte-address sequences instead.
+///
+/// The FlexSPI hardware is not the limiting factor: the AHB memory-mapped window
+/// spans 256 MiB (secure `0x9000_0000..=0x9FFF_FFFF`) and IP commands carry a
+/// full 32-bit address in `IPCR0.SFAR`.
 pub const FLASH_CONFIG: FlashConfig = FlashConfig {
-    flash_size_kbytes: 0x10000,
+    // W25Q64 == 8 MiB == 8192 KiB. `flash_size_kbytes` programs FLSHCR0.FLSHSZ,
+    // which bounds every IP and memory-mapped access; sizing it to the real chip
+    // makes the controller reject out-of-range accesses instead of wrapping.
+    flash_size_kbytes: 0x2000,
     page_size: FLASH_PAGE_SIZE,
     busy_status_polarity: true,
     busy_status_offset: 0,

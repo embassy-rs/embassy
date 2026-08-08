@@ -11,12 +11,13 @@ use aes_gcm::Aes128Gcm;
 use aes_gcm::aead::heapless::Vec;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::{self, *};
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 const PAYLOAD_LEN: usize = 32 * 1024;
 const TAG_LEN: usize = 16;

@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner) {
         prediv: PllPreDiv::Div1,  // PLLM = 1 → HSI / 1 = 16 MHz
         mul: PllMul::Mul30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
         divr: Some(PllDiv::Div5), // PLLR = 5 → 96 MHz (Sysclk)
-        // divq: Some(PllDiv::DIV10), // PLLQ = 10 → 48 MHz (NOT USED)
+        // divq: Some(PllDiv::Div10), // PLLQ = 10 → 48 MHz (NOT USED)
         divq: None,
         divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (USBOTG)
         frac: Some(0),             // Fractional part (enabled)

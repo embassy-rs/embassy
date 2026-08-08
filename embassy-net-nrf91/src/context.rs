@@ -275,13 +275,17 @@ impl<'a> Control<'a> {
 
         let mut dns = Vec::new();
         if let Some(ip) = dns1 {
-            dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
-                .unwrap();
+            if !ip.is_empty() {
+                dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
+                    .unwrap();
+            }
         }
 
         if let Some(ip) = dns2 {
-            dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
-                .unwrap();
+            if !ip.is_empty() {
+                dns.push(IpAddr::from_str(ip).map_err(|_| Error::AddrParseError)?)
+                    .unwrap();
+            }
         }
 
         Ok(Status {
@@ -344,8 +348,8 @@ impl<'a> Control<'a> {
     pub async fn run<F: Fn(&Status)>(&self, reattach: F) -> Result<(), Error> {
         self.enable().await?;
         let status = self.wait_attached().await?;
-        self.control.set_link_state(LinkState::Up);
         let mut fd = self.control.open_raw_socket().await;
+        self.control.set_link_state(LinkState::Up);
         reattach(&status);
 
         loop {
@@ -356,8 +360,8 @@ impl<'a> Control<'a> {
                 self.control.close_raw_socket(fd).await;
                 let status = self.wait_attached().await?;
                 trace!("attached");
-                self.control.set_link_state(LinkState::Up);
                 fd = self.control.open_raw_socket().await;
+                self.control.set_link_state(LinkState::Up);
                 reattach(&status);
             }
             Timer::after(Duration::from_secs(10)).await;

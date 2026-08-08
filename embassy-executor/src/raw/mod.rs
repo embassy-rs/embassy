@@ -176,6 +176,24 @@ impl TaskRef {
         self.ptr.as_ptr()
     }
 
+    /// An opaque pointer identifying this task.
+    ///
+    /// Lets a `TaskRef` be stored where only one word fits. Recover it with [`from_raw`](Self::from_raw).
+    ///
+    /// The pointer must not be dereferenced.
+    pub fn as_raw(self) -> NonNull<()> {
+        self.ptr.cast()
+    }
+
+    /// Recover the task that [`as_raw`](Self::as_raw) was called on.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must have been returned by `as_raw`.
+    pub unsafe fn from_raw(ptr: NonNull<()>) -> Self {
+        Self { ptr: ptr.cast() }
+    }
+
     /// Returns the task ID.
     /// This can be used in combination with (rtos-)trace to match task names with IDs
     pub fn id(&self) -> TaskId {
@@ -509,9 +527,9 @@ impl SyncExecutor {
 ///   that "want to run").
 /// - You must supply a pender function, as shown below. The executor will call it to notify you
 ///   it has work to do. You must arrange for `poll()` to be called as soon as possible.
-/// - Enabling `arch-xx` features will define a pender function for you. This means that you
+/// - Enabling `platform-xx` features will define a pender function for you. This means that you
 ///   are limited to using the executors provided to you by the architecture/platform
-///   implementation. If you need a different executor, you must not enable `arch-xx` features.
+///   implementation. If you need a different executor, you must not enable `platform-xx` features.
 ///
 /// The pender can be called from *any* context: any thread, any interrupt priority
 /// level, etc. It may be called synchronously from any `Executor` method call as well.

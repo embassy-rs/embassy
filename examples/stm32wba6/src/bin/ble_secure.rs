@@ -20,6 +20,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG};
@@ -33,10 +34,10 @@ use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::bluetooth::security::{IoCapability, SecureConnectionsSupport, SecurityEvent, SecurityParams};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
+use panic_probe as _;
 use stm32wb_hci::Event;
 use stm32wb_hci::event::EncryptionChange;
 use stm32wb_hci::vendor::event::VendorEvent;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;
@@ -209,7 +210,12 @@ async fn main(spawner: Spawner) {
 
                 GapEvent::Disconnected { handle, reason } => {
                     info!("=== DISCONNECTED ===");
-                    info!("  Handle: 0x{:04X}, Reason: 0x{:02X}", handle.0, reason);
+                    info!(
+                        "  Handle: 0x{:04X}, Reason: 0x{:02X} ({})",
+                        handle.0,
+                        reason.as_u8(),
+                        Display2Format(&reason)
+                    );
 
                     // Restart advertising
                     ble.start_advertising(adv_params.clone(), create_adv_data(), None)

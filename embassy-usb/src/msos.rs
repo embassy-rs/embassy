@@ -93,7 +93,7 @@ impl<'d> MsOsDescriptorWriter<'d> {
     /// Write the MS OS descriptor set header.
     ///
     /// - `windows_version` is an NTDDI version constant that describes a windows version. See the [`windows_version`]
-    /// module.
+    ///   module.
     /// - `vendor_code` is the vendor request code used to read the MS OS descriptor set.
     pub fn header(&mut self, windows_version: u32, vendor_code: u8) {
         assert!(self.is_empty(), "You can only call MsOsDescriptorWriter::header once");
@@ -622,7 +622,7 @@ impl MinimumRecoveryTimeDescriptor {
     /// `resume_signaling_time` must be >= 1 and <= 20.
     pub fn new(resume_recovery_time: u8, resume_signaling_time: u8) -> Self {
         assert!(resume_recovery_time <= 10);
-        assert!(resume_signaling_time >= 1 && resume_signaling_time <= 20);
+        assert!((1..=20).contains(&resume_signaling_time));
         Self {
             wLength: (size_of::<Self>() as u16).to_le(),
             wDescriptorType: (Self::TYPE as u16).to_le(),
@@ -687,6 +687,12 @@ impl CcgpDeviceDescriptor {
             wLength: (size_of::<Self>() as u16).to_le(),
             wDescriptorType: (Self::TYPE as u16).to_le(),
         }
+    }
+}
+
+impl Default for CcgpDeviceDescriptor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

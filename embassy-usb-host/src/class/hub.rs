@@ -280,7 +280,12 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         let (info, config_len) = self.bus.enumerate(route, config_buffer).await?;
 
         // Store the device address in the LUT for later retrieval on disconnect.
-        self.device_lut[port as usize] = NonZeroU8::new(info.device_address);
+        // A hub may report more ports than MAX_PORTS; devices on the excess
+        // ports still enumerate, but their [`HubEvent::DeviceRemoved`] carries
+        // no address (the caller cannot free it).
+        if let Some(device_ref) = self.device_lut.get_mut(port as usize) {
+            *device_ref = NonZeroU8::new(info.device_address);
+        }
 
         Ok((info, config_len))
     }

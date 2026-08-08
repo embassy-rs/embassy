@@ -43,6 +43,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG};
@@ -60,10 +61,10 @@ use embassy_stm32_wpan::bluetooth::security::{
 use embassy_stm32_wpan::{
     HighInterruptHandler, LowInterruptHandler, Platform, erase_bond_nvm_flash, new_platform, set_nvm_base_address,
 };
+use panic_probe as _;
 use stm32wb_hci::Event;
 use stm32wb_hci::event::{Encryption, EncryptionChange};
 use stm32wb_hci::vendor::event::{GapPairingComplete, GapPairingStatus, VendorEvent};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;
@@ -234,7 +235,12 @@ async fn main(spawner: Spawner) {
                 }
 
                 GapEvent::Disconnected { handle, reason } => {
-                    info!("Disconnected: handle=0x{:04X} reason=0x{:02X}", handle.0, reason);
+                    info!(
+                        "Disconnected: handle=0x{:04X} reason=0x{:02X} ({})",
+                        handle.0,
+                        reason.as_u8(),
+                        Display2Format(&reason)
+                    );
                     // Match ST BLE_Privacy_Peripheral: do nothing on disconnect. The boot-time
                     // configure_filter_and_resolving_list call already populated the controller
                     // resolving list, and the stack auto-resumes the previous advertising set

@@ -65,7 +65,10 @@ impl Default for Config {
         Self {
             fifo_threshold: FIFOThresholdLevel::_16Bytes, // 32 bytes FIFO, half capacity
             memory_type: MemoryType::Micron,
-            device_size: MemorySize::Other(0),
+            // We set the default is the maximum size of the memory
+            // This value limits the possible read length using indirect read mode
+            // To prevent a gotcha we choose to use a high value
+            device_size: MemorySize::Other(31),
             chip_select_high_time: ChipSelectHighTime::_5Cycle,
             free_running_clock: false,
             clock_mode: false,
@@ -361,8 +364,8 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             T::SPIM_REGS.cr().modify(|w| {
                 w.set_muxen(false);
                 w.set_req2ack_time(1); // Match ST HAL (was 0xff, which is only relevant when muxen=true)
-                // STM32N6: Enable chip select override (required for proper NCS routing)
-                #[cfg(stm32n6)]
+                // H7RS and N6: Enable chip select override (required for proper NCS routing)
+                #[cfg(any(stm32h7rs, stm32n6))]
                 w.set_cssel_ovr_en(true);
                 // Set override value based on pin configuration (0=NCS0, 1=NCS1)
                 // Each XSPI has its own override field in XSPIM
@@ -509,13 +512,19 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_dcyc(command.dummy.into());
         });
 
-        // STM32N6: Deactivate sample shifting when data DTR mode is enabled
-        // This is required for proper DQS-based sampling in DTR mode (matches C HAL behavior
-        // in stm32n6xx_hal_xspi.c lines 3289-3292)
-        #[cfg(stm32n6)]
+        // H7RS and N6: Deactivate sample shifting when data DTR mode is enabled
+        // This is required for proper DQS-based sampling in DTR mode, and now
+        // matches the C HAL behavior in:
+        // - stm32h7rsxx_hal_xspi.c lines 3259-3268
+        // - stm32n6xx_hal_xspi.c   lines 3290-3299
+        #[cfg(any(stm32h7rs, stm32n6))]
         if command.ddtr {
             T::REGS.tcr().modify(|w| {
                 w.set_sshift(false);
+            });
+        } else if self.config.sample_shifting {
+            T::REGS.tcr().modify(|w| {
+                w.set_sshift(true);
             });
         }
 
@@ -560,9 +569,19 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
                     v.set_address(address);
                 });
             } else {
-                // STM32N6: When DHQC is enabled and instruction is in DTR mode with no data phase,
-                // DDTR must be enabled for proper timing (STM32N6 XSPI hardware requirement)
-                #[cfg(stm32n6)]
+                // H7RS and N6: When DHQC is enabled and instruction is in DTR mode with
+                // no data phase, DDTR must be enabled for proper timing (XSPI hardware
+                // requirement).
+                //
+                // The details are explained further, for the OSPI but still apllicable,
+                // here: <https://github.com/embassy-rs/embassy/pull/6441>
+                //
+                // In summary: DDTR must be set for no-data commands. With DHQC is enabled,
+                // the CCR register DDTR bit gates the quarter-cycle delay logic, so even
+                // instruction-only / instruction + address commands must set it, or they
+                // silently no-op. (ST's HAL sets DDTR for these cases.) However, reads keep
+                // working without this.
+                #[cfg(any(stm32h7rs, stm32n6))]
                 if data_len.is_none() && self.config.delay_hold_quarter_cycle && command.idtr {
                     T::REGS.ccr().modify(|w| {
                         w.set_ddtr(true);
@@ -1151,7 +1170,8 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
     }
 
     /// Create new blocking XSPI driver for Hexadeca-SPI with dual DQS pins
-    /// Required for APS256XX PSRAM on STM32N6570-DK which uses both DQS0 and DQS1
+    /// Required for APS256XX PSRAM on STM32N6570-DK and STM32H7S78-DK, which
+    /// uses both DQS0 and DQS1
     #[cfg(xspim_v1)]
     pub fn new_blocking_xspi_hexa_dqs_dual(
         peri: Peri<'d, T>,
@@ -1628,7 +1648,8 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
     }
 
     /// Create new async XSPI driver for Hexadeca-SPI with dual DQS pins
-    /// Required for APS256XX PSRAM on STM32N6570-DK which uses both DQS0 and DQS1
+    /// Required for APS256XX PSRAM on STM32N6570-DK and STM32H7S78-DK, which
+    /// uses both DQS0 and DQS1
     #[cfg(xspim_v1)]
     pub fn new_xspi_hexa_dqs_dual<D: XDma<T>>(
         peri: Peri<'d, T>,

@@ -589,7 +589,7 @@ macro_rules! impl_opamp_external_output {
                     }
                 }
 
-                impl<'d> crate::adc::AdcChannel<crate::peripherals::$adc>
+                impl<'d> crate::adc::AdcChannel<'d, crate::peripherals::$adc>
                     for crate::opamp::OpAmpOutput<'d, crate::peripherals::$inst>
                 {
                 }
@@ -611,7 +611,7 @@ macro_rules! impl_opamp_internal_output {
                     }
                 }
 
-                impl<'d> crate::adc::AdcChannel<crate::peripherals::$adc>
+                impl<'d> crate::adc::AdcChannel<'d, crate::peripherals::$adc>
                     for OpAmpInternalOutput<'d, crate::peripherals::$inst>
                 {
                 }

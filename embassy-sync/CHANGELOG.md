@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `CriticalSectionRawMutex` now implements `Clone + Copy`.
 - Add `write_all` as a method to `pipe::Writer`, trait import not strictly necessary anymore.
 - `AtomicWaker` is now lockless: `register()` and `wake()` no longer enter a critical section,
   using a small atomic state machine (ported from `futures::task::AtomicWaker`).
@@ -25,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `Pipe::try_write_all` method which repeatedly calls `Pipe::try_write` until all
   bytes were written.
 - Implement `core::error::Error` for `channel::TryReceiveError` and `channel::TrySendError`.
+- Made `Signal::poll_wait` public.
+- Made `Subscriber::poll_next_message` public.
+- Made `watch::Receiver::poll_changed` public.
 
 ## 0.8.0 - 2026-03-10
 - Fix wakers getting dropped by `Signal::reset`

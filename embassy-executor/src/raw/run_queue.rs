@@ -78,6 +78,18 @@ impl RunQueue {
         )
     }
 
+    #[inline]
+    fn definitely_empty(&self) -> bool {
+        #[cfg(target_has_atomic = "ptr")]
+        {
+            self.stack.is_empty()
+        }
+        #[cfg(not(target_has_atomic = "ptr"))]
+        {
+            false
+        }
+    }
+
     /// # Standard atomic runqueue
     ///
     /// Empty the queue, then call `on_task` for each task that was in the queue.
@@ -85,6 +97,12 @@ impl RunQueue {
     /// and will be processed by the *next* call to `dequeue_all`, *not* the current one.
     #[cfg(not(any(feature = "scheduler-priority", feature = "scheduler-deadline")))]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
+        // Besides the saved write, this matters on RP2350, where any exclusive
+        // access posts an event that keeps the idle `WFE` from ever sleeping.
+        if self.definitely_empty() {
+            return;
+        }
+
         let taken = self.stack.take_all();
         for taskref in taken {
             run_dequeue(&taskref);
@@ -108,6 +126,10 @@ impl RunQueue {
     /// runqueue are both empty, at which point this function will return.
     #[cfg(any(feature = "scheduler-priority", feature = "scheduler-deadline"))]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
+        if self.definitely_empty() {
+            return;
+        }
+
         let mut sorted = SortedList::<TaskHeader>::new_with_cmp(|lhs, rhs| {
             // compare by priority first
             #[cfg(feature = "scheduler-priority")]

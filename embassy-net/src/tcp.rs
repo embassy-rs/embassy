@@ -13,12 +13,12 @@ use core::mem;
 use core::task::{Context, Poll};
 
 use embassy_time::Duration;
-use smoltcp::iface::{Interface, SocketHandle};
-use smoltcp::socket::tcp;
-pub use smoltcp::socket::tcp::State;
-use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
+use xarxa::iface::{Interface, SocketHandle};
+use xarxa::socket::tcp;
+pub use xarxa::socket::tcp::State;
+use xarxa::wire::{IpEndpoint, IpListenEndpoint};
 
-use crate::time::duration_to_smoltcp;
+use crate::time::duration_to_xarxa;
 use crate::{Stack, TryError};
 
 /// Error returned by TcpSocket read/write functions.
@@ -144,6 +144,19 @@ impl<'a> TcpReader<'a> {
     pub fn recv_queue(&self) -> usize {
         self.io.recv_queue()
     }
+
+    /// Return whether the receive half of the full-duplex connection is open.
+    /// This function returns true if it’s possible to receive data from the remote endpoint.
+    /// It will return true while there is data in the receive buffer, and if there isn’t,
+    /// as long as the remote endpoint has not closed the connection.
+    pub fn may_recv(&self) -> bool {
+        self.io.with(|s, _| s.may_recv())
+    }
+
+    /// Get whether the socket is ready to receive data, i.e. whether there is some pending data in the receive buffer.
+    pub fn can_recv(&self) -> bool {
+        self.io.with(|s, _| s.can_recv())
+    }
 }
 
 impl<'a> TcpWriter<'a> {
@@ -221,6 +234,33 @@ impl<'a> TcpWriter<'a> {
     /// Return the amount of octets queued in the transmit buffer.
     pub fn send_queue(&self) -> usize {
         self.io.send_queue()
+    }
+
+    /// Return whether the transmit half of the full-duplex connection is open.
+    ///
+    /// This function returns true if it's possible to send data and have it arrive
+    /// to the remote endpoint. However, it does not make any guarantees about the state
+    /// of the transmit buffer, and even if it returns true, [write](#method.write) may
+    /// not be able to enqueue any octets.
+    ///
+    /// In terms of the TCP state machine, the socket must be in the `ESTABLISHED` or
+    /// `CLOSE-WAIT` state.
+    pub fn may_send(&self) -> bool {
+        self.io.with(|s, _| s.may_send())
+    }
+
+    /// Check whether the transmit half of the full-duplex connection is open
+    /// (see [may_send](#method.may_send)), and the transmit buffer is not full.
+    pub fn can_send(&self) -> bool {
+        self.io.with(|s, _| s.can_send())
+    }
+
+    /// Return whether the receive half of the full-duplex connection is open.
+    /// This function returns true if it’s possible for the corresponding [`TcpWriter`]
+    /// to receive data from the remote endpoint.
+    /// It will return true as long as the remote endpoint has not closed the connection.
+    pub fn may_recv(&self) -> bool {
+        self.io.with(|s, _| s.may_recv())
     }
 }
 
@@ -509,8 +549,7 @@ impl<'a> TcpSocket<'a> {
     /// Set a keep alive interval ([`set_keep_alive`] to prevent timeouts when
     /// the remote could still respond.
     pub fn set_timeout(&mut self, duration: Option<Duration>) {
-        self.io
-            .with_mut(|s, _| s.set_timeout(duration.map(duration_to_smoltcp)))
+        self.io.with_mut(|s, _| s.set_timeout(duration.map(duration_to_xarxa)))
     }
 
     /// Set the keep-alive interval for the socket.
@@ -524,7 +563,7 @@ impl<'a> TcpSocket<'a> {
     /// can detect a remote endpoint that no longer answers.
     pub fn set_keep_alive(&mut self, interval: Option<Duration>) {
         self.io
-            .with_mut(|s, _| s.set_keep_alive(interval.map(duration_to_smoltcp)))
+            .with_mut(|s, _| s.set_keep_alive(interval.map(duration_to_xarxa)))
     }
 
     /// Set the hop limit field in the IP header of sent packets.
@@ -691,7 +730,7 @@ impl<'d> TcpIo<'d> {
 
     fn read<'s>(&'s mut self, buf: &'s mut [u8]) -> impl Future<Output = Result<usize, Error>> + 's {
         poll_fn(|cx| {
-            // CAUTION: smoltcp semantics around EOF are different to what you'd expect
+            // CAUTION: xarxa semantics around EOF are different to what you'd expect
             // from posix-like IO, so we have to tweak things here.
             self.with_mut(|s, _| match s.recv_slice(buf) {
                 // Reading into empty buffer
@@ -886,7 +925,7 @@ impl<'d> TcpIo<'d> {
                 let rst_pending = s.state() == tcp::State::Closed && s.remote_endpoint().is_some();
 
                 // If there are outstanding send operations, register for wake up and wait
-                // smoltcp issues wake-ups when octets are dequeued from the send buffer
+                // xarxa issues wake-ups when octets are dequeued from the send buffer
                 if data_pending || fin_pending || rst_pending {
                     s.register_send_waker(cx.waker());
                     Poll::Pending

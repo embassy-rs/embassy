@@ -47,11 +47,21 @@ pub async fn target_task(
         match request {
             Request::Read(addr) => {
                 buf.fill(0x55);
-                let count = tgt.async_respond_to_read(&buf).await.unwrap();
+                let count = match tgt.async_respond_to_read(&buf).await.unwrap() {
+                    target::ReadStatus::Complete(n)
+                    | target::ReadStatus::NeedMore(n)
+                    | target::ReadStatus::EarlyStop(n) => n,
+                    _ => 0,
+                };
                 defmt::trace!("[T R {:02x}] -> {:02x}", addr, buf[..count]);
             }
             Request::Write(addr) => {
-                let count = tgt.async_respond_to_write(&mut buf).await.unwrap();
+                let count = match tgt.async_respond_to_write(&mut buf).await.unwrap() {
+                    target::WriteStatus::Stopped(n)
+                    | target::WriteStatus::Restarted(n)
+                    | target::WriteStatus::BufferFull(n) => n,
+                    _ => 0,
+                };
                 defmt::trace!("[T W {:02x}] <- {:02x}", addr, buf[..count]);
             }
             _ => {}

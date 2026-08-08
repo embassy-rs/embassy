@@ -43,7 +43,7 @@ pub struct RngConfig {
     /// Enable clock error detector (CED bit, active-low semantics in HW).
     pub clock_error_detector: bool,
     /// Disable automatic reset on seed error when supported (ARDIS bit).
-    #[cfg(any(rng_v3, rng_wba6))]
+    #[cfg(any(rng_v3, rng_wba6, rng_v4))]
     pub auto_reset_disable: bool,
     /// Lock RNG configuration after setup.
     pub config_lock: bool,
@@ -54,14 +54,35 @@ pub struct RngConfig {
 #[cfg(not(rng_v1))]
 impl Default for RngConfig {
     fn default() -> Self {
+        let rng_config1;
+        let rng_config2;
+        let rng_config3;
+        let clkdiv;
+
+        #[cfg(rng_v4)]
+        {
+            rng_config1 = pac::rng::vals::RngConfig1::ConfigAC;
+            rng_config2 = pac::rng::vals::RngConfig2::Recommended;
+            rng_config3 = pac::rng::vals::RngConfig3::Recommended;
+            clkdiv = pac::rng::vals::Clkdiv::Div25;
+        }
+
+        #[cfg(not(rng_v4))]
+        {
+            rng_config1 = pac::rng::vals::RngConfig1::ConfigA;
+            rng_config2 = pac::rng::vals::RngConfig2::ConfigAB;
+            rng_config3 = pac::rng::vals::RngConfig3::ConfigA;
+            clkdiv = pac::rng::vals::Clkdiv::NoDiv;
+        }
+
         Self {
             nistc: pac::rng::vals::Nistc::Custom,
-            clkdiv: pac::rng::vals::Clkdiv::NoDiv,
-            rng_config1: pac::rng::vals::RngConfig1::ConfigA,
-            rng_config2: pac::rng::vals::RngConfig2::ConfigAB,
-            rng_config3: pac::rng::vals::RngConfig3::ConfigA,
+            clkdiv,
+            rng_config1,
+            rng_config2,
+            rng_config3,
             clock_error_detector: true,
-            #[cfg(any(rng_v3, rng_wba6))]
+            #[cfg(any(rng_v3, rng_wba6, rng_v4))]
             auto_reset_disable: false,
             config_lock: false,
             health_test_config: HealthTestConfig::Recommended,
@@ -212,18 +233,19 @@ impl<'d, T: Instance> Rng<'d, T> {
             reg.set_rng_config2(config.rng_config2);
             reg.set_rng_config3(config.rng_config3);
             reg.set_ced(!config.clock_error_detector);
-            #[cfg(any(rng_v3, rng_wba6))]
+            #[cfg(any(rng_v3, rng_wba6, rng_v4))]
             reg.set_ardis(config.auto_reset_disable);
             reg.set_ie(false);
             reg.set_rngen(true);
         });
+
         // wait for CONDRST to be set
         while !T::regs().cr().read().condrst() {}
 
         // Set health test configuration values
         match config.health_test_config {
             HealthTestConfig::Recommended => {
-                #[cfg(not(rng_wba6))]
+                #[cfg(not(any(rng_wba6, rng_v4)))]
                 {
                     // magic number must be written immediately before every read or write access to HTCR
                     T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Magic));
@@ -238,6 +260,12 @@ impl<'d, T: Instance> Rng<'d, T> {
                     // For WBA6, set RNG_HTCR0 to the recommended value for configurations A, B, and C
                     // This value corresponds to the health test thresholds specified in the reference manual
                     T::regs().htcr(0).write(|w| w.0 = Htcfg::WbaRecommended.value());
+                }
+                #[cfg(rng_v4)]
+                {
+                    T::regs()
+                        .htcr(0)
+                        .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Recommended));
                 }
             }
             HealthTestConfig::KeepCurrent => {}
@@ -389,7 +417,7 @@ impl<'d, T: Instance> crate::low_power::SealedSuspendablePeripheral for Rng<'d, 
                 rng_config2: cr.rng_config2(),
                 rng_config3: cr.rng_config3(),
                 clock_error_detector: !cr.ced(),
-                #[cfg(any(rng_v3, rng_wba6))]
+                #[cfg(any(rng_v3, rng_wba6, rng_v4))]
                 auto_reset_disable: cr.ardis(),
                 ..Default::default()
             };

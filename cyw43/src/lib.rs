@@ -34,10 +34,10 @@ use events::Events;
 use ioctl::IoctlState;
 
 pub use crate::control::{
-    AddMulticastAddressError, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
+    AddMulticastAddressError, ApAuth, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
 };
 pub use crate::runner::Runner;
-pub use crate::sdio::{SdioBus, SdioBusCyw43};
+pub use crate::sdio::SdioBus;
 pub use crate::spi::{SpiBus, SpiBusCyw43};
 pub use crate::structs::BssInfo;
 
@@ -337,8 +337,14 @@ impl State {
     }
 }
 
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Power management modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PowerManagementMode {
     /// Custom, officially unsupported mode. Use at your own risk.
     /// All power-saving features set to their max at only a marginal decrease in power consumption
@@ -349,6 +355,7 @@ pub enum PowerManagementMode {
     Aggressive,
 
     /// The default mode.
+    #[default]
     PowerSave,
 
     /// Performance is prefered over power consumption but still some power is conserved as opposed to
@@ -361,12 +368,6 @@ pub enum PowerManagementMode {
 
     /// No power management is configured. This consumes the most power.
     None,
-}
-
-impl Default for PowerManagementMode {
-    fn default() -> Self {
-        Self::PowerSave
-    }
 }
 
 impl PowerManagementMode {
@@ -455,7 +456,7 @@ where
         None,
     );
 
-    runner.init(firmware, nvram, None, &()).await.unwrap();
+    runner.init(firmware, nvram, None).await.unwrap();
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -478,9 +479,9 @@ pub async fn new_sdio<'a, SDIO>(
     nvram: &Aligned<A4, [u8]>,
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>)
 where
-    SDIO: SdioBusCyw43<64>,
+    SDIO: ::sdio::MmcBus,
 {
-    new_43439_sdio(state, sdio, firmware, nvram).await.unwrap()
+    new_43439_sdio(state, sdio, firmware, nvram, 50_000_000).await.unwrap()
 }
 
 /// Create a new instance of the CYW43 driver.
@@ -492,16 +493,17 @@ pub async fn new_43439_sdio<'a, SDIO>(
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
+    freq: u32,
 ) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw43439>)>
 where
-    SDIO: SdioBusCyw43<64>,
+    SDIO: ::sdio::MmcBus,
 {
     let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio),
+        SdioBus::new(sdio, freq),
         Cyw43439,
         &state.ioctl_state,
         &state.net.events,
@@ -510,12 +512,7 @@ where
         None,
     );
 
-    let config = sdio::Config {
-        max_f: 50_000_000,
-        out_of_band_irq: false,
-    };
-
-    runner.init(firmware, nvram, None, &config).await?;
+    runner.init(firmware, nvram, None).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -532,16 +529,17 @@ pub async fn new_4373_sdio<'a, SDIO>(
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
     nvram: &Aligned<A4, [u8]>,
+    freq: u32,
 ) -> Result<(NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>, Cyw4373>)>
 where
-    SDIO: SdioBusCyw43<64>,
+    SDIO: ::sdio::MmcBus,
 {
     let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio),
+        SdioBus::new(sdio, freq),
         Cyw4373,
         &state.ioctl_state,
         &state.net.events,
@@ -550,12 +548,7 @@ where
         None,
     );
 
-    let config = sdio::Config {
-        max_f: 12_500_000,
-        out_of_band_irq: false,
-    };
-
-    runner.init(firmware, nvram, None, &config).await?;
+    runner.init(firmware, nvram, None).await?;
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -604,7 +597,7 @@ where
     );
 
     runner
-        .init(wifi_firmware, nvram, Some(bluetooth_firmware), &())
+        .init(wifi_firmware, nvram, Some(bluetooth_firmware))
         .await
         .unwrap();
     let control = Control::new(
@@ -622,7 +615,7 @@ where
 macro_rules! aligned_bytes {
     ($path:expr) => {{
         {
-            static BYTES: &cyw43::Aligned<cyw43::A4, [u8]> = &cyw43::Aligned(*include_bytes!($path));
+            static BYTES: &::cyw43::Aligned<cyw43::A4, [u8]> = &::cyw43::Aligned(*include_bytes!($path));
 
             BYTES
         }

@@ -128,7 +128,7 @@ zynq7000 = { version = "0.4", optional = true }
 arbitrary-int = { version = "2", optional = true }
 
 [dependencies.cordyceps]
-version = "0.3.4"
+version = "0.3.5"
 features = ["no-cache-pad"]
 
 [dev-dependencies]

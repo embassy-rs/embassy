@@ -1,4 +1,6 @@
 use core::ptr::write_volatile;
+#[cfg(flash_l4)]
+use core::sync::atomic::AtomicBool;
 use core::sync::atomic::{Ordering, fence};
 
 #[cfg(flash_l4)]
@@ -14,6 +16,8 @@ use crate::pac;
 
 #[cfg(flash_l4)]
 static WAKER: AtomicWaker = AtomicWaker::new();
+#[cfg(flash_l4)]
+static DATA_CACHE_WAS_ENABLED: AtomicBool = AtomicBool::new(false);
 
 #[cfg(flash_l4)]
 pub(crate) unsafe fn on_interrupt() {
@@ -38,6 +42,7 @@ pub(crate) unsafe fn on_interrupt() {
 #[cfg(flash_l4)]
 pub(crate) unsafe fn enable_write() {
     assert_eq!(0, WRITE_SIZE % 4);
+    save_data_cache_state();
     pac::FLASH.cr().write(|w| {
         w.set_pg(true);
         w.set_eopie(true);
@@ -52,6 +57,7 @@ pub(crate) unsafe fn disable_write() {
         w.set_eopie(false);
         w.set_errie(false);
     });
+    restore_data_cache_state();
 }
 
 #[cfg(flash_l4)]
@@ -74,6 +80,8 @@ pub(crate) async unsafe fn write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> 
 
 #[cfg(flash_l4)]
 pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    save_data_cache_state();
+
     interrupt::free(|_| {
         pac::FLASH.cr().modify(|w| {
             w.set_per(true);
@@ -93,6 +101,7 @@ pub(crate) async unsafe fn erase_sector(sector: &FlashSector) -> Result<(), Erro
         w.set_errie(false);
     });
     clear_all_err();
+    restore_data_cache_state();
     ret
 }
 
@@ -182,6 +191,9 @@ pub(crate) unsafe fn unlock() {
 pub(crate) unsafe fn enable_blocking_write() {
     assert_eq!(0, WRITE_SIZE % 4);
 
+    #[cfg(flash_l4)]
+    save_data_cache_state();
+
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().write(|w| w.set_pg(true));
 
@@ -192,6 +204,9 @@ pub(crate) unsafe fn enable_blocking_write() {
 pub(crate) unsafe fn disable_blocking_write() {
     #[cfg(any(flash_wl, flash_wb, flash_l4))]
     pac::FLASH.cr().write(|w| w.set_pg(false));
+
+    #[cfg(flash_l4)]
+    restore_data_cache_state();
 
     #[cfg(any(flash_l5))]
     pac::FLASH.nscr().write(|w| w.set_nspg(false));
@@ -211,6 +226,9 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    #[cfg(flash_l4)]
+    save_data_cache_state();
+
     #[cfg(any(flash_l0, flash_l1))]
     {
         pac::FLASH.pecr().modify(|w| {
@@ -283,7 +301,37 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     });
 
     clear_all_err();
+    #[cfg(flash_l4)]
+    restore_data_cache_state();
     ret
+}
+
+#[cfg(flash_l4)]
+fn save_data_cache_state() {
+    let dual_bank = unwrap!(crate::flash::get_flash_regions().last()).bank == crate::flash::FlashBank::Bank2;
+    if dual_bank {
+        // Disable data cache during write/erase if there are two banks, see errata 2.2.2
+        let dcen = pac::FLASH.acr().read().dcen();
+        DATA_CACHE_WAS_ENABLED.store(dcen, Ordering::Relaxed);
+        if dcen {
+            pac::FLASH.acr().modify(|w| w.set_dcen(false));
+        }
+    }
+}
+
+#[cfg(flash_l4)]
+fn restore_data_cache_state() {
+    let dual_bank = unwrap!(crate::flash::get_flash_regions().last()).bank == crate::flash::FlashBank::Bank2;
+    if dual_bank {
+        // Restore data cache if it was enabled
+        let dcen = DATA_CACHE_WAS_ENABLED.load(Ordering::Relaxed);
+        if dcen {
+            // Reset data cache before we enable it again
+            pac::FLASH.acr().modify(|w| w.set_dcrst(true));
+            pac::FLASH.acr().modify(|w| w.set_dcrst(false));
+            pac::FLASH.acr().modify(|w| w.set_dcen(true))
+        }
+    }
 }
 
 pub(crate) unsafe fn clear_all_err() {

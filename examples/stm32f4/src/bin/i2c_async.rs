@@ -5,10 +5,11 @@
 // DMA peripherals changed to compile for stm32f429zi, for the CI.
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const ADDRESS: u8 = 96;
 

@@ -29,6 +29,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::aes::{self, Aes};
@@ -44,9 +45,9 @@ use embassy_stm32_wpan::bluetooth::gatt::{
 };
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::{Duration, Ticker};
+use panic_probe as _;
 use stm32wb_hci::Event;
 use stm32wb_hci::vendor::event::{AttExchangeMtuResponse, VendorEvent};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;
@@ -252,7 +253,12 @@ async fn main(spawner: Spawner) {
                             state.indication_pending = false;
                         }
                         GapEvent::Disconnected { handle, reason } => {
-                            info!("Disconnected: 0x{:04X}, reason 0x{:02X}", handle.0, reason);
+                            info!(
+                                "Disconnected: 0x{:04X}, reason 0x{:02X} ({})",
+                                handle.0,
+                                reason.as_u8(),
+                                Display2Format(&reason)
+                            );
                             state.conn_handle = None;
                             state.indications_enabled = false;
                             state.interm_notifications_enabled = false;

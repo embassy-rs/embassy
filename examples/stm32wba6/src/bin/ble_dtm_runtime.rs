@@ -16,6 +16,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::aes::{self, Aes};
@@ -34,9 +35,9 @@ use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
 use embassy_stm32_wpan::bluetooth::{HCI, Normal, Test};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::Timer;
+use panic_probe as _;
 use stm32wb_hci::Event;
 use stm32wb_hci::event::ConnectionRole;
-use {defmt_rtt as _, panic_probe as _};
 
 // ---- DTM test configuration ----
 #[allow(dead_code)]
@@ -237,7 +238,7 @@ async fn handle_ble_event(ble: &mut HCI<'_, Normal>, event: &Event, adv_params: 
             GapEvent::Disconnected { handle, reason } => {
                 info!("=== DISCONNECTION ===");
                 info!("  Handle: 0x{:04X}", handle.0);
-                info!("  Reason: 0x{:02X} ({})", reason, disconnect_reason_str(reason));
+                info!("  Reason: 0x{:02X} ({})", reason.as_u8(), Display2Format(&reason));
                 info!("  Active connections: {}", ble.connections().count());
 
                 info!("Restarting advertising...");
@@ -331,20 +332,5 @@ async fn run_dtm_test(ble: &mut HCI<'_, Test>, expected: u32) {
                 Err(e) => error!("dtm_end failed: {:?}", e),
             }
         }
-    }
-}
-
-fn disconnect_reason_str(reason: u8) -> &'static str {
-    match reason {
-        0x08 => "Connection Timeout",
-        0x13 => "Remote User Terminated",
-        0x14 => "Remote Low Resources",
-        0x15 => "Remote Power Off",
-        0x16 => "Local Host Terminated",
-        0x1A => "Unsupported Remote Feature",
-        0x3B => "Unacceptable Connection Parameters",
-        0x3D => "MIC Failure",
-        0x3E => "Connection Failed to Establish",
-        _ => "Unknown",
     }
 }

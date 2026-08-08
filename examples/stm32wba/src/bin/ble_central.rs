@@ -17,6 +17,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph};
@@ -29,9 +30,9 @@ use embassy_stm32_wpan::bluetooth::gap::types::OwnAddressType;
 use embassy_stm32_wpan::bluetooth::gap::{ConnectionInitParams, GapEvent, ParsedAdvData, ScanParams, ScanType};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
+use panic_probe as _;
 use stm32wb_hci::event::ConnectionRole;
 use stm32wb_hci::{BdAddrType, Event};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
@@ -224,7 +225,12 @@ async fn main(spawner: Spawner) {
 
                         GapEvent::Disconnected { handle, reason } => {
                             error!("Connection failed or disconnected during setup");
-                            error!("  Handle: 0x{:04X}, Reason: 0x{:02X}", handle.0, reason);
+                            error!(
+                                "  Handle: 0x{:04X}, Reason: 0x{:02X} ({})",
+                                handle.0,
+                                reason.as_u8(),
+                                Display2Format(&reason)
+                            );
 
                             // Go back to scanning
                             ble.start_scan_observation(scan_params.clone())
@@ -245,7 +251,7 @@ async fn main(spawner: Spawner) {
                         GapEvent::Disconnected { handle, reason } => {
                             info!("=== DISCONNECTED ===");
                             info!("  Handle: 0x{:04X}", handle.0);
-                            info!("  Reason: 0x{:02X} ({})", reason, disconnect_reason_str(reason));
+                            info!("  Reason: 0x{:02X} ({})", reason.as_u8(), Display2Format(&reason));
 
                             // Go back to scanning
                             ble.start_scan_observation(scan_params.clone())
@@ -389,20 +395,4 @@ enum CentralState {
     Connecting,
     /// Connected to a peripheral
     Connected,
-}
-
-/// Convert disconnect reason code to human-readable string
-fn disconnect_reason_str(reason: u8) -> &'static str {
-    match reason {
-        0x08 => "Connection Timeout",
-        0x13 => "Remote User Terminated",
-        0x14 => "Remote Low Resources",
-        0x15 => "Remote Power Off",
-        0x16 => "Local Host Terminated",
-        0x1A => "Unsupported Remote Feature",
-        0x3B => "Unacceptable Connection Parameters",
-        0x3D => "MIC Failure",
-        0x3E => "Connection Failed to Establish",
-        _ => "Unknown",
-    }
 }

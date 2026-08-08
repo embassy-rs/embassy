@@ -6,13 +6,16 @@ use super::low_level::Timer;
 pub use super::{Ch1, Ch2};
 use super::{GeneralInstance4Channel, TimerPin};
 use crate::Peri;
+use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, Pull};
-use crate::timer::TimerChannel;
+use crate::timer::{CoreInstance, TimerChannel};
 
 /// Qei driver config.
+///
+/// `T` is the timer instance.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy)]
-pub struct Config {
+pub struct Config<T: CoreInstance> {
     /// Configures the internal pull up/down resistor for Qei's channel 1 pin.
     pub ch1_pull: Pull,
     /// Configures the internal pull up/down resistor for Qei's channel 2 pin.
@@ -20,17 +23,16 @@ pub struct Config {
     /// Specifies the encoder mode to use for the Qei peripheral.
     pub mode: QeiMode,
     /// Sets the auto-reload value for the counter.
-    pub auto_reload: u16,
+    pub auto_reload: T::Word,
 }
 
-impl Default for Config {
-    /// Arbitrary defaults to preserve backwards compatibility
+impl<T: CoreInstance> Default for Config<T> {
     fn default() -> Self {
         Self {
             ch1_pull: Pull::None,
             ch2_pull: Pull::None,
             mode: QeiMode::Mode3,
-            auto_reload: u16::MAX,
+            auto_reload: unwrap!(T::Word::try_from(T::Word::max() as u64)),
         }
     }
 }
@@ -40,10 +42,10 @@ impl Default for Config {
 /// This extends [`Config`] with optional encoder-index controls on timer variants
 /// that expose TIMx_ECR/TIMx_SR index fields.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Clone, Copy, Default)]
-pub struct AdvancedConfig {
+#[derive(Clone, Copy)]
+pub struct AdvancedConfig<T: CoreInstance> {
     /// Base QEI configuration.
-    pub base: Config,
+    pub base: Config<T>,
     /// Optional index behavior configuration.
     #[cfg(timer_v2)]
     pub index: Option<IndexConfig>,
@@ -55,8 +57,17 @@ pub struct AdvancedConfig {
     pub enable_direction_change_interrupt: bool,
 }
 
-impl From<Config> for AdvancedConfig {
-    fn from(base: Config) -> Self {
+impl<T: CoreInstance> Default for AdvancedConfig<T>
+where
+    Config<T>: Default,
+{
+    fn default() -> Self {
+        Config::default().into()
+    }
+}
+
+impl<T: CoreInstance> From<Config<T>> for AdvancedConfig<T> {
+    fn from(base: Config<T>) -> Self {
         Self {
             base,
             #[cfg(timer_v2)]
@@ -136,7 +147,7 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         tim: Peri<'d, T>,
         ch1: Peri<'d, if_afio!(impl TimerPin<T, CH1, A>)>,
         ch2: Peri<'d, if_afio!(impl TimerPin<T, CH2, A>)>,
-        config: Config,
+        config: Config<T>,
     ) -> Self {
         Self::new_advanced(tim, ch1, ch2, config.into())
     }
@@ -147,7 +158,7 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         tim: Peri<'d, T>,
         ch1: Peri<'d, if_afio!(impl TimerPin<T, CH1, A>)>,
         ch2: Peri<'d, if_afio!(impl TimerPin<T, CH2, A>)>,
-        config: AdvancedConfig,
+        config: AdvancedConfig<T>,
     ) -> Self {
         // Configure the pins to be used for the QEI peripheral.
         critical_section::with(|_| {
@@ -177,7 +188,7 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
             w.set_sms(config.base.mode.into());
         });
 
-        r.arr().modify(|w| w.set_arr(config.base.auto_reload));
+        inner.set_max_compare_value(config.base.auto_reload);
         r.cr1().modify(|w| w.set_cen(true));
 
         #[cfg(timer_v2)]
@@ -208,13 +219,13 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
     }
 
     /// Get count.
-    pub fn count(&self) -> u16 {
-        self.inner.regs_gp16().cnt().read().cnt()
+    pub fn count(&self) -> u32 {
+        self.inner.get_counter().into()
     }
 
     /// Reset count.
     pub fn reset(&mut self) {
-        self.inner.regs_gp16().cnt().modify(|w| w.set_cnt(0));
+        self.inner.reset();
     }
 
     #[cfg(timer_v2)]

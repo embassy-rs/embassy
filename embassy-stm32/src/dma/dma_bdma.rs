@@ -160,6 +160,10 @@ pub struct TransferOptions {
     pub half_transfer_ir: bool,
     /// Enable transfer complete interrupt
     pub complete_transfer_ir: bool,
+    /// DMA packing configuration
+    ///
+    /// If [`Packing::ZeroExtendOrLeftTruncate`], psize may be adjusted based on the platform to acheive no packing.
+    pub packing: Packing,
     #[cfg(mdma)]
     /// Max bytes to transfer at once, 1-64
     pub buffer_size: u8,
@@ -172,6 +176,18 @@ pub struct TransferOptions {
     #[cfg(mdma)]
     /// Swap words in each double-word
     pub word_swap: bool,
+}
+
+/// DMA Packing options
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Packing {
+    /// If destination is wider: source data is transferred as right aligned, padded with 0s up to the destination data width
+    /// If source is wider: source data is transferred as right aligned, left-truncated down to the destination data width
+    ZeroExtendOrLeftTruncate,
+    /// source data is FIFO queued and packed/unpacked at the destination data width,
+    /// to be transferred in a left (LSB) to right (MSB) order (named little endian) to the destination
+    Pack,
 }
 
 impl Default for TransferOptions {
@@ -189,6 +205,7 @@ impl Default for TransferOptions {
             circular: false,
             half_transfer_ir: false,
             complete_transfer_ir: true,
+            packing: Packing::Pack,
             #[cfg(mdma)]
             buffer_size: MDMA_MAX_BUFFER,
             #[cfg(mdma)]
@@ -517,6 +534,12 @@ impl<'d> Channel<'d> {
                 state.complete_count.store(0, Ordering::Release);
                 self.clear_irqs();
 
+                #[cfg(any(stm32f2, stm32f4, stm32f7, stm32h7))]
+                let peri_size = match options.packing {
+                    Packing::Pack => peri_size,
+                    Packing::ZeroExtendOrLeftTruncate => mem_size,
+                };
+
                 // NDTR is the number of transfers in the *peripheral* word size.
                 // ex: if mem_size=1, peri_size=4 and ndtr=3 it'll do 12 mem transfers, 3 peri transfers.
                 let ndtr = match (mem_size, peri_size) {
@@ -775,6 +798,9 @@ impl<'d> Channel<'d> {
         }
     }
 
+    /// Starts the channel by enabling it.
+    ///
+    /// This function also unsuspends (resumes) the channel.
     fn start(&self) {
         let info = self.info();
         match self.info().dma {
@@ -871,6 +897,7 @@ impl<'d> Channel<'d> {
         self.start()
     }
 
+    /// Resets the channel. The configuration is not preserved.
     fn request_reset(&self) {
         let info = self.info();
         match self.info().dma {
@@ -943,6 +970,22 @@ impl<'d> Channel<'d> {
             #[cfg(bdma)]
             DmaInfo::Bdma(regs) => regs.ch(info.num).cr().modify(|w| {
                 w.set_circ(false);
+            }),
+            #[cfg(mdma)]
+            DmaInfo::Mdma(_regs) => (),
+        }
+    }
+
+    fn enable_circular_mode(&self) {
+        let info = self.info();
+        match self.info().dma {
+            #[cfg(dma)]
+            DmaInfo::Dma(regs) => regs.st(info.num).cr().modify(|w| {
+                w.set_circ(true);
+            }),
+            #[cfg(bdma)]
+            DmaInfo::Bdma(regs) => regs.ch(info.num).cr().modify(|w| {
+                w.set_circ(true);
             }),
             #[cfg(mdma)]
             DmaInfo::Mdma(_regs) => (),
@@ -1265,7 +1308,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
-        let channel: Channel<'a> = channel.into();
+        let mut channel: Channel<'a> = channel.into();
 
         let buffer_ptr = buffer.as_mut_ptr();
         let len = buffer.len();
@@ -1287,6 +1330,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             options,
         );
 
+        DmaCtrlImpl(channel.reborrow()).reset_complete_count();
+
         Self {
             _wake_guard: channel.info().wake_guard(),
             channel,
@@ -1297,7 +1342,10 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Start the ring buffer operation.
     ///
     /// You must call this after creating it for it to work.
+    ///
+    /// It starts the channel and makes it run, even if earlier it was suspended (paused).
     pub fn start(&mut self) {
+        self.channel.enable_circular_mode();
         self.channel.start();
     }
 
@@ -1441,7 +1489,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
-        let channel: Channel<'a> = channel.into();
+        let mut channel: Channel<'a> = channel.into();
 
         let len = buffer.len();
         let dir = Dir::MemoryToPeripheral;
@@ -1463,6 +1511,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             options,
         );
 
+        DmaCtrlImpl(channel.reborrow()).reset_complete_count();
+
         Self {
             _wake_guard: channel.info().wake_guard(),
             channel,
@@ -1474,6 +1524,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
+        self.channel.enable_circular_mode();
         self.channel.start();
     }
 

@@ -30,11 +30,11 @@ mod driver_std;
 #[cfg(feature = "wasm")]
 mod driver_wasm;
 
-pub use delay::{Delay, block_for};
+pub use delay::{Delay, block_for, try_block_for};
 pub use duration::Duration;
 pub use embassy_time_driver::TICK_HZ;
 pub use instant::Instant;
-pub use timer::{Ticker, TimeoutError, Timer, WithTimeout, with_deadline, with_timeout};
+pub use timer::{Ticker, TimeoutError, Timer, WithTimeout, try_with_timeout, with_deadline, with_timeout};
 
 const fn gcd(a: u64, b: u64) -> u64 {
     if b == 0 { a } else { gcd(b, a % b) }

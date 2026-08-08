@@ -5,6 +5,7 @@
 
 use cortex_m::singleton;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{
@@ -12,7 +13,7 @@ use embassy_stm32::usart::{
 };
 use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use embassy_time::{Duration, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// Create onewire bus using DMA USART
 fn create_onewire(p: embassy_stm32::Peripherals) -> OneWire<UartTx<'static, Async>, RingBufferedUartRx<'static>> {

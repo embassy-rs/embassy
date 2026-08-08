@@ -14,10 +14,10 @@ use interrupt::typelevel::Interrupt;
 // The nonsecure lock/listen flow used here is compatible with the common
 // semaphore interface and remains usable across WBA52/54/55/65 families.
 use crate::Peri;
+use crate::atomic::AtomicModify;
 use crate::cpu::CoreId;
 use crate::peripherals::HSEM;
 use crate::rcc::RccPeripheral;
-use crate::reg::AtomicModify;
 use crate::{interrupt, pac};
 
 /// HSEM error.

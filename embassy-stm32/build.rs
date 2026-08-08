@@ -42,6 +42,13 @@ fn main() {
     let mut cfgs = common::CfgSet::new();
     common::set_target_cfgs(&mut cfgs);
 
+    if std::env::var("CARGO_FEATURE_RT").is_err()
+        && std::env::var("CARGO_CFG_TARGET_OS") == Ok("none".to_string())
+        && std::env::var("CARGO_CFG_TARGET_ARCH") == Ok("arm".to_string())
+    {
+        println!("cargo::warning=Building for bare-metal ARM without `rt` feature: interrupts will loop forever.");
+    }
+
     let chip_name = match env::vars()
         .map(|(a, _)| a)
         .filter(|x| x.starts_with("CARGO_FEATURE_STM32") && x != "CARGO_FEATURE_STM32_HRTIM")
@@ -134,6 +141,15 @@ fn main() {
         cfgs.enable("backup_sram")
     }
 
+    // Neural-ART NPU (ATON): not described in stm32-metapac, so the singleton
+    // and cfg are emitted by hand for the chips that have it. The register
+    // map lives in `src/npu/regs.rs`.
+    cfgs.declare("npu");
+    if chip_name.starts_with("stm32n6") {
+        singletons.push("NPU".to_string());
+        cfgs.enable("npu");
+    }
+
     // SDMMC v3 + `time` feature: enables UHS-I 1.8V signalling support.
     // Used in lieu of `cfg(all(sdmmc_v3, feature = "time"))` to keep the
     // SDMMC driver readable.
@@ -159,6 +175,9 @@ fn main() {
         cfgs.enable("sdmmc_dlyb");
     }
 
+    // GPDMA 2D support: enabled when at least one GPDMA channel supports 2D addressing.
+    cfgs.declare("gpdma2d");
+
     // compile a map of peripherals with registers
     let peripheral_map: HashMap<&str, (&Peripheral, &PeripheralRegisters)> = METADATA
         .peripherals
@@ -177,6 +196,7 @@ fn main() {
     // generate one singleton per peripheral (with many exceptions...)
     for (p, r) in &peripheral_list {
         if r.kind == "adccommon"
+            || r.kind == "adc"
             || r.kind == "sai"
             || r.kind == "ucpd"
             || r.kind == "otg"
@@ -227,6 +247,11 @@ fn main() {
     }
 
     cfgs.declare_all(&[
+        "peri_adc1",
+        "peri_adc2",
+        "peri_adc3",
+        "peri_adc4",
+        "peri_adc5",
         "peri_adc1_common",
         "peri_adc3_common",
         "peri_adc12_common",
@@ -364,9 +389,18 @@ fn main() {
     let time_driver_irq_decl = if !time_driver_singleton.is_empty() {
         cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
 
-        let Some((p, _)) = peripheral_map.get(time_driver_singleton) else {
+        let Some((p, regs)) = peripheral_map.get(time_driver_singleton) else {
             panic!("Tried to select {time_driver_singleton}, which is not available on this device");
         };
+
+        if regs.kind == "lptim" && regs.version == "n6" {
+            panic!(
+                "{time_driver_singleton} does not support use as a time driver on this chip yet: N6's LPTIM \
+                 register layout (split isr_output/dier_output/icr_output registers) and RCC clock-mux \
+                 selection are not yet implemented for the time driver. Select a TIM-based time driver \
+                 (e.g. time-driver-any) instead."
+            );
+        }
         let irqs: BTreeSet<_> = p
             .interrupts
             .iter()
@@ -598,7 +632,9 @@ fn main() {
 
         g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
 
-        g.extend(quote! { pub mod flash_regions { #flash_regions } });
+        g.extend(quote! {
+            pub mod flash_regions { #flash_regions }
+        });
     }
 
     // ========
@@ -1057,7 +1093,7 @@ fn main() {
     // ========
     // Generate fns to enable GPIO, DMA in RCC
 
-    for kind in ["mdma", "dma", "bdma", "dmamux", "gpdma", "gpio"] {
+    for kind in ["mdma", "dma", "bdma", "dmamux", "gpdma", "lpdma", "gpio"] {
         let mut gg = TokenStream::new();
 
         for (p, r) in &peripheral_list {
@@ -1137,6 +1173,8 @@ fn main() {
         (("spi", "I2S_ext_SD"), quote!(crate::spi::SdExtPin)),
         (("i2c", "SDA"), quote!(crate::i2c::SdaPin)),
         (("i2c", "SCL"), quote!(crate::i2c::SclPin)),
+        (("i3c", "SDA"), quote!(crate::i3c::SdaPin)),
+        (("i3c", "SCL"), quote!(crate::i3c::SclPin)),
         (("rcc", "MCO_1"), quote!(crate::rcc::McoPin)),
         (("rcc", "MCO_2"), quote!(crate::rcc::McoPin)),
         (("rcc", "MCO"), quote!(crate::rcc::McoPin)),
@@ -1158,6 +1196,27 @@ fn main() {
         (("dcmi", "HSYNC"), quote!(crate::dcmi::HSyncPin)),
         (("dcmi", "VSYNC"), quote!(crate::dcmi::VSyncPin)),
         (("dcmi", "PIXCLK"), quote!(crate::dcmi::PixClkPin)),
+        (("pssi", "D0"), quote!(crate::pssi::D0Pin)),
+        (("pssi", "D1"), quote!(crate::pssi::D1Pin)),
+        (("pssi", "D2"), quote!(crate::pssi::D2Pin)),
+        (("pssi", "D3"), quote!(crate::pssi::D3Pin)),
+        (("pssi", "D4"), quote!(crate::pssi::D4Pin)),
+        (("pssi", "D5"), quote!(crate::pssi::D5Pin)),
+        (("pssi", "D6"), quote!(crate::pssi::D6Pin)),
+        (("pssi", "D7"), quote!(crate::pssi::D7Pin)),
+        (("pssi", "D8"), quote!(crate::pssi::D8Pin)),
+        (("pssi", "D9"), quote!(crate::pssi::D9Pin)),
+        (("pssi", "D10"), quote!(crate::pssi::D10Pin)),
+        (("pssi", "D11"), quote!(crate::pssi::D11Pin)),
+        (("pssi", "D12"), quote!(crate::pssi::D12Pin)),
+        (("pssi", "D13"), quote!(crate::pssi::D13Pin)),
+        (("pssi", "D14"), quote!(crate::pssi::D14Pin)),
+        (("pssi", "D15"), quote!(crate::pssi::D15Pin)),
+        (("pssi", "PDCK"), quote!(crate::pssi::PdckPin)),
+        (("pssi", "DE"), quote!(crate::pssi::DePin)),
+        (("pssi", "RDY"), quote!(crate::pssi::RdyPin)),
+        (("mdios", "MDC"), quote!(crate::mdios::MdcPin)),
+        (("mdios", "MDIO"), quote!(crate::mdios::MdioPin)),
         (("dsihost", "TE"), quote!(crate::dsihost::TePin)),
         (("ltdc", "CLK"), quote!(crate::ltdc::ClkPin)),
         (("ltdc", "HSYNC"), quote!(crate::ltdc::HsyncPin)),
@@ -1222,6 +1281,19 @@ fn main() {
         (("eth", "TXD2"), quote!(crate::eth::TXD2Pin)),
         (("eth", "TXD3"), quote!(crate::eth::TXD3Pin)),
         (("eth", "TX_EN"), quote!(crate::eth::TXEnPin)),
+        (("eth", "RGMII_GTX_CLK"), quote!(crate::eth::RGMIIGTXClkPin)),
+        (("eth", "RGMII_RX_CLK"), quote!(crate::eth::RGMIIRXClkPin)),
+        (("eth", "RGMII_RX_CTL"), quote!(crate::eth::RGMIIRXCtlPin)),
+        (("eth", "RGMII_TX_CTL"), quote!(crate::eth::RGMIITXCtlPin)),
+        (("eth", "RGMII_RXD0"), quote!(crate::eth::RGMIIRXD0Pin)),
+        (("eth", "RGMII_RXD1"), quote!(crate::eth::RGMIIRXD1Pin)),
+        (("eth", "RGMII_RXD2"), quote!(crate::eth::RGMIIRXD2Pin)),
+        (("eth", "RGMII_RXD3"), quote!(crate::eth::RGMIIRXD3Pin)),
+        (("eth", "RGMII_TXD0"), quote!(crate::eth::RGMIITXD0Pin)),
+        (("eth", "RGMII_TXD1"), quote!(crate::eth::RGMIITXD1Pin)),
+        (("eth", "RGMII_TXD2"), quote!(crate::eth::RGMIITXD2Pin)),
+        (("eth", "RGMII_TXD3"), quote!(crate::eth::RGMIITXD3Pin)),
+        (("eth", "RGMII_CLK125"), quote!(crate::eth::RGMIICLK125Pin)),
         (("fmc", "A0"), quote!(crate::fmc::A0Pin)),
         (("fmc", "A1"), quote!(crate::fmc::A1Pin)),
         (("fmc", "A2"), quote!(crate::fmc::A2Pin)),
@@ -1690,8 +1762,46 @@ fn main() {
         (("lcd", "VLCD"), quote!(crate::lcd::VlcdPin)),
         (("dac", "OUT1"), quote!(crate::dac::DacPin<Ch1>)),
         (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
+        (("adf", "CCK0"), quote!(crate::adf::CckPin)),
+        (("adf", "CCK1"), quote!(crate::adf::CckPin)),
+        (("adf", "SDI0"), quote!(crate::adf::SdiPin)),
+        (("mdf", "CCK0"), quote!(crate::mdf::CckPin)),
+        (("mdf", "CCK1"), quote!(crate::mdf::CckPin)),
+        (("mdf", "CKI0"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI1"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI2"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI3"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI4"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "CKI5"), quote!(crate::mdf::CkiPin)),
+        (("mdf", "SDI0"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI1"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI2"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI3"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI4"), quote!(crate::mdf::SdiPin)),
+        (("mdf", "SDI5"), quote!(crate::mdf::SdiPin)),
     ] {
         signals.entry(key).or_default().push(value);
+    }
+
+    // The `i3c` module is only compiled in for STM32N6, STM32H5, STM32U3,
+    // STM32C5, and STM32H7R/H7S today; on other families that also expose an
+    // "i3c" peripheral kind, `crate::i3c` doesn't exist, so drop these
+    // signals there to avoid generating unresolvable pin_trait_impl!s.
+    if !(chip_name.starts_with("stm32n6")
+        || chip_name.starts_with("stm32h5")
+        || chip_name.starts_with("stm32u3")
+        || chip_name.starts_with("stm32c5")
+        || chip_name.starts_with("stm32h7r")
+        || chip_name.starts_with("stm32h7s"))
+    {
+        signals.remove(&("i3c", "SDA"));
+        signals.remove(&("i3c", "SCL"));
+    }
+
+    // STM32U5 maps the external memory controller as kind "fsmc" (v5x1) but uses
+    // the same pin signals as FMC on other families.
+    for ((_, signal), traits) in signals.clone().into_iter().filter(|((kind, _), _)| *kind == "fmc") {
+        signals.entry(("fsmc", signal)).or_default().extend(traits);
     }
 
     // On some families the USB DM/DP signals are present as alternate functions,
@@ -1788,8 +1898,8 @@ fn main() {
                     }
                 }
 
-                // MDIO and MDC are special
-                if pin.signal == "MDIO" || pin.signal == "MDC" {
+                // MDIO and MDC are special for ETH
+                if (pin.signal == "MDIO" || pin.signal == "MDC") && p.name.starts_with("ETH") {
                     peri = format_ident!("{}", "ETH_SMA");
                 }
 
@@ -1891,7 +2001,7 @@ fn main() {
                     adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
 
                     g.extend(quote! {
-                    impl_adc_pin!( #peri, #pin_name, #ch);
+                        impl_adc_pin!( #peri, #pin_name, #ch);
                     })
                 }
                 if let Some((ch, true)) = ch {
@@ -1987,7 +2097,7 @@ fn main() {
                 let sel: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
 
                 g.extend(quote! {
-                impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
+                    impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
                 })
             }
         }
@@ -2004,7 +2114,7 @@ fn main() {
                 };
 
                 g.extend(quote! {
-                impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
+                    impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
                 })
             }
         }
@@ -2035,6 +2145,7 @@ fn main() {
         (("i2c", "TX"), quote!(crate::i2c::TxDma)),
         (("dcmi", "DCMI"), quote!(crate::dcmi::FrameDma)),
         (("dcmi", "PSSI"), quote!(crate::dcmi::FrameDma)),
+        (("pssi", "PSSI"), quote!(crate::pssi::Dma)),
         // SDMMCv1 uses the same channel for both directions, so just implement for RX
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
@@ -2055,6 +2166,13 @@ fn main() {
         (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)),
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),
+        (("adf", "FLT0"), quote!(crate::adf::RxDma<Flt0>)),
+        (("mdf", "FLT0"), quote!(crate::mdf::RxDma<Flt0>)),
+        (("mdf", "FLT1"), quote!(crate::mdf::RxDma<Flt1>)),
+        (("mdf", "FLT2"), quote!(crate::mdf::RxDma<Flt2>)),
+        (("mdf", "FLT3"), quote!(crate::mdf::RxDma<Flt3>)),
+        (("mdf", "FLT4"), quote!(crate::mdf::RxDma<Flt4>)),
+        (("mdf", "FLT5"), quote!(crate::mdf::RxDma<Flt5>)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
     ]
@@ -2090,9 +2208,9 @@ fn main() {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     }
 
-    // JPEG HAL is currently N6-only; only emit dma_trait impls there.
+    // JPEG HAL: emit dma_trait impls on chips that use RX/TX DMA signal names.
     // ST naming: jpeg_rx_dma = mem→peri (input), jpeg_tx_dma = peri→mem (output).
-    if chip_name.starts_with("stm32n6") {
+    if chip_name.starts_with("stm32n6") || chip_name.starts_with("stm32u5f9") || chip_name.starts_with("stm32u5g9") {
         signals.insert(("jpeg", "RX"), quote!(crate::jpeg::DmaIn));
         signals.insert(("jpeg", "TX"), quote!(crate::jpeg::DmaOut));
     }
@@ -2262,6 +2380,9 @@ fn main() {
                         return Ok(f.simplify());
                     }
                 }
+                if n.contains("Disabled") {
+                    return Ok(Frac { num: 1, denom: 0 });
+                }
                 Err(())
             }
 
@@ -2328,6 +2449,12 @@ fn main() {
             let iname = format_ident!("{}", irq.interrupt);
             let sname = format_ident!("{}", irq.signal);
             pt.extend(quote!(pub type #sname = crate::interrupt::typelevel::#iname;));
+        }
+        if let Some(regs) = &p.registers {
+            if regs.kind == "spdifrx" && p.interrupts.is_empty() {
+                let iname = format_ident!("{}", p.name);
+                pt.extend(quote!(pub type GLOBAL = crate::interrupt::typelevel::#iname;));
+            }
         }
 
         let pname = format_ident!("{}", p.name);
@@ -2398,13 +2525,11 @@ fn main() {
         #[cfg(feature = "_split-pins-enabled")]
         for split_feature in &split_features {
             if split_feature.pin_name_without_c == pin.name {
-                pins_table.push(vec![
-                    split_feature.pin_name_with_c.to_string(),
-                    p.name.to_string(),
-                    port_num.to_string(),
-                    pin_num.to_string(),
-                    format!("EXTI{}", pin_num),
-                ]);
+                let pin_name = format_ident!("{}", split_feature.pin_name_with_c);
+
+                g.extend(quote! {
+                    impl_analog_pin!(#pin_name);
+                });
             }
         }
     }
@@ -2442,6 +2567,15 @@ fn main() {
                 irq.interrupt.to_ascii_uppercase(),
             ];
             interrupts_table.push(row)
+        }
+        if regs.kind == "spdifrx" && p.interrupts.is_empty() {
+            interrupts_table.push(vec![
+                p.name.to_string(),
+                regs.kind.to_string(),
+                regs.block.to_string(),
+                "GLOBAL".to_string(),
+                p.name.to_string(),
+            ]);
         }
 
         let row = vec![regs.kind.to_string(), p.name.to_string()];
@@ -2492,6 +2626,8 @@ fn main() {
         }
     }
 
+    let mut has_gpdma_2d = false;
+
     for ch in METADATA.dma_channels.iter() {
         let (dma_peri, _) = peripheral_map.get(ch.dma).unwrap();
         let stop_mode = dma_peri
@@ -2521,18 +2657,24 @@ fn main() {
 
         g.extend(quote!(dma_channel_impl!(#name, #irq_type);));
 
+        if ch.supports_2d.unwrap_or(false) {
+            g.extend(quote!(dma_channel_2d_impl!(#name);));
+        }
+
         let dma = format_ident!("{}", ch.dma);
         let ch_num = ch.channel as usize;
         let bi = dma_peri.registers.as_ref().unwrap();
 
+        if ch.supports_2d.unwrap_or(false) && bi.kind == "gpdma" {
+            has_gpdma_2d = true;
+        }
+
         let dma_info = match bi.kind {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
-            "gpdma" => quote!(crate::pac::#dma),
+            "gpdma" => quote!(crate::dma::DmaInfo::Gpdma(crate::pac::#dma)),
             "mdma" => quote!(crate::dma::DmaInfo::Mdma(crate::pac::#dma)),
-            "lpdma" => {
-                quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())})
-            }
+            "lpdma" => quote!(crate::dma::DmaInfo::Lpdma(crate::pac::#dma)),
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
 
@@ -2554,11 +2696,20 @@ fn main() {
             quote!()
         };
 
+        let supports_2d_field = match bi.kind {
+            "gpdma" | "lpdma" => {
+                let supports_2d = ch.supports_2d.unwrap_or(false);
+                quote!(#[cfg(gpdma2d)] supports_2d: #supports_2d,)
+            }
+            _ => quote!(),
+        };
+
         #[cfg(not(feature = "_dual-core"))]
         dmas.extend(quote! {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
                 num: #ch_num,
+                #supports_2d_field
                 #[cfg(feature = "low-power")]
                 stop_mode: crate::rcc::StopMode::#stop_mode,
                 #dmamux
@@ -2569,12 +2720,17 @@ fn main() {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
                 num: #ch_num,
+                #supports_2d_field
                 irq: #irq_pac,
                 #[cfg(feature = "low-power")]
                 stop_mode: crate::rcc::StopMode::#stop_mode,
                 #dmamux
             },
         });
+    }
+
+    if has_gpdma_2d {
+        cfgs.enable("gpdma2d");
     }
 
     g.extend(quote! {
@@ -2588,6 +2744,40 @@ fn main() {
         #[allow(non_camel_case_types)]
         pub(crate) enum DmaChannel {
             #(#ch_names),*
+        }
+    });
+
+    // Generate per-channel ringbuffer table statics and lookup function.
+    let mut ringbuffer_statics = TokenStream::new();
+    let mut ringbuffer_arms = TokenStream::new();
+
+    for ch in METADATA.dma_channels.iter() {
+        let dma_peri = peripheral_map.get(ch.dma).unwrap().0;
+        let bi = dma_peri.registers.as_ref().unwrap();
+        if bi.kind == "gpdma" || bi.kind == "lpdma" {
+            let ch_name = format_ident!("{}", ch.name);
+            let static_name = format_ident!("_RINGBUFFER_TABLE_{}", ch.name);
+
+            ringbuffer_statics.extend(quote! {
+                static #static_name: crate::dma::RingbufferTableSlot = crate::dma::RingbufferTableSlot::new();
+            });
+
+            ringbuffer_arms.extend(quote! {
+                DmaChannel::#ch_name => #static_name.get_mut(),
+            });
+        }
+    }
+
+    g.extend(quote! {
+        #[cfg(any(gpdma, lpdma))]
+        #[allow(unused)]
+        pub(crate) unsafe fn ringbuffer_table(channel: DmaChannel) -> &'static mut core::mem::MaybeUninit<crate::dma::Table<crate::dma::LinearItem, 1>> {
+            #ringbuffer_statics
+            match channel {
+                #ringbuffer_arms
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
+            }
         }
     });
 
@@ -2671,10 +2861,42 @@ fn main() {
         let total_flash_size = total_flash_size as usize;
         let write_size = (*write_sizes.iter().next().unwrap()) as usize;
 
+        // Merge adjacent/overlapping flash regions into contiguous blocks
+        let mut flash_regions_sorted: Vec<(usize, usize)> = flash_regions
+            .iter()
+            .map(|r| (r.address as usize, r.size as usize))
+            .collect();
+        flash_regions_sorted.sort_by_key(|(addr, _)| *addr);
+
+        let mut contiguous_regions: Vec<(usize, usize)> = Vec::new();
+        for (addr, size) in flash_regions_sorted {
+            if let Some((last_addr, last_size)) = contiguous_regions.last_mut() {
+                let last_end = *last_addr + *last_size;
+                if addr <= last_end {
+                    // Overlapping or adjacent — extend the current region
+                    let new_end = addr + size;
+                    if new_end > last_end {
+                        *last_size = new_end - *last_addr;
+                    }
+                } else {
+                    // Gap — start a new region
+                    contiguous_regions.push((addr, size));
+                }
+            } else {
+                contiguous_regions.push((addr, size));
+            }
+        }
+
+        let flash_region_count = contiguous_regions.len();
+        let region_tokens = contiguous_regions.iter().map(|(addr, size)| quote!((#addr, #size)));
+
         g.extend(quote!(
             pub const FLASH_BASE: usize = #flash_base;
             pub const FLASH_SIZE: usize = #total_flash_size;
             pub const WRITE_SIZE: usize = #write_size;
+            pub const FLASH_CONTIGUOUS_REGIONS: [(usize, usize); #flash_region_count] = [
+                #(#region_tokens),*
+            ];
         ));
     }
 

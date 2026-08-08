@@ -14,14 +14,19 @@ mod macros;
 
 pub mod adc;
 pub mod dma;
+#[cfg(feature = "_executor")]
+pub mod executor;
 pub mod gpio;
 // TODO: I2C unicomm
 #[cfg(not(unicomm))]
 pub mod i2c;
 #[cfg(not(unicomm))]
 pub mod i2c_target;
+#[cfg(feature = "low-power")]
+pub mod low_power;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x))]
 pub mod mathacl;
+pub mod sysctl;
 pub mod tim;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x, mspm0l122x, mspm0l222x))]
 pub mod trng;
@@ -193,6 +198,7 @@ pub fn init(config: Config) -> Peripherals {
             w.set_mfpclken(true);
         });
 
+        // TODO: Errata PCMU_ERR_03 states that BOR thresholds other than 0 don't work in STANDBY.
         pac::SYSCTL.borthreshold().modify(|w| {
             w.set_level(0);
         });

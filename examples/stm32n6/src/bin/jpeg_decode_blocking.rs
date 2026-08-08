@@ -6,10 +6,11 @@
 //! no JPEG IRQ.
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::jpeg::{ChromaSubsampling, ColorSpace, EncodeConfig, Jpeg, PlanarYCbCrMut};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const W: u16 = 64;
 const H: u16 = 64;
@@ -19,7 +20,10 @@ struct Aligned<const N: usize>([u8; N]);
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    let p = embassy_stm32::init(Config::default());
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    let mut config = Config::default();
+    config.rcc.supply_config = embassy_stm32::rcc::SupplyConfig::External;
+    let p = embassy_stm32::init(config);
 
     let mut codec = Jpeg::new_blocking(p.JPEG);
 

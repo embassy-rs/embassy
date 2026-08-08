@@ -3,8 +3,9 @@
 
 use cortex_m_rt::entry;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::gpio::{Input, Pull};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[entry]
 fn main() -> ! {

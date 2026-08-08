@@ -18,6 +18,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG};
@@ -30,8 +31,8 @@ use embassy_stm32_wpan::bluetooth::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::bluetooth::gap_init::{AddressType, GapInitParams};
 use embassy_stm32_wpan::bluetooth::gatt::{CharProperties, GattEventMask, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
+use panic_probe as _;
 use stm32wb_hci::event::ConnectionRole;
-use {defmt_rtt as _, panic_probe as _};
 
 // ---- Test configuration ----
 const ADDR_TYPE: OwnAddressType = OwnAddressType::Random;
@@ -175,7 +176,7 @@ async fn main(spawner: Spawner) {
                 GapEvent::Disconnected { handle, reason } => {
                     info!("=== DISCONNECTION ===");
                     info!("  Handle: 0x{:04X}", handle.0);
-                    info!("  Reason: 0x{:02X} ({})", reason, disconnect_reason_str(reason));
+                    info!("  Reason: 0x{:02X} ({})", reason.as_u8(), Display2Format(&reason));
                     info!("  Active connections: {}", ble.connections().count());
 
                     // Restart advertising after disconnection.
@@ -218,21 +219,5 @@ async fn main(spawner: Spawner) {
             // Log other events for debugging
             debug!("Other BLE Event: {:?}", event);
         }
-    }
-}
-
-/// Convert disconnect reason code to human-readable string
-fn disconnect_reason_str(reason: u8) -> &'static str {
-    match reason {
-        0x08 => "Connection Timeout",
-        0x13 => "Remote User Terminated",
-        0x14 => "Remote Low Resources",
-        0x15 => "Remote Power Off",
-        0x16 => "Local Host Terminated",
-        0x1A => "Unsupported Remote Feature",
-        0x3B => "Unacceptable Connection Parameters",
-        0x3D => "MIC Failure",
-        0x3E => "Connection Failed to Establish",
-        _ => "Unknown",
     }
 }

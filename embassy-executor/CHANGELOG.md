@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `platform-riscv64` for RISC-V 64-bit targets (thread executor only, uses `WFI`; shares implementation with `platform-riscv32`).
 - Changed trace callback signatures & added traces for when the task metadata changes
 - Create proper types for task id & executor id
+- Relaxed memory ordering of work flag in RISC-V thread executor.
+- Skip the run queue's `take_all` write when the queue is empty.
 
 ## 0.10.0 - 2026-03-10
 

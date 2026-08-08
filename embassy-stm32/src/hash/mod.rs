@@ -1,21 +1,21 @@
 //! Hash generator (HASH)
 use core::cmp::min;
-#[cfg(hash_v2)]
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
 use core::future::poll_fn;
 use core::marker::PhantomData;
-#[cfg(hash_v2)]
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
 use core::ptr;
-#[cfg(hash_v2)]
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
 use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use stm32_metapac::hash::regs::*;
 
-#[cfg(hash_v2)]
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
 use crate::dma::ChannelAndRequest;
 use crate::interrupt::typelevel::Interrupt;
-#[cfg(hash_v2)]
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
 use crate::mode::Async;
 use crate::mode::{Blocking, Mode};
 use crate::peripherals::HASH;
@@ -28,10 +28,26 @@ const NUM_CONTEXT_REGS: usize = 103;
 #[cfg(any(hash_v2, hash_v4))]
 const NUM_CONTEXT_REGS: usize = 54;
 
-const HASH_BUFFER_LEN: usize = 132;
+const HASH_BUFFER_LEN: usize = 260;
 const DIGEST_BLOCK_SIZE: usize = 128;
 
 static HASH_WAKER: AtomicWaker = AtomicWaker::new();
+
+/// Message block size of the selected algorithm, in bytes.
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
+fn block_bytes(algo: Algorithm) -> usize {
+    #[cfg(hash_v3)]
+    match algo {
+        Algorithm::SHA384 | Algorithm::SHA512_224 | Algorithm::SHA512_256 | Algorithm::SHA512 => 128,
+        _ => 64,
+    }
+
+    #[cfg(any(hash_v2, hash_v4))]
+    {
+        let _ = algo;
+        64
+    }
+}
 
 /// HASH interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -122,7 +138,7 @@ type HmacKey<'k> = Option<&'k [u8]>;
 pub struct Hash<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
     _marker: PhantomData<M>,
-    #[cfg(hash_v2)]
+    #[cfg(any(hash_v2, hash_v3, hash_v4))]
     dma: Option<ChannelAndRequest<'d>>,
 }
 
@@ -136,7 +152,7 @@ impl<'d, T: Instance> Hash<'d, T, Blocking> {
         let instance = Self {
             _peripheral: peripheral,
             _marker: PhantomData,
-            #[cfg(hash_v2)]
+            #[cfg(any(hash_v2, hash_v3, hash_v4))]
             dma: None,
         };
 
@@ -398,7 +414,7 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
     }
 }
 
-#[cfg(hash_v2)]
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
 impl<'d, T: Instance> Hash<'d, T, Async> {
     /// Instantiates, resets, and enables the HASH peripheral.
     pub fn new<D: Dma<T>>(
@@ -432,13 +448,16 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         if !ctx.key_sent {
             if let Some(key) = ctx.key {
                 self.accumulate(key).await;
+                T::regs().str().write(|w| w.set_dcal(true));
+                while !T::regs().sr().read().dinis() {}
             }
             ctx.key_sent = true;
         }
 
-        let data_waiting = input.len() + ctx.buflen;
-        if data_waiting < DIGEST_BLOCK_SIZE {
-            // There isn't enough data to digest a block, so append it to the buffer.
+        let bs = block_bytes(ctx.algo);
+        let total = ctx.buflen + input.len();
+        // Buffer data if there isn't enough to both DMA and leave a block for the context-save release.
+        if total < 2 * bs {
             ctx.buffer[ctx.buflen..ctx.buflen + input.len()].copy_from_slice(input);
             ctx.buflen += input.len();
             self.store_context(ctx);
@@ -448,37 +467,56 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         // Enable multiple DMA transfers.
         T::regs().cr().modify(|w| w.set_mdmat(true));
 
-        let mut ilen_remaining = input.len();
-        let mut input_start = 0;
+        // Reserve the last full block and any tail bytes.
+        let tail = total % bs;
+        let reserve = bs + tail;
+        let feed = total - reserve;
 
-        // First ingest the data in the buffer.
-        let empty_len = DIGEST_BLOCK_SIZE - ctx.buflen;
-        if empty_len > 0 {
-            let copy_len = min(empty_len, ilen_remaining);
-            ctx.buffer[ctx.buflen..ctx.buflen + copy_len].copy_from_slice(&input[input_start..input_start + copy_len]);
-            ctx.buflen += copy_len;
-            ilen_remaining -= copy_len;
-            input_start += copy_len;
+        // Extract the reserve before DMA starts to ensure a contiguous buffer for manual writing.
+        let mut scratch = [0u8; 2 * DIGEST_BLOCK_SIZE];
+        for (i, p) in (feed..total).enumerate() {
+            scratch[i] = if p < ctx.buflen {
+                ctx.buffer[p]
+            } else {
+                input[p - ctx.buflen]
+            };
         }
-        self.accumulate(&ctx.buffer[..DIGEST_BLOCK_SIZE]).await;
-        ctx.buflen = 0;
 
-        // Move any extra data to the now-empty buffer.
-        let leftovers = ilen_remaining % DIGEST_BLOCK_SIZE;
-        if leftovers > 0 {
-            assert!(ilen_remaining >= leftovers);
-            ctx.buffer[0..leftovers].copy_from_slice(&input[input.len() - leftovers..input.len()]);
-            ctx.buflen += leftovers;
-            ilen_remaining -= leftovers;
+        // DMA the data in block-aligned chunks.
+        if feed <= ctx.buflen {
+            self.accumulate(&ctx.buffer[..feed]).await;
         } else {
-            ctx.buffer
-                .copy_from_slice(&input[input.len() - DIGEST_BLOCK_SIZE..input.len()]);
-            ctx.buflen += DIGEST_BLOCK_SIZE;
-            ilen_remaining -= DIGEST_BLOCK_SIZE;
+            let buf_blocks = ctx.buflen / bs * bs;
+            if buf_blocks > 0 {
+                self.accumulate(&ctx.buffer[..buf_blocks]).await;
+            }
+            let buf_rem = ctx.buflen - buf_blocks;
+            let mut in_idx = 0;
+            if buf_rem > 0 {
+                ctx.buffer.copy_within(buf_blocks..ctx.buflen, 0);
+                let need = bs - buf_rem;
+                ctx.buffer[buf_rem..bs].copy_from_slice(&input[..need]);
+                self.accumulate(&ctx.buffer[..bs]).await;
+                in_idx = need;
+            }
+            let in_blocks = feed - buf_blocks - if buf_rem > 0 { bs } else { 0 };
+            if in_blocks > 0 {
+                self.accumulate(&input[in_idx..in_idx + in_blocks]).await;
+            }
         }
 
-        // Hash the remaining data.
-        self.accumulate(&input[input_start..input_start + ilen_remaining]).await;
+        // The peripheral holds the last DMA'd block in DIN. Push reserved words
+        // manually to force the core to drain, making the context saveable.
+        let mut rp = 0;
+        while rp + 4 <= reserve && !T::regs().sr().read().dinis() {
+            T::regs()
+                .din()
+                .write_value(u32::from_ne_bytes(scratch[rp..rp + 4].try_into().unwrap()));
+            while T::regs().sr().read().busy() {}
+            rp += 4;
+        }
+        ctx.buffer[..reserve - rp].copy_from_slice(&scratch[rp..reserve]);
+        ctx.buflen = reserve - rp;
 
         // Save the peripheral context.
         self.store_context(ctx);
@@ -495,12 +533,18 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         // Must be cleared prior to the last DMA transfer.
         T::regs().cr().modify(|w| w.set_mdmat(false));
 
-        // Hash the leftover bytes, if any.
-        self.accumulate(&ctx.buffer[0..ctx.buflen]).await;
+        // Finalize the hash. Carried bytes automatically trigger the digest;
+        // otherwise, we must trigger it manually.
+        if ctx.buflen > 0 {
+            self.accumulate(&ctx.buffer[0..ctx.buflen]).await;
+        } else {
+            T::regs().str().write(|w| w.set_dcal(true));
+        }
         ctx.buflen = 0;
 
         // Load the HMAC key if provided.
         if let Some(key) = ctx.key {
+            while !T::regs().sr().read().dinis() {}
             self.accumulate(key).await;
         }
 
@@ -569,7 +613,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         if input.len() % 4 > 0 {
             num_words += 1;
         }
-        let src_ptr: *const [u8] = ptr::slice_from_raw_parts(input.as_ptr().cast(), num_words);
+        let src_ptr: *const [u8] = ptr::slice_from_raw_parts(input.as_ptr().cast(), num_words * 4);
 
         let dma = self.dma.as_mut().unwrap();
         let dma_transfer = unsafe { dma.write_raw(src_ptr, dst_ptr as *mut u32, Default::default()) };

@@ -40,11 +40,11 @@
 //!             target::Request::Read(addr) => {
 //!                 // Controller wants to read from us at `addr`
 //!                 buf.fill(0x55);
-//!                 let _count = i2c.blocking_respond_to_read(&buf).unwrap();
+//!                 let _status = i2c.blocking_respond_to_read(&buf).unwrap();
 //!             }
 //!             target::Request::Write(_addr) => {
 //!                 // Controller wants to write to us at `addr`
-//!                 let _count = i2c.blocking_respond_to_write(&mut buf).unwrap();
+//!                 let _status = i2c.blocking_respond_to_write(&mut buf).unwrap();
 //!             }
 //!             target::Request::Stop(_addr) => {
 //!                 // Controller issued a STOP condition for `addr`
@@ -53,7 +53,7 @@
 //!                 // Controller issued a General Call (broadcast write
 //!                 // to address 0x00). Drain the payload via the
 //!                 // normal write-response path.
-//!                 let _count = i2c.blocking_respond_to_write(&mut buf).unwrap();
+//!                 let _status = i2c.blocking_respond_to_write(&mut buf).unwrap();
 //!             }
 //!             target::Request::SmbusAlert => {
 //!                 // Controller issued an SMBus Alert
@@ -64,9 +64,11 @@
 //! }
 //! ```
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::Range;
 use core::sync::atomic::{Ordering, fence};
+use core::task::Poll;
 
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
@@ -115,6 +117,48 @@ impl From<crate::dma::InvalidParameters> for IOError {
     fn from(_value: crate::dma::InvalidParameters) -> Self {
         IOError::Other
     }
+}
+
+/// Outcome of a `respond_to_read` call.
+///
+/// The `usize` in every variant counts bytes consumed from the supplied
+/// buffer, i.e. bytes the controller actually clocked out and ACKed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum ReadStatus {
+    /// Controller terminated the read with NACK + STOP exactly when the
+    /// supplied buffer was exhausted.
+    Complete(usize),
+    /// Buffer was fully consumed but the controller is still asking for
+    /// more bytes (it ACKed the last byte). Caller should call
+    /// `respond_to_read` again with additional bytes, or accept that the
+    /// bus will clock-stretch (with TXDSTALL enabled) until something
+    /// else terminates the transfer.
+    NeedMore(usize),
+    /// Controller issued an early STOP or repeated START before the
+    /// buffer was exhausted.
+    EarlyStop(usize),
+}
+
+/// Outcome of a `respond_to_write` call.
+///
+/// The `usize` in every variant counts bytes written into the supplied
+/// buffer, i.e. bytes the target ACKed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum WriteStatus {
+    /// Controller issued STOP.
+    Stopped(usize),
+    /// Controller issued a repeated START. The next `listen` call will
+    /// report the direction/address of the new sub-transaction.
+    Restarted(usize),
+    /// The supplied buffer filled before the controller terminated the
+    /// transfer. Caller should call `respond_to_write` again with more
+    /// buffer space, or accept that the bus will clock-stretch (with
+    /// RXSTALL enabled) until something else terminates the transfer.
+    BufferFull(usize),
 }
 
 /// I2C interrupt handler.
@@ -325,6 +369,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             });
 
             self.info.regs().scfgr1().modify(|w| {
+                w.set_adrstall(true);
                 w.set_rxstall(true);
                 w.set_txdstall(true);
                 w.set_gcen(config.general_call.into());
@@ -510,8 +555,9 @@ impl<'d, M: Mode> I2c<'d, M> {
 
     /// Transmit data to the I2C controller.
     ///
-    /// This function sends the contents of the provided buffer to the I2C controller. It
-    /// blocks until the data is transmitted or an error occurs.
+    /// Sends the contents of the provided buffer to the I2C controller. The
+    /// call services the transfer to a clean termination point (STOP,
+    /// repeated START, or buffer exhausted) before returning.
     ///
     /// # Parameters
     ///
@@ -519,9 +565,10 @@ impl<'d, M: Mode> I2c<'d, M> {
     ///
     /// # Returns
     ///
-    /// - `Ok(usize)` with the number of bytes transmitted.
+    /// - `Ok(ReadStatus)` describing how the transfer ended and how many
+    ///   bytes the controller ACKed.
     /// - `Err(IOError)` if an error occurs.
-    pub fn blocking_respond_to_read(&mut self, buf: &[u8]) -> Result<usize, IOError> {
+    pub fn blocking_respond_to_read(&mut self, buf: &[u8]) -> Result<ReadStatus, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -530,33 +577,44 @@ impl<'d, M: Mode> I2c<'d, M> {
             // Wait until we can send data
             let ssr = loop {
                 let ssr = self.info.regs().ssr().read();
-                let tdf = ssr.tdf();
-                let sdf = ssr.sdf();
-                let rsf = ssr.rsf();
-
-                if tdf || sdf || rsf {
+                if ssr.tdf() || ssr.sdf() || ssr.rsf() {
                     break ssr;
                 }
             };
 
-            // If we see a STOP or REPEATED START, break out
             if ssr.sdf() || ssr.rsf() {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("Early stop of Target Send routine. STOP or Repeated-start received");
-                break;
-            } else {
-                self.info.regs().stdr().write(|w| w.set_data(*byte));
-                count += 1;
+                return Ok(ReadStatus::EarlyStop(count));
             }
+
+            self.info.regs().stdr().write(|w| w.set_data(*byte));
+            count += 1;
         }
 
-        Ok(count)
+        // All caller bytes pushed. Wait briefly to determine whether the
+        // controller is done (NACK + STOP/RSTART) or whether it wants more.
+        let ssr = loop {
+            let ssr = self.info.regs().ssr().read();
+            if ssr.tdf() || ssr.sdf() || ssr.rsf() {
+                break ssr;
+            }
+        };
+
+        if ssr.sdf() || ssr.rsf() {
+            Ok(ReadStatus::Complete(count))
+        } else {
+            // tdf set: TX FIFO empty during a transmit transfer means the
+            // controller is still clocking and wants another byte.
+            Ok(ReadStatus::NeedMore(count))
+        }
     }
 
     /// Receive data from the I2C controller.
     ///
-    /// This function receives data from the I2C controller into the provided buffer. It
-    /// blocks until the buffer is filled or an error occurs.
+    /// Reads bytes the controller writes into the provided buffer. The call
+    /// services the transfer to a clean termination point (STOP, repeated
+    /// START, or buffer filled) before returning.
     ///
     /// # Parameters
     ///
@@ -564,9 +622,10 @@ impl<'d, M: Mode> I2c<'d, M> {
     ///
     /// # Returns
     ///
-    /// - `Ok(usize)` with the number of bytes received.
+    /// - `Ok(WriteStatus)` describing how the transfer ended and how many
+    ///   bytes the target received.
     /// - `Err(IOError)` if an error occurs.
-    pub fn blocking_respond_to_write(&mut self, buf: &mut [u8]) -> Result<usize, IOError> {
+    pub fn blocking_respond_to_write(&mut self, buf: &mut [u8]) -> Result<WriteStatus, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -575,27 +634,27 @@ impl<'d, M: Mode> I2c<'d, M> {
             // Wait until we have data to read
             let ssr = loop {
                 let ssr = self.info.regs().ssr().read();
-                let rdf = ssr.rdf();
-                let sdf = ssr.sdf();
-                let rsf = ssr.rsf();
-
-                if rdf || sdf || rsf {
+                if ssr.rdf() || ssr.sdf() || ssr.rsf() {
                     break ssr;
                 }
             };
 
-            // If we see a STOP or REPEATED START, break out
-            if ssr.sdf() || ssr.rsf() {
+            if ssr.sdf() {
                 #[cfg(feature = "defmt")]
-                defmt::trace!("Early stop of Target Receive routine. STOP or Repeated-start received");
-                break;
-            } else {
-                *byte = self.info.regs().srdr().read().data();
-                count += 1;
+                defmt::trace!("Early stop of Target Receive routine. STOP received");
+                return Ok(WriteStatus::Stopped(count));
             }
+            if ssr.rsf() {
+                #[cfg(feature = "defmt")]
+                defmt::trace!("Early stop of Target Receive routine. Repeated-start received");
+                return Ok(WriteStatus::Restarted(count));
+            }
+
+            *byte = self.info.regs().srdr().read().data();
+            count += 1;
         }
 
-        Ok(count)
+        Ok(WriteStatus::BufferFull(count))
     }
 }
 
@@ -662,6 +721,32 @@ impl<'d> I2c<'d, Async> {
     }
 }
 
+/// Internal outcome of a single DMA TX chunk transfer (target -> controller).
+#[derive(Copy, Clone)]
+enum TxChunkOutcome {
+    /// Controller issued STOP. `usize` is bytes transferred from this chunk.
+    Stopped(usize),
+    /// Controller issued repeated START. `usize` is bytes transferred from
+    /// this chunk.
+    Restarted(usize),
+    /// DMA exhausted the chunk and the controller is still asking for more
+    /// bytes. `usize` equals the chunk length.
+    NeedMore(usize),
+}
+
+/// Internal outcome of a single DMA RX chunk transfer (controller -> target).
+#[derive(Copy, Clone)]
+enum RxChunkOutcome {
+    /// Controller issued STOP. `usize` is bytes received into this chunk.
+    Stopped(usize),
+    /// Controller issued repeated START. `usize` is bytes received into
+    /// this chunk.
+    Restarted(usize),
+    /// DMA filled the chunk before the controller terminated the transfer.
+    /// `usize` equals the chunk length.
+    Filled(usize),
+}
+
 impl<'d> I2c<'d, Dma<'d>> {
     /// Create a new asynchronous instance of the I2C Target bus driver with DMA support.
     ///
@@ -719,8 +804,9 @@ impl<'d> I2c<'d, Dma<'d>> {
         )
     }
 
-    async fn read_dma_chunk(&mut self, data: &mut [u8]) -> Result<usize, IOError> {
+    async fn read_dma_chunk(&mut self, data: &mut [u8]) -> Result<RxChunkOutcome, IOError> {
         let peri_addr = self.info.regs().srdr().as_ptr() as *const u8;
+        let chunk_len = data.len();
 
         self.clear_status();
 
@@ -733,7 +819,7 @@ impl<'d> I2c<'d, Dma<'d>> {
             // Set DMA request source from instance type (type-safe)
             self.mode.rx_dma.set_request_source(self.mode.rx_request);
 
-            // Configure TCD for memory-to-peripheral transfer
+            // Configure TCD for peripheral-to-memory transfer
             self.mode
                 .rx_dma
                 .setup_read_from_peripheral(peri_addr, data, false, TransferOptions::COMPLETE_INTERRUPT)?;
@@ -745,21 +831,32 @@ impl<'d> I2c<'d, Dma<'d>> {
             self.mode.rx_dma.enable_request();
         }
 
-        // Wait until STOP or REPEATED START
-        self.info
-            .wait_cell()
-            .wait_for(|| {
-                self.info.regs().sier().write(|w| {
-                    w.set_feie(true);
-                    w.set_beie(true);
-                    w.set_sdie(true);
-                    w.set_rsie(true);
-                });
-                let ssr = self.info.regs().ssr().read();
-                ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()
-            })
-            .await
-            .map_err(|_| IOError::Other)?;
+        // Wait for any of:
+        //  - I2C end-of-transfer flag (sdf, rsf) -> controller terminated
+        //  - I2C error flag (fef, bef) -> bus problem
+        //  - DMA channel completion -> chunk filled before controller stopped
+        //
+        // The DMA done interrupt wakes the DMA's wait_cell; I2C status
+        // changes wake the I2C wait_cell. Register on both.
+        poll_fn(|cx| {
+            let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
+            let _ = self.info.wait_cell().poll_wait(cx);
+
+            self.info.regs().sier().write(|w| {
+                w.set_feie(true);
+                w.set_beie(true);
+                w.set_sdie(true);
+                w.set_rsie(true);
+            });
+
+            let ssr = self.info.regs().ssr().read();
+            if ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() || self.mode.rx_dma.is_done() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
 
         // Cleanup
         self.info.regs().sder().modify(|w| w.set_rdde(false));
@@ -769,8 +866,6 @@ impl<'d> I2c<'d, Dma<'d>> {
         }
 
         // Ensure all writes by DMA are visible to the CPU
-        // TODO: ensure this is done internal to the DMA methods so individual drivers
-        // don't need to handle this?
         fence(Ordering::Acquire);
 
         let ssr = self.info.regs().ssr().read();
@@ -779,15 +874,20 @@ impl<'d> I2c<'d, Dma<'d>> {
             Err(IOError::FifoError)
         } else if ssr.bef() {
             Err(IOError::BitError)
-        } else if ssr.sdf() || ssr.rsf() {
-            Ok(self.mode.rx_dma.transferred_bytes())
+        } else if ssr.sdf() {
+            Ok(RxChunkOutcome::Stopped(self.mode.rx_dma.transferred_bytes()))
+        } else if ssr.rsf() {
+            Ok(RxChunkOutcome::Restarted(self.mode.rx_dma.transferred_bytes()))
         } else {
-            Err(IOError::Other)
+            // DMA done with no end-of-transfer flag: chunk filled, controller
+            // may want to write more bytes.
+            Ok(RxChunkOutcome::Filled(chunk_len))
         }
     }
 
-    async fn write_dma_chunk(&mut self, data: &[u8]) -> Result<usize, IOError> {
+    async fn write_dma_chunk(&mut self, data: &[u8]) -> Result<TxChunkOutcome, IOError> {
         let peri_addr = self.info.regs().stdr().as_ptr() as *mut u8;
+        let chunk_len = data.len();
 
         self.clear_status();
 
@@ -800,14 +900,15 @@ impl<'d> I2c<'d, Dma<'d>> {
             // Set DMA request source from instance type (type-safe)
             self.mode.tx_dma.set_request_source(self.mode.tx_request);
 
-            // Configure TCD for memory-to-peripheral transfer
+            // Configure TCD for memory-to-peripheral transfer. Use
+            // COMPLETE_INTERRUPT so the channel wakes us on DMA exhaustion
+            // (which lets us return NeedMore when the controller wants more
+            // bytes than the chunk holds).
             self.mode
                 .tx_dma
-                .setup_write_to_peripheral(data, peri_addr, false, TransferOptions::NO_INTERRUPTS)?;
+                .setup_write_to_peripheral(data, peri_addr, false, TransferOptions::COMPLETE_INTERRUPT)?;
 
             // Ensure all writes by DMA are visible to the CPU
-            // TODO: ensure this is done internal to the DMA methods so individual drivers
-            // don't need to handle this?
             fence(Ordering::Release);
 
             // Enable I2C TX DMA request
@@ -817,21 +918,30 @@ impl<'d> I2c<'d, Dma<'d>> {
             self.mode.tx_dma.enable_request();
         }
 
-        // Wait until STOP or REPEATED START
-        self.info
-            .wait_cell()
-            .wait_for(|| {
-                self.info.regs().sier().write(|w| {
-                    w.set_feie(true);
-                    w.set_beie(true);
-                    w.set_sdie(true);
-                    w.set_rsie(true);
-                });
-                let ssr = self.info.regs().ssr().read();
-                ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()
-            })
-            .await
-            .map_err(|_| IOError::Other)?;
+        // Wait for any of:
+        //  - I2C end-of-transfer flag (sdf, rsf) -> controller terminated
+        //  - I2C error flag (fef, bef) -> bus problem
+        //  - DMA channel completion -> chunk exhausted; if controller still
+        //    clocking, caller may want to call again (NeedMore)
+        poll_fn(|cx| {
+            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
+            let _ = self.info.wait_cell().poll_wait(cx);
+
+            self.info.regs().sier().write(|w| {
+                w.set_feie(true);
+                w.set_beie(true);
+                w.set_sdie(true);
+                w.set_rsie(true);
+            });
+
+            let ssr = self.info.regs().ssr().read();
+            if ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() || self.mode.tx_dma.is_done() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
+        })
+        .await;
 
         // Cleanup
         self.info.regs().sder().modify(|w| w.set_tdde(false));
@@ -846,10 +956,14 @@ impl<'d> I2c<'d, Dma<'d>> {
             Err(IOError::FifoError)
         } else if ssr.bef() {
             Err(IOError::BitError)
-        } else if ssr.sdf() || ssr.rsf() {
-            Ok(self.mode.tx_dma.transferred_bytes())
+        } else if ssr.sdf() {
+            Ok(TxChunkOutcome::Stopped(self.mode.tx_dma.transferred_bytes()))
+        } else if ssr.rsf() {
+            Ok(TxChunkOutcome::Restarted(self.mode.tx_dma.transferred_bytes()))
         } else {
-            Err(IOError::Other)
+            // DMA done with no end-of-transfer flag: chunk exhausted,
+            // controller still expects more bytes.
+            Ok(TxChunkOutcome::NeedMore(chunk_len))
         }
     }
 }
@@ -939,15 +1053,17 @@ where
 
     /// Asynchronously transmit data to the I2C controller.
     ///
-    /// This function sends the contents of the provided buffer to the I2C controller
-    /// asynchronously.
+    /// Sends the contents of the provided buffer to the I2C controller.
+    /// The future services the transfer to a clean termination point
+    /// (STOP, repeated START, or buffer exhausted) before resolving.
     ///
-    /// If the controller continues clocking out bytes after the buffer has been
-    /// fully transmitted (for example, an I2C-HID host that reads a fixed block
-    /// size larger than the prepared response), the async implementation pads
-    /// the remainder of the transaction with `0x00` bytes until the controller
-    /// issues STOP or repeated START. This avoids indefinite SCL clock
-    /// stretching when the firmware has nothing more to send.
+    /// If the controller continues clocking after the buffer has been
+    /// fully transmitted (for example, an I2C-HID host that reads a fixed
+    /// block size larger than the prepared response), this call resolves
+    /// with [`ReadStatus::NeedMore`] so the caller can decide what to do:
+    /// call `async_respond_to_read` again with more bytes (or fill data),
+    /// or let the bus clock-stretch (with TXDSTALL enabled) until the
+    /// controller eventually terminates the transfer.
     ///
     /// # Parameters
     ///
@@ -955,16 +1071,21 @@ where
     ///
     /// # Returns
     ///
-    /// - `Ok(usize)` with the number of bytes transmitted.
+    /// - `Ok(ReadStatus)` describing how the transfer ended and how many
+    ///   bytes the controller ACKed.
     /// - `Err(IOError)` if an error occurs.
-    pub fn async_respond_to_read<'a>(&'a mut self, buf: &'a [u8]) -> impl Future<Output = Result<usize, IOError>> + 'a {
+    pub fn async_respond_to_read<'a>(
+        &'a mut self,
+        buf: &'a [u8],
+    ) -> impl Future<Output = Result<ReadStatus, IOError>> + 'a {
         <Self as AsyncEngine>::async_respond_to_read_internal(self, buf)
     }
 
     /// Asynchronously receive data from the I2C controller.
     ///
-    /// This function receives data from the I2C controller into the provided buffer
-    /// asynchronously.
+    /// Reads bytes the controller writes into the provided buffer. The
+    /// future services the transfer to a clean termination point (STOP,
+    /// repeated START, or buffer filled) before resolving.
     ///
     /// # Parameters
     ///
@@ -972,12 +1093,13 @@ where
     ///
     /// # Returns
     ///
-    /// - `Ok(usize)` with the number of bytes received.
+    /// - `Ok(WriteStatus)` describing how the transfer ended and how many
+    ///   bytes the target received.
     /// - `Err(IOError)` if an error occurs.
     pub fn async_respond_to_write<'a>(
         &'a mut self,
         buf: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, IOError>> + 'a {
+    ) -> impl Future<Output = Result<WriteStatus, IOError>> + 'a {
         <Self as AsyncEngine>::async_respond_to_write_internal(self, buf)
     }
 }
@@ -986,16 +1108,16 @@ trait AsyncEngine {
     fn async_respond_to_read_internal<'a>(
         &'a mut self,
         buf: &'a [u8],
-    ) -> impl Future<Output = Result<usize, IOError>> + 'a;
+    ) -> impl Future<Output = Result<ReadStatus, IOError>> + 'a;
 
     fn async_respond_to_write_internal<'a>(
         &'a mut self,
         buf: &'a mut [u8],
-    ) -> impl Future<Output = Result<usize, IOError>> + 'a;
+    ) -> impl Future<Output = Result<WriteStatus, IOError>> + 'a;
 }
 
 impl<'d> AsyncEngine for I2c<'d, Async> {
-    async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<usize, IOError> {
+    async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<ReadStatus, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -1012,46 +1134,46 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
                 .await
                 .map_err(|_| IOError::Other)?;
 
-            // If we see a STOP or REPEATED START, break out
             let ssr = self.info.regs().ssr().read();
             if ssr.sdf() || ssr.rsf() {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("Early stop of Target Send routine. STOP or Repeated-start received");
                 self.reset_fifos();
-                break;
-            } else {
-                self.info.regs().stdr().write(|w| w.set_data(*byte));
-                count += 1;
+                return Ok(ReadStatus::EarlyStop(count));
             }
+
+            self.info.regs().stdr().write(|w| w.set_data(*byte));
+            count += 1;
         }
 
-        // The controller may read more bytes than the buffer contains.
-        // Keep feeding zeros until the controller NACKs or sends STOP,
-        // otherwise the hardware clock-stretches indefinitely.
-        loop {
-            self.info
-                .wait_cell()
-                .wait_for(|| {
-                    self.enable_tx_ints();
-                    let ssr = self.info.regs().ssr().read();
-                    ssr.tdf() || ssr.sdf() || ssr.rsf()
-                })
-                .await
-                .map_err(|_| IOError::Other)?;
+        // All caller bytes pushed. Wait briefly to determine whether the
+        // controller is done (NACK + STOP/RSTART) or whether it wants more.
+        // We do NOT auto-pad here: doing so blocks the firmware for the
+        // duration of the controller's extra reads, which causes us to fall
+        // behind on subsequent back-to-back transactions. The caller
+        // receives ReadStatus::NeedMore and decides how to proceed.
+        self.info
+            .wait_cell()
+            .wait_for(|| {
+                self.enable_tx_ints();
+                let ssr = self.info.regs().ssr().read();
+                ssr.tdf() || ssr.sdf() || ssr.rsf()
+            })
+            .await
+            .map_err(|_| IOError::Other)?;
 
-            let ssr = self.info.regs().ssr().read();
-            if ssr.sdf() || ssr.rsf() {
-                self.reset_fifos();
-                break;
-            } else {
-                self.info.regs().stdr().write(|w| w.set_data(0x00));
-            }
+        let ssr = self.info.regs().ssr().read();
+        if ssr.sdf() || ssr.rsf() {
+            self.reset_fifos();
+            Ok(ReadStatus::Complete(count))
+        } else {
+            // tdf set: TX FIFO empty during a transmit transfer means the
+            // controller is still clocking and wants another byte.
+            Ok(ReadStatus::NeedMore(count))
         }
-
-        Ok(count)
     }
 
-    async fn async_respond_to_write_internal(&mut self, buf: &mut [u8]) -> Result<usize, IOError> {
+    async fn async_respond_to_write_internal(&mut self, buf: &mut [u8]) -> Result<WriteStatus, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -1067,25 +1189,30 @@ impl<'d> AsyncEngine for I2c<'d, Async> {
                 .await
                 .map_err(|_| IOError::Other)?;
 
-            // If we see a STOP or REPEATED START, break out
             let ssr = self.info.regs().ssr().read();
-            if ssr.sdf() || ssr.rsf() {
+            if ssr.sdf() {
                 #[cfg(feature = "defmt")]
-                defmt::trace!("Early stop of Target Receive routine. STOP or Repeated-start received");
+                defmt::trace!("Early stop of Target Receive routine. STOP received");
                 self.reset_fifos();
-                break;
-            } else {
-                *byte = self.info.regs().srdr().read().data();
-                count += 1;
+                return Ok(WriteStatus::Stopped(count));
             }
+            if ssr.rsf() {
+                #[cfg(feature = "defmt")]
+                defmt::trace!("Early stop of Target Receive routine. Repeated-start received");
+                self.reset_fifos();
+                return Ok(WriteStatus::Restarted(count));
+            }
+
+            *byte = self.info.regs().srdr().read().data();
+            count += 1;
         }
 
-        Ok(count)
+        Ok(WriteStatus::BufferFull(count))
     }
 }
 
 impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
-    async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<usize, IOError> {
+    async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<ReadStatus, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -1095,17 +1222,48 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             self.info.regs().sder().modify(|w| w.set_tdde(false));
         });
 
-        for chunk in buf.chunks(DMA_MAX_TRANSFER_SIZE) {
-            count += self.write_dma_chunk(chunk).await?;
+        let total = buf.len();
+        let mut chunks = buf.chunks(DMA_MAX_TRANSFER_SIZE).peekable();
+        while let Some(chunk) = chunks.next() {
+            let is_last = chunks.peek().is_none();
+            match self.write_dma_chunk(chunk).await? {
+                TxChunkOutcome::Stopped(n) => {
+                    count += n;
+                    on_drop.defuse();
+                    return Ok(if is_last && count == total {
+                        ReadStatus::Complete(count)
+                    } else {
+                        ReadStatus::EarlyStop(count)
+                    });
+                }
+                TxChunkOutcome::Restarted(n) => {
+                    count += n;
+                    on_drop.defuse();
+                    return Ok(if is_last && count == total {
+                        ReadStatus::Complete(count)
+                    } else {
+                        ReadStatus::EarlyStop(count)
+                    });
+                }
+                TxChunkOutcome::NeedMore(n) => {
+                    count += n;
+                    if is_last {
+                        on_drop.defuse();
+                        return Ok(ReadStatus::NeedMore(count));
+                    }
+                    // Non-last chunk completed normally: proceed to next
+                    // chunk. The bus will clock-stretch briefly between
+                    // chunks while we reprogram the TCD.
+                }
+            }
         }
 
-        // defuse it if the future is not dropped
+        // Reached only when buf was empty.
         on_drop.defuse();
-
-        Ok(count)
+        Ok(ReadStatus::NeedMore(count))
     }
 
-    async fn async_respond_to_write_internal<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, IOError> {
+    async fn async_respond_to_write_internal<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<WriteStatus, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -1115,14 +1273,36 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             self.info.regs().sder().modify(|w| w.set_rdde(false));
         });
 
-        for chunk in buf.chunks_mut(DMA_MAX_TRANSFER_SIZE) {
-            count += self.read_dma_chunk(chunk).await?;
+        let total = buf.len();
+        let mut chunks = buf.chunks_mut(DMA_MAX_TRANSFER_SIZE).peekable();
+        while let Some(chunk) = chunks.next() {
+            let is_last = chunks.peek().is_none();
+            match self.read_dma_chunk(chunk).await? {
+                RxChunkOutcome::Stopped(n) => {
+                    count += n;
+                    on_drop.defuse();
+                    return Ok(WriteStatus::Stopped(count));
+                }
+                RxChunkOutcome::Restarted(n) => {
+                    count += n;
+                    on_drop.defuse();
+                    return Ok(WriteStatus::Restarted(count));
+                }
+                RxChunkOutcome::Filled(n) => {
+                    count += n;
+                    if is_last {
+                        on_drop.defuse();
+                        return Ok(WriteStatus::BufferFull(count));
+                    }
+                    // Non-last chunk filled: proceed to next chunk.
+                }
+            }
         }
 
-        // defuse it if the future is not dropped
+        // Reached only when buf was empty.
         on_drop.defuse();
-
-        Ok(count)
+        let _ = total;
+        Ok(WriteStatus::BufferFull(count))
     }
 }
 
@@ -1130,5 +1310,206 @@ impl<'d, M: Mode> Drop for I2c<'d, M> {
     fn drop(&mut self) {
         self._scl.set_as_disabled();
         self._sda.set_as_disabled();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `embedded-mcu-hal` I2C target trait implementations
+// ---------------------------------------------------------------------------
+//
+// These adapt the inherent blocking/async target API above to the generic
+// `embedded_mcu_hal::i2c::target` traits, gated behind the `embedded-mcu-hal`
+// cargo feature.
+//
+// Both 7-bit (`SevenBitAddress`) and 10-bit (`TenBitAddress`) address modes
+// are supported. The blocking trait is implemented once, generic over the
+// address width; the async trait is implemented once, generic over both the
+// address width and the async mode (`Async` and `Dma`).
+//
+// Known deviations from the trait contract (see the module docs and the
+// trait docs in `embedded_mcu_hal::i2c::target`):
+//
+//   * `listen` never returns `Request::RepeatedStart`. A repeated START is
+//     folded into the next `Read`/`Write` event and additionally surfaced
+//     through `WriteStatus::Restarted` / `ReadStatus::EarlyStop`. The
+//     listen -> respond -> re-listen loop still behaves correctly; faithful
+//     edge emission would require tracking the previous sub-transaction
+//     address at the driver level.
+//   * The `SevenBitAddress` implementation truncates the matched address to
+//     seven bits (`as u8`). Use the `TenBitAddress` implementation for a
+//     lossless 10-bit address.
+
+#[cfg(feature = "embedded-mcu-hal")]
+use embedded_mcu_hal::i2c::target as emh;
+#[cfg(feature = "embedded-mcu-hal")]
+use embedded_mcu_hal::i2c::{AddressMode, SevenBitAddress, TenBitAddress};
+
+/// Map this driver's [`IOError`] onto the generic target [`emh::ErrorKind`].
+#[cfg(feature = "embedded-mcu-hal")]
+impl emh::Error for IOError {
+    fn kind(&self) -> emh::ErrorKind {
+        match self {
+            // FIFO over/underrun maps precisely onto `Overrun`.
+            IOError::FifoError => emh::ErrorKind::Overrun,
+            // A bit error is an illegal state on the bus lines.
+            IOError::BitError => emh::ErrorKind::Bus,
+            // A busy bus is a bus-level condition.
+            IOError::BusBusy => emh::ErrorKind::Bus,
+            IOError::TargetBusy => emh::ErrorKind::Other,
+            IOError::Other => emh::ErrorKind::Other,
+        }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'d, M: Mode> emh::ErrorType for I2c<'d, M> {
+    type Error = IOError;
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<ReadStatus> for emh::ReadStatus {
+    fn from(value: ReadStatus) -> Self {
+        match value {
+            ReadStatus::Complete(n) => emh::ReadStatus::Complete(n),
+            ReadStatus::NeedMore(n) => emh::ReadStatus::NeedMore(n),
+            ReadStatus::EarlyStop(n) => emh::ReadStatus::EarlyStop(n),
+        }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<WriteStatus> for emh::WriteStatus {
+    fn from(value: WriteStatus) -> Self {
+        match value {
+            WriteStatus::Stopped(n) => emh::WriteStatus::Stopped(n),
+            WriteStatus::Restarted(n) => emh::WriteStatus::Restarted(n),
+            WriteStatus::BufferFull(n) => emh::WriteStatus::BufferFull(n),
+        }
+    }
+}
+
+/// 7-bit view of a matched-address [`Request`]. The matched address is
+/// truncated to seven bits (`as u8`).
+///
+/// The inherent `listen` methods never produce a repeated-start event, so
+/// this conversion never yields [`emh::Request::RepeatedStart`].
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<Request> for emh::Request<SevenBitAddress> {
+    fn from(value: Request) -> Self {
+        match value {
+            Request::Read(addr) => emh::Request::Read(addr as u8),
+            Request::Write(addr) => emh::Request::Write(addr as u8),
+            Request::Stop(addr) => emh::Request::Stop(addr as u8),
+            Request::GeneralCall => emh::Request::GeneralCall,
+            Request::SmbusAlert => emh::Request::SmbusAlert,
+        }
+    }
+}
+
+/// 10-bit (lossless) view of a matched-address [`Request`].
+///
+/// The inherent `listen` methods never produce a repeated-start event, so
+/// this conversion never yields [`emh::Request::RepeatedStart`].
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<Request> for emh::Request<TenBitAddress> {
+    fn from(value: Request) -> Self {
+        match value {
+            Request::Read(addr) => emh::Request::Read(addr),
+            Request::Write(addr) => emh::Request::Write(addr),
+            Request::Stop(addr) => emh::Request::Stop(addr),
+            Request::GeneralCall => emh::Request::GeneralCall,
+            Request::SmbusAlert => emh::Request::SmbusAlert,
+        }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'d, M: Mode> I2c<'d, M> {
+    /// Bring the target back to a known-clean baseline while preserving the
+    /// configured addressing, general-call / SMBus-alert settings, and
+    /// clocking.
+    ///
+    /// This is the shared implementation behind the blocking and async
+    /// `recover` trait methods. All work is synchronous register access
+    /// performed inside a single critical section, which makes the async
+    /// wrapper trivially cancellation-safe and re-entrant.
+    fn recover_inner(&self) {
+        critical_section::with(|_| {
+            // Stop driving SCL/SDA by disabling the target.
+            self.info.regs().scr().modify(|w| w.set_sen(false));
+
+            // Drop any in-flight FIFO bytes.
+            self.info.regs().scr().modify(|w| {
+                w.set_rtf(ScrRtf::NowEmpty);
+                w.set_rrf(ScrRrf::NowEmpty);
+            });
+
+            // Disable any DMA request enables left set by a cancelled DMA
+            // respond future.
+            self.info.regs().sder().modify(|w| {
+                w.set_tdde(false);
+                w.set_rdde(false);
+            });
+
+            // Mask all target interrupts (write 0). The async wait helpers
+            // re-enable exactly the interrupts they need before awaiting.
+            self.info.regs().sier().write(|_| {});
+
+            // Clear latched bus-event status.
+            self.clear_status();
+
+            // Re-enable the target. Addressing (SAMR/SCFGR1) and clocking are
+            // untouched, so the next `listen` accepts a fresh transaction
+            // without re-initialising the driver.
+            self.info.regs().scr().modify(|w| w.set_sen(true));
+        });
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'d, A: AddressMode> emh::blocking::I2c<A> for I2c<'d, Blocking>
+where
+    Request: Into<emh::Request<A>>,
+{
+    fn recover(&mut self) -> Result<(), Self::Error> {
+        self.recover_inner();
+        Ok(())
+    }
+
+    fn listen(&mut self) -> Result<emh::Request<A>, Self::Error> {
+        self.blocking_listen().map(Into::into)
+    }
+
+    fn respond_to_read(&mut self, buf: &[u8]) -> Result<emh::ReadStatus, Self::Error> {
+        self.blocking_respond_to_read(buf).map(Into::into)
+    }
+
+    fn respond_to_write(&mut self, buf: &mut [u8]) -> Result<emh::WriteStatus, Self::Error> {
+        self.blocking_respond_to_write(buf).map(Into::into)
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+#[allow(private_bounds)]
+impl<'d, M: AsyncMode, A: AddressMode> emh::asynch::I2c<A> for I2c<'d, M>
+where
+    Self: AsyncEngine,
+    Request: Into<emh::Request<A>>,
+{
+    async fn recover(&mut self) -> Result<(), Self::Error> {
+        self.recover_inner();
+        Ok(())
+    }
+
+    async fn listen(&mut self) -> Result<emh::Request<A>, Self::Error> {
+        self.async_listen().await.map(Into::into)
+    }
+
+    async fn respond_to_read(&mut self, buf: &[u8]) -> Result<emh::ReadStatus, Self::Error> {
+        self.async_respond_to_read(buf).await.map(Into::into)
+    }
+
+    async fn respond_to_write(&mut self, buf: &mut [u8]) -> Result<emh::WriteStatus, Self::Error> {
+        self.async_respond_to_write(buf).await.map(Into::into)
     }
 }

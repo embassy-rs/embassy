@@ -7,11 +7,15 @@ mod dma_bdma;
 #[cfg(any(bdma, dma, mdma))]
 pub use dma_bdma::*;
 
-#[cfg(gpdma)]
+#[cfg(any(gpdma, lpdma))]
 pub(crate) mod gpdma;
-#[cfg(gpdma)]
+#[cfg(any(gpdma, lpdma))]
+pub use gpdma::linked_list::{Item, ItemConfig, LinearItem, LinearItemConfig, LinkedListItem, RunMode, Table};
+#[cfg(any(gpdma, lpdma))]
 pub use gpdma::ringbuffered::*;
-#[cfg(gpdma)]
+#[cfg(gpdma2d)]
+pub use gpdma::two_d::{TwoDConfig, TwoDItem};
+#[cfg(any(gpdma, lpdma))]
 pub use gpdma::*;
 
 #[cfg(dmamux)]
@@ -59,10 +63,10 @@ pub enum Increment {
 }
 
 /// DMA request type alias. (also known as DMA channel number in some chips)
-#[cfg(any(dma_v2, bdma_v2, gpdma, dmamux))]
+#[cfg(any(dma_v2, bdma_v2, gpdma, dmamux, lpdma))]
 pub type Request = u8;
 /// DMA request type alias. (also known as DMA channel number in some chips)
-#[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux)))]
+#[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux, lpdma)))]
 pub type Request = ();
 
 /// DMA channel driver
@@ -110,6 +114,17 @@ pub trait ChannelInstance: SealedChannelInstance + PeripheralType + 'static {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
+#[cfg(gpdma2d)]
+pub(crate) trait SealedTwoDChannelInstance {}
+
+/// DMA channel with 2D addressing capability (block repeat with address offsets).
+///
+/// This trait is only implemented for GPDMA channels that support 2D transfers.
+/// Use it as a bound to require a 2D-capable channel at compile time.
+#[cfg(gpdma2d)]
+#[allow(private_bounds)]
+pub trait TwoDChannelInstance: ChannelInstance + SealedTwoDChannelInstance {}
+
 /// DMA interrupt handler.
 #[allow(private_bounds)]
 pub struct InterruptHandler<T: ChannelInstance> {
@@ -134,6 +149,14 @@ macro_rules! dma_channel_impl {
     };
 }
 
+#[cfg(gpdma2d)]
+macro_rules! dma_channel_2d_impl {
+    ($channel_peri:ident) => {
+        impl crate::dma::SealedTwoDChannelInstance for crate::peripherals::$channel_peri {}
+        impl crate::dma::TwoDChannelInstance for crate::peripherals::$channel_peri {}
+    };
+}
+
 const CHANNEL_COUNT: usize = crate::_generated::DMA_CHANNELS.len();
 static STATE: [ChannelState; CHANNEL_COUNT] = [ChannelState::NEW; CHANNEL_COUNT];
 
@@ -146,7 +169,7 @@ pub(crate) unsafe fn init(
     cs: critical_section::CriticalSection,
     #[cfg(bdma)] bdma_priority: interrupt::Priority,
     #[cfg(dma)] dma_priority: interrupt::Priority,
-    #[cfg(gpdma)] gpdma_priority: interrupt::Priority,
+    #[cfg(any(gpdma, lpdma))] gpdma_priority: interrupt::Priority,
     #[cfg(mdma)] mdma_priority: interrupt::Priority,
 ) {
     #[cfg(any(dma, bdma))]
@@ -159,7 +182,7 @@ pub(crate) unsafe fn init(
         #[cfg(mdma)]
         mdma_priority,
     );
-    #[cfg(gpdma)]
+    #[cfg(any(gpdma, lpdma))]
     gpdma::init(cs, gpdma_priority);
     #[cfg(dmamux)]
     dmamux::init(cs);

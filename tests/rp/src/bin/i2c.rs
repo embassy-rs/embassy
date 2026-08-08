@@ -6,6 +6,7 @@ teleprobe_meta::target!(b"rpi-pico");
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert_eq, info, panic};
+use defmt_rtt as _;
 use embassy_embedded_hal::SetConfig;
 use embassy_executor::Spawner;
 use embassy_rp::clocks::{PllConfig, XoscConfig};
@@ -14,7 +15,7 @@ use embassy_rp::peripherals::{I2C0, I2C1};
 use embassy_rp::{bind_interrupts, i2c, i2c_slave};
 use embedded_hal_1::i2c::Operation;
 use embedded_hal_async::i2c::I2c;
-use {defmt_rtt as _, panic_probe as _, panic_probe as _, panic_probe as _};
+use panic_probe as _;
 
 use crate::i2c::AbortReason;
 
@@ -26,7 +27,7 @@ bind_interrupts!(struct Irqs {
 const DEV_ADDR: u8 = 0x42;
 
 #[embassy_executor::task]
-async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
+async fn device_task(mut dev: i2c_slave::I2cSlave<'static>) -> ! {
     info!("Device start");
 
     let mut count = 0xD0;
@@ -103,7 +104,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static, I2C1>) -> ! {
     }
 }
 
-async fn controller_task(con: &mut i2c::I2c<'static, I2C0, i2c::Async>) {
+async fn controller_task(con: &mut i2c::I2c<'static, i2c::Async>) {
     info!("Controller start");
 
     {

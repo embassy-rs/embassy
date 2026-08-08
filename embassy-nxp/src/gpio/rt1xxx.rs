@@ -150,11 +150,11 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn set_pull(&mut self, pull: Pull) {
         let (pke, pue, pus) = match pull {
-            Pull::None => (false, true, Pus::PUS_0_100K_OHM_PULL_DOWN),
-            Pull::Up22K => (true, true, Pus::PUS_3_22K_OHM_PULL_UP),
-            Pull::Up47K => (true, true, Pus::PUS_1_47K_OHM_PULL_UP),
-            Pull::Up100K => (true, true, Pus::PUS_2_100K_OHM_PULL_UP),
-            Pull::Down100K => (true, true, Pus::PUS_0_100K_OHM_PULL_DOWN),
+            Pull::None => (false, true, Pus::Pus0100kOhmPullDown),
+            Pull::Up22K => (true, true, Pus::Pus322kOhmPullUp),
+            Pull::Up47K => (true, true, Pus::Pus147kOhmPullUp),
+            Pull::Up100K => (true, true, Pus::Pus2100kOhmPullUp),
+            Pull::Down100K => (true, true, Pus::Pus0100kOhmPullDown),
         };
 
         self.pin.pad().modify(|w| {
@@ -248,7 +248,7 @@ impl<'d> Flex<'d> {
             w.set_ode(false);
             w.set_pke(false);
             w.set_pue(false);
-            w.set_pus(Pus::PUS_0_100K_OHM_PULL_DOWN);
+            w.set_pus(Pus::Pus0100kOhmPullDown);
         });
     }
 
@@ -741,11 +741,11 @@ impl<'d> InputFuture<'d> {
         let block = pin.block();
 
         let (icr, edge_sel) = match config {
-            InterruptConfiguration::Low => (Icr::LOW_LEVEL, false),
-            InterruptConfiguration::High => (Icr::HIGH_LEVEL, false),
-            InterruptConfiguration::RisingEdge => (Icr::RISING_EDGE, false),
-            InterruptConfiguration::FallingEdge => (Icr::FALLING_EDGE, false),
-            InterruptConfiguration::AnyEdge => (Icr::FALLING_EDGE, true),
+            InterruptConfiguration::Low => (Icr::LowLevel, false),
+            InterruptConfiguration::High => (Icr::HighLevel, false),
+            InterruptConfiguration::RisingEdge => (Icr::RisingEdge, false),
+            InterruptConfiguration::FallingEdge => (Icr::FallingEdge, false),
+            InterruptConfiguration::AnyEdge => (Icr::FallingEdge, true),
         };
 
         let index = if pin.pin_number() > 15 { 1 } else { 0 };

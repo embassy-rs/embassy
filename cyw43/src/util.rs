@@ -55,11 +55,15 @@ pub(crate) fn is_aligned(a: u32, x: u32) -> bool {
 }
 
 pub(crate) fn round_down(x: u32, a: u32) -> u32 {
+    debug_assert!(a.is_power_of_two());
+
     x & !(a - 1)
 }
 
 pub(crate) fn round_up(x: u32, a: u32) -> u32 {
-    ((x + a - 1) / a) * a
+    debug_assert!(a.is_power_of_two());
+
+    (x + (a - 1)) & !(a - 1)
 }
 
 pub(crate) async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Duration) -> crate::Result<()> {

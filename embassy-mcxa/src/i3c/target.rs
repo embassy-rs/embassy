@@ -283,7 +283,12 @@ impl<'d> I3c<'d> {
         let ClockConfig { power, source, div } = config.clock_config;
 
         // Enable clocks
-        let conf = I3cConfig { power, source, div };
+        let conf = I3cConfig {
+            power,
+            source,
+            div,
+            instance: T::CLOCK_INSTANCE,
+        };
 
         let parts = unsafe { enable_and_reset::<T>(&conf).map_err(SetupError::ClockSetup)? };
 

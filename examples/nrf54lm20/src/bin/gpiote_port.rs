@@ -2,9 +2,10 @@
 #![no_main]
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Pull};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::task(pool_size = 4)]
 async fn button_task(n: usize, mut pin: Input<'static>) {

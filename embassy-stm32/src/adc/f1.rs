@@ -60,21 +60,19 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn stop(&self, _disable: bool) {
-        // Stop ADC
+    fn stop(&self) {
         self.cr2().modify(|reg| {
-            // Stop ADC
             reg.set_swstart(false);
-            // Stop ADC
-            reg.set_adon(false);
-            // Stop DMA
             reg.set_dma(false);
         });
 
         self.cr1().modify(|w| {
-            // Disable interrupt for end of conversion
             w.set_eocie(false);
         });
+    }
+
+    fn power_down(&self) {
+        self.cr2().modify(|reg| reg.set_adon(false));
     }
 
     fn wait_done(&self) -> bool {
@@ -105,7 +103,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, injected: bool) {
         let mut sqr1 = Sqr1::default();
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
@@ -113,15 +111,19 @@ impl AdcRegs for crate::pac::adc::Adc {
         let mut smpr1 = Smpr1::default();
         let mut smpr2 = Smpr2::default();
 
-        // Check the sequence is long enough
-        sqr1.set_l((sequence.len() - 1).try_into().unwrap());
+        if !injected {
+            // Check the sequence is long enough
+            sqr1.set_l((sequence.len() - 1).try_into().unwrap());
+        }
 
         for (i, ((ch, _), sample_time)) in sequence.enumerate() {
-            match i {
-                0..=5 => sqr3.set_sq(i, ch),
-                6..=11 => sqr2.set_sq(i - 6, ch),
-                12..=15 => sqr1.set_sq(i - 12, ch),
-                _ => unreachable!(),
+            if !injected {
+                match i {
+                    0..=5 => sqr3.set_sq(i, ch),
+                    6..=11 => sqr2.set_sq(i - 6, ch),
+                    12..=15 => sqr1.set_sq(i - 12, ch),
+                    _ => unreachable!(),
+                }
             }
 
             let sample_time = sample_time.into();
@@ -132,9 +134,11 @@ impl AdcRegs for crate::pac::adc::Adc {
             }
         }
 
-        self.sqr1().write_value(sqr1);
-        self.sqr2().write_value(sqr2);
-        self.sqr3().write_value(sqr3);
+        if !injected {
+            self.sqr1().write_value(sqr1);
+            self.sqr2().write_value(sqr2);
+            self.sqr3().write_value(sqr3);
+        }
         self.smpr1().write_value(smpr1);
         self.smpr2().write_value(smpr2);
     }

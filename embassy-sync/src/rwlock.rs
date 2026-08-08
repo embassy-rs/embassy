@@ -168,7 +168,7 @@ where
     ///
     /// Since this call borrows the RwLock mutably, no actual locking needs to
     /// take place -- the mutable borrow statically guarantees no locks exist.
-    pub fn get_mut(&mut self) -> &mut T {
+    pub const fn get_mut(&mut self) -> &mut T {
         self.inner.get_mut()
     }
 }

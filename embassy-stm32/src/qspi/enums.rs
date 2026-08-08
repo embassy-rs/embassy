@@ -136,9 +136,21 @@ pub enum AddressSize {
     /// 16-bit address
     _16Bit,
     /// 24-bit address
-    _24bit,
+    _24Bit,
     /// 32-bit address
-    _32bit,
+    _32Bit,
+}
+
+impl AddressSize {
+    /// The number of address bits for this address size
+    pub fn bit_width(self) -> u8 {
+        match self {
+            AddressSize::_8Bit => 8,
+            AddressSize::_16Bit => 16,
+            AddressSize::_24Bit => 24,
+            AddressSize::_32Bit => 32,
+        }
+    }
 }
 
 impl From<AddressSize> for u8 {
@@ -146,8 +158,8 @@ impl From<AddressSize> for u8 {
         match val {
             AddressSize::_8Bit => 0b00,
             AddressSize::_16Bit => 0b01,
-            AddressSize::_24bit => 0b10,
-            AddressSize::_32bit => 0b11,
+            AddressSize::_24Bit => 0b10,
+            AddressSize::_32Bit => 0b11,
         }
     }
 }

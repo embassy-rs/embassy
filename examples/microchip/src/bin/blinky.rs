@@ -2,10 +2,11 @@
 #![no_std]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_microchip::gpio::{Level, Output};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -20,6 +21,6 @@ async fn main(_spawner: Spawner) {
         info!("toggle leds");
         led1.toggle();
         led2.toggle();
-        Timer::after_secs(1).await;
+        Timer::after_millis(500).await;
     }
 }

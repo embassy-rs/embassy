@@ -1,14 +1,16 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use hal::bind_interrupts;
 use hal::config::Config;
 use hal::peripherals::TRNG0;
 use hal::trng::{InterruptHandler, Trng};
+use panic_probe as _;
 use rand_core::RngCore;
 use rand_core::block::BlockRngCore;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(
     struct Irqs {

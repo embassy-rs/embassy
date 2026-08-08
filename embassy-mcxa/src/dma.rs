@@ -125,6 +125,8 @@ use crate::pac::edma_tcd::{
 };
 use crate::pac::{self, Interrupt};
 use crate::peripherals::DMA0;
+#[cfg(feature = "mcxa5xx")]
+use crate::peripherals::DMA1;
 
 /// Initialize DMA controller (clock enabled, reset released, controller configured).
 ///
@@ -144,6 +146,22 @@ pub(crate) fn init() {
         w.set_gclc(true);
         w.set_gmrc(true);
     });
+
+    // Enable DMA1 clock, release reset, and configure its management page.
+    // Without this, any access to the DMA1 TCD registers faults because the
+    // peripheral is unclocked and held in reset.
+    #[cfg(feature = "mcxa5xx")]
+    {
+        let _ = unsafe { enable_and_reset::<DMA1>(&NoConfig) };
+
+        pac::DMA1.mp_csr().modify(|w| {
+            w.set_edbg(true);
+            w.set_erca(true);
+            w.set_halt(Halt::NormalOperation);
+            w.set_gclc(true);
+            w.set_gmrc(true);
+        });
+    }
 
     // Enable all DMA request lines for non-secure access.
     #[cfg(all(feature = "mcxa5xx", feature = "dma-ipd-req"))]
@@ -299,11 +317,14 @@ pub struct InvalidParameters;
 /// than this must be split into multiple DMA operations.
 pub const DMA_MAX_TRANSFER_SIZE: usize = 0x7FFF;
 
-mod sealed {
+pub(crate) mod sealed {
     /// Sealed trait for DMA channels.
     pub trait SealedChannel {
+        /// The dma instance number
+        fn dma(&self) -> usize;
+
         /// Zero-based channel index into the TCD array.
-        fn index(&self) -> usize;
+        fn channel(&self) -> usize;
 
         /// Interrupt vector for this channel.
         fn interrupt(&self) -> crate::interrupt::Interrupt;
@@ -347,14 +368,19 @@ pub trait Channel: sealed::SealedChannel + PeripheralType + Into<AnyChannel> + '
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct AnyChannel {
-    index: usize,
-    interrupt: Interrupt,
+    pub(crate) dma: u8,
+    pub(crate) channel: u8,
+    pub(crate) interrupt: Interrupt,
 }
 
 impl PeripheralType for AnyChannel {}
 impl sealed::SealedChannel for AnyChannel {
-    fn index(&self) -> usize {
-        self.index
+    fn dma(&self) -> usize {
+        self.dma as usize
+    }
+
+    fn channel(&self) -> usize {
+        self.channel as usize
     }
 
     fn interrupt(&self) -> Interrupt {
@@ -364,39 +390,37 @@ impl sealed::SealedChannel for AnyChannel {
 
 impl Channel for AnyChannel {}
 
+#[doc(hidden)]
+#[macro_export]
 /// Macro to implement Channel trait for a peripheral.
-macro_rules! impl_channel {
-    ($peri:ident, $index:expr, $irq:ident) => {
-        impl sealed::SealedChannel for crate::peripherals::$peri {
-            fn index(&self) -> usize {
-                $index
+macro_rules! impl_dma_channel {
+    ($peri:ident, $dma:expr, $channel:expr, $irq:ident) => {
+        impl crate::dma::sealed::SealedChannel for crate::peripherals::$peri {
+            fn dma(&self) -> usize {
+                $dma
             }
 
-            fn interrupt(&self) -> Interrupt {
-                Interrupt::$irq
+            fn channel(&self) -> usize {
+                $channel
+            }
+
+            fn interrupt(&self) -> nxp_pac::Interrupt {
+                nxp_pac::Interrupt::$irq
             }
         }
-        impl Channel for crate::peripherals::$peri {}
+        impl crate::dma::Channel for crate::peripherals::$peri {}
 
-        impl From<crate::peripherals::$peri> for AnyChannel {
+        impl From<crate::peripherals::$peri> for crate::dma::AnyChannel {
             fn from(_: crate::peripherals::$peri) -> Self {
-                AnyChannel {
-                    index: $index,
-                    interrupt: Interrupt::$irq,
+                crate::dma::AnyChannel {
+                    dma: $dma,
+                    channel: $channel,
+                    interrupt: nxp_pac::Interrupt::$irq,
                 }
             }
         }
     };
 }
-
-impl_channel!(DMA0_CH0, 0, DMA0_CH0);
-impl_channel!(DMA0_CH1, 1, DMA0_CH1);
-impl_channel!(DMA0_CH2, 2, DMA0_CH2);
-impl_channel!(DMA0_CH3, 3, DMA0_CH3);
-impl_channel!(DMA0_CH4, 4, DMA0_CH4);
-impl_channel!(DMA0_CH5, 5, DMA0_CH5);
-impl_channel!(DMA0_CH6, 6, DMA0_CH6);
-impl_channel!(DMA0_CH7, 7, DMA0_CH7);
 
 /// Parameters used to configure a 'typical' DMA transfer in [DmaChannel::setup_typical].
 struct DmaTransferParameters<WSRC: Word, WDST: Word> {
@@ -453,15 +477,25 @@ impl DmaChannel<'_> {
 
     /// Channel index in the EDMA_0_TCD0 array.
     #[inline]
-    pub(crate) fn index(&self) -> usize {
-        self.channel.index()
+    pub(crate) fn channel(&self) -> usize {
+        self.channel.channel()
+    }
+
+    /// Dma index
+    #[inline]
+    pub(crate) fn dma(&self) -> usize {
+        self.channel.dma()
     }
 
     /// Return a reference to the underlying TCD register block.
     #[inline]
     pub(crate) fn tcd(&self) -> pac::edma_tcd::Tcd {
-        // Safety: MCXA276 has a single eDMA instance
-        pac::EDMA_0_TCD.tcd(self.channel.index())
+        match self.dma() {
+            0 => pac::EDMA_0_TCD.tcd(self.channel.channel()),
+            #[cfg(feature = "mcxa5xx")]
+            1 => pac::EDMA_1_TCD.tcd(self.channel.channel()),
+            _ => unreachable!(),
+        }
     }
 
     /// set a manual callback to be called AFTER the DMA interrupt is processed. Will be called in the DMA interrupt
@@ -472,7 +506,7 @@ impl DmaChannel<'_> {
     pub(crate) unsafe fn set_callback(&mut self, f: fn()) {
         // See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
         let cb = f as *mut ();
-        CALLBACKS[self.index()].store(cb, Ordering::Release);
+        CALLBACKS[self.dma()][self.channel()].store(cb, Ordering::Release);
     }
 
     /// Unset the callback, causing no method to be called after DMA completion.
@@ -480,7 +514,7 @@ impl DmaChannel<'_> {
     /// SAFETY: This must only be called on an owned DmaChannel, as there is only a single
     /// callback slot, and calling this will invalidate any previously set callbacks.
     pub(crate) unsafe fn clear_callback(&mut self) {
-        CALLBACKS[self.index()].store(core::ptr::null_mut(), Ordering::Release);
+        CALLBACKS[self.dma()][self.channel()].store(core::ptr::null_mut(), Ordering::Release);
     }
 
     /// Access TCD DADDR field
@@ -1139,7 +1173,7 @@ impl DmaChannel<'_> {
 
     /// Get the wait cell for this channel
     pub(crate) fn wait_cell(&self) -> &'static WaitCell {
-        &STATES[self.channel.index()].waker
+        &STATES[self.channel.dma()][self.channel.channel()].waker
     }
 
     /// Enable the interrupt for this channel in the NVIC.
@@ -1316,14 +1350,14 @@ impl State {
     }
 }
 
-static STATES: [State; 8] = [const { State::new() }; 8];
+static STATES: [[State; 12]; 2] = [const { [const { State::new() }; 12] }; 2];
 
-pub(crate) fn waker(idx: usize) -> &'static WaitCell {
-    &STATES[idx].waker
+pub(crate) fn waker(dma: usize, channel: usize) -> &'static WaitCell {
+    &STATES[dma][channel].waker
 }
 
-pub(crate) fn half_waker(idx: usize) -> &'static WaitCell {
-    &STATES[idx].half_waker
+pub(crate) fn half_waker(dma: usize, channel: usize) -> &'static WaitCell {
+    &STATES[dma][channel].half_waker
 }
 
 // ============================================================================
@@ -1387,7 +1421,7 @@ impl<'a> Transfer<'a> {
         use core::future::poll_fn;
 
         poll_fn(|cx| {
-            let state = &STATES[self.channel.index()];
+            let state = &STATES[self.channel.dma()][self.channel.channel()];
 
             // Register the half-transfer waker
             let _ = state.half_waker.poll_wait(cx);
@@ -1487,7 +1521,7 @@ impl<'a> Transfer<'a> {
 ///
 /// Each error variant can be queried separately, or all errors can be iterated by using [TransferErrors::into_iter].
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct TransferErrors(u8);
 
 /// Iterator to extract all [TransferError]s using [TransferErrors::into_iter].
@@ -1648,7 +1682,7 @@ impl<'a> Future for Transfer<'a> {
                 };
             }
 
-            match STATES[self.channel.index()].waker.poll_wait(cx) {
+            match STATES[self.channel.dma()][self.channel.channel()].waker.poll_wait(cx) {
                 Poll::Pending => return Poll::Pending,
                 // Consumed a stale wake; loop and re-check is_done, then
                 // try registering the waker again on the next iteration.
@@ -1832,7 +1866,7 @@ impl<'channel, 'buf, W: Word> RingBuffer<'channel, 'buf, W> {
             }
 
             // Register wakers for both half and complete interrupts
-            let state = &STATES[self.channel.index()];
+            let state = &STATES[self.channel.dma()][self.channel.channel()];
             let _ = state.waker.poll_wait(cx);
             let _ = state.half_waker.poll_wait(cx);
 
@@ -2185,10 +2219,15 @@ pub struct ScatterGatherResult {
 ///
 /// # Safety
 /// Must be called from the correct DMA channel interrupt context.
-unsafe fn on_interrupt(ch_index: usize) {
+pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
     crate::perf_counters::incr_interrupt_edma0();
-    let edma = &pac::EDMA_0_TCD;
-    let t = edma.tcd(ch_index);
+
+    let t = match dma {
+        0 => pac::EDMA_0_TCD.tcd(channel),
+        #[cfg(feature = "mcxa5xx")]
+        1 => pac::EDMA_1_TCD.tcd(channel),
+        _ => unreachable!(),
+    };
 
     // Read TCD CSR to determine interrupt source
     let csr = t.tcd_csr().read();
@@ -2203,7 +2242,7 @@ unsafe fn on_interrupt(ch_index: usize) {
         if citer <= half_point && citer > 0 {
             // Half-transfer interrupt - wake half_waker
             crate::perf_counters::incr_interrupt_edma0_wake();
-            half_waker(ch_index).wake();
+            half_waker(dma, channel).wake();
         }
     }
 
@@ -2214,22 +2253,24 @@ unsafe fn on_interrupt(ch_index: usize) {
     // Only wake the full-transfer waker when the transfer is actually complete
     if t.ch_csr().read().done() {
         crate::perf_counters::incr_interrupt_edma0_wake();
-        waker(ch_index).wake();
+        waker(dma, channel).wake();
     }
 }
 
+#[doc(hidden)]
+#[macro_export]
 /// Macro to generate DMA channel interrupt handlers.
 macro_rules! impl_dma_interrupt_handler {
-    ($irq:ident, $ch:expr) => {
-        #[interrupt]
+    ($irq:ident, $dma:expr, $ch:expr) => {
+        #[cortex_m_rt::interrupt]
         fn $irq() {
             // SAFETY: The correct $ch is called as generated, We check that
             // the given callback is non-null before calling.
             unsafe {
-                on_interrupt($ch);
+                crate::dma::on_interrupt($dma, $ch);
 
                 // See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
-                let cb: *mut () = CALLBACKS[$ch].load(Ordering::Acquire);
+                let cb: *mut () = crate::dma::CALLBACKS[$dma][$ch].load(core::sync::atomic::Ordering::Acquire);
                 if !cb.is_null() {
                     let cb: fn() = core::mem::transmute(cb);
                     (cb)();
@@ -2239,18 +2280,8 @@ macro_rules! impl_dma_interrupt_handler {
     };
 }
 
-use crate::pac::interrupt;
-
-impl_dma_interrupt_handler!(DMA0_CH0, 0);
-impl_dma_interrupt_handler!(DMA0_CH1, 1);
-impl_dma_interrupt_handler!(DMA0_CH2, 2);
-impl_dma_interrupt_handler!(DMA0_CH3, 3);
-impl_dma_interrupt_handler!(DMA0_CH4, 4);
-impl_dma_interrupt_handler!(DMA0_CH5, 5);
-impl_dma_interrupt_handler!(DMA0_CH6, 6);
-impl_dma_interrupt_handler!(DMA0_CH7, 7);
-
 // TODO(AJM): This is a gross, gross hack. This implements optional callbacks
 // for DMA completion interrupts. This should go away once we switch to
 // "in-band" DMA interrupt binding with `bind_interrupts!`.
-static CALLBACKS: [AtomicPtr<()>; 8] = [const { AtomicPtr::new(core::ptr::null_mut()) }; 8];
+pub(crate) static CALLBACKS: [[AtomicPtr<()>; 12]; 2] =
+    [const { [const { AtomicPtr::new(core::ptr::null_mut()) }; 12] }; 2];

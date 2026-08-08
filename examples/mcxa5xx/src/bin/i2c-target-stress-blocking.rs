@@ -17,12 +17,14 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_time::Instant;
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::i2c::target;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 const ADDR: u16 = 0x2a;
 const REG_LEN: usize = 256;
@@ -73,7 +75,13 @@ async fn main(_spawner: Spawner) {
 
         match req {
             target::Request::Write(_) => match tgt.blocking_respond_to_write(&mut wbuf) {
-                Ok(n) => {
+                Ok(status) => {
+                    let n = match status {
+                        target::WriteStatus::Stopped(n)
+                        | target::WriteStatus::Restarted(n)
+                        | target::WriteStatus::BufferFull(n) => n,
+                        _ => 0,
+                    };
                     n_w = n_w.wrapping_add(1);
                     bytes_w = bytes_w.wrapping_add(n as u64);
                     if n >= 1 {
@@ -95,7 +103,13 @@ async fn main(_spawner: Spawner) {
                     rbuf[k] = regs[off];
                 }
                 match tgt.blocking_respond_to_read(&rbuf) {
-                    Ok(n) => {
+                    Ok(status) => {
+                        let n = match status {
+                            target::ReadStatus::Complete(n)
+                            | target::ReadStatus::NeedMore(n)
+                            | target::ReadStatus::EarlyStop(n) => n,
+                            _ => 0,
+                        };
                         n_r = n_r.wrapping_add(1);
                         bytes_r = bytes_r.wrapping_add(n as u64);
                     }

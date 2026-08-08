@@ -47,7 +47,7 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std", "r
 
 [features]
 ## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "embassy-sync/defmt"]
 ## Use log for logging
 log = ["dep:log"]
 

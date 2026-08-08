@@ -63,7 +63,7 @@ impl<'adc, R: AdcRegs> ConfiguredSequence<'adc, R> {
 
 impl<R: AdcRegs> Drop for ConfiguredSequence<'_, R> {
     fn drop(&mut self) {
-        self.regs.stop(false);
+        self.regs.stop();
         compiler_fence(Ordering::SeqCst);
     }
 }

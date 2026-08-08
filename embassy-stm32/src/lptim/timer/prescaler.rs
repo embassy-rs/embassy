@@ -1,6 +1,6 @@
 //! Low-level timer driver.
 
-use crate::pac::lptim::vals;
+use crate::lptim::vals;
 
 pub enum Prescaler {
     Div1,

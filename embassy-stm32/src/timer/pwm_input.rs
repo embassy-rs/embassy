@@ -175,13 +175,21 @@ impl<T: GeneralInstance4Channel> Future for PwmInputFuture<T> {
     type Output = u32;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        #[cfg(stm32l0)]
+        use crate::pac::timer::TimGp16 as timer;
+        #[cfg(not(stm32l0))]
+        use crate::pac::timer::TimGp32 as timer;
+
         T::state().cc_waker[self.channel.index()].register(cx.waker());
 
-        let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
+        let regs = unsafe { timer::from_ptr(T::regs()) };
 
         let dier = regs.dier().read();
         if !dier.ccie(self.channel.index()) {
-            let val = regs.ccr(self.channel.index()).read().0;
+            #[cfg(not(stm32l0))]
+            let val = regs.ccr(self.channel.index()).read();
+            #[cfg(stm32l0)]
+            let val = regs.ccr(self.channel.index()).read().ccr() as u32;
             Poll::Ready(val)
         } else {
             Poll::Pending

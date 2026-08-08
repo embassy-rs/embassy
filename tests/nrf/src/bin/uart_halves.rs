@@ -6,11 +6,12 @@
 mod common;
 
 use defmt::{assert_eq, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nrf::uarte::{UarteRx, UarteTx};
 use embassy_nrf::{peripherals, uarte};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

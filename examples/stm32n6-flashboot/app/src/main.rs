@@ -5,14 +5,15 @@ mod dfu;
 mod flash_ops;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::mode::Async;
-use embassy_stm32::rcc::XspiClkSrc;
+use embassy_stm32::rcc::{SupplyConfig, XspiClkSrc};
 use embassy_stm32::{bind_interrupts, interrupt, usart};
 use embassy_time::{Duration, Timer, with_timeout};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     pub struct Irqs {
@@ -67,6 +68,8 @@ async fn main(spawner: Spawner) {
     info!("App starting");
 
     let mut config = embassy_stm32::Config::default();
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    config.rcc.supply_config = SupplyConfig::External;
     config.rcc.mux.xspi2sel = XspiClkSrc::Per;
     config.rcc.vddio3_1v8 = true;
     let p = embassy_stm32::init(config);
@@ -126,7 +129,7 @@ async fn main(spawner: Spawner) {
     let user_button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
     spawner.spawn(user_button_task(user_button, green_led).unwrap());
 
-    let pe0_exti = ExtiInput::from_input(pe0, p.EXTI0, Irqs);
+    let pe0_exti = unsafe { ExtiInput::from_input(pe0, p.EXTI0, Irqs) };
     spawner.spawn(mark_booted_task(pe0_exti).unwrap());
 
     info!("Blinking red LED. Hold PE0 3s to confirm boot.");
