@@ -103,21 +103,6 @@ mod thread {
             loop {
                 unsafe {
                     self.inner.poll();
-
-                    #[cfg(feature = "executor-thread-debug-spin")]
-                    {
-                        // Some targets gate the AHB debug path in WFE even
-                        // though halting debug is enabled. Stay awake only
-                        // while a debugger has C_DEBUGEN asserted.
-                        const DHCSR: *const u32 = 0xe000_edf0 as *const u32;
-                        if core::ptr::read_volatile(DHCSR) & 1 != 0 {
-                            core::hint::spin_loop();
-                        } else {
-                            asm!("wfe");
-                        }
-                    }
-
-                    #[cfg(not(feature = "executor-thread-debug-spin"))]
                     asm!("wfe");
                 };
             }

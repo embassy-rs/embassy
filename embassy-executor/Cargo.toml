@@ -202,9 +202,6 @@ metadata-name = ["embassy-executor-macros/metadata-name"]
 
 ## Enable the thread-mode executor (using WFE/SEV in Cortex-M, WFI in other embedded platforms)
 executor-thread = []
-## Keep the Cortex-M thread executor awake while halting debug is enabled.
-## This permits RTT on targets which make their debug memory bus inaccessible in WFE.
-executor-thread-debug-spin = []
 ## Enable the interrupt-mode executor (available in Cortex-M only)
 executor-interrupt = []
 ## Enable tracing hooks
