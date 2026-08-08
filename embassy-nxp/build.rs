@@ -268,6 +268,26 @@ fn peripherals(singletons: &[Singleton]) -> TokenStream {
     }
 }
 
+fn impl_adc(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
+    for signal in peripheral.signals.iter() {
+        let (ch_num, ch_side) = signal.name.rsplit_once("_").unwrap();
+        let ch_num = ch_num.strip_prefix("CH").unwrap().parse::<u8>().unwrap();
+        let ch_side = match ch_side {
+            "A" => format_ident!("SideA"),
+            "B" => format_ident!("SideB"),
+            side => panic!("Invalid ADC channel side: {}", side),
+        };
+
+        assert_eq!(signal.pins.len(), 1);
+        let pin = format_ident!("{}", signal.pins[0].pin);
+        let ch_num = Literal::u8_unsuffixed(ch_num);
+
+        impls.push(quote! {
+            impl_adc_pin!(#pin, #ch_num, crate::adc::ChannelSide::#ch_side);
+        })
+    }
+}
+
 fn impl_gpio_pin(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
     let instance = peripheral.name.strip_prefix("GPIO").unwrap();
     let bank = format_ident!("Gpio{}", instance);
@@ -403,6 +423,10 @@ fn impl_peripherals(cfgs: &mut common::CfgSet, _singletons: &[Singleton]) -> Tok
     let mut impls = Vec::new();
 
     for peripheral in metadata::METADATA.peripherals.iter() {
+        if peripheral.name.starts_with("ADC") {
+            impl_adc(&mut impls, peripheral);
+        }
+
         if peripheral.name.starts_with("GPIO") {
             impl_gpio_pin(&mut impls, peripheral);
         }

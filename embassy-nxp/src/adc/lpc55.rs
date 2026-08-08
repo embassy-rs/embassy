@@ -242,7 +242,6 @@ pub trait AdcPin: crate::gpio::Pin {
                     w.set_func(0.into());
                     w.set_mode(0.into());
                     w.set_digimode(0.into());
-                    #[cfg(feature = "lpc55-core0")]
                     w.set_asw(1.into())
                 });
             }
@@ -251,7 +250,6 @@ pub trait AdcPin: crate::gpio::Pin {
                     w.set_func(0.into());
                     w.set_mode(0.into());
                     w.set_digimode(0.into());
-                    #[cfg(feature = "lpc55-core0")]
                     w.set_asw(1.into())
                 });
             }
@@ -262,6 +260,7 @@ pub trait AdcPin: crate::gpio::Pin {
 /// Channel side
 /// There are 2 ADC sides on each channels
 /// Each channel supports either single ended mode (just one channel) or differential (difference between two channels)
+/// Differential mode is not supported by this driver yet
 #[repr(u8)]
 pub enum ChannelSide {
     SideA = 0,
@@ -279,22 +278,9 @@ macro_rules! impl_adc_pin {
                 $adc_channel
             }
 
-            fn channel_side(&self) -> ChannelSide {
+            fn channel_side(&self) -> crate::adc::ChannelSide {
                 $channel_side
             }
         }
     };
 }
-
-// https://www.nxp.com/docs/en/data-sheet/LPC55S6x.pdf
-// Table 3 (starts at page 8)
-impl_adc_pin!(PIO0_23, 0, ChannelSide::SideA);
-impl_adc_pin!(PIO0_16, 0, ChannelSide::SideB);
-impl_adc_pin!(PIO0_10, 1, ChannelSide::SideA);
-impl_adc_pin!(PIO0_11, 1, ChannelSide::SideB);
-impl_adc_pin!(PIO0_15, 2, ChannelSide::SideA);
-impl_adc_pin!(PIO0_12, 2, ChannelSide::SideB);
-impl_adc_pin!(PIO0_31, 3, ChannelSide::SideA);
-impl_adc_pin!(PIO1_0, 3, ChannelSide::SideB);
-impl_adc_pin!(PIO1_8, 4, ChannelSide::SideA);
-impl_adc_pin!(PIO1_9, 4, ChannelSide::SideB);
