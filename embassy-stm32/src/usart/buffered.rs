@@ -1,8 +1,8 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::slice;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use core::task::Poll;
+use core::{mem, slice};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::Peri;
@@ -869,6 +869,9 @@ impl<'d> Drop for BufferedUartRx<'d> {
             }
 
             drop_tx_rx(self.info, state);
+        } else {
+            mem::forget(self.rts.take());
+            mem::forget(self.rx.take());
         }
     }
 }
@@ -887,6 +890,10 @@ impl<'d> Drop for BufferedUartTx<'d> {
                 }
             }
             drop_tx_rx(self.info, state);
+        } else {
+            mem::forget(self.tx.take());
+            mem::forget(self.cts.take());
+            mem::forget(self.de.take());
         }
     }
 }
