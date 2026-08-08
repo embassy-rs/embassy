@@ -17,6 +17,11 @@ pub mod pwm;
 pub mod sct;
 #[cfg(lpc55)]
 pub mod usart;
+#[cfg(lpc55)]
+pub mod usb;
+
+#[cfg(lpc55)]
+mod power;
 
 #[cfg(rt1xxx)]
 mod iomuxc;
@@ -105,7 +110,9 @@ macro_rules! bind_interrupts {
 /// This returns the peripheral singletons that can be used for creating drivers.
 ///
 /// This should only be called once and at startup, otherwise it panics.
-pub fn init(_config: config::Config) -> Peripherals {
+pub fn init(config: config::Config) -> Peripherals {
+    #[cfg(not(lpc55))]
+    let _ = &config;
     // Do this first, so that it panics if user is calling `init` a second time
     // before doing anything important.
     let peripherals = Peripherals::take();
@@ -161,6 +168,23 @@ pub fn init(_config: config::Config) -> Peripherals {
 
     #[cfg(lpc55)]
     {
+        match config.main_clock {
+            config::MainClock::Untouched => {}
+            config::MainClock::FroHf96 => {
+                power::set_voltage_for_freq(96_000_000);
+                clocks::set_flash_access_cycles(8);
+                pac::ANACTRL.fro192m_ctrl().modify(|w| w.set_ena_96mhzclk(true));
+                pac::SYSCON.ahbclkdiv().modify(|w| w.set_div(0));
+                pac::SYSCON
+                    .mainclksela()
+                    .modify(|w| w.set_sel(pac::syscon::vals::MainclkselaSel::Enum0x3));
+                pac::SYSCON
+                    .mainclkselb()
+                    .modify(|w| w.set_sel(pac::syscon::vals::MainclkselbSel::Enum0x0));
+            }
+            config::MainClock::Pll0_150M => clocks::setup_pll0_150m_main_clock(),
+        }
+
         pint::init();
         pwm::Pwm::reset();
     }
@@ -174,10 +198,218 @@ pub fn init(_config: config::Config) -> Peripherals {
     peripherals
 }
 
+/// LPC55 clock tree setup.
+#[cfg(lpc55)]
+mod clocks {
+    use crate::{pac, power};
+
+    const CMD_SET_READ_MODE: u32 = 2;
+    const FLASH_COMMAND_TIMEOUT_POLLS: u32 = 1_000_000;
+    const XO_READY_TIMEOUT_POLLS: u32 = 1_000_000;
+    const PLL_LOCK_TIMEOUT_POLLS: u32 = 1_000_000;
+
+    fn poll_bounded(polls: u32, mut ready: impl FnMut() -> bool) -> bool {
+        (0..polls).any(|_| ready())
+    }
+
+    const fn supports_pll0_150m(revision: u8) -> bool {
+        revision == 1
+    }
+
+    const fn pll0_output_frequency_hz(input_hz: u32, ndiv: u8, mdiv: u16, pdiv: u8) -> u32 {
+        input_hz / ndiv as u32 * mdiv as u32 / (2 * pdiv as u32)
+    }
+
+    /*
+     * Copyright 2017 - 2021 , NXP
+     * All rights reserved.
+     *
+     * SPDX-License-Identifier: BSD-3-Clause
+     */
+    pub(super) fn set_flash_access_cycles(wait_states: u8) {
+        assert!(
+            wait_states <= 0x0f,
+            "LPC55 flash wait-state value {} exceeds the FMCCR field",
+            wait_states
+        );
+
+        let prefetch_enabled = pac::SYSCON.fmccr().read().prefen();
+        pac::SYSCON.fmccr().modify(|w| w.set_prefen(false));
+
+        pac::FLASH
+            .int_clr_status()
+            .write_value(pac::flash::regs::IntClrStatus(0x1f));
+        pac::FLASH.dataw(0).modify(|w| {
+            w.set_dataw((w.dataw() & !0x0f) | u32::from(wait_states));
+        });
+        pac::FLASH.cmd().write_value(pac::flash::regs::Cmd(CMD_SET_READ_MODE));
+
+        let mut command_done = false;
+        for _ in 0..FLASH_COMMAND_TIMEOUT_POLLS {
+            let status = pac::FLASH.int_status().read();
+            if status.fail() || status.err() {
+                panic!(
+                    "LPC55 FLASH CMD_SET_READ_MODE failed: FAIL={}, ERR={}",
+                    status.fail(),
+                    status.err()
+                );
+            }
+            if status.done() {
+                command_done = true;
+                break;
+            }
+        }
+        if !command_done {
+            panic!(
+                "LPC55 FLASH CMD_SET_READ_MODE timed out after {} polls",
+                FLASH_COMMAND_TIMEOUT_POLLS
+            );
+        }
+
+        pac::SYSCON.fmccr().modify(|w| {
+            w.set_flashtim(pac::syscon::vals::Flashtim::from_bits(wait_states));
+            w.set_prefen(prefetch_enabled);
+        });
+    }
+
+    pub(crate) fn setup_pll0_150m_main_clock() {
+        const XTAL_HZ: u32 = 16_000_000;
+        const NDIV: u8 = 8;
+        const MDIV: u16 = 150;
+        const PDIV: u8 = 1;
+        const SELI: u8 = 53;
+        const SELP: u8 = 31;
+        const _: () = core::assert!(pll0_output_frequency_hz(XTAL_HZ, NDIV, MDIV, PDIV) == 150_000_000);
+
+        let revision = pac::SYSCON.dieid().read().rev_id();
+        if !supports_pll0_150m(revision) {
+            panic!(
+                "LPC55 PLL0 150 MHz requires die revision 1B (REV_ID 1); observed REV_ID {}",
+                revision
+            );
+        }
+
+        pac::SYSCON
+            .mainclksela()
+            .write(|w| w.set_sel(pac::syscon::vals::MainclkselaSel::Enum0x0));
+        pac::SYSCON
+            .mainclkselb()
+            .write(|w| w.set_sel(pac::syscon::vals::MainclkselbSel::Enum0x0));
+
+        power::set_voltage_for_freq(150_000_000);
+        set_flash_access_cycles(11);
+
+        pac::PMC
+            .pdruncfgclr0()
+            .write(|w| w.set_pdruncfgclr0((1 << 8) | (1 << 20)));
+        pac::ANACTRL.xo32m_ctrl().modify(|w| w.set_enable_system_clk_out(true));
+        pac::SYSCON.clock_ctrl().modify(|w| w.set_clkin_ena(true));
+
+        let crystal_ready = poll_bounded(XO_READY_TIMEOUT_POLLS, || pac::ANACTRL.xo32m_status().read().xo_ready());
+        if !crystal_ready {
+            panic!(
+                "LPC55 16 MHz crystal did not report XO_READY within {} polls",
+                XO_READY_TIMEOUT_POLLS
+            );
+        }
+
+        pac::PMC
+            .pdruncfgset0()
+            .write(|w| w.set_pdruncfgset0((1 << 9) | (1 << 23)));
+        pac::SYSCON
+            .pll0clksel()
+            .write(|w| w.set_sel(pac::syscon::vals::Pll0clkselSel::Enum0x1));
+
+        pac::SYSCON.pll0ctrl().write(|w| {
+            w.set_selr(0);
+            w.set_seli(SELI);
+            w.set_selp(SELP);
+            w.set_clken(true);
+        });
+        pac::SYSCON.pll0ndec().write(|w| w.set_ndiv(NDIV));
+        pac::SYSCON.pll0ndec().write(|w| {
+            w.set_ndiv(NDIV);
+            w.set_nreq(true);
+        });
+        pac::SYSCON.pll0pdec().write(|w| w.set_pdiv(PDIV));
+        pac::SYSCON.pll0pdec().write(|w| {
+            w.set_pdiv(PDIV);
+            w.set_preq(true);
+        });
+        pac::SYSCON.pll0sscg0().modify(|w| w.set_md_lbs(0));
+        pac::SYSCON.pll0sscg1().write(|w| {
+            w.set_mdiv_ext(MDIV);
+            w.set_sel_ext(true);
+        });
+        pac::SYSCON.pll0sscg1().write(|w| {
+            w.set_mdiv_ext(MDIV);
+            w.set_md_req(true);
+            w.set_mreq(true);
+            w.set_sel_ext(true);
+        });
+
+        pac::PMC
+            .pdruncfgclr0()
+            .write(|w| w.set_pdruncfgclr0((1 << 9) | (1 << 23)));
+
+        let pll_locked = poll_bounded(PLL_LOCK_TIMEOUT_POLLS, || pac::SYSCON.pll0stat().read().lock());
+        if !pll_locked {
+            panic!(
+                "LPC55 PLL0 did not lock at 150 MHz within {} polls",
+                PLL_LOCK_TIMEOUT_POLLS
+            );
+        }
+
+        pac::SYSCON.ahbclkdiv().modify(|w| w.set_div(0));
+        pac::SYSCON
+            .mainclkselb()
+            .write(|w| w.set_sel(pac::syscon::vals::MainclkselbSel::Enum0x1));
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::{pll0_output_frequency_hz, supports_pll0_150m};
+
+        #[test]
+        fn pll0_150m_supports_only_revision_1b() {
+            for (revision, supported) in [(0, false), (1, true), (2, false)] {
+                assert_eq!(supports_pll0_150m(revision), supported);
+            }
+        }
+
+        #[test]
+        fn pll0_equation_yields_150mhz() {
+            assert_eq!(pll0_output_frequency_hz(16_000_000, 8, 150, 1), 150_000_000);
+        }
+    }
+}
+
 /// HAL configuration for the NXP board.
 pub mod config {
+    /// Main (system) clock selection for LPC55.
+    #[cfg(lpc55)]
+    #[derive(Default, Clone, Copy, PartialEq, Eq)]
+    pub enum MainClock {
+        /// Leave the ROM boot default untouched.
+        #[default]
+        Untouched,
+        /// FRO HF 96 MHz as main clock (required for USB-HS).
+        FroHf96,
+        /// PLL0 at 150 MHz (from the 16 MHz crystal) as main clock.
+        ///
+        /// This mode is available only on die revision 1B. It uses the NXP
+        /// power-profile algorithm before raising the system clock.
+        /// It also satisfies the USB-HS >= 96 MHz system clock requirement.
+        Pll0_150M,
+    }
+
+    /// HAL configuration.
     #[derive(Default)]
-    pub struct Config {}
+    pub struct Config {
+        /// Main (system) clock selection.
+        #[cfg(lpc55)]
+        pub main_clock: MainClock,
+    }
 }
 
 #[allow(unused)]
