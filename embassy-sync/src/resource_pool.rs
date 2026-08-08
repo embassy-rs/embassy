@@ -1,7 +1,9 @@
-//! A collection of objects that may be shared between tasks.
+//! A collection of objects that can be shared between tasks.
 //!
 //! Multiple tasks may share a reference to the pool and acquire resources when required.
 //! Acquired resources may be kept or moved between tasks before they are released.
+//!
+//! Since only references are shared, this can be used to implement a zero-copy message passing system.
 use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -14,7 +16,12 @@ use crate::blocking_mutex::Mutex;
 use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::WakerRegistration;
 
-/// Resource pool
+/// A collection of objects that can be shared between tasks.
+///
+/// Multiple tasks may share a reference to the pool and acquire resources when required.
+/// Acquired resources may be kept or moved between tasks before they are released.
+///
+/// When the reference to a resource is dropped, the resource is returned to the pool and may be acquired by another task.
 pub struct ResourcePool<'a, M: RawMutex, T, const N: usize> {
     buf: BufferPtr<T>,
     phantom: PhantomData<&'a mut T>,
@@ -22,7 +29,9 @@ pub struct ResourcePool<'a, M: RawMutex, T, const N: usize> {
 }
 
 impl<'a, M: RawMutex, T, const N: usize> ResourcePool<'a, M, T, N> {
-    /// Crate a new resource pool, taking an array of resources which will be managed.
+    /// Crate a new [`ResourcePool`], taking an array of resources which will be managed.
+    ///
+    /// The function will panic if the length of the array is larger than `N`.
     pub fn new(buf: &'a mut [T]) -> Self {
         let mut available = Vec::new();
         available.extend(0..buf.len());
@@ -78,9 +87,9 @@ struct State<const N: usize> {
 
 /// Resource guard
 ///
-/// Owning this guard provides mutable access to the underlying resource.
-///
-/// Dropping the guard returns the resource back to the pool.
+/// Owning this guard provides mutable access to an instance of the underlying resource.
+/// Dropping the guard returns the resource back to the [`ResourcePool`].
+/// The guard can be mapped to a different type, referencing the original resource, using [`ResourceGuard::map`].
 pub struct ResourceGuard<'guard, 'buffer, M: RawMutex, T, const N: usize> {
     store: &'guard ResourcePool<'buffer, M, T, N>,
     index: usize,
@@ -111,7 +120,7 @@ impl<'guard, 'buffer, M: RawMutex, T, const N: usize> DerefMut for ResourceGuard
 }
 
 impl<'guard, 'buffer, M: RawMutex, T, const N: usize> ResourceGuard<'guard, 'buffer, M, T, N> {
-    /// maps the value contained to another, referencing the original value. Does not take "self" to avoid shadowing any functions of the wrapped type.
+    /// Maps the managed resource to another type, referencing the original value. Does not take "self" to avoid shadowing any functions of the wrapped type.
     pub fn map<U: ?Sized>(
         orig: Self,
         fun: impl FnOnce(&mut T) -> &mut U,
@@ -130,11 +139,11 @@ impl<'guard, 'buffer, M: RawMutex, T, const N: usize> ResourceGuard<'guard, 'buf
     }
 }
 
-/// Resource guard
+/// Mapped resource guard
 ///
 /// Owning this guard provides mutable access to the underlying resource.
-///
-/// Dropping the guard returns the resource back to the pool.
+/// This guard is created by mapping a [`ResourceGuard`] to a different type, referencing the original resource.
+/// Dropping the guard returns the resource back to the [`ResourcePool`].
 pub struct MappedResourceGuard<'guard, 'buffer, M: RawMutex, T, U: ?Sized, const N: usize> {
     store: &'guard ResourcePool<'buffer, M, T, N>,
     index: usize,
@@ -172,7 +181,7 @@ impl<'guard, 'buffer, M: RawMutex, T, U: ?Sized, const N: usize> DerefMut
 }
 
 impl<'guard, 'buffer, M: RawMutex, T, U: ?Sized, const N: usize> MappedResourceGuard<'guard, 'buffer, M, T, U, N> {
-    /// maps the value contained to another, referencing the original value. Does not take "self" to avoid shadowing any functions of the wrapped type.
+    /// Maps the managed resource to another type, referencing the original value. Does not take "self" to avoid shadowing any functions of the wrapped type.
     pub fn map<V: ?Sized>(
         orig: Self,
         fun: impl FnOnce(&mut U) -> &mut V,
@@ -188,5 +197,42 @@ impl<'guard, 'buffer, M: RawMutex, T, U: ?Sized, const N: usize> MappedResourceG
             value: BufferPtr(value),
             index,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blocking_mutex::raw::NoopRawMutex;
+
+    #[test]
+    fn resources_returned_to_pool_when_dropped() {
+        let mut resources = [0, 1];
+        let pool = ResourcePool::<NoopRawMutex, _, 2>::new(&mut resources);
+
+        {
+            let a = pool.try_take().expect("Failed to take resource");
+            let b = pool.try_take().expect("Failed to take resource");
+            let c = pool.try_take();
+            assert!(c.is_none(), "Expected no more resources to be available");
+        }
+
+        let d = pool.try_take().expect("Resource should have been returned to the pool");
+    }
+
+    #[test]
+    fn mapped_resources_not_returned_to_pool() {
+        let mut resources = [[0]];
+        let pool = ResourcePool::<NoopRawMutex, _, 1>::new(&mut resources);
+
+        {
+            let a = pool.try_take().expect("Failed to take resource");
+            let mapped = ResourceGuard::map(a, |r| &mut r[0]);
+
+            let b = pool.try_take();
+            assert!(b.is_none(), "Expected no more resources to be available");
+        }
+
+        let c = pool.try_take().expect("Resource should have been returned to the pool");
     }
 }
