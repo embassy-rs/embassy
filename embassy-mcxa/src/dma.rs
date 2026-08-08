@@ -114,7 +114,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
 
-pub(crate) use crate::_generated::DmaRequest;
+pub use crate::_generated::DmaRequest;
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::dma::sealed::SealedChannel;
@@ -445,6 +445,40 @@ struct DmaTransferParameters<WSRC: Word, WDST: Word> {
     software: bool,
     /// Public facing transfer options that might be relevant.
     options: TransferOptions,
+}
+
+/// Parameters used to configure a peripheral transfer.
+pub struct TransferOperation<'buf> {
+    /// Optional TCD memory used for scatter-gather transfers.
+    tcd: Tcd,
+    _buffer: PhantomData<&'buf [u8]>,
+}
+
+impl <'buf>TransferOperation<'buf> {
+    /// Create a new TransferOperation for a memory-to-peripheral write.
+    pub fn write<W: Word>(src: &'buf [W], dst: *mut W) -> Self {
+        // To Do: Make fallible?
+        let size = W::size();
+        let byte_size = size.bytes();
+        let hw_size = size.to_hw_size() as u16;
+        let count = src.len() as u16;
+        TransferOperation {
+            tcd: Tcd {
+                saddr: src.as_ptr() as u32,
+                soff: byte_size as i16,
+                attr:  (hw_size << 8) | hw_size,
+                nbytes: byte_size as u32,
+                slast: 0,
+                daddr: dst as u32,
+                doff: 0,
+                citer: count,
+                dlast_sga: 0,
+                csr: 0,
+                biter: count,
+            },
+            _buffer: PhantomData,
+        }
+    }
 }
 
 /// DMA channel driver.
@@ -899,6 +933,75 @@ impl DmaChannel<'_> {
         options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
         unsafe { self.setup_read_from_peripheral(peri_addr, buf, false, options)? };
+
+        unsafe {
+            self.enable_request();
+        }
+
+        Ok(Transfer::new(self.reborrow()))
+    }
+
+    /// Write data from memory to a peripheral register using a sequence of TCDs.
+    /// # Arguments
+    ///
+    /// * `sequence` - Sequence of peripheral transfers to chain together.
+    /// 
+    /// # Safety
+    ///
+    /// - sequence must remain valid for the duration of the transfer.
+    /// - The caller must ensure that sequence is created correctly with peripheral addresses that are valid for writes.
+    /// - The caller must ensure that the periheral addresses in the sequence are for the same peripheral.
+    pub unsafe fn write_to_peripheral_sequenced<'buf>(
+        &mut self,
+        sequence: &mut [TransferOperation<'buf>],
+    ) -> Result<Transfer<'_>, InvalidParameters> {
+        // Chain TCDs for scatter-gather transfer. Each TCD points to the next one in the sequence.
+        for i in 0..sequence.len() {
+            let is_last = i == sequence.len() - 1;
+            if !is_last {
+                // For all but the last TCD, set dlast_sga to point to the next TCD in the chain.
+                let next_tcd_addr = &sequence[i + 1].tcd as *const Tcd as i32;
+                sequence[i].tcd.dlast_sga = next_tcd_addr;
+            } else {
+                // Last TCD in the sequence, no next TCD.
+                sequence[i].tcd.dlast_sga = 0;
+            }
+
+            let mut csr = TcdCsr(0);
+            if !is_last {
+                // Set ESG=ScatterGatherFormat for all but the last TCD to enable chaining.
+                csr.set_esg(Esg::ScatterGatherFormat);
+            }
+            if is_last {
+                // For the last TCD, clear DREQ to auto-disable requests on completion.
+                csr.set_dreq(Dreq::ErqFieldClear);
+                // Enable INTMAJOR to fire a completion interrupt when the last TCD finishes.
+                csr.set_intmajor(true);
+            }
+            sequence[i].tcd.csr = csr.0;
+        }
+
+        let tcd = self.tcd();
+
+        // Reset channel state - clear DONE, disable requests, clear errors
+        // This ensures the channel is in a clean state before loading the TCD
+        Self::reset_channel_state(&tcd);
+
+        // Memory & compiler barrier to ensure channel state is fully reset before touching TCD
+        // TO DO: Review memory ordering.
+        fence(Ordering::Release);
+
+        unsafe {
+            self.load_tcd(&sequence[0].tcd);
+        }
+
+        // Memory barrier before enabling request
+        fence(Ordering::Release);
+
+        unsafe {
+            self.enable_request();
+        }
+
         Ok(Transfer::new(self.reborrow()))
     }
 
@@ -1043,7 +1146,7 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
-    pub(crate) unsafe fn setup_read_from_peripheral<WSRC: Word, WDST: Word>(
+    pub(crate) unsafe fn  setup_read_from_peripheral<WSRC: Word, WDST: Word>(
         &self,
         peri_addr: *const WSRC,
         buf: &mut [WDST],
@@ -1098,7 +1201,7 @@ impl DmaChannel<'_> {
     /// }
     /// ```
     #[inline]
-    pub(crate) unsafe fn set_request_source(&self, source: DmaRequest) {
+    pub unsafe fn set_request_source(&self, source: DmaRequest) {
         // Two-step write per NXP SDK: clear to 0, then set actual source.
         self.tcd().ch_mux().write(|w| w.set_src(0));
         cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
