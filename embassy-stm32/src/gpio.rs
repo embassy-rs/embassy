@@ -32,7 +32,6 @@ impl<'d> Flex<'d> {
         Self { pin: pin.into() }
     }
 
-
     /// Unsafely clone (duplicate) a Flex.
     pub unsafe fn clone_unchecked(&self) -> Flex<'d> {
         Flex {
