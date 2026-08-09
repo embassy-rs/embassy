@@ -16,7 +16,7 @@ use futures_util::future::{Either, select};
 use crate::Peri;
 use crate::atomic::{AtomicClear, AtomicDecrement, AtomicModify};
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
+use crate::gpio::{AfType, Flex, InputPin, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
@@ -783,6 +783,21 @@ impl<'d> UartRx<'d, Async> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(peri, new_pin!(rx, config.rx_af()), None, new_dma!(rx_dma, _irq), config)
+    }
+
+    /// Create a new rx-only UART with no hardware flow control.
+    ///
+    /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
+    pub fn new_input_pin<T: Instance, D: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        rx: InputPin<'d, if_afio!(impl RxPin<T, A>)>,
+        rx_dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(peri, new_input_pin!(rx), None, new_dma!(rx_dma, _irq), config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin

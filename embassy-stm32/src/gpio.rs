@@ -333,6 +333,31 @@ impl Speed {
     }
 }
 
+/// GPIO alternate function input pin.
+pub struct InputPin<'d, P: Pin> {
+    #[allow(dead_code)]
+    pub(crate) pin: Peri<'d, P>,
+    #[allow(dead_code)]
+    pub(crate) pull: Pull,
+}
+
+impl<'d, P: Pin> InputPin<'d, P> {
+    /// Create a new `InputPin`
+    pub const fn new(pin: Peri<'d, P>, pull: Pull) -> Self {
+        Self { pin, pull }
+    }
+
+    pub(crate) fn into_pin(self, #[cfg(not(afio))] af_num: u8) -> Flex<'d> {
+        self.pin.set_as_af(
+            #[cfg(not(afio))]
+            af_num,
+            AfType::input(self.pull),
+        );
+
+        Flex::new(self.pin)
+    }
+}
+
 /// GPIO input driver.
 pub struct Input<'d> {
     pub(crate) pin: Flex<'d>,

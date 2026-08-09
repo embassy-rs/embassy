@@ -250,6 +250,20 @@ macro_rules! new_pin {
     }};
 }
 
+macro_rules! new_input_pin {
+    ($name:ident) => {{
+        let pin = $name;
+        #[cfg(not(afio))]
+        let af_num = pin.pin.af_num();
+        #[cfg(afio)]
+        pin.pin.afio_remap();
+        Some(pin.into_pin(
+            #[cfg(not(afio))]
+            af_num,
+        ))
+    }};
+}
+
 /// Macro to configure a pin for alternate function use.
 /// For AFIO chips (STM32F1), it calls afio_remap().
 /// For non-AFIO chips, it calls set_as_af() with the pin's af_num().
