@@ -6,11 +6,12 @@
 //! host stack such as `trouble-host`.
 
 use core::cell::RefCell;
+use core::convert::Infallible;
 use core::future::Future;
 use core::mem::MaybeUninit;
 
-use bt_hci::transport::WithIndicator;
-use bt_hci::{ControllerToHostPacket, FromHciBytes, FromHciBytesError, HostToControllerPacket, PacketKind, WriteHci};
+use bt_hci::{ControllerToHostPacket, FromHciBytes, FromHciBytesError, HostToControllerPacket, WriteHci};
+use bt_hci_transport::{PacketToController, ReadHciError};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel;
 use embedded_io_async::ErrorKind;
@@ -136,15 +137,6 @@ pub enum Error {
     Io(ErrorKind),
 }
 
-impl From<FromHciBytesError> for Error {
-    fn from(e: FromHciBytesError) -> Self {
-        match e {
-            FromHciBytesError::InvalidSize => Error::Io(ErrorKind::InvalidInput),
-            FromHciBytesError::InvalidValue => Error::Io(ErrorKind::InvalidData),
-        }
-    }
-}
-
 impl core::fmt::Display for Error {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         core::fmt::Debug::fmt(self, f)
@@ -165,6 +157,17 @@ impl embedded_io_async::Error for Error {
     }
 }
 
+// ------------ bt-hci ----------------
+
+impl From<FromHciBytesError> for Error {
+    fn from(e: FromHciBytesError) -> Self {
+        match e {
+            FromHciBytesError::InvalidSize => Error::Io(ErrorKind::InvalidInput),
+            FromHciBytesError::InvalidValue => Error::Io(ErrorKind::InvalidData),
+        }
+    }
+}
+
 impl<'d> bt_hci::transport::Transport for BtDriver<'d> {
     fn read<'a>(&self, rx: &'a mut [u8]) -> impl Future<Output = Result<ControllerToHostPacket<'a>, Self::Error>> {
         async {
@@ -175,7 +178,7 @@ impl<'d> bt_hci::transport::Transport for BtDriver<'d> {
             rx[..n].copy_from_slice(&buf.buf[..n]);
             buf.receive_done();
 
-            let kind = PacketKind::from_hci_bytes_complete(&rx[..1])?;
+            let kind = bt_hci::PacketKind::from_hci_bytes_complete(&rx[..1])?;
             let (pkt, _) = ControllerToHostPacket::from_hci_bytes_with_kind(kind, &rx[1..n])?;
             Ok(pkt)
         }
@@ -183,6 +186,8 @@ impl<'d> bt_hci::transport::Transport for BtDriver<'d> {
 
     /// Write a complete HCI packet from the tx buffer.
     fn write<T: HostToControllerPacket>(&self, val: &T) -> impl Future<Output = Result<(), Self::Error>> {
+        use bt_hci::transport::WithIndicator;
+
         async {
             let ch = &mut *self.tx.borrow_mut();
             let mut buf = ch.send().await;
@@ -193,6 +198,56 @@ impl<'d> bt_hci::transport::Transport for BtDriver<'d> {
                 .map_err(|_| Error::Io(ErrorKind::Other))?;
             buf.len = buf_len - slice.len();
             buf.send_done();
+            Ok(())
+        }
+    }
+}
+
+// ------------ bt-hci-transport ----------------
+
+impl From<ReadHciError<Infallible>> for Error {
+    fn from(e: ReadHciError<Infallible>) -> Self {
+        match e {
+            ReadHciError::InvalidValue => Error::Io(ErrorKind::InvalidData),
+            ReadHciError::BufferTooSmall => Error::Io(ErrorKind::InvalidInput),
+            ReadHciError::Read(e) => match e {
+                embedded_io_async::ReadExactError::UnexpectedEof => Error::Io(ErrorKind::BrokenPipe),
+                embedded_io_async::ReadExactError::Other(_) => unreachable!(),
+            },
+        }
+    }
+}
+
+impl<'d> bt_hci_transport::Transport for BtDriver<'d> {
+    fn read<'a, P: bt_hci_transport::PacketToHost<'a>>(
+        &self,
+        rx: &'a mut [u8],
+    ) -> impl Future<Output = Result<P, Self::Error>> {
+        async {
+            let ch = &mut *self.rx.borrow_mut();
+            let buf = ch.receive().await;
+            assert!(buf.len < rx.len());
+
+            let mut reader = &buf.buf[..buf.len];
+            let kind = bt_hci_transport::PacketKind::read(&mut reader)?;
+            Ok(P::read_hci(kind, &mut reader, rx)?)
+        }
+    }
+
+    fn write<P: PacketToController>(&self, tx: &P) -> impl Future<Output = Result<(), Self::Error>> {
+        async {
+            let ch = &mut *self.tx.borrow_mut();
+            let mut buf = ch.send().await;
+            let buf_len = buf.buf.len();
+
+            let mut slice = &mut buf.buf[..];
+            bt_hci_transport::WithIndicator::new(tx)
+                .write_hci(&mut slice)
+                .map_err(|_| Error::Io(ErrorKind::Other))?;
+
+            buf.len = buf_len - slice.len();
+            buf.send_done();
+
             Ok(())
         }
     }

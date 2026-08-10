@@ -164,6 +164,12 @@ mod platform {
             });
         }
 
+        #[cfg(stm32f4)]
+        crate::pac::PWR.cr1().modify(|w| {
+            w.set_pdds(crate::pac::pwr::vals::Pdds::StopMode);
+            w.set_lpds(true);
+        });
+
         #[cfg(stm32wb)]
         drop(mutex);
 
@@ -217,7 +223,7 @@ mod platform {
             crate::pac::PWR.sr().modify(|w| w.set_cssf(true));
         }
 
-        #[cfg(any(stm32wl, stm32wb, stm32wba))]
+        #[cfg(any(stm32wl, stm32wb, stm32wba, stm32f4))]
         {
             // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
             #[cfg(stm32wl5x)]
@@ -230,7 +236,7 @@ mod platform {
             let es = crate::pac::PWR.sr().read();
 
             // we need to re-initialize RCC if *BOTH* cores have been in some STOP mode!
-            #[cfg(any(stm32wl, stm32wba))]
+            #[cfg(any(stm32wl, stm32wba, stm32f4))]
             let re_initialize_rcc = {
                 #[cfg(stm32wl5x)]
                 {
@@ -244,6 +250,10 @@ mod platform {
                 #[cfg(stm32wba)]
                 {
                     es.stopf()
+                }
+                #[cfg(stm32f4)]
+                {
+                    true
                 }
             };
 
@@ -263,7 +273,7 @@ mod platform {
                 }
             };
 
-            #[cfg(any(stm32wl, stm32wba))]
+            #[cfg(any(stm32wl, stm32wba, stm32f4))]
             if re_initialize_rcc {
                 // when we wake from any stop mode we need to re-initialize the rcc
                 crate::rcc::reinit_saved(_cs);
@@ -345,9 +355,9 @@ fn configure_pwr(cs: CriticalSection) -> bool {
 
         false
     } else {
-        #[cfg(stm32l0)]
+        #[cfg(any(stm32l0, stm32f4))]
         trace!("low power: enter stop");
-        #[cfg(not(stm32l0))]
+        #[cfg(not(any(stm32l0, stm32f4)))]
         trace!("low power: enter stop: {}", stop_mode);
 
         #[cfg(not(feature = "low-power-debug-with-sleep"))]

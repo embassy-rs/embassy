@@ -471,6 +471,49 @@ impl Drop for WakeGuard {
     }
 }
 
+impl From<WakeGuard> for MaybeWakeGuard {
+    fn from(wake_guard: WakeGuard) -> Self {
+        #[cfg(not(feature = "low-power"))]
+        let _ = wake_guard;
+
+        MaybeWakeGuard {
+            #[cfg(feature = "low-power")]
+            stop_mode: wake_guard.stop_mode,
+            #[cfg(feature = "low-power")]
+            enabled: false,
+        }
+    }
+}
+
+pub struct MaybeWakeGuard {
+    #[cfg(feature = "low-power")]
+    stop_mode: StopMode,
+    #[cfg(feature = "low-power")]
+    enabled: bool,
+}
+
+impl MaybeWakeGuard {
+    pub fn enable(&mut self) {
+        #[cfg(feature = "low-power")]
+        if !core::mem::replace(&mut self.enabled, true) {
+            critical_section::with(|cs| increment_stop_refcount(cs, self.stop_mode));
+        }
+    }
+
+    pub fn disable(&mut self) {
+        #[cfg(feature = "low-power")]
+        if core::mem::replace(&mut self.enabled, false) {
+            critical_section::with(|cs| decrement_stop_refcount(cs, self.stop_mode));
+        }
+    }
+}
+
+impl Drop for MaybeWakeGuard {
+    fn drop(&mut self) {
+        self.disable();
+    }
+}
+
 #[allow(unused)]
 mod util {
     use crate::time::Hertz;

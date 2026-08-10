@@ -60,9 +60,9 @@ impl sealed::Sealed for FastDecimRate {}
 impl Into<vals::DecimRate> for FastDecimRate {
     fn into(self) -> vals::DecimRate {
         match self {
-            Self::Decim1 => vals::DecimRate::DECIM_1,
-            Self::Decim2 => vals::DecimRate::DECIM_2,
-            Self::Decim3 => vals::DecimRate::DECIM_3,
+            Self::Decim1 => vals::DecimRate::Decim1,
+            Self::Decim2 => vals::DecimRate::Decim2,
+            Self::Decim3 => vals::DecimRate::Decim3,
         }
     }
 }
@@ -84,11 +84,11 @@ impl sealed::Sealed for CryptoDecimRate {}
 impl Into<vals::DecimRate> for CryptoDecimRate {
     fn into(self) -> vals::DecimRate {
         match self {
-            Self::Decim4 => vals::DecimRate::DECIM_4,
-            Self::Decim5 => vals::DecimRate::DECIM_5,
-            Self::Decim6 => vals::DecimRate::DECIM_6,
-            Self::Decim7 => vals::DecimRate::DECIM_7,
-            Self::Decim8 => vals::DecimRate::DECIM_8,
+            Self::Decim4 => vals::DecimRate::Decim4,
+            Self::Decim5 => vals::DecimRate::Decim5,
+            Self::Decim6 => vals::DecimRate::Decim6,
+            Self::Decim7 => vals::DecimRate::Decim7,
+            Self::Decim8 => vals::DecimRate::Decim8,
         }
     }
 }
@@ -303,7 +303,7 @@ impl TrngInner<'_> {
 
     fn fail_reset(&mut self) -> Result<(), Error> {
         regs().iclr().write(|w| w.set_irq_health_fail(true));
-        self.set_cmd(PWR_OFF);
+        self.set_cmd(PwrOff);
         self.init()
     }
 
@@ -311,32 +311,32 @@ impl TrngInner<'_> {
         // L-series TRM 13.2.5.2
         self.set_div(); // 2. Set the clock divider.
         regs().imask().write_value(Int::default()); // 3. Disable all interrupts.
-        self.set_cmd(NORM_FUNC); // 4. Set to normal function mode.
+        self.set_cmd(NormFunc); // 4. Set to normal function mode.
         self.dig_test()?; // 5. Perform digital block start-up self-tests.
         self.ana_test()?; // 6. Perform analog block start-up self-test.
         self.clr_rdy(); // 7.a Clear IRQ_CAPTURED_RDY_IRQ.
         self.set_decim_rate(); // 7.b Set decimation rate.
-        self.set_cmd(NORM_FUNC); // 7.b Set to normal function mode again after changing decimation rate.
+        self.set_cmd(NormFunc); // 7.b Set to normal function mode again after changing decimation rate.
         _ = self.read(); // 8. By 13.2.4.1, must discard first value.
         Ok(())
     }
 
     fn reset(&mut self) {
         regs().gprcm().rstctl().write(|w| {
-            w.set_key(RstctlKey::KEY);
+            w.set_key(RstctlKey::Key);
             w.set_resetassert(true);
         });
     }
 
     fn power_on(&mut self) {
         regs().gprcm().pwren().write(|w| {
-            w.set_key(PwrenKey::KEY);
+            w.set_key(PwrenKey::Key);
             w.set_enable(true);
         });
     }
 
     fn power_off(&mut self) {
-        regs().gprcm().pwren().write(|w| w.set_key(PwrenKey::KEY));
+        regs().gprcm().pwren().write(|w| w.set_key(PwrenKey::Key));
     }
 
     fn set_div(&mut self) {
@@ -345,15 +345,15 @@ impl TrngInner<'_> {
         let ratio = if freq > 160_000_000 {
             panic!("MCLK frequency {} > 160 MHz is not compatible with the TRNG", freq)
         } else if freq >= 80_000_000 {
-            Ratio::DIV_BY_8
+            Ratio::DivBy8
         } else if freq >= 60_000_000 {
-            Ratio::DIV_BY_6
+            Ratio::DivBy6
         } else if freq >= 40_000_000 {
-            Ratio::DIV_BY_4
+            Ratio::DivBy4
         } else if freq >= 20_000_000 {
-            Ratio::DIV_BY_2
+            Ratio::DivBy2
         } else if freq >= 9_500_000 {
-            Ratio::DIV_BY_1
+            Ratio::DivBy1
         } else {
             panic!("MCLK frequency {} < 9.5 MHz is not compatible with the TRNG", freq)
         };
@@ -375,7 +375,7 @@ impl TrngInner<'_> {
     }
 
     fn dig_test(&mut self) -> Result<(), Error> {
-        self.set_cmd(PWRUP_DIG);
+        self.set_cmd(PwrupDig);
         let results = regs().test_results().read();
         for n in 0..8u8 {
             // 13.2.4.1: Digital tests must pass.
@@ -389,10 +389,10 @@ impl TrngInner<'_> {
     fn ana_test(&mut self) -> Result<(), Error> {
         // 13.2.4.2: Analog tests have a small chance to fail, so try up to 3 times.
         for _ in 0..3 {
-            self.set_cmd(PWRUP_ANA);
+            self.set_cmd(PwrupAna);
             let results = regs().test_results().read();
             if !results.ana_test() {
-                self.set_cmd(PWR_OFF);
+                self.set_cmd(PwrOff);
             } else {
                 return Ok(());
             }

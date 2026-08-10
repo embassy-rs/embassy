@@ -21,7 +21,7 @@ use super::util;
 use crate::can::enums::{BusError, RefCountOp, TryReadError};
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::{self, RccPeripheral};
+use crate::rcc::{self, RccPeripheral, WakeGuard};
 use crate::{Peri, interrupt, peripherals};
 
 /// Interrupt handler.
@@ -167,6 +167,7 @@ impl Drop for CanConfig<'_> {
 pub struct Can<'d> {
     phantom: PhantomData<&'d ()>,
     info: InfoRef,
+    _wake_guard: WakeGuard,
     periph_clock: crate::time::Hertz,
 }
 
@@ -237,6 +238,7 @@ impl<'d> Can<'d> {
         Self {
             phantom: PhantomData,
             info: InfoRef::new(T::info()),
+            _wake_guard: T::RCC_INFO.wake_guard(),
             periph_clock: T::frequency(),
         }
     }

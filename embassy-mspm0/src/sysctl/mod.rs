@@ -248,15 +248,15 @@ macro_rules! impl_clk_out_pin {
 /// (DIVEN, DIVVAL)
 fn div_to_pac(div: Option<ClkOutDiv>) -> (bool, vals::Exclkdivval) {
     match div {
-        Some(ClkOutDiv::Div2) => (true, vals::Exclkdivval::DIV2),
-        Some(ClkOutDiv::Div4) => (true, vals::Exclkdivval::DIV4),
-        Some(ClkOutDiv::Div6) => (true, vals::Exclkdivval::DIV6),
-        Some(ClkOutDiv::Div8) => (true, vals::Exclkdivval::DIV8),
-        Some(ClkOutDiv::Div10) => (true, vals::Exclkdivval::DIV10),
-        Some(ClkOutDiv::Div12) => (true, vals::Exclkdivval::DIV12),
-        Some(ClkOutDiv::Div14) => (true, vals::Exclkdivval::DIV14),
-        Some(ClkOutDiv::Div16) => (true, vals::Exclkdivval::DIV16),
+        Some(ClkOutDiv::Div2) => (true, vals::Exclkdivval::Div2),
+        Some(ClkOutDiv::Div4) => (true, vals::Exclkdivval::Div4),
+        Some(ClkOutDiv::Div6) => (true, vals::Exclkdivval::Div6),
+        Some(ClkOutDiv::Div8) => (true, vals::Exclkdivval::Div8),
+        Some(ClkOutDiv::Div10) => (true, vals::Exclkdivval::Div10),
+        Some(ClkOutDiv::Div12) => (true, vals::Exclkdivval::Div12),
+        Some(ClkOutDiv::Div14) => (true, vals::Exclkdivval::Div14),
+        Some(ClkOutDiv::Div16) => (true, vals::Exclkdivval::Div16),
         // divider is ignored. set to default value
-        None => (false, vals::Exclkdivval::DIV2),
+        None => (false, vals::Exclkdivval::Div2),
     }
 }

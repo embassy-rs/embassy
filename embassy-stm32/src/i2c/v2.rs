@@ -190,7 +190,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         // is BUSY or I2C is in slave mode.
 
         info.regs.cr2().modify(|w| {
-            w.set_sadd(address.addr() << 1);
+            w.set_sadd(address.sadd());
             w.set_add10(address.add_mode());
             w.set_dir(i2c::vals::Dir::Read);
             w.set_nbytes(length as u8);
@@ -225,7 +225,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         // START bit can be set even if the bus is BUSY or
         // I2C is in slave mode.
         info.regs.cr2().modify(|w| {
-            w.set_sadd(address.addr() << 1);
+            w.set_sadd(address.sadd());
             w.set_add10(address.add_mode());
             w.set_dir(i2c::vals::Dir::Write);
             w.set_nbytes(length as u8);

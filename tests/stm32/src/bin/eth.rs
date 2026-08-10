@@ -10,6 +10,8 @@ use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
+#[cfg(feature = "stop")]
+use embassy_stm32::rcc::{StopMode, WakeGuard};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng};
 use panic_probe as _;
@@ -105,6 +107,9 @@ async fn main(spawner: Spawner) {
     // Init network stack
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+
+    #[cfg(feature = "stop")]
+    let _guard = WakeGuard::new(StopMode::Stop1);
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
