@@ -114,7 +114,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
 
-pub use crate::_generated::DmaRequest;
+pub(crate) use crate::_generated::DmaRequest;
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::dma::sealed::SealedChannel;
@@ -447,37 +447,171 @@ struct DmaTransferParameters<WSRC: Word, WDST: Word> {
     options: TransferOptions,
 }
 
-/// Parameters used to configure a peripheral transfer.
-pub struct TransferOperation<'buf> {
-    /// Optional TCD memory used for scatter-gather transfers.
+
+/// A single operation in a peripheral transfer sequence for memory-to-peripheral writes.
+pub struct PeripheralWriteOperation<'buf> {
+    /// TCD memory that will be loaded into the DMA channel.
     tcd: Tcd,
+    /// PhantomData to tie the lifetime of the operation to the source buffer.
     _buffer: PhantomData<&'buf [u8]>,
 }
 
-impl <'buf>TransferOperation<'buf> {
-    /// Create a new TransferOperation for a memory-to-peripheral write.
-    pub fn write<W: Word>(src: &'buf [W], dst: *mut W) -> Self {
-        // To Do: Make fallible?
+impl<'buf> PeripheralWriteOperation<'buf> {
+    /// Create a new PeripheralWriteOperation for a memory-to-peripheral write.
+    /// 
+    /// # Arguments
+    /// 
+    /// `src` - Source buffer slice.
+    /// `dst` - Destination peripheral register pointer.
+    pub fn new<W: Word>(src: &'buf [W], dst: *mut W) -> Result<Self, InvalidParameters> {
+        if src.is_empty() || src.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
+        }
+
+        Ok(Self {
+            tcd: Self::build_tcd(src, dst),
+            _buffer: PhantomData,
+        })
+    }
+
+    /// Create a sequence of write operations from `(src, dst)` pairs.
+    /// 
+    /// # Arguments
+    /// 
+    /// `ops` - An array of `(src, dst)` pairs, where `src` is a source buffer slice and `dst` is a destination peripheral register pointer.
+    pub fn new_sequence<W: Word, const N: usize>(
+        ops: [(&'buf [W], *mut W); N],
+    ) -> Result<[Self; N], InvalidParameters> {
+        const {assert!(N > 0, "Sequence must have at least one operation")};
+
+        // Validate parameters for each segment in the sequence
+        for (src, _) in &ops {
+            if src.is_empty() || src.len() > DMA_MAX_TRANSFER_SIZE {
+                return Err(InvalidParameters);
+            }
+        }
+
+        Ok(ops.map(|(src, dst)| Self {
+            tcd: Self::build_tcd(src, dst),
+            _buffer: PhantomData,
+        }))
+    }
+
+    /// Build a TCD for a peripheral write operation.
+    /// 
+    /// # Arguments
+    /// 
+    /// `src` - Source buffer slice.
+    /// `dst` - Destination peripheral register pointer.
+    fn build_tcd<W: Word>(src: &'buf [W], dst: *mut W) -> Tcd {
         let size = W::size();
         let byte_size = size.bytes();
         let hw_size = size.to_hw_size() as u16;
-        let count = src.len() as u16;
-        TransferOperation {
-            tcd: Tcd {
-                saddr: src.as_ptr() as u32,
-                soff: byte_size as i16,
-                attr:  (hw_size << 8) | hw_size,
-                nbytes: byte_size as u32,
-                slast: 0,
-                daddr: dst as u32,
-                doff: 0,
-                citer: count,
-                dlast_sga: 0,
-                csr: 0,
-                biter: count,
-            },
-            _buffer: PhantomData,
+        let src_buffer_size = src.len() as u16;
+        Tcd {
+            saddr: src.as_ptr() as u32,
+            soff: byte_size as i16,
+            attr:  (hw_size << 8) | hw_size,
+            nbytes: byte_size as u32,
+            slast: 0,
+            daddr: dst as u32,
+            doff: 0,
+            citer: src_buffer_size,
+            dlast_sga: 0,
+            csr: 0,
+            biter: src_buffer_size,
         }
+    }
+}
+
+/// A single operation in a peripheral transfer sequence for peripheral-to-memory reads.
+pub struct PeripheralReadOperation<'buf> {
+    /// TCD memory that will be loaded into the DMA channel.
+    tcd: Tcd,
+    /// PhantomData to tie the lifetime of the operation to the destination buffer.
+    _buffer: PhantomData<&'buf mut [u8]>,
+}
+
+impl<'buf> PeripheralReadOperation<'buf> {
+    /// Create a new PeripheralReadOperation for a peripheral-to-memory read.
+    ///
+    /// # Arguments
+    ///
+    /// `src` - Source peripheral register pointer.
+    /// `dst` - Destination buffer slice.
+    pub fn new<W: Word>(src: *const W, dst: &'buf mut [W]) -> Result<Self, InvalidParameters> {
+        if dst.is_empty() || dst.len() > DMA_MAX_TRANSFER_SIZE {
+            return Err(InvalidParameters);
+        }
+
+        Ok(Self {
+            tcd: Self::build_tcd(src, dst),
+            _buffer: PhantomData,
+        })
+    }
+
+    /// Create a sequence of read operations from `(src, dst)` pairs.
+    /// 
+    /// # Arguments
+    /// 
+    /// `ops` - An array of `(src, dst)` pairs, where `src` is a source peripheral register pointer and `dst` is a destination buffer slice.
+    pub fn new_sequence<W: Word, const N: usize>(
+        ops: [(*const W, &'buf mut [W]); N],
+    ) -> Result<[Self; N], InvalidParameters> {
+        // Validate parameters for each segment in the sequence
+        for (_, dst) in &ops {
+            if dst.is_empty() || dst.len() > DMA_MAX_TRANSFER_SIZE {
+                return Err(InvalidParameters);
+            }
+        }
+
+        Ok(ops.map(|(src, dst)| Self {
+            tcd: Self::build_tcd(src, dst),
+            _buffer: PhantomData,
+        }))
+    }
+
+    /// Build a TCD for a peripheral read operation.
+    ///
+    /// # Arguments
+    ///
+    /// `src` - Source peripheral register pointer.
+    /// `dst` - Destination buffer slice.
+    fn build_tcd<W: Word>(src: *const W, dst: &'buf mut [W]) -> Tcd {
+        let size = W::size();
+        let byte_size = size.bytes();
+        let hw_size = size.to_hw_size() as u16;
+        let dst_buffer_size = dst.len() as u16;
+        Tcd {
+            saddr: src as u32,
+            soff: 0,
+            attr: (hw_size << 8) | hw_size,
+            nbytes: byte_size as u32,
+            slast: 0,
+            daddr: dst.as_mut_ptr() as u32,
+            doff: byte_size as i16,
+            citer: dst_buffer_size,
+            dlast_sga: 0,
+            csr: 0,
+            biter: dst_buffer_size,
+        }
+    }
+}
+
+/// A trait for operations that can be part of a sequence of DMA transfers.
+trait SequenceOperation {
+    fn tcd_mut(&mut self) -> &mut Tcd;
+}
+
+impl SequenceOperation for PeripheralWriteOperation<'_> {
+    fn tcd_mut(&mut self) -> &mut Tcd {
+        &mut self.tcd
+    }
+}
+
+impl SequenceOperation for PeripheralReadOperation<'_> {
+    fn tcd_mut(&mut self) -> &mut Tcd {
+        &mut self.tcd
     }
 }
 
@@ -907,7 +1041,11 @@ impl DmaChannel<'_> {
         peri_addr: *mut W,
         options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
-        unsafe { self.setup_write_to_peripheral(buf, peri_addr, false, options)? };
+        unsafe { 
+            self.setup_write_to_peripheral(buf, peri_addr, false, options)?;
+            self.enable_request();
+         };
+
         Ok(Transfer::new(self.reborrow()))
     }
 
@@ -932,53 +1070,55 @@ impl DmaChannel<'_> {
         buf: &mut [W],
         options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
-        unsafe { self.setup_read_from_peripheral(peri_addr, buf, false, options)? };
-
-        unsafe {
+        unsafe { 
+            self.setup_read_from_peripheral(peri_addr, buf, false, options)?;
             self.enable_request();
-        }
+        };
 
         Ok(Transfer::new(self.reborrow()))
     }
 
-    /// Write data from memory to a peripheral register using a sequence of TCDs.
+    /// Common function to set up a sequence of DMA transfer operations.
+    /// 
     /// # Arguments
-    ///
-    /// * `sequence` - Sequence of peripheral transfers to chain together.
+    /// 
+    /// * `sequence` - Sequence of DMA transfer operations to chain together.
     /// 
     /// # Safety
-    ///
-    /// - sequence must remain valid for the duration of the transfer.
-    /// - The caller must ensure that sequence is created correctly with peripheral addresses that are valid for writes.
-    /// - The caller must ensure that the periheral addresses in the sequence are for the same peripheral.
-    pub unsafe fn write_to_peripheral_sequenced<'buf>(
+    /// - The sequence storage must not be moved, dropped or modified for the duration of the transfer.
+    /// - The source/destination buffers in the sequence must remain valid for the duration of the transfer.
+    /// - Every register's address in the sequence must be valid for read/writes.
+    /// - All operations must be compatible with the configured DMA request
+    unsafe fn setup_sequence<T: SequenceOperation>(
         &mut self,
-        sequence: &mut [TransferOperation<'buf>],
-    ) -> Result<Transfer<'_>, InvalidParameters> {
-        // Chain TCDs for scatter-gather transfer. Each TCD points to the next one in the sequence.
-        for i in 0..sequence.len() {
-            let is_last = i == sequence.len() - 1;
-            if !is_last {
-                // For all but the last TCD, set dlast_sga to point to the next TCD in the chain.
-                let next_tcd_addr = &sequence[i + 1].tcd as *const Tcd as i32;
-                sequence[i].tcd.dlast_sga = next_tcd_addr;
-            } else {
-                // Last TCD in the sequence, no next TCD.
-                sequence[i].tcd.dlast_sga = 0;
-            }
-
+        sequence: &mut [T],
+    ) -> Result<(), InvalidParameters>
+    {
+        // Reborrow so `sequence` stays usable to fetch and load the first TCD after chaining is complete.
+        let mut remaining = &mut *sequence;
+        while let Some((current, tail)) = remaining.split_first_mut() {
             let mut csr = TcdCsr(0);
-            if !is_last {
+
+            let current_tcd = current.tcd_mut();
+            if let Some(next) = tail.first_mut() {
+                // For all but the last TCD, set dlast_sga to point to the next TCD in the chain.
+                let next_tcd = next.tcd_mut();
+                current_tcd.dlast_sga = next_tcd as *const Tcd as i32;
+
                 // Set ESG=ScatterGatherFormat for all but the last TCD to enable chaining.
                 csr.set_esg(Esg::ScatterGatherFormat);
-            }
-            if is_last {
+            } else {
+                // Last TCD in the sequence, no next TCD.
+                current_tcd.dlast_sga = 0;
+
                 // For the last TCD, clear DREQ to auto-disable requests on completion.
                 csr.set_dreq(Dreq::ErqFieldClear);
                 // Enable INTMAJOR to fire a completion interrupt when the last TCD finishes.
                 csr.set_intmajor(true);
             }
-            sequence[i].tcd.csr = csr.0;
+
+            current_tcd.csr = csr.0;
+            remaining = tail;
         }
 
         let tcd = self.tcd();
@@ -991,14 +1131,129 @@ impl DmaChannel<'_> {
         // TO DO: Review memory ordering.
         fence(Ordering::Release);
 
+        let head = sequence.first_mut().ok_or(InvalidParameters)?;
         unsafe {
-            self.load_tcd(&sequence[0].tcd);
+            self.load_tcd(head.tcd_mut());
         }
 
         // Memory barrier before enabling request
         fence(Ordering::Release);
 
+        Ok(())
+    }
+
+    /// Configure a memory-to-peripheral scatter-gather sequence without starting it.
+    ///
+    /// This chains and loads the sequence's TCDs into the channel but does NOT
+    /// return a Transfer object. The caller is responsible for:
+    /// 1. Enabling the peripheral's DMA request
+    /// 2. Calling `enable_request()` to start the transfer
+    /// 3. Polling `is_done()` or using interrupts to detect completion
+    /// 4. Calling `disable_request()`, `clear_done()`, `clear_interrupt()` for cleanup
+    ///
+    /// Use this when you need manual control over the DMA lifecycle (e.g., in
+    /// peripheral drivers that have their own completion polling).
+    ///
+    /// # Arguments
+    ///
+    /// * `sequence` - Sequence of peripheral write operations to chain together.
+    ///
+    /// # Safety
+    ///
+    /// - The sequence storage must not be moved, dropped or modified for the duration of the transfer.
+    /// - The source buffers in the sequence must remain valid for the duration of the transfer.
+    /// - Every destination address in the sequence must be valid for writes.
+    /// - All operations must be compatible with the configured DMA request
+    pub(crate) unsafe fn setup_write_to_peripheral_sequenced(
+        &mut self,
+        sequence: &mut [PeripheralWriteOperation<'_>],
+    ) -> Result<(), InvalidParameters> {
+        if sequence.is_empty() {
+            return Err(InvalidParameters);
+        }
+
+        unsafe { self.setup_sequence(sequence) }
+    }
+
+    /// Start a memory-to-peripheral scatter-gather sequence.
+    ///
+    /// This chains and loads the sequence, then enables the channel request (ERQ) and
+    /// returns a [`Transfer`]. The caller is still responsible for enabling the
+    /// peripheral's own DMA request so it actually drives the channel.
+    /// 
+    /// # Arguments
+    ///
+    /// * `sequence` - Sequence of peripheral write operations to chain together.
+    /// 
+    /// # Safety
+    ///
+    /// - Every destination address in the sequence must be valid for writes.
+    /// - All operations must be compatible with the configured DMA request
+    pub unsafe fn write_to_peripheral_sequenced<'seq>(
+        &'seq mut self,
+        sequence: &'seq mut [PeripheralWriteOperation<'_>],
+    ) -> Result<Transfer<'seq>, InvalidParameters> {
         unsafe {
+            self.setup_write_to_peripheral_sequenced(sequence)?;
+            self.enable_request();
+        }
+
+        Ok(Transfer::new(self.reborrow()))
+    }
+
+    /// Configure a peripheral-to-memory scatter-gather sequence without starting it.
+    ///
+    /// This chains and loads the sequence's TCDs into the channel but does NOT
+    /// return a Transfer object. The caller is responsible for:
+    /// 1. Enabling the peripheral's DMA request
+    /// 2. Calling `enable_request()` to start the transfer
+    /// 3. Polling `is_done()` or using interrupts to detect completion
+    /// 4. Calling `disable_request()`, `clear_done()`, `clear_interrupt()` for cleanup
+    ///
+    /// Use this when you need manual control over the DMA lifecycle (e.g., in
+    /// peripheral drivers that have their own completion polling).
+    ///
+    /// # Arguments
+    ///
+    /// * `sequence` - Sequence of peripheral read operations to chain together.
+    ///
+    /// # Safety
+    ///
+    /// - The sequence storage must not be moved, dropped or modified for the duration of the transfer.
+    /// - The destination buffers in the sequence must remain valid for the duration of the transfer.
+    /// - Every source address in the sequence must be valid for reads.
+    /// - All operations must be compatible with the configured DMA request
+    pub(crate) unsafe fn setup_read_from_peripheral_sequenced(
+        &mut self,
+        sequence: &mut [PeripheralReadOperation<'_>],
+    ) -> Result<(), InvalidParameters> {
+        if sequence.is_empty() {
+            return Err(InvalidParameters);
+        }
+
+        unsafe { self.setup_sequence(sequence) }
+    }
+
+    /// Start a peripheral-to-memory scatter-gather sequence.
+    ///
+    /// This chains and loads the sequence, then enables the channel request (ERQ) and
+    /// returns a [`Transfer`]. The caller is still responsible for enabling the
+    /// peripheral's own DMA request so it actually drives the channel.
+    ///
+    /// # Arguments
+    /// 
+    /// * `sequence` - Sequence of peripheral read operations to chain together.
+    /// 
+    /// # Safety
+    /// 
+    /// - Every source address in the sequence must be valid for reads.
+    /// - All operations must be compatible with the configured DMA request
+    pub unsafe fn read_from_peripheral_sequenced<'seq>(
+        &'seq mut self,
+        sequence: &'seq mut [PeripheralReadOperation<'_>],
+    ) -> Result<Transfer<'seq>, InvalidParameters> {
+        unsafe {
+            self.setup_read_from_peripheral_sequenced(sequence)?;
             self.enable_request();
         }
 
@@ -1201,7 +1456,7 @@ impl DmaChannel<'_> {
     /// }
     /// ```
     #[inline]
-    pub unsafe fn set_request_source(&self, source: DmaRequest) {
+    pub(crate) unsafe fn set_request_source(&self, source: DmaRequest) {
         // Two-step write per NXP SDK: clear to 0, then set actual source.
         self.tcd().ch_mux().write(|w| w.set_src(0));
         cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
