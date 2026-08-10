@@ -84,6 +84,10 @@ impl<'d> Spi<'d, Async, Slave> {
     ) -> RingBufferedSpiRx<'d, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
+        self.info.regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+
         self.set_word_size(W::CONFIG);
 
         let opts = Default::default();
