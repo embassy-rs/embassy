@@ -1156,7 +1156,6 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// - The sequence storage must not be moved, dropped or modified for the duration of the transfer.
-    /// - The source buffers in the sequence must remain valid for the duration of the transfer.
     /// - Every destination address in the sequence must be valid for writes.
     /// - All operations must be compatible with the configured DMA request
     pub(crate) unsafe fn setup_write_to_peripheral_scatter_gather(
@@ -1183,7 +1182,9 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// - Every destination address in the sequence must be valid for writes.
-    /// - All operations must be compatible with the configured DMA request
+    /// - All operations must be compatible with the configured DMA request.
+    /// - If the returned transfer is forgotten, the sequence must remain valid until the transfer
+    ///   completes.
     pub unsafe fn write_to_peripheral_scatter_gather<'seq>(
         &'seq mut self,
         sequence: &'seq mut [PeripheralWriteOperation<'_>],
@@ -1215,7 +1216,6 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// - The sequence storage must not be moved, dropped or modified for the duration of the transfer.
-    /// - The destination buffers in the sequence must remain valid for the duration of the transfer.
     /// - Every source address in the sequence must be valid for reads.
     /// - All operations must be compatible with the configured DMA request
     pub(crate) unsafe fn setup_read_from_peripheral_scatter_gather(
@@ -1242,7 +1242,9 @@ impl DmaChannel<'_> {
     /// # Safety
     ///
     /// - Every source address in the sequence must be valid for reads.
-    /// - All operations must be compatible with the configured DMA request
+    /// - All operations must be compatible with the configured DMA request.
+    /// - If the returned transfer is forgotten, the sequence must remain valid and inaccessible
+    ///   until the transfer completes.
     pub unsafe fn read_from_peripheral_scatter_gather<'seq>(
         &'seq mut self,
         sequence: &'seq mut [PeripheralReadOperation<'_>],
