@@ -447,7 +447,6 @@ struct DmaTransferParameters<WSRC: Word, WDST: Word> {
     options: TransferOptions,
 }
 
-
 /// A single operation in a peripheral transfer sequence for memory-to-peripheral writes.
 pub struct PeripheralWriteOperation<'buf> {
     /// TCD memory that will be loaded into the DMA channel.
@@ -458,9 +457,9 @@ pub struct PeripheralWriteOperation<'buf> {
 
 impl<'buf> PeripheralWriteOperation<'buf> {
     /// Create a new PeripheralWriteOperation for a memory-to-peripheral write.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// `src` - Source buffer slice.
     /// `dst` - Destination peripheral register pointer.
     pub fn new<W: Word>(src: &'buf [W], dst: *mut W) -> Result<Self, InvalidParameters> {
@@ -475,14 +474,14 @@ impl<'buf> PeripheralWriteOperation<'buf> {
     }
 
     /// Create a sequence of write operations from `(src, dst)` pairs.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// `ops` - An array of `(src, dst)` pairs, where `src` is a source buffer slice and `dst` is a destination peripheral register pointer.
     pub fn new_sequence<W: Word, const N: usize>(
         ops: [(&'buf [W], *mut W); N],
     ) -> Result<[Self; N], InvalidParameters> {
-        const {assert!(N > 0, "Sequence must have at least one operation")};
+        const { assert!(N > 0, "Sequence must have at least one operation") };
 
         // Validate parameters for each segment in the sequence
         for (src, _) in &ops {
@@ -498,9 +497,9 @@ impl<'buf> PeripheralWriteOperation<'buf> {
     }
 
     /// Build a TCD for a peripheral write operation.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// `src` - Source buffer slice.
     /// `dst` - Destination peripheral register pointer.
     fn build_tcd<W: Word>(src: &'buf [W], dst: *mut W) -> Tcd {
@@ -511,7 +510,7 @@ impl<'buf> PeripheralWriteOperation<'buf> {
         Tcd {
             saddr: src.as_ptr() as u32,
             soff: byte_size as i16,
-            attr:  (hw_size << 8) | hw_size,
+            attr: (hw_size << 8) | hw_size,
             nbytes: byte_size as u32,
             slast: 0,
             daddr: dst as u32,
@@ -551,9 +550,9 @@ impl<'buf> PeripheralReadOperation<'buf> {
     }
 
     /// Create a sequence of read operations from `(src, dst)` pairs.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// `ops` - An array of `(src, dst)` pairs, where `src` is a source peripheral register pointer and `dst` is a destination buffer slice.
     pub fn new_sequence<W: Word, const N: usize>(
         ops: [(*const W, &'buf mut [W]); N],
@@ -1041,10 +1040,10 @@ impl DmaChannel<'_> {
         peri_addr: *mut W,
         options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
-        unsafe { 
+        unsafe {
             self.setup_write_to_peripheral(buf, peri_addr, false, options)?;
             self.enable_request();
-         };
+        };
 
         Ok(Transfer::new(self.reborrow()))
     }
@@ -1070,7 +1069,7 @@ impl DmaChannel<'_> {
         buf: &mut [W],
         options: TransferOptions,
     ) -> Result<Transfer<'_>, InvalidParameters> {
-        unsafe { 
+        unsafe {
             self.setup_read_from_peripheral(peri_addr, buf, false, options)?;
             self.enable_request();
         };
@@ -1079,21 +1078,17 @@ impl DmaChannel<'_> {
     }
 
     /// Common function to set up a sequence of DMA transfer operations.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `sequence` - Sequence of DMA transfer operations to chain together.
-    /// 
+    ///
     /// # Safety
     /// - The sequence storage must not be moved, dropped or modified for the duration of the transfer.
     /// - The source/destination buffers in the sequence must remain valid for the duration of the transfer.
     /// - Every register's address in the sequence must be valid for read/writes.
     /// - All operations must be compatible with the configured DMA request
-    unsafe fn setup_sequence<T: SequenceOperation>(
-        &mut self,
-        sequence: &mut [T],
-    ) -> Result<(), InvalidParameters>
-    {
+    unsafe fn setup_sequence<T: SequenceOperation>(&mut self, sequence: &mut [T]) -> Result<(), InvalidParameters> {
         // Reborrow so `sequence` stays usable to fetch and load the first TCD after chaining is complete.
         let mut remaining = &mut *sequence;
         while let Some((current, tail)) = remaining.split_first_mut() {
@@ -1180,11 +1175,11 @@ impl DmaChannel<'_> {
     /// This chains and loads the sequence, then enables the channel request (ERQ) and
     /// returns a [`Transfer`]. The caller is still responsible for enabling the
     /// peripheral's own DMA request so it actually drives the channel.
-    /// 
+    ///
     /// # Arguments
     ///
     /// * `sequence` - Sequence of peripheral write operations to chain together.
-    /// 
+    ///
     /// # Safety
     ///
     /// - Every destination address in the sequence must be valid for writes.
@@ -1241,11 +1236,11 @@ impl DmaChannel<'_> {
     /// peripheral's own DMA request so it actually drives the channel.
     ///
     /// # Arguments
-    /// 
+    ///
     /// * `sequence` - Sequence of peripheral read operations to chain together.
-    /// 
+    ///
     /// # Safety
-    /// 
+    ///
     /// - Every source address in the sequence must be valid for reads.
     /// - All operations must be compatible with the configured DMA request
     pub unsafe fn read_from_peripheral_sequenced<'seq>(
@@ -1401,7 +1396,7 @@ impl DmaChannel<'_> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
-    pub(crate) unsafe fn  setup_read_from_peripheral<WSRC: Word, WDST: Word>(
+    pub(crate) unsafe fn setup_read_from_peripheral<WSRC: Word, WDST: Word>(
         &self,
         peri_addr: *const WSRC,
         buf: &mut [WDST],
