@@ -1159,7 +1159,7 @@ impl DmaChannel<'_> {
     /// - The source buffers in the sequence must remain valid for the duration of the transfer.
     /// - Every destination address in the sequence must be valid for writes.
     /// - All operations must be compatible with the configured DMA request
-    pub(crate) unsafe fn setup_write_to_peripheral_sequenced(
+    pub(crate) unsafe fn setup_write_to_peripheral_scatter_gather(
         &mut self,
         sequence: &mut [PeripheralWriteOperation<'_>],
     ) -> Result<(), InvalidParameters> {
@@ -1184,12 +1184,12 @@ impl DmaChannel<'_> {
     ///
     /// - Every destination address in the sequence must be valid for writes.
     /// - All operations must be compatible with the configured DMA request
-    pub unsafe fn write_to_peripheral_sequenced<'seq>(
+    pub unsafe fn write_to_peripheral_scatter_gather<'seq>(
         &'seq mut self,
         sequence: &'seq mut [PeripheralWriteOperation<'_>],
     ) -> Result<Transfer<'seq>, InvalidParameters> {
         unsafe {
-            self.setup_write_to_peripheral_sequenced(sequence)?;
+            self.setup_write_to_peripheral_scatter_gather(sequence)?;
             self.enable_request();
         }
 
@@ -1218,7 +1218,7 @@ impl DmaChannel<'_> {
     /// - The destination buffers in the sequence must remain valid for the duration of the transfer.
     /// - Every source address in the sequence must be valid for reads.
     /// - All operations must be compatible with the configured DMA request
-    pub(crate) unsafe fn setup_read_from_peripheral_sequenced(
+    pub(crate) unsafe fn setup_read_from_peripheral_scatter_gather(
         &mut self,
         sequence: &mut [PeripheralReadOperation<'_>],
     ) -> Result<(), InvalidParameters> {
@@ -1243,12 +1243,12 @@ impl DmaChannel<'_> {
     ///
     /// - Every source address in the sequence must be valid for reads.
     /// - All operations must be compatible with the configured DMA request
-    pub unsafe fn read_from_peripheral_sequenced<'seq>(
+    pub unsafe fn read_from_peripheral_scatter_gather<'seq>(
         &'seq mut self,
         sequence: &'seq mut [PeripheralReadOperation<'_>],
     ) -> Result<Transfer<'seq>, InvalidParameters> {
         unsafe {
-            self.setup_read_from_peripheral_sequenced(sequence)?;
+            self.setup_read_from_peripheral_scatter_gather(sequence)?;
             self.enable_request();
         }
 
