@@ -832,9 +832,9 @@ fn init_hw(config: Config) -> Peripherals {
             use crate::pac::pwr::vals;
             crate::pac::PWR.svmcr().modify(|w| {
                 w.set_io2sv(if config.enable_independent_io_supply {
-                    vals::Io2sv::B0x1
+                    vals::IO2SV::B0x1
                 } else {
-                    vals::Io2sv::B0x0
+                    vals::IO2SV::B0x0
                 });
             });
 
@@ -898,14 +898,14 @@ fn init_hw(config: Config) -> Peripherals {
                     vals::Icrampds::Retained
                 });
                 w.set_prampds(if sram.otg_sram {
-                    vals::Prampds::B0x1
+                    vals::Srampds::B0x1
                 } else {
-                    vals::Prampds::B0x0
+                    vals::Srampds::B0x0
                 });
                 w.set_pkarampds(if sram.pka_sram {
-                    vals::Pkarampds::B0x1
+                    vals::Icrampds::B0x1
                 } else {
-                    vals::Pkarampds::B0x0
+                    vals::Icrampds::B0x0
                 });
             });
         }

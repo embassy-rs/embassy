@@ -640,7 +640,7 @@ impl<'d, T: Instance> Comp<'d, T, Blocking> {
     /// is configured via the `config.inverting_input` parameter.
     pub fn new_blocking(
         peri: Peri<'d, T>,
-        inp: Peri<'_, impl InputPlusPin<T> + crate::gpio::Pin>,
+        inp: Peri<'_, impl crate::comp::InputPlusPin<T> + crate::gpio::Pin>,
         config: Config,
     ) -> Self {
         T::info().rcc.enable_and_reset();
@@ -761,9 +761,12 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
 
         T::regs().csr().modify(|w| {
             w.set_inpsel(inp_channel);
+            #[cfg(any(comp_u5, comp_v2, comp_u0))]
             w.set_inmsel(inmsel);
+            #[cfg(any(comp_u5, comp_v2, comp_u0))]
             w.set_hyst(hyst);
             w.set_polarity(polarity);
+            #[cfg(any(comp_u5, comp_v2, comp_u0))]
             w.set_blanksel(blanksel);
 
             // G4 COMP needs SCALEN/BRGEN bits to enable internal voltage references.
@@ -825,6 +828,7 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
             InvertingInput::InputPin5 => 9,
         };
 
+        #[cfg(any(comp_u5, comp_v2, comp_u0))]
         Self::configure_raw(inp_channel, inmsel, config);
     }
 
@@ -835,7 +839,7 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
         let inmsel = vals::Inm::from_bits(0x06 + inm_channel);
         #[cfg(comp_u0)]
         let inmsel = inm_channel;
-
+        #[cfg(any(comp_u5, comp_v2, comp_u0))]
         Self::configure_raw(inp_channel, inmsel, config)
     }
 
@@ -886,9 +890,12 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
             BlankingSource::Blank5 => vals::Blanking::TIM15OC2,
         };
 
-        T::regs().csr().modify(|w| {
-            w.set_blanksel(blanksel);
-        });
+        #[cfg(any(comp_u5, comp_v2, comp_u0))]
+        {
+            T::regs().csr().modify(|w| {
+                w.set_blanksel(blanksel);
+            });
+        }
     }
 }
 
