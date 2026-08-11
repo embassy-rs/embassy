@@ -10,6 +10,7 @@ use mode::{Master, MultiMaster};
 use stm32_metapac::i2c::vals::{Addmode, Oamsk};
 
 use super::*;
+use crate::atomic::AtomicModify;
 use crate::pac::i2c;
 
 /// Bytes a slave transmits when it is read but has nothing to send.
@@ -1877,7 +1878,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
         let timeout = self.timeout();
 
-        self.info.regs.cr1().modify(|reg| {
+        self.info.regs.cr1().set_bits(|reg| {
             reg.set_addrie(true);
             trace!("Enable ADDRIE");
         });
@@ -1967,7 +1968,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
         let state = self.state;
-        self.info.regs.cr1().modify(|reg| {
+        self.info.regs.cr1().set_bits(|reg| {
             reg.set_addrie(true);
             trace!("Enable ADDRIE");
         });

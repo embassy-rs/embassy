@@ -156,6 +156,9 @@ impl<'d> I2c<'d, Async, Master> {
         + 'd,
         config: Config,
     ) -> Self {
+        unsafe { T::EventInterrupt::enable() };
+        unsafe { T::ErrorInterrupt::enable() };
+
         Self::new_inner(
             peri,
             new_pin!(scl, config.scl_af()),
@@ -176,6 +179,9 @@ impl<'d> I2c<'d, Async, Master> {
         + 'd,
         config: Config,
     ) -> Self {
+        unsafe { T::EventInterrupt::enable() };
+        unsafe { T::ErrorInterrupt::enable() };
+
         Self::new_inner(
             peri,
             new_pin!(scl, config.scl_af()),
@@ -189,6 +195,11 @@ impl<'d> I2c<'d, Async, Master> {
 
 impl<'d> I2c<'d, Blocking, Master> {
     /// Create a new blocking I2C driver.
+    ///
+    /// This doesn't unmask the event/error NVIC lines since no handler is bound here.
+    /// But they're still the I2C peripheral's lines - slave methods like blocking_listen
+    /// set interrupt-enable bits directly in the peripheral registers, so don't reuse
+    /// this vector for anything else (RTIC dispatch, etc). It's not free, just unmanaged.
     pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
@@ -216,9 +227,6 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Self {
-        unsafe { T::EventInterrupt::enable() };
-        unsafe { T::ErrorInterrupt::enable() };
-
         let mut this = Self {
             info: T::info(),
             state: T::state(),
