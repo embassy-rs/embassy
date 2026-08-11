@@ -95,7 +95,7 @@ pub mod cordic;
 #[cfg(any(aes_v2, aes_v3b, saes_n6))]
 mod crypto;
 
-#[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
+#[cfg(not(any(comp_u5, comp_v1, comp_v2, comp_u0)))]
 pub mod comp {
     //! Comp stub module to provide consistent API
 
