@@ -123,7 +123,7 @@ pub type Adin1110T = ADIN1110<Tc6<SpeSpiCs>>;
 
 /// The single I2C1 bus, shared between the Bristlefin IO expander and the
 /// BME280 environmental sensor.
-pub type TempSensI2c = I2c<'static, Async, i2c::Master>;
+pub type TempSensI2c = I2c<'static, Async, i2c::Master, i2c::IrqBound>;
 /// One handle onto the shared I2C bus.
 pub type SharedI2c = I2cDevice<'static, NoopRawMutex, TempSensI2c>;
 /// The LED driver, shared between the sensor task and the HTTP handler.

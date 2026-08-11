@@ -89,7 +89,7 @@ async fn main(_spawner: Spawner) {
     join(slave_task(i2c_slave), master_task(i2c_master)).await;
 }
 
-async fn slave_task(mut i2c: I2c<'static, embassy_stm32::mode::Async, i2c::mode::MultiMaster>) {
+async fn slave_task(mut i2c: I2c<'static, embassy_stm32::mode::Async, i2c::mode::MultiMaster, i2c::IrqBound>) {
     info!(
         "[Slave] Ready at 0x{:02X}, buffer {} bytes",
         I2C_ADDR, SLAVE_BUFFER_SIZE
@@ -118,7 +118,7 @@ async fn slave_task(mut i2c: I2c<'static, embassy_stm32::mode::Async, i2c::mode:
     }
 }
 
-async fn master_task(mut i2c: I2c<'static, embassy_stm32::mode::Async, i2c::mode::Master>) {
+async fn master_task(mut i2c: I2c<'static, embassy_stm32::mode::Async, i2c::mode::Master, i2c::IrqBound>) {
     Timer::after_millis(100).await;
 
     info!("");
