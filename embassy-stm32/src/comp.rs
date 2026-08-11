@@ -648,7 +648,10 @@ impl<'d, T: Instance> Comp<'d, T, Blocking> {
 
         Self::configure(inp.channel(), config);
 
-        Self { _peri: peri, _phantom: PhantomData::default() }
+        Self {
+            _peri: peri,
+            _phantom: PhantomData::default(),
+        }
     }
 
     /// Clear any pending interrupts for this comparator
@@ -670,12 +673,12 @@ impl<'d, T: Instance> Comp<'d, T, Blocking> {
 }
 
 impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
-    fn configure_raw(inp_channel: u8,
-        #[cfg(any(comp_u5, comp_v2))]
-        inmsel: vals::Inm,
-        #[cfg(comp_u0)]
-        inmsel: u8,
-        config: Config) {
+    fn configure_raw(
+        inp_channel: u8,
+        #[cfg(any(comp_u5, comp_v2))] inmsel: vals::Inm,
+        #[cfg(comp_u0)] inmsel: u8,
+        config: Config,
+    ) {
         #[cfg(comp_u5)]
         let pwrmode = match config.power_mode {
             PowerMode::HighSpeed => vals::PowerMode::HIGH_SPEED,
@@ -883,12 +886,10 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
             BlankingSource::Blank5 => vals::Blanking::TIM15OC2,
         };
 
-
         T::regs().csr().modify(|w| {
             w.set_blanksel(blanksel);
         });
     }
-
 }
 
 impl<'d, T: Instance, M: Mode> Drop for Comp<'d, T, M> {
