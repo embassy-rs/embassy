@@ -66,7 +66,8 @@ async fn main(_spawner: Spawner) {
             rx_buffer_2.as_mut_slice(),
             rx_buffer_3.as_mut_slice(),
         ]);
-        let transmit = tx.write_scatter_gather([tx_buffer_1.as_slice(), tx_buffer_2.as_slice(), tx_buffer_3.as_slice()]);
+        let transmit =
+            tx.write_scatter_gather([tx_buffer_1.as_slice(), tx_buffer_2.as_slice(), tx_buffer_3.as_slice()]);
         let (received, sent) = join(receive, transmit).await;
         received.unwrap();
         sent.unwrap();
