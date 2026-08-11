@@ -832,9 +832,9 @@ fn init_hw(config: Config) -> Peripherals {
             use crate::pac::pwr::vals;
             crate::pac::PWR.svmcr().modify(|w| {
                 w.set_io2sv(if config.enable_independent_io_supply {
-                    vals::IO2SV::B0x1
+                    vals::io2sv::B0x1
                 } else {
-                    vals::IO2SV::B0x0
+                    vals::io2sv::B0x0
                 });
             });
 

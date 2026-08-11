@@ -640,7 +640,7 @@ impl<'d, T: Instance> Comp<'d, T, Blocking> {
     /// is configured via the `config.inverting_input` parameter.
     pub fn new_blocking(
         peri: Peri<'d, T>,
-        inp: Peri<'_, impl crate::comp::InputPlusPin<T> + crate::gpio::Pin>,
+        inp: Peri<'_, impl InputPlusPin<T> + crate::gpio::Pin>,
         config: Config,
     ) -> Self {
         T::info().rcc.enable_and_reset();
