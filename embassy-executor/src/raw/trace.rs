@@ -122,14 +122,15 @@ impl TaskTracker {
     /// Adds a task to the tracker
     ///
     /// This method inserts a task at the head of the intrusive linked list.
-    /// The operation is thread-safe and lock-free, using atomic operations
-    /// to ensure consistency even when called from different contexts.
+    /// The operation is lock-free on targets with pointer compare-and-swap.
+    /// On targets without it, insertions are serialized by a critical section.
     ///
     /// # Arguments
     /// * `task` - The task reference to add to the tracker
     pub fn add(&self, task: TaskRef) {
         let task_ptr = task.as_ptr();
 
+        #[cfg(target_has_atomic = "ptr")]
         loop {
             let current_head = self.head.load(Ordering::Acquire);
             unsafe {
@@ -144,6 +145,15 @@ impl TaskTracker {
                 break;
             }
         }
+
+        #[cfg(not(target_has_atomic = "ptr"))]
+        critical_section::with(|_| {
+            let current_head = self.head.load(Ordering::Acquire);
+            unsafe {
+                (*task_ptr).all_tasks_next.store(current_head, Ordering::Relaxed);
+            }
+            self.head.store(task_ptr.cast_mut(), Ordering::Release);
+        });
     }
 
     /// Performs an operation on each task in the tracker

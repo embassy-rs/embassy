@@ -63,7 +63,7 @@ pub(crate) fn init() {
     DMA0.ctrl().modify(|w| w.set_enable(true));
 
     unsafe {
-        crate::pac::interrupt::DMA0.enable();
+        crate::dma::inner::Interrupt::DMA0.enable();
     }
     info!("DMA initialized");
 }

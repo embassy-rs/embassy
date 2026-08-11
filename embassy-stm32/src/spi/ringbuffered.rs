@@ -9,16 +9,16 @@ use embassy_hal_internal::Peri;
 use embedded_io_async::ReadReady;
 use futures_util::future::select;
 
-use super::mode::Slave;
-use super::{Config, Error, Info, RegsExt, Spi, Word, check_error_flags, reconfigure, set_rxdmaen};
 use crate::dma::ReadableRingBuffer;
 use crate::exti::{Channel, ExtiInput, InterruptHandler};
 use crate::gpio::{Flex, Pin};
 use crate::interrupt::typelevel::Binding;
 use crate::mode::Async;
 use crate::rcc::WakeGuard;
+use crate::spi::mode::Slave;
+use crate::spi::{Config, Error, Info, Regs, RegsExt, Spi, Word, check_error_flags, reconfigure, set_rxdmaen};
 #[cfg(any(spi_v4, spi_v5, spi_v6))]
-use crate::spi::SlaveSelectPolarity;
+use crate::spi::{SlaveSelectPolarity, flush_rx_fifo};
 use crate::time::Hertz;
 
 /// Rx-only Ring-buffered SPI Driver
@@ -83,6 +83,10 @@ impl<'d> Spi<'d, Async, Slave> {
         irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
     ) -> RingBufferedSpiRx<'d, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
+
+        self.info.regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
 
         self.set_word_size(W::CONFIG);
 
@@ -180,12 +184,19 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         compiler_fence(Ordering::SeqCst);
     }
 
+    /// Clears ring buffer.
+    pub fn clear(&mut self) {
+        self.ring_buf.clear();
+    }
+
     /// (Re-)start DMA and SPI if it is not running (has not been started yet or has failed), and
     /// check for errors in status register. Error flags are checked/cleared first.
     fn start_or_check_errors(&mut self) -> Result<(), Error> {
         let r = self.info.regs;
 
-        check_error_flags(r.sr().read(), true)?;
+        let sr = r.sr().read();
+        clear_spi_errors(r);
+        check_error_flags(sr, true)?;
 
         if !self.ring_buf.is_running() {
             self.start();
@@ -327,5 +338,32 @@ impl<W: Word> ReadReady for RingBufferedSpiRx<'_, W> {
             }
         })?;
         Ok(len > 0)
+    }
+}
+
+/// Clear sticky SPI error flags and flush any stale RX FIFO data.
+///
+/// On SPI v4/v5/v6 (H7), OVR/UDR/MODF/CRCE/TIFRE are cleared via IFCR.
+/// On older SPI, OVR is cleared by reading SR then DR.
+fn clear_spi_errors(r: Regs) {
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    {
+        // Write 1s to all flag-clear bits in IFCR
+        r.ifcr().write(|w| w.0 = 0xffff_ffff);
+        flush_rx_fifo(r);
+    }
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    {
+        // OVR is cleared by reading SR then DR.
+        // MODF is cleared by reading SR then writing CR1.
+        let sr = r.sr().read();
+        if sr.modf() {
+            r.cr1().modify(|w| w.set_spe(false));
+            r.cr1().modify(|w| w.set_spe(true));
+        }
+        #[cfg(not(spi_v3))]
+        let _ = r.dr().read();
+        #[cfg(spi_v3)]
+        let _ = r.dr16().read();
     }
 }

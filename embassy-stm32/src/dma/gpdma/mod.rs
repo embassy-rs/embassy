@@ -403,7 +403,7 @@ pub struct TransferOptions {
     /// attribute set (`TR1.SSEC = TR1.DSEC = 1`). Required when the channel
     /// is configured secure (`SECCFGR.SEC[n]=1`) and the slave is behind
     /// RISAF — without this the channel hits `ULEF` (user setting error)
-    /// after partial progress. Default `false`.
+    /// after partial progress. Default `true`.
     #[cfg(stm32n6)]
     pub secure: bool,
     /// DMA packing configuration
@@ -434,7 +434,7 @@ impl Default for TransferOptions {
             half_transfer_ir: false,
             complete_transfer_ir: true,
             #[cfg(stm32n6)]
-            secure: false,
+            secure: true,
             packing: vals::Pam::Pack,
 
             #[cfg(not(stm32c5))]

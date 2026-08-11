@@ -258,12 +258,12 @@ impl<'d, M: Mode> I2cTarget<'d, M> {
         regs.gprcm(0).rstctl().write(|w| {
             w.set_resetstkyclr(true);
             w.set_resetassert(true);
-            w.set_key(vals::ResetKey::KEY);
+            w.set_key(vals::ResetKey::Key);
         });
 
         regs.gprcm(0).pwren().write(|w| {
             w.set_enable(true);
-            w.set_key(vals::PwrenKey::KEY);
+            w.set_key(vals::PwrenKey::Key);
         });
 
         self.info.interrupt.disable();
@@ -349,7 +349,7 @@ impl<'d> I2cTarget<'d, Async> {
 
         // Set the rx fifo interrupt to avoid a fifo overflow
         regs.target(0).tfifoctl().modify(|r| {
-            r.set_rxtrig(vals::TfifoctlRxtrig::LEVEL_6);
+            r.set_rxtrig(vals::TfifoctlRxtrig::Level6);
         });
 
         self.wait_on(
@@ -370,13 +370,13 @@ impl<'d> I2cTarget<'d, Async> {
                 }
 
                 let iidx = regs.cpu_int(0).iidx().read().stat();
-                trace!("ls:{} len:{}", iidx as u8, len);
+                trace!("ls:{} len:{}", iidx.to_bits(), len);
                 let result = match iidx {
-                    CpuIntIidxStat::TTXEMPTY => match len {
+                    CpuIntIidxStat::Ttxempty => match len {
                         0 => Poll::Ready(Ok(Command::Read)),
                         w => Poll::Ready(Ok(Command::WriteRead(w))),
                     },
-                    CpuIntIidxStat::TSTOPFG => match (is_gencall, len) {
+                    CpuIntIidxStat::Tstopfg => match (is_gencall, len) {
                         (_, 0) => Poll::Pending,
                         (true, w) => Poll::Ready(Ok(Command::GeneralCall(w))),
                         (false, w) => Poll::Ready(Ok(Command::Write(w))),
@@ -423,11 +423,11 @@ impl<'d> I2cTarget<'d, Async> {
 
                 let iidx = regs.cpu_int(0).iidx().read().stat();
                 let fifo_bytes = fifo_size - regs.target(0).tfifosr().read().txfifocnt() as usize;
-                trace!("rs:{}, fifo:{}", iidx as u8, fifo_bytes);
+                trace!("rs:{}, fifo:{}", iidx.to_bits(), fifo_bytes);
 
                 let result = match iidx {
-                    CpuIntIidxStat::TTXEMPTY => Poll::Ready(Ok(ReadStatus::NeedMoreBytes)),
-                    CpuIntIidxStat::TSTOPFG => match fifo_bytes {
+                    CpuIntIidxStat::Ttxempty => Poll::Ready(Ok(ReadStatus::NeedMoreBytes)),
+                    CpuIntIidxStat::Tstopfg => match fifo_bytes {
                         0 => Poll::Ready(Ok(ReadStatus::Done)),
                         w => Poll::Ready(Ok(ReadStatus::LeftoverBytes(w as u16))),
                     },

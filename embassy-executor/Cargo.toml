@@ -40,6 +40,7 @@ build = [
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "trace"]},
+    {target = "riscv32imc-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "rtos-trace"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread", "trace"]},

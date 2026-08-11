@@ -51,6 +51,8 @@ pub use crate::pac::adc::vals::Exten;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
+#[cfg(any(adc_h5, adc_h7rs))]
+pub use crate::pac::adccommon::vals::Presc as Prescaler;
 #[allow(unused_imports)]
 use crate::{peripherals, rcc};
 
