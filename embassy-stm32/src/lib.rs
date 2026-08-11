@@ -831,11 +831,7 @@ fn init_hw(config: Config) -> Peripherals {
         {
             use crate::pac::pwr::vals;
             crate::pac::PWR.svmcr().modify(|w| {
-                w.set_io2sv(if config.enable_independent_io_supply {
-                    vals::Io2sv::B0x1
-                } else {
-                    vals::Io2sv::B0x0
-                });
+                w.set_io2sv(config.enable_independent_io_supply);
             });
 
             // Ultra-low-power BOR0 mode for lowest Stop 1 / Standby consumption.
@@ -898,14 +894,14 @@ fn init_hw(config: Config) -> Peripherals {
                     vals::Icrampds::Retained
                 });
                 w.set_prampds(if sram.otg_sram {
-                    vals::Prampds::B0x1
+                    vals::Srampds::PoweredOff
                 } else {
-                    vals::Prampds::B0x0
+                    vals::Srampds::PoweredOn
                 });
                 w.set_pkarampds(if sram.pka_sram {
-                    vals::Pkarampds::B0x1
+                    vals::Srampds::PoweredOff
                 } else {
-                    vals::Pkarampds::B0x0
+                    vals::Srampds::PoweredOn
                 });
             });
         }
