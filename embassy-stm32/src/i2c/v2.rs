@@ -1878,11 +1878,6 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
         let timeout = self.timeout();
 
-        self.info.regs.cr1().set_bits(|reg| {
-            reg.set_addrie(true);
-            trace!("Enable ADDRIE");
-        });
-
         loop {
             let isr = self.info.regs.isr().read();
             if isr.addr() {
