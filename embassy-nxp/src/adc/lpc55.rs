@@ -10,11 +10,10 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::pac;
 use crate::pac::adc0::{Adc0, vals};
 use crate::peripherals::ADC0;
 
-use crate::{Async, Blocking, Mode};
+use crate::{Async, Blocking, Mode, pac};
 
 /// Resolution selection
 pub enum Resolution {
