@@ -43,7 +43,7 @@ pub unsafe fn on_interrupt<T: Instance>() {
     });
 }
 
-impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
+impl<'d, M: PeriMode, IM: MasterMode, IrqBind> I2c<'d, M, IM, IrqBind> {
     pub(crate) fn init(&mut self, config: Config) {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
@@ -475,7 +475,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
     }
 }
 
-impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
+impl<'d, IM: MasterMode, IrqBind> I2c<'d, Async, IM, IrqBind> {
     async fn write_frame(&mut self, address: Address, write_buffer: &[u8], frame: FrameOptions) -> Result<(), Error> {
         let timeout = self.timeout();
 
@@ -1064,9 +1064,9 @@ enum SlaveTermination {
     Nack,
 }
 
-impl<'d, M: PeriMode> I2c<'d, M, Master> {
+impl<'d, M: PeriMode> I2c<'d, M, Master, IrqBound> {
     /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
-    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
+    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster, IrqBound> {
         let mut slave = I2c {
             info: self.info,
             state: self.state,
@@ -1077,6 +1077,7 @@ impl<'d, M: PeriMode> I2c<'d, M, Master> {
             timeout: self.timeout,
             _marker: PhantomData,
             _marker2: PhantomData,
+            _irq_bind: PhantomData,
             _drop_guard: self._drop_guard, // Move the drop guard
         };
         slave.init_slave(slave_addr_config);
@@ -1085,7 +1086,7 @@ impl<'d, M: PeriMode> I2c<'d, M, Master> {
 }
 
 // Address configuration methods
-impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
+impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM, IrqBound> {
     /// Initialize slave mode with address configuration
     pub(crate) fn init_slave(&mut self, config: SlaveAddrConfig) {
         trace!("I2C slave: initializing with config={:?}", config);
@@ -1176,7 +1177,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
     }
 }
 
-impl<'d, M: PeriMode> I2c<'d, M, MultiMaster> {
+impl<'d, M: PeriMode> I2c<'d, M, MultiMaster, IrqBound> {
     /// Listen for incoming I2C address match and return the command type
     ///
     /// This method blocks until the slave address is matched by a master.
@@ -1620,7 +1621,7 @@ impl<'d, M: PeriMode> I2c<'d, M, MultiMaster> {
     }
 }
 
-impl<'d> I2c<'d, Async, MultiMaster> {
+impl<'d> I2c<'d, Async, MultiMaster, IrqBound> {
     /// Async listen for incoming I2C messages using interrupts
     ///
     /// Waits for a master to address this slave and returns the command type
@@ -2149,7 +2150,7 @@ impl Timings {
     }
 }
 
-impl<'d, M: PeriMode> SetConfig for I2c<'d, M, Master> {
+impl<'d, M: PeriMode, IrqBind> SetConfig for I2c<'d, M, Master, IrqBind> {
     type Config = Hertz;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {

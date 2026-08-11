@@ -127,8 +127,15 @@ impl<'d> Drop for I2CDropGuard<'d> {
     }
 }
 
+/// Marker indicating interrupt is bound to I2C and can't be safely
+/// used in any other context
+pub struct IrqBound {}
+/// Marker indicating interrupt is not bound to I2C and can be safely
+/// used in any other context (for executor-interrupt or RTIC priorities management)
+pub struct IrqUnbound {}
+
 /// I2C driver.
-pub struct I2c<'d, M: Mode, IM: MasterMode> {
+pub struct I2c<'d, M: Mode, IM: MasterMode, IrqBind> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
@@ -138,10 +145,11 @@ pub struct I2c<'d, M: Mode, IM: MasterMode> {
     timeout: Duration,
     _marker: PhantomData<M>,
     _marker2: PhantomData<IM>,
+    _irq_bind: PhantomData<IrqBind>,
     _drop_guard: I2CDropGuard<'d>,
 }
 
-impl<'d> I2c<'d, Async, Master> {
+impl<'d> I2c<'d, Async, Master, IrqBound> {
     /// Create a new I2C driver.
     pub fn new<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
@@ -193,13 +201,13 @@ impl<'d> I2c<'d, Async, Master> {
     }
 }
 
-impl<'d> I2c<'d, Blocking, Master> {
-    /// Create a new blocking I2C driver.
+impl<'d> I2c<'d, Blocking, Master, IrqUnbound> {
+    /// Create a new blocking I2C driver without requiring binding IRQ handler to it.
     ///
     /// This doesn't unmask the event/error NVIC lines since no handler is bound here.
-    /// But they're still the I2C peripheral's lines - slave methods like blocking_listen
-    /// set interrupt-enable bits directly in the peripheral registers, so don't reuse
-    /// this vector for anything else (RTIC dispatch, etc). It's not free, just unmanaged.
+    /// Creating I2C instance like this prevents creating multimaster from it
+    /// as slave mode operates using interrupt registers that may trigger interrupts
+    /// Use "new_no_dma" to create blocking multimaster I2C instance
     pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
@@ -217,7 +225,7 @@ impl<'d> I2c<'d, Blocking, Master> {
     }
 }
 
-impl<'d, M: Mode> I2c<'d, M, Master> {
+impl<'d, M: Mode, IrqBind> I2c<'d, M, Master, IrqBind> {
     /// Create a new I2C driver.
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
@@ -237,6 +245,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
             timeout: config.timeout,
             _marker: PhantomData,
             _marker2: PhantomData,
+            _irq_bind: PhantomData,
             _drop_guard: I2CDropGuard {
                 info: T::info(),
                 _scl,
@@ -255,7 +264,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
     }
 }
 
-impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
+impl<'d, M: Mode, IM: MasterMode, Irq> I2c<'d, M, IM, Irq> {
     fn timeout(&self) -> Timeout {
         Timeout {
             #[cfg(feature = "time")]
@@ -367,7 +376,7 @@ foreach_peripheral!(
     };
 );
 
-impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M, IM> {
+impl<'d, M: Mode, IM: MasterMode, IrqBind> embedded_hal_02::blocking::i2c::Read for I2c<'d, M, IM, IrqBind> {
     type Error = Error;
 
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -375,7 +384,7 @@ impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::Read for I2c<'
     }
 }
 
-impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M, IM> {
+impl<'d, M: Mode, IM: MasterMode, IrqBind> embedded_hal_02::blocking::i2c::Write for I2c<'d, M, IM, IrqBind> {
     type Error = Error;
 
     fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
@@ -383,7 +392,7 @@ impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::Write for I2c<
     }
 }
 
-impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M, IM> {
+impl<'d, M: Mode, IM: MasterMode, IrqBind> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M, IM, IrqBind> {
     type Error = Error;
 
     fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
@@ -407,11 +416,11 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<'d, M: Mode, IM: MasterMode> embedded_hal_1::i2c::ErrorType for I2c<'d, M, IM> {
+impl<'d, M: Mode, IM: MasterMode, IrqBind> embedded_hal_1::i2c::ErrorType for I2c<'d, M, IM, IrqBind> {
     type Error = Error;
 }
 
-impl<'d, M: Mode, IM: MasterMode> embedded_hal_1::i2c::I2c for I2c<'d, M, IM> {
+impl<'d, M: Mode, IM: MasterMode, IrqBind> embedded_hal_1::i2c::I2c for I2c<'d, M, IM, IrqBind> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_read(address, read)
     }
@@ -433,7 +442,7 @@ impl<'d, M: Mode, IM: MasterMode> embedded_hal_1::i2c::I2c for I2c<'d, M, IM> {
     }
 }
 
-impl<'d, IM: MasterMode> embedded_hal_async::i2c::I2c for I2c<'d, Async, IM> {
+impl<'d, IM: MasterMode, IrqBind> embedded_hal_async::i2c::I2c for I2c<'d, Async, IM, IrqBind> {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.read(address, read).await
     }

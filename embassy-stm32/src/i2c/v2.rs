@@ -105,7 +105,7 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
     });
 }
 
-impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
+impl<'d, M: Mode, IM: MasterMode, IrqBind> I2c<'d, M, IM, IrqBind> {
     #[inline]
     fn to_reload(reload: bool) -> i2c::vals::Reload {
         if reload {
@@ -915,7 +915,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     }
 }
 
-impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
+impl<'d, IM: MasterMode, IrqBind> I2c<'d, Async, IM, IrqBind> {
     async fn write_dma_internal(
         &mut self,
         address: Address,
@@ -1569,9 +1569,9 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 }
 
-impl<'d, M: Mode> I2c<'d, M, Master> {
+impl<'d, M: Mode> I2c<'d, M, Master, IrqBound> {
     /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
-    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
+    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster, IrqBound> {
         let mut slave = I2c {
             info: self.info,
             state: self.state,
@@ -1582,6 +1582,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
             timeout: self.timeout,
             _marker: PhantomData,
             _marker2: PhantomData,
+            _irq_bind: PhantomData,
             _drop_guard: self._drop_guard,
         };
         slave.init_slave(slave_addr_config);
@@ -1589,7 +1590,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
     }
 }
 
-impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
+impl<'d, M: Mode> I2c<'d, M, MultiMaster, IrqBound> {
     pub(crate) fn init_slave(&mut self, config: SlaveAddrConfig) {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
@@ -1655,7 +1656,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     }
 }
 
-impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
+impl<'d, M: Mode> I2c<'d, M, MultiMaster, IrqBound> {
     /// # Safety
     /// This function will clear the address flag which will stop the clock stretching.
     /// This should only be done after the dma transfer has been set up.
@@ -1961,7 +1962,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     }
 }
 
-impl<'d> I2c<'d, Async, MultiMaster> {
+impl<'d> I2c<'d, Async, MultiMaster, IrqBound> {
     /// Listen for incoming I2C messages.
     ///
     /// The listen method is an asynchronous method but it does not require DMA to be asynchronous.
@@ -2461,7 +2462,7 @@ impl Timings {
     }
 }
 
-impl<'d, M: Mode> SetConfig for I2c<'d, M, Master> {
+impl<'d, M: Mode, IrqBind> SetConfig for I2c<'d, M, Master, IrqBind> {
     type Config = Hertz;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
@@ -2487,7 +2488,7 @@ impl<'d, M: Mode> SetConfig for I2c<'d, M, Master> {
     }
 }
 
-impl<'d, M: Mode> SetConfig for I2c<'d, M, MultiMaster> {
+impl<'d, M: Mode> SetConfig for I2c<'d, M, MultiMaster, IrqBound> {
     type Config = (Hertz, SlaveAddrConfig);
     type ConfigError = ();
     fn set_config(&mut self, (config, addr_config): &Self::Config) -> Result<(), ()> {
