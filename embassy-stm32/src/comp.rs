@@ -414,7 +414,13 @@ impl<'d, T: Instance> Comp<'d, T, Async> {
 
         #[cfg(any(comp_u5, comp_v1))]
         let winout = match config.window_output {
+            #[cfg(comp_u5)]
+            WindowOutput::OwnValue => vals::WindowOut::Comp1value,
+            #[cfg(comp_u5)]
+            WindowOutput::XorValue => vals::WindowOut::Comp1xorComp2value,
+            #[cfg(comp_v1)]
             WindowOutput::OwnValue => vals::WindowOut::Comp1Value,
+            #[cfg(comp_v1)]
             WindowOutput::XorValue => vals::WindowOut::Comp1ValueXorComp2Value,
         };
 
