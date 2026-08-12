@@ -1996,7 +1996,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     #[cfg(feature = "low-power")]
     pub async fn listen_low_power(&mut self) -> Result<SlaveCommand, Error> {
         let state = self.state;
-        self.info.regs.cr1().modify(|reg| {
+        self.info.regs.cr1().set_bits(|reg| {
             reg.set_wupen(true);
             reg.set_addrie(true);
             trace!("Enable WUPEN & ADDRIE");
