@@ -101,6 +101,10 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
             // Error flags are to be read in the routines, so we also don't clear them here
             w.set_nackie(false);
             w.set_errie(false);
+
+            // WUPEN keep triggering ADDR interrupt, it seems to override ADDRIE
+            #[cfg(feature = "low-power")]
+            w.set_wupen(false);
         });
     });
 }
@@ -1977,6 +1981,39 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 trace!("ADDR triggered (address match)");
                 // we do not clear the address flag here as it will be cleared by the dma read/write
                 // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
+                Poll::Ready(self.slave_command())
+            }
+        })
+        .await
+    }
+
+    /// Listen for incoming I2C messages in low power mode (STOP1 mode).
+    ///
+    /// The listen method is an asynchronous method but it does not require DMA to be asynchronous.
+    /// I2C clock should be set to appropriate clock so it can be awaken (e.g. HSI).
+    /// Some instances of I2C don't support this feature, refer to datasheet.
+    /// If unsupported instance is used, it will panic or never wake up.
+    #[cfg(feature = "low-power")]
+    pub async fn listen_low_power(&mut self) -> Result<SlaveCommand, Error> {
+        let state = self.state;
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_wupen(true);
+            reg.set_addrie(true);
+            trace!("Enable WUPEN & ADDRIE");
+        });
+        debug_assert!(
+            // WUPEN of unsupported instance will read 0. or it was set to 0 by ISR.
+            self.info.regs.cr1().read().wupen() || self.info.regs.isr().read().addr(),
+            "this I2C instance does not support wakeup from Stop mode"
+        );
+
+        poll_fn(|cx| {
+            state.waker.register(cx.waker());
+            let isr = self.info.regs.isr().read();
+            if !isr.addr() {
+                Poll::Pending
+            } else {
+                trace!("ADDR triggered (address match)");
                 Poll::Ready(self.slave_command())
             }
         })
