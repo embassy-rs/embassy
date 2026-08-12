@@ -70,7 +70,7 @@ impl Into<Lpms> for StopMode {
             #[cfg(stm32wba)]
             // WBA STOP2 is auto-entered by hardware when LPMS=STOP0 and
             // the 2.4 GHz radio is in deep sleep. It's not a separate LPMS value.
-            StopMode::Standby | StopMode::Stop2 => Lpms::Stop0,
+            StopMode::Standby | StopMode::Stop2 => Lpms::Stop2,
         }
     }
 }
