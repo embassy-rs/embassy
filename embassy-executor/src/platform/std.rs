@@ -72,6 +72,7 @@ mod thread {
                     break;
                 }
 
+                self.inner.trace_system_idle();
                 self.signaler.wait();
             }
         }
