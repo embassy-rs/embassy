@@ -161,9 +161,8 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
         assert!(buf_addr + buf_len <= EP_MEMORY_SIZE as u16);
         assert!(ep_info.max_packet_size <= buf_len);
 
-        // TODO: Support isochronous, bulk, and interrupt OUT
+        // TODO: Support isochronous and interrupt OUT
         assert!(E::ep_type() != EndpointType::Isochronous);
-        assert!(E::ep_type() != EndpointType::Bulk);
         assert!(!(E::ep_type() == EndpointType::Interrupt && D::is_out()));
 
         if ep_info.ep_type == EndpointType::Interrupt {
@@ -658,7 +657,8 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
                 self.wait_available().await;
             } else {
                 trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
-                self.set_data_in(buf[count..].len() as _);
+                let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
+                self.set_data_in(packet_len as u16);
                 if let Err(e) = self.wait_transaction().await {
                     break Err(e);
                 }
@@ -703,7 +703,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
         let res = loop {
             trace!("CHANNEL {} START WRITE", self.index);
-            let packet = self.set_data_out(buf);
+            let packet = self.set_data_out(&buf[count..]);
 
             if let Err(e) = self.wait_transaction().await {
                 break Err(e);
@@ -717,6 +717,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
                 if packet == self.max_packet_size as usize && ensure_transaction_end {
                     trace!("CHANNEL {} START ZLP WRITE", self.index);
                     self.set_data_out(&[]);
+                    if let Err(e) = self.wait_transaction().await {
+                        break Err(e);
+                    }
                     trace!("ZLP WRITE DONE");
                 }
                 break Ok(());
