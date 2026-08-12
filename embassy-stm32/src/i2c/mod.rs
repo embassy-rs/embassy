@@ -197,9 +197,8 @@ impl<'d> I2c<'d, Blocking, Master> {
     /// Create a new blocking I2C driver.
     ///
     /// This doesn't unmask the event/error NVIC lines since no handler is bound here.
-    /// But they're still the I2C peripheral's lines - slave methods like blocking_listen
-    /// set interrupt-enable bits directly in the peripheral registers, so don't reuse
-    /// this vector for anything else (RTIC dispatch, etc). It's not free, just unmanaged.
+    /// Blocking master and slave methods poll status registers directly and do not
+    /// enable peripheral-level interrupts.
     pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
