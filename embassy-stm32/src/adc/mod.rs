@@ -841,7 +841,8 @@ impl VrefInt {
         stm32l5,
         stm32l5,
         stm32wb,
-        stm32wl
+        stm32wl,
+        stm32u0,
     ))]
     /// The value that vref would be if vdda was at the factory calibration voltage `VREF_CALIB_MV`.
     pub fn calibrated_value(&self) -> u16 {
@@ -852,6 +853,15 @@ impl VrefInt {
 /// Internal temperature channel.
 pub struct Temperature;
 impl SpecialChannel for Temperature {}
+
+impl Temperature {
+    #[cfg(any(stm32u0))]
+    pub fn calibrated_value(&self) -> (u16, u16) {
+        let lower = crate::pac::TSCAL.tscal1().read();
+        let upper = crate::pac::TSCAL.tscal2().read();
+        (lower, upper)
+    }
+}
 
 /// Internal battery voltage channel.
 pub struct Vbat;
