@@ -108,7 +108,7 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::NonNull;
-use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering, fence};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering, fence};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -597,18 +597,18 @@ impl<'buf> PeripheralReadOperation<'buf> {
     }
 }
 
-/// A trait for operations that can be part of a sequence of DMA transfers.
-trait SequenceOperation {
+/// Internal access to TCD storage used when constructing an SG chain.
+trait TcdStorage {
     fn tcd_mut(&mut self) -> &mut Tcd;
 }
 
-impl SequenceOperation for PeripheralWriteOperation<'_> {
+impl TcdStorage for PeripheralWriteOperation<'_> {
     fn tcd_mut(&mut self) -> &mut Tcd {
         &mut self.tcd
     }
 }
 
-impl SequenceOperation for PeripheralReadOperation<'_> {
+impl TcdStorage for PeripheralReadOperation<'_> {
     fn tcd_mut(&mut self) -> &mut Tcd {
         &mut self.tcd
     }
@@ -816,6 +816,7 @@ impl DmaChannel<'_> {
         let byte_count = (params.dst_count as usize * WDST::size().bytes()) as u32;
 
         let t = self.tcd();
+        self.prepare_regular_transfer();
 
         // Reset channel state - clear DONE, disable requests, clear errors
         Self::reset_channel_state(&t);
@@ -1088,8 +1089,13 @@ impl DmaChannel<'_> {
     /// - The source/destination buffers in the sequence must remain valid for the duration of the transfer.
     /// - Every register's address in the sequence must be valid for read/writes.
     /// - All operations must be compatible with the configured DMA request
-    unsafe fn setup_sequence<T: SequenceOperation>(&mut self, sequence: &mut [T]) -> Result<(), InvalidParameters> {
-        // Reborrow so `sequence` stays usable to fetch and load the first TCD after chaining is complete.
+    unsafe fn setup_sequence<T: TcdStorage>(&mut self, sequence: &mut [T]) -> Result<(), InvalidParameters> {
+        if sequence.is_empty() {
+            return Err(InvalidParameters);
+        }
+
+        // Link the peripheral-paced TCDs. Intermediate TCDs only load the next
+        // descriptor; the final TCD disables requests and raises completion.
         let mut remaining = &mut *sequence;
         while let Some((current, tail)) = remaining.split_first_mut() {
             let mut csr = TcdCsr(0);
@@ -1116,14 +1122,12 @@ impl DmaChannel<'_> {
             remaining = tail;
         }
 
-        let tcd = self.tcd();
-
         // Reset channel state - clear DONE, disable requests, clear errors
         // This ensures the channel is in a clean state before loading the TCD
-        Self::reset_channel_state(&tcd);
+        Self::reset_channel_state(&self.tcd());
+        self.prepare_peripheral_scatter_gather();
 
-        // Memory & compiler barrier to ensure channel state is fully reset before touching TCD
-        // TO DO: Review memory ordering.
+        // Ensure the completed in-memory chain is visible before loading its head.
         fence(Ordering::Release);
 
         let head = sequence.first_mut().ok_or(InvalidParameters)?;
@@ -1486,10 +1490,46 @@ impl DmaChannel<'_> {
         });
     }
 
-    /// Return true if the channel's DONE flag is set.
+    /// Return true if the current transfer has completed.
+    ///
+    /// Regular transfers use the hardware DONE flag. Peripheral-paced SG uses
+    /// a completion latch set by its final-only interrupt.
     pub(crate) fn is_done(&self) -> bool {
-        let t = self.tcd();
-        t.ch_csr().read().done()
+        let state = &STATES[self.dma()][self.channel()];
+        if state.peripheral_scatter_gather_active.load(Ordering::Acquire) {
+            self.is_peripheral_scatter_gather_done(state)
+        } else {
+            self.tcd().ch_csr().read().done()
+        }
+    }
+
+    fn is_peripheral_scatter_gather_done(&self, state: &State) -> bool {
+        if state.peripheral_scatter_gather_done.load(Ordering::Acquire) {
+            return true;
+        }
+
+        let interrupted = self.tcd().ch_int().read().int();
+        if interrupted {
+            state.peripheral_scatter_gather_done.store(true, Ordering::Release);
+        }
+
+        // Observe a peripheral SG ISR that latched final completion and cleared
+        // CH_INT concurrently with the checks above.
+        state.peripheral_scatter_gather_done.load(Ordering::Acquire)
+    }
+
+    /// Reset the channel state for a regular transfer.
+    fn prepare_regular_transfer(&self) {
+        let state = &STATES[self.dma()][self.channel()];
+        state.peripheral_scatter_gather_active.store(false, Ordering::Release);
+        state.peripheral_scatter_gather_done.store(false, Ordering::Release);
+    }
+
+    /// Select final-interrupt completion tracking for peripheral-paced SG.
+    fn prepare_peripheral_scatter_gather(&self) {
+        let state = &STATES[self.dma()][self.channel()];
+        state.peripheral_scatter_gather_done.store(false, Ordering::Release);
+        state.peripheral_scatter_gather_active.store(true, Ordering::Release);
     }
 
     /// Clear the DONE flag for this channel.
@@ -1503,6 +1543,9 @@ impl DmaChannel<'_> {
     pub(crate) unsafe fn clear_done(&self) {
         let t = self.tcd();
         t.ch_csr().modify(|w| w.set_done(true));
+        STATES[self.dma()][self.channel()]
+            .peripheral_scatter_gather_done
+            .store(false, Ordering::Release);
     }
 
     /// Clear the channel interrupt flag (CH_INT.INT).
@@ -1694,6 +1737,10 @@ struct State {
     waker: WaitCell,
     /// WaitCell for half-transfer interrupt
     half_waker: WaitCell,
+    /// Whether this channel currently contains a peripheral-paced SG sequence.
+    peripheral_scatter_gather_active: AtomicBool,
+    /// Set when final peripheral-paced SG completion is observed.
+    peripheral_scatter_gather_done: AtomicBool,
 }
 
 impl State {
@@ -1701,6 +1748,8 @@ impl State {
         Self {
             waker: WaitCell::new(),
             half_waker: WaitCell::new(),
+            peripheral_scatter_gather_active: AtomicBool::new(false),
+            peripheral_scatter_gather_done: AtomicBool::new(false),
         }
     }
 }
@@ -2503,7 +2552,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
                 if is_last {
                     // Only one TCD - no ESG, no START (we add START manually)
                     self.tcds[i].dlast_sga = 0;
-                    self.tcds[i].csr = 0x0002; // INTMAJOR only
+                    self.tcds[i].csr = 0x0002; // INTMAJOR
                 } else {
                     // First of multiple - ESG to link, no START (we add START manually)
                     self.tcds[i].dlast_sga = &self.tcds[i + 1] as *const Tcd as i32;
@@ -2520,6 +2569,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
             }
         }
 
+        channel.prepare_regular_transfer();
         let t = channel.tcd();
 
         // Reset channel state - clear DONE, disable requests, clear errors
@@ -2601,12 +2651,24 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
         }
     }
 
+    // Peripheral-paced SG enables INTMAJOR only on its final TCD, so CH_INT
+    // can be latched as whole-chain completion while that mode is active.
+    let interrupted = t.ch_int().read().int();
+    let state = &STATES[dma][channel];
+    let peripheral_scatter_gather_active = state.peripheral_scatter_gather_active.load(Ordering::Acquire);
+    let peripheral_scatter_gather_interrupt = interrupted && peripheral_scatter_gather_active;
+    if peripheral_scatter_gather_interrupt {
+        state.peripheral_scatter_gather_done.store(true, Ordering::Release);
+    }
+
+    let done = t.ch_csr().read().done();
+
     // Clear INT flag
     t.ch_int().write(|w| w.set_int(true));
 
-    // If DONE is set, this is a complete-transfer interrupt
-    // Only wake the full-transfer waker when the transfer is actually complete
-    if t.ch_csr().read().done() {
+    // Regular transfers wake on DONE; the final peripheral SG interrupt wakes
+    // the waiter after latching whole-chain completion.
+    if done || peripheral_scatter_gather_interrupt {
         crate::perf_counters::incr_interrupt_edma0_wake();
         waker(dma, channel).wake();
     }

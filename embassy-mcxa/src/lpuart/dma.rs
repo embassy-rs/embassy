@@ -220,11 +220,14 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            let _ = guard.dma.wait_cell().poll_wait(cx);
-            if guard.dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
+            loop {
+                if guard.dma.is_done() {
+                    return core::task::Poll::Ready(());
+                }
+                match guard.dma.wait_cell().poll_wait(cx) {
+                    core::task::Poll::Pending => return core::task::Poll::Pending,
+                    core::task::Poll::Ready(_) => continue,
+                }
             }
         })
         .await;
@@ -266,11 +269,14 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            let _ = guard.dma.wait_cell().poll_wait(cx);
-            if guard.dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
+            loop {
+                if guard.dma.is_done() {
+                    return core::task::Poll::Ready(());
+                }
+                match guard.dma.wait_cell().poll_wait(cx) {
+                    core::task::Poll::Pending => return core::task::Poll::Pending,
+                    core::task::Poll::Ready(_) => continue,
+                }
             }
         })
         .await;
@@ -422,11 +428,14 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            let _ = guard.dma.wait_cell().poll_wait(cx);
-            if guard.dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
+            loop {
+                if guard.dma.is_done() {
+                    return core::task::Poll::Ready(());
+                }
+                match guard.dma.wait_cell().poll_wait(cx) {
+                    core::task::Poll::Pending => return core::task::Poll::Pending,
+                    core::task::Poll::Ready(_) => continue,
+                }
             }
         })
         .await;
@@ -472,11 +481,14 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            let _ = guard.dma.wait_cell().poll_wait(cx);
-            if guard.dma.is_done() {
-                core::task::Poll::Ready(())
-            } else {
-                core::task::Poll::Pending
+            loop {
+                if guard.dma.is_done() {
+                    return core::task::Poll::Ready(());
+                }
+                match guard.dma.wait_cell().poll_wait(cx) {
+                    core::task::Poll::Pending => return core::task::Poll::Pending,
+                    core::task::Poll::Ready(_) => continue,
+                }
             }
         })
         .await;
