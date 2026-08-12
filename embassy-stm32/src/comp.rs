@@ -587,13 +587,13 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
             WindowMode::Enabled => vals::WindowMode::OtherInpsel,
         };
 
-        #[cfg(any(comp_u5, comp_v1))]
+        #[cfg(comp_u5)]
         let winout = match config.window_output {
             WindowOutput::OwnValue => vals::WindowOut::Comp1value,
             WindowOutput::XorValue => vals::WindowOut::Comp1xorComp2value,
         };
 
-        #[cfg(comp_u0)]
+        #[cfg(any(comp_u0, comp_v1))]
         let winout = match config.window_output {
             WindowOutput::OwnValue => vals::WindowOut::Comp1Value,
             WindowOutput::XorValue => vals::WindowOut::Comp1ValueXorComp2Value,
@@ -618,11 +618,11 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
             {
                 w.set_scalen(matches!(
                     inmsel,
-                    vals::Inm::QUARTER_VREF | vals::Inm::HALF_VREF | vals::Inm::THREE_QUARTER_VREF | vals::Inm::VREF
+                    vals::Inm::QuarterVRef | vals::Inm::HalfVRef | vals::Inm::ThreeQuarterVRef | vals::Inm::VRef
                 ));
                 w.set_brgen(matches!(
                     inmsel,
-                    vals::Inm::QUARTER_VREF | vals::Inm::HALF_VREF | vals::Inm::THREE_QUARTER_VREF
+                    vals::Inm::QuarterVRef | vals::Inm::HalfVRef | vals::Inm::ThreeQuarterVRef
                 ));
             }
 
@@ -648,9 +648,9 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
             #[cfg(comp_u5)]
             InvertingInput::Dac2 => vals::Inm::Dac2,
             #[cfg(comp_v2)]
-            InvertingInput::Dac1 => vals::Inm::DACA,
+            InvertingInput::Dac1 => vals::Inm::Daca,
             #[cfg(comp_v2)]
-            InvertingInput::Dac2 => vals::Inm::DACB,
+            InvertingInput::Dac2 => vals::Inm::Dacb,
 
             InvertingInput::InputPin => vals::Inm::Inm1,
             #[cfg(comp_v2)]
@@ -715,12 +715,24 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
 
     /// Set the blanking source.
     pub fn set_blanking_source(&mut self, source: BlankingSource) {
-        #[cfg(any(comp_u5, comp_v2))]
+        #[cfg(comp_u5)]
         let blanksel = match source {
             BlankingSource::None => vals::Blanking::NoBlanking,
             BlankingSource::Blank1 => vals::Blanking::Blank1,
             BlankingSource::Blank2 => vals::Blanking::Blank2,
             BlankingSource::Blank3 => vals::Blanking::Blank3,
+        };
+
+        #[cfg(comp_v2)]
+        let blanksel = match source {
+            BlankingSource::None => vals::Blanking::NoBlanking,
+            BlankingSource::Blank1 => vals::Blanking::Blank1,
+            BlankingSource::Blank2 => vals::Blanking::Blank2,
+            BlankingSource::Blank3 => vals::Blanking::Blank3,
+            BlankingSource::Blank4 => vals::Blanking::Blank4,
+            BlankingSource::Blank5 => vals::Blanking::Blank5,
+            BlankingSource::Blank6 => vals::Blanking::Blank6,
+            BlankingSource::Blank7 => vals::Blanking::Blank7,
         };
 
         #[cfg(comp_v1)]
