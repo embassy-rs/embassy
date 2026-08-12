@@ -331,8 +331,8 @@ fn recursive_task() {
 fn task_metadata() {
     #[task]
     async fn task1(expected_name: Option<&'static str>) {
-        use embassy_executor::Metadata;
-        assert_eq!(Metadata::for_current_task().await.name(), expected_name);
+        use embassy_executor::MetadataRef;
+        assert_eq!(MetadataRef::for_current_task().await.name(), expected_name);
     }
 
     // check no task name
