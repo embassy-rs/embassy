@@ -40,6 +40,9 @@ pub(crate) trait SealedConfigure {
     /// Write the 3-bit function-select field for this pad.
     fn set_fncsel_bits(&self, sel: u8);
 
+    /// Configure the pad specifically for I2C (sets fncsel, inpen, and pullup)
+    fn configure_i2c_pad(&self, sel: u8);
+
     /// Configure the pad as an input with the given pull configuration.
     fn configure_as_input(&self, pull: Pull);
 
@@ -105,6 +108,18 @@ macro_rules! pins {
                         with_padkey(|| {
                             gpio.$padreg().modify(|w| {
                                 w.[<set_pad $n fncsel>](pac::gpio::vals::[<Pad $n fncsel>]::from_bits(sel))
+                            });
+                        });
+                    }
+
+                    #[inline(always)]
+                    fn configure_i2c_pad(&self, sel: u8) {
+                        let gpio = pac::GPIO;
+                        with_padkey(|| {
+                            gpio.$padreg().modify(|w| {
+                                w.[<set_pad $n fncsel>](pac::gpio::vals::[<Pad $n fncsel>]::from_bits(sel));
+                                w.[<set_pad $n inpen>](true);
+                                w.[<set_pad $n pull>](true);
                             });
                         });
                     }
