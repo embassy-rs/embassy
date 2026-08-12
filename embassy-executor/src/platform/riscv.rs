@@ -15,12 +15,17 @@ mod thread {
     /// global atomic used to keep track of whether there is work to do since sev() is not available on RISCV
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 
-    #[unsafe(export_name = "__pender")]
-    fn __pender(_context: *mut ()) {
-        // Relaxed ordering is sufficient because interrupts are disabled when the executor reads
-        // this variable.
-        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::Relaxed);
+    struct RiscvPender;
+
+    impl crate::pender::Pender for RiscvPender {
+        fn pend(_context: *mut ()) {
+            // Relaxed ordering is sufficient because interrupts are disabled when the executor reads
+            // this variable.
+            SIGNAL_WORK_THREAD_MODE.store(true, Ordering::Relaxed);
+        }
     }
+
+    pender_impl!(RiscvPender);
 
     /// RISC-V Executor
     pub struct Executor {

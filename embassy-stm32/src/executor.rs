@@ -29,45 +29,52 @@
 //! }
 //! ```
 
-#[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
-fn __pender(context: *mut ()) {
-    // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
-    // request number given to `InterruptExecutor::start`.
+struct Stm32Pender;
 
-    let context = context as usize;
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+embassy_executor::pender_impl!(Stm32Pender);
 
-    #[cfg(feature = "executor-thread")]
-    // Try to make Rust optimize the branching away if we only use thread mode.
-    if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
-        thread::SIGNAL_WORK_THREAD_MODE.store(true, core::sync::atomic::Ordering::SeqCst);
-        return;
-    }
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+impl embassy_executor::pender::Pender for Stm32Pender {
+    fn pend(context: *mut ()) {
+        // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
+        // request number given to `InterruptExecutor::start`.
 
-    #[cfg(feature = "executor-interrupt")]
-    unsafe {
-        use cortex_m::interrupt::InterruptNumber;
-        use cortex_m::peripheral::NVIC;
+        let context = context as usize;
 
-        #[derive(Clone, Copy)]
-        struct Irq(u16);
-        unsafe impl InterruptNumber for Irq {
-            fn number(self) -> u16 {
-                self.0
+        #[cfg(feature = "executor-thread")]
+        // Try to make Rust optimize the branching away if we only use thread mode.
+        if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+            thread::SIGNAL_WORK_THREAD_MODE.store(true, core::sync::atomic::Ordering::SeqCst);
+            return;
+        }
+
+        #[cfg(feature = "executor-interrupt")]
+        unsafe {
+            use cortex_m::interrupt::InterruptNumber;
+            use cortex_m::peripheral::NVIC;
+
+            #[derive(Clone, Copy)]
+            struct Irq(u16);
+            unsafe impl InterruptNumber for Irq {
+                fn number(self) -> u16 {
+                    self.0
+                }
             }
+
+            let irq = Irq(context as u16);
+
+            // STIR is faster, but is only available in v7 and higher.
+            #[cfg(not(armv6m))]
+            {
+                let mut nvic: NVIC = core::mem::transmute(());
+                nvic.request(irq);
+            }
+
+            #[cfg(armv6m)]
+            NVIC::pend(irq);
         }
-
-        let irq = Irq(context as u16);
-
-        // STIR is faster, but is only available in v7 and higher.
-        #[cfg(not(armv6m))]
-        {
-            let mut nvic: NVIC = core::mem::transmute(());
-            nvic.request(irq);
-        }
-
-        #[cfg(armv6m)]
-        NVIC::pend(irq);
     }
 }
 
