@@ -536,10 +536,10 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
 
         #[cfg(any(comp_u5, comp_v1))]
         let hyst = match config.hysteresis {
-            Hysteresis::None => vals::Hysteresis::NONE,
-            Hysteresis::Low => vals::Hysteresis::LOW,
-            Hysteresis::Medium => vals::Hysteresis::MEDIUM,
-            Hysteresis::High => vals::Hysteresis::HIGH,
+            Hysteresis::None => vals::Hysteresis::None,
+            Hysteresis::Low => vals::Hysteresis::Low,
+            Hysteresis::Medium => vals::Hysteresis::Medium,
+            Hysteresis::High => vals::Hysteresis::High,
         };
 
         #[cfg(comp_u0)]
@@ -587,7 +587,13 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
             WindowMode::Enabled => vals::WindowMode::OtherInpsel,
         };
 
-        #[cfg(any(comp_u5, comp_u0, comp_v1))]
+        #[cfg(any(comp_u5, comp_v1))]
+        let winout = match config.window_output {
+            WindowOutput::OwnValue => vals::WindowOut::Comp1value,
+            WindowOutput::XorValue => vals::WindowOut::Comp1xorComp2value,
+        };
+
+        #[cfg(comp_u0)]
         let winout = match config.window_output {
             WindowOutput::OwnValue => vals::WindowOut::Comp1Value,
             WindowOutput::XorValue => vals::WindowOut::Comp1ValueXorComp2Value,
@@ -633,22 +639,22 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
     fn configure(inp_channel: u8, config: Config) {
         #[cfg(any(comp_u5, comp_v2))]
         let inmsel = match config.inverting_input {
-            InvertingInput::OneQuarterVref => vals::Inm::QUARTER_VREF,
-            InvertingInput::HalfVref => vals::Inm::HALF_VREF,
-            InvertingInput::ThreeQuarterVref => vals::Inm::THREE_QUARTER_VREF,
-            InvertingInput::Vref => vals::Inm::VREF,
+            InvertingInput::OneQuarterVref => vals::Inm::QuarterVRef,
+            InvertingInput::HalfVref => vals::Inm::HalfVRef,
+            InvertingInput::ThreeQuarterVref => vals::Inm::ThreeQuarterVRef,
+            InvertingInput::Vref => vals::Inm::VRef,
             #[cfg(comp_u5)]
-            InvertingInput::Dac1 => vals::Inm::DAC1,
+            InvertingInput::Dac1 => vals::Inm::Dac1,
             #[cfg(comp_u5)]
-            InvertingInput::Dac2 => vals::Inm::DAC2,
+            InvertingInput::Dac2 => vals::Inm::Dac2,
             #[cfg(comp_v2)]
             InvertingInput::Dac1 => vals::Inm::DACA,
             #[cfg(comp_v2)]
             InvertingInput::Dac2 => vals::Inm::DACB,
 
-            InvertingInput::InputPin => vals::Inm::INM1,
+            InvertingInput::InputPin => vals::Inm::Inm1,
             #[cfg(comp_v2)]
-            InvertingInput::InputPin2 => vals::Inm::INM2,
+            InvertingInput::InputPin2 => vals::Inm::Inm2,
         };
 
         #[cfg(comp_u0)]
@@ -711,10 +717,10 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
     pub fn set_blanking_source(&mut self, source: BlankingSource) {
         #[cfg(any(comp_u5, comp_v2))]
         let blanksel = match source {
-            BlankingSource::None => vals::Blanking::NO_BLANKING,
-            BlankingSource::Blank1 => vals::Blanking::BLANK1,
-            BlankingSource::Blank2 => vals::Blanking::BLANK2,
-            BlankingSource::Blank3 => vals::Blanking::BLANK3,
+            BlankingSource::None => vals::Blanking::NoBlanking,
+            BlankingSource::Blank1 => vals::Blanking::Blank1,
+            BlankingSource::Blank2 => vals::Blanking::Blank2,
+            BlankingSource::Blank3 => vals::Blanking::Blank3,
         };
 
         #[cfg(comp_v1)]
