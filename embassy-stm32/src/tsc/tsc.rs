@@ -443,4 +443,20 @@ impl<'d, T: Instance> Tsc<'d, T, Blocking> {
     pub fn poll_for_acquisition(&mut self) {
         while self.get_state() == State::Busy {}
     }
+
+    /// Enable interrupts
+    pub fn enable_interrupt(&mut self) {
+        T::regs().ier().modify(|w| {
+            w.set_eoaie(true);
+            w.set_mceie(true);
+        });
+    }
+
+    /// Disable interrupts
+    pub fn disable_interrupt(&mut self) {
+        T::regs().ier().modify(|w| {
+            w.set_eoaie(false);
+            w.set_mceie(false);
+        });
+    }
 }
