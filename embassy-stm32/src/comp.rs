@@ -637,13 +637,13 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
     }
 
     fn configure(inp_channel: u8, config: Config) {
-        #[cfg(any(comp_u5, comp_v2))]
+        #[cfg(any(comp_u5, comp_v2, comp_v1))]
         let inmsel = match config.inverting_input {
             InvertingInput::OneQuarterVref => vals::Inm::QuarterVRef,
             InvertingInput::HalfVref => vals::Inm::HalfVRef,
             InvertingInput::ThreeQuarterVref => vals::Inm::ThreeQuarterVRef,
             InvertingInput::Vref => vals::Inm::VRef,
-            #[cfg(comp_u5)]
+            #[cfg(any(comp_u5, comp_v1))]
             InvertingInput::Dac1 => vals::Inm::Dac1,
             #[cfg(comp_u5)]
             InvertingInput::Dac2 => vals::Inm::Dac2,
@@ -653,8 +653,10 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
             InvertingInput::Dac2 => vals::Inm::Dacb,
 
             InvertingInput::InputPin => vals::Inm::Inm1,
-            #[cfg(comp_v2)]
+            #[cfg(any(comp_v1, comp_v2))]
             InvertingInput::InputPin2 => vals::Inm::Inm2,
+            #[cfg(comp_v1)]
+            InvertingInput::InputPin3 => vals::Inm::Inm3,
         };
 
         #[cfg(comp_u0)]
@@ -671,18 +673,18 @@ impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
             InvertingInput::InputPin5 => 9,
         };
 
-        #[cfg(any(comp_u5, comp_v2, comp_u0))]
+        #[cfg(any(comp_u5, comp_v2, comp_u0, comp_v1))]
         Self::configure_raw(inp_channel, inmsel, config);
     }
 
     fn configure_with_input_minus_pin(inp_channel: u8, inm_channel: u8, config: Config) {
         // Map the channel to the INM enum value
         // INM1 = 0x06, INM2 = 0x07
-        #[cfg(any(comp_u5, comp_v2))]
+        #[cfg(any(comp_u5, comp_v2, comp_v1))]
         let inmsel = vals::Inm::from_bits(0x06 + inm_channel);
         #[cfg(comp_u0)]
         let inmsel = inm_channel;
-        #[cfg(any(comp_u5, comp_v2, comp_u0))]
+        #[cfg(any(comp_u5, comp_v2, comp_u0, comp_v1))]
         Self::configure_raw(inp_channel, inmsel, config)
     }
 
