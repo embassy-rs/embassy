@@ -8,7 +8,7 @@ use crate::dma::{
     PeripheralWriteOperation, RingBuffer, TransferOptions,
 };
 use crate::gpio::AnyPin;
-use crate::pac::lpuart::{Tc, Tdre};
+use crate::pac::lpuart::{Rxflush, Tc, Tdre};
 
 /// DMA mode.
 pub struct Dma<'d> {
@@ -220,14 +220,11 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            loop {
-                if guard.dma.is_done() {
-                    return core::task::Poll::Ready(());
-                }
-                match guard.dma.wait_cell().poll_wait(cx) {
-                    core::task::Poll::Pending => return core::task::Poll::Pending,
-                    core::task::Poll::Ready(_) => continue,
-                }
+            let _ = guard.dma.wait_cell().poll_wait(cx);
+            if guard.dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
             }
         })
         .await;
@@ -269,14 +266,11 @@ impl<'a> LpuartTx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            loop {
-                if guard.dma.is_done() {
-                    return core::task::Poll::Ready(());
-                }
-                match guard.dma.wait_cell().poll_wait(cx) {
-                    core::task::Poll::Pending => return core::task::Poll::Pending,
-                    core::task::Poll::Ready(_) => continue,
-                }
+            let _ = guard.dma.wait_cell().poll_wait(cx);
+            if guard.dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
             }
         })
         .await;
@@ -428,14 +422,11 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            loop {
-                if guard.dma.is_done() {
-                    return core::task::Poll::Ready(());
-                }
-                match guard.dma.wait_cell().poll_wait(cx) {
-                    core::task::Poll::Pending => return core::task::Poll::Pending,
-                    core::task::Poll::Ready(_) => continue,
-                }
+            let _ = guard.dma.wait_cell().poll_wait(cx);
+            if guard.dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
             }
         })
         .await;
@@ -481,14 +472,11 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
-            loop {
-                if guard.dma.is_done() {
-                    return core::task::Poll::Ready(());
-                }
-                match guard.dma.wait_cell().poll_wait(cx) {
-                    core::task::Poll::Pending => return core::task::Poll::Pending,
-                    core::task::Poll::Ready(_) => continue,
-                }
+            let _ = guard.dma.wait_cell().poll_wait(cx);
+            if guard.dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
             }
         })
         .await;
@@ -510,6 +498,16 @@ impl<'a> LpuartRx<'a, Dma<'a>> {
                 check_and_clear_rx_errors(self.info)?;
             }
         }
+        Ok(())
+    }
+
+    /// Discard all bytes currently buffered in the hardware RX FIFO.
+    pub fn blocking_flush(&mut self) -> Result<(), Error> {
+        self.info.regs().fifo().modify(|w| w.set_rxflush(Rxflush::RxfifoRst));
+
+        // Flushing is a recovery operation, so clear stale receive errors
+        // without reporting them to the next transfer.
+        let _ = check_and_clear_rx_errors(self.info);
         Ok(())
     }
 

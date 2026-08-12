@@ -18,6 +18,7 @@ use embassy_futures::join::join;
 use embassy_futures::select::select;
 use embassy_mcxa as hal;
 use embassy_mcxa::clocks::config::Div8;
+use embassy_mcxa::clocks::periph_helpers::LpuartClockSel;
 use embassy_mcxa::lpuart::{Config, Dma, Error, Lpuart, LpuartRx, LpuartTx};
 use embassy_mcxa::trng::{InterruptHandler, Trng};
 use embassy_time::Timer;
@@ -30,24 +31,24 @@ hal::bind_interrupts!(
 );
 
 const REPORT_EVERY: usize = 1;
-const STRESS_PHASES: usize = 2_000;
+const STRESS_PHASES: usize = 100_000;
 const REGULAR_PAYLOAD_SIZE: usize = 256;
 const SG_PAYLOAD1_SIZE: usize = 37;
 const SG_PAYLOAD2_SIZE: usize = 173;
 const SG_PAYLOAD3_SIZE: usize = 509;
 const SG_PAYLOAD4_SIZE: usize = 83;
-const UART_BAUD_BPS: u64 = 115_200;
+const UART_BAUD_BPS: u64 = 3_000_000;
 const UART_BITS_PER_BYTE: u64 = 10;
 const UART_BYTE_TIME_US: u64 = (UART_BITS_PER_BYTE * 1_000_000 + UART_BAUD_BPS - 1) / UART_BAUD_BPS;
 const CANCEL_WINDOW_LOWER_FRACTION: u64 = 10;
 const CANCEL_WINDOW_UPPER_FRACTION: u64 = 90;
-const DRAIN_TIMEOUT_MICROS: u64 = 500;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut cfg = hal::config::Config::default();
     cfg.clock_cfg.sirc.fro_12m_enabled = true;
     cfg.clock_cfg.sirc.fro_lf_div = Some(Div8::no_div());
+    cfg.clock_cfg.firc.as_mut().unwrap().fro_hf_div = Some(Div8::no_div());
     let mut p = hal::init(cfg);
     let mut trng = Trng::new_async(p.TRNG0.reborrow(), Irqs, Default::default());
 
@@ -58,6 +59,7 @@ async fn main(_spawner: Spawner) {
         p.DMA0_CH0,
         p.DMA0_CH1,
         Config {
+            source: LpuartClockSel::FroHfDiv,
             baudrate_bps: UART_BAUD_BPS as u32,
             rx_fifo_watermark: 0,
             ..Default::default()
@@ -177,8 +179,9 @@ async fn cancel_regular_dma_then_recover<'a>(
     let cancel_timeout = Timer::after_micros(cancel_delay);
     let _ = select(cancelled_transfer, cancel_timeout).await;
 
-    // Data can be in flight when we abort; flush it before recovery check.
-    let _ = drain_stray_rx(rx).await;
+    // Wait for the finite loopback tail, then discard it before recovery.
+    tx.blocking_flush()?;
+    rx.blocking_flush()?;
 
     let receive = rx.read(&mut cancel_rx);
     let transmit = tx.write(&cancel_tx);
@@ -234,8 +237,11 @@ async fn cancel_scatter_gather_then_recover<'a>(
     let cancel_timeout = Timer::after_micros(cancel_delay);
     let _ = select(cancelled_transfer, cancel_timeout).await;
 
-    // Data can be in flight when we abort; flush it before recovery check.
-    let _ = drain_stray_rx(rx).await;
+    // Wait for the finite loopback tail, then discard it before recovery.
+    tx.blocking_flush()?;
+    rx.blocking_flush()?;
+
+    // info!("recovering from cancelled scatter-gather transfer");
 
     let receive = rx.read_scatter_gather([
         rx_buf_1.as_mut_slice(),
@@ -273,19 +279,6 @@ async fn random_cancel_delay_us(trng: &mut Trng<'_, hal::trng::Async>, payload_l
 fn fill_pattern(buffer: &mut [u8], seed: u32) {
     for (idx, byte) in buffer.iter_mut().enumerate() {
         *byte = seed.wrapping_add(idx as u32) as u8;
-    }
-}
-
-async fn drain_stray_rx<'a>(rx: &mut LpuartRx<'a, Dma<'a>>) -> usize {
-    let mut count = 0;
-    loop {
-        let mut byte = [0u8; 1];
-        let read = rx.read(&mut byte);
-        let timeout = Timer::after_micros(DRAIN_TIMEOUT_MICROS);
-        match select(read, timeout).await {
-            embassy_futures::select::Either::First(Ok(_)) => count += 1,
-            _ => return count,
-        }
     }
 }
 

@@ -2634,6 +2634,11 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
         _ => unreachable!(),
     };
 
+    if !t.ch_int().read().int() {
+        // The interrupt has been cleared, ignore this spurious interrupt.
+        return;
+    }
+
     // Read TCD CSR to determine interrupt source
     let csr = t.tcd_csr().read();
 
@@ -2653,22 +2658,19 @@ pub(crate) unsafe fn on_interrupt(dma: usize, channel: usize) {
 
     // Peripheral-paced SG enables INTMAJOR only on its final TCD, so CH_INT
     // can be latched as whole-chain completion while that mode is active.
-    let interrupted = t.ch_int().read().int();
     let state = &STATES[dma][channel];
-    let peripheral_scatter_gather_active = state.peripheral_scatter_gather_active.load(Ordering::Acquire);
-    let peripheral_scatter_gather_interrupt = interrupted && peripheral_scatter_gather_active;
-    if peripheral_scatter_gather_interrupt {
+    let wake = if state.peripheral_scatter_gather_active.load(Ordering::Acquire) {
         state.peripheral_scatter_gather_done.store(true, Ordering::Release);
-    }
-
-    let done = t.ch_csr().read().done();
+        true
+    } else {
+        t.ch_csr().read().done()
+    };
 
     // Clear INT flag
     t.ch_int().write(|w| w.set_int(true));
 
-    // Regular transfers wake on DONE; the final peripheral SG interrupt wakes
-    // the waiter after latching whole-chain completion.
-    if done || peripheral_scatter_gather_interrupt {
+    // If the transfer is done or if we're in peripheral
+    if wake {
         crate::perf_counters::incr_interrupt_edma0_wake();
         waker(dma, channel).wake();
     }
