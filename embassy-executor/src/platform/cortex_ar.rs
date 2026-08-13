@@ -4,17 +4,24 @@ compile_error!("`platform-cortex-ar` does not support the legacy ARM profile, WF
 #[cfg(feature = "executor-interrupt")]
 compile_error!("`executor-interrupt` is not supported with `platform-cortex-ar`.");
 
-#[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
-fn __pender(context: *mut ()) {
-    // `context` is always `usize::MAX` created by `Executor::run`.
-    let context = context as usize;
+struct CortexArPender;
 
-    #[cfg(feature = "executor-thread")]
-    // Try to make Rust optimize the branching away if we only use thread mode.
-    if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
-        aarch32_cpu::asm::sev();
-        return;
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+pender_impl!(CortexArPender);
+
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+impl crate::pender::Pender for CortexArPender {
+    fn pend(context: *mut ()) {
+        // `context` is always `usize::MAX` created by `Executor::run`.
+        let context = context as usize;
+
+        #[cfg(feature = "executor-thread")]
+        // Try to make Rust optimize the branching away if we only use thread mode.
+        if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+            aarch32_cpu::asm::sev();
+            return;
+        }
     }
 }
 

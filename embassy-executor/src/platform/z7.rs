@@ -4,34 +4,41 @@ use arbitrary_int::{prelude::*, u11};
 #[cfg(feature = "executor-interrupt")]
 use zynq7000::gic;
 
-#[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
-fn __pender(context: *mut ()) {
-    // `context` is always `usize::MAX` created by `Executor::run`.
-    let context = context as usize;
+struct Z7Pender;
 
-    #[cfg(feature = "executor-thread")]
-    // Try to make Rust optimize the branching away if we only use thread mode.
-    if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
-        aarch32_cpu::asm::sev();
-        return;
-    }
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+pender_impl!(Z7Pender);
 
-    #[cfg(feature = "executor-interrupt")]
-    {
-        let context = context & 0b1111;
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+impl crate::pender::Pender for Z7Pender {
+    fn pend(context: *mut ()) {
+        // `context` is always `usize::MAX` created by `Executor::run`.
+        let context = context as usize;
 
-        // Safety: We only pend the interrupt using the SGIR register.
-        let mut gic_distrib = unsafe { gic::DistributorRegisters::new_mmio_fixed() };
-        gic_distrib.write_sgir(
-            gic::SoftwareGeneratedInterruptRegister::builder()
-                .with_target_list_filter(gic::TargetListFilter::SendToSelf)
-                .with_cpu_target_list(0)
-                .with_security_condition(gic::SecurityCondition::IfConfiguredAsSecure)
-                .with_sbz(u11::ZERO)
-                .with_interrupt_id(u4::new(context as u8))
-                .build(),
-        );
+        #[cfg(feature = "executor-thread")]
+        // Try to make Rust optimize the branching away if we only use thread mode.
+        if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+            aarch32_cpu::asm::sev();
+            return;
+        }
+
+        #[cfg(feature = "executor-interrupt")]
+        {
+            let context = context & 0b1111;
+
+            // Safety: We only pend the interrupt using the SGIR register.
+            let mut gic_distrib = unsafe { gic::DistributorRegisters::new_mmio_fixed() };
+            gic_distrib.write_sgir(
+                gic::SoftwareGeneratedInterruptRegister::builder()
+                    .with_target_list_filter(gic::TargetListFilter::SendToSelf)
+                    .with_cpu_target_list(0)
+                    .with_security_condition(gic::SecurityCondition::IfConfiguredAsSecure)
+                    .with_sbz(u11::ZERO)
+                    .with_interrupt_id(u4::new(context as u8))
+                    .build(),
+            );
+        }
     }
 }
 

@@ -15,12 +15,13 @@
 //!
 //! IDs are only guaranteed to be unique for the duration of time the item is valid. If a task
 //! ends, and is re-spawned, it MAY or MAY NOT have the same ID. For tasks, this valid time is defined
-//! as the time between `_embassy_trace_task_new` and `_embassy_trace_task_end` for a given task.
+//! as the time between `Trace::task_new` and `Trace::task_end` for a given task.
 //! For executors, this time is not defined, but is often "forever" for practical embedded
 //! programs.
 //!
-//! Callbacks can be used by enabling the `trace` feature, and providing implementations of the
-//! `extern "Rust"` functions below. All callbacks must be implemented.
+//! Callbacks can be used by enabling the `trace` feature, implementing the `hooks::Trace`
+//! trait, and registering the implementation with the `embassy_executor::trace_impl!` macro.
+//! All callbacks must be implemented.
 //!
 //! ## Task Tracing lifecycle
 //!
@@ -43,16 +44,16 @@
 //!   └──────────────────────┘
 //! ```
 //!
-//! 1. A task is spawned, `_embassy_trace_task_new` is called
-//! 2. A task is enqueued for the first time, `_embassy_trace_task_ready_begin` is called
-//! 3. A task is polled, `_embassy_trace_task_exec_begin` is called
-//! 4. WHILE a task is polled, the task is re-awoken, and `_embassy_trace_task_ready_begin` is
+//! 1. A task is spawned, `task_new` is called
+//! 2. A task is enqueued for the first time, `task_ready_begin` is called
+//! 3. A task is polled, `task_exec_begin` is called
+//! 4. WHILE a task is polled, the task is re-awoken, and `task_ready_begin` is
 //!      called. The task does not IMMEDIATELY move state, until polling is complete and the
-//!      RUNNING state is existed. `_embassy_trace_task_exec_end` is called when polling is
+//!      RUNNING state is existed. `task_exec_end` is called when polling is
 //!      complete, marking the transition to WAITING
-//! 5. Polling is complete, `_embassy_trace_task_exec_end` is called
-//! 6. The task has completed, and `_embassy_trace_task_end` is called
-//! 7. A task is awoken, `_embassy_trace_task_ready_begin` is called
+//! 5. Polling is complete, `task_exec_end` is called
+//! 6. The task has completed, and `task_end` is called
+//! 7. A task is awoken, `task_ready_begin` is called
 //!
 //! ## Executor Tracing lifecycle
 //!
@@ -72,12 +73,12 @@
 //! ```
 //!
 //! 1. The executor is started (no associated trace)
-//! 2. A task on this executor is awoken. `_embassy_trace_task_ready_begin` is called
-//!      when this occurs, and `_embassy_trace_poll_start` is called when the executor
+//! 2. A task on this executor is awoken. `task_ready_begin` is called
+//!      when this occurs, and `poll_start` is called when the executor
 //!      actually begins running
-//! 3. The executor has decided a task to poll. `_embassy_trace_task_exec_begin` is called
-//! 4. The executor finishes polling the task. `_embassy_trace_task_exec_end` is called
-//! 5. The executor has finished polling tasks. `_embassy_trace_executor_idle` is called
+//! 3. The executor has decided a task to poll. `task_exec_begin` is called
+//! 4. The executor finishes polling the task. `task_exec_end` is called
+//! 5. The executor has finished polling tasks. `executor_idle` is called
 
 #![allow(unused)]
 
@@ -178,80 +179,100 @@ impl TaskTracker {
     }
 }
 
+/// The executor trace hooks, defined with the [`unitrait`] crate.
 #[cfg(feature = "trace")]
-unsafe extern "Rust" {
-    /// This callback is called when the executor begins polling. This will always
-    /// be paired with a later call to `_embassy_trace_executor_idle`.
-    ///
-    /// This marks the EXECUTOR state transition from IDLE -> SCHEDULING.
-    fn _embassy_trace_poll_start(executor_id: u32);
+pub mod hooks {
+    unitrait::unitrait! {
+        /// Executor trace hooks.
+        ///
+        /// Implement this trait and register the implementation with the
+        /// `embassy_executor::trace_impl!` macro to receive callbacks on task and executor
+        /// lifecycle events. All callbacks must be implemented.
+        ///
+        /// See the [module documentation](super) for the task and executor tracing lifecycles.
+        pub trait Trace {
+            /// This callback is called when the executor begins polling. This will always
+            /// be paired with a later call to `executor_idle`.
+            ///
+            /// This marks the EXECUTOR state transition from IDLE -> SCHEDULING.
+            #[symbol = "_embassy_trace_poll_start"]
+            pub(crate) fn poll_start(executor_id: u32);
 
-    /// This callback is called AFTER a task is initialized/allocated, and BEFORE
-    /// it is enqueued to run for the first time. If the task ends (and does not
-    /// loop "forever"), there will be a matching call to `_embassy_trace_task_end`.
-    ///
-    /// Tasks start life in the SPAWNED state.
-    fn _embassy_trace_task_new(executor_id: u32, task_id: u32);
+            /// This callback is called AFTER a task is initialized/allocated, and BEFORE
+            /// it is enqueued to run for the first time. If the task ends (and does not
+            /// loop "forever"), there will be a matching call to `task_end`.
+            ///
+            /// Tasks start life in the SPAWNED state.
+            #[symbol = "_embassy_trace_task_new"]
+            pub(crate) fn task_new(executor_id: u32, task_id: u32);
 
-    /// This callback is called AFTER a task is destructed/freed. This will always
-    /// have a prior matching call to `_embassy_trace_task_new`.
-    fn _embassy_trace_task_end(executor_id: u32, task_id: u32);
+            /// This callback is called AFTER a task is destructed/freed. This will always
+            /// have a prior matching call to `task_new`.
+            #[symbol = "_embassy_trace_task_end"]
+            pub(crate) fn task_end(executor_id: u32, task_id: u32);
 
-    /// This callback is called AFTER a task has been dequeued from the runqueue,
-    /// and BEFORE the task is polled. There will always be a matching call to
-    /// `_embassy_trace_task_exec_end`.
-    ///
-    /// This marks the TASK state transition from WAITING -> RUNNING
-    /// This marks the EXECUTOR state transition from SCHEDULING -> POLLING
-    fn _embassy_trace_task_exec_begin(executor_id: u32, task_id: u32);
+            /// This callback is called AFTER a task has been dequeued from the runqueue,
+            /// and BEFORE the task is polled. There will always be a matching call to
+            /// `task_exec_end`.
+            ///
+            /// This marks the TASK state transition from WAITING -> RUNNING
+            /// This marks the EXECUTOR state transition from SCHEDULING -> POLLING
+            #[symbol = "_embassy_trace_task_exec_begin"]
+            pub(crate) fn task_exec_begin(executor_id: u32, task_id: u32);
 
-    /// This callback is called AFTER a task has completed polling. There will
-    /// always be a matching call to `_embassy_trace_task_exec_begin`.
-    ///
-    /// This marks the TASK state transition from either:
-    /// * RUNNING -> IDLE - if there were no `_embassy_trace_task_ready_begin` events
-    ///     for this task since the last `_embassy_trace_task_exec_begin` for THIS task
-    /// * RUNNING -> WAITING - if there WAS a `_embassy_trace_task_ready_begin` event
-    ///     for this task since the last `_embassy_trace_task_exec_begin` for THIS task
-    ///
-    /// This marks the EXECUTOR state transition from POLLING -> SCHEDULING
-    fn _embassy_trace_task_exec_end(excutor_id: u32, task_id: u32);
+            /// This callback is called AFTER a task has completed polling. There will
+            /// always be a matching call to `task_exec_begin`.
+            ///
+            /// This marks the TASK state transition from either:
+            /// * RUNNING -> IDLE - if there were no `task_ready_begin` events
+            ///     for this task since the last `task_exec_begin` for THIS task
+            /// * RUNNING -> WAITING - if there WAS a `task_ready_begin` event
+            ///     for this task since the last `task_exec_begin` for THIS task
+            ///
+            /// This marks the EXECUTOR state transition from POLLING -> SCHEDULING
+            #[symbol = "_embassy_trace_task_exec_end"]
+            pub(crate) fn task_exec_end(executor_id: u32, task_id: u32);
 
-    /// This callback is called AFTER the waker for a task is awoken, and BEFORE it
-    /// is added to the run queue.
-    ///
-    /// If the given task is currently RUNNING, this marks no state change, BUT the
-    /// RUNNING task will then move to the WAITING stage when polling is complete.
-    ///
-    /// If the given task is currently IDLE, this marks the TASK state transition
-    /// from IDLE -> WAITING.
-    ///
-    /// NOTE: This may be called from an interrupt, outside the context of the current
-    /// task or executor.
-    fn _embassy_trace_task_ready_begin(executor_id: u32, task_id: u32);
+            /// This callback is called AFTER the waker for a task is awoken, and BEFORE it
+            /// is added to the run queue.
+            ///
+            /// If the given task is currently RUNNING, this marks no state change, BUT the
+            /// RUNNING task will then move to the WAITING stage when polling is complete.
+            ///
+            /// If the given task is currently IDLE, this marks the TASK state transition
+            /// from IDLE -> WAITING.
+            ///
+            /// NOTE: This may be called from an interrupt, outside the context of the current
+            /// task or executor.
+            #[symbol = "_embassy_trace_task_ready_begin"]
+            pub(crate) fn task_ready_begin(executor_id: u32, task_id: u32);
 
-    /// This callback is called AFTER all dequeued tasks in a single call to poll
-    /// have been processed. This will always be paired with a call to
-    /// `_embassy_trace_executor_idle`.
-    ///
-    /// This marks the EXECUTOR state transition from SCHEDULING -> IDLE
-    fn _embassy_trace_executor_idle(executor_id: u32);
+            /// This callback is called AFTER all dequeued tasks in a single call to poll
+            /// have been processed. This will always be paired with a call to
+            /// `poll_start`.
+            ///
+            /// This marks the EXECUTOR state transition from SCHEDULING -> IDLE
+            #[symbol = "_embassy_trace_executor_idle"]
+            pub(crate) fn executor_idle(executor_id: u32);
+        }
+
+        /// Register a type as the global executor trace hook implementation.
+        ///
+        /// See [`raw::trace::hooks::Trace`](crate::raw::trace::hooks::Trace).
+        macro trace_impl(path = $crate::raw::trace::hooks);
+    }
 }
 
 #[inline]
 pub(crate) fn poll_start(executor: &SyncExecutor) {
     #[cfg(feature = "trace")]
-    unsafe {
-        _embassy_trace_poll_start(executor as *const _ as u32)
-    }
+    hooks::poll_start(executor as *const _ as u32);
 }
 
 #[inline]
 pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
     #[cfg(feature = "trace")]
-    unsafe {
-        _embassy_trace_task_new(executor as *const _ as u32, task.as_ptr() as u32)
-    }
+    hooks::task_new(executor as *const _ as u32, task.as_ptr() as u32);
 
     #[cfg(feature = "rtos-trace")]
     {
@@ -273,17 +294,13 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
 #[inline]
 pub(crate) fn task_end(executor: *const SyncExecutor, task: &TaskRef) {
     #[cfg(feature = "trace")]
-    unsafe {
-        _embassy_trace_task_end(executor as u32, task.as_ptr() as u32)
-    }
+    hooks::task_end(executor as u32, task.as_ptr() as u32);
 }
 
 #[inline]
 pub(crate) fn task_ready_begin(executor: &SyncExecutor, task: &TaskRef) {
     #[cfg(feature = "trace")]
-    unsafe {
-        _embassy_trace_task_ready_begin(executor as *const _ as u32, task.as_ptr() as u32)
-    }
+    hooks::task_ready_begin(executor as *const _ as u32, task.as_ptr() as u32);
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::task_ready_begin(task.as_ptr() as u32);
 }
@@ -291,9 +308,7 @@ pub(crate) fn task_ready_begin(executor: &SyncExecutor, task: &TaskRef) {
 #[inline]
 pub(crate) fn task_exec_begin(executor: &SyncExecutor, task: &TaskRef) {
     #[cfg(feature = "trace")]
-    unsafe {
-        _embassy_trace_task_exec_begin(executor as *const _ as u32, task.as_ptr() as u32)
-    }
+    hooks::task_exec_begin(executor as *const _ as u32, task.as_ptr() as u32);
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::task_exec_begin(task.as_ptr() as u32);
 }
@@ -301,9 +316,7 @@ pub(crate) fn task_exec_begin(executor: &SyncExecutor, task: &TaskRef) {
 #[inline]
 pub(crate) fn task_exec_end(executor: &SyncExecutor, task: &TaskRef) {
     #[cfg(feature = "trace")]
-    unsafe {
-        _embassy_trace_task_exec_end(executor as *const _ as u32, task.as_ptr() as u32)
-    }
+    hooks::task_exec_end(executor as *const _ as u32, task.as_ptr() as u32);
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::task_exec_end();
 }
@@ -311,9 +324,7 @@ pub(crate) fn task_exec_end(executor: &SyncExecutor, task: &TaskRef) {
 #[inline]
 pub(crate) fn executor_idle(executor: &SyncExecutor) {
     #[cfg(feature = "trace")]
-    unsafe {
-        _embassy_trace_executor_idle(executor as *const _ as u32)
-    }
+    hooks::executor_idle(executor as *const _ as u32);
     #[cfg(feature = "rtos-trace")]
     rtos_trace::trace::system_idle();
 }

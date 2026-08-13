@@ -12,11 +12,16 @@ mod thread {
 
     use crate::{Spawner, raw};
 
-    #[unsafe(export_name = "__pender")]
-    fn __pender(context: *mut ()) {
-        let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
-        signaler.signal()
+    struct StdPender;
+
+    impl crate::pender::Pender for StdPender {
+        fn pend(context: *mut ()) {
+            let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
+            signaler.signal()
+        }
     }
+
+    pender_impl!(StdPender);
 
     /// Single-threaded std-based executor.
     pub struct Executor {
