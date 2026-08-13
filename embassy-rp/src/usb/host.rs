@@ -192,6 +192,32 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
 type BufferControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpBufferControl, rp_pac::common::RW>;
 type EpControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpControl, rp_pac::common::RW>;
 type AddrControlReg = rp_pac::common::Reg<rp_pac::usb::regs::AddrEndpX, rp_pac::common::RW>;
+
+struct TransactionGuard {
+    state: &'static HostState,
+    index: usize,
+    interrupt: bool,
+    ep_control: EpControlReg,
+    buffer_control: BufferControlReg,
+}
+
+impl Drop for TransactionGuard {
+    fn drop(&mut self) {
+        let selected = self.state.current_channel.load(Ordering::Relaxed);
+        if self.interrupt || selected == self.index || selected == 0 {
+            if !self.interrupt {
+                self.state.current_channel.store(0, Ordering::Relaxed);
+            }
+
+            self.ep_control.modify(|w| {
+                w.set_interrupt_per_buff(false);
+                w.set_enable(false);
+            });
+            self.buffer_control.modify(|w| w.set_available(0, false));
+        }
+    }
+}
+
 impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
     /// Get channel waker
     fn waker(&self) -> &AtomicWaker {
@@ -400,24 +426,13 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         }
     }
 
-    /// Clear current active channel and disable interrupt
-    ///
-    /// Safe to call outside of transfer context
-    fn clear_current(&self) {
-        // If this channel is selected
-        if self.is_ready_for_transaction() {
-            if !Self::is_interrupt_in() {
-                T::host_state().current_channel.store(0, Ordering::Relaxed);
-            }
-
-            self.ep_control().modify(|w| {
-                w.set_interrupt_per_buff(false);
-                w.set_enable(false);
-            });
-
-            self.buffer_control().modify(|w| {
-                w.set_available(0, false);
-            })
+    fn transaction_guard(&self) -> TransactionGuard {
+        TransactionGuard {
+            state: T::host_state(),
+            index: self.index,
+            interrupt: Self::is_interrupt_in(),
+            ep_control: self.ep_control(),
+            buffer_control: self.buffer_control(),
         }
     }
 
@@ -444,8 +459,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             w.set_receive_data(false);
             w.set_send_setup(true);
         });
-
-        self.pid = true;
     }
 
     /// Reload interrupt channel buffer register
@@ -461,7 +474,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             w.set_available(0, true);
         });
 
-        self.pid = !self.pid;
         // TODO: SOF?
         // T::regs().sie_ctrl().modify(|w| {
         //     w.set_sof_en(true);
@@ -478,20 +490,17 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Set DATA IN transaction
     ///
-    /// WARNING: This flips PID
-    fn set_data_in(&mut self, len: u16) {
+    fn set_data_in(&mut self, len: u16, pid: bool) {
         assert!(E::ep_type() != EndpointType::Interrupt);
 
         self.buffer_control().write(|w| {
-            w.set_pid(0, self.pid);
+            w.set_pid(0, pid);
             w.set_full(0, false);
             w.set_length(0, len);
             w.set_last(0, true);
             w.set_reset(true);
             w.set_available(0, true);
         });
-
-        self.pid = !self.pid;
 
         T::regs().sie_ctrl().modify(|w| {
             w.set_send_data(false);
@@ -502,7 +511,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Set DATA OUT transaction and copy data to buffer
     /// Returns count of copied bytes
-    fn set_data_out(&mut self, data: &[u8]) -> usize {
+    fn set_data_out(&mut self, data: &[u8], pid: bool) -> usize {
         assert!(E::ep_type() != EndpointType::Interrupt);
 
         let chunk = if data.len() > 0 {
@@ -515,14 +524,12 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
         self.buffer_control().write(|w| {
             w.set_available(0, true);
-            w.set_pid(0, self.pid);
+            w.set_pid(0, pid);
             w.set_full(0, true);
             w.set_length(0, chunk.len() as _);
             w.set_last(0, true);
             w.set_reset(true);
         });
-
-        self.pid = !self.pid;
 
         T::regs().sie_ctrl().modify(|w| {
             w.set_send_data(true);
@@ -531,6 +538,10 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         });
 
         chunk.len()
+    }
+
+    fn advance_pid(&mut self) {
+        self.pid = !self.pid;
     }
 
     /// Clear buffer interrupt bit
@@ -551,6 +562,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
         // Set this channel for transaction
         self.set_current();
+        let _guard = self.transaction_guard();
 
         trace!("SEND SETUP");
         // Prepare HW
@@ -558,9 +570,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
         // Wait for SETUP end
         let res = self.wait_transaction().await;
-
-        self.clear_current();
-
+        if res.is_ok() {
+            self.pid = true;
+        }
         res
     }
 
@@ -571,20 +583,20 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
         // Set this channel for transaction
         self.set_current();
+        let _guard = self.transaction_guard();
 
         // Status packet always have DATA1
         trace!("SEND STATUS");
-        self.pid = true;
         if active_direction_out {
-            self.set_data_in(0);
+            self.set_data_in(0, true);
         } else {
-            self.set_data_out(&[]);
+            self.set_data_out(&[], true);
         }
 
         let res = self.wait_transaction().await;
-
-        self.clear_current();
-
+        if res.is_ok() {
+            self.pid = false;
+        }
         res
     }
 }
@@ -647,6 +659,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
         // Set this channel for transaction
         self.set_current();
+        let _guard = self.transaction_guard();
 
         let mut count: usize = 0;
 
@@ -655,13 +668,15 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
                 trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
                 self.interrupt_reload();
                 self.wait_available().await;
+                self.advance_pid();
             } else {
                 trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
                 let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
-                self.set_data_in(packet_len as u16);
+                self.set_data_in(packet_len as u16, self.pid);
                 if let Err(e) = self.wait_transaction().await {
                     break Err(e);
                 }
+                self.advance_pid();
             }
 
             let free = &mut buf[count..];
@@ -682,8 +697,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             }
         };
 
-        self.clear_current();
-
         res
     }
 
@@ -698,16 +711,18 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
         // Set this channel for transaction
         self.set_current();
+        let _guard = self.transaction_guard();
 
         let mut count = 0;
 
         let res = loop {
             trace!("CHANNEL {} START WRITE", self.index);
-            let packet = self.set_data_out(&buf[count..]);
+            let packet = self.set_data_out(&buf[count..], self.pid);
 
             if let Err(e) = self.wait_transaction().await {
                 break Err(e);
             }
+            self.advance_pid();
 
             trace!("WRITE DONE, tx_len = {}", packet);
 
@@ -716,17 +731,17 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             if count == buf.len() {
                 if packet == self.max_packet_size as usize && ensure_transaction_end {
                     trace!("CHANNEL {} START ZLP WRITE", self.index);
-                    self.set_data_out(&[]);
+                    self.set_data_out(&[], self.pid);
                     if let Err(e) = self.wait_transaction().await {
                         break Err(e);
                     }
+                    self.advance_pid();
                     trace!("ZLP WRITE DONE");
                 }
                 break Ok(());
             }
         };
 
-        self.clear_current();
         res
     }
 
