@@ -772,6 +772,17 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
     fn drop(&mut self) {
         if self.index < 16 {
+            // Disarm and clear stale state so the interrupt slot can be reused safely.
+            let regs = T::regs();
+            let dpram = T::dpram();
+
+            regs.int_ep_ctrl().modify(|w| {
+                w.set_int_ep_active(w.int_ep_active() & !(1 << (self.index - 1)));
+            });
+            dpram.ep_in_control(self.index - 1).write(|w| w.0 = 0);
+            dpram.ep_in_buffer_control(self.index).write(|w| w.0 = 0);
+            regs.buff_status().write_clear(|w| w.0 = 0b11 << (self.index * 2));
+
             let state = T::host_state();
             critical_section::with(|_| {
                 let pipes = &state.allocated_pipes;
