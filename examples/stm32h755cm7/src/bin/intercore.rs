@@ -157,7 +157,7 @@ async fn main(_spawner: Spawner) -> ! {
     // Set up MPU and cache configuration
     {
         let mut cp = cortex_m::Peripherals::take().unwrap();
-        let scb = &mut cp.SCB;
+        let mut scb = &mut cp.SCB;
 
         // First disable caches
         scb.disable_icache();
