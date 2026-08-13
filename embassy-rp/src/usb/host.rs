@@ -72,6 +72,7 @@ impl SealedHostInstance for crate::peripherals::USB {
 /// RP2040 USB host driver handle.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+    connected: bool,
 }
 
 impl<'d, T: SealedHostInstance> Driver<'d, T> {
@@ -128,7 +129,10 @@ impl<'d, T: SealedHostInstance> Driver<'d, T> {
         // Reset per-instance allocator state.
         T::host_state().reset();
 
-        Self { phantom: PhantomData }
+        Self {
+            phantom: PhantomData,
+            connected: false,
+        }
     }
 }
 
@@ -833,8 +837,7 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
             _ => false,
         };
 
-        // Read current state
-        let was = is_connected(T::regs().sie_status().read().speed());
+        let was = self.connected;
 
         // Clear interrupt status
         T::regs().sie_status().write_clear(|w| {
@@ -862,6 +865,8 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
         })
         .await;
 
+        self.connected = matches!(ev, DeviceEvent::Connected(_));
+
         // Per the `UsbHostController` contract, drive a bus reset before
         // reporting the attach so the device transitions from the Powered
         // into the Default state (USB 2.0 §9.1.2). RP2040 is full-speed
@@ -879,6 +884,10 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
         });
 
         embassy_time::Timer::after_millis(50).await;
+
+        T::regs().sie_ctrl().modify(|w| {
+            w.set_reset_bus(false);
+        });
     }
 }
 
