@@ -75,16 +75,12 @@ jobs:
 
           echo "sync=true" >> "$GITHUB_OUTPUT"
 
-      - name: Merge upstream
+            - name: Merge upstream
         if: steps.decide.outputs.sync == 'true'
-        run:
+        run: |
           set -euo pipefail
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git merge --no-edit upstream/main
-
-          git push origin main
-		  
-		  
