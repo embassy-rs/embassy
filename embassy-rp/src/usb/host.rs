@@ -165,8 +165,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         assert!(buf_addr + buf_len <= EP_MEMORY_SIZE as u16);
         assert!(ep_info.max_packet_size <= buf_len);
 
-        // TODO: Support isochronous and interrupt OUT
-        assert!(E::ep_type() != EndpointType::Isochronous);
+        // TODO: Support interrupt OUT
         assert!(!(E::ep_type() == EndpointType::Interrupt && D::is_out()));
 
         if ep_info.ep_type == EndpointType::Interrupt {
@@ -496,6 +495,11 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     ///
     fn set_data_in(&mut self, len: u16, pid: bool) {
         assert!(E::ep_type() != EndpointType::Interrupt);
+        let pid = if E::ep_type() == EndpointType::Isochronous {
+            false
+        } else {
+            pid
+        };
 
         self.buffer_control().write(|w| {
             w.set_pid(0, pid);
@@ -517,6 +521,11 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     /// Returns count of copied bytes
     fn set_data_out(&mut self, data: &[u8], pid: bool) -> usize {
         assert!(E::ep_type() != EndpointType::Interrupt);
+        let pid = if E::ep_type() == EndpointType::Isochronous {
+            false
+        } else {
+            pid
+        };
 
         let chunk = if data.len() > 0 {
             data.chunks(self.max_packet_size as _).next().unwrap()
@@ -545,7 +554,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     }
 
     fn advance_pid(&mut self) {
-        self.pid = !self.pid;
+        if E::ep_type() != EndpointType::Isochronous {
+            self.pid = !self.pid;
+        }
     }
 
     /// Clear buffer interrupt bit
