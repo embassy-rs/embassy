@@ -772,9 +772,11 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
     fn drop(&mut self) {
         if self.index < 16 {
-            T::host_state()
-                .allocated_pipes
-                .fetch_and(!(1 << self.index), Ordering::Relaxed);
+            let state = T::host_state();
+            critical_section::with(|_| {
+                let pipes = &state.allocated_pipes;
+                pipes.store(pipes.load(Ordering::Relaxed) & !(1 << self.index), Ordering::Relaxed);
+            });
         }
     }
 }
