@@ -39,9 +39,9 @@ jobs:
           UPSTREAM_HEAD="$(git rev-parse upstream/main)"
           BASE="$(git merge-base HEAD upstream/main)"
 
-          echo "Fork HEAD:     $FORK_HEAD"
+          echo "Fork HEAD: $FORK_HEAD"
           echo "Upstream HEAD: $UPSTREAM_HEAD"
-          echo "Common base:   $BASE"
+          echo "Common base: $BASE"
 
           # Nothing new upstream.
           if [ "$BASE" = "$UPSTREAM_HEAD" ]; then
@@ -75,7 +75,7 @@ jobs:
 
           echo "sync=true" >> "$GITHUB_OUTPUT"
 
-            - name: Merge upstream
+      - name: Merge upstream
         if: steps.decide.outputs.sync == 'true'
         run: |
           set -euo pipefail
@@ -84,3 +84,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git merge --no-edit upstream/main
+
+          git push origin main
