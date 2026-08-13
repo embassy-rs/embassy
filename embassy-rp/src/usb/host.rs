@@ -135,7 +135,7 @@ impl<'d, T: SealedHostInstance> Driver<'d, T> {
 /// USB endpoint.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Channel<'d, T: Instance, E, D> {
+pub struct Channel<'d, T: SealedHostInstance, E, D> {
     _phantom: PhantomData<(&'d mut T, E, D)>,
     index: usize,
     buf: EndpointBuffer<T>,
@@ -153,7 +153,7 @@ pub struct Channel<'d, T: Instance, E, D> {
     pre: bool,
 }
 
-impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
+impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
     /// [EP_MEMORY]-relative address
     fn new(index: usize, buf_addr: u16, buf_len: u16, ep_info: &EndpointInfo, dev_addr: u8, pre: bool) -> Self {
         // TODO: assert only in debug?
@@ -754,16 +754,15 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     }
 }
 
-// TODO: channel should have reference to `allocated_pipes`
-// impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Drop for Channel<'d, T, E, D> {
-//     fn drop(&mut self) {
-//         if E::ep_type() == EndpointType::Interrupt {
-//             // Clear interrupts
-//             channel.clear_current();
-//             self.allocated_pipes.fetch_and(!(1 << channel.index), Ordering::Relaxed);
-//         }
-//     }
-// }
+impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
+    fn drop(&mut self) {
+        if self.index < 16 {
+            T::host_state()
+                .allocated_pipes
+                .fetch_and(!(1 << self.index), Ordering::Relaxed);
+        }
+    }
+}
 
 /// Pipe allocator handle for [`Driver`].
 pub struct Allocator<'d, T: Instance> {
