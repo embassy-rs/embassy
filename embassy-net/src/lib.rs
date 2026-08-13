@@ -499,15 +499,30 @@ impl<'d> Stack<'d> {
         self.with(|i| i.link_up)
     }
 
-    /// Check whether the network stack has a valid IP configuration.
-    /// This is true if the network stack has a static IP configuration or if DHCP has completed
+    #[cfg(feature = "proto-ipv4")]
+    /// Check whether the network stack has a valid IPv4 configuration.
+    pub fn is_config_v4_up(&self) -> bool {
+        self.config_v4().is_some()
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    /// Check whether the network stack has a valid IPv6 configuration.
+    pub fn is_config_v6_up(&self) -> bool {
+        self.config_v6().is_some()
+    }
+
+    /// Check whether the network stack has any valid IP configuration.
+    ///
+    /// This is true if the network stack has obtained either a statically or dynamically
+    /// configured (DHCP or SLAAC) IPv4 or IPv6 configuration. A configuration for either IPv4 or
+    /// IPv6 suffices, even if both are enabled.
     pub fn is_config_up(&self) -> bool {
         let v4_up;
         let v6_up;
 
         #[cfg(feature = "proto-ipv4")]
         {
-            v4_up = self.config_v4().is_some();
+            v4_up = self.is_config_v4_up();
         }
         #[cfg(not(feature = "proto-ipv4"))]
         {
@@ -516,7 +531,7 @@ impl<'d> Stack<'d> {
 
         #[cfg(feature = "proto-ipv6")]
         {
-            v6_up = self.config_v6().is_some();
+            v6_up = self.is_config_v6_up();
         }
         #[cfg(not(feature = "proto-ipv6"))]
         {
@@ -542,13 +557,39 @@ impl<'d> Stack<'d> {
         self.wait(|| !self.is_link_up()).await
     }
 
-    /// Wait for the network stack to obtain a valid IP configuration.
+    #[cfg(feature = "proto-ipv4")]
+    /// Wait for the network stack to obtain a valid IPv4 configuration.
     ///
     /// ## Notes:
     /// - Ensure [`Runner::run`] has been started before using this function.
     ///
     /// - This function may never return (e.g. if no configuration is obtained through DHCP).
     /// The caller is supposed to handle a timeout for this case.
+    pub async fn wait_config_v4_up(&self) {
+        self.wait(|| self.is_config_v4_up()).await
+    }
+
+    #[cfg(feature = "proto-ipv6")]
+    /// Wait for the network stack to obtain a valid IPv6 configuration.
+    ///
+    /// ## Notes:
+    /// - Ensure [`Runner::run`] has been started before using this function.
+    ///
+    /// - This function may never return (e.g. if no configuration is obtained through DHCP).
+    /// The caller is supposed to handle a timeout for this case.
+    pub async fn wait_config_v6_up(&self) {
+        self.wait(|| self.is_config_v6_up()).await
+    }
+
+    /// Wait for the network stack to obtain any valid IP configuration.
+    ///
+    /// ## Notes:
+    /// - Ensure [`Runner::run`] has been started before using this function.
+    ///
+    /// - This function may never return (e.g. if no configuration is obtained through DHCP).
+    /// The caller is supposed to handle a timeout for this case.
+    ///
+    /// - This will return if either an IPv4 or IPv6 configuration is obtained.
     ///
     /// ## Example
     /// ```ignore
