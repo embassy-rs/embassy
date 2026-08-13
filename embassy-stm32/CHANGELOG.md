@@ -67,6 +67,7 @@ RCC:
 - feat: stm32/rcc/c0: add `Config::sys_div` to configure the SYSDIV divider on chips that have it (C051, C071, C091/C092). It was previously never programmed and not accounted for in the reported SYSCLK
 - change: stm32/rcc/c0: rename `Hsi::sys_div` to `Hsi::div` and `HsiSysDiv` to `HsiDiv` (breaking change). The field sets HSIDIV, not SYSDIV; the old name suggested otherwise
 - fix: stm32/rcc/c0: raise the flash read access latency before anything that can raise the core frequency, so a configuration handed over from a bootloader without a reset cannot run above 24 MHz with too few wait states
+- fix: stm32/rcc/l: set the maximum flash latency before raising the MSI range, so MSI above the reset wait-state limit (e.g. 48 MHz) as sysclk no longer hardfaults in `init()` on L4, L5, WB and U0 (extends the WL-only fix from #2786; L0/L1 are unaffected, their MSI tops out at 4.194 MHz)
 
 SPI:
 - change default NSS configuration from active-high to active-low

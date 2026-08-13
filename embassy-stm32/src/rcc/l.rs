@@ -188,10 +188,23 @@ pub(crate) unsafe fn init(config: Config) {
         while RCC.cfgr().read().sws() != Sysclk::Msi {}
     }
 
-    #[cfg(stm32wl)]
+    // Set the maximum flash wait states now: `config.msi` below may raise the
+    // MSI frequency (up to 48 MHz) while MSI is the active sysclk, before the
+    // computed latency is written. Raising latency is always safe; the exact
+    // value for the target clocks is set later. stm32l0/l1 are not affected:
+    // their MSI tops out at 4.194 MHz, within zero wait states at every
+    // voltage range.
+    #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
     {
-        // Set max latency
-        FLASH.acr().modify(|w| w.set_latency(2));
+        #[cfg(any(stm32l4, stm32wb))]
+        const MAX_LATENCY: u8 = 4;
+        #[cfg(stm32l5)]
+        const MAX_LATENCY: u8 = 5;
+        #[cfg(any(stm32wl, stm32u0))]
+        const MAX_LATENCY: u8 = 2;
+
+        FLASH.acr().modify(|w| w.set_latency(MAX_LATENCY));
+        while FLASH.acr().read().latency() != MAX_LATENCY {}
     }
 
     // Set voltage scale
