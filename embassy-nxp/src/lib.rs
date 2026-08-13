@@ -5,6 +5,8 @@
 pub(crate) mod fmt;
 
 #[cfg(lpc55)]
+pub mod adc;
+#[cfg(lpc55)]
 pub mod dma;
 pub mod gpio;
 #[cfg(lpc55)]
@@ -13,6 +15,8 @@ pub mod pint;
 pub mod pwm;
 #[cfg(lpc55)]
 pub mod sct;
+#[cfg(lpc55)]
+pub mod spi;
 #[cfg(lpc55)]
 pub mod usart;
 

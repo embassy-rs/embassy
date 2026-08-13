@@ -20,7 +20,7 @@ use crate::pac::ETH;
 #[cfg(any(eth_v2a, eth_v2b))]
 use crate::pac::ETH1 as ETH;
 use crate::peripherals::SYSCFG;
-use crate::rcc::WakeGuard;
+use crate::rcc::MaybeWakeGuard;
 use crate::{interrupt, rcc};
 
 /// Access a per-channel DMA/MTL register at channel 0.
@@ -66,7 +66,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 /// Ethernet driver.
 pub struct Ethernet<'d, T: Instance, P: Phy> {
     _peri: Peri<'d, T>,
-    _wake_guard: WakeGuard,
+    pub(crate) wake_guard: MaybeWakeGuard,
     pub(crate) link_state: LinkState,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
@@ -521,24 +521,16 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
-        #[cfg(feature = "ptp")]
-        let (tx_state, rx_state) = queue.packet_state.split();
-
         let mut this = Self {
             _peri: peri,
-            _wake_guard: T::RCC_INFO.wake_guard(),
+            wake_guard: T::RCC_INFO.wake_guard().into(),
             tx: TDesRing::new(
                 &mut queue.tx_desc,
                 &mut queue.tx_buf,
                 #[cfg(feature = "ptp")]
-                tx_state,
+                &mut queue.tx_id,
             ),
-            rx: RDesRing::new(
-                &mut queue.rx_desc,
-                &mut queue.rx_buf,
-                #[cfg(feature = "ptp")]
-                rx_state,
-            ),
+            rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
             _pins: pins,
             phy,
             mac_addr,

@@ -16,36 +16,43 @@
 //! }
 //! ```
 
-#[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
-fn __pender(context: *mut ()) {
-    // `context` is either `THREAD_PENDER`, or an interrupt number passed to `InterruptExecutor::start`.
-    let context = context as usize;
+struct Mspm0Pender;
 
-    #[cfg(feature = "executor-thread")]
-    // Try to optimize away the branch when only thread mode is enabled.
-    if !cfg!(feature = "executor-interrupt") || context == thread::THREAD_PENDER {
-        thread::SIGNAL_WORK_THREAD_MODE.store(true, core::sync::atomic::Ordering::SeqCst);
-        return;
-    }
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+embassy_executor::pender_impl!(Mspm0Pender);
 
-    #[cfg(feature = "executor-interrupt")]
-    {
-        use cortex_m::interrupt::InterruptNumber;
-        use cortex_m::peripheral::NVIC;
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+impl embassy_executor::pender::Pender for Mspm0Pender {
+    fn pend(context: *mut ()) {
+        // `context` is either `THREAD_PENDER`, or an interrupt number passed to `InterruptExecutor::start`.
+        let context = context as usize;
 
-        #[derive(Clone, Copy)]
-        struct Irq(u16);
-
-        // SAFETY: `context` was an `InterruptNumber` when passed to `InterruptExecutor::start`.
-        unsafe impl InterruptNumber for Irq {
-            fn number(self) -> u16 {
-                self.0
-            }
+        #[cfg(feature = "executor-thread")]
+        // Try to optimize away the branch when only thread mode is enabled.
+        if !cfg!(feature = "executor-interrupt") || context == thread::THREAD_PENDER {
+            thread::SIGNAL_WORK_THREAD_MODE.store(true, core::sync::atomic::Ordering::SeqCst);
+            return;
         }
 
-        // MSPM0 is Cortex-M0+, which has no STIR.
-        NVIC::pend(Irq(context as u16));
+        #[cfg(feature = "executor-interrupt")]
+        {
+            use cortex_m::interrupt::InterruptNumber;
+            use cortex_m::peripheral::NVIC;
+
+            #[derive(Clone, Copy)]
+            struct Irq(u16);
+
+            // SAFETY: `context` was an `InterruptNumber` when passed to `InterruptExecutor::start`.
+            unsafe impl InterruptNumber for Irq {
+                fn number(self) -> u16 {
+                    self.0
+                }
+            }
+
+            // MSPM0 is Cortex-M0+, which has no STIR.
+            NVIC::pend(Irq(context as u16));
+        }
     }
 }
 

@@ -1,6 +1,8 @@
 #![macro_use]
 
+use core::cell::UnsafeCell;
 use core::future::Future;
+use core::mem::MaybeUninit;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence, fence};
 use core::task::{Context, Poll};
@@ -15,6 +17,7 @@ use pac::lpdma::{Channel as BaseChannel, Lpdma as BaseRegs, vals};
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Request, STATE};
 use crate::_generated::DmaChannel;
+use crate::dma::LinearItem;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::rcc::WakeGuard;
@@ -25,6 +28,29 @@ pub mod ringbuffered;
 pub mod two_d;
 
 pub use vals::Pam as Packing;
+
+/// Per-channel static storage for the GPDMA linked-list descriptor used by
+/// ringbuffers.  `Table<LinearItem, 1>` is 24 bytes.
+pub(crate) struct RingbufferTableSlot {
+    inner: UnsafeCell<MaybeUninit<Table<LinearItem, 1>>>,
+}
+
+unsafe impl Sync for RingbufferTableSlot {}
+
+impl RingbufferTableSlot {
+    pub const fn new() -> Self {
+        Self {
+            inner: UnsafeCell::new(MaybeUninit::uninit()),
+        }
+    }
+
+    /// # Safety
+    /// The caller must ensure this is the only live mutable access.
+    #[inline]
+    pub unsafe fn get_mut(&self) -> &'static mut MaybeUninit<Table<LinearItem, 1>> {
+        &mut *self.inner.get()
+    }
+}
 
 pub(crate) enum DmaInfo {
     #[cfg(gpdma)]
@@ -377,7 +403,7 @@ pub struct TransferOptions {
     /// attribute set (`TR1.SSEC = TR1.DSEC = 1`). Required when the channel
     /// is configured secure (`SECCFGR.SEC[n]=1`) and the slave is behind
     /// RISAF — without this the channel hits `ULEF` (user setting error)
-    /// after partial progress. Default `false`.
+    /// after partial progress. Default `true`.
     #[cfg(stm32n6)]
     pub secure: bool,
     /// DMA packing configuration
@@ -408,7 +434,7 @@ impl Default for TransferOptions {
             half_transfer_ir: false,
             complete_transfer_ir: true,
             #[cfg(stm32n6)]
-            secure: false,
+            secure: true,
             packing: vals::Pam::Pack,
 
             #[cfg(not(stm32c5))]
@@ -529,7 +555,7 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
 
     let state = &STATE[channel as usize];
 
-    let ch = info.dma.cast().ch(info.num);
+    let ch = info.dma.ch(info.num);
     let sr = ch.sr().read();
 
     if sr.dtef() {
@@ -601,6 +627,9 @@ impl<'d> Channel<'d> {
         ch.br1().read().bndt() / word_size.bytes() as u16
     }
 
+    /// Configure a channel.
+    ///
+    /// This function also causes the channel to reset, which unsuspends (resumes) it.
     unsafe fn configure(
         &self,
         request: Request,
@@ -630,12 +659,15 @@ impl<'d> Channel<'d> {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
 
+        // The reset is effective when the channel is in steady state, meaning one of the following:
+        // - active channel in suspended state (GPDMA_CxSR.SUSPF = 1 and GPDMA_CxSR.IDLEF = GPDMA_CxCR.EN = 1)
+        // - channel in disabled state (GPDMA_CxSR.IDLEF = 1 and GPDMA_CxCR.EN = 0).
         if ch.cr().read().en() {
             ch.cr().modify(|w| w.set_susp(true));
             while !ch.sr().read().suspf() {}
         }
-
         ch.cr().write(|w| w.set_reset(true));
+
         ch.fcr().write(|w| {
             // Clear all irqs
             w.set_dtef(true);
@@ -754,6 +786,8 @@ impl<'d> Channel<'d> {
     ///
     /// Accepts the raw table-derived values so that both `Table` and
     /// `TwoDTable` can share the same channel setup logic.
+    ///
+    /// This function also causes the channel to reset, which unsuspends (resumes) it.
     #[allow(clippy::too_many_arguments)]
     unsafe fn configure_linked_list_raw(
         &self,
@@ -770,7 +804,15 @@ impl<'d> Channel<'d> {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
 
+        // The reset is effective when the channel is in steady state, meaning one of the following:
+        // - active channel in suspended state (GPDMA_CxSR.SUSPF = 1 and GPDMA_CxSR.IDLEF = GPDMA_CxCR.EN = 1)
+        // - channel in disabled state (GPDMA_CxSR.IDLEF = 1 and GPDMA_CxCR.EN = 0).
+        if ch.cr().read().en() {
+            ch.cr().modify(|w| w.set_susp(true));
+            while !ch.sr().read().suspf() {}
+        }
         ch.cr().write(|w| w.set_reset(true));
+
         ch.fcr().write(|w| {
             // Clear all irqs
             w.set_dtef(true);
@@ -826,6 +868,10 @@ impl<'d> Channel<'d> {
             .store(total_transfer_count, Ordering::Relaxed)
     }
 
+    /// Starts the channel by enabling it.
+    ///
+    /// If then channel was suspended (paused) earlier, it stays suspended.
+    /// The channel must be unsuspended (resumed) manually if needed.
     fn start(&self) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
@@ -844,9 +890,15 @@ impl<'d> Channel<'d> {
         let info = self.info();
         let ch = info.dma.ch(info.num);
 
-        ch.cr().modify(|w| w.set_susp(false));
+        ch.cr().modify(|w| {
+            w.set_susp(false);
+            w.set_en(true);
+        });
     }
 
+    /// Resets the channel. The configuration is not preserved.
+    ///
+    /// Additionally reset causes the channel to unsuspend (resume).
     fn request_reset(&self) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
@@ -1150,6 +1202,7 @@ impl<'a> LinkedListTransfer<'a> {
 impl<'a> Drop for LinkedListTransfer<'a> {
     fn drop(&mut self) {
         self.request_reset();
+        while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);
@@ -1233,7 +1286,7 @@ impl<'a> Transfer<'a> {
 
 impl<'a> Drop for Transfer<'a> {
     fn drop(&mut self) {
-        self.request_pause();
+        self.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."

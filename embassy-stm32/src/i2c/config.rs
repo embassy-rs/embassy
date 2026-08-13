@@ -60,6 +60,22 @@ impl Address {
     }
 }
 
+// Only used by v2, which addresses in hardware and so needs the address in the register layout rather
+// than as wire bytes. Gated so v1-only builds don't trigger dead_code.
+#[cfg(any(i2c_v2, i2c_v3, test))]
+impl Address {
+    /// The address as `CR2.SADD` and `OAR1.OA1` hold it.
+    pub(super) fn sadd(&self) -> u16 {
+        // A 7-bit address occupies bits 7:1 of those fields but a 10-bit one bits 9:0, so only the
+        // former is shifted. Shifting both moves the two bits a 10-bit header carries out of place,
+        // addressing a different device.
+        match self {
+            Address::SevenBit(addr) => (*addr as u16) << 1,
+            Address::TenBit(addr) => *addr,
+        }
+    }
+}
+
 // These methods are only used by the v1 software address sequencing (v2 handles
 // 10-bit addressing in hardware). Gated so v2-only builds don't trigger dead_code.
 #[cfg(any(i2c_v1, test))]
@@ -267,6 +283,41 @@ mod tests {
         assert_eq!(Address::SevenBit(0x79).write_header(), 0xF2);
         assert_eq!(Address::SevenBit(0x7A).write_header(), 0xF4);
         assert_eq!(Address::SevenBit(0x7B).write_header(), 0xF6);
+    }
+
+    #[test]
+    fn sadd_seven_bit_is_left_aligned() {
+        // SADD[7:1] holds a 7-bit address, so it is shifted up one.
+        assert_eq!(Address::SevenBit(0x00).sadd(), 0x000);
+        assert_eq!(Address::SevenBit(0x48).sadd(), 0x090);
+        assert_eq!(Address::SevenBit(0x7F).sadd(), 0x0FE);
+    }
+
+    #[test]
+    fn sadd_ten_bit_is_not_shifted() {
+        // SADD[9:0] holds a 10-bit address whole. Shifting it here is what moved the two high bits one
+        // place too far left, so that 0x148 addressed 0x290.
+        assert_eq!(Address::TenBit(0x000).sadd(), 0x000);
+        assert_eq!(Address::TenBit(0x148).sadd(), 0x148);
+        assert_eq!(Address::TenBit(0x3FF).sadd(), 0x3FF);
+    }
+
+    #[test]
+    fn sadd_ten_bit_keeps_the_header_bits_addressable() {
+        // The two bits the header carries are SADD[9:8], and each combination has to survive as itself.
+        for (addr, upper) in [(0x000u16, 0b00), (0x100, 0b01), (0x200, 0b10), (0x300, 0b11)] {
+            assert_eq!(Address::TenBit(addr).sadd() >> 8, upper);
+        }
+    }
+
+    #[test]
+    fn sadd_matches_the_wire_header_v1_builds() {
+        // The two versions program different hardware from the same address, so they must agree about
+        // which bits are which: v1 writes the header byte itself, v2 lets the peripheral build it.
+        for addr in [0x000u16, 0x001, 0x0FF, 0x148, 0x255, 0x3FF] {
+            let from_sadd = 0xF0 | ((Address::TenBit(addr).sadd() >> 7) as u8 & 0x06);
+            assert_eq!(from_sadd, Address::TenBit(addr).write_header());
+        }
     }
 
     #[test]

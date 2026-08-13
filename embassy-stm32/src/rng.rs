@@ -14,6 +14,12 @@ use crate::{Peri, interrupt, pac, peripherals, rcc};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
+/// How many times [`next_u32`](Rng::next_u32) resets the RNG to clear a seed or
+/// clock error before giving up. A transient error clears on the first reset; an
+/// error that never clears (typically a misconfigured RNG clock) is a hard fault
+/// the infallible API surfaces by panicking, rather than spinning or recursing.
+const MAX_RESET_RETRIES: u32 = 3;
+
 #[cfg(not(rng_v1))]
 /// Health-test programming profile used during RNG conditioning reset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,8 +216,11 @@ impl<'d, T: Instance> Rng<'d, T> {
         T::regs().cr().modify(|reg| {
             reg.set_rngen(true);
         });
-        // Reference manual says to discard the first.
-        let _ = self.next_u32();
+        // Reference manual says to discard the first word. Wait for it
+        // directly rather than via next_u32(), whose error handling calls
+        // reset(): a persistent clock/seed error would make the two recurse
+        // until the stack overflows.
+        self.discard_first_word();
     }
 
     /// Reset the RNG.
@@ -284,9 +293,11 @@ impl<'d, T: Instance> Rng<'d, T> {
             reg.set_seis(false);
         });
 
-        // According to reference manual: after software reset, wait for random number to be ready
-        // The next_u32() call will wait for DRDY, completing the initialization
-        let _ = self.next_u32();
+        // According to reference manual: after software reset, wait for the
+        // first random number to be ready. Discard it directly rather than via
+        // next_u32(), whose error handling calls reset() and would recurse on a
+        // persistent clock/seed error.
+        self.discard_first_word();
     }
 
     /// Try to recover from a seed error.
@@ -358,15 +369,52 @@ impl<'d, T: Instance> Rng<'d, T> {
         Ok(())
     }
 
-    /// Get a random u32
-    pub fn next_u32(&mut self) -> u32 {
+    /// Spin until the RNG has a word ready or raises an error flag. Returns the
+    /// word, or `None` if a seed or clock error is pending.
+    ///
+    /// This never resets the RNG, so callers decide how to handle an error.
+    /// That matters for [`reset`](Self::reset), which discards its first word
+    /// through this: recovering here would call back into reset() and recurse.
+    fn poll_word(&mut self) -> Option<u32> {
         loop {
             let sr = T::regs().sr().read();
             if sr.seis() | sr.ceis() {
-                self.reset();
+                return None;
             } else if sr.drdy() {
-                return T::regs().dr().read();
+                return Some(T::regs().dr().read());
             }
+        }
+    }
+
+    /// Wait for the first random word after a reset and discard it, as the
+    /// reference manual requires. If the reset did not take (an error flag is
+    /// still set) the word is simply absent; leave the flag for the next
+    /// `next_u32`/`async_fill_bytes` call to observe and act on.
+    fn discard_first_word(&mut self) {
+        let _ = self.poll_word();
+    }
+
+    /// Get a random u32.
+    ///
+    /// This call is infallible: a seed or clock error is recovered by resetting
+    /// the RNG. If the error persists after `MAX_RESET_RETRIES` resets (almost
+    /// always a misconfigured RNG clock) it panics, since an infallible API has
+    /// no other way to surface the fault. Use [`async_fill_bytes`](Self::async_fill_bytes)
+    /// for a fallible path that returns [`Error`] instead.
+    pub fn next_u32(&mut self) -> u32 {
+        // Only resets are bounded, not poll iterations: a healthy RNG may take
+        // many reads to produce the first word, and that must not count as a
+        // failure.
+        let mut retries = 0;
+        loop {
+            if let Some(word) = self.poll_word() {
+                return word;
+            }
+            if retries >= MAX_RESET_RETRIES {
+                panic!("RNG error persists after reset; check the RCC clock configuration");
+            }
+            retries += 1;
+            self.reset();
         }
     }
 

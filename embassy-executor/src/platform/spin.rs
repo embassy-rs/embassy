@@ -11,8 +11,13 @@ mod thread {
 
     use crate::{Spawner, raw};
 
-    #[unsafe(export_name = "__pender")]
-    fn __pender(_context: *mut ()) {}
+    struct SpinPender;
+
+    impl crate::pender::Pender for SpinPender {
+        fn pend(_context: *mut ()) {}
+    }
+
+    pender_impl!(SpinPender);
 
     /// Spin Executor
     pub struct Executor {

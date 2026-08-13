@@ -60,6 +60,7 @@ async fn main(_spawner: Spawner) {
 
     let mut dma = p.DMA1_CH1;
     let mut vrefint = adc.enable_vrefint();
+    let mut pc1 = p.PC1.degrade_adc();
 
     loop {
         adc.read(
@@ -68,6 +69,7 @@ async fn main(_spawner: Spawner) {
             [
                 (vrefint.reborrow_adc(), SampleTime::Cycles3875),
                 (p.PC0.reborrow_adc(), SampleTime::Cycles8105),
+                (pc1.reborrow_adc(), SampleTime::Cycles8105),
             ]
             .into_iter(),
             None,

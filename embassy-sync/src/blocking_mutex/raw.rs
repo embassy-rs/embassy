@@ -37,7 +37,7 @@ pub unsafe trait RawMutex {
 /// # Safety
 ///
 /// This mutex is safe to share between different executors and interrupts.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub struct CriticalSectionRawMutex {
     _phantom: PhantomData<()>,
 }

@@ -245,7 +245,7 @@ required-features = []
 [[bin]]
 name = "usart_rx_ringbuffered"
 path = "src/bin/usart_rx_ringbuffered.rs"
-required-features = [ "not-gpdma",]
+required-features = []
 
 [[bin]]
 name = "wpan_ble"

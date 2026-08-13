@@ -101,6 +101,7 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32wba65ri", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u385rg", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5f9zj", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5f9zj", "time", "time-driver-any", "usb-host"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5g9nj", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32n657x0", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32wb35ce", "time", "time-driver-any"]},
@@ -212,11 +213,11 @@ heapless = "0.9.3"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c7234f9758aca82b49f4869ee604133c3eff5625" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-87c539515764df442bc50b6235bad891950ba3c4" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c7234f9758aca82b49f4869ee604133c3eff5625" , default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-87c539515764df442bc50b6235bad891950ba3c4" , default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
@@ -252,7 +253,7 @@ defmt = [
 ## Use log for logging
 log = ["dep:log"]
 ## Enable Ethernet PTP hardware timestamping.
-ptp = ["embassy-net-driver/packetmeta-id"]
+ptp = ["embassy-net-driver/packetmeta-timestamp"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
 
@@ -1152,7 +1153,7 @@ stm32g471rc = [ "stm32-metapac/stm32g471rc" ]
 stm32g471re = [ "stm32-metapac/stm32g471re" ]
 stm32g471vc = [ "stm32-metapac/stm32g471vc" ]
 stm32g471ve = [ "stm32-metapac/stm32g471ve" ]
-stm32g473cb = [ "stm32-metapac/stm32g473cb", "dual-bank" ]
+stm32g473cb = [ "stm32-metapac/stm32g473cb" ]
 stm32g473cc = [ "stm32-metapac/stm32g473cc" ]
 stm32g473ce = [ "stm32-metapac/stm32g473ce" ]
 stm32g473mb = [ "stm32-metapac/stm32g473mb" ]
