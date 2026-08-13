@@ -3,7 +3,7 @@
 use core::slice;
 
 use cortex_m::Peripherals;
-use cortex_m::peripheral::MPU;
+use cortex_m::peripheral::{CPUID, MPU, SCB};
 use defmt::info;
 use embassy_stm32::dsihost::panel::DsiPanel;
 use embassy_stm32::fmc::Fmc;
@@ -68,6 +68,16 @@ pub struct Buffers {
     pub fb1: &'static mut Framebuffer,
 }
 
+#[inline(never)]
+fn enable_dcache(scb: &mut SCB, cpuid: &mut CPUID) {
+    scb.enable_dcache(cpuid);
+}
+
+#[inline(never)]
+fn enable_icache(scb: &mut SCB) {
+    scb.enable_icache();
+}
+
 /// Initialize SDRAM
 /// * Splits into graphics and heap regions
 /// * Configures MPU for write through on graphics region, and write back on heap region
@@ -114,8 +124,8 @@ pub fn init_sdram(mut cp: Peripherals, mut sdram: Sdram<Fmc<'_, FMC>, Is42s32800
 
     sdram_cache_init(&mut cp.MPU);
 
-    cp.SCB.enable_icache();
-    cp.SCB.enable_dcache(&mut cp.CPUID);
+    enable_icache(&mut cp.SCB);
+    enable_dcache(&mut cp.SCB, &mut cp.CPUID);
 
     cortex_m::asm::dsb();
     cortex_m::asm::isb();
