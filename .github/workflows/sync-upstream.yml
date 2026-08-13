@@ -77,7 +77,7 @@ jobs:
 
       - name: Merge upstream
         if: steps.decide.outputs.sync == 'true'
-        run: |
+        run:
           set -euo pipefail
 
           git config user.name "github-actions[bot]"
