@@ -196,19 +196,44 @@ type BufferControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpBufferCon
 type EpControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpControl, rp_pac::common::RW>;
 type AddrControlReg = rp_pac::common::Reg<rp_pac::usb::regs::AddrEndpX, rp_pac::common::RW>;
 
-struct TransactionGuard {
+struct TransactionGuard<T: SealedHostInstance> {
     state: &'static HostState,
     index: usize,
     interrupt: bool,
     ep_control: EpControlReg,
     buffer_control: BufferControlReg,
+    transaction_active: bool,
+    abort_on_drop: bool,
+    _phantom: PhantomData<T>,
 }
 
-impl Drop for TransactionGuard {
+impl<T: SealedHostInstance> TransactionGuard<T> {
+    fn arm(&mut self) {
+        self.transaction_active = true;
+    }
+
+    fn disarm(&mut self) {
+        self.transaction_active = false;
+    }
+}
+
+impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
     fn drop(&mut self) {
         let selected = self.state.current_channel.load(Ordering::Relaxed);
         if self.interrupt || selected == self.index || selected == 0 {
             if !self.interrupt {
+                if self.transaction_active && self.abort_on_drop {
+                    let regs = T::regs();
+                    regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
+                    while regs.sie_ctrl().read().stop_trans() {}
+                    regs.sie_status().write_clear(|w| {
+                        w.set_trans_complete(true);
+                        w.set_stall_rec(true);
+                        w.set_rx_timeout(true);
+                        w.set_rx_overflow(true);
+                    });
+                    regs.buff_status().write_clear(|w| w.0 = 0b11);
+                }
                 self.state.current_channel.store(0, Ordering::Relaxed);
             }
 
@@ -429,13 +454,16 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         }
     }
 
-    fn transaction_guard(&self) -> TransactionGuard {
+    fn transaction_guard(&self) -> TransactionGuard<T> {
         TransactionGuard {
             state: T::host_state(),
             index: self.index,
             interrupt: Self::is_interrupt_in(),
             ep_control: self.ep_control(),
             buffer_control: self.buffer_control(),
+            transaction_active: false,
+            abort_on_drop: E::ep_type() == EndpointType::Bulk && D::is_in(),
+            _phantom: PhantomData,
         }
     }
 
@@ -674,7 +702,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
         // Set this channel for transaction
         self.set_current();
-        let _guard = self.transaction_guard();
+        let mut guard = self.transaction_guard();
 
         let mut count: usize = 0;
 
@@ -688,7 +716,10 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
                 trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
                 let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
                 self.set_data_in(packet_len as u16, self.pid);
-                if let Err(e) = self.wait_transaction().await {
+                guard.arm();
+                let result = self.wait_transaction().await;
+                guard.disarm();
+                if let Err(e) = result {
                     break Err(e);
                 }
                 self.advance_pid();
@@ -726,7 +757,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
         // Set this channel for transaction
         self.set_current();
-        let _guard = self.transaction_guard();
+        let mut guard = self.transaction_guard();
 
         let mut count = 0;
 
@@ -734,7 +765,10 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             trace!("CHANNEL {} START WRITE", self.index);
             let packet = self.set_data_out(&buf[count..], self.pid);
 
-            if let Err(e) = self.wait_transaction().await {
+            guard.arm();
+            let result = self.wait_transaction().await;
+            guard.disarm();
+            if let Err(e) = result {
                 break Err(e);
             }
             self.advance_pid();
@@ -747,7 +781,10 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
                 if packet == self.max_packet_size as usize && ensure_transaction_end {
                     trace!("CHANNEL {} START ZLP WRITE", self.index);
                     self.set_data_out(&[], self.pid);
-                    if let Err(e) = self.wait_transaction().await {
+                    guard.arm();
+                    let result = self.wait_transaction().await;
+                    guard.disarm();
+                    if let Err(e) = result {
                         break Err(e);
                     }
                     self.advance_pid();
