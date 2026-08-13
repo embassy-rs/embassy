@@ -21,14 +21,13 @@
 use core::mem::MaybeUninit;
 
 use cortex_m::asm;
-use cortex_m::peripheral::MPU;
+use cortex_m::peripheral::{CPUID, MPU, SCB};
 use defmt::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, SharedData};
 use embassy_time::Timer;
-use panic_probe as _;
 use shared::{SHARED_LED_STATE, SRAM4_BASE_ADDRESS, SRAM4_REGION_NUMBER, SRAM4_SIZE_LOG2};
+use {defmt_rtt as _, panic_probe as _};
 
 /// Module providing shared memory constructs for intercore communication
 mod shared {
@@ -142,6 +141,16 @@ fn configure_mpu_non_cacheable(mpu: &mut MPU) {
     info!("MPU configured - SRAM4 set as non-cacheable");
 }
 
+#[inline(never)]
+fn enable_dcache(scb: &mut SCB, cpuid: &mut CPUID) {
+    scb.enable_dcache(cpuid);
+}
+
+#[inline(never)]
+fn enable_icache(scb: &mut SCB) {
+    scb.enable_icache();
+}
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     // Set up MPU and cache configuration
@@ -157,8 +166,8 @@ async fn main(_spawner: Spawner) -> ! {
         configure_mpu_non_cacheable(&mut cp.MPU);
 
         // Re-enable caches
-        scb.enable_icache();
-        scb.enable_dcache(&mut cp.CPUID);
+        enable_icache(&mut scb);
+        enable_dcache(&mut scb, &mut cp.CPUID);
         asm::dsb();
         asm::isb();
     }

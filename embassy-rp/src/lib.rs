@@ -641,6 +641,7 @@ pub fn init(config: config::Config) -> Peripherals {
 }
 
 #[cfg(feature = "rt")]
+#[allow(deprecated)]
 #[cortex_m_rt::pre_init]
 unsafe fn pre_init() {
     // SIO does not get reset when core0 is reset with either `scb::sys_reset()` or with SWD.
