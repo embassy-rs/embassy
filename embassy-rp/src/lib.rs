@@ -640,8 +640,6 @@ pub fn init(config: config::Config) -> Peripherals {
     peripherals
 }
 
-// TODO: change pre_init to ASM.
-// we're using export_name manually to workaround cortex-m-rt deprecating it.
 #[cfg(feature = "rt")]
 #[unsafe(export_name = "__pre_init")]
 unsafe fn pre_init() {
