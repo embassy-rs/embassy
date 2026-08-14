@@ -5,7 +5,6 @@ on:
     # Every night at 02:17 UTC.
     # Avoiding :00 reduces the chance of GitHub Actions scheduling delays.
     - cron: "17 2 * * *"
-
   # Also allow a manual run from the Actions tab.
   workflow_dispatch:
 
@@ -34,9 +33,11 @@ jobs:
           set -euo pipefail
 
           SPECIAL_FILE="embassy-rp/src/time_driver.rs"
+          SPECIAL_FILE_2="embassy-rp/Cargo.toml"
 
           FORK_HEAD="$(git rev-parse HEAD)"
           UPSTREAM_HEAD="$(git rev-parse upstream/main)"
+
           BASE="$(git merge-base HEAD upstream/main)"
 
           echo "Fork HEAD: $FORK_HEAD"
@@ -50,7 +51,7 @@ jobs:
             exit 0
           fi
 
-          # Check whether the special file's FINAL CONTENT changed
+          # Check whether either special file's FINAL CONTENT changed
           # between the last common ancestor and upstream/main.
           if ! git diff --quiet "$BASE" "$UPSTREAM_HEAD" -- "$SPECIAL_FILE"; then
             echo "::warning::Upstream changed $SPECIAL_FILE."
@@ -59,30 +60,34 @@ jobs:
             exit 0
           fi
 
+          if ! git diff --quiet "$BASE" "$UPSTREAM_HEAD" -- "$SPECIAL_FILE_2"; then
+            echo "::warning::Upstream changed $SPECIAL_FILE_2."
+            echo "Fork will NOT be synchronized."
+            echo "sync=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           # Check whether anything else has changed persistently
           # between the last common ancestor and upstream/main.
           OTHER_CHANGES="$(git diff --name-only "$BASE" "$UPSTREAM_HEAD" -- . \
-            ":(exclude)$SPECIAL_FILE")"
+            ":(exclude)$SPECIAL_FILE" \
+            ":(exclude)$SPECIAL_FILE_2")"
 
           if [ -z "$OTHER_CHANGES" ]; then
-            echo "No persistent upstream changes outside $SPECIAL_FILE."
+            echo "No persistent upstream changes outside $SPECIAL_FILE and $SPECIAL_FILE_2."
             echo "sync=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           echo "Persistent upstream changes detected:"
           echo "$OTHER_CHANGES"
-
           echo "sync=true" >> "$GITHUB_OUTPUT"
 
       - name: Merge upstream
         if: steps.decide.outputs.sync == 'true'
         run: |
           set -euo pipefail
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git merge --no-edit upstream/main
-
           git push origin main
