@@ -20,8 +20,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, OutputPolarity};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 
-const DEBUG_DURING_SLEEP: bool = true;
-
+const DEBUG_DURING_SLEEP: bool = false;
 
 #[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
@@ -30,7 +29,6 @@ async fn main(_spawner: Spawner) {
 
     let mut config = embassy_stm32::Config::default();
     {
-        info!("configuring RCC ...");
         use embassy_stm32::rcc::*;
 
         // Enable HSE (32 MHz external crystal) - REQUIRED for BLE radio
@@ -74,7 +72,7 @@ async fn main(_spawner: Spawner) {
         config.min_stop_pause = embassy_time::Duration::from_millis(10);
     }
 
-    let p = embassy_stm32::init(config);
+    let mut p = embassy_stm32::init(config);
 
     info!("initializing unused GPIOs for minimum current draw ...");
     let gpio_pd5 = Output::new(p.PD5, Level::Low, Speed::Low);
@@ -90,47 +88,40 @@ async fn main(_spawner: Spawner) {
 
     info!("initializing simplePwm and power rail");
     let mut power_rail = Output::new(p.PB15, Level::Low, Speed::Low);
-    let led_pwm_pin = PwmPin::new(p.PB8, OutputType::PushPull);
 
-    // restore = false essentially ignores this PR's change
-    let restore: bool = false;
     // STM32WBA65 has 3 types of timers:
     //  - General Purpose(TIM2/3/4/16/17)
     //  - AdvancedControl(TIM1)
     //  - LowPower(LPTIM1/2)
-    info!("initializing SimplePwm with timer TIM1");
-    let mut led_pwm = SimplePwm::new(
-        p.TIM1,
-        Some(led_pwm_pin),
-        None,
-        None,
-        None,
-        time::khz(100),
-        CountingMode::EdgeAlignedUp,
-    );
 
     loop {
-        info!("led off — sleeping 5 s");
-        led_pwm.ch1().disable();
-        led_pwm.ch1().set_duty_cycle_percent(0);
-        power_rail.set_low();
-        Timer::after_millis(5000).await; // MCU enters STOP here
-
-        info!("led on — staying awake so PWM keeps toggling");
-        if restore {
-            info!("resuming after stop");
-            led_pwm.resume_after_stop(); // register bank may have been wiped by the previous STOP2
-        }
+        info!("initializing SimplePwm with timer TIM1");
+        let led_pwm_pin = PwmPin::new(p.PB8.reborrow(), OutputType::PushPull);
+        let mut led_pwm = SimplePwm::new(
+            p.TIM1.reborrow(),
+            Some(led_pwm_pin),
+            None,
+            None,
+            None,
+            time::khz(100),
+            CountingMode::EdgeAlignedUp,
+        );
         power_rail.set_high();
         led_pwm.ch1().enable();
         led_pwm.ch1().set_duty_cycle_percent(30);
+        info!("led on — staying awake so PWM keeps toggling");
         {
-            // TIM3 has no clock in any STOP mode, so hold off STOP entirely
-            // while the PWM needs to actually run
+            // blocking STOP mode entry ... why is this needed?
             let _stay_awake = WakeGuard::new(StopMode::Stop1);
             Timer::after_millis(5000).await;
         }
 
+        info!("led off — sleeping 5 s");
+        led_pwm.ch1().disable();
+        led_pwm.ch1().set_duty_cycle_percent(0);
+        drop(led_pwm);
+        power_rail.set_low();
+        Timer::after_millis(5000).await; // MCU enters STOP here
 
     }
 }
