@@ -1567,6 +1567,12 @@ impl<'d, M: Mode> Uart<'d, M> {
         let state = T::state();
         let kernel_clock = T::frequency();
 
+        // Make sure we assign the correct pins to the correct instance.
+        // Otherwise, the USART stops working if we drop one half of the
+        // tuple returned by self.split().
+        #[cfg(any(usart_v3, usart_v4))]
+        let (rx, tx) = if config.swap_rx_tx { (tx, rx) } else { (rx, tx) };
+
         let mut this = Self {
             tx: UartTx {
                 _marker: PhantomData,
