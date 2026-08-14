@@ -1,8 +1,9 @@
-//! Blinky example with STOP mode.
+//! SimplePWM example with STOP mode using SimplePwm and a General Purpose timer.
 //!
-//! The MCU enters STOP mode between LED toggles (5 s intervals).
-//! Current draw drops to ~1 µA while sleeping; the RTC wakeup alarm
-//! brings the core back to run mode for the next toggle.
+//! The MCU enters STOP2 mode between LED toggles (5 s intervals).
+//! My board draws about 160µA while sleeping, which is due to hardware
+//! limitations. Actual MCU current will be measure once i test on
+//! NUCLEO board.
 
 #![no_std]
 #![no_main]
