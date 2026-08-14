@@ -28,7 +28,7 @@ perf-client = { path = "../perf-client" }
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
-cortex-m = { version = "=0.7.7" }
+cortex-m = { version = "=0.7.7", features = ["inline-asm"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
