@@ -49,7 +49,8 @@ async fn main(_spawner: Spawner) {
     assert!(!irq_flags.check(1));
     irq_flags.clear(0);
     cortex_m::asm::nop();
-    assert!((0..10).any(|_| irq_flags.check(1)));
+    //assert!((0..10).any(|_| irq_flags.check(1)));
+    assert!(irq_flags.check(1));
 
     info!("Test OK");
     cortex_m::asm::bkpt();
