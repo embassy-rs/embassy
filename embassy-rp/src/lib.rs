@@ -640,140 +640,71 @@ pub fn init(config: config::Config) -> Peripherals {
     peripherals
 }
 
-// `cortex-m-rt` calls `__pre_init` before it initializes RAM, so this must be assembly rather than
-// a Rust function.
-//
-// SIO does not get reset when core0 is reset with either `scb::sys_reset()` or with SWD.
-// Since we're using SIO spinlock 31 for the critical-section impl, this causes random
-// hangs if we reset in the middle of a CS, because the next boot sees the spinlock
-// as locked and waits forever.
-//
-// See https://github.com/embassy-rs/embassy/issues/1736
-// and https://github.com/rp-rs/rp-hal/issues/292
-// and https://matrix.to/#/!vhKMWjizPZBgKeknOo:matrix.org/$VfOkQgyf1PjmaXZbtycFzrCje1RorAXd8BQFHTl4d5M
-//
-// According to Raspberry Pi, this is considered Working As Intended, and not an errata,
-// even though this behavior is different from every other ARM chip (sys_reset usually resets
-// the *system* as its name implies, not just the current core).
-//
-// To fix this, reset SIO on boot. We must do this in pre_init because it's unsound to do it
-// in `embassy_rp::init`, since the user could've acquired a CS by then. pre_init is guaranteed
-// to run before any user code.
-//
-// A similar thing could happen with PROC1. It is unclear whether it's possible for PROC1
-// to stay unreset through a PROC0 reset, so we reset it anyway just in case.
-//
-// Important info from PSM logic (from Luke Wren in above Matrix thread)
-//
-//     The logic is, each PSM stage is reset if either of the following is true:
-//     - The previous stage is in reset and FRCE_ON is false
-//     - FRCE_OFF is true
-//
-// The PSM order is SIO -> PROC0 -> PROC1.
-// So, we have to force-on PROC0 to prevent it from getting reset when resetting SIO.
+// TODO: change pre_init to ASM.
+// we're using export_name manually to workaround cortex-m-rt deprecating it.
 #[cfg(feature = "rt")]
-#[cfg(feature = "rp2040")]
-core::arch::global_asm!(
-    r#"
-    .syntax unified
-    .section .text.__pre_init, "ax"
-    .global __pre_init
-    .type __pre_init, %function
-    .thumb_func
-__pre_init:
-    // pac::PSM.frce_on().write_and_wait(|w| w.set_proc0(true));
-    movs r1, #1
-    lsls r1, r1, #15
-    ldr r0, =0x40010000
-    str r1, [r0]
-.Lrp2040_wait_frce_on_set:
-    ldr r2, [r0]
-    cmp r2, r1
-    bne .Lrp2040_wait_frce_on_set
+#[unsafe(export_name = "__pre_init")]
+unsafe fn pre_init() {
+    // SIO does not get reset when core0 is reset with either `scb::sys_reset()` or with SWD.
+    // Since we're using SIO spinlock 31 for the critical-section impl, this causes random
+    // hangs if we reset in the middle of a CS, because the next boot sees the spinlock
+    // as locked and waits forever.
+    //
+    // See https://github.com/embassy-rs/embassy/issues/1736
+    // and https://github.com/rp-rs/rp-hal/issues/292
+    // and https://matrix.to/#/!vhKMWjizPZBgKeknOo:matrix.org/$VfOkQgyf1PjmaXZbtycFzrCje1RorAXd8BQFHTl4d5M
+    //
+    // According to Raspberry Pi, this is considered Working As Intended, and not an errata,
+    // even though this behavior is different from every other ARM chip (sys_reset usually resets
+    // the *system* as its name implies, not just the current core).
+    //
+    // To fix this, reset SIO on boot. We must do this in pre_init because it's unsound to do it
+    // in `embassy_rp::init`, since the user could've acquired a CS by then. pre_init is guaranteed
+    // to run before any user code.
+    //
+    // A similar thing could happen with PROC1. It is unclear whether it's possible for PROC1
+    // to stay unreset through a PROC0 reset, so we reset it anyway just in case.
+    //
+    // Important info from PSM logic (from Luke Wren in above Matrix thread)
+    //
+    //     The logic is, each PSM stage is reset if either of the following is true:
+    //     - The previous stage is in reset and FRCE_ON is false
+    //     - FRCE_OFF is true
+    //
+    // The PSM order is SIO -> PROC0 -> PROC1.
+    // So, we have to force-on PROC0 to prevent it from getting reset when resetting SIO.
+    #[cfg(feature = "rp2040")]
+    {
+        pac::PSM.frce_on().write_and_wait(|w| {
+            w.set_proc0(true);
+        });
+        // Then reset SIO and PROC1.
+        pac::PSM.frce_off().write_and_wait(|w| {
+            w.set_sio(true);
+            w.set_proc1(true);
+        });
+        // clear force_off first, force_on second. The other way around would reset PROC0.
+        pac::PSM.frce_off().write_and_wait(|_| {});
+        pac::PSM.frce_on().write_and_wait(|_| {});
+    }
 
-    // pac::PSM.frce_off().write_and_wait(|w| {{
-    //     w.set_sio(true);
-    //     w.set_proc1(true);
-    // }});
-    movs r1, #5
-    lsls r1, r1, #14
-    str r1, [r0, #4]
-.Lrp2040_wait_frce_off_set:
-    ldr r2, [r0, #4]
-    cmp r2, r1
-    bne .Lrp2040_wait_frce_off_set
+    #[cfg(feature = "_rp235x")]
+    {
+        // on RP235x, datasheet says "The FRCE_ON register is a development feature that does nothing in production devices."
+        // No idea why they removed it. Removing it means we can't use PSM to reset SIO, because it comes before
+        // PROC0, so we'd need FRCE_ON to prevent resetting ourselves.
+        //
+        // So we just unlock the spinlock manually.
+        pac::SIO.spinlock(31).write_value(1);
 
-    // pac::PSM.frce_off().write_and_wait(|_| {{}});
-    movs r1, #0
-    str r1, [r0, #4]
-.Lrp2040_wait_frce_off_clear:
-    ldr r2, [r0, #4]
-    cmp r2, r1
-    bne .Lrp2040_wait_frce_off_clear
+        // We can still use PSM to reset PROC1 since it comes after PROC0 in the state machine.
+        pac::PSM.frce_off().write_and_wait(|w| w.set_proc1(true));
+        pac::PSM.frce_off().write_and_wait(|_| {});
 
-    // pac::PSM.frce_on().write_and_wait(|_| {{}});
-    str r1, [r0]
-.Lrp2040_wait_frce_on_clear:
-    ldr r2, [r0]
-    cmp r2, r1
-    bne .Lrp2040_wait_frce_on_clear
-
-    bx lr
-    .size __pre_init, . - __pre_init
-"#
-);
-
-// On RP235x, datasheet says "The FRCE_ON register is a development feature that does nothing in production devices."
-// No idea why they removed it. Removing it means we can't use PSM to reset SIO, because it comes before
-// PROC0, so we'd need FRCE_ON to prevent resetting ourselves.
-//
-// So we just unlock the spinlock manually.
-//
-// We can still use PSM to reset PROC1 since it comes after PROC0 in the state machine.
-#[cfg(feature = "rt")]
-#[cfg(feature = "_rp235x")]
-core::arch::global_asm!(
-    r#"
-    .syntax unified
-    .section .text.__pre_init, "ax"
-    .global __pre_init
-    .type __pre_init, %function
-    .thumb_func
-__pre_init:
-    // pac::SIO.spinlock(31).write_value(1);
-    ldr r0, =0xd000017c
-    movs r1, #1
-    str r1, [r0]
-
-    // pac::PSM.frce_off().write_and_wait(|w| w.set_proc1(true));
-    ldr r0, =0x40018004
-    lsls r1, r1, #24
-    str r1, [r0]
-.Lrp235x_wait_frce_off_set:
-    ldr r2, [r0]
-    cmp r2, r1
-    bne .Lrp235x_wait_frce_off_set
-
-    // pac::PSM.frce_off().write_and_wait(|_| {{}});
-    movs r1, #0
-    str r1, [r0]
-.Lrp235x_wait_frce_off_clear:
-    ldr r2, [r0]
-    cmp r2, r1
-    bne .Lrp235x_wait_frce_off_clear
-
-    // (&*cortex_m::peripheral::ICB::PTR).actlr.modify(|w| w | (1 << 29));
-    ldr r0, =0xe000e008
-    ldr r1, [r0]
-    movs r2, #1
-    lsls r2, r2, #29
-    orrs r1, r2
-    str r1, [r0]
-
-    bx lr
-    .size __pre_init, . - __pre_init
-"#
-);
+        // Make atomics work between cores.
+        enable_actlr_extexclall();
+    }
+}
 
 /// Set the EXTEXCLALL bit in ACTLR.
 ///
@@ -784,8 +715,7 @@ __pre_init:
 /// TODO: does this interfere somehow if the user wants to use a custom MPU configuration?
 /// maybe we need to add a way to disable this?
 ///
-/// This must be done FOR EACH CORE. Core 0 does this in `__pre_init`; this function is
-/// called after runtime initialization for core 1.
+/// This must be done FOR EACH CORE.
 #[cfg(feature = "_rp235x")]
 unsafe fn enable_actlr_extexclall() {
     (&*cortex_m::peripheral::ICB::PTR).actlr.modify(|w| w | (1 << 29));
@@ -798,6 +728,9 @@ trait RegExt<T: Copy> {
     fn write_xor<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_set<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
     fn write_clear<R>(&self, f: impl FnOnce(&mut T) -> R) -> R;
+    fn write_and_wait<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: PartialEq;
 }
 
 impl<T: Default + Copy, A: pac::common::Write> RegExt<T> for pac::common::Reg<T, A> {
@@ -827,6 +760,19 @@ impl<T: Default + Copy, A: pac::common::Write> RegExt<T> for pac::common::Reg<T,
         unsafe {
             let ptr = (self.as_ptr() as *mut u8).add(0x3000) as *mut T;
             ptr.write_volatile(val);
+        }
+        res
+    }
+
+    fn write_and_wait<R>(&self, f: impl FnOnce(&mut T) -> R) -> R
+    where
+        T: PartialEq,
+    {
+        let mut val = Default::default();
+        let res = f(&mut val);
+        unsafe {
+            self.as_ptr().write_volatile(val);
+            while self.as_ptr().read_volatile() != val {}
         }
         res
     }
