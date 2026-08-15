@@ -640,8 +640,12 @@ pub fn init(config: config::Config) -> Peripherals {
     peripherals
 }
 
-// `cortex-m-rt` calls `__pre_init` before it initializes RAM, so this must be assembly rather than
-// a Rust function.
+// #[pre_init] code converted to ASM
+//
+// As per [https://docs.rs/cortex-m-rt/0.7.5/cortex_m_rt/#features] - a #[pre_init] macro is also
+// provided to run a function before RAM initialisation, but its use is deprecated as it is not 
+// defined behaviour to execute Rust code before initialisation.
+// It is still possible to create a custom pre_init function using assembly.
 //
 // SIO does not get reset when core0 is reset with either `scb::sys_reset()` or with SWD.
 // Since we're using SIO spinlock 31 for the critical-section impl, this causes random
