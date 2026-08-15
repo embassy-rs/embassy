@@ -643,7 +643,7 @@ pub fn init(config: config::Config) -> Peripherals {
 // #[pre_init] code converted to ASM
 //
 // As per [https://docs.rs/cortex-m-rt/0.7.5/cortex_m_rt/#features] - a #[pre_init] macro is also
-// provided to run a function before RAM initialisation, but its use is deprecated as it is not 
+// provided to run a function before RAM initialisation, but its use is deprecated as it is not
 // defined behaviour to execute Rust code before initialisation.
 // It is still possible to create a custom pre_init function using assembly.
 //
