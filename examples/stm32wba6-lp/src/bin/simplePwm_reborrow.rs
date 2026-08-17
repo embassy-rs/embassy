@@ -24,7 +24,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, OutputPolarity};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 
-const DEBUG_DURING_SLEEP: bool = false;
+const DEBUG_DURING_SLEEP: bool = true;
 
 #[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
@@ -110,15 +110,12 @@ async fn main(_spawner: Spawner) {
             time::khz(100),
             CountingMode::EdgeAlignedUp,
         );
+        info!("led on");
         power_rail.set_high();
         led_pwm.ch1().enable();
         led_pwm.ch1().set_duty_cycle_percent(30);
-        info!("led on — staying awake so PWM keeps toggling");
-        {
-            // blocking STOP mode entry ... why is this needed?
-            let _stay_awake = WakeGuard::new(StopMode::Stop1);
-            Timer::after_millis(5000).await;
-        }
+
+        Timer::after_millis(5000).await;
 
         info!("led off — sleeping 5 s");
         led_pwm.ch1().disable();
