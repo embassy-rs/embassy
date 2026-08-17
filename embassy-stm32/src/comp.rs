@@ -13,7 +13,9 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use stm32_metapac::comp::vals;
 
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::mode::{Async, Blocking, Mode};
 use crate::rcc::RccInfo;
 use crate::{Peri, interrupt};
 
@@ -33,7 +35,7 @@ pub enum PowerMode {
 /// Hysteresis level.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[cfg(any(comp_u5, comp_v1))]
+#[cfg(any(comp_u5, comp_v1, comp_u0))]
 pub enum Hysteresis {
     /// No hysteresis.
     None,
@@ -93,15 +95,22 @@ pub enum InvertingInput {
     /// DAC channel 1 output.
     Dac1,
     /// DAC channel 2 output.
+    #[cfg(any(comp_u5, comp_v2))]
     Dac2,
     /// External IO pin (INM1).
     InputPin,
     /// External IO pin (INM2).
-    #[cfg(any(comp_v1, comp_v2))]
+    #[cfg(any(comp_v1, comp_v2, comp_u0))]
     InputPin2,
-    /// External IO pin (INM3).
-    #[cfg(comp_v1)]
+    /// Extern IO pin (INM3).
+    #[cfg(any(comp_v1, comp_u0))]
     InputPin3,
+    /// Extern IO pin (INM4).
+    #[cfg(comp_u0)]
+    InputPin4,
+    /// Extern IO pin (INM5).
+    #[cfg(comp_u0)]
+    InputPin5,
 }
 
 /// Blanking source selection.
@@ -121,10 +130,10 @@ pub enum BlankingSource {
     /// Timer blanking source 3 (check datasheet for specific timer mapping).
     Blank3,
     /// Timer blanking source 4 (check datasheet for specific timer mapping).
-    #[cfg(any(comp_v1, comp_v2))]
+    #[cfg(any(comp_v1, comp_v2, comp_u0))]
     Blank4,
     /// Timer blanking source 5 (check datasheet for specific timer mapping).
-    #[cfg(any(comp_v1, comp_v2))]
+    #[cfg(any(comp_v1, comp_v2, comp_u0))]
     Blank5,
     /// Timer blanking source 6 (check datasheet for specific timer mapping).
     #[cfg(comp_v2)]
@@ -210,7 +219,7 @@ impl State {
 
 /// Interrupt handler for COMP.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -225,11 +234,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// Comparator driver.
-pub struct Comp<'d, T: Instance> {
+pub struct Comp<'d, T: Instance, M: Mode> {
     _peri: Peri<'d, T>,
+    _output: Option<Flex<'d>>,
+    _phantom: PhantomData<M>,
 }
 
-impl<'d, T: Instance> Comp<'d, T> {
+impl<'d, T: Instance> Comp<'d, T, Async> {
     /// Create a new comparator driver.
     ///
     /// The comparator is configured but not enabled. Use [`enable`](Self::enable) to enable it.
@@ -250,7 +261,39 @@ impl<'d, T: Instance> Comp<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { _peri: peri }
+        Self {
+            _peri: peri,
+            _output: None,
+            _phantom: PhantomData::default(),
+        }
+    }
+
+    /// Create a new comparator driver.
+    ///
+    /// The comparator is configured but not enabled. Use [`enable`](Self::enable) to enable it.
+    ///
+    /// The non-inverting input is connected to the provided pin. The inverting input
+    /// is configured via the `config.inverting_input` parameter.
+    pub fn new_with_output(
+        peri: Peri<'d, T>,
+        inp: Peri<'_, impl NonInvertingPin<T>>,
+        out: Peri<'d, impl OutputPin<T>>,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
+        config: Config,
+    ) -> Self {
+        T::info().rcc.enable_and_reset();
+        inp.set_as_analog();
+
+        Self::configure(inp.channel(), config);
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        Self {
+            _peri: peri,
+            _output: new_pin!(out, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            _phantom: PhantomData::default(),
+        }
     }
 
     /// Create a new comparator driver with an external inverting input pin.
@@ -276,185 +319,42 @@ impl<'d, T: Instance> Comp<'d, T> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { _peri: peri }
+        Self {
+            _peri: peri,
+            _output: None,
+            _phantom: PhantomData::default(),
+        }
     }
 
-    fn configure_raw(inp_channel: u8, inmsel: vals::Inm, config: Config) {
-        #[cfg(any(comp_u5, comp_v1))]
-        let pwrmode = match config.power_mode {
-            PowerMode::HighSpeed => vals::PowerMode::HighSpeed,
-            PowerMode::MediumSpeed => vals::PowerMode::MediumSpeed,
-            #[cfg(comp_u5)]
-            PowerMode::UltraLowPower => vals::PowerMode::UltraLow,
-        };
-
-        #[cfg(comp_v2)]
-        let hyst = match config.hysteresis {
-            Hysteresis::None => vals::Hysteresis::None,
-            Hysteresis::Hyst10M => vals::Hysteresis::Hyst10m,
-            Hysteresis::Hyst20M => vals::Hysteresis::Hyst20m,
-            Hysteresis::Hyst30M => vals::Hysteresis::Hyst30m,
-            Hysteresis::Hyst40M => vals::Hysteresis::Hyst40m,
-            Hysteresis::Hyst50M => vals::Hysteresis::Hyst50m,
-            Hysteresis::Hyst60M => vals::Hysteresis::Hyst60m,
-            Hysteresis::Hyst70M => vals::Hysteresis::Hyst70m,
-        };
-
-        #[cfg(any(comp_u5, comp_v1))]
-        let hyst = match config.hysteresis {
-            Hysteresis::None => vals::Hysteresis::None,
-            Hysteresis::Low => vals::Hysteresis::Low,
-            Hysteresis::Medium => vals::Hysteresis::Medium,
-            Hysteresis::High => vals::Hysteresis::High,
-        };
-
-        let polarity = match config.output_polarity {
-            OutputPolarity::NotInverted => vals::Polarity::NotInverted,
-            OutputPolarity::Inverted => vals::Polarity::Inverted,
-        };
-
-        #[cfg(any(comp_u5, comp_v1, comp_v2))]
-        let blanksel = match config.blanking_source {
-            BlankingSource::None => vals::Blanking::NoBlanking,
-            BlankingSource::Blank1 => vals::Blanking::Blank1,
-            BlankingSource::Blank2 => vals::Blanking::Blank2,
-            BlankingSource::Blank3 => vals::Blanking::Blank3,
-            #[cfg(any(comp_v1, comp_v2))]
-            BlankingSource::Blank4 => vals::Blanking::Blank4,
-            #[cfg(any(comp_v1, comp_v2))]
-            BlankingSource::Blank5 => vals::Blanking::Blank5,
-            #[cfg(comp_v2)]
-            BlankingSource::Blank6 => vals::Blanking::Blank6,
-            #[cfg(comp_v2)]
-            BlankingSource::Blank7 => vals::Blanking::Blank7,
-        };
-
-        #[cfg(any(comp_u5, comp_v1))]
-        let winmode = match config.window_mode {
-            WindowMode::Disabled => vals::WindowMode::ThisInpsel,
-            WindowMode::Enabled => vals::WindowMode::OtherInpsel,
-        };
-
-        #[cfg(any(comp_u5, comp_v1))]
-        let winout = match config.window_output {
-            WindowOutput::OwnValue => vals::WindowOut::Comp1Value,
-            WindowOutput::XorValue => vals::WindowOut::Comp1ValueXorComp2Value,
-        };
-
-        #[cfg(comp_v2)]
-        let inp_channel = inp_channel != 0;
-
-        T::regs().csr().modify(|w| {
-            w.set_inpsel(inp_channel);
-            w.set_inmsel(inmsel);
-            w.set_hyst(hyst);
-            w.set_polarity(polarity);
-            w.set_blanksel(blanksel);
-
-            // G4 COMP needs SCALEN/BRGEN bits to enable internal voltage references.
-            // SCALEN enables the Vrefint scaler, BRGEN enables the bridge resistor divider.
-            #[cfg(comp_v2)]
-            {
-                w.set_scalen(matches!(
-                    inmsel,
-                    vals::Inm::QuarterVRef | vals::Inm::HalfVRef | vals::Inm::ThreeQuarterVRef | vals::Inm::VRef
-                ));
-                w.set_brgen(matches!(
-                    inmsel,
-                    vals::Inm::QuarterVRef | vals::Inm::HalfVRef | vals::Inm::ThreeQuarterVRef
-                ));
-            }
-
-            w.set_en(true);
-            #[cfg(any(comp_u5, comp_v1))]
-            {
-                w.set_pwrmode(pwrmode);
-                w.set_winmode(winmode);
-                w.set_winout(winout);
-            }
-        });
-    }
-
-    fn configure(inp_channel: u8, config: Config) {
-        let inmsel = match config.inverting_input {
-            InvertingInput::OneQuarterVref => vals::Inm::QuarterVRef,
-            InvertingInput::HalfVref => vals::Inm::HalfVRef,
-            InvertingInput::ThreeQuarterVref => vals::Inm::ThreeQuarterVRef,
-            InvertingInput::Vref => vals::Inm::VRef,
-            #[cfg(any(comp_u5, comp_v1))]
-            InvertingInput::Dac1 => vals::Inm::Dac1,
-            #[cfg(any(comp_u5, comp_v1))]
-            InvertingInput::Dac2 => vals::Inm::Dac2,
-            #[cfg(comp_v2)]
-            InvertingInput::Dac1 => vals::Inm::Daca,
-            #[cfg(comp_v2)]
-            InvertingInput::Dac2 => vals::Inm::Dacb,
-
-            InvertingInput::InputPin => vals::Inm::Inm1,
-            #[cfg(any(comp_v1, comp_v2))]
-            InvertingInput::InputPin2 => vals::Inm::Inm2,
-            #[cfg(comp_v1)]
-            InvertingInput::InputPin3 => vals::Inm::Inm3,
-        };
-
-        Self::configure_raw(inp_channel, inmsel, config);
-    }
-
-    fn configure_with_input_minus_pin(inp_channel: u8, inm_channel: u8, config: Config) {
-        // Map the channel to the INM enum value
-        // INM1 = 0x06, INM2 = 0x07
-        let inmsel = vals::Inm::from_bits(0x06 + inm_channel);
-
-        Self::configure_raw(inp_channel, inmsel, config)
-    }
-
-    /// Enable the comparator.
-    pub fn enable(&mut self) {
-        T::regs().csr().modify(|w| {
-            w.set_en(true);
-        });
-    }
-
-    /// Disable the comparator.
-    pub fn disable(&mut self) {
-        T::regs().csr().modify(|w| {
-            w.set_en(false);
-        });
-    }
-
-    /// Check if the comparator is enabled.
-    pub fn is_enabled(&self) -> bool {
-        T::regs().csr().read().en()
-    }
-
-    /// Get the current output level.
+    /// Create a new comparator driver with an external inverting input pin.
     ///
-    /// Returns `true` if the non-inverting input is higher than the inverting input
-    /// (or the opposite if polarity is inverted).
-    pub fn output_level(&self) -> bool {
-        T::regs().csr().read().value()
-    }
+    /// The comparator is configured but not enabled. Use [`enable`](Self::enable) to enable it.
+    ///
+    /// Both non-inverting and inverting inputs are connected to the provided pins.
+    /// The `config.inverting_input` parameter is ignored; the pin determines the input.
+    pub fn new_with_input_minus_pin_and_output(
+        peri: Peri<'d, T>,
+        inp: Peri<'_, impl NonInvertingPin<T>>,
+        inm: Peri<'_, impl InvertingPin<T>>,
+        out: Peri<'d, impl OutputPin<T>>,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
+        config: Config,
+    ) -> Self {
+        T::info().rcc.enable_and_reset();
+        inp.set_as_analog();
+        inm.set_as_analog();
 
-    /// Set the blanking source.
-    pub fn set_blanking_source(&mut self, source: BlankingSource) {
-        let blanksel = match source {
-            BlankingSource::None => vals::Blanking::NoBlanking,
-            BlankingSource::Blank1 => vals::Blanking::Blank1,
-            BlankingSource::Blank2 => vals::Blanking::Blank2,
-            BlankingSource::Blank3 => vals::Blanking::Blank3,
-            #[cfg(any(comp_v1, comp_v2))]
-            BlankingSource::Blank4 => vals::Blanking::Blank4,
-            #[cfg(any(comp_v1, comp_v2))]
-            BlankingSource::Blank5 => vals::Blanking::Blank5,
-            #[cfg(comp_v2)]
-            BlankingSource::Blank6 => vals::Blanking::Blank6,
-            #[cfg(comp_v2)]
-            BlankingSource::Blank7 => vals::Blanking::Blank7,
-        };
+        // Configure with the pin's channel
+        Self::configure_with_input_minus_pin(inp.channel(), inm.channel(), config);
 
-        T::regs().csr().modify(|w| {
-            w.set_blanksel(blanksel);
-        });
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        Self {
+            _peri: peri,
+            _output: new_pin!(out, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            _phantom: PhantomData::default(),
+        }
     }
 
     /// Wait for the comparator output to go high.
@@ -554,7 +454,316 @@ impl<'d, T: Instance> Comp<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for Comp<'d, T> {
+impl<'d, T: Instance> Comp<'d, T, Blocking> {
+    /// Create a new (blocking) comparator driver.
+    ///
+    /// The comparator is configured but not enabled. Use [`enable`](Self::enable) to enable it.
+    ///
+    /// The non-inverting input is connected to the provided pin. The inverting input
+    /// is configured via the `config.inverting_input` parameter.
+    pub fn new_blocking(
+        peri: Peri<'d, T>,
+        inp: Peri<'_, impl NonInvertingPin<T> + crate::gpio::Pin>,
+        config: Config,
+    ) -> Self {
+        T::info().rcc.enable_and_reset();
+        inp.set_as_analog();
+
+        Self::configure(inp.channel(), config);
+
+        Self {
+            _peri: peri,
+            _output: None,
+            _phantom: PhantomData::default(),
+        }
+    }
+
+    /// Clear any pending interrupts for this comparator
+    pub fn clear_pending(&self) {
+        T::clear_exti_pending();
+    }
+
+    /// Configure interrupt generation on the output from the comparator:
+    /// rising, falling, both or neither.
+    pub fn configure_interrupt(&self, rising: bool, falling: bool) {
+        T::Interrupt::unpend();
+        if rising || falling {
+            unsafe { T::Interrupt::enable() };
+        } else {
+            T::Interrupt::disable();
+        }
+        T::configure_exti(rising, falling);
+    }
+}
+
+impl<'d, T: Instance, M: Mode> Comp<'d, T, M> {
+    fn configure_raw(
+        inp_channel: u8,
+        #[cfg(any(comp_u5, comp_v2, comp_v1))] inmsel: vals::Inm,
+        #[cfg(comp_u0)] inmsel: u8,
+        config: Config,
+    ) {
+        #[cfg(comp_u5)]
+        let pwrmode = match config.power_mode {
+            PowerMode::HighSpeed => vals::PowerMode::HighSpeed,
+            PowerMode::MediumSpeed => vals::PowerMode::MediumSpeed,
+            PowerMode::UltraLowPower => vals::PowerMode::UltraLow,
+        };
+
+        #[cfg(comp_u0)]
+        let pwrmode = match config.power_mode {
+            PowerMode::HighSpeed => vals::Pwrmode::HighSpeed,
+            PowerMode::MediumSpeed => vals::Pwrmode::MediumSpeed,
+        };
+
+        #[cfg(comp_v1)]
+        let pwrmode = match config.power_mode {
+            PowerMode::HighSpeed => vals::PowerMode::HighSpeed,
+            PowerMode::MediumSpeed => vals::PowerMode::MediumSpeed,
+        };
+
+        #[cfg(comp_v2)]
+        let hyst = match config.hysteresis {
+            Hysteresis::None => vals::Hysteresis::None,
+            Hysteresis::Hyst10M => vals::Hysteresis::Hyst10m,
+            Hysteresis::Hyst20M => vals::Hysteresis::Hyst20m,
+            Hysteresis::Hyst30M => vals::Hysteresis::Hyst30m,
+            Hysteresis::Hyst40M => vals::Hysteresis::Hyst40m,
+            Hysteresis::Hyst50M => vals::Hysteresis::Hyst50m,
+            Hysteresis::Hyst60M => vals::Hysteresis::Hyst60m,
+            Hysteresis::Hyst70M => vals::Hysteresis::Hyst70m,
+        };
+
+        #[cfg(any(comp_u5, comp_v1))]
+        let hyst = match config.hysteresis {
+            Hysteresis::None => vals::Hysteresis::None,
+            Hysteresis::Low => vals::Hysteresis::Low,
+            Hysteresis::Medium => vals::Hysteresis::Medium,
+            Hysteresis::High => vals::Hysteresis::High,
+        };
+
+        #[cfg(comp_u0)]
+        let hyst = match config.hysteresis {
+            Hysteresis::None => vals::Hyst::None,
+            Hysteresis::Low => vals::Hyst::Low,
+            Hysteresis::Medium => vals::Hyst::Medium,
+            Hysteresis::High => vals::Hyst::High,
+        };
+
+        let polarity = match config.output_polarity {
+            OutputPolarity::NotInverted => vals::Polarity::NotInverted,
+            OutputPolarity::Inverted => vals::Polarity::Inverted,
+        };
+
+        #[cfg(any(comp_u5, comp_v1, comp_v2))]
+        let blanksel = match config.blanking_source {
+            BlankingSource::None => vals::Blanking::NoBlanking,
+            BlankingSource::Blank1 => vals::Blanking::Blank1,
+            BlankingSource::Blank2 => vals::Blanking::Blank2,
+            BlankingSource::Blank3 => vals::Blanking::Blank3,
+            #[cfg(any(comp_v1, comp_v2))]
+            BlankingSource::Blank4 => vals::Blanking::Blank4,
+            #[cfg(any(comp_v1, comp_v2))]
+            BlankingSource::Blank5 => vals::Blanking::Blank5,
+            #[cfg(comp_v2)]
+            BlankingSource::Blank6 => vals::Blanking::Blank6,
+            #[cfg(comp_v2)]
+            BlankingSource::Blank7 => vals::Blanking::Blank7,
+        };
+
+        #[cfg(comp_u0)]
+        let blanksel = match config.blanking_source {
+            BlankingSource::None => vals::Blanking::NoBlanking,
+            BlankingSource::Blank1 => vals::Blanking::Tim1oc4,
+            BlankingSource::Blank2 => vals::Blanking::Tim1oc5,
+            BlankingSource::Blank3 => vals::Blanking::Tim2oc3,
+            BlankingSource::Blank4 => vals::Blanking::Tim3oc3,
+            BlankingSource::Blank5 => vals::Blanking::Tim15oc2,
+        };
+
+        #[cfg(any(comp_u5, comp_u0, comp_v1))]
+        let winmode = match config.window_mode {
+            WindowMode::Disabled => vals::WindowMode::ThisInpsel,
+            WindowMode::Enabled => vals::WindowMode::OtherInpsel,
+        };
+
+        #[cfg(comp_u5)]
+        let winout = match config.window_output {
+            WindowOutput::OwnValue => vals::WindowOut::Comp1value,
+            WindowOutput::XorValue => vals::WindowOut::Comp1xorComp2value,
+        };
+
+        #[cfg(any(comp_u0, comp_v1))]
+        let winout = match config.window_output {
+            WindowOutput::OwnValue => vals::WindowOut::Comp1Value,
+            WindowOutput::XorValue => vals::WindowOut::Comp1ValueXorComp2Value,
+        };
+
+        #[cfg(comp_v2)]
+        let inp_channel = inp_channel != 0;
+
+        T::regs().csr().modify(|w| {
+            w.set_inpsel(inp_channel);
+            #[cfg(any(comp_u5, comp_v2, comp_u0, comp_v1))]
+            w.set_inmsel(inmsel);
+            #[cfg(any(comp_u5, comp_v2, comp_u0, comp_v1))]
+            w.set_hyst(hyst);
+            w.set_polarity(polarity);
+            #[cfg(any(comp_u5, comp_v2, comp_u0, comp_v1))]
+            w.set_blanksel(blanksel);
+
+            // G4 COMP needs SCALEN/BRGEN bits to enable internal voltage references.
+            // SCALEN enables the Vrefint scaler, BRGEN enables the bridge resistor divider.
+            #[cfg(comp_v2)]
+            {
+                w.set_scalen(matches!(
+                    inmsel,
+                    vals::Inm::QuarterVRef | vals::Inm::HalfVRef | vals::Inm::ThreeQuarterVRef | vals::Inm::VRef
+                ));
+                w.set_brgen(matches!(
+                    inmsel,
+                    vals::Inm::QuarterVRef | vals::Inm::HalfVRef | vals::Inm::ThreeQuarterVRef
+                ));
+            }
+
+            w.set_en(true);
+            #[cfg(any(comp_u5, comp_u0, comp_v1))]
+            {
+                w.set_pwrmode(pwrmode);
+                w.set_winmode(winmode);
+                w.set_winout(winout);
+            }
+        });
+    }
+
+    fn configure(inp_channel: u8, config: Config) {
+        #[cfg(any(comp_u5, comp_v2, comp_v1))]
+        let inmsel = match config.inverting_input {
+            InvertingInput::OneQuarterVref => vals::Inm::QuarterVRef,
+            InvertingInput::HalfVref => vals::Inm::HalfVRef,
+            InvertingInput::ThreeQuarterVref => vals::Inm::ThreeQuarterVRef,
+            InvertingInput::Vref => vals::Inm::VRef,
+            #[cfg(any(comp_u5, comp_v1))]
+            InvertingInput::Dac1 => vals::Inm::Dac1,
+            #[cfg(comp_u5)]
+            InvertingInput::Dac2 => vals::Inm::Dac2,
+            #[cfg(comp_v2)]
+            InvertingInput::Dac1 => vals::Inm::Daca,
+            #[cfg(comp_v2)]
+            InvertingInput::Dac2 => vals::Inm::Dacb,
+
+            InvertingInput::InputPin => vals::Inm::Inm1,
+            #[cfg(any(comp_v1, comp_v2))]
+            InvertingInput::InputPin2 => vals::Inm::Inm2,
+            #[cfg(comp_v1)]
+            InvertingInput::InputPin3 => vals::Inm::Inm3,
+        };
+
+        #[cfg(comp_u0)]
+        let inmsel = match config.inverting_input {
+            InvertingInput::OneQuarterVref => 0,
+            InvertingInput::HalfVref => 1,
+            InvertingInput::ThreeQuarterVref => 2,
+            InvertingInput::Vref => 3,
+            InvertingInput::Dac1 => 4,
+            InvertingInput::InputPin => 5,
+            InvertingInput::InputPin2 => 6,
+            InvertingInput::InputPin3 => 7,
+            InvertingInput::InputPin4 => 8,
+            InvertingInput::InputPin5 => 9,
+        };
+
+        #[cfg(any(comp_u5, comp_v2, comp_u0, comp_v1))]
+        Self::configure_raw(inp_channel, inmsel, config);
+    }
+
+    fn configure_with_input_minus_pin(inp_channel: u8, inm_channel: u8, config: Config) {
+        // Map the channel to the INM enum value
+        // INM1 = 0x06, INM2 = 0x07
+        #[cfg(any(comp_u5, comp_v2, comp_v1))]
+        let inmsel = vals::Inm::from_bits(0x06 + inm_channel);
+        #[cfg(comp_u0)]
+        let inmsel = inm_channel;
+        #[cfg(any(comp_u5, comp_v2, comp_u0, comp_v1))]
+        Self::configure_raw(inp_channel, inmsel, config)
+    }
+
+    /// Enable the comparator.
+    pub fn enable(&mut self) {
+        T::regs().csr().modify(|w| {
+            w.set_en(true);
+        });
+    }
+
+    /// Disable the comparator.
+    pub fn disable(&mut self) {
+        T::regs().csr().modify(|w| {
+            w.set_en(false);
+        });
+    }
+
+    /// Check if the comparator is enabled.
+    pub fn is_enabled(&self) -> bool {
+        T::regs().csr().read().en()
+    }
+
+    /// Get the current output level.
+    ///
+    /// Returns `true` if the non-inverting input is higher than the inverting input
+    /// (or the opposite if polarity is inverted).
+    pub fn output_level(&self) -> bool {
+        T::regs().csr().read().value()
+    }
+
+    /// Set the blanking source.
+    pub fn set_blanking_source(&mut self, source: BlankingSource) {
+        #[cfg(comp_u5)]
+        let blanksel = match source {
+            BlankingSource::None => vals::Blanking::NoBlanking,
+            BlankingSource::Blank1 => vals::Blanking::Blank1,
+            BlankingSource::Blank2 => vals::Blanking::Blank2,
+            BlankingSource::Blank3 => vals::Blanking::Blank3,
+        };
+
+        #[cfg(comp_v2)]
+        let blanksel = match source {
+            BlankingSource::None => vals::Blanking::NoBlanking,
+            BlankingSource::Blank1 => vals::Blanking::Blank1,
+            BlankingSource::Blank2 => vals::Blanking::Blank2,
+            BlankingSource::Blank3 => vals::Blanking::Blank3,
+            BlankingSource::Blank4 => vals::Blanking::Blank4,
+            BlankingSource::Blank5 => vals::Blanking::Blank5,
+            BlankingSource::Blank6 => vals::Blanking::Blank6,
+            BlankingSource::Blank7 => vals::Blanking::Blank7,
+        };
+
+        #[cfg(comp_v1)]
+        let blanksel = match source {
+            BlankingSource::None => vals::Blanking::NoBlanking,
+            BlankingSource::Blank1 => vals::Blanking::Blank1,
+            BlankingSource::Blank2 => vals::Blanking::Blank2,
+            BlankingSource::Blank3 => vals::Blanking::Blank3,
+            BlankingSource::Blank4 => vals::Blanking::Blank4,
+            BlankingSource::Blank5 => vals::Blanking::Blank5,
+        };
+
+        #[cfg(comp_u0)]
+        let blanksel = match source {
+            BlankingSource::None => vals::Blanking::NoBlanking,
+            BlankingSource::Blank1 => vals::Blanking::Tim1oc4,
+            BlankingSource::Blank2 => vals::Blanking::Tim1oc5,
+            BlankingSource::Blank3 => vals::Blanking::Tim2oc3,
+            BlankingSource::Blank4 => vals::Blanking::Tim3oc3,
+            BlankingSource::Blank5 => vals::Blanking::Tim15oc2,
+        };
+
+        T::regs().csr().modify(|w| {
+            w.set_blanksel(blanksel);
+        });
+    }
+}
+
+impl<'d, T: Instance, M: Mode> Drop for Comp<'d, T, M> {
     fn drop(&mut self) {
         T::regs().csr().modify(|w| {
             w.set_en(false);
@@ -586,6 +795,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt type for this instance.
     type Interrupt: Interrupt;
 }
+
+pin_trait!(OutputPin, Instance);
 
 macro_rules! impl_comp {
     ($inst:ident, $exti_line:expr) => {
@@ -731,6 +942,38 @@ foreach_peripheral! {
 
 analog_pin_trait!(NonInvertingPin, Instance);
 analog_pin_trait!(InvertingPin, Instance);
+
+#[cfg(comp_u0)]
+foreach_peripheral! {
+    (comp, COMP1) => {
+        impl_comp!(COMP1, 17);
+    };
+    (comp, COMP2) => {
+        impl_comp!(COMP2, 18);
+    };
+}
+
+#[allow(unused_macros)]
+macro_rules! impl_comp_inp_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {
+        impl crate::comp::NonInvertingPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+            fn channel(&self) -> u8 {
+                $ch
+            }
+        }
+    };
+}
+
+#[allow(unused_macros)]
+macro_rules! impl_comp_inm_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {
+        impl crate::comp::InvertingPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+            fn channel(&self) -> u8 {
+                $ch
+            }
+        }
+    };
+}
 
 // COMP pin implementations are generated by build.rs from stm32-data.
 // Channel numbers (INP0/INP1, INM0/INM1) come from data/extra/STM32G4.yaml

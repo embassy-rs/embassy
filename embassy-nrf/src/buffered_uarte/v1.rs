@@ -861,6 +861,7 @@ impl<'a> Drop for BufferedUarteRx<'a> {
             w.set_rxdrdy(true);
             w.set_dmarxready(true);
             w.set_rxto(true);
+            w.set_error(true);
         });
         r.events_rxto().write_value(0);
         r.tasks_dma().rx().stop().write_value(1);

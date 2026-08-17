@@ -38,26 +38,92 @@ impl LePhy {
 }
 
 /// Reason for disconnection
-#[repr(u8)]
+///
+/// Represents the HCI status code reported when a connection terminates, or the
+/// reason supplied by the local host when initiating a disconnection. Codes that
+/// are not explicitly mapped are preserved via [`DisconnectReason::Unknown`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DisconnectReason {
-    /// Remote user terminated connection
-    RemoteUserTerminated = 0x13,
-    /// Remote device terminated due to low resources
-    RemoteLowResources = 0x14,
-    /// Remote device terminated due to power off
-    RemotePowerOff = 0x15,
-    /// Connection terminated by local host
-    LocalHostTerminated = 0x16,
-    /// Unacceptable connection parameters
-    UnacceptableParameters = 0x3B,
+    /// Connection timeout (0x08)
+    ConnectionTimeout,
+    /// Remote user terminated connection (0x13)
+    RemoteUserTerminated,
+    /// Remote device terminated due to low resources (0x14)
+    RemoteLowResources,
+    /// Remote device terminated due to power off (0x15)
+    RemotePowerOff,
+    /// Connection terminated by local host (0x16)
+    LocalHostTerminated,
+    /// Unsupported remote feature (0x1A)
+    UnsupportedRemoteFeature,
+    /// Unacceptable connection parameters (0x3B)
+    UnacceptableParameters,
+    /// MIC failure (0x3D)
+    MicFailure,
+    /// Connection failed to establish (0x3E)
+    ConnectionFailedToEstablish,
+    /// Unknown or unmapped HCI status code
+    Unknown(u8),
 }
 
 impl DisconnectReason {
-    /// Convert to raw u8 value for HCI command
     pub fn as_u8(self) -> u8 {
-        self as u8
+        match self {
+            DisconnectReason::ConnectionTimeout => 0x08,
+            DisconnectReason::RemoteUserTerminated => 0x13,
+            DisconnectReason::RemoteLowResources => 0x14,
+            DisconnectReason::RemotePowerOff => 0x15,
+            DisconnectReason::LocalHostTerminated => 0x16,
+            DisconnectReason::UnsupportedRemoteFeature => 0x1A,
+            DisconnectReason::UnacceptableParameters => 0x3B,
+            DisconnectReason::MicFailure => 0x3D,
+            DisconnectReason::ConnectionFailedToEstablish => 0x3E,
+            DisconnectReason::Unknown(code) => code,
+        }
+    }
+}
+
+impl From<u8> for DisconnectReason {
+    fn from(code: u8) -> Self {
+        match code {
+            0x08 => DisconnectReason::ConnectionTimeout,
+            0x13 => DisconnectReason::RemoteUserTerminated,
+            0x14 => DisconnectReason::RemoteLowResources,
+            0x15 => DisconnectReason::RemotePowerOff,
+            0x16 => DisconnectReason::LocalHostTerminated,
+            0x1A => DisconnectReason::UnsupportedRemoteFeature,
+            0x3B => DisconnectReason::UnacceptableParameters,
+            0x3D => DisconnectReason::MicFailure,
+            0x3E => DisconnectReason::ConnectionFailedToEstablish,
+            other => DisconnectReason::Unknown(other),
+        }
+    }
+}
+
+impl From<DisconnectReason> for &'static str {
+    fn from(reason: DisconnectReason) -> Self {
+        match reason {
+            DisconnectReason::ConnectionTimeout => "Connection Timeout",
+            DisconnectReason::RemoteUserTerminated => "Remote User Terminated",
+            DisconnectReason::RemoteLowResources => "Remote Low Resources",
+            DisconnectReason::RemotePowerOff => "Remote Power Off",
+            DisconnectReason::LocalHostTerminated => "Local Host Terminated",
+            DisconnectReason::UnsupportedRemoteFeature => "Unsupported Remote Feature",
+            DisconnectReason::UnacceptableParameters => "Unacceptable Connection Parameters",
+            DisconnectReason::MicFailure => "MIC Failure",
+            DisconnectReason::ConnectionFailedToEstablish => "Connection Failed to Establish",
+            DisconnectReason::Unknown(_) => "Unknown",
+        }
+    }
+}
+
+impl core::fmt::Display for DisconnectReason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            DisconnectReason::Unknown(code) => write!(f, "Unknown (0x{code:02X})"),
+            _ => f.write_str((*self).into()),
+        }
     }
 }
 
@@ -339,7 +405,7 @@ pub enum GapEvent {
         /// Handle of the terminated connection
         handle: ConnectionHandle,
         /// Reason for disconnection
-        reason: u8,
+        reason: DisconnectReason,
     },
 
     /// Connection parameters have been updated

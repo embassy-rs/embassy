@@ -167,14 +167,14 @@ pub struct PinGroupWithRoles<
 > {
     /// The underlying pin group without role information.
     pub pin_group: PinGroup<'d, T, G>,
-    _phantom: PhantomData<(R1, R2, R3, R4)>,
+    _marker: PhantomData<(R1, R2, R3, R4)>,
 }
 
 impl<'d, T: Instance, G, R1, R2, R3, R4> Default for PinGroupWithRoles<'d, T, G, R1, R2, R3, R4> {
     fn default() -> Self {
         Self {
             pin_group: PinGroup::default(),
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 }

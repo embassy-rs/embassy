@@ -32,10 +32,10 @@ pub enum InputCaptureMode {
     BothEdges,
 }
 
-/// Input TI selection.
+/// Input capture selection.
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum InputTISelection {
+pub enum InputCaptureSelection {
     /// Normal
     Normal,
     /// Alternate
@@ -44,12 +44,12 @@ pub enum InputTISelection {
     TRC,
 }
 
-impl From<InputTISelection> for stm32_metapac::timer::vals::CcmrInputCcs {
-    fn from(tisel: InputTISelection) -> Self {
-        match tisel {
-            InputTISelection::Normal => stm32_metapac::timer::vals::CcmrInputCcs::Ti4,
-            InputTISelection::Alternate => stm32_metapac::timer::vals::CcmrInputCcs::Ti3,
-            InputTISelection::TRC => stm32_metapac::timer::vals::CcmrInputCcs::Trc,
+impl From<InputCaptureSelection> for stm32_metapac::timer::vals::CcmrInputCcs {
+    fn from(icsel: InputCaptureSelection) -> Self {
+        match icsel {
+            InputCaptureSelection::Normal => stm32_metapac::timer::vals::CcmrInputCcs::Ti4,
+            InputCaptureSelection::Alternate => stm32_metapac::timer::vals::CcmrInputCcs::Ti3,
+            InputCaptureSelection::TRC => stm32_metapac::timer::vals::CcmrInputCcs::Trc,
         }
     }
 }
@@ -190,6 +190,16 @@ pub enum OutputCompareMode {
     AsymmetricPwmMode2,
 }
 
+/// OCREF clear trigger source.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum OcrefClearSource {
+    /// Use the timer's dedicated OCREF clear input.
+    Internal,
+    /// Use filtered external trigger (ETRF) as OCREF clear source.
+    Etrf,
+}
+
 #[cfg(timer_v3)]
 impl From<OutputCompareMode> for crate::pac::timer::vals::OcmGp {
     fn from(mode: OutputCompareMode) -> Self {
@@ -268,6 +278,27 @@ pub enum RoundTo {
     ///
     /// The actual period will be <= the requested period.
     Faster,
+}
+
+/// Dithering configuration for timer_v2-capable timers.
+#[cfg(timer_v2)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DitheringConfig {
+    /// Enable/disable hardware dithering mode.
+    pub enabled: bool,
+    /// Fractional ARR nibble (`ARR_DITHER.DITHER`).
+    pub arr_dither: u8,
+}
+
+#[cfg(timer_v2)]
+impl Default for DitheringConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            arr_dither: 0,
+        }
+    }
 }
 
 /// Result of PSC/ARR calculation for timer configuration.
@@ -441,6 +472,14 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cnt().write(|r| r.set_cnt(0));
     }
 
+    /// Get the current counter value.
+    pub fn get_counter(&self) -> T::Word {
+        #[cfg(not(stm32l0))]
+        return unwrap!(self.regs_gp32_unchecked().cnt().read().try_into());
+        #[cfg(stm32l0)]
+        return unwrap!(self.regs_gp32_unchecked().cnt().read().cnt().try_into());
+    }
+
     /// get the capability of the timer
     pub fn bits(&self) -> TimerBits {
         match T::Word::bits() {
@@ -453,10 +492,15 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 
     /// Set the timer period in timer clock cycles.
     ///
-    /// The timer will count for `clocks` clock cycles before wrapping.
+    /// In the edge-aligned mode, the timer will wrap in given clock cycles.
+    /// In the center-aligned mode, the timer will count up and down in given clock cycles.
+    ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
-    pub fn set_period_clocks(&self, clocks: u64, round: RoundTo) {
+    pub fn set_period_clocks(&self, mut clocks: u64, round: RoundTo) {
+        if T::is_center_aligned() {
+            clocks = clocks / 2;
+        }
         self.set_period_clocks_internal(clocks, round, T::Word::bits());
     }
 
@@ -473,12 +517,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         regs.arr().write_value(arr.into());
     }
 
-    /// Set the frequency of how many times per second the timer counts up to the max value or down to 0.
+    /// Set the frequency - how many times per second.
     ///
-    /// This means that in the default edge-aligned mode,
-    /// the timer counter will wrap around at the same frequency as is being set.
-    /// In center-aligned mode (which not all timers support), the wrap-around frequency is effectively halved
-    /// because it needs to count up and down.
+    /// In the edge-aligned mode, the timer will wrap-around at the same frequency as is being set
+    /// In the center-aligned mode, its the frequency of the timer counting both up and down,
+    /// so wrap-around frequency is effectively halved.
     ///
     /// The actual frequency may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
@@ -492,6 +535,9 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 
     /// Set the timer period in milliseconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
     pub fn set_period_ms(&self, ms: u32, round: RoundTo) {
@@ -501,6 +547,9 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     }
 
     /// Set the timer period in microseconds.
+    ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
     ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
@@ -512,6 +561,9 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
 
     /// Set the timer period in seconds.
     ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
+    ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
     pub fn set_period_secs(&self, secs: u32, round: RoundTo) {
@@ -521,6 +573,9 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     }
 
     /// Set the timer period using an `embassy_time::Duration`.
+    ///
+    /// In the edge-aligned mode, the timer will wrap-around in given period.
+    /// In the center-aligned mode, given period includes counting both up and down.
     ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
@@ -554,7 +609,8 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         let regs = self.regs_core();
         let sr = regs.sr().read();
         if sr.uif() {
-            regs.sr().modify(|r| {
+            regs.sr().write(|r| {
+                r.0 = 0xFFFF_FFFF;
                 r.set_uif(false);
             });
             true
@@ -573,6 +629,20 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cr1().modify(|r| r.set_arpe(enable));
     }
 
+    /// Enable/disable UIF status remapping.
+    ///
+    /// When enabled, the update interrupt flag (UIF) is copied into the counter
+    /// register's MSB, allowing atomic reads of counter+overflow status on
+    /// supported timer variants.
+    pub fn set_uif_remap(&self, enable: bool) {
+        self.regs_core().cr1().modify(|r| r.set_uifremap(enable));
+    }
+
+    /// Get UIF status remapping state.
+    pub fn get_uif_remap(&self) -> bool {
+        self.regs_core().cr1().read().uifremap()
+    }
+
     /// Get the timer frequency.
     pub fn get_frequency(&self) -> Hertz {
         let timer_f = T::frequency();
@@ -584,7 +654,11 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         let arr = regs.arr().read().arr();
         let psc = regs.psc().read();
 
-        timer_f / arr / (psc + 1)
+        let mut freq = timer_f / (arr + 1) / (psc + 1);
+        if T::is_center_aligned() {
+            freq = freq / 2_u32;
+        }
+        freq
     }
 
     /// Get the clock frequency of the timer (before prescaler is applied).
@@ -624,6 +698,11 @@ impl<'d, T: BasicInstance> Timer<'d, T> {
     /// more capable timers.
     pub fn regs_basic(&self) -> crate::pac::timer::TimBasic {
         unsafe { crate::pac::timer::TimBasic::from_ptr(T::regs()) }
+    }
+
+    /// Set Timer Master Mode
+    pub fn set_master_mode(&self, mms: MasterMode) {
+        self.regs_basic().cr2().modify(|w| w.set_mms(mms));
     }
 }
 
@@ -717,6 +796,16 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         (cr1.cms(), cr1.dir()).into()
     }
 
+    /// Return whether the timer direction bit indicates up-counting.
+    pub fn is_counting_up(&self) -> bool {
+        self.regs_gp16().cr1().read().dir() == vals::Dir::Up
+    }
+
+    /// Return whether the timer direction bit indicates down-counting.
+    pub fn is_counting_down(&self) -> bool {
+        self.regs_gp16().cr1().read().dir() == vals::Dir::Down
+    }
+
     /// Set input capture filter.
     pub fn set_input_capture_filter(&self, channel: Channel, icf: vals::FilterValue) {
         let raw_channel = channel.index();
@@ -727,7 +816,10 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
     /// Clear input interrupt.
     pub fn clear_input_interrupt(&self, channel: Channel) {
-        self.regs_gp16().sr().modify(|r| r.set_ccif(channel.index(), false));
+        self.regs_gp16().sr().write(|r| {
+            r.0 = 0xFFFF_FFFF;
+            r.set_ccif(channel.index(), false);
+        });
     }
 
     /// Get input interrupt.
@@ -748,12 +840,67 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             .modify(|r| r.set_icpsc(raw_channel % 2, factor));
     }
 
+    #[cfg(not(stm32l0))]
     /// Set input TI selection.
-    pub fn set_input_ti_selection(&self, channel: Channel, tisel: InputTISelection) {
+    pub fn set_input_ti_seletion(&self, channel: Channel, tisel: u8) {
+        let raw_channel = channel.index();
+        self.regs_gp16().tisel().modify(|w| w.set_tisel(raw_channel, tisel));
+    }
+
+    #[cfg(timer_v2)]
+    /// Configure encoder index direction behavior (TIMx_ECR.IDIR).
+    pub fn set_encoder_index_direction(&self, direction: vals::Idir) {
+        self.regs_gp16().ecr().modify(|w| w.set_idir(direction));
+    }
+
+    #[cfg(timer_v2)]
+    /// Configure encoder index position behavior (TIMx_ECR.FIDX).
+    pub fn set_encoder_index_position(&self, position: vals::Fidx) {
+        self.regs_gp16().ecr().modify(|w| w.set_fidx(position));
+    }
+
+    #[cfg(timer_v2)]
+    /// Enable/disable index event interrupts (TIMx_DIER.IDXIE).
+    pub fn enable_encoder_index_interrupt(&self, enable: bool) {
+        self.regs_gp16().dier().modify(|w| w.set_idxie(enable));
+    }
+
+    #[cfg(timer_v2)]
+    /// Enable/disable direction-change interrupts (TIMx_DIER.DIRIE).
+    pub fn enable_encoder_direction_change_interrupt(&self, enable: bool) {
+        self.regs_gp16().dier().modify(|w| w.set_dirie(enable));
+    }
+
+    #[cfg(timer_v2)]
+    /// Get index event interrupt pending state (TIMx_SR.IDXIF).
+    pub fn get_encoder_index_interrupt(&self) -> bool {
+        self.regs_gp16().sr().read().idxif()
+    }
+
+    #[cfg(timer_v2)]
+    /// Get direction-change interrupt pending state (TIMx_SR.DIRIF).
+    pub fn get_encoder_direction_change_interrupt(&self) -> bool {
+        self.regs_gp16().sr().read().dirif()
+    }
+
+    #[cfg(timer_v2)]
+    /// Clear index event interrupt pending state (TIMx_SR.IDXIF).
+    pub fn clear_encoder_index_interrupt(&self) {
+        self.regs_gp16().sr().modify(|w| w.set_idxif(false));
+    }
+
+    #[cfg(timer_v2)]
+    /// Clear direction-change interrupt pending state (TIMx_SR.DIRIF).
+    pub fn clear_encoder_direction_change_interrupt(&self) {
+        self.regs_gp16().sr().modify(|w| w.set_dirif(false));
+    }
+
+    /// Set input capture selection.
+    pub fn set_input_capture_selection(&self, channel: Channel, icsel: InputCaptureSelection) {
         let raw_channel = channel.index();
         self.regs_gp16()
             .ccmr_input(raw_channel / 2)
-            .modify(|r| r.set_ccs(raw_channel % 2, tisel.into()));
+            .modify(|r| r.set_ccs(raw_channel % 2, icsel.into()));
     }
 
     /// Set input capture mode.
@@ -780,6 +927,16 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         self.regs_gp16()
             .ccmr_output(raw_channel / 2)
             .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
+    }
+
+    /// Enable/disable OCREF clear on a channel.
+    ///
+    /// When enabled, a configured clear input can force OCxREF inactive.
+    pub fn set_output_compare_clear_enable(&self, channel: Channel, enable: bool) {
+        let raw_channel = channel.index();
+        self.regs_gp16()
+            .ccmr_output(raw_channel / 2)
+            .modify(|w| w.set_occe(raw_channel % 2, enable));
     }
 
     /// Set output polarity.
@@ -809,6 +966,23 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         self.regs_gp16()
             .ccr(channel.index())
             .modify(|w| w.set_ccr(unwrap!(value.try_into())));
+    }
+
+    #[cfg(timer_v2)]
+    /// Configure timer dithering mode and ARR fractional nibble.
+    pub fn set_dithering(&self, config: DitheringConfig) {
+        self.regs_gp16().cr1().modify(|w| w.set_dithen(config.enabled));
+        self.regs_gp16()
+            .arr_dither()
+            .modify(|w| w.set_dither(config.arr_dither & 0x0f));
+    }
+
+    #[cfg(timer_v2)]
+    /// Set CCR fractional nibble (`CCRx_DITHER.DITHER`) for a channel.
+    pub fn set_compare_dither_value(&self, channel: Channel, dither: u8) {
+        self.regs_gp16()
+            .ccr_dither(channel.index())
+            .modify(|w| w.set_dither(dither & 0x0f));
     }
 
     /// Get compare value for a channel.
@@ -844,21 +1018,22 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
         unsafe {
             use crate::dma::TransferOptions;
-            #[cfg(not(any(bdma, gpdma)))]
+            #[cfg(not(any(bdma, gpdma, lpdma)))]
             use crate::dma::{Burst, FifoThreshold};
 
             let dma_transfer_option = TransferOptions {
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 fifo_threshold: Some(FifoThreshold::Full),
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr8,
+                packing: crate::dma::Packing::ZeroExtendOrLeftTruncate,
                 ..Default::default()
             };
 
             WritableRingBuffer::new(
                 dma::Channel::new(dma, irq),
                 req,
-                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut W,
+                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut T::Word,
                 dma_buf,
                 dma_transfer_option,
             )
@@ -903,14 +1078,15 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     ) -> Transfer<'a> {
         unsafe {
             use crate::dma::TransferOptions;
-            #[cfg(not(any(bdma, gpdma)))]
+            #[cfg(not(any(bdma, gpdma, lpdma)))]
             use crate::dma::{Burst, FifoThreshold};
 
             let dma_transfer_option = TransferOptions {
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 fifo_threshold: Some(FifoThreshold::Full),
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr8,
+                packing: crate::dma::Packing::ZeroExtendOrLeftTruncate,
                 ..Default::default()
             };
 
@@ -919,7 +1095,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 .write(
                     request,
                     duty,
-                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
+                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut T::Word,
                     dma_transfer_option,
                 )
                 .unchecked_extend_lifetime()
@@ -982,13 +1158,13 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
         unsafe {
             use crate::dma::TransferOptions;
-            #[cfg(not(any(bdma, gpdma)))]
+            #[cfg(not(any(bdma, gpdma, lpdma)))]
             use crate::dma::{Burst, FifoThreshold};
 
             let dma_transfer_option = TransferOptions {
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 fifo_threshold: Some(FifoThreshold::Full),
-                #[cfg(not(any(bdma, gpdma)))]
+                #[cfg(not(any(bdma, gpdma, lpdma)))]
                 mburst: Burst::Incr4,
                 ..Default::default()
             };
@@ -1036,11 +1212,6 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Set capture compare DMA enable state
     pub fn set_cc_dma_enable_state(&self, channel: Channel, ccde: bool) {
         self.regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
-    }
-
-    /// Set Timer Master Mode
-    pub fn set_master_mode(&self, mms: MasterMode) {
-        self.regs_gp16().cr2().modify(|w| w.set_mms(mms));
     }
 
     /// Set Timer Slave Mode
@@ -1258,6 +1429,17 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
         unsafe { crate::pac::timer::TimAdv::from_ptr(T::regs()) }
     }
 
+    #[cfg(timer_v2)]
+    /// Select OCREF clear source.
+    pub fn set_ocref_clear_source(&self, source: OcrefClearSource) {
+        self.regs_advanced().smcr().modify(|w| {
+            w.set_occs(match source {
+                OcrefClearSource::Internal => vals::Occs::Input,
+                OcrefClearSource::Etrf => vals::Occs::Etrf,
+            });
+        });
+    }
+
     /// Set complementary output polarity.
     pub fn set_complementary_output_polarity(&self, channel: Channel, polarity: OutputPolarity) {
         self.regs_advanced()
@@ -1324,10 +1506,65 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
         self.regs_advanced().bdtr().read().bkf(1)
     }
 
+    #[cfg(timer_v2)]
+    /// Set break input 1 disarm mode.
+    pub fn set_break_disarm_mode(&self, mode: vals::Bkdsrm) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bkdsrm(0, mode));
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 disarm mode.
+    pub fn get_break_disarm_mode(&self) -> vals::Bkdsrm {
+        self.regs_advanced().bdtr().read().bkdsrm(0)
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 1 bidirectional mode.
+    pub fn set_break_bidirectional_mode(&self, mode: vals::Bkbid) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bkbid(0, mode));
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 1 bidirectional mode.
+    pub fn get_break_bidirectional_mode(&self) -> vals::Bkbid {
+        self.regs_advanced().bdtr().read().bkbid(0)
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 disarm mode.
+    pub fn set_break2_disarm_mode(&self, mode: vals::Bkdsrm) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bkdsrm(1, mode));
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 disarm mode.
+    pub fn get_break2_disarm_mode(&self) -> vals::Bkdsrm {
+        self.regs_advanced().bdtr().read().bkdsrm(1)
+    }
+
+    #[cfg(timer_v2)]
+    /// Set break input 2 bidirectional mode.
+    pub fn set_break2_bidirectional_mode(&self, mode: vals::Bkbid) {
+        self.regs_advanced().bdtr().modify(|w| w.set_bkbid(1, mode));
+    }
+
+    #[cfg(timer_v2)]
+    /// Get break input 2 bidirectional mode.
+    pub fn get_break2_bidirectional_mode(&self) -> vals::Bkbid {
+        self.regs_advanced().bdtr().read().bkbid(1)
+    }
+
     /// Trigger software break 1 or 2
     /// Setting this bit generates a break event. This bit is automatically cleared by the hardware.
     pub fn trigger_software_break(&self, n: usize) {
         self.regs_advanced().egr().write(|r| r.set_bg(n, true));
+    }
+
+    /// Generate a software capture/compare event on the given channel.
+    ///
+    /// Sets CCxG in EGR. The bit is automatically cleared by hardware.
+    pub fn generate_capture_compare_event(&self, channel: Channel) {
+        self.regs_advanced().egr().write(|r| r.set_ccg(channel.index(), true));
     }
 
     /// Enable/disable comparator output as break input 2 source.

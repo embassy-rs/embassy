@@ -66,7 +66,7 @@ async fn main(_spawner: Spawner) -> ! {
     _spawner.spawn(blink_heartbeat(red_led).unwrap());
 
     loop {
-        let state = rx.receive(|| Some(LED_STATE.load(Ordering::SeqCst)), false).await;
+        let state = rx.receive(|| Some(LED_STATE.load(Ordering::SeqCst))).await;
         #[cfg(feature = "defmt")]
         info!("CM0+ Recieve: {}", state);
         green_led.set_level(if state { Level::High } else { Level::Low });

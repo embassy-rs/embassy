@@ -14,11 +14,11 @@ pub enum WatchdogChannels {
 }
 
 impl WatchdogChannels {
-    pub fn from_channel<T>(channel: &impl AdcChannel<T>) -> Self {
+    pub fn from_channel<'d, T>(channel: &impl AdcChannel<'d, T>) -> Self {
         Self::Single(channel.channel())
     }
 
-    pub fn add_channel<T>(self, channel: &impl AdcChannel<T>) -> Self {
+    pub fn add_channel<'d, T>(self, channel: &impl AdcChannel<'d, T>) -> Self {
         WatchdogChannels::Multiple(
             (match self {
                 WatchdogChannels::Single(ch) => 1 << ch,
@@ -44,7 +44,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         low_threshold: u16,
         high_threshold: u16,
     ) -> AnalogWatchdog<'_, 'd, T> {
-        T::regs().stop(false);
+        T::regs().stop();
 
         AnalogWatchdog::new_inner(self, channels, low_threshold, high_threshold)
     }
@@ -116,7 +116,7 @@ impl<'adc, 'd, T: DefaultInstance> AnalogWatchdog<'adc, 'd, T> {
         })
         .await;
 
-        T::regs().stop(false);
+        T::regs().stop();
         sample
     }
 
@@ -184,6 +184,6 @@ impl<'adc, 'd, T: DefaultInstance> AnalogWatchdog<'adc, 'd, T> {
 
 impl<'adc, 'd, T: DefaultInstance> Drop for AnalogWatchdog<'adc, 'd, T> {
     fn drop(&mut self) {
-        T::regs().stop(false);
+        T::regs().stop();
     }
 }

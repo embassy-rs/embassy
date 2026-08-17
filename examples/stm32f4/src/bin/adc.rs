@@ -3,13 +3,14 @@
 
 use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::vals::Exten;
 use embassy_stm32::adc::{Adc, AdcChannel, RegularAdcTrigger, SampleTime, Temperature, VrefInt};
 use embassy_stm32::triggers::TIM1_CH1;
 use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::{Delay, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA2_STREAM2 => dma::InterruptHandler<peripherals::DMA2_CH2>;
@@ -28,7 +29,7 @@ async fn main(_spawner: Spawner) {
         p.DMA2_CH2,
         &mut adc_dma_buf,
         Irqs,
-        [(p.PA0.degrade_adc(), SampleTime::Cycles112)].into_iter(),
+        [(p.PA0.reborrow_adc(), SampleTime::Cycles112)].into_iter(),
         RegularAdcTrigger::from(TIM1_CH1, Exten::RisingEdge),
     );
     adc_ring_buffered.start();
@@ -44,14 +45,11 @@ async fn main(_spawner: Spawner) {
     delay.delay_us(Temperature::start_time_us().max(VrefInt::start_time_us()));
 
     {
-        let mut first_pin = p.PA0.degrade_adc();
-        let mut second_pin = p.PA2.degrade_adc();
-
-        let mut configured_sequence = adc.configured_sequence(
+        let mut configured_sequence = adc.configure_sequence(
             p.DMA2_CH0,
             [
-                (&mut first_pin, SampleTime::Cycles112),
-                (&mut second_pin, SampleTime::Cycles112),
+                (p.PA0.reborrow_adc(), SampleTime::Cycles112),
+                (p.PA2.reborrow_adc(), SampleTime::Cycles112),
             ]
             .into_iter(),
             Irqs,

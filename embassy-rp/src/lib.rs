@@ -25,7 +25,6 @@ pub mod adc;
 pub mod aon_timer;
 #[cfg(feature = "_rp235x")]
 pub mod block;
-#[cfg(feature = "rp2040")]
 pub mod bootsel;
 pub mod clocks;
 pub(crate) mod datetime;
@@ -38,6 +37,8 @@ mod float;
 pub mod gpio;
 pub mod i2c;
 pub mod i2c_slave;
+pub mod interpolator;
+pub mod mode;
 pub mod multicore;
 #[cfg(feature = "_rp235x")]
 pub mod otp;
@@ -448,7 +449,7 @@ embassy_hal_internal::peripherals! {
     BOOTSEL,
 
     POWMAN,
-    TRNG
+    TRNG,
 }
 
 #[cfg(all(not(feature = "boot2-none"), feature = "rp2040"))]
@@ -596,6 +597,7 @@ pub mod config {
 
     /// HAL configuration passed when initializing.
     #[non_exhaustive]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub struct Config {
         /// Clock configuration.
         pub clocks: ClockConfig,
@@ -638,8 +640,10 @@ pub fn init(config: config::Config) -> Peripherals {
     peripherals
 }
 
+// TODO: change pre_init to ASM.
+// we're using export_name manually to workaround cortex-m-rt deprecating it.
 #[cfg(feature = "rt")]
-#[cortex_m_rt::pre_init]
+#[unsafe(export_name = "__pre_init")]
 unsafe fn pre_init() {
     // SIO does not get reset when core0 is reset with either `scb::sys_reset()` or with SWD.
     // Since we're using SIO spinlock 31 for the critical-section impl, this causes random

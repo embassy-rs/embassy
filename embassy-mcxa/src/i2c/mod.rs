@@ -153,6 +153,10 @@ macro_rules! impl_lpi2c_pin {
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
                 self.set_function(crate::pac::port::Mux::$fn);
                 self.set_enable_input_buffer(true);
+                // I2C requires open-drain so multiple devices can share the bus.
+                self.pcr_reg().modify(|w| {
+                    w.set_ode(crate::pac::port::Ode::Ode1);
+                });
             }
         }
     };

@@ -12,6 +12,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel as _, RegularAdcTrigger, Resolution, SampleTime};
 use embassy_stm32::pac::adc::vals::Exten;
@@ -21,7 +22,7 @@ use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::triggers::TIM1_TRGO2;
 use embassy_stm32::{bind_interrupts, dma};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL1 => dma::InterruptHandler<DMA1_CH1>;
@@ -61,14 +62,10 @@ async fn main(_spawner: Spawner) {
     let mut vrefint = adc.enable_vrefint();
     let mut temperature = adc.enable_temperature();
 
-    let vrefint_channel = vrefint.degrade_adc();
-    let temp_channel = temperature.degrade_adc();
-    let pa0 = p.PA0.degrade_adc();
-
     let sequence = [
-        (vrefint_channel, SampleTime::Cycles125),
-        (temp_channel, SampleTime::Cycles125),
-        (pa0, SampleTime::Cycles125),
+        (vrefint.reborrow_adc(), SampleTime::Cycles125),
+        (temperature.reborrow_adc(), SampleTime::Cycles125),
+        (p.PA0.reborrow_adc(), SampleTime::Cycles125),
     ]
     .into_iter();
 

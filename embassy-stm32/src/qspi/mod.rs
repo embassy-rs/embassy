@@ -32,6 +32,8 @@ pub struct TransferConfig {
     pub instruction: u8,
     /// Flash memory address
     pub address: Option<u32>,
+    /// Address size (8/16/24/32-bit)
+    pub address_size: AddressSize,
     /// Number of dummy cycles (DCYC)
     pub dummy: DummyCycles,
 }
@@ -44,6 +46,7 @@ impl Default for TransferConfig {
             dwidth: QspiWidth::NONE,
             instruction: 0,
             address: None,
+            address_size: AddressSize::_24Bit,
             dummy: DummyCycles::_0,
         }
     }
@@ -57,8 +60,6 @@ pub struct Config {
     /// Flash memory size representend as 2^[0-32], as reasonable minimum 1KiB(9) was chosen.
     /// If you need other value the whose predefined use `Other` variant.
     pub memory_size: MemorySize,
-    /// Address size (8/16/24/32-bit)
-    pub address_size: AddressSize,
     /// Scalar factor for generating CLK [0-255]
     pub prescaler: u8,
     /// Number of bytes to trigger FIFO threshold flag.
@@ -76,8 +77,10 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            memory_size: MemorySize::Other(0),
-            address_size: AddressSize::_24bit,
+            // We set the default is the maximum size of the memory
+            // This value limits the possible read length using indirect read mode
+            // To prevent a gotcha we choose to use a high value
+            memory_size: MemorySize::Other(31),
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
             cs_high_time: ChipSelectHighTime::_5Cycle,
@@ -104,7 +107,7 @@ pub struct Qspi<'d, T: Instance, M: PeriMode> {
     bk1nss: Option<Flex<'d>>,
     bk2nss: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
     config: Config,
 }
 
@@ -172,16 +175,45 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
             bk1nss,
             bk2nss,
             dma,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config,
+        }
+    }
+
+    /// Widest transfer width supported.
+    pub fn max_transfer_width(&self) -> QspiWidth {
+        let bank_max = |d0, d1, d2, d3| match (d0, d1, d2, d3) {
+            (Some(_), Some(_), Some(_), Some(_)) => QspiWidth::QUAD,
+            (Some(_), Some(_), _, _) => QspiWidth::DUAL,
+            (Some(_), _, _, _) => QspiWidth::SING,
+            _ => QspiWidth::NONE,
+        };
+        let bk1 = bank_max(
+            self.bk1d0.as_ref(),
+            self.bk1d1.as_ref(),
+            self.bk1d2.as_ref(),
+            self.bk1d3.as_ref(),
+        );
+        let bk2 = bank_max(
+            self.bk2d0.as_ref(),
+            self.bk2d1.as_ref(),
+            self.bk2d2.as_ref(),
+            self.bk2d3.as_ref(),
+        );
+        bk1.max(bk2)
+    }
+
+    /// Panic if any width in `transaction` exceeds the wired-up IO lanes.
+    fn assert_transfer_widths(&self, transaction: &TransferConfig) {
+        let max = self.max_transfer_width();
+        if transaction.iwidth > max || transaction.awidth > max || transaction.dwidth > max {
+            panic!("QSPI transfer width exceeds configured IO lanes");
         }
     }
 
     /// Do a QSPI command.
     pub fn blocking_command(&mut self, transaction: TransferConfig) {
-        #[cfg(not(stm32h7))]
-        T::REGS.cr().modify(|v| v.set_dmaen(false));
-        self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
+        self.setup_command(transaction);
 
         while !T::REGS.sr().read().tcf() {}
         T::REGS.fcr().modify(|v| v.set_ctcf(true));
@@ -233,18 +265,23 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
 
     /// Enable memory map mode
     pub fn enable_memory_map(&mut self, transaction: &TransferConfig) {
+        self.assert_transfer_widths(transaction);
+
         T::REGS.fcr().modify(|v| {
             v.set_csmf(true);
             v.set_ctcf(true);
             v.set_ctef(true);
             v.set_ctof(true);
         });
+
+        while T::REGS.sr().read().busy() {}
+
         T::REGS.ccr().write(|v| {
             v.set_fmode(QspiMode::MemoryMapped.into());
             v.set_imode(transaction.iwidth.into());
             v.set_instruction(transaction.instruction);
             v.set_admode(transaction.awidth.into());
-            v.set_adsize(self.config.address_size.into());
+            v.set_adsize(transaction.address_size.into());
             v.set_dmode(transaction.dwidth.into());
             v.set_abmode(QspiWidth::NONE.into());
             v.set_dcyc(transaction.dummy.into());
@@ -319,10 +356,25 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         self.setup_transaction(QspiMode::AutoPolling, &transaction, Some(data_len));
     }
 
+    fn setup_command(&mut self, transaction: TransferConfig) {
+        #[cfg(not(stm32h7))]
+        T::REGS.cr().modify(|v| v.set_dmaen(false));
+
+        self.setup_transaction(QspiMode::IndirectWrite, &transaction, None);
+    }
+
     fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {
+        self.assert_transfer_widths(transaction);
+
         match (transaction.address, transaction.awidth) {
             (Some(_), QspiWidth::NONE) => panic!("QSPI address can't be sent with an address width of NONE"),
-            (Some(_), _) => {}
+            (Some(address), _) => {
+                // u32::bit_width was only stabilized in 1.97
+                let address_bit_width = u32::BITS - address.leading_zeros();
+                if address_bit_width > transaction.address_size.bit_width() as u32 {
+                    panic!("QSPI address too large to be represented with the given address size");
+                }
+            }
             (None, QspiWidth::NONE) => {}
             (None, _) => panic!("QSPI address is not set, so the address width should be NONE"),
         }
@@ -353,7 +405,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
             v.set_imode(transaction.iwidth.into());
             v.set_instruction(transaction.instruction);
             v.set_admode(transaction.awidth.into());
-            v.set_adsize(self.config.address_size.into());
+            v.set_adsize(transaction.address_size.into());
             v.set_dmode(transaction.dwidth.into());
             v.set_abmode(QspiWidth::NONE.into());
             v.set_dcyc(transaction.dummy.into());
@@ -385,6 +437,39 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
             new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            None,
+            None,
+            None,
+            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
+            ),
+            None,
+            None,
+            config,
+            FlashSelection::Flash1,
+        )
+    }
+
+    /// Create a new QSPI driver for bank 1 using only IO0/IO1, in blocking mode.
+    ///
+    /// d2/d3 are not claimed; transfers asking for `QspiWidth::QUAD` will panic.
+    pub fn new_blocking_bank1_2io(
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK1D0Pin<T>>,
+        d1: Peri<'d, impl BK1D1Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK1NSSPin<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            None,
             None,
             None,
             None,
@@ -433,6 +518,40 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
             FlashSelection::Flash2,
         )
     }
+
+    /// Create a new QSPI driver for bank 2 using only IO0/IO1, in blocking mode.
+    ///
+    /// d2/d3 are not claimed; transfers asking for `QspiWidth::QUAD` will panic.
+    pub fn new_blocking_bank2_2io(
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK2D0Pin<T>>,
+        d1: Peri<'d, impl BK2D1Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK2NSSPin<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            None,
+            None,
+            None,
+            None,
+            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            None,
+            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
+            ),
+            None,
+            config,
+            FlashSelection::Flash2,
+        )
+    }
+
     /// Create a new QSPI driver for a dual bank, in blocking mode.
     /// NOTE: Both nss pins are optional, there are 3 mods of operation: (1)boths flashes share nss 1, (2)boths flashes share nss 2,(3)each flash have its own nss pin.
     pub fn new_blocking_dual_bank(
@@ -513,6 +632,48 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         )
     }
 
+    /// Create a new QSPI driver for bank 1 using only IO0/IO1.
+    ///
+    /// d2/d3 are not claimed; transfers asking for `QspiWidth::QUAD` will panic.
+    pub fn new_bank1_2io<D, I>(
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK1D0Pin<T>>,
+        d1: Peri<'d, impl BK1D1Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK1NSSPin<T>>,
+        dma: Peri<'d, D>,
+        _irq: I,
+        config: Config,
+    ) -> Self
+    where
+        D: QuadDma<T>,
+        I: Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    {
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
+            ),
+            None,
+            new_dma!(dma, _irq),
+            config,
+            FlashSelection::Flash1,
+        )
+    }
+
     /// Create a new QSPI driver for bank 2.
     pub fn new_bank2<D, I>(
         peri: Peri<'d, T>,
@@ -543,6 +704,48 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
             new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
+            ),
+            new_dma!(dma, _irq),
+            config,
+            FlashSelection::Flash2,
+        )
+    }
+
+    /// Create a new QSPI driver for bank 2 using only IO0/IO1.
+    ///
+    /// d2/d3 are not claimed; transfers asking for `QspiWidth::QUAD` will panic.
+    pub fn new_bank2_2io<D, I>(
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK2D0Pin<T>>,
+        d1: Peri<'d, impl BK2D1Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK2NSSPin<T>>,
+        dma: Peri<'d, D>,
+        _irq: I,
+        config: Config,
+    ) -> Self
+    where
+        D: QuadDma<T>,
+        I: Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    {
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        Self::new_inner(
+            peri,
+            None,
+            None,
+            None,
+            None,
+            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            None,
             new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
             new_pin!(
@@ -658,6 +861,21 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         }
         .await
     }
+
+    /// Do a QSPI command.
+    pub async fn command(&mut self, transaction: TransferConfig) {
+        T::REGS.cr().modify(|m| {
+            // Set Transfer Complete Interrupt Enable
+            m.set_tcie(true);
+        });
+
+        self.setup_command(transaction);
+
+        CommandFuture {
+            _peri: self._peri.reborrow(),
+        }
+        .await
+    }
 }
 
 /// QSPI error
@@ -766,9 +984,40 @@ impl From<MatchMode> for bool {
     }
 }
 
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+struct CommandFuture<'d, T: Instance> {
+    _peri: Peri<'d, T>,
+}
+
+impl<'d, T: Instance> Unpin for CommandFuture<'d, T> {}
+impl<'d, T: Instance> Drop for CommandFuture<'d, T> {
+    fn drop(&mut self) {
+        T::REGS.cr().modify(|m| {
+            // Unset Transfer Control Interrupt Enable
+            m.set_tcie(false);
+        });
+    }
+}
+
+impl<'d, T: Instance> Future for CommandFuture<'d, T> {
+    type Output = ();
+
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+        COMMAND_WAKER.register(cx.waker());
+
+        if T::REGS.sr().read().busy() {
+            core::task::Poll::Pending
+        } else {
+            core::task::Poll::Ready(())
+        }
+    }
+}
+
+static COMMAND_WAKER: AtomicWaker = AtomicWaker::new();
+
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -777,6 +1026,12 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Interru
             // clear status match flag
             T::REGS.fcr().modify(|m| m.set_csmf(true));
             AUTOPOLL_WAKER.wake();
+        }
+
+        if T::REGS.sr().read().tcf() {
+            // clear transfer complete flag
+            T::REGS.fcr().modify(|m| m.set_ctcf(true));
+            COMMAND_WAKER.wake();
         }
     }
 }

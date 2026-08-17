@@ -14,6 +14,8 @@ use crate::peripherals;
 /// This pin can either be a disconnected, input, or output pin, or both. The level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
     pub(crate) pin: Peri<'d, AnyPin>,
 }
@@ -28,15 +30,6 @@ impl<'d> Flex<'d> {
     pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         // Pin will be in disconnected state.
         Self { pin: pin.into() }
-    }
-
-    /// Reborrow into a "child" Flex.
-    ///
-    /// `self` will stay borrowed until the child Peripheral is dropped.
-    pub fn reborrow(&mut self) -> Flex<'_> {
-        Flex {
-            pin: self.pin.reborrow(),
-        }
     }
 
     /// Unsafely clone (duplicate) a Flex.
@@ -824,6 +817,7 @@ pub(crate) trait SealedPin {
     }
 
     /// Get the pull-up configuration.
+    #[allow(unused)]
     #[inline]
     fn pull(&self) -> Pull {
         critical_section::with(|_| get_pull(self.pin_port()))
@@ -863,6 +857,7 @@ pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
 }
 
 /// Type-erased GPIO pin.
+#[derive(Debug)]
 pub struct AnyPin {
     pin_port: PinNumber,
 }

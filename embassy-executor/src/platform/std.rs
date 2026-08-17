@@ -1,5 +1,5 @@
 #[cfg(feature = "executor-interrupt")]
-compile_error!("`executor-interrupt` is not supported with `arch-std`.");
+compile_error!("`executor-interrupt` is not supported with `platform-std`.");
 
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
@@ -12,11 +12,16 @@ mod thread {
 
     use crate::{Spawner, raw};
 
-    #[unsafe(export_name = "__pender")]
-    fn __pender(context: *mut ()) {
-        let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
-        signaler.signal()
+    struct StdPender;
+
+    impl crate::pender::Pender for StdPender {
+        fn pend(context: *mut ()) {
+            let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
+            signaler.signal()
+        }
     }
+
+    pender_impl!(StdPender);
 
     /// Single-threaded std-based executor.
     pub struct Executor {

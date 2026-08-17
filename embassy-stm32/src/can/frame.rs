@@ -382,7 +382,7 @@ impl FdFrame {
     /// Create new extended frame
     pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::ExtendedId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new_fd(id.into(), raw_data.len() as u8, false, true), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
@@ -391,7 +391,7 @@ impl FdFrame {
     /// Create new standard frame
     pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::StandardId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new_fd(id.into(), raw_data.len() as u8, false, true), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
@@ -400,7 +400,7 @@ impl FdFrame {
     /// Create new remote frame
     pub fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Result<Self, FrameCreateError> {
         if len <= 8 {
-            Self::new(Header::new(id.into(), len as u8, true), &[0; 8])
+            Self::new(Header::new_fd(id.into(), len as u8, true, true), &[0; 8])
         } else {
             Err(FrameCreateError::InvalidDataLength)
         }
@@ -492,5 +492,32 @@ impl FdEnvelope {
     /// Convert into a tuple
     pub fn parts(self) -> (FdFrame, Timestamp) {
         (self.frame, self.ts)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fd_frame_new_extended_has_fdcan_and_brs_flags() {
+        let frame = FdFrame::new_extended(0x12345, &[1, 2, 3]).unwrap();
+        assert!(frame.header().fdcan());
+        assert!(frame.header().bit_rate_switching());
+    }
+
+    #[test]
+    fn test_fd_frame_new_standard_has_fdcan_and_brs_flags() {
+        let frame = FdFrame::new_standard(0x123, &[1, 2, 3]).unwrap();
+        assert!(frame.header().fdcan());
+        assert!(frame.header().bit_rate_switching());
+    }
+
+    #[test]
+    fn test_fd_frame_new_remote_has_fdcan_and_brs_flags() {
+        let id = embedded_can::ExtendedId::new(0x1a2b3c).unwrap();
+        let frame = FdFrame::new_remote(id, 8).unwrap();
+        assert!(frame.header().fdcan());
+        assert!(frame.header().bit_rate_switching());
     }
 }

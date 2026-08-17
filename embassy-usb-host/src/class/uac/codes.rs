@@ -401,7 +401,7 @@ pub mod format_type {
             #[cfg(feature = "defmt")]
             defmt::bitflags! { $($tt)* }
             #[cfg(not(feature = "defmt"))]
-            bitflags::bitflags! { #[derive(Debug, Clone, PartialEq)] $($tt)* }
+            bitflags::bitflags! { #[derive(Copy, Clone, Debug, PartialEq, Eq)] $($tt)* }
         };
     }
 
@@ -486,7 +486,7 @@ pub mod format_type {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq)]
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum Format {
         Type1(Type1),

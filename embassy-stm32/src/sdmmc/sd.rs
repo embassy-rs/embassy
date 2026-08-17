@@ -1,9 +1,10 @@
 use core::default::Default;
 use core::ops::{Deref, DerefMut};
 
+use sdio::MmcBus;
 use sdio_host::common_cmd::R3;
 use sdio_host::emmc::{EMMC, ExtCSD};
-use sdio_host::sd::{BusWidth, CIC, CID, CSD, CardCapacity, CardStatus, CurrentState, OCR, RCA, SCR, SD, SDStatus};
+use sdio_host::sd::{CIC, CID, CSD, CardCapacity, CardStatus, CurrentState, OCR, RCA, SCR, SD, SDStatus};
 use sdio_host::sd_cmd::{R6, R7};
 use sdio_host::{common_cmd, emmc_cmd, sd_cmd};
 
@@ -12,6 +13,7 @@ use crate::sdmmc::{
     block_size, bus_width_vals, slice8_mut, slice8_ref,
 };
 use crate::time::{Hertz, mhz};
+use crate::wait::try_until;
 
 impl TypedResp for R3 {
     type Word = u32;
@@ -116,6 +118,9 @@ where
 
     /// Size in bytes
     fn size(&self) -> u64;
+
+    /// Whether the device supports `CMD23 (SET_BLOCK_COUNT)`.
+    fn supports_cmd23(&self) -> bool;
 }
 
 /// Storage Device
@@ -128,6 +133,7 @@ pub struct StorageDevice<'a, 'b, T: Addressable> {
 /// Card Storage Device
 impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     /// Create a new SD card
+    #[deprecated = "use the sdio crate"]
     pub async fn new_sd_card(sdmmc: &'a mut Sdmmc<'b>, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Self, Error> {
         let mut s = Self {
             info: Card::default(),
@@ -140,6 +146,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     }
 
     /// Create a new uninitialized card
+    #[deprecated = "use the sdio crate"]
     pub fn new_uninit_sd_card(sdmmc: &'a mut Sdmmc<'b>) -> Self {
         Self {
             info: Card::default(),
@@ -158,8 +165,8 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // Get the bus width configured in the Sdmmc peripheral
-        let configured_bus_width = match self.sdmmc.bus_width() {
-            BusWidth::Eight => return Err(Error::BusWidth),
+        let configured_bus_width = match self.sdmmc.supports_bus_width() {
+            ::sdio::BusWidth::W8 => return Err(Error::BusWidth),
             bus_width => bus_width,
         };
 
@@ -250,8 +257,8 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         // Select bus width based on Sdmmc configuration and card capability
         // Use 4-bit only if both the peripheral is configured for it AND the card supports it
         let (bus_width, acmd_arg) = match configured_bus_width {
-            BusWidth::Four if self.info.scr.bus_width_four() => (BusWidth::Four, 2),
-            _ => (BusWidth::One, 0),
+            ::sdio::BusWidth::W4 if self.info.scr.bus_width_four() => (::sdio::BusWidth::W4, 2),
+            _ => (::sdio::BusWidth::W1, 0),
         };
 
         self.sdmmc.cmd(common_cmd::app_cmd(self.info.rca), true, false)?;
@@ -263,16 +270,11 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         self.info.status = self.read_sd_status(cmd_block).await?;
 
         if freq > mhz(25) {
-            // Pick the highest applicable signalling mode. SDR50
-            // (≤100 MHz, 1.8V) is only attempted when the bus is
-            // already at UHS *and* the host owns a CKIN feedback
-            // pin, otherwise we cap at SDR25 = HS @ 3.3V (the same
-            // CMD6 function group ID 1 covers HS at 3.3V and SDR25
-            // at 1.8V — the host's signalling state selects which
-            // one the card honors). `uhs_active()` and `has_ckin()`
-            // both return `false` on non-`sdmmc_v3` builds, so the
-            // SDR25 branch is taken there with no extra cfg gates.
-            let target = if self.sdmmc.uhs_active() && self.sdmmc.has_ckin() && freq > mhz(50) {
+            // SDR104 needs DLYB tap tuning; SDR50 also accepts CKIN
+            // feedback. Below 50 MHz we cap at SDR25/HS.
+            let target = if self.sdmmc.uhs_active() && self.sdmmc.has_dlyb() && freq > mhz(100) {
+                Signalling::SDR104
+            } else if self.sdmmc.uhs_active() && (self.sdmmc.has_ckin() || self.sdmmc.has_dlyb()) && freq > mhz(50) {
                 Signalling::SDR50
             } else {
                 Signalling::SDR25
@@ -281,14 +283,23 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
             let signalling = self.switch_signalling_mode(cmd_block, target).await?;
 
             if signalling == target {
-                // SDR50 needs CKIN feedback-clock sampling on the
-                // peripheral side; SDR25 does not. `set_feedback_clk`
-                // is a no-op on non-`sdmmc_v3` builds.
-                if signalling == Signalling::SDR50 {
-                    self.sdmmc.set_feedback_clk(true);
+                if matches!(signalling, Signalling::SDR50 | Signalling::SDR104) {
+                    #[cfg(sdmmc_dlyb)]
+                    let tuned = if self.sdmmc.has_dlyb() {
+                        self.tune_dlyb(freq, bus_width)?;
+                        true
+                    } else {
+                        false
+                    };
+                    #[cfg(not(sdmmc_dlyb))]
+                    let tuned = false;
+                    if !tuned {
+                        self.sdmmc.set_feedback_clk(true);
+                        self.sdmmc.clkcr_set_clkdiv(freq, bus_width)?;
+                    }
+                } else {
+                    self.sdmmc.clkcr_set_clkdiv(freq, bus_width)?;
                 }
-                // Set final clock frequency.
-                self.sdmmc.clkcr_set_clkdiv(freq, bus_width)?;
 
                 let status: CardStatus<SD> = self.sdmmc.read_status(self.info.rca)?.into();
                 if status.state() != CurrentState::Transfer {
@@ -300,6 +311,54 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
             self.read_sd_status(cmd_block).await?;
         }
 
+        Ok(())
+    }
+
+    #[cfg(sdmmc_dlyb)]
+    fn tune_dlyb(&mut self, freq: Hertz, bus_width: ::sdio::BusWidth) -> Result<(), Error> {
+        // DLL needs a stable input clock at the target rate to lock.
+        self.sdmmc.clkcr_set_clkdiv(freq, bus_width)?;
+
+        if self.sdmmc.dlyb_enable_lock().is_err() {
+            return Err(Error::SignalingSwitchFailed);
+        }
+
+        self.sdmmc.set_dlyb_active(true);
+        self.sdmmc.clkcr_set_clkdiv(freq, bus_width)?;
+
+        let mut best_start = 0u8;
+        let mut best_len = 0u8;
+        let mut run_start = 0u8;
+        let mut run_len = 0u8;
+
+        for tap in 0..32u8 {
+            if self.sdmmc.dlyb_set_tap(tap).is_err() {
+                run_len = 0;
+                continue;
+            }
+            if self.sdmmc.read_status(self.info.rca).is_ok() {
+                if run_len == 0 {
+                    run_start = tap;
+                }
+                run_len += 1;
+                if run_len > best_len {
+                    best_start = run_start;
+                    best_len = run_len;
+                }
+            } else {
+                run_len = 0;
+            }
+        }
+        debug!("dlyb tune: window start={} len={}", best_start, best_len);
+
+        if best_len == 0 {
+            self.sdmmc.dlyb_disable();
+            self.sdmmc.clkcr_set_clkdiv(freq, bus_width)?;
+            return Err(Error::SignalingSwitchFailed);
+        }
+
+        let chosen = best_start + best_len / 2;
+        self.sdmmc.dlyb_set_tap(chosen)?;
         Ok(())
     }
 
@@ -405,6 +464,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
 /// Emmc storage device
 impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     /// Create a new EMMC card
+    #[deprecated = "use the sdio crate"]
     pub async fn new_emmc(sdmmc: &'a mut Sdmmc<'b>, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Self, Error> {
         let mut s = Self {
             info: Emmc::default(),
@@ -417,6 +477,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     }
 
     /// Create a new uninitialized emmc
+    #[deprecated = "use the sdio crate"]
     pub fn new_uninit_emmc(sdmmc: &'a mut Sdmmc<'b>) -> Self {
         Self {
             info: Emmc::default(),
@@ -433,7 +494,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     async fn acquire(&mut self, _cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
         let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
-        let bus_width = self.sdmmc.bus_width();
+        let bus_width = self.sdmmc.supports_bus_width();
 
         // While the SD/SDIO card or eMMC is in identification mode,
         // the SDMMC_CK frequency must be no more than 400 kHz.
@@ -610,18 +671,24 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
 
         self.sdmmc.complete_datapath_transfer(transfer, true).await?;
 
-        // TODO: Make this configurable
-        let mut timeout: u32 = 0x00FF_FFFF;
+        // Wait for up to 100 ms
+        try_until(
+            async || {
+                let Ok(status) = self.sdmmc.read_status(self.info.get_address()) else {
+                    return false;
+                };
 
-        while timeout > 0 {
-            let status: CardStatus<A::Ext> = self.sdmmc.read_status(self.info.get_address())?.into();
-            if status.ready_for_data() {
-                return Ok(());
-            }
-            timeout -= 1;
-        }
+                CardStatus::<A::Ext>::from(status).ready_for_data()
+            },
+            500_000,
+        )
+        .await
+        .map_err(|_| Error::SoftwareTimeout)
+    }
 
-        Err(Error::SoftwareTimeout)
+    /// Probe whether [`Config::use_cmd23`] will engage on this device.
+    pub fn supports_cmd23(&self) -> bool {
+        self.info.supports_cmd23()
     }
 
     /// Write multiple data blocks.
@@ -642,8 +709,27 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
             _ => block_idx,
         };
 
+        // CMD23 only honored if the card advertises support; without
+        // it the rejected CMD23 + open-ended CMD25 (no CMD12) hangs
+        // the bus. ACMD23 is mandatory in SD v2+, trusted as-is.
+        let use_cmd23 = self.sdmmc.config.use_cmd23 && self.info.supports_cmd23();
+        let use_acmd23 = self.sdmmc.config.use_acmd23;
+
         self.sdmmc
             .cmd(common_cmd::set_block_length(size_of::<DataBlock>() as u32), true, false)?; // CMD16
+
+        if use_acmd23 {
+            // CMD55 + cmd(23) = ACMD23 (SET_WR_BLK_ERASE_COUNT).
+            self.sdmmc
+                .cmd(common_cmd::app_cmd(self.info.get_address()), true, false)?;
+            self.sdmmc
+                .cmd(sd_cmd::set_block_count(blocks.len() as u32), true, false)?;
+        }
+
+        if use_cmd23 {
+            self.sdmmc
+                .cmd(sd_cmd::set_block_count(blocks.len() as u32), true, false)?; // CMD23
+        }
 
         #[cfg(sdmmc_v1)]
         self.sdmmc.cmd(common_cmd::write_multiple_blocks(address), true, true)?; // CMD25
@@ -658,20 +744,24 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
 
-        self.sdmmc.cmd(common_cmd::stop_transmission(), true, false)?; // CMD12
+        if !use_cmd23 {
+            self.sdmmc.cmd(common_cmd::stop_transmission(), true, false)?; // CMD12
+        }
         self.sdmmc.clear_interrupt_flags();
 
-        // TODO: Make this configurable
-        let mut timeout: u32 = 0x00FF_FFFF;
+        // Wait for up to 100 ms
+        try_until(
+            async || {
+                let Ok(status) = self.sdmmc.read_status(self.info.get_address()) else {
+                    return false;
+                };
 
-        while timeout > 0 {
-            let status: CardStatus<A::Ext> = self.sdmmc.read_status(self.info.get_address())?.into();
-            if status.ready_for_data() {
-                return Ok(());
-            }
-            timeout -= 1;
-        }
-        Err(Error::SoftwareTimeout)
+                CardStatus::<A::Ext>::from(status).ready_for_data()
+            },
+            500_000,
+        )
+        .await
+        .map_err(|_| Error::SoftwareTimeout)
     }
 }
 
@@ -717,6 +807,12 @@ impl Addressable for Card {
     fn size(&self) -> u64 {
         u64::from(self.csd.block_count()) * 512
     }
+
+    fn supports_cmd23(&self) -> bool {
+        // SCR.CMD_SUPPORT[1] per PLSS Table 5-21. CMD_SUPPORT lives at
+        // SCR bits [35:32]; bit 1 = Set Block Count.
+        (self.scr.0 >> 33) & 1 != 0
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -752,6 +848,10 @@ impl Addressable for Emmc {
     /// Size in bytes
     fn size(&self) -> u64 {
         u64::from(self.ext_csd.sector_count()) * 512
+    }
+
+    fn supports_cmd23(&self) -> bool {
+        true // mandatory on eMMC since spec v4.1
     }
 }
 

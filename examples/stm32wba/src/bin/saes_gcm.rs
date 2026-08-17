@@ -21,9 +21,10 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::saes::{AesGcm, Direction, Saes};
 use embassy_stm32::{bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     SAES => embassy_stm32::saes::InterruptHandler<peripherals::SAES>;

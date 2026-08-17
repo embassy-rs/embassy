@@ -8,7 +8,6 @@ export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
 export PATH=$CARGO_HOME/bin:$PATH
-mv rust-toolchain-nightly.toml rust-toolchain.toml
 
 # needed for "dumb HTTP" transport support
 # used when pointing stm32-metapac to a CI-built one.
@@ -23,7 +22,9 @@ fi
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
 
-cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 7d6d61819cb5a54bd6fe7da88359c7949142932a
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev f8a8cce4092ef2566fbae04f088daa70c9e1fe93
+
+mv rust-toolchain-nightly.toml rust-toolchain.toml
 
 ./ci-nightly.sh
 

@@ -95,6 +95,31 @@ pub fn main_cortex_ar(args: TokenStream, item: TokenStream) -> TokenStream {
     main::run(args.into(), item.into(), &main::ARCH_CORTEX_AR).into()
 }
 
+/// Creates a new `executor` instance and declares an application entry point for Zynq7000
+/// spawning the corresponding function body as an async task.
+///
+/// The following restrictions apply:
+///
+/// * The function must accept exactly 1 parameter, an `embassy_executor::Spawner` handle that it
+///   can use to spawn additional tasks.
+/// * The function must be declared `async`.
+/// * The function must not use generics.
+/// * Only a single `main` task may be declared.
+///
+/// ## Examples
+/// Spawning a task:
+///
+/// ``` rust
+/// #[embassy_executor::main]
+/// async fn main(_s: embassy_executor::Spawner) {
+///     // Function body
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn main_z7(args: TokenStream, item: TokenStream) -> TokenStream {
+    main::run(args.into(), item.into(), &main::ARCH_Z7).into()
+}
+
 /// Creates a new `executor` instance and declares an architecture agnostic application entry point spawning
 /// the corresponding function body as an async task.
 ///

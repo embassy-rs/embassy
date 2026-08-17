@@ -6,12 +6,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::adc::vals::{Rovsm, Trovs};
-use embassy_stm32::adc::{Adc, AdcConfig, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, AdcConfig, SampleTime};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -52,7 +53,7 @@ async fn main(_spawner: Spawner) {
     let mut adc = Adc::new(p.ADC1, config);
 
     loop {
-        let measured = adc.blocking_read(&mut p.PA0, SampleTime::Cycles65);
+        let measured = adc.blocking_read(p.PA0.reborrow_adc(), SampleTime::Cycles65);
         info!("data: 0x{:X}", measured); //max 0xFFF0 -> 65520
         Timer::after_millis(500).await;
     }

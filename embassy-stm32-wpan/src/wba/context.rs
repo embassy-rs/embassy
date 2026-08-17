@@ -48,14 +48,8 @@ unsafe extern "C" fn context_switch_asm(save: *mut u32, load: *const u32) {
     );
 }
 
-/// Size of the sequencer stack in bytes (32KB)
-/// This needs to be large enough for the C BLE stack's call depth,
-/// including connection event processing and HCI event parsing
-/// (the Event enum is ~300+ bytes due to heapless::Vec variants).
-const SEQUENCER_CTX_STACK_SIZE: usize = 32 * 1024;
-
 /// Global sequencer state
-pub(crate) struct ContextManager {
+pub(crate) struct ContextManager<const STACK_SIZE: usize> {
     /// The sequencer's saved SP
     task_sp: UnsafeCell<u32>,
     /// The runner's saved SP
@@ -63,11 +57,11 @@ pub(crate) struct ContextManager {
     /// Current state
     state: AtomicU8,
     /// The sequencer's stack (must be 8-byte aligned)
-    task_stack: Aligned<A8, UnsafeCell<[u8; SEQUENCER_CTX_STACK_SIZE]>>,
+    task_stack: Aligned<A8, UnsafeCell<[u8; STACK_SIZE]>>,
     task_entry: extern "C" fn() -> !,
 }
 
-unsafe impl Sync for ContextManager {}
+unsafe impl<const STACK_SIZE: usize> Sync for ContextManager<STACK_SIZE> {}
 
 /// Sequencer state
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,29 +72,25 @@ enum ContextManagerState {
     Running = 1,
     /// Yielded back to runner
     Yielded = 2,
-    /// Stopped/finished
-    Stopped = 3,
 }
 
 impl From<u8> for ContextManagerState {
     fn from(value: u8) -> Self {
         match value {
-            0 => Self::Uninitialized,
             1 => Self::Running,
             2 => Self::Yielded,
-            3 => Self::Stopped,
             _ => Self::Uninitialized,
         }
     }
 }
 
-impl ContextManager {
+impl<const STACK_SIZE: usize> ContextManager<STACK_SIZE> {
     pub(crate) const fn new(task_entry: extern "C" fn() -> !) -> Self {
         Self {
             task_sp: UnsafeCell::new(0),
             runner_sp: UnsafeCell::new(0),
             state: AtomicU8::new(ContextManagerState::Uninitialized as u8),
-            task_stack: Aligned(UnsafeCell::new([0u8; SEQUENCER_CTX_STACK_SIZE])),
+            task_stack: Aligned(UnsafeCell::new([0u8; STACK_SIZE])),
             task_entry,
         }
     }
@@ -109,7 +99,7 @@ impl ContextManager {
     fn init_sequencer_stack(&'static self) {
         // Stack grows downward, so we start at the top
         // Ensure 8-byte alignment (ARM requirement for function calls)
-        let stack_top = &raw const self.task_stack as usize + SEQUENCER_CTX_STACK_SIZE;
+        let stack_top = &raw const self.task_stack as usize + STACK_SIZE;
         let stack_top = (stack_top & !0x7) as u32; // 8-byte align
 
         // Set up fake saved context on sequencer stack.
@@ -167,16 +157,19 @@ impl ContextManager {
                 // Returns here when task yields
             }
             ContextManagerState::Running => warn!("sequencer_resume called while already running"),
-            ContextManagerState::Stopped => warn!("sequencer_resume called after stop"),
         }
     }
 
     /// Yield from the sequencer back to the runner.
     pub(crate) fn task_yield(&'static self) {
-        if self.get_state() == ContextManagerState::Running {
-            self.set_state(ContextManagerState::Yielded);
-            self.do_switch(self.task_sp.get(), self.runner_sp.get());
-            // Returns here when runner resumes us
+        match self.get_state() {
+            ContextManagerState::Running => {
+                self.set_state(ContextManagerState::Yielded);
+                self.do_switch(self.task_sp.get(), self.runner_sp.get());
+                // Returns here when runner resumes us
+            }
+            ContextManagerState::Uninitialized => warn!("task_yield called while uninitialized"),
+            ContextManagerState::Yielded => warn!("task_yield called while yielded"),
         }
     }
 

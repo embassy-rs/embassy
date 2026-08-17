@@ -105,6 +105,49 @@ impl Config {
             mux: super::mux::ClockMux::default(),
         }
     }
+
+    #[cfg(stm32wb)]
+    pub const fn new_wpan() -> Self {
+        Self {
+            hse: Some(Hse {
+                freq: Hertz(32_000_000),
+                mode: HseMode::Oscillator,
+                prescaler: HsePrescaler::Div1,
+            }),
+            sys: Sysclk::Pll1R,
+            #[cfg(crs)]
+            hsi48: Some(super::Hsi48Config { sync_from_usb: false }),
+            msi: None,
+            hsi: false,
+
+            ls: super::LsConfig::default_lse(),
+
+            pll: Some(Pll {
+                source: PllSource::Hse,
+                prediv: PllPreDiv::Div2,
+                mul: PllMul::Mul12,
+                divp: Some(PllPDiv::Div3), // 32 / 2 * 12 / 3 = 64Mhz
+                divq: Some(PllQDiv::Div4), // 32 / 2 * 12 / 4 = 48Mhz
+                divr: Some(PllRDiv::Div3), // 32 / 2 * 12 / 3 = 64Mhz
+            }),
+            pllsai1: None,
+
+            ahb_pre: AHBPrescaler::Div1,
+            core2_ahb_pre: AHBPrescaler::Div2,
+            shared_ahb_pre: AHBPrescaler::Div1,
+            apb1_pre: APBPrescaler::Div1,
+            apb2_pre: APBPrescaler::Div1,
+
+            mux: {
+                use crate::pac::rcc::vals::Rfwkpsel;
+
+                let mut mux = super::mux::ClockMux::default();
+
+                mux.rfwkpsel = Rfwkpsel::Lse;
+                mux
+            },
+        }
+    }
 }
 
 impl Default for Config {
@@ -114,45 +157,8 @@ impl Default for Config {
 }
 
 #[cfg(stm32wb)]
-pub const WPAN_DEFAULT: Config = Config {
-    hse: Some(Hse {
-        freq: Hertz(32_000_000),
-        mode: HseMode::Oscillator,
-        prescaler: HsePrescaler::Div1,
-    }),
-    sys: Sysclk::Pll1R,
-    #[cfg(crs)]
-    hsi48: Some(super::Hsi48Config { sync_from_usb: false }),
-    msi: None,
-    hsi: false,
-
-    ls: super::LsConfig::default_lse(),
-
-    pll: Some(Pll {
-        source: PllSource::Hse,
-        prediv: PllPreDiv::Div2,
-        mul: PllMul::Mul12,
-        divp: Some(PllPDiv::Div3), // 32 / 2 * 12 / 3 = 64Mhz
-        divq: Some(PllQDiv::Div4), // 32 / 2 * 12 / 4 = 48Mhz
-        divr: Some(PllRDiv::Div3), // 32 / 2 * 12 / 3 = 64Mhz
-    }),
-    pllsai1: None,
-
-    ahb_pre: AHBPrescaler::Div1,
-    core2_ahb_pre: AHBPrescaler::Div2,
-    shared_ahb_pre: AHBPrescaler::Div1,
-    apb1_pre: APBPrescaler::Div1,
-    apb2_pre: APBPrescaler::Div1,
-
-    mux: {
-        use crate::pac::rcc::vals::Rfwkpsel;
-
-        let mut mux = super::mux::ClockMux::default();
-
-        mux.rfwkpsel = Rfwkpsel::Lse;
-        mux
-    },
-};
+#[deprecated = "Use `Config::new_wpan`"]
+pub const WPAN_DEFAULT: Config = Config::new_wpan();
 
 fn msi_enable(range: MSIRange) {
     #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
@@ -182,10 +188,23 @@ pub(crate) unsafe fn init(config: Config) {
         while RCC.cfgr().read().sws() != Sysclk::Msi {}
     }
 
-    #[cfg(stm32wl)]
+    // Set the maximum flash wait states now: `config.msi` below may raise the
+    // MSI frequency (up to 48 MHz) while MSI is the active sysclk, before the
+    // computed latency is written. Raising latency is always safe; the exact
+    // value for the target clocks is set later. stm32l0/l1 are not affected:
+    // their MSI tops out at 4.194 MHz, within zero wait states at every
+    // voltage range.
+    #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
     {
-        // Set max latency
-        FLASH.acr().modify(|w| w.set_latency(2));
+        #[cfg(any(stm32l4, stm32wb))]
+        const MAX_LATENCY: u8 = 4;
+        #[cfg(stm32l5)]
+        const MAX_LATENCY: u8 = 5;
+        #[cfg(any(stm32wl, stm32u0))]
+        const MAX_LATENCY: u8 = 2;
+
+        FLASH.acr().modify(|w| w.set_latency(MAX_LATENCY));
+        while FLASH.acr().read().latency() != MAX_LATENCY {}
     }
 
     // Set voltage scale

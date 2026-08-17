@@ -14,7 +14,8 @@ use crate::peripherals::{self};
 use crate::rcc::dsi::DSI_CONFIG;
 use crate::rcc::{self, RccPeripheral};
 use crate::time::MaybeHertz;
-use crate::{Peri, block_for_us, interrupt};
+use crate::wait::block_for_us;
+use crate::{Peri, interrupt};
 
 mod phy;
 pub use phy::{DsiHostPhyConfig, DsiHostPhyLanes};
@@ -30,7 +31,7 @@ static DSIHOST_WAKER: AtomicWaker = AtomicWaker::new();
 
 /// DSIHOST interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 /// PacketTypes extracted from CubeMX

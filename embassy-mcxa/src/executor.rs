@@ -6,7 +6,7 @@ use embassy_hal_internal::Peri;
 
 use crate::clocks::config::CoreSleep;
 use crate::gpio::{DriveStrength, GpioPin, Level, Output, SlewRate};
-use crate::pac::gpio::vals::{Ptco, Ptso};
+use crate::pac::gpio::{Ptco, Ptso};
 
 static TASKS_PENDING: AtomicBool = AtomicBool::new(false);
 static EXECUTOR_ONCE: AtomicU8 = AtomicU8::new(0);
@@ -39,17 +39,22 @@ pub struct Executor {
 }
 
 /// TODO: Taken from embassy-stm32, verify this is necessary or what we want
-#[unsafe(export_name = "__pender")]
-fn __pender(context: *mut ()) {
-    // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
-    // request number given to `InterruptExecutor::start`.
+struct McxaPender;
 
-    let context = context as usize;
+embassy_executor::pender_impl!(McxaPender);
 
-    // Try to make Rust optimize the branching away if we only use thread mode.
-    if context == THREAD_PENDER {
-        TASKS_PENDING.store(true, Ordering::Release);
-        cortex_m::asm::sev();
+impl embassy_executor::pender::Pender for McxaPender {
+    fn pend(context: *mut ()) {
+        // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
+        // request number given to `InterruptExecutor::start`.
+
+        let context = context as usize;
+
+        // Try to make Rust optimize the branching away if we only use thread mode.
+        if context == THREAD_PENDER {
+            TASKS_PENDING.store(true, Ordering::Release);
+            cortex_m::asm::sev();
+        }
     }
 }
 
@@ -231,7 +236,7 @@ fn debug_lo() {
         4 => crate::pac::GPIO4.pcor(),
         _ => return,
     }
-    .write(|w| w.set_ptco(pin_num, Ptco::PTCO1));
+    .write(|w| w.set_ptco(pin_num, Ptco::Ptco1));
 }
 
 /// Set high if we have a debug gpio set, using raw pac methods
@@ -250,5 +255,5 @@ fn debug_hi() {
         4 => crate::pac::GPIO4.psor(),
         _ => return,
     }
-    .write(|w| w.set_ptso(pin_num, Ptso::PTSO1));
+    .write(|w| w.set_ptso(pin_num, Ptso::Ptso1));
 }

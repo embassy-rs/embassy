@@ -13,7 +13,6 @@ categories = [
 ]
 
 [features]
-
 defmt = ["dep:defmt"]
 log = ["dep:log"]
 

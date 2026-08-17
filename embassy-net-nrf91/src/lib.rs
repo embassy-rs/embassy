@@ -19,11 +19,12 @@ use core::sync::atomic::{Ordering, compiler_fence, fence};
 use core::task::{Poll, Waker};
 
 use cortex_m::peripheral::NVIC;
+use embassy_net_driver_channel as ch;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe;
 use embassy_sync::waitqueue::{AtomicWaker, WakerRegistration};
 use heapless::Vec;
-use {embassy_net_driver_channel as ch, nrf_pac as pac};
+use nrf_pac as pac;
 
 const RX_SIZE: usize = 8 * 1024;
 const TRACE_SIZE: usize = 16 * 1024;
@@ -938,6 +939,8 @@ impl<'a> Control<'a> {
         assert!(msg.param_len >= 12);
         let status = u32::from_le_bytes(msg.param[8..12].try_into().unwrap());
         assert_eq!(status, 0);
+
+        self.state.borrow_mut().net_fd = None;
     }
 
     fn set_link_state(&self, state: ch::driver::LinkState) {

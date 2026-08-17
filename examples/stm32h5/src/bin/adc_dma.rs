@@ -2,12 +2,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{self, Adc, AdcChannel, RxDma, SampleTime};
 use embassy_stm32::peripherals::{ADC1, ADC2, GPDMA1_CH0, GPDMA1_CH1, PA0, PA1, PA2, PA3};
 use embassy_stm32::{Config, Peri, bind_interrupts, dma, interrupt};
 use embassy_time::{Duration, Instant, Ticker};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL0 => dma::InterruptHandler<GPDMA1_CH0>;
@@ -75,16 +76,14 @@ async fn adc_task<'a, T, D, I>(
     adc: Peri<'a, T>,
     mut dma: Peri<'a, D>,
     irq: I,
-    mut pin1: impl AdcChannel<T>,
-    mut pin2: impl AdcChannel<T>,
+    mut pin1: impl AdcChannel<'_, T>,
+    mut pin2: impl AdcChannel<'_, T>,
 ) where
     T: adc::DefaultInstance,
     D: RxDma<T>,
     I: interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + Copy,
 {
     let mut adc = Adc::new(adc);
-    let mut pin1 = pin1.degrade_adc();
-    let mut pin2 = pin2.degrade_adc();
 
     info!("adc init");
 
@@ -97,7 +96,11 @@ async fn adc_task<'a, T, D, I>(
         adc.read(
             dma.reborrow(),
             irq,
-            [(&mut pin1, SampleTime::Cycles25), (&mut pin2, SampleTime::Cycles25)].into_iter(),
+            [
+                (pin1.reborrow_adc(), SampleTime::Cycles25),
+                (pin2.reborrow_adc(), SampleTime::Cycles25),
+            ]
+            .into_iter(),
             None,
             &mut buffer[0..2],
         )

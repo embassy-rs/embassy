@@ -48,7 +48,7 @@ pub struct DfuState<H: Handler> {
     next_block_num: usize,
 }
 
-impl<'d, H: Handler> DfuState<H> {
+impl<H: Handler> DfuState<H> {
     /// Create a new DFU instance to handle DFU transfers.
     pub fn new(handler: H, attrs: DfuAttributes) -> Self {
         Self {
@@ -79,7 +79,10 @@ impl<'d, H: Handler> DfuState<H> {
 
 impl<H: Handler> crate::Handler for DfuState<H> {
     fn reset(&mut self) {
-        if matches!(self.state, State::ManifestSync | State::Manifest) {
+        if matches!(
+            self.state,
+            State::ManifestSync | State::Manifest | State::ManifestWaitReset
+        ) {
             self.handler.system_reset();
         }
     }
@@ -180,6 +183,9 @@ impl<H: Handler> crate::Handler for DfuState<H> {
                         if self.attrs.contains(DfuAttributes::WILL_DETACH) {
                             self.reset();
                         }
+                    }
+                    State::Manifest if !self.attrs.contains(DfuAttributes::WILL_DETACH) => {
+                        self.state = State::ManifestWaitReset;
                     }
                     _ => {}
                 }

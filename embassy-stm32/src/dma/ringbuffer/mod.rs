@@ -49,18 +49,33 @@ impl DmaIndex {
 
     /// Synchronise the index against the live DMA hardware state.
     fn dma_sync(&mut self, cap: usize, dma: &mut impl DmaCtrl) {
-        // Reset complete_count BEFORE reading NDTR. If the DMA wraps between
-        // these two reads, laps_completed will be 0 while pos appears to go
-        // backwards — the wrap-around guard below detects this and clamps pos
-        // to cap-1 until the next sync picks up the increment.
+        // The ordering of the these lines matters.
+        // FIRST reset complete count, THEN read remaining transfers.
+        //
+        // With this order when DMA wraps between these two reads,
+        // `laps_completed` will be 0 while `pos` appears to go
+        // backwards comparing to the previous value in `self.pos`.
+        // This ensures that the approximated position never goes ahead of
+        // the real DMA position.
+        //
+        // If the order was reversed and DMA wrapped between these two reads,
+        // `laps_completed` will be 1 while `pos` has a value before wrap.
+        // This is not acceptable since the approximated position will jump
+        // ahead of the real DMA position.
         let laps_completed = dma.reset_complete_count();
         let pos = cap - dma.get_remaining_transfers();
+        // It is also not acceptable for approximated position to go backward, so it
+        // must be modified such that it is at least not behind previous position.
         self.pos = if pos < self.pos && laps_completed == 0 {
-            cap - 1
+            // `self.complete_count` cannot be manually incremented here because in
+            // next call to this function `laps_completed` will be 1, so it would
+            // be applied twice. However `self.pos` can temporarily be extended
+            // beyond normal range. The next call will set it back to normal value
+            // and increment `self.complete_count` compensating `cap` added here.
+            pos + cap
         } else {
             pos
         };
-
         self.complete_count += laps_completed;
     }
 
@@ -85,7 +100,11 @@ impl DmaIndex {
     /// space. A negative result means `self` is behind `rhs`, which indicates
     /// a driver bug or an out-of-band DMA reset.
     fn diff(&self, cap: usize, rhs: &DmaIndex) -> isize {
-        (self.complete_count * cap + self.pos) as isize - (rhs.complete_count * cap + rhs.pos) as isize
+        self.total(cap) as isize - rhs.total(cap) as isize
+    }
+
+    fn total(&self, cap: usize) -> usize {
+        self.complete_count * cap + self.pos
     }
 }
 
@@ -270,30 +289,28 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
     pub fn read_latest(&mut self, dma: &mut impl DmaCtrl, buf: &mut [W]) -> usize {
         fence(Ordering::Acquire);
 
-        self.write_index.dma_sync(self.cap(), dma);
-        DmaIndex::normalize(&mut self.write_index, &mut self.read_index);
-
-        let diff = self.write_index.diff(self.cap(), &self.read_index);
-
-        // On overrun or desync, reset the read pointer to the current write position.
-        // This means zero samples are available right now, but the next call will
-        // return fresh data without any error.
-        if diff < 0 || diff > self.cap() as isize {
+        let available = self.sync_len(dma).unwrap_or_else(|err| {
             self.read_index = self.write_index;
-            return 0;
-        }
-
-        let available = diff as usize;
-        if available == 0 {
-            return 0;
-        }
+            match err {
+                Error::Overrun => {
+                    // the entire buffer contains the latest data
+                    self.write_index.complete_count += 1;
+                    self.cap()
+                }
+                Error::DmaUnsynced => {
+                    #[cfg(feature = "defmt")]
+                    defmt::error!("Ring buffer broken invariants detected!");
+                    return 0;
+                }
+            }
+        });
 
         // Respect frame alignment. Because read_latest reads the NEWEST data
         // (skip at the front, read at the tail), reducing to_read moves the
         // start forward. We must compute front_skip explicitly so the read
         // window starts at an aligned buffer position.
         let (to_read, front_skip) = if self.alignment > 1 {
-            // Discard any partial frame at the tail of available data, then
+            // Skip any partial frame at the tail of available data, then
             // round down to_read so it fits in buf and lands on a frame boundary.
             let end_pos = self.read_index.as_index(self.cap(), available);
             let aligned_available = available.saturating_sub(end_pos % self.alignment);
@@ -314,8 +331,8 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
             buf[i] = self.read_buf(i);
         }
 
-        // Advance past what we read plus any trailing partial frame.
-        self.read_index.advance(self.cap(), available - front_skip);
+        // Advance past what we read. Trailing partial frame is left in the buffer.
+        self.read_index.advance(self.cap(), to_read);
 
         to_read
     }

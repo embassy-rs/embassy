@@ -75,31 +75,29 @@
 #![cfg(feature = "wba")]
 #![allow(clippy::missing_safety_doc)]
 
-use core::cell::RefCell;
 use core::ptr;
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, AtomicUsize, Ordering, compiler_fence};
 
 use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
 use cortex_m::register::basepri;
 use critical_section;
 use embassy_stm32::NVIC_PRIO_BITS;
-use embassy_stm32::aes::{Aes, AesEcb, Direction};
-use embassy_stm32::mode::Blocking;
+use embassy_stm32::aes::{AesEcb, Direction};
+use embassy_stm32::mode::Async;
 use embassy_stm32::pac::{FLASH, PWR, RCC};
-use embassy_stm32::peripherals::{AES as AesPeriph, PKA as PkaPeriph, RNG};
+use embassy_stm32::peripherals::PKA as PkaPeriph;
 use embassy_stm32::pka::{EccPoint, EcdsaCurveParams, Pka};
-use embassy_stm32::rng::Rng;
-use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::zerocopy_channel;
 use embassy_time::{Duration, Instant, block_for};
 use stm32_bindings::ble::BLEPLATCB_TimerExpiry;
 
 use crate::controller::ChannelPacket;
-use crate::host_if::{TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST};
-use crate::util_seq;
+use crate::platform::Platform;
 use crate::wba::bindings::{link_layer, mac};
+use crate::wba::host_if::{TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST};
+use crate::wba::util_seq;
 
 // RADIO interrupt numbers for STM32WBA
 // RADIO interrupt is position 66
@@ -153,16 +151,18 @@ static mut CS_RESTORE_STATE: Option<critical_section::RestoreState> = None;
 // Optional hardware RNG instance for true random number generation.
 // The RNG peripheral pointer is stored here to be used by LINKLAYER_PLAT_GetRNG.
 // This must be set by the application using `set_rng_instance` before the link layer requests random numbers.
-pub(crate) static mut HARDWARE_RNG: Option<&'static CriticalSectionMutex<RefCell<Rng<'static, RNG>>>> = None;
-
-// Hardware AES and PKA driver instances, following the HARDWARE_RNG pattern.
-// Stored as statics so the extern "C" BLEPLAT callbacks can access them.
-pub(crate) static mut HARDWARE_AES: Option<&'static CriticalSectionMutex<RefCell<Aes<'static, AesPeriph, Blocking>>>> =
-    None;
-pub(crate) static mut HARDWARE_PKA: Option<&'static CriticalSectionMutex<RefCell<Pka<'static, PkaPeriph>>>> = None;
+pub(crate) static mut PLATFORM: Option<&'static Platform> = None;
 
 pub(crate) static mut EVENT_CHANNEL: Option<zerocopy_channel::Sender<'static, CriticalSectionRawMutex, ChannelPacket>> =
     None;
+
+const fn get_platform() -> &'static Platform {
+    unsafe { PLATFORM.as_ref().expect("PLATFORM not initialized") }
+}
+
+const fn get_channel() -> &'static mut zerocopy_channel::Sender<'static, CriticalSectionRawMutex, ChannelPacket> {
+    unsafe { EVENT_CHANNEL.as_mut().expect("EVENT_CHANNEL not initialized") }
+}
 
 // ============================================================================
 // AES-128 ECB Hardware Acceleration (Embassy driver)
@@ -170,9 +170,7 @@ pub(crate) static mut EVENT_CHANNEL: Option<zerocopy_channel::Sender<'static, Cr
 
 /// Perform AES-128 ECB encryption using the Embassy AES driver.
 fn aes_ecb_encrypt(key: &[u8; 16], input: &[u8; 16], output: &mut [u8; 16]) {
-    critical_section::with(|cs| {
-        let aes_ref = unsafe { HARDWARE_AES.as_ref() }.expect("HARDWARE_AES not initialized");
-        let mut aes = aes_ref.borrow(cs).borrow_mut();
+    get_platform().borrow_aes(|aes| {
         let cipher = AesEcb::new(key);
         let mut ctx = aes.start(&cipher, Direction::Encrypt);
         aes.payload_blocking(&mut ctx, input, output, true).unwrap();
@@ -267,12 +265,12 @@ fn cmac_compute(key: &[u8; 16], input: &[u8], output: &mut [u8; 16]) {
 // PKA P-256 Hardware Acceleration (Embassy driver)
 // ============================================================================
 
-/// Cached PKA result for async Start/Read pattern.
-/// The BLE stack calls Start (begin computation), then later calls Read (get result).
-/// Results stored as u32 LE word arrays (index 0 = LSW) matching BLE stack format.
-static mut PKA_RESULT_X: [u32; 8] = [0u32; 8];
-static mut PKA_RESULT_Y: [u32; 8] = [0u32; 8];
-static PKA_RESULT_READY: AtomicBool = AtomicBool::new(false);
+/// Call BLEPLATCB_PkaComplete if a PKA callback was deferred.
+/// Must be invoked from the embassy-task context (after seq_resume returns),
+/// never from within the sequencer context.
+pub fn dispatch_pka_callback() {
+    unsafe { super::bindings::ble::BLEPLATCB_PkaComplete() };
+}
 
 /// Convert u32 LE word array (index 0 = LSW) to big-endian byte array.
 /// This is needed because the BLE stack uses u32 LE words, but the Embassy
@@ -294,7 +292,14 @@ fn be_bytes_to_words_le(bytes: &[u8], words: &mut [u32; 8]) {
 /// Perform P-256 ECC scalar multiplication using the Embassy PKA driver.
 /// k and point coordinates are u32 arrays in LE word order (index 0 = LSW).
 /// Returns 0 on success, non-zero on error.
-fn pka_p256_mul(k: &[u32; 8], px: &[u32; 8], py: &[u32; 8], rx: &mut [u32; 8], ry: &mut [u32; 8]) -> i32 {
+pub async fn pka_p256_mul(
+    pka: &mut Pka<'static, PkaPeriph, Async>,
+    k: &[u32; 8],
+    px: &[u32; 8],
+    py: &[u32; 8],
+    rx: &mut [u32; 8],
+    ry: &mut [u32; 8],
+) {
     // Convert from BLE stack u32 LE words to big-endian bytes for Embassy PKA driver
     let mut k_be = [0u8; 32];
     let mut px_be = [0u8; 32];
@@ -306,22 +311,14 @@ fn pka_p256_mul(k: &[u32; 8], px: &[u32; 8], py: &[u32; 8], rx: &mut [u32; 8], r
     let curve = EcdsaCurveParams::nist_p256();
     let mut result = EccPoint::new(32);
 
-    let status = critical_section::with(|cs| {
-        let pka_ref = unsafe { HARDWARE_PKA.as_ref() }.expect("HARDWARE_PKA not initialized");
-        let mut pka = pka_ref.borrow(cs).borrow_mut();
-        pka.ecc_mul(&curve, &k_be, &px_be, &py_be, &mut result)
-    });
-
-    match status {
+    match pka.ecc_mul(&curve, &k_be, &px_be, &py_be, &mut result).await {
         Ok(()) => {
             // Convert result from big-endian bytes back to u32 LE words
             be_bytes_to_words_le(&result.x[..32], rx);
             be_bytes_to_words_le(&result.y[..32], ry);
-            0
         }
-        Err(_e) => {
-            warn!("PKA ECC mul failed");
-            -1
+        Err(e) => {
+            warn!("PKA ECC mul failed: {}", e);
         }
     }
 }
@@ -350,6 +347,10 @@ pub fn earliest_timer_deadline() -> Instant {
     }
 }
 
+#[cfg(feature = "ble-stack-llo")]
+pub fn check_expired_timers() {}
+
+#[cfg(not(feature = "ble-stack-llo"))]
 /// Check and fire any expired timers. Called from the runner loop.
 /// Calls BLEPLATCB_TimerExpiry(id) for each expired timer to notify the BLE stack.
 pub fn check_expired_timers() {
@@ -359,7 +360,7 @@ pub fn check_expired_timers() {
     unsafe {
         for (id, deadline) in TIMER_SLOTS
             .iter_mut()
-            .filter(|(id, deadline)| *id != TIMER_SLOT_FREE && *deadline >= now)
+            .filter(|(id, deadline)| *id != TIMER_SLOT_FREE && now >= *deadline)
         {
             timer_id = *id;
             *id = TIMER_SLOT_FREE;
@@ -402,8 +403,68 @@ static NVM_BASE_ADDRESS: AtomicU32 = AtomicU32::new(0);
 
 /// Set the NVM base address. Must be called before BLE init.
 /// The address must be page-aligned (8KB boundary) and within flash.
+/// For STM32WBA65RI (2MB flash): use 0x081F_E000 (last 8KB page of BANK_2).
 pub fn set_nvm_base_address(addr: u32) {
     NVM_BASE_ADDRESS.store(addr, Ordering::Release);
+}
+
+/// Erase the bond NVM flash page previously configured with [`set_nvm_base_address`].
+///
+/// Must be called **after** [`set_nvm_base_address`] and **before** BLE stack init
+/// (`new_platform!`). Reflashing the application does not erase this page; use this
+/// when clearing stale bonds. `aci_gap_clear_security_db` only clears RAM — the next
+/// boot would reload bonds from flash without this erase.
+pub fn erase_bond_nvm_flash() -> bool {
+    let base = NVM_BASE_ADDRESS.load(Ordering::Acquire);
+    if base == 0 {
+        return false;
+    }
+    unsafe { flash_erase_page(base) }
+}
+
+/// Pointer to the NVM cache buffer allocated by the BLE stack init.
+static NVM_CACHE_PTR: AtomicUsize = AtomicUsize::new(0);
+/// Size of the NVM cache buffer in bytes.
+static NVM_CACHE_LEN_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+/// Register the NVM cache buffer. Called once during `init_ble_stack` so that
+/// `BLEPLAT_NvmStore` can write the entire buffer (matching ST reference behaviour).
+pub fn register_nvm_cache(ptr: *mut u64, len_u64s: usize) {
+    NVM_CACHE_PTR.store(ptr as usize, Ordering::Release);
+    NVM_CACHE_LEN_BYTES.store(len_u64s * 8, Ordering::Release);
+}
+
+/// Load previously stored NVM data from flash into `buf`.
+///
+/// Call this before `BleStack_Init` so the stack can restore any bonds that
+/// were persisted in a previous session. Returns the number of valid bytes
+/// loaded into `buf`, or 0 if flash has no valid NVM data (first boot after
+/// flash erase, or NVM base address not configured).
+pub fn load_nvm_from_flash(buf: &mut [u8]) -> usize {
+    let base = NVM_BASE_ADDRESS.load(Ordering::Acquire);
+    if base == 0 {
+        return 0;
+    }
+
+    // Read and verify magic marker
+    let magic = unsafe { core::ptr::read_volatile(base as *const u32) };
+    if magic != NVM_MAGIC {
+        return 0;
+    }
+
+    // Read stored data length
+    let size = unsafe { core::ptr::read_volatile((base + 4) as *const u16) } as usize;
+    if size == 0 || size > buf.len() {
+        return 0;
+    }
+
+    // Copy data payload (starts at offset NVM_WRITE_SIZE = 16)
+    let data_ptr = (base + NVM_WRITE_SIZE as u32) as *const u8;
+    let data = unsafe { core::slice::from_raw_parts(data_ptr, size) };
+    buf[..size].copy_from_slice(data);
+
+    trace!("load_nvm_from_flash: loaded {} bytes", size);
+    size
 }
 
 /// Unlock flash for programming
@@ -446,16 +507,21 @@ unsafe fn flash_wait_ready() -> bool {
 
 /// Erase a flash page by its base address
 unsafe fn flash_erase_page(page_addr: u32) -> bool {
-    // Calculate page index: (addr - FLASH_BASE) / PAGE_SIZE
-    let flash_base = 0x0800_0000u32;
-    let page_index = (page_addr - flash_base) / NVM_PAGE_SIZE as u32;
+    const FLASH_BASE: u32 = 0x0800_0000;
+    const BANK2_BASE: u32 = 0x0810_0000; // BANK_2 starts at +1MB
+
+    let (bank2, page_index) = if page_addr >= BANK2_BASE {
+        (true, (page_addr - BANK2_BASE) / NVM_PAGE_SIZE as u32)
+    } else {
+        (false, (page_addr - FLASH_BASE) / NVM_PAGE_SIZE as u32)
+    };
 
     flash_unlock();
 
     FLASH.nscr().modify(|w| {
         w.set_per(true);
         w.set_pnb(page_index as u8);
-        w.set_bker(false); // Bank 1
+        w.set_bker(bank2);
     });
     FLASH.nscr().modify(|w| {
         w.set_strt(true);
@@ -686,10 +752,21 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_DelayUs(delay: u32) {
 //   * @param  condition: conditional statement to be checked.
 //   * @retval None
 //   */
+// Some of these sanity checks fire on production silicon — e.g. an IP-version
+// probe inside the PHY init path can return the silicon-default response on
+// early WBA5x cuts, which doesn't match the value the type-7 PHY code
+// expects. ST's reference HAL project templates define `assert_failed()` with
+// an empty body, so the link-layer archive is designed to continue past a
+// failed assert.
+//
+// We mirror that here: log the failed assert (with the return address so it
+// can be looked up in the archive's disassembly) but do not halt.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_Assert(condition: u8) {
     if condition == 0 {
-        panic!("LINKLAYER_PLAT assertion failed");
+        let lr: u32;
+        core::arch::asm!("mov {}, lr", out(reg) lr);
+        warn!("LINKLAYER_PLAT_Assert(0) at LR=0x{:08x}", lr);
     }
 }
 
@@ -789,6 +866,38 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(enable: u8) {
 //   * @param  len: number of byte of anthropy to get.
 //   * @retval None
 //   */
+/// Poll the hardware RNG directly to fill `buf`.
+///
+/// Used as a fallback when the async pipe is transiently empty — e.g. when the
+/// BLE link layer requests entropy inside `seq_resume()`, where we cannot yield
+/// to let `run_rng` replenish the pipe.  Reading DR is safe even while the
+/// embassy RNG driver holds the peripheral: the hardware immediately starts
+/// generating the next word after each DR read, so the async driver simply
+/// waits for the next DRDY interrupt.
+unsafe fn fill_from_hardware_rng(buf: &mut [u8]) {
+    use embassy_stm32::pac::RNG;
+    let mut i = 0;
+    while i < buf.len() {
+        loop {
+            let sr = RNG.sr().read();
+            if sr.seis() || sr.ceis() {
+                RNG.sr().modify(|w| {
+                    w.set_seis(false);
+                    w.set_ceis(false);
+                });
+            }
+            if sr.drdy() {
+                break;
+            }
+        }
+        let word = RNG.dr().read();
+        let bytes = word.to_le_bytes();
+        let to_copy = (buf.len() - i).min(4);
+        buf[i..i + to_copy].copy_from_slice(&bytes[..to_copy]);
+        i += to_copy;
+    }
+}
+
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
     trace!("LINKLAYER_PLAT_GetRNG: ptr_rnd={:?}, len={}", ptr_rnd, len);
@@ -796,14 +905,11 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
         return;
     }
 
-    critical_section::with(|cs| {
-        HARDWARE_RNG
-            .as_ref()
-            .unwrap()
-            .borrow(cs)
-            .borrow_mut()
-            .fill_bytes(core::slice::from_raw_parts_mut(ptr_rnd, len as usize))
-    });
+    let buf = core::slice::from_raw_parts_mut(ptr_rnd, len as usize);
+    let from_pipe = get_platform().try_fill_bytes(buf);
+    if from_pipe < buf.len() {
+        fill_from_hardware_rng(&mut buf[from_pipe..]);
+    }
 
     trace!("LINKLAYER_PLAT_GetRNG: generated {} random bytes", len);
 }
@@ -1259,14 +1365,11 @@ pub unsafe extern "C" fn BLEPLAT_RngGet(n: u8, val: *mut u32) {
         return;
     }
 
-    critical_section::with(|cs| {
-        HARDWARE_RNG
-            .as_ref()
-            .unwrap()
-            .borrow(cs)
-            .borrow_mut()
-            .fill_bytes(core::slice::from_raw_parts_mut(val as *mut u8, n as usize * 4));
-    });
+    let buf = core::slice::from_raw_parts_mut(val as *mut u8, n as usize * 4);
+    let from_pipe = get_platform().try_fill_bytes(buf);
+    if from_pipe < buf.len() {
+        fill_from_hardware_rng(&mut buf[from_pipe..]);
+    }
 }
 
 /// AES ECB encrypt function using hardware AES peripheral.
@@ -1637,39 +1740,37 @@ pub unsafe extern "C" fn BLEPLAT_TimerStop(id: u16) {
 
 /// NVM store function for BLE stack.
 ///
-/// Stores BLE bonding/configuration data to internal flash.
-/// The NVM base address must be set via `set_nvm_base_address()` before use.
-///
-/// # Arguments
-/// * `ptr` - Pointer to data to store
-/// * `size` - Size of data in bytes
+/// The ST BLE stack ignores the `ptr`/`size` arguments in its reference implementation
+/// and always writes the entire NVM cache buffer. We do the same: `ptr` and `size` are
+/// ignored; the buffer registered via `register_nvm_cache` is written to flash wholesale.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn BLEPLAT_NvmStore(ptr: *const u64, size: u16) {
-    trace!("BLEPLAT_NvmStore: size={}", size);
-
+pub unsafe extern "C" fn BLEPLAT_NvmStore(_ptr: *const u64, _size: u16) {
     let base = NVM_BASE_ADDRESS.load(Ordering::Acquire);
     if base == 0 {
         trace!("BLEPLAT_NvmStore: NVM not configured, skipping");
         return;
     }
 
-    if ptr.is_null() || size == 0 {
+    let cache_ptr = NVM_CACHE_PTR.load(Ordering::Acquire);
+    let cache_len = NVM_CACHE_LEN_BYTES.load(Ordering::Acquire);
+    if cache_ptr == 0 || cache_len == 0 {
+        error!("BLEPLAT_NvmStore: NVM cache not registered");
         return;
     }
 
-    let data = core::slice::from_raw_parts(ptr as *const u8, size as usize);
+    trace!("BLEPLAT_NvmStore: writing {} bytes", cache_len);
 
-    // Erase the NVM page first
+    let data = core::slice::from_raw_parts(cache_ptr as *const u8, cache_len);
+
     if !flash_erase_page(base) {
         error!("BLEPLAT_NvmStore: flash erase failed");
         return;
     }
 
-    // Write header: magic + length (fits in first quad-word with padding)
+    // Write header: magic + length in bytes (fits in first quad-word with padding)
     let mut header = [0u8; NVM_WRITE_SIZE];
     header[0..4].copy_from_slice(&NVM_MAGIC.to_le_bytes());
-    header[4..6].copy_from_slice(&size.to_le_bytes());
-    // bytes 6..16 are zero padding
+    header[4..6].copy_from_slice(&(cache_len as u16).to_le_bytes());
 
     if !flash_write_quadword(base, &header) {
         error!("BLEPLAT_NvmStore: flash write header failed");
@@ -1681,12 +1782,7 @@ pub unsafe extern "C" fn BLEPLAT_NvmStore(ptr: *const u64, size: u16) {
     let mut offset: usize = 0;
     while offset < data.len() {
         let mut quad = [0u8; NVM_WRITE_SIZE];
-        let remaining = data.len() - offset;
-        let chunk = if remaining >= NVM_WRITE_SIZE {
-            NVM_WRITE_SIZE
-        } else {
-            remaining
-        };
+        let chunk = (data.len() - offset).min(NVM_WRITE_SIZE);
         quad[..chunk].copy_from_slice(&data[offset..offset + chunk]);
 
         if !flash_write_quadword(data_addr + offset as u32, &quad) {
@@ -1696,7 +1792,7 @@ pub unsafe extern "C" fn BLEPLAT_NvmStore(ptr: *const u64, size: u16) {
         offset += NVM_WRITE_SIZE;
     }
 
-    trace!("BLEPLAT_NvmStore: stored {} bytes", size);
+    trace!("BLEPLAT_NvmStore: stored {} bytes", cache_len);
 }
 
 // BLEPLAT return codes
@@ -1722,8 +1818,6 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartP256Key(local_private_key: *const u32) 
         return -1;
     }
 
-    PKA_RESULT_READY.store(false, Ordering::Release);
-
     let k: &[u32; 8] = &*(local_private_key as *const [u32; 8]);
 
     // Convert P-256 generator point from big-endian bytes to u32 LE words
@@ -1733,15 +1827,15 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartP256Key(local_private_key: *const u32) 
     be_bytes_to_words_le(curve.generator_x, &mut gx_words);
     be_bytes_to_words_le(curve.generator_y, &mut gy_words);
 
-    let result = pka_p256_mul(k, &gx_words, &gy_words, &mut PKA_RESULT_X, &mut PKA_RESULT_Y);
-
-    if result == 0 {
-        PKA_RESULT_READY.store(true, Ordering::Release);
-        // Notify the BLE stack that PKA computation is complete
-        super::bindings::ble::BLEPLATCB_PkaComplete();
+    if get_platform().get_p256_req().signaled() {
+        error!("BLEPLAT_PkaStartDhKey: signal not empty");
+        return -1;
     }
 
-    result
+    get_platform().get_p256_resp().reset();
+    get_platform().get_p256_req().signal((*k, gx_words, gy_words));
+
+    BLEPLAT_OK
 }
 
 /// Read result of P-256 public key generation.
@@ -1763,16 +1857,19 @@ pub unsafe extern "C" fn BLEPLAT_PkaReadP256Key(local_public_key: *mut u32) -> i
         return -1;
     }
 
-    if !PKA_RESULT_READY.load(Ordering::Acquire) {
+    let Some((pka_x, pka_y)) = get_platform().get_p256_resp().try_take() else {
         warn!("BLEPLAT_PkaReadP256Key: result not ready");
+        return -1;
+    };
+
+    if pka_x == [0u32; 8] && pka_y == [0u32; 8] {
+        warn!("BLEPLAT_PkaReadP256Key: invalid result");
         return -1;
     }
 
     let out = core::slice::from_raw_parts_mut(local_public_key, 16);
-    out[0..8].copy_from_slice(&PKA_RESULT_X);
-    out[8..16].copy_from_slice(&PKA_RESULT_Y);
-
-    PKA_RESULT_READY.store(false, Ordering::Release);
+    out[0..8].copy_from_slice(&pka_x);
+    out[8..16].copy_from_slice(&pka_y);
 
     BLEPLAT_OK
 }
@@ -1797,8 +1894,6 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartDhKey(local_private_key: *const u32, re
         return -1;
     }
 
-    PKA_RESULT_READY.store(false, Ordering::Release);
-
     let k: &[u32; 8] = &*(local_private_key as *const [u32; 8]);
     let remote = core::slice::from_raw_parts(remote_public_key, 16);
 
@@ -1807,15 +1902,15 @@ pub unsafe extern "C" fn BLEPLAT_PkaStartDhKey(local_private_key: *const u32, re
     px.copy_from_slice(&remote[0..8]);
     py.copy_from_slice(&remote[8..16]);
 
-    let result = pka_p256_mul(k, &px, &py, &mut PKA_RESULT_X, &mut PKA_RESULT_Y);
-
-    if result == 0 {
-        PKA_RESULT_READY.store(true, Ordering::Release);
-        // Notify the BLE stack that PKA computation is complete
-        super::bindings::ble::BLEPLATCB_PkaComplete();
+    if get_platform().get_p256_req().signaled() {
+        error!("BLEPLAT_PkaStartDhKey: signal not empty");
+        return -1;
     }
 
-    result
+    get_platform().get_p256_resp().reset();
+    get_platform().get_p256_req().signal((*k, px, py));
+
+    BLEPLAT_OK
 }
 
 /// Read result of DH key computation.
@@ -1837,16 +1932,19 @@ pub unsafe extern "C" fn BLEPLAT_PkaReadDhKey(dh_key: *mut u32) -> i32 {
         return -1;
     }
 
-    if !PKA_RESULT_READY.load(Ordering::Acquire) {
+    let Some((pka_x, pka_y)) = get_platform().get_p256_resp().try_take() else {
         warn!("BLEPLAT_PkaReadDhKey: result not ready");
+        return -1;
+    };
+
+    if pka_x == [0u32; 8] && pka_y == [0u32; 8] {
+        warn!("BLEPLAT_PkaReadDhKey: invalid result");
         return -1;
     }
 
     // DH key is just the X coordinate of the shared point
     let out = core::slice::from_raw_parts_mut(dh_key, 8);
-    out.copy_from_slice(&PKA_RESULT_X);
-
-    PKA_RESULT_READY.store(false, Ordering::Release);
+    out.copy_from_slice(&pka_x);
 
     BLEPLAT_OK
 }
@@ -1854,13 +1952,18 @@ pub unsafe extern "C" fn BLEPLAT_PkaReadDhKey(dh_key: *mut u32) -> i32 {
 /// BLE stack HCI event indication callback
 /// This is called by the BLE stack when HCI events arrive
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_data: *const u8, _ext_length: u16) -> u8 {
+pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, ext_data: *const u8, ext_length: u16) -> u8 {
     if data.is_null() || length == 0 {
         return 1; // Error
     }
 
     // Convert to slice
     let event_data = core::slice::from_raw_parts(data, length as usize);
+    let ext_data: &[u8] = if ext_data.is_null() || ext_length == 0 {
+        &[]
+    } else {
+        core::slice::from_raw_parts(ext_data, ext_length as usize)
+    };
 
     trace!(
         "BLECB_Indication: event_code=0x{:02X}, length={}",
@@ -1872,38 +1975,42 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
     // Byte 1: Event code (0x05=Disconnect, 0x3E=LE Meta, 0xFF=Vendor)
     // Byte 2: Parameter total length
     // Byte 3+: Event parameters
-    let evt_code = if length >= 2 { event_data[1] } else { event_data[0] };
 
-    if evt_code == 0x05 {
-        let status = if length >= 4 { event_data[3] } else { 0 };
-        let handle = if length >= 6 {
-            u16::from_le_bytes([event_data[4], event_data[5]])
+    if event_data.len() > 0 && event_data[0] == 4 {
+        let evt_code = if length >= 2 { event_data[1] } else { event_data[0] };
+
+        if evt_code == 0x05 {
+            let status = if length >= 4 { event_data[3] } else { 0 };
+            let handle = if length >= 6 {
+                u16::from_le_bytes([event_data[4], event_data[5]])
+            } else {
+                0
+            };
+            let reason = if length >= 7 { event_data[6] } else { 0 };
+            debug!(
+                "HCI Event: Disconnection Complete (status=0x{:02X}, handle=0x{:04X}, reason=0x{:02X})",
+                status, handle, reason
+            );
+        } else if evt_code == 0x3E {
+            let sub_code = if length >= 4 { event_data[3] } else { 0 };
+            debug!("HCI Event: LE Meta (sub=0x{:02X}, len={})", sub_code, length);
         } else {
-            0
-        };
-        let reason = if length >= 7 { event_data[6] } else { 0 };
-        info!(
-            "HCI Event: Disconnection Complete (status=0x{:02X}, handle=0x{:04X}, reason=0x{:02X})",
-            status, handle, reason
-        );
-    } else if evt_code == 0x3E {
-        let sub_code = if length >= 4 { event_data[3] } else { 0 };
-        info!("HCI Event: LE Meta (sub=0x{:02X}, len={})", sub_code, length);
+            debug!("HCI Event: code=0x{:02X}, len={}", evt_code, length);
+        }
     } else {
-        info!("HCI Event: code=0x{:02X}, len={}", evt_code, length);
+        debug!("Other Event: {:x}", event_data[..10.min(event_data.len())]);
     }
 
-    // Schedule BLE host task processing after disconnect so the runner wakes
-    if evt_code == 0x05 {
-        util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);
-    }
+    debug!("Raw Event: {:x} {:x}", event_data, ext_data);
 
-    let Some(mut slot) = unsafe { EVENT_CHANNEL.as_mut() }.unwrap().try_send() else {
+    let Some(mut slot) = get_channel().try_send() else {
         return 0;
     };
 
-    slot.copy_from(event_data);
+    slot.copy_from(event_data, ext_data);
     slot.send_done();
+
+    util_seq::UTIL_SEQ_SetTask(TASK_BLE_HOST_MASK, TASK_PRIO_BLE_HOST);
 
     0 // Success
 }

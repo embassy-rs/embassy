@@ -244,6 +244,15 @@ impl<'d> StateRunner<'d> {
             s.waker.wake();
         });
     }
+
+    /// Get the hardware address.
+    pub fn get_hardware_address(&self) -> driver::HardwareAddress {
+        self.shared.lock(|s| {
+            let s = &mut *s.borrow_mut();
+
+            s.hardware_address
+        })
+    }
 }
 
 impl<'d, const MTU: usize> RxRunner<'d, MTU> {

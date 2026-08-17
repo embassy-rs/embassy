@@ -56,7 +56,7 @@ static JPEG_WAKER: AtomicWaker = AtomicWaker::new();
 
 /// JPEG codec interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -176,7 +176,7 @@ pub struct Jpeg<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
     indma: Option<ChannelAndRequest<'d>>,
     outdma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
 }
 
 impl<'d, T: Instance> Jpeg<'d, T, Async> {
@@ -202,7 +202,7 @@ impl<'d, T: Instance> Jpeg<'d, T, Async> {
             _peripheral: peri,
             indma: Some(indma),
             outdma: Some(outdma),
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 }
@@ -219,7 +219,7 @@ impl<'d, T: Instance> Jpeg<'d, T, Blocking> {
             _peripheral: peri,
             indma: None,
             outdma: None,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         }
     }
 }

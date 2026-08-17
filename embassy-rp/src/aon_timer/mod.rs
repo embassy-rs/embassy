@@ -224,6 +224,7 @@ pub enum AlarmWakeMode {
 
 /// AON Timer configuration
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Clock source for the timer
     pub clock_source: ClockSource,
@@ -248,6 +249,7 @@ impl Default for Config {
 
 /// Clock source for the AON Timer
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ClockSource {
     /// Crystal oscillator (more accurate, requires external crystal)
     Xosc,

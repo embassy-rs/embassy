@@ -21,12 +21,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::pka::Pka;
 use embassy_stm32::rcc::{
     AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
 };
 use embassy_stm32::{Config, bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     PKA => embassy_stm32::pka::InterruptHandler<peripherals::PKA>;
@@ -112,7 +113,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // This speeds up subsequent operations with the same modulus
     info!("Computing Montgomery parameter...");
     let mut montgomery_param = [0u32; 64]; // 256 bytes / 4 = 64 words
-    match pka.montgomery_param(&RSA_N, &mut montgomery_param) {
+    match pka.montgomery_param_blocking(&RSA_N, &mut montgomery_param) {
         Ok(()) => {
             info!("Montgomery parameter computed successfully");
         }
@@ -130,7 +131,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("Computing ciphertext = plaintext^e mod n");
 
     let mut ciphertext = [0u8; 256];
-    match pka.modular_exp(&plaintext, &RSA_E, &RSA_N, &mut ciphertext) {
+    match pka.modular_exp_blocking(&plaintext, &RSA_E, &RSA_N, &mut ciphertext) {
         Ok(()) => {
             info!("Encryption successful!");
             info!("Ciphertext (first 16 bytes): {:02x}", &ciphertext[..16]);
@@ -149,7 +150,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("Computing plaintext = ciphertext^d mod n");
 
     let mut decrypted = [0u8; 256];
-    match pka.modular_exp(&ciphertext, &RSA_D, &RSA_N, &mut decrypted) {
+    match pka.modular_exp_blocking(&ciphertext, &RSA_D, &RSA_N, &mut decrypted) {
         Ok(()) => {
             info!("Decryption successful!");
             info!("Decrypted (last 10 bytes): {:02x}", &decrypted[246..]);
@@ -173,7 +174,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("=== RSA Fast Decryption (with Montgomery param) ===");
 
     let mut decrypted_fast = [0u8; 256];
-    match pka.modular_exp_fast(&ciphertext, &RSA_D, &RSA_N, &montgomery_param, &mut decrypted_fast) {
+    match pka.modular_exp_fast_blocking(&ciphertext, &RSA_D, &RSA_N, &montgomery_param, &mut decrypted_fast) {
         Ok(()) => {
             info!("Fast decryption successful!");
             if decrypted_fast == plaintext {

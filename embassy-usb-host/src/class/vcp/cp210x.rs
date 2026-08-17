@@ -49,7 +49,7 @@ use embassy_usb_driver::host::{PipeError, SplitInfo, UsbHostAllocator, UsbPipe, 
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
 use crate::control::SetupPacket;
-use crate::descriptor::ConfigurationDescriptor;
+use crate::descriptor::ConfigurationDescriptorChain;
 use crate::handler::EnumerationInfo;
 
 /// Silicon Labs VID and CP210x PIDs.
@@ -496,7 +496,7 @@ pub struct Cp210xInfo {
 /// Use `interface_idx = 0` for single-port CP210x parts; `0..2` for
 /// CP2105; `0..4` for CP2108.
 pub fn find_cp210x(config_desc: &[u8], interface_idx: u8) -> Option<Cp210xInfo> {
-    let cfg = ConfigurationDescriptor::try_from_slice(config_desc).ok()?;
+    let cfg = ConfigurationDescriptorChain::try_from_slice(config_desc).ok()?;
 
     let mut seen = 0u8;
     for iface in cfg.iter_interface() {

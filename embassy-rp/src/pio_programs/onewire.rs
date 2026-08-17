@@ -151,14 +151,18 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         }
 
         let rx = self.sm.rx();
-        let mut found = false;
-        for _ in 0..4 {
-            if rx.wait_pull().await != 0 {
-                found = true;
-            }
+        let mut bytes = [0_u8; 4];
+        for byte in &mut bytes {
+            let word = rx.wait_pull().await;
+            // Save only the 8 bits the pio actually sent
+            *byte = (word >> 24) as u8;
         }
 
-        found
+        let samples = u32::from_be_bytes(bytes);
+
+        // If `samples == 0xFFFFFFFF` then nobody responded
+        // If `samples == 0x00000000` then your pullup is broken
+        samples != 0xFFFFFFFF && samples != 0x00000000
     }
 
     /// Write bytes to the onewire bus

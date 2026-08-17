@@ -3,11 +3,13 @@
 
 teleprobe_meta::target!(b"frdm-mcx-a266");
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
 use hal::peripherals::RTC0;
 use hal::rtc::{DateTime, InterruptHandler, Rtc};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     RTC => InterruptHandler<RTC0>;

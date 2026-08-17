@@ -1,27 +1,93 @@
 #![macro_use]
 
+use core::cell::UnsafeCell;
 use core::future::Future;
+use core::mem::MaybeUninit;
 use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering, compiler_fence, fence};
 use core::task::{Context, Poll};
 
 use embassy_sync::waitqueue::AtomicWaker;
-use linked_list::Table;
+use linked_list::{LinkedListItem, Table};
+#[cfg(not(lpdma))]
+use pac::gpdma::{Channel as BaseChannel, Gpdma as BaseRegs, vals};
+#[cfg(lpdma)]
+use pac::lpdma::{Channel as BaseChannel, Lpdma as BaseRegs, vals};
 
 use super::word::{Word, WordSize};
 use super::{Channel, Dir, Request, STATE};
 use crate::_generated::DmaChannel;
+use crate::dma::LinearItem;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
-use crate::pac::gpdma::vals;
 use crate::rcc::WakeGuard;
 
 pub mod linked_list;
 pub mod ringbuffered;
+#[cfg(gpdma2d)]
+pub mod two_d;
+
+pub use vals::Pam as Packing;
+
+/// Per-channel static storage for the GPDMA linked-list descriptor used by
+/// ringbuffers.  `Table<LinearItem, 1>` is 24 bytes.
+pub(crate) struct RingbufferTableSlot {
+    inner: UnsafeCell<MaybeUninit<Table<LinearItem, 1>>>,
+}
+
+unsafe impl Sync for RingbufferTableSlot {}
+
+impl RingbufferTableSlot {
+    pub const fn new() -> Self {
+        Self {
+            inner: UnsafeCell::new(MaybeUninit::uninit()),
+        }
+    }
+
+    /// # Safety
+    /// The caller must ensure this is the only live mutable access.
+    #[inline]
+    pub unsafe fn get_mut(&self) -> &'static mut MaybeUninit<Table<LinearItem, 1>> {
+        &mut *self.inner.get()
+    }
+}
+
+pub(crate) enum DmaInfo {
+    #[cfg(gpdma)]
+    Gpdma(pac::gpdma::Gpdma),
+    #[cfg(lpdma)]
+    Lpdma(pac::lpdma::Lpdma),
+}
+
+impl DmaInfo {
+    const fn cast(&self) -> BaseRegs {
+        unsafe {
+            match self {
+                #[cfg(gpdma)]
+                Self::Gpdma(regs) => BaseRegs::from_ptr(regs.as_ptr()),
+                #[cfg(lpdma)]
+                Self::Lpdma(regs) => BaseRegs::from_ptr(regs.as_ptr()),
+            }
+        }
+    }
+
+    const fn ch(&self, n: usize) -> BaseChannel {
+        unsafe {
+            match self {
+                #[cfg(gpdma)]
+                Self::Gpdma(regs) => BaseChannel::from_ptr(regs.ch(n).as_ptr()),
+                #[cfg(lpdma)]
+                Self::Lpdma(regs) => BaseChannel::from_ptr(regs.ch(n).as_ptr()),
+            }
+        }
+    }
+}
 
 pub(crate) struct ChannelInfo {
-    pub(crate) dma: pac::gpdma::Gpdma,
+    pub(crate) dma: DmaInfo,
     pub(crate) num: usize,
+    #[cfg(gpdma2d)]
+    pub(crate) supports_2d: bool,
     #[cfg(feature = "_dual-core")]
     pub(crate) irq: pac::Interrupt,
     #[cfg(feature = "low-power")]
@@ -51,22 +117,136 @@ pub enum Priority {
     VeryHigh,
 }
 
-impl From<Priority> for pac::gpdma::vals::Prio {
+impl From<Priority> for vals::Prio {
     fn from(value: Priority) -> Self {
         match value {
-            Priority::Low => pac::gpdma::vals::Prio::LowWithLowhWeight,
-            Priority::Medium => pac::gpdma::vals::Prio::LowWithMidWeight,
-            Priority::High => pac::gpdma::vals::Prio::LowWithHighWeight,
-            Priority::VeryHigh => pac::gpdma::vals::Prio::High,
+            Priority::Low => vals::Prio::LowWithLowhWeight,
+            Priority::Medium => vals::Prio::LowWithMidWeight,
+            Priority::High => vals::Prio::LowWithHighWeight,
+            Priority::VeryHigh => vals::Prio::High,
         }
     }
+}
+
+/// GPDMA hardware request granularity.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum RequestMode {
+    /// Peripheral handshakes at burst level (`BREQ=Burst`).
+    Burst,
+    /// Peripheral handshakes at block level (`BREQ=Block`).
+    Block,
+}
+
+impl From<RequestMode> for vals::Breq {
+    fn from(value: RequestMode) -> Self {
+        match value {
+            RequestMode::Burst => vals::Breq::Burst,
+            RequestMode::Block => vals::Breq::Block,
+        }
+    }
+}
+
+/// Transfer complete event mode (`TR2.TCEM`).
+///
+/// Controls when the transfer-complete (and half-transfer) events are
+/// generated. For linked-list transfers, this is a per-item field loaded
+/// from each LLI when `UT2` is set.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TransferCompleteMode {
+    /// Generate TC/HT events at the end of each block transfer.
+    EachBlock,
+    /// Generate TC at the end of each LLI transfer (including loading the
+    /// next LLI). HT is generated at the half of the LLI data transfer.
+    EachLinkedListItem,
+    /// Generate TC only at the end of the last LLI transfer. HT is
+    /// generated at the half of the last LLI's data transfer.
+    LastLinkedListItem,
+}
+
+#[cfg(gpdma)]
+impl From<TransferCompleteMode> for pac::gpdma::vals::Tcem {
+    fn from(value: TransferCompleteMode) -> Self {
+        match value {
+            TransferCompleteMode::EachBlock => Self::EachBlock,
+            TransferCompleteMode::EachLinkedListItem => Self::EachLinkedListItem,
+            TransferCompleteMode::LastLinkedListItem => Self::LastLinkedListItem,
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<TransferCompleteMode> for pac::lpdma::vals::Tcem {
+    fn from(value: TransferCompleteMode) -> Self {
+        match value {
+            TransferCompleteMode::EachBlock => Self::EachBlock,
+            TransferCompleteMode::EachLinkedListItem => Self::EachLinkedListItem,
+            TransferCompleteMode::LastLinkedListItem => Self::LastLinkedListItem,
+        }
+    }
+}
+
+/// Input-trigger polarity for GPDMA triggered transfers.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TriggerPolarity {
+    /// Trigger on rising edge.
+    RisingEdge,
+    /// Trigger on falling edge.
+    FallingEdge,
+}
+
+impl From<TriggerPolarity> for vals::Trigpol {
+    fn from(value: TriggerPolarity) -> Self {
+        match value {
+            TriggerPolarity::RisingEdge => vals::Trigpol::RisingEdge,
+            TriggerPolarity::FallingEdge => vals::Trigpol::FallingEdge,
+        }
+    }
+}
+
+/// GPDMA transfer trigger mode.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TriggerMode {
+    /// Trigger-gate each block transfer.
+    Block,
+    /// Trigger-gate each repeated/2D block transfer.
+    TwoDBlock,
+    /// Trigger-gate linked-list item (link transfer).
+    LinkedListItem,
+    /// Trigger-gate each programmed burst transfer.
+    Burst,
+}
+
+impl From<TriggerMode> for vals::Trigm {
+    fn from(value: TriggerMode) -> Self {
+        match value {
+            TriggerMode::Block => vals::Trigm::Block,
+            TriggerMode::TwoDBlock => vals::Trigm::from_bits(1),
+            TriggerMode::LinkedListItem => vals::Trigm::LinkedListItem,
+            TriggerMode::Burst => vals::Trigm::Burst,
+        }
+    }
+}
+
+/// Optional hardware trigger input for a GPDMA channel.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TriggerConfig {
+    /// Trigger input selector (`TRIGSEL` raw value from the device RM).
+    pub signal: u8,
+    /// Trigger edge polarity.
+    pub polarity: TriggerPolarity,
+    /// Trigger gating mode.
+    pub mode: TriggerMode,
 }
 
 /// GPDMA burst length (beats per burst on a port).
 ///
 /// GPDMA hardware supports any integer burst length from 1 to 64 beats.
 /// Encoded as `TR1.SBL_1` / `TR1.DBL_1` (the register value is beats - 1).
-#[cfg(stm32n6)]
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -137,7 +317,6 @@ pub enum Burst {
     _64Beats,
 }
 
-#[cfg(stm32n6)]
 impl From<Burst> for u8 {
     fn from(b: Burst) -> u8 {
         match b {
@@ -224,14 +403,28 @@ pub struct TransferOptions {
     /// attribute set (`TR1.SSEC = TR1.DSEC = 1`). Required when the channel
     /// is configured secure (`SECCFGR.SEC[n]=1`) and the slave is behind
     /// RISAF — without this the channel hits `ULEF` (user setting error)
-    /// after partial progress. Default `false`.
+    /// after partial progress. Default `true`.
     #[cfg(stm32n6)]
     pub secure: bool,
-    /// Burst length on both source and destination ports.
-    /// Default `Single`. Some peripherals (notably the JPEG codec on N6)
-    /// only assert their DMA request line for bursts above a threshold.
-    #[cfg(stm32n6)]
+    /// DMA packing configuration
+    pub packing: Packing,
+    /// Source/destination burst length, in beats. Default `_1Beats`. Some
+    /// peripherals only assert their DMA request line for bursts above a
+    /// threshold (notably the JPEG codec on N6), and some require multi-beat
+    /// bursts to handshake correctly under `BREQ=Burst` (e.g. CRYP wants
+    /// 4-beat bursts, matching one AES block per peripheral request).
+    #[cfg(not(stm32c5))]
     pub burst_length: Burst,
+    /// Select whether peripheral handshaking is done at burst or block level.
+    pub request_mode: RequestMode,
+    /// Transfer complete event mode. Default `EachBlock`.
+    ///
+    /// For linked-list transfers, this is configured per-item via the item's
+    /// config (e.g. [`LinearItemConfig`](linked_list::LinearItemConfig)) since
+    /// the channel TR2 register is overwritten by each LLI when `UT2` is set.
+    pub transfer_complete_mode: TransferCompleteMode,
+    /// Optional trigger-gated transfer configuration.
+    pub trigger: Option<TriggerConfig>,
 }
 
 impl Default for TransferOptions {
@@ -241,14 +434,20 @@ impl Default for TransferOptions {
             half_transfer_ir: false,
             complete_transfer_ir: true,
             #[cfg(stm32n6)]
-            secure: false,
-            #[cfg(stm32n6)]
+            secure: true,
+            packing: vals::Pam::Pack,
+
+            #[cfg(not(stm32c5))]
             burst_length: Burst::_1Beats,
+            request_mode: RequestMode::Burst,
+            transfer_complete_mode: TransferCompleteMode::EachBlock,
+            trigger: None,
         }
     }
 }
 
-impl From<WordSize> for vals::Dw {
+#[cfg(gpdma)]
+impl From<WordSize> for pac::gpdma::vals::Dw {
     fn from(raw: WordSize) -> Self {
         match raw {
             WordSize::OneByte => Self::Byte,
@@ -259,12 +458,37 @@ impl From<WordSize> for vals::Dw {
     }
 }
 
-impl From<vals::Dw> for WordSize {
-    fn from(raw: vals::Dw) -> Self {
+#[cfg(gpdma)]
+impl From<pac::gpdma::vals::Dw> for WordSize {
+    fn from(raw: pac::gpdma::vals::Dw) -> Self {
         match raw {
-            vals::Dw::Byte => Self::OneByte,
-            vals::Dw::HalfWord => Self::TwoBytes,
-            vals::Dw::Word => Self::FourBytes,
+            pac::gpdma::vals::Dw::Byte => Self::OneByte,
+            pac::gpdma::vals::Dw::HalfWord => Self::TwoBytes,
+            pac::gpdma::vals::Dw::Word => Self::FourBytes,
+            _ => panic!("Invalid word size"),
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<WordSize> for pac::lpdma::vals::Dw {
+    fn from(raw: WordSize) -> Self {
+        match raw {
+            WordSize::OneByte => Self::Byte,
+            WordSize::TwoBytes => Self::HalfWord,
+            WordSize::FourBytes => Self::Word,
+            _ => panic!("Invalid word size"),
+        }
+    }
+}
+
+#[cfg(lpdma)]
+impl From<pac::lpdma::vals::Dw> for WordSize {
+    fn from(raw: pac::lpdma::vals::Dw) -> Self {
+        match raw {
+            pac::lpdma::vals::Dw::Byte => Self::OneByte,
+            pac::lpdma::vals::Dw::HalfWord => Self::TwoBytes,
+            pac::lpdma::vals::Dw::Word => Self::FourBytes,
             _ => panic!("Invalid word size"),
         }
     }
@@ -300,6 +524,7 @@ impl ChannelState {
 
 /// safety: must be called only once
 pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: crate::interrupt::Priority) {
+    #[cfg(gpdma)]
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
@@ -307,7 +532,17 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: c
             crate::interrupt::typelevel::$irq::enable();
         };
     }
+
+    // Only LPDMA available
+    #[cfg(not(gpdma))]
+    foreach_interrupt! {
+        ($peri:ident, lpdma, $block:ident, $signal_name:ident, $irq:ident) => {
+            crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
+            crate::interrupt::typelevel::$irq::enable();
+        };
+    }
     crate::_generated::init_gpdma();
+    crate::_generated::init_lpdma();
 }
 
 pub(crate) unsafe fn on_irq(channel: DmaChannel) {
@@ -326,21 +561,21 @@ pub(crate) unsafe fn on_irq(channel: DmaChannel) {
     if sr.dtef() {
         panic!(
             "DMA: data transfer error on DMA@{:08x} channel {}",
-            info.dma.as_ptr() as u32,
+            info.dma.cast().as_ptr() as u32,
             info.num
         );
     }
     if sr.usef() {
         panic!(
             "DMA: user settings error on DMA@{:08x} channel {}",
-            info.dma.as_ptr() as u32,
+            info.dma.cast().as_ptr() as u32,
             info.num
         );
     }
     if sr.ulef() {
         panic!(
             "DMA: link transfer error on DMA@{:08x} channel {}",
-            info.dma.as_ptr() as u32,
+            info.dma.cast().as_ptr() as u32,
             info.num
         );
     }
@@ -392,6 +627,9 @@ impl<'d> Channel<'d> {
         ch.br1().read().bndt() / word_size.bytes() as u16
     }
 
+    /// Configure a channel.
+    ///
+    /// This function also causes the channel to reset, which unsuspends (resumes) it.
     unsafe fn configure(
         &self,
         request: Request,
@@ -404,8 +642,14 @@ impl<'d> Channel<'d> {
         dst_size: WordSize,
         options: TransferOptions,
     ) {
-        // BNDT is specified as bytes, not as number of transfers.
-        let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
+        // BNDT is the number of source bytes. For a packing/unpacking transfer
+        // the memory side dictates how much data the caller wants moved.
+        let mem_size = match dir {
+            Dir::MemoryToPeripheral => data_size,
+            Dir::PeripheralToMemory => dst_size,
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
+        };
+        let Ok(bndt) = (mem_len * mem_size.bytes()).try_into() else {
             panic!("DMA transfers may not be larger than 65535 bytes.");
         };
 
@@ -415,12 +659,15 @@ impl<'d> Channel<'d> {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
 
+        // The reset is effective when the channel is in steady state, meaning one of the following:
+        // - active channel in suspended state (GPDMA_CxSR.SUSPF = 1 and GPDMA_CxSR.IDLEF = GPDMA_CxCR.EN = 1)
+        // - channel in disabled state (GPDMA_CxSR.IDLEF = 1 and GPDMA_CxCR.EN = 0).
         if ch.cr().read().en() {
             ch.cr().modify(|w| w.set_susp(true));
             while !ch.sr().read().suspf() {}
         }
-
         ch.cr().write(|w| w.set_reset(true));
+
         ch.fcr().write(|w| {
             // Clear all irqs
             w.set_dtef(true);
@@ -432,37 +679,78 @@ impl<'d> Channel<'d> {
             w.set_usef(true);
         });
         ch.llr().write(|_| {}); // no linked list
-        ch.tr1().write(|w| {
-            w.set_sdw(data_size.into());
-            w.set_ddw(dst_size.into());
-            w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
-            w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
-            w.set_dap(match dir {
-                Dir::MemoryToPeripheral => vals::Ap::Port1, // Destination is peripheral on AHB for HPDMA
-                Dir::PeripheralToMemory => vals::Ap::Port0, // Destination is memory on AXI for HPDMA
-                Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
-            });
-            w.set_sap(match dir {
-                Dir::MemoryToPeripheral => vals::Ap::Port0, // Source is memory on AXI for HPDMA
-                Dir::PeripheralToMemory => vals::Ap::Port1, // Source is peripheral on AHB for HPDMA
-                Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
-            });
-            #[cfg(stm32n6)]
-            {
-                let bl: u8 = options.burst_length.into();
-                w.set_ssec(options.secure);
-                w.set_dsec(options.secure);
-                w.set_sbl_1(bl);
-                w.set_dbl_1(bl);
+
+        match info.dma {
+            #[cfg(gpdma)]
+            DmaInfo::Gpdma(regs) => {
+                use crate::pac::gpdma::vals;
+
+                regs.ch(info.num).tr1().write(|w| {
+                    w.set_sdw(data_size.into());
+                    w.set_ddw(dst_size.into());
+                    w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
+                    w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+                    // Pack/unpack through the channel FIFO when source and destination
+                    // widths differ. The default (zero-extend / left-truncate) sends
+                    // one source beat per destination beat, which silently corrupts
+                    // mixed-width transfers.
+                    if data_size != dst_size {
+                        w.set_pam(vals::Pam::from(options.packing.to_bits()));
+                    }
+                    w.set_dap(match dir {
+                        Dir::MemoryToPeripheral => vals::Ap::Port1, // Destination is peripheral on AHB for HPDMA
+                        Dir::PeripheralToMemory => vals::Ap::Port0, // Destination is memory on AXI for HPDMA
+                        Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
+                    });
+                    w.set_sap(match dir {
+                        Dir::MemoryToPeripheral => vals::Ap::Port0, // Source is memory on AXI for HPDMA
+                        Dir::PeripheralToMemory => vals::Ap::Port1, // Source is peripheral on AHB for HPDMA
+                        Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
+                    });
+
+                    let bl: u8 = options.burst_length.into();
+                    w.set_sbl_1(bl);
+                    w.set_dbl_1(bl);
+
+                    #[cfg(stm32n6)]
+                    {
+                        w.set_ssec(options.secure);
+                        w.set_dsec(options.secure);
+                    }
+                });
             }
-        });
+            #[cfg(lpdma)]
+            DmaInfo::Lpdma(regs) => {
+                regs.ch(info.num).tr1().write(|w| {
+                    w.set_sdw(data_size.into());
+                    w.set_ddw(dst_size.into());
+                    w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
+                    w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+                    // Pack/unpack through the channel FIFO when source and destination
+                    // widths differ. The default (zero-extend / left-truncate) sends
+                    // one source beat per destination beat, which silently corrupts
+                    // mixed-width transfers.
+                    if data_size != dst_size {
+                        w.set_pam(options.packing);
+                    }
+                });
+            }
+        }
+
         ch.tr2().write(|w| {
             w.set_dreq(match dir {
                 Dir::MemoryToPeripheral => vals::Dreq::DestinationPeripheral,
                 Dir::PeripheralToMemory => vals::Dreq::SourcePeripheral,
                 Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
+            w.set_breq(options.request_mode.into());
             w.set_reqsel(request);
+            w.set_tcem(options.transfer_complete_mode.into());
+            if let Some(trigger) = options.trigger {
+                w.set_trigsel(trigger.signal);
+                w.set_trigpol(trigger.polarity.into());
+                w.set_trigm(trigger.mode.into());
+            }
         });
         ch.tr3().write(|_| {}); // no address offsets.
         ch.br1().write(|w| w.set_bndt(bndt));
@@ -494,11 +782,21 @@ impl<'d> Channel<'d> {
         state.lli_state.transfer_count.store(0, Ordering::Relaxed)
     }
 
-    /// Configure a linked-list transfer.
-    unsafe fn configure_linked_list<const ITEM_COUNT: usize>(
+    /// Internal helper: configure the channel for a linked-list transfer.
+    ///
+    /// Accepts the raw table-derived values so that both `Table` and
+    /// `TwoDTable` can share the same channel setup logic.
+    ///
+    /// This function also causes the channel to reset, which unsuspends (resumes) it.
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn configure_linked_list_raw(
         &self,
-        table: &Table<ITEM_COUNT>,
+        base_address: u16,
+        first_offset: u16,
+        item_count: usize,
+        total_transfer_count: usize,
         options: TransferOptions,
+        is_2d: bool,
     ) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
@@ -506,7 +804,15 @@ impl<'d> Channel<'d> {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
 
+        // The reset is effective when the channel is in steady state, meaning one of the following:
+        // - active channel in suspended state (GPDMA_CxSR.SUSPF = 1 and GPDMA_CxSR.IDLEF = GPDMA_CxCR.EN = 1)
+        // - channel in disabled state (GPDMA_CxSR.IDLEF = 1 and GPDMA_CxCR.EN = 0).
+        if ch.cr().read().en() {
+            ch.cr().modify(|w| w.set_susp(true));
+            while !ch.sr().read().suspf() {}
+        }
         ch.cr().write(|w| w.set_reset(true));
+
         ch.fcr().write(|w| {
             // Clear all irqs
             w.set_dtef(true);
@@ -517,22 +823,28 @@ impl<'d> Channel<'d> {
             w.set_ulef(true);
             w.set_usef(true);
         });
-        ch.lbar().write(|reg| reg.set_lba(table.base_address()));
+        ch.lbar().write(|reg| reg.set_lba(base_address));
 
         // Empty LLI0.
         ch.br1().write(|w| w.set_bndt(0));
 
-        // Enable all linked-list field updates.
+        // Enable linked-list field updates. For 2D items the DMA must also
+        // load TR3 and BR2, so UT3/UB2 must be set in the initial LLR to
+        // match the 8-word TwoDItem layout (vs the 6-word LinearItem layout).
         ch.llr().write(|w| {
             w.set_ut1(true);
             w.set_ut2(true);
             w.set_ub1(true);
             w.set_usa(true);
             w.set_uda(true);
+            if is_2d {
+                w.set_ut3(true);
+                w.set_ub2(true);
+            }
             w.set_ull(true);
 
             // Lower two bits are ignored: 32 bit aligned.
-            w.set_la(table.offset_address(0) >> 2);
+            w.set_la(first_offset >> 2);
         });
 
         ch.tr3().write(|_| {}); // no address offsets.
@@ -548,14 +860,18 @@ impl<'d> Channel<'d> {
         });
 
         let state = &STATE[self.channel as usize];
-        state.lli_state.count.store(ITEM_COUNT, Ordering::Relaxed);
+        state.lli_state.count.store(item_count, Ordering::Relaxed);
         state.lli_state.index.store(0, Ordering::Relaxed);
         state
             .lli_state
             .transfer_count
-            .store(table.transfer_count(), Ordering::Relaxed)
+            .store(total_transfer_count, Ordering::Relaxed)
     }
 
+    /// Starts the channel by enabling it.
+    ///
+    /// If then channel was suspended (paused) earlier, it stays suspended.
+    /// The channel must be unsuspended (resumed) manually if needed.
     fn start(&self) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
@@ -574,9 +890,15 @@ impl<'d> Channel<'d> {
         let info = self.info();
         let ch = info.dma.ch(info.num);
 
-        ch.cr().modify(|w| w.set_susp(false));
+        ch.cr().modify(|w| {
+            w.set_susp(false);
+            w.set_en(true);
+        });
     }
 
+    /// Resets the channel. The configuration is not preserved.
+    ///
+    /// Additionally reset causes the channel to unsuspend (resume).
     fn request_reset(&self) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
@@ -643,6 +965,35 @@ impl<'d> Channel<'d> {
         );
         self.start();
 
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
+
+    /// Create a read DMA transfer (peripheral to memory), writing the same value repeatedly.
+    pub unsafe fn read_raw_repeated<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        repeated: *mut MW,
+        count: usize,
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        assert!(count > 0 && count <= 0xFFFF);
+
+        self.configure(
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const u32,
+            repeated as *const MW as *mut u32,
+            count,
+            false,
+            MW::size(),
+            PW::size(),
+            options,
+        );
+        self.start();
         Transfer {
             _wake_guard: self.info().wake_guard(),
             channel: self.reborrow(),
@@ -721,12 +1072,31 @@ impl<'d> Channel<'d> {
     }
 
     /// Create a linked-list DMA transfer.
-    pub unsafe fn linked_list<'a, const ITEM_COUNT: usize>(
+    ///
+    /// Works with both linear (`Table<LinearItem, N>`) and 2D
+    /// (`Table<TwoDItem, N>`) tables. When a 2D table is used, the channel
+    /// must support 2D addressing or this will panic.
+    pub unsafe fn linked_list<'a, T: LinkedListItem, const N: usize>(
         &'a mut self,
-        table: Table<ITEM_COUNT>,
+        table: &'a Table<T, N>,
         options: TransferOptions,
-    ) -> LinkedListTransfer<'a, ITEM_COUNT> {
-        self.configure_linked_list(&table, options);
+    ) -> LinkedListTransfer<'a> {
+        #[cfg(gpdma2d)]
+        if T::IS_2D {
+            assert!(
+                self.info().supports_2d,
+                "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+            );
+        }
+
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            T::IS_2D,
+        );
         self.start();
 
         LinkedListTransfer {
@@ -734,16 +1104,55 @@ impl<'d> Channel<'d> {
             channel: self.reborrow(),
         }
     }
+
+    /// Reconfigure and restart a linked-list transfer from item[0].
+    ///
+    /// Resets the channel, clears all flags, reconfigures LBAR/BR1/LLR/CR
+    /// from the table and options, and re-enables the channel. This is
+    /// intended for use cases that need to restart the same linked-list
+    /// chain from the beginning.
+    ///
+    /// Works with both linear and 2D tables. When a 2D table is used, the
+    /// channel must support 2D addressing or this will panic.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that no other code is concurrently accessing
+    /// the channel registers, and that the `table` remains valid for the
+    /// duration of the transfer.
+    pub unsafe fn restart_linked_list<T: LinkedListItem, const N: usize>(
+        &self,
+        table: &Table<T, N>,
+        options: TransferOptions,
+    ) {
+        #[cfg(gpdma2d)]
+        if T::IS_2D {
+            assert!(
+                self.info().supports_2d,
+                "2D linked-list transfers require a 2D-capable channel (check RM for your chip)"
+            );
+        }
+
+        self.configure_linked_list_raw(
+            table.base_address(),
+            table.offset_address(0),
+            N,
+            table.transfer_count(),
+            options,
+            T::IS_2D,
+        );
+        self.start();
+    }
 }
 
 /// Linked-list DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
+pub struct LinkedListTransfer<'a> {
     channel: Channel<'a>,
     _wake_guard: WakeGuard,
 }
 
-impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> LinkedListTransfer<'a> {
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     ///
     /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
@@ -790,17 +1199,18 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
     }
 }
 
-impl<'a, const ITEM_COUNT: usize> Drop for LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> Drop for LinkedListTransfer<'a> {
     fn drop(&mut self) {
         self.request_reset();
+        while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);
     }
 }
 
-impl<'a, const ITEM_COUNT: usize> Unpin for LinkedListTransfer<'a, ITEM_COUNT> {}
-impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> {
+impl<'a> Unpin for LinkedListTransfer<'a> {}
+impl<'a> Future for LinkedListTransfer<'a> {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let state = &STATE[self.channel.channel as usize];
@@ -876,7 +1286,7 @@ impl<'a> Transfer<'a> {
 
 impl<'a> Drop for Transfer<'a> {
     fn drop(&mut self) {
-        self.request_pause();
+        self.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."

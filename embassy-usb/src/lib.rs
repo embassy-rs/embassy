@@ -239,46 +239,6 @@ struct Inner<'d, D: Driver<'d>> {
 }
 
 impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
-    pub(crate) fn build(
-        driver: D,
-        config: Config<'d>,
-        handlers: Vec<&'d mut dyn Handler, MAX_HANDLER_COUNT>,
-        config_descriptor: &'d [u8],
-        bos_descriptor: &'d [u8],
-        msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
-        interfaces: Vec<Interface, MAX_INTERFACE_COUNT>,
-        control_buf: &'d mut [u8],
-    ) -> UsbDevice<'d, D> {
-        // Start the USB bus.
-        // This prevent further allocation by consuming the driver.
-        let (bus, control) = driver.start(config.max_packet_size_0 as u16);
-        let device_descriptor = descriptor::device_descriptor(&config);
-        let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
-
-        Self {
-            control_buf,
-            control,
-            inner: Inner {
-                bus,
-                config,
-                device_descriptor,
-                device_qualifier_descriptor,
-                config_descriptor,
-                bos_descriptor,
-                msos_descriptor,
-
-                device_state: UsbDeviceState::Unpowered,
-                suspended: false,
-                remote_wakeup_enabled: false,
-                self_powered: false,
-                address: 0,
-                set_address_pending: false,
-                interfaces,
-                handlers,
-            },
-        }
-    }
-
     /// Returns a report of the consumed buffers
     ///
     /// Useful for tuning buffer sizes for actual usage
@@ -397,20 +357,10 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         match self.inner.handle_control_in(req, self.control_buf) {
             InResponse::Accepted(data) => {
                 let len = data.len().min(resp_length);
-                let need_zlp = len != resp_length && (len % max_packet_size) == 0;
+                let needs_zlp = len != resp_length && (len % max_packet_size) == 0;
 
-                let chunks = data[0..len]
-                    .chunks(max_packet_size)
-                    .chain(need_zlp.then(|| -> &[u8] { &[] }));
-
-                for (first, last, chunk) in first_last(chunks) {
-                    match self.control.data_in(chunk, first, last).await {
-                        Ok(()) => {}
-                        Err(e) => {
-                            warn!("control accept_in failed: {:?}", e);
-                            return;
-                        }
-                    }
+                if let Err(e) = self.control.data_in_transfer(&data[0..len], needs_zlp).await {
+                    warn!("control accept_in failed: {:?}", e);
                 }
             }
             InResponse::Rejected => self.control.reject().await,
@@ -419,8 +369,6 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
 
     async fn handle_control_out(&mut self, req: Request) {
         let req_length = req.length as usize;
-        let max_packet_size = self.control.max_packet_size();
-        let mut total = 0;
 
         if req_length > self.control_buf.len() {
             warn!(
@@ -432,20 +380,17 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
             return;
         }
 
-        let chunks = self.control_buf[..req_length].chunks_mut(max_packet_size);
-        for (first, last, chunk) in first_last(chunks) {
-            let size = match self.control.data_out(chunk, first, last).await {
-                Ok(x) => x,
-                Err(e) => {
-                    warn!("usb: failed to read CONTROL OUT data stage: {:?}", e);
-                    return;
-                }
-            };
-            total += size;
-            if size < max_packet_size || total == req_length {
-                break;
+        let total = match self
+            .control
+            .data_out_transfer(&mut self.control_buf[..req_length])
+            .await
+        {
+            Ok(total) => total,
+            Err(e) => {
+                warn!("usb: failed to receive CONTROL OUT data stage: {:?}", e);
+                return;
             }
-        }
+        };
 
         let data = &self.control_buf[0..total];
         #[cfg(feature = "defmt")]
@@ -589,6 +534,11 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                         }
                     }
                     OutResponse::Accepted
+                }
+                // USB 2.0 debug devices use a standard device feature selector,
+                // but the actual mode transition is device-specific.
+                (Request::SET_FEATURE, Request::FEATURE_DEVICE_DEBUG_MODE) => {
+                    self.handle_control_out_delegated(req, data)
                 }
                 _ => OutResponse::Rejected,
             },
@@ -801,19 +751,10 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
             descriptor_type::DEVICE_QUALIFIER if self.config.max_speed > UsbDeviceSpeed::Full => {
                 InResponse::Accepted(&self.device_qualifier_descriptor)
             }
+            // USB_DT_DEBUG is a standard descriptor, but its endpoint contents
+            // are supplied by a special-purpose debug device implementation.
+            descriptor_type::DEBUG => self.handle_control_in_delegated(req, buf),
             _ => InResponse::Rejected,
         }
     }
-}
-
-fn first_last<T: Iterator>(iter: T) -> impl Iterator<Item = (bool, bool, T::Item)> {
-    let mut iter = iter.peekable();
-    let mut first = true;
-    core::iter::from_fn(move || {
-        let val = iter.next()?;
-        let is_first = first;
-        first = false;
-        let is_last = iter.peek().is_none();
-        Some((is_first, is_last, val))
-    })
 }

@@ -2,13 +2,14 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::pdm::{self, Config, Pdm};
 use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use fixed::types::I7F1;
 use num_integer::Roots;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     PDM => pdm::InterruptHandler<peripherals::PDM>;

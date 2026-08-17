@@ -20,13 +20,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::pka::{EcdsaCurveParams, EcdsaPublicKey, EcdsaSignature, Pka};
-use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
-};
+use embassy_stm32::rcc::mux;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     PKA => embassy_stm32::pka::InterruptHandler<peripherals::PKA>;
@@ -36,22 +35,6 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
     let mut config = Config::default();
-    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::Hsi,
-        prediv: PllPreDiv::Div1,
-        mul: PllMul::Mul30,
-        divr: Some(PllDiv::Div5),
-        divq: None,
-        divp: Some(PllDiv::Div30),
-        frac: Some(0),
-    });
-    config.rcc.ahb_pre = AHBPrescaler::Div1;
-    config.rcc.apb1_pre = APBPrescaler::Div1;
-    config.rcc.apb2_pre = APBPrescaler::Div1;
-    config.rcc.apb7_pre = APBPrescaler::Div1;
-    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
-    config.rcc.voltage_scale = VoltageScale::Range1;
-    config.rcc.sys = Sysclk::Pll1R;
     // RNG clock is required for PKA to initialize properly on WBA
     config.rcc.mux.rngsel = mux::Rngsel::Hsi;
 
@@ -113,7 +96,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Verify the signature
     info!("Verifying signature...");
-    match pka.ecdsa_verify(&curve, &public_key, &signature, &message_hash) {
+    match pka.ecdsa_verify_blocking(&curve, &public_key, &signature, &message_hash) {
         Ok(true) => {
             info!("Signature is VALID");
         }
@@ -135,7 +118,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         s: &sig_s,
     };
 
-    match pka.ecdsa_verify(&curve, &public_key, &tampered_signature, &message_hash) {
+    match pka.ecdsa_verify_blocking(&curve, &public_key, &tampered_signature, &message_hash) {
         Ok(true) => {
             error!("Tampered signature incorrectly verified as VALID!");
         }

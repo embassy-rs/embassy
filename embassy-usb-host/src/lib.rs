@@ -3,6 +3,19 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+/// Get max value in const context.
+macro_rules! const_max {
+    ($first:expr $(, $next:expr)* $(,)?) => {{
+        let mut max = $first;
+        $(
+            if max < $next {
+                max = $next;
+            }
+        )*
+        max
+    }};
+}
+
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
@@ -261,10 +274,13 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
 
         let addr = self.state.alloc_address().ok_or(EnumerationError::NoPipe)?;
 
+        // use smallest size "8", since some devices use lower than default for given speed.
+        const DEFAULT_MAX_PACKET_SIZE: u16 = 8;
+
         let ep0_info = EndpointInfo {
             addr: EndpointAddress::from_parts(0, UsbDirection::In),
             ep_type: EndpointType::Control,
-            max_packet_size: route.device_speed().max_packet_size(),
+            max_packet_size: DEFAULT_MAX_PACKET_SIZE,
             interval_ms: 0,
         };
 
@@ -281,7 +297,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
             let mut max_retries = 10;
             loop {
                 match ch
-                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::SIZE }>(0, false)
+                    .request_descriptor::<DeviceDescriptorPartial, { DeviceDescriptorPartial::BUF_SIZE }>(0, false)
                     .await
                 {
                     Ok(desc) => break desc.max_packet_size0,
@@ -331,7 +347,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
         let dev_desc = async {
             for _ in 0..retries {
                 match ch
-                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::SIZE }>(0, false)
+                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::BUF_SIZE }>(0, false)
                     .await
                 {
                     Err(HostError::PipeError(PipeError::Timeout)) => {

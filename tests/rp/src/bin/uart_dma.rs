@@ -6,13 +6,14 @@ teleprobe_meta::target!(b"rpi-pico");
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert_eq, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, UART0};
 use embassy_rp::uart::{Async, Config, Error, InterruptHandler, Parity, Uart, UartRx};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     UART0_IRQ => InterruptHandler<UART0>;

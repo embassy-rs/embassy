@@ -187,7 +187,7 @@ pub struct Hspi<'d, T: Instance, M: PeriMode> {
     _dqs0: Option<Flex<'d>>,
     _dqs1: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
     config: Config,
     width: HspiWidth,
 }
@@ -308,7 +308,7 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
             _dqs0: dqs0,
             _dqs1: dqs1,
             dma,
-            _phantom: PhantomData,
+            _marker: PhantomData,
             config,
             width,
         }

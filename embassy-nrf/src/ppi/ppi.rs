@@ -1,4 +1,4 @@
-use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
+use super::{Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task};
 use crate::{Peri, pac};
 
 impl<'d> Task<'d> {
@@ -87,5 +87,33 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Drop for
         r.ch(n).tep().write_value(0);
         #[cfg(not(feature = "_nrf51"))]
         r.fork(n).tep().write_value(0);
+    }
+}
+
+impl<'d, G: Group> PpiGroup<'d, G> {
+    /// Add a PPI channel to this group.
+    ///
+    /// If the channel is already in the group, this is a no-op.
+    pub fn add_channel<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>(
+        &mut self,
+        ch: &Ppi<'_, C, EVENT_COUNT, TASK_COUNT>,
+    ) {
+        let r = self.g.regs();
+        let ng = self.g.number();
+        let nc = ch.ch.number();
+        r.chg(ng).modify(|w| w.set_ch(nc, true));
+    }
+
+    /// Remove a PPI channel from this group.
+    ///
+    /// If the channel is already not in the group, this is a no-op.
+    pub fn remove_channel<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize>(
+        &mut self,
+        ch: &Ppi<'_, C, EVENT_COUNT, TASK_COUNT>,
+    ) {
+        let r = self.g.regs();
+        let ng = self.g.number();
+        let nc = ch.ch.number();
+        r.chg(ng).modify(|w| w.set_ch(nc, false));
     }
 }

@@ -3,20 +3,33 @@
 #![macro_use]
 
 use core::future::Future;
-use core::mem;
+use core::marker::PhantomData;
 use core::pin::Pin;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::{Context, Poll};
+use core::{fmt, mem};
 
 use critical_section::CriticalSection;
+use embassy_hal_internal::PeripheralType;
 use embassy_hal_internal::interrupt::InterruptExt;
-use embassy_hal_internal::{PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use mspm0_metapac::common::{RW, Reg};
 use mspm0_metapac::dma::regs;
 use mspm0_metapac::dma::vals::{self, Autoen, Em, Incr, Preirq, Wdth};
 
+use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::{Peri, interrupt, pac};
+
+/// DMA interrupt handler.
+pub struct InterruptHandler<T: ChannelInstance> {
+    _marker: PhantomData<T>,
+}
+
+impl<T: ChannelInstance> Handler<<T as ChannelInstance>::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        on_irq(pac::DMA);
+    }
+}
 
 /// The burst size of a DMA transfer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,56 +50,159 @@ pub enum BurstSize {
     _32,
 }
 
-/// DMA channel.
-#[allow(private_bounds)]
-pub trait Channel: Into<AnyChannel> + PeripheralType {}
-
-/// Full DMA channel.
-#[allow(private_bounds)]
-pub trait FullChannel: Channel + Into<AnyFullChannel> {}
-
-/// Type-erased DMA channel.
-pub struct AnyChannel {
-    pub(crate) id: u8,
+/// Basic DMA channel driver.
+pub struct Channel<'d> {
+    id: u8,
+    _marker: PhantomData<&'d ()>,
 }
-impl_peripheral!(AnyChannel);
 
-impl SealedChannel for AnyChannel {
-    fn id(&self) -> u8 {
-        self.id
+impl<'d> Channel<'d> {
+    /// Create a new basic DMA channel driver.
+    pub fn new<T: ChannelInstance>(
+        _ch: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
+        Self {
+            id: T::ID,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Reborrow the channel, allowing it to be used in multiple places.
+    pub fn reborrow(&mut self) -> Channel<'_> {
+        Channel {
+            id: self.id,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Create a new read DMA transfer.
+    pub unsafe fn read<'a, SW: Word, DW: Word>(
+        &'a mut self,
+        trigger_source: u8,
+        src: *mut SW,
+        dst: &'a mut [DW],
+        options: TransferOptions,
+    ) -> Result<Transfer<'a>, Error> {
+        self.read_raw(trigger_source, src, dst, options)
+    }
+
+    /// Create a new read DMA transfer, using raw pointers.
+    pub unsafe fn read_raw<'a, SW: Word, DW: Word>(
+        &'a mut self,
+        trigger_source: u8,
+        src: *mut SW,
+        dst: *mut [DW],
+        options: TransferOptions,
+    ) -> Result<Transfer<'a>, Error> {
+        verify_transfer::<DW>(dst)?;
+
+        let transfer = Transfer {
+            channel: self.reborrow(),
+        };
+        transfer.channel.configure(
+            trigger_source,
+            src.cast(),
+            SW::width(),
+            dst.cast(),
+            DW::width(),
+            dst.len() as u16,
+            false,
+            true,
+            options,
+        );
+        transfer.channel.start();
+
+        Ok(transfer)
+    }
+
+    /// Create a new write DMA transfer.
+    pub unsafe fn write<'a, SW: Word, DW: Word>(
+        &'a mut self,
+        trigger_source: u8,
+        src: &'a [SW],
+        dst: *mut DW,
+        options: TransferOptions,
+    ) -> Result<Transfer<'a>, Error> {
+        self.write_raw(trigger_source, src, dst, options)
+    }
+
+    /// Create a new write DMA transfer, using raw pointers.
+    pub unsafe fn write_raw<'a, SW: Word, DW: Word>(
+        &'a mut self,
+        trigger_source: u8,
+        src: *const [SW],
+        dst: *mut DW,
+        options: TransferOptions,
+    ) -> Result<Transfer<'a>, Error> {
+        verify_transfer::<SW>(src)?;
+
+        let transfer = Transfer {
+            channel: self.reborrow(),
+        };
+        transfer.channel.configure(
+            trigger_source,
+            src.cast(),
+            SW::width(),
+            dst.cast(),
+            DW::width(),
+            src.len() as u16,
+            true,
+            false,
+            options,
+        );
+        transfer.channel.start();
+
+        Ok(transfer)
     }
 }
-impl Channel for AnyChannel {}
 
-/// Type-erased full DMA channel.
-pub struct AnyFullChannel {
-    pub(crate) id: u8,
-}
-impl_peripheral!(AnyFullChannel);
+/// Full DMA channel driver.
+///
+/// This is an extended [`Channel`] driver and can be [reborrowed](Self::reborrow) to be used as a basic
+/// channel driver.
+pub struct FullChannel<'d>(Channel<'d>);
 
-impl SealedChannel for AnyFullChannel {
-    fn id(&self) -> u8 {
-        self.id
+impl<'d> FullChannel<'d> {
+    /// Create a new full DMA channel driver.
+    pub fn new<T: FullChannelInstance>(
+        ch: Peri<'d, T>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
+        Self(Channel::new(ch, irq))
+    }
+
+    /// Reborrow the full channel, allowing it to be used in multiple places.
+    pub fn reborrow_full(&mut self) -> FullChannel<'_> {
+        FullChannel(self.0.reborrow())
+    }
+
+    /// Reborrow the channel as a basic [`Channel`], allowing it to be used in multiple places.
+    pub fn reborrow(&mut self) -> Channel<'_> {
+        self.0.reborrow()
     }
 }
-impl Channel for AnyFullChannel {}
-impl FullChannel for AnyFullChannel {}
 
-impl From<AnyFullChannel> for AnyChannel {
-    fn from(value: AnyFullChannel) -> Self {
-        Self { id: value.id }
-    }
+/// DMA channel instance.
+#[allow(private_bounds)]
+pub trait ChannelInstance: SealedChannel + PeripheralType {
+    /// Interrupt type for this DMA channel.
+    type Interrupt: Interrupt;
 }
+
+/// Full DMA channel instance.
+#[allow(private_bounds)]
+pub trait FullChannelInstance: ChannelInstance {}
 
 #[allow(private_bounds)]
-pub trait Word: SealedWord {
+pub trait Word: SealedWord + 'static {
     /// Size in bytes for the width.
     fn size() -> isize;
 }
 
 impl SealedWord for u8 {
     fn width() -> vals::Wdth {
-        vals::Wdth::BYTE
+        vals::Wdth::Byte
     }
 }
 impl Word for u8 {
@@ -97,7 +213,7 @@ impl Word for u8 {
 
 impl SealedWord for u16 {
     fn width() -> vals::Wdth {
-        vals::Wdth::HALF
+        vals::Wdth::Half
     }
 }
 impl Word for u16 {
@@ -108,7 +224,7 @@ impl Word for u16 {
 
 impl SealedWord for u32 {
     fn width() -> vals::Wdth {
-        vals::Wdth::WORD
+        vals::Wdth::Word
     }
 }
 impl Word for u32 {
@@ -119,7 +235,7 @@ impl Word for u32 {
 
 impl SealedWord for u64 {
     fn width() -> vals::Wdth {
-        vals::Wdth::LONG
+        vals::Wdth::Long
     }
 }
 impl Word for u64 {
@@ -150,6 +266,16 @@ pub enum Error {
     /// 16384 `u8` and 16384 `u64` are equivalent, since the DMA must copy 16384 values.
     TooManyTransfers,
 }
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Error::TooManyTransfers => write!(f, "too many transfers"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// DMA transfer mode for basic channels.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -183,7 +309,7 @@ impl Default for TransferOptions {
 /// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: Peri<'a, AnyChannel>,
+    channel: Channel<'a>,
 }
 
 impl<'a> Transfer<'a> {
@@ -192,84 +318,6 @@ impl<'a> Transfer<'a> {
     /// Using this trigger source means that a transfer will start immediately rather than waiting for
     /// a hardware event. This can be useful if you want to do a DMA accelerated memcpy.
     pub const SOFTWARE_TRIGGER: u8 = 0;
-
-    /// Create a new read DMA transfer.
-    pub unsafe fn new_read<SW: Word, DW: Word>(
-        channel: Peri<'a, impl Channel>,
-        trigger_source: u8,
-        src: *mut SW,
-        dst: &'a mut [DW],
-        options: TransferOptions,
-    ) -> Result<Self, Error> {
-        Self::new_read_raw(channel, trigger_source, src, dst, options)
-    }
-
-    /// Create a new read DMA transfer, using raw pointers.
-    pub unsafe fn new_read_raw<SW: Word, DW: Word>(
-        channel: Peri<'a, impl Channel>,
-        trigger_source: u8,
-        src: *mut SW,
-        dst: *mut [DW],
-        options: TransferOptions,
-    ) -> Result<Self, Error> {
-        verify_transfer::<DW>(dst)?;
-
-        let channel = channel.into();
-        channel.configure(
-            trigger_source,
-            src.cast(),
-            SW::width(),
-            dst.cast(),
-            DW::width(),
-            dst.len() as u16,
-            false,
-            true,
-            options,
-        );
-        channel.start();
-
-        Ok(Self { channel })
-    }
-
-    /// Create a new write DMA transfer.
-    pub unsafe fn new_write<SW: Word, DW: Word>(
-        channel: Peri<'a, impl Channel>,
-        trigger_source: u8,
-        src: &'a [SW],
-        dst: *mut DW,
-        options: TransferOptions,
-    ) -> Result<Self, Error> {
-        Self::new_write_raw(channel, trigger_source, src, dst, options)
-    }
-
-    /// Create a new write DMA transfer, using raw pointers.
-    pub unsafe fn new_write_raw<SW: Word, DW: Word>(
-        channel: Peri<'a, impl Channel>,
-        trigger_source: u8,
-        src: *const [SW],
-        dst: *mut DW,
-        options: TransferOptions,
-    ) -> Result<Self, Error> {
-        verify_transfer::<SW>(src)?;
-
-        let channel = channel.into();
-        channel.configure(
-            trigger_source,
-            src.cast(),
-            SW::width(),
-            dst.cast(),
-            DW::width(),
-            src.len() as u16,
-            true,
-            false,
-            options,
-        );
-        channel.start();
-
-        Ok(Self { channel })
-    }
-
-    // TODO: Copy between slices.
 
     /// Request the transfer to resume.
     pub fn resume(&mut self) {
@@ -351,17 +399,17 @@ fn verify_transfer<W: Word>(ptr: *const [W]) -> Result<(), Error> {
 
 fn convert_burst_size(value: BurstSize) -> vals::Burstsz {
     match value {
-        BurstSize::Complete => vals::Burstsz::INFINITI,
-        BurstSize::_8 => vals::Burstsz::BURST_8,
-        BurstSize::_16 => vals::Burstsz::BURST_16,
-        BurstSize::_32 => vals::Burstsz::BURST_32,
+        BurstSize::Complete => vals::Burstsz::Infiniti,
+        BurstSize::_8 => vals::Burstsz::Burst8,
+        BurstSize::_16 => vals::Burstsz::Burst16,
+        BurstSize::_32 => vals::Burstsz::Burst32,
     }
 }
 
 fn convert_mode(mode: TransferMode) -> vals::Tm {
     match mode {
-        TransferMode::Single => vals::Tm::SINGLE,
-        TransferMode::Block => vals::Tm::BLOCK,
+        TransferMode::Single => vals::Tm::Single,
+        TransferMode::Block => vals::Tm::Block,
     }
 }
 
@@ -401,31 +449,33 @@ pub(crate) trait SealedWord {
 }
 
 pub(crate) trait SealedChannel {
-    fn id(&self) -> u8;
+    const ID: u8;
+}
 
+impl<'d> Channel<'d> {
     #[inline]
     fn tctl(&self) -> Reg<regs::Tctl, RW> {
-        pac::DMA.trig(self.id() as usize).tctl()
+        pac::DMA.trig(self.id as usize).tctl()
     }
 
     #[inline]
     fn ctl(&self) -> Reg<regs::Ctl, RW> {
-        pac::DMA.chan(self.id() as usize).ctl()
+        pac::DMA.chan(self.id as usize).ctl()
     }
 
     #[inline]
     fn sa(&self) -> Reg<u32, RW> {
-        pac::DMA.chan(self.id() as usize).sa()
+        pac::DMA.chan(self.id as usize).sa()
     }
 
     #[inline]
     fn da(&self) -> Reg<u32, RW> {
-        pac::DMA.chan(self.id() as usize).da()
+        pac::DMA.chan(self.id as usize).da()
     }
 
     #[inline]
     fn sz(&self) -> Reg<regs::Sz, RW> {
-        pac::DMA.chan(self.id() as usize).sz()
+        pac::DMA.chan(self.id as usize).sz()
     }
 
     #[inline]
@@ -433,7 +483,7 @@ pub(crate) trait SealedChannel {
         // Enabling interrupts is an RMW operation.
         critical_section::with(|_cs| {
             pac::DMA.int_event(0).imask().modify(|w| {
-                w.set_ch(self.id() as usize, enable);
+                w.set_ch(self.id as usize, enable);
             });
         })
     }
@@ -467,22 +517,22 @@ pub(crate) trait SealedChannel {
             w.set_req(false);
 
             // Not every part supports auto enable, so force its value to 0.
-            w.set_autoen(Autoen::NONE);
-            w.set_preirq(Preirq::PREIRQ_DISABLE);
+            w.set_autoen(Autoen::None);
+            w.set_preirq(Preirq::PreirqDisable);
             w.set_srcwdth(src_wdth);
             w.set_dstwdth(dst_wdth);
             w.set_srcincr(if increment_src {
-                Incr::INCREMENT
+                Incr::Increment
             } else {
-                Incr::UNCHANGED
+                Incr::Unchanged
             });
             w.set_dstincr(if increment_dst {
-                Incr::INCREMENT
+                Incr::Increment
             } else {
-                Incr::UNCHANGED
+                Incr::Unchanged
             });
 
-            w.set_em(Em::NORMAL);
+            w.set_em(Em::Normal);
             // Single and block will clear the enable bit when the transfers finish.
             w.set_tm(convert_mode(options.mode));
         });
@@ -490,7 +540,7 @@ pub(crate) trait SealedChannel {
         self.tctl().write(|w| {
             w.set_tsel(trigger_sel);
             // Basic channels do not implement cross triggering.
-            w.set_tint(vals::Tint::EXTERNAL);
+            w.set_tint(vals::Tint::External);
         });
 
         self.sz().write(|w| {
@@ -559,23 +609,18 @@ pub(crate) trait SealedChannel {
     }
 }
 
+// Some future parts will have no DMA.
+#[allow(unused_macros)]
 macro_rules! impl_dma_channel {
     ($instance: ident, $num: expr) => {
         impl crate::dma::SealedChannel for crate::peripherals::$instance {
-            fn id(&self) -> u8 {
-                $num
-            }
+            const ID: u8 = $num;
         }
 
-        impl From<crate::peripherals::$instance> for crate::dma::AnyChannel {
-            fn from(value: crate::peripherals::$instance) -> Self {
-                use crate::dma::SealedChannel;
-
-                Self { id: value.id() }
-            }
+        impl crate::dma::ChannelInstance for crate::peripherals::$instance {
+            // TODO: For chips with multiple DMAs, pick correct instance
+            type Interrupt = crate::interrupt::typelevel::DMA;
         }
-
-        impl crate::dma::Channel for crate::peripherals::$instance {}
     };
 }
 
@@ -585,24 +630,14 @@ macro_rules! impl_full_dma_channel {
     ($instance: ident, $num: expr) => {
         impl_dma_channel!($instance, $num);
 
-        impl From<crate::peripherals::$instance> for crate::dma::AnyFullChannel {
-            fn from(value: crate::peripherals::$instance) -> Self {
-                use crate::dma::SealedChannel;
-
-                Self { id: value.id() }
-            }
-        }
-
-        impl crate::dma::FullChannel for crate::peripherals::$instance {}
+        impl crate::dma::FullChannelInstance for crate::peripherals::$instance {}
     };
 }
 
-#[cfg(feature = "rt")]
-#[interrupt]
-fn DMA() {
+fn on_irq(dma: pac::dma::Dma) {
     use crate::BitIter;
 
-    let events = pac::DMA.int_event(0);
+    let events = dma.int_event(0);
     let mis = events.mis().read();
 
     // TODO: Handle DATAERR and ADDRERR? However we do not know which channel causes an error.

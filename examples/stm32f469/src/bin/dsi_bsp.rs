@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dsihost::{DsiHost, PacketType};
 use embassy_stm32::gpio::{Level, Output, Speed};
@@ -14,7 +15,7 @@ use embassy_stm32::rcc::{
 };
 use embassy_stm32::time::mhz;
 use embassy_time::{Duration, Timer, block_for};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 enum _Orientation {
     Landscape,

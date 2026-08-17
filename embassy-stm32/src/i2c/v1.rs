@@ -1075,8 +1075,8 @@ impl<'d, M: PeriMode> I2c<'d, M, Master> {
             rx_dma: self.rx_dma.take(), // Use take() to move ownership
             #[cfg(feature = "time")]
             timeout: self.timeout,
-            _phantom: PhantomData,
-            _phantom2: PhantomData,
+            _marker: PhantomData,
+            _marker2: PhantomData,
             _drop_guard: self._drop_guard, // Move the drop guard
         };
         slave.init_slave(slave_addr_config);

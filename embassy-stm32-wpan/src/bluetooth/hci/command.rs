@@ -4,148 +4,24 @@
 //! These functions are synchronous and return a status code immediately, which simplifies
 //! the implementation compared to packet-based HCI.
 
-use stm32_bindings::ble;
+use stm32_bindings::ble::{
+    aci_hal_le_tx_test_packet_number, hci_disconnect, hci_le_connection_cte_request_enable,
+    hci_le_connection_cte_response_enable, hci_le_connection_update, hci_le_create_connection,
+    hci_le_create_connection_cancel, hci_le_read_advertising_physical_channel_tx_power,
+    hci_le_read_antenna_information, hci_le_read_buffer_size_v2, hci_le_read_local_supported_features_page_0,
+    hci_le_read_phy, hci_le_receiver_test, hci_le_receiver_test_v2, hci_le_set_advertising_data,
+    hci_le_set_advertising_enable, hci_le_set_advertising_parameters, hci_le_set_connection_cte_receive_parameters,
+    hci_le_set_connection_cte_transmit_parameters, hci_le_set_data_length, hci_le_set_event_mask, hci_le_set_phy,
+    hci_le_set_random_address, hci_le_set_scan_enable, hci_le_set_scan_parameters, hci_le_set_scan_response_data,
+    hci_le_test_end, hci_le_transmitter_test, hci_le_transmitter_test_v2, hci_read_bd_addr,
+    hci_read_local_version_information, hci_reset, hci_set_event_mask,
+};
 use stm32wb_hci::BdAddrType;
 use stm32wb_hci::host::OwnAddressType;
 
 use crate::bluetooth::VersionInfo;
 use crate::bluetooth::error::BleError;
 use crate::bluetooth::hci::types;
-
-// The C library exports uppercase function names (HCI_RESET, etc.)
-// but the bindings declare lowercase names. We need to link to the actual symbols.
-#[allow(non_camel_case_types)]
-type tBleStatus = u8;
-
-#[link(name = "stm32wba_ble_stack_basic")]
-unsafe extern "C" {
-    #[link_name = "HCI_RESET"]
-    fn hci_reset() -> tBleStatus;
-
-    #[link_name = "HCI_READ_LOCAL_VERSION_INFORMATION"]
-    fn hci_read_local_version_information(
-        hci_version: *mut u8,
-        hci_revision: *mut u16,
-        lmp_pal_version: *mut u8,
-        manufacturer_name: *mut u16,
-        lmp_pal_subversion: *mut u16,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_READ_BD_ADDR"]
-    fn hci_read_bd_addr(bd_addr: *mut [u8; 6]) -> tBleStatus;
-
-    #[link_name = "HCI_SET_EVENT_MASK"]
-    fn hci_set_event_mask(event_mask: *const [u8; 8]) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_EVENT_MASK"]
-    fn hci_le_set_event_mask(le_event_mask: *const [u8; 8]) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_ADVERTISING_PARAMETERS"]
-    fn hci_le_set_advertising_parameters(
-        advertising_interval_min: u16,
-        advertising_interval_max: u16,
-        advertising_type: u8,
-        own_address_type: u8,
-        peer_address_type: u8,
-        peer_address: *const [u8; 6],
-        advertising_channel_map: u8,
-        advertising_filter_policy: u8,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_ADVERTISING_DATA"]
-    fn hci_le_set_advertising_data(advertising_data_length: u8, advertising_data: *const u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_SCAN_RESPONSE_DATA"]
-    fn hci_le_set_scan_response_data(scan_response_data_length: u8, scan_response_data: *const u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_SCAN_PARAMETERS"]
-    fn hci_le_set_scan_parameters(
-        le_scan_type: u8,
-        le_scan_interval: u16,
-        le_scan_window: u16,
-        own_address_type: u8,
-        scanning_filter_policy: u8,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_SCAN_ENABLE"]
-    fn hci_le_set_scan_enable(le_scan_enable: u8, filter_duplicates: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_ADVERTISING_ENABLE"]
-    fn hci_le_set_advertising_enable(advertising_enable: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_READ_BUFFER_SIZE_V2"]
-    fn hci_le_read_buffer_size_v2(
-        le_acl_data_packet_length: *mut u16,
-        total_num_le_acl_data_packets: *mut u8,
-        iso_data_packet_length: *mut u16,
-        total_num_iso_data_packets: *mut u8,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_READ_LOCAL_SUPPORTED_FEATURES_PAGE_0"]
-    fn hci_le_read_local_supported_features_page_0(le_features: *mut [u8; 8]) -> tBleStatus;
-
-    // Connection management commands
-    #[link_name = "HCI_DISCONNECT"]
-    fn hci_disconnect(connection_handle: u16, reason: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_READ_PHY"]
-    fn hci_le_read_phy(connection_handle: u16, tx_phy: *mut u8, rx_phy: *mut u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_PHY"]
-    fn hci_le_set_phy(connection_handle: u16, all_phys: u8, tx_phys: u8, rx_phys: u8, phy_options: u16) -> tBleStatus;
-
-    #[link_name = "HCI_LE_CONNECTION_UPDATE"]
-    fn hci_le_connection_update(
-        connection_handle: u16,
-        conn_interval_min: u16,
-        conn_interval_max: u16,
-        conn_latency: u16,
-        supervision_timeout: u16,
-        minimum_ce_length: u16,
-        maximum_ce_length: u16,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_CREATE_CONNECTION"]
-    fn hci_le_create_connection(
-        le_scan_interval: u16,
-        le_scan_window: u16,
-        initiator_filter_policy: u8,
-        peer_address_type: u8,
-        peer_address: *const [u8; 6],
-        own_address_type: u8,
-        conn_interval_min: u16,
-        conn_interval_max: u16,
-        max_latency: u16,
-        supervision_timeout: u16,
-        min_ce_length: u16,
-        max_ce_length: u16,
-    ) -> tBleStatus;
-
-    #[link_name = "HCI_LE_CREATE_CONNECTION_CANCEL"]
-    fn hci_le_create_connection_cancel() -> tBleStatus;
-
-    #[link_name = "HCI_LE_SET_DATA_LENGTH"]
-    fn hci_le_set_data_length(connection_handle: u16, tx_octets: u16, tx_time: u16) -> tBleStatus;
-
-    // DTM — Direct Test Mode commands
-    #[link_name = "HCI_LE_RECEIVER_TEST"]
-    fn hci_le_receiver_test(rx_channel: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_RECEIVER_TEST_V2"]
-    fn hci_le_receiver_test_v2(rx_channel: u8, phy: u8, modulation_index: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_TRANSMITTER_TEST"]
-    fn hci_le_transmitter_test(tx_channel: u8, test_data_length: u8, packet_payload: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_TRANSMITTER_TEST_V2"]
-    fn hci_le_transmitter_test_v2(tx_channel: u8, test_data_length: u8, packet_payload: u8, phy: u8) -> tBleStatus;
-
-    #[link_name = "HCI_LE_TEST_END"]
-    fn hci_le_test_end(num_packets: *mut u16) -> tBleStatus;
-
-    #[link_name = "ACI_HAL_LE_TX_TEST_PACKET_NUMBER"]
-    fn aci_hal_le_tx_test_packet_number(num_packets: *mut u32) -> tBleStatus;
-}
 
 /// BLE Success status code
 const BLE_STATUS_SUCCESS: u8 = 0x00;
@@ -244,7 +120,7 @@ impl CommandSender {
     pub fn set_event_mask(&self, mask: u64) -> Result<(), BleError> {
         unsafe {
             let mask_bytes = mask.to_le_bytes();
-            let status = hci_set_event_mask(&mask_bytes as *const [u8; 8]);
+            let status = hci_set_event_mask(&mask_bytes as *const [u8; 8] as *const u8);
             Self::check_status(status)
         }
     }
@@ -253,7 +129,7 @@ impl CommandSender {
     pub fn read_bd_addr(&self) -> Result<[u8; 6], BleError> {
         unsafe {
             let mut addr = [0u8; 6];
-            let status = hci_read_bd_addr(&mut addr as *mut [u8; 6]);
+            let status = hci_read_bd_addr(&mut addr as *mut [u8; 6] as *mut u8);
             Self::check_status(status)?;
             Ok(addr)
         }
@@ -265,7 +141,7 @@ impl CommandSender {
     pub fn le_set_event_mask(&self, mask: u64) -> Result<(), BleError> {
         unsafe {
             let mask_bytes = mask.to_le_bytes();
-            let status = hci_le_set_event_mask(&mask_bytes as *const [u8; 8]);
+            let status = hci_le_set_event_mask(&mask_bytes as *const [u8; 8] as *const u8);
             Self::check_status(status)
         }
     }
@@ -273,7 +149,7 @@ impl CommandSender {
     /// Set random address
     pub fn le_set_random_address(&self, address: &[u8; 6]) -> Result<(), BleError> {
         unsafe {
-            let status = ble::hci_le_set_random_address(address.as_ptr());
+            let status = hci_le_set_random_address(address.as_ptr());
             Self::check_status(status)
         }
     }
@@ -297,7 +173,7 @@ impl CommandSender {
                 adv_type as u8,
                 own_addr_type as u8,
                 peer_addr_type,
-                peer_addr as *const [u8; 6],
+                peer_addr as *const [u8; 6] as *const u8,
                 channel_map,
                 filter_policy as u8,
             );
@@ -309,7 +185,7 @@ impl CommandSender {
     pub fn le_read_advertising_channel_tx_power(&self) -> Result<i8, BleError> {
         unsafe {
             let mut tx_power = 0u8;
-            let status = ble::hci_le_read_advertising_physical_channel_tx_power(&mut tx_power);
+            let status = hci_le_read_advertising_physical_channel_tx_power(&mut tx_power);
             Self::check_status(status)?;
             Ok(tx_power as i8)
         }
@@ -398,7 +274,7 @@ impl CommandSender {
     pub fn le_read_local_supported_features(&self) -> Result<[u8; 8], BleError> {
         unsafe {
             let mut features = [0u8; 8];
-            let status = hci_le_read_local_supported_features_page_0(&mut features as *mut [u8; 8]);
+            let status = hci_le_read_local_supported_features_page_0(&mut features as *mut [u8; 8] as *mut u8);
             Self::check_status(status)?;
             Ok(features)
         }
@@ -541,7 +417,7 @@ impl CommandSender {
                 scan_window,
                 filter_policy,
                 peer_addr_bytes[0],
-                peer_addr_ptr as *const [u8; 6],
+                peer_addr_ptr as *const [u8; 6] as *const u8,
                 own_addr_type as u8,
                 interval_min,
                 interval_max,
@@ -575,6 +451,130 @@ impl CommandSender {
         unsafe {
             let status = hci_le_set_data_length(handle, tx_octets, tx_time);
             Self::check_status(status)
+        }
+    }
+
+    // ===== Direction Finding / CTE Commands =====
+
+    /// Set CTE transmit parameters for a connection (peripheral/tag side).
+    ///
+    /// Configure which CTE types the peripheral can transmit and the antenna switching
+    /// pattern used for AoD. Call before enabling CTE transmit response.
+    ///
+    /// - `cte_types`: Bit field — bit 0=AoA, bit 1=AoD 1μs slots, bit 2=AoD 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern IDs (2–75 elements)
+    pub fn le_set_connection_cte_transmit_parameters(
+        &self,
+        handle: u16,
+        cte_types: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        if antenna_ids.len() < 2 || antenna_ids.len() > 75 {
+            return Err(BleError::InvalidParameter);
+        }
+        unsafe {
+            let status = hci_le_set_connection_cte_transmit_parameters(
+                handle,
+                cte_types,
+                antenna_ids.len() as u8,
+                antenna_ids.as_ptr(),
+            );
+            Self::check_status(status)
+        }
+    }
+
+    /// Enable or disable CTE response for a connection (peripheral/tag side).
+    ///
+    /// When enabled, the peripheral responds with CTE whenever the central requests it
+    /// (BT spec 7.8.86 `HCI_LE_Connection_CTE_Response_Enable`).
+    /// Call `le_set_connection_cte_transmit_parameters` first.
+    pub fn le_connection_cte_response_enable(&self, handle: u16, enable: bool) -> Result<(), BleError> {
+        unsafe {
+            let status = hci_le_connection_cte_response_enable(handle, if enable { 1 } else { 0 });
+            Self::check_status(status)
+        }
+    }
+
+    /// Set CTE receive (IQ sampling) parameters for a connection (central/locator side).
+    ///
+    /// Configure IQ sample collection for incoming CTE packets. When enabled, IQ reports
+    /// arrive as `LeConnectionIqReport` events.
+    ///
+    /// - `sampling_enable`: true to enable IQ sampling
+    /// - `slot_durations`: 0x01 = 1μs slots, 0x02 = 2μs slots
+    /// - `antenna_ids`: Antenna switching pattern (2–75 elements; ignored if sampling disabled)
+    pub fn le_set_connection_cte_receive_parameters(
+        &self,
+        handle: u16,
+        sampling_enable: bool,
+        slot_durations: u8,
+        antenna_ids: &[u8],
+    ) -> Result<(), BleError> {
+        if sampling_enable && (antenna_ids.len() < 2 || antenna_ids.len() > 75) {
+            return Err(BleError::InvalidParameter);
+        }
+        unsafe {
+            let status = hci_le_set_connection_cte_receive_parameters(
+                handle,
+                if sampling_enable { 1 } else { 0 },
+                slot_durations,
+                antenna_ids.len() as u8,
+                antenna_ids.as_ptr(),
+            );
+            Self::check_status(status)
+        }
+    }
+
+    /// Enable or disable CTE requests for a connection (central/locator side).
+    ///
+    /// When enabled, the central periodically asks the peripheral to send CTE.
+    /// IQ samples arrive via `LeConnectionIqReport` events.
+    ///
+    /// - `enable`: true to start CTE requests
+    /// - `request_interval`: 0 = request once; N = request every N connection events
+    /// - `requested_cte_length`: Requested CTE length in 8μs units (range: 2–20)
+    /// - `requested_cte_type`: 0x00=AoA, 0x01=AoD 1μs, 0x02=AoD 2μs
+    pub fn le_connection_cte_request_enable(
+        &self,
+        handle: u16,
+        enable: bool,
+        request_interval: u16,
+        requested_cte_length: u8,
+        requested_cte_type: u8,
+    ) -> Result<(), BleError> {
+        unsafe {
+            let status = hci_le_connection_cte_request_enable(
+                handle,
+                if enable { 1 } else { 0 },
+                request_interval,
+                requested_cte_length,
+                requested_cte_type,
+            );
+            Self::check_status(status)
+        }
+    }
+
+    /// Read antenna information from the controller.
+    ///
+    /// Returns `(switching_sampling_rates, num_antennae, max_pattern_length, max_cte_length)`.
+    /// - `switching_sampling_rates`: Bit field of supported switching/sampling rates
+    /// - `num_antennae`: Number of antennae supported by the controller
+    /// - `max_pattern_length`: Maximum supported switching pattern length
+    /// - `max_cte_length`: Maximum supported CTE length in 8μs units
+    pub fn le_read_antenna_information(&self) -> Result<(u8, u8, u8, u8), BleError> {
+        unsafe {
+            let mut switching_rates = 0u8;
+            let mut num_antennae = 0u8;
+            let mut max_pattern_len = 0u8;
+            let mut max_cte_len = 0u8;
+            let status = hci_le_read_antenna_information(
+                &mut switching_rates,
+                &mut num_antennae,
+                &mut max_pattern_len,
+                &mut max_cte_len,
+            );
+            Self::check_status(status)?;
+            Ok((switching_rates, num_antennae, max_pattern_len, max_cte_len))
         }
     }
 }

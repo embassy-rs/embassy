@@ -6,8 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba55cg", "time-driver-any", "memory-x", "exti"]  }
-stm32-metapac = { version = "21", features = ["stm32wba55cg"] }
+embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba55cg", "time-driver-any", "memory-x", "exti", "unstable-pac"]  }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba55cg", "ble-stack-basic", "linklayer-ble-basic"] }
 embassy-sync = { version = "0.8.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.10.0", path = "../../embassy-executor", features = ["platform-cortex-m", "executor-thread", "defmt"] }
@@ -25,12 +24,12 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 static_cell = "2"
 embedded-io-async = "0.7.0"
-stm32wb-hci = "0.17.4"
+stm32wb-hci = { version = "0.18.0", git = "https://github.com/embassy-rs/stm32wb-hci.git", rev = "37a8090" }
 
 [features]
 default = ["ble"]
 mac = ["embassy-stm32-wpan/wba-mac", "dep:embassy-net"]
-ble = ["embassy-stm32-wpan/wba-ble"]
+ble = ["embassy-stm32-wpan/wba-ble", "embassy-stm32-wpan/wb-hci"]
 
 [[bin]]
 name = "mac_ffd"

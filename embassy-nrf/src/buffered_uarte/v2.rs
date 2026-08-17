@@ -77,7 +77,6 @@ pub struct InterruptHandler<U: UarteInstance> {
 
 impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for InterruptHandler<U> {
     unsafe fn on_interrupt() {
-        info!("irq: start");
         let r = U::regs();
         let ss = U::state();
         let s = U::buffered_state();
@@ -443,6 +442,9 @@ impl<'a, U: UarteInstance> Drop for BufferedUarteTx<'a, U> {
 
         let s = U::buffered_state();
         unsafe { s.tx_buf.deinit() }
+
+        // This is used during the interrupt to check if it is its first execution
+        s.rx_started.swap(false, Ordering::Relaxed);
 
         let s = U::state();
         drop_tx_rx(r, s);

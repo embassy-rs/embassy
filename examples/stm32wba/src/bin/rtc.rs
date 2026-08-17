@@ -2,12 +2,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::rcc::*;
 use embassy_stm32::rtc::{DateTime, DayOfWeek, Rtc, RtcConfig};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 pub fn pll_init(config: &mut Config) {
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
@@ -15,7 +16,7 @@ pub fn pll_init(config: &mut Config) {
         prediv: PllPreDiv::Div1,  // PLLM = 1 → HSI / 1 = 16 MHz
         mul: PllMul::Mul30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
         divr: Some(PllDiv::Div5), // PLLR = 5 → 96 MHz (Sysclk)
-        // divq: Some(PllDiv::DIV10), // PLLQ = 10 → 48 MHz (NOT USED)
+        // divq: Some(PllDiv::Div10), // PLLQ = 10 → 48 MHz (NOT USED)
         divq: None,
         divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (USBOTG)
         frac: Some(0),             // Fractional part (enabled)

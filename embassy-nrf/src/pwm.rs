@@ -975,26 +975,19 @@ impl<'a> Drop for SimplePwm<'a> {
 
         self.disable();
 
-        if let Some(pin) = &self.ch0 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            r.psel().out(0).write_value(DISCONNECTED);
-        }
-        if let Some(pin) = &self.ch1 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            r.psel().out(1).write_value(DISCONNECTED);
-        }
-        if let Some(pin) = &self.ch2 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            r.psel().out(2).write_value(DISCONNECTED);
-        }
-        if let Some(pin) = &self.ch3 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            r.psel().out(3).write_value(DISCONNECTED);
-        }
+        let disconnect_pin = |pin: &mut Option<Peri<'a, AnyPin>>, psel: usize| {
+            if let Some(pin) = pin {
+                r.psel().out(psel).write_value(DISCONNECTED);
+                // put the pin into high z
+                pin.conf().write(|w| {
+                    w.set_input(gpiovals::Input::Disconnect);
+                });
+            }
+        };
+        disconnect_pin(&mut self.ch0, 0);
+        disconnect_pin(&mut self.ch1, 1);
+        disconnect_pin(&mut self.ch2, 2);
+        disconnect_pin(&mut self.ch3, 3);
     }
 }
 

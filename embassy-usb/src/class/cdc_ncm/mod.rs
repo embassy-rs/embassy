@@ -70,7 +70,7 @@ const ALTERNATE_SETTING_DISABLED: u8 = 0x00;
 const ALTERNATE_SETTING_ENABLED: u8 = 0x01;
 
 /// Simple NTB header (NTH+NDP all in one) for sending packets
-#[repr(packed)]
+#[repr(C, packed)]
 #[allow(unused)]
 struct NtbOutHeader {
     // NTH
@@ -90,7 +90,7 @@ struct NtbOutHeader {
     ndp_term2: u16,
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[allow(unused)]
 struct NtbParameters {
     length: u16,
@@ -99,7 +99,7 @@ struct NtbParameters {
     out_params: NtbParametersDir,
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[allow(unused)]
 struct NtbParametersDir {
     max_size: u32,
@@ -416,14 +416,7 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
             buf[OUT_HEADER_LEN..self.max_packet_size].copy_from_slice(d1);
             self.write_ep.write(&buf[..self.max_packet_size]).await?;
 
-            for chunk in d2.chunks(self.max_packet_size) {
-                self.write_ep.write(chunk).await?;
-            }
-
-            // Send ZLP if needed.
-            if d2.len() % self.max_packet_size == 0 {
-                self.write_ep.write(&[]).await?;
-            }
+            self.write_ep.write_transfer(d2, true).await?;
         }
 
         Ok(())
@@ -448,14 +441,7 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
         loop {
             // read NTB
             let mut ntb = [0u8; NTB_MAX_SIZE];
-            let mut pos = 0;
-            loop {
-                let n = self.read_ep.read(&mut ntb[pos..]).await?;
-                pos += n;
-                if n < self.read_ep.info().max_packet_size as usize || pos == NTB_MAX_SIZE {
-                    break;
-                }
-            }
+            let pos = self.read_ep.read_transfer(&mut ntb).await?;
 
             let ntb = &ntb[..pos];
 

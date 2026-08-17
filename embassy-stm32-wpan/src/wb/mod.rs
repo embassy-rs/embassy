@@ -1,109 +1,51 @@
-use core::future::poll_fn;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
-use core::task::Poll;
+use core::sync::atomic::{Ordering, compiler_fence};
 
-#[cfg(any(feature = "wb-ble", feature = "wb-mac"))]
+#[cfg(any(feature = "wb-ble", feature = "wb-mac", feature = "wb-thread"))]
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::Peri;
 use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc, IpccRxChannel, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::IPCC;
-use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, with_timeout};
 use sub::mm::MemoryManager;
 use sub::sys::Sys;
 use tables::*;
 use unsafe_linked_list::LinkedListNode;
 
-pub mod channels;
-pub mod cmd;
-pub mod consts;
-pub mod evt;
+mod channels;
+mod cmd;
+mod consts;
+pub(crate) mod evt;
 pub mod fus;
 pub mod lhci;
 pub mod shci;
 pub mod sub;
-pub mod tables;
-pub mod unsafe_linked_list;
-
-#[cfg(feature = "wb-mac")]
-pub mod mac;
+pub(crate) mod tables;
+mod unsafe_linked_list;
 
 use crate::shci::SchiSysEventReady;
 #[cfg(feature = "wb-ble")]
 use crate::shci::ShciBleInitCmdParam;
 #[cfg(feature = "wb-ble")]
 use crate::sub::ble::Ble;
-#[cfg(feature = "wb-ble")]
-pub use crate::sub::ble::hci;
 #[cfg(feature = "wb-mac")]
 use crate::sub::mac::Mac;
+#[cfg(feature = "wb-thread")]
+use crate::sub::thread::Thread;
 
 type PacketHeader = LinkedListNode;
 
-#[allow(unused)]
-struct Flag {
-    state: AtomicBool,
-    waker: AtomicWaker,
-}
-
-#[allow(unused)]
-impl Flag {
-    pub const fn new(state: bool) -> Self {
-        Self {
-            state: AtomicBool::new(state),
-            waker: AtomicWaker::new(),
-        }
-    }
-
-    pub fn set_high(&self) {
-        if !self.state.swap(true, Ordering::AcqRel) {
-            self.waker.wake();
-        }
-    }
-
-    pub fn set_low(&self) {
-        if self.state.swap(false, Ordering::AcqRel) {
-            self.waker.wake();
-        }
-    }
-
-    pub async fn wait_for_high(&self) {
-        poll_fn(|cx| {
-            self.waker.register(cx.waker());
-
-            if !self.state.load(Ordering::Acquire) {
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await;
-    }
-
-    pub async fn wait_for_low(&self) {
-        poll_fn(|cx| {
-            self.waker.register(cx.waker());
-
-            if self.state.load(Ordering::Acquire) {
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await;
-    }
-}
-
 /// Transport Layer for the Mailbox interface
 pub struct TlMbox<'d> {
-    pub sys_subsystem: Sys<'d>,
-    pub mm_subsystem: MemoryManager<'d>,
+    pub sys: Sys<'d>,
+    pub mm: MemoryManager<'d>,
     #[cfg(feature = "wb-ble")]
-    pub ble_subsystem: sub::ble::Ble<'d>,
+    pub ble: sub::ble::Ble<'d>,
     #[cfg(feature = "wb-mac")]
-    pub mac_subsystem: sub::mac::Mac<'d>,
+    pub mac: sub::mac::Mac<'d>,
+    #[cfg(feature = "wb-thread")]
+    pub thread: sub::thread::Thread<'d>,
     pub traces: IpccRxChannel<'d>,
 }
 
@@ -127,12 +69,12 @@ impl<'d> TlMbox<'d> {
     /// completing all steps in Figure 64.
     ///
     /// Once this method has been called, no system commands may be sent until the CPU2 ready
-    /// signal is received, via [sys_subsystem.read]; this completes the procedure laid out in
+    /// signal is received, via [sys.read]; this completes the procedure laid out in
     /// Figure 65.
     ///
     /// If the `ble` feature is enabled, at this point, the user should call
-    /// [sys_subsystem.shci_c2_ble_init], before any commands are written to the
-    /// [TlMbox.ble_subsystem] ([sub::ble::Ble::new()] completes the process that would otherwise
+    /// [sys.shci_c2_ble_init], before any commands are written to the
+    /// [TlMbox.ble] ([sub::ble::Ble::new()] completes the process that would otherwise
     /// be handled by `TL_BLE_Init`; see Figure 66). This completes the procedure laid out in
     /// Figure 66.
     // TODO: document what the user should do after calling init to use the mac_802_15_4 subsystem
@@ -224,6 +166,22 @@ impl<'d> TlMbox<'d> {
                     .as_mut_ptr()
                     .write_volatile(MaybeUninit::zeroed().assume_init());
             }
+
+            #[cfg(feature = "wb-thread")]
+            {
+                THREAD_CMD_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+                THREAD_NOTIF_RSP_EVT_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+                THREAD_CLI_CMD_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+                THREAD_CLI_NOT_BUFFER
+                    .as_mut_ptr()
+                    .write_volatile(MaybeUninit::zeroed().assume_init());
+            }
         }
 
         compiler_fence(Ordering::SeqCst);
@@ -242,20 +200,25 @@ impl<'d> TlMbox<'d> {
         let sys = sub::sys::Sys::new(ipcc_system_cmd_rsp_channel, ipcc_system_event_channel);
 
         Self {
-            sys_subsystem: sys,
+            sys,
             #[cfg(feature = "wb-ble")]
-            ble_subsystem: sub::ble::Ble::new(
+            ble: sub::ble::Ble::new(
                 _hw_ipcc_ble_cmd_channel,
                 _ipcc_ble_event_channel,
                 _ipcc_hci_acl_tx_data_channel,
                 _ipcc_hci_acl_rx_data_channel,
             ),
             #[cfg(feature = "wb-mac")]
-            mac_subsystem: sub::mac::Mac::new(
+            mac: sub::mac::Mac::new(
                 _ipcc_mac_802_15_4_cmd_rsp_channel,
                 _ipcc_mac_802_15_4_notification_ack_channel,
             ),
-            mm_subsystem: mm,
+            #[cfg(feature = "wb-thread")]
+            thread: sub::thread::Thread::new(
+                _ipcc_mac_802_15_4_cmd_rsp_channel,
+                _ipcc_mac_802_15_4_notification_ack_channel,
+            ),
+            mm: mm,
             traces: _ipcc_traces_channel,
         }
     }
@@ -269,7 +232,7 @@ impl<'d> TlMbox<'d> {
     ) -> Result<Self, ()> {
         let mut this = Self::init(ipcc, irqs, config);
 
-        let sys_event = with_timeout(Duration::from_millis(500), this.sys_subsystem.read_ready())
+        let sys_event = with_timeout(Duration::from_millis(500), this.sys.read_ready())
             .await
             .map_err(|_| ())??;
 
@@ -282,32 +245,48 @@ impl<'d> TlMbox<'d> {
     #[cfg(feature = "wb-ble")]
     /// Initialise the BLE subsystem
     pub async fn init_ble(mut self, param: ShciBleInitCmdParam) -> Result<(Ble<'d>, MemoryManager<'d>), ()> {
-        match select(
-            self.mm_subsystem.run_queue(),
-            self.sys_subsystem.shci_c2_ble_init(param),
-        )
+        debug!("starting ble...");
+        with_timeout(Duration::from_millis(500), async {
+            match select(self.mm.run_queue(), self.sys.shci_c2_ble_init(param)).await {
+                Either::Second(res) => res,
+                _ => unreachable!(),
+            }
+        })
         .await
-        {
-            Either::Second(res) => res,
-            _ => unreachable!(),
-        }?;
+        .map_err(|_| ())??;
 
-        Ok((self.ble_subsystem, self.mm_subsystem))
+        Ok((self.ble, self.mm))
     }
 
     #[cfg(feature = "wb-mac")]
     /// Initialise the BLE subsystem
     pub async fn init_mac(mut self) -> Result<(Mac<'d>, MemoryManager<'d>), ()> {
-        match select(
-            self.mm_subsystem.run_queue(),
-            self.sys_subsystem.shci_c2_mac_802_15_4_init(),
-        )
+        debug!("starting mac...");
+        with_timeout(Duration::from_millis(500), async {
+            match select(self.mm.run_queue(), self.sys.shci_c2_mac_802_15_4_init()).await {
+                Either::Second(res) => res,
+                _ => unreachable!(),
+            }
+        })
         .await
-        {
-            Either::Second(res) => res,
-            _ => unreachable!(),
-        }?;
+        .map_err(|_| ())??;
 
-        Ok((self.mac_subsystem, self.mm_subsystem))
+        Ok((self.mac, self.mm))
+    }
+
+    #[cfg(feature = "wb-thread")]
+    /// Initialise the BLE subsystem
+    pub async fn init_thread(mut self) -> Result<(Thread<'d>, MemoryManager<'d>), ()> {
+        debug!("starting thread...");
+        with_timeout(Duration::from_millis(500), async {
+            match select(self.mm.run_queue(), self.sys.shci_c2_thread_init()).await {
+                Either::Second(res) => res,
+                _ => unreachable!(),
+            }
+        })
+        .await
+        .map_err(|_| ())??;
+
+        Ok((self.thread, self.mm))
     }
 }

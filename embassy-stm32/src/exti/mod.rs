@@ -143,7 +143,7 @@ impl<'d> ExtiInput<'d, Async> {
     /// token. The pin retains its current pull configuration.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub fn from_input<C: Channel>(
+    pub unsafe fn from_input<C: Channel>(
         pin: Input<'d>,
         _ch: Peri<'d, C>,
         _irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
@@ -165,7 +165,7 @@ impl<'d> ExtiInput<'d, Async> {
     /// before calling this.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub fn from_flex<C: Channel>(
+    pub unsafe fn from_flex<C: Channel>(
         pin: Flex<'d>,
         _ch: Peri<'d, C>,
         _irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
@@ -462,7 +462,7 @@ macro_rules! foreach_exti_irq {
 // It technically doesn't need to be generic at all, except to satisfy the generic argument
 // of [Handler]. All EXTI interrupts eventually land in the same on_irq() function.
 pub struct InterruptHandler<T: crate::interrupt::typelevel::Interrupt> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: InterruptType> Handler<T> for InterruptHandler<T> {

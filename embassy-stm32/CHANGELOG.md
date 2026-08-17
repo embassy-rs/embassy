@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+CAN:
+- fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
+
 DMA:
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
 - fix: stm32/dma: defer read_index advance until after copy in read_raw to avoid partial-advance on overrun
@@ -17,15 +20,57 @@ DMA:
 - feat: stm32/dma: expose write_pos() on WritableRingBuffer for timing-safe TX frame alignment after overrun
 - fix: stm32/dma: fix WritableDmaRingBuffer::new using out-of-range pos (cap) instead of {complete_count:1, pos:0}
 - fix: stm32/dma: eliminate second sync_len() call in write_raw to prevent consuming a lap count mid-copy
+- feat: stm32/dma: ungate `TransferOptions::burst_length` on GPDMA (was stm32n6-only)
+- fix: stm32/dma: auto-set `TR1.PAM = Pack` on GPDMA when source and destination widths differ, instead of silently zero-extending one beat per destination beat
+- fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
+- feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
+- feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
+
+I2C:
+- feat: stm32/i2cv2: support zero-length transfers instead of returning `Error::ZeroLengthTransfer`, enabling bus scans via `transaction(addr, &mut [Operation::Write(&[])])`. On the slave side an empty `respond_to_write` accepts zero bytes and an empty `respond_to_read` sends `0xFF` filler, since I2C cannot encode "nothing to send"; both previously left ADDR set, holding SCL low and wedging the bus
+- fix: stm32/i2cv2: handle a master RESTART during async slave `respond_to_read` instead of stalling until the transaction times out
+- fix: stm32/i2cv2: re-enable TCIE after starting a DMA write group, so an async `transaction()` whose write group is not the first group completes instead of hanging until it times out
+- fix: stm32/i2cv2: program `CR2.SADD` without the 7-bit left shift when addressing a 10-bit target, which was putting every `Address::TenBit` on the bus one bit too far left and so addressing a different device
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
+
+RNG:
+- feat: stm32/rng: add configurable initialization policy (`RngConfig`) with `new_with_config` and health-test profile control
 
 COMP:
 - feat: stm32/comp: add support for comp_v1 (used on G0)
 
 Timer:
 - feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
+- feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
+- feat: stm32/timer: add low-level timer status helpers for UIF remap control and counting direction (`is_counting_up`/`is_counting_down`)
+- feat: stm32/timer: add `low_level::Timer::get_counter()` to read the counter register as `T::Word`
+
+QEI:
+- fix: stm32/qei: `count()`, `reset()`, and `auto_reload` always used the 16-bit register view, so on 32-bit timers `reset()` only cleared the lower 16 bits of the counter (leaving the upper bits stale) and `auto_reload`/`count()` were truncated to `u16`; `Config`/`AdvancedConfig` are now generic over the timer instance and `auto_reload` uses `T::Word`, while `count()` returns `u32` so 32-bit timers work correctly across their full range (breaking change)
+
+PKA:
+- feat: stm32/pka: extend ECC point buffer support to 640-bit operands (80-byte coordinates) in public point types and Jacobian conversion paths
+
+CRYP:
+- feat: stm32/cryp: batch full-block DMA in payload and use 4-beat bursts on GPDMA
+- perf: stm32/cryp: aad/payload async API takes a faster path when user buffers are 4-byte aligned
+
+SAES:
+- feat: stm32/saes: expose explicit key-mode starters (`start_with_mode`, `start_wrapped_key`, `start_shared_key`) and async `aad`/`payload`/`finish` parity methods
+
+OSPI:
+- feat: stm32/ospi: add `Ospi::configure_hyperbus` + `HyperbusConfig`/`HyperbusLatencyMode` to program the HyperBus latency register (HLCR), enabling HyperBus/HyperRAM memory-mapped bring-up without reaching for `unstable-pac`
+
+RCC:
+- feat: stm32/rcc/c0: add `Config::sys_div` to configure the SYSDIV divider on chips that have it (C051, C071, C091/C092). It was previously never programmed and not accounted for in the reported SYSCLK
+- change: stm32/rcc/c0: rename `Hsi::sys_div` to `Hsi::div` and `HsiSysDiv` to `HsiDiv` (breaking change). The field sets HSIDIV, not SYSDIV; the old name suggested otherwise
+- fix: stm32/rcc/c0: raise the flash read access latency before anything that can raise the core frequency, so a configuration handed over from a bootloader without a reset cannot run above 24 MHz with too few wait states
+- fix: stm32/rcc/l: set the maximum flash latency before raising the MSI range, so MSI above the reset wait-state limit (e.g. 48 MHz) as sysclk no longer hardfaults in `init()` on L4, L5, WB and U0 (extends the WL-only fix from #2786; L0/L1 are unaffected, their MSI tops out at 4.194 MHz)
+
+SPI:
+- change default NSS configuration from active-high to active-low
 
 ## 0.6.0 - 2026-03-10
 
@@ -142,6 +187,7 @@ SMI:
 
 RCC:
 - fix: stm32/rcc: allow linker to optimize out expensive PLL init functions in binaries where the PLL is not used (e.g. most bootloaders)
+- fix: stm32/bkpsram: Fix unsound Backup SRAM API (breaking change)
 
 USB:
 - fix: don't put USB pins into alternate mode on chips where USB is an additional function
@@ -178,6 +224,7 @@ Misc:
 - fix: Avoid generating timer update events when updating the frequency ([#4890](https://github.com/embassy-rs/embassy/pull/4890))
 - chore: cleanup low-power add time
 - fix: Allow setting SAI peripheral `frame_length` to `256`
+- fix: stm32/i2c fix busy waiting on BUSY flag in v2
 - fix: flash erase on dual-bank STM32Gxxx
 - feat: Add support for STM32N657X0
 - feat: timer: Add 32-bit timer support to SimplePwm waveform_up method following waveform pattern ([#4717](https://github.com/embassy-rs/embassy/pull/4717))

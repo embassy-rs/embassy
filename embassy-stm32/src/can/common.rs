@@ -10,13 +10,13 @@ pub(crate) struct ClassicBufferedTxInner {
     pub tx_receiver: SendDynamicReceiver<'static, Frame>,
 }
 
-#[cfg(any(can_fdcan_v1, can_fdcan_h7))]
+#[cfg(any(can_fdcan_v1, can_fdcan_v2))]
 
 pub(crate) struct FdBufferedRxInner {
     pub rx_sender: SendDynamicSender<'static, Result<FdEnvelope, BusError>>,
 }
 
-#[cfg(any(can_fdcan_v1, can_fdcan_h7))]
+#[cfg(any(can_fdcan_v1, can_fdcan_v2))]
 pub(crate) struct FdBufferedTxInner {
     pub tx_receiver: SendDynamicReceiver<'static, FdFrame>,
 }

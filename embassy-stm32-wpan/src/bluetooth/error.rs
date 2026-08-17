@@ -1,9 +1,14 @@
 //! BLE Error types
 
+use stm32wb_hci::host::Error as HostError;
+use stm32wb_hci::vendor::command::gap::Error as GapError;
+use stm32wb_hci::vendor::command::gatt::Error as GattError;
+use stm32wb_hci::vendor::command::hal::Error as HalError;
+
 use super::hci::types::Status;
 
 /// BLE Stack Errors
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BleError {
     /// BLE stack not initialized or runner not initialized
@@ -30,8 +35,44 @@ pub enum BleError {
     /// Connection error
     ConnectionError,
 
+    // Controller Host Error
+    HostError(HostError),
+
+    // Controller Gatt Error
+    GattError(GattError),
+
+    // Controller Gap Error
+    GapError(GapError),
+
+    // Controller Hal Error
+    HalError(HalError),
+
     /// Unknown or unspecified error
     Unknown,
+}
+
+impl From<HostError> for BleError {
+    fn from(err: HostError) -> Self {
+        Self::HostError(err)
+    }
+}
+
+impl From<GattError> for BleError {
+    fn from(err: GattError) -> Self {
+        Self::GattError(err)
+    }
+}
+
+impl From<GapError> for BleError {
+    fn from(err: GapError) -> Self {
+        Self::GapError(err)
+    }
+}
+
+impl From<HalError> for BleError {
+    fn from(err: HalError) -> Self {
+        Self::HalError(err)
+    }
 }
 
 impl From<Status> for BleError {

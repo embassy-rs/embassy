@@ -10,12 +10,13 @@ export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
 export PATH=$CARGO_HOME/bin:$PATH
+
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev f8a8cce4092ef2566fbae04f088daa70c9e1fe93
+cargo install --git https://github.com/embassy-rs/docserver --locked --rev 5865eed8583205cee4d266277e4a639141362962
+
 mv rust-toolchain-nightly.toml rust-toolchain.toml
 
-cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 7d6d61819cb5a54bd6fe7da88359c7949142932a
-cargo install --git https://github.com/embassy-rs/docserver --locked --rev e16c30dcc60a41641fd73bd4ad1a8c4bd57d792d
-
-cargo embassy-devtool doc -o webroot
+cargo embassy-devtool doc -o webroot --monitor
 
 export KUBECONFIG=/ci/secrets/kubeconfig.yml
 POD=$(kubectl get po -l app=docserver -o jsonpath={.items[0].metadata.name})

@@ -28,41 +28,26 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
-};
+use defmt_rtt as _;
+use embassy_stm32::rng::Rng;
 use embassy_stm32::saes::{AesCbc, AesEcb, Direction, Saes};
 use embassy_stm32::{Config, bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     SAES => embassy_stm32::saes::InterruptHandler<peripherals::SAES>;
+    RNG => embassy_stm32::rng::InterruptHandler<peripherals::RNG>;
 });
 
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
     let mut config = Config::default();
-    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::Hsi,
-        prediv: PllPreDiv::Div1,
-        mul: PllMul::Mul30,
-        divr: Some(PllDiv::Div5),
-        divq: None,
-        divp: Some(PllDiv::Div30),
-        frac: Some(0),
-    });
-    config.rcc.ahb_pre = AHBPrescaler::Div1;
-    config.rcc.apb1_pre = APBPrescaler::Div1;
-    config.rcc.apb2_pre = APBPrescaler::Div1;
-    config.rcc.apb7_pre = APBPrescaler::Div1;
-    config.rcc.ahb5_pre = AHB5Prescaler::Div4;
-    config.rcc.voltage_scale = VoltageScale::Range1;
-    config.rcc.sys = Sysclk::Pll1R;
-
+    config.rcc.mux.rngsel = embassy_stm32::rcc::mux::Rngsel::Hsi;
     let p = embassy_stm32::init(config);
     info!("SAES-ECB Example");
 
-    let mut saes = Saes::new_blocking(p.SAES, Irqs);
+    let rng = Rng::new(p.RNG, Irqs);
+    let mut saes = Saes::new_blocking(p.SAES, Irqs, &rng);
 
     // ─── AES-128-ECB round-trip + NIST sanity check ──────────────────────────
     // NIST SP 800-38A F.1.1: key = 2b7e151628aed2a6abf7158809cf4f3c

@@ -10,7 +10,7 @@ use embassy_stm32::gpio::{AfioRemap, OutputType, Pull};
 use embassy_stm32::pac::AFIO;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
-use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
+use embassy_stm32::timer::input_capture::{CaptureInput, InputCapture};
 use embassy_stm32::timer::pwm_input::PwmInput;
 use embassy_stm32::timer::qei::Qei;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
@@ -254,7 +254,7 @@ async fn main(_spawner: Spawner) {
         reset_afio_registers();
         InputCapture::new::<AfioRemap<1>>(
             p.TIM1.reborrow(),
-            Some(CapturePin::new(p.PA8.reborrow(), Pull::Down)),
+            CaptureInput::from_pin(p.PA8.reborrow(), Pull::Down),
             None,
             None,
             None,

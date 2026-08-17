@@ -1,12 +1,13 @@
 #![macro_use]
 
 pub use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::Config;
 #[allow(unused)]
 use embassy_stm32::rcc::*;
 #[allow(unused)]
 use embassy_stm32::time::Hertz;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[cfg(feature = "stm32f103c8")]
 teleprobe_meta::target!(b"bluepill-stm32f103c8");
@@ -441,6 +442,7 @@ define_peris!(
     UART = USART1, UART_TX = PB14, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PB5, SPI_MISO = PA6, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
     @irq UART = {
+        CRYP => embassy_stm32::cryp::InterruptHandler<embassy_stm32::peripherals::CRYP>;
         RNG => embassy_stm32::rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
         USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>,
             embassy_stm32::usart::BufferedInterruptHandler<embassy_stm32::peripherals::USART1>;
@@ -467,10 +469,18 @@ pub fn config() -> Config {
     #[cfg(any(feature = "stm32c031c6", feature = "stm32c071rb"))]
     {
         config.rcc.hsi = Some(Hsi {
-            sys_div: HsiSysDiv::Div1, // 48Mhz
+            div: HsiDiv::Div1,        // 48Mhz
             ker_div: HsiKerDiv::Div3, // 16Mhz
         });
         config.rcc.sys = Sysclk::Hsisys;
+        // C071 is the only C0 board in the test rack with SYSDIV, so use it to prove the field
+        // reaches hardware: HSISYS stays at 48 MHz and SYSDIV halves it to a 24 MHz SYSCLK. If the
+        // write did not take effect the core would run at twice the frequency the driver assumes,
+        // and the timer and usart tests would fail. C031 has no SYSDIV and stays at 48 MHz.
+        #[cfg(feature = "stm32c071rb")]
+        {
+            config.rcc.sys_div = SysDiv::Div2; // 24Mhz
+        }
         config.rcc.ahb_pre = AHBPrescaler::Div1;
         config.rcc.apb1_pre = APBPrescaler::Div1;
     }
@@ -492,7 +502,7 @@ pub fn config() -> Config {
     }
     #[cfg(feature = "stm32wb55rg")]
     {
-        config.rcc = embassy_stm32::rcc::WPAN_DEFAULT;
+        config.rcc = embassy_stm32::rcc::Config::new_wpan();
     }
 
     #[cfg(feature = "stm32f091rc")]
@@ -582,7 +592,7 @@ pub fn config() -> Config {
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul180,
             divp: Some(PllPDiv::Div2), // 8mhz / 4 * 180 / 2 = 180Mhz.
-            divq: None,
+            divq: Some(PllQDiv::Div2),
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::Div1;
@@ -622,7 +632,7 @@ pub fn config() -> Config {
             prediv: PllPreDiv::Div4,
             mul: PllMul::Mul216,
             divp: Some(PllPDiv::Div2), // 8mhz / 4 * 216 / 2 = 216Mhz.
-            divq: None,
+            divq: Some(PllQDiv::Div2),
             divr: None,
         });
         config.rcc.ahb_pre = AHBPrescaler::Div1;
@@ -830,12 +840,14 @@ pub fn config() -> Config {
     #[cfg(feature = "stm32wba52cg")]
     {
         config.rcc.sys = Sysclk::Hsi;
+        config.rcc.ahb5_pre = AHB5Prescaler::Div1;
         config.rcc.mux.rngsel = mux::Rngsel::Hsi;
     }
 
     #[cfg(feature = "stm32wba65ri")]
     {
         config.rcc.sys = Sysclk::Hsi;
+        config.rcc.ahb5_pre = AHB5Prescaler::Div1;
         config.rcc.mux.rngsel = mux::Rngsel::Hsi;
         config.rcc.mux.sai1sel = mux::Sai1sel::Hsi;
     }

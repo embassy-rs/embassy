@@ -69,7 +69,7 @@
 use embassy_usb_driver::host::{PipeError, UsbHostAllocator, UsbPipe, pipe};
 use embassy_usb_driver::{Direction as UsbDirection, EndpointAddress, EndpointInfo, EndpointType};
 
-use crate::descriptor::ConfigurationDescriptor;
+use crate::descriptor::ConfigurationDescriptorChain;
 use crate::handler::EnumerationInfo;
 
 // ── GIP USB interface identifiers ────────────────────────────────────────────
@@ -236,7 +236,7 @@ pub struct GipInterfaceInfo {
 /// Matches vendor-specific class (0xFF), GIP subclass (0x47),
 /// GIP protocol (0xD0), interface number 0.
 pub fn find_gip(config_desc: &[u8]) -> Option<GipInterfaceInfo> {
-    let cfg = ConfigurationDescriptor::try_from_slice(config_desc).ok()?;
+    let cfg = ConfigurationDescriptorChain::try_from_slice(config_desc).ok()?;
 
     for iface in cfg.iter_interface() {
         if iface.interface_class != GIP_IFACE_CLASS

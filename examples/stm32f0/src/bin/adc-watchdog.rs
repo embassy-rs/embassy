@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{self, Adc, SampleTime, WatchdogChannels};
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::peripherals::ADC1;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     ADC1_COMP => adc::InterruptHandler<ADC1>;
@@ -24,14 +25,14 @@ async fn main(_spawner: Spawner) {
         // Wait for pin to go high
         {
             let mut wd = adc.init_watchdog(WatchdogChannels::from_channel(&pin), 0, 0x07F);
-            let v_high = wd.monitor(SampleTime::CYCLES13_5).await;
+            let v_high = wd.monitor(SampleTime::Cycles135).await;
             info!("ADC sample is high {}", v_high);
         }
 
         // Wait for pin to go low
         {
             let mut wd = adc.init_watchdog(WatchdogChannels::from_channel(&pin), 0x01f, 0xFFF);
-            let v_low = wd.monitor(SampleTime::CYCLES13_5).await;
+            let v_low = wd.monitor(SampleTime::Cycles135).await;
             info!("ADC sample is low {}", v_low);
         }
     }

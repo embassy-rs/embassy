@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::{panic, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usb::{Driver, Instance};
@@ -9,7 +10,7 @@ use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USB_OTG_HS => usb::InterruptHandler<peripherals::USB_OTG_HS>;
@@ -32,16 +33,7 @@ async fn main(_spawner: Spawner) {
             divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (USB_OTG_HS)
             frac: Some(0),             // Fractional part (disabled)
         });
-
-        config.rcc.ahb_pre = AHBPrescaler::Div1;
-        config.rcc.apb1_pre = APBPrescaler::Div1;
-        config.rcc.apb2_pre = APBPrescaler::Div1;
-        config.rcc.apb7_pre = APBPrescaler::Div1;
-        config.rcc.ahb5_pre = AHB5Prescaler::Div4;
-
-        config.rcc.voltage_scale = VoltageScale::Range1;
         config.rcc.mux.otghssel = mux::Otghssel::Pll1P;
-        config.rcc.sys = Sysclk::Pll1R;
     }
 
     let p = embassy_stm32::init(config);

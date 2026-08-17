@@ -15,5 +15,5 @@ pub use connection::{
     Connection, ConnectionInitParams, ConnectionManager, ConnectionParams, DisconnectReason, GapEvent, LePhy,
     MAX_CONNECTIONS,
 };
-pub use scanner::{ParsedAdvData, ScanFilterPolicy, ScanParams, ScanType, Scanner};
+pub use scanner::{ParsedAdvData, ScanFilterPolicy, ScanParams, ScanProcedure, ScanType, Scanner};
 pub use types::{AdvData, AdvParams, AdvType, OwnAddressType};

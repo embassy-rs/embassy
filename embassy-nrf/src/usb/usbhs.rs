@@ -8,13 +8,14 @@ use core::task::Poll;
 
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, Unsupported};
 pub use embassy_usb_synopsys_otg::Config;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
+    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State, StateStorage,
     on_interrupt as on_interrupt_impl,
 };
 
@@ -23,7 +24,8 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac};
 
 const MAX_EP_COUNT: usize = 16;
-const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 30;
+// USB-HS needs more FIFO space.
+const RX_FIFO_EXTRA_SIZE_WORDS: u16 = 256;
 const FIFO_DEPTH_WORDS: u16 = 3040;
 
 static BUS_WAKER: AtomicWaker = AtomicWaker::new();
@@ -35,13 +37,13 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        on_interrupt_impl(T::core_regs(), T::state(), MAX_EP_COUNT);
+        on_interrupt_impl(T::core_regs(), &T::state());
     }
 }
 
 /// USB driver.
 pub struct Driver<'d, V: VbusDetect> {
-    inner: OtgDriver<'d, MAX_EP_COUNT>,
+    inner: OtgDriver<'d>,
     usb_regs: pac::usbhs::Usbhs,
     vbus_detect: V,
     _phantom: PhantomData<&'d ()>,
@@ -63,7 +65,6 @@ impl<'d, V: VbusDetect> Driver<'d, V> {
             regs: T::core_regs(),
             state: T::state(),
             fifo_depth_words: FIFO_DEPTH_WORDS,
-            endpoint_count: MAX_EP_COUNT,
             phy_type: PhyType::InternalHighSpeed,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             calculate_trdt_fn: calculate_trdt,
@@ -125,7 +126,7 @@ impl<'d, V: VbusDetect + 'd> embassy_usb_driver::Driver<'d> for Driver<'d, V> {
 
 /// USB bus.
 pub struct Bus<'d, V: VbusDetect> {
-    inner: OtgBus<'d, MAX_EP_COUNT>,
+    inner: OtgBus<'d>,
     usb_regs: pac::usbhs::Usbhs,
     vbus_detect: V,
     power_present: bool,
@@ -303,7 +304,7 @@ impl<'d, V: VbusDetect> Drop for Bus<'d, V> {
 pub(crate) trait SealedInstance {
     fn usb_regs() -> pac::usbhs::Usbhs;
     fn core_regs() -> Otg;
-    fn state() -> &'static State<MAX_EP_COUNT>;
+    fn state() -> State<'static>;
 }
 
 /// USB peripheral instance.
@@ -322,9 +323,9 @@ impl SealedInstance for crate::peripherals::USBHS {
         unsafe { Otg::from_ptr(pac::USBHSCORE.as_ptr()) }
     }
 
-    fn state() -> &'static State<MAX_EP_COUNT> {
-        static STATE: State<MAX_EP_COUNT> = State::new();
-        &STATE
+    fn state() -> State<'static> {
+        static STATE: StateStorage<MAX_EP_COUNT> = StateStorage::new(CriticalSectionRawMutex::new());
+        STATE.as_state()
     }
 }
 

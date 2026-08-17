@@ -2,11 +2,12 @@
 #![no_main]
 use cortex_m::singleton;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, SampleTime};
 use embassy_stm32::{Peripherals, bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA2_STREAM0 => dma::InterruptHandler<peripherals::DMA2_CH0>;
@@ -33,8 +34,8 @@ async fn adc_task(mut p: Peripherals) {
         adc_data,
         Irqs,
         [
-            (p.PA0.degrade_adc(), SampleTime::Cycles112),
-            (p.PA2.degrade_adc(), SampleTime::Cycles112),
+            (p.PA0.reborrow_adc(), SampleTime::Cycles112),
+            (p.PA2.reborrow_adc(), SampleTime::Cycles112),
         ]
         .into_iter(),
         None,
@@ -44,8 +45,8 @@ async fn adc_task(mut p: Peripherals) {
         adc_data2,
         Irqs,
         [
-            (p.PA1.degrade_adc(), SampleTime::Cycles112),
-            (p.PA3.degrade_adc(), SampleTime::Cycles112),
+            (p.PA1.reborrow_adc(), SampleTime::Cycles112),
+            (p.PA3.reborrow_adc(), SampleTime::Cycles112),
         ]
         .into_iter(),
         None,

@@ -483,7 +483,7 @@ impl ClockOperator<'_> {
         });
 
         // 3. Wait for STATUSA[LDO_RDY] to become 1.
-        while self.vbat0.statusa().read().ldo_rdy() != StatusaLdoRdy::SET {}
+        while self.vbat0.statusa().read().ldo_rdy() != StatusaLdoRdy::Set {}
 
         // 4. Write 1h to LDOLCKA[LOCK].
         self.vbat0.ldolcka().modify(|w| w.set_lock(true));
@@ -502,60 +502,60 @@ impl ClockOperator<'_> {
                 //   * NOTE(AJM): You must write 1 to this field and OSCCTLA[OSC_EN] simultaneously.
                 self.vbat0.oscctla().modify(|w| {
                     w.set_xtal_cap_sel(match xtal_cap_sel {
-                        Osc32KCapSel::Cap2PicoF => XtalCapSel::SEL2,
-                        Osc32KCapSel::Cap4PicoF => XtalCapSel::SEL4,
-                        Osc32KCapSel::Cap6PicoF => XtalCapSel::SEL6,
-                        Osc32KCapSel::Cap8PicoF => XtalCapSel::SEL8,
-                        Osc32KCapSel::Cap10PicoF => XtalCapSel::SEL10,
-                        Osc32KCapSel::Cap12PicoF => XtalCapSel::SEL12,
-                        Osc32KCapSel::Cap14PicoF => XtalCapSel::SEL14,
-                        Osc32KCapSel::Cap16PicoF => XtalCapSel::SEL16,
-                        Osc32KCapSel::Cap18PicoF => XtalCapSel::SEL18,
-                        Osc32KCapSel::Cap20PicoF => XtalCapSel::SEL20,
-                        Osc32KCapSel::Cap22PicoF => XtalCapSel::SEL22,
-                        Osc32KCapSel::Cap24PicoF => XtalCapSel::SEL24,
-                        Osc32KCapSel::Cap26PicoF => XtalCapSel::SEL26,
-                        Osc32KCapSel::Cap28PicoF => XtalCapSel::SEL28,
-                        Osc32KCapSel::Cap30PicoF => XtalCapSel::SEL30,
+                        Osc32KCapSel::Cap2PicoF => XtalCapSel::Sel2,
+                        Osc32KCapSel::Cap4PicoF => XtalCapSel::Sel4,
+                        Osc32KCapSel::Cap6PicoF => XtalCapSel::Sel6,
+                        Osc32KCapSel::Cap8PicoF => XtalCapSel::Sel8,
+                        Osc32KCapSel::Cap10PicoF => XtalCapSel::Sel10,
+                        Osc32KCapSel::Cap12PicoF => XtalCapSel::Sel12,
+                        Osc32KCapSel::Cap14PicoF => XtalCapSel::Sel14,
+                        Osc32KCapSel::Cap16PicoF => XtalCapSel::Sel16,
+                        Osc32KCapSel::Cap18PicoF => XtalCapSel::Sel18,
+                        Osc32KCapSel::Cap20PicoF => XtalCapSel::Sel20,
+                        Osc32KCapSel::Cap22PicoF => XtalCapSel::Sel22,
+                        Osc32KCapSel::Cap24PicoF => XtalCapSel::Sel24,
+                        Osc32KCapSel::Cap26PicoF => XtalCapSel::Sel26,
+                        Osc32KCapSel::Cap28PicoF => XtalCapSel::Sel28,
+                        Osc32KCapSel::Cap30PicoF => XtalCapSel::Sel30,
                     });
                     w.set_extal_cap_sel(match extal_cap_sel {
-                        Osc32KCapSel::Cap2PicoF => ExtalCapSel::SEL2,
-                        Osc32KCapSel::Cap4PicoF => ExtalCapSel::SEL4,
-                        Osc32KCapSel::Cap6PicoF => ExtalCapSel::SEL6,
-                        Osc32KCapSel::Cap8PicoF => ExtalCapSel::SEL8,
-                        Osc32KCapSel::Cap10PicoF => ExtalCapSel::SEL10,
-                        Osc32KCapSel::Cap12PicoF => ExtalCapSel::SEL12,
-                        Osc32KCapSel::Cap14PicoF => ExtalCapSel::SEL14,
-                        Osc32KCapSel::Cap16PicoF => ExtalCapSel::SEL16,
-                        Osc32KCapSel::Cap18PicoF => ExtalCapSel::SEL18,
-                        Osc32KCapSel::Cap20PicoF => ExtalCapSel::SEL20,
-                        Osc32KCapSel::Cap22PicoF => ExtalCapSel::SEL22,
-                        Osc32KCapSel::Cap24PicoF => ExtalCapSel::SEL24,
-                        Osc32KCapSel::Cap26PicoF => ExtalCapSel::SEL26,
-                        Osc32KCapSel::Cap28PicoF => ExtalCapSel::SEL28,
-                        Osc32KCapSel::Cap30PicoF => ExtalCapSel::SEL30,
+                        Osc32KCapSel::Cap2PicoF => ExtalCapSel::Sel2,
+                        Osc32KCapSel::Cap4PicoF => ExtalCapSel::Sel4,
+                        Osc32KCapSel::Cap6PicoF => ExtalCapSel::Sel6,
+                        Osc32KCapSel::Cap8PicoF => ExtalCapSel::Sel8,
+                        Osc32KCapSel::Cap10PicoF => ExtalCapSel::Sel10,
+                        Osc32KCapSel::Cap12PicoF => ExtalCapSel::Sel12,
+                        Osc32KCapSel::Cap14PicoF => ExtalCapSel::Sel14,
+                        Osc32KCapSel::Cap16PicoF => ExtalCapSel::Sel16,
+                        Osc32KCapSel::Cap18PicoF => ExtalCapSel::Sel18,
+                        Osc32KCapSel::Cap20PicoF => ExtalCapSel::Sel20,
+                        Osc32KCapSel::Cap22PicoF => ExtalCapSel::Sel22,
+                        Osc32KCapSel::Cap24PicoF => ExtalCapSel::Sel24,
+                        Osc32KCapSel::Cap26PicoF => ExtalCapSel::Sel26,
+                        Osc32KCapSel::Cap28PicoF => ExtalCapSel::Sel28,
+                        Osc32KCapSel::Cap30PicoF => ExtalCapSel::Sel30,
                     });
                     w.set_coarse_amp_gain(match coarse_amp_gain {
-                        Osc32KCoarseGain::EsrRange0 => CoarseAmpGain::GAIN05,
-                        Osc32KCoarseGain::EsrRange1 => CoarseAmpGain::GAIN10,
-                        Osc32KCoarseGain::EsrRange2 => CoarseAmpGain::GAIN18,
-                        Osc32KCoarseGain::EsrRange3 => CoarseAmpGain::GAIN33,
+                        Osc32KCoarseGain::EsrRange0 => CoarseAmpGain::Gain05,
+                        Osc32KCoarseGain::EsrRange1 => CoarseAmpGain::Gain10,
+                        Osc32KCoarseGain::EsrRange2 => CoarseAmpGain::Gain18,
+                        Osc32KCoarseGain::EsrRange3 => CoarseAmpGain::Gain33,
                     });
-                    w.set_mode_en(ModeEn::HP);
+                    w.set_mode_en(ModeEn::Hp);
                     w.set_cap_sel_en(true);
                     w.set_osc_en(true);
                 });
 
                 // 2. Wait for STATUSA[OSC_RDY] to become 1.
-                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::SET {}
+                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::Set {}
 
                 // 3. Write 1h to OSCLCKA[LOCK].
                 self.vbat0.osclcka().modify(|w| w.set_lock(true));
 
                 // 4. Write 0h to OSCCTLA[EXTAL_CAP_SEL] and 0h to OSCCTLA[XTAL_CAP_SEL].
                 self.vbat0.oscctla().modify(|w| {
-                    w.set_xtal_cap_sel(XtalCapSel::SEL0);
-                    w.set_extal_cap_sel(ExtalCapSel::SEL0);
+                    w.set_xtal_cap_sel(XtalCapSel::Sel0);
+                    w.set_extal_cap_sel(ExtalCapSel::Sel0);
                 });
 
                 // 5. Alter OSCCLKE[CLKE] to clock gate different OSC32K outputs to different peripherals to reduce power consumption.
@@ -588,7 +588,7 @@ impl ClockOperator<'_> {
                 //
                 // 1. Write 3h to OSCCFGA[INIT_TRIM].
                 //   * NOTE(AJM): This is "1 second"?
-                self.vbat0.osccfga().modify(|w| w.set_init_trim(InitTrim::SEL3));
+                self.vbat0.osccfga().modify(|w| w.set_init_trim(InitTrim::Sel3));
 
                 // 2. Configure OSCCTLA[EXTAL_CAP_SEL], OSCCTLA[XTAL_CAP_SEL] and OSCCTLA[COARSE_AMP_GAIN] as
                 // required based on the external crystal component ESR and CL values, and by the PCB parasitics on the EXTAL32K and
@@ -598,14 +598,14 @@ impl ClockOperator<'_> {
                 self.vbat0.oscctla().modify(|w| {
                     // TODO(AJM): Do we need to set these to reasonable values during the "startup" phase, and THEN
                     // restore them to 0? RM is very unclear here.
-                    w.set_xtal_cap_sel(XtalCapSel::SEL0);
-                    w.set_extal_cap_sel(ExtalCapSel::SEL0);
+                    w.set_xtal_cap_sel(XtalCapSel::Sel0);
+                    w.set_extal_cap_sel(ExtalCapSel::Sel0);
 
                     w.set_coarse_amp_gain(match coarse_amp_gain {
-                        Osc32KCoarseGain::EsrRange0 => CoarseAmpGain::GAIN05,
-                        Osc32KCoarseGain::EsrRange1 => CoarseAmpGain::GAIN10,
-                        Osc32KCoarseGain::EsrRange2 => CoarseAmpGain::GAIN18,
-                        Osc32KCoarseGain::EsrRange3 => CoarseAmpGain::GAIN33,
+                        Osc32KCoarseGain::EsrRange0 => CoarseAmpGain::Gain05,
+                        Osc32KCoarseGain::EsrRange1 => CoarseAmpGain::Gain10,
+                        Osc32KCoarseGain::EsrRange2 => CoarseAmpGain::Gain18,
+                        Osc32KCoarseGain::EsrRange3 => CoarseAmpGain::Gain33,
                     });
 
                     // TODO: This naming is bad
@@ -620,32 +620,32 @@ impl ClockOperator<'_> {
                     //     SW = 0x03,
                     // }
 
-                    w.set_mode_en(ModeEn::LP);
+                    w.set_mode_en(ModeEn::Lp);
                     w.set_cap_sel_en(true);
                     w.set_osc_en(true);
                 });
 
                 // 3. Wait for STATUSA[OSC_RDY] to become 1.
-                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::SET {}
+                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::Set {}
 
                 // 4. Write 0h to OSCCFGA[INIT_TRIM].
-                self.vbat0.osccfga().modify(|w| w.set_init_trim(InitTrim::SEL0));
+                self.vbat0.osccfga().modify(|w| w.set_init_trim(InitTrim::Sel0));
 
                 // 5. Configure 3h to OSCCTLA[MODE_EN], 0h to OSCCTLA[EXTAL_CAP_SEL] and 0h to OSCCTLA[XTAL_CAP_SEL].
                 // Configure OSCCTLA[SUPPLY_DET] as required by application.
                 self.vbat0.oscctla().modify(|w| {
-                    w.set_mode_en(ModeEn::SW);
-                    w.set_xtal_cap_sel(XtalCapSel::SEL0);
-                    w.set_extal_cap_sel(ExtalCapSel::SEL0);
+                    w.set_mode_en(ModeEn::Sw);
+                    w.set_xtal_cap_sel(XtalCapSel::Sel0);
+                    w.set_extal_cap_sel(ExtalCapSel::Sel0);
                     w.set_supply_det(if *vbat_exceeds_3v0 {
-                        SupplyDet::G3VSUPPLY
+                        SupplyDet::G3vsupply
                     } else {
-                        SupplyDet::L3VSUPPLY
+                        SupplyDet::L3vsupply
                     });
                 });
 
                 // 6. Wait for STATUSA[OSC_RDY] to become 1.
-                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::SET {}
+                while self.vbat0.statusa().read().osc_rdy() != StatusaOscRdy::Set {}
 
                 // 7. Alter OSCCLKE[CLKE] to clock gate different OSC32K outputs to different peripherals to reduce power consumption.
                 const ENABLED: Option<Clock> = Some(Clock {

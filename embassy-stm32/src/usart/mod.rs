@@ -4,7 +4,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
@@ -14,6 +14,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::future::{Either, select};
 
 use crate::Peri;
+use crate::atomic::{AtomicClear, AtomicDecrement, AtomicModify};
 use crate::dma::ChannelAndRequest;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
@@ -29,7 +30,7 @@ use crate::time::Hertz;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -137,6 +138,12 @@ pub enum HalfDuplexReadback {
 pub enum OutputConfig {
     /// Push pull allows for faster baudrates, no internal pullup
     PushPull,
+    #[cfg(not(gpio_v1))]
+    /// Push pull output with internal pull down resistor (half-duplex idle low)
+    PushPullPullDown,
+    #[cfg(not(gpio_v1))]
+    /// Push pull output with internal pull up resistor (half-duplex idle high)
+    PushPullPullUp,
     /// Open drain output (external pull up needed)
     OpenDrain,
     #[cfg(not(gpio_v1))]
@@ -148,6 +155,10 @@ impl OutputConfig {
     const fn af_type(self) -> AfType {
         match self {
             OutputConfig::PushPull => AfType::output(OutputType::PushPull, Speed::Medium),
+            #[cfg(not(gpio_v1))]
+            OutputConfig::PushPullPullDown => AfType::output_pull(OutputType::PushPull, Speed::Medium, Pull::Down),
+            #[cfg(not(gpio_v1))]
+            OutputConfig::PushPullPullUp => AfType::output_pull(OutputType::PushPull, Speed::Medium, Pull::Up),
             OutputConfig::OpenDrain => AfType::output(OutputType::OpenDrain, Speed::Medium),
             #[cfg(not(gpio_v1))]
             OutputConfig::OpenDrainPullUp => AfType::output_pull(OutputType::OpenDrain, Speed::Medium, Pull::Up),
@@ -191,6 +202,8 @@ pub enum ConfigError {
     /// DE deassertion time too high
     #[cfg(not(any(usart_v1, usart_v2)))]
     DeDeassertionTimeTooHigh,
+    /// IrDA not compatible with half duplex
+    IrDAHalfDuplexInvalid,
 }
 
 #[non_exhaustive]
@@ -244,6 +257,9 @@ pub struct Config {
     /// Set this to true to invert RX pin signal values (V<sub>DD</sub> = 0/mark, Gnd = 1/idle).
     #[cfg(any(usart_v3, usart_v4))]
     pub invert_rx: bool,
+
+    /// Set this to true to enable the IrDA mode register
+    pub irda_enable: bool,
 
     /// Set the pull configuration for the RX pin.
     pub rx_pull: Pull,
@@ -316,6 +332,7 @@ impl Default for Config {
             invert_tx: false,
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
+            irda_enable: false,
             rx_pull: Pull::None,
             cts_pull: Pull::None,
             tx_config: OutputConfig::PushPull,
@@ -410,7 +427,7 @@ pub struct UartTx<'d, M: Mode> {
     _de: Option<Flex<'d>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     duplex: Duplex,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
 }
 
 impl<'d, M: Mode> SetConfig for UartTx<'d, M> {
@@ -461,7 +478,7 @@ pub struct UartRx<'d, M: Mode> {
     detect_previous_overrun: bool,
     #[cfg(any(usart_v1, usart_v2))]
     buffered_sr: regs::Sr,
-    _phantom: PhantomData<M>,
+    _marker: PhantomData<M>,
 }
 
 impl<'d, M: Mode> SetConfig for UartRx<'d, M> {
@@ -508,17 +525,44 @@ impl<'d> UartTx<'d, Async> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         let r = self.info.regs;
+        let half_duplex = r.cr3().read().hdsel();
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
 
+        // Discard any TC completion latched from a *previous* transmission
+        // (e.g. by the ring-buffered receiver's idle polling, which clears the
+        // ISR and latches TC into `tc_flag`). A stale latch here would make a
+        // subsequent `flush()` return while this transmission is still in
+        // flight — in half-duplex mode that re-enables the receiver mid-write
+        // and echoes the transmitted data.
+        self.state.tc_flag.clear();
+
         let ch = self.tx_dma.as_mut().unwrap();
-        r.cr3().modify(|reg| {
+        r.cr3().set_bits(|reg| {
             reg.set_dmat(true);
         });
         // If we don't assign future to a variable, the data register pointer
         // is held across an await and makes the future non-Send.
         let transfer = unsafe { ch.write(buffer, tdr(r), Default::default()) };
         transfer.await;
+
+        if half_duplex {
+            // A concurrently running reader (e.g. a long-lived task parked in
+            // `RingBufferedUartRx::wait_for_data_or_idle`) has no way to
+            // notice that `RE` was just cleared for this write: the receiver
+            // only gets re-enabled at the top of a *new* `read()` call, and a
+            // task already parked inside one will never make it. Restore the
+            // receiver here instead of leaving it to the other side. Flush
+            // first so the last byte(s) have actually left the shift register
+            // before RE comes back, otherwise the tail of this transmission
+            // gets read back as incoming data.
+            flush(&self.info, &self.state).await?;
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
+        }
+
         Ok(())
     }
 
@@ -576,7 +620,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
             _de: None,
             tx_dma,
             duplex: config.duplex,
-            _phantom: PhantomData,
+            _marker: PhantomData,
         };
         this.enable_and_configure(&config)?;
         Ok(this)
@@ -619,13 +663,28 @@ impl<'d, M: Mode> UartTx<'d, M> {
     /// Perform a blocking UART write
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let r = self.info.regs;
+        let half_duplex = r.cr3().read().hdsel();
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
+
+        // See `write`: discard a TC latch left over from a previous transmission.
+        self.state.tc_flag.clear();
 
         for &b in buffer {
             while !sr(r).read().txe() {}
             unsafe { tdr(r).write_volatile(b) };
         }
+
+        if half_duplex {
+            // See `write`: restore the receiver ourselves rather than leaving
+            // it to a reader that may already be parked waiting for data.
+            blocking_flush(self.info)?;
+            r.cr1().modify(|reg| {
+                reg.set_re(true);
+                reg.set_te(false);
+            });
+        }
+
         Ok(())
     }
 
@@ -649,7 +708,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
 async fn flush(info: &Info, state: &State) -> Result<(), Error> {
     let r = info.regs;
     if r.cr1().read().te() && !sr(r).read().tc() {
-        r.cr1().modify(|w| {
+        r.cr1().set_bits(|w| {
             // enable Transmission Complete interrupt
             w.set_tcie(true);
         });
@@ -661,7 +720,7 @@ async fn flush(info: &Info, state: &State) -> Result<(), Error> {
             state.tx_waker.register(cx.waker());
 
             let sr = sr(r).read();
-            if sr.tc() {
+            if sr.tc() || state.tc_flag.clear() {
                 // Transmission complete detected
                 return Poll::Ready(());
             }
@@ -694,7 +753,7 @@ pub fn send_break(regs: &Regs) {
 
     // Send break right after completing the current character transmission
     #[cfg(any(usart_v1, usart_v2))]
-    regs.cr1().modify(|w| w.set_sbk(true));
+    regs.cr1().set_bits(|w| w.set_sbk(true));
     #[cfg(any(usart_v3, usart_v4))]
     regs.rqr().write(|w| w.set_sbkrq(true));
 }
@@ -775,8 +834,11 @@ impl<'d> UartRx<'d, Async> {
             flush(&self.info, &self.state).await?;
 
             // Disable Transmitter and enable Receiver after flush
-            r.cr1().modify(|reg| {
+            r.cr1().set_bits(|reg| {
                 reg.set_re(true);
+            });
+
+            r.cr1().clear_bits(|reg| {
                 reg.set_te(false);
             });
         }
@@ -784,7 +846,7 @@ impl<'d> UartRx<'d, Async> {
         // make sure USART state is restored to neutral state when this future is dropped
         let on_drop = OnDrop::new(move || {
             // clear all interrupts and DMA Rx Request
-            r.cr1().modify(|w| {
+            r.cr1().clear_bits(|w| {
                 // disable RXNE interrupt
                 w.set_rxneie(false);
                 // disable parity interrupt
@@ -792,7 +854,7 @@ impl<'d> UartRx<'d, Async> {
                 // disable idle line interrupt
                 w.set_idleie(false);
             });
-            r.cr3().modify(|w| {
+            r.cr3().clear_bits(|w| {
                 // disable Error Interrupt: (Frame error, Noise error, Overrun error)
                 w.set_eie(false);
                 // disable DMA Rx Request
@@ -817,14 +879,18 @@ impl<'d> UartRx<'d, Async> {
             clear_interrupt_flags(r, sr);
         }
 
-        r.cr1().modify(|w| {
+        r.cr1().clear_bits(|w| {
             // disable RXNE interrupt
             w.set_rxneie(false);
-            // enable parity interrupt if not ParityNone
-            w.set_peie(w.pce());
         });
 
-        r.cr3().modify(|w| {
+        let pce = r.cr1().read().pce();
+        r.cr1().set_bits(|w| {
+            // enable parity interrupt if not ParityNone
+            w.set_peie(pce);
+        });
+
+        r.cr3().set_bits(|w| {
             // enable Error Interrupt: (Frame error, Noise error, Overrun error)
             w.set_eie(true);
             // enable DMA Rx Request
@@ -874,7 +940,7 @@ impl<'d> UartRx<'d, Async> {
             clear_interrupt_flags(r, sr);
 
             // enable idle interrupt
-            r.cr1().modify(|w| {
+            r.cr1().set_bits(|w| {
                 w.set_idleie(true);
             });
         }
@@ -894,7 +960,7 @@ impl<'d> UartRx<'d, Async> {
 
             if enable_idle_line_detection {
                 // enable idle interrupt
-                r.cr1().modify(|w| {
+                r.cr1().set_bits(|w| {
                     w.set_idleie(true);
                 });
             }
@@ -1007,7 +1073,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         config: Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
-            _phantom: PhantomData,
+            _marker: PhantomData,
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
@@ -1124,8 +1190,11 @@ impl<'d, M: Mode> UartRx<'d, M> {
             blocking_flush(self.info)?;
 
             // Disable Transmitter and enable Receiver after flush
-            r.cr1().modify(|reg| {
+            r.cr1().set_bits(|reg| {
                 reg.set_re(true);
+            });
+
+            r.cr1().clear_bits(|reg| {
                 reg.set_te(false);
             });
         }
@@ -1156,14 +1225,7 @@ impl<'d, M: Mode> Drop for UartRx<'d, M> {
 }
 
 fn drop_tx_rx(info: &Info, state: &State) {
-    // We cannot use atomic subtraction here, because it's not supported for all targets
-    let is_last_drop = critical_section::with(|_| {
-        let refcount = state.tx_rx_refcount.load(Ordering::Relaxed);
-        assert!(refcount >= 1);
-        state.tx_rx_refcount.store(refcount - 1, Ordering::Relaxed);
-        refcount == 1
-    });
-    if is_last_drop {
+    if state.tx_rx_refcount.decrement() == 1 {
         info.rcc.disable();
     }
 }
@@ -1505,9 +1567,15 @@ impl<'d, M: Mode> Uart<'d, M> {
         let state = T::state();
         let kernel_clock = T::frequency();
 
+        // Make sure we assign the correct pins to the correct instance.
+        // Otherwise, the USART stops working if we drop one half of the
+        // tuple returned by self.split().
+        #[cfg(any(usart_v3, usart_v4))]
+        let (rx, tx) = if config.swap_rx_tx { (tx, rx) } else { (rx, tx) };
+
         let mut this = Self {
             tx: UartTx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 info,
                 state,
                 kernel_clock,
@@ -1518,7 +1586,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 duplex: config.duplex,
             },
             rx: UartRx {
-                _phantom: PhantomData,
+                _marker: PhantomData,
                 info,
                 state,
                 kernel_clock,
@@ -1769,6 +1837,18 @@ fn configure(
         return Err(ConfigError::RxOrTxNotEnabled);
     }
 
+    // The `duplex` config field is private and defaults to `Full`, so a user-supplied
+    // `Config` passed to `set_config`/`reconfigure` cannot express half-duplex. Combine
+    // the requested config with the current hardware HDSEL state so that reconfiguring a
+    // half-duplex peripheral (e.g. to change baudrate) does not silently revert it to
+    // full-duplex. On initial setup the peripheral has just been reset, so HDSEL is clear
+    // and the config value alone decides.
+    let half_duplex = config.duplex.is_half() || r.cr3().read().hdsel();
+
+    if config.irda_enable && half_duplex {
+        return Err(ConfigError::IrDAHalfDuplexInvalid);
+    }
+
     #[cfg(not(any(usart_v1, usart_v2)))]
     let dem = r.cr3().read().dem();
 
@@ -1797,6 +1877,11 @@ fn configure(
             StopBits::STOP2 => vals::Stop::Stop2,
         });
 
+        if config.irda_enable {
+            w.set_clken(false);
+            w.set_linen(false);
+        }
+
         #[cfg(any(usart_v3, usart_v4))]
         {
             w.set_txinv(config.invert_tx);
@@ -1808,14 +1893,19 @@ fn configure(
     r.cr3().modify(|w| {
         #[cfg(not(usart_v1))]
         w.set_onebit(config.assume_noise_free);
-        w.set_hdsel(config.duplex.is_half());
+        w.set_hdsel(half_duplex);
+
+        if config.irda_enable {
+            w.set_scen(false);
+            w.set_iren(true);
+        }
     });
 
     let mut w: crate::pac::usart::regs::Cr1 = Default::default();
     // enable uart
     w.set_ue(true);
 
-    if config.duplex.is_half() {
+    if half_duplex {
         // The te and re bits will be set by write, read and flush methods.
         // Receiver should be enabled by default for Half-Duplex.
         w.set_te(false);
@@ -1835,9 +1925,9 @@ fn configure(
             config.de_assertion_time
         });
         w.set_dedt(if over8 {
-            config.de_assertion_time / 2
+            config.de_deassertion_time / 2
         } else {
-            config.de_assertion_time
+            config.de_deassertion_time
         });
     }
 
@@ -2123,6 +2213,7 @@ enum Kind {
 struct State {
     rx_waker: AtomicWaker,
     tx_waker: AtomicWaker,
+    tc_flag: AtomicBool,
     tx_rx_refcount: AtomicU8,
     eager_reads: AtomicUsize,
 }
@@ -2132,6 +2223,7 @@ impl State {
         Self {
             rx_waker: AtomicWaker::new(),
             tx_waker: AtomicWaker::new(),
+            tc_flag: AtomicBool::new(false),
             tx_rx_refcount: AtomicU8::new(0),
             eager_reads: AtomicUsize::new(0),
         }

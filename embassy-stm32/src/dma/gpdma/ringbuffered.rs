@@ -7,7 +7,8 @@ use core::sync::atomic::{Ordering, fence};
 use core::task::Waker;
 
 use super::{Channel, STATE, TransferOptions};
-use crate::dma::gpdma::linked_list::{RunMode, Table};
+use crate::_generated::ringbuffer_table;
+use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
 use crate::dma::{Dir, Request};
@@ -85,38 +86,61 @@ pub struct ReadableRingBuffer<'a, W: Word> {
     channel: Channel<'a>,
     _wake_guard: WakeGuard,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
-    table: Table<1>,
-    options: TransferOptions,
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     ///
     /// Transfer options are applied to the individual linked list items.
-    pub unsafe fn new(
-        channel: Channel<'a>,
+    /// Half-transfer and transfer-complete IRQs are always enabled (same as BDMA ring
+    /// buffers) so async `read_exact` / `write_exact` can wake at half-buffer boundaries.
+    pub unsafe fn new<PW: Word>(
+        mut channel: Channel<'a>,
         request: Request,
-        peri_addr: *mut W,
+        peri_addr: *mut PW,
         buffer: &'a mut [W],
-        options: TransferOptions,
+        mut options: TransferOptions,
     ) -> Self {
-        let table = Table::<1>::new_circular::<W>(request, peri_addr, buffer, Dir::PeripheralToMemory);
+        options.half_transfer_ir = true;
+        options.complete_transfer_ir = true;
+
+        let table = ringbuffer_table(channel.channel).write(Table::<LinearItem, 1>::new_circular::<W, PW>(
+            request,
+            peri_addr,
+            buffer,
+            Dir::PeripheralToMemory,
+            Default::default(),
+        ));
+
+        unsafe {
+            channel.configure_linked_list_raw(
+                table.base_address(),
+                table.offset_address(0),
+                1,
+                table.transfer_count(),
+                options,
+                false,
+            );
+        }
+
+        table.link(RunMode::Circular);
+
+        DmaCtrlImpl::new(channel.reborrow()).reset_complete_count();
 
         Self {
             _wake_guard: channel.info().wake_guard(),
             channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
-            table,
-            options,
         }
     }
 
     /// Start the ring buffer operation.
+    ///
+    /// You must call this after creating it for it to work.
+    ///
+    /// It starts the channel and makes it run, even if earlier it was suspended (paused).
     pub fn start(&mut self) {
-        // Apply the default configuration to the channel.
-        unsafe { self.channel.configure_linked_list(&self.table, self.options) };
-        self.table.link(RunMode::Circular);
-        self.channel.start();
+        self.channel.request_resume(); // clear SUSP if previously paused
     }
 
     /// Set the frame alignment for the ring buffer.
@@ -202,8 +226,10 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
     /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
+    ///
+    /// Additionally reset causes the channel to unsuspend (resume).
     pub fn request_reset(&mut self) {
-        self.channel.request_reset()
+        self.channel.request_reset();
     }
 
     /// Return whether this transfer is still running.
@@ -233,7 +259,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
 
 impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
     fn drop(&mut self) {
-        self.request_pause();
+        self.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
@@ -246,39 +272,61 @@ pub struct WritableRingBuffer<'a, W: Word> {
     channel: Channel<'a>,
     _wake_guard: WakeGuard,
     ringbuf: WritableDmaRingBuffer<'a, W>,
-    table: Table<1>,
-    options: TransferOptions,
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     ///
     /// Transfer options are applied to the individual linked list items.
-    pub unsafe fn new(
-        channel: Channel<'a>,
+    /// Half-transfer and transfer-complete IRQs are always enabled (same as BDMA ring
+    /// buffers) so async `read_exact` / `write_exact` can wake at half-buffer boundaries.
+    pub unsafe fn new<PW: Word>(
+        mut channel: Channel<'a>,
         request: Request,
-        peri_addr: *mut W,
+        peri_addr: *mut PW,
         buffer: &'a mut [W],
-        options: TransferOptions,
+        mut options: TransferOptions,
     ) -> Self {
-        let table = Table::<1>::new_circular::<W>(request, peri_addr, buffer, Dir::MemoryToPeripheral);
+        options.half_transfer_ir = true;
+        options.complete_transfer_ir = true;
+
+        let table = ringbuffer_table(channel.channel).write(Table::<LinearItem, 1>::new_circular::<W, PW>(
+            request,
+            peri_addr,
+            buffer,
+            Dir::MemoryToPeripheral,
+            Default::default(),
+        ));
+
+        unsafe {
+            channel.configure_linked_list_raw(
+                table.base_address(),
+                table.offset_address(0),
+                1,
+                table.transfer_count(),
+                options,
+                false,
+            );
+        }
+
+        table.link(RunMode::Circular);
+
+        DmaCtrlImpl::new(channel.reborrow()).reset_complete_count();
 
         Self {
             _wake_guard: channel.info().wake_guard(),
             channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
-            table,
-            options,
         }
     }
 
     /// Start the ring buffer operation.
+    ///
+    /// You must call this after creating it for it to work.
+    ///
+    /// It starts the channel and makes it run, even if earlier it was suspended (paused).
     pub fn start(&mut self) {
-        // Apply the default configuration to the channel.
-        unsafe { self.channel.configure_linked_list(&self.table, self.options) };
-        self.table.link(RunMode::Circular);
-
-        self.channel.start();
+        self.channel.request_resume(); // clear SUSP if previously paused
     }
 
     /// Clear all data in the ring buffer.
@@ -353,7 +401,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
     /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     pub fn request_reset(&mut self) {
-        self.channel.request_reset()
+        self.channel.request_reset();
     }
 
     /// Return whether DMA is still running.
@@ -385,7 +433,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
 impl<'a, W: Word> Drop for WritableRingBuffer<'a, W> {
     fn drop(&mut self) {
-        self.request_pause();
+        self.request_reset();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."

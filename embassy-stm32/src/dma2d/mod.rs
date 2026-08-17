@@ -572,7 +572,7 @@ impl<'d, T: Instance> Dma2d<'d, T> {
 
 /// DMA2D interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {

@@ -5,6 +5,7 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::PIO0;
@@ -12,8 +13,8 @@ use embassy_rp::pio::program::pio_asm;
 use embassy_rp::{Peri, bind_interrupts, pio};
 use embassy_time::Timer;
 use fixed::traits::ToFixed;
+use panic_probe as _;
 use pio::{Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftDirection, StateMachine};
-use {defmt_rtt as _, panic_probe as _};
 
 // Program metadata for `picotool info`
 #[unsafe(link_section = ".bi_entries")]
@@ -98,7 +99,7 @@ pub enum Direction {
     CounterClockwise,
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);

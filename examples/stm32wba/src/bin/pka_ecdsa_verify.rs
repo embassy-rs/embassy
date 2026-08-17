@@ -20,13 +20,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::pka::{EcdsaCurveParams, EcdsaPublicKey, EcdsaSignature, Pka};
 use embassy_stm32::rcc::{
     AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
 };
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{Config, bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     PKA => embassy_stm32::pka::InterruptHandler<peripherals::PKA>;
@@ -113,7 +114,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // Verify the signature
     info!("Verifying signature...");
-    match pka.ecdsa_verify(&curve, &public_key, &signature, &message_hash) {
+    match pka.ecdsa_verify_blocking(&curve, &public_key, &signature, &message_hash) {
         Ok(true) => {
             info!("Signature is VALID");
         }
@@ -135,7 +136,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         s: &sig_s,
     };
 
-    match pka.ecdsa_verify(&curve, &public_key, &tampered_signature, &message_hash) {
+    match pka.ecdsa_verify_blocking(&curve, &public_key, &tampered_signature, &message_hash) {
         Ok(true) => {
             error!("Tampered signature incorrectly verified as VALID!");
         }

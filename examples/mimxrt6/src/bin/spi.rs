@@ -2,13 +2,15 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::flexcomm::spi::Spi;
 use embassy_imxrt::gpio;
+use embassy_imxrt_examples as _;
 use embassy_time::{Delay, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use is31fl3743b_driver::{CSy, Is31fl3743b, SWx};
-use {defmt_rtt as _, embassy_imxrt_examples as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

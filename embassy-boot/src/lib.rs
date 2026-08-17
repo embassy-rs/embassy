@@ -87,6 +87,8 @@ impl<const N: usize> AsMut<[u8]> for AlignedBuffer<N> {
 mod tests {
     #![allow(unused_imports)]
 
+    extern crate std;
+
     use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
     use embedded_storage_async::nor_flash::NorFlash as AsyncNorFlash;
     use futures::executor::block_on;
@@ -135,6 +137,17 @@ mod tests {
     #[test]
     #[cfg(not(feature = "_verify"))]
     fn test_swap_state() {
+        // The flashes and buffers used here are large, run on a thread with a bigger stack.
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(test_swap_state_inner)
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(not(feature = "_verify"))]
+    fn test_swap_state_inner() {
         const FIRMWARE_SIZE: usize = 57344;
         let flash = AsyncTestFlash::new(BootLoaderConfig {
             active: MemFlash::<FIRMWARE_SIZE, 4096, 4>::default(),

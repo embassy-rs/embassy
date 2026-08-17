@@ -1,13 +1,15 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::i2c::target::{self, InterruptHandler};
 use hal::peripherals::LPI2C3;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     struct Irqs {
@@ -33,7 +35,7 @@ async fn main(_spawner: Spawner) {
     // config.address = target::Address::Range(0x20..0x30);
 
     let mut target =
-        target::I2c::new_async_with_dma(p.LPI2C3, p.P3_27, p.P3_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, config).unwrap();
+        target::I2c::new_async_with_dma(p.LPI2C3, p.P3_21, p.P3_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, config).unwrap();
     let mut buf = [0u8; 256];
 
     loop {
@@ -42,11 +44,21 @@ async fn main(_spawner: Spawner) {
         match request {
             target::Request::Read(_addr) => {
                 buf.fill(0x55);
-                let count = target.async_respond_to_read(&buf).await.unwrap();
+                let count = match target.async_respond_to_read(&buf).await.unwrap() {
+                    target::ReadStatus::Complete(n)
+                    | target::ReadStatus::NeedMore(n)
+                    | target::ReadStatus::EarlyStop(n) => n,
+                    _ => 0,
+                };
                 defmt::info!("T [R]: {:02x} -> {:02x}", _addr, buf[..count]);
             }
             target::Request::Write(_addr) => {
-                let count = target.async_respond_to_write(&mut buf).await.unwrap();
+                let count = match target.async_respond_to_write(&mut buf).await.unwrap() {
+                    target::WriteStatus::Stopped(n)
+                    | target::WriteStatus::Restarted(n)
+                    | target::WriteStatus::BufferFull(n) => n,
+                    _ => 0,
+                };
                 defmt::info!("T [W]: {:02x} <- {:02x}", _addr, buf[..count]);
             }
             _ => {}

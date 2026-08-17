@@ -3,11 +3,11 @@ use core::mem::MaybeUninit;
 use aligned::{A4, Aligned};
 use bit_field::BitField;
 
-use crate::cmd::{AclDataPacket, CmdPacket};
+use crate::wb::cmd::{AclDataPacket, CmdPacket};
 #[cfg(feature = "wb-mac")]
-use crate::consts::C_SIZE_CMD_STRING;
-use crate::consts::{POOL_SIZE, TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
-use crate::unsafe_linked_list::LinkedListNode;
+use crate::wb::consts::C_SIZE_CMD_STRING;
+use crate::wb::consts::{POOL_SIZE, TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
+use crate::wb::unsafe_linked_list::LinkedListNode;
 
 #[derive(Debug, Copy, Clone)]
 #[repr(C, packed)]
@@ -111,6 +111,7 @@ pub struct ThreadTable {
     pub nostack_buffer: *const u8,
     pub clicmdrsp_buffer: *const u8,
     pub otcmdrsp_buffer: *const u8,
+    pub clinot_buffer: *const u8,
 }
 
 #[derive(Debug)]
@@ -235,6 +236,7 @@ pub static mut TRACES_EVT_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Alig
 pub static mut CS_BUFFER: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE]>> =
     Aligned(MaybeUninit::zeroed());
 
+#[allow(dead_code)]
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut EVT_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::zeroed());
 
@@ -262,6 +264,7 @@ pub static mut SYS_CMD_BUF: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeU
 pub static mut SYS_SPARE_EVT_BUF: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]>> =
     Aligned(MaybeUninit::zeroed());
 
+#[allow(dead_code)]
 #[cfg(feature = "wb-mac")]
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut MAC_802_15_4_CNFINDNOT: Aligned<A4, MaybeUninit<[u8; C_SIZE_CMD_STRING]>> =
@@ -281,3 +284,22 @@ pub static mut BLE_SPARE_EVT_BUF: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_
 //                                                 fuck these "magic" numbers from ST ---v---v
 pub static mut HCI_ACL_DATA_BUFFER: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]>> =
     Aligned(MaybeUninit::zeroed());
+
+#[cfg(feature = "wb-thread")]
+#[unsafe(link_section = "MB_MEM2")]
+pub static mut THREAD_CMD_BUFFER: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::zeroed());
+
+#[cfg(feature = "wb-thread")]
+#[unsafe(link_section = "MB_MEM2")]
+pub static mut THREAD_NOTIF_RSP_EVT_BUFFER: Aligned<
+    A4,
+    MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]>,
+> = Aligned(MaybeUninit::zeroed());
+
+#[cfg(feature = "wb-thread")]
+#[unsafe(link_section = "MB_MEM2")]
+pub static mut THREAD_CLI_CMD_BUFFER: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::zeroed());
+
+#[cfg(feature = "wb-thread")]
+#[unsafe(link_section = "MB_MEM2")]
+pub static mut THREAD_CLI_NOT_BUFFER: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::zeroed());

@@ -2,9 +2,10 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::dac::{DacChannel, Value};
-use {defmt_rtt as _, panic_probe as _};
+use embassy_stm32::dac::DacChannel;
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -15,7 +16,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     loop {
         for v in 0..=255 {
-            dac.set(Value::Bit8(to_sine_wave(v)));
+            dac.set(to_sine_wave(v));
         }
     }
 }

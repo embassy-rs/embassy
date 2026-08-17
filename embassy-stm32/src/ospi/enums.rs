@@ -120,6 +120,25 @@ impl Into<u8> for MemoryType {
     }
 }
 
+/// HyperBus latency mode (OCTOSPI_HLCR.LM).
+#[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum HyperbusLatencyMode {
+    /// Variable initial latency.
+    Variable,
+    /// Fixed latency (twice the access time).
+    Fixed,
+}
+
+impl Into<u8> for HyperbusLatencyMode {
+    fn into(self) -> u8 {
+        match self {
+            HyperbusLatencyMode::Variable => 0,
+            HyperbusLatencyMode::Fixed => 1,
+        }
+    }
+}
+
 /// Ospi memory size.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]

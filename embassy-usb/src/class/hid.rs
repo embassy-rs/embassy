@@ -334,18 +334,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     /// Writes `report` to its interrupt endpoint.
     pub async fn write(&mut self, report: &[u8]) -> Result<(), EndpointError> {
         assert!(report.len() <= N);
-
-        let max_packet_size = usize::from(self.ep_in.info().max_packet_size);
-        let zlp_needed = report.len() < N && (report.len() % max_packet_size == 0);
-        for chunk in report.chunks(max_packet_size) {
-            self.ep_in.write(chunk).await?;
-        }
-
-        if zlp_needed {
-            self.ep_in.write(&[]).await?;
-        }
-
-        Ok(())
+        self.ep_in.write_transfer(report, report.len() < N).await
     }
 }
 

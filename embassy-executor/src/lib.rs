@@ -10,6 +10,12 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+// `#[macro_use]` so the platform modules can invoke the generated `pender_impl!` macro by its
+// bare name: macro-expanded `#[macro_export]` macros can't be invoked via `crate::` paths from
+// within the defining crate itself (rust-lang/rust#52234).
+#[macro_use]
+pub mod pender;
+
 pub use embassy_executor_macros::task;
 
 macro_rules! check_at_most_one {
@@ -28,7 +34,9 @@ check_at_most_one!(
     "platform-avr",
     "platform-cortex-m",
     "platform-cortex-ar",
+    "platform-z7",
     "platform-riscv32",
+    "platform-riscv64",
     "platform-std",
     "platform-wasm",
     "platform-spin",
@@ -38,7 +46,9 @@ check_at_most_one!(
 #[cfg_attr(feature = "platform-avr", path = "platform/avr.rs")]
 #[cfg_attr(feature = "platform-cortex-m", path = "platform/cortex_m.rs")]
 #[cfg_attr(feature = "platform-cortex-ar", path = "platform/cortex_ar.rs")]
-#[cfg_attr(feature = "platform-riscv32", path = "platform/riscv32.rs")]
+#[cfg_attr(feature = "platform-riscv32", path = "platform/riscv.rs")]
+#[cfg_attr(feature = "platform-riscv64", path = "platform/riscv.rs")]
+#[cfg_attr(feature = "platform-z7", path = "platform/z7.rs")]
 #[cfg_attr(feature = "platform-std", path = "platform/std.rs")]
 #[cfg_attr(feature = "platform-wasm", path = "platform/wasm.rs")]
 #[cfg_attr(feature = "platform-spin", path = "platform/spin.rs")]

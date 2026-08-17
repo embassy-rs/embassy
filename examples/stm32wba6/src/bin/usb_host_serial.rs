@@ -5,12 +5,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb_host::class::cdc_acm::{CdcAcmHost, LineCoding};
 use embassy_usb_host::{BusRoute, BusState};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USB_OTG_HS => usb::HostInterruptHandler<peripherals::USB_OTG_HS>;
@@ -32,16 +33,7 @@ async fn main(_spawner: Spawner) {
             divp: Some(PllDiv::Div30), // PLLP = 30 → 16 MHz (USB_OTG_HS)
             frac: Some(0),
         });
-
-        config.rcc.ahb_pre = AHBPrescaler::Div1;
-        config.rcc.apb1_pre = APBPrescaler::Div1;
-        config.rcc.apb2_pre = APBPrescaler::Div1;
-        config.rcc.apb7_pre = APBPrescaler::Div1;
-        config.rcc.ahb5_pre = AHB5Prescaler::Div4;
-
-        config.rcc.voltage_scale = VoltageScale::Range1;
         config.rcc.mux.otghssel = mux::Otghssel::Pll1P;
-        config.rcc.sys = Sysclk::Pll1R;
     }
     let p = embassy_stm32::init(config);
 

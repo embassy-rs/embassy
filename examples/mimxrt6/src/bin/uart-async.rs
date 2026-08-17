@@ -4,11 +4,12 @@
 extern crate embassy_imxrt_examples;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_imxrt::flexcomm::uart::{self, Async, Uart};
 use embassy_imxrt::{bind_interrupts, peripherals};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     FLEXCOMM2 => uart::InterruptHandler<peripherals::FLEXCOMM2>;

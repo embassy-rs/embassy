@@ -1,11 +1,14 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
+use embassy_time::Timer;
 use hal::peripherals::RTC0;
 use hal::rtc::{DateTime, InterruptHandler, Rtc};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     RTC => InterruptHandler<RTC0>;
@@ -33,10 +36,13 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Time set to: 2025-10-15 14:30:00");
     rtc.set_datetime(now);
 
-    let mut alarm = now;
-    alarm.second += 10;
+    defmt::info!("Wait for 15 seconds");
+    Timer::after_secs(15).await;
 
-    defmt::info!("Alarm set for: 2025-10-15 14:30:10 (+10 seconds)");
+    let mut alarm = now;
+    alarm.second += 20;
+
+    defmt::info!("Alarm set for: 2025-10-15 14:30:20 (+20 seconds)");
     defmt::info!("RTC started, waiting for alarm...");
 
     rtc.wait_for_alarm(alarm).await;

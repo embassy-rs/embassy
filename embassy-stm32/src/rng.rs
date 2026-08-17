@@ -14,6 +14,88 @@ use crate::{Peri, interrupt, pac, peripherals, rcc};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
+/// How many times [`next_u32`](Rng::next_u32) resets the RNG to clear a seed or
+/// clock error before giving up. A transient error clears on the first reset; an
+/// error that never clears (typically a misconfigured RNG clock) is a hard fault
+/// the infallible API surfaces by panicking, rather than spinning or recursing.
+const MAX_RESET_RETRIES: u32 = 3;
+
+#[cfg(not(rng_v1))]
+/// Health-test programming profile used during RNG conditioning reset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum HealthTestConfig {
+    /// Program the recommended threshold values from the reference manual.
+    Recommended,
+    /// Keep current HTCR values untouched.
+    KeepCurrent,
+}
+
+#[cfg(not(rng_v1))]
+/// RNG configuration knobs for reset/initialization policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct RngConfig {
+    /// NIST/custom conditioning mode selection.
+    pub nistc: pac::rng::vals::Nistc,
+    /// RNG clock divider before sampling.
+    pub clkdiv: pac::rng::vals::Clkdiv,
+    /// RNG configuration 1 profile.
+    pub rng_config1: pac::rng::vals::RngConfig1,
+    /// RNG configuration 2 profile.
+    pub rng_config2: pac::rng::vals::RngConfig2,
+    /// RNG configuration 3 profile.
+    pub rng_config3: pac::rng::vals::RngConfig3,
+    /// Enable clock error detector (CED bit, active-low semantics in HW).
+    pub clock_error_detector: bool,
+    /// Disable automatic reset on seed error when supported (ARDIS bit).
+    #[cfg(any(rng_v3, rng_wba6, rng_v4))]
+    pub auto_reset_disable: bool,
+    /// Lock RNG configuration after setup.
+    pub config_lock: bool,
+    /// Health-test threshold programming behavior.
+    pub health_test_config: HealthTestConfig,
+}
+
+#[cfg(not(rng_v1))]
+impl Default for RngConfig {
+    fn default() -> Self {
+        let rng_config1;
+        let rng_config2;
+        let rng_config3;
+        let clkdiv;
+
+        #[cfg(rng_v4)]
+        {
+            rng_config1 = pac::rng::vals::RngConfig1::ConfigAC;
+            rng_config2 = pac::rng::vals::RngConfig2::Recommended;
+            rng_config3 = pac::rng::vals::RngConfig3::Recommended;
+            clkdiv = pac::rng::vals::Clkdiv::Div25;
+        }
+
+        #[cfg(not(rng_v4))]
+        {
+            rng_config1 = pac::rng::vals::RngConfig1::ConfigA;
+            rng_config2 = pac::rng::vals::RngConfig2::ConfigAB;
+            rng_config3 = pac::rng::vals::RngConfig3::ConfigA;
+            clkdiv = pac::rng::vals::Clkdiv::NoDiv;
+        }
+
+        Self {
+            nistc: pac::rng::vals::Nistc::Custom,
+            clkdiv,
+            rng_config1,
+            rng_config2,
+            rng_config3,
+            clock_error_detector: true,
+            #[cfg(any(rng_v3, rng_wba6, rng_v4))]
+            auto_reset_disable: false,
+            config_lock: false,
+            health_test_config: HealthTestConfig::Recommended,
+        }
+    }
+}
+
 /// WBA-specific health test configuration values for RNG
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
@@ -45,7 +127,7 @@ pub enum Error {
 
 /// RNG interrupt handler.
 pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+    _marker: PhantomData<T>,
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
@@ -69,6 +151,28 @@ impl<'d, T: Instance> Rng<'d, T> {
         inner: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
+        #[cfg(rng_v1)]
+        {
+            Self::new_inner(inner)
+        }
+        #[cfg(not(rng_v1))]
+        {
+            Self::new_inner(inner, RngConfig::default())
+        }
+    }
+
+    #[cfg(not(rng_v1))]
+    /// Create a new RNG driver with explicit configuration policy.
+    pub fn new_with_config(
+        inner: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: RngConfig,
+    ) -> Self {
+        Self::new_inner(inner, config)
+    }
+
+    #[cfg(rng_v1)]
+    fn new_inner(inner: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         // Verify clock is available
@@ -76,6 +180,22 @@ impl<'d, T: Instance> Rng<'d, T> {
 
         let mut random = Self { _inner: inner };
         random.reset();
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        random
+    }
+
+    #[cfg(not(rng_v1))]
+    fn new_inner(inner: Peri<'d, T>, config: RngConfig) -> Self {
+        rcc::enable_and_reset::<T>();
+
+        // Verify clock is available
+        T::frequency();
+
+        let mut random = Self { _inner: inner };
+        random.reset_with_config(config);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -96,54 +216,75 @@ impl<'d, T: Instance> Rng<'d, T> {
         T::regs().cr().modify(|reg| {
             reg.set_rngen(true);
         });
-        // Reference manual says to discard the first.
-        let _ = self.next_u32();
+        // Reference manual says to discard the first word. Wait for it
+        // directly rather than via next_u32(), whose error handling calls
+        // reset(): a persistent clock/seed error would make the two recurse
+        // until the stack overflows.
+        self.discard_first_word();
     }
 
     /// Reset the RNG.
     #[cfg(not(rng_v1))]
     pub fn reset(&mut self) {
+        self.reset_with_config(RngConfig::default());
+    }
+
+    #[cfg(not(rng_v1))]
+    /// Reset the RNG with a caller-provided configuration policy.
+    pub fn reset_with_config(&mut self, config: RngConfig) {
         T::regs().cr().write(|reg| {
             reg.set_condrst(true);
-            reg.set_nistc(pac::rng::vals::Nistc::Custom);
+            reg.set_nistc(config.nistc);
             // set RNG config "A" according to reference manual
             // this has to be written within the same write access as setting the CONDRST bit
-            reg.set_rng_config1(pac::rng::vals::RngConfig1::ConfigA);
-            reg.set_clkdiv(pac::rng::vals::Clkdiv::NoDiv);
-            reg.set_rng_config2(pac::rng::vals::RngConfig2::ConfigAB);
-            reg.set_rng_config3(pac::rng::vals::RngConfig3::ConfigA);
-            reg.set_ced(true);
+            reg.set_rng_config1(config.rng_config1);
+            reg.set_clkdiv(config.clkdiv);
+            reg.set_rng_config2(config.rng_config2);
+            reg.set_rng_config3(config.rng_config3);
+            reg.set_ced(!config.clock_error_detector);
+            #[cfg(any(rng_v3, rng_wba6, rng_v4))]
+            reg.set_ardis(config.auto_reset_disable);
             reg.set_ie(false);
             reg.set_rngen(true);
         });
-        T::regs().cr().modify(|reg| {
-            reg.set_ced(false);
-        });
+
         // wait for CONDRST to be set
         while !T::regs().cr().read().condrst() {}
 
         // Set health test configuration values
-        #[cfg(not(rng_wba6))]
-        {
-            // magic number must be written immediately before every read or write access to HTCR
-            T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Magic));
-            // write recommended value according to reference manual
-            // note: HTCR can only be written during conditioning
-            T::regs()
-                .htcr()
-                .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Recommended));
-        }
-        #[cfg(rng_wba6)]
-        {
-            // For WBA6, set RNG_HTCR0 to the recommended value for configurations A, B, and C
-            // This value corresponds to the health test thresholds specified in the reference manual
-            T::regs().htcr(0).write(|w| w.0 = Htcfg::WbaRecommended.value());
+        match config.health_test_config {
+            HealthTestConfig::Recommended => {
+                #[cfg(not(any(rng_wba6, rng_v4)))]
+                {
+                    // magic number must be written immediately before every read or write access to HTCR
+                    T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Magic));
+                    // write recommended value according to reference manual
+                    // note: HTCR can only be written during conditioning
+                    T::regs()
+                        .htcr()
+                        .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Recommended));
+                }
+                #[cfg(rng_wba6)]
+                {
+                    // For WBA6, set RNG_HTCR0 to the recommended value for configurations A, B, and C
+                    // This value corresponds to the health test thresholds specified in the reference manual
+                    T::regs().htcr(0).write(|w| w.0 = Htcfg::WbaRecommended.value());
+                }
+                #[cfg(rng_v4)]
+                {
+                    T::regs()
+                        .htcr(0)
+                        .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Recommended));
+                }
+            }
+            HealthTestConfig::KeepCurrent => {}
         }
 
         // finish conditioning
         T::regs().cr().modify(|reg| {
             reg.set_rngen(true);
             reg.set_condrst(false);
+            reg.set_configlock(config.config_lock);
         });
 
         // According to reference manual for RNGv3: SEIS must be cleared manually.
@@ -152,9 +293,11 @@ impl<'d, T: Instance> Rng<'d, T> {
             reg.set_seis(false);
         });
 
-        // According to reference manual: after software reset, wait for random number to be ready
-        // The next_u32() call will wait for DRDY, completing the initialization
-        let _ = self.next_u32();
+        // According to reference manual: after software reset, wait for the
+        // first random number to be ready. Discard it directly rather than via
+        // next_u32(), whose error handling calls reset() and would recurse on a
+        // persistent clock/seed error.
+        self.discard_first_word();
     }
 
     /// Try to recover from a seed error.
@@ -226,15 +369,52 @@ impl<'d, T: Instance> Rng<'d, T> {
         Ok(())
     }
 
-    /// Get a random u32
-    pub fn next_u32(&mut self) -> u32 {
+    /// Spin until the RNG has a word ready or raises an error flag. Returns the
+    /// word, or `None` if a seed or clock error is pending.
+    ///
+    /// This never resets the RNG, so callers decide how to handle an error.
+    /// That matters for [`reset`](Self::reset), which discards its first word
+    /// through this: recovering here would call back into reset() and recurse.
+    fn poll_word(&mut self) -> Option<u32> {
         loop {
             let sr = T::regs().sr().read();
             if sr.seis() | sr.ceis() {
-                self.reset();
+                return None;
             } else if sr.drdy() {
-                return T::regs().dr().read();
+                return Some(T::regs().dr().read());
             }
+        }
+    }
+
+    /// Wait for the first random word after a reset and discard it, as the
+    /// reference manual requires. If the reset did not take (an error flag is
+    /// still set) the word is simply absent; leave the flag for the next
+    /// `next_u32`/`async_fill_bytes` call to observe and act on.
+    fn discard_first_word(&mut self) {
+        let _ = self.poll_word();
+    }
+
+    /// Get a random u32.
+    ///
+    /// This call is infallible: a seed or clock error is recovered by resetting
+    /// the RNG. If the error persists after `MAX_RESET_RETRIES` resets (almost
+    /// always a misconfigured RNG clock) it panics, since an infallible API has
+    /// no other way to surface the fault. Use [`async_fill_bytes`](Self::async_fill_bytes)
+    /// for a fallible path that returns [`Error`] instead.
+    pub fn next_u32(&mut self) -> u32 {
+        // Only resets are bounded, not poll iterations: a healthy RNG may take
+        // many reads to produce the first word, and that must not count as a
+        // failure.
+        let mut retries = 0;
+        loop {
+            if let Some(word) = self.poll_word() {
+                return word;
+            }
+            if retries >= MAX_RESET_RETRIES {
+                panic!("RNG error persists after reset; check the RCC clock configuration");
+            }
+            retries += 1;
+            self.reset();
         }
     }
 
@@ -262,6 +442,54 @@ impl<'d, T: Instance> Drop for Rng<'d, T> {
             reg.set_rngen(false);
         });
         rcc::disable::<T>();
+    }
+}
+
+impl<'d, T: Instance> crate::low_power::SealedSuspendablePeripheral for Rng<'d, T> {
+    #[cfg(all(feature = "low-power", rng_v1))]
+    type InternalState = Peri<'d, T>;
+
+    #[cfg(all(feature = "low-power", not(rng_v1)))]
+    type InternalState = (Peri<'d, T>, RngConfig);
+
+    #[cfg(feature = "low-power")]
+    fn suspend(self) -> Self::InternalState {
+        #[cfg(not(rng_v1))]
+        {
+            let cr = T::regs().cr().read();
+
+            let config = RngConfig {
+                nistc: cr.nistc(),
+                clkdiv: cr.clkdiv(),
+                rng_config1: cr.rng_config1(),
+                rng_config2: cr.rng_config2(),
+                rng_config3: cr.rng_config3(),
+                clock_error_detector: !cr.ced(),
+                #[cfg(any(rng_v3, rng_wba6, rng_v4))]
+                auto_reset_disable: cr.ardis(),
+                ..Default::default()
+            };
+
+            unsafe { (self._inner.clone_unchecked(), config) }
+        }
+
+        #[cfg(rng_v1)]
+        {
+            unsafe { self._inner.clone_unchecked() }
+        }
+    }
+
+    #[cfg(feature = "low-power")]
+    fn resume(state: Self::InternalState) -> Self {
+        #[cfg(not(rng_v1))]
+        {
+            Self::new_inner(state.0, state.1)
+        }
+
+        #[cfg(rng_v1)]
+        {
+            Self::new_inner(state)
+        }
     }
 }
 

@@ -22,7 +22,6 @@ pub use fullbridge::FullBridgeConverter;
 pub use resonant_converter::ResonantConverter;
 
 use crate::gpio::{AfType, Flex, OutputType, Speed};
-use crate::peripherals::HRTIM1;
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 use crate::timer::simple_pwm::PwmPinConfig;

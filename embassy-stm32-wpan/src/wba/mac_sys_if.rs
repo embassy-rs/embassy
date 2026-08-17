@@ -122,10 +122,10 @@ use crate::wba::bindings::mac;
 const UTIL_SEQ_RFU: u32 = 0;
 
 /// Bit mask identifying the MAC layer task within the sequencer.
-const TASK_MAC_LAYER_MASK: u32 = 1 << mac::CFG_TASK_ID_T_CFG_TASK_MAC_LAYER;
+const TASK_MAC_LAYER_MASK: u32 = 1 << mac::CFG_Task_Id_t_CFG_TASK_MAC_LAYER;
 
 /// Sequencer priority assigned to the MAC layer task.
-const TASK_PRIO_MAC_LAYER: u32 = mac::CFG_SEQ_PRIO_ID_T_CFG_SEQ_PRIO_0 as u32;
+const TASK_PRIO_MAC_LAYER: u32 = mac::CFG_SEQ_Prio_Id_t_CFG_SEQ_PRIO_0 as u32;
 
 /// Event flag consumed by the MAC task while waiting on notifications.
 const EVENT_MAC_LAYER_MASK: u32 = 1 << 0;

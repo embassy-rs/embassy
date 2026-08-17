@@ -7,7 +7,7 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use super::low_level::{
-    CountingMode, FilterValue, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource as Ts,
+    CountingMode, FilterValue, InputCaptureMode, InputCaptureSelection, SlaveMode, Timer, TriggerSource as Ts,
 };
 use super::{CaptureCompareInterruptHandler, Channel, ExternalTriggerPin, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2};
@@ -111,7 +111,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
 
         this.inner.set_trigger_source(Ts::Ti1fEd);
         this.inner
-            .set_input_ti_selection(Channel::Ch1, InputTISelection::Normal);
+            .set_input_capture_selection(Channel::Ch1, InputCaptureSelection::Normal);
         this.inner.set_input_capture_filter(Channel::Ch1, FilterValue::NoFilter);
         this.new_inner(freq, pulse_end, counting_mode);
 
@@ -138,7 +138,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
 
         this.inner.set_trigger_source(Ts::Ti1fp1);
         this.inner
-            .set_input_ti_selection(Channel::Ch1, InputTISelection::Normal);
+            .set_input_capture_selection(Channel::Ch1, InputCaptureSelection::Normal);
         this.inner.set_input_capture_filter(Channel::Ch1, FilterValue::NoFilter);
         this.inner.set_input_capture_mode(Channel::Ch1, capture_mode);
         this.new_inner(freq, pulse_end, counting_mode);
@@ -166,7 +166,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
 
         this.inner.set_trigger_source(Ts::Ti2fp2);
         this.inner
-            .set_input_ti_selection(Channel::Ch2, InputTISelection::Normal);
+            .set_input_capture_selection(Channel::Ch2, InputCaptureSelection::Normal);
         this.inner.set_input_capture_filter(Channel::Ch2, FilterValue::NoFilter);
         this.inner.set_input_capture_mode(Channel::Ch2, capture_mode);
         this.new_inner(freq, pulse_end, counting_mode);
