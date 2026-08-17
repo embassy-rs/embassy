@@ -18,7 +18,7 @@ use crate::pac::i3c::{
     Disto, Hkeep, Ibiresp, Ibitype, MctrlDir as I3cDir, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type,
 };
 
-const MAX_CHUNK_SIZE: usize = u8::MAX as usize;
+const MAX_CHUNK_SIZE: usize = 256;
 
 struct DmaGuard<'a> {
     dma: DmaChannel<'a>,
