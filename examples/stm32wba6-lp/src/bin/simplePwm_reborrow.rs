@@ -6,29 +6,25 @@
 //! limitations. Actual MCU current will be measure once i test on
 //! NUCLEO board.
 
-
-
 #![no_std]
 #![no_main]
 
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_time::Timer;
-use panic_probe as _;
-
 use embassy_stm32::gpio::{Flex, Input, Level, Output, OutputType, Pull, Speed};
 use embassy_stm32::rcc::{StopMode, WakeGuard};
 use embassy_stm32::time;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, OutputPolarity};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_time::Timer;
+use panic_probe as _;
 
 const DEBUG_DURING_SLEEP: bool = true;
 
 #[embassy_executor::main(executor = "embassy_stm32::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
-
     info!("Hello from STM32WBA6 (65RI) low-power example using simplePwm!");
 
     let mut config = embassy_stm32::Config::default();
@@ -123,6 +119,5 @@ async fn main(_spawner: Spawner) {
         drop(led_pwm);
         power_rail.set_low();
         Timer::after_millis(5000).await; // MCU enters STOP here
-
     }
 }
