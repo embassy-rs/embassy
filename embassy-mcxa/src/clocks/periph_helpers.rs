@@ -12,8 +12,8 @@ use crate::clocks::VddLevel;
 #[cfg(feature = "mcxa5xx")]
 use crate::pac::mrcc::FlexspiClkselMux;
 use crate::pac::mrcc::{
-    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, DacClkselMux, FclkClkselMux, FlexcanClkselMux,
-    Lpi2cClkselMux, LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
+    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, DacClkselMux, FclkClkselMux,
+    FlexcanClkselMux, Lpi2cClkselMux, LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 
 #[must_use]

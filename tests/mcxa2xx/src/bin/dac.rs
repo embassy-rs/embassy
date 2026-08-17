@@ -2,7 +2,9 @@
 #![no_main]
 
 teleprobe_meta::target!(b"frdm-mcx-a266");
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::adc::{Async, Command, CommandConfig, CommandId, Trigger};
 use embassy_mcxa::bind_interrupts;
 use hal::adc::{self, Adc};
@@ -11,7 +13,7 @@ use hal::config::Config;
 use hal::dac::Dac;
 use hal::pac::adc::Mode;
 use hal::peripherals::ADC0;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 const MAX_ERR: f32 = 0.2;
 
