@@ -394,7 +394,8 @@ impl RccInfo {
     fn increment_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
         #[cfg(feature = "low-power")]
         match self.stop_mode {
-            StopMode::Stop1 | StopMode::Stop2 => increment_stop_refcount(_cs, StopMode::Stop2),
+            StopMode::Stop1 => increment_stop_refcount(_cs, StopMode::Stop1),
+            StopMode::Stop2 => increment_stop_refcount(_cs, StopMode::Stop2),
             _ => {}
         }
     }
@@ -403,7 +404,8 @@ impl RccInfo {
     fn decrement_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
         #[cfg(feature = "low-power")]
         match self.stop_mode {
-            StopMode::Stop1 | StopMode::Stop2 => decrement_stop_refcount(_cs, StopMode::Stop2),
+            StopMode::Stop1 => decrement_stop_refcount(_cs, StopMode::Stop1),
+            StopMode::Stop2 => decrement_stop_refcount(_cs, StopMode::Stop2),
             _ => {}
         }
     }
