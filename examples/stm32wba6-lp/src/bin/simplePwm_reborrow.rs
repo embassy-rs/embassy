@@ -96,26 +96,56 @@ async fn main(_spawner: Spawner) {
 
     loop {
         info!("initializing SimplePwm with timer TIM1");
-        let led_pwm_pin = PwmPin::new(p.PB8.reborrow(), OutputType::PushPull);
-        let mut led_pwm = SimplePwm::new(
+        let flashlight_pwm_pin = PwmPin::new(p.PB8.reborrow(), OutputType::PushPull);
+        let mut flashlight_pwm = SimplePwm::new(
             p.TIM1.reborrow(),
-            Some(led_pwm_pin),
+            Some(flashlight_pwm_pin),
             None,
             None,
             None,
             time::khz(100),
             CountingMode::EdgeAlignedUp,
         );
+
+        let bat_rled_pin = PwmPin::new(p.PB13.reborrow(), OutputType::PushPull);
+        let bat_gled_pin = PwmPin::new(p.PB14.reborrow(), OutputType::PushPull);
+        let ble_bled_pin = PwmPin::new(p.PA9.reborrow(), OutputType::PushPull);
+        let mut led_pwm = SimplePwm::new(
+            p.TIM3.reborrow(),
+            None,
+            Some(ble_bled_pin),
+            Some(bat_gled_pin),
+            Some(bat_rled_pin),
+            time::hz(1000),
+            CountingMode::EdgeAlignedUp,
+        );
+        led_pwm.ch2().set_polarity(OutputPolarity::ActiveLow);
+        led_pwm.ch3().set_polarity(OutputPolarity::ActiveLow);
+        led_pwm.ch4().set_polarity(OutputPolarity::ActiveLow);
+
         info!("led on");
         power_rail.set_high();
-        led_pwm.ch1().enable();
-        led_pwm.ch1().set_duty_cycle_percent(30);
+        flashlight_pwm.ch1().enable();
+        flashlight_pwm.ch1().set_duty_cycle_percent(30);
+        led_pwm.ch2().enable();
+        led_pwm.ch3().enable();
+        led_pwm.ch4().enable();
+        led_pwm.ch2().set_duty_cycle_percent(50);
+        led_pwm.ch3().set_duty_cycle_percent(50);
+        led_pwm.ch4().set_duty_cycle_percent(50);
 
         Timer::after_millis(5000).await;
 
         info!("led off — sleeping 5 s");
-        led_pwm.ch1().disable();
-        led_pwm.ch1().set_duty_cycle_percent(0);
+        flashlight_pwm.ch1().disable();
+        flashlight_pwm.ch1().set_duty_cycle_percent(0);
+        led_pwm.ch2().disable();
+        led_pwm.ch3().disable();
+        led_pwm.ch4().disable();
+        led_pwm.ch2().set_duty_cycle_percent(0);
+        led_pwm.ch3().set_duty_cycle_percent(0);
+        led_pwm.ch4().set_duty_cycle_percent(0);
+        drop(flashlight_pwm);
         drop(led_pwm);
         power_rail.set_low();
         Timer::after_millis(5000).await; // MCU enters STOP here
