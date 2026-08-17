@@ -13,7 +13,6 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Flex, Input, Level, Output, OutputType, Pull, Speed};
-use embassy_stm32::rcc::{StopMode, WakeGuard};
 use embassy_stm32::time;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::{CountingMode, OutputPolarity};
@@ -75,16 +74,16 @@ async fn main(_spawner: Spawner) {
     let mut p = embassy_stm32::init(config);
 
     info!("initializing unused GPIOs for minimum current draw ...");
-    let gpio_pd5 = Output::new(p.PD5, Level::Low, Speed::Low);
-    let gpio_pb10 = Output::new(p.PB10, Level::High, Speed::Low);
-    let gpio_pa6 = Input::new(p.PA6, Pull::Up);
-    let gpio_pe1 = Output::new(p.PE1, Level::High, Speed::VeryHigh);
-    let gpio_pe3 = Output::new(p.PE3, Level::High, Speed::VeryHigh);
-    let gpio_pe0 = Output::new(p.PE0, Level::Low, Speed::VeryHigh);
-    let gpio_pd14 = Output::new(p.PD14, Level::Low, Speed::VeryHigh);
+    let _gpio_pd5 = Output::new(p.PD5, Level::Low, Speed::Low);
+    let _gpio_pb10 = Output::new(p.PB10, Level::High, Speed::Low);
+    let _gpio_pa6 = Input::new(p.PA6, Pull::Up);
+    let _gpio_pe1 = Output::new(p.PE1, Level::High, Speed::VeryHigh);
+    let _gpio_pe3 = Output::new(p.PE3, Level::High, Speed::VeryHigh);
+    let _gpio_pe0 = Output::new(p.PE0, Level::Low, Speed::VeryHigh);
+    let _gpio_pd14 = Output::new(p.PD14, Level::Low, Speed::VeryHigh);
     let mut flex_pd8 = Flex::new(p.PD8);
     flex_pd8.set_as_analog();
-    let gpio_ph3 = Output::new(p.PH3, Level::Low, Speed::Low);
+    let _gpio_ph3 = Output::new(p.PH3, Level::Low, Speed::Low);
 
     info!("initializing simplePwm and power rail");
     let mut power_rail = Output::new(p.PB15, Level::Low, Speed::Low);
