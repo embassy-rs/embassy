@@ -223,7 +223,7 @@ pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
     ch2: Option<Flex<'d>>,
     ch3: Option<Flex<'d>>,
     ch4: Option<Flex<'d>>,
-    wake_guard: WakeGuard,
+    _wake_guard: WakeGuard,
 }
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
@@ -264,7 +264,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             ch2,
             ch3,
             ch4,
-            wake_guard: T::RCC_INFO.wake_guard(),
+            _wake_guard: T::RCC_INFO.wake_guard(),
         };
 
         this.inner.set_counting_mode(counting_mode);
