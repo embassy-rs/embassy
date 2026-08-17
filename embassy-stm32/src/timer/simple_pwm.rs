@@ -222,11 +222,6 @@ pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
     ch2: Option<Flex<'d>>,
     ch3: Option<Flex<'d>>,
     ch4: Option<Flex<'d>>,
-    // Retained so `resume_after_stop` can fully replay the one-time setup below:
-    // on some parts (e.g. advanced-control timers on STM32WBA) STOP2 resets the
-    // whole timer register bank, not just the clock/output-enable bits.
-    freq: Hertz,
-    counting_mode: CountingMode,
 }
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
@@ -267,38 +262,26 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             ch2,
             ch3,
             ch4,
-            freq,
-            counting_mode,
         };
 
-        this.apply_base_config();
-
-        this
-    }
-
-    /// (Re-)apply the counting mode, frequency, output-compare mode/preload,
-    /// auto-reload preload, and output enable. Used both at construction time
-    /// and to fully rebuild the timer in [`Self::resume_after_stop`].
-    fn apply_base_config(&mut self) {
-        // set_counting_mode() requires CEN=0; the timer may still be running
-        // from a prior call (e.g. re-arming without an intervening STOP2).
-        self.inner.stop();
-        self.inner.set_counting_mode(self.counting_mode);
-        self.set_frequency(self.freq);
-        self.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
+        this.inner.set_counting_mode(counting_mode);
+        this.set_frequency(freq);
+        this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
 
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
             .for_each(|&channel| {
-                self.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
+                this.inner.set_output_compare_mode(channel, OutputCompareMode::PwmMode1);
 
-                self.inner.set_output_compare_preload(channel, true);
+                this.inner.set_output_compare_preload(channel, true);
             });
-        self.inner.set_autoreload_preload(true);
+        this.inner.set_autoreload_preload(true);
 
         // Generate update event so pre-load registers are written to the shadow registers
-        self.inner.generate_update_event();
-        self.inner.start();
+        this.inner.generate_update_event();
+        this.inner.start();
+
+        this
     }
 
     /// Get a single channel
@@ -634,20 +617,5 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
         P: Into<Self::Time>,
     {
         self.inner.set_frequency(period.into(), RoundTo::Slower);
-    }
-}
-
-impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
-    /// Restore the timer after STOP2 wake.
-    ///
-    /// On advanced-control timers (e.g. TIM1 on STM32WBA), STOP2 resets the
-    /// whole timer register bank to power-on defaults (ARR, CCMRx/OCxM,
-    /// BDTR.MOE, CR1.CEN, ...), not just the peripheral clock. Re-running the
-    /// same setup done at construction time is required to get a working PWM
-    /// output back; channel-specific state applied after construction
-    /// (polarity, per-channel enable, duty cycle) is not restored here and
-    /// must be reapplied by the caller.
-    pub fn resume_after_stop(&mut self) {
-        self.apply_base_config();
     }
 }
