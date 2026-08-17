@@ -154,7 +154,7 @@ impl RtcDriver {
             <T as CoreInstance>::UpdateInterrupt::enable();
 
             #[cfg(feature = "low-power")]
-            crate::rcc::reset_stop_refcount(cs);
+            crate::rcc::reset_stop_refcount(cs, crate::rcc::StopMode::Stop1);
         }
     }
 
