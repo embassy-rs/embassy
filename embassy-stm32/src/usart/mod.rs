@@ -1042,7 +1042,10 @@ impl<'d> UartRx<'d, Async> {
         Ok(())
     }
 
-    /// Initiate an asynchronous read with idle line detection enabled
+    /// Initiate an asynchronous read with idle line detection enabled.
+    ///
+    /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
+    /// as if you had called [`read(buffer)`](Self::read) instead!
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
@@ -1877,7 +1880,10 @@ impl<'d> Uart<'d, Async> {
         self.rx.read(buffer).await
     }
 
-    /// Perform an an asynchronous read with idle line detection enabled
+    /// Perform an an asynchronous read with idle line detection enabled.
+    ///
+    /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
+    /// as if you had called [`read(buffer)`](Self::read) instead!
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         self.rx.read_until_idle(buffer).await
     }

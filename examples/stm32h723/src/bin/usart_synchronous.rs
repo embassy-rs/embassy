@@ -15,11 +15,11 @@ bind_interrupts!(struct Irqs {
     USART2 => usart::InterruptHandler<peripherals::USART2>;
 });
 
+#[unsafe(link_section = ".sram1")]
+static GREETING: &str = "Hello Embassy World!\r\n";
+
 #[embassy_executor::task]
 async fn tx_task(mut usart: UartTx<'static, mode::Async>) {
-    #[unsafe(link_section = ".sram1")]
-    static GREETING: &str = "Hello Embassy World!\r\n";
-
     loop {
         match usart.write(GREETING.as_bytes()).await {
             Ok(()) => {
@@ -36,18 +36,14 @@ async fn tx_task(mut usart: UartTx<'static, mode::Async>) {
 #[embassy_executor::task]
 async fn rx_task(mut usart: UartRx<'static, mode::Async>) {
     #[unsafe(link_section = ".sram1")]
-    static mut RX_BUF: [u8; 64] = [0; 64];
+    static mut RX_BUF: [u8; GREETING.len()] = [0; GREETING.len()];
     let buf = unsafe { &mut RX_BUF[..] };
 
     loop {
-        let len = match usart.read_until_idle(buf).await {
-            Ok(len) => len,
-            Err(err) => {
-                error!("Error during receive: {}", err);
-                continue;
-            }
+        if let Err(err) = usart.read(buf).await {
+            error!("Error during receive: {}", err);
+            continue;
         };
-        let buf = &buf[..len];
         match str::from_utf8(buf) {
             Ok(str) => {
                 info!("Received: {:?}", str);
