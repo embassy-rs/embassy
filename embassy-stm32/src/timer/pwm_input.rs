@@ -9,6 +9,7 @@ use super::{CaptureCompareInterruptHandler, Ch1, Ch2, Channel, GeneralInstance4C
 use crate::Peri;
 use crate::gpio::{AfType, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 
 /// PWM Input driver.
@@ -19,6 +20,7 @@ use crate::time::Hertz;
 pub struct PwmInput<'d, T: GeneralInstance4Channel> {
     channel: Channel,
     inner: Timer<'d, T>,
+    _wake_guard: WakeGuard,
 }
 
 impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
@@ -80,7 +82,11 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         T::CaptureCompareInterrupt::unpend();
         unsafe { T::CaptureCompareInterrupt::enable() };
 
-        Self { channel: ch1, inner }
+        Self {
+            channel: ch1,
+            inner,
+            _wake_guard: T::RCC_INFO.wake_guard(),
+        }
     }
 
     /// Enable the given channel.
