@@ -12,14 +12,13 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_time::Timer;
-use panic_probe as _;
-
 use embassy_stm32::gpio::{Flex, Input, Level, Output, OutputType, Pull, Speed};
 use embassy_stm32::time;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_time::Timer;
+use panic_probe as _;
 
 const DEBUG_DURING_SLEEP: bool = false;
 
