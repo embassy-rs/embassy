@@ -9,7 +9,7 @@ use nxp_pac::i3c::{MdmactrlDmafb, MdmactrlDmatb};
 use super::{Async, AsyncMode, Blocking, Dma, Info, Instance, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::{Channel, DMA_MAX_TRANSFER_SIZE, DmaChannel, TransferOptions};
+use crate::dma::{Channel, DmaChannel, PeripheralWriteOperation, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
@@ -18,7 +18,257 @@ use crate::pac::i3c::{
     Disto, Hkeep, Ibiresp, Ibitype, MctrlDir as I3cDir, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type,
 };
 
-const MAX_CHUNK_SIZE: usize = 256;
+const MAX_CHUNK_SIZE: usize = u8::MAX as usize;
+
+struct DmaGuard<'a> {
+    dma: DmaChannel<'a>,
+    info: &'static Info,
+    bus_type: BusType,
+    tx: bool,
+}
+
+impl<'a> DmaGuard<'a> {
+    fn new_tx(dma: DmaChannel<'a>, info: &'static Info, bus_type: BusType) -> Self {
+        Self {
+            dma,
+            info,
+            bus_type,
+            tx: true,
+        }
+    }
+
+    fn new_rx(dma: DmaChannel<'a>, info: &'static Info, bus_type: BusType) -> Self {
+        Self {
+            dma,
+            info,
+            bus_type,
+            tx: false,
+        }
+    }
+
+    fn complete(mut self) {
+        self.disable_peripheral_request();
+        self.dma.stop();
+        core::mem::forget(self);
+    }
+
+    fn disable_peripheral_request(&self) {
+        if self.tx {
+            self.info
+                .regs()
+                .mdmactrl()
+                .modify(|w| w.set_dmatb(MdmactrlDmatb::NotUsed));
+        } else {
+            self.info
+                .regs()
+                .mdmactrl()
+                .modify(|w| w.set_dmafb(MdmactrlDmafb::NotUsed));
+        }
+    }
+}
+
+impl Drop for DmaGuard<'_> {
+    fn drop(&mut self) {
+        self.disable_peripheral_request();
+        self.dma.stop();
+        self.info.blocking_remediation(self.bus_type);
+    }
+}
+
+impl Info {
+    fn blocking_remediation(&self, bus_type: BusType) {
+        // if the FIFO is not empty, drop its contents.
+        if self.regs().mdatactrl().read().txcount() != 0 {
+            self.regs().mdatactrl().modify(|w| {
+                w.set_flushtb(true);
+                w.set_flushfb(true);
+            });
+        }
+
+        // send a stop command
+        let _ = self.blocking_stop(bus_type);
+    }
+
+    fn clear_flags(&self) {
+        self.regs().mstatus().write(|w| {
+            w.set_slvstart(true);
+            w.set_mctrldone(true);
+            w.set_complete(true);
+            w.set_ibiwon(true);
+            w.set_nowmaster(true);
+        });
+    }
+
+    fn clear_errors(&self) {
+        self.regs().merrwarn().write(|w| {
+            w.set_urun(true);
+            w.set_nack(true);
+            w.set_wrabt(true);
+            w.set_hpar(true);
+            w.set_hcrc(true);
+            w.set_oread(true);
+            w.set_owrite(true);
+            w.set_msgerr(true);
+            w.set_invreq(true);
+            w.set_timeout(true);
+        });
+    }
+
+    fn status(&self) -> Result<(), IOError> {
+        if self.regs().mstatus().read().errwarn() {
+            let merrwarn = self.regs().merrwarn().read();
+
+            if merrwarn.urun() {
+                Err(IOError::Underrun)
+            } else if merrwarn.nack() {
+                Err(IOError::Nack)
+            } else if merrwarn.wrabt() {
+                Err(IOError::WriteAbort)
+            } else if merrwarn.term() {
+                Err(IOError::Terminate)
+            } else if merrwarn.hpar() {
+                Err(IOError::HighDataRateParity)
+            } else if merrwarn.hcrc() {
+                Err(IOError::HighDataRateCrc)
+            } else if merrwarn.oread() {
+                Err(IOError::Overread)
+            } else if merrwarn.owrite() {
+                Err(IOError::Overwrite)
+            } else if merrwarn.msgerr() {
+                Err(IOError::Message)
+            } else if merrwarn.invreq() {
+                Err(IOError::InvalidRequest)
+            } else if merrwarn.timeout() {
+                Err(IOError::Timeout)
+            } else {
+                // should never happen
+                Err(IOError::Other)
+            }
+        } else {
+            Ok(())
+        }
+    }
+
+    /// Prepares an appropriate Start condition on bus by issuing a
+    /// `Start` request together with the device address, bus type
+    /// (i3c sdr, i3c ddr, or i2c), and R/w bit.
+    fn blocking_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), IOError> {
+        self.clear_flags();
+
+        self.regs().mctrl().write(|w| {
+            w.set_addr(address);
+            w.set_rdterm(len);
+            w.set_type_(bus_type.into());
+            w.set_request(Request::Emitstartaddr);
+            w.set_dir(dir.into());
+            w.set_ibiresp(Ibiresp::Ack);
+        });
+
+        while !self.regs().mstatus().read().mctrldone() {}
+        self.status()
+    }
+
+    /// Prepares a Stop condition on the bus.
+    ///
+    /// Analogous to `start`, this blocks waiting for space in the
+    /// FIFO to become available, then sends the command and blocks
+    /// waiting for the FIFO to become empty ensuring the command was
+    /// sent.
+    fn blocking_stop(&self, bus_type: BusType) -> Result<(), IOError> {
+        if self.regs().mstatus().read().state() != State::Normact {
+            Err(IOError::InvalidRequest)
+        } else {
+            // NOTE: Section 41.3.2.1 states that "when sending STOP
+            // in I2C mode, MCONFIG[ODSTOP] and MCTRL[TYPE] must be
+            // 1".
+            self.regs().mconfig().modify(|w| w.set_odstop(bus_type == BusType::I2c));
+            self.regs().mctrl().write(|w| {
+                w.set_request(Request::Emitstop);
+                w.set_type_(bus_type.into())
+            });
+            while !self.regs().mstatus().read().mctrldone() {}
+            self.status()
+        }
+    }
+
+    async fn async_wait_for_ctrldone(&self) -> Result<(), IOError> {
+        self.wait_cell()
+            .wait_for(|| {
+                // enable control done interrupt
+                self.regs().mintset().write(|w| {
+                    w.set_mctrldone(true);
+                    w.set_errwarn(true);
+                });
+                // check control done status
+                self.regs().mstatus().read().mctrldone() || self.regs().mstatus().read().errwarn()
+            })
+            .await
+            .map_err(|_| IOError::Other)
+    }
+
+    async fn async_wait_for_complete(&self) -> Result<(), IOError> {
+        self.wait_cell()
+            .wait_for(|| {
+                // enable control done interrupt
+                self.regs().mintset().write(|w| {
+                    w.set_complete(true);
+                    w.set_errwarn(true);
+                });
+                // check control done status
+                self.regs().mstatus().read().complete() || self.regs().mstatus().read().errwarn()
+            })
+            .await
+            .map_err(|_| IOError::Other)
+    }
+
+    /// Prepares an appropriate Start condition on bus by issuing a
+    /// `Start` request together with the device address, bus type
+    /// (i3c sdr, i3c ddr, or i2c), and R/w bit.
+    async fn async_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), IOError> {
+        self.clear_flags();
+        // Also clear MERRWARN. clear_flags() only touches MSTATUS bits; any
+        // sticky warning latched by the previous transaction (e.g. a stale
+        // OWRITE from a tight FIFO push) would otherwise be misreported as
+        // a fresh error by status() below. Matches the SDK master driver,
+        // which clears error flags at the start of each transaction.
+        self.clear_errors();
+
+        self.regs().mctrl().write(|w| {
+            w.set_addr(address);
+            w.set_rdterm(len);
+            w.set_type_(bus_type.into());
+            w.set_request(Request::Emitstartaddr);
+            w.set_dir(dir.into());
+            w.set_ibiresp(Ibiresp::Ack);
+        });
+        self.async_wait_for_ctrldone().await?;
+        self.status()
+    }
+
+    /// Prepares a Stop condition on the bus.
+    ///
+    /// Analogous to `start`, this blocks waiting for space in the
+    /// FIFO to become available, then sends the command and blocks
+    /// waiting for the FIFO to become empty ensuring the command was
+    /// sent.
+    async fn async_stop(&self, bus_type: BusType) -> Result<(), IOError> {
+        if self.regs().mstatus().read().state() != State::Normact {
+            Err(IOError::InvalidRequest)
+        } else {
+            // NOTE: Section 41.3.2.1 states that "when sending STOP
+            // in I2C mode, MCONFIG[ODSTOP] and MCTRL[TYPE] must be
+            // 1".
+            self.regs().mconfig().modify(|w| w.set_odstop(bus_type == BusType::I2c));
+
+            self.regs().mctrl().write(|w| {
+                w.set_request(Request::Emitstop);
+                w.set_type_(bus_type.into());
+            });
+            self.async_wait_for_ctrldone().await?;
+            self.status()
+        }
+    }
+}
 
 /// Setup Errors
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -340,7 +590,7 @@ impl<'d, M: Mode> I3c<'d, M> {
     }
 
     fn set_configuration(&self, config: &Config) -> Result<(), SetupError> {
-        self.clear_flags();
+        self.info.clear_flags();
 
         self.info.regs().mdatactrl().modify(|w| {
             w.set_flushtb(true);
@@ -487,48 +737,6 @@ impl<'d, M: Mode> I3c<'d, M> {
         Ok((pp_baud, od_baud, i2c_baud))
     }
 
-    fn blocking_remediation(&self, bus_type: BusType) {
-        // if the FIFO is not empty, drop its contents.
-        if self.info.regs().mdatactrl().read().txcount() != 0 {
-            self.info.regs().mdatactrl().modify(|w| {
-                w.set_flushtb(true);
-                w.set_flushfb(true);
-            });
-        }
-
-        // send a stop command
-        let _ = self.blocking_stop(bus_type);
-    }
-
-    fn clear_flags(&self) {
-        self.info.regs().mstatus().write(|w| {
-            w.set_slvstart(true);
-            w.set_mctrldone(true);
-            w.set_complete(true);
-            w.set_ibiwon(true);
-            w.set_nowmaster(true);
-        });
-    }
-
-    fn clear_errors(&self) {
-        self.info.regs().merrwarn().write(|w| {
-            w.set_urun(true);
-            w.set_nack(true);
-            w.set_wrabt(true);
-            w.set_hpar(true);
-            w.set_hcrc(true);
-            w.set_oread(true);
-            w.set_owrite(true);
-            w.set_msgerr(true);
-            w.set_invreq(true);
-            w.set_timeout(true);
-        });
-    }
-
-    fn blocking_wait_for_ctrldone(&self) {
-        while !self.info.regs().mstatus().read().mctrldone() {}
-    }
-
     fn blocking_wait_for_complete(&self) {
         while !self.info.regs().mstatus().read().complete() {}
     }
@@ -539,86 +747,6 @@ impl<'d, M: Mode> I3c<'d, M> {
 
     fn blocking_wait_for_rx_fifo(&self) {
         while self.info.regs().mdatactrl().read().rxempty() {}
-    }
-
-    fn status(&self) -> Result<(), IOError> {
-        if self.info.regs().mstatus().read().errwarn() {
-            let merrwarn = self.info.regs().merrwarn().read();
-
-            if merrwarn.urun() {
-                Err(IOError::Underrun)
-            } else if merrwarn.nack() {
-                Err(IOError::Nack)
-            } else if merrwarn.wrabt() {
-                Err(IOError::WriteAbort)
-            } else if merrwarn.term() {
-                Err(IOError::Terminate)
-            } else if merrwarn.hpar() {
-                Err(IOError::HighDataRateParity)
-            } else if merrwarn.hcrc() {
-                Err(IOError::HighDataRateCrc)
-            } else if merrwarn.oread() {
-                Err(IOError::Overread)
-            } else if merrwarn.owrite() {
-                Err(IOError::Overwrite)
-            } else if merrwarn.msgerr() {
-                Err(IOError::Message)
-            } else if merrwarn.invreq() {
-                Err(IOError::InvalidRequest)
-            } else if merrwarn.timeout() {
-                Err(IOError::Timeout)
-            } else {
-                // should never happen
-                Err(IOError::Other)
-            }
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Prepares an appropriate Start condition on bus by issuing a
-    /// `Start` request together with the device address, bus type
-    /// (i3c sdr, i3c ddr, or i2c), and R/w bit.
-    fn blocking_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), IOError> {
-        self.clear_flags();
-
-        self.info.regs().mctrl().write(|w| {
-            w.set_addr(address);
-            w.set_rdterm(len);
-            w.set_type_(bus_type.into());
-            w.set_request(Request::Emitstartaddr);
-            w.set_dir(dir.into());
-            w.set_ibiresp(Ibiresp::Ack);
-        });
-
-        self.blocking_wait_for_ctrldone();
-        self.status()
-    }
-
-    /// Prepares a Stop condition on the bus.
-    ///
-    /// Analogous to `start`, this blocks waiting for space in the
-    /// FIFO to become available, then sends the command and blocks
-    /// waiting for the FIFO to become empty ensuring the command was
-    /// sent.
-    fn blocking_stop(&self, bus_type: BusType) -> Result<(), IOError> {
-        if self.info.regs().mstatus().read().state() != State::Normact {
-            Err(IOError::InvalidRequest)
-        } else {
-            // NOTE: Section 41.3.2.1 states that "when sending STOP
-            // in I2C mode, MCONFIG[ODSTOP] and MCTRL[TYPE] must be
-            // 1".
-            self.info
-                .regs()
-                .mconfig()
-                .modify(|w| w.set_odstop(bus_type == BusType::I2c));
-            self.info.regs().mctrl().write(|w| {
-                w.set_request(Request::Emitstop);
-                w.set_type_(bus_type.into())
-            });
-            self.blocking_wait_for_ctrldone();
-            self.status()
-        }
     }
 
     fn blocking_read_internal(
@@ -633,8 +761,11 @@ impl<'d, M: Mode> I3c<'d, M> {
         }
 
         for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
-            if let Err(e) = self.blocking_start(address, bus_type, Dir::Read, chunk.len() as u8) {
-                self.blocking_remediation(bus_type);
+            if let Err(e) = self
+                .info
+                .blocking_start(address, bus_type, Dir::Read, chunk.len() as u8)
+            {
+                self.info.blocking_remediation(bus_type);
                 return Err(e);
             };
 
@@ -645,7 +776,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         }
 
         if send_stop == SendStop::Yes {
-            self.blocking_stop(bus_type)?;
+            self.info.blocking_stop(bus_type)?;
         }
 
         Ok(())
@@ -658,8 +789,8 @@ impl<'d, M: Mode> I3c<'d, M> {
         bus_type: BusType,
         send_stop: SendStop,
     ) -> Result<(), IOError> {
-        if let Err(e) = self.blocking_start(address, bus_type, Dir::Write, 0) {
-            self.blocking_remediation(bus_type);
+        if let Err(e) = self.info.blocking_start(address, bus_type, Dir::Write, 0) {
+            self.info.blocking_remediation(bus_type);
             return Err(e);
         };
 
@@ -677,7 +808,7 @@ impl<'d, M: Mode> I3c<'d, M> {
             #[cfg(feature = "defmt")]
             defmt::trace!("Empty write, write probing?");
             if send_stop == SendStop::Yes {
-                self.blocking_stop(bus_type)?;
+                self.info.blocking_stop(bus_type)?;
             }
             return Ok(());
         }
@@ -697,7 +828,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         self.blocking_wait_for_complete();
 
         if send_stop == SendStop::Yes {
-            self.blocking_stop(bus_type)?;
+            self.info.blocking_stop(bus_type)?;
         }
 
         Ok(())
@@ -723,8 +854,8 @@ impl<'d, M: Mode> I3c<'d, M> {
             return Err(IOError::Other);
         }
 
-        self.clear_errors();
-        self.clear_flags();
+        self.info.clear_errors();
+        self.info.clear_flags();
 
         // Start DAA sequence
         self.info.regs().mctrl().write(|w| {
@@ -740,7 +871,7 @@ impl<'d, M: Mode> I3c<'d, M> {
                 let s = self.info.regs().mstatus().read();
 
                 if s.errwarn() {
-                    return self.status();
+                    return self.info.status();
                 }
 
                 if s.complete() {
@@ -785,8 +916,8 @@ impl<'d, M: Mode> I3c<'d, M> {
             address += 1;
         }
 
-        self.clear_flags();
-        self.clear_errors();
+        self.info.clear_flags();
+        self.info.clear_errors();
 
         Ok(())
     }
@@ -854,7 +985,7 @@ impl<'d> I3c<'d, Blocking> {
 
 trait AsyncEngine {
     fn async_read_internal<'a>(
-        &'a self,
+        &'a mut self,
         address: u8,
         read: &'a mut [u8],
         bus_type: BusType,
@@ -862,7 +993,7 @@ trait AsyncEngine {
     ) -> impl Future<Output = Result<usize, IOError>> + 'a;
 
     fn async_write_internal<'a>(
-        &'a self,
+        &'a mut self,
         address: u8,
         write: &'a [u8],
         bus_type: BusType,
@@ -894,7 +1025,7 @@ impl<'d> I3c<'d, Async> {
 
 impl<'d> AsyncEngine for I3c<'d, Async> {
     async fn async_read_internal(
-        &self,
+        &mut self,
         address: u8,
         read: &mut [u8],
         bus_type: BusType,
@@ -906,7 +1037,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
 
         // perform corrective action if the future is dropped
         let on_drop = OnDrop::new(|| {
-            self.blocking_remediation(bus_type);
+            self.info.blocking_remediation(bus_type);
         });
 
         let mut bytes_received: usize = 0;
@@ -918,7 +1049,11 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
             // `chunk.len() as u8` gives RDTERM=N for 1..=255 and RDTERM=0
             // for exactly 256 (matches SDK: "no controller-side termination;
             // slave drives end via T-bit").
-            if let Err(e) = self.async_start(address, bus_type, Dir::Read, chunk.len() as u8).await {
+            if let Err(e) = self
+                .info
+                .async_start(address, bus_type, Dir::Read, chunk.len() as u8)
+                .await
+            {
                 result = Err(e);
                 break 'outer;
             }
@@ -942,7 +1077,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
                         // spec-compliant short read; suppress and return Ok.
                         // Zero bytes => propagate the error.
                         if bytes_received > 0 {
-                            self.clear_errors();
+                            self.info.clear_errors();
                             result = Ok(bytes_received);
                         } else {
                             result = Err(e);
@@ -961,7 +1096,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
         // (fsl_i3c.c:2293). Without this, the target sees a dirty bus on
         // its next listen and raises SdrParity.
         if send_stop == SendStop::Yes {
-            let _ = self.async_stop(bus_type).await;
+            let _ = self.info.async_stop(bus_type).await;
         }
 
         // defuse it if the future is not dropped
@@ -971,7 +1106,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
     }
 
     async fn async_write_internal(
-        &self,
+        &mut self,
         address: u8,
         write: &[u8],
         bus_type: BusType,
@@ -979,10 +1114,10 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
     ) -> Result<(), IOError> {
         // perform corrective action if the future is dropped
         let on_drop = OnDrop::new(|| {
-            self.blocking_remediation(bus_type);
+            self.info.blocking_remediation(bus_type);
         });
 
-        self.async_start(address, bus_type, Dir::Write, 0).await?;
+        self.info.async_start(address, bus_type, Dir::Write, 0).await?;
 
         // Usually, embassy HALs error out with an empty write,
         // however empty writes are useful for writing I2C scanning
@@ -998,7 +1133,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
             #[cfg(feature = "defmt")]
             defmt::trace!("Empty write, write probing?");
             if send_stop == SendStop::Yes {
-                self.async_stop(bus_type).await?;
+                self.info.async_stop(bus_type).await?;
             }
             return Ok(());
         }
@@ -1020,7 +1155,7 @@ impl<'d> AsyncEngine for I3c<'d, Async> {
         self.async_wait_for_complete().await?;
 
         if send_stop == SendStop::Yes {
-            self.async_stop(bus_type).await?;
+            self.info.async_stop(bus_type).await?;
         }
 
         // defuse it if the future is not dropped
@@ -1070,11 +1205,76 @@ impl<'d> I3c<'d, Dma<'d>> {
             },
         )
     }
+
+    /// Write a scatter-gather sequence using the controller TX DMA channel.
+    ///
+    /// Arms the complete descriptor chain before issuing START, enables the
+    /// peripheral DMA request after the address phase, and optionally emits
+    /// STOP after the transfer completes. Dropping the future aborts DMA and
+    /// remediates the controller bus state through [`DmaGuard`].
+    async fn async_write_scatter_gather(
+        &mut self,
+        address: u8,
+        sequence: &mut [PeripheralWriteOperation<'_>],
+        bus_type: BusType,
+        send_stop: SendStop,
+    ) -> Result<(), IOError> {
+        unsafe {
+            // SAFETY: Previous TX operation completed or aborted DMA before exit.
+            self.mode.tx_dma.disable_request();
+            // SAFETY: DMA requests are disabled, so no transfer is in progress.
+            self.mode.tx_dma.clear_done();
+            // SAFETY: Requests have been disabled above.
+            self.mode.tx_dma.clear_interrupt();
+            // SAFETY: `tx_request` is the TX request for this I3C instance.
+            self.mode.tx_dma.set_request_source(self.mode.tx_request);
+            // SAFETY: `sequence` and its source buffers remain borrowed until
+            // DMA completes or the drop guard aborts it. Every destination is a
+            // valid I3C TX register compatible with `tx_request`.
+            self.mode.tx_dma.setup_write_to_peripheral_scatter_gather(sequence)?;
+            // SAFETY: The request source and descriptors are fully configured.
+            self.mode.tx_dma.enable_request();
+        }
+
+        // This guard is created after the stack-owned sequence. On
+        // cancellation it therefore aborts DMA before the descriptors are
+        // dropped.
+        let guard = DmaGuard::new_tx(self.mode.tx_dma.reborrow(), self.info, bus_type);
+
+        // Match NXP's eDMA state machine: the channel and full TCD chain are
+        // armed before START, but the I3C DMA request remains gated until the
+        // address phase completes.
+        self.info.async_start(address, bus_type, Dir::Write, 0).await?;
+        self.info
+            .regs()
+            .mdmactrl()
+            .modify(|w| w.set_dmatb(MdmactrlDmatb::Enable));
+
+        core::future::poll_fn(|cx| {
+            let _ = guard.dma.wait_cell().poll_wait(cx);
+            if guard.dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
+            }
+        })
+        .await;
+
+        cortex_m::asm::dsb();
+        self.info.async_wait_for_complete().await?;
+        guard.complete();
+
+        if send_stop == SendStop::Yes {
+            self.info.async_stop(bus_type).await?;
+        }
+
+        Ok(())
+    }
 }
 
 impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
     async fn async_read_internal(
-        &self,
+        &mut self,
         address: u8,
         read: &mut [u8],
         bus_type: BusType,
@@ -1085,136 +1285,101 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
         }
 
         // perform corrective action if the future is dropped
+        let info = self.info;
         let on_drop = OnDrop::new(|| {
-            self.blocking_remediation(bus_type);
-            self.info
-                .regs()
-                .mdmactrl()
-                .modify(|w| w.set_dmafb(MdmactrlDmafb::NotUsed));
+            info.blocking_remediation(bus_type);
         });
 
-        let mut bytes_received: usize = 0;
-        // Track final result; we never early-`return` so a single Stop
-        // path at the bottom can run regardless of error.
-        let mut result: Result<usize, IOError> = Ok(0);
+        let peri_addr = self.info.regs().mrdatab().as_ptr() as *const u8;
+        unsafe {
+            // Clean up channel state
 
-        'outer: for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
-            // `chunk.len() as u8` gives RDTERM=N for 1..=255 and RDTERM=0
-            // for exactly 256 (matches SDK: "no controller-side termination;
-            // slave drives end via T-bit").
-            if let Err(e) = self.async_start(address, bus_type, Dir::Read, chunk.len() as u8).await {
-                result = Err(e);
-                break 'outer;
-            }
+            // SAFETY: This controller owns the RX channel, and every previous
+            // RX operation completed or aborted DMA before exit.
+            self.mode.rx_dma.disable_request();
+            // SAFETY: DMA requests are disabled, so no transfer is in progress.
+            self.mode.rx_dma.clear_done();
+            // SAFETY: Requests have been disabled above.
+            self.mode.rx_dma.clear_interrupt();
 
-            let peri_addr = self.info.regs().mrdatab().as_ptr() as *const u8;
+            // Set DMA request source from instance type (type-safe)
+            //
+            // SAFETY: `rx_request` is the RX request for this I3C instance.
+            self.mode.rx_dma.set_request_source(self.mode.rx_request);
+            // Configure TCDs for peripheral-to-memory transfer
+            //
+            // SAFETY: `peri_addr` is this instance's valid MRDATAB register,
+            // and `read` remains borrowed until DMA completes or is aborted.
+            self.mode
+                .rx_dma
+                .setup_read_from_peripheral(peri_addr, read, false, TransferOptions::COMPLETE_INTERRUPT)?;
 
-            unsafe {
-                // Clean up channel state
-                self.mode.rx_dma.disable_request();
-                self.mode.rx_dma.clear_done();
-                self.mode.rx_dma.clear_interrupt();
-
-                // Set DMA request source from instance type (type-safe)
-                self.mode.rx_dma.set_request_source(self.mode.rx_request);
-
-                // Configure TCD for peripheral-to-memory transfer
-                if let Err(e) = self.mode.rx_dma.setup_read_from_peripheral(
-                    peri_addr,
-                    chunk,
-                    false,
-                    TransferOptions::COMPLETE_INTERRUPT,
-                ) {
-                    result = Err(e.into());
-                    break 'outer;
-                }
-
-                // Enable I3C RX DMA request
-                self.info
-                    .regs()
-                    .mdmactrl()
-                    .modify(|w| w.set_dmafb(MdmactrlDmafb::Enable));
-
-                // Enable DMA channel request
-                self.mode.rx_dma.enable_request();
-            }
-
-            // Race DMA-done vs I3C COMPLETE/errwarn. The target may end
-            // the read early via T-bit; in that case the IP fires COMPLETE
-            // but DMA stalls. Without this race we'd hang until something
-            // else nudges us, then misreport the latched MERRWARN.
-            core::future::poll_fn(|cx| {
-                let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
-                let _ = self.info.wait_cell().poll_wait(cx);
-
-                // Enable I3C complete + errwarn interrupts so the I3C IRQ
-                // can wake us if DMA never finishes.
-                self.info.regs().mintset().write(|w| {
-                    w.set_complete(true);
-                    w.set_errwarn(true);
-                });
-
-                let st = self.info.regs().mstatus().read();
-                if self.mode.rx_dma.is_done() || st.complete() || st.errwarn() {
-                    core::task::Poll::Ready(())
-                } else {
-                    core::task::Poll::Pending
-                }
-            })
-            .await;
-
-            // Ensure DMA writes are visible to CPU
-            cortex_m::asm::dsb();
-
-            // How many bytes did DMA actually move into this chunk?
-            let chunk_done = self.mode.rx_dma.transferred_bytes().min(chunk.len());
-
-            // Cleanup
+            // Enable I3C RX DMA request
             self.info
                 .regs()
                 .mdmactrl()
-                .modify(|w| w.set_dmafb(MdmactrlDmafb::NotUsed));
-            unsafe {
-                self.mode.rx_dma.disable_request();
-                self.mode.rx_dma.clear_done();
-            }
+                .modify(|w| w.set_dmafb(MdmactrlDmafb::Enable));
 
-            let st_after = self.info.regs().mstatus().read();
-            bytes_received += chunk_done;
-
-            // Classify the outcome. Per spec, target-terminated SDR reads
-            // can end before RDTERM with no error — and that's what SDK
-            // sees (status=0). The MCXA IP may still latch MERRWARN bits
-            // (nack/term/etc.) on certain RDTERM mismatch patterns.
+            // Enable DMA channel request
             //
-            // Rule (mirrors SDK behavior):
-            //   - bytes_received > 0 with any errwarn → spec-compliant
-            //     short read; suppress, return Ok(bytes_received).
-            //   - bytes_received == 0 with errwarn → real bus error
-            //     (true address NACK, parity, etc.); propagate.
-            //   - errwarn at chunk boundary with full chunk: same rule
-            //     (we got the bytes we asked for, suppress).
-            if chunk_done < chunk.len() {
-                if st_after.errwarn() {
-                    if bytes_received > 0 {
-                        self.clear_errors();
-                        result = Ok(bytes_received);
-                    } else {
-                        result = Err(self.status().err().unwrap_or(IOError::Other));
-                    }
-                } else {
-                    result = Ok(bytes_received);
-                }
-                break 'outer;
-            } else {
-                if st_after.errwarn() {
-                    // Full chunk delivered + errwarn. Suppress as long as
-                    // we did get data.
-                    self.clear_errors();
-                }
-                result = Ok(bytes_received);
-            }
+            // SAFETY: The request source and TCD are fully configured, and
+            // the peripheral DMA request is enabled above.
+            self.mode.rx_dma.enable_request();
         }
+
+        let guard = DmaGuard::new_rx(self.mode.rx_dma.reborrow(), self.info, bus_type);
+        // Reads that fit in RDTERM are controller-bounded. Larger reads use
+        // RDTERM=0 and rely on the target's T-bit to terminate the transfer.
+        let rdterm = u8::try_from(read.len()).unwrap_or(0);
+        self.info.async_start(address, bus_type, Dir::Read, rdterm).await?;
+
+        core::future::poll_fn(|cx| {
+            let _ = guard.dma.wait_cell().poll_wait(cx);
+            let _ = self.info.wait_cell().poll_wait(cx);
+            self.info.regs().mintset().write(|w| {
+                w.set_complete(true);
+                w.set_errwarn(true);
+            });
+
+            let st = self.info.regs().mstatus().read();
+            if guard.dma.is_done() || st.complete() || st.errwarn() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
+            }
+        })
+        .await;
+
+        // Ensure DMA writes are visible to CPU
+        cortex_m::asm::dsb();
+
+        let dma_done = guard.dma.is_done();
+        let bytes_received = if dma_done {
+            read.len()
+        } else {
+            guard.dma.transferred_bytes().min(read.len())
+        };
+        let error = self.info.status().err();
+
+        guard.complete();
+
+        // Classify the outcome. Per spec, target-terminated SDR reads can
+        // end before RDTERM with no error. The MCXA IP may still latch
+        // MERRWARN bits (nack/term/etc.) for this condition.
+        //
+        // Rule (mirrors SDK behavior):
+        //   - bytes_received > 0 with any errwarn: suppress the warning and
+        //     return the spec-compliant short read.
+        //   - bytes_received == 0 with errwarn: propagate the real bus error
+        //     (for example, an address NACK).
+        let result = if bytes_received == 0 {
+            error.map_or(Ok(0), Err)
+        } else {
+            if error.is_some() {
+                self.info.clear_errors();
+            }
+            Ok(bytes_received)
+        };
 
         // Always emit Stop on the configured send_stop path, regardless of
         // success or short-read. After a short read the slave already
@@ -1224,7 +1389,7 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
         // Without this, the target sees a dirty bus on its next listen and
         // raises SdrParity.
         if send_stop == SendStop::Yes {
-            let _ = self.async_stop(bus_type).await;
+            let _ = self.info.async_stop(bus_type).await;
         }
 
         // defuse it if the future is not dropped
@@ -1234,23 +1399,12 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
     }
 
     async fn async_write_internal(
-        &self,
+        &mut self,
         address: u8,
         write: &[u8],
         bus_type: BusType,
         send_stop: SendStop,
     ) -> Result<(), IOError> {
-        // perform corrective action if the future is dropped
-        let on_drop = OnDrop::new(|| {
-            self.blocking_remediation(bus_type);
-            self.info
-                .regs()
-                .mdmactrl()
-                .modify(|w| w.set_dmatb(MdmactrlDmatb::NotUsed));
-        });
-
-        self.async_start(address, bus_type, Dir::Write, 0).await?;
-
         // Usually, embassy HALs error out with an empty write,
         // however empty writes are useful for writing I2C scanning
         // logic through write probing. That is, we send a start with
@@ -1262,11 +1416,19 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
         // Because of this, we are not going to error out in case of
         // empty writes.
         if write.is_empty() {
+            // perform corrective action if the future is dropped
+            let on_drop = OnDrop::new(|| self.info.blocking_remediation(bus_type));
+
+            self.info.async_start(address, bus_type, Dir::Write, 0).await?;
+
             #[cfg(feature = "defmt")]
             defmt::trace!("Empty write, write probing?");
             if send_stop == SendStop::Yes {
-                self.async_stop(bus_type).await?;
+                self.info.async_stop(bus_type).await?;
             }
+
+            on_drop.defuse();
+
             return Ok(());
         }
 
@@ -1274,75 +1436,21 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             return Err(IOError::InvalidWriteBufferLength);
         };
 
-        for chunk in rest.chunks(DMA_MAX_TRANSFER_SIZE) {
-            let peri_addr = self.info.regs().mwdatab().as_ptr() as *mut u8;
+        let last = core::slice::from_ref(last);
+        let mwdatabe = self.info.regs().mwdatabe().as_ptr() as *mut u8;
 
-            unsafe {
-                // Clean up channel state
-                self.mode.tx_dma.disable_request();
-                self.mode.tx_dma.clear_done();
-                self.mode.tx_dma.clear_interrupt();
+        let result = if rest.is_empty() {
+            let mut sequence = [PeripheralWriteOperation::new(last, mwdatabe)?];
+            self.async_write_scatter_gather(address, &mut sequence, bus_type, send_stop)
+                .await
+        } else {
+            let mwdatab1 = self.info.regs().mwdatab1().as_ptr() as *mut u8;
+            let mut sequence = PeripheralWriteOperation::new_sequence([(rest, mwdatab1), (last, mwdatabe)])?;
+            self.async_write_scatter_gather(address, &mut sequence, bus_type, send_stop)
+                .await
+        };
 
-                // Set DMA request source from instance type (type-safe)
-                self.mode.tx_dma.set_request_source(self.mode.tx_request);
-
-                // Configure TCD for memory-to-peripheral transfer
-                self.mode.tx_dma.setup_write_to_peripheral(
-                    chunk,
-                    peri_addr,
-                    false,
-                    TransferOptions::COMPLETE_INTERRUPT,
-                )?;
-
-                // Enable I3C TX DMA request
-                self.info
-                    .regs()
-                    .mdmactrl()
-                    .modify(|w| w.set_dmatb(MdmactrlDmatb::Enable));
-
-                // Enable DMA channel request
-                self.mode.tx_dma.enable_request();
-            }
-
-            // Wait for completion asynchronously
-            core::future::poll_fn(|cx| {
-                let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
-                if self.mode.tx_dma.is_done() {
-                    core::task::Poll::Ready(())
-                } else {
-                    core::task::Poll::Pending
-                }
-            })
-            .await;
-
-            // Ensure DMA writes are visible to CPU
-            cortex_m::asm::dsb();
-            // Cleanup
-            self.info
-                .regs()
-                .mdmactrl()
-                .modify(|w| w.set_dmatb(MdmactrlDmatb::NotUsed));
-            unsafe {
-                self.mode.tx_dma.disable_request();
-                self.mode.tx_dma.clear_done();
-            }
-        }
-
-        // Wait until we have space in the TX FIFO.
-        self.async_wait_for_tx_fifo().await?;
-        self.info.regs().mwdatabe().write(|w| w.set_value(*last));
-
-        // Wait for complete
-        self.async_wait_for_complete().await?;
-
-        if send_stop == SendStop::Yes {
-            self.async_stop(bus_type).await?;
-        }
-
-        // defuse it if the future is not dropped
-        on_drop.defuse();
-
-        Ok(())
+        result
     }
 }
 
@@ -1351,36 +1459,8 @@ impl<'d, M: AsyncMode> I3c<'d, M>
 where
     Self: AsyncEngine,
 {
-    async fn async_wait_for_ctrldone(&self) -> Result<(), IOError> {
-        self.info
-            .wait_cell()
-            .wait_for(|| {
-                // enable control done interrupt
-                self.info.regs().mintset().write(|w| {
-                    w.set_mctrldone(true);
-                    w.set_errwarn(true);
-                });
-                // check control done status
-                self.info.regs().mstatus().read().mctrldone() || self.info.regs().mstatus().read().errwarn()
-            })
-            .await
-            .map_err(|_| IOError::Other)
-    }
-
     async fn async_wait_for_complete(&self) -> Result<(), IOError> {
-        self.info
-            .wait_cell()
-            .wait_for(|| {
-                // enable control done interrupt
-                self.info.regs().mintset().write(|w| {
-                    w.set_complete(true);
-                    w.set_errwarn(true);
-                });
-                // check control done status
-                self.info.regs().mstatus().read().complete() || self.info.regs().mstatus().read().errwarn()
-            })
-            .await
-            .map_err(|_| IOError::Other)
+        self.info.async_wait_for_complete().await
     }
 
     async fn async_wait_for_tx_fifo(&self) -> Result<(), IOError> {
@@ -1428,62 +1508,10 @@ where
         if status.rxpend() {
             Ok(RxFifoStatus::RxPending)
         } else if status.errwarn() {
-            Err(self.status().err().unwrap_or(IOError::Other))
+            Err(self.info.status().err().unwrap_or(IOError::Other))
         } else {
             // complete() must be set (predicate above).
             Ok(RxFifoStatus::Complete)
-        }
-    }
-
-    /// Prepares an appropriate Start condition on bus by issuing a
-    /// `Start` request together with the device address, bus type
-    /// (i3c sdr, i3c ddr, or i2c), and R/w bit.
-    async fn async_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), IOError> {
-        self.clear_flags();
-        // Also clear MERRWARN. clear_flags() only touches MSTATUS bits; any
-        // sticky warning latched by the previous transaction (e.g. a stale
-        // OWRITE from a tight FIFO push) would otherwise be misreported as
-        // a fresh error by status() below. Matches the SDK master driver,
-        // which clears error flags at the start of each transaction.
-        self.clear_errors();
-
-        self.info.regs().mctrl().write(|w| {
-            w.set_addr(address);
-            w.set_rdterm(len);
-            w.set_type_(bus_type.into());
-            w.set_request(Request::Emitstartaddr);
-            w.set_dir(dir.into());
-            w.set_ibiresp(Ibiresp::Ack);
-        });
-
-        self.async_wait_for_ctrldone().await?;
-        self.status()
-    }
-
-    /// Prepares a Stop condition on the bus.
-    ///
-    /// Analogous to `start`, this blocks waiting for space in the
-    /// FIFO to become available, then sends the command and blocks
-    /// waiting for the FIFO to become empty ensuring the command was
-    /// sent.
-    async fn async_stop(&self, bus_type: BusType) -> Result<(), IOError> {
-        if self.info.regs().mstatus().read().state() != State::Normact {
-            Err(IOError::InvalidRequest)
-        } else {
-            // NOTE: Section 41.3.2.1 states that "when sending STOP
-            // in I2C mode, MCONFIG[ODSTOP] and MCTRL[TYPE] must be
-            // 1".
-            self.info
-                .regs()
-                .mconfig()
-                .modify(|w| w.set_odstop(bus_type == BusType::I2c));
-
-            self.info.regs().mctrl().write(|w| {
-                w.set_request(Request::Emitstop);
-                w.set_type_(bus_type.into());
-            });
-            self.async_wait_for_ctrldone().await?;
-            self.status()
         }
     }
 
@@ -1575,7 +1603,7 @@ where
             .await
             .map_err(|_| IOError::Other)?;
 
-        self.status()?;
+        self.info.status()?;
 
         // Step 2: Pre-clear IBIWON in case it was already set, so AUTO_IBI doesn't return early.
         self.info.regs().mstatus().write(|w| w.set_ibiwon(true));
@@ -1600,7 +1628,7 @@ where
             .await
             .map_err(|_| IOError::Other)?;
 
-        self.status()?;
+        self.info.status()?;
 
         let mstatus = self.info.regs().mstatus().read();
         let ibi_addr = mstatus.ibiaddr();
@@ -1638,7 +1666,7 @@ where
                         .await
                         .map_err(|_| IOError::Other)?;
 
-                    self.status()?;
+                    self.info.status()?;
                 }
             }
 
@@ -1658,8 +1686,8 @@ where
         // transfer. This matches the NXP SDK master driver
         // (`fsl_i3c.c` I3C_MasterTransferHandleIRQ → I3C_MasterEmitStop on
         // `kStatus_I3C_IBIWon`) and is what spec-compliant targets expect.
-        self.clear_flags();
-        self.async_stop(BusType::I3cSdr).await?;
+        self.info.clear_flags();
+        self.info.async_stop(BusType::I3cSdr).await?;
 
         Ok((ibi_addr, payload_len))
     }
