@@ -21,6 +21,13 @@ use crate::descriptor::{
 use crate::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
 use crate::{BusHandle, EnumerationError};
 
+/// How many times a port is polled for `ENABLED` after a reset before
+/// enumeration gives up waiting and proceeds with the speed it has.
+const PORT_ENABLE_POLLS: u32 = 10;
+
+/// Milliseconds between those polls.
+const PORT_ENABLE_POLL_MS: u64 = 10;
+
 pub struct HubHandler<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> {
     bus: BusHandle<'d, A>,
     interrupt_channel: A::Pipe<pipe::Interrupt, pipe::In>,
@@ -249,6 +256,35 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         // USB 2.0 §7.1.7.5: TDRSTR ≥ 10 ms. Match the 50 ms margin used in similar drivers.
         Timer::after_millis(50).await;
         self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
+
+        // Re-read the port now that it has been reset, and route on *this*
+        // speed rather than the caller's.
+        //
+        // The speed passed in was sampled when the device was detected,
+        // which is before the reset, and at that point it is not final. A
+        // hub tells low from full speed by which line carries the pull-up,
+        // so those two are known at connect — but high speed is only
+        // established by the reset handshake, and until that completes the
+        // hub reports a high-speed device as full speed (USB 2.0 §11.8.2,
+        // §11.24.2.7.1).
+        //
+        // Routing on the stale value sends every high-speed device behind a
+        // hub through the parent's transaction translator as if it were
+        // full speed. The device answers at 480 Mbit/s to a split
+        // transaction never meant for it, and the transfer fails with a
+        // transaction error that names nothing useful.
+        let speed = {
+            let mut speed = speed;
+            for _ in 0..PORT_ENABLE_POLLS {
+                let (status, _) = self.get_port_status(port).await?;
+                if status.contains(PortStatus::ENABLED) {
+                    speed = status.into();
+                    break;
+                }
+                Timer::after_millis(PORT_ENABLE_POLL_MS).await;
+            }
+            speed
+        };
 
         let route = match self.route.split() {
             Some(parent_split) => match speed {
