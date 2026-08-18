@@ -177,6 +177,11 @@ impl BufferedUart {
         self.tx.set_baudrate(baudrate);
     }
 
+    /// Set the configuration at runtime
+    pub fn set_config<'d>(&mut self, config: Config) {
+        super::Uart::<'d, Async>::set_config_inner(self.rx.info, config);
+    }
+
     /// Split into separate RX and TX handles.
     pub fn split(self) -> (BufferedUartTx, BufferedUartRx) {
         (self.tx, self.rx)

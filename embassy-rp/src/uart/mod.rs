@@ -1085,6 +1085,28 @@ impl<'d, M: Mode> Uart<'d, M> {
 
         Self::lcr_modify(info, |_| {});
     }
+
+    /// Set the configuration at runtime
+    pub fn set_config(&mut self, config: Config) {
+        Self::set_config_inner(self.tx.info, config);
+    }
+
+    fn set_config_inner(info: &Info, config: Config) {
+        Self::set_baudrate_inner(info, config.baudrate);
+        let (pen, eps) = match config.parity {
+            Parity::ParityNone => (false, false),
+            Parity::ParityOdd => (true, false),
+            Parity::ParityEven => (true, true),
+        };
+
+        Self::lcr_modify(info, |w| {
+            w.set_wlen(config.data_bits.bits());
+            w.set_stp2(config.stop_bits == StopBits::STOP2);
+            w.set_pen(pen);
+            w.set_eps(eps);
+            w.set_fen(true);
+        })
+    }
 }
 
 impl<'d, M: Mode> Uart<'d, M> {
