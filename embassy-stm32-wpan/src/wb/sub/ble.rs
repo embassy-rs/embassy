@@ -297,10 +297,9 @@ impl<'d> ControllerAdapter<'d> {
             &bt_hci::event::CommandCompleteWithStatus<'_>,
         ) -> Result<R, bt_hci::cmd::Error<embedded_io::ErrorKind>>,
     ) -> Result<R, bt_hci::cmd::Error<embedded_io::ErrorKind>> {
-        use bt_hci::WriteHci;
         use bt_hci::cmd::Error as CmdError;
         use bt_hci::param::Error as ParamError;
-        use bt_hci::transport::WithIndicator;
+        use bt_hci::transport::{PacketToController, WithIndicator};
 
         use crate::util::make_cc_with_cs;
 
@@ -332,9 +331,15 @@ impl<'d> ControllerAdapter<'d> {
 
 #[cfg(feature = "bt-hci")]
 impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
+    // Received packets borrow the IPC event buffers, not a caller buffer.
+    type Buffer<'a> = ();
+
+    fn alloc_buf(&self) -> Result<Self::Buffer<'_>, Self::Error> {
+        Ok(())
+    }
+
     async fn write_acl_data(&self, packet: &bt_hci::data::AclPacket<'_>) -> Result<(), Self::Error> {
-        use bt_hci::WriteHci;
-        use bt_hci::transport::WithIndicator;
+        use bt_hci::transport::{PacketToController, WithIndicator};
 
         self.ipcc_hci_acl_tx_data_channel
             .lock()
@@ -354,7 +359,10 @@ impl<'d> bt_hci::controller::Controller for ControllerAdapter<'d> {
         todo!()
     }
 
-    async fn read<'a>(&self, _buf: &'a mut [u8]) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
+    async fn read<'a>(
+        &self,
+        _buf: &'a mut Self::Buffer<'_>,
+    ) -> Result<bt_hci::ControllerToHostPacket<'a>, Self::Error> {
         use bt_hci::event::{CommandComplete, CommandStatus, EventKind};
         use bt_hci::{ControllerToHostPacket, FromHciBytes};
         use embassy_futures::select::{Either, select};
