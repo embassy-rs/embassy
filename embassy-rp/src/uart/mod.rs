@@ -978,21 +978,7 @@ impl<'d, M: Mode> Uart<'d, M> {
             });
         }
 
-        Self::set_baudrate_inner(info, config.baudrate);
-
-        let (pen, eps) = match config.parity {
-            Parity::ParityNone => (false, false),
-            Parity::ParityOdd => (true, false),
-            Parity::ParityEven => (true, true),
-        };
-
-        r.uartlcr_h().write(|w| {
-            w.set_wlen(config.data_bits.bits());
-            w.set_stp2(config.stop_bits == StopBits::STOP2);
-            w.set_pen(pen);
-            w.set_eps(eps);
-            w.set_fen(true);
-        });
+        Self::set_config_inner(info, config);
 
         r.uartifls().write(|w| {
             w.set_rxiflsel(0b100);

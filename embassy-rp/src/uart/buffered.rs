@@ -186,7 +186,7 @@ impl<'d> BufferedUart<'d> {
 
     /// Set the configuration at runtime
     pub fn set_config<'d>(&mut self, config: Config) {
-        super::Uart::<'d, Async>::set_config_inner(self.rx.info, config);
+        self.tx.set_config(config);
     }
 
     /// Split into separate RX and TX handles.
@@ -502,6 +502,11 @@ impl<'d> BufferedUartTx<'d> {
     /// sets baudrate on runtime
     pub fn set_baudrate(&mut self, baudrate: u32) {
         super::Uart::<'d, Async>::set_baudrate_inner(self.info, baudrate);
+    }
+
+    /// Set the configuration at runtime
+    pub fn set_config<'d>(&mut self, config: Config) {
+        super::Uart::<'d, Async>::set_config_inner(self.info, config);
     }
 }
 
