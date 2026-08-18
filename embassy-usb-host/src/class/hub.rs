@@ -76,7 +76,21 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                     InterfaceDescriptor {
                         interface_class: 0x09,
                         interface_subclass: 0x0,
-                        interface_protocol: 0x0,
+                        // Match a protocol of either 0x00 or 0x01. Per USB 2.0
+                        // §11.23.1 a full-speed hub and a high-speed hub with a
+                        // single transaction translator both report 0x00 here,
+                        // while a hub with multiple TTs instead exposes two
+                        // alternate settings: 0x01 for single-TT operation on
+                        // alt 0, and 0x02 for multi-TT operation on alt 1. So
+                        // accepting 0x00 alone rejects every multi-TT hub.
+                        //
+                        // 0x02 is deliberately not matched. Alt 0 is the setting
+                        // the hub is already in, as this driver issues no
+                        // SET_INTERFACE, so matching 0x02 would take endpoints
+                        // from a setting the device is not using. Driving a
+                        // multi-TT hub in multi-TT mode, for more full/low-speed
+                        // bandwidth across its ports, would need that request.
+                        interface_protocol: 0x00 | 0x01,
                         ..
                     }
                 )
