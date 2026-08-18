@@ -1049,6 +1049,14 @@ impl<'d, M: Mode> Uart<'d, M> {
     }
 
     fn set_baudrate_inner(info: &Info, baudrate: u32) {
+        Self::set_baudrate_nowait(info, baudrate);
+
+        // wait for the tx to clear before allowing more transmits
+        Self::lcr_modify(info, |_| {});
+    }
+
+    /// Set the baudrate without waiting for the tx to clear
+    fn set_baudrate_nowait(info: &Info, baudrate: u32) {
         let r = info.regs;
 
         let clk_base = crate::clocks::clk_peri_freq();
@@ -1068,17 +1076,15 @@ impl<'d, M: Mode> Uart<'d, M> {
         // Load PL011's baud divisor registers
         r.uartibrd().write_value(pac::uart::regs::Uartibrd(baud_ibrd));
         r.uartfbrd().write_value(pac::uart::regs::Uartfbrd(baud_fbrd));
-
-        Self::lcr_modify(info, |_| {});
     }
 
-    /// Set the configuration at runtime
+    /// Set the configuration at runtime (ignores pin inversions)
     pub fn set_config(&mut self, config: Config) {
         Self::set_config_inner(self.tx.info, config);
     }
 
     fn set_config_inner(info: &Info, config: Config) {
-        Self::set_baudrate_inner(info, config.baudrate);
+        Self::set_baudrate_nowait(info, config.baudrate);
         let (pen, eps) = match config.parity {
             Parity::ParityNone => (false, false),
             Parity::ParityOdd => (true, false),
