@@ -108,9 +108,12 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
             enum_info.split(),
         )?;
 
-        let desc = control_channel
-            .request_descriptor::<HubDescriptor, { HubDescriptor::BUF_SIZE }>(0, true)
-            .await?;
+        let desc = crate::handler::retry_descriptor(async || {
+            control_channel
+                .request_descriptor::<HubDescriptor, { HubDescriptor::BUF_SIZE }>(0, true)
+                .await
+        })
+        .await?;
 
         let mut hub = HubHandler {
             bus: bus.clone(),

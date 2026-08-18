@@ -383,22 +383,16 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
             .alloc_pipe::<pipe::Control, pipe::InOut>(addr.addr(), &ep0_info, route.split())
             .map_err(|_| EnumerationError::NoPipe)?;
 
-        let retries = 5;
-        let dev_desc = async {
-            for _ in 0..retries {
-                match ch
-                    .request_descriptor::<DeviceDescriptor, { DeviceDescriptor::BUF_SIZE }>(0, false)
-                    .await
-                {
-                    Err(HostError::PipeError(PipeError::Timeout)) => {
-                        Timer::after_millis(1).await;
-                        continue;
-                    }
-                    v => return v,
-                }
-            }
-            Err(HostError::PipeError(PipeError::Timeout))
-        }
+        // Retried on any error, not only on a timeout as this read used
+        // to be. A device flaky enough to STALL a descriptor read is the
+        // case the retry exists for, and a stall took the `v => return v`
+        // arm straight out of the loop — so the read with the largest
+        // retry budget in the function was also the one that gave up
+        // first on the most likely failure.
+        let dev_desc = crate::handler::retry_descriptor(async || {
+            ch.request_descriptor::<DeviceDescriptor, { DeviceDescriptor::BUF_SIZE }>(0, false)
+                .await
+        })
         .await?;
 
         info!(
@@ -408,7 +402,8 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
 
         // Step 4: Get configuration descriptor header (9 bytes).
         let setup = SetupPacket::get_config_descriptor(0, 9);
-        let n = ch.control_in(&setup.to_bytes(), &mut config_buf[..9]).await?;
+        let n = crate::handler::retry_descriptor(async || ch.control_in(&setup.to_bytes(), &mut config_buf[..9]).await)
+            .await?;
 
         if n < 9 {
             return Err(EnumerationError::InvalidDescriptor);
@@ -424,7 +419,10 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
 
         // Get full configuration descriptor.
         let setup = SetupPacket::get_config_descriptor(0, total_len as u16);
-        let n = ch.control_in(&setup.to_bytes(), &mut config_buf[..total_len]).await?;
+        let n = crate::handler::retry_descriptor(async || {
+            ch.control_in(&setup.to_bytes(), &mut config_buf[..total_len]).await
+        })
+        .await?;
 
         // USB 2.0 §9.4.3: the device must return exactly total_len bytes for a full config descriptor.
         if n != total_len {
