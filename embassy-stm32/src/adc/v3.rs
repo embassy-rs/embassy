@@ -3,13 +3,13 @@ use cfg_if::cfg_if;
 use heapless::Vec;
 #[cfg(adc_g0)]
 use pac::adc::vals::Ckmode;
-#[cfg(adc_h5)]
-use pac::adccommon::vals::Ckmode;
 use pac::adc::vals::Dmacfg;
 #[cfg(adc_v3)]
 use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 #[cfg(adc_g0)]
 pub use pac::adc::vals::{Ovsr, Ovss, Presc};
+#[cfg(adc_h5)]
+use pac::adccommon::vals::Ckmode;
 #[cfg(any(adc_h5, adc_h7rs))]
 use pac::adccommon::vals::Presc;
 
