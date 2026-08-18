@@ -8,6 +8,8 @@ use pac::adc::vals::Dmacfg;
 use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 #[cfg(adc_g0)]
 pub use pac::adc::vals::{Ovsr, Ovss, Presc};
+#[cfg(adc_h5)]
+use pac::adccommon::vals::Ckmode;
 #[cfg(any(adc_h5, adc_h7rs))]
 use pac::adccommon::vals::Presc;
 
@@ -133,7 +135,7 @@ cfg_if! {
     }
 }
 
-cfg_if! { if #[cfg(adc_g0)] {
+cfg_if! { if #[cfg(any(adc_g0, adc_h5))] {
 
 /// Synchronous PCLK prescaler
 pub enum CkModePclk {
@@ -173,9 +175,9 @@ pub struct AdcConfig {
     pub oversampling_enable: Option<bool>,
     #[cfg(adc_v3)]
     pub oversampling_mode: Option<(Rovsm, Trovs, bool)>,
-    #[cfg(adc_g0)]
+    #[cfg(any(adc_g0, adc_h5))]
     pub clock: Option<Clock>,
-    #[cfg(any(adc_h5, adc_h7rs))]
+    #[cfg(any(adc_h7rs))]
     /// Clock prescaler for the ker_ck_input clock
     pub prescaler: Option<Presc>,
     pub resolution: Option<Resolution>,
@@ -574,7 +576,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     }
 
     pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
-        #[cfg(any(adc_h5, adc_h7rs))]
+        #[cfg(any(adc_h7rs))]
         let s = {
             Self::init_regulator();
             // Configure the prescaler before running the calibration
@@ -587,7 +589,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
             Self { adc }
         };
 
-        #[cfg(adc_g0)]
+        #[cfg(any(adc_g0, adc_h5))]
         let s = match config.clock {
             Some(clock) => Self::new_with_clock(adc, clock),
             None => Self::new(adc),
@@ -653,7 +655,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         s
     }
 
-    #[cfg(adc_g0)]
+    #[cfg(any(adc_g0, adc_h5))]
     /// Initialize ADC with explicit clock for the analog ADC
     pub fn new_with_clock(adc: Peri<'d, T>, clock: Clock) -> Self {
         Self::init_regulator();
@@ -673,6 +675,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
                 }
             }
         }
+        #[cfg(adc_g0)]
         match clock {
             Clock::Async { div } => T::regs().ccr().modify(|reg| reg.set_presc(div)),
             Clock::Sync { div } => T::regs().cfgr2().modify(|reg| {
@@ -680,6 +683,20 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
                     CkModePclk::DIV1 => Ckmode::Pclk,
                     CkModePclk::DIV2 => Ckmode::PclkDiv2,
                     CkModePclk::DIV4 => Ckmode::PclkDiv4,
+                })
+            }),
+        }
+        #[cfg(adc_h5)]
+        match clock {
+            Clock::Async { div } => T::common_regs().ccr().modify(|reg| {
+                reg.set_ckmode(Ckmode::Asynchronous);
+                reg.set_presc(div);
+            }),
+            Clock::Sync { div } => T::common_regs().ccr().modify(|reg| {
+                reg.set_ckmode(match div {
+                    CkModePclk::DIV1 => Ckmode::SyncDiv1,
+                    CkModePclk::DIV2 => Ckmode::SyncDiv2,
+                    CkModePclk::DIV4 => Ckmode::SyncDiv4,
                 })
             }),
         }
