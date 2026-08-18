@@ -1051,7 +1051,7 @@ impl<'d, M: Mode> Uart<'d, M> {
     fn set_baudrate_inner(info: &Info, baudrate: u32) {
         Self::set_baudrate_nowait(info, baudrate);
 
-        // wait for the tx to clear before allowing more transmits
+        // wait for tx to clear before returning
         Self::lcr_modify(info, |_| {});
     }
 
