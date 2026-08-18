@@ -185,7 +185,7 @@ impl<'d> BufferedUart<'d> {
     }
 
     /// Set the configuration at runtime (ignores pin inversions)
-    pub fn set_config<'d>(&mut self, config: Config) {
+    pub fn set_config(&mut self, config: Config) {
         self.tx.set_config(config);
     }
 
@@ -505,7 +505,7 @@ impl<'d> BufferedUartTx<'d> {
     }
 
     /// Set the configuration at runtime (ignores pin inversions)
-    pub fn set_config<'d>(&mut self, config: Config) {
+    pub fn set_config(&mut self, config: Config) {
         super::Uart::<'d, Async>::set_config_inner(self.info, config);
     }
 }

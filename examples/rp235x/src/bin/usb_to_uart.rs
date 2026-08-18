@@ -18,7 +18,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::{UART0, USB};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config};
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler as UsbInterruptHandler};
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State, LineCoding};
+use embassy_usb::class::cdc_acm::{CdcAcmClass, LineCoding, State};
 use embedded_io_async::{BufRead, Write};
 use panic_probe as _;
 use static_cell::StaticCell;
