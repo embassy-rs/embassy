@@ -20,7 +20,7 @@ use crate::timer::{Frequency, Instance as TimerInstance, Timer};
 use crate::{interrupt, pac, peripherals};
 
 /// SAADC error
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {}

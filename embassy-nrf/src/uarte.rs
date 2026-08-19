@@ -85,21 +85,27 @@ impl ErrorSource {
 }
 
 /// UART error.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     /// Buffer was too long.
+    #[error("buffer was too long")]
     BufferTooLong,
     /// The buffer is not in data RAM. It's most likely in flash, and nRF's DMA cannot access flash.
+    #[error("buffer not in RAM: buffer is likely in flash which nRF DMA cannot access")]
     BufferNotInRAM,
     /// Framing Error
+    #[error("framing error")]
     Framing,
     /// Parity Error
+    #[error("parity error")]
     Parity,
     /// Buffer Overrun
+    #[error("buffer overrun")]
     Overrun,
     /// Break condition
+    #[error("break condition")]
     Break,
 }
 
@@ -1319,20 +1325,6 @@ mod eh02 {
         }
     }
 }
-
-impl core::fmt::Display for Error {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match *self {
-            Self::BufferTooLong => f.write_str("BufferTooLong"),
-            Self::BufferNotInRAM => f.write_str("BufferNotInRAM"),
-            Self::Framing => f.write_str("Framing"),
-            Self::Parity => f.write_str("Parity"),
-            Self::Overrun => f.write_str("Overrun"),
-            Self::Break => f.write_str("Break"),
-        }
-    }
-}
-impl core::error::Error for Error {}
 
 mod _embedded_io {
     use super::*;
