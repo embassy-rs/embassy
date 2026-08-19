@@ -519,6 +519,9 @@ impl crate::adc::InjectedRegs for crate::pac::adc::Adc {
         for (i, d) in data.iter_mut().enumerate() {
             *d = self.jdr(i).read().jdata();
         }
+
+        // Clear JEOS by writing 1
+        self.isr().modify(|r| r.set_jeos(true));
     }
 }
 
