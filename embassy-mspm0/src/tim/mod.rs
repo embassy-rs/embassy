@@ -8,6 +8,8 @@ use mspm0_metapac::tim::Tim;
 use crate::gpio::Pin;
 use crate::interrupt;
 
+pub mod simple_pwm;
+
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType {
     type Interrupt: interrupt::typelevel::Interrupt;
