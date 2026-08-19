@@ -32,7 +32,7 @@ async fn main(_spawner: Spawner) {
 
     let buffers = DoubleBuffering::<Sample, NUM_SAMPLES>::new();
     let mut input_stream =
-        I2S::new_master(p.I2S, Irqs, p.P0_25, p.P0_26, p.P0_27, master_clock, config).input(p.P0_29, buffers);
+        I2S::new_master_with_mck(p.I2S, Irqs, p.P0_25, p.P0_26, p.P0_27, master_clock, config).input(p.P0_29, buffers);
 
     // Configure the PWM to use the pins corresponding to the RGB leds
     let mut pwm = SimplePwm::new_3ch(p.PWM0, p.P0_23, p.P0_22, p.P0_24, &Default::default());
