@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump usbd-hid from 0.9.0 to 0.10.0
 - `UAC1`: Add audio source
+- `UAC1`: BREAKING: `AudioSource::new(builder, state, config)` replaces the positional arguments and the manual handler registration; `AudioSource` now has `stream`, `feedback: Option<_>` and `control_monitor` (with `muted()`), `Volume` moved to `uac1`. Internally `Speaker` and `AudioSource` share one implementation of the descriptors and control handler
 - `UAC1`: `Speaker::new` now returns `Self` with the parts inside instead of a tuple
 
 ## 0.6.0 - 2026-03-10
