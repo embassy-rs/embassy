@@ -15,7 +15,6 @@ use embassy_executor::Spawner;
 use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::clocks::periph_helpers::I3cClockSel;
 use embassy_mcxa::config::Config;
 use embassy_mcxa::i3c::controller::{self, BusType, I3c, IbiSlot, InterruptHandler, Operation, Payload};
 use embassy_mcxa::peripherals::I3C0;
@@ -26,7 +25,7 @@ use panic_probe as _;
 
 const TARGET_STATIC_ADDR: u8 = 0x0a;
 const TARGET_DYNAMIC_ADDR: u8 = 0x0b;
-const MAX_TRANSFER_LEN: usize = 1024;
+const MAX_TRANSFER_LEN: usize = 250;
 
 bind_interrupts!(
     struct Irqs {
@@ -38,7 +37,6 @@ bind_interrupts!(
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
-    config.clock_cfg.firc.as_mut().unwrap().fro_hf_div = Some(Div8::no_div());
 
     let p = hal::init(config);
 
@@ -47,9 +45,7 @@ async fn main(_spawner: Spawner) {
         PurPin::<I3C0>::mux(&*p.P0_2);
     }
 
-    let mut cfg = controller::Config::default();
-    cfg.push_pull_freq = 8_000_000;
-    cfg.clock_config.source = I3cClockSel::FroHfDiv;
+    let cfg = controller::Config::default();
     let mut i3c = I3c::new_async_with_dma(p.I3C0, p.P0_21, p.P0_20, p.DMA0_CH0, p.DMA0_CH1, Irqs, cfg).unwrap();
     let mut trng = Trng::new_blocking(p.TRNG0, Default::default());
 

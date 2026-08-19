@@ -34,7 +34,6 @@ bind_interrupts!(
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
-    config.clock_cfg.firc.as_mut().unwrap().fro_hf_div = Some(Div8::no_div());
 
     let p = hal::init(config);
 
@@ -42,7 +41,7 @@ async fn main(_spawner: Spawner) {
     tgt_cfg.address = Some(TARGET_ADDR);
     tgt_cfg.ibi_capable = true;
     tgt_cfg.ibi_has_payload = true;
-    tgt_cfg.clock_config.source = I3cClockSel::FroHfDiv;
+    tgt_cfg.clock_config.source = I3cClockSel::FroLfDiv;
     tgt_cfg.clock_config.div = Div4::from_divisor(1).unwrap();
 
     let rx_buf: &'static mut [u8] = RX_BUF.take();
