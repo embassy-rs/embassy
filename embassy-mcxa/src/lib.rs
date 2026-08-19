@@ -38,6 +38,8 @@ pub mod config;
 pub mod crc;
 #[cfg(mcxa_ctimer)]
 pub mod ctimer;
+#[cfg(mcxa_dac)]
+pub mod dac;
 #[cfg(mcxa_dma)]
 pub mod dma;
 #[cfg(feature = "executor-platform")]
