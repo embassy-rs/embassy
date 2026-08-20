@@ -15,6 +15,10 @@ pub use ringbuffered::RingBufferedSpiRx;
 
 use crate::Peri;
 use crate::dma::{ChannelAndRequest, word};
+#[cfg(feature = "exti")]
+use crate::exti;
+#[cfg(feature = "exti")]
+use crate::gpio::ExtiPin;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{Spi as Regs, regs, vals};
@@ -226,6 +230,7 @@ pub struct Spi<'d, M: PeriMode, CM: CommunicationMode> {
     _sck: Option<Flex<'d>>,
     _mosi: Option<Flex<'d>>,
     _miso: Option<Flex<'d>>,
+    _exti: bool,
     nss: Option<Flex<'d>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
@@ -243,6 +248,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         mosi: Option<Flex<'d>>,
         miso: Option<Flex<'d>>,
         nss: Option<Flex<'d>>,
+        exti: bool,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
@@ -253,6 +259,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             _sck: sck,
             _mosi: mosi,
             _miso: miso,
+            _exti: exti,
             nss,
             tx_dma,
             rx_dma,
@@ -630,6 +637,7 @@ impl<'d> Spi<'d, Blocking, Slave> {
             new_pin!(mosi, AfType::input(config.input_pull)),
             new_pin!(miso, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(cs, AfType::input(config.nss_pull)),
+            false,
             None,
             None,
             config,
@@ -652,6 +660,7 @@ impl<'d> Spi<'d, Blocking, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(miso, AfType::input(config.input_pull)),
             None,
+            false,
             None,
             None,
             config,
@@ -671,6 +680,7 @@ impl<'d> Spi<'d, Blocking, Master> {
             None,
             new_pin!(miso, AfType::input(config.input_pull)),
             None,
+            false,
             None,
             None,
             config,
@@ -690,6 +700,7 @@ impl<'d> Spi<'d, Blocking, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
             None,
+            false,
             None,
             None,
             config,
@@ -710,6 +721,7 @@ impl<'d> Spi<'d, Blocking, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
             None,
+            false,
             None,
             None,
             config,
@@ -717,19 +729,31 @@ impl<'d> Spi<'d, Blocking, Master> {
     }
 }
 
+#[cfg(feature = "exti")]
 impl<'d> Spi<'d, Async, Slave> {
     /// Create a new SPI slave driver.
-    pub fn new_slave<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
+    pub fn new_slave<
+        T: Instance,
+        D1: TxDma<T>,
+        D2: RxDma<T>,
+        #[cfg(not(afio))] C: CsPin<T> + ExtiPin,
+        #[cfg(afio)] C: CsPin<T, A> + ExtiPin,
+        #[cfg(afio)] A,
+    >(
         peri: Peri<'d, T>,
         sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
         mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
         miso: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
-        cs: Peri<'d, if_afio!(impl CsPin<T, A>)>,
+        cs: Peri<'d, C>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
+        _exti: Option<Peri<'d, C::ExtiChannel>>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
-        + 'd,
+        + crate::interrupt::typelevel::Binding<
+            <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
+            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+        > + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -738,6 +762,7 @@ impl<'d> Spi<'d, Async, Slave> {
             new_pin!(mosi, AfType::input(config.input_pull)),
             new_pin!(miso, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(cs, AfType::input(config.nss_pull)),
+            _exti.is_some(),
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
@@ -745,13 +770,24 @@ impl<'d> Spi<'d, Async, Slave> {
     }
 
     /// Create a new SPI slave driver in RX-only mode (only MOSI pin, no MISO).
-    pub fn new_rxonly_slave<T: Instance, D1: RxDma<T>, #[cfg(afio)] A>(
+    pub fn new_rxonly_slave<
+        T: Instance,
+        D1: RxDma<T>,
+        #[cfg(not(afio))] C: CsPin<T> + ExtiPin,
+        #[cfg(afio)] C: CsPin<T, A> + ExtiPin,
+        #[cfg(afio)] A,
+    >(
         peri: Peri<'d, T>,
         sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
         mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
-        cs: Peri<'d, if_afio!(impl CsPin<T, A>)>,
+        cs: Peri<'d, C>,
         rx_dma: Peri<'d, D1>,
-        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>> + 'd,
+        _exti: Option<Peri<'d, C::ExtiChannel>>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<
+            <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
+            exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
+        > + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -760,6 +796,7 @@ impl<'d> Spi<'d, Async, Slave> {
             new_pin!(mosi, AfType::input(config.input_pull)),
             None,
             new_pin!(cs, AfType::input(config.nss_pull)),
+            _exti.is_some(),
             None,
             new_dma!(rx_dma, _irq),
             config,
@@ -787,6 +824,7 @@ impl<'d> Spi<'d, Async, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(miso, AfType::input(config.input_pull)),
             None,
+            false,
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
@@ -819,6 +857,7 @@ impl<'d> Spi<'d, Async, Master> {
             None,
             new_pin!(miso, AfType::input(config.input_pull)),
             None,
+            false,
             #[cfg(any(spi_v1, spi_v2, spi_v3))]
             new_dma!(tx_dma, _irq),
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
@@ -843,6 +882,7 @@ impl<'d> Spi<'d, Async, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
             None,
+            false,
             new_dma!(tx_dma, _irq),
             None,
             config,
@@ -868,6 +908,7 @@ impl<'d> Spi<'d, Async, Master> {
             new_pin!(sdio, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
             None,
+            false,
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
@@ -892,6 +933,7 @@ impl<'d> Spi<'d, Async, Master> {
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
             None,
+            false,
             new_dma!(tx_dma, _irq),
             None,
             config,
@@ -924,6 +966,7 @@ impl<'d> Spi<'d, Async, Master> {
             None,
             None,
             None,
+            false,
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
@@ -937,7 +980,7 @@ impl<'d> Spi<'d, Async, Master> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(peri, None, None, None, None, tx_dma, rx_dma, config)
+        Self::new_inner(peri, None, None, None, None, false, tx_dma, rx_dma, config)
     }
 }
 
