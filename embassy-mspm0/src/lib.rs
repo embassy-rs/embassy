@@ -158,8 +158,6 @@ pub enum ClockSource {
     MfClk,
     LfClk,
     SysOsc,
-    // Not tested
-    HsClk,
 }
 
 /// `embassy-mspm0` global configuration.
@@ -204,14 +202,10 @@ pub fn init(config: Config) -> Peripherals {
                 ClockSource::MfClk => {
                     w.set_usemftick(true);
                 }
-                ClockSource::HsClk => {
-                    w.set_usehsclk(true);
-                }
                 ClockSource::LfClk => {
                     w.set_uselfclk(true);
                 }
                 ClockSource::SysOsc => {
-                    w.set_usehsclk(false);
                     w.set_uselfclk(false);
                     w.set_usemftick(false);
                 }
