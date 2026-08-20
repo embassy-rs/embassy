@@ -219,6 +219,32 @@ impl<'d, T: Instance> Trng<'d, T> {
         T::Interrupt::disable();
     }
 
+    fn recover_or_panic_on_generation_error(&self) -> bool {
+        let regs = T::regs();
+        let isr = regs.rng_isr().read();
+
+        // CRNGT_ERR and VN_ERR can leave EHR invalid. The blocking API is
+        // infallible, so report the health-test failure loudly instead of
+        // spinning forever waiting for a result that may never become valid.
+        if isr.crngt_err() {
+            panic!("TRNG CRNGT error! Increase sample count to reduce likelihood");
+        }
+        if isr.vn_err() {
+            panic!("TRNG Von-Neumann balancer error! Increase sample count to reduce likelihood");
+        }
+
+        if isr.autocorr_err() {
+            regs.trng_sw_reset().write(|w| w.set_trng_sw_reset(true));
+            // Fixed delay is required after TRNG soft reset. This read is sufficient.
+            regs.trng_sw_reset().read();
+            self.initialize_rng();
+            self.start_rng();
+            return true;
+        }
+
+        false
+    }
+
     fn blocking_wait_for_successful_generation(&self) {
         let regs = T::regs();
 
@@ -227,15 +253,13 @@ impl<'d, T: Instance> Trng<'d, T> {
 
         let mut success = false;
         while success.not() {
-            while trng_busy_register.read().trng_busy() {}
+            while trng_busy_register.read().trng_busy() {
+                if self.recover_or_panic_on_generation_error() {
+                    continue;
+                }
+            }
             if trng_valid_register.read().ehr_valid().not() {
-                if regs.rng_isr().read().autocorr_err() {
-                    regs.trng_sw_reset().write(|w| w.set_trng_sw_reset(true));
-                    // Fixed delay is required after TRNG soft reset. This read is sufficient.
-                    regs.trng_sw_reset().read();
-                    self.initialize_rng();
-                    self.start_rng();
-                } else {
+                if self.recover_or_panic_on_generation_error().not() {
                     panic!("RNG not busy, but ehr is not valid!")
                 }
             } else {
