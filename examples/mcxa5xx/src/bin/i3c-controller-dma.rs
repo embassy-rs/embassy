@@ -94,7 +94,7 @@ async fn main(_spawner: Spawner) {
             .unwrap();
 
         let mut ibi_buf = [0u8; 8];
-        let (_ibi_addr, _ibi_len) = i3c.async_wait_for_ibi(&mut ibi_buf).await.unwrap();
+        let _ = i3c.async_wait_for_ibi(&mut ibi_buf).await.unwrap();
 
         let mut buf = [0u8; CTRL_RD_LEN];
         match i3c.async_read(TARGET_DYNAMIC_ADDR, &mut buf, BusType::I3cSdr).await {

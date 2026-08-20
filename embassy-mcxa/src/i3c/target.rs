@@ -15,7 +15,7 @@ use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 use grounded::uninit::GroundedCell;
 
-use super::{Info, Instance, SclPin, SdaPin};
+use super::{DeviceCharacteristics, Info, Instance, SclPin, SdaPin};
 pub use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::dma::{Channel, DmaChannel, DmaRequest, TransferOptions};
@@ -99,6 +99,15 @@ impl From<crate::dma::InvalidParameters> for IOError {
     }
 }
 
+/// Hot-Join request errors.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum HotJoinError {
+    /// Target already holds a dynamic address; Hot-Join is not permitted.
+    HasDynamicAddress,
+}
+
 /// Bus transfer type.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -160,6 +169,10 @@ pub struct Config {
     /// IBI address header.  Set `SCTRL.IBIDATA` before asserting the event.
     pub ibi_has_payload: bool,
 
+    /// Device Characteristics Register (DCR) advertised to the controller via
+    /// GETDCR and during ENTDAA.
+    pub device_characteristics: DeviceCharacteristics,
+
     /// Clock configuration
     pub clock_config: ClockConfig,
 }
@@ -174,6 +187,7 @@ impl Default for Config {
             max_read_len: 256,
             ibi_capable: false,
             ibi_has_payload: false,
+            device_characteristics: DeviceCharacteristics::Generic,
             clock_config: ClockConfig::default(),
         }
     }
@@ -444,7 +458,10 @@ impl<'d> I3c<'d> {
         // Configure BCR (Bus Characteristics Register) — visible to the controller via GETBCR.
         // BCR[1]: IBI Request Capable; BCR[2]: IBI Payload (mandatory data byte follows).
         let bcr: u8 = if config.ibi_capable { 0x02 } else { 0 } | if config.ibi_has_payload { 0x04 } else { 0 };
-        self.info.regs().sidext().modify(|w| w.set_bcr(bcr));
+        self.info.regs().sidext().modify(|w| {
+            w.set_bcr(bcr);
+            w.set_dcr(config.device_characteristics.into());
+        });
 
         self.clear_status();
         self.flush_fifos();
@@ -471,6 +488,30 @@ impl<'d> I3c<'d> {
 }
 
 impl<'d> I3c<'d> {
+    /// Return the currently valid dynamic address reported by the target
+    /// hardware, or `None` when no dynamic address is assigned.
+    pub fn dynamic_address(&self) -> Option<u8> {
+        let map = self.info.regs().smapctrl0().read();
+        map.ena().then(|| map.da())
+    }
+
+    /// Issue a Hot-Join request on the bus.
+    ///
+    /// Returns [`HotJoinError::HasDynamicAddress`] if the target currently holds
+    /// a dynamic address — Hot-Join is will nbt be issued in that state.
+    pub fn hot_join_request(&mut self) -> Result<(), HotJoinError> {
+        if self.dynamic_address().is_some() {
+            return Err(HotJoinError::HasDynamicAddress);
+        }
+
+        self.info
+            .regs()
+            .sctrl()
+            .modify(|w| w.set_event(SctrlEvent::HotJoinRequest));
+
+        Ok(())
+    }
+
     /// Create a new DMA-backed I3C target driver.
     ///
     /// Configures the I3C peripheral as a slave with DMA used for both TX
