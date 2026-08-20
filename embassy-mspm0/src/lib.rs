@@ -76,6 +76,7 @@ pub use mspm0_metapac as pac;
 pub(crate) use mspm0_metapac as pac;
 
 pub use crate::_generated::interrupt;
+use crate::ClockSource::MfClk;
 
 /// Macro to bind interrupts to handlers.
 ///
@@ -151,11 +152,23 @@ macro_rules! bind_interrupts {
     }
 }
 
+/// System clock selection
+#[derive(Clone, Copy)]
+pub enum ClockSource {
+    MfClk,
+    LfClk,
+    SysOsc,
+    // Not tested
+    HsClk,
+}
+
 /// `embassy-mspm0` global configuration.
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub struct Config {
-    // TODO: OSC configuration.
+    /// Clock source
+    pub clock_source: ClockSource,
+
     /// The size of DMA block transfer burst.
     ///
     /// If this is set to a value
@@ -172,6 +185,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            clock_source: MfClk,
             dma_burst_size: dma::BurstSize::Complete,
             dma_round_robin: false,
         }
@@ -185,8 +199,23 @@ pub fn init(config: Config) -> Peripherals {
         // TODO: Further clock configuration
 
         pac::SYSCTL.mclkcfg().modify(|w| {
-            // Enable MFCLK
-            w.set_usemftick(true);
+            // Configure clock based on source chosen
+            match config.clock_source {
+                ClockSource::MfClk => {
+                    w.set_usemftick(true);
+                }
+                ClockSource::HsClk => {
+                    w.set_usehsclk(true);
+                }
+                ClockSource::LfClk => {
+                    w.set_uselfclk(true);
+                }
+                ClockSource::SysOsc => {
+                    w.set_usehsclk(false);
+                    w.set_uselfclk(false);
+                    w.set_usemftick(false);
+                }
+            }
             // MDIV must be disabled if MFCLK is enabled.
             w.set_mdiv(0);
         });
@@ -198,6 +227,9 @@ pub fn init(config: Config) -> Peripherals {
             w.set_mfpclken(true);
         });
 
+        if let ClockSource::LfClk = config.clock_source {
+            pac::SYSCTL.sysosccfg().modify(|w| w.set_disable(true));
+        }
         // TODO: Errata PCMU_ERR_03 states that BOR thresholds other than 0 don't work in STANDBY.
         pac::SYSCTL.borthreshold().modify(|w| {
             w.set_level(0);
