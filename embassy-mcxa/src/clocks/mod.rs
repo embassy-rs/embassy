@@ -53,7 +53,7 @@ mod types;
 // Re-exports
 pub use config::VddLevel;
 pub use gate::{Gate, assert_reset, disable, enable, enable_and_reset, is_reset_released, release_reset};
-pub use sleep::deep_sleep_if_possible;
+pub use sleep::{deep_sleep_forced, deep_sleep_if_possible};
 pub use types::{Clock, ClockError, Clocks, PoweredClock, WakeGuard};
 
 //

@@ -47,6 +47,50 @@ pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> bool {
     true
 }
 
+/// Attempt to go to deep sleep, ignoring active `WakeGuard`s.
+///
+/// This behaves like [`deep_sleep_if_possible`] but does **not** abort when wake
+/// guards are held: it always performs the deep-sleep enter/recover sequence and
+/// returns `true`.
+///
+/// ## SAFETY
+///
+/// In addition to every requirement of [`deep_sleep_if_possible`]
+/// (`crate::clocks::init()` must have run with a `CoreSleep::DeepSleep`
+/// configuration), the caller asserts that it is safe to stop every
+/// active-mode-only clock *right now*:
+///
+/// * All guard-holding peripherals (LPUART, LPI2C, LPSPI, ADC, CTIMER, ...)
+///   must be idle. Their register and SRAM state is retained across MCX-A Deep
+///   Sleep and the active-only root clocks are restarted on wake, so they
+///   resume automatically — but any transfer in flight when the clock stops
+///   will be corrupted.
+/// * A wake source that operates in Deep Sleep must be armed. The OS Event
+///   Timer runs from `clk_1m`/SIRC while `SIRCCSR[SIRCSTEN] = 1` (which the
+///   clock tree sets when SIRC is configured `AlwaysEnabled`), so any pending
+///   `embassy-time` timer will wake the core; WUU pin sources may also be used
+///   for external events.
+///
+/// Ignoring the guards deliberately defeats the safety mechanism that otherwise
+/// prevents deep sleep while peripherals still need their clocks. Only call this
+/// from a context that guarantees system quiescence (e.g. the OS is asleep).
+pub unsafe fn deep_sleep_forced(cs: &CriticalSection) -> bool {
+    unsafe {
+        // Ready the system for deep sleep WHILE STILL IN the CS.
+        setup_deep_sleep();
+
+        // Here we go! It is okay to WFE with interrupts disabled: SEVONPEND is
+        // enabled, so a pending interrupt (e.g. the OS Event Timer) wakes us.
+        cortex_m::asm::dsb();
+        cortex_m::asm::wfe();
+
+        // Wakey wakey, eggs and bakey
+        recover_deep_sleep(cs);
+        }
+
+    true
+}
+
 /// Prepare the system for deep sleep
 ///
 /// ## SAFETY
