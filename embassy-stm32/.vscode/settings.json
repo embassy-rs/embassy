@@ -1,0 +1,4 @@
+{
+  "rust-analyzer.cargo.features": ["stm32h7a3ag"],
+  "rust-analyzer.check.features": ["stm32h7a3ag"]
+}

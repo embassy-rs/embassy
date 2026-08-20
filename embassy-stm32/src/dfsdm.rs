@@ -143,7 +143,7 @@ where
 }
 
 trait SealedInstance: crate::rcc::RccPeripheral {
-    fn regs(&self) -> crate::pac::dfsdm::Dfsdm;
+    // fn regs(&self) -> crate::pac::dfsdm::Dfsdm;
 }
 
 /// DFSDM instance.
@@ -152,6 +152,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
+
 pin_trait!(CkoutPin, Instance);
 pin_trait!(Datin0Pin, Instance);
 pin_trait!(Ckin0Pin, Instance);
@@ -172,12 +173,26 @@ pin_trait!(Ckin7Pin, Instance);
 
 // allow unused as U5 sources do not contain interrupt nor dma data
 #[allow(unused)]
-macro_rules! impl_peripheral {
+macro_rules! impl_peripheral_8ch_8flt_dly {
     ($inst:ident, $irq:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
-            fn regs(&self) -> crate::pac::dfsdm::Dfsdm {
-                crate::pac::$inst
-            }
+            // fn regs(&self) -> crate::pac::dfsdm::Dfsdm8ch8fltDly {
+            //     crate::pac::$inst
+            // }
+        }
+
+        impl Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+}
+#[allow(unused)]
+macro_rules! impl_peripheral_2ch_1flt {
+    ($inst:ident, $irq:ident) => {
+        impl SealedInstance for crate::peripherals::$inst {
+            // fn regs(&self) -> crate::pac::dfsdm::Dfsdm2ch1flt {
+            //     crate::pac::$inst
+            // }
         }
 
         impl Instance for crate::peripherals::$inst {
@@ -186,9 +201,17 @@ macro_rules! impl_peripheral {
     };
 }
 
+// foreach_interrupt! {
+//     ($inst:ident, dfsdm, $block:ident, FLT0, $irq:ident) => {
+//         impl_peripheral!($inst, $irq);
+//     };
+// }
 foreach_interrupt! {
-    ($inst:ident, dfsdm, $block:ident, FLT0, $irq:ident) => {
-        impl_peripheral!($inst, $irq);
+    ($inst:ident, dfsdm, DFSDM_8CH_8FLT_DLY, FLT0, $irq:ident) => {
+        impl_peripheral_8ch_8flt_dly!($inst, $irq);
+    };
+    ($inst:ident, dfsdm, DFSDM_2CH_1FLT, FLT0, $irq:ident) => {
+        impl_peripheral_2ch_1flt!($inst, $irq);
     };
 }
 
