@@ -709,6 +709,15 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Self { adc }
     }
 
+    /// Read the currently configured resolution for this ADC driver and return it.
+    pub fn resolution(&self) -> Resolution {
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        let cfgr = T::regs().cfgr().read();
+        #[cfg(any(adc_g0, adc_u0))]
+        let cfgr = T::regs().cfgr1().read();
+        cfgr.res().into()
+    }
+
     #[cfg(adc_u0)]
     pub fn enable_auto_off(&mut self) {
         T::regs().cfgr1().modify(|reg| {
