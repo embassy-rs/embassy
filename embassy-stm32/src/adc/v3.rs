@@ -519,6 +519,9 @@ impl crate::adc::InjectedRegs for crate::pac::adc::Adc {
         for (i, d) in data.iter_mut().enumerate() {
             *d = self.jdr(i).read().jdata();
         }
+
+        // Clear JEOS by writing 1
+        self.isr().modify(|r| r.set_jeos(true));
     }
 }
 
@@ -704,6 +707,15 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Self::init_calibrate();
 
         Self { adc }
+    }
+
+    /// Read the currently configured resolution for this ADC driver and return it.
+    pub fn resolution(&self) -> Resolution {
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        let cfgr = T::regs().cfgr().read();
+        #[cfg(any(adc_g0, adc_u0))]
+        let cfgr = T::regs().cfgr1().read();
+        cfgr.res().into()
     }
 
     #[cfg(adc_u0)]

@@ -176,6 +176,24 @@ impl<'d> ExtiInput<'d, Async> {
         }
     }
 
+    /// Create an EXTI input from an existing [`Flex`] pin.
+    ///
+    /// Useful when a pin was previously used in bidirectional mode (e.g.,
+    /// driven as an output for a hardware entry sequence) and needs to be
+    /// switched to interrupt-driven input mode without re-acquiring the
+    /// peripheral token.
+    ///
+    /// The pin should be in input mode (configured via [`Flex::set_as_input()`])
+    /// before calling this.
+    ///
+    /// The Binding must bind the Channel's IRQ to [InterruptHandler].
+    pub unsafe fn from_flex_unchecked(pin: Flex<'d>) -> Self {
+        Self {
+            pin: Input::from_flex(pin),
+            _kind: PhantomData,
+        }
+    }
+
     /// Asynchronously wait until the pin is high.
     ///
     /// This returns immediately if the pin is already high.

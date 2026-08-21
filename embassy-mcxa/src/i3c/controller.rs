@@ -1190,7 +1190,14 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             cortex_m::asm::dsb();
 
             // How many bytes did DMA actually move into this chunk?
-            let chunk_done = self.mode.rx_dma.transferred_bytes().min(chunk.len());
+            let chunk_done = if self.mode.rx_dma.is_done() {
+                chunk.len()
+            } else {
+                // DMA didn't finish, but I3C COMPLETE or errwarn fired.
+                // The target may have T-bit'd early. Check how many bytes
+                // actually made it into the buffer.
+                self.mode.rx_dma.transferred_bytes().min(chunk.len())
+            };
 
             // Cleanup
             self.info

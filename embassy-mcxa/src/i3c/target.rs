@@ -18,7 +18,7 @@ use grounded::uninit::GroundedCell;
 use super::{DeviceCharacteristics, Info, Instance, SclPin, SdaPin};
 pub use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
-use crate::dma::{Channel, DmaChannel, DmaRequest, TransferOptions};
+use crate::dma::{Channel, DmaChannel, DmaRequest, PeripheralWriteOperation, TransferOptions};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Interrupt;
@@ -284,6 +284,44 @@ pub struct I3c<'d> {
     tx_request: DmaRequest,
     freq: u32,
     _wg: Option<WakeGuard>,
+}
+
+struct TxDmaGuard<'a> {
+    dma: DmaChannel<'a>,
+    info: &'static Info,
+    dma_active: bool,
+}
+
+impl<'a> TxDmaGuard<'a> {
+    fn new(dma: DmaChannel<'a>, info: &'static Info) -> Self {
+        Self {
+            dma,
+            info,
+            dma_active: true,
+        }
+    }
+
+    fn complete_dma(&mut self) {
+        self.info
+            .regs()
+            .sdmactrl()
+            .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
+        self.dma.stop();
+        self.dma_active = false;
+    }
+}
+
+impl Drop for TxDmaGuard<'_> {
+    fn drop(&mut self) {
+        if self.dma_active {
+            self.info
+                .regs()
+                .sdmactrl()
+                .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
+            self.dma.stop();
+        }
+        self.info.regs().sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
+    }
 }
 
 impl<'d> I3c<'d> {
@@ -791,8 +829,7 @@ impl<'d> I3c<'d> {
         Ok(())
     }
 
-    /// Combined IBI + read response: pre-load TX DMA, raise IBI, wait for
-    /// the controller to clock out the response.
+    /// Send an IBI and respond to the controller read that follows with `buf`.
     ///
     /// At I3C-SDR speeds the post-IBI Sr→addr window is too tight (~640 ns)
     /// for the slave software to load the TX FIFO after observing the IBI
@@ -800,56 +837,97 @@ impl<'d> I3c<'d> {
     /// IBI so HW already has bytes queued by the time the controller starts
     /// clocking the directed read that follows.
     ///
-    /// Sequence:
-    /// 1. Arm `tx_dma` against `SWDATAB` for `buf.len() - 1` bytes.
-    /// 2. Set `SDMACTRL.dmatb = ENABLE_ONE_FRAME`, enable the DMA request.
-    /// 3. Raise `SCTRL.EVENT = Ibi` (with optional MDB).
-    /// 4. Wait for DMA completion.
-    /// 5. Push the final byte to `SWDATABE` so HW emits the end-of-data
-    ///    marker (T-bit) and the controller terminates the read cleanly.
-    /// 6. On any exit path, disable the DMA request, clear
-    ///    `SDMACTRL.dmatb`, and force `SCTRL.EVENT = NormalMode`.
+    /// The first byte of `buf` is also sent as the IBI mandatory data byte.
+    /// `buf` must be non-empty, and IBIs must be enabled by the controller.
     ///
-    /// `buf` must be non-empty.
+    /// # Cancellation safety
+    ///
+    /// Dropping the future aborts the DMA transfer, disables target TX DMA,
+    /// and restores `SCTRL.EVENT` to `NormalMode`. Bytes already queued or
+    /// transmitted cannot be recalled.
     pub async fn dma_respond_to_read_with_ibi(&mut self, buf: &[u8]) -> Result<(), IOError> {
-        if buf.is_empty() {
-            return Err(IOError::Other);
-        }
-
         if self.info.regs().sstatus().read().ibidis() == Ibidis::InterruptsDisabled {
             return Err(IOError::IbiDisabled);
         }
 
-        // Pre-arm the DMA TX path. Mirrors the controller's `async_write`:
-        // DMA streams `len-1` bytes through SWDATAB1; SW writes the last
-        // byte to SWDATABE to mark end-of-data.
-        let (last, rest) = buf.split_last().unwrap();
+        let (last, rest) = buf.split_last().ok_or(IOError::Other)?;
+        let last = core::slice::from_ref(last);
+        let mdb = buf[0];
+        let swdatabe = self.info.regs().swdatabe().as_ptr() as *mut u8;
 
-        // Cleanup guard for any early exit (cancellation, error).
-        let info = self.info;
-        let regs_ptr = info.regs();
-        let _ibi_drop = OnDrop::new(|| {
-            regs_ptr.sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
-            regs_ptr.sdmactrl().modify(|w| {
-                w.set_dmatb(SdmactrlDmatb::NotUsed);
-                w.set_dmafb(SdmactrlDmafb::NotUsed);
-            });
-        });
-
-        if !rest.is_empty() {
-            self.dma_tx_arm(rest)?;
+        if rest.is_empty() {
+            let mut sequence = [PeripheralWriteOperation::new(last, swdatabe)?];
+            self.dma_respond_to_read_with_ibi_scatter_gather(&mut sequence, mdb)
+                .await
+        } else {
+            let swdatab1 = self.info.regs().swdatab1().as_ptr() as *mut u8;
+            let mut sequence = PeripheralWriteOperation::new_sequence([(rest, swdatab1), (last, swdatabe)])?;
+            self.dma_respond_to_read_with_ibi_scatter_gather(&mut sequence, mdb)
+                .await
         }
+    }
 
+    /// Execute the pre-built scatter-gather response for an IBI-initiated read.
+    ///
+    /// The descriptors must write all streaming bytes to `SWDATAB1` and the
+    /// final byte to `SWDATABE`, which emits the I3C end-of-data marker. They
+    /// remain borrowed until DMA completes or the future is dropped.
+    ///
+    /// Sequence:
+    /// 1. Arm `tx_dma` with a scatter-gather sequence that writes
+    ///    `buf.len() - 1` bytes to `SWDATAB1`, then the final byte to
+    ///    `SWDATABE`.
+    /// 2. Set `SDMACTRL.dmatb`, then enable the DMA request.
+    /// 3. Raise `SCTRL.EVENT = Ibi` with the MDB.
+    /// 4. Wait for DMA completion; the final descriptor emits the
+    ///    end-of-data marker through `SWDATABE`.
+    /// 5. Wait for the controller's terminating Stop.
+    /// 6. On any exit path, disable TX DMA, clear `SDMACTRL.dmatb`, and
+    ///    force `SCTRL.EVENT = NormalMode`.
+    async fn dma_respond_to_read_with_ibi_scatter_gather(
+        &mut self,
+        sequence: &mut [PeripheralWriteOperation<'_>],
+        mdb: u8,
+    ) -> Result<(), IOError> {
         // Make sure the bus is actually idle before raising the IBI.
         // Phase A (`dma_respond_to_write`) is supposed to have waited for
         // end-of-chain, but if the caller skipped that step we'd race the
         // controller's Stop emission and corrupt this IBI.
         self.wait_for_end_of_chain().await?;
 
+        let info = self.info;
+        let bbq_state = self.bbq_state;
+        let dma = &mut self.tx_dma;
+        unsafe {
+            // SAFETY: Previous TX operation completed or aborted DMA before exit.
+            dma.disable_request();
+            // SAFETY: DMA requests are disabled, so no transfer can be in progress.
+            dma.clear_done();
+            // SAFETY: Requests have been disabled above.
+            dma.clear_interrupt();
+            // SAFETY: `tx_request` is the I3C target TX request.
+            dma.set_request_source(self.tx_request);
+            // SAFETY: `sequence` and its source buffers remain alive until DMA
+            // completes or is aborted. Its destinations are this instance's valid
+            // TX data registers, and the corresponding request source has been configured above.
+            dma.setup_write_to_peripheral_scatter_gather(sequence)?;
+
+            info.regs().sdmactrl().modify(|w| {
+                w.set_dmatb(SdmactrlDmatb::Enable);
+                w.set_dmawidth(SdmactrlDmawidth::Byte0);
+            });
+
+            // SAFETY: The request source and scatter-gather descriptors are fully
+            // configured, and the peripheral DMA request is enabled above.
+            dma.enable_request();
+        }
+
+        let mut guard = TxDmaGuard::new(dma.reborrow(), info);
+
         // Clear any stale Stop flag so the post-IBI wait below observes
         // the *new* Stop the controller emits after this IBI, not the
         // pre-IBI bus-idle state.
-        self.info.regs().sstatus().write(|w| w.set_stop(true));
+        info.regs().sstatus().write(|w| w.set_stop(true));
 
         // Snapshot the BBQ IRQ's stop counter. The BBQ IRQ owns the
         // latched STOP flag (it W1Cs it as part of its rotation logic),
@@ -859,7 +937,7 @@ impl<'d> I3c<'d> {
         // counter is bumped from the IRQ after each W1C, giving us a
         // race-free way to wait for the next bus-end without coupling
         // to BBQ internals.
-        let stop_seq_pre = self.bbq_state.stop_seq.load(Ordering::Acquire);
+        let stop_seq_pre = bbq_state.stop_seq.load(Ordering::Acquire);
 
         // Raise the IBI. DMA is already armed and the request line enabled;
         // HW will push bytes into the TX FIFO as soon as TXNOTFULL is true.
@@ -874,64 +952,43 @@ impl<'d> I3c<'d> {
         // EVENT=Ibi, mirroring SDK's `I3C_SlaveRequestIBIWithData`. The
         // MDB is sourced from SCTRL.IBIDATA (out-of-band from the TX
         // FIFO); leaving it stale means a bogus MDB on the wire.
-        let mdb = *buf.first().unwrap_or(&0);
-        self.info.regs().sctrl().modify(|w| {
+        info.regs().sctrl().modify(|w| {
             w.set_ibidata(mdb);
             w.set_event(SctrlEvent::Ibi);
         });
 
-        // Wait for DMA to drain `rest` into the FIFO. Safe to await here:
+        // Wait for DMA to complete. Safe to await here:
         // the controller is now draining the FIFO so DMA always makes
         // progress to completion.
-        if !rest.is_empty() {
-            poll_fn(|cx| {
-                let _ = self.tx_dma.wait_cell().poll_wait(cx);
-                if self.tx_dma.is_done() {
-                    Poll::Ready(())
-                } else {
-                    Poll::Pending
-                }
-            })
-            .await;
-
-            cortex_m::asm::dsb();
-
-            self.info
-                .regs()
-                .sdmactrl()
-                .modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
-            unsafe {
-                self.tx_dma.disable_request();
-                self.tx_dma.clear_done();
+        poll_fn(|cx| {
+            let _ = guard.dma.wait_cell().poll_wait(cx);
+            if guard.dma.is_done() {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
             }
-        }
+        })
+        .await;
 
-        // Push the final byte to SWDATABE so HW emits the end-of-data
-        // marker (T-bit) and the controller terminates the read cleanly.
-        self.wait_tx_space().await?;
-        self.info.regs().swdatabe().write(|w| w.set_data(*last));
+        cortex_m::asm::dsb();
+        guard.complete_dma();
 
         // Wait for the controller to complete the IBI handshake +
         // directed read and emit Stop. The BBQ IRQ bumps `stop_seq`
         // after W1C'ing each STOP latch; loop until it advances or an
         // error/warning surfaces.
-        self.info
-            .wait_cell()
+        info.wait_cell()
             .wait_for(|| {
-                self.info.regs().sintset().write(|w| {
+                info.regs().sintset().write(|w| {
                     w.set_errwarn(true);
                     w.set_stop(true);
                 });
-                self.info.regs().sstatus().read().errwarn()
-                    || self.bbq_state.stop_seq.load(Ordering::Acquire) != stop_seq_pre
+                info.regs().sstatus().read().errwarn() || bbq_state.stop_seq.load(Ordering::Acquire) != stop_seq_pre
             })
             .await
             .map_err(|_| IOError::Other)?;
 
-        // Force EVENT back to NormalMode in case HW didn't pulse.
-        self.info.regs().sctrl().modify(|w| w.set_event(SctrlEvent::NormalMode));
-
-        _ibi_drop.defuse();
+        drop(guard);
 
         // Treat `Terminated` as success: the controller is free to chunk this
         // logical response into multiple wire-level reads (each bounded by
@@ -944,9 +1001,7 @@ impl<'d> I3c<'d> {
         // got latched along the way. Mirrors `dma_respond_to_read`, which
         // exposes the same condition as `ReadStatus::EarlyStop`.
         //
-        // Genuine controller-side aborts (mid-payload Stop with bytes still
-        // pending in DMA) surface earlier as Underrun/UnderrunNack on the
-        // `wait_tx_space` / SWDATABE path, not here.
+        // Genuine controller-side aborts surface as Underrun/UnderrunNack.
         match self.check_status() {
             Ok(()) | Err(IOError::Terminated) => Ok(()),
             Err(e) => Err(e),
@@ -1012,7 +1067,7 @@ impl<'d> I3c<'d> {
     /// SW-write the last byte to `SWDATABE`). Returns the number of bytes
     /// the DMA shipped before the SW end-byte (== `buf.len() - 1`).
     async fn dma_tx_run(&mut self, buf: &[u8]) -> Result<usize, IOError> {
-        let (last, rest) = buf.split_last().unwrap();
+        let (last, rest) = buf.split_last().ok_or(IOError::Other)?;
         let regs_ptr = self.info.regs();
         let _drop = OnDrop::new(|| {
             regs_ptr.sdmactrl().modify(|w| w.set_dmatb(SdmactrlDmatb::NotUsed));
