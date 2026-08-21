@@ -25,8 +25,8 @@ use panic_probe as _;
 
 const TARGET_STATIC_ADDR: u8 = 0x0a;
 const TARGET_DYNAMIC_ADDR: u8 = 0x0b;
+const NON_RESET_PREFIX: u8 = 0x00;
 const RESET_COMMAND: u8 = 0xf0;
-const RESET_INTERVAL: u32 = 10;
 const MAX_TRANSFER_LEN: usize = 250;
 
 bind_interrupts!(
@@ -85,7 +85,8 @@ async fn main(_spawner: Spawner) {
     let mut tx_buf = [0u8; MAX_TRANSFER_LEN];
     let mut buf = [0u8; MAX_TRANSFER_LEN];
     loop {
-        trng.blocking_fill_bytes(&mut tx_buf);
+        tx_buf[0] = NON_RESET_PREFIX;
+        trng.blocking_fill_bytes(&mut tx_buf[1..]);
 
         for transfer_len in 1..=MAX_TRANSFER_LEN {
             info!("[ctrl] sweep {} len={} start", sweep, transfer_len);
@@ -133,18 +134,16 @@ async fn main(_spawner: Spawner) {
         sweep = sweep.wrapping_add(1);
         info!("[ctrl] completed {} length sweeps", sweep);
 
-        if sweep % RESET_INTERVAL == 0 {
-            info!("[ctrl] requesting target reset after sweep {}", sweep);
-            i3c.async_write(TARGET_DYNAMIC_ADDR, &[RESET_COMMAND], BusType::I3cSdr)
-                .await
-                .unwrap();
+        info!("[ctrl] requesting target reset after sweep {}", sweep);
+        i3c.async_write(TARGET_DYNAMIC_ADDR, &[RESET_COMMAND], BusType::I3cSdr)
+            .await
+            .unwrap();
 
-            // The reset command is ACKed before the target resets itself. Give
-            // it time to reset and reconfigure.
-            Timer::after_millis(100).await;
+        // The reset command is ACKed before the target resets itself. Give
+        // it time to reset and reconfigure.
+        Timer::after_millis(100).await;
 
-            set_dasa(&mut i3c).await.unwrap();
-            info!("[ctrl] target reassigned to 0x{:02x}", TARGET_DYNAMIC_ADDR);
-        }
+        set_dasa(&mut i3c).await.unwrap();
+        info!("[ctrl] target reassigned to 0x{:02x}", TARGET_DYNAMIC_ADDR);
     }
 }
