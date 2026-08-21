@@ -4,9 +4,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dfsdm::sealed::SealedTransceiverChannel;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
-use crate::interrupt::typelevel::Interrupt;
 use crate::{Peri, interrupt, rcc};
 
 /// Interrupt handler.
@@ -107,11 +105,114 @@ pub struct Dfsdm<'d, T: Instance, C: ClockMode> {
     _ckout: Option<Flex<'d>>,
 }
 
+/// Just a wrapper to make this horde of Channels more convenient
+pub struct TransceiverChannelBuilders8<T: Instance, C: ClockMode> {
+    pub ch0: TransceiverChannelBuilder<T, Tcv0, C>,
+    pub ch1: TransceiverChannelBuilder<T, Tcv1, C>,
+    pub ch2: TransceiverChannelBuilder<T, Tcv2, C>,
+    pub ch3: TransceiverChannelBuilder<T, Tcv3, C>,
+    pub ch4: TransceiverChannelBuilder<T, Tcv4, C>,
+    pub ch5: TransceiverChannelBuilder<T, Tcv5, C>,
+    pub ch6: TransceiverChannelBuilder<T, Tcv6, C>,
+    pub ch7: TransceiverChannelBuilder<T, Tcv7, C>,
+}
+
+/// Just a wrapper to make this horde of Channels more convenient
+pub struct TransceiverChannelBuilders2<T: Instance, C: ClockMode> {
+    pub ch0: TransceiverChannelBuilder<T, Tcv0, C>,
+    pub ch1: TransceiverChannelBuilder<T, Tcv1, C>,
+}
+
+impl<'d, T, C> Dfsdm<'d, T, C>
+where
+    T: Instance,
+    C: ClockMode,
+{
+}
+trait TransChNr2 {}
+trait TransChNr8 {}
+trait FltChNr8 {}
+trait FltChNr1 {}
+
+impl TransChNr2 for crate::pac::dfsdm::Dfsdm2ch1flt {}
+impl TransChNr8 for crate::pac::dfsdm::Dfsdm8ch8fltDly {}
+impl TransChNr8 for crate::pac::dfsdm::Dfsdm8ch8fltDlyVer {}
+impl FltChNr1 for crate::pac::dfsdm::Dfsdm2ch1flt {}
+impl FltChNr8 for crate::pac::dfsdm::Dfsdm8ch8fltDly {}
+impl FltChNr8 for crate::pac::dfsdm::Dfsdm8ch8fltDlyVer {}
+
+trait HasTransChNr8: Instance {}
+trait HasTransChNr2: Instance {}
+trait HasFltChNr1 {}
+trait HasFltChNr8 {}
+
+impl<T> HasTransChNr8 for T
+where
+    T: Instance,
+    T::Repr: TransChNr8,
+{
+}
+impl<T> HasTransChNr2 for T
+where
+    T: Instance,
+    T::Repr: TransChNr2,
+{
+}
+impl<T> HasFltChNr1 for T
+where
+    T: Instance,
+    T::Repr: FltChNr1,
+{
+}
+impl<T> HasFltChNr8 for T
+where
+    T: Instance,
+    T::Repr: FltChNr8,
+{
+}
+
+#[allow(private_bounds)]
+impl<'d, T, C> Dfsdm<'d, T, C>
+where
+    C: ClockMode,
+    T: HasTransChNr8 + HasFltChNr8,
+{
+    /// Split up the peripheral after first initialization
+    pub fn split_8ch_8flt(self) -> TransceiverChannelBuilders8<T, C> {
+        TransceiverChannelBuilders8 {
+            ch0: TransceiverChannelBuilder::new(&self),
+            ch1: TransceiverChannelBuilder::new(&self),
+            ch2: TransceiverChannelBuilder::new(&self),
+            ch3: TransceiverChannelBuilder::new(&self),
+            ch4: TransceiverChannelBuilder::new(&self),
+            ch5: TransceiverChannelBuilder::new(&self),
+            ch6: TransceiverChannelBuilder::new(&self),
+            ch7: TransceiverChannelBuilder::new(&self),
+        }
+    }
+}
+
+#[allow(private_bounds)]
+impl<'d, T, C> Dfsdm<'d, T, C>
+where
+    C: ClockMode,
+    T: HasTransChNr2 + HasFltChNr1,
+{
+    /// Split up the peripheral after first initialization
+    pub fn split_2ch_1flt(self) -> TransceiverChannelBuilders2<T, C> {
+        TransceiverChannelBuilders2 {
+            ch0: TransceiverChannelBuilder::new(&self),
+            ch1: TransceiverChannelBuilder::new(&self),
+        }
+    }
+}
+
 impl<'d, T> Dfsdm<'d, T, InternalClock>
 where
     T: Instance,
 {
-    pub fn new_ckout(peri: Peri<'d, T>, ckout: Peri<'d, if_afio!(impl CkoutPin<T, A>)>) -> Self {
+    pub fn new_ckout(peri: Peri<'d, T>, ckout: Peri<'d, if_afio!(impl CkoutPin<T, A>)>, config: Config) -> Self {
+        let _ = config;
         let ckout = new_pin!(ckout, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         Self {
             inner: peri,
@@ -119,15 +220,14 @@ where
             _ckout: ckout,
         }
     }
-
-    // pub fn split(self)-> (Tra)
 }
 
 impl<'d, T> Dfsdm<'d, T, ExternalClock>
 where
     T: Instance,
 {
-    pub fn new(peri: Peri<'d, T>) -> Self {
+    pub fn new(peri: Peri<'d, T>, config: Config) -> Self {
+        let _ = config;
         Self {
             inner: peri,
             _clock_mode: PhantomData,
@@ -141,25 +241,6 @@ where
     T: Instance,
     C: ClockMode,
 {
-    //new with just peripheral
-
-    /// new with ckout
-
-    pub fn test_ch<M>(
-        peri: Peri<'d, T>,
-        ckin: Peri<'d, if_afio!(impl CkinPin<T, M, A>)>,
-        datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>,
-    ) -> u8
-    where
-        T: Instance,
-        M: TransceiverMarker,
-    {
-        let ckin_pin = new_pin!(ckin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        let datin_pin = new_pin!(datin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-
-        0
-    }
-
     // /// Generic new
     // pub fn new<D, M>(
     //     peri: Peri<'d, T>,
@@ -207,6 +288,8 @@ where
 
 trait SealedInstance: crate::rcc::RccPeripheral {
     // fn regs(&self) -> crate::pac::dfsdm::Dfsdm;
+    fn transceiver_channels() -> u8;
+    fn filter_channels() -> u8;
 }
 
 /// DFSDM instance.
@@ -214,6 +297,7 @@ trait SealedInstance: crate::rcc::RccPeripheral {
 pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this instance.
     type Interrupt: interrupt::typelevel::Interrupt;
+    type Repr;
 }
 
 pin_trait!(CkoutPin, Instance, @A);
@@ -376,10 +460,38 @@ macro_rules! impl_peripheral_8ch_8flt_dly {
             // fn regs(&self) -> crate::pac::dfsdm::Dfsdm8ch8fltDly {
             //     crate::pac::$inst
             // }
+            fn transceiver_channels() -> u8 {
+                8
+            }
+            fn filter_channels() -> u8 {
+                8
+            }
         }
 
         impl Instance for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
+            type Repr = crate::pac::dfsdm::Dfsdm8ch8fltDly;
+        }
+    };
+}
+#[allow(unused)]
+macro_rules! impl_peripheral_8ch_8flt {
+    ($inst:ident, $irq:ident) => {
+        impl SealedInstance for crate::peripherals::$inst {
+            // fn regs(&self) -> crate::pac::dfsdm::Dfsdm8ch8fltDly {
+            //     crate::pac::$inst
+            // }
+            fn transceiver_channels() -> u8 {
+                8
+            }
+            fn filter_channels() -> u8 {
+                8
+            }
+        }
+
+        impl Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+            type Repr = crate::pac::dfsdm::Dfsdm8ch8flt;
         }
     };
 }
@@ -390,14 +502,23 @@ macro_rules! impl_peripheral_2ch_1flt {
             // fn regs(&self) -> crate::pac::dfsdm::Dfsdm2ch1flt {
             //     crate::pac::$inst
             // }
+
+            fn transceiver_channels() -> u8 {
+                2
+            }
+            fn filter_channels() -> u8 {
+                1
+            }
         }
 
         impl Instance for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
+            type Repr = crate::pac::dfsdm::Dfsdm2ch1flt;
         }
     };
 }
 
+// TODO
 // foreach_interrupt! {
 //     ($inst:ident, dfsdm, $block:ident, FLT{ Transceiver::Tcv0,  },$irq:ident) => {
 //         impl_peripheral!($inst, $irq);
@@ -406,6 +527,9 @@ macro_rules! impl_peripheral_2ch_1flt {
 foreach_interrupt! {
     ($inst:ident, dfsdm, DFSDM_8CH_8FLT_DLY, FLT0, $irq:ident) => {
         impl_peripheral_8ch_8flt_dly!($inst, $irq);
+    };
+    ($inst:ident, dfsdm, DFSDM_8CH_8FLT, FLT0, $irq:ident) => {
+        impl_peripheral_8ch_8flt!($inst, $irq);
     };
     ($inst:ident, dfsdm, DFSDM_2CH_1FLT, FLT0, $irq:ident) => {
         impl_peripheral_2ch_1flt!($inst, $irq);
@@ -506,6 +630,32 @@ pub struct Internal;
 
 impl DataSource for External {}
 impl DataSource for Internal {}
+
+pub struct TransceiverChannelBuilder<T, M, C>
+where
+    T: Instance,
+    M: TransceiverMarker,
+    C: ClockMode,
+{
+    _dfsdm_marker: PhantomData<T>,
+    _clockmode_marker: PhantomData<C>,
+    _transceiver_marker: PhantomData<M>,
+}
+
+impl<T, M, C> TransceiverChannelBuilder<T, M, C>
+where
+    T: Instance,
+    M: TransceiverMarker,
+    C: ClockMode,
+{
+    pub(crate) fn new(dfsdm: &Dfsdm<T, C>) -> Self {
+        Self {
+            _dfsdm_marker: PhantomData,
+            _clockmode_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+        }
+    }
+}
 
 pub struct TransceiverChannelImp<'d, T, M, S>
 where
