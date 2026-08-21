@@ -33,7 +33,7 @@ impl<'d> Flex<'d> {
     }
 
     /// Unsafely clone (duplicate) a Flex.
-    pub unsafe fn clone_unchecked(&self) -> Flex<'d> {
+    pub const unsafe fn clone_unchecked(&self) -> Flex<'d> {
         Flex {
             pin: self.pin.clone_unchecked(),
         }
@@ -336,7 +336,7 @@ impl<'d> Input<'d> {
     /// peripheral token. The pin should already be configured as an input via
     /// [`Flex::set_as_input()`].
     #[inline]
-    pub fn from_flex(pin: Flex<'d>) -> Self {
+    pub const fn from_flex(pin: Flex<'d>) -> Self {
         Self { pin }
     }
 

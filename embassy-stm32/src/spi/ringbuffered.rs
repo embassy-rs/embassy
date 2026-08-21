@@ -9,14 +9,16 @@ use embedded_io_async::ReadReady;
 use futures_util::future::select;
 
 use crate::dma::ReadableRingBuffer;
-use crate::exti::ExtiInput;
 use crate::gpio::Flex;
 use crate::mode::Async;
 use crate::rcc::WakeGuard;
-use crate::spi::mode::Slave;
-use crate::spi::{Config, Error, Info, Regs, RegsExt, Spi, Word, check_error_flags, reconfigure, set_rxdmaen};
 #[cfg(any(spi_v4, spi_v5, spi_v6))]
-use crate::spi::{SlaveSelectPolarity, flush_rx_fifo};
+use crate::spi::flush_rx_fifo;
+use crate::spi::mode::Slave;
+use crate::spi::{
+    Config, CsPinType, Error, Info, Regs, RegsExt, SlaveSelectPolarity, Spi, Word, check_error_flags, reconfigure,
+    set_rxdmaen,
+};
 use crate::time::Hertz;
 
 /// Rx-only Ring-buffered SPI Driver
@@ -55,8 +57,7 @@ pub struct RingBufferedSpiRx<'d, W: Word> {
     _sck: Option<Flex<'d>>,
     _mosi: Option<Flex<'d>>,
     _miso: Option<Flex<'d>>,
-    nss: ExtiInput<'d, Async>,
-    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    nss: CsPinType<'d>,
     nss_polarity: SlaveSelectPolarity,
     ring_buf: ReadableRingBuffer<'d, W>,
 }
@@ -76,7 +77,6 @@ impl<'d> Spi<'d, Async, Slave> {
     /// DMA controller, and must be large enough to prevent overflows.
     pub fn into_ring_buffered<W: Word>(mut self, dma_buf: &'d mut [W]) -> RingBufferedSpiRx<'d, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
-        assert!(self._exti, "exti required for ringbuf");
 
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
@@ -99,12 +99,7 @@ impl<'d> Spi<'d, Async, Slave> {
         let sck = unsafe { self._sck.as_ref().map(|x| x.clone_unchecked()) };
         let mosi = unsafe { self._mosi.as_ref().map(|x| x.clone_unchecked()) };
         let miso = unsafe { self._miso.as_ref().map(|x| x.clone_unchecked()) };
-        let nss = unsafe { self.nss.as_ref().unwrap().clone_unchecked() };
-
-        // EXTI can be used on all stm32 GPIO pins. Irq handler is verified on constructor.
-        //
-        // Note: if same exti lines are used, then the exti input will fight on the waker (may be fixed in the future).
-        let nss = unsafe { ExtiInput::from_flex_unchecked(nss) };
+        let nss = unsafe { self.nss.clone_unchecked() };
 
         let wake_guard = self.info.rcc.wake_guard();
 
@@ -114,6 +109,9 @@ impl<'d> Spi<'d, Async, Slave> {
         } else {
             SlaveSelectPolarity::ActiveHigh
         };
+
+        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+        let nss_polarity = SlaveSelectPolarity::ActiveLow;
 
         // Don't disable the clock
         mem::forget(self);
@@ -130,7 +128,6 @@ impl<'d> Spi<'d, Async, Slave> {
             _mosi: mosi,
             _miso: miso,
             nss,
-            #[cfg(any(spi_v4, spi_v5, spi_v6))]
             nss_polarity,
             ring_buf,
         }
@@ -249,28 +246,9 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         });
 
         // Future which completes when NSS deselect edge is detected
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        match self.nss_polarity {
-            SlaveSelectPolarity::ActiveHigh => {
-                let exti = self.nss.wait_for_falling_edge();
-                let exti = pin!(exti);
+        let exti = pin!(self.nss.wait_for_edge(self.nss_polarity));
 
-                select(exti, dma).await;
-            }
-            SlaveSelectPolarity::ActiveLow => {
-                let exti = self.nss.wait_for_rising_edge();
-                let exti = pin!(exti);
-
-                select(exti, dma).await;
-            }
-        };
-        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-        {
-            let exti = self.nss.wait_for_rising_edge();
-            let exti = pin!(exti);
-
-            select(exti, dma).await;
-        }
+        select(exti, dma).await;
     }
 
     /// Read bytes that are readily available in the ring buffer.
