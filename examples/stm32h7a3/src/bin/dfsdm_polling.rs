@@ -61,9 +61,24 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PE3, Level::Low, Speed::Low);
 
     let _tim12_ll = embassy_stm32::timer::low_level::Timer::new(p.TIM12);
-    let mut dfsdm = dfsdm::Dfsdm::new(p.DFSDM1);
-    dfsdm::TransceiverChannelImp::new_ext_clk(&dfsdm, p.PC0, p.PC1);
-    dfsdm::TransceiverChannelImp::<_, dfsdm::Tcv0, _>::new_parallel(&dfsdm);
+
+    let dfsdm: dfsdm::Dfsdm<'_, peripherals::DFSDM1, dfsdm::ExternalClock> =
+        dfsdm::Dfsdm::new(p.DFSDM1, dfsdm::Config::default());
+    let dfsdm::TransceiverChannelBuilders8 {
+        ch0,
+        ch1,
+        ch2,
+        ch3,
+        ch4,
+        ch5,
+        ch6,
+        ch7,
+    } = dfsdm.split_8ch_8flt();
+
+    drop(ch0);
+
+    // dfsdm::TransceiverChannelImp::new_ext_clk(&dfsdm, p.PC0, p.PC1);
+    // dfsdm::TransceiverChannelImp::<_, dfsdm::Tcv0, _>::new_parallel(&dfsdm);
 
     // dfsdm::TransceiverChannelImp::new_ext_clk(dfsdm, ckin, datin)
     // dfsdm::TransceiverChannelImp::new(p.DFSDM1, p.PB2, p.PC3);
