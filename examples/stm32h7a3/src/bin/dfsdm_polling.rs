@@ -4,6 +4,7 @@
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_stm32::dfsdm::TransceiverTrait;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::{BDMA1_CH0, BDMA2_CH0};
 use embassy_stm32::time::Hertz;
@@ -62,20 +63,20 @@ async fn main(_spawner: Spawner) {
 
     let _tim12_ll = embassy_stm32::timer::low_level::Timer::new(p.TIM12);
 
-    let dfsdm: dfsdm::Dfsdm<'_, peripherals::DFSDM1, dfsdm::ExternalClock> =
-        dfsdm::Dfsdm::new(p.DFSDM1, dfsdm::Config::default());
-    let dfsdm::TransceiverChannelBuilders8 {
-        ch0,
-        ch1,
-        ch2,
-        ch3,
-        ch4,
-        ch5,
-        ch6,
-        ch7,
-    } = dfsdm.split_8ch_8flt();
+    // let dfsdm1 = dfsdm::Dfsdm::new(p.DFSDM1, dfsdm::Config::default());
+    let dfsdm1 = dfsdm::Dfsdm::new_ckout(p.DFSDM1, p.PC2, dfsdm::Config::default());
+    let dfsdm2 = dfsdm::Dfsdm::new(p.DFSDM2, dfsdm::Config::default());
 
-    drop(ch0);
+    let dfsdm1_channels = dfsdm1.split_8ch_8flt();
+    let dfsdm2_channels = dfsdm2.split_2ch_1flt();
+
+    let dfsdm1_ = dfsdm1_channels.ch0.new_clk_int(p.PC1);
+
+    let dfsdm2_ch0 = dfsdm2_channels.ch0.new_parallel();
+    let _: u8 = dfsdm1_.index();
+    let _: u8 = dfsdm2_ch0.index();
+
+    drop(dfsdm1_);
 
     // dfsdm::TransceiverChannelImp::new_ext_clk(&dfsdm, p.PC0, p.PC1);
     // dfsdm::TransceiverChannelImp::<_, dfsdm::Tcv0, _>::new_parallel(&dfsdm);
