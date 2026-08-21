@@ -1,19 +1,19 @@
 [toolchain]
-channel = "ms-beta-1.97"
+channel = "1.97"
 components = [ "rust-src", "rustfmt", "llvm-tools", "rust-analyzer" ]
 targets = [
     "thumbv7em-none-eabi",
     "thumbv7m-none-eabi",
-    # "thumbv6m-none-eabi",
+    "thumbv6m-none-eabi",
     "thumbv7em-none-eabihf",
     "thumbv8m.main-none-eabihf",
-    # "riscv32imac-unknown-none-elf",
-    # "riscv64imac-unknown-none-elf",
-    # "riscv64gc-unknown-none-elf",
-    # "wasm32-unknown-unknown",
-    # "armv7a-none-eabi",
-    # "armv7r-none-eabi",
-    # "armv7r-none-eabihf",
-    # "armv8r-none-eabihf",
+    "riscv32imac-unknown-none-elf",
+    "riscv32imc-unknown-none-elf",
+    "riscv64imac-unknown-none-elf",
+    "riscv64gc-unknown-none-elf",
+    "wasm32-unknown-unknown",
+    "armv7a-none-eabi",
+    "armv7r-none-eabi",
+    "armv7r-none-eabihf",
+    "armv8r-none-eabihf",
 ]
-
