@@ -468,6 +468,7 @@ pin_trait!(D13Pin, Instance);
 pin_trait!(HSyncPin, Instance);
 pin_trait!(VSyncPin, Instance);
 pin_trait!(PixClkPin, Instance);
+// pin_trait!(KASTOMPIN, Instance);
 
 // allow unused as U5 sources do not contain interrupt nor dma data
 #[allow(unused)]
