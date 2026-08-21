@@ -177,6 +177,11 @@ impl BufferedUart {
         self.tx.set_baudrate(baudrate);
     }
 
+    /// Set the configuration at runtime (ignores pin inversions)
+    pub fn set_config<'d>(&mut self, config: Config) {
+        self.tx.set_config(config);
+    }
+
     /// Split into separate RX and TX handles.
     pub fn split(self) -> (BufferedUartTx, BufferedUartRx) {
         (self.tx, self.rx)
@@ -486,6 +491,11 @@ impl BufferedUartTx {
     /// sets baudrate on runtime
     pub fn set_baudrate<'d>(&mut self, baudrate: u32) {
         super::Uart::<'d, Async>::set_baudrate_inner(self.info, baudrate);
+    }
+
+    /// Set the configuration at runtime (ignores pin inversions)
+    pub fn set_config<'d>(&mut self, config: Config) {
+        super::Uart::<'d, Async>::set_config_inner(self.info, config);
     }
 }
 

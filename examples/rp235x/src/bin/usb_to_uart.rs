@@ -18,7 +18,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::{UART0, USB};
 use embassy_rp::uart::{BufferedInterruptHandler, BufferedUart, Config};
 use embassy_rp::usb::{Driver as UsbDriver, InterruptHandler as UsbInterruptHandler};
-use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
+use embassy_usb::class::cdc_acm::{CdcAcmClass, LineCoding, State};
 use embedded_io_async::{BufRead, Write};
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -113,9 +113,9 @@ async fn main(_spawner: Spawner) {
             loop {
                 match select(usb_control.control_changed(), usb_rx.read_packet(&mut usb_buf)).await {
                     Either::First(_) => {
-                        let baud = usb_rx.line_coding().data_rate();
-                        info!("Setting baud to: {}", baud);
-                        uart_tx.set_baudrate(baud);
+                        let config = uart_config_from_line_coding(usb_rx.line_coding());
+                        info!("Setting line coding: {}", &config);
+                        uart_tx.set_config(config);
                     }
                     Either::Second(Err(err)) => {
                         error!("Usb read error: {:?}. Assume disconnection", Debug2Format(&err));
@@ -132,4 +132,26 @@ async fn main(_spawner: Spawner) {
     };
 
     join3(usb_fut, usb_rx_uart_tx, usb_tx_uart_rx).await;
+}
+
+fn uart_config_from_line_coding(lc: LineCoding) -> Config {
+    use embassy_rp::uart::{DataBits, Parity, StopBits};
+    let mut config = Config::default();
+    config.baudrate = lc.data_rate();
+    config.data_bits = match lc.data_bits() {
+        5 => DataBits::DataBits5,
+        6 => DataBits::DataBits6,
+        7 => DataBits::DataBits7,
+        _ => DataBits::DataBits8,
+    };
+    config.parity = match lc.parity_type() {
+        embassy_usb::class::cdc_acm::ParityType::Even => Parity::ParityEven,
+        embassy_usb::class::cdc_acm::ParityType::Odd => Parity::ParityOdd,
+        _ => Parity::ParityNone,
+    };
+    config.stop_bits = match lc.stop_bits() {
+        embassy_usb::class::cdc_acm::StopBits::Two => StopBits::STOP2,
+        _ => StopBits::STOP1,
+    };
+    config
 }
