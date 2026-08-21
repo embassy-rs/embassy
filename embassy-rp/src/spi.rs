@@ -8,21 +8,22 @@ pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::dma::{Channel, ChannelInstance};
 use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
-use crate::{dma, interrupt, mode, pac, peripherals};
+use crate::{dma, interrupt, mode as peri_mode, pac, peripherals};
 
 /// SPI errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
-    // No errors for now
+    /// Receive and transmit buffers for a slave transaction must have equal lengths.
+    BufferLengthMismatch,
 }
 
 /// SPI configuration.
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct Config {
-    /// Frequency.
+    /// Frequency. Ignored in slave mode.
     pub frequency: u32,
     /// Phase.
     pub phase: Phase,
@@ -67,12 +68,41 @@ impl defmt::Format for Config {
     }
 }
 
+/// SPI communication mode.
+pub mod mode {
+    trait SealedMode {}
+
+    /// Trait for SPI communication mode operations.
+    #[allow(private_bounds)]
+    pub trait CommunicationMode: SealedMode {
+        /// Whether the peripheral operates in slave mode.
+        const SLAVE: bool;
+    }
+
+    /// Controller/master mode.
+    pub struct Master;
+
+    /// Peripheral/slave mode.
+    pub struct Slave;
+
+    impl SealedMode for Master {}
+    impl CommunicationMode for Master {
+        const SLAVE: bool = false;
+    }
+
+    impl SealedMode for Slave {}
+    impl CommunicationMode for Slave {
+        const SLAVE: bool = true;
+    }
+}
+use mode::{CommunicationMode, Master, Slave};
+
 /// SPI driver.
-pub struct Spi<'d, M: Mode> {
+pub struct Spi<'d, M: Mode, CM: CommunicationMode = Master> {
     info: &'static Info,
-    tx_dma: Option<Channel<'d, mode::Async>>,
-    rx_dma: Option<Channel<'d, mode::Async>>,
-    phantom: PhantomData<(&'d mut (), M)>,
+    tx_dma: Option<Channel<'d, peri_mode::Async>>,
+    rx_dma: Option<Channel<'d, peri_mode::Async>>,
+    phantom: PhantomData<(&'d mut (), M, CM)>,
 }
 
 fn div_roundup(a: u32, b: u32) -> u32 {
@@ -98,20 +128,26 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
     ((presc * 2) as u8, (postdiv - 1) as u8)
 }
 
-impl<'d, M: Mode> Spi<'d, M> {
+impl<'d, M: Mode, CM: CommunicationMode> Spi<'d, M, CM> {
     fn new_inner<T: Instance>(
         _spi: Peri<'d, T>,
         clk: Option<Peri<'d, AnyPin>>,
         mosi: Option<Peri<'d, AnyPin>>,
         miso: Option<Peri<'d, AnyPin>>,
         cs: Option<Peri<'d, AnyPin>>,
-        tx_dma: Option<Channel<'d, mode::Async>>,
-        rx_dma: Option<Channel<'d, mode::Async>>,
+        tx_dma: Option<Channel<'d, peri_mode::Async>>,
+        rx_dma: Option<Channel<'d, peri_mode::Async>>,
         config: Config,
     ) -> Self {
-        Self::apply_config(T::info(), &config);
-
         let p = T::info().regs;
+
+        // The peripheral must be disabled before selecting the communication mode.
+        p.cr1().write(|w| {
+            w.set_ms(CM::SLAVE);
+            w.set_sse(false);
+        });
+
+        Self::apply_config(T::info(), &config);
 
         // Always enable DREQ signals -- harmless if DMA is not listening
         p.dmacr().write(|reg| {
@@ -120,7 +156,10 @@ impl<'d, M: Mode> Spi<'d, M> {
         });
 
         // finally, enable.
-        p.cr1().write(|w| w.set_sse(true));
+        p.cr1().write(|w| {
+            w.set_ms(CM::SLAVE);
+            w.set_sse(true);
+        });
 
         if let Some(pin) = &clk {
             pin.gpio().ctrl().write(|w| w.set_funcsel(1));
@@ -174,6 +213,7 @@ impl<'d, M: Mode> Spi<'d, M> {
                 w.set_pde(false);
             });
         }
+
         Self {
             info: T::info(),
             tx_dma,
@@ -188,14 +228,18 @@ impl<'d, M: Mode> Spi<'d, M> {
     /// are applied.
     fn apply_config(info: &Info, config: &Config) {
         let p = info.regs;
-        let (presc, postdiv) = calc_prescs(config.frequency);
+        let prescs = (!CM::SLAVE).then(|| calc_prescs(config.frequency));
 
-        p.cpsr().write(|w| w.set_cpsdvsr(presc));
+        if let Some((presc, _)) = prescs {
+            p.cpsr().write(|w| w.set_cpsdvsr(presc));
+        }
         p.cr0().write(|w| {
             w.set_dss(0b0111); // 8bit
             w.set_spo(config.polarity == Polarity::IdleHigh);
             w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
-            w.set_scr(postdiv);
+            if let Some((_, postdiv)) = prescs {
+                w.set_scr(postdiv);
+            }
         });
     }
 
@@ -238,6 +282,32 @@ impl<'d, M: Mode> Spi<'d, M> {
         Ok(())
     }
 
+    /// Block execution until SPI is done.
+    pub fn flush(&mut self) -> Result<(), Error> {
+        let p = self.info.regs;
+        while p.sr().read().bsy() {}
+        Ok(())
+    }
+
+    /// Set SPI configuration.
+    pub fn set_config(&mut self, config: &Config) {
+        let p = self.info.regs;
+
+        p.cr1().write(|w| {
+            w.set_ms(CM::SLAVE);
+            w.set_sse(false);
+        });
+
+        Self::apply_config(self.info, config);
+
+        p.cr1().write(|w| {
+            w.set_ms(CM::SLAVE);
+            w.set_sse(true);
+        });
+    }
+}
+
+impl<'d, M: Mode> Spi<'d, M, Master> {
     /// Transfer data to SPI blocking execution until done.
     pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
         let p = self.info.regs;
@@ -253,13 +323,6 @@ impl<'d, M: Mode> Spi<'d, M> {
             }
         }
         self.flush()?;
-        Ok(())
-    }
-
-    /// Block execution until SPI is done.
-    pub fn flush(&mut self) -> Result<(), Error> {
-        let p = self.info.regs;
-        while p.sr().read().bsy() {}
         Ok(())
     }
 
@@ -279,23 +342,9 @@ impl<'d, M: Mode> Spi<'d, M> {
         // enable
         p.cr1().write(|w| w.set_sse(true));
     }
-
-    /// Set SPI config.
-    pub fn set_config(&mut self, config: &Config) {
-        let p = self.info.regs;
-
-        // disable
-        p.cr1().write(|w| w.set_sse(false));
-
-        // change stuff
-        Self::apply_config(self.info, config);
-
-        // enable
-        p.cr1().write(|w| w.set_sse(true));
-    }
 }
 
-impl<'d> Spi<'d, Blocking> {
+impl<'d> Spi<'d, Blocking, Master> {
     /// Create an SPI driver in blocking mode.
     pub fn new_blocking<T: Instance>(
         spi: Peri<'d, T>,
@@ -346,7 +395,7 @@ impl<'d> Spi<'d, Blocking> {
     }
 }
 
-impl<'d> Spi<'d, Async> {
+impl<'d> Spi<'d, Async, Master> {
     /// Create an SPI driver in async mode supporting DMA operations.
     pub fn new<T: Instance, TxDma: ChannelInstance, RxDma: ChannelInstance>(
         spi: Peri<'d, T>,
@@ -462,34 +511,6 @@ impl<'d> Spi<'d, Async> {
         Ok(())
     }
 
-    /// Read data from SPI using DMA.
-    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        // Start RX first. Transfer starts when TX starts, if RX
-        // is not started yet we might lose bytes.
-        let rx_transfer = unsafe {
-            // If we don't assign future to a variable, the data register pointer
-            // is held across an await and makes the future non-Send.
-            self.rx_dma.as_mut().unwrap().read(
-                self.info.regs.dr().as_ptr() as *const _,
-                buffer,
-                self.info.rx_dreq,
-                false,
-            )
-        };
-
-        let tx_transfer = unsafe {
-            // If we don't assign future to a variable, the data register pointer
-            // is held across an await and makes the future non-Send.
-            self.tx_dma.as_mut().unwrap().write_zeros(
-                buffer.len(),
-                self.info.regs.dr().as_ptr() as *mut u8,
-                self.info.tx_dreq,
-            )
-        };
-        join(tx_transfer, rx_transfer).await;
-        Ok(())
-    }
-
     /// Transfer data to SPI using DMA.
     pub async fn transfer(&mut self, rx_buffer: &mut [u8], tx_buffer: &[u8]) -> Result<(), Error> {
         self.transfer_inner(rx_buffer, tx_buffer).await
@@ -547,6 +568,207 @@ impl<'d> Spi<'d, Async> {
             p.icr().write(|w| w.set_roric(true));
         }
 
+        Ok(())
+    }
+}
+
+impl<'d, M: Mode> Spi<'d, M, Slave> {
+    /// Exchange equally sized receive and transmit buffers with the controller.
+    pub fn blocking_transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        if read.len() != write.len() {
+            return Err(Error::BufferLengthMismatch);
+        }
+
+        let p = self.info.regs;
+        for (read, &write) in read.iter_mut().zip(write) {
+            while !p.sr().read().tnf() {}
+            p.dr().write(|w| w.set_data(write as _));
+            while !p.sr().read().rne() {}
+            *read = p.dr().read().data() as u8;
+        }
+        self.flush()?;
+        Ok(())
+    }
+}
+
+impl<'d> Spi<'d, Blocking, Slave> {
+    /// Create an SPI slave driver in blocking mode.
+    pub fn new_blocking_slave<T: Instance>(
+        spi: Peri<'d, T>,
+        clk: Peri<'d, impl ClkPin<T> + 'd>,
+        tx: Peri<'d, impl MosiPin<T> + 'd>,
+        rx: Peri<'d, impl MisoPin<T> + 'd>,
+        cs: Peri<'d, impl CsPin<T> + 'd>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            spi,
+            Some(clk.into()),
+            Some(tx.into()),
+            Some(rx.into()),
+            Some(cs.into()),
+            None,
+            None,
+            config,
+        )
+    }
+
+    /// Create a receive-only SPI slave driver in blocking mode.
+    pub fn new_blocking_rxonly_slave<T: Instance>(
+        spi: Peri<'d, T>,
+        clk: Peri<'d, impl ClkPin<T> + 'd>,
+        rx: Peri<'d, impl MisoPin<T> + 'd>,
+        cs: Peri<'d, impl CsPin<T> + 'd>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            spi,
+            Some(clk.into()),
+            None,
+            Some(rx.into()),
+            Some(cs.into()),
+            None,
+            None,
+            config,
+        )
+    }
+}
+
+impl<'d> Spi<'d, Async, Slave> {
+    /// Create an SPI slave driver in async mode supporting DMA operations.
+    pub fn new_slave<T: Instance, TxDma: ChannelInstance, RxDma: ChannelInstance>(
+        spi: Peri<'d, T>,
+        clk: Peri<'d, impl ClkPin<T> + 'd>,
+        tx: Peri<'d, impl MosiPin<T> + 'd>,
+        rx: Peri<'d, impl MisoPin<T> + 'd>,
+        cs: Peri<'d, impl CsPin<T> + 'd>,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
+        irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
+        + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
+        + 'd,
+        config: Config,
+    ) -> Self {
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
+        let rx_dma_ch = dma::Channel::new(rx_dma, irq);
+        Self::new_inner(
+            spi,
+            Some(clk.into()),
+            Some(tx.into()),
+            Some(rx.into()),
+            Some(cs.into()),
+            Some(tx_dma_ch),
+            Some(rx_dma_ch),
+            config,
+        )
+    }
+
+    /// Create a receive-only SPI slave driver in async mode.
+    pub fn new_rxonly_slave<T: Instance, TxDma: ChannelInstance, RxDma: ChannelInstance>(
+        spi: Peri<'d, T>,
+        clk: Peri<'d, impl ClkPin<T> + 'd>,
+        rx: Peri<'d, impl MisoPin<T> + 'd>,
+        cs: Peri<'d, impl CsPin<T> + 'd>,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
+        irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
+        + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
+        + 'd,
+        config: Config,
+    ) -> Self {
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
+        let rx_dma_ch = dma::Channel::new(rx_dma, irq);
+        Self::new_inner(
+            spi,
+            Some(clk.into()),
+            None,
+            Some(rx.into()),
+            Some(cs.into()),
+            Some(tx_dma_ch),
+            Some(rx_dma_ch),
+            config,
+        )
+    }
+
+    /// Queue data for a controller-clocked transaction, discarding received bytes.
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        let rx_transfer = unsafe {
+            self.rx_dma.as_mut().unwrap().read_discard(
+                self.info.regs.dr().as_ptr() as *mut u8,
+                buffer.len(),
+                self.info.rx_dreq,
+            )
+        };
+        let tx_transfer = unsafe {
+            self.tx_dma.as_mut().unwrap().write(
+                buffer,
+                self.info.regs.dr().as_ptr() as *mut _,
+                self.info.tx_dreq,
+                false,
+            )
+        };
+        join(tx_transfer, rx_transfer).await;
+        Ok(())
+    }
+
+    /// Exchange equally sized receive and transmit buffers with the controller using DMA.
+    pub async fn transfer(&mut self, rx_buffer: &mut [u8], tx_buffer: &[u8]) -> Result<(), Error> {
+        if rx_buffer.len() != tx_buffer.len() {
+            return Err(Error::BufferLengthMismatch);
+        }
+        self.transfer_inner(rx_buffer, tx_buffer).await
+    }
+
+    /// Exchange data with the controller in place using DMA.
+    pub async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), Error> {
+        self.transfer_inner(words, words).await
+    }
+
+    async fn transfer_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
+        let rx_transfer = unsafe {
+            self.rx_dma
+                .as_mut()
+                .unwrap()
+                .read(self.info.regs.dr().as_ptr() as *const _, rx, self.info.rx_dreq, false)
+        };
+
+        let tx_transfer = unsafe {
+            self.tx_dma
+                .as_mut()
+                .unwrap()
+                .write(tx, self.info.regs.dr().as_ptr() as *mut _, self.info.tx_dreq, false)
+        };
+        join(tx_transfer, rx_transfer).await;
+        Ok(())
+    }
+}
+
+impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
+    /// Read data from SPI using DMA.
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        // Start RX first. Arm RX before TX so incoming bytes are not lost,
+        // if RX is not started yet we might lose bytes.
+        let rx_transfer = unsafe {
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            self.rx_dma.as_mut().unwrap().read(
+                self.info.regs.dr().as_ptr() as *const _,
+                buffer,
+                self.info.rx_dreq,
+                false,
+            )
+        };
+
+        let tx_transfer = unsafe {
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            self.tx_dma.as_mut().unwrap().write_zeros(
+                buffer.len(),
+                self.info.regs.dr().as_ptr() as *mut u8,
+                self.info.tx_dreq,
+            )
+        };
+        join(tx_transfer, rx_transfer).await;
         Ok(())
     }
 }
@@ -689,7 +911,7 @@ impl_mode!(Async);
 
 // ====================
 
-impl<'d, M: Mode> embedded_hal_02::blocking::spi::Transfer<u8> for Spi<'d, M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::spi::Transfer<u8> for Spi<'d, M, Master> {
     type Error = Error;
     fn transfer<'w>(&mut self, words: &'w mut [u8]) -> Result<&'w [u8], Self::Error> {
         self.blocking_transfer_in_place(words)?;
@@ -697,7 +919,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::spi::Transfer<u8> for Spi<'d, M> {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::blocking::spi::Write<u8> for Spi<'d, M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::spi::Write<u8> for Spi<'d, M, Master> {
     type Error = Error;
 
     fn write(&mut self, words: &[u8]) -> Result<(), Self::Error> {
@@ -707,15 +929,17 @@ impl<'d, M: Mode> embedded_hal_02::blocking::spi::Write<u8> for Spi<'d, M> {
 
 impl embedded_hal_1::spi::Error for Error {
     fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
-        match *self {}
+        match *self {
+            Error::BufferLengthMismatch => embedded_hal_1::spi::ErrorKind::Other,
+        }
     }
 }
 
-impl<'d, M: Mode> embedded_hal_1::spi::ErrorType for Spi<'d, M> {
+impl<'d, M: Mode> embedded_hal_1::spi::ErrorType for Spi<'d, M, Master> {
     type Error = Error;
 }
 
-impl<'d, M: Mode> embedded_hal_1::spi::SpiBus<u8> for Spi<'d, M> {
+impl<'d, M: Mode> embedded_hal_1::spi::SpiBus<u8> for Spi<'d, M, Master> {
     fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -737,7 +961,7 @@ impl<'d, M: Mode> embedded_hal_1::spi::SpiBus<u8> for Spi<'d, M> {
     }
 }
 
-impl<'d> embedded_hal_async::spi::SpiBus<u8> for Spi<'d, Async> {
+impl<'d> embedded_hal_async::spi::SpiBus<u8> for Spi<'d, Async, Master> {
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -759,7 +983,7 @@ impl<'d> embedded_hal_async::spi::SpiBus<u8> for Spi<'d, Async> {
     }
 }
 
-impl<'d, M: Mode> SetConfig for Spi<'d, M> {
+impl<'d, M: Mode> SetConfig for Spi<'d, M, Master> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
