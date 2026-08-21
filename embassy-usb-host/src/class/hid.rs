@@ -17,6 +17,8 @@ const TRANSFER_INTERRUPT: u8 = 0x03;
 
 /// HID class request: GET_REPORT.
 const GET_REPORT: u8 = 0x01;
+/// HID class request: SET_REPORT;
+const SET_REPORT: u8 = 0x09;
 /// HID class request: SET_IDLE.
 const SET_IDLE: u8 = 0x0A;
 /// HID class request: SET_PROTOCOL.
@@ -367,5 +369,17 @@ impl<'d, A: UsbHostAllocator<'d>> HidHost<'d, A> {
         let setup = SetupPacket::class_interface_in(GET_REPORT, value, self.interface as u16, buf.len() as u16);
         let n = self.ctrl_ch.control_in(&setup.to_bytes(), buf).await?;
         Ok(n)
+    }
+
+    /// Issue a SET_REPORT control request.
+    ///
+    /// `report_type`: 1=Input, 2=Output, 3=Feature.
+    /// `report_id`: 0 if the device uses a single report.
+    /// `buf`: the report body
+    pub async fn set_report(&mut self, report_type: u8, report_id: u8, buf: &[u8]) -> Result<(), HidError> {
+        let value = (report_type as u16) << 8 | report_id as u16;
+        let setup = SetupPacket::class_interface_out(SET_REPORT, value, self.interface as u16, buf.len() as u16);
+        self.ctrl_ch.control_out(&setup.to_bytes(), buf).await?;
+        Ok(())
     }
 }
