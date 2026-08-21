@@ -46,6 +46,11 @@ default = [ "rt" ]
 ## With `rt` enabled the PAC provides interrupt vectors instead of letting [`cortex-m-rt`](https://docs.rs/cortex-m-rt) do that.
 ## See <https://docs.rs/cortex-m-rt/latest/cortex_m_rt/#device> for more info.
 rt = [ "rp-pac/rt" ]
+## these settimngs are currently necessary to allow the pipeline build. They should be removed ghere when the features will be (somehow) selectable in the "embassy-executor" or the "embassy-time" section
+time-driver-timer1 = []
+time-driver-aot = []
+time-driver-mtime = []
+
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt", "chrono?/defmt", "fixed/defmt"]
@@ -175,7 +180,7 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 nb = "1.1.0"
 cfg-if = "1.0.0"
-cortex-m-rt = ">=0.6.15,<0.8"
+cortex-m-rt = "=0.7.3"
 cortex-m = "0.7.6"
 critical-section = "1.2.0"
 chrono = { version = "0.4.43", default-features = false, optional = true }
@@ -206,3 +211,5 @@ smart-leds-trait = "0.3.2"
 [dev-dependencies]
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", features = ["platform-std", "executor-thread"] }
 static_cell = { version = "2" }
+
+
