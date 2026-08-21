@@ -1,4 +1,4 @@
-use embedded_hal_async::spi::{Operation, SpiDevice};
+use crate::wiznet_spi_interface::{WiznetSpiBus, WiznetSpiOperation};
 
 #[repr(u8)]
 pub enum RegisterBlock {
@@ -48,21 +48,27 @@ impl super::SealedChip for W5500 {
         (RegisterBlock::TxBuf, addr)
     }
 
-    async fn bus_read<SPI: SpiDevice>(
+    async fn bus_read<SPI: WiznetSpiBus>(
         spi: &mut SPI,
         address: Self::Address,
         data: &mut [u8],
     ) -> Result<(), SPI::Error> {
         let addr = address.1.to_be_bytes();
         let header = [addr[0], addr[1], (address.0 as u8) << 3];
-        let operations = &mut [Operation::Write(&header), Operation::TransferInPlace(data)];
+
+        let operations = [WiznetSpiOperation::Write(&header), WiznetSpiOperation::Read(data)];
         spi.transaction(operations).await
     }
 
-    async fn bus_write<SPI: SpiDevice>(spi: &mut SPI, address: Self::Address, data: &[u8]) -> Result<(), SPI::Error> {
+    async fn bus_write<SPI: WiznetSpiBus>(
+        spi: &mut SPI,
+        address: Self::Address,
+        data: &[u8],
+    ) -> Result<(), SPI::Error> {
         let addr = address.1.to_be_bytes();
         let header = [addr[0], addr[1], (address.0 as u8) << 3 | 0b0000_0100];
-        let operations = &mut [Operation::Write(&header), Operation::Write(data)];
+
+        let operations = [WiznetSpiOperation::Write(&header), WiznetSpiOperation::Write(data)];
         spi.transaction(operations).await
     }
 }
