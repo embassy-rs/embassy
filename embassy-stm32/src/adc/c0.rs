@@ -238,6 +238,11 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         Self { adc }
     }
 
+    /// Read the currently configured resolution for this ADC driver and return it.
+    pub fn resolution(&self) -> Resolution {
+        T::regs().cfgr1().read().res().into()
+    }
+
     /// Enable reading the voltage reference internal channel.
     pub fn enable_vrefint(&mut self) -> super::VrefInt {
         T::common_regs().ccr().modify(|reg| {

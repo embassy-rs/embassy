@@ -232,6 +232,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         T::regs().cr1().modify(|w| w.set_res(res.into()));
     }
 
+    /// Read the currently configured resolution for this ADC driver and return it.
     pub fn resolution(&self) -> Resolution {
         T::regs().cr1().read().res()
     }

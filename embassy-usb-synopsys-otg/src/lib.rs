@@ -176,12 +176,15 @@ where
         }
     }
 
-    if ints.eopf() {
+    // Incomplete isochronous IN transfer: raised at the end of a periodic frame in which an isochronous IN
+    // endpoint still held the packet meant for that frame, i.e. the host did not poll for it.
+    if ints.iisoixfr() {
+        r.gintsts().write(|w| w.set_iisoixfr(true));
         let frame_number = r.dsts().read().fnsof();
         let frame_is_odd = frame_number & 0x01 == 1;
 
-        // If an isochronous endpoint has an IN message waiting in its FIFO, but the host didn't poll for it before eof,
-        // switch the packet polarity, in the hope that it will be polled for in the next frame.
+        // Switch the packet polarity of the endpoints that missed their frame, in the hope that it will be polled for
+        // in the next frame.
         for ep_num in (0..ep_count).into_iter().filter(|ep_num| {
             let diepctl = r.diepctl(*ep_num).read();
             // Find iso endpoints
@@ -847,6 +850,7 @@ where
             w.set_rxflvlm(true);
             w.set_srqim(true);
             w.set_otgint(true);
+            w.set_iisoixfrm(true);
         });
     }
 

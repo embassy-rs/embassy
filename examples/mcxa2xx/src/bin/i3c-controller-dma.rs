@@ -19,29 +19,39 @@ use embassy_mcxa::clocks::periph_helpers::{Div4, I3cClockSel};
 use embassy_mcxa::config::Config;
 use embassy_mcxa::i3c::controller::{self, BusType, I3c, IbiSlot, InterruptHandler, Operation, Payload};
 use embassy_mcxa::peripherals::I3C0;
+use embassy_mcxa::trng::Trng;
+use embassy_mcxa2xx_examples::util::verify_equal;
 use embassy_time::Timer;
 use panic_probe as _;
 
 const TARGET_STATIC_ADDR: u8 = 0x0a;
 const TARGET_DYNAMIC_ADDR: u8 = 0x0b;
-
-// Per-iteration read length the controller demands. Set larger than the
-// target's TGT_TX_LEN to exercise the over-read path: controller's
-// RDTERM = CTRL_RD_LEN, target T-bits early at TGT_TX_LEN.
-const CTRL_RD_LEN: usize = 256;
-const TGT_TX_LEN: usize = 16;
-const EXPECTED_RD_LEN: usize = if CTRL_RD_LEN < TGT_TX_LEN {
-    CTRL_RD_LEN
-} else {
-    TGT_TX_LEN
-};
-const RX_PATTERN_BYTE: u8 = 0x55;
+const RESET_COMMAND: u8 = 0xf0;
+const RESET_INTERVAL: u32 = 10;
+const MAX_TRANSFER_LEN: usize = 255;
 
 bind_interrupts!(
     struct Irqs {
         I3C0 => InterruptHandler<I3C0>;
     }
 );
+
+async fn set_dasa<'d>(i3c: &mut I3c<'d, hal::i3c::Dma<'d>>) -> Result<(), controller::IOError> {
+    i3c.async_transaction(
+        &mut [
+            Operation::Write {
+                address: 0x7e,
+                buf: &[0x87],
+            },
+            Operation::Write {
+                address: TARGET_STATIC_ADDR,
+                buf: &[TARGET_DYNAMIC_ADDR << 1],
+            },
+        ],
+        BusType::I3cSdr,
+    )
+    .await
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -63,6 +73,7 @@ async fn main(_spawner: Spawner) {
     cfg.open_drain_freq = 1_000_000;
     cfg.push_pull_freq = 2_000_000;
     let mut i3c = I3c::new_async_with_dma(p.I3C0, p.P1_9, p.P1_8, p.DMA0_CH0, p.DMA0_CH1, Irqs, cfg).unwrap();
+    let mut trng = Trng::new_blocking(p.TRNG0, Default::default());
 
     Timer::after_secs(2).await;
     info!("[ctrl] RSTDAA");
@@ -70,72 +81,77 @@ async fn main(_spawner: Spawner) {
     i3c.async_write(0x7e, &[0x06], BusType::I3cSdr).await.unwrap();
     info!("[ctrl] SETDASA");
 
-    i3c.async_transaction(
-        &mut [
-            Operation::Write {
-                address: 0x7e,
-                buf: &[0x87],
-            },
-            Operation::Write {
-                address: TARGET_STATIC_ADDR,
-                buf: &[TARGET_DYNAMIC_ADDR << 1],
-            },
-        ],
-        BusType::I3cSdr,
-    )
-    .await
-    .unwrap();
+    set_dasa(&mut i3c).await.unwrap();
     info!("[ctrl] register_ibi");
 
     i3c.register_ibi(IbiSlot::Slot0, TARGET_DYNAMIC_ADDR, Payload::Yes)
         .unwrap();
-    info!(
-        "[ctrl] entering loop (CTRL_RD_LEN={} TGT_TX_LEN={} EXPECTED={})",
-        CTRL_RD_LEN, TGT_TX_LEN, EXPECTED_RD_LEN
-    );
+    info!("[ctrl] entering loop (lengths 1..={})", MAX_TRANSFER_LEN);
 
-    let mut iter: u32 = 0;
+    let mut sweep: u32 = 0;
+    let mut tx_buf = [0u8; MAX_TRANSFER_LEN];
+    let mut buf = [0u8; MAX_TRANSFER_LEN];
     loop {
-        i3c.async_write(TARGET_DYNAMIC_ADDR, &[0xaa; 64], BusType::I3cSdr)
-            .await
-            .unwrap();
+        trng.blocking_fill_bytes(&mut tx_buf);
 
-        let mut ibi_buf = [0u8; 8];
-        let (_ibi_addr, _ibi_len) = i3c.async_wait_for_ibi(&mut ibi_buf).await.unwrap();
+        for transfer_len in 1..=MAX_TRANSFER_LEN {
+            info!("[ctrl] sweep {} len={} start", sweep, transfer_len);
+            if let Err(e) = i3c
+                .async_write(TARGET_DYNAMIC_ADDR, &tx_buf[..transfer_len], BusType::I3cSdr)
+                .await
+            {
+                defmt::error!("[ctrl] sweep {} len={} async_write err {:?}", sweep, transfer_len, e);
+                panic!("ctrl write err");
+            }
 
-        let mut buf = [0u8; CTRL_RD_LEN];
-        match i3c.async_read(TARGET_DYNAMIC_ADDR, &mut buf, BusType::I3cSdr).await {
-            Ok(n) => {
-                let matched = buf[..n].iter().take_while(|&&b| b == RX_PATTERN_BYTE).count();
-                if iter < 3 {
+            let mut ibi_buf = [0u8; 8];
+            let (_ibi_addr, _ibi_len) = match i3c.async_wait_for_ibi(&mut ibi_buf).await {
+                Ok(ibi) => ibi,
+                Err(e) => {
+                    defmt::error!("[ctrl] sweep {} len={} wait_for_ibi err {:?}", sweep, transfer_len, e);
+                    panic!("ctrl wait for IBI err");
+                }
+            };
+
+            match i3c.async_read(TARGET_DYNAMIC_ADDR, &mut buf, BusType::I3cSdr).await {
+                Ok(n) => {
                     info!(
-                        "[ctrl] iter {} OK n={} matched={} head={:?}",
-                        iter,
+                        "[ctrl] sweep {} len={} OK n={} head={:?}",
+                        sweep,
+                        transfer_len,
                         n,
-                        matched,
                         &buf[..core::cmp::min(8, n)]
                     );
+                    verify_equal(&buf[..n], &tx_buf[..transfer_len], "i3c controller read");
                 }
-                if n != EXPECTED_RD_LEN || matched != EXPECTED_RD_LEN {
+                Err(e) => {
                     defmt::error!(
-                        "[ctrl] iter {} mismatch: n={} matched_55={} EXPECTED={} buf={:?}",
-                        iter,
-                        n,
-                        matched,
-                        EXPECTED_RD_LEN,
+                        "[ctrl] sweep {} len={} async_read err {:?} buf={:?}",
+                        sweep,
+                        transfer_len,
+                        e,
                         &buf[..]
                     );
-                    panic!("ctrl read short/mismatch");
+                    panic!("ctrl read err");
                 }
             }
-            Err(e) => {
-                defmt::error!("[ctrl] iter {} async_read err {:?} buf={:?}", iter, e, &buf[..]);
-                panic!("ctrl read err");
-            }
         }
-        iter = iter.wrapping_add(1);
-        if iter % 1000 == 0 {
-            info!("[ctrl] iter {} OK", iter);
+
+        sweep = sweep.wrapping_add(1);
+        info!("[ctrl] completed {} length sweeps", sweep);
+
+        if sweep % RESET_INTERVAL == 0 {
+            info!("[ctrl] requesting target reset after sweep {}", sweep);
+            i3c.async_write(TARGET_DYNAMIC_ADDR, &[RESET_COMMAND], BusType::I3cSdr)
+                .await
+                .unwrap();
+
+            // The reset command is ACKed before the target resets itself. Give
+            // it time to reset and reconfigure.
+            Timer::after_millis(100).await;
+
+            set_dasa(&mut i3c).await.unwrap();
+            info!("[ctrl] target reassigned to 0x{:02x}", TARGET_DYNAMIC_ADDR);
         }
     }
 }
