@@ -64,6 +64,7 @@ async fn main(_spawner: Spawner) {
     let mut dfsdm = dfsdm::Dfsdm::new(p.DFSDM1);
     dfsdm::TransceiverChannelImp::new_ext_clk(&dfsdm, p.PC0, p.PC1);
     dfsdm::TransceiverChannelImp::<_, dfsdm::Tcv0, _>::new_parallel(&dfsdm);
+
     // dfsdm::TransceiverChannelImp::new_ext_clk(dfsdm, ckin, datin)
     // dfsdm::TransceiverChannelImp::new(p.DFSDM1, p.PB2, p.PC3);
     // dfsdm::TransceiverChannelImp::new(p.DFSDM1, p.PC0, p.PC3);

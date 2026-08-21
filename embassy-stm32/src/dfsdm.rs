@@ -119,7 +119,10 @@ where
             _ckout: ckout,
         }
     }
+
+    // pub fn split(self)-> (Tra)
 }
+
 impl<'d, T> Dfsdm<'d, T, ExternalClock>
 where
     T: Instance,
@@ -413,6 +416,7 @@ macro_rules! define_channels {
     (
         $enum:ident,
         $marker_trait:ident,
+        $sealed_trait:path,
         $(
             $channel:ident
         ),+ $(,)?
@@ -424,12 +428,14 @@ macro_rules! define_channels {
             )+
         }
 
-        pub trait $marker_trait {
+        pub trait $marker_trait: $sealed_trait {
             const FILTER: $enum;
         }
 
         $(
             pub struct $channel;
+
+            impl $sealed_trait for $channel {}
 
             impl $marker_trait for $channel {
                 const FILTER: $enum = $enum::$channel;
@@ -441,6 +447,7 @@ macro_rules! define_channels {
 define_channels!(
     Transceiver,
     TransceiverMarker,
+    sealed::SealedTransceiver,
     Tcv0,
     Tcv1,
     Tcv2,
@@ -450,11 +457,25 @@ define_channels!(
     Tcv6,
     Tcv7,
 );
-define_channels!(Filter, FilterMarker, Flt0, Flt1, Flt2, Flt3, Flt4, Flt5, Flt6, Flt7,);
+define_channels!(
+    Filter,
+    FilterMarker,
+    sealed::SealedFilter,
+    Flt0,
+    Flt1,
+    Flt2,
+    Flt3,
+    Flt4,
+    Flt5,
+    Flt6,
+    Flt7,
+);
 
 dma_trait!(Dma, Instance, FilterMarker);
 
 mod sealed {
+    pub trait SealedTransceiver {}
+    pub trait SealedFilter {}
     pub trait SealedFilterChannel<F: super::FilterMarker> {}
     pub trait SealedTransceiverChannel<F: super::TransceiverMarker> {}
 }
@@ -473,9 +494,14 @@ pub trait TransceiverChannel<T: TransceiverMarker>: sealed::SealedTransceiverCha
         T::FILTER
     }
 }
+
+/// State trait for Transceiver channels
 pub trait DataSource {}
 
+/// Transceiver get's data clock from outside
 pub struct External;
+
+/// Transceiver get's data clock from inside
 pub struct Internal;
 
 impl DataSource for External {}
@@ -519,6 +545,7 @@ where
     T: Instance,
     M: TransceiverMarker,
 {
+    ///Create new TransceiverChannelImp for use with explicit external clock reference
     pub fn new_ext_clk(
         dfsdm: &Dfsdm<'d, T, ExternalClock>,
         ckin: Peri<'d, if_afio!(impl CkinPin<T, M, A>)>,
@@ -542,12 +569,7 @@ where
         }
     }
 
-    ///
-    /// CKOUT Aktiv:
-    /// Internal clock geht
-    /// Egal:
-    /// External, Manchester, Parallel
-    ///
+    ///Create new TransceiverChannelImp for use with internal clock reference
     pub fn new_clk_int<C>(dfsdm: &Dfsdm<'d, T, C>, datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>) -> Self
     where
         T: Instance,
@@ -567,6 +589,7 @@ where
         }
     }
 
+    ///Create new TransceiverChannelImp for use with manchester coded data (clock recovery)
     pub fn new_manchester<C>(dfsdm: &Dfsdm<'d, T, C>, datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>) -> Self
     where
         T: Instance,
