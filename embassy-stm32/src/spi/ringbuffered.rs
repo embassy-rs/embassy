@@ -5,14 +5,12 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::Peri;
 use embedded_io_async::ReadReady;
 use futures_util::future::select;
 
 use crate::dma::ReadableRingBuffer;
-use crate::exti::{Channel, ExtiInput, InterruptHandler};
-use crate::gpio::{Flex, Pin};
-use crate::interrupt::typelevel::Binding;
+use crate::exti::ExtiInput;
+use crate::gpio::Flex;
 use crate::mode::Async;
 use crate::rcc::WakeGuard;
 use crate::spi::mode::Slave;
@@ -76,13 +74,9 @@ impl<'d> Spi<'d, Async, Slave> {
     /// Turn the `Spi` into a buffered spi which can continuously receive in the background
     /// without the possibility of losing bytes. The `dma_buf` is a buffer registered to the
     /// DMA controller, and must be large enough to prevent overflows.
-    pub fn into_ring_buffered<W: Word, C: Channel>(
-        mut self,
-        dma_buf: &'d mut [W],
-        ch: Peri<'d, C>,
-        irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
-    ) -> RingBufferedSpiRx<'d, W> {
+    pub fn into_ring_buffered<W: Word>(mut self, dma_buf: &'d mut [W]) -> RingBufferedSpiRx<'d, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
+        assert!(self._exti, "exti required for ringbuf");
 
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
@@ -107,11 +101,10 @@ impl<'d> Spi<'d, Async, Slave> {
         let miso = unsafe { self._miso.as_ref().map(|x| x.clone_unchecked()) };
         let nss = unsafe { self.nss.as_ref().unwrap().clone_unchecked() };
 
-        // verify at runtime whether given EXTI channel is associated with NSS pin
-        assert_eq!(nss.pin.pin(), ch.number());
-        // EXTI can be used on alternate function pins
-        // this feature seems to be undocumented though
-        let nss = unsafe { ExtiInput::from_flex(nss, ch, irq) };
+        // EXTI can be used on all stm32 GPIO pins. Irq handler is verified on constructor.
+        //
+        // Note: if same exti lines are used, then the exti input will fight on the waker (may be fixed in the future).
+        let nss = unsafe { ExtiInput::from_flex_unchecked(nss) };
 
         let wake_guard = self.info.rcc.wake_guard();
 

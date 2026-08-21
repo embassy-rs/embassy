@@ -91,6 +91,7 @@ use embassy_stm32::pka::{EccPoint, EcdsaCurveParams, Pka};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::zerocopy_channel;
 use embassy_time::{Duration, Instant, block_for};
+#[cfg(not(feature = "ble-stack-llo"))]
 use stm32_bindings::ble::BLEPLATCB_TimerExpiry;
 
 use crate::controller::ChannelPacket;
