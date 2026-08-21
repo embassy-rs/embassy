@@ -705,6 +705,63 @@ impl DmaChannel<'_> {
         t.tcd_biter_elinkno().write(|w| *w = TcdBiterElinkno(0));
     }
 
+    /// Stop the transfer without releasing the channel or clearing its TCD.
+    ///
+    /// When this returns, DMA can no longer access the transfer's buffers or
+    /// descriptors and the channel completion state has been cleared. A wake
+    /// stored in the `WaitCell` before stopping may remain. Code that polls the
+    /// `WaitCell` directly must consume such a wake and register again if the
+    /// next transfer is not complete.
+    ///
+    /// With IRQs masked we:
+    /// 1. Clear `ERQ`/`EARQ` so no further service requests are issued.
+    /// 2. Spin until `CH_CSR.ACTIVE` clears, so any in-flight minor loop
+    ///    or software-triggered transfer drains.
+    /// 3. Clear `CH_CSR.DONE` and `CH_INT.INT` (both W1C) bookkeeping.
+    /// 4. Unpend the channel's IRQ in the NVIC so a queued dispatch is
+    ///    dropped on the floor instead of running redundantly after CS
+    ///    exit.
+    pub(crate) fn stop(&mut self) {
+        let t = self.tcd();
+        let irq = self.channel.interrupt();
+
+        critical_section::with(|_| {
+            // 1. Stop accepting new requests.
+            t.ch_csr().modify(|w| {
+                w.set_erq(false);
+                w.set_earq(false);
+            });
+
+            // 2. Mask interrupts so we don't have to worry about the
+            // IRQ firing while we're in the middle of the shutdown
+            // sequence.
+            t.tcd_csr().modify(|w| {
+                w.set_intmajor(false);
+                w.set_inthalf(false);
+            });
+
+            // 3. Drop any IRQ the hardware queued in the NVIC while we
+            //    were masked.
+            cortex_m::peripheral::NVIC::unpend(irq);
+        });
+
+        // 4. Wait for any in-flight minor loop / SW-triggered transfer
+        //    to drain. Bounded by the size of one minor loop / SW
+        //    transfer this driver issues (microseconds at most).
+        while t.ch_csr().read().active() {
+            core::hint::spin_loop();
+        }
+
+        // 5. Clear completion bookkeeping (W1C).
+        t.ch_int().write(|w| w.set_int(true));
+        t.ch_csr().modify(|w| w.set_done(true));
+        let state = &STATES[self.dma()][self.channel()];
+        state.peripheral_scatter_gather_active.store(false, Ordering::Release);
+        state.peripheral_scatter_gather_done.store(false, Ordering::Release);
+
+        fence(Ordering::SeqCst);
+    }
+
     #[inline]
     fn set_major_loop_ct_elinkno(t: &pac::edma_tcd::Tcd, count: u16) {
         t.tcd_biter_elinkno().write(|w| w.set_biter(count));

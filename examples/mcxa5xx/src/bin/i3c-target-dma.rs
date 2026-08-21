@@ -21,6 +21,7 @@ use static_cell::ConstStaticCell;
 
 const TARGET_ADDR: u8 = 0x0a;
 const RX_BUF_SIZE: usize = 128;
+const RESET_COMMAND: u8 = 0xf0;
 
 // Per-iteration TX payload size for the read response. Set smaller than
 // the controller's CTRL_RD_LEN to exercise the over-read path (target
@@ -64,8 +65,16 @@ async fn main(_spawner: Spawner) {
     loop {
         let ev = tgt.listen().await.unwrap();
         if let Event::RxPending = ev {
-            tgt.dma_respond_to_write(&mut sink).await.unwrap();
-            assert_eq!(sink, [0xaa; 64]);
+            let len = tgt.dma_respond_to_write(&mut sink).await.unwrap();
+            if len == 1 && sink[0] == RESET_COMMAND {
+                info!("[tgt] reset command received");
+                tgt.reset().unwrap();
+                info!("[tgt] reset complete; awaiting SETDASA");
+                continue;
+            }
+
+            assert_eq!(len, sink.len());
+            assert_eq!(&sink[..len], &[0xaa; 64]);
 
             match tgt.dma_respond_to_read_with_ibi(&tx_payload).await {
                 Ok(()) => {

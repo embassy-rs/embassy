@@ -23,6 +23,8 @@ use panic_probe as _;
 
 const TARGET_STATIC_ADDR: u8 = 0x0a;
 const TARGET_DYNAMIC_ADDR: u8 = 0x0b;
+const RESET_COMMAND: u8 = 0xf0;
+const RESET_INTERVAL: u32 = 10;
 
 // Per-iteration read length the controller demands. Set larger than the
 // target's TGT_TX_LEN to exercise the over-read path: controller's
@@ -41,6 +43,23 @@ bind_interrupts!(
         I3C0 => InterruptHandler<I3C0>;
     }
 );
+
+async fn set_dasa<'d>(i3c: &mut I3c<'d, hal::i3c::Dma<'d>>) -> Result<(), controller::IOError> {
+    i3c.async_transaction(
+        &mut [
+            Operation::Write {
+                address: 0x7e,
+                buf: &[0x87],
+            },
+            Operation::Write {
+                address: TARGET_STATIC_ADDR,
+                buf: &[TARGET_DYNAMIC_ADDR << 1],
+            },
+        ],
+        BusType::I3cSdr,
+    )
+    .await
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -63,21 +82,7 @@ async fn main(_spawner: Spawner) {
     i3c.async_write(0x7e, &[0x06], BusType::I3cSdr).await.unwrap();
     info!("[ctrl] SETDASA");
 
-    i3c.async_transaction(
-        &mut [
-            Operation::Write {
-                address: 0x7e,
-                buf: &[0x87],
-            },
-            Operation::Write {
-                address: TARGET_STATIC_ADDR,
-                buf: &[TARGET_DYNAMIC_ADDR << 1],
-            },
-        ],
-        BusType::I3cSdr,
-    )
-    .await
-    .unwrap();
+    set_dasa(&mut i3c).await.unwrap();
     info!("[ctrl] register_ibi");
 
     i3c.register_ibi(IbiSlot::Slot0, TARGET_DYNAMIC_ADDR, Payload::Yes)
@@ -129,6 +134,20 @@ async fn main(_spawner: Spawner) {
         iter = iter.wrapping_add(1);
         if iter % 1000 == 0 {
             info!("[ctrl] iter {} OK", iter);
+        }
+
+        if iter % RESET_INTERVAL == 0 {
+            info!("[ctrl] requesting target reset after iter {}", iter);
+            i3c.async_write(TARGET_DYNAMIC_ADDR, &[RESET_COMMAND], BusType::I3cSdr)
+                .await
+                .unwrap();
+
+            // The reset command is ACKed before the target resets itself. Give
+            // it time to reset and reconfigure.
+            Timer::after_millis(100).await;
+
+            set_dasa(&mut i3c).await.unwrap();
+            info!("[ctrl] target reassigned to 0x{:02x}", TARGET_DYNAMIC_ADDR);
         }
     }
 }

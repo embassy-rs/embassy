@@ -43,6 +43,9 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 pub(crate) struct Info {
     pub(crate) regs: pac::i3c::I3c,
     pub(crate) wait_cell: WaitCell,
+    pub(crate) enable_interrupt: fn(),
+    pub(crate) disable_interrupt: fn(),
+    pub(crate) reset_peripheral: unsafe fn(),
 }
 
 unsafe impl Sync for Info {}
@@ -51,6 +54,31 @@ impl Info {
     #[inline(always)]
     fn regs(&self) -> pac::i3c::I3c {
         self.regs
+    }
+
+    pub(crate) fn enable_interrupt<T: Instance>() {
+        use crate::interrupt::typelevel::Interrupt;
+
+        T::Interrupt::unpend();
+        // SAFETY: The driver owns the instance and installed its binding.
+        unsafe { T::Interrupt::enable() };
+    }
+
+    pub(crate) fn disable_interrupt<T: Instance>() {
+        use crate::interrupt::typelevel::Interrupt;
+
+        T::Interrupt::disable();
+        T::Interrupt::unpend();
+    }
+
+    /// Pulse the MRCC reset.
+    ///
+    /// # Safety
+    ///
+    /// The caller must exclusively own the I3C instance, stop all peripheral
+    /// and DMA activity, and ensure SCL/SDA are inactive during reset release.
+    pub(crate) unsafe fn reset_peripheral<T: Instance>() {
+        unsafe { crate::clocks::pulse_reset::<T>() };
     }
 
     #[inline(always)]
@@ -69,6 +97,9 @@ macro_rules! impl_i3c_instance {
                     static INFO: crate::i3c::Info = crate::i3c::Info {
                         regs: crate::pac::[<I3C $n>],
                         wait_cell: maitake_sync::WaitCell::new(),
+                        enable_interrupt: crate::i3c::Info::enable_interrupt::<crate::peripherals::[<I3C $n>]>,
+                        disable_interrupt: crate::i3c::Info::disable_interrupt::<crate::peripherals::[<I3C $n>]>,
+                        reset_peripheral: crate::i3c::Info::reset_peripheral::<crate::peripherals::[<I3C $n>]>,
                     };
                     &INFO
                 }
