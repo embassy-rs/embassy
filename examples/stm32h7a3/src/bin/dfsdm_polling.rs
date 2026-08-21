@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::{BDMA1_CH0, BDMA2_CH0};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, dfsdm, i2c, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dfsdm, peripherals};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -61,8 +61,15 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PE3, Level::Low, Speed::Low);
 
     let _tim12_ll = embassy_stm32::timer::low_level::Timer::new(p.TIM12);
-    let dfsdm1 = dfsdm::Dfsdm::new(p.DFSDM1, p.BDMA1_CH0, Irqs, p.PC0, dfsdm::Config::default());
-    let dfsdm2 = dfsdm::Dfsdm::new(p.DFSDM2, p.BDMA2_CH0, Irqs, p.PC10, dfsdm::Config::default());
+    let mut dfsdm = dfsdm::Dfsdm::new(p.DFSDM1);
+    dfsdm::TransceiverChannelImp::new_ext_clk(&dfsdm, p.PC0, p.PC1);
+    dfsdm::TransceiverChannelImp::<_, dfsdm::Tcv0, _>::new_parallel(&dfsdm);
+    // dfsdm::TransceiverChannelImp::new_ext_clk(dfsdm, ckin, datin)
+    // dfsdm::TransceiverChannelImp::new(p.DFSDM1, p.PB2, p.PC3);
+    // dfsdm::TransceiverChannelImp::new(p.DFSDM1, p.PC0, p.PC3);
+    // let transceiver = dfsdm::TransceiverChannelImp::new_ch0(p.DFSDM1, p.PC0, p.PC1);
+    // let dfsdm1 = dfsdm::Dfsdm::new(p.DFSDM1, p.BDMA1_CH0, Irqs, p.PC0, dfsdm::Config::default());
+    // let dfsdm2 = dfsdm::Dfsdm::new(p.DFSDM2, p.BDMA2_CH0, Irqs, p.PC10, dfsdm::Config::default());
 
     loop {
         led.toggle();

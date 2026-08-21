@@ -4,7 +4,8 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AfType, Pull};
+use crate::dfsdm::sealed::SealedTransceiverChannel;
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{Peri, interrupt, rcc};
 
@@ -91,55 +92,114 @@ macro_rules! config_pins {
     };
 }
 
+pub trait ClockMode {}
+
+pub struct InternalClock;
+pub struct ExternalClock;
+
+impl ClockMode for InternalClock {}
+impl ClockMode for ExternalClock {}
+
 /// DFSDM driver.
-pub struct Dfsdm<'d, T: Instance> {
+pub struct Dfsdm<'d, T: Instance, C: ClockMode> {
     inner: Peri<'d, T>,
+    _clock_mode: PhantomData<C>,
+    _ckout: Option<Flex<'d>>,
 }
 
-impl<'d, T> Dfsdm<'d, T>
+impl<'d, T> Dfsdm<'d, T, InternalClock>
 where
     T: Instance,
 {
-    /// Generic new
-    pub fn new<D, M>(
-        peri: Peri<'d, T>,
-        dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
-        d0: Peri<'d, impl Ckin0Pin<T>>,
-        config: Config,
-    ) -> Self
-    where
-        D: Dma<T, M>,
-        M: FilterChannel,
-    {
-        config_pins!(d0);
+    pub fn new_ckout(peri: Peri<'d, T>, ckout: Peri<'d, if_afio!(impl CkoutPin<T, A>)>) -> Self {
+        let ckout = new_pin!(ckout, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        Self {
+            inner: peri,
+            _clock_mode: PhantomData,
+            _ckout: ckout,
+        }
+    }
+}
+impl<'d, T> Dfsdm<'d, T, ExternalClock>
+where
+    T: Instance,
+{
+    pub fn new(peri: Peri<'d, T>) -> Self {
+        Self {
+            inner: peri,
+            _clock_mode: PhantomData,
+            _ckout: None,
+        }
+    }
+}
 
-        Self::new_inner(peri, dma, _irq, config, false, 0b00)
+impl<'d, T, C> Dfsdm<'d, T, C>
+where
+    T: Instance,
+    C: ClockMode,
+{
+    //new with just peripheral
+
+    /// new with ckout
+
+    pub fn test_ch<M>(
+        peri: Peri<'d, T>,
+        ckin: Peri<'d, if_afio!(impl CkinPin<T, M, A>)>,
+        datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>,
+    ) -> u8
+    where
+        T: Instance,
+        M: TransceiverMarker,
+    {
+        let ckin_pin = new_pin!(ckin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        let datin_pin = new_pin!(datin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+
+        0
     }
 
-    fn new_inner<D, M>(
-        peri: Peri<'d, T>,
-        dma: Peri<'d, D>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
-        config: Config,
-        use_embedded_synchronization: bool,
-        edm: u8,
-    ) -> Self
-    where
-        D: Dma<T, M>,
-        M: FilterChannel,
-    {
-        rcc::enable_and_reset::<T>();
-        //TODO configure and enable
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
+    // /// Generic new
+    // pub fn new<D, M>(
+    //     peri: Peri<'d, T>,
+    //     dma: Peri<'d, D>,
+    //     _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+    //     + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+    //     + 'd,
+    //     d0: Peri<'d, impl Ckin0Pin<T>>,
+    //     config: Config,
+    // ) -> Self
+    // where
+    //     D: Dma<T, M>,
+    //     M: FilterChannel,
+    // {
+    //     config_pins!(d0);
 
-        Self { inner: peri }
-    }
+    //     Self::new_inner(peri, dma, _irq, config, false, 0b00)
+    // }
+
+    // fn new_inner<D, M>(
+    //     peri: Peri<'d, T>,
+    //     dma: Peri<'d, D>,
+    //     irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+    //     + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+    //     + 'd,
+    //     config: Config,
+    //     use_embedded_synchronization: bool,
+    //     edm: u8,
+    // ) -> Self
+    // where
+    //     D: Dma<T, M>,
+    //     M: FilterChannel,
+    // {
+    //     rcc::enable_and_reset::<T>();
+    //     //TODO configure and enable
+    //     T::Interrupt::unpend();
+    //     unsafe { T::Interrupt::enable() };
+
+    //     Self {
+    //         inner: peri,
+    //         _ckout: None,
+    //     }
+    // }
 }
 
 trait SealedInstance: crate::rcc::RccPeripheral {
@@ -153,23 +213,157 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-pin_trait!(CkoutPin, Instance);
-pin_trait!(Datin0Pin, Instance);
-pin_trait!(Ckin0Pin, Instance);
-pin_trait!(Ckin1Pin, Instance);
-pin_trait!(Datin1Pin, Instance);
-pin_trait!(Datin2Pin, Instance);
-pin_trait!(Ckin2Pin, Instance);
-pin_trait!(Datin3Pin, Instance);
-pin_trait!(Ckin3Pin, Instance);
-pin_trait!(Datin4Pin, Instance);
-pin_trait!(Ckin4Pin, Instance);
-pin_trait!(Datin5Pin, Instance);
-pin_trait!(Ckin5Pin, Instance);
-pin_trait!(Datin6Pin, Instance);
-pin_trait!(Ckin6Pin, Instance);
-pin_trait!(Datin7Pin, Instance);
-pin_trait!(Ckin7Pin, Instance);
+pin_trait!(CkoutPin, Instance, @A);
+pin_trait!(Datin0Pin, Instance, @A);
+pin_trait!(Ckin0Pin, Instance, @A);
+pin_trait!(Ckin1Pin, Instance, @A);
+pin_trait!(Datin1Pin, Instance, @A);
+pin_trait!(Datin2Pin, Instance, @A);
+pin_trait!(Ckin2Pin, Instance, @A);
+pin_trait!(Datin3Pin, Instance, @A);
+pin_trait!(Ckin3Pin, Instance, @A);
+pin_trait!(Datin4Pin, Instance, @A);
+pin_trait!(Ckin4Pin, Instance, @A);
+pin_trait!(Datin5Pin, Instance, @A);
+pin_trait!(Ckin5Pin, Instance, @A);
+pin_trait!(Datin6Pin, Instance, @A);
+pin_trait!(Ckin6Pin, Instance, @A);
+pin_trait!(Datin7Pin, Instance, @A);
+pin_trait!(Ckin7Pin, Instance, @A);
+
+/// Associates a DFSDM clock-input pin with a specific transceiver channel.
+///
+/// The channel type `C` and marker `M` tie the pin to a concrete
+/// [`TransceiverChannel`]. This allows the compiler to reject pin
+/// combinations that do not belong to the requested channel.
+///
+/// `T` identifies the DFSDM peripheral.
+/// `A` identifies the alternate-function configuration.
+#[cfg(afio)]
+pub trait CkinPin<T, M, A>: crate::gpio::Pin
+where
+    T: Instance,
+    M: TransceiverMarker,
+{
+    /// Forwards the alternate-function number provided by the underlying pin.
+    fn af_num(&self) -> u8;
+}
+
+/// Associates a DFSDM clock-input pin with a specific transceiver channel.
+///
+/// The channel type `C` and marker `M` tie the pin to a concrete
+/// [`TransceiverChannel`]. This allows the compiler to reject pin
+/// combinations that do not belong to the requested channel.
+///
+/// `T` identifies the DFSDM peripheral.
+#[cfg(not(afio))]
+pub trait CkinPin<T, M>: crate::gpio::Pin
+where
+    T: Instance,
+    M: TransceiverMarker,
+{
+    /// Forwards the alternate-function number provided by the underlying pin.
+    fn af_num(&self) -> u8;
+}
+macro_rules! impl_ckin_bridge {
+    ($marker:ty, $existing:ident) => {
+        #[cfg(afio)]
+        impl<T: Instance, A, P> CkinPin<T, $marker, A> for P
+        where
+            P: $existing<T, A>,
+        {
+            fn af_num(&self) -> u8 {
+                $existing::af_num(self)
+            }
+        }
+
+        #[cfg(not(afio))]
+        impl<T: Instance, P> CkinPin<T, $marker> for P
+        where
+            P: $existing<T>,
+        {
+            fn af_num(&self) -> u8 {
+                $existing::af_num(self)
+            }
+        }
+    };
+}
+
+impl_ckin_bridge!(Tcv0, Ckin0Pin);
+impl_ckin_bridge!(Tcv1, Ckin1Pin);
+impl_ckin_bridge!(Tcv2, Ckin2Pin);
+impl_ckin_bridge!(Tcv3, Ckin3Pin);
+impl_ckin_bridge!(Tcv4, Ckin4Pin);
+impl_ckin_bridge!(Tcv5, Ckin5Pin);
+impl_ckin_bridge!(Tcv6, Ckin6Pin);
+impl_ckin_bridge!(Tcv7, Ckin7Pin);
+
+/// Associates a DFSDM data-input pin with a specific transceiver channel.
+///
+/// The channel type `C` and marker `M` tie the pin to a concrete
+/// [`TransceiverChannel`]. This allows the compiler to reject pin
+/// combinations that do not belong to the requested channel.
+///
+/// `T` identifies the DFSDM peripheral.
+/// `A` identifies the alternate-function configuration.
+#[cfg(afio)]
+pub trait DatinPin<T, M, A>: crate::gpio::Pin
+where
+    T: Instance,
+    M: TransceiverMarker,
+{
+    /// Forwards the alternate-function number provided by the underlying pin.
+    fn af_num(&self) -> u8;
+}
+
+/// Associates a DFSDM data-input pin with a specific transceiver channel.
+///
+/// The channel type `C` and marker `M` tie the pin to a concrete
+/// [`TransceiverChannel`]. This allows the compiler to reject pin
+/// combinations that do not belong to the requested channel.
+///
+/// `T` identifies the DFSDM peripheral.
+#[cfg(not(afio))]
+pub trait DatinPin<T, M>: crate::gpio::Pin
+where
+    T: Instance,
+    M: TransceiverMarker,
+{
+    /// Forwards the alternate-function number provided by the underlying pin.
+    fn af_num(&self) -> u8;
+}
+macro_rules! impl_datin_bridge {
+    ($marker:ty, $existing:ident) => {
+        #[cfg(afio)]
+        impl<T: Instance, A, P> DatinPin<T, $marker, A> for P
+        where
+            P: $existing<T, A>,
+        {
+            fn af_num(&self) -> u8 {
+                $existing::af_num(self)
+            }
+        }
+
+        #[cfg(not(afio))]
+        impl<T: Instance, P> DatinPin<T, $marker> for P
+        where
+            P: $existing<T>,
+        {
+            fn af_num(&self) -> u8 {
+                $existing::af_num(self)
+            }
+        }
+    };
+}
+
+impl_datin_bridge!(Tcv0, Datin0Pin);
+impl_datin_bridge!(Tcv1, Datin1Pin);
+impl_datin_bridge!(Tcv2, Datin2Pin);
+impl_datin_bridge!(Tcv3, Datin3Pin);
+impl_datin_bridge!(Tcv4, Datin4Pin);
+impl_datin_bridge!(Tcv5, Datin5Pin);
+impl_datin_bridge!(Tcv6, Datin6Pin);
+impl_datin_bridge!(Tcv7, Datin7Pin);
 
 // allow unused as U5 sources do not contain interrupt nor dma data
 #[allow(unused)]
@@ -202,7 +396,7 @@ macro_rules! impl_peripheral_2ch_1flt {
 }
 
 // foreach_interrupt! {
-//     ($inst:ident, dfsdm, $block:ident, FLT0, $irq:ident) => {
+//     ($inst:ident, dfsdm, $block:ident, FLT{ Transceiver::Tcv0,  },$irq:ident) => {
 //         impl_peripheral!($inst, $irq);
 //     };
 // }
@@ -215,84 +409,203 @@ foreach_interrupt! {
     };
 }
 
-dma_trait!(Dma, Instance, FilterChannel);
+macro_rules! define_channels {
+    (
+        $enum:ident,
+        $marker_trait:ident,
+        $(
+            $channel:ident
+        ),+ $(,)?
+    ) => {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum $enum {
+            $(
+                $channel,
+            )+
+        }
 
-/// Filter channel.
-#[derive(Clone, Copy)]
-pub enum Filter {
-    Flt0,
-    Flt1,
-    Flt2,
-    Flt3,
-    Flt4,
-    Flt5,
-    Flt6,
-    Flt7,
+        pub trait $marker_trait {
+            const FILTER: $enum;
+        }
+
+        $(
+            pub struct $channel;
+
+            impl $marker_trait for $channel {
+                const FILTER: $enum = $enum::$channel;
+            }
+        )+
+    };
 }
 
-/// Filter 0 marker type.
-pub struct Flt0;
-/// Filter 1 marker type.
-pub struct Flt1;
-/// Filter 2 marker type.
-pub struct Flt2;
-/// Filter 3 marker type.
-pub struct Flt3;
-/// Filter 4 marker type.
-pub struct Flt4;
-/// Filter 5 marker type.
-pub struct Flt5;
-/// Filter 6 marker type.
-pub struct Flt6;
-/// Filter 7 marker type.
-pub struct Flt7;
+define_channels!(
+    Transceiver,
+    TransceiverMarker,
+    Tcv0,
+    Tcv1,
+    Tcv2,
+    Tcv3,
+    Tcv4,
+    Tcv5,
+    Tcv6,
+    Tcv7,
+);
+define_channels!(Filter, FilterMarker, Flt0, Flt1, Flt2, Flt3, Flt4, Flt5, Flt6, Flt7,);
 
-/// DFSDM filter trait.
-#[allow(private_bounds)]
-pub trait FilterChannel: SealedFilterChannel {
-    /// The runtime filter.
-    const FILTER: Filter;
+dma_trait!(Dma, Instance, FilterMarker);
+
+mod sealed {
+    pub trait SealedFilterChannel<F: super::FilterMarker> {}
+    pub trait SealedTransceiverChannel<F: super::TransceiverMarker> {}
 }
 
-trait SealedFilterChannel {}
+pub trait FilterChannel<F: FilterMarker>: sealed::SealedFilterChannel<F> {
+    fn process(&mut self);
 
-impl FilterChannel for Flt0 {
-    const FILTER: Filter = Filter::Flt0;
+    fn filter(&self) -> Filter {
+        F::FILTER
+    }
+}
+pub trait TransceiverChannel<T: TransceiverMarker>: sealed::SealedTransceiverChannel<T> {
+    fn process(&mut self);
+
+    fn transceiver(&self) -> Transceiver {
+        T::FILTER
+    }
+}
+pub trait DataSource {}
+
+pub struct External;
+pub struct Internal;
+
+impl DataSource for External {}
+impl DataSource for Internal {}
+
+pub struct TransceiverChannelImp<'d, T, M, S>
+where
+    T: Instance,
+    M: TransceiverMarker,
+    S: DataSource,
+{
+    _peri: Peri<'d, T>,
+    _transceiver_marker: PhantomData<M>,
+    _datasource_marker: PhantomData<S>,
+    // ckin_pin: Option<Flex<'d>>,
+    // data_pin: Flex<'d>,
 }
 
-impl FilterChannel for Flt1 {
-    const FILTER: Filter = Filter::Flt1;
+impl<'d, T, M> TransceiverChannelImp<'d, T, M, Internal>
+where
+    T: Instance,
+    M: TransceiverMarker,
+{
+    /// TODO stuff with dma and input register specifically
+    pub fn new_parallel<C>(dfsdm: &Dfsdm<'d, T, C>) -> Self
+    where
+        C: ClockMode,
+    {
+        Self {
+            _peri: unsafe { dfsdm.inner.clone_unchecked() },
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            // ckin_pin: ckin_pin,
+            // data_pin,
+        }
+    }
 }
 
-impl FilterChannel for Flt2 {
-    const FILTER: Filter = Filter::Flt2;
+impl<'d, T, M> TransceiverChannelImp<'d, T, M, External>
+where
+    T: Instance,
+    M: TransceiverMarker,
+{
+    pub fn new_ext_clk(
+        dfsdm: &Dfsdm<'d, T, ExternalClock>,
+        ckin: Peri<'d, if_afio!(impl CkinPin<T, M, A>)>,
+        datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>,
+    ) -> Self
+    where
+        T: Instance,
+        M: TransceiverMarker,
+    {
+        set_as_af!(ckin, AfType::input(Pull::None));
+        set_as_af!(datin, AfType::input(Pull::None));
+        // let ckin_pin = new_pin!(ckin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        // let datin_pin = new_pin!(datin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+
+        Self {
+            _peri: unsafe { dfsdm.inner.clone_unchecked() },
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            // ckin_pin: ckin_pin,
+            // data_pin,
+        }
+    }
+
+    ///
+    /// CKOUT Aktiv:
+    /// Internal clock geht
+    /// Egal:
+    /// External, Manchester, Parallel
+    ///
+    pub fn new_clk_int<C>(dfsdm: &Dfsdm<'d, T, C>, datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>) -> Self
+    where
+        T: Instance,
+        C: ClockMode,
+        M: TransceiverMarker,
+    {
+        set_as_af!(datin, AfType::input(Pull::None));
+        // let ckin_pin = new_pin!(ckin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        // let datin_pin = new_pin!(datin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+
+        Self {
+            _peri: unsafe { dfsdm.inner.clone_unchecked() },
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            // ckin_pin: ckin_pin,
+            // data_pin,
+        }
+    }
+
+    pub fn new_manchester<C>(dfsdm: &Dfsdm<'d, T, C>, datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>) -> Self
+    where
+        T: Instance,
+        C: ClockMode,
+        M: TransceiverMarker,
+    {
+        set_as_af!(datin, AfType::input(Pull::None));
+        // let ckin_pin = new_pin!(ckin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        // let datin_pin = new_pin!(datin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+
+        Self {
+            _peri: unsafe { dfsdm.inner.clone_unchecked() },
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            // ckin_pin: ckin_pin,
+            // data_pin,
+        }
+    }
 }
 
-impl FilterChannel for Flt3 {
-    const FILTER: Filter = Filter::Flt3;
+impl<'d, T, M, S> sealed::SealedTransceiverChannel<M> for TransceiverChannelImp<'d, T, M, S>
+where
+    T: Instance,
+    M: TransceiverMarker,
+    S: DataSource,
+{
 }
 
-impl FilterChannel for Flt4 {
-    const FILTER: Filter = Filter::Flt4;
-}
+impl<'d, T, M, S> TransceiverChannel<M> for TransceiverChannelImp<'d, T, M, S>
+where
+    T: Instance,
+    M: TransceiverMarker,
+    S: DataSource,
+{
+    fn process(&mut self) {
+        todo!()
+    }
 
-impl FilterChannel for Flt5 {
-    const FILTER: Filter = Filter::Flt5;
+    fn transceiver(&self) -> Transceiver {
+        <M as TransceiverMarker>::FILTER
+    }
 }
-
-impl FilterChannel for Flt6 {
-    const FILTER: Filter = Filter::Flt6;
-}
-
-impl FilterChannel for Flt7 {
-    const FILTER: Filter = Filter::Flt7;
-}
-
-impl SealedFilterChannel for Flt0 {}
-impl SealedFilterChannel for Flt1 {}
-impl SealedFilterChannel for Flt2 {}
-impl SealedFilterChannel for Flt3 {}
-impl SealedFilterChannel for Flt4 {}
-impl SealedFilterChannel for Flt5 {}
-impl SealedFilterChannel for Flt6 {}
-impl SealedFilterChannel for Flt7 {}
