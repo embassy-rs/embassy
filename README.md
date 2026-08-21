@@ -106,7 +106,7 @@ Examples are found in the
 * `examples/nrf5340` run on the `nrf5340-dk` board (PCA10095).
 * `examples/stm32xx` for the various STM32 families.
 * `examples/rp` are for the RP2040 and RP235x chips.
-* `examples/mcxa` run on the `FRDM-MCXA266` board.
+* `examples/mcxa2xx` run on the `FRDM-MCXA266` board.
 * `examples/std` are designed to run locally on your PC.
 
 ### Running examples
