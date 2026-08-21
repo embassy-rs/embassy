@@ -37,6 +37,7 @@ Rust's [async/await](https://rust-lang.github.io/async-book/) allows for unprece
 
 - **Networking** -
   The [embassy-net](https://docs.embassy.dev/embassy-net/) network stack implements extensive networking functionality, including Ethernet, IP, TCP, UDP, ICMP, and DHCP. Async drastically simplifies managing timeouts and serving multiple connections concurrently.
+  [embassy-ptp-driver](https://docs.embassy.dev/embassy-ptp-driver/) provides a network-stack-independent interface for reading and adjusting PTP hardware clocks.
 
 - **Bluetooth**
     - The [trouble](https://github.com/embassy-rs/trouble) crate provides a Bluetooth Low Energy 4.x and 5.x Host that runs on any microcontroller implementing the [bt-hci](https://github.com/embassy-rs/bt-hci) traits (currently

@@ -164,6 +164,7 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
+embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
@@ -245,6 +246,7 @@ defmt = [
     "embedded-io-async/defmt",
     "embassy-usb-driver/defmt",
     "embassy-net-driver/defmt",
+    "embassy-ptp-driver?/defmt",
     "embassy-time?/defmt",
     "embassy-usb-synopsys-otg/defmt",
     "stm32-metapac/defmt",
@@ -253,7 +255,7 @@ defmt = [
 ## Use log for logging
 log = ["dep:log"]
 ## Enable Ethernet PTP hardware timestamping.
-ptp = ["embassy-net-driver/packetmeta-timestamp"]
+ptp = ["embassy-net-driver/packetmeta-timestamp", "dep:embassy-ptp-driver"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
 
