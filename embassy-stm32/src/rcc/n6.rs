@@ -1397,6 +1397,7 @@ pub(crate) unsafe fn init(config: Config) {
         // dedicated prescaler in `RCC_*` — derived from sys through the
         // common AHB prescaler.
         hclku: Some(clocks.ahb),
+        hclke: Some(clocks.ahb),
         pclk1: Some(clocks.apb1),
         pclk2: Some(clocks.apb2),
         pclk1_tim: Some(clocks.pclk_tim),

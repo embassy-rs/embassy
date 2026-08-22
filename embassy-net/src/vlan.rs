@@ -21,7 +21,7 @@ struct VlanSplitterState<'d, D: Driver + 'd, const N: usize> {
     t_req: [Mask; N],
     rx_token: Option<(u8, VlanRxToken<'d, D, N>)>,
     tx_token: Option<D::TxToken<'d>>,
-    timestamp: (u32, Timestamp),
+    timestamp: TxTimestamp,
 }
 
 /// VLAN splitter
@@ -53,7 +53,13 @@ impl<'d, D: Driver + 'd, const N: usize> VlanSplitter<'d, D, N> {
                 t_req: [Mask::default(); N],
                 rx_token: None,
                 tx_token: None,
-                timestamp: (0, Timestamp::from_seconds_and_nanos(0, 0)),
+                timestamp: TxTimestamp {
+                    id: 0,
+                    timestamp: Timestamp {
+                        seconds: 0,
+                        quarter_nanos: 0,
+                    },
+                },
             }),
         }
     }
@@ -102,7 +108,7 @@ impl<'d, D: Driver + 'd, const N: usize> VlanSplitter<'d, D, N> {
 
             let mut wait_ts = false;
             for (i, m) in s.t_req.iter().enumerate() {
-                if m.is_set(s.timestamp.0) {
+                if m.is_set(s.timestamp.id) {
                     s.wakers[i].wake();
                 }
 
@@ -244,11 +250,8 @@ impl<'d, D: Driver + 'd, const N: usize> Driver for VlanSplitterDriver<'d, D, N>
             self.splitter.state.lock_mut(|s| {
                 s.wakers[self.index as usize].register(cx.waker());
 
-                if s.t_req[self.index as usize].clear(s.timestamp.0) {
-                    Some(TxTimestamp {
-                        id: s.timestamp.0,
-                        timestamp: s.timestamp.1,
-                    })
+                if s.t_req[self.index as usize].clear(s.timestamp.id) {
+                    Some(s.timestamp)
                 } else {
                     None
                 }

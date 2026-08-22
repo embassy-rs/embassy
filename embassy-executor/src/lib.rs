@@ -10,6 +10,12 @@
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+// `#[macro_use]` so the platform modules can invoke the generated `pender_impl!` macro by its
+// bare name: macro-expanded `#[macro_export]` macros can't be invoked via `crate::` paths from
+// within the defining crate itself (rust-lang/rust#52234).
+#[macro_use]
+pub mod pender;
+
 pub use embassy_executor_macros::task;
 
 macro_rules! check_at_most_one {

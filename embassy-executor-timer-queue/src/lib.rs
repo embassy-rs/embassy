@@ -7,9 +7,10 @@
 //! This crate contains two things:
 //! - [`TimerQueueItem`]: The item type that can be requested from the executor. The size of this
 //!   type can be configured using the `timer-item-size-N-words` Cargo features.
-//! - The expectation that `extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &mut TimerQueueItem`
-//!   is implemented (by `embassy-executor`, most likely). This function must return a mutable
-//!   reference to the `TimerQueueItem` associated with the given waker.
+//! - The [`TimerQueueItemProvider`] trait, which must be implemented (by `embassy-executor`,
+//!   most likely) to return the `TimerQueueItem` associated with a given waker. It is a
+//!   [unitrait]: the implementation is registered globally with
+//!   [`timer_queue_item_provider_impl`] and resolved at link time.
 //!
 //! As a queue implementor, you will need to choose one of the `timer-item-size-N-words` features to
 //! select a queue item size. You can then define your own item type, which must be
@@ -21,6 +22,42 @@
 #![no_std]
 
 use core::task::Waker;
+
+unitrait::unitrait! {
+    /// Provider of the [`TimerQueueItem`] associated with a waker.
+    ///
+    /// This trait is implemented by the executor (`embassy-executor`, most likely), which owns
+    /// the storage for timer queue items.
+    pub trait TimerQueueItemProvider {
+        /// Retrieves the `TimerQueueItem` reference that belongs to the task of the waker.
+        ///
+        /// Panics if called with a non-embassy waker.
+        ///
+        /// # Safety
+        ///
+        /// The caller must ensure they are not violating Rust's aliasing rules - it is not allowed
+        /// to use this method to create multiple mutable references to the same `TimerQueueItem` at
+        /// the same time.
+        ///
+        /// This function must only be called in the context of a timer queue implementation.
+        #[symbol = "__embassy_time_queue_item_from_waker"]
+        pub unsafe fn item_from_waker(waker: &core::task::Waker) -> &'static mut TimerQueueItem;
+
+        /// Like [`item_from_waker`](TimerQueueItemProvider::item_from_waker), but returns `None`
+        /// instead of panicking if the waker is not an embassy waker.
+        ///
+        /// # Safety
+        ///
+        /// Same as [`item_from_waker`](TimerQueueItemProvider::item_from_waker).
+        #[symbol = "__try_embassy_time_queue_item_from_waker"]
+        pub unsafe fn try_item_from_waker(waker: &core::task::Waker) -> Option<&'static mut TimerQueueItem>;
+    }
+
+    /// Register a type as the global [`TimerQueueItemProvider`] implementation.
+    ///
+    /// This must be done exactly once in the crate tree, by the executor.
+    macro timer_queue_item_provider_impl(path = $crate);
+}
 
 const ITEM_WORDS: usize = if cfg!(feature = "timer-item-size-8-words") {
     8
@@ -60,11 +97,7 @@ impl TimerQueueItem {
     ///
     /// This function must only be called in the context of a timer queue implementation.
     pub unsafe fn from_embassy_waker(waker: &Waker) -> &'static mut Self {
-        unsafe extern "Rust" {
-            // Waker -> TimerQueueItem, validates that Waker is an embassy Waker.
-            fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem;
-        }
-        unsafe { __embassy_time_queue_item_from_waker(waker) }
+        unsafe { item_from_waker(waker) }
     }
 
     /// Access the data as a reference to a type `T`.

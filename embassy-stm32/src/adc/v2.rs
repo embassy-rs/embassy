@@ -311,6 +311,11 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         Self { adc }
     }
 
+    /// Read the currently configured resolution for this ADC driver and return it.
+    pub fn resolution(&self) -> Resolution {
+        T::regs().cr1().read().res().into()
+    }
+
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
     /// [Adc::read_internal()] to perform conversion.
     pub fn enable_vrefint(&mut self) -> VrefInt {

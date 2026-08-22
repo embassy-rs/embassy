@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- The pender is now defined as a trait using the `unitrait` crate: implement
+  `embassy_executor::pender::Pender` and register it with `embassy_executor::pender_impl!`.
+  The `__pender` extern symbol and signature are unchanged, so existing manual
+  `#[unsafe(export_name = "__pender")]` implementations keep working.
+- The `trace` feature callbacks are now defined as a trait: implement
+  `embassy_executor::raw::trace::hooks::Trace` and register it with
+  `embassy_executor::trace_impl!`. The `_embassy_trace_*` extern symbols and signatures are
+  unchanged, so existing manual implementations keep working.
 - Added `platform-riscv64` for RISC-V 64-bit targets (thread executor only, uses `WFI`; shares implementation with `platform-riscv32`).
 - Relaxed memory ordering of work flag in RISC-V thread executor.
 - Skip the run queue's `take_all` write when the queue is empty.

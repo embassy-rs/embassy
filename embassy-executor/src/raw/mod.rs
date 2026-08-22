@@ -53,15 +53,19 @@ use self::waker::try_task_from_waker;
 use super::SpawnToken;
 use crate::{Metadata, SpawnError};
 
-#[unsafe(no_mangle)]
-extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
-    unsafe { task_from_waker(waker).timer_queue_item() }
+struct TimerQueueItemProviderImpl;
+
+impl embassy_executor_timer_queue::TimerQueueItemProvider for TimerQueueItemProviderImpl {
+    unsafe fn item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
+        unsafe { task_from_waker(waker).timer_queue_item() }
+    }
+
+    unsafe fn try_item_from_waker(waker: &Waker) -> Option<&'static mut TimerQueueItem> {
+        unsafe { try_task_from_waker(waker).map(|task| task.timer_queue_item()) }
+    }
 }
 
-#[unsafe(no_mangle)]
-extern "Rust" fn __try_embassy_time_queue_item_from_waker(waker: &Waker) -> Option<&'static mut TimerQueueItem> {
-    unsafe { try_task_from_waker(waker).map(|task| task.timer_queue_item()) }
-}
+embassy_executor_timer_queue::timer_queue_item_provider_impl!(TimerQueueItemProviderImpl);
 
 /// Raw task header for use in task pointers.
 ///
@@ -167,6 +171,24 @@ impl TaskRef {
     /// The returned pointer is valid for the entire TaskStorage.
     pub(crate) fn as_ptr(self) -> *const TaskHeader {
         self.ptr.as_ptr()
+    }
+
+    /// An opaque pointer identifying this task.
+    ///
+    /// Lets a `TaskRef` be stored where only one word fits. Recover it with [`from_raw`](Self::from_raw).
+    ///
+    /// The pointer must not be dereferenced.
+    pub fn as_raw(self) -> NonNull<()> {
+        self.ptr.cast()
+    }
+
+    /// Recover the task that [`as_raw`](Self::as_raw) was called on.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must have been returned by `as_raw`.
+    pub unsafe fn from_raw(ptr: NonNull<()>) -> Self {
+        Self { ptr: ptr.cast() }
     }
 
     /// Returns the task ID.
@@ -411,10 +433,7 @@ unsafe impl Sync for Pender {}
 
 impl Pender {
     pub(crate) fn pend(self) {
-        unsafe extern "Rust" {
-            fn __pender(context: *mut ());
-        }
-        unsafe { __pender(self.0) };
+        crate::pender::pend(self.0);
     }
 }
 
@@ -495,9 +514,9 @@ impl SyncExecutor {
 ///
 /// - To get the executor to do work, call `poll()`. This will poll all queued tasks (all tasks
 ///   that "want to run").
-/// - You must supply a pender function, as shown below. The executor will call it to notify you
+/// - You must supply a pender, as shown below. The executor will call it to notify you
 ///   it has work to do. You must arrange for `poll()` to be called as soon as possible.
-/// - Enabling `platform-xx` features will define a pender function for you. This means that you
+/// - Enabling `platform-xx` features will define a pender for you. This means that you
 ///   are limited to using the executors provided to you by the architecture/platform
 ///   implementation. If you need a different executor, you must not enable `platform-xx` features.
 ///
@@ -508,13 +527,19 @@ impl SyncExecutor {
 /// In particular, you must NOT call `poll` directly from the pender callback, as this violates
 /// the requirement for `poll` to not be called reentrantly.
 ///
-/// The pender function must be exported with the name `__pender` and have the following signature:
+/// The pender is supplied by implementing the [`Pender`](crate::pender::Pender) trait and
+/// registering it with the [`pender_impl!`](crate::pender_impl) macro:
 ///
 /// ```rust
-/// #[unsafe(export_name = "__pender")]
-/// fn pender(context: *mut ()) {
-///    // schedule `poll()` to be called
+/// struct MyPender;
+///
+/// impl embassy_executor::pender::Pender for MyPender {
+///     fn pend(context: *mut ()) {
+///         // schedule `poll()` to be called
+///     }
 /// }
+///
+/// embassy_executor::pender_impl!(MyPender);
 /// ```
 ///
 /// The `context` argument is a piece of arbitrary data the executor will pass to the pender.

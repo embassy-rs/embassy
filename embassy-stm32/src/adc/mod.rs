@@ -8,8 +8,7 @@
 #[cfg_attr(adc_f1, path = "f1.rs")]
 #[cfg_attr(adc_f3v1, path = "f3.rs")]
 #[cfg_attr(adc_f3v2, path = "l1.rs")]
-#[cfg_attr(adc_v1, path = "v1.rs")]
-#[cfg_attr(adc_l0, path = "v1.rs")]
+#[cfg_attr(any(adc_v1, adc_l0), path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
 #[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6, adc_c5), path = "v4.rs")]
@@ -51,6 +50,8 @@ pub use crate::pac::adc::vals::Exten;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
+#[cfg(any(adc_h5, adc_h7rs))]
+pub use crate::pac::adccommon::vals::Presc as Prescaler;
 #[allow(unused_imports)]
 use crate::{peripherals, rcc};
 
@@ -815,7 +816,7 @@ pub trait SpecialConverter<T: SpecialChannel + Sized>: ConverterFor<T> {}
 
 impl<C: SpecialChannel + Sized, T: ConverterFor<C>> SpecialConverter<C> for T {}
 
-impl<C: SpecialChannel, T: Instance + ConverterFor<C>> AdcChannel<T> for C {}
+impl<'d, C: SpecialChannel, T: Instance + ConverterFor<C>> AdcChannel<'d, T> for C {}
 impl<C: SpecialChannel, T: Instance + ConverterFor<C>> SealedAdcChannel<T> for C {
     fn channel(&self) -> u8 {
         T::CHANNEL
@@ -839,7 +840,8 @@ impl VrefInt {
         stm32l5,
         stm32l5,
         stm32wb,
-        stm32wl
+        stm32wl,
+        stm32u0,
     ))]
     /// The value that vref would be if vdda was at the factory calibration voltage `VREF_CALIB_MV`.
     pub fn calibrated_value(&self) -> u16 {
@@ -850,6 +852,15 @@ impl VrefInt {
 /// Internal temperature channel.
 pub struct Temperature;
 impl SpecialChannel for Temperature {}
+
+impl Temperature {
+    #[cfg(any(stm32u0))]
+    pub fn calibrated_value(&self) -> (u16, u16) {
+        let lower = crate::pac::TSCAL.tscal1().read();
+        let upper = crate::pac::TSCAL.tscal2().read();
+        (lower, upper)
+    }
+}
 
 /// Internal battery voltage channel.
 pub struct Vbat;
@@ -871,10 +882,15 @@ pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeri
 
 /// ADC channel.
 #[allow(private_bounds)]
-pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
-    #[deprecated = "use `reborrow_adc`"]
-    fn degrade_adc<'a>(&'a mut self) -> BorrowedAdcChannel<'a, T> {
-        self.reborrow_adc()
+pub trait AdcChannel<'d, T>: SealedAdcChannel<T> + Sized {
+    fn degrade_adc(mut self) -> BorrowedAdcChannel<'d, T> {
+        self.setup();
+
+        BorrowedAdcChannel {
+            channel: self.channel(),
+            is_differential: self.is_differential(),
+            _marker: PhantomData,
+        }
     }
 
     #[allow(unused_mut)]
@@ -907,9 +923,30 @@ impl<'a, T: Instance> BorrowedAdcChannel<'a, T> {
         self.is_differential
     }
 
-    #[allow(unused)]
+    #[inline]
     pub fn get_hw_channel(&self) -> u8 {
         self.channel
+    }
+}
+
+impl<'a, T: Instance> SealedAdcChannel<T> for BorrowedAdcChannel<'a, T> {
+    fn channel(&self) -> u8 {
+        self.channel
+    }
+
+    fn is_differential(&self) -> bool {
+        self.is_differential
+    }
+}
+
+impl<'a, T: Instance> AdcChannel<'a, T> for BorrowedAdcChannel<'a, T> {
+    fn degrade_adc(self) -> BorrowedAdcChannel<'a, T> {
+        self
+    }
+
+    #[inline]
+    fn reborrow_adc<'b>(&'b mut self) -> BorrowedAdcChannel<'b, T> {
+        Self { ..*self }
     }
 }
 
@@ -921,7 +958,8 @@ trait SealedBorrowedChannel<'a, T> {
 pub trait BorrowedChannel<'a, T>: SealedBorrowedChannel<'a, T> {}
 impl<'a, T, C: SealedBorrowedChannel<'a, T>> BorrowedChannel<'a, T> for C {}
 
-impl<'a, T, C: AdcChannel<T>> SealedBorrowedChannel<'a, T> for &'a mut C {
+impl<'a, 'd, T, C: AdcChannel<'d, T>> SealedBorrowedChannel<'a, T> for &'a mut C {
+    #[inline]
     fn reborrow_adc(self) -> BorrowedAdcChannel<'a, T> {
         self.reborrow_adc()
     }
@@ -1095,7 +1133,7 @@ macro_rules! impl_analog_pin {
 
 macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
+        impl<'d> crate::adc::AdcChannel<'d, peripherals::$inst> for crate::Peri<'d, crate::peripherals::$pin> {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::adc::AnalogPin>::set_as_analog(self);
@@ -1111,10 +1149,10 @@ macro_rules! impl_adc_pin {
 #[allow(unused_macros)]
 macro_rules! impl_adc_pair {
     ($inst:ident, $pin:ident, $npin:ident, $ch:expr) => {
-        impl crate::adc::AdcChannel<peripherals::$inst>
+        impl<'d> crate::adc::AdcChannel<'d, peripherals::$inst>
             for (
-                crate::Peri<'_, crate::peripherals::$pin>,
-                crate::Peri<'_, crate::peripherals::$npin>,
+                crate::Peri<'d, crate::peripherals::$pin>,
+                crate::Peri<'d, crate::peripherals::$npin>,
             )
         {
         }
