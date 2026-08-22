@@ -175,9 +175,16 @@ pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
 
 #[cfg(feature = "low-power")]
 #[allow(dead_code)]
-pub(crate) unsafe fn reset_stop_refcount(_cs: CriticalSection) {
-    REFCOUNT_STOP2 = 0;
-    REFCOUNT_STOP1 = 0;
+pub(crate) unsafe fn reset_stop_refcount(_cs: CriticalSection, stop_mode_reached: Option<StopMode>) {
+    pub use crate::rcc::StopMode;
+
+    match stop_mode_reached{
+        Some(StopMode::Stop1) => REFCOUNT_STOP1 = 0,
+        _ => { // keeping original logic for anything else
+            REFCOUNT_STOP1 = 0;
+            REFCOUNT_STOP2 = 0;
+        },
+    }
 }
 
 #[cfg(feature = "low-power")]
@@ -394,7 +401,9 @@ impl RccInfo {
     fn increment_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
         #[cfg(feature = "low-power")]
         match self.stop_mode {
-            StopMode::Stop1 | StopMode::Stop2 => increment_stop_refcount(_cs, StopMode::Stop2),
+            // StopMode::Stop1 | StopMode::Stop2 => increment_stop_refcount(_cs, StopMode::Stop2),
+            StopMode::Stop1 => increment_stop_refcount(_cs, StopMode::Stop1),
+            StopMode::Stop2 => increment_stop_refcount(_cs, StopMode::Stop2),
             _ => {}
         }
     }
@@ -403,7 +412,9 @@ impl RccInfo {
     fn decrement_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
         #[cfg(feature = "low-power")]
         match self.stop_mode {
-            StopMode::Stop1 | StopMode::Stop2 => decrement_stop_refcount(_cs, StopMode::Stop2),
+            // StopMode::Stop1 | StopMode::Stop2 => decrement_stop_refcount(_cs, StopMode::Stop2),
+            StopMode::Stop1 => decrement_stop_refcount(_cs, StopMode::Stop1),
+            StopMode::Stop2 => decrement_stop_refcount(_cs, StopMode::Stop2),
             _ => {}
         }
     }
