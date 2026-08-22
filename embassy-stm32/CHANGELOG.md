@@ -145,6 +145,7 @@ SPI:
 Timer:
 - feat: stm32/timer: add `set_period`, improve PSC/ARR calculation
 - change: stm32/timer/input_capture: use timer word size for all outputs
+- feat: stm32/timer: allow `low_level::Timer` to asynchronously wait for update events
 
 HRTIM:
 - change: stm32: Change HRTIM implementation to use stm32-hrtim driver for G474/484 and F334
