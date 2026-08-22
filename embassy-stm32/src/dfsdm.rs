@@ -225,6 +225,7 @@ trait SealedInstance: crate::rcc::RccPeripheral {
     // fn regs(&self) -> crate::pac::dfsdm::Dfsdm;
 }
 
+/// Interrupt marker trait
 pub trait FilterInterrupt<F: FilterMarker> {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -690,26 +691,34 @@ define_indexed_channels!(
     Flt7 => 7,
 );
 
-dma_trait!(Dma, Instance, FilterMarker);
+dma_trait!(Dma, Instance, FilterMarker); //TODO
 
-pub trait FilterTrait<F: FilterMarker>: sealed::SealedFilterChannelTrait<F> {
-    fn process(&mut self);
-
+/// Trait for filters to generify them for TODO?
+pub trait FilterTrait<M: FilterMarker>: sealed::SealedFilterChannelTrait<M> {
+    /// Get filter identifier
     fn filter(&self) -> FilterChannel {
-        F::CHANNEL
-    }
-}
-pub trait TransceiverTrait<T: TransceiverMarker>: sealed::SealedTransceiverChannelTrait<T> {
-    fn process(&mut self);
-
-    fn transceiver(&self) -> TransceiverChannel {
-        T::CHANNEL
+        M::CHANNEL
     }
 
+    /// Get filter index
     fn index(&self) -> u8 {
-        T::CHANNEL.index()
+        M::CHANNEL.index()
     }
 }
+
+/// Trait for transceivers to generify them for Filterconfiguration
+pub trait TransceiverTrait<M: TransceiverMarker>: sealed::SealedTransceiverChannelTrait<M> {
+    /// Get transceiver identifier
+    fn transceiver(&self) -> TransceiverChannel {
+        <M as TransceiverMarker>::CHANNEL
+    }
+
+    /// Get transceiver index
+    fn index(&self) -> u8 {
+        M::CHANNEL.index()
+    }
+}
+
 /// Marker trait for Transceiver channels data source
 mod sealed_datasource {
     pub trait DataSource {}
@@ -848,11 +857,4 @@ where
     M: TransceiverMarker,
     S: DataSource,
 {
-    fn process(&mut self) {
-        todo!()
-    }
-
-    fn transceiver(&self) -> TransceiverChannel {
-        <M as TransceiverMarker>::CHANNEL
-    }
 }

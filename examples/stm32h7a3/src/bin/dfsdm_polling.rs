@@ -16,11 +16,14 @@ use panic_probe as _;
 // DFSDM2 has one "DFSDM2 interrupt" as it only has one filter-channel
 // BDMA1 has only one "BDMA1 global interrupt" as it only serves DFSDM1
 // BDMA2 has one "BDMA2 channel x interrupt" per channel as it serves other peripherals aswell (it has 8 channels, only a single one may be used for DFSDM2 at any time)
-bind_interrupts!(struct Irqs {
-    DFSDM1_FLT1 => dfsdm::InterruptHandler<peripherals::DFSDM1, Flt1>;
-    BDMA1 => embassy_stm32::dma::InterruptHandler<BDMA1_CH0>;
+bind_interrupts!(struct Irqs1 {
     DFSDM2 => dfsdm::InterruptHandler<peripherals::DFSDM2, Flt0>;
     BDMA2_CHANNEL0 => embassy_stm32::dma::InterruptHandler<BDMA2_CH0>;
+});
+
+bind_interrupts!(struct Irqs2 {
+    DFSDM1_FLT1 => dfsdm::InterruptHandler<peripherals::DFSDM1, Flt1>;
+    BDMA1 => embassy_stm32::dma::InterruptHandler<BDMA1_CH0>; //Five it to the dma through the DFSDM driver, somehow it needs it
 });
 
 #[embassy_executor::main]
