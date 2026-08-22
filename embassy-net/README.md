@@ -17,6 +17,21 @@ memory management designed to work well for embedded systems, aiming for a more 
 See the [`xarxa`](https://github.com/embassy-rs/xarxa) README for a detailed list of implemented and
 unimplemented features of the network protocols.
 
+## Scope
+
+Embassy-net aims to provide an equivalent to an OS network stack, which includes a DHCP client, TCP, UDP, ICMP, and
+other OS sockets, and VLAN support. Higher-level protocols such as HTTP, and DHCP server are out of scope for this
+project. For implementations of these protocols, see [`edge-net`](https://crates.io/crates/edge-net). See
+[`nstpc`](https://crates.io/crates/sntpc) for an ntp client.
+
+## PTP
+
+Packet-time protocol support is partially in scope for this project; specifically providing timestamps for UDP and raw
+socket ethernet requests. Clock calibration and other functions are not in-scope for this project and should be implemented
+with another trait.
+
+Implementation of this protocol is ongoing.
+
 ## Hardware support
 
 - [`esp-wifi`](https://github.com/esp-rs/esp-wifi) for WiFi support on bare-metal ESP32 chips. Maintained by Espressif.

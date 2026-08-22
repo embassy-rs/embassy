@@ -26,7 +26,7 @@ pub struct LseConfig {
     pub frequency: Hertz,
     pub mode: LseMode,
     /// If peripherals other than RTC/TAMP or RCC functions need the lse this bit must be set
-    #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba))]
+    #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
     pub peripherals_clocked: bool,
 }
 
@@ -118,7 +118,7 @@ impl LsConfig {
             lse: Some(LseConfig {
                 frequency: Hertz(32_768),
                 mode: LseMode::Oscillator(LseDrive::MediumHigh),
-                #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba))]
+                #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
                 peripherals_clocked: false,
             }),
             lsi: false,
@@ -173,14 +173,12 @@ impl LsConfig {
             },
             None => (false, false, None),
         };
-        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
         let lse_sysen = if let Some(lse) = self.lse {
             Some(lse.peripherals_clocked)
         } else {
             None
         };
-        #[cfg(rcc_u0)]
-        let lse_sysen = Some(lse_en);
 
         _ = lse_drv; // not all chips have it.
 

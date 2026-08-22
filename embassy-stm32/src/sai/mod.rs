@@ -13,9 +13,8 @@ pub use crate::dma::word;
 use crate::dma::{self, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::pac::sai::Sai as Regs;
-use crate::rcc::{self, RccInfo, SealedRccPeripheral};
 pub use crate::sai::vals::Mckdiv as MasterClockDivider;
-use crate::{Peri, interrupt};
+use crate::{Peri, interrupt, rcc};
 
 /// SAI error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -869,11 +868,6 @@ impl State {
     }
 }
 
-struct Info {
-    regs: Regs,
-    rcc: RccInfo,
-}
-
 peri_trait!();
 
 pin_trait!(SckPin, Instance, SubBlockInstance);
@@ -885,9 +879,6 @@ dma_trait!(Dma, Instance, SubBlockInstance);
 
 foreach_peripheral!(
     (sai, $inst:ident) => {
-        peri_trait_impl!($inst, Info {
-            regs: crate::pac::$inst,
-            rcc: crate::peripherals::$inst::RCC_INFO,
-        });
+        peri_trait_impl!($inst);
     };
 );

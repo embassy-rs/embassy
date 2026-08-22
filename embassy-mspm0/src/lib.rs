@@ -15,12 +15,16 @@ mod macros;
 pub mod adc;
 mod common;
 pub mod dma;
+#[cfg(feature = "_executor")]
+pub mod executor;
 pub mod gpio;
 // TODO: I2C unicomm
 #[cfg(not(unicomm))]
 pub mod i2c;
 #[cfg(not(unicomm))]
 pub mod i2c_target;
+#[cfg(feature = "low-power")]
+pub mod low_power;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x))]
 pub mod mathacl;
 pub mod sysctl;
@@ -185,6 +189,7 @@ pub fn init(config: Config) -> Peripherals {
 
         unsafe { crate::sysctl::clocks::init(config.clock_config) };
 
+        // TODO: Errata PCMU_ERR_03 states that BOR thresholds other than 0 don't work in STANDBY.
         pac::SYSCTL.borthreshold().modify(|w| {
             w.set_level(0);
         });
@@ -309,12 +314,12 @@ pub fn read_reset_cause() -> Result<ResetCause, u8> {
     use pac::sysctl::vals::Id;
 
     match cause_raw {
-        Id::NORST => Ok(NoReset),
-        Id::PORHWFAIL => Ok(PorHwFailure),
-        Id::POREXNRST => Ok(PorExternalNrst),
-        Id::PORSW => Ok(PorSwTriggered),
-        Id::BORSUPPLY => Ok(BorSupplyFailure),
-        Id::BORWAKESHUTDN => Ok(BorWakeFromShutdown),
+        Id::Norst => Ok(NoReset),
+        Id::Porhwfail => Ok(PorHwFailure),
+        Id::Porexnrst => Ok(PorExternalNrst),
+        Id::Porsw => Ok(PorSwTriggered),
+        Id::Borsupply => Ok(BorSupplyFailure),
+        Id::Borwakeshutdn => Ok(BorWakeFromShutdown),
         #[cfg(not(any(
             mspm0c110x,
             mspm0c1105_c1106,
@@ -326,22 +331,22 @@ pub fn read_reset_cause() -> Result<ResetCause, u8> {
             mspm0g351x,
             mspm0g518x,
         )))]
-        Id::BOOTNONPMUPARITY => Ok(BootrstNonPmuParityFault),
-        Id::BOOTCLKFAIL => Ok(BootrstClockFault),
-        Id::BOOTSW => Ok(BootrstSwTriggered),
-        Id::BOOTEXNRST => Ok(BootrstExternalNrst),
-        Id::BOOTWWDT0 => Ok(BootrstWwdt0Violation),
-        Id::SYSBSLEXIT => Ok(SysrstBslExit),
-        Id::SYSBSLENTRY => Ok(SysrstBslEntry),
+        Id::Bootnonpmuparity => Ok(BootrstNonPmuParityFault),
+        Id::Bootclkfail => Ok(BootrstClockFault),
+        Id::Bootsw => Ok(BootrstSwTriggered),
+        Id::Bootexnrst => Ok(BootrstExternalNrst),
+        Id::Bootwwdt0 => Ok(BootrstWwdt0Violation),
+        Id::Sysbslexit => Ok(SysrstBslExit),
+        Id::Sysbslentry => Ok(SysrstBslEntry),
         #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0g518x))]
-        Id::SYSWWDT1 => Ok(SysrstWwdt1Violation),
+        Id::Syswwdt1 => Ok(SysrstWwdt1Violation),
         #[cfg(not(any(mspm0c110x, mspm0c1105_c1106, mspm0g351x, mspm0g151x)))]
-        Id::SYSFLASHECC => Ok(SysrstFlashEccError),
-        Id::SYSCPULOCK => Ok(SysrstCpuLockupViolation),
-        Id::SYSDBG => Ok(SysrstDebugTriggered),
-        Id::SYSSW => Ok(SysrstSwTriggered),
-        Id::CPUDBG => Ok(CpurstDebugTriggered),
-        Id::CPUSW => Ok(CpurstSwTriggered),
+        Id::Sysflashecc => Ok(SysrstFlashEccError),
+        Id::Syscpulock => Ok(SysrstCpuLockupViolation),
+        Id::Sysdbg => Ok(SysrstDebugTriggered),
+        Id::Syssw => Ok(SysrstSwTriggered),
+        Id::Cpudbg => Ok(CpurstDebugTriggered),
+        Id::Cpusw => Ok(CpurstSwTriggered),
         other => Err(other as u8),
     }
 }

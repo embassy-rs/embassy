@@ -379,6 +379,11 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         Self { adc }
     }
 
+    /// Read the currently configured resolution for this ADC driver and return it.
+    pub fn resolution(&self) -> Resolution {
+        T::regs().cfgr().read().res().into()
+    }
+
     /// Enable reading the voltage reference internal channel.
     pub fn enable_vrefint(&mut self) -> super::VrefInt
     where
@@ -417,7 +422,7 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     // Reads that are not implemented as INJECTED in "blocking_read"
     // #[cfg(stm32g4)]
-    // pub fn enalble_injected_oversampling_mode(&mut self, enable: bool) {
+    // pub fn enable_injected_oversampling_mode(&mut self, enable: bool) {
     //     T::regs().cfgr2().modify(|reg| reg.set_jovse(enable));
     // }
 

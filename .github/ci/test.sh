@@ -19,6 +19,7 @@ cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml
 cargo test --manifest-path ./embassy-hal-internal/Cargo.toml
 cargo test --manifest-path ./embassy-time/Cargo.toml --features mock-driver,embassy-time-queue-utils/generic-queue-8
 cargo test --manifest-path ./embassy-time-driver/Cargo.toml
+cargo test --manifest-path ./embassy-ptp-driver/Cargo.toml --all-features
 
 cargo test --manifest-path ./embassy-boot/Cargo.toml
 cargo test --manifest-path ./embassy-boot/Cargo.toml --features ed25519-dalek

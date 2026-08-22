@@ -471,6 +471,49 @@ impl Drop for WakeGuard {
     }
 }
 
+impl From<WakeGuard> for MaybeWakeGuard {
+    fn from(wake_guard: WakeGuard) -> Self {
+        #[cfg(not(feature = "low-power"))]
+        let _ = wake_guard;
+
+        MaybeWakeGuard {
+            #[cfg(feature = "low-power")]
+            stop_mode: wake_guard.stop_mode,
+            #[cfg(feature = "low-power")]
+            enabled: false,
+        }
+    }
+}
+
+pub struct MaybeWakeGuard {
+    #[cfg(feature = "low-power")]
+    stop_mode: StopMode,
+    #[cfg(feature = "low-power")]
+    enabled: bool,
+}
+
+impl MaybeWakeGuard {
+    pub fn enable(&mut self) {
+        #[cfg(feature = "low-power")]
+        if !core::mem::replace(&mut self.enabled, true) {
+            critical_section::with(|cs| increment_stop_refcount(cs, self.stop_mode));
+        }
+    }
+
+    pub fn disable(&mut self) {
+        #[cfg(feature = "low-power")]
+        if core::mem::replace(&mut self.enabled, false) {
+            critical_section::with(|cs| decrement_stop_refcount(cs, self.stop_mode));
+        }
+    }
+}
+
+impl Drop for MaybeWakeGuard {
+    fn drop(&mut self) {
+        self.disable();
+    }
+}
+
 #[allow(unused)]
 mod util {
     use crate::time::Hertz;
@@ -597,8 +640,8 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
             // driver during STOP mode.  If the default APB clock is selected,
             // switch to LSI; otherwise verify that the chosen source is enabled.
             //
-            // STM32WBA uses per-timer mux enums (Lptim1sel / Lptim2sel) while
-            // other families share a single Lptimsel enum.
+            // STM32WBA and STM32L4 use per-timer mux enums (Lptim1sel / Lptim2sel)
+            // while other families share a single Lptimsel enum.
             macro_rules! ensure_lptim_clk {
                 ($field:ident, $Sel:path, $pclk:pat) => {
                     match config.mux.$field {
@@ -613,11 +656,13 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
                             config.hsi = true;
                         }
                         <$Sel>::Lse => {
+                            if config.ls.lse.is_none() {
+                                panic!("LSE is not configured, but selected for time_driver!!!");
+                            }
+                            #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
                             if let Some(mut lse_config) = config.ls.lse {
                                 lse_config.peripherals_clocked = true;
                                 config.ls.lse = Some(lse_config);
-                            } else {
-                                panic!("LSE is not not configured, but selected for time_driver!!!");
                             }
                         }
                         #[allow(unreachable_patterns)]
@@ -628,7 +673,7 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
 
             #[cfg(time_driver_lptim1)]
             {
-                #[cfg(not(stm32wba))]
+                #[cfg(not(any(stm32wba, rcc_l4, rcc_l4plus)))]
                 {
                     use crate::pac::rcc::vals::Lptimsel;
                     #[cfg(any(stm32u5, stm32u3))]
@@ -636,20 +681,23 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
                     #[cfg(not(any(stm32u5, stm32u3)))]
                     ensure_lptim_clk!(lptim1sel, Lptimsel, Lptimsel::Pclk1);
                 }
-                #[cfg(stm32wba)]
+                #[cfg(any(stm32wba, rcc_l4, rcc_l4plus))]
                 {
                     use crate::pac::rcc::vals::Lptim1sel;
+                    #[cfg(stm32wba)]
                     ensure_lptim_clk!(lptim1sel, Lptim1sel, Lptim1sel::Pclk7);
+                    #[cfg(not(stm32wba))]
+                    ensure_lptim_clk!(lptim1sel, Lptim1sel, Lptim1sel::Pclk1);
                 }
             }
             #[cfg(time_driver_lptim2)]
             {
-                #[cfg(not(stm32wba))]
+                #[cfg(not(any(stm32wba, rcc_l4, rcc_l4plus)))]
                 {
                     use crate::pac::rcc::vals::Lptimsel;
                     ensure_lptim_clk!(lptim2sel, Lptimsel, Lptimsel::Pclk1);
                 }
-                #[cfg(stm32wba)]
+                #[cfg(any(stm32wba, rcc_l4, rcc_l4plus))]
                 {
                     use crate::pac::rcc::vals::Lptim2sel;
                     ensure_lptim_clk!(lptim2sel, Lptim2sel, Lptim2sel::Pclk1);

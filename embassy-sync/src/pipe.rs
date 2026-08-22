@@ -490,7 +490,7 @@ where
     /// Total byte capacity.
     ///
     /// This is the same as the `N` generic param.
-    pub fn capacity(&self) -> usize {
+    pub const fn capacity(&self) -> usize {
         N
     }
 

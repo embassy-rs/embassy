@@ -1,4 +1,5 @@
 //! LTDC - LCD-TFT Display Controller
+//!
 //! See ST application note AN4861: Introduction to LCD-TFT display controller (LTDC) on STM32 MCUs for high level details
 //! This module was tested against the stm32h735g-dk using the RM0468 ST reference manual for detailed register information
 

@@ -640,8 +640,10 @@ pub fn init(config: config::Config) -> Peripherals {
     peripherals
 }
 
+// TODO: change pre_init to ASM.
+// we're using export_name manually to workaround cortex-m-rt deprecating it.
 #[cfg(feature = "rt")]
-#[cortex_m_rt::pre_init]
+#[unsafe(export_name = "__pre_init")]
 unsafe fn pre_init() {
     // SIO does not get reset when core0 is reset with either `scb::sys_reset()` or with SWD.
     // Since we're using SIO spinlock 31 for the critical-section impl, this causes random

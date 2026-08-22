@@ -4,6 +4,8 @@
 pub use apollo3_pac as pac;
 
 pub mod gpio;
+pub mod i2c;
+pub mod iom;
 #[cfg(any(feature = "_stimer", feature = "time-driver-ctimer0"))]
 pub mod time_driver;
 
@@ -13,6 +15,7 @@ embassy_hal_internal::peripherals! {
     P20, P21, P22, P23, P24, P25, P26, P27, P28, P29,
     P30, P31, P32, P33, P34, P35, P36, P37, P38, P39,
     P40, P41, P42, P43, P44, P45, P46, P47, P48, P49,
+    IOM0, IOM1, IOM2, IOM3, IOM4, IOM5,
 }
 
 pub fn init() -> Peripherals {
@@ -33,9 +36,6 @@ pub fn init() -> Peripherals {
             // We do this before setting up any interrupts.
             scb.vtor.write(0x0001_0000);
         }
-
-        // Enable the global GPIO interrupt. Individual pins configure their own routing.
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::GPIO);
     }
 
     p

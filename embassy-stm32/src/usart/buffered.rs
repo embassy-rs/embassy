@@ -1,8 +1,8 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::slice;
 use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use core::task::Poll;
+use core::{mem, slice};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::Peri;
@@ -532,7 +532,18 @@ impl<'d> BufferedUart<'d> {
                 .min(config.rx_fifo_threshold),
             );
         });
-        configure(info, self.rx.kernel_clock, &config, true, true)?;
+
+        // TODO support synchronous USART
+        configure(
+            info,
+            self.rx.kernel_clock,
+            &config,
+            false,
+            true,
+            true,
+            #[cfg(usart_v4)]
+            false,
+        )?;
 
         info.regs.cr1().modify(|w| {
             w.set_rxneie(cfg!(not(usart_v4)));
@@ -563,25 +574,27 @@ impl<'d> BufferedUart<'d> {
     /// which is particularly useful when having two tasks correlating to
     /// transmitting and receiving.
     pub fn split_ref(&mut self) -> (BufferedUartTx<'_>, BufferedUartRx<'_>) {
-        (
-            BufferedUartTx {
-                info: self.tx.info,
-                state: self.tx.state,
-                kernel_clock: self.tx.kernel_clock,
-                tx: self.tx.tx.as_mut().map(Flex::reborrow),
-                cts: self.tx.cts.as_mut().map(Flex::reborrow),
-                de: self.tx.de.as_mut().map(Flex::reborrow),
-                is_borrowed: true,
-            },
-            BufferedUartRx {
-                info: self.rx.info,
-                state: self.rx.state,
-                kernel_clock: self.rx.kernel_clock,
-                rx: self.rx.rx.as_mut().map(Flex::reborrow),
-                rts: self.rx.rts.as_mut().map(Flex::reborrow),
-                is_borrowed: true,
-            },
-        )
+        unsafe {
+            (
+                BufferedUartTx {
+                    info: self.tx.info,
+                    state: self.tx.state,
+                    kernel_clock: self.tx.kernel_clock,
+                    tx: self.tx.tx.as_mut().map(|p| p.clone_unchecked()),
+                    cts: self.tx.cts.as_mut().map(|p| p.clone_unchecked()),
+                    de: self.tx.de.as_mut().map(|p| p.clone_unchecked()),
+                    is_borrowed: true,
+                },
+                BufferedUartRx {
+                    info: self.rx.info,
+                    state: self.rx.state,
+                    kernel_clock: self.rx.kernel_clock,
+                    rx: self.rx.rx.as_mut().map(|p| p.clone_unchecked()),
+                    rts: self.rx.rts.as_mut().map(|p| p.clone_unchecked()),
+                    is_borrowed: true,
+                },
+            )
+        }
     }
 
     /// Reconfigure the driver
@@ -869,6 +882,9 @@ impl<'d> Drop for BufferedUartRx<'d> {
             }
 
             drop_tx_rx(self.info, state);
+        } else {
+            mem::forget(self.rts.take());
+            mem::forget(self.rx.take());
         }
     }
 }
@@ -887,6 +903,10 @@ impl<'d> Drop for BufferedUartTx<'d> {
                 }
             }
             drop_tx_rx(self.info, state);
+        } else {
+            mem::forget(self.tx.take());
+            mem::forget(self.cts.take());
+            mem::forget(self.de.take());
         }
     }
 }

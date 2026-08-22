@@ -2292,6 +2292,21 @@ fn main() {
                     let request = if let Some(request) = ch.request {
                         let request = request as u8;
                         quote!(#request)
+                    } else if let Some(channel) = &ch.channel
+                        && ch.dmamux.is_none()
+                    {
+                        // Peripheral is connected directly to a DMA/BDMA channel without going
+                        // through a DMAMUX. In that case there is no separate "request number" —
+                        // the request IS the fixed channel index (e.g. BDMA1/DFSDM1 on H7A3/H7B3/H7B0,
+                        // see RM0455 §16.3.2). Verified only for that case; if other chip families
+                        // hit this branch, confirm the same equivalence holds for them too.
+                        let found_channel = METADATA
+                            .dma_channels
+                            .iter()
+                            .find(|dma| dma.name == *channel)
+                            .expect("DMA channel not found in metadata");
+                        let request = found_channel.channel as u8;
+                        quote!(#request)
                     } else {
                         quote!(())
                     };
@@ -2747,6 +2762,40 @@ fn main() {
         }
     });
 
+    // Generate per-channel ringbuffer table statics and lookup function.
+    let mut ringbuffer_statics = TokenStream::new();
+    let mut ringbuffer_arms = TokenStream::new();
+
+    for ch in METADATA.dma_channels.iter() {
+        let dma_peri = peripheral_map.get(ch.dma).unwrap().0;
+        let bi = dma_peri.registers.as_ref().unwrap();
+        if bi.kind == "gpdma" || bi.kind == "lpdma" {
+            let ch_name = format_ident!("{}", ch.name);
+            let static_name = format_ident!("_RINGBUFFER_TABLE_{}", ch.name);
+
+            ringbuffer_statics.extend(quote! {
+                static #static_name: crate::dma::RingbufferTableSlot = crate::dma::RingbufferTableSlot::new();
+            });
+
+            ringbuffer_arms.extend(quote! {
+                DmaChannel::#ch_name => #static_name.get_mut(),
+            });
+        }
+    }
+
+    g.extend(quote! {
+        #[cfg(any(gpdma, lpdma))]
+        #[allow(unused)]
+        pub(crate) unsafe fn ringbuffer_table(channel: DmaChannel) -> &'static mut core::mem::MaybeUninit<crate::dma::Table<crate::dma::LinearItem, 1>> {
+            #ringbuffer_statics
+            match channel {
+                #ringbuffer_arms
+                #[allow(unreachable_patterns)]
+                _ => unreachable!(),
+            }
+        }
+    });
+
     // ========
     // Generate gpio_block() function
 
@@ -2827,10 +2876,42 @@ fn main() {
         let total_flash_size = total_flash_size as usize;
         let write_size = (*write_sizes.iter().next().unwrap()) as usize;
 
+        // Merge adjacent/overlapping flash regions into contiguous blocks
+        let mut flash_regions_sorted: Vec<(usize, usize)> = flash_regions
+            .iter()
+            .map(|r| (r.address as usize, r.size as usize))
+            .collect();
+        flash_regions_sorted.sort_by_key(|(addr, _)| *addr);
+
+        let mut contiguous_regions: Vec<(usize, usize)> = Vec::new();
+        for (addr, size) in flash_regions_sorted {
+            if let Some((last_addr, last_size)) = contiguous_regions.last_mut() {
+                let last_end = *last_addr + *last_size;
+                if addr <= last_end {
+                    // Overlapping or adjacent — extend the current region
+                    let new_end = addr + size;
+                    if new_end > last_end {
+                        *last_size = new_end - *last_addr;
+                    }
+                } else {
+                    // Gap — start a new region
+                    contiguous_regions.push((addr, size));
+                }
+            } else {
+                contiguous_regions.push((addr, size));
+            }
+        }
+
+        let flash_region_count = contiguous_regions.len();
+        let region_tokens = contiguous_regions.iter().map(|(addr, size)| quote!((#addr, #size)));
+
         g.extend(quote!(
             pub const FLASH_BASE: usize = #flash_base;
             pub const FLASH_SIZE: usize = #total_flash_size;
             pub const WRITE_SIZE: usize = #write_size;
+            pub const FLASH_CONTIGUOUS_REGIONS: [(usize, usize); #flash_region_count] = [
+                #(#region_tokens),*
+            ];
         ));
     }
 

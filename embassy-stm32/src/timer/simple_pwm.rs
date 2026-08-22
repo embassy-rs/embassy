@@ -12,6 +12,7 @@ use crate::dma::word::Word;
 use crate::gpio::Pull;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::pac::timer::vals::Ccds;
+use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 #[cfg(timer_v2)]
 use crate::timer::low_level::DitheringConfig;
@@ -222,6 +223,7 @@ pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
     ch2: Option<Flex<'d>>,
     ch3: Option<Flex<'d>>,
     ch4: Option<Flex<'d>>,
+    _wake_guard: WakeGuard,
 }
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
@@ -262,6 +264,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             ch2,
             ch3,
             ch4,
+            _wake_guard: T::RCC_INFO.wake_guard(),
         };
 
         this.inner.set_counting_mode(counting_mode);
