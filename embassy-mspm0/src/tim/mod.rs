@@ -193,12 +193,12 @@ impl<'d, T: Instance> LLTimer<'d, T> {
         // Reset timer regs
         regs.gprcm(0).rstctl().write(|w| {
             w.set_resetassert(true);
-            w.set_key(mspm0_metapac::tim::vals::ResetKey::KEY);
+            w.set_key(mspm0_metapac::tim::vals::ResetKey::Key);
             w.set_resetstkyclr(true);
         });
         regs.gprcm(0).pwren().modify(|w| {
             w.set_enable(true);
-            w.set_key(mspm0_metapac::tim::vals::PwrenKey::KEY);
+            w.set_key(mspm0_metapac::tim::vals::PwrenKey::Key);
         });
         // FIXME: assuming busclk for now
         regs.clksel().modify(|w| w.set_busclk_sel(true));
@@ -215,9 +215,9 @@ impl<'d, T: Instance> LLTimer<'d, T> {
         ctr.load().write_value(load);
         ctr.ctr().write_value(load);
         ctr.ctrctl().write(|w| {
-            w.set_cm(mspm0_metapac::tim::vals::Cm::DOWN);
-            w.set_repeat(mspm0_metapac::tim::vals::Repeat::REPEAT_1);
-            w.set_cvae(mspm0_metapac::tim::vals::Cvae::LDVAL);
+            w.set_cm(mspm0_metapac::tim::vals::Cm::Down);
+            w.set_repeat(mspm0_metapac::tim::vals::Repeat::Repeat1);
+            w.set_cvae(mspm0_metapac::tim::vals::Cvae::Ldval);
             w.set_en(true);
         });
 

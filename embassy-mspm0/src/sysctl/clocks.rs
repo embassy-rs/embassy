@@ -107,9 +107,9 @@ impl Default for ClockConfig {
 #[cfg(any(mspm0g))]
 pub fn start_measure_frequency() {
     pac::SYSCTL.genclkcfg().modify(|w| {
-        w.set_fccselclk(mspm0_metapac::sysctl::vals::Fccselclk::SYSPLLCLK0);
-        w.set_fcclvltrig(mspm0_metapac::sysctl::vals::Fcclvltrig::RISE2RISE);
-        w.set_fcctrigsrc(mspm0_metapac::sysctl::vals::Fcctrigsrc::LFCLK);
+        w.set_fccselclk(mspm0_metapac::sysctl::vals::Fccselclk::Syspllclk0);
+        w.set_fcclvltrig(mspm0_metapac::sysctl::vals::Fcclvltrig::Rise2rise);
+        w.set_fcctrigsrc(mspm0_metapac::sysctl::vals::Fcctrigsrc::Lfclk);
         w.set_fcctrigcnt(0x1F);
     });
 
@@ -117,7 +117,7 @@ pub fn start_measure_frequency() {
 
     pac::SYSCTL.fcccmd().write(|w| {
         w.set_go(true);
-        w.set_key(mspm0_metapac::sysctl::vals::FcccmdKey::KEY);
+        w.set_key(mspm0_metapac::sysctl::vals::FcccmdKey::Key);
     })
 }
 
@@ -167,8 +167,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
 
     pac::SYSCTL.sysosccfg().modify(|w| {
         w.set_freq(match config.sysosc_config.speed {
-            SysOscSpeed::HighSpeed => mspm0_metapac::sysctl::vals::SysosccfgFreq::SYSOSCBASE,
-            SysOscSpeed::LowSpeed => mspm0_metapac::sysctl::vals::SysosccfgFreq::SYSOSC4M,
+            SysOscSpeed::HighSpeed => mspm0_metapac::sysctl::vals::SysosccfgFreq::Sysoscbase,
+            SysOscSpeed::LowSpeed => mspm0_metapac::sysctl::vals::SysosccfgFreq::Sysosc4m,
         });
     });
 
@@ -193,12 +193,12 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         // TODO: assert this requires sys_osc.speed == HighSpeed
 
         pac::SYSCTL.syspllcfg0().modify(|w| {
-            w.set_syspllref(mspm0_metapac::sysctl::vals::Syspllref::SYSOSC);
+            w.set_syspllref(mspm0_metapac::sysctl::vals::Syspllref::Sysosc);
             w.set_enableclk2x(true);
             w.set_enableclk1(true);
             w.set_enableclk0(true); // FIXME: this probably isn't needed
             w.set_mclk2xvco(false);
-            w.set_rdivclk1(mspm0_metapac::sysctl::vals::Rdivclk1::CLK1DIV2);
+            w.set_rdivclk1(mspm0_metapac::sysctl::vals::Rdivclk1::Clk1div2);
             w.set_rdivclk2x(mspm0_metapac::sysctl::vals::Rdivclk2x::from_bits(pll_config.rdiv2x));
         });
 
@@ -221,7 +221,7 @@ pub(crate) unsafe fn init(config: ClockConfig) {
 
         pac::SYSCTL.syspllcfg1().modify(|w| {
             w.set_pdiv(mspm0_metapac::sysctl::vals::Pdiv::from_bits(pll_config.pdiv));
-            w.set_qdiv(mspm0_metapac::sysctl::vals::Qdiv(pll_config.qdiv));
+            w.set_qdiv(mspm0_metapac::sysctl::vals::Qdiv::from_bits(pll_config.qdiv));
         });
 
         pac::SYSCTL.hsclken().modify(|w| {
@@ -229,11 +229,11 @@ pub(crate) unsafe fn init(config: ClockConfig) {
         });
         pac::SYSCTL.hsclkcfg().modify(|w| {
             // For now PLL is assumed
-            w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::SYSPLL);
+            w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::Syspll);
         });
         pac::SYSCTL
             .genclkcfg()
-            .modify(|w| w.set_canclksrc(mspm0_metapac::sysctl::vals::Canclksrc::SYSPLLOUT1));
+            .modify(|w| w.set_canclksrc(mspm0_metapac::sysctl::vals::Canclksrc::Syspllout1));
 
         cortex_m::asm::delay(2_000_000); // Wait a bit for PLL to catch up
     }
@@ -242,8 +242,8 @@ pub(crate) unsafe fn init(config: ClockConfig) {
     #[cfg(not(any(mspm0c, mspm0l, mspm0h)))]
     pac::SYSCTL.hsclkcfg().modify(|w| match config.mclk_source {
         #[cfg(mspm0g)]
-        MClkSource::Pll => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::SYSPLL),
-        MClkSource::HfClk => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::HFCLKCLK),
+        MClkSource::Pll => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::Syspll),
+        MClkSource::HfClk => w.set_hsclksel(mspm0_metapac::sysctl::vals::Hsclksel::Hfclkclk),
         _ => {}
     });
 
@@ -255,13 +255,13 @@ pub(crate) unsafe fn init(config: ClockConfig) {
             }
             #[cfg(mspm0g)]
             MClkSource::Pll => {
-                w.set_flashwait(mspm0_metapac::sysctl::vals::Flashwait::WAIT2);
+                w.set_flashwait(mspm0_metapac::sysctl::vals::Flashwait::Wait2);
                 w.set_usehsclk(true);
             }
             MClkSource::HfClk => {
                 // FIXME: this should exist for MSPM0L
                 #[cfg(not(mspm0c))]
-                w.set_flashwait(mspm0_metapac::sysctl::vals::Flashwait::WAIT2);
+                w.set_flashwait(mspm0_metapac::sysctl::vals::Flashwait::Wait2);
                 #[cfg(not(mspm0l))]
                 w.set_usehsclk(true);
             }
