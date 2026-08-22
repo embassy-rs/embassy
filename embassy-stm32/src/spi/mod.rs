@@ -4,12 +4,14 @@
 #[cfg(feature = "exti")]
 mod ringbuffered;
 use core::marker::PhantomData;
+use core::pin::pin;
 use core::ptr;
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
+use futures_util::future::{Either, select};
 #[cfg(feature = "exti")]
 pub use ringbuffered::RingBufferedSpiRx;
 
@@ -86,6 +88,19 @@ pub enum SlaveSelectPolarity {
     ActiveHigh,
     /// SS active low
     ActiveLow,
+}
+
+impl SlaveSelectPolarity {
+    fn from_regs(_regs: Regs) -> Self {
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        match _regs.cfg2().read().ssiop() {
+            vals::Ssiop::ActiveLow => SlaveSelectPolarity::ActiveLow,
+            _ => SlaveSelectPolarity::ActiveHigh,
+        }
+
+        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+        SlaveSelectPolarity::ActiveLow
+    }
 }
 
 /// CRC configuration.
@@ -282,16 +297,12 @@ impl<'d> CsPinType<'d> {
         }
     }
 
-    #[allow(unused)]
     pub async fn wait_for_edge(&mut self, _polarity: SlaveSelectPolarity) {
         match self {
             #[cfg(feature = "exti")]
             Self::Exti(exti) => match _polarity {
                 SlaveSelectPolarity::ActiveHigh => exti.wait_for_rising_edge().await,
-                #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
                 SlaveSelectPolarity::ActiveLow => exti.wait_for_falling_edge().await,
-                #[cfg(any(spi_v4, spi_v5, spi_v6))]
-                SlaveSelectPolarity::ActiveLow => exti.wait_for_rising_edge().await,
             },
             Self::Flex(_) | Self::None => core::future::pending().await,
         }
@@ -1258,25 +1269,35 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
         });
         self.set_word_size(W::CONFIG);
 
-        let tx_dst = self.info.regs.tx_ptr();
-        let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
+        {
+            let tx_dst = self.info.regs.tx_ptr();
+            let tx_f = unsafe { self.tx_dma.as_mut().unwrap().write(data, tx_dst, Default::default()) };
 
-        set_txdmaen(self.info.regs, true);
+            set_txdmaen(self.info.regs, true);
 
-        // Memory barrier after DMA setup to ensure register writes complete before command
-        fence(Ordering::SeqCst);
+            // Memory barrier after DMA setup to ensure register writes complete before command
+            fence(Ordering::SeqCst);
 
-        self.info.regs.cr1().modify(|w| {
-            w.set_spe(true);
-        });
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        self.info.regs.cr1().modify(|w| {
-            w.set_cstart(true);
-        });
+            self.info.regs.cr1().modify(|w| {
+                w.set_spe(true);
+            });
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            self.info.regs.cr1().modify(|w| {
+                w.set_cstart(true);
+            });
 
-        tx_f.await;
+            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(self.info.regs)));
+            match select(tx_f, nss_fut).await {
+                Either::Left(((), _)) => {
+                    finish_dma(self.info.regs);
+                }
+                Either::Right(((), _)) => {
+                    abort_dma(self.info.regs);
 
-        finish_dma(self.info.regs);
+                    return Ok(());
+                }
+            }
+        }
 
         self.check_transfer_crc()?;
 
@@ -1327,34 +1348,56 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         for mut chunk in data.chunks_mut(u16::MAX.into()) {
             set_rxdmaen(regs, true);
+            {
+                let tsize = chunk.len();
 
-            let tsize = chunk.len();
+                let transfer = unsafe {
+                    self.rx_dma
+                        .as_mut()
+                        .unwrap()
+                        .read(rx_src, &mut chunk, Default::default())
+                };
 
-            let transfer = unsafe {
-                self.rx_dma
-                    .as_mut()
-                    .unwrap()
-                    .read(rx_src, &mut chunk, Default::default())
-            };
+                regs.cr2().modify(|w| {
+                    w.set_tsize(tsize as u16);
+                });
 
-            regs.cr2().modify(|w| {
-                w.set_tsize(tsize as u16);
-            });
+                // Memory barrier after DMA setup to ensure register writes complete before command
+                fence(Ordering::SeqCst);
 
-            // Memory barrier after DMA setup to ensure register writes complete before command
-            fence(Ordering::SeqCst);
+                regs.cr1().modify(|w| {
+                    w.set_spe(true);
+                });
 
-            regs.cr1().modify(|w| {
-                w.set_spe(true);
-            });
+                regs.cr1().modify(|w| {
+                    w.set_cstart(true);
+                });
 
-            regs.cr1().modify(|w| {
-                w.set_cstart(true);
-            });
+                let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(regs)));
+                match select(transfer, nss_fut).await {
+                    Either::Left(((), _)) => {
+                        finish_dma(regs);
+                    }
+                    Either::Right(((), _)) => {
+                        abort_dma(regs);
+                        regs.cfg2().modify(|w| {
+                            w.set_comm(comm);
+                        });
+                        regs.cr2().modify(|w| {
+                            w.set_tsize(0);
+                        });
+                        #[cfg(spi_v4)]
+                        if let Some(i2scfg) = i2scfg {
+                            regs.i2scfgr().modify(|w| {
+                                w.set_i2scfg(i2scfg);
+                            });
+                        }
+                        fence(Ordering::Acquire);
 
-            transfer.await;
-
-            finish_dma(regs);
+                        return Ok(());
+                    }
+                }
+            }
 
             self.check_transfer_crc()?;
         }
@@ -1426,22 +1469,37 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
                 w.set_spe(true);
             });
 
+            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(self.info.regs)));
+
             if let Some(tx_f) = tx_f {
-                join(tx_f, rx_f).await;
-
-                finish_dma(self.info.regs);
+                match select(join(tx_f, rx_f), nss_fut).await {
+                    Either::Left((((), ()), _)) => {
+                        finish_dma(self.info.regs);
+                    }
+                    Either::Right(((), _)) => {
+                        abort_dma(self.info.regs);
+                        return Ok(());
+                    }
+                }
             } else {
-                rx_f.await;
-                // In receiving mode RXNE flag should be prefered over BSY flag.
-                // When using DMA the RXNE flag is cleared after DMA reads data.
-                // Since DMA has already finished reading previously specified
-                // amount of data, then there is no need to check for RXNE flag.
+                match select(rx_f, nss_fut).await {
+                    Either::Left(((), _)) => {
+                        // In receiving mode RXNE flag should be prefered over BSY flag.
+                        // When using DMA the RXNE flag is cleared after DMA reads data.
+                        // Since DMA has already finished reading previously specified
+                        // amount of data, then there is no need to check for RXNE flag.
 
-                // The peripheral automatically disables the DMA stream on completion without error,
-                // but it does not clear the RXDMAEN flag in CR2.
-                self.info.regs.cr2().modify(|w| {
-                    w.set_rxdmaen(false);
-                });
+                        // The peripheral automatically disables the DMA stream on completion without error,
+                        // but it does not clear the RXDMAEN flag in CR2.
+                        self.info.regs.cr2().modify(|w| {
+                            w.set_rxdmaen(false);
+                        });
+                    }
+                    Either::Right(((), _)) => {
+                        abort_dma(self.info.regs);
+                        return Ok(());
+                    }
+                }
             }
         }
 
@@ -1469,33 +1527,43 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         set_rxdmaen(self.info.regs, true);
 
-        let rx_src = self.info.regs.rx_ptr::<W>();
-        let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read_raw(rx_src, read, Default::default()) };
+        {
+            let rx_src = self.info.regs.rx_ptr::<W>();
+            let rx_f = unsafe { self.rx_dma.as_mut().unwrap().read_raw(rx_src, read, Default::default()) };
 
-        let tx_dst: *mut W = self.info.regs.tx_ptr();
-        let tx_f = unsafe {
-            self.tx_dma
-                .as_mut()
-                .unwrap()
-                .write_raw(write, tx_dst, Default::default())
-        };
+            let tx_dst: *mut W = self.info.regs.tx_ptr();
+            let tx_f = unsafe {
+                self.tx_dma
+                    .as_mut()
+                    .unwrap()
+                    .write_raw(write, tx_dst, Default::default())
+            };
 
-        set_txdmaen(self.info.regs, true);
+            set_txdmaen(self.info.regs, true);
 
-        // Memory barrier after DMA setup to ensure register writes complete before command
-        fence(Ordering::SeqCst);
+            // Memory barrier after DMA setup to ensure register writes complete before command
+            fence(Ordering::SeqCst);
 
-        self.info.regs.cr1().modify(|w| {
-            w.set_spe(true);
-        });
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        self.info.regs.cr1().modify(|w| {
-            w.set_cstart(true);
-        });
+            self.info.regs.cr1().modify(|w| {
+                w.set_spe(true);
+            });
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            self.info.regs.cr1().modify(|w| {
+                w.set_cstart(true);
+            });
 
-        join(tx_f, rx_f).await;
+            let nss_fut = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(self.info.regs)));
+            match select(join(tx_f, rx_f), nss_fut).await {
+                Either::Left((((), ()), _)) => {
+                    finish_dma(self.info.regs);
+                }
+                Either::Right(((), _)) => {
+                    abort_dma(self.info.regs);
 
-        finish_dma(self.info.regs);
+                    return Ok(());
+                }
+            }
+        }
 
         self.check_transfer_crc()?;
 
@@ -1819,6 +1887,29 @@ fn finish_dma(regs: Regs) {
         reg.set_txdmaen(false);
         reg.set_rxdmaen(false);
     });
+}
+
+/// Abort an in-progress DMA transfer and disable SPI to leave hardware in a safe state.
+fn abort_dma(regs: Regs) {
+    // Disable DMA requests first so the peripheral stops requesting DMA.
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    regs.cr2().modify(|reg| {
+        reg.set_txdmaen(false);
+        reg.set_rxdmaen(false);
+    });
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    regs.cfg1().modify(|reg| {
+        reg.set_txdmaen(false);
+        reg.set_rxdmaen(false);
+    });
+
+    // Disable SPI to abort any ongoing transfer.
+    regs.cr1().modify(|w| {
+        w.set_spe(false);
+    });
+
+    // Flush any stale data in RX FIFO.
+    flush_rx_fifo(regs);
 }
 
 #[inline]
