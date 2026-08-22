@@ -4,7 +4,7 @@
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::dfsdm::TransceiverTrait;
+use embassy_stm32::dfsdm::{Flt0, Flt1, TransceiverTrait};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::{BDMA1_CH0, BDMA2_CH0};
 use embassy_stm32::time::Hertz;
@@ -17,9 +17,9 @@ use panic_probe as _;
 // BDMA1 has only one "BDMA1 global interrupt" as it only serves DFSDM1
 // BDMA2 has one "BDMA2 channel x interrupt" per channel as it serves other peripherals aswell (it has 8 channels, only a single one may be used for DFSDM2 at any time)
 bind_interrupts!(struct Irqs {
-    DFSDM1_FLT0 => dfsdm::InterruptHandler<peripherals::DFSDM1>;
+    DFSDM1_FLT1 => dfsdm::InterruptHandler<peripherals::DFSDM1, Flt1>;
     BDMA1 => embassy_stm32::dma::InterruptHandler<BDMA1_CH0>;
-    DFSDM2 => dfsdm::InterruptHandler<peripherals::DFSDM2>;
+    DFSDM2 => dfsdm::InterruptHandler<peripherals::DFSDM2, Flt0>;
     BDMA2_CHANNEL0 => embassy_stm32::dma::InterruptHandler<BDMA2_CH0>;
 });
 
