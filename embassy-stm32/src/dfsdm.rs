@@ -92,11 +92,41 @@ pub struct TransceiverChannelBuilders2<T: Instance, C: ClockOutputMode> {
     pub ch1: TransceiverBuilder<T, Tcv1, C>,
 }
 
+impl<T: Instance, C: ClockOutputMode> TransceiverChannelBuilders8<T, C> {
+    pub(crate) fn new(dfsdm: &Dfsdm<T, C>) -> Self {
+        Self {
+            ch0: TransceiverBuilder::new(dfsdm),
+            ch1: TransceiverBuilder::new(dfsdm),
+            ch2: TransceiverBuilder::new(dfsdm),
+            ch3: TransceiverBuilder::new(dfsdm),
+            ch4: TransceiverBuilder::new(dfsdm),
+            ch5: TransceiverBuilder::new(dfsdm),
+            ch6: TransceiverBuilder::new(dfsdm),
+            ch7: TransceiverBuilder::new(dfsdm),
+        }
+    }
+}
+
+impl<T: Instance, C: ClockOutputMode> TransceiverChannelBuilders2<T, C> {
+    pub(crate) fn new(dfsdm: &Dfsdm<T, C>) -> Self {
+        Self {
+            ch0: TransceiverBuilder::new(dfsdm),
+            ch1: TransceiverBuilder::new(dfsdm),
+        }
+    }
+}
+
 impl<'d, T, C> Dfsdm<'d, T, C>
 where
     T: Instance,
     C: ClockOutputMode,
 {
+}
+
+impl<'d, T: Instance, C: ClockOutputMode> Dfsdm<'d, T, C> {
+    pub fn split(self) -> T::Split<C> {
+        T::split(self)
+    }
 }
 
 #[allow(private_bounds)]
@@ -106,20 +136,20 @@ where
     T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>,
 {
     /// Split up the peripheral after first initialization
-    pub fn split_8ch_8flt(self) -> TransceiverChannelBuilders8<T, C> {
-        TransceiverChannelBuilders8 {
-            ch0: TransceiverBuilder::new(&self),
-            ch1: TransceiverBuilder::new(&self),
-            ch2: TransceiverBuilder::new(&self),
-            ch3: TransceiverBuilder::new(&self),
-            ch4: TransceiverBuilder::new(&self),
-            ch5: TransceiverBuilder::new(&self),
-            ch6: TransceiverBuilder::new(&self),
-            ch7: TransceiverBuilder::new(&self),
-        }
-    }
+    // pub fn split_8ch_8flt(self) -> TransceiverChannelBuilders8<T, C> {
+    //     TransceiverChannelBuilders8 {
+    //         ch0: TransceiverBuilder::new(&self),
+    //         ch1: TransceiverBuilder::new(&self),
+    //         ch2: TransceiverBuilder::new(&self),
+    //         ch3: TransceiverBuilder::new(&self),
+    //         ch4: TransceiverBuilder::new(&self),
+    //         ch5: TransceiverBuilder::new(&self),
+    //         ch6: TransceiverBuilder::new(&self),
+    //         ch7: TransceiverBuilder::new(&self),
+    //     }
+    // }
 
-    pub fn get_filter_test<F>(self) -> Filter<T, F>
+    pub fn get_filter_test<F>(&self) -> Filter<T, F>
     where
         T: FilterInterrupt<F>,
         F: FilterMarker,
@@ -131,20 +161,20 @@ where
     }
 }
 
-#[allow(private_bounds)]
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    C: ClockOutputMode,
-    T: Instance<Transceivers = capability::Tcv2, Filters = capability::Flt1>,
-{
-    /// Split up the peripheral after first initialization
-    pub fn split_2ch_1flt(self) -> TransceiverChannelBuilders2<T, C> {
-        TransceiverChannelBuilders2 {
-            ch0: TransceiverBuilder::new(&self),
-            ch1: TransceiverBuilder::new(&self),
-        }
-    }
-}
+// #[allow(private_bounds)]
+// impl<'d, T, C> Dfsdm<'d, T, C>
+// where
+//     C: ClockOutputMode,
+//     T: Instance<Transceivers = capability::Tcv2, Filters = capability::Flt1>,
+// {
+//     /// Split up the peripheral after first initialization
+//     pub fn split_2ch_1flt(self) -> TransceiverChannelBuilders2<T, C> {
+//         TransceiverChannelBuilders2 {
+//             ch0: TransceiverBuilder::new(&self),
+//             ch1: TransceiverBuilder::new(&self),
+//         }
+//     }
+// }
 
 impl<'d, T> Dfsdm<'d, T, OutputEnabled>
 where
@@ -197,8 +227,10 @@ where
     }
 }
 
+type Registers = crate::pac::dfsdm::Dfsdm8ch8fltDlyVer;
+
 trait SealedInstance: crate::rcc::RccPeripheral {
-    // fn regs(&self) -> crate::pac::dfsdm::Dfsdm;
+    fn regs() -> Registers;
 }
 
 /// Filter-marked interrupt state trait
@@ -223,6 +255,12 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     type Delay: capability::ConfDelay;
     /// Presence of version block in this instance
     type Version: capability::ConfVersion;
+
+    type Split<C: ClockOutputMode>;
+
+    fn split<C: ClockOutputMode>(dfsdm: Dfsdm<Self, C>) -> Self::Split<C>
+    where
+        Self: Sized;
 }
 
 /// Type-level capability tags for DFSDM instance variants.
@@ -404,19 +442,17 @@ macro_rules! impl_dfsdm_instance {
         transceivers: $tcv:ty,
         filters: $flt:ty,
         delay: $delay:ty,
-        version: $version:ty $(,)?
+        version: $version:ty,
+        split: $split_ty:ident $(,)?
     ) => {
         impl SealedInstance for crate::peripherals::$inst {
-            // fn regs() -> crate::pac::dfsdm::Dfsdm2ch1flt {
-            //     // SAFETY: every DFSDM shape shares the base ch()/flt()
-            //     // register layout with Dfsdm2ch1flt at identical offsets;
-            //     // richer shapes only append registers, never relocate these.
-            //     unsafe { crate::pac::dfsdm::Dfsdm2ch1flt::from_ptr(crate::pac::$inst.as_ptr()) }
-            // }
-
-            // fn common_regs() -> crate::pac::adccommon::AdcCommon {
-            //     return crate::pac::$common_inst
-            // }
+            fn regs() -> Registers {
+                // SAFETY: siehe Trait-Doku — $inst zeigt auf einen realen DFSDM-Block,
+                // dessen Basislayout mit Dfsdm8ch8fltDlyVer übereinstimmt. Aufrufer
+                // dürfen nur die laut Instance::{Delay,Version,Transceivers,Filters}
+                // tatsächlich vorhandenen Register lesen/schreiben.
+                unsafe { Registers::from_ptr(crate::pac::$inst.as_ptr()) }
+            }
         }
 
         impl Instance for crate::peripherals::$inst {
@@ -425,14 +461,17 @@ macro_rules! impl_dfsdm_instance {
             type Filters = $flt;
             type Delay = $delay;
             type Version = $version;
+
+            type Split<C: ClockOutputMode> = $split_ty<Self, C>;
+
+            fn split<C: ClockOutputMode>(dfsdm: Dfsdm<'_, Self, C>) -> Self::Split<C> {
+                $split_ty::new(&dfsdm)
+            }
         }
     };
 }
 
 foreach_interrupt! {
-    // Fires once per instance — FLT0 is used purely as "does this instance
-    // exist" gate; the actual IRQ name is unused here since interrupts are
-    // per-filter via FilterInterrupt, not on Instance.
     ($inst:ident, dfsdm, DFSDM_8CH_8FLT_DLY, FLT0, $irq:ident) => {
         impl_dfsdm_instance!($inst,
             repr: crate::pac::dfsdm::Dfsdm8ch8fltDly,
@@ -440,6 +479,7 @@ foreach_interrupt! {
             filters: capability::Flt8,
             delay: capability::WithDelay,
             version: capability::NoVersion,
+            split: TransceiverChannelBuilders8,
         );
     };
     ($inst:ident, dfsdm, DFSDM_8CH_8FLT, FLT0, $irq:ident) => {
@@ -449,6 +489,7 @@ foreach_interrupt! {
             filters: capability::Flt8,
             delay: capability::NoDelay,
             version: capability::NoVersion,
+            split: TransceiverChannelBuilders8,
         );
     };
     ($inst:ident, dfsdm, DFSDM_2CH_1FLT, FLT0, $irq:ident) => {
@@ -458,6 +499,7 @@ foreach_interrupt! {
             filters: capability::Flt1,
             delay: capability::NoDelay,
             version: capability::NoVersion,
+            split: TransceiverChannelBuilders2,
         );
     };
 }
@@ -840,7 +882,7 @@ where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
 {
-    pub async fn wait_for_irq(&mut self) {
+    pub async fn wait_for_irq_test(&mut self) {
         use core::sync::atomic::{Ordering, compiler_fence};
         use core::task::Poll;
 
@@ -862,5 +904,9 @@ where
         .await;
 
         // unsafe { core::ptr::read_volatile(T::regs().data()) }
+    }
+
+    pub fn get_regs_test(&mut self) -> Registers {
+        T::regs()
     }
 }
