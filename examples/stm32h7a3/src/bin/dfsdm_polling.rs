@@ -70,6 +70,8 @@ async fn main(_spawner: Spawner) {
     let dfsdm1 = dfsdm::Dfsdm::new_ckout(p.DFSDM1, p.PC2, dfsdm::Config::default());
     let dfsdm2 = dfsdm::Dfsdm::new(p.DFSDM2, dfsdm::Config::default());
 
+    // let a: dfsdm::Filter<peripherals::DFSDM1, Flt0> = dfsdm1.get_filter_test();
+    // a.wait_for_irq().await;
     let dfsdm1_channels = dfsdm1.split_8ch_8flt();
     let dfsdm2_channels = dfsdm2.split_2ch_1flt();
 

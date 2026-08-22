@@ -10,28 +10,6 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::{Peri, interrupt, rcc};
 
-// impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-//     unsafe fn on_interrupt() {
-//         //TODO THIS IS DCMI STUFF
-//         crate::pac::DFSDM1.ch(0);
-//         crate::pac::DFSDM2.ch(0);
-//         let ris = crate::pac::DCMI.ris().read();
-//         if ris.err_ris() {
-//             trace!("DCMI IRQ: Error.");
-//             crate::pac::DCMI.ier().modify(|ier| ier.set_err_ie(false));
-//         }
-//         if ris.ovr_ris() {
-//             trace!("DCMI IRQ: Overrun.");
-//             crate::pac::DCMI.ier().modify(|ier| ier.set_ovr_ie(false));
-//         }
-//         if ris.frame_ris() {
-//             trace!("DCMI IRQ: Frame captured.");
-//             crate::pac::DCMI.ier().modify(|ier| ier.set_frame_ie(false));
-//         }
-//         STATE.waker.wake();
-//     }
-// }
-
 /// TODO
 #[allow(missing_docs)]
 #[derive(Clone, Copy, PartialEq)]
@@ -39,20 +17,6 @@ pub enum GenericConfigEnum {
     Low,
     High,
 }
-
-struct State {
-    waker: AtomicWaker,
-}
-
-impl State {
-    const fn new() -> State {
-        State {
-            waker: AtomicWaker::new(),
-        }
-    }
-}
-
-static STATE: State = State::new();
 
 /// DFSDM error.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -154,6 +118,17 @@ where
             ch7: TransceiverBuilder::new(&self),
         }
     }
+
+    pub fn get_filter_test<F>(self) -> Filter<T, F>
+    where
+        T: FilterInterrupt<F>,
+        F: FilterMarker,
+    {
+        Filter {
+            _instance_marker: PhantomData,
+            _filter_marker: PhantomData,
+        }
+    }
 }
 
 #[allow(private_bounds)]
@@ -200,6 +175,7 @@ where
 {
     fn new_inner(peri: Peri<'d, T>, ckout: Option<Flex<'d>>, config: Config) -> Self {
         let _ = config;
+        let _ = peri;
 
         rcc::enable_and_reset::<T>();
 
@@ -225,9 +201,13 @@ trait SealedInstance: crate::rcc::RccPeripheral {
     // fn regs(&self) -> crate::pac::dfsdm::Dfsdm;
 }
 
-/// Interrupt marker trait
+/// Filter-marked interrupt state trait
 pub trait FilterInterrupt<F: FilterMarker> {
+    /// Interrupt type
     type Interrupt: interrupt::typelevel::Interrupt;
+
+    /// Filter-interrupt state
+    fn state() -> &'static State;
 }
 
 /// DFSDM instance.
@@ -311,40 +291,42 @@ pin_trait!(Ckin6Pin, Instance, @A);
 pin_trait!(Datin7Pin, Instance, @A);
 pin_trait!(Ckin7Pin, Instance, @A);
 
-/// Associates a DFSDM clock-input pin with a specific transceiver channel.
-///
-/// The channel type `C` and marker `M` tie the pin to a concrete
-/// [`TransceiverChannel`]. This allows the compiler to reject pin
-/// combinations that do not belong to the requested channel.
-///
-/// `T` identifies the DFSDM peripheral.
-/// `A` identifies the alternate-function configuration.
-#[cfg(afio)]
-pub trait CkinPin<T, M, A>: crate::gpio::Pin
-where
-    T: Instance,
-    M: TransceiverMarker,
-{
-    /// Forwards the alternate-function number provided by the underlying pin.
-    fn af_num(&self) -> u8;
+macro_rules! define_dfsdm_pin_trait {
+    ($trait:ident, $description:literal) => {
+        #[doc = $description]
+        #[cfg(afio)]
+        pub trait $trait<T, M, A>: crate::gpio::Pin
+        where
+            T: Instance,
+            M: TransceiverMarker,
+        {
+            /// Returns the alternate-function number.
+            fn af_num(&self) -> u8;
+        }
+
+        #[doc = $description]
+        #[cfg(not(afio))]
+        pub trait $trait<T, M>: crate::gpio::Pin
+        where
+            T: Instance,
+            M: TransceiverMarker,
+        {
+            /// Returns the alternate-function number.
+            fn af_num(&self) -> u8;
+        }
+    };
 }
 
-/// Associates a DFSDM clock-input pin with a specific transceiver channel.
-///
-/// The channel type `C` and marker `M` tie the pin to a concrete
-/// [`TransceiverChannel`]. This allows the compiler to reject pin
-/// combinations that do not belong to the requested channel.
-///
-/// `T` identifies the DFSDM peripheral.
-#[cfg(not(afio))]
-pub trait CkinPin<T, M>: crate::gpio::Pin
-where
-    T: Instance,
-    M: TransceiverMarker,
-{
-    /// Forwards the alternate-function number provided by the underlying pin.
-    fn af_num(&self) -> u8;
-}
+define_dfsdm_pin_trait!(
+    CkinPin,
+    "Associates a DFSDM clock-input pin with a transceiver channel."
+);
+
+define_dfsdm_pin_trait!(
+    DatinPin,
+    "Associates a DFSDM data-input pin with a transceiver channel."
+);
+
 macro_rules! impl_ckin_bridge {
     ($marker:ty, $existing:ident) => {
         #[cfg(afio)]
@@ -378,40 +360,6 @@ impl_ckin_bridge!(Tcv5, Ckin5Pin);
 impl_ckin_bridge!(Tcv6, Ckin6Pin);
 impl_ckin_bridge!(Tcv7, Ckin7Pin);
 
-/// Associates a DFSDM data-input pin with a specific transceiver channel.
-///
-/// The channel type `C` and marker `M` tie the pin to a concrete
-/// [`TransceiverChannel`]. This allows the compiler to reject pin
-/// combinations that do not belong to the requested channel.
-///
-/// `T` identifies the DFSDM peripheral.
-/// `A` identifies the alternate-function configuration.
-#[cfg(afio)]
-pub trait DatinPin<T, M, A>: crate::gpio::Pin
-where
-    T: Instance,
-    M: TransceiverMarker,
-{
-    /// Forwards the alternate-function number provided by the underlying pin.
-    fn af_num(&self) -> u8;
-}
-
-/// Associates a DFSDM data-input pin with a specific transceiver channel.
-///
-/// The channel type `C` and marker `M` tie the pin to a concrete
-/// [`Transceiver`]. This allows the compiler to reject pin
-/// combinations that do not belong to the requested channel.
-///
-/// `T` identifies the DFSDM peripheral.
-#[cfg(not(afio))]
-pub trait DatinPin<T, M>: crate::gpio::Pin
-where
-    T: Instance,
-    M: TransceiverMarker,
-{
-    /// Forwards the alternate-function number provided by the underlying pin.
-    fn af_num(&self) -> u8;
-}
 macro_rules! impl_datin_bridge {
     ($marker:ty, $existing:ident) => {
         #[cfg(afio)]
@@ -465,6 +413,10 @@ macro_rules! impl_dfsdm_instance {
             //     // richer shapes only append registers, never relocate these.
             //     unsafe { crate::pac::dfsdm::Dfsdm2ch1flt::from_ptr(crate::pac::$inst.as_ptr()) }
             // }
+
+            // fn common_regs() -> crate::pac::adccommon::AdcCommon {
+            //     return crate::pac::$common_inst
+            // }
         }
 
         impl Instance for crate::peripherals::$inst {
@@ -480,7 +432,7 @@ macro_rules! impl_dfsdm_instance {
 foreach_interrupt! {
     // Fires once per instance — FLT0 is used purely as "does this instance
     // exist" gate; the actual IRQ name is unused here since interrupts are
-    // now per-filter via FilterInterrupt, not on Instance.
+    // per-filter via FilterInterrupt, not on Instance.
     ($inst:ident, dfsdm, DFSDM_8CH_8FLT_DLY, FLT0, $irq:ident) => {
         impl_dfsdm_instance!($inst,
             repr: crate::pac::dfsdm::Dfsdm8ch8fltDly,
@@ -514,6 +466,11 @@ macro_rules! impl_dfsdm_filter_irq {
     ($inst:ident, $filter:ty, $irq:ident) => {
         impl FilterInterrupt<$filter> for crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$irq;
+
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
         }
     };
 }
@@ -573,32 +530,51 @@ where
     F: FilterMarker,
 {
     unsafe fn on_interrupt() {
+        <T as FilterInterrupt<F>>::state().waker.wake();
+        // T::disable_exti_interrupt();
+        // T::state().waker.wake();
+        // T::clear_exti_pending();
         // handle this filter's status/ovr/regular-conversion bits only
     }
 }
 
-// pub struct State {
-//     pub waker: AtomicWaker,
-//     pub injected_done: core::sync::atomic::AtomicBool,
-// }
-
-// impl State {
-//     pub const fn new() -> Self {
-//         Self {
-//             waker: AtomicWaker::new(),
-//             injected_done: core::sync::atomic::AtomicBool::new(false),
+// impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+//     unsafe fn on_interrupt() {
+//         //TODO THIS IS DCMI STUFF
+//         crate::pac::DFSDM1.ch(0);
+//         crate::pac::DFSDM2.ch(0);
+//         let ris = crate::pac::DCMI.ris().read();
+//         if ris.err_ris() {
+//             trace!("DCMI IRQ: Error.");
+//             crate::pac::DCMI.ier().modify(|ier| ier.set_err_ie(false));
 //         }
+//         if ris.ovr_ris() {
+//             trace!("DCMI IRQ: Overrun.");
+//             crate::pac::DCMI.ier().modify(|ier| ier.set_ovr_ie(false));
+//         }
+//         if ris.frame_ris() {
+//             trace!("DCMI IRQ: Frame captured.");
+//             crate::pac::DCMI.ier().modify(|ier| ier.set_frame_ie(false));
+//         }
+//         STATE.waker.wake();
 //     }
 // }
 
-// fn common_regs() -> crate::pac::adccommon::AdcCommon {
-//     return crate::pac::$common_inst
-// }
+/// Instance State struct
+pub struct State {
+    /// Waker for the state
+    pub waker: AtomicWaker,
+    // Maybe we need some atomics? pub injected_done: core::sync::atomic::AtomicBool,
+}
 
-// fn state() -> &'static State {
-//     static STATE: State = State::new();
-//     &STATE
-// }
+impl State {
+    /// Instantiate fresh State
+    pub const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+        }
+    }
+}
 
 macro_rules! define_indexed_channels {
     (
@@ -776,11 +752,7 @@ where
         self,
         ckin: Peri<if_afio!(impl CkinPin<T, M, A>)>,
         datin: Peri<if_afio!(impl DatinPin<T, M, A>)>,
-    ) -> Transceiver<T, M, ExternalSource>
-    where
-        T: Instance,
-        M: TransceiverMarker,
-    {
+    ) -> Transceiver<T, M, ExternalSource> {
         set_as_af!(ckin, AfType::input(Pull::None));
         set_as_af!(datin, AfType::input(Pull::None));
 
@@ -792,12 +764,7 @@ where
     }
 
     /// Configure [`Transceiver`]. as receiving data from a manchester-coded signal
-    pub fn new_manchester(self, datin: Peri<if_afio!(impl DatinPin<T, M, A>)>) -> Transceiver<T, M, ExternalSource>
-    where
-        T: Instance,
-        C: ClockOutputMode,
-        M: TransceiverMarker,
-    {
+    pub fn new_manchester(self, datin: Peri<if_afio!(impl DatinPin<T, M, A>)>) -> Transceiver<T, M, ExternalSource> {
         set_as_af!(datin, AfType::input(Pull::None));
 
         Transceiver {
@@ -857,4 +824,43 @@ where
     M: TransceiverMarker,
     S: DataSource,
 {
+}
+
+pub struct Filter<T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+{
+    _instance_marker: PhantomData<T>,
+    _filter_marker: PhantomData<M>,
+}
+
+impl<T, M> Filter<T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+{
+    pub async fn wait_for_irq(&mut self) {
+        use core::sync::atomic::{Ordering, compiler_fence};
+        use core::task::Poll;
+
+        use futures_util::future::poll_fn;
+
+        // T::regs().start();
+
+        poll_fn(|cx| {
+            T::state().waker.register(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+            if !false {
+                //T::regs().wait_done() {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })
+        .await;
+
+        // unsafe { core::ptr::read_volatile(T::regs().data()) }
+    }
 }
