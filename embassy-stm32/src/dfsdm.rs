@@ -1066,3 +1066,15 @@ pub enum SerialInterfaceType {
     ManchesterRising0 = 2,
     ManchesterRising1 = 3,
 }
+
+
+//FUCKING IMPORTANT: DONT DROP, KEEP FLEX IN CHANNEL!!! TODO
+// impl<'d> Drop for Flex<'d> {
+//     #[inline]
+//     fn drop(&mut self) {
+//         trace!("gpio: dropping {}", self.pin);
+//         critical_section::with(|_| {
+//             self.pin.set_as_disconnected();
+//         });
+//     }
+// }
