@@ -15,7 +15,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::{join, join3};
 use embassy_rp::peripherals::{PIO0, USB};
-use embassy_rp::pio_programs::uart::{PioUart, PioUartRx, PioUartTx};
+use embassy_rp::pio_programs::uart::{PioUartRx, PioUartRxProgram, PioUartTx, PioUartTxProgram};
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
 use embassy_rp::{bind_interrupts, pio};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -81,9 +81,11 @@ async fn main(_spawner: Spawner) {
         mut common, sm0, sm1, ..
     } = pio::Pio::new(p.PIO0, Irqs);
 
-    let uart_pio = PioUart::new(9600, &mut common, sm1, sm0, p.PIN_5, p.PIN_4);
+    let tx_program = PioUartTxProgram::new(&mut common);
+    let mut uart_tx = PioUartTx::new(9600, &mut common, sm0, p.PIN_4, &tx_program);
 
-    let (mut uart_tx, mut uart_rx) = uart_pio.split();
+    let rx_program = PioUartRxProgram::new(&mut common);
+    let mut uart_rx = PioUartRx::new(9600, &mut common, sm1, p.PIN_5, &rx_program);
 
     // Pipe setup
     let mut usb_pipe: Pipe<NoopRawMutex, 20> = Pipe::new();
