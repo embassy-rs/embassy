@@ -8,6 +8,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
+use crate::timer::low_level::InputCaptureSelection;
 use crate::{Peri, interrupt, rcc};
 
 /// TODO
@@ -631,7 +632,7 @@ macro_rules! define_indexed_channels {
     ) => {
 
         #[doc = concat!($channel_string, " channel identifier.")]
-        #[repr(u8)]
+        #[repr(usize)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         pub enum $enum {
             $(
@@ -644,8 +645,8 @@ macro_rules! define_indexed_channels {
         impl $enum {
 
             /// Index of the channel
-            pub const fn index(self) -> u8 {
-                self as u8
+            pub const fn index(self) -> usize {
+                self as usize
             }
         }
 
@@ -719,7 +720,7 @@ pub trait FilterTrait<M: FilterMarker>: sealed::SealedFilterChannelTrait<M> {
     }
 
     /// Get filter index
-    fn index(&self) -> u8 {
+    fn index(&self) -> usize {
         M::CHANNEL.index()
     }
 }
@@ -732,7 +733,7 @@ pub trait TransceiverTrait<M: TransceiverMarker>: sealed::SealedTransceiverChann
     }
 
     /// Get transceiver index
-    fn index(&self) -> u8 {
+    fn index(&self) -> usize {
         M::CHANNEL.index()
     }
 }
@@ -907,6 +908,161 @@ where
     }
 
     pub fn get_regs_test(&mut self) -> Registers {
+        DfsdmInner::<T>::enable();
+        DfsdmInner::<T>::disable();
+        DfsdmInner::<T>::set_output_clock_source(OutputSerialClockSource::Audio);
+        DfsdmInner::<T>::set_output_clock_divider(OutputSerialClockDivider::Enabled(123));
         T::regs()
     }
+}
+
+struct DfsdmInner<T>
+where
+    T: Instance,
+{
+    _instance_marker: PhantomData<T>,
+}
+
+impl<T> DfsdmInner<T>
+where
+    T: Instance,
+{
+    //////WHOLE PERIPHERAL
+    //TODO MAYBE MARK CH0 STUFF EXPLICITLY IN PAC
+    fn enable() {
+        T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(true));
+    }
+
+    fn disable() {
+        T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(false));
+    }
+
+    ///ONLY WHEN OFF
+    pub fn set_output_clock_source(source: OutputSerialClockSource) {
+        T::regs()
+            .ch(0)
+            .cfgr1()
+            .modify(|reg| reg.set_ckoutsrc(source.to_reg_val()));
+    }
+
+    ///ONLY WHEN OFF
+    pub fn set_output_clock_divider(source: OutputSerialClockDivider) {
+        T::regs()
+            .ch(0)
+            .cfgr1()
+            .modify(|reg| reg.set_ckoutdiv(source.to_reg_val()));
+    }
+
+    //////CHANNELS
+    /// These might crash if they get a [`TransceiverChannel`] outside the capabilities of the [`Instance`]
+
+    pub fn set_data_packing_mode(ch: TransceiverChannel, mode: DataPackingMode) {
+        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
+            reg.set_datpack(mode as u8);
+        });
+    }
+
+    pub fn set_input_data_mux(ch: TransceiverChannel, mode: InputDataMux) {
+        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
+            reg.set_datmpx(mode as u8);
+        });
+    }
+
+    pub fn set_channel_input(ch: TransceiverChannel, mode: ChannelInput) {
+        /// TODO if we do neighbor we might not have to configure our own. YET ANOTHER MARKER!?
+        /// Ok How does it look: Channel 0 ... can use channel 1.. pins (and so on. the last one, 7 or 3 or 1 or whatever) can use 0.
+        /// Use of a neighbors pins makes the existence of the pin necessary.
+        /// Nonuse of the own pin (by yourself AND neighbor) makes the existence of the pin unnecessary.
+        /// So we need reference to the pin when instantiating
+        ///
+        /// ja ich wäre grundsätzlich auf ne viel lustigere und simplere idee gegangen, die leider embassys standardimplementierungen widerspricht, aber was willstetun:
+        /// zwei stufen.
+        /// dfsdim wird erstmal nciht gesplittet, sondern hat ne config_pins fuinktion, bzw bekommt die pins direkt im ersten init als optionen.
+        /// und dann bekommt man channelinput tokens (mit capabilities, weil wenn man nciht genug pins vergibt gibts ohne Ckin natürlich NUR manchester
+        /// https://chatgpt.com/share/6a8b4427-eb90-83ed-82e7-82c00036c750
+        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
+            reg.set_chinsel(mode.to_reg_val());
+        });
+    }
+}
+
+#[derive(Copy, Clone)]
+enum OutputSerialClockSource {
+    System,
+    Audio,
+}
+
+impl OutputSerialClockSource {
+    fn to_reg_val(self) -> bool {
+        match self {
+            Self::System => false,
+            Self::Audio => true,
+        }
+    }
+}
+
+#[derive(Copy, Clone)]
+enum OutputSerialClockDivider {
+    Disabled,
+    Enabled(u16),
+}
+
+impl OutputSerialClockDivider {
+    fn to_reg_val(self) -> u8 {
+        match self {
+            Self::Disabled => 0,
+            Self::Enabled(val) => (val - 1).try_into().expect("Clock divider must be between 2 and 256"), // TODO Maybe replace with error propagation?
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum DataPackingMode {
+    Standard = 0,
+    Interleaved = 1,
+    Dual = 2,
+    // 3 = Reserved
+}
+
+#[derive(Copy, Clone)]
+enum ChannelInput {
+    Same,
+    Neighbor,
+}
+
+impl ChannelInput {
+    fn to_reg_val(self) -> bool {
+        match self {
+            Self::Same => false,
+            Self::Neighbor => true,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum InputDataMux {
+    ExternalSerial = 0,
+    InternalAdc = 1,
+    InternalRegisterWrite = 2,
+    // 3 = Reserved
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SpiClockSelect {
+    ExternalCkin = 0,
+    InternalCkout = 1,
+    InternalCkoutFallingHalved = 2,
+    InternalCkoutRisingHalved = 3,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum SerialInterfaceType {
+    SpiRisingEdge = 0,
+    SpiFallingEdge = 1,
+    ManchesterRising0 = 2,
+    ManchesterRising1 = 3,
 }

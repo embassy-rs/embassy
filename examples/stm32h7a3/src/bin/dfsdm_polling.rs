@@ -79,8 +79,8 @@ async fn main(_spawner: Spawner) {
     let dfsdm1_ = dfsdm1_channels.ch0.new_clk_int(p.PC1);
 
     let dfsdm2_ch0 = dfsdm2_channels.ch0.new_parallel();
-    let _: u8 = dfsdm1_.index();
-    let _: u8 = dfsdm2_ch0.index();
+    let _: usize = dfsdm1_.index();
+    let _: usize = dfsdm2_ch0.index();
 
     drop(dfsdm1_);
 
