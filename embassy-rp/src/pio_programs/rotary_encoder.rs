@@ -83,10 +83,9 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         sm.set_enable(true);
         Self { sm }
     }
-    /// Change rotary encoder target clock at runtime
-    pub fn change_target_clock(&mut self, target_frequency:u32)
-    {   
-        let clock_divider = calculate_pio_clock_divider(target_frequency); 
+    /// Change rotary encoder target frequency at runtime
+    pub fn set_target_frequency(&mut self, target_frequency: u32) {
+        let clock_divider = calculate_pio_clock_divider(target_frequency);
         self.sm.set_enable(false);
         self.sm.clear_fifos();
         self.sm.restart();
