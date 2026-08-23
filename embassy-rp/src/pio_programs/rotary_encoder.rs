@@ -5,7 +5,7 @@ use crate::gpio::Pull;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
 };
-use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::pio_programs::clock_divider::{self, calculate_pio_clock_divider};
 
 /// This struct represents an Encoder program loaded into pio instruction memory.
 pub struct PioEncoderProgram<'a, PIO: Instance> {
@@ -82,6 +82,16 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         sm.set_config(&cfg);
         sm.set_enable(true);
         Self { sm }
+    }
+    /// Change rotary encoder target clock at runtime
+    pub fn change_target_clock(&mut self, target_frequency:u32)
+    {   
+        let clock_divider = calculate_pio_clock_divider(target_frequency); 
+        self.sm.set_enable(false);
+        self.sm.clear_fifos();
+        self.sm.restart();
+        self.sm.set_clock_divider(clock_divider);
+        self.sm.set_enable(true);
     }
 
     /// Read a single count from the encoder
