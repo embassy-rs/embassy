@@ -1,6 +1,6 @@
 // Note: This file is copied and modified from fdcan crate by Richard Meadows
 
-use volatile_register::RW;
+use vcell::VolatileCell;
 
 pub(crate) mod common;
 pub(crate) mod enums;
@@ -104,13 +104,13 @@ pub(crate) mod rxfifo_element;
 #[repr(C)]
 pub(crate) struct RxFifoElement {
     pub(crate) header: RxFifoElementHeader,
-    pub(crate) data: [RW<u32>; 16],
+    pub(crate) data: [VolatileCell<u32>; 16],
 }
 impl RxFifoElement {
     pub(crate) fn reset(&mut self) {
         self.header.reset();
         for byte in self.data.iter_mut() {
-            unsafe { byte.write(0) };
+            byte.set(0);
         }
     }
 }
@@ -124,13 +124,13 @@ pub(crate) mod txbuffer_element;
 #[repr(C)]
 pub(crate) struct TxBufferElement {
     pub(crate) header: TxBufferElementHeader,
-    pub(crate) data: [RW<u32>; 16],
+    pub(crate) data: [VolatileCell<u32>; 16],
 }
 impl TxBufferElement {
     pub(crate) fn reset(&mut self) {
         self.header.reset();
         for byte in self.data.iter_mut() {
-            unsafe { byte.write(0) };
+            byte.set(0);
         }
     }
 }

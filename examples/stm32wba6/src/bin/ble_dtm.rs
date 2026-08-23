@@ -19,6 +19,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
@@ -29,7 +30,7 @@ use embassy_stm32_wpan::bluetooth::HCI;
 use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // ---- Test configuration ----
 #[allow(dead_code)]

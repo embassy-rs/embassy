@@ -48,7 +48,7 @@ pub struct DfuState<H: Handler> {
     next_block_num: usize,
 }
 
-impl<'d, H: Handler> DfuState<H> {
+impl<H: Handler> DfuState<H> {
     /// Create a new DFU instance to handle DFU transfers.
     pub fn new(handler: H, attrs: DfuAttributes) -> Self {
         Self {

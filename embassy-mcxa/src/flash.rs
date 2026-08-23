@@ -69,8 +69,12 @@ use crate::pac::syscon::{ClrLpcac, DisDataSpec, DisFlashSpec, DisLpcac, DisMbecc
 /// Base address of the internal program flash.
 pub const FLASH_BASE: u32 = 0x0000_0000;
 
+#[cfg(feature = "mcxa2xx")]
 /// Total size of the internal program flash in bytes (1 MB).
 pub const FLASH_SIZE: usize = 0x10_0000;
+#[cfg(feature = "mcxa5xx")]
+/// Total size of the internal program flash in bytes (2 MB).
+pub const FLASH_SIZE: usize = 0x20_0000;
 
 /// Sector size in bytes (8 KB) — erase granularity.
 pub const SECTOR_SIZE: usize = 0x2000;
@@ -85,8 +89,12 @@ pub const PHRASE_SIZE: usize = 16;
 // ROM API constants
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "mcxa2xx")]
 /// Base address of the ROM API bootloader tree for MCXA276.
 const ROM_API_BASE: u32 = 0x0300_5FE0;
+#[cfg(feature = "mcxa5xx")]
+/// Base address of the ROM API bootloader tree for MCXA577.
+const ROM_API_BASE: u32 = 0x1303_D800;
 
 /// Flash erase key: `FOUR_CHAR_CODE('l','f','e','k')` in little-endian.
 const FLASH_ERASE_KEY: u32 = 0x6B65_666C;
@@ -117,6 +125,29 @@ struct FlashConfig {
     pflash_page_size: u32,
     pflash_sector_size: u32,
     ffr_config: FlashFfrConfig,
+
+    #[cfg(feature = "mcxa5xx")]
+    mode_config: FlashModeConfig,
+    #[cfg(feature = "mcxa5xx")]
+    nboot_ctx: *mut u32,
+    #[cfg(feature = "mcxa5xx")]
+    use_ahb_read: bool,
+}
+
+#[repr(C, packed)]
+#[derive(Debug, Default, Copy, Clone)]
+#[cfg(feature = "mcxa5xx")]
+struct FlashModeConfig {
+    sys_freq_in_m_hz: u32,
+    packed_options: u8,
+    reserved1: [u8; 3],
+    program_ramp_control: u8,
+    erase_ramp_control: u8,
+    reserved2: [u8; 2],
+    read_interface_timing_trim: u16,
+    read_controller_timing_trim: u16,
+    read_wait_states: u8,
+    reserved: [u8; 3],
 }
 
 // Type aliases for ROM API function pointer signatures (C ABI).
@@ -138,6 +169,12 @@ type FnFlashVerifyErasePhrase = unsafe extern "C" fn(config: *const FlashConfig,
 type FnFlashVerifyErasePage = unsafe extern "C" fn(config: *const FlashConfig, start: u32, len: u32) -> i32;
 type FnFlashVerifyEraseSector = unsafe extern "C" fn(config: *const FlashConfig, start: u32, len: u32) -> i32;
 type FnFlashGetProperty = unsafe extern "C" fn(config: *const FlashConfig, property: u32, value: *mut u32) -> i32;
+#[cfg(feature = "mcxa5xx")]
+type FnIfrVerifyErasePhrase = unsafe extern "C" fn(config: *mut FlashConfig, start: u32, length_in_bytes: u32) -> i32;
+#[cfg(feature = "mcxa5xx")]
+type FnIfrVerifyErasePage = unsafe extern "C" fn(config: *mut FlashConfig, start: u32, length_in_bytes: u32) -> i32;
+#[cfg(feature = "mcxa5xx")]
+type FnIfrVerifyEraseSector = unsafe extern "C" fn(config: *mut FlashConfig, start: u32, length_in_bytes: u32) -> i32;
 type FnFlashRead = unsafe extern "C" fn(config: *const FlashConfig, start: u32, dest: *mut u8, len: u32) -> i32;
 
 /// ROM API flash driver interface vtable.
@@ -156,7 +193,12 @@ struct FlashDriverInterface {
     flash_verify_erase_page: FnFlashVerifyErasePage,
     flash_verify_erase_sector: FnFlashVerifyEraseSector,
     flash_get_property: FnFlashGetProperty,
-    // IFR functions omitted (FSL_FEATURE_ROMAPI_IFR == 0 on MCXA276)
+    #[cfg(feature = "mcxa5xx")]
+    ifr_verify_erase_phrase: FnIfrVerifyErasePhrase,
+    #[cfg(feature = "mcxa5xx")]
+    ifr_verify_erase_page: FnIfrVerifyErasePage,
+    #[cfg(feature = "mcxa5xx")]
+    ifr_verify_erase_sector: FnIfrVerifyEraseSector,
     flash_read: FnFlashRead,
     version: u32,
 }

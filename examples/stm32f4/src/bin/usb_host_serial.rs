@@ -2,13 +2,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::HostDriver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb_host::class::cdc_acm::{CdcAcmHost, LineCoding};
 use embassy_usb_host::{BusRoute, BusState};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     OTG_FS => usb::HostInterruptHandler<peripherals::USB_OTG_FS>;

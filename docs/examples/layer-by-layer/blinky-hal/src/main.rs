@@ -2,8 +2,9 @@
 #![no_main]
 
 use cortex_m_rt::entry;
+use defmt_rtt as _;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[entry]
 fn main() -> ! {

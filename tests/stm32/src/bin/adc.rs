@@ -1,16 +1,17 @@
 #![no_std]
 #![no_main]
 
-// required-features: dac
+// required-features: adc
 
 #[path = "../common.rs"]
 mod common;
 
 use common::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[cfg_attr(
     feature = "stop",

@@ -1,6 +1,7 @@
 #![macro_use]
 
-use {defmt_rtt as _, panic_probe as _};
+use defmt_rtt as _;
+use panic_probe as _;
 
 #[cfg(feature = "nrf52832")]
 teleprobe_meta::target!(b"nrf52832-dk");

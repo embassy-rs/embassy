@@ -6,11 +6,12 @@
 #[path = "../common.rs"]
 mod common;
 use common::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::*;
 use embassy_stm32::{Config, bind_interrupts, can};
 use embassy_time::Duration;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[path = "../can_common.rs"]
 mod can_common;

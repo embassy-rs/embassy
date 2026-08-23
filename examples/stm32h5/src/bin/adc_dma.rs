@@ -2,12 +2,13 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{self, Adc, AdcChannel, RxDma, SampleTime};
 use embassy_stm32::peripherals::{ADC1, ADC2, GPDMA1_CH0, GPDMA1_CH1, PA0, PA1, PA2, PA3};
 use embassy_stm32::{Config, Peri, bind_interrupts, dma, interrupt};
 use embassy_time::{Duration, Instant, Ticker};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     GPDMA1_CHANNEL0 => dma::InterruptHandler<GPDMA1_CH0>;
@@ -75,8 +76,8 @@ async fn adc_task<'a, T, D, I>(
     adc: Peri<'a, T>,
     mut dma: Peri<'a, D>,
     irq: I,
-    mut pin1: impl AdcChannel<T>,
-    mut pin2: impl AdcChannel<T>,
+    mut pin1: impl AdcChannel<'_, T>,
+    mut pin2: impl AdcChannel<'_, T>,
 ) where
     T: adc::DefaultInstance,
     D: RxDma<T>,

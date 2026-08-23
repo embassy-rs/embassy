@@ -16,13 +16,14 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::io::vals::{Inover, Outover};
-use crate::{RegExt, dma, interrupt, pac, peripherals};
+use crate::{RegExt, dma, interrupt, mode, pac, peripherals};
 
 mod buffered;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
 
 /// Word length.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DataBits {
     /// 5 bits.
     DataBits5,
@@ -47,6 +48,7 @@ impl DataBits {
 
 /// Parity bit.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Parity {
     /// No parity.
     ParityNone,
@@ -58,6 +60,7 @@ pub enum Parity {
 
 /// Stop bits.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StopBits {
     #[doc = "1 stop bit"]
     STOP1,
@@ -68,6 +71,7 @@ pub enum StopBits {
 /// UART config.
 #[non_exhaustive]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Baud rate.
     pub baudrate: u32,
@@ -152,7 +156,7 @@ pub struct Uart<'d, M: Mode> {
 /// UART TX driver.
 pub struct UartTx<'d, M: Mode> {
     info: &'static Info,
-    tx_dma: Option<dma::Channel<'d>>,
+    tx_dma: Option<dma::Channel<'d, mode::Async>>,
     phantom: PhantomData<M>,
 }
 
@@ -160,12 +164,12 @@ pub struct UartTx<'d, M: Mode> {
 pub struct UartRx<'d, M: Mode> {
     info: &'static Info,
     dma_state: &'static DmaState,
-    rx_dma: Option<dma::Channel<'d>>,
+    rx_dma: Option<dma::Channel<'d, mode::Async>>,
     phantom: PhantomData<M>,
 }
 
 impl<'d, M: Mode> UartTx<'d, M> {
-    fn new_inner(info: &'static Info, tx_dma: Option<Channel<'d>>) -> Self {
+    fn new_inner(info: &'static Info, tx_dma: Option<Channel<'d, mode::Async>>) -> Self {
         Self {
             info,
             tx_dma,
@@ -284,7 +288,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         info: &'static Info,
         dma_state: &'static DmaState,
         has_irq: bool,
-        rx_dma: Option<dma::Channel<'d>>,
+        rx_dma: Option<dma::Channel<'d, mode::Async>>,
     ) -> Self {
         debug_assert_eq!(has_irq, rx_dma.is_some());
         if has_irq {
@@ -868,8 +872,8 @@ impl<'d, M: Mode> Uart<'d, M> {
         mut rts: Option<Peri<'d, AnyPin>>,
         mut cts: Option<Peri<'d, AnyPin>>,
         has_irq: bool,
-        tx_dma: Option<dma::Channel<'d>>,
-        rx_dma: Option<dma::Channel<'d>>,
+        tx_dma: Option<dma::Channel<'d, mode::Async>>,
+        rx_dma: Option<dma::Channel<'d, mode::Async>>,
         config: Config,
     ) -> Self {
         Self::init(
@@ -932,6 +936,11 @@ impl<'d, M: Mode> Uart<'d, M> {
                 #[cfg(feature = "_rp235x")]
                 w.set_iso(false);
                 w.set_ie(true);
+                if config.invert_rx {
+                    w.set_pde(true);
+                } else {
+                    w.set_pue(true);
+                }
             });
         }
         if let Some(pin) = &cts {

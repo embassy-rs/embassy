@@ -2,10 +2,11 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::pwm::{DutyCycle, Prescaler, SimplePwm};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // for i in range(1024): print(int((math.sin(i/512*math.pi)*0.4+0.5)**2*32767), ', ', end='')
 static DUTY: [u16; 1024] = [

@@ -69,8 +69,8 @@ impl Driver {
         // could divide the clock root by up to 64.
         pac::CCM.cscmr1().modify(|r| {
             // 1 MHz
-            r.set_perclk_podf(pac::ccm::vals::PerclkPodf::DIVIDE_24);
-            r.set_perclk_clk_sel(pac::ccm::vals::PerclkClkSel::PERCLK_CLK_SEL_1);
+            r.set_perclk_podf(pac::ccm::vals::PerclkPodf::Divide24);
+            r.set_perclk_clk_sel(pac::ccm::vals::PerclkClkSel::PerclkClkSel1);
         });
 
         pac::CCM.ccgr1().modify(|r| r.set_cg6(0b11));

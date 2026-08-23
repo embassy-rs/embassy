@@ -70,6 +70,7 @@ use core::ops::Range;
 use core::sync::atomic::{Ordering, fence};
 use core::task::Poll;
 
+use embassy_futures::select::select;
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 
@@ -369,6 +370,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             });
 
             self.info.regs().scfgr1().modify(|w| {
+                w.set_adrstall(true);
                 w.set_rxstall(true);
                 w.set_txdstall(true);
                 w.set_gcen(config.general_call.into());
@@ -888,7 +890,21 @@ impl<'d> I2c<'d, Dma<'d>> {
         let peri_addr = self.info.regs().stdr().as_ptr() as *mut u8;
         let chunk_len = data.len();
 
-        self.clear_status();
+        // Preserve and consume a terminal status that arrived after the
+        // previous chunk reported NeedMore instead of clearing it here.
+        let ssr = self.info.regs().ssr().read();
+        if ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() {
+            self.reset_fifos();
+            if ssr.fef() {
+                return Err(IOError::FifoError);
+            } else if ssr.bef() {
+                return Err(IOError::BitError);
+            } else if ssr.sdf() {
+                return Ok(TxChunkOutcome::Stopped(0));
+            } else {
+                return Ok(TxChunkOutcome::Restarted(0));
+            }
+        }
 
         unsafe {
             // Clean up channel state
@@ -917,30 +933,22 @@ impl<'d> I2c<'d, Dma<'d>> {
             self.mode.tx_dma.enable_request();
         }
 
-        // Wait for any of:
-        //  - I2C end-of-transfer flag (sdf, rsf) -> controller terminated
-        //  - I2C error flag (fef, bef) -> bus problem
-        //  - DMA channel completion -> chunk exhausted; if controller still
-        //    clocking, caller may want to call again (NeedMore)
-        poll_fn(|cx| {
-            let _ = self.mode.tx_dma.wait_cell().poll_wait(cx);
-            let _ = self.info.wait_cell().poll_wait(cx);
-
+        // Wait for i2c interrupt (error or end-of-transfer).
+        let i2c_interrupt = self.info.wait_cell().wait_for(|| {
             self.info.regs().sier().write(|w| {
                 w.set_feie(true);
                 w.set_beie(true);
                 w.set_sdie(true);
                 w.set_rsie(true);
             });
-
             let ssr = self.info.regs().ssr().read();
-            if ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() || self.mode.tx_dma.is_done() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
-        })
-        .await;
+            ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()
+        });
+        // DMA to load the entire chunk into the peripheral.
+        let dma_is_done = self.mode.tx_dma.wait_cell().wait_for(|| self.mode.tx_dma.is_done());
+        let _ = select(i2c_interrupt, dma_is_done).await;
+
+        let mut ssr = self.info.regs().ssr().read();
 
         // Cleanup
         self.info.regs().sder().modify(|w| w.set_tdde(false));
@@ -949,20 +957,44 @@ impl<'d> I2c<'d, Dma<'d>> {
             self.mode.tx_dma.clear_done();
         }
 
-        let ssr = self.info.regs().ssr().read();
+        // DMA completion only means the final byte reached the TX FIFO. TDF
+        // can assert before the controller's ninth-bit NACK and STOP, so a
+        // NeedMore result is provisional. If STOP arrives after this function
+        // returns, the continuation call above consumes it before re-arming
+        // DMA.
+        if !(ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf()) {
+            self.info
+                .wait_cell()
+                .wait_for(|| {
+                    self.enable_tx_ints();
+                    let ssr = self.info.regs().ssr().read();
+                    ssr.fef() || ssr.bef() || ssr.sdf() || ssr.rsf() || ssr.tdf()
+                })
+                .await
+                .map_err(|_| IOError::Other)?;
+            ssr = self.info.regs().ssr().read();
+        }
 
         if ssr.fef() {
+            self.reset_fifos();
             Err(IOError::FifoError)
         } else if ssr.bef() {
+            self.reset_fifos();
             Err(IOError::BitError)
         } else if ssr.sdf() {
-            Ok(TxChunkOutcome::Stopped(self.mode.tx_dma.transferred_bytes()))
+            let count = self.mode.tx_dma.transferred_bytes();
+            self.reset_fifos();
+            Ok(TxChunkOutcome::Stopped(count))
         } else if ssr.rsf() {
-            Ok(TxChunkOutcome::Restarted(self.mode.tx_dma.transferred_bytes()))
-        } else {
-            // DMA done with no end-of-transfer flag: chunk exhausted,
-            // controller still expects more bytes.
+            let count = self.mode.tx_dma.transferred_bytes();
+            self.reset_fifos();
+            Ok(TxChunkOutcome::Restarted(count))
+        } else if ssr.tdf() {
+            // The TX register is empty. The controller may request another
+            // byte, or it may still terminate this byte with NACK and STOP.
             Ok(TxChunkOutcome::NeedMore(chunk_len))
+        } else {
+            Err(IOError::Other)
         }
     }
 }
@@ -1056,13 +1088,14 @@ where
     /// The future services the transfer to a clean termination point
     /// (STOP, repeated START, or buffer exhausted) before resolving.
     ///
-    /// If the controller continues clocking after the buffer has been
-    /// fully transmitted (for example, an I2C-HID host that reads a fixed
-    /// block size larger than the prepared response), this call resolves
-    /// with [`ReadStatus::NeedMore`] so the caller can decide what to do:
-    /// call `async_respond_to_read` again with more bytes (or fill data),
-    /// or let the bus clock-stretch (with TXDSTALL enabled) until the
-    /// controller eventually terminates the transfer.
+    /// When the transmit register becomes empty after the buffer has been
+    /// loaded, this call resolves with [`ReadStatus::NeedMore`]. Because the
+    /// transmit-data flag can precede the controller's ninth-bit NACK and
+    /// STOP, callers must continue with `async_respond_to_read` while
+    /// `NeedMore` is returned. A continuation either supplies the next byte
+    /// or consumes a terminal status that arrived after the previous call.
+    /// With TXDSTALL enabled, the bus clock-stretches while genuinely waiting
+    /// for more data.
     ///
     /// # Parameters
     ///
@@ -1214,8 +1247,6 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
     async fn async_respond_to_read_internal(&mut self, buf: &[u8]) -> Result<ReadStatus, IOError> {
         let mut count = 0;
 
-        self.clear_status();
-
         // perform corrective action if the future is dropped
         let on_drop = OnDrop::new(|| {
             self.info.regs().sder().modify(|w| w.set_tdde(false));
@@ -1309,5 +1340,206 @@ impl<'d, M: Mode> Drop for I2c<'d, M> {
     fn drop(&mut self) {
         self._scl.set_as_disabled();
         self._sda.set_as_disabled();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// `embedded-mcu-hal` I2C target trait implementations
+// ---------------------------------------------------------------------------
+//
+// These adapt the inherent blocking/async target API above to the generic
+// `embedded_mcu_hal::i2c::target` traits, gated behind the `embedded-mcu-hal`
+// cargo feature.
+//
+// Both 7-bit (`SevenBitAddress`) and 10-bit (`TenBitAddress`) address modes
+// are supported. The blocking trait is implemented once, generic over the
+// address width; the async trait is implemented once, generic over both the
+// address width and the async mode (`Async` and `Dma`).
+//
+// Known deviations from the trait contract (see the module docs and the
+// trait docs in `embedded_mcu_hal::i2c::target`):
+//
+//   * `listen` never returns `Request::RepeatedStart`. A repeated START is
+//     folded into the next `Read`/`Write` event and additionally surfaced
+//     through `WriteStatus::Restarted` / `ReadStatus::EarlyStop`. The
+//     listen -> respond -> re-listen loop still behaves correctly; faithful
+//     edge emission would require tracking the previous sub-transaction
+//     address at the driver level.
+//   * The `SevenBitAddress` implementation truncates the matched address to
+//     seven bits (`as u8`). Use the `TenBitAddress` implementation for a
+//     lossless 10-bit address.
+
+#[cfg(feature = "embedded-mcu-hal")]
+use embedded_mcu_hal::i2c::target as emh;
+#[cfg(feature = "embedded-mcu-hal")]
+use embedded_mcu_hal::i2c::{AddressMode, SevenBitAddress, TenBitAddress};
+
+/// Map this driver's [`IOError`] onto the generic target [`emh::ErrorKind`].
+#[cfg(feature = "embedded-mcu-hal")]
+impl emh::Error for IOError {
+    fn kind(&self) -> emh::ErrorKind {
+        match self {
+            // FIFO over/underrun maps precisely onto `Overrun`.
+            IOError::FifoError => emh::ErrorKind::Overrun,
+            // A bit error is an illegal state on the bus lines.
+            IOError::BitError => emh::ErrorKind::Bus,
+            // A busy bus is a bus-level condition.
+            IOError::BusBusy => emh::ErrorKind::Bus,
+            IOError::TargetBusy => emh::ErrorKind::Other,
+            IOError::Other => emh::ErrorKind::Other,
+        }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'d, M: Mode> emh::ErrorType for I2c<'d, M> {
+    type Error = IOError;
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<ReadStatus> for emh::ReadStatus {
+    fn from(value: ReadStatus) -> Self {
+        match value {
+            ReadStatus::Complete(n) => emh::ReadStatus::Complete(n),
+            ReadStatus::NeedMore(n) => emh::ReadStatus::NeedMore(n),
+            ReadStatus::EarlyStop(n) => emh::ReadStatus::EarlyStop(n),
+        }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<WriteStatus> for emh::WriteStatus {
+    fn from(value: WriteStatus) -> Self {
+        match value {
+            WriteStatus::Stopped(n) => emh::WriteStatus::Stopped(n),
+            WriteStatus::Restarted(n) => emh::WriteStatus::Restarted(n),
+            WriteStatus::BufferFull(n) => emh::WriteStatus::BufferFull(n),
+        }
+    }
+}
+
+/// 7-bit view of a matched-address [`Request`]. The matched address is
+/// truncated to seven bits (`as u8`).
+///
+/// The inherent `listen` methods never produce a repeated-start event, so
+/// this conversion never yields [`emh::Request::RepeatedStart`].
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<Request> for emh::Request<SevenBitAddress> {
+    fn from(value: Request) -> Self {
+        match value {
+            Request::Read(addr) => emh::Request::Read(addr as u8),
+            Request::Write(addr) => emh::Request::Write(addr as u8),
+            Request::Stop(addr) => emh::Request::Stop(addr as u8),
+            Request::GeneralCall => emh::Request::GeneralCall,
+            Request::SmbusAlert => emh::Request::SmbusAlert,
+        }
+    }
+}
+
+/// 10-bit (lossless) view of a matched-address [`Request`].
+///
+/// The inherent `listen` methods never produce a repeated-start event, so
+/// this conversion never yields [`emh::Request::RepeatedStart`].
+#[cfg(feature = "embedded-mcu-hal")]
+impl From<Request> for emh::Request<TenBitAddress> {
+    fn from(value: Request) -> Self {
+        match value {
+            Request::Read(addr) => emh::Request::Read(addr),
+            Request::Write(addr) => emh::Request::Write(addr),
+            Request::Stop(addr) => emh::Request::Stop(addr),
+            Request::GeneralCall => emh::Request::GeneralCall,
+            Request::SmbusAlert => emh::Request::SmbusAlert,
+        }
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'d, M: Mode> I2c<'d, M> {
+    /// Bring the target back to a known-clean baseline while preserving the
+    /// configured addressing, general-call / SMBus-alert settings, and
+    /// clocking.
+    ///
+    /// This is the shared implementation behind the blocking and async
+    /// `recover` trait methods. All work is synchronous register access
+    /// performed inside a single critical section, which makes the async
+    /// wrapper trivially cancellation-safe and re-entrant.
+    fn recover_inner(&self) {
+        critical_section::with(|_| {
+            // Stop driving SCL/SDA by disabling the target.
+            self.info.regs().scr().modify(|w| w.set_sen(false));
+
+            // Drop any in-flight FIFO bytes.
+            self.info.regs().scr().modify(|w| {
+                w.set_rtf(ScrRtf::NowEmpty);
+                w.set_rrf(ScrRrf::NowEmpty);
+            });
+
+            // Disable any DMA request enables left set by a cancelled DMA
+            // respond future.
+            self.info.regs().sder().modify(|w| {
+                w.set_tdde(false);
+                w.set_rdde(false);
+            });
+
+            // Mask all target interrupts (write 0). The async wait helpers
+            // re-enable exactly the interrupts they need before awaiting.
+            self.info.regs().sier().write(|_| {});
+
+            // Clear latched bus-event status.
+            self.clear_status();
+
+            // Re-enable the target. Addressing (SAMR/SCFGR1) and clocking are
+            // untouched, so the next `listen` accepts a fresh transaction
+            // without re-initialising the driver.
+            self.info.regs().scr().modify(|w| w.set_sen(true));
+        });
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+impl<'d, A: AddressMode> emh::blocking::I2c<A> for I2c<'d, Blocking>
+where
+    Request: Into<emh::Request<A>>,
+{
+    fn recover(&mut self) -> Result<(), Self::Error> {
+        self.recover_inner();
+        Ok(())
+    }
+
+    fn listen(&mut self) -> Result<emh::Request<A>, Self::Error> {
+        self.blocking_listen().map(Into::into)
+    }
+
+    fn respond_to_read(&mut self, buf: &[u8]) -> Result<emh::ReadStatus, Self::Error> {
+        self.blocking_respond_to_read(buf).map(Into::into)
+    }
+
+    fn respond_to_write(&mut self, buf: &mut [u8]) -> Result<emh::WriteStatus, Self::Error> {
+        self.blocking_respond_to_write(buf).map(Into::into)
+    }
+}
+
+#[cfg(feature = "embedded-mcu-hal")]
+#[allow(private_bounds)]
+impl<'d, M: AsyncMode, A: AddressMode> emh::asynch::I2c<A> for I2c<'d, M>
+where
+    Self: AsyncEngine,
+    Request: Into<emh::Request<A>>,
+{
+    async fn recover(&mut self) -> Result<(), Self::Error> {
+        self.recover_inner();
+        Ok(())
+    }
+
+    async fn listen(&mut self) -> Result<emh::Request<A>, Self::Error> {
+        self.async_listen().await.map(Into::into)
+    }
+
+    async fn respond_to_read(&mut self, buf: &[u8]) -> Result<emh::ReadStatus, Self::Error> {
+        self.async_respond_to_read(buf).await.map(Into::into)
+    }
+
+    async fn respond_to_write(&mut self, buf: &mut [u8]) -> Result<emh::WriteStatus, Self::Error> {
+        self.async_respond_to_write(buf).await.map(Into::into)
     }
 }

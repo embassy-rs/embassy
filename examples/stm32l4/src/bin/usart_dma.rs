@@ -4,11 +4,12 @@
 use core::fmt::Write;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use heapless::String;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     UART4 => usart::InterruptHandler<peripherals::UART4>;

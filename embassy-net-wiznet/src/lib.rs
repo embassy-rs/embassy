@@ -66,10 +66,15 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, 
     pub async fn run(mut self) -> ! {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
         let mut tick = Ticker::every(Duration::from_millis(500));
+
+        // Signals that there are more RX frames to read
+        let mut rx_frames_remaining = false;
         loop {
             match select3(
                 async {
-                    self.int.wait_for_low().await.ok();
+                    if !rx_frames_remaining {
+                        self.int.wait_for_low().await.ok();
+                    }
                     rx_chan.rx_buf().await
                 },
                 tx_chan.tx_buf(),
@@ -78,9 +83,16 @@ impl<'d, C: Chip, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, C, SPI, 
             .await
             {
                 Either3::First(mut p) => {
-                    if let Ok(n) = self.mac.read_frame(&mut p).await {
-                        p.rx_done(n);
-                    }
+                    match self.mac.read_frame(&mut p).await {
+                        Ok(n @ 1..) => {
+                            p.rx_done(n);
+                            rx_frames_remaining = true;
+                        }
+                        // Empty RX buffer, or a read error: no more frames to read
+                        Ok(0) | Err(_) => {
+                            rx_frames_remaining = false;
+                        }
+                    };
                 }
                 Either3::Second(mut p) => {
                     self.mac.write_frame(&mut p).await.ok();

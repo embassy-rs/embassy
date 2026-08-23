@@ -544,28 +544,20 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Configure PLLs.
     let pll_input = PllInput { csi, hse, hsi };
-    let pll1 = config.pll1.map_or_else(
-        || {
-            disable_pll(0);
-            PllOutput::default()
-        },
-        |c| init_pll(0, Some(c), &pll_input),
-    );
-    let pll2 = config.pll2.map_or_else(
-        || {
-            disable_pll(1);
-            PllOutput::default()
-        },
-        |c| init_pll(1, Some(c), &pll_input),
-    );
+    disable_pll(0);
+    let pll1 = config
+        .pll1
+        .map_or_else(PllOutput::default, |c| init_pll(0, c, &pll_input));
+    disable_pll(1);
+    let pll2 = config
+        .pll2
+        .map_or_else(PllOutput::default, |c| init_pll(1, c, &pll_input));
     #[cfg(any(rcc_h5, stm32h7, stm32h7rs))]
-    let pll3 = config.pll3.map_or_else(
-        || {
-            disable_pll(2);
-            PllOutput::default()
-        },
-        |c| init_pll(2, Some(c), &pll_input),
-    );
+    disable_pll(2);
+    #[cfg(any(rcc_h5, stm32h7, stm32h7rs))]
+    let pll3 = config
+        .pll3
+        .map_or_else(PllOutput::default, |c| init_pll(2, c, &pll_input));
 
     // Configure sysclk
     let sys = match config.sys {
@@ -969,13 +961,7 @@ fn disable_pll(num: usize) {
     RCC.pllcfgr(num).write(|w| w.set_divm(PllPreDiv::from_bits(0)));
 }
 
-fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
-    let Some(config) = config else {
-        disable_pll(num);
-
-        return PllOutput::default();
-    };
-
+fn init_pll(num: usize, config: Pll, input: &PllInput) -> PllOutput {
     let in_clk = match config.source {
         PllSource::Disable => panic!("must not set PllSource::Disable"),
         PllSource::Hsi => unwrap!(input.hsi),

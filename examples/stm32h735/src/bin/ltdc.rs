@@ -10,6 +10,7 @@
 ///
 use bouncy_box::BouncyBox;
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
@@ -24,16 +25,22 @@ use embedded_graphics::pixelcolor::raw::RawU24;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::Rectangle;
 use heapless::index_map::{Entry, FnvIndexMap};
+use panic_probe as _;
 use tinybmp::Bmp;
-use {defmt_rtt as _, panic_probe as _};
 
 const DISPLAY_WIDTH: usize = 480;
 const DISPLAY_HEIGHT: usize = 272;
 const MY_TASK_POOL_SIZE: usize = 2;
 
 // the following two display buffers consume 261120 bytes that just about fits into axis ram found on the mcu
-pub static mut FB1: [TargetPixelType; DISPLAY_WIDTH * DISPLAY_HEIGHT] = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
-pub static mut FB2: [TargetPixelType; DISPLAY_WIDTH * DISPLAY_HEIGHT] = [0; DISPLAY_WIDTH * DISPLAY_HEIGHT];
+//
+// The LTDC frame-buffer address (CFBAR) must be bus-aligned: a plain `[u8; N]` array (align 1)
+// can land at an odd address, which starves the LTDC FIFO and reports FifoUnderrun on every
+// frame. Wrap the buffers so the linker aligns them to the AXI bus width.
+#[repr(C, align(32))]
+pub struct Framebuffer(pub [TargetPixelType; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
+pub static mut FB1: Framebuffer = Framebuffer([0; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
+pub static mut FB2: Framebuffer = Framebuffer([0; DISPLAY_WIDTH * DISPLAY_HEIGHT]);
 
 bind_interrupts!(struct Irqs {
     LTDC => ltdc::InterruptHandler<peripherals::LTDC>;
@@ -48,6 +55,13 @@ async fn main(spawner: Spawner) {
     // blink the led on another task
     let led = Output::new(p.PC3, Level::High, Speed::Low);
     spawner.spawn(unwrap!(led_task(led)));
+
+    // The panel control pins are not part of the LTDC signal interface and must be driven
+    // separately: LCD_DISP (PD10) takes the panel out of standby, LCD_BL_CTRL (PG15) enables
+    // the backlight. Leaving either floating shows a blank/white panel regardless of the
+    // video content.
+    let _lcd_disp = Output::new(p.PD10, Level::High, Speed::Low);
+    let _lcd_backlight = Output::new(p.PG15, Level::High, Speed::Low);
 
     // numbers from STMicroelectronics/STM32CubeH7 STM32H735G-DK C-based example
     const RK043FN48H_HSYNC: u16 = 41; // Horizontal synchronization
@@ -100,8 +114,8 @@ async fn main(spawner: Spawner) {
     // Safety: the DoubleBuffer controls access to the statically allocated frame buffers
     // and it is the only thing that mutates their content
     let mut double_buffer = DoubleBuffer::new(
-        unsafe { FB1.as_mut() },
-        unsafe { FB2.as_mut() },
+        unsafe { FB1.0.as_mut() },
+        unsafe { FB2.0.as_mut() },
         layer_config,
         color_map,
     );

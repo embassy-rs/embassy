@@ -3,9 +3,10 @@
 
 use cortex_m_rt::entry;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::usart::{Config, Uart};
 use embassy_stm32::{bind_interrupts, peripherals, usart};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USART3 => usart::InterruptHandler<peripherals::USART3>;

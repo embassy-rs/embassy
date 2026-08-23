@@ -157,9 +157,12 @@ impl<'d> Qdec<'d> {
     }
 
     /// Perform an asynchronous read of the decoder.
-    /// The returned future can be awaited to obtain the number of steps.
+    /// The returned future can be awaited to obtain the number of steps
+    /// accumulated since the previous read.
     ///
-    /// If the future is dropped, the read is cancelled.
+    /// This method is cancel-safe: if the future is dropped before it
+    /// completes, no counts are lost; they stay in the accumulator and are
+    /// returned by the next read.
     ///
     /// # Example
     ///
@@ -180,7 +183,6 @@ impl<'d> Qdec<'d> {
     /// ```
     pub async fn read(&mut self) -> i16 {
         self.r.intenset().write(|w| w.set_reportrdy(true));
-        self.r.tasks_readclracc().write_value(1);
 
         let state = self.state;
         let r = self.r;
@@ -190,6 +192,7 @@ impl<'d> Qdec<'d> {
                 Poll::Pending
             } else {
                 r.events_reportrdy().write_value(0);
+                r.tasks_readclracc().write_value(1);
                 let acc = r.accread().read();
                 Poll::Ready(acc as i16)
             }

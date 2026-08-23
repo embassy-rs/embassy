@@ -8,15 +8,17 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::clocks::periph_helpers::{Div4, I3cClockSel};
 use embassy_mcxa::config::Config;
-use embassy_mcxa::i3c::controller::{self, BusType, I3c, IbiSlot, InterruptHandler, Operation, Payload};
+use embassy_mcxa::i3c::controller::{self, BusType, I3c, IbiEvent, IbiSlot, InterruptHandler, Operation, Payload};
 use embassy_mcxa::peripherals::I3C0;
 use embassy_time::Timer;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 const TARGET_STATIC_ADDR: u8 = 0x0a;
 const TARGET_DYNAMIC_ADDR: u8 = 0x0b;
@@ -98,7 +100,10 @@ async fn main(_spawner: Spawner) {
             .unwrap();
 
         let mut ibi_buf = [0u8; 8];
-        let (_ibi_addr, _ibi_len) = i3c.async_wait_for_ibi(&mut ibi_buf).await.unwrap();
+        match i3c.async_wait_for_ibi(&mut ibi_buf).await.unwrap() {
+            IbiEvent::Ibi { .. } => {}
+            event => panic!("unexpected IBI event: {:?}", event),
+        }
 
         let mut buf = [0u8; CTRL_RD_LEN];
         match i3c.async_read(TARGET_DYNAMIC_ADDR, &mut buf, BusType::I3cSdr).await {

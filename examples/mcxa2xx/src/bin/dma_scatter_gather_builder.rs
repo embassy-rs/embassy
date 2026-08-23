@@ -20,11 +20,13 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{DmaChannel, ScatterGatherBuilder};
+use panic_probe as _;
 use static_cell::ConstStaticCell;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Source buffers (multiple segments)
 static SRC1: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([0x11111111, 0x22222222, 0x33333333, 0x44444444]);

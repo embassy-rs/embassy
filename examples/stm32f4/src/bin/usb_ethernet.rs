@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net::tcp::TcpSocket;
@@ -13,8 +14,8 @@ use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
 use embedded_io_async::Write;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 type UsbDriver = Driver<'static, embassy_stm32::peripherals::USB_OTG_FS>;
 

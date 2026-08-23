@@ -1,10 +1,12 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::clocks::config::Div8;
 use hal::lpuart::{Blocking, Config, Lpuart};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 /// Simple helper to write a byte as hex to UART
 fn write_hex_byte(uart: &mut Lpuart<'_, Blocking>, byte: u8) {

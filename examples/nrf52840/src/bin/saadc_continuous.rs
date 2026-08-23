@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::saadc::{CallbackResult, ChannelConfig, Config, Saadc};
 use embassy_nrf::timer::Frequency;
 use embassy_nrf::{bind_interrupts, saadc};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Demonstrates both continuous sampling and scanning multiple channels driven by a PPI linked timer
 

@@ -5,9 +5,10 @@
 
 use cortex_m::asm::nop;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nxp::gpio::{Level, Output};
-use {defmt_rtt as _, panic_halt as _};
+use panic_halt as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

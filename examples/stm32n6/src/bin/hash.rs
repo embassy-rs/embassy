@@ -2,13 +2,14 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::hash::*;
 use embassy_stm32::{Config, bind_interrupts, hash, peripherals};
 use embassy_time::Instant;
 use hmac::{Hmac, Mac};
+use panic_probe as _;
 use sha2::{Digest, Sha256};
-use {defmt_rtt as _, panic_probe as _};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -18,7 +19,9 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    let config = Config::default();
+    // DK uses external SMPS (UM3300 Tab.6); embassy default = internal SMPS hangs init() at VOSRDY.
+    let mut config = Config::default();
+    config.rcc.supply_config = embassy_stm32::rcc::SupplyConfig::External;
     let p = embassy_stm32::init(config);
 
     let test_1: &[u8] = b"as;dfhaslfhas;oifvnasd;nifvnhasd;nifvhndlkfghsd;nvfnahssdfgsdafgsasdfasdfasdfasdfasdfghjklmnbvcalskdjghalskdjgfbaslkdjfgbalskdjgbalskdjbdfhsdfhsfghsfghfgh";

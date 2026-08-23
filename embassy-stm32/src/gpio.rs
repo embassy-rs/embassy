@@ -32,17 +32,8 @@ impl<'d> Flex<'d> {
         Self { pin: pin.into() }
     }
 
-    /// Reborrow into a "child" Flex.
-    ///
-    /// `self` will stay borrowed until the child Peripheral is dropped.
-    pub fn reborrow(&mut self) -> Flex<'_> {
-        Flex {
-            pin: self.pin.reborrow(),
-        }
-    }
-
     /// Unsafely clone (duplicate) a Flex.
-    pub unsafe fn clone_unchecked(&self) -> Flex<'d> {
+    pub const unsafe fn clone_unchecked(&self) -> Flex<'d> {
         Flex {
             pin: self.pin.clone_unchecked(),
         }
@@ -345,7 +336,7 @@ impl<'d> Input<'d> {
     /// peripheral token. The pin should already be configured as an input via
     /// [`Flex::set_as_input()`].
     #[inline]
-    pub fn from_flex(pin: Flex<'d>) -> Self {
+    pub const fn from_flex(pin: Flex<'d>) -> Self {
         Self { pin }
     }
 
@@ -692,7 +683,7 @@ fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
 }
 
 #[inline(never)]
-#[cfg(all(gpio_v2, not(stm32c5)))]
+#[cfg(gpio_v2)]
 fn set_speed(pin_port: PinNumber, speed: Speed) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -722,7 +713,6 @@ pub(crate) fn set_as_analog(pin_port: PinNumber) {
 }
 
 #[inline(never)]
-#[cfg(not(stm32c5))]
 fn get_pull(pin_port: PinNumber) -> Pull {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
@@ -804,7 +794,7 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
-    #[cfg(all(gpio_v2, not(stm32c5)))]
+    #[cfg(gpio_v2)]
     fn set_speed(&self, speed: Speed) {
         set_speed(self.pin_port(), speed)
     }
@@ -827,8 +817,8 @@ pub(crate) trait SealedPin {
     }
 
     /// Get the pull-up configuration.
+    #[allow(unused)]
     #[inline]
-    #[cfg(not(stm32c5))]
     fn pull(&self) -> Pull {
         critical_section::with(|_| get_pull(self.pin_port()))
     }

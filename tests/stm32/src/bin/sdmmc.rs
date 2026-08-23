@@ -8,12 +8,13 @@ use aligned::Aligned;
 use block_device_driver::BlockDevice as _;
 use common::*;
 use defmt::assert_eq;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::{bind_interrupts, peripherals, sdmmc};
 use embassy_time::Delay;
+use panic_probe as _;
 use sdio::BlockDevice;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SDIO => sdmmc::InterruptHandler<peripherals::SDIO>;

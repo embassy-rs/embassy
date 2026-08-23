@@ -2,11 +2,12 @@
 #![no_main]
 use cortex_m::singleton;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, SampleTime};
 use embassy_stm32::{Peripherals, bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA2_STREAM0 => dma::InterruptHandler<peripherals::DMA2_CH0>;

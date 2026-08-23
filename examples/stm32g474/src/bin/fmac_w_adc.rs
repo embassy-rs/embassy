@@ -2,16 +2,17 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel, Exten, RegularAdcTrigger, SampleTime};
 use embassy_stm32::fmac::{self, Q16};
 use embassy_stm32::hrtim::stm32_hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals, triggers};
+use panic_probe as _;
 use stm32_hrtim::HrPwmAdvExt;
 use stm32_hrtim::compare_register::HrCompareRegister;
 use stm32_hrtim::output::NoPin;
 use stm32_hrtim::timer::HrTimer;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
@@ -103,7 +104,7 @@ async fn main(_spawner: Spawner) {
     loop {
         if let Some(raw) = from_adc.read() {
             // raw is in Q1.15 format, convert back to u16
-            let filtered_value = raw.inner;
+            let filtered_value = raw.into_bits();
             defmt::println!("reading: {}", filtered_value);
         }
     }

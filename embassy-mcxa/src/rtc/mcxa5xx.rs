@@ -1,4 +1,5 @@
 //! RTC DateTime driver.
+use core::future::Future;
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
@@ -301,6 +302,14 @@ pub struct Config {
     compensation: Compensation,
 }
 
+impl Config {
+    /// Set the RTC clock select.
+    pub fn with_clksel(mut self, clksel: ClkSel) -> Self {
+        self.clksel = clksel;
+        self
+    }
+}
+
 /// Errors exclusive to HW initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -572,12 +581,18 @@ impl<'a> Rtc<'a> {
         Ok(())
     }
 
-    /// Set alarm to `t` and wait for the RTC alarm interrup to trigger.
+    /// Program the RTC alarm and return a future that does not borrow the RTC.
+    ///
+    /// This allows callers that protect the RTC with a mutex to release the
+    /// mutex before waiting for the alarm interrupt.
     ///
     /// # Errors
     ///
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
-    pub async fn wait_for_alarm(&mut self, t: DateTime) -> Result<(), RtcError> {
+    pub fn wait_for_alarm_unlocked(
+        &mut self,
+        t: DateTime,
+    ) -> Result<impl Future<Output = Result<(), RtcError>> + 'static, RtcError> {
         self.is_valid_datetime(t)?;
 
         let year = (t.year - Self::BASE_YEAR) as u8;
@@ -604,21 +619,27 @@ impl<'a> Rtc<'a> {
         });
 
         self.info.regs().alm_seconds().write(|w| w.set_alm_sec(second));
-
-        self.info
-            .wait_cell()
-            .wait_for(|| {
-                self.info.regs().ier().modify(|w| w.set_alm_ie(true));
-                self.info.regs().isr().read().alm_is()
-            })
-            .await
-            .map_err(|_| RtcError::Other)?;
-
-        self.info.regs().isr().write(|w| w.set_alm_is(true));
-
+        self.info.regs().ier().modify(|w| w.set_alm_ie(true));
         self.enable_write_protect();
+        let info = self.info;
+        Ok(async move {
+            info.wait_cell()
+                .wait_for(|| info.regs().isr().read().alm_is())
+                .await
+                .map_err(|_| RtcError::Other)?;
+            info.regs().isr().write(|w| w.set_alm_is(true));
 
-        Ok(())
+            Ok(())
+        })
+    }
+
+    /// Set alarm to `t` and wait for the RTC alarm interrupt to trigger.
+    ///
+    /// # Errors
+    ///
+    /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
+    pub async fn wait_for_alarm(&mut self, t: DateTime) -> Result<(), RtcError> {
+        self.wait_for_alarm_unlocked(t)?.await
     }
 }
 

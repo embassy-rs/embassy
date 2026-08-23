@@ -2,11 +2,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::rcc::{Sysclk, mux};
 use embassy_stm32_wpan::bindings::mac::{ST_MAC_callbacks_t, ST_MAC_init};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 static _MAC_CALLBACKS: ST_MAC_callbacks_t = ST_MAC_callbacks_t {
     mlmeAssociateCnfCb: None,       // ST_MAC_MLMEAssociateCnfCbPtr,

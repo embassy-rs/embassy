@@ -182,6 +182,8 @@ tick-hz-20_000_000 = []
 tick-hz-20_480_000 = []
 ## 24.0MHz Tick Rate
 tick-hz-24_000_000 = []
+## 27.0MHz Tick Rate
+tick-hz-27_000_000 = []
 ## 30.0MHz Tick Rate
 tick-hz-30_000_000 = []
 ## 32.0MHz Tick Rate

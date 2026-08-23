@@ -12,13 +12,14 @@ use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Binding;
 use crate::pac::dma::vals::TreqSel;
 use crate::peripherals::{ADC, ADC_TEMP_SENSOR};
-use crate::{Peri, RegExt, dma, interrupt, pac, peripherals};
+use crate::{Peri, RegExt, dma, interrupt, mode, pac, peripherals};
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 /// ADC config.
 #[non_exhaustive]
 #[derive(Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {}
 
 #[derive(Debug)]
@@ -242,7 +243,7 @@ impl<'d> Adc<'d, Async> {
         buf: &mut [W],
         fcs_err: bool,
         div: u16,
-        dma_ch: &mut dma::Channel<'_>,
+        dma_ch: &mut dma::Channel<'_, mode::Async>,
     ) -> Result<(), Error> {
         #[cfg(feature = "rp2040")]
         let mut rrobin = 0_u8;
@@ -323,7 +324,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut [Channel<'_>],
         buf: &mut [S],
         div: u16,
-        dma: &mut dma::Channel<'_>,
+        dma: &mut dma::Channel<'_, mode::Async>,
     ) -> Result<(), Error> {
         self.read_many_inner(ch.iter().map(|c| c.channel()), buf, false, div, dma)
             .await
@@ -339,7 +340,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut [Channel<'_>],
         buf: &mut [Sample],
         div: u16,
-        dma: &mut dma::Channel<'_>,
+        dma: &mut dma::Channel<'_, mode::Async>,
     ) {
         // errors are reported in individual samples
         let _ = self
@@ -362,7 +363,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [S],
         div: u16,
-        dma: &mut dma::Channel<'_>,
+        dma: &mut dma::Channel<'_, mode::Async>,
     ) -> Result<(), Error> {
         self.read_many_inner([ch.channel()].into_iter(), buf, false, div, dma)
             .await
@@ -377,7 +378,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [Sample],
         div: u16,
-        dma: &mut dma::Channel<'_>,
+        dma: &mut dma::Channel<'_, mode::Async>,
     ) {
         // errors are reported in individual samples
         let _ = self

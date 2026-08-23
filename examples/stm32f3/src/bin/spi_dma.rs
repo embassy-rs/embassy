@@ -5,13 +5,14 @@ use core::fmt::Write;
 use core::str::from_utf8;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::{DMA1_CH2, DMA1_CH3};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, dma};
 use heapless::String;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL2 => dma::InterruptHandler<DMA1_CH2>;

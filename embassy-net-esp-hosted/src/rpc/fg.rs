@@ -97,6 +97,7 @@ impl RpcBackend for FgBackend {
             0 => Some(InterfaceType::Sta),
             2 => Some(InterfaceType::Serial),
             3 => Some(InterfaceType::Hci),
+            4 => Some(InterfaceType::Priv),
             _ => None,
         }
     }

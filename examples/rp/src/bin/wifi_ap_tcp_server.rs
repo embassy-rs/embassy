@@ -7,9 +7,10 @@
 
 use core::str::from_utf8;
 
-use cyw43::aligned_bytes;
+use cyw43::{ApAuth, aligned_bytes};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Config, StackResources};
@@ -20,8 +21,8 @@ use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Duration;
 use embedded_io_async::Write;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -40,7 +41,7 @@ async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'sta
     runner.run().await
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     info!("Hello World!");
 
@@ -99,8 +100,10 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(net_task(runner)));
 
-    //control.start_ap_open("cyw43", 5).await;
-    control.start_ap_wpa2("cyw43", "password", 5).await;
+    control.start_ap("cyw43", "password", ApAuth::Wpa2, 5).await;
+    // WPA3 requires compatible CYW43 firmware and client support.
+    // control.start_ap("cyw43", "password", ApAuth::Wpa3, 5).await;
+    // control.start_ap("cyw43", "password", ApAuth::Wpa2Wpa3, 5).await;
 
     // And now we can use it!
 

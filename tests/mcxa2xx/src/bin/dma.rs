@@ -3,11 +3,13 @@
 
 teleprobe_meta::target!(b"frdm-mcx-a266");
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{DmaChannel, TransferOptions};
+use panic_probe as _;
 use static_cell::ConstStaticCell;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const BUFFER_LENGTH: usize = 4;
 

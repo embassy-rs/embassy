@@ -160,7 +160,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, _injected: bool) {
         let mut is_ordered_up = true;
         let mut is_ordered_down = true;
 
@@ -289,6 +289,11 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
 
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
+    }
+
+    /// Read the currently configured resolution for this ADC driver and return it.
+    pub fn resolution(&self) -> Resolution {
+        T::regs().cfgr1().read().res().into()
     }
 
     #[cfg(adc_l0)]

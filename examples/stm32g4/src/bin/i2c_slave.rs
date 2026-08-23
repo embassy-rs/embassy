@@ -3,13 +3,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{Address, OwnAddresses, SlaveCommandKind};
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;

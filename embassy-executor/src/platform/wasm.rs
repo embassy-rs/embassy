@@ -1,5 +1,5 @@
 #[cfg(feature = "executor-interrupt")]
-compile_error!("`executor-interrupt` is not supported with `arch-wasm`.");
+compile_error!("`executor-interrupt` is not supported with `platform-wasm`.");
 
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
@@ -15,11 +15,16 @@ mod thread {
     use crate::raw::util::UninitCell;
     use crate::{Spawner, raw};
 
-    #[unsafe(export_name = "__pender")]
-    fn __pender(context: *mut ()) {
-        let signaler: &'static WasmContext = unsafe { std::mem::transmute(context) };
-        let _ = signaler.promise.then(unsafe { signaler.closure.as_mut() });
+    struct WasmPender;
+
+    impl crate::pender::Pender for WasmPender {
+        fn pend(context: *mut ()) {
+            let signaler: &'static WasmContext = unsafe { std::mem::transmute(context) };
+            let _ = signaler.promise.then(unsafe { signaler.closure.as_mut() });
+        }
     }
+
+    pender_impl!(WasmPender);
 
     pub(crate) struct WasmContext {
         promise: Promise,

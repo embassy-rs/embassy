@@ -9,13 +9,14 @@ use core::f32::consts::PI;
 
 use common::*;
 use defmt::assert;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::dac::DacChannel;
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use micromath::F32Ext;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     ADC1 => embassy_stm32::adc::InterruptHandler<peripherals::ADC1>;

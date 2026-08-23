@@ -77,7 +77,17 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
     {
         #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
         let ports = &[pac::P0, pac::P1];
-        #[cfg(not(any(feature = "_nrf51", feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340")))]
+        #[cfg(all(feature = "_nrf54l", not(feature = "_gpio-p3")))]
+        let ports = &[pac::P0, pac::P1];
+        #[cfg(all(feature = "_nrf54l", feature = "_gpio-p3"))]
+        let ports = &[pac::P0, pac::P1, pac::P3];
+        #[cfg(not(any(
+            feature = "_nrf51",
+            feature = "nrf52833",
+            feature = "nrf52840",
+            feature = "_nrf5340",
+            feature = "_nrf54l"
+        )))]
         let ports = &[pac::P0];
 
         for &p in ports {
@@ -203,13 +213,16 @@ unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
     if eport.read() != 0 {
         eport.write_value(0);
 
-        #[cfg(any(
-            feature = "nrf52833",
-            feature = "nrf52840",
-            feature = "_nrf5340",
-            feature = "_nrf54l"
-        ))]
-        let ports = &[pac::P0, pac::P1];
+        // Paired with the port index rather than enumerated: `PORT_WAKERS` is
+        // indexed by `port * 32 + pin`. But nRF54LM20's sense-capable ports are
+        // not contiguous — P2 has no sense mechanism, so it is skipped while P3
+        // must keep index 3.
+        #[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
+        let ports = &[(0usize, pac::P0), (1, pac::P1)];
+        #[cfg(all(feature = "_nrf54l", not(feature = "_gpio-p3")))]
+        let ports = &[(0usize, pac::P0), (1, pac::P1)];
+        #[cfg(all(feature = "_nrf54l", feature = "_gpio-p3"))]
+        let ports = &[(0usize, pac::P0), (1, pac::P1), (3, pac::P3)];
         #[cfg(not(any(
             feature = "_nrf51",
             feature = "nrf52833",
@@ -217,12 +230,12 @@ unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
             feature = "_nrf5340",
             feature = "_nrf54l"
         )))]
-        let ports = &[pac::P0];
+        let ports = &[(0usize, pac::P0)];
         #[cfg(feature = "_nrf51")]
-        let ports = &[pac::GPIO];
+        let ports = &[(0usize, pac::GPIO)];
 
         #[cfg(feature = "_nrf51")]
-        for (port, &p) in ports.iter().enumerate() {
+        for &(port, p) in ports {
             let inp = p.in_().read();
             for pin in 0..32 {
                 let fired = match p.pin_cnf(pin as usize).read().sense() {
@@ -239,7 +252,7 @@ unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
         }
 
         #[cfg(not(feature = "_nrf51"))]
-        for (port, &p) in ports.iter().enumerate() {
+        for &(port, p) in ports {
             let bits = p.latch().read().0;
             for pin in BitIter(bits) {
                 p.pin_cnf(pin as usize).modify(|w| w.set_sense(Sense::Disabled));
@@ -340,6 +353,8 @@ impl<'d> InputChannel<'d> {
                 crate::gpio::Port::Port0 => 0,
                 crate::gpio::Port::Port1 => 1,
                 crate::gpio::Port::Port2 => 2,
+                #[cfg(feature = "_gpio-p3")]
+                crate::gpio::Port::Port3 => 3,
             });
             w.set_psel(pin.pin.pin.pin());
         });
@@ -517,6 +532,8 @@ impl<'d> OutputChannel<'d> {
                 crate::gpio::Port::Port0 => 0,
                 crate::gpio::Port::Port1 => 1,
                 crate::gpio::Port::Port2 => 2,
+                #[cfg(feature = "_gpio-p3")]
+                crate::gpio::Port::Port3 => 3,
             });
             w.set_psel(pin.pin.pin.pin());
         });

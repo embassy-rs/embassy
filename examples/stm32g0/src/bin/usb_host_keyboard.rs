@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AfType, Level, Output, OutputType, Speed};
 use embassy_stm32::i2c::{self, I2c};
@@ -10,7 +11,7 @@ use embassy_stm32::{Config, bind_interrupts, dma, pac, peripherals, usb};
 use embassy_time::Timer;
 use embassy_usb_host::class::hid::HidHost;
 use embassy_usb_host::{BusRoute, BusState};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 pub use crate::pac::rcc::vals::Mcosel;
 

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Fix panic in `Runner::run` when a received packet is larger than the MTU (1500). Such packets are now dropped with a warning.
+
 ## 0.3.0 - 2026-03-11
 
 - Update to embedded-io 0.7

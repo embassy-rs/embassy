@@ -4,6 +4,7 @@
 use core::net::Ipv6Addr;
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{Ipv6Cidr, StackResources, StaticConfigV6};
@@ -19,8 +20,8 @@ use embassy_stm32_wpan::sub::mac::ControllerAdapter;
 use embassy_stm32_wpan::sub::mm;
 use embassy_time::{Duration, Timer};
 use heapless::Vec;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;

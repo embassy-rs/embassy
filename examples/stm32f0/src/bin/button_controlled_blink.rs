@@ -6,12 +6,13 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{AnyPin, Level, Output, Pull, Speed};
 use embassy_stm32::{Peri, bind_interrupts, interrupt};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 static BLINK_MS: AtomicU32 = AtomicU32::new(0);
 

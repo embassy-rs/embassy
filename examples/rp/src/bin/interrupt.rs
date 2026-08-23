@@ -11,6 +11,7 @@
 use core::cell::{Cell, RefCell};
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Blocking};
 use embassy_rp::gpio::Pull;
@@ -20,9 +21,9 @@ use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Ticker};
+use panic_probe as _;
 use portable_atomic::{AtomicU32, Ordering};
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 static PWM: Mutex<CriticalSectionRawMutex, RefCell<Option<Pwm>>> = Mutex::new(RefCell::new(None));
@@ -30,7 +31,7 @@ static ADC: Mutex<CriticalSectionRawMutex, RefCell<Option<(Adc<Blocking>, adc::C
     Mutex::new(RefCell::new(None));
 static ADC_VALUES: Channel<CriticalSectionRawMutex, u16, 2048> = Channel::new();
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
