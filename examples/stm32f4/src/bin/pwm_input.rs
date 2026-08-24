@@ -2,13 +2,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::pwm_input::PwmInput;
 use embassy_stm32::{Peri, bind_interrupts, peripherals, timer};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// Connect PB2 and PA6 with a 1k Ohm resistor
 

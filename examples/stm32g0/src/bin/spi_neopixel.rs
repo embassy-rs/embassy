@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dma::word::U5;
 use embassy_stm32::dma::{self};
@@ -9,7 +10,7 @@ use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const NR_PIXELS: usize = 15;
 const BITS_PER_PIXEL: usize = 24; // 24 for rgb, 32 for rgbw

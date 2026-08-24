@@ -288,6 +288,7 @@ impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::RTC_IRQ> 
 
 /// Errors that can occur on methods on [Rtc]
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RtcError {
     /// An invalid DateTime was given or stored on the hardware.
     InvalidDateTime(DateTimeError),

@@ -108,7 +108,11 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
+    fn configure_sequence(
+        &self,
+        sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>,
+        _injected: bool,
+    ) {
         let mut needs_hw = sequence.len() == 1 || sequence.len() > CHSELR_SQ_SIZE;
         let mut is_ordered_up = true;
         let mut is_ordered_down = true;
@@ -232,6 +236,11 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         });
 
         Self { adc }
+    }
+
+    /// Read the currently configured resolution for this ADC driver and return it.
+    pub fn resolution(&self) -> Resolution {
+        T::regs().cfgr1().read().res().into()
     }
 
     /// Enable reading the voltage reference internal channel.

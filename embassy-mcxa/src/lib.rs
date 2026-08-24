@@ -13,8 +13,6 @@
 #[cfg(feature = "mcxa2xx")]
 #[path = "."]
 mod mcxa2xx_exclusive {
-    pub mod flash; // TODO: Add dummy driver to metadata
-
     pub use crate::chips::mcxa2xx::init;
 }
 
@@ -44,6 +42,9 @@ pub mod ctimer;
 pub mod dma;
 #[cfg(feature = "executor-platform")]
 pub mod executor;
+pub mod flash; // TODO: Add dummy driver to metadata
+#[cfg(mcxa_can)]
+pub mod flexcan;
 #[cfg(mcxa_flexspi)]
 pub mod flexspi;
 #[cfg(mcxa_gpio)]

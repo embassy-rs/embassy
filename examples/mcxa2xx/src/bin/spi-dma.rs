@@ -2,14 +2,16 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_time::Timer;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::peripherals::LPSPI1;
 use hal::spi::controller::{self, InterruptHandler, Spi};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     struct Irqs {

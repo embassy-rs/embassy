@@ -6,11 +6,12 @@ teleprobe_meta::target!(b"rpi-pico");
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert_eq, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::uart::{Blocking, Config, Error, Parity, Uart, UartRx};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 fn read<const N: usize>(uart: &mut Uart<'_, Blocking>) -> Result<[u8; N], Error> {
     let mut buf = [255; N];

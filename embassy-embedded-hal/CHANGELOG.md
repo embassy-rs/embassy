@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Implement `core::error::Error` for `I2cDeviceError` and `SpiDeviceError`
+
 ## 0.6.0 - 2026-03-10
 
 - Shared I2c busses now impl `Clone`

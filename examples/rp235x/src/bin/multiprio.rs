@@ -58,12 +58,13 @@
 
 use cortex_m_rt::entry;
 use defmt::{info, unwrap};
-use embassy_executor::{Executor, InterruptExecutor};
+use defmt_rtt as _;
+use embassy_rp::executor::{Executor, InterruptExecutor};
 use embassy_rp::interrupt;
 use embassy_rp::interrupt::{InterruptExt, Priority};
 use embassy_time::{Instant, TICK_HZ, Timer};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
 async fn run_high() {

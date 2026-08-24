@@ -1,13 +1,15 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_mcxa::clkout::{ClockOut, ClockOutSel, Config, Div4};
 use embassy_mcxa::clocks::PoweredClock;
 use embassy_mcxa::clocks::config::{Div8, SoscConfig, SoscMode, SpllConfig, SpllMode, SpllSource};
 use embassy_mcxa::gpio::{DriveStrength, Level, Output, SlewRate};
 use embassy_time::Timer;
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 /// Demonstrate CLKOUT, using Pin P4.2
 #[embassy_executor::main]

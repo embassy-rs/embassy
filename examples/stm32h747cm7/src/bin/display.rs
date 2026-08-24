@@ -6,6 +6,7 @@
 use core::mem::MaybeUninit;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dsihost::panel::DsiPanel;
 use embassy_stm32::dsihost::{
@@ -24,8 +25,8 @@ use embassy_stm32h755cm7_examples::ui::Tui;
 use embassy_time::Timer;
 use mousefood::embedded_graphics::prelude::{DrawTarget, RgbColor};
 use mousefood::{EmbeddedBackend, EmbeddedBackendConfig};
+use panic_probe as _;
 use ratatui::Terminal;
-use {defmt_rtt as _, panic_probe as _};
 
 extern crate alloc;
 

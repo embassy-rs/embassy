@@ -35,6 +35,12 @@ impl State {
     }
 }
 
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// USB device class for CMSIS-DAP v2 probes.
 pub struct CmsisDapV2Class<'d, D: Driver<'d>> {
     read_ep: D::EndpointOut,

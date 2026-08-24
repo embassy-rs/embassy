@@ -4,15 +4,15 @@ use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
-use smoltcp::iface::{Interface, SocketHandle};
-pub use smoltcp::phy::ChecksumCapabilities;
-use smoltcp::socket::icmp;
-pub use smoltcp::socket::icmp::{Endpoint as IcmpEndpoint, PacketMetadata};
-use smoltcp::wire::IpAddress;
+use xarxa::iface::{Interface, SocketHandle};
+pub use xarxa::phy::ChecksumCapabilities;
+use xarxa::socket::icmp;
+pub use xarxa::socket::icmp::{Endpoint as IcmpEndpoint, PacketMetadata};
+use xarxa::wire::IpAddress;
 #[cfg(feature = "proto-ipv4")]
-pub use smoltcp::wire::{Icmpv4Message, Icmpv4Packet, Icmpv4Repr};
+pub use xarxa::wire::{Icmpv4Message, Icmpv4Packet, Icmpv4Repr};
 #[cfg(feature = "proto-ipv6")]
-pub use smoltcp::wire::{Icmpv6Message, Icmpv6Packet, Icmpv6Repr};
+pub use xarxa::wire::{Icmpv6Message, Icmpv6Packet, Icmpv6Repr};
 
 use crate::{Stack, TryError};
 
@@ -521,9 +521,9 @@ pub mod ping {
 
     use embassy_time::{Duration, Instant, Timer, WithTimeout};
     #[cfg(feature = "proto-ipv6")]
-    use smoltcp::wire::IpAddress;
+    use xarxa::wire::IpAddress;
     #[cfg(feature = "proto-ipv6")]
-    use smoltcp::wire::Ipv6Address;
+    use xarxa::wire::Ipv6Address;
 
     use super::*;
 
@@ -851,7 +851,7 @@ pub mod ping {
         /// Creates a new instance of [`PingParams`] with the specified target IP address.
         pub fn new<T: Into<IpAddr>>(target: T) -> Self {
             Self {
-                target: Some(PingParams::ip_addr_to_smoltcp(target)),
+                target: Some(PingParams::ip_addr_to_xarxa(target)),
                 #[cfg(feature = "proto-ipv6")]
                 source: None,
                 payload: b"embassy-net",
@@ -862,7 +862,7 @@ pub mod ping {
             }
         }
 
-        fn ip_addr_to_smoltcp<T: Into<IpAddr>>(ip_addr: T) -> IpAddress {
+        fn ip_addr_to_xarxa<T: Into<IpAddr>>(ip_addr: T) -> IpAddress {
             match ip_addr.into() {
                 #[cfg(feature = "proto-ipv4")]
                 IpAddr::V4(v4) => IpAddress::Ipv4(v4),
@@ -877,7 +877,7 @@ pub mod ping {
 
         /// Sets the target IP address for the ping.
         pub fn set_target<T: Into<IpAddr>>(&mut self, target: T) -> &mut Self {
-            self.target = Some(PingParams::ip_addr_to_smoltcp(target));
+            self.target = Some(PingParams::ip_addr_to_xarxa(target));
             self
         }
 

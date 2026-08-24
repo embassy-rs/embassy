@@ -97,6 +97,7 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
 }
 
 /// Encoder Count Direction
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Direction {
     /// Encoder turned clockwise
     Clockwise,

@@ -18,11 +18,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, I2c, SendStatus, SlaveAddrConfig, SlaveCommandKind};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Duration;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const I2C_ADDR: u8 = 0x42;
 const BUFFER_SIZE: usize = 32;

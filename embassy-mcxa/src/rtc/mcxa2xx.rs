@@ -1,5 +1,6 @@
 //! RTC DateTime driver.
 use core::convert::Infallible;
+use core::future::Future;
 use core::marker::PhantomData;
 
 use embassy_embedded_hal::SetConfig;
@@ -447,25 +448,28 @@ impl<'a> Rtc<'a> {
         self.info.regs().ier().modify(|w| w.set_taie(false));
     }
 
-    /// Wait for an RTC alarm to trigger.
+    /// Program the RTC alarm and return a future that does not borrow the RTC.
+    ///
+    /// This allows callers that protect the RTC with a mutex to release the
+    /// mutex before waiting for the alarm interrupt.
     ///
     /// # Arguments
     ///
     /// * `alarm` - The date and time when the alarm should trigger
-    ///
-    /// This function will wait until the RTC alarm is triggered.
-    /// If no alarm is scheduled, it will wait indefinitely until one is scheduled and triggered.
-    pub async fn wait_for_alarm(&mut self, alarm: DateTime) {
-        let wait = self.info.wait_cell().subscribe().await;
-
+    pub fn wait_for_alarm_unlocked(&mut self, alarm: DateTime) -> impl Future<Output = ()> + 'static {
         self.set_alarm(alarm);
         self.start();
 
-        // REVISIT: propagate error?
-        let _ = wait.await;
+        let info = self.info;
+        async move {
+            let _ = info.wait_cell().wait_for(|| info.regs().sr().read().taf()).await;
+            info.regs().ier().modify(|w| w.set_taie(false));
+        }
+    }
 
-        // Clear the interrupt and disable the alarm after waking up
-        self.disable_interrupt(RtcInterruptEnable::RTC_ALARM_INTERRUPT_ENABLE);
+    /// Set an RTC alarm and wait for it to trigger.
+    pub async fn wait_for_alarm(&mut self, alarm: DateTime) {
+        self.wait_for_alarm_unlocked(alarm).await
     }
 }
 

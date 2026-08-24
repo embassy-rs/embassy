@@ -53,7 +53,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{MODE_0, MODE_3, Mode, Phase, Polarity};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash};
 
-use crate::gpio::{Pin as GpioPin, SealedPin};
+use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::{interrupt, pac};
@@ -329,7 +329,12 @@ pub struct Sqspi<'d> {
     state: &'static State,
     config: Config,
     task_count: u32,
-    _phantom: PhantomData<&'d ()>,
+    sck: Peri<'d, AnyPin>,
+    csn: Peri<'d, AnyPin>,
+    io0: Peri<'d, AnyPin>,
+    io1: Peri<'d, AnyPin>,
+    io2: Peri<'d, AnyPin>,
+    io3: Peri<'d, AnyPin>,
 }
 
 impl<'d> Sqspi<'d> {
@@ -392,6 +397,12 @@ impl<'d> Sqspi<'d> {
 
         // IO2/IO3 double as quad data lines; outside quad mode they're held high
         // as plain GPIO so WP#/HOLD# stay released.
+        let sck: Peri<'d, AnyPin> = sck.into();
+        let csn: Peri<'d, AnyPin> = csn.into();
+        let io0: Peri<'d, AnyPin> = io0.into();
+        let io1: Peri<'d, AnyPin> = io1.into();
+        let io2: Peri<'d, AnyPin> = io2.into();
+        let io3: Peri<'d, AnyPin> = io3.into();
         Self::config_pin(&*sck, false, true);
         Self::config_pin(&*csn, false, true);
         Self::config_pin(&*io0, true, true);
@@ -423,7 +434,12 @@ impl<'d> Sqspi<'d> {
             state,
             config,
             task_count: 1,
-            _phantom: PhantomData,
+            sck,
+            csn,
+            io0,
+            io1,
+            io2,
+            io3,
         };
         this.asb();
         sp.events_dma().done().write_value(0);
@@ -862,6 +878,16 @@ impl<'d> Drop for Sqspi<'d> {
         self.regs.core().sqspienr().write_value(0);
         self.regs.enable().write_value(0);
         self.asb();
+
+        // Hand the pins back from the FLPR to plain GPIO before stopping it
+        self.csn.conf().write(|w| {
+            w.set_dir(gpiovals::Dir::Output);
+            w.set_input(gpiovals::Input::Disconnect);
+        });
+        for pin in [&self.sck, &self.io0, &self.io1, &self.io2, &self.io3] {
+            pin.conf().write(|w| w.set_input(gpiovals::Input::Disconnect));
+        }
+
         crate::vpr::stop_reset(self.vpr);
     }
 }

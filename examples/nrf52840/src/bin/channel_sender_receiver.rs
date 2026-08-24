@@ -2,14 +2,15 @@
 #![no_main]
 
 use defmt::unwrap;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::Peri;
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 enum LedState {
     On,

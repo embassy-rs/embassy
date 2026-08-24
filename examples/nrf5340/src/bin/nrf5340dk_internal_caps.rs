@@ -2,10 +2,11 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::config::{Config, HfclkSource, LfclkSource, LfxoCapacitance};
 use embassy_nrf::pac;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 fn print_xosc32mcaps() {
     let value = pac::OSCILLATORS.xosc32mcaps().read();

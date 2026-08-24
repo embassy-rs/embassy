@@ -12,6 +12,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel as _, Clock, Presc, RegularAdcTrigger, SampleTime};
 use embassy_stm32::pac::adc::vals::Exten;
@@ -21,7 +22,7 @@ use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::triggers::TIM1_TRGO2;
 use embassy_stm32::{bind_interrupts, dma};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA1_CHANNEL1 => dma::InterruptHandler<DMA1_CH1>;

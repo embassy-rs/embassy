@@ -6,11 +6,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mspm0::uart::{self, BufferedUart, Config};
 use embassy_mspm0::{bind_interrupts, peripherals};
 use embedded_io_async::{Read, Write};
-use {defmt_rtt as _, panic_halt as _};
+use panic_halt as _;
 
 bind_interrupts!(
     struct Irqs {

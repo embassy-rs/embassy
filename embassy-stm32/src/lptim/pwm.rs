@@ -4,11 +4,11 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 
-#[cfg(not(any(lptim_v2a, lptim_v2b)))]
+#[cfg(not(any(lptim_v2a, lptim_v2b, lptim_n6)))]
 use super::OutputPin;
 use super::timer::Timer;
 use super::{BasicInstance, Instance};
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 use super::{Channel1Pin, Channel2Pin, channel::Channel, timer::ChannelDirection};
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
@@ -26,7 +26,7 @@ pub enum Ch2 {}
 ///
 /// This wraps a pin to make it usable with PWM.
 pub struct PwmPin<'d, T, C> {
-    _pin: Flex<'d>,
+    pub(crate) pin: Flex<'d>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -53,7 +53,7 @@ macro_rules! channel_impl {
                     set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
                 });
                 PwmPin {
-                    _pin: Flex::new(pin),
+                    pin: Flex::new(pin),
                     phantom: PhantomData,
                 }
             }
@@ -70,7 +70,7 @@ macro_rules! channel_impl {
                     );
                 });
                 PwmPin {
-                    _pin: Flex::new(pin),
+                    pin: Flex::new(pin),
                     phantom: PhantomData,
                 }
             }
@@ -78,23 +78,36 @@ macro_rules! channel_impl {
     };
 }
 
-#[cfg(not(any(lptim_v2a, lptim_v2b)))]
+#[cfg(not(any(lptim_v2a, lptim_v2b, lptim_n6)))]
 channel_impl!(new, new_with_config, Output, OutputPin);
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 channel_impl!(new_ch1, new_ch1_with_config, Ch1, Channel1Pin);
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 channel_impl!(new_ch2, new_ch2_with_config, Ch2, Channel2Pin);
 
 /// PWM driver.
 pub struct Pwm<'d, T: Instance> {
     inner: Timer<'d, T>,
+    #[cfg(not(any(lptim_v2a, lptim_v2b, lptim_n6)))]
+    _output_pin: Flex<'d>,
+    #[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
+    _ch1_pin: Option<Flex<'d>>,
+    #[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
+    _ch2_pin: Option<Flex<'d>>,
 }
 
-#[cfg(not(any(lptim_v2a, lptim_v2b)))]
+#[cfg(not(any(lptim_v2a, lptim_v2b, lptim_n6)))]
 impl<'d, T: Instance> Pwm<'d, T> {
     /// Create a new PWM driver.
-    pub fn new(tim: Peri<'d, T>, _output_pin: PwmPin<'d, T, Output>, freq: Hertz) -> Self {
-        Self::new_inner(tim, freq)
+    pub fn new(tim: Peri<'d, T>, output_pin: PwmPin<'d, T, Output>, freq: Hertz) -> Self {
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _output_pin: output_pin.pin,
+        };
+
+        this.init(freq);
+
+        this
     }
 
     /// Set the duty.
@@ -115,16 +128,24 @@ impl<'d, T: Instance> Pwm<'d, T> {
     fn post_init(&mut self) {}
 }
 
-#[cfg(any(lptim_v2a, lptim_v2b))]
+#[cfg(any(lptim_v2a, lptim_v2b, lptim_n6))]
 impl<'d, T: Instance> Pwm<'d, T> {
     /// Create a new PWM driver.
     pub fn new(
         tim: Peri<'d, T>,
-        _ch1_pin: Option<PwmPin<'d, T, Ch1>>,
-        _ch2_pin: Option<PwmPin<'d, T, Ch2>>,
+        ch1_pin: Option<PwmPin<'d, T, Ch1>>,
+        ch2_pin: Option<PwmPin<'d, T, Ch2>>,
         freq: Hertz,
     ) -> Self {
-        Self::new_inner(tim, freq)
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _ch1_pin: ch1_pin.map(|pin| pin.pin),
+            _ch2_pin: ch2_pin.map(|pin| pin.pin),
+        };
+
+        this.init(freq);
+
+        this
     }
 
     /// Enable the given channel.
@@ -165,17 +186,13 @@ impl<'d, T: Instance> Pwm<'d, T> {
 }
 
 impl<'d, T: Instance> Pwm<'d, T> {
-    fn new_inner(tim: Peri<'d, T>, freq: Hertz) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+    fn init(&mut self, freq: Hertz) {
+        self.inner.enable();
+        self.set_frequency(freq);
 
-        this.inner.enable();
-        this.set_frequency(freq);
+        self.post_init();
 
-        this.post_init();
-
-        this.inner.continuous_mode_start();
-
-        this
+        self.inner.continuous_mode_start();
     }
 
     /// Set PWM frequency.

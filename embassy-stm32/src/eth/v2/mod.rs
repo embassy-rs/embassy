@@ -2,30 +2,26 @@ mod descriptors;
 #[cfg(feature = "ptp")]
 mod ptp;
 
+use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, fence};
 
 pub(crate) use descriptors::{RDes, RDesRing, TDes, TDesRing};
 use embassy_hal_internal::Peri;
 #[cfg(feature = "ptp")]
 pub use ptp::{PtpClock, PtpClockConfig, PtpSubsecondIncrement, PtpTimeProvider};
-#[cfg(eth_v2)]
+#[cfg(any(eth_v2, eth_v2b))]
 use stm32_metapac::syscfg::vals::EthSelPhy;
 
 use super::*;
 use crate::gpio::{AfType, Flex, OutputType, Speed};
-use crate::interrupt;
 use crate::interrupt::InterruptExt;
 #[cfg(eth_v2)]
 use crate::pac::ETH;
-#[cfg(eth_v2a)]
+#[cfg(any(eth_v2a, eth_v2b))]
 use crate::pac::ETH1 as ETH;
-use crate::rcc::WakeGuard;
-
-// The two MACs sit behind different interrupt lines.
-#[cfg(eth_v2)]
-type EthTypelevel = interrupt::typelevel::ETH;
-#[cfg(eth_v2a)]
-type EthTypelevel = interrupt::typelevel::ETH1;
+use crate::peripherals::SYSCFG;
+use crate::rcc::MaybeWakeGuard;
+use crate::{interrupt, rcc};
 
 /// Access a per-channel DMA/MTL register at channel 0.
 ///
@@ -33,7 +29,7 @@ type EthTypelevel = interrupt::typelevel::ETH1;
 /// channels); on eth_v2 they are plain registers.
 macro_rules! ch0 {
     ($regs:expr, $reg:ident) => {{
-        #[cfg(eth_v2)]
+        #[cfg(any(eth_v2, eth_v2b))]
         {
             $regs.$reg()
         }
@@ -45,9 +41,11 @@ macro_rules! ch0 {
 }
 
 /// Interrupt handler.
-pub struct InterruptHandler {}
+pub struct InterruptHandler<T: Instance> {
+    _marker: PhantomData<T>,
+}
 
-impl interrupt::typelevel::Handler<EthTypelevel> for InterruptHandler {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         WAKER.wake();
 
@@ -68,7 +66,7 @@ impl interrupt::typelevel::Handler<EthTypelevel> for InterruptHandler {
 /// Ethernet driver.
 pub struct Ethernet<'d, T: Instance, P: Phy> {
     _peri: Peri<'d, T>,
-    _wake_guard: WakeGuard,
+    pub(crate) wake_guard: MaybeWakeGuard,
     pub(crate) link_state: LinkState,
     pub(crate) tx: TDesRing<'d>,
     pub(crate) rx: RDesRing<'d>,
@@ -81,10 +79,9 @@ pub struct Ethernet<'d, T: Instance, P: Phy> {
 
 /// Pins of ethernet driver.
 enum Pins<'d> {
-    #[cfg(eth_v2)]
     #[allow(unused)]
     Rmii([Flex<'d>; 7]),
-    #[cfg(eth_v2)]
+    #[cfg(any(eth_v2, eth_v2b))]
     #[allow(unused)]
     Mii([Flex<'d>; 12]),
     #[cfg(eth_v2a)]
@@ -106,7 +103,6 @@ macro_rules! config_pins {
     };
 }
 
-#[cfg(eth_v2)]
 impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA>>> {
     /// Create a new RMII ethernet driver using 7 pins.
     ///
@@ -115,10 +111,11 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     ///
     /// See [`Ethernet::new_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
+    #[allow(clippy::too_many_arguments)]
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ref_clk: Peri<'d, impl RefClkPin<T>>,
         crs: Peri<'d, impl CRSPin<T>>,
         rx_d0: Peri<'d, impl RXD0Pin<T>>,
@@ -146,10 +143,11 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     ///
     /// See [`Ethernet::new_mii_with_phy`] for creating an RMII ethernet
     /// river with a non-standard PHY.
+    #[cfg(any(eth_v2, eth_v2b))]
     pub fn new_mii<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx_clk: Peri<'d, impl RXClkPin<T>>,
         tx_clk: Peri<'d, impl TXClkPin<T>>,
         rxdv: Peri<'d, impl RXDVPin<T>>,
@@ -193,7 +191,7 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     pub fn new_rgmii<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         gtx_clk: Peri<'d, impl RGMIIGTXClkPin<T>>,
         tx_ctl: Peri<'d, impl RGMIITXCtlPin<T>>,
         tx_d0: Peri<'d, impl RGMIITXD0Pin<T>>,
@@ -224,11 +222,10 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// Create a new RMII ethernet driver using 7 pins.
-    #[cfg(eth_v2)]
     pub fn new_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ref_clk: Peri<'d, impl RefClkPin<T>>,
         crs: Peri<'d, impl CRSPin<T>>,
         rx_d0: Peri<'d, impl RXD0Pin<T>>,
@@ -251,15 +248,24 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             Flex::new(tx_en),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::Rmii)
+        Self::new_inner(
+            queue,
+            peri,
+            irq,
+            pins,
+            phy,
+            mac_addr,
+            #[cfg(any(eth_v2, eth_v2b))]
+            EthSelPhy::Rmii,
+        )
     }
 
     /// Create a new MII ethernet driver using 12 pins.
-    #[cfg(eth_v2)]
+    #[cfg(any(eth_v2, eth_v2b))]
     pub fn new_mii_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx_clk: Peri<'d, impl RXClkPin<T>>,
         tx_clk: Peri<'d, impl TXClkPin<T>>,
         rxdv: Peri<'d, impl RXDVPin<T>>,
@@ -303,7 +309,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     pub fn new_rgmii_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         gtx_clk: Peri<'d, impl RGMIIGTXClkPin<T>>,
         tx_ctl: Peri<'d, impl RGMIITXCtlPin<T>>,
         tx_d0: Peri<'d, impl RGMIITXD0Pin<T>>,
@@ -349,19 +355,31 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     fn new_inner<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<EthTypelevel, InterruptHandler> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         pins: Pins<'d>,
         phy: P,
         mac_addr: [u8; 6],
-        #[cfg(eth_v2)] eth_sel_phy: EthSelPhy,
+        #[cfg(any(eth_v2, eth_v2b))] eth_sel_phy: EthSelPhy,
     ) -> Self {
         // Enable the necessary clocks
+        rcc::enable_and_reset::<SYSCFG>();
+
         #[cfg(eth_v2)]
         critical_section::with(|_| {
             crate::pac::RCC.ahb1enr().modify(|w| {
                 w.set_ethen(true);
                 w.set_ethtxen(true);
                 w.set_ethrxen(true);
+            });
+
+            crate::pac::SYSCFG.pmcr().modify(|w| w.set_eth_sel_phy(eth_sel_phy));
+        });
+        #[cfg(eth_v2b)]
+        critical_section::with(|_| {
+            crate::pac::RCC.ahb1enr().modify(|w| {
+                w.set_eth1en(true);
+                w.set_eth1txen(true);
+                w.set_eth1rxen(true);
             });
 
             crate::pac::SYSCFG.pmcr().modify(|w| w.set_eth_sel_phy(eth_sel_phy));
@@ -375,14 +393,17 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
                 w.set_eth1rxen(true);
             });
 
-            const ETH1SEL_RGMII: u8 = 0b001;
+            let eth1sel: u8 = match pins {
+                Pins::Rmii(_) => 0b100,
+                Pins::Rgmii(_) => 0b001,
+            };
 
-            // Select the RGMII PHY interface (ETH1SEL: 0b000 = MII, 0b001 = RGMII,
+            // Select the PHY interface (ETH1SEL: 0b000 = MII, 0b001 = RGMII,
             // 0b100 = RMII). The ETH1 kernel clock (ETH1CLKSEL = HCLK) and the
             // TX/RX reference clock sources (ETH1GTXCLKSEL/ETH1REFCLKSEL = external,
             // i.e. the GTX clock comes from the PHY's CLK125 output) are left at
             // their reset values.
-            crate::pac::RCC.ccipr2().modify(|w| w.set_eth1sel(ETH1SEL_RGMII));
+            crate::pac::RCC.ccipr2().modify(|w| w.set_eth1sel(eth1sel));
         });
 
         let dma = T::regs().ethernet_dma();
@@ -411,8 +432,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             // Enable RX IP header / payload checksum offload (COE). Requires RX
             // store-and-forward (set below). TX insertion is requested per-frame
             // via TDES3.CIC; together with the driver `Capabilities` this lets
-            // smoltcp skip software checksums.
-            #[cfg(eth_v2a)]
+            // xarxa skip software checksums.
             w.set_ipc(true);
             // TODO: Carrier sense ? ECRSFD
         });
@@ -488,26 +508,29 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         });
 
         ch0!(dma, dmac_tx_cr).modify(|w| {
-            #[cfg(eth_v2)]
+            #[cfg(any(eth_v2, eth_v2b))]
             w.set_txpbl(1); // 32 ?
             #[cfg(eth_v2a)]
             w.set_txpbl(32);
         });
         ch0!(dma, dmac_rx_cr).modify(|w| {
-            #[cfg(eth_v2)]
+            #[cfg(any(eth_v2, eth_v2b))]
             w.set_rxpbl(1); // 32 ?
             #[cfg(eth_v2a)]
             w.set_rxpbl(32);
             w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
-        let (tx_state, rx_state) = queue.packet_state.split();
-
         let mut this = Self {
             _peri: peri,
-            _wake_guard: T::RCC_INFO.wake_guard(),
-            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf, tx_state),
-            rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf, rx_state),
+            wake_guard: T::RCC_INFO.wake_guard().into(),
+            tx: TDesRing::new(
+                &mut queue.tx_desc,
+                &mut queue.tx_buf,
+                #[cfg(feature = "ptp")]
+                &mut queue.tx_id,
+            ),
+            rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
             _pins: pins,
             phy,
             mac_addr,
@@ -546,7 +569,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             interrupt::ETH.unpend();
             unsafe { interrupt::ETH.enable() };
         }
-        #[cfg(eth_v2a)]
+        #[cfg(any(eth_v2a, eth_v2b))]
         {
             interrupt::ETH1.unpend();
             unsafe { interrupt::ETH1.enable() };

@@ -59,6 +59,8 @@ pub mod RegsC45 {
     #[allow(non_camel_case_types, clippy::upper_case_acronyms)]
     #[repr(u16)]
     pub enum DA7 {
+        /// BASE-T1 Autonegotiation Status Register
+        AN_STATUS = 0x0201,
         /// Extra Autonegotiation Status Register
         AN_STATUS_EXTRA = 0x8001,
     }
@@ -78,6 +80,8 @@ pub mod RegsC45 {
         CRSM_IRQ_STATUS = 0x0010,
         /// System Interrupt Mask Register
         CRSM_IRQ_MASK = 0x0020,
+        /// Software Power-down Control Register
+        CRSM_SFT_PD_CNTRL = 0x8812,
         /// Pin Mux Configuration 1 Register
         DIGIO_PINMUX = 0x8c56,
         /// LED Control Register.

@@ -6,13 +6,14 @@ use core::str::from_utf8;
 
 use cortex_m_rt::entry;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Executor;
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals, spi};
 use heapless::String;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     DMA1_STREAM3 => dma::InterruptHandler<peripherals::DMA1_CH3>;

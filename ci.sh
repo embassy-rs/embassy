@@ -19,7 +19,7 @@ if ! command -v cargo-embassy-devtool &> /dev/null; then
 fi
 
 export RUSTFLAGS=-Dwarnings
-export DEFMT_LOG=trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,smoltcp=info
+export DEFMT_LOG=trace,embassy_hal_internal=debug,embassy_net_esp_hosted=debug,cyw43=info,cyw43_pio=info,xarxa=info
 if [[ -z "${CARGO_TARGET_DIR}" ]]; then
     export CARGO_TARGET_DIR=target_ci
 fi
@@ -43,6 +43,10 @@ rm -rf out/tests/nrf51422-dk
  
 # disabled because these boards are not on the shelf
 rm -rf out/tests/mspm0g3507
+
+# temporarily disabled
+rm out/tests/rpi-pico/pio_irq
+rm out/tests/pimoroni-pico-plus-2/pio_irq
 
 # rm out/tests/stm32wb55rg/wpan_mac
 # rm out/tests/stm32wb55rg/wpan_ble

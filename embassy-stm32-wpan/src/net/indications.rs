@@ -1,7 +1,7 @@
 use core::slice;
 
-use smoltcp::wire::ieee802154::Frame;
-use smoltcp::wire::{Ieee802154FrameType, Ieee802154FrameVersion, Ieee802154Repr};
+use xarxa::wire::ieee802154::Frame;
+use xarxa::wire::{Ieee802154FrameType, Ieee802154FrameVersion, Ieee802154Repr};
 
 use crate::net::typedefs::{
     AddressMode, Capabilities, DisassociationReason, KeyIdMode, MacAddress, MacAddressAndMode, MacChannel, MacStatus,

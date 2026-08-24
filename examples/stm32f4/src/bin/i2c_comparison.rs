@@ -8,12 +8,13 @@
 // as long to complete as the blocking ones!
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use embassy_time::Instant;
 use futures_util::future::try_join3;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const ADDRESS: u8 = 96;
 

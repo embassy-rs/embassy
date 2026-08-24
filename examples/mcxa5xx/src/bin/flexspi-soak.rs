@@ -38,11 +38,13 @@
 //! Run: `cargo run --release --bin flexspi-soak` (then Ctrl-C when satisfied).
 
 use defmt::{info, unwrap, warn};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
 use embassy_time::{Duration, Instant};
 use hal::config::Config;
 use hal::flexspi::{Blocking, ClockConfig as FlexspiClockConfig, Flexspi, IoError, NorFlash};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 #[path = "../flexspi_common.rs"]
 mod flexspi_common;

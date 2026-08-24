@@ -430,6 +430,12 @@ where
 
                 self.bt.rx(payload);
             }
+            Some(InterfaceType::Priv) => {
+                #[cfg(feature = "log")]
+                debug!("priv rx: {:02x?}", payload);
+                #[cfg(feature = "defmt")]
+                debug!("priv rx: {=[u8]:02x}", payload);
+            }
             _ => warn!("unknown iftype {}", if_type_and_num),
         }
     }

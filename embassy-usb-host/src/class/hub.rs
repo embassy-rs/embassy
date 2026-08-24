@@ -21,6 +21,13 @@ use crate::descriptor::{
 use crate::handler::{BusRoute, EnumerationInfo, HandlerEvent, RegisterError};
 use crate::{BusHandle, EnumerationError};
 
+/// How many times a port is polled for `ENABLED` after a reset before
+/// enumeration gives up waiting and proceeds with the speed it has.
+const PORT_ENABLE_POLLS: u32 = 10;
+
+/// Milliseconds between those polls.
+const PORT_ENABLE_POLL_MS: u64 = 10;
+
 pub struct HubHandler<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> {
     bus: BusHandle<'d, A>,
     interrupt_channel: A::Pipe<pipe::Interrupt, pipe::In>,
@@ -69,7 +76,21 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
                     InterfaceDescriptor {
                         interface_class: 0x09,
                         interface_subclass: 0x0,
-                        interface_protocol: 0x0,
+                        // Match a protocol of either 0x00 or 0x01. Per USB 2.0
+                        // §11.23.1 a full-speed hub and a high-speed hub with a
+                        // single transaction translator both report 0x00 here,
+                        // while a hub with multiple TTs instead exposes two
+                        // alternate settings: 0x01 for single-TT operation on
+                        // alt 0, and 0x02 for multi-TT operation on alt 1. So
+                        // accepting 0x00 alone rejects every multi-TT hub.
+                        //
+                        // 0x02 is deliberately not matched. Alt 0 is the setting
+                        // the hub is already in, as this driver issues no
+                        // SET_INTERFACE, so matching 0x02 would take endpoints
+                        // from a setting the device is not using. Driving a
+                        // multi-TT hub in multi-TT mode, for more full/low-speed
+                        // bandwidth across its ports, would need that request.
+                        interface_protocol: 0x00 | 0x01,
                         ..
                     }
                 )
@@ -250,6 +271,35 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         Timer::after_millis(50).await;
         self.port_feature(false, PortFeature::ChangeReset, port, 0).await?;
 
+        // Re-read the port now that it has been reset, and route on *this*
+        // speed rather than the caller's.
+        //
+        // The speed passed in was sampled when the device was detected,
+        // which is before the reset, and at that point it is not final. A
+        // hub tells low from full speed by which line carries the pull-up,
+        // so those two are known at connect — but high speed is only
+        // established by the reset handshake, and until that completes the
+        // hub reports a high-speed device as full speed (USB 2.0 §11.8.2,
+        // §11.24.2.7.1).
+        //
+        // Routing on the stale value sends every high-speed device behind a
+        // hub through the parent's transaction translator as if it were
+        // full speed. The device answers at 480 Mbit/s to a split
+        // transaction never meant for it, and the transfer fails with a
+        // transaction error that names nothing useful.
+        let speed = {
+            let mut speed = speed;
+            for _ in 0..PORT_ENABLE_POLLS {
+                let (status, _) = self.get_port_status(port).await?;
+                if status.contains(PortStatus::ENABLED) {
+                    speed = status.into();
+                    break;
+                }
+                Timer::after_millis(PORT_ENABLE_POLL_MS).await;
+            }
+            speed
+        };
+
         let route = match self.route.split() {
             Some(parent_split) => match speed {
                 Speed::Low => BusRoute::Translated(SplitInfo::new(
@@ -280,7 +330,12 @@ impl<'d, A: UsbHostAllocator<'d>, const MAX_PORTS: usize> HubHandler<'d, A, MAX_
         let (info, config_len) = self.bus.enumerate(route, config_buffer).await?;
 
         // Store the device address in the LUT for later retrieval on disconnect.
-        self.device_lut[port as usize] = NonZeroU8::new(info.device_address);
+        // A hub may report more ports than MAX_PORTS; devices on the excess
+        // ports still enumerate, but their [`HubEvent::DeviceRemoved`] carries
+        // no address (the caller cannot free it).
+        if let Some(device_ref) = self.device_lut.get_mut(port as usize) {
+            *device_ref = NonZeroU8::new(info.device_address);
+        }
 
         Ok((info, config_len))
     }

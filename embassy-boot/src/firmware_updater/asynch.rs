@@ -103,7 +103,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             let public_key = VerifyingKey::from_bytes(_public_key).map_err(into_signature_error)?;
             let signature = Signature::from_bytes(_signature);
 
-            let mut chunk_buf = [0; 2];
+            let mut chunk_buf = [0; 64];
             let mut message = [0; 64];
             self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
 
@@ -115,6 +115,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             use salty::{PublicKey, Signature};
 
             use crate::digest_adapters::salty::Sha512;
+            use crate::fmt::Bytes;
 
             fn into_signature_error<E>(_: E) -> FirmwareUpdaterError {
                 FirmwareUpdaterError::Signature(signature::Error::default())
@@ -124,15 +125,15 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
             let signature = Signature::try_from(_signature).map_err(into_signature_error)?;
 
             let mut message = [0; 64];
-            let mut chunk_buf = [0; 2];
+            let mut chunk_buf = [0; 64];
             self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message).await?;
 
             let r = public_key.verify(&message, &signature);
             trace!(
                 "Verifying with public key {}, signature {} and message {} yields ok: {}",
-                public_key.to_bytes(),
-                signature.to_bytes(),
-                message,
+                Bytes(&public_key.to_bytes()),
+                Bytes(&signature.to_bytes()),
+                Bytes(&message),
                 r.is_ok()
             );
             r.map_err(into_signature_error)?;
@@ -265,6 +266,16 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
         self.dfu.erase(0, self.dfu.capacity() as u32).await?;
 
         Ok(&mut self.dfu)
+    }
+
+    /// Reset to initial/uninitialised state.
+    ///
+    /// After reset, the updater will behave as if no writes had
+    /// occurred, with writes beginning at offset 0 again.
+    pub async fn reset(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.verify_booted().await?;
+        self.last_erased_dfu_sector_index = None;
+        Ok(())
     }
 }
 

@@ -9,12 +9,13 @@ use core::f32::consts::PI;
 
 use common::*;
 use defmt::assert;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::dac::DacChannel;
 use embassy_time::Timer;
 use micromath::F32Ext;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[cfg_attr(
     feature = "stop",

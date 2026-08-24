@@ -42,15 +42,15 @@ impl<'d> Mathacl<'d> {
     pub fn new<T: Instance>(_instance: Peri<'d, T>) -> Self {
         // Init power
         T::regs().gprcm(0).rstctl().write(|w| {
-            w.set_resetstkyclr(vals::Resetstkyclr::CLR);
-            w.set_resetassert(vals::Resetassert::ASSERT);
-            w.set_key(vals::ResetKey::KEY);
+            w.set_resetstkyclr(vals::Resetstkyclr::Clr);
+            w.set_resetassert(vals::Resetassert::Assert);
+            w.set_key(vals::ResetKey::Key);
         });
 
         // Enable power
         T::regs().gprcm(0).pwren().write(|w| {
             w.set_enable(true);
-            w.set_key(vals::PwrenKey::KEY);
+            w.set_key(vals::PwrenKey::Key);
         });
 
         // init delay, 16 cycles
@@ -72,7 +72,7 @@ impl<'d> Mathacl<'d> {
         let native = self.div_iq(IQType::from_f32(rad, 15, true)?, IQType::from_f32(PI, 15, true)?)?;
 
         self.regs.ctl().write(|w| {
-            w.set_func(vals::Func::SINCOS);
+            w.set_func(vals::Func::Sincos);
             w.set_numiter(precision as u8);
         });
 
@@ -82,7 +82,7 @@ impl<'d> Mathacl<'d> {
         });
 
         // check if done
-        while self.regs.status().read().busy() == vals::Busy::NOTDONE {}
+        while self.regs.status().read().busy() == vals::Busy::Notdone {}
 
         match sin {
             true => Ok(IQType::from_reg(self.regs.res2().read().data(), 0, true)
@@ -113,7 +113,7 @@ impl<'d> Mathacl<'d> {
         let signed = true;
 
         self.regs.ctl().write(|w| {
-            w.set_func(vals::Func::DIV);
+            w.set_func(vals::Func::Div);
             w.set_optype(signed);
         });
 
@@ -126,7 +126,7 @@ impl<'d> Mathacl<'d> {
         });
 
         // check if done
-        while self.regs.status().read().busy() == vals::Busy::NOTDONE {}
+        while self.regs.status().read().busy() == vals::Busy::Notdone {}
 
         // read quotient
         Ok(self.regs.res1().read().data() as i32)
@@ -141,7 +141,7 @@ impl<'d> Mathacl<'d> {
         let signed = false;
 
         self.regs.ctl().write(|w| {
-            w.set_func(vals::Func::DIV);
+            w.set_func(vals::Func::Div);
             w.set_optype(signed);
         });
 
@@ -154,7 +154,7 @@ impl<'d> Mathacl<'d> {
         });
 
         // check if done
-        while self.regs.status().read().busy() == vals::Busy::NOTDONE {}
+        while self.regs.status().read().busy() == vals::Busy::Notdone {}
 
         // read quotient
         Ok(self.regs.res1().read().data())
@@ -178,7 +178,7 @@ impl<'d> Mathacl<'d> {
         }
 
         self.regs.ctl().write(|w| {
-            w.set_func(vals::Func::DIV);
+            w.set_func(vals::Func::Div);
             w.set_optype(dividend.signed);
             w.set_qval(dividend.f_bits.into());
         });
@@ -192,7 +192,7 @@ impl<'d> Mathacl<'d> {
         });
 
         // check if done
-        while self.regs.status().read().busy() == vals::Busy::NOTDONE {}
+        while self.regs.status().read().busy() == vals::Busy::Notdone {}
 
         // read quotient
         return Ok(

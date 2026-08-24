@@ -5,9 +5,10 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
+use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    DeviceEvent, HostError, PipeError, SplitInfo, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
+    DeviceEvent, HostError, PipeError, SplitInfo, SplitSpeed, UsbHostAllocator, UsbHostController, UsbPipe, pipe,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 use portable_atomic::{AtomicBool, AtomicU8, AtomicU16, Ordering};
@@ -70,14 +71,21 @@ struct HostStateFields {
 }
 
 /// Storage object for USB host driver state. Create one per OTG instance.
-pub struct HostStateStorage<const CH_COUNT: usize> {
+pub struct HostStateStorage<const CH_COUNT: usize, M = CriticalSectionRawMutex>
+where
+    M: RawMutex + Copy,
+{
     channels: [ChannelState; CH_COUNT],
     fields: HostStateFields,
+    mutex: M,
 }
 
-impl<const CH_COUNT: usize> HostStateStorage<CH_COUNT> {
+impl<const CH_COUNT: usize, M> HostStateStorage<CH_COUNT, M>
+where
+    M: RawMutex + Copy,
+{
     /// Create a new host state.
-    pub const fn new() -> Self {
+    pub const fn new(mutex: M) -> Self {
         Self {
             channels: [const {
                 ChannelState {
@@ -94,14 +102,16 @@ impl<const CH_COUNT: usize> HostStateStorage<CH_COUNT> {
                 port_event: AtomicU8::new(0),
                 port_speed: AtomicU8::new(0),
             },
+            mutex,
         }
     }
 
     /// Borrow this [`HostStateStorage`] as a [`HostState`] for [`OtgHostInstance`].
-    pub fn as_host_state(&self) -> HostState<'_> {
+    pub fn as_host_state(&self) -> HostState<'_, M> {
         HostState {
             channels: self.channels.as_slice(),
             fields: &self.fields,
+            mutex: &self.mutex,
         }
     }
 }
@@ -109,13 +119,34 @@ impl<const CH_COUNT: usize> HostStateStorage<CH_COUNT> {
 /// Type-erased view of [`HostState`] for [`OtgHostInstance`], [`OtgHost`], [`on_host_interrupt`], and pipes.
 ///
 /// Build from [`HostState::as_host_state`].
-#[derive(Clone, Copy)]
-pub struct HostState<'d> {
+pub struct HostState<'d, M = CriticalSectionRawMutex>
+where
+    M: RawMutex + Copy,
+{
     channels: &'d [ChannelState],
     fields: &'d HostStateFields,
+    mutex: &'d M,
 }
 
-impl HostState<'_> {
+impl<'d, M> Clone for HostState<'d, M>
+where
+    M: RawMutex + Copy,
+{
+    fn clone(&self) -> Self {
+        Self {
+            channels: self.channels,
+            fields: self.fields,
+            mutex: self.mutex,
+        }
+    }
+}
+
+impl<'d, M> Copy for HostState<'d, M> where M: RawMutex + Copy {}
+
+impl<'d, M> HostState<'d, M>
+where
+    M: RawMutex + Copy,
+{
     /// Returns the number of host channels supported by this state.
     pub fn channel_count(&self) -> usize {
         self.channels.len()
@@ -124,11 +155,14 @@ impl HostState<'_> {
 
 /// Hardware-dependent host configuration.
 #[derive(Copy, Clone)]
-pub struct OtgHostInstance<'d> {
+pub struct OtgHostInstance<'d, M = CriticalSectionRawMutex>
+where
+    M: RawMutex + Copy,
+{
     /// The USB peripheral registers.
     pub regs: Otg,
     /// Shared host driver state from [`HostState::as_host_state`].
-    pub state: HostState<'d>,
+    pub state: HostState<'d, M>,
     /// FIFO depth in words.
     pub fifo_depth_words: u16,
     /// The PHY type.
@@ -139,7 +173,10 @@ pub struct OtgHostInstance<'d> {
 ///
 /// # Safety
 /// Must be called from the USB OTG interrupt handler when the controller is in host mode.
-pub unsafe fn on_host_interrupt(r: Otg, state: &HostState<'_>) {
+pub unsafe fn on_host_interrupt<M>(r: Otg, state: &HostState<'_, M>)
+where
+    M: RawMutex + Copy,
+{
     let gintsts = r.gintsts().read();
     let ch_count = state.channels.len();
 
@@ -395,14 +432,20 @@ fn hprt_read_safe(r: Otg) -> u32 {
 }
 
 /// USB OTG Host Driver.
-pub struct OtgHost<'d> {
-    instance: OtgHostInstance<'d>,
+pub struct OtgHost<'d, M = CriticalSectionRawMutex>
+where
+    M: RawMutex + Copy,
+{
+    instance: OtgHostInstance<'d, M>,
     inited: bool,
 }
 
-impl<'d> OtgHost<'d> {
+impl<'d, M> OtgHost<'d, M>
+where
+    M: RawMutex + Copy,
+{
     /// Create a new OTG host driver.
-    pub fn new(instance: OtgHostInstance<'d>) -> Self {
+    pub fn new(instance: OtgHostInstance<'d, M>) -> Self {
         Self {
             instance,
             inited: false,
@@ -487,7 +530,7 @@ impl<'d> OtgHost<'d> {
         let nptx_size = total / 4;
         let ptx_size = total - rx_size - nptx_size;
 
-        critical_section::with(|_| {
+        self.instance.state.mutex.lock(|| {
             r.grxfsiz().modify(|w| w.set_rxfd(rx_size));
 
             // Non-periodic TX FIFO (used for control and bulk OUT)
@@ -547,34 +590,56 @@ impl<'d> OtgHost<'d> {
 /// Obtained from [`UsbHostController::allocator`]. Holds only `Copy` handles
 /// to the controller's `'d`-borrowed state, so it can be freely copied and
 /// retained by class drivers independently of the controller's `&mut` borrow.
-pub struct OtgHostAllocator<'d> {
+pub struct OtgHostAllocator<'d, M = CriticalSectionRawMutex>
+where
+    M: RawMutex + Copy,
+{
     regs: Otg,
-    state: HostState<'d>,
+    state: HostState<'d, M>,
 }
 
-impl<'d> Clone for OtgHostAllocator<'d> {
+impl<'d, M> Clone for OtgHostAllocator<'d, M>
+where
+    M: RawMutex + Copy,
+{
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<'d> Copy for OtgHostAllocator<'d> {}
+impl<'d, M> Copy for OtgHostAllocator<'d, M> where M: RawMutex + Copy {}
 
-impl<'d> UsbHostAllocator<'d> for OtgHostAllocator<'d> {
-    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, T, D>;
+impl<'d, M> UsbHostAllocator<'d> for OtgHostAllocator<'d, M>
+where
+    M: RawMutex + Copy,
+{
+    type Pipe<T: pipe::Type, D: pipe::Direction> = Channel<'d, T, D, M>;
 
     fn alloc_pipe<T: pipe::Type, D: pipe::Direction>(
         &self,
         addr: u8,
         endpoint: &EndpointInfo,
-        _split: Option<SplitInfo>,
+        split: Option<SplitInfo>,
     ) -> Result<Self::Pipe<T, D>, HostError> {
         let ep_number = endpoint.addr.index() as u8;
         let max_packet_size = endpoint.max_packet_size;
 
-        // Read device speed from port_speed atomic (stored by ISR)
+        // Read root-port speed from port_speed atomic (stored by ISR)
         let speed_code = self.state.fields.port_speed.load(Ordering::Acquire);
-        let is_low_speed = speed_code == 1;
+
+        let is_low_speed = match split {
+            // Behind a hub the root port reports the *hub's* speed, so the
+            // target device's speed has to come from the split metadata.
+            Some(_) if speed_code == 2 => {
+                // A high-speed root port reaches LS/FS devices only through
+                // real split transactions (HCSPLT plus start/complete-split
+                // scheduling), which this driver does not implement. Fail
+                // loudly instead of emitting tokens the device can't see.
+                return Err(HostError::Other("high-speed split transactions not supported"));
+            }
+            Some(split) => split.device_speed() == SplitSpeed::Low,
+            None => speed_code == 1,
+        };
 
         let max_ch = self.state.channels.len();
         // Find a free channel using atomic CAS
@@ -604,8 +669,11 @@ impl<'d> UsbHostAllocator<'d> for OtgHostAllocator<'d> {
     }
 }
 
-impl<'d> UsbHostController<'d> for OtgHost<'d> {
-    type Allocator = OtgHostAllocator<'d>;
+impl<'d, M> UsbHostController<'d> for OtgHost<'d, M>
+where
+    M: RawMutex + Copy,
+{
+    type Allocator = OtgHostAllocator<'d, M>;
 
     fn allocator(&self) -> Self::Allocator {
         OtgHostAllocator {
@@ -809,9 +877,14 @@ impl<'d> UsbHostController<'d> for OtgHost<'d> {
 /// A USB host channel for performing transfers.
 ///
 /// The channel is automatically released when dropped.
-pub struct Channel<'d, T: pipe::Type, D: pipe::Direction> {
+pub struct Channel<'d, T, D, M = CriticalSectionRawMutex>
+where
+    T: pipe::Type,
+    D: pipe::Direction,
+    M: RawMutex + Copy,
+{
     regs: Otg,
-    state: HostState<'d>,
+    state: HostState<'d, M>,
     index: usize,
     device_address: u8,
     ep_number: u8,
@@ -822,9 +895,20 @@ pub struct Channel<'d, T: pipe::Type, D: pipe::Direction> {
 }
 
 // SAFETY: Channel only accesses its own state in the shared HostState.
-unsafe impl<T: pipe::Type, D: pipe::Direction> Send for Channel<'_, T, D> {}
+unsafe impl<T, D, M> Send for Channel<'_, T, D, M>
+where
+    T: pipe::Type,
+    D: pipe::Direction,
+    M: RawMutex + Copy,
+{
+}
 
-impl<T: pipe::Type, D: pipe::Direction> Drop for Channel<'_, T, D> {
+impl<T, D, M> Drop for Channel<'_, T, D, M>
+where
+    T: pipe::Type,
+    D: pipe::Direction,
+    M: RawMutex + Copy,
+{
     fn drop(&mut self) {
         let r = self.regs;
         let ch = self.index;
@@ -843,7 +927,7 @@ impl<T: pipe::Type, D: pipe::Direction> Drop for Channel<'_, T, D> {
 
         // Mask this channel's interrupt so the ISR won't deliver stale
         // results to whatever gets allocated at this index next.
-        critical_section::with(|_| {
+        self.state.mutex.lock(|| {
             r.haintmsk().modify(|w| {
                 w.set_haintm(w.haintm() & !(1 << ch));
             });
@@ -857,7 +941,12 @@ impl<T: pipe::Type, D: pipe::Direction> Drop for Channel<'_, T, D> {
     }
 }
 
-impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
+impl<T, D, M> Channel<'_, T, D, M>
+where
+    T: pipe::Type,
+    D: pipe::Direction,
+    M: RawMutex + Copy,
+{
     fn configure_channel(&self, dir_in: bool, ep_type: EndpointType, pktcnt: u16, xfrsiz: u32, dpid: u8) {
         let r = self.regs;
         let ch = self.index;
@@ -940,7 +1029,7 @@ impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
         });
 
         // Enable this channel in HAINTMSK (critical section guards the RMW against concurrent alloc_pipe)
-        critical_section::with(|_| {
+        self.state.mutex.lock(|| {
             r.haintmsk().modify(|w| {
                 w.set_haintm(w.haintm() | (1 << ch));
             });
@@ -1228,7 +1317,12 @@ impl<T: pipe::Type, D: pipe::Direction> Channel<'_, T, D> {
     }
 }
 
-impl<T: pipe::Type, D: pipe::Direction> UsbPipe<T, D> for Channel<'_, T, D> {
+impl<T, D, M> UsbPipe<T, D> for Channel<'_, T, D, M>
+where
+    T: pipe::Type,
+    D: pipe::Direction,
+    M: RawMutex + Copy,
+{
     async fn control_in(&mut self, setup: &[u8; 8], buf: &mut [u8]) -> Result<usize, PipeError>
     where
         T: pipe::IsControl,

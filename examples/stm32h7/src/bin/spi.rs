@@ -6,13 +6,14 @@ use core::str::from_utf8;
 
 use cortex_m_rt::entry;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Executor;
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config, spi};
 use heapless::String;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
 async fn main_task(mut spi: spi::Spi<'static, Blocking, spi::mode::Master>) {

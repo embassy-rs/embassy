@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
 
+#[cfg(not(fsmc_v5x1))]
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::{Peri, rcc};
 
@@ -72,6 +73,7 @@ where
     }
 }
 
+#[cfg(not(fsmc_v5x1))]
 macro_rules! config_pins {
     ($($pin:ident),*) => {
                 $(
@@ -80,6 +82,7 @@ macro_rules! config_pins {
     };
 }
 
+#[cfg(not(fsmc_v5x1))]
 macro_rules! fmc_sdram_constructor {
     ($name:ident: (
         bank: $bank:expr,
@@ -120,6 +123,8 @@ macro_rules! fmc_sdram_constructor {
     };
 }
 
+// fsmc_v5x1 (STM32U5) has no SDRAM register block; only NOR/PSRAM async banks.
+#[cfg(not(fsmc_v5x1))]
 impl<'d, T: Instance> Fmc<'d, T> {
     fmc_sdram_constructor!(sdram_a12bits_d16bits_4banks_bank1: (
         bank: stm32_fmc::SdramTargetBank::Bank1,
@@ -275,8 +280,15 @@ impl<'d, T: Instance> Fmc<'d, T> {
 }
 
 trait SealedInstance: crate::rcc::RccPeripheral {
-    const REGS: crate::pac::fmc::Fmc;
+    const REGS: Regs;
 }
+
+#[cfg(fmc)]
+/// Register block type for the external memory controller.
+pub type Regs = crate::pac::fmc::Fmc;
+#[cfg(all(fsmc, not(fmc)))]
+/// Register block type for the external memory controller.
+pub type Regs = crate::pac::fsmc::Fsmc;
 
 /// FMC instance trait.
 #[allow(private_bounds)]
@@ -285,7 +297,13 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {}
 foreach_peripheral!(
     (fmc, $inst:ident) => {
         impl crate::fmc::SealedInstance for crate::peripherals::$inst {
-            const REGS: crate::pac::fmc::Fmc = crate::pac::$inst;
+            const REGS: crate::fmc::Regs = crate::pac::$inst;
+        }
+        impl crate::fmc::Instance for crate::peripherals::$inst {}
+    };
+    (fsmc, $inst:ident) => {
+        impl crate::fmc::SealedInstance for crate::peripherals::$inst {
+            const REGS: crate::fmc::Regs = crate::pac::$inst;
         }
         impl crate::fmc::Instance for crate::peripherals::$inst {}
     };

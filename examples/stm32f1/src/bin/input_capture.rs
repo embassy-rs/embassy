@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AfioRemap, Level, Output, Pull, Speed};
 use embassy_stm32::time::khz;
@@ -9,7 +10,7 @@ use embassy_stm32::timer::input_capture::{CaptureInput, InputCapture};
 use embassy_stm32::timer::{self, Channel};
 use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// Connect PA2 and PC13 with a 1k Ohm resistor
 

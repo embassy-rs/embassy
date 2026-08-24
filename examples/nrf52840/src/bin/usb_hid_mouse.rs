@@ -4,6 +4,7 @@
 use core::sync::atomic::{AtomicU8, Ordering};
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nrf::usb::Driver;
@@ -15,8 +16,8 @@ use embassy_usb::class::hid::{
 };
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config};
+use panic_probe as _;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;

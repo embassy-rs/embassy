@@ -587,6 +587,11 @@ impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Rcv<'a, T, W> {
         poll_fn(|cx| self.watch.poll_changed(&mut self.at_id, cx)).await
     }
 
+    /// Poll the `Watch` for a changed value, marking it as seen.
+    pub fn poll_changed(&mut self, cx: &mut Context<'_>) -> Poll<T> {
+        self.watch.poll_changed(&mut self.at_id, cx)
+    }
+
     /// Tries to get the new value of the watch without waiting, marking it as seen.
     pub fn try_changed(&mut self) -> Option<T> {
         self.watch.try_changed(&mut self.at_id)

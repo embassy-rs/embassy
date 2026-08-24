@@ -112,7 +112,10 @@ impl Default for Config {
         Self {
             fifo_threshold: FIFOThresholdLevel::_16Bytes, // 32 bytes FIFO, half capacity
             memory_type: MemoryType::Micron,
-            device_size: MemorySize::Other(0),
+            // We set the default is the maximum size of the memory
+            // This value limits the possible read length using indirect read mode
+            // To prevent a gotcha we choose to use a high value
+            device_size: MemorySize::Other(31),
             chip_select_high_time: ChipSelectHighTime::_5Cycle,
             free_running_clock: false,
             clock_mode: false,
@@ -126,6 +129,26 @@ impl Default for Config {
             refresh: 0,
         }
     }
+}
+
+/// HyperBus latency configuration, programmed into OCTOSPI_HLCR.
+///
+/// Required for HyperBus (HyperRAM / HyperFlash) memory-mapped access: the access time
+/// and read-write recovery must match the device datasheet at the chosen bus clock,
+/// analogous to a NOR flash's dummy-cycle latency. HLCR is the one HyperBus register the
+/// rest of the driver does not touch, so apply this with [`Ospi::configure_hyperbus`]
+/// after construction and before enabling memory-mapped mode.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct HyperbusConfig {
+    /// Latency mode (fixed = twice the access time, or variable).
+    pub latency_mode: HyperbusLatencyMode,
+    /// Device access time (TACC), in communication-clock cycles.
+    pub access_time: u8,
+    /// Read-write recovery time (TRWR), in communication-clock cycles.
+    pub rw_recovery_time: u8,
+    /// Apply zero latency on write operations.
+    pub write_zero_latency: bool,
 }
 
 /// OSPI transfer configuration.
@@ -287,6 +310,23 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         Ok(())
     }
 
+    /// Program the HyperBus latency register (OCTOSPI_HLCR).
+    ///
+    /// Only meaningful when the connected device is a HyperBus memory
+    /// ([`Config::memory_type`] == [`MemoryType::HyperBusMemory`]). Call this after
+    /// construction and before [`Ospi::enable_memory_mapped_mode`]. The peripheral is
+    /// already enabled at this point, so this waits for it to be idle before writing.
+    pub fn configure_hyperbus(&mut self, config: HyperbusConfig) {
+        let reg = T::REGS;
+        while reg.sr().read().busy() {}
+        reg.hlcr().write(|w| {
+            w.set_lm(vals::LatencyMode::from_bits(config.latency_mode.into()));
+            w.set_wzl(config.write_zero_latency);
+            w.set_tacc(config.access_time);
+            w.set_trwr(config.rw_recovery_time);
+        });
+    }
+
     /// Quit from memory mapped mode
     pub fn disable_memory_mapped_mode(&mut self) {
         // Ensure memory transactions have completed.
@@ -384,9 +424,24 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                 if use_high_group {
                     w.set_iohen(true);
                     w.set_iohsrc(data_src);
+                    if w.iolsrc() == data_src {
+                        w.set_iolen(false);
+                    }
                 } else {
                     w.set_iolen(true);
                     w.set_iolsrc(data_src);
+                    if w.iohsrc() == data_src {
+                        w.set_iohen(false);
+                    }
+                }
+            });
+            //Make sure that no other pins share the same configuration
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                if w.iohsrc() == data_src {
+                    w.set_iohen(false);
+                }
+                if w.iolsrc() == data_src {
+                    w.set_iolen(false);
                 }
             });
         } else {
@@ -394,9 +449,24 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                 if use_high_group {
                     w.set_iohen(true);
                     w.set_iohsrc(data_src);
+                    if w.iolsrc() == data_src {
+                        w.set_iolen(false);
+                    }
                 } else {
                     w.set_iolen(true);
                     w.set_iolsrc(data_src);
+                    if w.iohsrc() == data_src {
+                        w.set_iohen(false);
+                    }
+                }
+            });
+            //Make sure that no other pins share the same configuration
+            T::OCTOSPIM_REGS.p2cr().modify(|w| {
+                if w.iohsrc() == data_src {
+                    w.set_iohen(false);
+                }
+                if w.iolsrc() == data_src {
+                    w.set_iolen(false);
                 }
             });
         }
@@ -420,6 +490,18 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                     w.set_dqsen(false);
                 }
             });
+            //Make sure that no other pins share the same configuration
+            T::OCTOSPIM_REGS.p1cr().modify(|w| {
+                if w.clksrc() == signal_src {
+                    w.set_clken(false);
+                }
+                if w.ncssrc() == signal_src {
+                    w.set_ncsen(false);
+                }
+                if w.dqssrc() == signal_src {
+                    w.set_dqsen(false);
+                }
+            });
         } else {
             T::OCTOSPIM_REGS.p1cr().modify(|w| {
                 w.set_clken(true);
@@ -431,6 +513,18 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                     w.set_dqsen(true);
                     w.set_dqssrc(signal_src);
                 } else {
+                    w.set_dqsen(false);
+                }
+            });
+            //Make sure that no other pins share the same configuration
+            T::OCTOSPIM_REGS.p2cr().modify(|w| {
+                if w.clksrc() == signal_src {
+                    w.set_clken(false);
+                }
+                if w.ncssrc() == signal_src {
+                    w.set_ncsen(false);
+                }
+                if w.dqssrc() == signal_src {
                     w.set_dqsen(false);
                 }
             });

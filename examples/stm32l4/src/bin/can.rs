@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::can::filter::Mask32;
 use embassy_stm32::can::{
@@ -10,7 +11,7 @@ use embassy_stm32::can::{
 use embassy_stm32::peripherals::CAN1;
 use embassy_stm32::{Config, bind_interrupts};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     CAN1_RX0 => Rx0InterruptHandler<CAN1>;

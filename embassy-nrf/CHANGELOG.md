@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- added: System OFF support for the nRF54L series.
+
 ## 0.11.0 - 2026-06-16
 
 - added: support for the SQSPI peripheral for nRF54.
@@ -63,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * added: expose uicr write functions
 * added: support for nrf54lm20a
 - added: support buffered rram for nrf54
+- changed: removed unused generic from `Saadc::run_timer_sample`
 
 ## 0.8.0 - 2025-09-30
 

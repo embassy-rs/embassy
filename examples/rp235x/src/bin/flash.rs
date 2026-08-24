@@ -4,11 +4,12 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::flash::{Async, ERASE_SIZE, FLASH_BASE};
 use embassy_rp::peripherals::{DMA_CH0, FLASH};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>;
@@ -17,7 +18,7 @@ bind_interrupts!(struct Irqs {
 const ADDR_OFFSET: u32 = 0x100000;
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Hello World!");

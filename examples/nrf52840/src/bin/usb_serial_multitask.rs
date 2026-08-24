@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::{info, panic, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
@@ -9,8 +10,8 @@ use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::{Builder, Config, UsbDevice};
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;

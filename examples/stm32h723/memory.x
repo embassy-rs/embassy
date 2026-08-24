@@ -44,7 +44,7 @@ MEMORY
   /*   buffers, for storing application data in lower-power modes.              */
   /* - Zero wait-states.                                                        */
   SRAM1   : ORIGIN = 0x30000000, LENGTH = 16K
-  SRAM2   : ORIGIN = 0x30040000, LENGTH = 16K
+  SRAM2   : ORIGIN = 0x30004000, LENGTH = 16K
   SRAM4   : ORIGIN = 0x38000000, LENGTH = 16K
 
   /* Backup SRAM */

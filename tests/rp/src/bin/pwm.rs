@@ -6,13 +6,14 @@ teleprobe_meta::target!(b"rpi-pico");
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert, assert_eq, assert_ne, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::gpio::{Input, Pull};
 #[cfg(feature = "rp2040")]
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::pwm::{Config, InputMode, Pwm};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

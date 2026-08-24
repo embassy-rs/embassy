@@ -2,13 +2,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, dma, peripherals, sdmmc};
 use embassy_time::Delay;
+use panic_probe as _;
 use sdio::BlockDevice;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SDMMC1 => sdmmc::InterruptHandler<peripherals::SDMMC1>;
