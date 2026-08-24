@@ -1,7 +1,8 @@
+use core::convert::Infallible;
 use core::fmt;
 use core::marker::PhantomData;
 
-use embassy_net_driver::Timestamp as PtpTimestamp;
+use embassy_ptp_driver::{Clock, ScaledPpm, Timestamp as PtpTimestamp};
 
 use super::Instance;
 
@@ -147,10 +148,7 @@ impl<T: Instance> PtpClock<T> {
             _peri: PhantomData,
         };
         clock.configure();
-        clock.set_time(PtpTimestamp {
-            seconds: 0,
-            quarter_nanos: 0,
-        });
+        clock.set_time(PtpTimestamp::default());
         debug!(
             "eth ptp clock hclk={} increment={}ns addend={:#010x}",
             hclk.0,
@@ -227,6 +225,24 @@ impl<T: Instance> PtpClock<T> {
     }
 }
 
+impl<T: Instance> Clock for PtpClock<T> {
+    type Error = Infallible;
+
+    fn now(&self) -> PtpTimestamp {
+        PtpClock::now(self)
+    }
+
+    fn step(&mut self, offset_nanos: i64) -> Result<PtpTimestamp, Self::Error> {
+        self.offset_time(offset_nanos);
+        Ok(self.now())
+    }
+
+    fn set_frequency(&mut self, adjustment: ScaledPpm) -> Result<PtpTimestamp, Self::Error> {
+        self.set_addend(crate::eth::adjusted_ptp_addend(self.nominal_addend(), adjustment));
+        Ok(self.now())
+    }
+}
+
 fn read_timestamp<T: Instance>() -> PtpTimestamp {
     let ptp = T::regs().ethernet_ptp();
     loop {
@@ -250,7 +266,7 @@ fn apply_time_update<T: Instance>(timestamp: PtpTimestamp, subtract: bool, updat
 
 fn write_time_update<T: Instance>(timestamp: PtpTimestamp, subtract: bool) {
     let ptp = T::regs().ethernet_ptp();
-    ptp.ptptshur().write(|w| w.set_tsus(timestamp.seconds));
+    ptp.ptptshur().write(|w| w.set_tsus(timestamp.seconds()));
     ptp.ptptslur().write(|w| {
         w.set_tsuss(timestamp.nanos());
         w.set_tsupns(subtract);
