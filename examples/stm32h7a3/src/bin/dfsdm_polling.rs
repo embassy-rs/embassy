@@ -82,7 +82,7 @@ async fn main(_spawner: Spawner) {
     // let _: usize = dfsdm1_.index();
     // let _: usize = dfsdm2_ch0.index();
 
-    let a = dfsdm1.configure_pins_8(|creator| {
+    let a = dfsdm1.configure_pins(|creator| {
         (
             creator.ch0.datin_ckin(p.PC1, p.PC0),
             creator.ch1.datin(p.PC3),
@@ -98,7 +98,7 @@ async fn main(_spawner: Spawner) {
     a.ch1.new_synchronous_int_neighbor();
     a.ch2.new_synchronous_int();
 
-    let b = dfsdm2.configure_pins_2(|creator| {
+    let b = dfsdm2.configure_pins(|creator| {
         (
             creator.ch0.datin_ckin(p.PC11, p.PC10),
             creator.ch1.datin_ckin(p.PA7, p.PA2),

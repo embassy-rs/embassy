@@ -121,7 +121,7 @@ mod capability {
     pub trait ConfVersion {}
     impl ConfVersion for NoVersion {}
     impl ConfVersion for WithVersion {}
-    pub trait TransceiverCount {
+    pub trait TransceiverCount: super::Shape {
         const COUNT: u8;
     }
     impl TransceiverCount for Tcv2 {
@@ -138,6 +138,35 @@ mod capability {
     }
     impl FilterCount for Flt8 {
         const COUNT: u8 = 8;
+    }
+}
+
+mod sealed_shape {
+    pub trait Sealed {}
+}
+
+#[allow(private_bounds)]
+pub trait Shape: sealed_shape::Sealed {
+    /// Selector bundle `configure_pins` hands to its closure.
+    type Selectors<T: Instance>;
+    /// Fresh selector bundle.
+    fn selectors<T: Instance>() -> Self::Selectors<T>;
+}
+
+impl sealed_shape::Sealed for capability::Tcv2 {}
+impl sealed_shape::Sealed for capability::Tcv8 {}
+
+impl Shape for capability::Tcv2 {
+    type Selectors<T: Instance> = ChannelSelectors2<T>;
+    fn selectors<T: Instance>() -> Self::Selectors<T> {
+        ChannelSelectors2::new()
+    }
+}
+
+impl Shape for capability::Tcv8 {
+    type Selectors<T: Instance> = ChannelSelectors8<T>;
+    fn selectors<T: Instance>() -> Self::Selectors<T> {
+        ChannelSelectors8::new()
     }
 }
 
@@ -1532,17 +1561,59 @@ where
     }
 }
 
-impl<'d, T, C> Dfsdm<'d, T, C>
+/// Implemented for the tuple a `configure_pins` closure returns.
+/// The arity *is* the channel-count check: `(C0, C1)` only impls for
+/// `Tcv2` instances, the 8-tuple only for `Tcv8`.
+pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
+    /// The fully-wired split (neighbor pin-sets already correct).
+    type Split;
+    fn split_parts(self, common: DfsdmCommon<'d, T>) -> Self::Split;
+}
+
+impl<'d, T, C, C0, C1> ChannelCfgTuple<'d, T, C> for (C0, C1)
 where
-    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>,
+    T: Instance<Transceivers = capability::Tcv2>,
     C: ClockOutputMode,
+    C0: ChannelCfg<'d, T, Tcv0>,
+    C1: ChannelCfg<'d, T, Tcv1>,
 {
-    #[doc = "Contigures all pins and returns [`TransceiverBuilder`] and [`FilterBuilder`] for all instances in the peripheral."]
-    #[allow(clippy::type_complexity)]
-    pub fn configure_pins_8<F, C0, C1, C2, C3, C4, C5, C6, C7>(
-        mut self,
-        f: F,
-    ) -> DfsdmSplit8<
+    type Split =
+        DfsdmSplit2<'d, T, C, <C0 as ChannelCfg<'d, T, Tcv0>>::Presence, <C1 as ChannelCfg<'d, T, Tcv1>>::Presence>;
+
+    fn split_parts(self, common: DfsdmCommon<'d, T>) -> Self::Split {
+        let (d0, k0) = self.0.into_parts();
+        let (d1, k1) = self.1.into_parts();
+        DfsdmSplit2 {
+            common,
+            ch0: TransceiverBuilder {
+                datin: d0,
+                ckin: k0,
+                _m: PhantomData,
+            },
+            ch1: TransceiverBuilder {
+                datin: d1,
+                ckin: k1,
+                _m: PhantomData,
+            },
+            flt0: FilterBuilder { _m: PhantomData },
+        }
+    }
+}
+
+impl<'d, T, C, C0, C1, C2, C3, C4, C5, C6, C7> ChannelCfgTuple<'d, T, C> for (C0, C1, C2, C3, C4, C5, C6, C7)
+where
+    T: Instance<Transceivers = capability::Tcv8>,
+    C: ClockOutputMode,
+    C0: ChannelCfg<'d, T, Tcv0>,
+    C1: ChannelCfg<'d, T, Tcv1>,
+    C2: ChannelCfg<'d, T, Tcv2>,
+    C3: ChannelCfg<'d, T, Tcv3>,
+    C4: ChannelCfg<'d, T, Tcv4>,
+    C5: ChannelCfg<'d, T, Tcv5>,
+    C6: ChannelCfg<'d, T, Tcv6>,
+    C7: ChannelCfg<'d, T, Tcv7>,
+{
+    type Split = DfsdmSplit8<
         'd,
         T,
         C,
@@ -1554,32 +1625,19 @@ where
         <C5 as ChannelCfg<'d, T, Tcv5>>::Presence,
         <C6 as ChannelCfg<'d, T, Tcv6>>::Presence,
         <C7 as ChannelCfg<'d, T, Tcv7>>::Presence,
-    >
-    where
-        F: FnOnce(ChannelSelectors8<T>) -> (C0, C1, C2, C3, C4, C5, C6, C7),
-        C0: ChannelCfg<'d, T, Tcv0>,
-        C1: ChannelCfg<'d, T, Tcv1>,
-        C2: ChannelCfg<'d, T, Tcv2>,
-        C3: ChannelCfg<'d, T, Tcv3>,
-        C4: ChannelCfg<'d, T, Tcv4>,
-        C5: ChannelCfg<'d, T, Tcv5>,
-        C6: ChannelCfg<'d, T, Tcv6>,
-        C7: ChannelCfg<'d, T, Tcv7>,
-    {
-        let (c0, c1, c2, c3, c4, c5, c6, c7) = f(ChannelSelectors8::new());
-        let (d0, k0) = c0.into_parts();
-        let (d1, k1) = c1.into_parts();
-        let (d2, k2) = c2.into_parts();
-        let (d3, k3) = c3.into_parts();
-        let (d4, k4) = c4.into_parts();
-        let (d5, k5) = c5.into_parts();
-        let (d6, k6) = c6.into_parts();
-        let (d7, k7) = c7.into_parts();
+    >;
+
+    fn split_parts(self, common: DfsdmCommon<'d, T>) -> Self::Split {
+        let (d0, k0) = self.0.into_parts();
+        let (d1, k1) = self.1.into_parts();
+        let (d2, k2) = self.2.into_parts();
+        let (d3, k3) = self.3.into_parts();
+        let (d4, k4) = self.4.into_parts();
+        let (d5, k5) = self.5.into_parts();
+        let (d6, k6) = self.6.into_parts();
+        let (d7, k7) = self.7.into_parts();
         DfsdmSplit8 {
-            common: DfsdmCommon {
-                _peri: self.peri.take().expect("taken once"),
-                _ckout: self.ckout.take(),
-            },
+            common: common,
             ch0: TransceiverBuilder {
                 datin: d0,
                 ckin: k0,
@@ -1634,39 +1692,21 @@ where
 
 impl<'d, T, C> Dfsdm<'d, T, C>
 where
-    T: Instance<Transceivers = capability::Tcv2, Filters = capability::Flt1>,
+    T: Instance,
     C: ClockOutputMode,
 {
-    #[allow(clippy::type_complexity)]
-    pub fn configure_pins_2<F, C0, C1>(
-        mut self,
-        f: F,
-    ) -> DfsdmSplit2<'d, T, C, <C0 as ChannelCfg<'d, T, Tcv0>>::Presence, <C1 as ChannelCfg<'d, T, Tcv1>>::Presence>
+    /// The closure receives one selector per channel the instance
+    /// actually has, and returns one token per channel, as a tuple.
+    pub fn configure_pins<F, OUT>(mut self, f: F) -> <OUT as ChannelCfgTuple<'d, T, C>>::Split
     where
-        F: FnOnce(ChannelSelectors2<T>) -> (C0, C1),
-        C0: ChannelCfg<'d, T, Tcv0>,
-        C1: ChannelCfg<'d, T, Tcv1>,
+        F: FnOnce(<T::Transceivers as Shape>::Selectors<T>) -> OUT,
+        OUT: ChannelCfgTuple<'d, T, C>,
     {
-        let (c0, c1) = f(ChannelSelectors2::new());
-        let (d0, k0) = c0.into_parts();
-        let (d1, k1) = c1.into_parts();
-        DfsdmSplit2 {
-            common: DfsdmCommon {
-                _peri: self.peri.take().expect("taken once"),
-                _ckout: self.ckout.take(),
-            },
-            ch0: TransceiverBuilder {
-                datin: d0,
-                ckin: k0,
-                _m: PhantomData,
-            },
-            ch1: TransceiverBuilder {
-                datin: d1,
-                ckin: k1,
-                _m: PhantomData,
-            },
-            flt0: FilterBuilder { _m: PhantomData },
-        }
+        let out = f(<T::Transceivers as Shape>::selectors::<T>());
+        out.split_parts(DfsdmCommon {
+            _peri: self.peri.take().expect("taken once"),
+            _ckout: self.ckout.take(),
+        })
     }
 }
 
