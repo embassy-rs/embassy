@@ -4,9 +4,9 @@
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::dfsdm::{Flt0, Flt1, TransceiverTrait};
+use embassy_stm32::dfsdm::{Dfsdm, Flt0, Flt1, TransceiverTrait};
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::peripherals::{BDMA1_CH0, BDMA2_CH0};
+use embassy_stm32::peripherals::{BDMA1_CH0, BDMA2_CH0, DFSDM1};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, dfsdm, peripherals};
 use embassy_time::Timer;
@@ -73,16 +73,49 @@ async fn main(_spawner: Spawner) {
     // let a: dfsdm::Filter<peripherals::DFSDM1, Flt0> = dfsdm1.get_filter_test();
     // a.wait_for_irq().await;
     let test = dfsdm1.get_filter_test::<Flt0>().get_regs_test();
-    let dfsdm1_channels = dfsdm1.split();
-    let dfsdm2_channels = dfsdm2.split();
+    // let dfsdm1_channels = dfsdm1.split();
+    // let dfsdm2_channels = dfsdm2.split();
 
-    let dfsdm1_ = dfsdm1_channels.ch0.new_clk_int(p.PC1);
+    // let dfsdm1_ = dfsdm1_channels.ch0.new_clk_int(p.PC1);
 
-    let dfsdm2_ch0 = dfsdm2_channels.ch0.new_parallel();
-    let _: usize = dfsdm1_.index();
-    let _: usize = dfsdm2_ch0.index();
+    // let dfsdm2_ch0 = dfsdm2_channels.ch0.new_parallel();
+    // let _: usize = dfsdm1_.index();
+    // let _: usize = dfsdm2_ch0.index();
 
-    drop(dfsdm1_);
+    dfsdm::test(|builder| {
+        builder.ch0.datin_ckin(p.PC1, p.PC0);
+    });
+
+    let a = dfsdm::configure_pins(dfsdm1, |creator| {
+        (
+            creator.ch0.none(),
+            creator.ch1.none(),
+            creator.ch2.none(),
+            creator.ch3.none(),
+            creator.ch4.none(),
+            creator.ch5.none(),
+            creator.ch6.none(),
+            creator.ch7.none(),
+        )
+    });
+    // let dfsdm::ChannelSelectors8 {
+    //     ch0,
+    //     ch1,
+    //     ch2,
+    //     ch3,
+    //     ch4,
+    //     ch5,
+    //     ch6,
+    //     ch7,
+    // } = dfsdm::ChannelSelectors8::<DFSDM1>::new();
+
+    // let ch0 = ch0.datin_ckin(p.PC1, p.PC0);
+    // let ch1 = ch1.datin(p.PC3);
+    // let ch2 = ch2.datin(p.PC5);
+
+    // let a = dfsdm::DataClk = Pin {};
+
+    // drop(dfsdm1_);
 
     // dfsdm::TransceiverChannelImp::new_ext_clk(&dfsdm, p.PC0, p.PC1);
     // dfsdm::TransceiverChannelImp::<_, dfsdm::Tcv0, _>::new_parallel(&dfsdm);
