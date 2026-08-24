@@ -8,7 +8,7 @@ use defmt::*;
 use defmt_rtt as _;
 use panic_probe as _;
 use embassy_executor::Spawner;
-use embassy_nxp::hashcrypt::hashcrypt::Sha256;
+use embassy_nxp::hashcrypt::Sha256;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner ) -> ! {
