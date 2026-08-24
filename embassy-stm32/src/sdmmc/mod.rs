@@ -1626,7 +1626,7 @@ impl<'d> Sdmmc<'d> {
     /// Send command to card
     #[allow(unused_variables)]
     fn cmd<R: TypedResp>(&self, cmd: Cmd<R>, check_crc: bool, data: bool) -> Result<CommandResponse<R>, Error> {
-        debug!("(0) cmd arg: 0x{:x} 0x{:x}", cmd.cmd, cmd.arg);
+        trace!("(0) cmd arg: 0x{:x} 0x{:x}", cmd.cmd, cmd.arg);
 
         let regs = self.info.regs;
 
