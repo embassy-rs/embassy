@@ -17,12 +17,12 @@ use crate::pio::{
 ///This struct is a unification of the PioRx and PioTx state machines.
 pub struct PioUart<'d, P: Instance, const RX_SM: usize, const TX_SM: usize> {
     ///Receiver half of the Pio Uart
-    pub rx: PioUartRx<'d, P, RX_SM>,
+    pub tx: PioUartTx<'d, P, RX_SM>,
     ///Transmiter half of the Pio Uart
-    pub tx: PioUartTx<'d, P, TX_SM>,
+    pub rx: PioUartRx<'d, P, TX_SM>,
 }
 
-impl<'d, P, const RX_SM: usize, const TX_SM: usize> PioUart<'d, P, RX_SM, TX_SM>
+impl<'d, P, const TX_SM: usize, const RX_SM: usize> PioUart<'d, P, TX_SM, RX_SM>
 where
     P: Instance,
 {
@@ -30,16 +30,16 @@ where
     pub fn new(
         baud: u32,
         common: &mut Common<'d, P>,
-        rx_sm: StateMachine<'d, P, RX_SM>,
         tx_sm: StateMachine<'d, P, TX_SM>,
-        rx_pin: Peri<'d, impl PioPin>,
+        rx_sm: StateMachine<'d, P, RX_SM>,
         tx_pin: Peri<'d, impl PioPin>,
+        rx_pin: Peri<'d, impl PioPin>,
     ) -> Self {
         let tx_prg = PioUartTxProgram::new(common);
         let rx_prg = PioUartRxProgram::new(common);
         Self {
-            rx: PioUartRx::new(baud, common, rx_sm, rx_pin, &rx_prg),
             tx: PioUartTx::new(baud, common, tx_sm, tx_pin, &tx_prg),
+            rx: PioUartRx::new(baud, common, rx_sm, rx_pin, &rx_prg),
         }
     }
     /// Split the Uart into a transmitter and receiver, which is particularly

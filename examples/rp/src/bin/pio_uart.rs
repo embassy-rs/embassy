@@ -80,7 +80,7 @@ async fn main(_spawner: Spawner) {
         mut common, sm0, sm1, ..
     } = pio::Pio::new(p.PIO0, Irqs);
 
-    let uart_pio = PioUart::new(9600, &mut common, sm1, sm0, p.PIN_5, p.PIN_4);
+    let uart_pio = PioUart::new(9600, &mut common, sm0, sm1, p.PIN_4, p.PIN_5);
 
     let (mut uart_tx, mut uart_rx) = uart_pio.split();
 
