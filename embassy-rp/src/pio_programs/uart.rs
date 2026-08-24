@@ -15,11 +15,11 @@ use crate::pio::{
 };
 
 ///This struct is a unification of the PioRx and PioTx state machines.
-pub struct PioUart<'d, P: Instance, const RX_SM: usize, const TX_SM: usize> {
+pub struct PioUart<'d, P: Instance, const TX_SM: usize, const RX_SM: usize> {
     ///Receiver half of the Pio Uart
-    pub tx: PioUartTx<'d, P, RX_SM>,
+    pub tx: PioUartTx<'d, P, TX_SM>,
     ///Transmiter half of the Pio Uart
-    pub rx: PioUartRx<'d, P, TX_SM>,
+    pub rx: PioUartRx<'d, P, RX_SM>,
 }
 
 impl<'d, P, const TX_SM: usize, const RX_SM: usize> PioUart<'d, P, TX_SM, RX_SM>
