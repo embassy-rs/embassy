@@ -663,34 +663,37 @@ impl DataSource for InternalSource {}
 
 /// [`Transceiver`]
 /// Configured DFSDM data input transceiver.
-pub struct Transceiver<'a, 'd, T, M, MODE>
+pub struct Transceiver<'a, 'd, T, M, S, MODE>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
     MODE: ChannelMode,
 {
     _instance_marker: PhantomData<T>,
     _transceiver_marker: PhantomData<M>,
     _datasource_marker: PhantomData<MODE>,
-    pub(crate) datin: Option<Flex<'d>>,
-    pub(crate) ckin: Option<Flex<'d>>,
+    pub(crate) datin: S::Datin<'d>,
+    pub(crate) ckin: S::Ckin<'d>,
     pub(crate) common: Option<&'a DfsdmCommon<'d, T>>,
     // ckin_pin: Option<Flex<'d>>,
     // data_pin: Flex<'d>,
 }
 
-impl<'a, 'd, T, M, MODE> sealed::SealedTransceiverChannelTrait<M> for Transceiver<'a, 'd, T, M, MODE>
+impl<'a, 'd, T, M, S, MODE> sealed::SealedTransceiverChannelTrait<M> for Transceiver<'a, 'd, T, M, S, MODE>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
     MODE: ChannelMode,
 {
 }
 
-impl<'a, 'd, T, M, MODE> TransceiverTrait<M> for Transceiver<'a, 'd, T, M, MODE>
+impl<'a, 'd, T, M, S, MODE> TransceiverTrait<M> for Transceiver<'a, 'd, T, M, S, MODE>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
     MODE: ChannelMode,
 {
 }
@@ -944,10 +947,11 @@ pub enum SerialInterfaceType {
 // }
 
 //TODO EXAMPLE FOR NEIGHBORS USE
-impl<'a, 'd, T, M, MODE> Transceiver<'a, 'd, T, M, MODE>
+impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
     MODE: ChannelMode,
 {
     /// Configures the neighbor channel.
@@ -1223,7 +1227,7 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here — they're unused
     /// in this mode).
-    pub fn new_parallel_adc(self) -> Transceiver<'static, 'd, T, M, ParallelAdcMode>
+    pub fn new_parallel_adc(self) -> Transceiver<'static, 'd, T, M, S, ParallelAdcMode>
     where
         T: AdcInput,
     {
@@ -1231,7 +1235,7 @@ where
     }
 
     ///Same as [`Self::new_parallel_adc`] but using neighbors pins
-    pub fn new_parallel_adc_neighbor(self) -> Transceiver<'static, 'd, T, M, ParallelAdcMode>
+    pub fn new_parallel_adc_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ParallelAdcMode>
     where
         T: AdcInput,
     {
@@ -1242,12 +1246,12 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here — they're unused
     /// in this mode).
-    pub fn new_parallel_dma(self) -> Transceiver<'static, 'd, T, M, ParallelDmaMode> {
+    pub fn new_parallel_dma(self) -> Transceiver<'static, 'd, T, M, S, ParallelDmaMode> {
         todo!()
     }
 
     ///Same as [`Self::new_parallel_dma`] but using neighbors pins
-    pub fn new_parallel_dma_neighbor(self) -> Transceiver<'static, 'd, T, M, ParallelDmaMode> {
+    pub fn new_parallel_dma_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ParallelDmaMode> {
         todo!()
     }
 
@@ -1255,7 +1259,7 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here — they're unused
     /// in this mode).
-    pub fn new_manchester(self) -> Transceiver<'static, 'd, T, M, ManchesterMode>
+    pub fn new_manchester(self) -> Transceiver<'static, 'd, T, M, S, ManchesterMode>
     where
         S: HasData,
     {
@@ -1263,7 +1267,7 @@ where
     }
 
     ///Same as [`Self::new_manchester`] but using neighbors pins
-    pub fn new_manchester_neighbor(self) -> Transceiver<'static, 'd, T, M, ManchesterMode>
+    pub fn new_manchester_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ManchesterMode>
     where
         SN: HasData,
     {
@@ -1271,7 +1275,7 @@ where
     }
 
     ///TODO new_synchronous_int description
-    pub fn new_synchronous_int(self) -> Transceiver<'static, 'd, T, M, SpiExtMode>
+    pub fn new_synchronous_int(self) -> Transceiver<'static, 'd, T, M, S, SpiExtMode>
     where
         S: HasDataAndClk,
     {
@@ -1279,7 +1283,7 @@ where
     }
 
     ///Same as [`Self::new_synchronous_int`] but using neighbors pins
-    pub fn new_synchronous_int_neighbor(self) -> Transceiver<'static, 'd, T, M, SpiExtMode>
+    pub fn new_synchronous_int_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, SpiExtMode>
     where
         SN: HasDataAndClk,
     {
@@ -1295,15 +1299,23 @@ where
     SN: PinSet,
 {
     ///TODO new_synchronous_ext description
-    pub fn new_synchronous_ext(self) -> Transceiver<'static, 'd, T, M, SpiExtMode>
+    pub fn new_synchronous_ext(self) -> Transceiver<'static, 'd, T, M, S, SpiExtMode>
     where
         S: HasData,
     {
-        todo!()
+        todo!();
+        Transceiver {
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            datin: self.datin,
+            ckin: self.ckin,
+            common: None,
+        }
     }
 
     ///Same as [`Self::new_synchronous_ext`] but using neighbors pins
-    pub fn new_synchronous_ext_neighbor(self) -> Transceiver<'static, 'd, T, M, SpiExtMode>
+    pub fn new_synchronous_ext_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, SpiExtMode>
     where
         SN: HasData,
     {
