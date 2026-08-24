@@ -82,15 +82,11 @@ async fn main(_spawner: Spawner) {
     // let _: usize = dfsdm1_.index();
     // let _: usize = dfsdm2_ch0.index();
 
-    dfsdm::test(|builder| {
-        builder.ch0.datin_ckin(p.PC1, p.PC0);
-    });
-
-    let a = dfsdm::configure_pins(dfsdm1, |creator| {
+    let a = dfsdm1.configure_pins_8(|creator| {
         (
-            creator.ch0.none(),
-            creator.ch1.none(),
-            creator.ch2.none(),
+            creator.ch0.datin_ckin(p.PC1, p.PC0),
+            creator.ch1.datin(p.PC3),
+            creator.ch2.datin_ckin(p.PC5, p.PC4),
             creator.ch3.none(),
             creator.ch4.none(),
             creator.ch5.none(),
@@ -98,6 +94,18 @@ async fn main(_spawner: Spawner) {
             creator.ch7.none(),
         )
     });
+    a.ch0.new_synchronous_int();
+    a.ch1.new_synchronous_int_neighbor();
+    a.ch2.new_synchronous_int();
+
+    let b = dfsdm2.configure_pins_2(|creator| {
+        (
+            creator.ch0.datin_ckin(p.PC11, p.PC10),
+            creator.ch1.datin_ckin(p.PA7, p.PA2),
+        )
+    });
+    b.ch0.new_parallel_dma();
+    b.ch1.new_synchronous_int_neighbor();
     // let dfsdm::ChannelSelectors8 {
     //     ch0,
     //     ch1,
