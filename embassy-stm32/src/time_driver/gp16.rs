@@ -18,9 +18,9 @@ use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::peripherals;
-use crate::rcc::{self, SealedRccPeripheral, StopMode};
+use crate::rcc::{self, SealedRccPeripheral};
 #[cfg(feature = "low-power")]
-use crate::rtc::Rtc;
+use crate::rtc::{Rtc, StopMode};
 use crate::timer::{CoreInstance, GeneralInstance1Channel};
 
 // NOTE regarding ALARM_COUNT:
