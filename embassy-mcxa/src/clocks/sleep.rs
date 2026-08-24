@@ -30,21 +30,7 @@ pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> bool {
         return false;
     }
 
-    unsafe {
-        // Yep, it's time to go to deep sleep. WHILE STILL IN the CS, get ready
-        setup_deep_sleep();
-
-        // Here we go!
-        //
-        // It is okay to WFE with interrupts disabled: we have enabled SEVONPEND
-        cortex_m::asm::dsb();
-        cortex_m::asm::wfe();
-
-        // Wakey wakey, eggs and bakey
-        recover_deep_sleep(cs);
-    }
-
-    true
+    unsafe { deep_sleep_forced(cs) }
 }
 
 /// Attempt to go to deep sleep, ignoring active `WakeGuard`s.
