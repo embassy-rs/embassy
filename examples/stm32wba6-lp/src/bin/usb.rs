@@ -10,6 +10,7 @@ mod api;
 #[path = "common/usb_driver.rs"]
 mod usb_driver;
 
+use api::*;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -17,23 +18,16 @@ use embassy_futures::select::{Either, select};
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Flex, Input, Level, Output, Pull, Speed};
 use embassy_stm32::peripherals::USB_OTG_HS as UsbOtgHs;
+use embassy_stm32::spi::{Config as SpiConfig, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::usb;
 use embassy_stm32::usb::Driver as Stm32UsbDriver;
-use embassy_stm32::{
-    bind_interrupts, dma,
-    spi::{Config as SpiConfig, Spi},
-    time,
-};
+use embassy_stm32::{bind_interrupts, dma, time, usb};
 use embassy_time::{Duration, Timer};
-
-use api::*;
 use embassy_usb::msos::{CompatibleIdFeatureDescriptor, PropertyData, RegistryPropertyFeatureDescriptor};
 use embassy_usb::{Builder, Config as USBConfig};
+use panic_probe as _;
 use static_cell::StaticCell;
 use usb_driver::*;
-
-use panic_probe as _;
 
 const DEBUG_DURING_SLEEP: bool = true;
 

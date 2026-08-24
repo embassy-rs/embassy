@@ -178,12 +178,13 @@ pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
 pub(crate) unsafe fn reset_stop_refcount(_cs: CriticalSection, stop_mode_reached: Option<StopMode>) {
     pub use crate::rcc::StopMode;
 
-    match stop_mode_reached{
+    match stop_mode_reached {
         Some(StopMode::Stop1) => REFCOUNT_STOP1 = 0,
-        _ => { // keeping original logic for anything else
+        _ => {
+            // keeping original logic for anything else
             REFCOUNT_STOP1 = 0;
             REFCOUNT_STOP2 = 0;
-        },
+        }
     }
 }
 

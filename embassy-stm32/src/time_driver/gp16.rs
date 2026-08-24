@@ -118,7 +118,11 @@ impl RtcDriver {
         self.init_timer_from_stop_mode(cs, None)
     }
 
-    pub(crate) fn init_timer_from_stop_mode(&'static self, cs: critical_section::CriticalSection, stop_mode_reached: Option<StopMode>) {
+    pub(crate) fn init_timer_from_stop_mode(
+        &'static self,
+        cs: critical_section::CriticalSection,
+        stop_mode_reached: Option<StopMode>,
+    ) {
         let r = regs_gp16();
 
         rcc::enable_and_reset_with_cs::<T>(cs);
