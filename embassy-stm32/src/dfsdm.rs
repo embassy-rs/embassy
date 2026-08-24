@@ -8,7 +8,6 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
-use crate::timer::low_level::InputCaptureSelection;
 use crate::{Peri, interrupt, rcc};
 
 /// TODO
@@ -694,6 +693,56 @@ define_indexed_channels!(
     Tcv7 => 7,
 );
 
+/// Per‑instance "successor" channel.
+///
+/// `C` is the instance's transceiver‑capability (`<T as Instance>::Transceivers`),
+/// so the modulo‑N wrap depends on the instance shape, not on the marker itself.
+pub trait NextChannel<C: capability::TransceiverCount>: TransceiverMarker {
+    /// Marker of the next channel, modulo the capability's max count.
+    type Next: TransceiverMarker;
+}
+
+/// Convenience trait to get the next channel directly from an Instance
+pub trait NextChannelForInstance<T: Instance>: TransceiverMarker {
+    type Next: TransceiverMarker;
+}
+
+impl<T, M> NextChannelForInstance<T> for M
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannel<T::Transceivers>,
+{
+    type Next = <M as NextChannel<T::Transceivers>>::Next;
+}
+
+macro_rules! impl_next_channel {
+    ($cap:ty, $($cur:ident => $next:ident),+ $(,)?) => {
+        $(
+            impl NextChannel<$cap> for $cur {
+                type Next = $next;
+            }
+        )+
+    };
+}
+
+// For 2-channel instances: wraps 1 -> 0
+impl_next_channel!(capability::Tcv2,
+    Tcv0 => Tcv1,
+    Tcv1 => Tcv0,
+);
+
+// For 8-channel instances: wraps 7 -> 0
+impl_next_channel!(capability::Tcv8,
+    Tcv0 => Tcv1,
+    Tcv1 => Tcv2,
+    Tcv2 => Tcv3,
+    Tcv3 => Tcv4,
+    Tcv4 => Tcv5,
+    Tcv5 => Tcv6,
+    Tcv6 => Tcv7,
+    Tcv7 => Tcv0,
+);
+
 define_indexed_channels!(
     FilterChannel,
     FilterMarker,
@@ -1067,7 +1116,6 @@ pub enum SerialInterfaceType {
     ManchesterRising1 = 3,
 }
 
-
 //FUCKING IMPORTANT: DONT DROP, KEEP FLEX IN CHANNEL!!! TODO
 // impl<'d> Drop for Flex<'d> {
 //     #[inline]
@@ -1078,3 +1126,17 @@ pub enum SerialInterfaceType {
 //         });
 //     }
 // }
+
+impl<T, M, S> Transceiver<T, M, S>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>, // <-- The magic bound
+    S: DataSource,
+{
+    /// Configures the neighbor channel.
+    /// Notice: No extra arguments! Rust knows `T` from `self`.
+    pub fn do_something_with_neighbor(&self) {
+        // The compiler knows that `M::Next` is valid for this specific instance `T`.
+        let next_idx = <M::Next as TransceiverMarker>::CHANNEL.index();
+    }
+}
