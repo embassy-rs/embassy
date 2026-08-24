@@ -17,9 +17,9 @@ use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 
 ///This struct is a unification of the PioRx and PioTx state machines.
 pub struct PioUart<'d, P: Instance, const TX_SM: usize, const RX_SM: usize> {
-    ///Receiver half of the Pio Uart
+    ///Transimiter half of the Pio Uart
     pub tx: PioUartTx<'d, P, TX_SM>,
-    ///Transmiter half of the Pio Uart
+    ///Receiver half of the Pio Uart
     pub rx: PioUartRx<'d, P, RX_SM>,
 }
 
