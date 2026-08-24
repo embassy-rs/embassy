@@ -1564,6 +1564,11 @@ where
 /// Implemented for the tuple a `configure_pins` closure returns.
 /// The arity *is* the channel-count check: `(C0, C1)` only impls for
 /// `Tcv2` instances, the 8-tuple only for `Tcv8`.
+#[diagnostic::on_unimplemented(
+    message = "the closure must return one pin token per channel of this DFSDM instance",
+    label = "tuple length doesn't match the instance's transceiver count",
+    note = "DFSDM2 has 2 channels — return a 2-tuple, one token per `creator.chN`"
+)]
 pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
     /// The fully-wired split (neighbor pin-sets already correct).
     type Split;
