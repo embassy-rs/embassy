@@ -17,6 +17,7 @@ use futures_util::future::{Either, select};
 use crate::Peri;
 use crate::atomic::{AtomicClear, AtomicDecrement, AtomicModify};
 use crate::dma::ChannelAndRequest;
+use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
@@ -622,8 +623,7 @@ impl<'d> UartTx<'d, Async> {
         )
     }
 
-    /// Initiate an asynchronous UART write
-    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    async fn write_helper<W: UsartWord>(&mut self, buffer: &[W]) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         let r = self.info.regs;
@@ -645,7 +645,7 @@ impl<'d> UartTx<'d, Async> {
         });
         // If we don't assign future to a variable, the data register pointer
         // is held across an await and makes the future non-Send.
-        let transfer = unsafe { ch.write(buffer, tdr(r), Default::default()) };
+        let transfer = unsafe { ch.write(buffer, W::tdr_ptr(r), Default::default()) };
         transfer.await;
 
         if half_duplex {
@@ -666,6 +666,19 @@ impl<'d> UartTx<'d, Async> {
         }
 
         Ok(())
+    }
+
+    /// Initiate an asynchronous UART write
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.write_helper(buffer).await
+    }
+
+    /// Initiate an asynchronous UART write of 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the peripheral
+    /// transmits only the low-order bits of each word.
+    pub async fn write_u16(&mut self, buffer: &[u16]) -> Result<(), Error> {
+        self.write_helper(buffer).await
     }
 
     /// Wait until transmission complete
@@ -829,8 +842,7 @@ impl<'d, M: PeriMode> UartTx<'d, M> {
         }
     }
 
-    /// Perform a blocking UART write
-    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+    fn blocking_write_helper<W: UsartWord>(&mut self, buffer: &[W]) -> Result<(), Error> {
         let r = self.info.regs;
         let half_duplex = r.cr3().read().hdsel();
 
@@ -841,7 +853,7 @@ impl<'d, M: PeriMode> UartTx<'d, M> {
 
         for &b in buffer {
             while !sr(r).read().txe() {}
-            unsafe { tdr(r).write_volatile(b) };
+            unsafe { W::tdr_ptr(r).write_volatile(b) };
         }
 
         if half_duplex {
@@ -855,6 +867,19 @@ impl<'d, M: PeriMode> UartTx<'d, M> {
         }
 
         Ok(())
+    }
+
+    /// Perform a blocking UART write
+    pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.blocking_write_helper(buffer)
+    }
+
+    /// Perform a blocking UART write of 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the peripheral
+    /// transmits only the low-order bits of each word.
+    pub fn blocking_write_u16(&mut self, buffer: &[u16]) -> Result<(), Error> {
+        self.blocking_write_helper(buffer)
     }
 
     /// Block until transmission complete
@@ -1042,6 +1067,18 @@ impl<'d> UartRx<'d, Async> {
         Ok(())
     }
 
+    /// Initiate an asynchronous UART read of 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub async fn read_u16(&mut self, buffer: &mut [u16]) -> Result<(), Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
+        self.inner_read(buffer, false).await?;
+
+        Ok(())
+    }
+
     /// Initiate an asynchronous read with idle line detection enabled.
     ///
     /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
@@ -1052,9 +1089,24 @@ impl<'d> UartRx<'d, Async> {
         self.inner_read(buffer, true).await
     }
 
-    async fn inner_read_run(
+    /// Initiate an asynchronous read of 16 bit words with idle line detection enabled.
+    ///
+    /// Returns the number of words received.
+    ///
+    /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
+    /// as if you had called [`read_u16(buffer)`](Self::read_u16) instead!
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub async fn read_until_idle_u16(&mut self, buffer: &mut [u16]) -> Result<usize, Error> {
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
+
+        self.inner_read(buffer, true).await
+    }
+
+    async fn inner_read_run<W: UsartWord>(
         &mut self,
-        buffer: &mut [u8],
+        buffer: &mut [W],
         enable_idle_line_detection: bool,
     ) -> Result<ReadCompletionEvent, Error> {
         let r = self.info.regs;
@@ -1100,7 +1152,7 @@ impl<'d> UartRx<'d, Async> {
         // Start USART DMA
         // will not do anything yet because DMAR is not yet set
         // future which will complete when DMA Read request completes
-        let transfer = unsafe { ch.read(rdr(r), buffer, Default::default()) };
+        let transfer = unsafe { ch.read(W::rdr_ptr(r), buffer, Default::default()) };
 
         // clear ORE flag just before enabling DMA Rx Request: can be mandatory for the second transfer
         if !self.detect_previous_overrun {
@@ -1246,7 +1298,11 @@ impl<'d> UartRx<'d, Async> {
         r
     }
 
-    async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool) -> Result<usize, Error> {
+    async fn inner_read<W: UsartWord>(
+        &mut self,
+        buffer: &mut [W],
+        enable_idle_line_detection: bool,
+    ) -> Result<usize, Error> {
         if buffer.is_empty() {
             return Ok(0);
         } else if buffer.len() > 0xFFFF {
@@ -1479,8 +1535,7 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
         }
     }
 
-    /// Perform a blocking read into `buffer`
-    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+    fn blocking_read_helper<W: UsartWord>(&mut self, buffer: &mut [W]) -> Result<(), Error> {
         let r = self.info.regs;
 
         // Call flush for Half-Duplex mode if some bytes were written and flush was not called.
@@ -1500,9 +1555,22 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
 
         for b in buffer {
             while !self.check_rx_flags()? {}
-            unsafe { *b = rdr(r).read_volatile() }
+            unsafe { *b = W::rdr_ptr(r).read_volatile() }
         }
         Ok(())
+    }
+
+    /// Perform a blocking read into `buffer`
+    pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.blocking_read_helper(buffer)
+    }
+
+    /// Perform a blocking read of 16 bit words into `buffer`
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub fn blocking_read_u16(&mut self, buffer: &mut [u16]) -> Result<(), Error> {
+        self.blocking_read_helper(buffer)
     }
 
     /// Set baudrate
@@ -1870,6 +1938,14 @@ impl<'d> Uart<'d, Async> {
         self.tx.write(buffer).await
     }
 
+    /// Perform an asynchronous write of 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the peripheral
+    /// transmits only the low-order bits of each word.
+    pub async fn write_u16(&mut self, buffer: &[u16]) -> Result<(), Error> {
+        self.tx.write_u16(buffer).await
+    }
+
     /// Wait until transmission complete
     pub async fn flush(&mut self) -> Result<(), Error> {
         self.tx.flush().await
@@ -1880,12 +1956,31 @@ impl<'d> Uart<'d, Async> {
         self.rx.read(buffer).await
     }
 
+    /// Perform an asynchronous read into `buffer` using 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub async fn read_u16(&mut self, buffer: &mut [u16]) -> Result<(), Error> {
+        self.rx.read_u16(buffer).await
+    }
+
     /// Perform an an asynchronous read with idle line detection enabled.
     ///
     /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
     /// as if you had called [`read(buffer)`](Self::read) instead!
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         self.rx.read_until_idle(buffer).await
+    }
+
+    /// Perform an asynchronous read with idle line detection enabled using 16 bit words.
+    ///
+    /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
+    /// as if you had called [`read_u16(buffer)`](Self::read_u16) instead!
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub async fn read_until_idle_u16(&mut self, buffer: &mut [u16]) -> Result<usize, Error> {
+        self.rx.read_until_idle_u16(buffer).await
     }
 }
 
@@ -2263,6 +2358,14 @@ impl<'d, M: PeriMode> Uart<'d, M> {
         self.tx.blocking_write(buffer)
     }
 
+    /// Perform a blocking write of 16 bit words
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the peripheral
+    /// transmits only the low-order bits of each word.
+    pub fn blocking_write_u16(&mut self, buffer: &[u16]) -> Result<(), Error> {
+        self.tx.blocking_write_u16(buffer)
+    }
+
     /// Block until transmission complete
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
         self.tx.blocking_flush()
@@ -2276,6 +2379,14 @@ impl<'d, M: PeriMode> Uart<'d, M> {
     /// Perform a blocking read into `buffer`
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
+    }
+
+    /// Perform a blocking read of 16 bit words into `buffer`
+    ///
+    /// Requires [`DataBits::DataBits9`]; with a narrower word size the high-order
+    /// bits of each received word are zero.
+    pub fn blocking_read_u16(&mut self, buffer: &mut [u16]) -> Result<(), Error> {
+        self.rx.blocking_read_u16(buffer)
     }
 
     /// Split the Uart into a transmitter and receiver, which is
@@ -2819,6 +2930,38 @@ mod buffered;
 
 mod ringbuffered;
 pub use ringbuffered::RingBufferedUartRx;
+
+/// The word sizes the USART data register can carry.
+///
+/// Selects the width used to access the data register, so that a 9 bit frame is
+/// read and written as a `u16` while an 8 bit frame stays a `u8`.
+trait UsartWord: Word {
+    /// Transmit data register, accessed at this word's width.
+    fn tdr_ptr(r: Regs) -> *mut Self;
+
+    /// Receive data register, accessed at this word's width.
+    fn rdr_ptr(r: Regs) -> *mut Self;
+}
+
+impl UsartWord for u8 {
+    fn tdr_ptr(r: Regs) -> *mut u8 {
+        tdr(r)
+    }
+
+    fn rdr_ptr(r: Regs) -> *mut u8 {
+        rdr(r)
+    }
+}
+
+impl UsartWord for u16 {
+    fn tdr_ptr(r: Regs) -> *mut u16 {
+        tdr(r).cast()
+    }
+
+    fn rdr_ptr(r: Regs) -> *mut u16 {
+        rdr(r).cast()
+    }
+}
 
 #[cfg(any(usart_v1, usart_v2))]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {
