@@ -196,6 +196,9 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         }
 
         if r.events_end().read() != 0 {
+            #[cfg(feature = "_nrf54l")]
+            errata_55_69(r, false);
+
             s.waker.wake();
             r.intenclr().write(|w| w.set_end(true));
         }
@@ -382,6 +385,9 @@ impl<'d> Spim<'d> {
         r.events_end().write_value(0);
         r.intenset().write(|w| w.set_end(true));
 
+        #[cfg(feature = "_nrf54l")]
+        errata_55_69(r, true);
+
         // Start SPI transaction.
         r.tasks_start().write_value(1);
     }
@@ -396,6 +402,9 @@ impl<'d> Spim<'d> {
 
         // Wait for 'end' event.
         while self.r.events_end().read() == 0 {}
+
+        #[cfg(feature = "_nrf54l")]
+        errata_55_69(self.r, false);
 
         compiler_fence(Ordering::SeqCst);
     }
@@ -571,6 +580,19 @@ impl<'d> Spim<'d> {
         }
         Poll::Pending
     }
+}
+
+/// nRF54L errata 55/69 workaround.
+///
+/// Without it the SPIM can fail to raise END, which hangs a transfer:
+/// <https://github.com/nordicsemi/nrfx/blob/1b7bedb5c7f379a3ec3ece851796e94d7e5d0b2c/drivers/src/nrfx_spim.c#L855-L861>
+#[cfg(feature = "_nrf54l")]
+fn errata_55_69(r: pac::spim::Spim, enable: bool) {
+    unsafe {
+        (r.as_ptr() as *mut u32)
+            .add(0xc80 / 4)
+            .write_volatile(if enable { 0x82 } else { 0 })
+    };
 }
 
 impl<'d> Drop for Spim<'d> {
