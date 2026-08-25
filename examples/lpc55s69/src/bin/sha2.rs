@@ -9,12 +9,12 @@
 use cortex_m::asm::nop;
 use defmt::*;
 use defmt_rtt as _;
-use panic_probe as _;
 use embassy_executor::Spawner;
 use embassy_nxp::hashcrypt::Sha256;
+use panic_probe as _;
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner ) -> ! {
+async fn main(_spawner: Spawner) -> ! {
     // Initialize board
     let p = embassy_nxp::init(Default::default());
     info!("Device started");
@@ -31,7 +31,7 @@ async fn main(_spawner: Spawner ) -> ! {
 
     // finalize() returns the final hashed message in its entirety
     let digest = sha2.finalize();
-    
+
     info!("Message 1 Digest: {:02x}", digest);
 
     let message = b"abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner ) -> ! {
     let digest = sha2.finalize();
     info!("Message 2 Digest: {:02x}", digest);
 
-    // Calling finalize() twice in a row with no update() calls in between results 
+    // Calling finalize() twice in a row with no update() calls in between results
     // in the hash of an empty message
     info!("Empty Digest:     {:02x}", sha2.finalize());
 
