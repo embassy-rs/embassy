@@ -24,12 +24,13 @@
 use core::ptr::{read_volatile, write_volatile};
 
 use defmt::{error, info};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::ospi::{
     AddressSize, ChipSelectHighTime, Config, FIFOThresholdLevel, HyperbusConfig, HyperbusLatencyMode, MemorySize,
     MemoryType, Ospi, OspiWidth, TransferConfig, WrapSize,
 };
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// Base address of the OCTOSPI2 memory-mapped window (silicon-fixed, RM0468 memory map).
 const HYPERRAM_BASE: *mut u32 = 0x7000_0000 as *mut u32;

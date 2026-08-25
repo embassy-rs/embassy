@@ -13,10 +13,11 @@
 #![no_std]
 #![no_main]
 
+use defmt_rtt as _;
 use embassy_stm32::time::khz;
 use embassy_stm32::{bind_interrupts, dma, peripherals, spi};
 use embassy_time::{Duration, Ticker, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // we use 16 bit data frame format of SPI, to let timing as accurate as possible.
 // thanks to loose tolerance of ws2812 timing, you can also use 8 bit data frame format, thus you will need to adjust the bit representation.

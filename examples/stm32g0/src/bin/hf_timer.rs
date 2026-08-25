@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config as PeripheralConfig;
 use embassy_stm32::gpio::OutputType;
@@ -9,7 +10,7 @@ use embassy_stm32::time::khz;
 use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
 use embassy_stm32::timer::simple_pwm::PwmPin;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

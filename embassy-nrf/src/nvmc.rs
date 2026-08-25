@@ -1,6 +1,6 @@
 //! Non-Volatile Memory Controller (NVMC, AKA internal flash) driver.
 
-use core::{ptr, slice};
+use core::ptr;
 
 use embedded_storage::nor_flash::{
     ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
@@ -119,8 +119,8 @@ impl<'d> ReadNorFlash for Nvmc<'d> {
             return Err(Error::OutOfBounds);
         }
 
-        let flash_data = unsafe { slice::from_raw_parts(offset as *const u8, bytes.len()) };
-        bytes.copy_from_slice(flash_data);
+        unsafe { ptr::copy_nonoverlapping(offset as _, bytes.as_mut_ptr(), bytes.len()) };
+
         Ok(())
     }
 

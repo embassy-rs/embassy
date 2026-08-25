@@ -6,13 +6,14 @@ use core::str;
 
 use cyw43::{Cyw4373, aligned_bytes};
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::{Config, SharedData, bind_interrupts, peripherals, sdmmc};
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 #[unsafe(link_section = ".ram_d3.shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();

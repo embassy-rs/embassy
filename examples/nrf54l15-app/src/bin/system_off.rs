@@ -2,12 +2,13 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::pac::gpio::vals::Sense;
 use embassy_nrf::{pac, power};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

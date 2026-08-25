@@ -70,7 +70,7 @@ const ALTERNATE_SETTING_DISABLED: u8 = 0x00;
 const ALTERNATE_SETTING_ENABLED: u8 = 0x01;
 
 /// Simple NTB header (NTH+NDP all in one) for sending packets
-#[repr(packed)]
+#[repr(C, packed)]
 #[allow(unused)]
 struct NtbOutHeader {
     // NTH
@@ -90,7 +90,7 @@ struct NtbOutHeader {
     ndp_term2: u16,
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[allow(unused)]
 struct NtbParameters {
     length: u16,
@@ -99,7 +99,7 @@ struct NtbParameters {
     out_params: NtbParametersDir,
 }
 
-#[repr(packed)]
+#[repr(C, packed)]
 #[allow(unused)]
 struct NtbParametersDir {
     max_size: u32,

@@ -21,11 +21,12 @@ use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::ipcc::{Config as IPCCConfig, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::{Config, SharedData, bind_interrupts};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;

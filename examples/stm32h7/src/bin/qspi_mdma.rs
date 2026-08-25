@@ -4,6 +4,7 @@
 #![allow(unused)]
 
 use defmt::{error, info};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::interrupt::typelevel::Binding;
 use embassy_stm32::mode::{Async, Blocking, Mode};
@@ -14,7 +15,7 @@ use embassy_stm32::qspi::enums::{
 use embassy_stm32::qspi::{self, Instance, InterruptHandler, MatchMode, Qspi, QuadDma, TransferConfig};
 use embassy_stm32::{Peri, bind_interrupts, dma};
 use embassy_time::{Duration, WithTimeout};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 // Commands from IS25LP064 datasheet.
 const WRITE_CMD: u8 = 0x32; // PPQ

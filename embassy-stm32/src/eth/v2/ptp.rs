@@ -1,8 +1,27 @@
+use core::convert::Infallible;
 use core::fmt;
 use core::marker::PhantomData;
 
+use embassy_ptp_driver::{Clock, ScaledPpm, Timestamp as PtpTimestamp};
+
 use super::Instance;
-use crate::eth::ptp::PtpTimestamp;
+
+fn from_offset_nanos(offset_nanos: i64) -> (PtpTimestamp, bool) {
+    let subtract = offset_nanos < 0;
+    let nanos = if subtract {
+        offset_nanos.unsigned_abs()
+    } else {
+        offset_nanos as u64
+    };
+    let seconds = nanos / 1_000_000_000;
+    let (seconds, nanos) = if seconds > u64::from(u32::MAX) {
+        (u32::MAX, 999_999_999)
+    } else {
+        (seconds as u32, (nanos % 1_000_000_000) as u32)
+    };
+
+    (PtpTimestamp::from_seconds_and_nanos(seconds, nanos), subtract)
+}
 
 /// Ethernet MAC PTP subsecond increment.
 ///
@@ -129,7 +148,7 @@ impl<T: Instance> PtpClock<T> {
             _peri: PhantomData,
         };
         clock.configure();
-        clock.set_time(PtpTimestamp { seconds: 0, nanos: 0 });
+        clock.set_time(PtpTimestamp::default());
         debug!(
             "eth ptp clock hclk={} increment={}ns addend={:#010x}",
             hclk.0,
@@ -166,7 +185,7 @@ impl<T: Instance> PtpClock<T> {
 
     /// Step the MAC PTP time by `offset_nanos`.
     pub fn offset_time(&self, offset_nanos: i64) {
-        let (timestamp, subtract) = PtpTimestamp::from_offset_nanos(offset_nanos);
+        let (timestamp, subtract) = from_offset_nanos(offset_nanos);
         apply_time_update::<T>(timestamp, subtract, TimeUpdate::Offset);
     }
 
@@ -205,13 +224,31 @@ impl<T: Instance> PtpClock<T> {
     }
 }
 
+impl<T: Instance> Clock for PtpClock<T> {
+    type Error = Infallible;
+
+    fn now(&self) -> PtpTimestamp {
+        PtpClock::now(self)
+    }
+
+    fn step(&mut self, offset_nanos: i64) -> Result<PtpTimestamp, Self::Error> {
+        self.offset_time(offset_nanos);
+        Ok(self.now())
+    }
+
+    fn set_frequency(&mut self, adjustment: ScaledPpm) -> Result<PtpTimestamp, Self::Error> {
+        self.set_addend(crate::eth::adjusted_ptp_addend(self.nominal_addend(), adjustment));
+        Ok(self.now())
+    }
+}
+
 fn read_timestamp<T: Instance>() -> PtpTimestamp {
     let mac = T::regs().ethernet_mac();
     loop {
         let seconds = mac.macstsr().read().tss();
         let nanos = mac.macstnr().read().tsss();
         if seconds == mac.macstsr().read().tss() {
-            return PtpTimestamp { seconds, nanos };
+            return PtpTimestamp::from_seconds_and_nanos(seconds, nanos);
         }
     }
 }
@@ -228,9 +265,9 @@ fn apply_time_update<T: Instance>(timestamp: PtpTimestamp, subtract: bool, updat
 
 fn write_time_update<T: Instance>(timestamp: PtpTimestamp, subtract: bool) {
     let mac = T::regs().ethernet_mac();
-    mac.macstsur().write(|w| w.set_tss(timestamp.seconds));
+    mac.macstsur().write(|w| w.set_tss(timestamp.seconds()));
     mac.macstnur().write(|w| {
-        w.set_tsss(timestamp.nanos);
+        w.set_tsss(timestamp.nanos());
         w.set_addsub(subtract);
     });
 }

@@ -7,6 +7,7 @@
 
 use core::str;
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
@@ -14,7 +15,7 @@ use embassy_rp::rom_data::reset_to_usb_boot;
 use embassy_rp::usb::{Driver, InterruptHandler};
 use embassy_time::Timer;
 use embassy_usb_logger::ReceiverHandler;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     USBCTRL_IRQ => InterruptHandler<USB>;
@@ -49,7 +50,7 @@ async fn logger_task(driver: Driver<'static, USB>) {
     embassy_usb_logger::run!(1024, log::LevelFilter::Info, driver, Handler);
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_rp::executor::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let driver = Driver::new(p.USB, Irqs);

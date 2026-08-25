@@ -22,9 +22,10 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_stm32::aes::{Aes, AesEcb, Direction};
 use embassy_stm32::{bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     AES => embassy_stm32::aes::InterruptHandler<peripherals::AES>;

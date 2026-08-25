@@ -34,36 +34,42 @@ use core::pin::pin;
 use core::task::{Context, Poll};
 
 pub use embassy_net_driver as driver;
+#[cfg(feature = "packetmeta-timestamp")]
+use embassy_net_driver::TxTimestamp;
 use embassy_net_driver::{Driver, LinkState};
+#[cfg(feature = "packetmeta-timestamp")]
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+#[cfg(feature = "packetmeta-timestamp")]
+use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_time::{Instant, Timer};
 use heapless::Vec;
 #[cfg(feature = "dns")]
-pub use smoltcp::config::DNS_MAX_SERVER_COUNT;
+pub use xarxa::config::DNS_MAX_SERVER_COUNT;
 #[cfg(feature = "multicast")]
-pub use smoltcp::iface::MulticastError;
+pub use xarxa::iface::MulticastError;
 #[cfg(any(feature = "dns", feature = "dhcpv4"))]
-use smoltcp::iface::SocketHandle;
-use smoltcp::iface::{Interface, SocketSet, SocketStorage};
-use smoltcp::phy::Medium;
+use xarxa::iface::SocketHandle;
+use xarxa::iface::{Interface, SocketSet, SocketStorage};
+use xarxa::phy::Medium;
 #[cfg(feature = "dhcpv4")]
-use smoltcp::socket::dhcpv4::{self, RetryConfig};
+use xarxa::socket::dhcpv4::{self, RetryConfig};
 #[cfg(feature = "medium-ethernet")]
-pub use smoltcp::wire::EthernetAddress;
+pub use xarxa::wire::EthernetAddress;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154", feature = "medium-ip"))]
-pub use smoltcp::wire::HardwareAddress;
+pub use xarxa::wire::HardwareAddress;
 #[cfg(any(feature = "udp", feature = "tcp"))]
-pub use smoltcp::wire::IpListenEndpoint;
+pub use xarxa::wire::IpListenEndpoint;
 #[cfg(feature = "medium-ieee802154")]
-pub use smoltcp::wire::{Ieee802154Address, Ieee802154Frame};
-pub use smoltcp::wire::{IpAddress, IpCidr, IpEndpoint};
+pub use xarxa::wire::{Ieee802154Address, Ieee802154Frame};
+pub use xarxa::wire::{IpAddress, IpCidr, IpEndpoint};
 #[cfg(feature = "proto-ipv4")]
-pub use smoltcp::wire::{Ipv4Address, Ipv4Cidr};
+pub use xarxa::wire::{Ipv4Address, Ipv4Cidr};
 #[cfg(feature = "proto-ipv6")]
-pub use smoltcp::wire::{Ipv6Address, Ipv6Cidr};
+pub use xarxa::wire::{Ipv6Address, Ipv6Cidr};
 
 use crate::driver_util::DriverAdapter;
-use crate::time::{instant_from_smoltcp, instant_to_smoltcp};
+use crate::time::{instant_from_xarxa, instant_to_xarxa};
 
 const LOCAL_PORT_MIN: u16 = 1025;
 const LOCAL_PORT_MAX: u16 = 65535;
@@ -96,7 +102,7 @@ pub struct StackResources<const SOCK: usize> {
     queries: MaybeUninit<[Option<dns::DnsQuery>; MAX_QUERIES]>,
     #[cfg(feature = "dhcpv4-hostname")]
     hostname: HostnameResources,
-    // Retains the raw DHCP reply so options not parsed by smoltcp (NTP servers, option 42) can be
+    // Retains the raw DHCP reply so options not parsed by xarxa (NTP servers, option 42) can be
     // read out. 576 is the minimum DHCP message size every server must respect (RFC 2131); an
     // undersized buffer never corrupts the IP configuration, it only drops the extra options.
     #[cfg(feature = "dhcpv4-ntp")]
@@ -105,7 +111,7 @@ pub struct StackResources<const SOCK: usize> {
 
 #[cfg(feature = "dhcpv4-hostname")]
 struct HostnameResources {
-    option: MaybeUninit<smoltcp::wire::DhcpOption<'static>>,
+    option: MaybeUninit<xarxa::wire::DhcpOption<'static>>,
     data: MaybeUninit<[u8; MAX_HOSTNAME_LEN]>,
 }
 
@@ -190,8 +196,8 @@ impl Default for DhcpConfig {
             max_lease_duration: Default::default(),
             retry_config: Default::default(),
             ignore_naks: Default::default(),
-            server_port: smoltcp::wire::DHCP_SERVER_PORT,
-            client_port: smoltcp::wire::DHCP_CLIENT_PORT,
+            server_port: xarxa::wire::DHCP_SERVER_PORT,
+            client_port: xarxa::wire::DHCP_CLIENT_PORT,
             #[cfg(feature = "dhcpv4-hostname")]
             hostname: None,
         }
@@ -332,6 +338,8 @@ pub(crate) struct Inner {
     hostname: *mut HostnameResources,
     #[cfg(feature = "dhcpv4-ntp")]
     dhcp_rx_buffer: *mut [u8],
+    #[cfg(feature = "packetmeta-timestamp")]
+    timestamps: Channel<NoopRawMutex, TxTimestamp, 5>,
 }
 
 fn _assert_covariant<'a, 'b: 'a>(x: Stack<'b>) -> Stack<'a> {
@@ -345,8 +353,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     resources: &'d mut StackResources<SOCK>,
     random_seed: u64,
 ) -> (Stack<'d>, Runner<'d, D>) {
-    let (hardware_address, medium) = to_smoltcp_hardware_address(driver.hardware_address());
-    let mut iface_cfg = smoltcp::iface::Config::new(hardware_address);
+    let (hardware_address, medium) = to_xarxa_hardware_address(driver.hardware_address());
+    let mut iface_cfg = xarxa::iface::Config::new(hardware_address);
     iface_cfg.random_seed = random_seed;
     #[cfg(feature = "slaac")]
     {
@@ -362,7 +370,7 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
             medium,
             tx_exhausted: false,
         },
-        instant_to_smoltcp(Instant::now()),
+        instant_to_xarxa(Instant::now()),
     );
 
     unsafe fn transmute_slice<T>(x: &mut [T]) -> &'static mut [T] {
@@ -407,6 +415,8 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
         hostname: &mut resources.hostname,
         #[cfg(feature = "dhcpv4-ntp")]
         dhcp_rx_buffer: resources.dhcp_rx_buffer.write([0; DHCP_RX_BUFFER_SIZE]) as *mut [u8],
+        #[cfg(feature = "packetmeta-timestamp")]
+        timestamps: Channel::new(),
     };
 
     #[cfg(feature = "proto-ipv4")]
@@ -420,9 +430,9 @@ pub fn new<'d, D: Driver, const SOCK: usize>(
     (stack, Runner { driver, stack })
 }
 
-/// Parse the NTP servers (DHCP option 42) out of the raw DHCP reply retained by smoltcp.
+/// Parse the NTP servers (DHCP option 42) out of the raw DHCP reply retained by xarxa.
 ///
-/// smoltcp does not parse this option itself; it only exposes the raw packet (when a receive
+/// xarxa does not parse this option itself; it only exposes the raw packet (when a receive
 /// buffer is set), leaving it to consumers to read out the options they care about.
 #[cfg(feature = "dhcpv4-ntp")]
 fn parse_dhcp_ntp_servers(config: &dhcpv4::Config) -> Vec<Ipv4Address, 4> {
@@ -438,7 +448,7 @@ fn parse_dhcp_ntp_servers(config: &dhcpv4::Config) -> Vec<Ipv4Address, 4> {
             continue;
         }
         for chunk in option.data.chunks_exact(4) {
-            // Drop any servers past our capacity, like smoltcp does for DNS servers.
+            // Drop any servers past our capacity, like xarxa does for DNS servers.
             if servers
                 .push(Ipv4Address::from_octets(chunk.try_into().unwrap()))
                 .is_err()
@@ -450,7 +460,7 @@ fn parse_dhcp_ntp_servers(config: &dhcpv4::Config) -> Vec<Ipv4Address, 4> {
     servers
 }
 
-fn to_smoltcp_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddress, Medium) {
+fn to_xarxa_hardware_address(addr: driver::HardwareAddress) -> (HardwareAddress, Medium) {
     match addr {
         #[cfg(feature = "medium-ethernet")]
         driver::HardwareAddress::Ethernet(eth) => (HardwareAddress::Ethernet(EthernetAddress(eth)), Medium::Ethernet),
@@ -514,6 +524,12 @@ impl<'d> Stack<'d> {
         }
 
         v4_up || v6_up
+    }
+
+    #[cfg(feature = "packetmeta-timestamp")]
+    /// Poll tx timestamps
+    pub async fn poll_tx_timestamps(&self) -> TxTimestamp {
+        poll_fn(|cx| self.with(|i| i.timestamps.poll_receive(cx))).await
     }
 
     /// Wait for the network device to obtain a link signal.
@@ -621,7 +637,7 @@ impl<'d> Stack<'d> {
         &self,
         name: &str,
         qtype: dns::DnsQueryType,
-    ) -> Result<Vec<IpAddress, { smoltcp::config::DNS_MAX_RESULT_COUNT }>, dns::Error> {
+    ) -> Result<Vec<IpAddress, { xarxa::config::DNS_MAX_RESULT_COUNT }>, dns::Error> {
         // For A and AAAA queries we try detect whether `name` is just an IP address
         match qtype {
             #[cfg(feature = "proto-ipv4")]
@@ -767,11 +783,11 @@ impl Inner {
                 // Create the socket if it doesn't exist.
                 if self.dhcp_socket.is_none() {
                     #[allow(unused_mut)]
-                    let mut socket = smoltcp::socket::dhcpv4::Socket::new();
+                    let mut socket = xarxa::socket::dhcpv4::Socket::new();
 
                     #[cfg(feature = "dhcpv4-ntp")]
                     {
-                        // smoltcp doesn't parse options it doesn't know about (e.g. NTP), but it can
+                        // xarxa doesn't parse options it doesn't know about (e.g. NTP), but it can
                         // retain the raw reply so we can read them out. safety: this pointer lives as
                         // long as the stack, since `new()` borrows the resources for `'d`.
                         let buffer = unsafe { &mut *self.dhcp_rx_buffer };
@@ -785,7 +801,7 @@ impl Inner {
                 // Configure it
                 let socket = self.sockets.get_mut::<dhcpv4::Socket>(unwrap!(self.dhcp_socket));
                 socket.set_ignore_naks(c.ignore_naks);
-                socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_smoltcp));
+                socket.set_max_lease_duration(c.max_lease_duration.map(crate::time::duration_to_xarxa));
                 socket.set_ports(c.server_port, c.client_port);
                 socket.set_retry_config(c.retry_config);
 
@@ -795,7 +811,7 @@ impl Inner {
                     // safety:
                     // - we just did set_outgoing_options([]) so we know the socket is no longer holding a reference.
                     // - we know this pointer lives for as long as the stack exists, because `new()` borrows
-                    //   the resources for `'d`. Therefore it's OK to pass a reference to this to smoltcp.
+                    //   the resources for `'d`. Therefore it's OK to pass a reference to this to xarxa.
                     let hostname = unsafe { &mut *self.hostname };
 
                     // create data
@@ -804,7 +820,7 @@ impl Inner {
                     let data: &[u8] = &data[..h.len()];
 
                     // set the option.
-                    let option = hostname.option.write(smoltcp::wire::DhcpOption { data, kind: 12 });
+                    let option = hostname.option.write(xarxa::wire::DhcpOption { data, kind: 12 });
                     socket.set_outgoing_options(core::slice::from_ref(option));
                 }
 
@@ -915,7 +931,7 @@ impl Inner {
                 dns_servers.len()
             };
             self.sockets
-                .get_mut::<smoltcp::socket::dns::Socket>(self.dns_socket)
+                .get_mut::<xarxa::socket::dns::Socket>(self.dns_socket)
                 .update_servers(&dns_servers[..count]);
         }
 
@@ -925,7 +941,7 @@ impl Inner {
     fn poll<D: Driver>(&mut self, cx: &mut Context<'_>, driver: &mut D) {
         self.waker.register(cx.waker());
 
-        let (_hardware_addr, medium) = to_smoltcp_hardware_address(driver.hardware_address());
+        let (_hardware_addr, medium) = to_xarxa_hardware_address(driver.hardware_address());
 
         #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
         {
@@ -940,6 +956,22 @@ impl Inner {
             if do_set {
                 self.iface.set_hardware_addr(_hardware_addr);
             }
+        }
+
+        #[cfg(feature = "packetmeta-timestamp")]
+        while driver.capabilities().timestamp
+            && !self.timestamps.is_full()
+            && let Some(timestamp) = driver.poll_timestamp(cx)
+        {
+            self.timestamps.try_send(timestamp).unwrap();
+        }
+
+        #[cfg(feature = "packetmeta-timestamp")]
+        if driver.capabilities().timestamp && self.timestamps.is_full() {
+            let _ = self.timestamps.poll_ready_to_send(cx);
+            warn!("iface is stalled because timestamp channel is full.");
+
+            return;
         }
 
         // Update link up
@@ -961,7 +993,7 @@ impl Inner {
             self.sockets.get_mut::<dhcpv4::Socket>(dhcp_handle).reset();
         }
 
-        let timestamp = instant_to_smoltcp(Instant::now());
+        let timestamp = instant_to_xarxa(Instant::now());
         let mut smoldev = DriverAdapter {
             cx: Some(cx),
             inner: driver,
@@ -1032,7 +1064,7 @@ impl Inner {
                 let config = StaticConfigV6 {
                     address: *address,
                     gateway,
-                    dns_servers: Vec::new(), // RDNSS not (yet) supported by smoltcp.
+                    dns_servers: Vec::new(), // RDNSS not (yet) supported by xarxa.
                 };
                 Some(config)
             } else {
@@ -1048,7 +1080,7 @@ impl Inner {
         if let Some(poll_at) = self.iface.poll_at(timestamp, &mut self.sockets)
             && !tx_exhausted
         {
-            let t = pin!(Timer::at(instant_from_smoltcp(poll_at)));
+            let t = pin!(Timer::at(instant_from_xarxa(poll_at)));
             if t.poll(cx).is_ready() {
                 cx.waker().wake_by_ref();
             }

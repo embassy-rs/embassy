@@ -19,8 +19,9 @@
 // Direct PC<->board cable: set the PC's adapter to 192.168.137.1/24 and run
 // `python eth-speedtest.py <mode> --host 192.168.137.2`.
 
-use cortex_m::peripheral::MPU;
+use cortex_m::peripheral::{CPUID, MPU, SCB};
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_net::tcp::TcpSocket;
@@ -32,11 +33,11 @@ use embassy_stm32::{Config, bind_interrupts, eth};
 use embassy_time::{Duration, Instant};
 use embedded_io_async::{Read, Write};
 use heapless::Vec;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
-    ETH1 => eth::InterruptHandler;
+    ETH1 => eth::InterruptHandler<ETH1>;
 });
 
 type Device = Ethernet<'static, ETH1, GenericPhy<Sma<'static, ETH_SMA>>>;
@@ -173,17 +174,27 @@ fn report(label: &str, bytes: u64, elapsed: Duration) {
     );
 }
 
+#[inline(never)]
+fn enable_dcache(scb: &mut SCB, cpuid: &mut CPUID) {
+    scb.enable_dcache(cpuid);
+}
+
+#[inline(never)]
+fn enable_icache(scb: &mut SCB) {
+    scb.enable_icache();
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) -> ! {
     let mut core_peri = unsafe { cortex_m::Peripherals::steal() };
     core_peri.SCB.invalidate_icache();
-    core_peri.SCB.enable_icache();
+    enable_icache(&mut core_peri.SCB);
 
     // The ethernet DMA is not cache-coherent. Rather than disable the whole
-    // D-cache (which makes smoltcp's software checksums and socket-buffer copies
+    // D-cache (which makes xarxa's software checksums and socket-buffer copies
     // crawl, capping throughput well below line rate), place ONLY the PacketQueue
     // in a non-cacheable MPU region and keep the D-cache enabled for everything
-    // else (stack, smoltcp state, TCP buffers).
+    // else (stack, xarxa state, TCP buffers).
     // TX is already at line rate with a small ring; give RX a deeper ring so it
     // can absorb bursts while net_task is busy (fewer drops -> fewer retransmits).
     static PACKETS: StaticCell<Aligned<PacketQueue<8, 8>>> = StaticCell::new();
@@ -193,7 +204,7 @@ async fn main(spawner: Spawner) -> ! {
         packets as *const _ as u32,
         core::mem::size_of_val(packets),
     );
-    core_peri.SCB.enable_dcache(&mut core_peri.CPUID);
+    enable_dcache(&mut core_peri.SCB, &mut core_peri.CPUID);
 
     let p = embassy_stm32::init(rcc_config());
     info!("eth speed test");

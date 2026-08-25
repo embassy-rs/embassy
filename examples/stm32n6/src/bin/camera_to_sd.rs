@@ -15,6 +15,7 @@ mod imx335;
 use core::cell::RefCell;
 
 use defmt::{error, info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::block_on;
 use embassy_futures::select::{Either3, select3};
@@ -37,7 +38,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, interrupt, pac, peripherals};
 use embassy_time::Timer;
 use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx, Mode, TimeSource, Timestamp, VolumeIdx, VolumeManager};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[path = "../rk050hr18c.rs"]
 mod rk050hr18c;

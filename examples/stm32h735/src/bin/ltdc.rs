@@ -10,6 +10,7 @@
 ///
 use bouncy_box::BouncyBox;
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
@@ -24,8 +25,8 @@ use embedded_graphics::pixelcolor::raw::RawU24;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::Rectangle;
 use heapless::index_map::{Entry, FnvIndexMap};
+use panic_probe as _;
 use tinybmp::Bmp;
-use {defmt_rtt as _, panic_probe as _};
 
 const DISPLAY_WIDTH: usize = 480;
 const DISPLAY_HEIGHT: usize = 272;

@@ -10,14 +10,16 @@
 
 teleprobe_meta::target!(b"frdm-mcx-a266");
 
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
+use embassy_mcxa as hal;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::i2c::{controller, target};
 use hal::peripherals::{LPI2C1, LPI2C2};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     struct Irqs {

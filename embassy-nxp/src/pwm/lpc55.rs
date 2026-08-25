@@ -75,8 +75,8 @@ impl<'d> Pwm<'d> {
     pub(crate) fn reset() {
         // Reset SCTimer => Reset counter and halt it.
         // It should be done only once during the initialization of the board.
-        SYSCON.presetctrl1().modify(|w| w.set_sct_rst(SctRst::ASSERTED));
-        SYSCON.presetctrl1().modify(|w| w.set_sct_rst(SctRst::RELEASED));
+        SYSCON.presetctrl1().modify(|w| w.set_sct_rst(SctRst::Asserted));
+        SYSCON.presetctrl1().modify(|w| w.set_sct_rst(SctRst::Released));
     }
     fn new_inner<T: sct::Instance, O: sct::Output<T>>(
         output: usize,
@@ -94,16 +94,16 @@ impl<'d> Pwm<'d> {
         });
 
         // Choose the clock for PWM.
-        SYSCON.sctclksel().modify(|w| w.set_sel(SctclkselSel::ENUM_0X3));
+        SYSCON.sctclksel().modify(|w| w.set_sel(SctclkselSel::Enum0x3));
         // For now, 96 MHz.
 
         // IOCON Setup
         channel.pio().modify(|w| {
             w.set_func(channel.pin_func());
-            w.set_digimode(PioDigimode::DIGITAL);
-            w.set_slew(PioSlew::STANDARD);
-            w.set_mode(PioMode::INACTIVE);
-            w.set_od(PioOd::NORMAL);
+            w.set_digimode(PioDigimode::Digital);
+            w.set_slew(PioSlew::Standard);
+            w.set_mode(PioMode::Inactive);
+            w.set_od(PioOd::Normal);
         });
 
         Self::configure(output, &config);
@@ -133,9 +133,9 @@ impl<'d> Pwm<'d> {
         // Stop and reset the counter
         SCT0.ctrl().modify(|w| {
             if config.phase_correct {
-                w.set_bidir_l(vals::Bidir::UP_DOWN);
+                w.set_bidir_l(vals::Bidir::UpDown);
             } else {
-                w.set_bidir_l(vals::Bidir::UP);
+                w.set_bidir_l(vals::Bidir::Up);
             }
             w.set_halt_l(true); // halt the counter to make new changes
             w.set_clrctr_l(true); // clear the counter
@@ -144,8 +144,8 @@ impl<'d> Pwm<'d> {
         SYSCON.sctclkdiv().modify(|w| w.set_div(config.divider));
 
         SCT0.config().modify(|w| {
-            w.set_unify(vals::Unify::UNIFIED_COUNTER);
-            w.set_clkmode(vals::Clkmode::SYSTEM_CLOCK_MODE);
+            w.set_unify(vals::Unify::UnifiedCounter);
+            w.set_clkmode(vals::Clkmode::SystemClockMode);
             w.set_noreload_l(true);
             w.set_autolimit_l(true);
         });
@@ -157,21 +157,21 @@ impl<'d> Pwm<'d> {
         if TOP_VALUE.load(Ordering::Relaxed) == 0 {
             // Match 0 will reset the timer using TOP value
             SCT0.match_(0).modify(|w| {
-                w.set_matchn_l((config.top & 0xFFFF) as u16);
-                w.set_matchn_h((config.top >> 16) as u16);
+                w.set_matc_hn_l((config.top & 0xFFFF) as u16);
+                w.set_matc_hn_h((config.top >> 16) as u16);
             });
         } else {
             panic!("The top value cannot be changed after the initialization.");
         }
         // The actual matches that are used for event logic
         SCT0.match_(output_number + 1).modify(|w| {
-            w.set_matchn_l((config.compare & 0xFFFF) as u16);
-            w.set_matchn_h((config.compare >> 16) as u16);
+            w.set_matc_hn_l((config.compare & 0xFFFF) as u16);
+            w.set_matc_hn_h((config.compare >> 16) as u16);
         });
 
         SCT0.match_(15).modify(|w| {
-            w.set_matchn_l(0);
-            w.set_matchn_h(0);
+            w.set_matc_hn_l(0);
+            w.set_matc_hn_h(0);
         });
 
         // Event configuration
@@ -180,26 +180,26 @@ impl<'d> Pwm<'d> {
             if SCT0.ev(0).ev_ctrl().read().matchsel() != 15 {
                 SCT0.ev(0).ev_ctrl().modify(|w| {
                     w.set_matchsel(15);
-                    w.set_combmode(vals::Combmode::MATCH);
+                    w.set_combmode(vals::Combmode::Match);
                     // STATE + statev, where STATE is a on-board variable.
-                    w.set_stateld(vals::Stateld::ADD);
+                    w.set_stateld(vals::Stateld::Add);
                     w.set_statev(0);
                 });
             }
         });
         SCT0.ev(output_number + 1).ev_ctrl().modify(|w| {
             w.set_matchsel((output_number + 1) as u8);
-            w.set_combmode(vals::Combmode::MATCH);
-            w.set_stateld(vals::Stateld::ADD);
+            w.set_combmode(vals::Combmode::Match);
+            w.set_stateld(vals::Stateld::Add);
             // STATE + statev, where STATE is a on-board variable.
             w.set_statev(0);
         });
 
         // Assign events to states
-        SCT0.ev(0).ev_state().modify(|w| w.set_statemskn(1 << 0));
+        SCT0.ev(0).ev_state().modify(|w| w.set_statems_kn(1 << 0));
         SCT0.ev(output_number + 1)
             .ev_state()
-            .modify(|w| w.set_statemskn(1 << 0));
+            .modify(|w| w.set_statems_kn(1 << 0));
         // TODO(frihetselsker): optimize nxp-pac so that `set_clr` and `set_set` are turned into a bit array.
         if config.invert {
             // Low when event 0 is active
@@ -220,7 +220,7 @@ impl<'d> Pwm<'d> {
         if config.phase_correct {
             // Take into account the set matches and reverse their actions while counting back.
             SCT0.outputdirctrl()
-                .modify(|w| w.set_setclr(output_number, vals::Setclr::L_REVERSED));
+                .modify(|w| w.set_setclr(output_number, vals::Setclr::LReversed));
         }
 
         // State 0 by default

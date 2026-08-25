@@ -18,6 +18,7 @@
 /// blank white screen regardless of valid video output.
 use bouncy_box::BouncyBox;
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
@@ -34,8 +35,8 @@ use embedded_graphics::image::Image;
 use embedded_graphics::pixelcolor::{Rgb565, Rgb888};
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::Rectangle;
+use panic_probe as _;
 use tinybmp::Bmp;
-use {defmt_rtt as _, panic_probe as _};
 
 const DISPLAY_WIDTH: usize = 480;
 const DISPLAY_HEIGHT: usize = 272;

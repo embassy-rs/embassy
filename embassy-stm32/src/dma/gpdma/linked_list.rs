@@ -24,56 +24,94 @@ pub enum RunMode {
     Circular,
 }
 
-/// A linked-list item for linear GPDMA transfers.
+/// Configuration common to all linked-list item types.
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct ItemConfig {
+    /// Transfer complete event mode for this item.
+    pub transfer_complete_mode: super::TransferCompleteMode,
+}
+
+impl Default for ItemConfig {
+    fn default() -> Self {
+        Self {
+            transfer_complete_mode: super::TransferCompleteMode::EachBlock,
+        }
+    }
+}
+
+/// Backwards-compatible alias.
+pub type LinearItemConfig = ItemConfig;
+
+/// Trait for linked-list item types usable in a generic [`Table`].
+pub trait LinkedListItem: Copy + Default + Sized {
+    /// Per-item configuration passed at construction time.
+    type Config: Default + Copy;
+
+    /// Whether this item type requires a 2D-capable channel.
+    const IS_2D: bool;
+
+    /// Create a new read DMA transfer item (peripheral to memory).
+    ///
+    /// # Safety
+    /// The caller must ensure addresses and buffer remain valid for the transfer duration.
+    unsafe fn new_read<MW: Word, PW: Word>(
+        request: Request,
+        peri_addr: *mut PW,
+        buf: &mut [MW],
+        config: Self::Config,
+    ) -> Self;
+
+    /// Create a new write DMA transfer item (memory to peripheral).
+    ///
+    /// # Safety
+    /// The caller must ensure addresses and buffer remain valid for the transfer duration.
+    unsafe fn new_write<MW: Word, PW: Word>(
+        request: Request,
+        buf: &[MW],
+        peri_addr: *mut PW,
+        config: Self::Config,
+    ) -> Self;
+
+    /// Link to the next item at the given offset address.
+    fn link_to(&mut self, next: u16);
+
+    /// Unlink the next item (disables channel update bits).
+    fn unlink(&mut self);
+
+    /// The item's transfer count in number of destination words.
+    fn transfer_count(&self) -> usize;
+}
+
+/// The common fields shared by all linked-list item types (TR1, TR2, BR1, SAR, DAR).
 ///
-/// Also works for 2D-capable GPDMA channels, but does not use 2D capabilities.
+/// This is the first 5 words of every GPDMA linked-list descriptor.
+/// Both [`LinearItem`] and [`TwoDItem`](super::two_d::TwoDItem) embed
+/// this as their first field so the `#[repr(C)]` hardware layout is preserved.
 #[derive(Debug, Copy, Clone, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
-pub struct LinearItem {
+pub struct Item {
     /// Transfer register 1.
     pub tr1: regs::ChTr1,
     /// Transfer register 2.
     pub tr2: regs::ChTr2,
-    /// Block register 2.
+    /// Block register 1.
     pub br1: regs::ChBr1,
     /// Source address register.
     pub sar: u32,
     /// Destination address register.
     pub dar: u32,
-    /// Linked-list address register.
-    pub llr: regs::ChLlr,
 }
 
-impl LinearItem {
-    /// Create a new read DMA transfer (peripheral to memory).
-    pub unsafe fn new_read<'d, MW: Word, PW: Word>(request: Request, peri_addr: *mut PW, buf: &'d mut [MW]) -> Self {
-        Self::new_inner(
-            request,
-            Dir::PeripheralToMemory,
-            peri_addr as *const u32,
-            buf as *mut [MW] as *mut MW as *mut u32,
-            buf.len(),
-            true,
-            PW::size(),
-            MW::size(),
-        )
-    }
-
-    /// Create a new write DMA transfer (memory to peripheral).
-    pub unsafe fn new_write<'d, MW: Word, PW: Word>(request: Request, buf: &'d [MW], peri_addr: *mut PW) -> Self {
-        Self::new_inner(
-            request,
-            Dir::MemoryToPeripheral,
-            peri_addr as *const u32,
-            buf as *const [MW] as *const MW as *mut u32,
-            buf.len(),
-            true,
-            MW::size(),
-            PW::size(),
-        )
-    }
-
-    unsafe fn new_inner(
+impl Item {
+    /// Build a new item from raw transfer parameters.
+    ///
+    /// # Safety
+    /// The caller must ensure `peri_addr` and `mem_addr` are valid for the transfer.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) unsafe fn new(
         request: Request,
         dir: Dir,
         peri_addr: *const u32,
@@ -83,7 +121,6 @@ impl LinearItem {
         data_size: WordSize,
         dst_size: WordSize,
     ) -> Self {
-        // BNDT is specified as bytes, not as number of transfers.
         let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
             panic!("DMA transfers may not be larger than 65535 bytes.");
         };
@@ -97,21 +134,18 @@ impl LinearItem {
         tr1.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
         tr1.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
 
-        // Set AHB port assignments for GPDMA (LPDMA does not have SAP/DAP).
-        // This matches the logic in Channel::configure() for non-linked-list
-        // transfers: memory is on Port0 (AXI), peripheral is on Port1 (AHB).
         #[cfg(gpdma)]
         {
             use stm32_metapac::gpdma::vals::Ap;
             tr1.set_sap(match dir {
-                Dir::MemoryToPeripheral => Ap::Port0, // Source is memory on AXI
-                Dir::PeripheralToMemory => Ap::Port1, // Source is peripheral on AHB
-                Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
+                Dir::MemoryToPeripheral => Ap::Port0,
+                Dir::PeripheralToMemory => Ap::Port1,
+                Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
             });
             tr1.set_dap(match dir {
-                Dir::MemoryToPeripheral => Ap::Port1, // Destination is peripheral on AHB
-                Dir::PeripheralToMemory => Ap::Port0, // Destination is memory on AXI
-                Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
+                Dir::MemoryToPeripheral => Ap::Port1,
+                Dir::PeripheralToMemory => Ap::Port0,
+                Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
             });
         }
 
@@ -119,17 +153,15 @@ impl LinearItem {
         tr2.set_dreq(match dir {
             Dir::MemoryToPeripheral => Dreq::DestinationPeripheral,
             Dir::PeripheralToMemory => Dreq::SourcePeripheral,
-            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
         });
         tr2.set_reqsel(request);
 
         let (sar, dar) = match dir {
             Dir::MemoryToPeripheral => (mem_addr as _, peri_addr as _),
             Dir::PeripheralToMemory => (peri_addr as _, mem_addr as _),
-            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
         };
-
-        let llr = regs::ChLlr(0);
 
         Self {
             tr1,
@@ -137,14 +169,79 @@ impl LinearItem {
             br1,
             sar,
             dar,
-            llr,
         }
     }
 
-    /// Link to the next linear item at the given address.
+    /// Apply the common item configuration fields.
     ///
-    /// Enables channel update bits.
-    pub fn link_to(&mut self, next: u16) {
+    /// This is the single place to expand when new common config fields are added.
+    pub(super) fn apply_config(&mut self, config: &ItemConfig) {
+        self.tr2.set_tcem(config.transfer_complete_mode.into());
+    }
+
+    /// The item's transfer count in number of destination words.
+    pub fn transfer_count(&self) -> usize {
+        let word_size: WordSize = self.tr1.ddw().into();
+        self.br1.bndt() as usize / word_size.bytes()
+    }
+}
+
+/// A linked-list item for linear GPDMA transfers.
+///
+/// Also works for 2D-capable GPDMA channels, but does not use 2D capabilities.
+#[derive(Debug, Copy, Clone, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(C)]
+pub struct LinearItem {
+    /// Common item fields (TR1, TR2, BR1, SAR, DAR).
+    pub item: Item,
+    /// Linked-list address register.
+    pub llr: regs::ChLlr,
+}
+
+impl LinkedListItem for LinearItem {
+    type Config = ItemConfig;
+    const IS_2D: bool = false;
+
+    unsafe fn new_read<MW: Word, PW: Word>(
+        request: Request,
+        peri_addr: *mut PW,
+        buf: &mut [MW],
+        config: Self::Config,
+    ) -> Self {
+        Self::new_inner(
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const u32,
+            buf as *mut [MW] as *mut MW as *mut u32,
+            buf.len(),
+            true,
+            PW::size(),
+            MW::size(),
+            config,
+        )
+    }
+
+    unsafe fn new_write<MW: Word, PW: Word>(
+        request: Request,
+        buf: &[MW],
+        peri_addr: *mut PW,
+        config: Self::Config,
+    ) -> Self {
+        Self::new_inner(
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            buf as *const [MW] as *const MW as *mut u32,
+            buf.len(),
+            true,
+            MW::size(),
+            PW::size(),
+            config,
+        )
+    }
+
+    fn link_to(&mut self, next: u16) {
         let mut llr = regs::ChLlr(0);
 
         llr.set_ut1(true);
@@ -160,41 +257,51 @@ impl LinearItem {
         self.llr = llr;
     }
 
-    /// Unlink the next linear item.
-    ///
-    /// Disables channel update bits.
-    pub fn unlink(&mut self) {
+    fn unlink(&mut self) {
         self.llr = regs::ChLlr(0);
     }
 
-    /// Set the transfer complete event mode (`TR2.TCEM`) for this item.
-    ///
-    /// In linked-list mode, the channel's TR2 register is overwritten by
-    /// each LLI when `UT2` is set, so TCEM must be configured per-item.
-    ///
-    /// See [`TransferCompleteMode`](super::TransferCompleteMode) for details.
-    pub fn set_transfer_complete_mode(&mut self, mode: super::TransferCompleteMode) {
-        self.tr2.set_tcem(mode.into());
+    fn transfer_count(&self) -> usize {
+        self.item.transfer_count()
     }
+}
 
-    /// The item's transfer count in number of words.
-    pub fn transfer_count(&self) -> usize {
-        let word_size: WordSize = self.tr1.ddw().into();
-        self.br1.bndt() as usize / word_size.bytes()
+impl LinearItem {
+    #[allow(clippy::too_many_arguments)]
+    unsafe fn new_inner(
+        request: Request,
+        dir: Dir,
+        peri_addr: *const u32,
+        mem_addr: *mut u32,
+        mem_len: usize,
+        incr_mem: bool,
+        data_size: WordSize,
+        dst_size: WordSize,
+        config: ItemConfig,
+    ) -> Self {
+        let mut item = Item::new(
+            request, dir, peri_addr, mem_addr, mem_len, incr_mem, data_size, dst_size,
+        );
+        item.apply_config(&config);
+
+        Self {
+            item,
+            llr: regs::ChLlr(0),
+        }
     }
 }
 
 /// A table of linked list items.
 #[repr(C)]
-pub struct Table<const ITEM_COUNT: usize> {
+pub struct Table<T: LinkedListItem, const N: usize> {
     /// The items.
-    pub items: [LinearItem; ITEM_COUNT],
+    pub items: [T; N],
 }
 
-impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
+impl<T: LinkedListItem, const N: usize> Table<T, N> {
     /// Create a new table.
-    pub fn new(items: [LinearItem; ITEM_COUNT]) -> Self {
-        assert!(!items.is_empty());
+    pub fn new(items: [T; N]) -> Self {
+        assert!(N > 0);
 
         Self { items }
     }
@@ -209,11 +316,12 @@ impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
         peri_addr: *mut PW,
         buffer: &mut [MW],
         direction: Dir,
-    ) -> Table<1> {
+        config: T::Config,
+    ) -> Table<T, 1> {
         let item = match direction {
-            Dir::MemoryToPeripheral => LinearItem::new_write(request, &buffer[..], peri_addr),
-            Dir::PeripheralToMemory => LinearItem::new_read(request, peri_addr, &mut buffer[..]),
-            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
+            Dir::MemoryToPeripheral => T::new_write(request, &buffer[..], peri_addr, config),
+            Dir::PeripheralToMemory => T::new_read(request, peri_addr, &mut buffer[..], config),
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
         };
 
         Table::new([item])
@@ -227,21 +335,21 @@ impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
         peri_addr: *mut PW,
         buffer: &mut [MW],
         direction: Dir,
-    ) -> Table<2> {
-        // Buffer halves should be the same length.
+        config: T::Config,
+    ) -> Table<T, 2> {
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
         let items = match direction {
             Dir::MemoryToPeripheral => [
-                LinearItem::new_write(request, &mut buffer[..half_len], peri_addr),
-                LinearItem::new_write(request, &mut buffer[half_len..], peri_addr),
+                T::new_write(request, &mut buffer[..half_len], peri_addr, config),
+                T::new_write(request, &mut buffer[half_len..], peri_addr, config),
             ],
             Dir::PeripheralToMemory => [
-                LinearItem::new_read(request, peri_addr, &mut buffer[..half_len]),
-                LinearItem::new_read(request, peri_addr, &mut buffer[half_len..]),
+                T::new_read(request, peri_addr, &mut buffer[..half_len], config),
+                T::new_read(request, peri_addr, &mut buffer[half_len..], config),
             ],
-            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for linked-list items"),
         };
 
         Table::new(items)

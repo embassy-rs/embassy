@@ -1,13 +1,14 @@
 #![no_std]
 #![no_main]
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::*;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{Config, bind_interrupts, can};
 use embassy_time::Timer;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     FDCAN1_IT0 => can::IT0InterruptHandler<FDCAN1>;

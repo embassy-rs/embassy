@@ -8,12 +8,13 @@
 #![no_main]
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::saadc::{Oversample, Saadc};
 use embassy_nrf::{bind_interrupts, saadc};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
         SAADC => saadc::InterruptHandler;

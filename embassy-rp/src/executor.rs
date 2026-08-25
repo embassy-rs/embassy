@@ -10,55 +10,62 @@
 //!
 //! `#[embassy_executor::main(executor = "embassy_rp::executor::Executor",  entry = "cortex_m_rt::entry")]`
 
-#[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
-fn __pender(context: *mut ()) {
-    unsafe {
-        // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
-        // request number given to `InterruptExecutor::start`.
+struct RpPender;
 
-        let context = context as usize;
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+embassy_executor::pender_impl!(RpPender);
 
-        #[cfg(feature = "executor-thread")]
-        // Try to make Rust optimize the branching away if we only use thread mode.
-        if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
-            core::arch::asm!("sev");
-            return;
-        }
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+impl embassy_executor::pender::Pender for RpPender {
+    fn pend(context: *mut ()) {
+        unsafe {
+            // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
+            // request number given to `InterruptExecutor::start`.
 
-        #[cfg(feature = "executor-interrupt")]
-        {
-            use cortex_m::interrupt::InterruptNumber;
-            use cortex_m::peripheral::NVIC;
+            let context = context as usize;
 
-            use crate::multicore::{PEND_IRQ_TOKEN, current_core, fifo_write};
-
-            #[derive(Clone, Copy)]
-            struct Irq(u16);
-            unsafe impl InterruptNumber for Irq {
-                fn number(self) -> u16 {
-                    self.0
-                }
+            #[cfg(feature = "executor-thread")]
+            // Try to make Rust optimize the branching away if we only use thread mode.
+            if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+                core::arch::asm!("sev");
+                return;
             }
 
-            // The context contains the core number in the upper 16 bits.
-            let core_no = (context >> 16) as u8;
-            let context = context & 0xFFFF;
+            #[cfg(feature = "executor-interrupt")]
+            {
+                use cortex_m::interrupt::InterruptNumber;
+                use cortex_m::peripheral::NVIC;
 
-            if core_no == current_core() as u8 {
-                let irq = Irq(context as u16);
+                use crate::multicore::{PEND_IRQ_TOKEN, current_core, fifo_write};
 
-                // STIR is faster, but is only available in v7 and higher.
-                #[cfg(feature = "_rp235x")]
-                {
-                    let mut nvic: NVIC = core::mem::transmute(());
-                    nvic.request(irq);
+                #[derive(Clone, Copy)]
+                struct Irq(u16);
+                unsafe impl InterruptNumber for Irq {
+                    fn number(self) -> u16 {
+                        self.0
+                    }
                 }
 
-                #[cfg(feature = "rp2040")]
-                NVIC::pend(irq);
-            } else {
-                fifo_write(PEND_IRQ_TOKEN | context as u32);
+                // The context contains the core number in the upper 16 bits.
+                let core_no = (context >> 16) as u8;
+                let context = context & 0xFFFF;
+
+                if core_no == current_core() as u8 {
+                    let irq = Irq(context as u16);
+
+                    // STIR is faster, but is only available in v7 and higher.
+                    #[cfg(feature = "_rp235x")]
+                    {
+                        let mut nvic: NVIC = core::mem::transmute(());
+                        nvic.request(irq);
+                    }
+
+                    #[cfg(feature = "rp2040")]
+                    NVIC::pend(irq);
+                } else {
+                    fifo_write(PEND_IRQ_TOKEN | context as u32);
+                }
             }
         }
     }

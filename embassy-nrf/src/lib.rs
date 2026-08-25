@@ -185,7 +185,7 @@ pub mod rng;
     feature = "nrf52840",
     all(any(feature = "_nrf91", feature = "_nrf5340-app"), feature = "_s"),
 ))]
-pub mod cryptocell_rng;
+pub mod cryptocell;
 
 #[cfg(not(feature = "_nrf54l"))]
 pub mod rtc;

@@ -5,6 +5,7 @@ mod dfu;
 mod flash_ops;
 
 use defmt::info;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
@@ -12,7 +13,7 @@ use embassy_stm32::mode::Async;
 use embassy_stm32::rcc::{SupplyConfig, XspiClkSrc};
 use embassy_stm32::{bind_interrupts, interrupt, usart};
 use embassy_time::{Duration, Timer, with_timeout};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(
     pub struct Irqs {

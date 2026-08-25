@@ -3,6 +3,7 @@
 
 use core::cell::RefCell;
 
+use defmt_rtt as _;
 use embassy_boot_rp::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterConfig, State};
 use embassy_executor::Spawner;
 use embassy_rp::flash::{self, Flash};
@@ -11,7 +12,7 @@ use embassy_rp::watchdog::Watchdog;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::Timer;
 use gpio::{Level, Output};
-use {defmt_rtt as _, panic_reset as _};
+use panic_reset as _;
 
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
 

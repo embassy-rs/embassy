@@ -21,13 +21,14 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::mdf::{self, Config, Flt0, Mdf, samples_from_dma_words};
 use embassy_stm32::rcc::{self, mux};
 use embassy_stm32::{Config as StmConfig, bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
 use micromath::F32Ext;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 /// Target PDM bit clock. Common for many MEMS PDM mics (1–3.2 MHz).
 const PDM_CCK_HZ: u32 = 2_000_000;

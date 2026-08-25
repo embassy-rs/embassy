@@ -2,6 +2,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AfType, Flex, OutputType, Speed};
 use embassy_stm32::time::{Hertz, khz};
@@ -9,7 +10,7 @@ use embassy_stm32::timer::low_level::{OutputCompareMode, RoundTo, Timer as LLTim
 use embassy_stm32::timer::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance32bit4Channel, TimerPin};
 use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

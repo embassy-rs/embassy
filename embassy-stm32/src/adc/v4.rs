@@ -19,6 +19,7 @@ use crate::adc::Temperature;
 use crate::adc::Vbat;
 use crate::adc::{Adc, AdcRegs, Averaging, ConversionMode, Instance, Resolution, SampleTime, VrefInt};
 use crate::pac::adc::regs::{Sqr1, Sqr2, Sqr3, Sqr4};
+#[cfg(not(stm32c5))]
 use crate::time::Hertz;
 use crate::wait::block_for_us;
 use crate::{Peri, pac, rcc};
@@ -39,9 +40,6 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
 #[cfg(stm32n6)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(70);
-// No prescaler on C5, like U3; conservative placeholder pending datasheet confirmation.
-#[cfg(stm32c5)]
-const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
 
 #[cfg(stm32g4)]
 impl<T: Instance> super::ConverterFor<super::VrefInt> for T {
@@ -62,7 +60,7 @@ impl<T: Instance> super::ConverterFor<super::Temperature> for T {
 }
 
 // TODO this should be 14 for H7a/b/35
-#[cfg(not(any(stm32u5, stm32u3, stm32n6)))]
+#[cfg(not(any(stm32u5, stm32u3, stm32n6, stm32c5)))]
 impl<T: Instance> super::ConverterFor<super::Vbat> for T {
     const CHANNEL: u8 = 17;
 }
@@ -93,6 +91,15 @@ impl<T: DefaultInstance> super::ConverterFor<super::Temperature> for T {
 #[cfg(stm32n6)]
 impl<T: DefaultInstance> super::ConverterFor<super::VrefInt> for T {
     const CHANNEL: u8 = 17;
+}
+
+#[cfg(stm32c5)]
+impl super::ConverterFor<super::Temperature> for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 12;
+}
+#[cfg(stm32c5)]
+impl super::ConverterFor<super::VrefInt> for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 13;
 }
 
 #[cfg(not(any(stm32u3, stm32n6, stm32c5)))]
@@ -187,7 +194,7 @@ impl AdcRegs for crate::pac::adc::Adc {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, injected: bool) {
         let mut sqr1 = Sqr1::default();
         let mut sqr2 = Sqr2::default();
         let mut sqr3 = Sqr3::default();
@@ -198,8 +205,10 @@ impl AdcRegs for crate::pac::adc::Adc {
         #[cfg(not(any(stm32u3, stm32c5)))]
         let mut difsel = self.difsel().read();
 
-        // Set sequence length
-        sqr1.set_l(sequence.len() as u8 - 1);
+        if !injected {
+            // Set sequence length
+            sqr1.set_l(sequence.len() as u8 - 1);
+        }
 
         // Configure channels and ranks
         for (i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
@@ -228,27 +237,31 @@ impl AdcRegs for crate::pac::adc::Adc {
                 self.pcsel().modify(|w| w.set_pcsel(channel as _, Pcsel::Preselected));
             }
 
-            match i {
-                0..=3 => {
-                    sqr1.set_sq(i, channel);
+            if !injected {
+                match i {
+                    0..=3 => {
+                        sqr1.set_sq(i, channel);
+                    }
+                    4..=8 => {
+                        sqr2.set_sq(i - 4, channel);
+                    }
+                    9..=13 => {
+                        sqr3.set_sq(i - 9, channel);
+                    }
+                    14..=15 => {
+                        sqr4.set_sq(i - 14, channel);
+                    }
+                    _ => unreachable!(),
                 }
-                4..=8 => {
-                    sqr2.set_sq(i - 4, channel);
-                }
-                9..=13 => {
-                    sqr3.set_sq(i - 9, channel);
-                }
-                14..=15 => {
-                    sqr4.set_sq(i - 14, channel);
-                }
-                _ => unreachable!(),
             }
         }
 
-        self.sqr1().write_value(sqr1);
-        self.sqr2().write_value(sqr2);
-        self.sqr3().write_value(sqr3);
-        self.sqr4().write_value(sqr4);
+        if !injected {
+            self.sqr1().write_value(sqr1);
+            self.sqr2().write_value(sqr2);
+            self.sqr3().write_value(sqr3);
+            self.sqr4().write_value(sqr4);
+        }
         self.smpr(0).write_value(smpr1);
         self.smpr(1).write_value(smpr2);
         #[cfg(not(any(stm32u3, stm32c5)))]
@@ -320,6 +333,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         info!("ADC frequency set to {}", frequency);
 
+        #[cfg(not(stm32c5))] // C5 checks this in its rcc
         if frequency > MAX_ADC_CLK_FREQ {
             panic!(
                 "Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.",
@@ -446,6 +460,11 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
         });
 
         Self { adc }
+    }
+
+    /// Read the currently configured resolution for this ADC driver and return it.
+    pub fn resolution(&self) -> Resolution {
+        T::regs().cfgr().read().res().into()
     }
 
     /// Enable reading the voltage reference internal channel.

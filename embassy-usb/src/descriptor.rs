@@ -204,7 +204,6 @@ impl<'a> DescriptorWriter<'a> {
     /// * `interface_sub_class` - Sub-class code. Depends on class.
     /// * `interface_protocol` - Protocol code. Depends on class and sub-class.
     /// * `interface_string` - Index of string descriptor describing this interface
-
     pub fn interface_alt(
         &mut self,
         number: InterfaceNumber,

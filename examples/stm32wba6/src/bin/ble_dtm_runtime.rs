@@ -16,6 +16,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_stm32::aes::{self, Aes};
@@ -34,9 +35,9 @@ use embassy_stm32_wpan::bluetooth::hci::types::DtmPacketPayload;
 use embassy_stm32_wpan::bluetooth::{HCI, Normal, Test};
 use embassy_stm32_wpan::{HighInterruptHandler, LowInterruptHandler, Platform, new_platform};
 use embassy_time::Timer;
+use panic_probe as _;
 use stm32wb_hci::Event;
 use stm32wb_hci::event::ConnectionRole;
-use {defmt_rtt as _, panic_probe as _};
 
 // ---- DTM test configuration ----
 #[allow(dead_code)]

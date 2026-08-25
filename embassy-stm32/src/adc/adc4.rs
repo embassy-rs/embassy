@@ -323,7 +323,7 @@ impl AdcRegs for crate::pac::adc::Adc4 {
         });
     }
 
-    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, _injected: bool) {
         let mut prev_channel: i16 = -1;
         let mut chselr = Chselr::default();
         let mut smpr = self.smpr().read();
@@ -581,16 +581,14 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     /// `(12 - N)` automatically so you may pass values in the same range as `DR`.
     ///
     /// **With oversampling ([`Adc::set_averaging_adc4`]):** `RES` bits are ignored; all three
-    /// AWDs compare `ADC_DR[15:4]` against their threshold register.  With the matched
-    /// right-shift used by [`Adc::set_averaging_adc4`], `DR` holds a 12-bit result in
-    /// `DR[11:0]` and the effective comparison window is the upper 8 bits.  **Pass thresholds
-    /// in the same 12-bit space as `DR`** — this method handles the register encoding
-    /// difference transparently:
-    ///
-    /// - **AWD1** stores its comparison value in `HT1[7:0]`; this method right-shifts by 4.
-    /// - **AWD2/AWD3** store the comparison value in `HT[11:4]` (lower 4 bits are hardware-
-    ///   ignored); writing the raw threshold places `T>>4` in `HT[11:4]` automatically — no
-    ///   explicit shift is applied.
+    /// AWDs compare `ADC_DR[15:4]` against their full 12-bit threshold register (RM0515
+    /// §21.4.25 "Analog watchdog", under "Oversampler": "the comparison is performed on the
+    /// most significant 12 bits of the 16-bit oversampled results ADC_DR[15:4]" — stated
+    /// generically for AWD1/AWD2/AWD3 alike, with no distinction between them). With the
+    /// matched right-shift used by [`Adc::set_averaging_adc4`], `DR` holds a 12-bit result in
+    /// `DR[11:0]` and the effective comparison window is the upper 8 bits. **Pass thresholds
+    /// in the same 12-bit space as `DR`** — this method right-shifts the threshold by 4 for
+    /// all three watchdogs so it lines up with `DR[15:4]`.
     ///
     /// The returned [`AnalogWatchdog`] does **not** borrow the ADC, so you may use the ADC for
     /// DMA or other operations while the watchdog is active.  Call [`AnalogWatchdog::wait`] to
@@ -618,25 +616,16 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
         );
 
         let (lt, ht) = if T::regs().cfgr2().read().ovse() {
-            // Under OVS all three AWDs compare ADC_DR[15:4] against the threshold register.
-            // With matched OVSS (log2 of ratio), DR holds a 12-bit result in DR[11:0], so
-            // the effective comparison window is DR[11:4] — 8 bits.
+            // Under OVS all three AWDs compare ADC_DR[15:4] against the full 12-bit threshold
+            // register — identically for AWD1, AWD2, and AWD3 (RM0515 §21.4.25 "Analog
+            // watchdog" under "Oversampler"; confirmed against the PAC field definitions,
+            // where ht1/ht2/ht3 are all 12-bit fields at the same bit offset — there is no
+            // register-layout distinction between AWD1 and AWD2/AWD3 to exploit here).
             //
-            // However the threshold register bit layout differs between AWD1 and AWD2/AWD3:
-            //
-            //   AWD1  — comparison value in HT1[7:0]; HT1[11:8] must be zero.
-            //           Formula: write (T >> 4) so that HT1[7:0] holds the right value.
-            //
-            //   AWD2/AWD3 — 8-bit effective resolution; lower 4 threshold bits are hardware-
-            //           ignored; comparison is HT[11:4] vs DR[15:4].
-            //           Formula: write T as-is — HT[11:4] = T[11:4] = T>>4 naturally,
-            //           which is the right comparison value without an explicit shift.
-            //           Applying >>4 here would write (T>>4) into the register, making
-            //           HT[11:4] = T>>8 — 16× too low, causing instant false trips.
-            match watchdog {
-                WatchdogIndex::Awd1 => (low_threshold >> 4, high_threshold >> 4),
-                _ => (low_threshold, high_threshold),
-            }
+            // With matched OVSS (log2 of ratio), DR holds a 12-bit result in DR[11:0], so the
+            // effective comparison window is DR[11:4] — 8 bits. Right-shift the threshold by 4
+            // so it lines up with DR[15:4] instead of the raw 16-bit oversampled value.
+            (low_threshold >> 4, high_threshold >> 4)
         } else {
             // Without oversampling, comparison is on left-aligned 12-bit raw data (RM Table 158).
             // DR returns N-bit right-aligned values; left-shift to 12-bit space so the lower

@@ -43,6 +43,7 @@
 #![no_main]
 
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::aes::{self, Aes};
 use embassy_stm32::peripherals::{AES, PKA, RNG};
@@ -60,10 +61,10 @@ use embassy_stm32_wpan::bluetooth::security::{
 use embassy_stm32_wpan::{
     HighInterruptHandler, LowInterruptHandler, Platform, erase_bond_nvm_flash, new_platform, set_nvm_base_address,
 };
+use panic_probe as _;
 use stm32wb_hci::Event;
 use stm32wb_hci::event::{Encryption, EncryptionChange};
 use stm32wb_hci::vendor::event::{GapPairingComplete, GapPairingStatus, VendorEvent};
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<RNG>;

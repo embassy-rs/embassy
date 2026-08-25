@@ -711,13 +711,13 @@ fn put_tx_data(mailbox: &mut TxBufferElement, buffer: &[u8]) {
     data[..len].copy_from_slice(&buffer[..len]);
     let data_len = ((len) + 3) / 4;
     for (register, byte) in mailbox.data.iter_mut().zip(lbuffer[..data_len].iter()) {
-        unsafe { register.write(*byte) };
+        register.set(*byte);
     }
 }
 
 fn data_from_fifo(buffer: &mut [u8], mailbox: &RxFifoElement, len: usize) {
     for (i, register) in mailbox.data.iter().enumerate() {
-        let register_value = register.read();
+        let register_value = register.get();
         let register_bytes = unsafe { slice::from_raw_parts(&register_value as *const u32 as *const u8, 4) };
         let num_bytes = (len) - i * 4;
         if num_bytes <= 4 {
@@ -730,7 +730,7 @@ fn data_from_fifo(buffer: &mut [u8], mailbox: &RxFifoElement, len: usize) {
 
 fn data_from_tx_buffer(buffer: &mut [u8], mailbox: &TxBufferElement, len: usize) {
     for (i, register) in mailbox.data.iter().enumerate() {
-        let register_value = register.read();
+        let register_value = register.get();
         let register_bytes = unsafe { slice::from_raw_parts(&register_value as *const u32 as *const u8, 4) };
         let num_bytes = (len) - i * 4;
         if num_bytes <= 4 {

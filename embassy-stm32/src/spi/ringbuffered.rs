@@ -5,20 +5,20 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::Peri;
 use embedded_io_async::ReadReady;
 use futures_util::future::select;
 
-use super::mode::Slave;
-use super::{Config, Error, Info, RegsExt, Spi, Word, check_error_flags, reconfigure, set_rxdmaen};
 use crate::dma::ReadableRingBuffer;
-use crate::exti::{Channel, ExtiInput, InterruptHandler};
-use crate::gpio::{Flex, Pin};
-use crate::interrupt::typelevel::Binding;
+use crate::gpio::Flex;
 use crate::mode::Async;
 use crate::rcc::WakeGuard;
 #[cfg(any(spi_v4, spi_v5, spi_v6))]
-use crate::spi::SlaveSelectPolarity;
+use crate::spi::flush_rx_fifo;
+use crate::spi::mode::Slave;
+use crate::spi::{
+    Config, CsPinType, Error, Info, Regs, RegsExt, SlaveSelectPolarity, Spi, Word, check_error_flags, reconfigure,
+    set_rxdmaen,
+};
 use crate::time::Hertz;
 
 /// Rx-only Ring-buffered SPI Driver
@@ -57,8 +57,7 @@ pub struct RingBufferedSpiRx<'d, W: Word> {
     _sck: Option<Flex<'d>>,
     _mosi: Option<Flex<'d>>,
     _miso: Option<Flex<'d>>,
-    nss: ExtiInput<'d, Async>,
-    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    nss: CsPinType<'d>,
     nss_polarity: SlaveSelectPolarity,
     ring_buf: ReadableRingBuffer<'d, W>,
 }
@@ -76,13 +75,12 @@ impl<'d> Spi<'d, Async, Slave> {
     /// Turn the `Spi` into a buffered spi which can continuously receive in the background
     /// without the possibility of losing bytes. The `dma_buf` is a buffer registered to the
     /// DMA controller, and must be large enough to prevent overflows.
-    pub fn into_ring_buffered<W: Word, C: Channel>(
-        mut self,
-        dma_buf: &'d mut [W],
-        ch: Peri<'d, C>,
-        irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
-    ) -> RingBufferedSpiRx<'d, W> {
+    pub fn into_ring_buffered<W: Word>(mut self, dma_buf: &'d mut [W]) -> RingBufferedSpiRx<'d, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
+
+        self.info.regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
 
         self.set_word_size(W::CONFIG);
 
@@ -100,14 +98,8 @@ impl<'d> Spi<'d, Async, Slave> {
         let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, info.regs.rx_ptr::<W>(), dma_buf, opts) };
         let sck = unsafe { self._sck.as_ref().map(|x| x.clone_unchecked()) };
         let mosi = unsafe { self._mosi.as_ref().map(|x| x.clone_unchecked()) };
-        let miso = unsafe { self.miso.as_ref().map(|x| x.clone_unchecked()) };
-        let nss = unsafe { self.nss.as_ref().unwrap().clone_unchecked() };
-
-        // verify at runtime whether given EXTI channel is associated with NSS pin
-        assert_eq!(nss.pin.pin(), ch.number());
-        // EXTI can be used on alternate function pins
-        // this feature seems to be undocumented though
-        let nss = unsafe { ExtiInput::from_flex(nss, ch, irq) };
+        let miso = unsafe { self._miso.as_ref().map(|x| x.clone_unchecked()) };
+        let nss = unsafe { self.nss.clone_unchecked() };
 
         let wake_guard = self.info.rcc.wake_guard();
 
@@ -117,6 +109,9 @@ impl<'d> Spi<'d, Async, Slave> {
         } else {
             SlaveSelectPolarity::ActiveHigh
         };
+
+        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+        let nss_polarity = SlaveSelectPolarity::ActiveLow;
 
         // Don't disable the clock
         mem::forget(self);
@@ -133,7 +128,6 @@ impl<'d> Spi<'d, Async, Slave> {
             _mosi: mosi,
             _miso: miso,
             nss,
-            #[cfg(any(spi_v4, spi_v5, spi_v6))]
             nss_polarity,
             ring_buf,
         }
@@ -180,12 +174,19 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         compiler_fence(Ordering::SeqCst);
     }
 
+    /// Clears ring buffer.
+    pub fn clear(&mut self) {
+        self.ring_buf.clear();
+    }
+
     /// (Re-)start DMA and SPI if it is not running (has not been started yet or has failed), and
     /// check for errors in status register. Error flags are checked/cleared first.
     fn start_or_check_errors(&mut self) -> Result<(), Error> {
         let r = self.info.regs;
 
-        check_error_flags(r.sr().read(), true)?;
+        let sr = r.sr().read();
+        clear_spi_errors(r);
+        check_error_flags(sr, true)?;
 
         if !self.ring_buf.is_running() {
             self.start();
@@ -245,28 +246,9 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         });
 
         // Future which completes when NSS deselect edge is detected
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        match self.nss_polarity {
-            SlaveSelectPolarity::ActiveHigh => {
-                let exti = self.nss.wait_for_falling_edge();
-                let exti = pin!(exti);
+        let exti = pin!(self.nss.wait_for_edge(self.nss_polarity));
 
-                select(exti, dma).await;
-            }
-            SlaveSelectPolarity::ActiveLow => {
-                let exti = self.nss.wait_for_rising_edge();
-                let exti = pin!(exti);
-
-                select(exti, dma).await;
-            }
-        };
-        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-        {
-            let exti = self.nss.wait_for_rising_edge();
-            let exti = pin!(exti);
-
-            select(exti, dma).await;
-        }
+        select(exti, dma).await;
     }
 
     /// Read bytes that are readily available in the ring buffer.
@@ -327,5 +309,32 @@ impl<W: Word> ReadReady for RingBufferedSpiRx<'_, W> {
             }
         })?;
         Ok(len > 0)
+    }
+}
+
+/// Clear sticky SPI error flags and flush any stale RX FIFO data.
+///
+/// On SPI v4/v5/v6 (H7), OVR/UDR/MODF/CRCE/TIFRE are cleared via IFCR.
+/// On older SPI, OVR is cleared by reading SR then DR.
+fn clear_spi_errors(r: Regs) {
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    {
+        // Write 1s to all flag-clear bits in IFCR
+        r.ifcr().write(|w| w.0 = 0xffff_ffff);
+        flush_rx_fifo(r);
+    }
+    #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+    {
+        // OVR is cleared by reading SR then DR.
+        // MODF is cleared by reading SR then writing CR1.
+        let sr = r.sr().read();
+        if sr.modf() {
+            r.cr1().modify(|w| w.set_spe(false));
+            r.cr1().modify(|w| w.set_spe(true));
+        }
+        #[cfg(not(spi_v3))]
+        let _ = r.dr().read();
+        #[cfg(spi_v3)]
+        let _ = r.dr16().read();
     }
 }

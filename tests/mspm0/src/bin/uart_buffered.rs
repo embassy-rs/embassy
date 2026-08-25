@@ -5,10 +5,11 @@
 teleprobe_meta::target!(b"lp-mspm0g3507");
 
 use defmt::{assert_eq, unwrap, *};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mspm0::uart::{BufferedInterruptHandler, BufferedUart, Config};
 use embassy_mspm0::{bind_interrupts, peripherals};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
     UART1 => BufferedInterruptHandler<peripherals::UART1>;

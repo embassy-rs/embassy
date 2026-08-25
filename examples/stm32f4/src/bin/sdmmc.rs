@@ -4,6 +4,7 @@
 use aligned::{A4, Aligned};
 use block_device_driver::BlockDevice as _;
 use defmt::*;
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::time::Hertz;
@@ -11,9 +12,9 @@ use embassy_stm32::{Config, bind_interrupts, dma, peripherals, sdmmc};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::Delay;
+use panic_probe as _;
 use sdio::sd::Card;
 use sdio::{BlockDevice, MmcBus};
-use {defmt_rtt as _, panic_probe as _};
 
 /// This is a safeguard to not overwrite any data on the SD card.
 /// If you don't care about SD card contents, set this to `true` to test writes.

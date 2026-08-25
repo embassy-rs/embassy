@@ -24,6 +24,13 @@ DMA:
 - fix: stm32/dma: auto-set `TR1.PAM = Pack` on GPDMA when source and destination widths differ, instead of silently zero-extending one beat per destination beat
 - fix: stm32/dma: compute GPDMA `BR1.BNDT` from the memory-side width regardless of direction, fixing destination overrun on reads with peripheral width > memory width
 - feat: stm32/dma: GPDMA: allow access to construct custom LinkedList chains for scatter/gather DMA
+- feat: stm32/dma: add `TwoDItem`, `TwoDConfig`, and `LinkedListItem` trait; `Table` is now generic over item type
+
+I2C:
+- feat: stm32/i2cv2: support zero-length transfers instead of returning `Error::ZeroLengthTransfer`, enabling bus scans via `transaction(addr, &mut [Operation::Write(&[])])`. On the slave side an empty `respond_to_write` accepts zero bytes and an empty `respond_to_read` sends `0xFF` filler, since I2C cannot encode "nothing to send"; both previously left ADDR set, holding SCL low and wedging the bus
+- fix: stm32/i2cv2: handle a master RESTART during async slave `respond_to_read` instead of stalling until the transaction times out
+- fix: stm32/i2cv2: re-enable TCIE after starting a DMA write group, so an async `transaction()` whose write group is not the first group completes instead of hanging until it times out
+- fix: stm32/i2cv2: program `CR2.SADD` without the 7-bit left shift when addressing a 10-bit target, which was putting every `Address::TenBit` on the bus one bit too far left and so addressing a different device
 
 ADC:
 - feat: stm32/adc: add `VrefInt::calibrated_value()` for additional chips
@@ -55,6 +62,16 @@ SAES:
 
 OSPI:
 - feat: stm32/ospi: add `Ospi::configure_hyperbus` + `HyperbusConfig`/`HyperbusLatencyMode` to program the HyperBus latency register (HLCR), enabling HyperBus/HyperRAM memory-mapped bring-up without reaching for `unstable-pac`
+
+RCC:
+- feat: stm32/rcc/c0: add `Config::sys_div` to configure the SYSDIV divider on chips that have it (C051, C071, C091/C092). It was previously never programmed and not accounted for in the reported SYSCLK
+- change: stm32/rcc/c0: rename `Hsi::sys_div` to `Hsi::div` and `HsiSysDiv` to `HsiDiv` (breaking change). The field sets HSIDIV, not SYSDIV; the old name suggested otherwise
+- fix: stm32/rcc/c0: raise the flash read access latency before anything that can raise the core frequency, so a configuration handed over from a bootloader without a reset cannot run above 24 MHz with too few wait states
+- fix: stm32/rcc/l: set the maximum flash latency before raising the MSI range, so MSI above the reset wait-state limit (e.g. 48 MHz) as sysclk no longer hardfaults in `init()` on L4, L5, WB and U0 (extends the WL-only fix from #2786; L0/L1 are unaffected, their MSI tops out at 4.194 MHz)
+- fix: stm32/rcc/f247: report correct PLL output frequencies when the source clock is not evenly divisible by the PLL input divisor
+
+SPI:
+- change default NSS configuration from active-high to active-low
 
 ## 0.6.0 - 2026-03-10
 
@@ -208,6 +225,7 @@ Misc:
 - fix: Avoid generating timer update events when updating the frequency ([#4890](https://github.com/embassy-rs/embassy/pull/4890))
 - chore: cleanup low-power add time
 - fix: Allow setting SAI peripheral `frame_length` to `256`
+- fix: stm32/i2c fix busy waiting on BUSY flag in v2
 - fix: flash erase on dual-bank STM32Gxxx
 - feat: Add support for STM32N657X0
 - feat: timer: Add 32-bit timer support to SimplePwm waveform_up method following waveform pattern ([#4717](https://github.com/embassy-rs/embassy/pull/4717))
@@ -600,4 +618,3 @@ Misc:
 ## 0.1.0 - 2024-01-12
 
 First release.
-

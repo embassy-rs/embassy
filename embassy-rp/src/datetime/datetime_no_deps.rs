@@ -24,6 +24,7 @@ pub enum Error {
 
 /// Structure containing date and time information
 #[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DateTime {
     /// 0..4095
     pub year: u16,

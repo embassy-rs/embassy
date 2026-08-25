@@ -12,7 +12,7 @@ use crate::dma::{Channel, ReadableRingBuffer, TransferOptions};
 use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::spdifrx::Spdifrx as Regs;
-use crate::rcc::{RccInfo, SealedRccPeripheral};
+use crate::rcc::SealedRccPeripheral;
 use crate::{Peri, interrupt, peripherals};
 
 /// Possible S/PDIF preamble types.
@@ -269,11 +269,6 @@ impl State {
             waker: AtomicWaker::new(),
         }
     }
-}
-
-struct Info {
-    regs: crate::pac::spdifrx::Spdifrx,
-    rcc: RccInfo,
 }
 
 peri_trait!(

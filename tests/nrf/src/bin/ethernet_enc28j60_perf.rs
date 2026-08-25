@@ -5,6 +5,7 @@ teleprobe_meta::target!(b"ak-gwe-r7");
 teleprobe_meta::timeout!(120);
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
 use embassy_net_enc28j60::Enc28j60;
@@ -14,8 +15,8 @@ use embassy_nrf::spim::{self, Spim};
 use embassy_nrf::{bind_interrupts, peripherals};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
+use panic_probe as _;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SPIM3 => spim::InterruptHandler<peripherals::SPI3>;

@@ -40,6 +40,7 @@ build = [
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "trace"]},
+    {target = "riscv32imc-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "rtos-trace"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread", "trace"]},
@@ -102,7 +103,8 @@ rtos-trace = { version = "0.2", optional = true }
 
 embassy-executor-macros = { version = "0.8.0", path = "../embassy-executor-macros" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
-embassy-executor-timer-queue = { version = "0.1", path = "../embassy-executor-timer-queue" }
+embassy-executor-timer-queue = { version = "0.1.1", path = "../embassy-executor-timer-queue" }
+unitrait = "1"
 critical-section = "1.1"
 
 document-features = "0.2.7"
@@ -128,7 +130,7 @@ zynq7000 = { version = "0.4", optional = true }
 arbitrary-int = { version = "2", optional = true }
 
 [dependencies.cordyceps]
-version = "0.3.4"
+version = "0.3.5"
 features = ["no-cache-pad"]
 
 [dev-dependencies]

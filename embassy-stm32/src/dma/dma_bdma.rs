@@ -798,6 +798,9 @@ impl<'d> Channel<'d> {
         }
     }
 
+    /// Starts the channel by enabling it.
+    ///
+    /// This function also unsuspends (resumes) the channel.
     fn start(&self) {
         let info = self.info();
         match self.info().dma {
@@ -894,6 +897,7 @@ impl<'d> Channel<'d> {
         self.start()
     }
 
+    /// Resets the channel. The configuration is not preserved.
     fn request_reset(&self) {
         let info = self.info();
         match self.info().dma {
@@ -966,6 +970,22 @@ impl<'d> Channel<'d> {
             #[cfg(bdma)]
             DmaInfo::Bdma(regs) => regs.ch(info.num).cr().modify(|w| {
                 w.set_circ(false);
+            }),
+            #[cfg(mdma)]
+            DmaInfo::Mdma(_regs) => (),
+        }
+    }
+
+    fn enable_circular_mode(&self) {
+        let info = self.info();
+        match self.info().dma {
+            #[cfg(dma)]
+            DmaInfo::Dma(regs) => regs.st(info.num).cr().modify(|w| {
+                w.set_circ(true);
+            }),
+            #[cfg(bdma)]
+            DmaInfo::Bdma(regs) => regs.ch(info.num).cr().modify(|w| {
+                w.set_circ(true);
             }),
             #[cfg(mdma)]
             DmaInfo::Mdma(_regs) => (),
@@ -1288,7 +1308,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
-        let channel: Channel<'a> = channel.into();
+        let mut channel: Channel<'a> = channel.into();
 
         let buffer_ptr = buffer.as_mut_ptr();
         let len = buffer.len();
@@ -1310,6 +1330,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             options,
         );
 
+        DmaCtrlImpl(channel.reborrow()).reset_complete_count();
+
         Self {
             _wake_guard: channel.info().wake_guard(),
             channel,
@@ -1320,7 +1342,10 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Start the ring buffer operation.
     ///
     /// You must call this after creating it for it to work.
+    ///
+    /// It starts the channel and makes it run, even if earlier it was suspended (paused).
     pub fn start(&mut self) {
+        self.channel.enable_circular_mode();
         self.channel.start();
     }
 
@@ -1464,7 +1489,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
-        let channel: Channel<'a> = channel.into();
+        let mut channel: Channel<'a> = channel.into();
 
         let len = buffer.len();
         let dir = Dir::MemoryToPeripheral;
@@ -1486,6 +1511,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             options,
         );
 
+        DmaCtrlImpl(channel.reborrow()).reset_complete_count();
+
         Self {
             _wake_guard: channel.info().wake_guard(),
             channel,
@@ -1497,6 +1524,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
+        self.channel.enable_circular_mode();
         self.channel.start();
     }
 

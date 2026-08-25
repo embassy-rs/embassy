@@ -318,19 +318,19 @@ impl<'d> Flex<'d> {
         // Per https://tweedegolf.nl/en/blog/235/debloat-your-async-rust
         //
         // We match the async pass-through suggestion to reduce async bloat.
-        self.wait_inner(Polarity::RISE)
+        self.wait_inner(Polarity::Rise)
     }
 
     /// Wait for the pin to undergo a transition from high to low.
     #[inline]
     pub fn wait_for_falling_edge(&mut self) -> impl Future<Output = ()> {
-        self.wait_inner(Polarity::FALL)
+        self.wait_inner(Polarity::Fall)
     }
 
     /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     #[inline]
     pub fn wait_for_any_edge(&mut self) -> impl Future<Output = ()> {
-        self.wait_inner(Polarity::RISE_FALL)
+        self.wait_inner(Polarity::RiseFall)
     }
 
     async fn wait_inner(&mut self, polarity: Polarity) {
@@ -1029,17 +1029,17 @@ pub(crate) fn init(gpio: gpio::Gpio) {
     gpio.gprcm().rstctl().write(|w| {
         w.set_resetstkyclr(true);
         w.set_resetassert(true);
-        w.set_key(ResetKey::KEY);
+        w.set_key(ResetKey::Key);
     });
 
     gpio.gprcm().pwren().write(|w| {
         w.set_enable(true);
-        w.set_key(PwrenKey::KEY);
+        w.set_key(PwrenKey::Key);
     });
 
     gpio.evt_mode().modify(|w| {
         // The CPU will clear it's own interrupts
-        w.set_cpu_cfg(EvtCfg::SOFTWARE);
+        w.set_cpu_cfg(EvtCfg::Software);
     });
 }
 

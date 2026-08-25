@@ -22,15 +22,36 @@ pub mod time;
 mod wait;
 /// Operating modes for peripherals.
 pub mod mode {
-    trait SealedMode {}
+    use core::marker::PhantomData;
+
+    use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
+
+    /// Interrupt Handler with bindings autoimplemented for all Irq structs.
+    #[derive(Clone, Copy)]
+    pub struct NoHandler<I: Interrupt> {
+        _marker: PhantomData<I>,
+    }
+
+    impl<I: Interrupt> Handler<I> for NoHandler<I> {
+        unsafe fn on_interrupt() {}
+    }
+
+    unsafe impl<T: Copy, I: Interrupt> Binding<I, NoHandler<I>> for T {}
+
+    pub(crate) trait SealedMode {
+        #[allow(dead_code)]
+        const ASYNC: bool;
+    }
 
     /// Operating mode for a peripheral.
     #[allow(private_bounds)]
     pub trait Mode: SealedMode {}
 
     macro_rules! impl_mode {
-        ($name:ident) => {
-            impl SealedMode for $name {}
+        ($name:ident, $async: expr) => {
+            impl SealedMode for $name {
+                const ASYNC: bool = $async;
+            }
             impl Mode for $name {}
         };
     }
@@ -40,8 +61,8 @@ pub mod mode {
     /// Async mode.
     pub struct Async;
 
-    impl_mode!(Blocking);
-    impl_mode!(Async);
+    impl_mode!(Blocking, false);
+    impl_mode!(Async, true);
 }
 
 // Always-present hardware
@@ -61,20 +82,20 @@ pub(crate) mod dflt;
 pub mod adc;
 #[cfg(adf)]
 pub mod adf;
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v2, aes_v3b))]
 pub mod aes;
 #[cfg(backup_sram)]
 pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
-#[cfg(any(comp_u5, comp_v1, comp_v2))]
+#[cfg(any(comp_u5, comp_v1, comp_v2, comp_u0))]
 pub mod comp;
 #[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
-#[cfg(any(aes_v3b, saes_n6))]
+#[cfg(any(aes_v2, aes_v3b, saes_n6))]
 mod crypto;
 
-#[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
+#[cfg(not(any(comp_u5, comp_v1, comp_v2, comp_u0)))]
 pub mod comp {
     //! Comp stub module to provide consistent API
 
@@ -89,12 +110,12 @@ pub mod comp {
 // Stub macros for COMP pin implementations when comp module is not compiled.
 // These are needed because build.rs generates macro calls for all chips with COMP,
 // but the actual macros are only defined in the comp module.
-#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2))))]
+#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2, comp_u0))))]
 #[allow(unused_macros)]
 macro_rules! impl_comp_inp_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
 }
-#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2))))]
+#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2, comp_u0))))]
 #[allow(unused_macros)]
 macro_rules! impl_comp_inm_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
@@ -174,12 +195,18 @@ pub mod ltdc;
 pub mod mce;
 #[cfg(mdf)]
 pub mod mdf;
+#[cfg(mdios)]
+pub mod mdios;
+#[cfg(npu)]
+pub mod npu;
 #[cfg(opamp)]
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
 #[cfg(any(pka_v1a, pka_n6))]
 pub mod pka;
+#[cfg(pssi)]
+pub mod pssi;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(ramcfg_wba)]
@@ -804,11 +831,7 @@ fn init_hw(config: Config) -> Peripherals {
         {
             use crate::pac::pwr::vals;
             crate::pac::PWR.svmcr().modify(|w| {
-                w.set_io2sv(if config.enable_independent_io_supply {
-                    vals::Io2sv::B0x1
-                } else {
-                    vals::Io2sv::B0x0
-                });
+                w.set_io2sv(config.enable_independent_io_supply);
             });
 
             // Ultra-low-power BOR0 mode for lowest Stop 1 / Standby consumption.
@@ -871,14 +894,14 @@ fn init_hw(config: Config) -> Peripherals {
                     vals::Icrampds::Retained
                 });
                 w.set_prampds(if sram.otg_sram {
-                    vals::Prampds::B0x1
+                    vals::Srampds::PoweredOff
                 } else {
-                    vals::Prampds::B0x0
+                    vals::Srampds::PoweredOn
                 });
                 w.set_pkarampds(if sram.pka_sram {
-                    vals::Pkarampds::B0x1
+                    vals::Srampds::PoweredOff
                 } else {
-                    vals::Pkarampds::B0x0
+                    vals::Srampds::PoweredOn
                 });
             });
         }
@@ -967,6 +990,12 @@ fn init_hw(config: Config) -> Peripherals {
             // must be after time-driver init
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
             rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
+            #[cfg(all(feature = "low-power", feature = "_lp-time-driver"))]
+            crate::time_driver::LPTimeDriver::set_min_stop_pause(
+                crate::time_driver::get_driver(),
+                cs,
+                config.min_stop_pause,
+            );
         }
 
         p

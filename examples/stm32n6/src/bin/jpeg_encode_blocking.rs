@@ -6,10 +6,11 @@
 //! channels are scarce.
 
 use defmt::{info, unwrap};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::jpeg::{ChromaSubsampling, ColorSpace, EncodeConfig, Jpeg};
-use {defmt_rtt as _, panic_probe as _};
+use panic_probe as _;
 
 const W: u16 = 64;
 const H: u16 = 64;

@@ -115,6 +115,16 @@ impl<'d, Mode: PeriMode> ExtiInput<'d, Mode> {
     pub fn get_level(&self) -> Level {
         self.pin.get_level()
     }
+
+    /// Unsafely clone (duplicate) an ExtiInput.
+    pub const unsafe fn clone_unchecked(&self) -> Self {
+        Self {
+            pin: Input {
+                pin: self.pin.pin.clone_unchecked(),
+            },
+            _kind: PhantomData,
+        }
+    }
 }
 
 impl<'d> ExtiInput<'d, Async> {
@@ -136,6 +146,24 @@ impl<'d> ExtiInput<'d, Async> {
         }
     }
 
+    #[cfg(spi)]
+    /// Create an EXTI input from a configured AF pin.
+    ///
+    /// The Binding must bind the Channel's IRQ to [InterruptHandler].
+    pub(crate) fn new_af<T: ExtiPin + GpioPin>(
+        pin: Peri<'d, T>,
+        _ch: Peri<'d, T::ExtiChannel>,
+        _irq: impl Binding<
+            <<T as ExtiPin>::ExtiChannel as Channel>::IRQ,
+            InterruptHandler<<<T as ExtiPin>::ExtiChannel as Channel>::IRQ>,
+        >,
+    ) -> Self {
+        Self {
+            pin: Input::from_flex(Flex::new(pin)),
+            _kind: PhantomData,
+        }
+    }
+
     /// Create an EXTI input from an existing [`Input`] pin.
     ///
     /// Useful when a pin was previously used as a plain [`Input`] and needs to
@@ -143,7 +171,7 @@ impl<'d> ExtiInput<'d, Async> {
     /// token. The pin retains its current pull configuration.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub unsafe fn from_input<C: Channel>(
+    pub const unsafe fn from_input<C: Channel>(
         pin: Input<'d>,
         _ch: Peri<'d, C>,
         _irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
@@ -165,7 +193,7 @@ impl<'d> ExtiInput<'d, Async> {
     /// before calling this.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub unsafe fn from_flex<C: Channel>(
+    pub const unsafe fn from_flex<C: Channel>(
         pin: Flex<'d>,
         _ch: Peri<'d, C>,
         _irq: impl Binding<C::IRQ, InterruptHandler<C::IRQ>>,
