@@ -1,3 +1,5 @@
+//! Driver for the HASHCRYPT peripheral. Currently supports SHA-256.
+
 use embassy_hal_internal::Peri;
 use pac::hashcrypt::vals::Mode::Sha2256;
 use pac::syscon::vals::HashAesRst::Released;
@@ -35,8 +37,8 @@ pub struct Sha256<'d> {
 }
 
 impl<'d> Sha256<'d> {
-    // The function which takes ownership of the HASHCRYPT peripheral
-    // and returns an owned value through Self
+    // The function which takes ownership of the HASHCRYPT peripheral and returns an owned value through Self
+    #[doc = "Create a SHA-256 driver for the given [HASHCRYPT] peripheral."]
     pub fn new(peri: Peri<'d, HASHCRYPT>) -> Self {
         enable_reset();
 
@@ -55,8 +57,8 @@ impl<'d> Sha256<'d> {
             total_len: 0u64,
         }
     }
-    // Accepts an arbitrary-length slice of bytes at the time, to dump in to the buffer until a full 64 byte
-    // block is built, then drained in to the FIFO
+
+    #[doc = "Accepts an arbitrary-length slice of bytes at the time, to dump in to the buffer until a full 64 byte block is built, then drained in to the FIFO"]
     pub fn update(&mut self, data: &[u8]) {
         let data_len = data.len() as u32; // Length of the incoming data
         let mut offset = 0; // tracks how many bytes of `data` have been consumed so far
@@ -97,6 +99,7 @@ impl<'d> Sha256<'d> {
 
     // Hashes whatever is left in the buffer after [update()] and resets the HASHCRYPT peripheral
     // so that the hashing of a new message is possible
+    #[doc = "Returns the 32-byte SHA-256 digest of the message streamed via [update()]"]
     pub fn finalize(&mut self) -> [u8; 32] {
         // Now that we know that there is no more incoming data from this message, we can
         // start padding the message
