@@ -36,25 +36,25 @@ use crate::usart::Regs;
 /// to the function, and the configuration:
 ///
 /// - If the sender sends intermittently, the 'idle line'
-/// condition will be detected when the sender stops, and any
-/// words in the ring buffer will be returned. If there are no
-/// words in the buffer, the check will be repeated each time the
-/// 'idle line' condition is detected, so if the sender sends just
-/// a single word, it will be returned once the 'idle line'
-/// condition is detected.
+///   condition will be detected when the sender stops, and any
+///   words in the ring buffer will be returned. If there are no
+///   words in the buffer, the check will be repeated each time the
+///   'idle line' condition is detected, so if the sender sends just
+///   a single word, it will be returned once the 'idle line'
+///   condition is detected.
 ///
 /// - If the sender sends continuously, the call will wait until
-/// the DMA controller indicates that it has written to either the
-/// middle word or last word of the ring buffer ('half transfer'
-/// or 'transfer complete', respectively). This does not indicate
-/// the buffer is half-full or full, though, because the DMA
-/// controller does not detect those conditions; it sends an
-/// interrupt when those specific buffer addresses have been
-/// written.
+///   the DMA controller indicates that it has written to either the
+///   middle word or last word of the ring buffer ('half transfer'
+///   or 'transfer complete', respectively). This does not indicate
+///   the buffer is half-full or full, though, because the DMA
+///   controller does not detect those conditions; it sends an
+///   interrupt when those specific buffer addresses have been
+///   written.
 ///
 /// - If `eager_reads` is enabled in `config`, the UART interrupt
-/// is enabled on all data reception and the call will only wait
-/// for at least one word to be available before returning.
+///   is enabled on all data reception and the call will only wait
+///   for at least one word to be available before returning.
 ///
 /// In the first two cases this will result in variable latency due to the
 /// buffering effect. For example, if the baudrate is 2400 bps, and
