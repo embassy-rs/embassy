@@ -290,6 +290,14 @@ impl TransferOptions {
         complete_transfer_interrupt: true,
         priority: Priority::LOWEST,
     };
+
+    
+    /// Short-hand to specify that both the half-transfer and complete transfer interrupts should be triggered.
+    pub const HALF_AND_COMPLETE_INTERRUPT: Self = Self {
+        half_transfer_interrupt: true,
+        complete_transfer_interrupt: true,
+        priority: Priority::LOWEST,
+    };
 }
 
 /// General DMA error types.
@@ -1629,6 +1637,11 @@ impl DmaChannel<'_> {
     /// Get the wait cell for this channel
     pub(crate) fn wait_cell(&self) -> &'static WaitCell {
         &STATES[self.channel.dma()][self.channel.channel()].waker
+    }
+
+    /// Get the half-transfer wait cell for this channel
+    pub(crate) fn half_wait_cell(&self) -> &'static WaitCell {
+        &STATES[self.channel.dma()][self.channel.channel()].half_waker
     }
 
     /// Enable the interrupt for this channel in the NVIC.
