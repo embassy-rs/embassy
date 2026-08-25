@@ -496,16 +496,16 @@ impl<'d, M: PeriMode> SetConfig for UartTx<'d, M> {
 /// `embedded_io::Read` requires guarantees that this struct cannot provide:
 ///
 /// - Any data received between calls to [`UartRx::read`] or [`UartRx::blocking_read`]
-/// will be thrown away, as `UartRx` is unbuffered.
-/// Users of `embedded_io::Read` are likely to not expect this behavior
-/// (for instance if they read multiple small chunks in a row).
+///   will be thrown away, as `UartRx` is unbuffered.
+///   Users of `embedded_io::Read` are likely to not expect this behavior
+///   (for instance if they read multiple small chunks in a row).
 /// - [`UartRx::read`] and [`UartRx::blocking_read`] only return once the entire buffer has been
-/// filled, whereas `embedded_io::Read` requires us to fill the buffer with what we already
-/// received, and only block/wait until the first byte arrived.
-/// <br />
-/// While [`UartRx::read_until_idle`] does return early, it will still eagerly wait for data until
-/// the buffer is full or no data has been transmitted in a while,
-/// which may not be what users of `embedded_io::Read` expect.
+///   filled, whereas `embedded_io::Read` requires us to fill the buffer with what we already
+///   received, and only block/wait until the first byte arrived.
+///   <br />
+///   While [`UartRx::read_until_idle`] does return early, it will still eagerly wait for data until
+///   the buffer is full or no data has been transmitted in a while,
+///   which may not be what users of `embedded_io::Read` expect.
 ///
 /// [`UartRx::into_ring_buffered`] can be called to equip `UartRx` with a buffer,
 /// that it can then use to store data received between calls to `read`,
@@ -662,7 +662,7 @@ impl<'d> UartTx<'d, Async> {
             // first so the last byte(s) have actually left the shift register
             // before RE comes back, otherwise the tail of this transmission
             // gets read back as incoming data.
-            flush(&self.info, &self.state).await?;
+            flush(self.info, self.state).await?;
             r.cr1().modify(|reg| {
                 reg.set_re(true);
                 reg.set_te(false);
@@ -676,7 +676,7 @@ impl<'d> UartTx<'d, Async> {
     pub async fn flush(&mut self) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
-        flush(&self.info, &self.state).await
+        flush(self.info, self.state).await
     }
 }
 
@@ -1075,7 +1075,7 @@ impl<'d> UartRx<'d, Async> {
         // Call flush for Half-Duplex mode if some bytes were written and flush was not called.
         // It prevents reading of bytes which have just been written.
         if r.cr3().read().hdsel() && r.cr1().read().te() {
-            flush(&self.info, &self.state).await?;
+            flush(self.info, self.state).await?;
 
             // Disable Transmitter and enable Receiver after flush
             r.cr1().set_bits(|reg| {
@@ -1411,7 +1411,7 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
         configure(
             info,
             self.kernel_clock,
-            &config,
+            config,
             self._ck.is_some(),
             true,
             false,
