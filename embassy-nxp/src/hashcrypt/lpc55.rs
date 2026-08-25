@@ -15,12 +15,23 @@ fn enable_reset() {
         w.set_hash_aes_rst(Released);
     });
 }
+
+// Helper function to drain buffered data in to the FIFO for Sha256
+fn drain_sha2_buffer(buffer: &[u8; 64]) {
+    let sha256 = pac::HASHCRYPT.indata();
+    for chunk in buffer.chunks_exact(4) {
+        let word = u32::from_le_bytes(chunk.try_into().unwrap());
+        sha256.write(|w| {
+            w.set_data(word);
+        });
+    }
+}
 // The necessary fields for the implementation of SHA-256
 pub struct Sha256<'d> {
     _peri: Peri<'d, HASHCRYPT>, // The HASHCRYPT peripheral it self, which will be owned by the struct
     buffer: [u8; 64],           // A 64 byte buffer in which we can dump incoming data streams
     buffer_len: usize,          // The number of valid bytes currently buffered, resets to 0 after buffer is drained
-    total_len: u64,             // The size of the compleat message to be hashed
+    total_len: u64,             // The size of the complete message to be hashed
 }
 
 impl<'d> Sha256<'d> {
@@ -44,11 +55,10 @@ impl<'d> Sha256<'d> {
             total_len: 0u64,
         }
     }
-    // Accepts an arbitrary-length slice of bytes at the time, to dump in to the buffer untill a full
-    // 64 byte block is build, then drained in to the FIFO
+    // Accepts an arbitrary-length slice of bytes at the time, to dump in to the buffer until a full 64 byte
+    // block is built, then drained in to the FIFO
     pub fn update(&mut self, data: &[u8]) {
         let data_len = data.len() as u32; // Length of the incoming data
-        let sha256 = pac::HASHCRYPT.indata(); // Register which allows us to input data
         let mut offset = 0; // tracks how many bytes of `data` have been consumed so far
 
         self.total_len += data.len() as u64;
@@ -69,15 +79,13 @@ impl<'d> Sha256<'d> {
             // Once the buffer is full, we drain it in to the FIFO via .indata().set_data()
             if self.buffer_len == 64 {
                 // buffer is full, so we drain the message streamed so far in to the sha2 FIFO
-                for chunk in self.buffer.chunks_exact(4) {
-                    let word = u32::from_le_bytes(chunk.try_into().unwrap());
-                    sha256.write(|w| {
-                        w.set_data(word);
-                    });
-                }
-                // Once the 16 word FIFO is full, hashing begins automatically, and we are free to start
+                drain_sha2_buffer(&self.buffer);
+                // Once the 16 word FIFO is full (see [drain_sha2_buffer]), hashing begins automatically, and we are free to start
                 // overwriting the buffer so we can fill it once more with the incoming data
+
+                // Reset the buffer
                 self.buffer_len = 0;
+                self.buffer = [0u8; 64];
             }
 
             // Even though a digest might be ready to read at this point,
@@ -90,8 +98,6 @@ impl<'d> Sha256<'d> {
     // Hashes whatever is left in the buffer after [update()] and resets the HASHCRYPT peripheral
     // so that the hashing of a new message is possible
     pub fn finalize(&mut self) -> [u8; 32] {
-        let sha256 = pac::HASHCRYPT.indata();
-
         // Now that we know that there is no more incoming data from this message, we can
         // start padding the message
         // Padding according to FIPS 180-4 §5.1.1, pg 13
@@ -99,23 +105,37 @@ impl<'d> Sha256<'d> {
         // Separate the message from the padding with a single 1
         self.buffer[self.buffer_len] = 0x80;
 
-        // Add the padding until the last 2 words
-        for i in (self.buffer_len + 1)..56 {
-            self.buffer[i] = 0;
-        }
+        // Is there room for the size of the message in the current block ?
+        if self.buffer_len < 56 {
+            // Add the padding until the last 2 words
+            for i in (self.buffer_len + 1)..56 {
+                self.buffer[i] = 0;
+            }
 
-        // Append the size of the entire message
-        let message_length = self.total_len * 8;
-        self.buffer[56..64].copy_from_slice(&message_length.to_be_bytes());
+            // Append the size of the entire message
+            let message_length = self.total_len * 8;
+            self.buffer[56..64].copy_from_slice(&message_length.to_be_bytes());
+        } else {
+            // Pad until the block is completely filled
+            for i in (self.buffer_len + 1)..64 {
+                self.buffer[i] = 0;
+            }
+
+            // Drain the buffer in to the FIFO
+            drain_sha2_buffer(&self.buffer);
+
+            // Reset
+            self.buffer = [0u8; 64];
+            self.buffer_len = 0;
+
+            // Append the size of the entire message
+            let message_length = self.total_len * 8;
+            self.buffer[56..64].copy_from_slice(&message_length.to_be_bytes());
+        }
 
         // Now we can hash the final padded block
         // Hashing begins automatically once the 16 words (512 bits) of the FIFO are full
-        for chunk in self.buffer.chunks_exact(4) {
-            let word = u32::from_le_bytes(chunk.try_into().unwrap());
-            sha256.write(|w| {
-                w.set_data(word);
-            });
-        }
+        drain_sha2_buffer(&self.buffer);
 
         // Now we can prepare the 8 word digest
         let mut digest: [u8; 32] = [0u8; 32];
