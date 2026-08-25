@@ -92,6 +92,10 @@ impl<'d> Sha256<'d> {
     pub fn finalize(&mut self) -> [u8; 32] {
         let sha256 = pac::HASHCRYPT.indata();
 
+        // Now that we know that there is no more incoming data from this message, we can
+        // start padding the message
+        // Padding according to FIPS 180-4 §5.1.1, pg 13
+
         // Separate the message from the padding with a single 1
         self.buffer[self.buffer_len] = 0x80;
 
@@ -132,14 +136,14 @@ impl<'d> Sha256<'d> {
             // to explicitly handle that case
         }
 
-        pac::HASHCRYPT.ctrl().modify(|w| {
-            w.set_new_hash(false);
-        });
-
+        // Reset the HASHCRYPT peripheral, so it's ready for a new hash. When finalize() is called again,
+        // all the registers including the length of the message that was previously hashed are reset, so that
+        // the next digest is correct and free of residual values from previous hash operations.
         pac::HASHCRYPT.ctrl().modify(|w| {
             w.set_new_hash(true);
         });
 
+        // Clean the buffer and total message length to get rid of any leftovers from previous messages.
         self.buffer = [0u8; 64];
         self.buffer_len = 0;
         self.total_len = 0;
