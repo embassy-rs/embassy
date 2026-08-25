@@ -86,8 +86,10 @@ impl<'d> Sha256<'d> {
             // be sure that no more data will be streamed.
         }
     }
-    // Returns the final digest and consumes self so it can no longer be called again
-    pub fn finalize(mut self) -> [u8; 32] {
+
+    // Hashes whatever is left in the buffer after [update()] and resets the HASHCRYPT peripheral
+    // so that the hashing of a new message is possible
+    pub fn finalize(&mut self) -> [u8; 32] {
         let sha256 = pac::HASHCRYPT.indata();
 
         // Separate the message from the padding with a single 1
@@ -129,6 +131,18 @@ impl<'d> Sha256<'d> {
             // no more incoming data, then that means we just need to keep waiting and so there is no need
             // to explicitly handle that case
         }
+
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(false);
+        });
+
+        pac::HASHCRYPT.ctrl().modify(|w| {
+            w.set_new_hash(true);
+        });
+
+        self.buffer = [0u8; 64];
+        self.buffer_len = 0;
+        self.total_len = 0;
 
         digest
     }

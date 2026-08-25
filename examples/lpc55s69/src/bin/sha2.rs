@@ -27,10 +27,18 @@ async fn main(_spawner: Spawner ) -> ! {
     sha2.update(message);
 
     // finalize() returns the final hashed message in it entirety
-    // It consumes self, so it can not be called more than once
     let digest = sha2.finalize();
     
     info!("My hashed message: {:02x}", digest);
+
+    let message = b"efgh";
+    sha2.update(message);
+    let digest = sha2.finalize();
+    info!("My second hashed message: {:02x}", digest);
+
+    // Calling finalize() twice in a row with no update() calls in between results 
+    // in the hash of an empty message
+    info!("My empty hash: {:02x}", sha2.finalize());
 
     loop {
         nop();
