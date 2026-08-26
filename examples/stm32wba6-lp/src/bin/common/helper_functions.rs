@@ -1,6 +1,7 @@
 use defmt::*;
 use embassy_stm32::pac;
 
+#[allow(dead_code)]
 pub fn check_enabled_clocks() {
     // DIAGNOSTIC: dump every RCC clock-enable register so we can see if
     // anything is still clocked that we didn't expect at this point.

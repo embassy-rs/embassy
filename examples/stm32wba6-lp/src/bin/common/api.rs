@@ -1,17 +1,9 @@
-use core::mem;
-
 use defmt::*;
 use embassy_futures::select::{Either, select};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
 use embassy_time::{Duration, Instant, Timer};
 use embedded_io_async::{Read, Write};
-use static_cell::StaticCell;
 
 use crate::UsbIoError;
-
-const RSP_BUF_SIZE: usize = 8200;
-const LOGS_READ_BUF_SIZE: usize = 8192;
 
 pub struct ApiHandler<'a, S>
 where

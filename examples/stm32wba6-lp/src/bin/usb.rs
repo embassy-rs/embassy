@@ -18,10 +18,9 @@ use embassy_futures::select::{Either, select};
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Flex, Input, Level, Output, Pull, Speed};
 use embassy_stm32::peripherals::USB_OTG_HS as UsbOtgHs;
-use embassy_stm32::spi::{Config as SpiConfig, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver as Stm32UsbDriver;
-use embassy_stm32::{bind_interrupts, dma, time, usb};
+use embassy_stm32::{bind_interrupts, usb};
 use embassy_time::{Duration, Timer};
 use embassy_usb::msos::{CompatibleIdFeatureDescriptor, PropertyData, RegistryPropertyFeatureDescriptor};
 use embassy_usb::{Builder, Config as USBConfig};
@@ -112,14 +111,14 @@ async fn main(_spawner: Spawner) {
     flex_pd8.set_as_analog();
     let _gpio_ph3 = Output::new(p.PH3, Level::Low, Speed::Low);
 
-    let mut power_rail = Output::new(p.PB15, Level::Low, Speed::Low);
+    let _power_rail = Output::new(p.PB15, Level::Low, Speed::Low);
     let mut vbus_sns = ExtiInput::new(p.PD9, p.EXTI9, Pull::None, Irqs);
 
     let mut drv_cfg = embassy_stm32::usb::Config::default();
     drv_cfg.vbus_detection = true; // TODO: Make true later, we are battery powered
 
-    let mut ep_out = EP_OUT_BUF.init([0u8; 1024]);
-    let mut cmd_buf = CMD_BUF.init([0u8; 128]);
+    let ep_out = EP_OUT_BUF.init([0u8; 1024]);
+    let cmd_buf = CMD_BUF.init([0u8; 128]);
 
     Timer::after(Duration::from_millis(5000)).await;
 
