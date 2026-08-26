@@ -309,7 +309,19 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
                 CDC_TYPE_NCM, // bDescriptorSubtype
                 0x00,         // bcdNCMVersion
                 0x01,         // |
-                0,            // bmNetworkCapabilities
+                // bmNetworkCapabilities. Bit 0 claims SetEthernetPacketFilter,
+                // which this class does not implement: `control_out` stalls the
+                // request along with every other one it does not recognise.
+                //
+                // The claim works around a macOS bug, Apple's r.170072016. A
+                // device declaring no capabilities is sent SET_INTERFACE(alt=1)
+                // and then SET_INTERFACE(alt=0) a few milliseconds later, and
+                // the data interface is never enabled again -- for roughly one
+                // attachment in three. Claiming the bit puts the host on a path
+                // that completes: it sends SetEthernetPacketFilter, we stall it,
+                // and the fallback macOS already has for that failure carries
+                // on correctly. Linux and Windows are unaffected either way.
+                1,
             ],
         );
 
