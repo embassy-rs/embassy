@@ -70,5 +70,8 @@
       // "examples/stm32wl/Cargo.toml",
       // "examples/wasm/Cargo.toml",
     ],
+    "editor.bracketPairColorization.enabled": false,
+    "editor.guides.bracketPairs": "active",
+    "rust-analyzer.semanticHighlighting.punctuation.enable": true,
   },
 }
