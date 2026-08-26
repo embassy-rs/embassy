@@ -1186,26 +1186,23 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             return Err(IOError::InvalidReadBufferLength);
         }
 
-        // perform corrective action if the future is dropped
+        // Issue a single START for the whole read
+        self.async_start(address, true).await?;
+
+        // perform corrective action if the future is dropped or an
+        // error happens between here and the end of the read.
+        //
+        // NOTE: this *must* be set up *after* async_start. async_start
+        // already runs `status_and_act`, which on NACK performs its
+        // own remediation; if we set OnDrop earlier, the early `?`
+        // return would invoke remediation a second time and corrupt
+        // the controller state for the next transaction.
         let on_drop = OnDrop::new(|| {
             self.remediation();
             self.info.regs().mder().modify(|w| w.set_rdde(false));
         });
 
-        // Issue a single START for the whole read. Re-addressing the device for
-        // each 256-byte chunk restarts its register pointer (e.g. HID-over-I2C
-        // devices answer a bare read with their input register), corrupting
-        // reads larger than 256 bytes.
-        self.async_start(address, true).await?;
-
-        // Drain the *entire* read with a single continuous DMA transfer. A
-        // single continuous DMA is essential: if the DMA were torn down and
-        // re-armed at each 256-byte boundary, the LPI2C command FIFO would run
-        // empty between chunks and the master would end the transfer (NACK +
-        // STOP), truncating the read. With one DMA the master simply
-        // clock-stretches whenever the RX FIFO fills, so there is no overflow
-        // and no truncation. The half-transfer interrupt lets us refill the
-        // command FIFO part-way through for reads larger than the FIFO can hold.
+        // Drain the *entire* read with a single continuous DMA transfer
         let peri_addr = self.info.regs().mrdr().as_ptr() as *const u8;
         unsafe {
             self.mode.rx_dma.disable_request();
@@ -1216,30 +1213,25 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 peri_addr,
                 read,
                 false,
-                TransferOptions::HALF_AND_COMPLETE_INTERRUPT,
+                TransferOptions::COMPLETE_INTERRUPT,
             )?;
             self.info.regs().mder().modify(|w| w.set_rdde(true));
             self.mode.rx_dma.enable_request();
         }
 
         // A single RECEIVE command can request at most 256 bytes (its count
-        // field is 8-bit), so larger reads need several RECEIVE commands in one
-        // continuous transaction. The command FIFO must never run empty
-        // mid-receive, so prime it up front and top it up as it drains until
-        // every byte has been requested.
-        let mut to_request = read.len();
-        while to_request > 0 && !self.is_tx_fifo_full() {
-            let n = to_request.min(256);
-            self.send_cmd(Cmd::RECEIVE, (n - 1) as u8);
-            to_request -= n;
-        }
+        // field is 8-bit), and the command FIFO is only a few entries deep, so
+        // a large read needs many RECEIVE commands issued over the life of the
+        // transfer. Refills are driven by the LPI2C transmit-data flag (TDF) —
+        // i.e. by *command-FIFO space*
 
-        // Wait for the DMA to drain the whole buffer, refilling the command
-        // FIFO on each wake (half-transfer or complete) so a RECEIVE is always
-        // pending until the read is fully requested.
+        let mut to_request = read.len();
         let result = core::future::poll_fn(|cx| {
+            // Register wakers for both completion sources before touching
+            // hardware state: DMA-complete (whole buffer received) and the
+            // shared I2C interrupt (TDF command-FIFO space, plus bus errors).
             let _ = self.mode.rx_dma.wait_cell().poll_wait(cx);
-            let _ = self.mode.rx_dma.half_wait_cell().poll_wait(cx);
+            let _ = self.info.wait_cell().poll_wait(cx);
 
             // Surface a bus error (NACK, arbitration loss, FIFO error) rather
             // than waiting forever for data that will never arrive.
@@ -1247,12 +1239,23 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
                 return core::task::Poll::Ready(Err(e));
             }
 
-            // Keep the command FIFO fed as it drains.
+            // Refill the command FIFO while it has space and commands remain.
             while to_request > 0 && !self.is_tx_fifo_full() {
                 let n = to_request.min(256);
                 self.send_cmd(Cmd::RECEIVE, (n - 1) as u8);
                 to_request -= n;
             }
+
+            // Re-arm interrupts every poll: the shared I2C ISR disables MIER on
+            // each fire. Always keep the error interrupts armed so a NACK wakes
+            // us
+            self.info.regs().mier().write(|w| {
+                w.set_ndie(true);
+                w.set_alie(true);
+                w.set_feie(true);
+                w.set_pltie(true);
+                w.set_tdie(to_request > 0);
+            });
 
             if self.mode.rx_dma.is_done() {
                 core::task::Poll::Ready(Ok(()))
@@ -1262,10 +1265,8 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
         })
         .await;
 
-        // Ensure DMA writes are visible to CPU
         cortex_m::asm::dsb();
 
-        // Cleanup
         self.info.regs().mder().modify(|w| w.set_rdde(false));
         unsafe {
             self.mode.rx_dma.disable_request();
