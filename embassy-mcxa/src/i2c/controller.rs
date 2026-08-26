@@ -1209,12 +1209,9 @@ impl<'d> AsyncEngine for I2c<'d, Dma<'d>> {
             self.mode.rx_dma.clear_done();
             self.mode.rx_dma.clear_interrupt();
             self.mode.rx_dma.set_request_source(self.mode.rx_request);
-            self.mode.rx_dma.setup_read_from_peripheral(
-                peri_addr,
-                read,
-                false,
-                TransferOptions::COMPLETE_INTERRUPT,
-            )?;
+            self.mode
+                .rx_dma
+                .setup_read_from_peripheral(peri_addr, read, false, TransferOptions::COMPLETE_INTERRUPT)?;
             self.info.regs().mder().modify(|w| w.set_rdde(true));
             self.mode.rx_dma.enable_request();
         }
