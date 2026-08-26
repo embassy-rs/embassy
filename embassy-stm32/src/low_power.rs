@@ -277,8 +277,10 @@ mod platform {
                 crate::rcc::reinit_saved(_cs);
             }
 
-            #[cfg_attr(stm32wba, allow(unused_assignments))]
-            let mut stop_mode_reached = None;
+            // Only read back on stm32wl/stm32wba builds without `_lp-time-driver`; dead
+            // elsewhere depending on the exact cfg combination.
+            #[allow(unused_mut, unused_variables, unused_assignments)]
+            let mut stop_mode_reached: Option<StopMode> = None;
 
             #[cfg(stm32wba)]
             match (es.stopf(), es.stop2f()) {
