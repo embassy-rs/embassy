@@ -2,6 +2,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::num::NonZeroU32;
 use core::ptr::NonNull;
 use core::sync::atomic::{AtomicU8, AtomicU32, AtomicUsize, Ordering, fence};
 use core::task::Poll;
@@ -36,10 +37,6 @@ pub enum SetupError {
     ClockSetup(ClockError),
     /// User provided an invalid configuration
     InvalidConfiguration,
-    /// Invalid Vendor ID
-    InvalidVendorId,
-    /// Invalid Part Number
-    InvalidPartNumber,
     /// Other internal errors or unexpected state.
     Other,
 }
@@ -132,17 +129,40 @@ impl From<BusType> for Type {
     }
 }
 
+/// MIPI vendor ID, constrained to the 15-bit field.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct VendorId(u16);
+
+impl VendorId {
+    /// Vendor ID 0x7FFF, the widest value the field can hold.
+    pub const MAX: Self = Self(0x7fff);
+
+    /// Tries to create a VendorId from a raw 16-bit integer.
+    ///
+    /// This will return None if raw is out of range of a 15-bit integer (> 0x7FFF).
+    pub const fn new(raw: u16) -> Option<Self> {
+        if raw > Self::MAX.0 { None } else { Some(Self(raw)) }
+    }
+}
+
+impl From<VendorId> for u16 {
+    fn from(value: VendorId) -> Self {
+        value.0
+    }
+}
+
 /// I3C target configuration
 #[non_exhaustive]
 pub struct Config {
     /// 7-bit target address.
     pub address: Option<u8>,
 
-    /// Vendor ID
-    pub vendor_id: Option<u16>,
+    /// MIPI vendor ID. `None` keeps the chip default.
+    pub vendor_id: Option<VendorId>,
 
-    /// Part number
-    pub partno: Option<u32>,
+    /// Part number. Requires a nonzero value.
+    pub partno: Option<NonZeroU32>,
 
     /// Max write length.
     ///
@@ -363,7 +383,7 @@ impl<'d> I3c<'d> {
             _wg: parts.wake_guard,
         };
 
-        inst.set_configuration(&inst.config)?;
+        inst.set_configuration(&inst.config);
 
         Ok(inst)
     }
@@ -429,7 +449,7 @@ impl<'d> I3c<'d> {
         });
     }
 
-    fn set_configuration(&self, config: &Config) -> Result<(), SetupError> {
+    fn set_configuration(&self, config: &Config) {
         self.info.regs().mconfig().write(|w| w.set_mstena(Mstena::MasterOff));
 
         // Defensive wipe of all interrupt enables and W1C error/status flags
@@ -470,24 +490,12 @@ impl<'d> I3c<'d> {
         // Diagnostic logging below dumps SDYNADDR via a raw pointer so
         // we can tell whether the HW absorbed SETDASA at all.
 
-        if config.partno.is_some() {
-            let partno = config.partno.unwrap();
-
-            if partno == 0 {
-                return Err(SetupError::InvalidPartNumber);
-            }
-
-            self.info.regs().sidpartno().write(|w| w.set_partno(partno));
+        if let Some(partno) = config.partno {
+            self.info.regs().sidpartno().write(|w| w.set_partno(partno.get()));
         }
 
-        if config.vendor_id.is_some() {
-            let vendor_id = config.vendor_id.unwrap();
-
-            if vendor_id == 0 {
-                return Err(SetupError::InvalidVendorId);
-            }
-
-            self.info.regs().svendorid().write(|w| w.set_vid(vendor_id));
+        if let Some(vendor_id) = config.vendor_id {
+            self.info.regs().svendorid().write(|w| w.set_vid(vendor_id.into()));
         }
 
         self.info.regs().smaxlimits().write(|w| {
@@ -519,8 +527,6 @@ impl<'d> I3c<'d> {
         // makes the slave behave as if it already had a dynamic address,
         // which causes the directed-phase `Sr 0x0a+W` (sent in I2C mode by
         // the master during SETDASA) to be ignored.
-
-        Ok(())
     }
 
     fn enable_target(&self) {
@@ -656,7 +662,7 @@ impl<'d> I3c<'d> {
     /// released, otherwise, the target will stay in hot-join mode. Therefore, caller
     /// must ensure the bus is inactive before calling this method or ensure the controller
     /// will handle the hot-join state after reset.
-    pub fn reset(&mut self) -> Result<(), SetupError> {
+    pub fn reset(&mut self) {
         // Disable the I3C IRQ so we can safely manipulate the peripheral and BBQ state.
         (self.info.disable_interrupt)();
 
@@ -689,25 +695,19 @@ impl<'d> I3c<'d> {
         unsafe { (self.info.reset_peripheral)() };
 
         // Reconfigure the peripheral with the same settings as before.
-        self.set_configuration(&self.config)?;
+        self.set_configuration(&self.config);
 
         // Re-arm the RX DMA path into a new grant.
         //
         // SAFETY: This driver exclusively owns the per-instance BBQ state.
         // bbq_state is only used by the I3C IRQ and this method, and the IRQ is disabled above.
-        unsafe {
-            if !self.bbq_state.rearm_rx(self.info) {
-                return Err(SetupError::Other);
-            }
-        }
+        unsafe { self.bbq_state.rearm_rx(self.info) };
 
         // Re-enable the I3C IRQ and target.
         (self.info.enable_interrupt)();
 
         // Re-enable the target.
         self.enable_target();
-
-        Ok(())
     }
 }
 
@@ -1667,27 +1667,27 @@ impl BbqState {
 
     /// Re-arm RX DMA using the retained queue and channel.
     ///
+    /// Arms the bus STOP interrupt whether or not a grant opened, so a ring
+    /// that is transiently full is retried by the IRQ on the next bus event.
+    ///
     /// # Safety
     ///
     /// The caller must have exclusive access to this state RX DMA channel,
     /// write grant, and queue producer state, and no write grant may be active.
     /// The owning I3C interrupt must be disabled so its handler cannot access
     /// them concurrently.
-    unsafe fn rearm_rx(&'static self, info: &'static Info) -> bool {
+    unsafe fn rearm_rx(&'static self, info: &'static Info) {
         let state = self.state.load(Ordering::Acquire);
         if state & STATE_RXDMA_PRESENT == 0 || state & STATE_RXGR_ACTIVE != 0 {
             // Either uninitialized or a grant is already active; nothing to do.
-            return false;
+            return;
         }
 
         // SAFETY: RXDMA_PRESENT guarantees initialized queue/DMA storage.
         // The preceding stop_and_drain_rx call removed the active grant, and
         // reset keeps the owning I3C interrupt disabled.
-        let started = unsafe { self.start_read_transfer(info) };
-        if started {
-            info.regs().sintset().write(|w| w.set_stop(true));
-        }
-        started
+        unsafe { self.start_read_transfer(info) };
+        info.regs().sintset().write(|w| w.set_stop(true));
     }
 
     /// Move from UNINIT to INITING, returning an error if the state

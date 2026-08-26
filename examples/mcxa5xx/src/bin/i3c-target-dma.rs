@@ -71,7 +71,7 @@ async fn main(_spawner: Spawner) {
             let transfer_len = tgt.dma_respond_to_write(&mut sink).await.unwrap();
             if transfer_len == 1 && sink[0] == RESET_COMMAND {
                 info!("[tgt] reset command received");
-                tgt.reset().unwrap();
+                tgt.reset();
                 info!("[tgt] reset complete; awaiting SETDASA");
                 continue;
             }
