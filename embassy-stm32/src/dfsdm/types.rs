@@ -41,10 +41,6 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     type Transceivers: capability::TransceiverCount;
     /// Amount of filters in this instance
     type Filters: capability::FilterCount;
-    /// Presence of delay blocks in this instances' filters
-    type Delay: capability::ConfDelay;
-    /// Presence of version block in this instance
-    type Version: capability::ConfVersion;
 
     // type Split<C: ClockOutputMode>;
 
@@ -65,22 +61,15 @@ pub(crate) mod capability {
     /// 8 filters.
     pub struct Flt8;
 
-    /// No delay unit present.
-    pub struct NoDelay;
-    /// Delay unit present.
-    pub struct WithDelay;
+    /// Has Delay block in channel
+    pub trait HasDelay {}
 
-    /// No version register present.
-    pub struct NoVersion;
-    /// Version register present.
-    pub struct WithVersion;
+    /// Has a HWID block in the instance
+    pub trait HasHwid {}
 
-    pub trait ConfDelay {}
-    impl ConfDelay for NoDelay {}
-    impl ConfDelay for WithDelay {}
-    pub trait ConfVersion {}
-    impl ConfVersion for NoVersion {}
-    impl ConfVersion for WithVersion {}
+    /// Accepts data directly from ADC
+    pub trait AdcInput {}
+
     pub trait TransceiverCount: super::Shape {
         const COUNT: u8;
     }

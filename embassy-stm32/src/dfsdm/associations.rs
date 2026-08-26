@@ -85,16 +85,18 @@ macro_rules! impl_dfsdm_instance {
         repr: $repr:ty,
         transceivers: $tcv:ty,
         filters: $flt:ty,
-        delay: $delay:ty,
-        version: $version:ty,
-        $(,)?// split: $split_ty:ident $(,)?        
+        $(delay: $delay:tt,)?
+        $(hwid: $hwid:tt,)?
+        $(adc_input: $adc:tt,)?
+        $(,)?
     ) => {
         impl SealedInstance for crate::peripherals::$inst {
             fn regs() -> Registers {
                 // SAFETY: siehe Trait-Doku — $inst zeigt auf einen realen DFSDM-Block,
                 // dessen Basislayout mit Dfsdm8ch8fltDlyVer übereinstimmt. Aufrufer
-                // dürfen nur die laut Instance::{Delay,Version,Transceivers,Filters}
-                // tatsächlich vorhandenen Register lesen/schreiben.
+                // dürfen nur die laut Instance::{Transceivers,Filters} und den
+                // capability::Has*-Marker-Traits tatsächlich vorhandenen Register
+                // lesen/schreiben.
                 unsafe { Registers::from_ptr(crate::pac::$inst.as_ptr()) }
             }
         }
@@ -103,16 +105,17 @@ macro_rules! impl_dfsdm_instance {
             type Repr = $repr;
             type Transceivers = $tcv;
             type Filters = $flt;
-            type Delay = $delay;
-            type Version = $version;
-
-            // type Split<C: ClockOutputMode> = $split_ty<Self, C>;
-
-            // fn split<C: ClockOutputMode>(dfsdm: Dfsdm<'_, Self, C>) -> Self::Split<C> {
-            //     $split_ty::new(&dfsdm)
-            // }
         }
+
+        $(impl_dfsdm_instance!(@flag $inst, HasDelay, $delay);)?
+        $(impl_dfsdm_instance!(@flag $inst, HasHwid, $hwid);)?
+        $(impl_dfsdm_instance!(@flag $inst, AdcInput, $adc);)?
     };
+
+    (@flag $inst:ident, $trait_name:ident, true) => {
+        impl capability::$trait_name for crate::peripherals::$inst {}
+    };
+    (@flag $inst:ident, $trait_name:ident, false) => {};
 }
 
 // Mark specified variants with specified attributes
@@ -123,8 +126,9 @@ macro_rules! mark_dfsdm_instances {
                 repr: $repr:ident,
                 transceivers: $transceivers:ident,
                 filters: $filters:ident,
-                delay: $delay:ident,
-                version: $version:ident $(,)?
+                delay: $delay:tt,
+                hwid: $hwid:tt,
+                adc_input: $adc:tt $(,)?
             }
         ),* $(,)?
     ) => {
@@ -136,8 +140,9 @@ macro_rules! mark_dfsdm_instances {
                         repr: crate::pac::dfsdm::$repr,
                         transceivers: capability::$transceivers,
                         filters: capability::$filters,
-                        delay: capability::$delay,
-                        version: capability::$version,
+                        delay: $delay,
+                        hwid: $hwid,
+                        adc_input: $adc,
                     );
                 };
             )*
@@ -148,20 +153,131 @@ macro_rules! mark_dfsdm_instances {
 //TODO maybe move to variant-list and skip the repr.
 // Mark variants with attributes
 mark_dfsdm_instances! {
-    DFSDM_8CH_8FLT_DLY_TRG5_ADC => {
-        repr: Dfsdm8ch8fltDlyTrg5Adc,
-        transceivers: Tcv8,
-        filters: Flt8,
-        delay: WithDelay,
-        version: NoVersion,
+
+    DFSDM_2CH_1FLT_DLY_TRG5_ADC => {
+        repr: Dfsdm2ch1fltDlyTrg5Adc,
+        transceivers: Tcv2,
+        filters: Flt1,
+        delay: true,
+        hwid: false,
+        adc_input: true,
     },
 
     DFSDM_2CH_1FLT_TRG3_ADC => {
         repr: Dfsdm2ch1fltTrg3Adc,
         transceivers: Tcv2,
         filters: Flt1,
-        delay: NoDelay,
-        version: NoVersion,
+        delay: false,
+        hwid: false,
+        adc_input: true,
+    },
+
+    DFSDM_4CH_2FLT_TRG3 => {
+        repr: Dfsdm4ch2fltTrg3,
+        transceivers: Tcv4,
+        filters: Flt2,
+        delay: false,
+        hwid: false,
+        adc_input: false,
+    },
+
+    DFSDM_4CH_2FLT_TRG3_ADC => {
+        repr: Dfsdm4ch2fltTrg3Adc,
+        transceivers: Tcv4,
+        filters: Flt2,
+        delay: false,
+        hwid: false,
+        adc_input: true,
+    },
+
+    DFSDM_4CH_2FLT_DLY_TRG5_ADC => {
+        repr: Dfsdm4ch2fltDlyTrg5Adc,
+        transceivers: Tcv4,
+        filters: Flt2,
+        delay: true,
+        hwid: false,
+        adc_input: true,
+    },
+
+    DFSDM_4CH_2FLT_DLY_TRG5_ADC_HWID => {
+        repr: Dfsdm4ch2fltDlyTrg5AdcHwid,
+        transceivers: Tcv4,
+        filters: Flt2,
+        delay: true,
+        hwid: true,
+        adc_input: true,
+    },
+
+    DFSDM_4CH_4FLT_DLY_TRG5_ADC => {
+        repr: Dfsdm4ch4fltDlyTrg5Adc,
+        transceivers: Tcv4,
+        filters: Flt4,
+        delay: true,
+        hwid: false,
+        adc_input: true,
+    },
+
+    DFSDM_8CH_4FLT_TRG3 => {
+        repr: Dfsdm8ch4fltTrg3,
+        transceivers: Tcv8,
+        filters: Flt4,
+        delay: false,
+        hwid: false,
+        adc_input: false,
+    },
+
+    DFSDM_8CH_4FLT_TRG5 => {
+        repr: Dfsdm8ch4fltTrg5,
+        transceivers: Tcv8,
+        filters: Flt4,
+        delay: false,
+        hwid: false,
+        adc_input: false,
+    },
+
+    DFSDM_8CH_4FLT_TRG3_ADC => {
+        repr: Dfsdm8ch4fltTrg3Adc,
+        transceivers: Tcv8,
+        filters: Flt4,
+        delay: false,
+        hwid: false,
+        adc_input: true,
+    },
+
+    DFSDM_8CH_4FLT_TRG5_ADC => {
+        repr: Dfsdm8ch4fltTrg5Adc,
+        transceivers: Tcv8,
+        filters: Flt4,
+        delay: false,
+        hwid: false,
+        adc_input: true,
+    },
+
+    DFSDM_8CH_4FLT_DLY_TRG5_ADC => {
+        repr: Dfsdm8ch4fltDlyTrg5Adc,
+        transceivers: Tcv8,
+        filters: Flt4,
+        delay: true,
+        hwid: false,
+        adc_input: true,
+    },
+
+    DFSDM_8CH_6FLT_DLY_TRG5_ADC_HWID => {
+        repr: Dfsdm8ch6fltDlyTrg5AdcHwid,
+        transceivers: Tcv8,
+        filters: Flt6,
+        delay: true,
+        hwid: true,
+        adc_input: true,
+    },
+
+    DFSDM_8CH_8FLT_DLY_TRG5_ADC => {
+        repr: Dfsdm8ch8fltDlyTrg5Adc,
+        transceivers: Tcv8,
+        filters: Flt8,
+        delay: true,
+        hwid: false,
+        adc_input: true,
     },
 }
 

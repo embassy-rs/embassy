@@ -11,8 +11,8 @@ pub use associations::*;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 pub use types::*;
-// use types::se
 
+// use types::se
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::{Peri, interrupt, rcc};
 
@@ -543,11 +543,16 @@ pub struct DckCfg<'d, T: Instance, M: TransceiverMarker> {
 
 /// Accepted by one `configure_pins` slot. `Presence` is the type-level pin
 /// state that flows into the split.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a valid pin token for this DFSDM channel",
+    label = "this token doesn't belong to channel `{M}`",
+    note = "return the token from the matching `creator.chN` selector - a token for one channel can't be reused on another"
+)]
 pub trait ChannelCfg<'d, T: Instance, M: TransceiverMarker> {
     /// Pin presence of the declaring channel.
     type Presence: PinSet;
     /// Consume the token, yielding its pins in storage form
-    /// (`()` for absent, `Flex` for present — no unwrapping anywhere).
+    /// (`()` for absent, `Flex` for present - no unwrapping anywhere).
     fn into_parts(
         self,
     ) -> (
@@ -626,7 +631,7 @@ where
 
 /// Selectors for all channels of an 8-channel DFSDM instance.
 ///
-/// NOTE: must never gain a `Drop` impl — partial moves out of it
+/// NOTE: must never gain a `Drop` impl - partial moves out of it
 /// (`s.ch0.datin(..)`) must remain legal.
 pub struct ChannelSelectors8<T: Instance> {
     /// Selector for channel 0
@@ -664,7 +669,7 @@ impl<T: Instance> ChannelSelectors8<T> {
 
 /// Selectors for a 2-channel DFSDM instance.
 ///
-/// NOTE: must never gain a `Drop` impl — partial moves out of it must remain legal.
+/// NOTE: must never gain a `Drop` impl - partial moves out of it must remain legal.
 pub struct ChannelSelectors2<T: Instance> {
     /// Selector for channel 0
     pub ch0: Sel<T, Tcv0>,
@@ -698,17 +703,6 @@ where
     _m: PhantomData<(T, M, C, SN)>,
 }
 
-///Marks an Instance as offering ADC-input
-#[allow(private_bounds)]
-pub trait AdcInput: Instance {}
-
-//TODO afaik only DFSDM1 offers ADC connection
-foreach_peripheral! {
-    (dfsdm, DFSDM1) => {
-        impl AdcInput for crate::peripherals::DFSDM1 {}
-    };
-}
-
 impl<'d, T, M, C, S, SN> TransceiverBuilder<'d, T, M, C, S, SN>
 where
     T: Instance,
@@ -719,11 +713,11 @@ where
 {
     /// Parallel input from ADC writes to CHyDATINR (DATMPX=2).
     /// No CKOUT, no pins needed. Serial pins declared on this channel
-    /// are disconnected (the builder's Flexes drop here — they're unused
+    /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
     pub fn new_parallel_adc(self) -> Transceiver<'static, 'd, T, M, S, ParallelAdcMode>
     where
-        T: AdcInput,
+        T: capability::AdcInput,
     {
         todo!()
     }
@@ -731,14 +725,14 @@ where
     ///Same as [`Self::new_parallel_adc`] but using neighbors pins
     pub fn new_parallel_adc_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ParallelAdcMode>
     where
-        T: AdcInput,
+        T: capability::AdcInput,
     {
         todo!()
     }
 
     /// Parallel input from CPU/DMA writes to CHyDATINR (DATMPX=2).
     /// No CKOUT, no pins needed. Serial pins declared on this channel
-    /// are disconnected (the builder's Flexes drop here — they're unused
+    /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
     pub fn new_parallel_dma(self) -> Transceiver<'static, 'd, T, M, S, ParallelDmaMode> {
         todo!()
@@ -751,7 +745,7 @@ where
 
     /// Parallel input from ADC writes to CHyDATINR (DATMPX=2).
     /// No CKOUT, no pins needed. Serial pins declared on this channel
-    /// are disconnected (the builder's Flexes drop here — they're unused
+    /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
     pub fn new_manchester(self) -> Transceiver<'static, 'd, T, M, S, ManchesterMode>
     where
@@ -1071,9 +1065,9 @@ where
 /// The arity *is* the channel-count check: `(C0, C1)` only impls for
 /// `Tcv2` instances, the 8-tuple only for `Tcv8`.
 #[diagnostic::on_unimplemented(
-    message = "the closure must return one pin token per channel of this DFSDM instance",
-    label = "tuple length doesn't match the instance's transceiver count",
-    note = "DFSDM2 has 2 channels — return a 2-tuple, one token per `creator.chN`"
+    message = "the closure must return one pin token per channel of `{T}`",
+    label = "tuple length doesn't match `{T}`'s transceiver count",
+    note = "check `{T}`'s channel count and return a tuple of that length, one token per `creator.chN`"
 )]
 pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
     /// The fully-wired split (neighbor pin-sets already correct).
@@ -1206,8 +1200,34 @@ where
     T: Instance,
     C: ClockOutputMode,
 {
-    /// The closure receives one selector per channel the instance
-    /// actually has, and returns one token per channel, as a tuple.
+    /// The closure receives one selector per channel the instance actually has,
+    /// and must return one token per channel, as a tuple in the same order.
+    ///
+    /// // DFSDM instance with 8-channel capabiltiy:
+    /// ```
+    /// dfsdm1.configure_pins(|tb| {
+    ///     (
+    ///         tb.ch0.datin_ckin(p.PC1, p.PC0),
+    ///         tb.ch1.datin(p.PC3),
+    ///         tb.ch2.datin_ckin(p.PC5, p.PC4),
+    ///         tb.ch3.none(),
+    ///         tb.ch4.none(),
+    ///         tb.ch5.none(),
+    ///         tb.ch6.none(),
+    ///         tb.ch7.none(),
+    ///     )
+    /// });
+    /// ```
+    ///
+    /// // DFSDM instance with 2-channel capabiltiy:
+    /// ```
+    /// dfsdm1.configure_pins(|tb| {
+    ///     (
+    ///         tb.ch0.datin_ckin(p.PC1, p.PC0),
+    ///         tb.ch1.datin(p.PC3),
+    ///     )
+    /// });
+    /// ```
     pub fn configure_pins<F, OUT>(mut self, f: F) -> <OUT as ChannelCfgTuple<'d, T, C>>::Split
     where
         F: FnOnce(<T::Transceivers as Shape>::Selectors<T>) -> OUT,
