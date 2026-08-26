@@ -52,7 +52,7 @@ critical-section = "1.2"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
-stm32wb-hci = { version = "0.18.0", optional = true, git = "https://github.com/embassy-rs/stm32wb-hci.git", rev = "ca024be3d2ff107aeae4f9c9889edb9785b242ca" }
+stm32wb-hci = { version = "0.19.0",  optional = true }
 futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
 bt-hci = { version = "0.10.1", optional = true }
