@@ -18,9 +18,11 @@ use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::peripherals;
+#[cfg(feature = "low-power")]
+use crate::rcc::StopMode;
 use crate::rcc::{self, SealedRccPeripheral};
 #[cfg(feature = "low-power")]
-use crate::rtc::{Rtc, StopMode};
+use crate::rtc::Rtc;
 use crate::timer::{CoreInstance, GeneralInstance1Channel};
 
 // NOTE regarding ALARM_COUNT:
@@ -115,13 +117,17 @@ impl RtcDriver {
     /// initialize the timer, but don't start it.  Used for chips like stm32wle5
     /// for low power where the timer config is lost in STOP2.
     pub(crate) fn init_timer(&'static self, cs: critical_section::CriticalSection) {
-        self.init_timer_from_stop_mode(cs, None)
+        self.init_timer_from_stop_mode(
+            cs,
+            #[cfg(feature = "low-power")]
+            None,
+        )
     }
 
     pub(crate) fn init_timer_from_stop_mode(
         &'static self,
         cs: critical_section::CriticalSection,
-        stop_mode_reached: Option<StopMode>,
+        #[cfg(feature = "low-power")] stop_mode_reached: Option<StopMode>,
     ) {
         let r = regs_gp16();
 

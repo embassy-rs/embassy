@@ -373,7 +373,7 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         #[cfg(all(stm32wba, peri_usb_otg_hs))]
         {
-            defmt::debug!("disabling OTG clocks");
+            debug!("disabling OTG clocks");
             crate::pac::SYSCFG.otghsphycr().modify(|w| w.set_en(false));
             critical_section::with(|_| {
                 crate::pac::RCC.ahb2enr().modify(|w| w.set_usb_otg_hs_phyen(false));

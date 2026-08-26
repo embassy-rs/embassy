@@ -277,6 +277,7 @@ mod platform {
                 crate::rcc::reinit_saved(_cs);
             }
 
+            #[cfg_attr(stm32wba, allow(unused_assignments))]
             let mut stop_mode_reached = None;
 
             #[cfg(stm32wba)]
