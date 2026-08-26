@@ -1,31 +1,9 @@
 use super::types::*;
 // use super::{Tcv0, Tcv1, Tcv2, Tcv3, Tcv4, Tcv5, Tcv6, Tcv7};
 
-// Channel- and instance-specific pin traits
-//
-//
-
-pin_trait!(CkoutPin, Instance, @A);
-pin_trait!(Datin0Pin, Instance, @A);
-pin_trait!(Ckin0Pin, Instance, @A);
-pin_trait!(Ckin1Pin, Instance, @A);
-pin_trait!(Datin1Pin, Instance, @A);
-pin_trait!(Datin2Pin, Instance, @A);
-pin_trait!(Ckin2Pin, Instance, @A);
-pin_trait!(Datin3Pin, Instance, @A);
-pin_trait!(Ckin3Pin, Instance, @A);
-pin_trait!(Datin4Pin, Instance, @A);
-pin_trait!(Ckin4Pin, Instance, @A);
-pin_trait!(Datin5Pin, Instance, @A);
-pin_trait!(Ckin5Pin, Instance, @A);
-pin_trait!(Datin6Pin, Instance, @A);
-pin_trait!(Ckin6Pin, Instance, @A);
-pin_trait!(Datin7Pin, Instance, @A);
-pin_trait!(Ckin7Pin, Instance, @A);
-
+// =============================================================================
 // Associate pin traits with channels
-//
-//
+// =============================================================================
 
 macro_rules! impl_ckin_bridge {
     ($marker:ty, $existing:ident) => {
@@ -93,9 +71,9 @@ impl_datin_bridge!(Tcv5, Datin5Pin);
 impl_datin_bridge!(Tcv6, Datin6Pin);
 impl_datin_bridge!(Tcv7, Datin7Pin);
 
-// Associate Interrupts
-//
-//
+// =============================================================================
+// Associate capabilities
+// =============================================================================
 
 /// Implements `SealedInstance` + `Instance` for one DFSDM instance.
 ///
@@ -137,38 +115,59 @@ macro_rules! impl_dfsdm_instance {
     };
 }
 
-foreach_interrupt! {
-    ($inst:ident, dfsdm, DFSDM_8CH_8FLT_DLY_TRG5_ADC, FLT0, $irq:ident) => {
-        impl_dfsdm_instance!($inst,
-            repr: crate::pac::dfsdm::Dfsdm8ch8fltDlyTrg5Adc,
-            transceivers: capability::Tcv8,
-            filters: capability::Flt8,
-            delay: capability::WithDelay,
-            version: capability::NoVersion,
-            // split: TransceiverChannelBuilders8,
-        );
-    };
-    // ($inst:ident, dfsdm, DFSDM_8CH_8FLT, FLT0, $irq:ident) => {
-    //     impl_dfsdm_instance!($inst,
-    //         repr: crate::pac::dfsdm::Dfsdm8ch8flt,
-    //         transceivers: capability::Tcv8,
-    //         filters: capability::Flt8,
-    //         delay: capability::NoDelay,
-    //         version: capability::NoVersion,
-    //         // split: TransceiverChannelBuilders8,
-    //     );
-    // };
-    ($inst:ident, dfsdm, DFSDM_2CH_1FLT_TRG3_ADC, FLT0, $irq:ident) => {
-        impl_dfsdm_instance!($inst,
-            repr: crate::pac::dfsdm::Dfsdm2ch1fltTrg3Adc,
-            transceivers: capability::Tcv2,
-            filters: capability::Flt1,
-            delay: capability::NoDelay,
-            version: capability::NoVersion,
-            // split: TransceiverChannelBuilders2,
-        );
+// Mark specified variants with specified attributes
+macro_rules! mark_dfsdm_instances {
+    (
+        $(
+            $peripheral:ident => {
+                repr: $repr:ident,
+                transceivers: $transceivers:ident,
+                filters: $filters:ident,
+                delay: $delay:ident,
+                version: $version:ident $(,)?
+            }
+        ),* $(,)?
+    ) => {
+        foreach_interrupt! {
+            $(
+                ($inst:ident, dfsdm, $peripheral, FLT0, $irq:ident) => {
+                    impl_dfsdm_instance!(
+                        $inst,
+                        repr: crate::pac::dfsdm::$repr,
+                        transceivers: capability::$transceivers,
+                        filters: capability::$filters,
+                        delay: capability::$delay,
+                        version: capability::$version,
+                    );
+                };
+            )*
+        }
     };
 }
+
+//TODO maybe move to variant-list and skip the repr.
+// Mark variants with attributes
+mark_dfsdm_instances! {
+    DFSDM_8CH_8FLT_DLY_TRG5_ADC => {
+        repr: Dfsdm8ch8fltDlyTrg5Adc,
+        transceivers: Tcv8,
+        filters: Flt8,
+        delay: WithDelay,
+        version: NoVersion,
+    },
+
+    DFSDM_2CH_1FLT_TRG3_ADC => {
+        repr: Dfsdm2ch1fltTrg3Adc,
+        transceivers: Tcv2,
+        filters: Flt1,
+        delay: NoDelay,
+        version: NoVersion,
+    },
+}
+
+// =============================================================================
+// Associate interrupts
+// =============================================================================
 
 // Implement single IRQ for a single variants
 macro_rules! impl_dfsdm_filter_irq {

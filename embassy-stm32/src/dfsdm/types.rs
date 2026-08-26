@@ -1,8 +1,30 @@
 use super::*;
 
-/// Instance
-///
-///
+// =============================================================================
+// Channel- and instance-specific pin traits
+// =============================================================================
+
+pin_trait!(CkoutPin, Instance, @A);
+pin_trait!(Datin0Pin, Instance, @A);
+pin_trait!(Ckin0Pin, Instance, @A);
+pin_trait!(Ckin1Pin, Instance, @A);
+pin_trait!(Datin1Pin, Instance, @A);
+pin_trait!(Datin2Pin, Instance, @A);
+pin_trait!(Ckin2Pin, Instance, @A);
+pin_trait!(Datin3Pin, Instance, @A);
+pin_trait!(Ckin3Pin, Instance, @A);
+pin_trait!(Datin4Pin, Instance, @A);
+pin_trait!(Ckin4Pin, Instance, @A);
+pin_trait!(Datin5Pin, Instance, @A);
+pin_trait!(Ckin5Pin, Instance, @A);
+pin_trait!(Datin6Pin, Instance, @A);
+pin_trait!(Ckin6Pin, Instance, @A);
+pin_trait!(Datin7Pin, Instance, @A);
+pin_trait!(Ckin7Pin, Instance, @A);
+
+// =============================================================================
+// Instance
+// =============================================================================
 
 pub(crate) type Registers = crate::pac::dfsdm::DfsdmSuperset;
 
@@ -108,9 +130,9 @@ impl Shape for capability::Tcv8 {
     }
 }
 
-/// Interrupt trait
-///
-///
+// =============================================================================
+// Interrupt-Marking
+// =============================================================================
 
 /// Filter-marked interrupt state trait
 pub trait FilterInterrupt<F: FilterMarker> {
@@ -161,9 +183,9 @@ define_dfsdm_pin_trait!(
     "Associates a DFSDM data-input pin with a transceiver channel."
 );
 
-// Interrupt handling types
-//
-//
+// =============================================================================
+// Interrupthandler
+// =============================================================================
 
 /// Trait for interrupt handlers
 pub struct InterruptHandler<T: Instance, F: FilterMarker> {
@@ -206,7 +228,10 @@ where
 //     }
 // }
 
-/// Instance State struct
+// =============================================================================
+// Interrupt/FilterChannel state
+// =============================================================================
+
 pub struct State {
     /// Waker for the state
     pub waker: AtomicWaker,
@@ -222,10 +247,9 @@ impl State {
     }
 }
 
+// =============================================================================
 // Indexed channel types
-//
-//
-
+// =============================================================================
 macro_rules! define_indexed_channels {
     (
         $enum:ident,
@@ -316,3 +340,23 @@ define_indexed_channels!(
     Flt6 => 6,
     Flt7 => 7,
 );
+
+// =============================================================================
+// Trigger types
+// =============================================================================
+
+trigger_trait!(InjectedTrigger, Instance);
+
+pub struct InjectedDfsdmTrigger<T: Instance> {
+    _trigger: u8,
+    _marker: PhantomData<T>,
+}
+
+impl<T: Instance> InjectedDfsdmTrigger<T> {
+    pub fn from(trigger: impl InjectedTrigger<T>) -> Self {
+        Self {
+            _trigger: trigger.signal(),
+            _marker: PhantomData,
+        }
+    }
+}

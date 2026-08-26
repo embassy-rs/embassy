@@ -2216,6 +2216,8 @@ fn main() {
         (("timer", "TIMX_TI2_IN"), quote!(crate::timer::TimerInputTrigger<Ch2>)),
         (("timer", "TIMX_TI3_IN"), quote!(crate::timer::TimerInputTrigger<Ch3>)),
         (("timer", "TIMX_TI4_IN"), quote!(crate::timer::TimerInputTrigger<Ch4>)),
+        (("dfsdm", "DFSDM1_JTRG"), quote!(crate::dfsdm::InjectedTrigger)),
+        (("dfsdm", "DFSDM2_JTRG"), quote!(crate::dfsdm::InjectedTrigger)),
     ]
     .into();
 

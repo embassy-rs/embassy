@@ -6,8 +6,9 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::{Dfsdm, Flt0, Flt1, TransceiverTrait};
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::peripherals::{BDMA1_CH0, BDMA2_CH0, DFSDM1};
+use embassy_stm32::peripherals::{BDMA1_CH0, BDMA2_CH0, DFSDM1, DFSDM2};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::triggers::{EXTI11, TIM1_TRGO};
 use embassy_stm32::{Config, bind_interrupts, dfsdm, peripherals};
 use embassy_time::Timer;
 use panic_probe as _;
@@ -106,6 +107,8 @@ async fn main(_spawner: Spawner) {
     });
     b.ch0.new_parallel_dma();
     b.ch1.new_synchronous_int_neighbor();
+
+    let a = dfsdm::InjectedDfsdmTrigger::<DFSDM2>::from(EXTI11);
     // let dfsdm::ChannelSelectors8 {
     //     ch0,
     //     ch1,
