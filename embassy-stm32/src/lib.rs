@@ -983,6 +983,10 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
             hsem::init_hsem(cs);
 
+            // reset peripherals here
+            #[cfg(feature = "low-power")]
+            crate::rcc::reset_stop_refcount(cs);
+
             // must be after rcc init
             #[cfg(feature = "_time-driver")]
             crate::time_driver::init(cs);
