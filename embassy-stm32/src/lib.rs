@@ -134,6 +134,8 @@ pub mod csi;
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
+#[cfg(dfsdm)]
+pub mod dfsdm;
 #[cfg(dcmipp)]
 pub mod dcmipp;
 #[cfg(dlybsd)]

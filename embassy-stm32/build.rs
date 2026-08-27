@@ -1779,6 +1779,23 @@ fn main() {
         (("mdf", "SDI3"), quote!(crate::mdf::SdiPin)),
         (("mdf", "SDI4"), quote!(crate::mdf::SdiPin)),
         (("mdf", "SDI5"), quote!(crate::mdf::SdiPin)),
+        (("dfsdm", "CKOUT"), quote!(crate::dfsdm::CkoutPin)),
+        (("dfsdm", "DATIN0"), quote!(crate::dfsdm::Datin0Pin)),
+        (("dfsdm", "CKIN0"), quote!(crate::dfsdm::Ckin0Pin)),
+        (("dfsdm", "DATIN1"), quote!(crate::dfsdm::Datin1Pin)),
+        (("dfsdm", "CKIN1"), quote!(crate::dfsdm::Ckin1Pin)),
+        (("dfsdm", "DATIN2"), quote!(crate::dfsdm::Datin2Pin)),
+        (("dfsdm", "CKIN2"), quote!(crate::dfsdm::Ckin2Pin)),
+        (("dfsdm", "DATIN3"), quote!(crate::dfsdm::Datin3Pin)),
+        (("dfsdm", "CKIN3"), quote!(crate::dfsdm::Ckin3Pin)),
+        (("dfsdm", "DATIN4"), quote!(crate::dfsdm::Datin4Pin)),
+        (("dfsdm", "CKIN4"), quote!(crate::dfsdm::Ckin4Pin)),
+        (("dfsdm", "DATIN5"), quote!(crate::dfsdm::Datin5Pin)),
+        (("dfsdm", "CKIN5"), quote!(crate::dfsdm::Ckin5Pin)),
+        (("dfsdm", "DATIN6"), quote!(crate::dfsdm::Datin6Pin)),
+        (("dfsdm", "CKIN6"), quote!(crate::dfsdm::Ckin6Pin)),
+        (("dfsdm", "DATIN7"), quote!(crate::dfsdm::Datin7Pin)),
+        (("dfsdm", "CKIN7"), quote!(crate::dfsdm::Ckin7Pin)),
     ] {
         signals.entry(key).or_default().push(value);
     }
@@ -2175,6 +2192,14 @@ fn main() {
         (("mdf", "FLT5"), quote!(crate::mdf::RxDma<Flt5>)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
         (("xspi", "RX"), quote!(crate::xspi::XDma)),
+        (("dfsdm", "FLT0"), quote!(crate::dfsdm::Dma<Flt0>)),
+        (("dfsdm", "FLT1"), quote!(crate::dfsdm::Dma<Flt1>)),
+        (("dfsdm", "FLT2"), quote!(crate::dfsdm::Dma<Flt2>)),
+        (("dfsdm", "FLT3"), quote!(crate::dfsdm::Dma<Flt3>)),
+        (("dfsdm", "FLT4"), quote!(crate::dfsdm::Dma<Flt4>)),
+        (("dfsdm", "FLT5"), quote!(crate::dfsdm::Dma<Flt5>)),
+        (("dfsdm", "FLT6"), quote!(crate::dfsdm::Dma<Flt6>)),
+        (("dfsdm", "FLT7"), quote!(crate::dfsdm::Dma<Flt7>)),
     ]
     .into();
 
@@ -2191,6 +2216,8 @@ fn main() {
         (("timer", "TIMX_TI2_IN"), quote!(crate::timer::TimerInputTrigger<Ch2>)),
         (("timer", "TIMX_TI3_IN"), quote!(crate::timer::TimerInputTrigger<Ch3>)),
         (("timer", "TIMX_TI4_IN"), quote!(crate::timer::TimerInputTrigger<Ch4>)),
+        (("dfsdm", "DFSDM1_JTRG"), quote!(crate::dfsdm::InjectedTrigger)),
+        (("dfsdm", "DFSDM2_JTRG"), quote!(crate::dfsdm::InjectedTrigger)),
     ]
     .into();
 
@@ -2228,6 +2255,10 @@ fn main() {
         }
 
         for trigger in p.triggers {
+            if trigger_expr.captures(trigger.signal).is_none(){
+                    eprintln!("Expression: {:?}", trigger_expr);
+                    eprintln!("Trigger: {:?}", trigger);
+            }
             let matches = trigger_expr.captures(trigger.signal).unwrap();
             let signal = &matches[1];
             let idx: u8 = (&matches[2]).parse().unwrap();
