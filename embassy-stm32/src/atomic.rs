@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
 
 use crate::pac::common::{Read, Reg, Write};
 
@@ -103,17 +103,17 @@ impl AtomicClear for AtomicBool {
 }
 
 #[allow(dead_code)]
-pub trait AtomicDecrement {
-    fn decrement(&self) -> u8;
+pub trait AtomicDecrement<T> {
+    fn decrement(&self) -> T;
 }
 
-impl AtomicDecrement for AtomicU8 {
+impl AtomicDecrement<u8> for AtomicU8 {
     #[cfg(not(target_has_atomic = "8"))]
     fn decrement(&self) -> u8 {
         critical_section::with(|_| {
             let refcount = self.load(Ordering::Relaxed);
-            assert!(refcount >= 1);
-            self.store(refcount - 1, Ordering::Relaxed);
+            self.store(refcount.wrapping_sub(1), Ordering::Relaxed);
+
             refcount
         })
     }
@@ -121,5 +121,27 @@ impl AtomicDecrement for AtomicU8 {
     #[cfg(target_has_atomic = "8")]
     fn decrement(&self) -> u8 {
         self.fetch_sub(1, Ordering::Acquire)
+    }
+}
+
+#[allow(dead_code)]
+pub trait AtomicIncrement<T> {
+    fn increment(&self) -> T;
+}
+
+impl AtomicIncrement<u32> for AtomicU32 {
+    #[cfg(not(target_has_atomic = "32"))]
+    fn increment(&self) -> u32 {
+        critical_section::with(|_| {
+            let refcount = self.load(Ordering::Relaxed);
+            self.store(refcount.wrapping_add(1), Ordering::Relaxed);
+
+            refcount
+        })
+    }
+
+    #[cfg(target_has_atomic = "32")]
+    fn increment(&self) -> u32 {
+        self.fetch_add(1, Ordering::Acquire)
     }
 }
