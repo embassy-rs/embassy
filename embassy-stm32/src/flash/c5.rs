@@ -36,6 +36,141 @@ pub(crate) unsafe fn enable_blocking_write() {
 
 pub(crate) unsafe fn disable_blocking_write() {}
 
+pub(crate) unsafe fn blocking_write_edata_u16(start_address: u32, value: u16) -> Result<(), Error> {
+    unsafe { 
+        blocking_write_edata_u16_slice(start_address, core::slice::from_ref(&value))
+     }
+}
+
+pub(crate) unsafe fn blocking_write_edata_u16_slice(start_address: u32, values: &[u16]) -> Result<(), Error> {
+    if start_address % 2 != 0 {
+        return Err(Error::Unaligned);
+    }
+
+    if values.is_empty() {
+        return Ok(())
+    }
+
+    while busy() {}
+
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    fence(Ordering::SeqCst);
+
+    clear_all_err();
+
+    pac::FLASH.cr().write(|w| {
+        w.set_pg(true);
+    });
+
+    let mut address = start_address;
+    let mut result = Ok(());
+
+    for &val in values {
+        unsafe {
+            write_volatile(address as *mut u16, val);
+        }
+        result = blocking_wait_ready().map_err(|error| {
+            error!("EDATA write error at {=u32:x}", address);    
+            error
+        });
+
+        if pac::FLASH.sr().read().eop() {
+            pac::FLASH.ccr().write(|w| {
+                w.set_clr_eop(true);
+            });
+        }
+
+        fence(Ordering::SeqCst);
+
+        if result.is_err() {
+            break;
+        }
+
+        address += 2;
+    }
+
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    fence(Ordering::SeqCst);
+
+    pac::FLASH.cr().write(|w| {
+        w.set_pg(false);
+    });
+
+    result
+}
+
+pub(crate) unsafe fn blocking_write_edata_u32(start_address: u32, value: u32) -> Result<(), Error> {
+    todo!()
+    // TODO: use blocking_write_edata
+}
+
+pub(crate) unsafe fn blocking_write_edata(
+    start_address: u32,
+    data: &[u8]
+) -> Result<(), Error> {
+    if start_address % 2 != 0 || data.len() % 2 != 0 {
+        return Err(Error::Unaligned);
+    }
+
+    if data.is_empty() {
+        return Ok(())
+    }
+
+    while busy() {}
+
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    fence(Ordering::SeqCst);
+
+    clear_all_err();
+
+    pac::FLASH.cr().write(|w| {
+        w.set_pg(true);
+    });
+
+    let mut address = start_address;
+    let mut result = Ok(());
+
+    for chunk in data.chunks_exact(2) {
+        let value = u16::from_le_bytes([chunk[0], chunk[1]]);
+
+        unsafe {
+            write_volatile(address as *mut u16, value);
+        }
+
+        address += 2;
+        
+        result = blocking_wait_ready().map_err(|error| {
+            error!("EDATA write error at {=u32:x}", address - 2);
+            error
+        });
+
+        if pac::FLASH.sr().read().eop() {
+            pac::FLASH.ccr().write(|w| {
+                w.set_clr_eop(true);
+            });
+        }
+
+        fence(Ordering::SeqCst);
+
+        if result.is_err() {
+            break;
+        }
+    }
+
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    fence(Ordering::SeqCst);
+
+    pac::FLASH.cr().write(|w| {
+        w.set_pg(false);
+    });
+
+    result
+}
+
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     // // We cannot have the write setup sequence in begin_write as it depends on the address
     // let bank = if start_address < BANK1_REGION.end() {
@@ -85,6 +220,46 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
     pac::FLASH.cr().write(|w| w.set_pg(false));
 
     unwrap!(res)
+}
+
+pub(crate) unsafe fn blocking_erase_edata_page(bank: vals::Bksel, page: u8) -> Result<(), Error> {
+    if page >= 16 {
+        return Err(Error::Size);
+    }
+
+    if pac::FLASH.cr().read().lock() == true {
+        error!("flash locked");
+    }
+
+    while busy() {}
+
+    clear_all_err();
+
+    pac::FLASH.cr().write(|r| {
+        r.set_edatasel(vals::Edatasel::B0x1);
+        r.set_bksel(bank);
+        r.set_pnb(page);
+        r.set_per(true);
+    });
+
+    pac::FLASH.cr().modify(|r| r.set_strt(true));
+
+    cortex_m::asm::isb();
+    cortex_m::asm::dsb();
+    fence(Ordering::SeqCst);
+
+    let result = blocking_wait_ready().map_err(|e| {
+        error!("earse err");
+        e
+    });
+
+    pac::FLASH.cr().modify(|r| {
+        r.set_per(false);
+        r.set_edatasel(vals::Edatasel::B0x0);
+    });
+
+    clear_all_err();
+    result
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
@@ -141,7 +316,7 @@ unsafe fn blocking_wait_ready() -> Result<(), Error> {
     loop {
         let sr = pac::FLASH.sr().read();
 
-        if !sr.bsy() {
+        if !sr_busy(sr) {
             if sr.optchangeerr() {
                 error!("optchangeerr");
                 return Err(Error::Prog);
