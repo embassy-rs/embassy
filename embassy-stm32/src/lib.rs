@@ -615,7 +615,7 @@ mod dual_core {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
         // Enable hardware semaphore.
-        critical_section::with(|cs| crate::hsem::init_hsem(cs));
+        critical_section::with(|cs| crate::hsem::init_hsem(cs, true));
 
         #[cfg(stm32h7)]
         {
@@ -650,7 +650,7 @@ mod dual_core {
     /// A hardware semaphore is used to coordinate the init with the second core.
     pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
         critical_section::with(|cs| {
-            rcc::enable_with_cs::<peripherals::HSEM>(cs);
+            rcc::enable_with_cs_no_refcount::<peripherals::HSEM>(cs);
         });
 
         // Wait for the semaphore to be unlocked by the primary core
@@ -805,16 +805,16 @@ fn init_hw(config: Config) -> Peripherals {
 
         #[cfg(any(stm32h7rs))]
         // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
-        rcc::enable_with_cs::<peripherals::SYSCFG>(cs);
+        rcc::enable_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5)))]
-        rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
+        rcc::enable_and_reset_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5)))]
-        rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);
+        rcc::enable_and_reset_with_cs_no_refcount::<peripherals::PWR>(cs);
         #[cfg(all(
             flash,
             not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs, stm32c5))
         ))]
-        rcc::enable_and_reset_with_cs::<peripherals::FLASH>(cs);
+        rcc::enable_and_reset_with_cs_no_refcount::<peripherals::FLASH>(cs);
 
         // Enable the VDDIO2 power supply on chips that have it.
         // Note that this requires the PWR peripheral to be enabled first.
@@ -981,11 +981,7 @@ fn init_hw(config: Config) -> Peripherals {
 
             // must be before time_driver init to allow refcount reset
             #[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
-            hsem::init_hsem(cs);
-
-            // reset peripherals here
-            #[cfg(feature = "low-power")]
-            crate::rcc::reset_stop_refcount(cs);
+            hsem::init_hsem(cs, true);
 
             // must be after rcc init
             #[cfg(feature = "_time-driver")]
