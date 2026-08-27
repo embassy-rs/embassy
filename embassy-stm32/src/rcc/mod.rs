@@ -19,9 +19,9 @@ pub use mco::*;
 #[cfg(dsihost)]
 pub(crate) mod dsi;
 
-#[cfg(crs)]
+#[cfg(all(crs, not(stm32c5)))]
 mod hsi48;
-#[cfg(crs)]
+#[cfg(all(crs, not(stm32c5)))]
 pub use hsi48::*;
 
 #[cfg_attr(any(stm32f0, stm32f1, stm32f3), path = "f013.rs")]
