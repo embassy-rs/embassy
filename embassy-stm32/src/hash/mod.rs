@@ -14,11 +14,13 @@ use stm32_metapac::hash::regs::*;
 
 #[cfg(any(hash_v2, hash_v3, hash_v4))]
 use crate::dma::ChannelAndRequest;
+#[cfg(any(hash_v2, hash_v3, hash_v4))]
 use crate::interrupt::typelevel::Interrupt;
 #[cfg(any(hash_v2, hash_v3, hash_v4))]
 use crate::mode::Async;
 use crate::mode::{Blocking, Mode};
 use crate::peripherals::HASH;
+use crate::suspend::SealedSuspendablePeripheral;
 use crate::{Peri, interrupt, pac, peripherals, rcc};
 
 static HASH_WAKER: AtomicWaker = AtomicWaker::new();
@@ -89,25 +91,33 @@ pub trait AlgorithmSpec {
 }
 
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub struct Sha1;
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub struct Sha224;
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub struct Sha256;
 #[cfg(any(hash_v1, hash_v2, hash_v4))]
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub struct Md5;
 #[cfg(hash_v3)]
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub struct Sha384;
 #[cfg(hash_v3)]
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub struct Sha512_224;
 #[cfg(hash_v3)]
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub struct Sha512_256;
 #[cfg(hash_v3)]
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub struct Sha512;
 
 #[derive(Debug, Clone)]
@@ -192,8 +202,10 @@ pub trait HmacMode<A: AlgorithmSpec> {
 }
 
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub struct NonHmac;
 #[allow(missing_docs)]
+#[derive(Clone, Copy)]
 pub struct Hmac;
 
 impl<A: AlgorithmSpec> HmacMode<A> for NonHmac {
@@ -244,6 +256,8 @@ where
     A: ContextBufferType<M>,
 {
     id: u32,
+    peripheral_initialized: bool,
+    hmac_key_processed: bool,
     first_word_sent: bool,
     buffer: ContextBuffer<A, M>,
     buflen: usize,
@@ -342,9 +356,6 @@ impl<'d, T: Instance> Hash<'d, T, Blocking> {
             next_id: 1,
         };
 
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
         instance
     }
 }
@@ -383,11 +394,13 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         cr.set_algo(A::ALGORITHM as u8);
 
         let mut hmac_key = <A::KeyBuffer>::new();
+        let mut long_hmac_key = false;
         if H::HMAC {
             let key = key.unwrap_or(&[]);
             if key.len() <= A::BLOCK_SIZE {
                 hmac_key.as_mut_slice()[..key.len()].copy_from_slice(key);
             } else {
+                long_hmac_key = true;
                 cr.set_init(true);
                 T::regs().cr().write_value(cr);
                 self.accumulate_blocking(key);
@@ -404,6 +417,8 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         // Define a context for this new computation.
         let mut ctx = Context::<A, M, H> {
             id: 0,
+            peripheral_initialized: long_hmac_key,
+            hmac_key_processed: false,
             first_word_sent: false,
             buffer: <ContextBuffer<A, M>>::new(),
             buflen: 0,
@@ -420,19 +435,26 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         }
 
         cr.set_init(true);
-        T::regs().cr().write_value(cr);
 
         // Process the normalized HMAC key if requested.
-        if let Some(key) = H::key_ref(&ctx.key) {
+        if long_hmac_key {
+            let key = H::key_ref(&ctx.key).unwrap();
+            T::regs().cr().write_value(cr);
             self.accumulate_blocking(key);
             T::regs().str().write(|w| w.set_dcal(true));
             while !T::regs().sr().read().dinis() {}
+            ctx.hmac_key_processed = true;
         }
 
-        // Store and return the state of the peripheral.
         trace!("start: algo={:?}, format={:?}, key={}", A::ALGORITHM, format, H::HMAC);
-        self.store_context(&mut ctx);
-        trace!("start: assigned initial id={}", ctx.id);
+        if long_hmac_key {
+            self.store_context(&mut ctx);
+        } else {
+            ctx.cr = cr.0;
+            ctx.id = self.next_id;
+            self.next_id = self.next_id.wrapping_add(1);
+            trace!("start: assigned lazy initial id={}", ctx.id);
+        }
         ctx
     }
 
@@ -463,6 +485,15 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         }
 
         self.load_context(ctx);
+
+        if !ctx.hmac_key_processed
+            && let Some(key) = H::key_ref(&ctx.key)
+        {
+            self.accumulate_blocking(key);
+            T::regs().str().write(|w| w.set_dcal(true));
+            while !T::regs().sr().read().dinis() {}
+            ctx.hmac_key_processed = true;
+        }
 
         let mut remaining = input;
 
@@ -517,6 +548,15 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
     {
         // Restore the peripheral state.
         self.load_context(&ctx);
+
+        if !ctx.hmac_key_processed
+            && let Some(key) = H::key_ref(&ctx.key)
+        {
+            self.accumulate_blocking(key);
+            T::regs().str().write(|w| w.set_dcal(true));
+            while !T::regs().sr().read().dinis() {}
+            ctx.hmac_key_processed = true;
+        }
 
         // Hash the leftover bytes, if any.
         self.accumulate_blocking(&ctx.buffer()[0..ctx.buflen]);
@@ -605,6 +645,7 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             ctx.csr.set(i, T::regs().csr(i).read());
             i += 1;
         }
+        ctx.peripheral_initialized = true;
         trace!("store_context: csr[0..{}] saved", count);
 
         ctx.id = self.next_id;
@@ -635,10 +676,10 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         T::regs().str().write_value(Str { 0: ctx.str });
         T::regs().cr().write_value(Cr { 0: ctx.cr });
         T::regs().cr().modify(|w| w.set_init(true));
-        let mut i = 0;
-        while i < count {
-            T::regs().csr(i).write_value(ctx.csr.get(i));
-            i += 1;
+        if ctx.peripheral_initialized {
+            for i in 0..count {
+                T::regs().csr(i).write_value(ctx.csr.get(i));
+            }
         }
         trace!("load_context: csr[0..{}] restored", count);
     }
@@ -682,8 +723,6 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
             ctx.buflen,
             ctx.id
         );
-        // Restore the peripheral state.
-        self.load_context(&ctx);
 
         let bs = A::BLOCK_SIZE;
         let total = ctx.buflen + input.len();
@@ -693,8 +732,19 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
             let buflen = ctx.buflen;
             ctx.buffer_mut()[buflen..buflen + input.len()].copy_from_slice(input);
             ctx.buflen += input.len();
-            self.store_context(ctx);
             return;
+        }
+
+        // Restore the peripheral state.
+        self.load_context(&ctx);
+
+        if !ctx.hmac_key_processed
+            && let Some(key) = H::key_ref(&ctx.key)
+        {
+            self.accumulate(key).await;
+            T::regs().str().write(|w| w.set_dcal(true));
+            while !T::regs().sr().read().dinis() {}
+            ctx.hmac_key_processed = true;
         }
 
         // Enable multiple DMA transfers.
@@ -770,6 +820,15 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
     {
         // Restore the peripheral state.
         self.load_context(&ctx);
+
+        if !ctx.hmac_key_processed
+            && let Some(key) = H::key_ref(&ctx.key)
+        {
+            self.accumulate(key).await;
+            T::regs().str().write(|w| w.set_dcal(true));
+            while !T::regs().sr().read().dinis() {}
+            ctx.hmac_key_processed = true;
+        }
 
         // Must be cleared prior to the last DMA transfer.
         T::regs().cr().modify(|w| w.set_mdmat(false));
@@ -849,6 +908,171 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         // Wait for the transfer to complete.
         dma_transfer.await;
     }
+}
+
+impl<'d> SealedSuspendablePeripheral for Hash<'d, HASH, Blocking> {
+    type InternalState = (Option<u32>, u32);
+
+    fn resume(state: Self::InternalState) -> Self {
+        critical_section::with(|cs| rcc::enable_and_reset_with_cs_no_refcount::<HASH>(cs));
+
+        Self {
+            _peripheral: unsafe { core::mem::transmute(()) },
+            _marker: PhantomData,
+            current_id: state.0,
+            #[cfg(any(hash_v2, hash_v3, hash_v4))]
+            dma: None,
+            next_id: state.1,
+        }
+    }
+
+    fn suspend(self) -> Self::InternalState {
+        (self.current_id, self.next_id)
+    }
+}
+
+mod driver {
+    use embassy_crypto_driver::{embassy_crypto_sha1_impl, embassy_crypto_sha224_impl, embassy_crypto_sha256_impl};
+    #[cfg(hash_v3)]
+    use embassy_crypto_driver::{embassy_crypto_sha384_impl, embassy_crypto_sha512_impl};
+    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+    use embassy_sync::mutex::Mutex;
+
+    use crate::hash::{Context, DataType, Hash, NonHmac, Sha1, Sha224, Sha256};
+    #[cfg(hash_v3)]
+    use crate::hash::{Sha384, Sha512};
+    use crate::mode::Blocking;
+    use crate::peripherals::HASH;
+    use crate::suspend::ResumablePeripheral;
+
+    static DRIVER: Mutex<CriticalSectionRawMutex, ResumablePeripheral<Hash<'static, HASH, Blocking>>> =
+        Mutex::new(ResumablePeripheral::new_suspended((None, 0)));
+
+    struct Sha1Driver;
+
+    impl embassy_crypto_driver::Sha1 for Sha1Driver {
+        type Context = Context<Sha1, Blocking, NonHmac>;
+
+        fn sha1_init() -> Self::Context {
+            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
+        }
+
+        fn sha1_clone(ctx: &Self::Context) -> Self::Context {
+            ctx.clone()
+        }
+
+        fn sha1_update(ctx: &mut Self::Context, data: &[u8]) {
+            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
+        }
+
+        fn sha1_finalize(ctx: Self::Context, data: &mut [u8]) {
+            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+        }
+    }
+
+    embassy_crypto_sha1_impl!(Sha1Driver);
+
+    struct Sha224Driver;
+
+    impl embassy_crypto_driver::Sha224 for Sha224Driver {
+        type Context = Context<Sha224, Blocking, NonHmac>;
+
+        fn sha224_init() -> Self::Context {
+            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
+        }
+
+        fn sha224_clone(ctx: &Self::Context) -> Self::Context {
+            ctx.clone()
+        }
+
+        fn sha224_update(ctx: &mut Self::Context, data: &[u8]) {
+            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
+        }
+
+        fn sha224_finalize(ctx: Self::Context, data: &mut [u8]) {
+            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+        }
+    }
+
+    embassy_crypto_sha224_impl!(Sha224Driver);
+
+    struct Sha256Driver;
+
+    impl embassy_crypto_driver::Sha256 for Sha256Driver {
+        type Context = Context<Sha256, Blocking, NonHmac>;
+
+        fn sha256_init() -> Self::Context {
+            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
+        }
+
+        fn sha256_clone(ctx: &Self::Context) -> Self::Context {
+            ctx.clone()
+        }
+
+        fn sha256_update(ctx: &mut Self::Context, data: &[u8]) {
+            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
+        }
+
+        fn sha256_finalize(ctx: Self::Context, data: &mut [u8]) {
+            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+        }
+    }
+
+    embassy_crypto_sha256_impl!(Sha256Driver);
+
+    #[cfg(hash_v3)]
+    struct Sha384Driver;
+
+    #[cfg(hash_v3)]
+    impl embassy_crypto_driver::Sha384 for Sha384Driver {
+        type Context = Context<Sha384, Blocking, NonHmac>;
+
+        fn sha384_init() -> Self::Context {
+            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
+        }
+
+        fn sha384_clone(ctx: &Self::Context) -> Self::Context {
+            ctx.clone()
+        }
+
+        fn sha384_update(ctx: &mut Self::Context, data: &[u8]) {
+            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
+        }
+
+        fn sha384_finalize(ctx: Self::Context, data: &mut [u8]) {
+            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+        }
+    }
+
+    #[cfg(hash_v3)]
+    embassy_crypto_sha384_impl!(Sha384Driver);
+
+    #[cfg(hash_v3)]
+    struct Sha512Driver;
+
+    #[cfg(hash_v3)]
+    impl embassy_crypto_driver::Sha512 for Sha512Driver {
+        type Context = Context<Sha512, Blocking, NonHmac>;
+
+        fn sha512_init() -> Self::Context {
+            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
+        }
+
+        fn sha512_clone(ctx: &Self::Context) -> Self::Context {
+            ctx.clone()
+        }
+
+        fn sha512_update(ctx: &mut Self::Context, data: &[u8]) {
+            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
+        }
+
+        fn sha512_finalize(ctx: Self::Context, data: &mut [u8]) {
+            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+        }
+    }
+
+    #[cfg(hash_v3)]
+    embassy_crypto_sha512_impl!(Sha512Driver);
 }
 
 trait SealedInstance {
