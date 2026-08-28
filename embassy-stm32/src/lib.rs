@@ -178,6 +178,7 @@ pub mod i3c;
 pub mod icache;
 #[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
+pub mod suspend;
 // JPEG is unavailable on some families (e.g. H7 uses different DMA signal names).
 #[cfg(all(jpeg, any(stm32n6, stm32u5f9, stm32u5g9)))]
 pub mod jpeg;
@@ -354,59 +355,6 @@ pub use embassy_hal_internal::{Peri, PeripheralType};
 pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use stm32_metapac as pac;
-
-#[cfg(not(feature = "low-power"))]
-pub mod low_power {
-    //! Low-power stub module to provide consistent API
-
-    trait_set::trait_set! {
-        /// Peripheral that can be suspended
-        #[allow(private_bounds)]
-        pub trait SuspendablePeripheral = SealedSuspendablePeripheral;
-    }
-
-    pub(crate) trait SealedSuspendablePeripheral {}
-
-    /// A mutex-like object to resume a peripheral. Does nothing when `low-power` is not enabled.
-    pub struct ResumablePeripheral<T: SuspendablePeripheral>(T);
-
-    impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
-        /// Create the object. Will suspend the peripheral as soon as it is passed.
-        pub fn new(peripheral: T) -> Self {
-            Self(peripheral)
-        }
-
-        /// Suspend the peripheral, if it is resumed
-        pub fn suspend(&mut self) {}
-
-        /// Resume the peripheral and get a mutable reference to it
-        pub fn resume(&mut self) -> &mut T {
-            &mut self.0
-        }
-
-        /// Get the resumable peripheral guard
-        pub fn borrow(&mut self) -> ResumablePeripheralGuard<'_, T> {
-            ResumablePeripheralGuard(&mut self.0)
-        }
-    }
-
-    /// A mutex-like object guard, that when held, activates the peripheral
-    pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral>(&'a mut T);
-
-    impl<'a, T: SuspendablePeripheral> core::ops::Deref for ResumablePeripheralGuard<'a, T> {
-        type Target = T;
-
-        fn deref(&self) -> &T {
-            self.0
-        }
-    }
-
-    impl<'a, T: SuspendablePeripheral> core::ops::DerefMut for ResumablePeripheralGuard<'a, T> {
-        fn deref_mut(&mut self) -> &mut T {
-            &mut self.0
-        }
-    }
-}
 
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]

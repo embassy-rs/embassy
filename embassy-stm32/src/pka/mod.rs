@@ -2524,16 +2524,13 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
     }
 }
 
-impl<'d, T: Instance, M: Mode> crate::low_power::SealedSuspendablePeripheral for Pka<'d, T, M> {
-    #[cfg(all(feature = "low-power"))]
+impl<'d, T: Instance, M: Mode> crate::suspend::SealedSuspendablePeripheral for Pka<'d, T, M> {
     type InternalState = Peri<'d, T>;
 
-    #[cfg(feature = "low-power")]
     fn suspend(self) -> Self::InternalState {
         unsafe { self._peripheral.clone_unchecked() }
     }
 
-    #[cfg(feature = "low-power")]
     fn resume(state: Self::InternalState) -> Self {
         Self::new_inner(state)
     }
