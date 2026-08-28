@@ -68,18 +68,18 @@ pub(crate) struct Info {
     pub(crate) waker: AtomicWaker,
 }
 
-pub(crate) trait SealedInstance {
+pub(crate) trait SealedAdcInstance {
     fn info() -> &'static Info;
 }
 
 /// ADC instance
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType {
+pub trait AdcInstance: SealedAdcInstance + PeripheralType {
     /// Interrupt for this instance
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
-impl SealedInstance for ADC0 {
+impl SealedAdcInstance for ADC0 {
     fn info() -> &'static Info {
         static INFO: Info = Info {
             waker: AtomicWaker::new(),
@@ -88,16 +88,16 @@ impl SealedInstance for ADC0 {
     }
 }
 
-impl Instance for ADC0 {
+impl AdcInstance for ADC0 {
     type Interrupt = crate::interrupt::typelevel::ADC0;
 }
 
 /// Interrupt handler
-pub struct InterruptHandler<T: Instance> {
+pub struct InterruptHandler<T: AdcInstance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: AdcInstance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let adc: Adc0 = pac::ADC0;
         adc.ie().modify(|w| w.set_fwmie0(0.into()));
@@ -298,7 +298,7 @@ impl<'d> Adc<'d, Blocking> {
 /// Async mode implementation
 impl<'d> Adc<'d, Async> {
     /// Create an async ADC instance
-    pub fn new<T: Instance>(
+    pub fn new<T: AdcInstance>(
         peri: Peri<'d, ADC0>,
         _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
         config: Config,
