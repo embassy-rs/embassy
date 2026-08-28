@@ -1,3 +1,4 @@
+use core::ops::Range;
 use core::ptr::read_volatile;
 
 use embassy_hal_internal::drop::OnDrop;
@@ -6,11 +7,14 @@ use stm32_metapac::flash::vals::Bksel;
 use super::{Blocking, Error, Flash, family};
 use crate::pac;
 
-const EDATA_BASE: u32 = 0x0900_0000;
+/// Size in bytes of one physical EDATA bank.
+pub const EDATA_BANK_SIZE: u32 = 0x6000;
+/// Size in bytes of one erasable EDATA page.
+pub const EDATA_PAGE_SIZE: u32 = 0x600;
+/// Minimum EDATA write size and required write alignment, in bytes.
+pub const EDATA_WRITE_SIZE: usize = 2;
 
-const EDATA_BANK_SIZE: u32 = 0x6000;
-const EDATA_PAGE_SIZE: u32 = 0x600;
-const EDATA_WRITE_SIZE: usize = 2;
+const EDATA_BASE: u32 = 0x0900_0000;
 const EDATA_PAGE_COUNT: u8 = (EDATA_BANK_SIZE / EDATA_PAGE_SIZE) as u8;
 const EDATA_BANK2_BASE: u32 = EDATA_BASE + EDATA_BANK_SIZE;
 
@@ -18,7 +22,7 @@ const EDATA_BANK2_BASE: u32 = EDATA_BASE + EDATA_BANK_SIZE;
 ///
 /// The address used to access a bank follows the current `SWAP_BANK` mapping,
 /// while erase operations always select the physical bank.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EDataBank {
     /// Physical EDATA bank 1.
     Bank1,
@@ -56,10 +60,71 @@ impl<'d> Flash<'d, Blocking> {
         }
     }
 
+    /// Reads `output.len()` bytes from an EDATA bank.
+    ///
+    /// `offset` is a byte offset from the beginning of the selected physical
+    /// bank and does not need to be aligned to 2 bytes.
+    ///
+    /// # Hardware behavior
+    ///
+    /// EDATA associates ECC information with each aligned 16-bit word.
+    /// Although this function accepts unaligned byte ranges, it reads the
+    /// aligned 16-bit word containing each requested byte.
+    ///
+    /// Reading a virgin EDATA word, such as a word that has not been programmed
+    /// since the page was erased, raises a double ECC error. Therefore, callers
+    /// should ensure that every 16-bit word touched by the requested range has
+    /// been programmed before reading it.
+    ///
+    /// See RM0522, "Error correction codes (ECC)."
+    pub fn edata_read(&self, bank: EDataBank, offset: u32, output: &mut [u8]) -> Result<(), Error> {
+        self.check_edata_enabled()?;
+        let mut address = checked_address(bank, offset, output.len())?;
+
+        let mut i = 0;
+
+        if address % 2 != 0 && i < output.len() {
+            let value = unsafe { read_volatile((address - 1) as *const u16) };
+
+            output[i] = value.to_le_bytes()[1];
+
+            address += 1;
+            i += 1;
+        }
+
+        while i + 1 < output.len() {
+            let value = unsafe { read_volatile(address as *const u16) };
+
+            let bytes = value.to_le_bytes();
+            output[i] = bytes[0];
+            output[i + 1] = bytes[1];
+
+            address += 2;
+            i += 2;
+        }
+
+        if i < output.len() {
+            let value = unsafe { read_volatile(address as *const u16) };
+
+            output[i] = value.to_le_bytes()[0];
+        }
+
+        Ok(())
+    }
+
     /// Reads a 16-bit value from an EDATA bank.
     ///
     /// `offset` is a byte offset from the beginning of the selected physical
     /// bank and must be aligned to 2 bytes.
+    ///
+    /// # Hardware behavior
+    ///
+    /// EDATA associates ECC information with each aligned 16-bit word.
+    /// Reading a virgin EDATA word, such as a word that has not been programmed
+    /// since the page was erased, raises a double ECC error. Callers should
+    /// ensure that the requested word has been programmed before reading it.
+    ///
+    /// See RM0522, "Error correction codes (ECC)."
     pub fn edata_read_u16(&self, bank: EDataBank, offset: u32) -> Result<u16, Error> {
         self.check_edata_enabled()?;
 
@@ -76,6 +141,15 @@ impl<'d> Flash<'d, Blocking> {
     ///
     /// `offset` is a byte offset from the beginning of the selected physical
     /// bank and must be aligned to 2 bytes.
+    ///
+    /// # Hardware behavior
+    ///
+    /// EDATA associates ECC information with each aligned 16-bit word.
+    /// Reading a virgin EDATA word, such as a word that has not been programmed
+    /// since the page was erased, raises a double ECC error. Callers should
+    /// ensure that every requested word has been programmed before reading it.
+    ///
+    /// See RM0522, "Error correction codes (ECC)."
     pub fn edata_read_u16_slice(&self, bank: EDataBank, offset: u32, output: &mut [u16]) -> Result<(), Error> {
         self.check_edata_enabled()?;
 
@@ -166,12 +240,6 @@ impl<'d> Flash<'d, Blocking> {
             return Err(Error::Unaligned);
         }
 
-        let end = offset.checked_add(data.len() as u32).ok_or(Error::Size)?;
-
-        if end > EDATA_BANK_SIZE {
-            return Err(Error::Size);
-        }
-
         let address = checked_address(bank, offset, data.len())?;
 
         unsafe { family::unlock() };
@@ -197,11 +265,43 @@ impl<'d> Flash<'d, Blocking> {
 }
 
 fn checked_address(bank: EDataBank, offset: u32, size: usize) -> Result<u32, Error> {
-    let end = offset.checked_add(size as u32).ok_or(Error::Size)?;
+    let range = checked_range(offset, size, EDATA_BANK_SIZE)?;
+    bank.base().checked_add(range.start).ok_or(Error::Size)
+}
 
-    if end > EDATA_BANK_SIZE {
+fn checked_range(offset: u32, len: usize, bank_size: u32) -> Result<Range<u32>, Error> {
+    let len = u32::try_from(len).map_err(|_| Error::Size)?;
+    let end = offset.checked_add(len).ok_or(Error::Size)?;
+
+    if end > bank_size {
         return Err(Error::Size);
     }
 
-    bank.base().checked_add(offset).ok_or(Error::Size)
+    Ok(offset..end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checked_range_accepts_valid_ranges() {
+        assert_eq!(checked_range(0, 0, 16), Ok(0..0));
+        assert_eq!(checked_range(0, 2, 16), Ok(0..2));
+        assert_eq!(checked_range(1, 1, 16), Ok(1..2));
+        assert_eq!(checked_range(15, 1, 16), Ok(15..16));
+        assert_eq!(checked_range(0, 16, 16), Ok(0..16));
+    }
+
+    #[test]
+    fn checked_range_rejects_out_of_bounds() {
+        assert_eq!(checked_range(15, 2, 16), Err(Error::Size));
+        assert_eq!(checked_range(u32::MAX, 1, u32::MAX), Err(Error::Size));
+    }
+
+    #[cfg(target_pointer_width = "64")]
+    #[test]
+    fn checked_range_rejects_lengths_larger_than_u32() {
+        assert_eq!(checked_range(0, u32::MAX as usize + 1, u32::MAX), Err(Error::Size));
+    }
 }
