@@ -4,7 +4,6 @@ use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::flash::Flash;
-
 use panic_probe as _;
 
 const TEST_OFFSET: u32 = 0;
