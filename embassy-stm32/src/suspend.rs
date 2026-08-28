@@ -83,6 +83,14 @@ impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
         }
     }
 
+    /// Create the object from internal state
+    #[allow(dead_code)]
+    pub(crate) const fn new_suspended(state: T::InternalState) -> Self {
+        Self {
+            state: State::Suspended(SuspendedPeripheral { state }),
+        }
+    }
+
     /// Suspend the peripheral, if it is resumed
     pub fn suspend(&mut self) {
         self.state.suspend()

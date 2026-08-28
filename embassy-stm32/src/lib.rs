@@ -57,8 +57,10 @@ pub mod mode {
     }
 
     /// Blocking mode.
+    #[derive(Clone, Copy)]
     pub struct Blocking;
     /// Async mode.
+    #[derive(Clone, Copy)]
     pub struct Async;
 
     impl_mode!(Blocking, false);
