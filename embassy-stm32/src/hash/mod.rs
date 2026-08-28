@@ -256,6 +256,8 @@ where
     A: ContextBufferType<M>,
 {
     id: u32,
+    peripheral_initialized: bool,
+    hmac_key_processed: bool,
     first_word_sent: bool,
     buffer: ContextBuffer<A, M>,
     buflen: usize,
@@ -392,11 +394,13 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         cr.set_algo(A::ALGORITHM as u8);
 
         let mut hmac_key = <A::KeyBuffer>::new();
+        let mut long_hmac_key = false;
         if H::HMAC {
             let key = key.unwrap_or(&[]);
             if key.len() <= A::BLOCK_SIZE {
                 hmac_key.as_mut_slice()[..key.len()].copy_from_slice(key);
             } else {
+                long_hmac_key = true;
                 cr.set_init(true);
                 T::regs().cr().write_value(cr);
                 self.accumulate_blocking(key);
@@ -413,6 +417,8 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         // Define a context for this new computation.
         let mut ctx = Context::<A, M, H> {
             id: 0,
+            peripheral_initialized: long_hmac_key,
+            hmac_key_processed: false,
             first_word_sent: false,
             buffer: <ContextBuffer<A, M>>::new(),
             buflen: 0,
@@ -429,19 +435,26 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         }
 
         cr.set_init(true);
-        T::regs().cr().write_value(cr);
 
         // Process the normalized HMAC key if requested.
-        if let Some(key) = H::key_ref(&ctx.key) {
+        if long_hmac_key {
+            let key = H::key_ref(&ctx.key).unwrap();
+            T::regs().cr().write_value(cr);
             self.accumulate_blocking(key);
             T::regs().str().write(|w| w.set_dcal(true));
             while !T::regs().sr().read().dinis() {}
+            ctx.hmac_key_processed = true;
         }
 
-        // Store and return the state of the peripheral.
         trace!("start: algo={:?}, format={:?}, key={}", A::ALGORITHM, format, H::HMAC);
-        self.store_context(&mut ctx);
-        trace!("start: assigned initial id={}", ctx.id);
+        if long_hmac_key {
+            self.store_context(&mut ctx);
+        } else {
+            ctx.cr = cr.0;
+            ctx.id = self.next_id;
+            self.next_id = self.next_id.wrapping_add(1);
+            trace!("start: assigned lazy initial id={}", ctx.id);
+        }
         ctx
     }
 
@@ -472,6 +485,15 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         }
 
         self.load_context(ctx);
+
+        if !ctx.hmac_key_processed
+            && let Some(key) = H::key_ref(&ctx.key)
+        {
+            self.accumulate_blocking(key);
+            T::regs().str().write(|w| w.set_dcal(true));
+            while !T::regs().sr().read().dinis() {}
+            ctx.hmac_key_processed = true;
+        }
 
         let mut remaining = input;
 
@@ -526,6 +548,15 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
     {
         // Restore the peripheral state.
         self.load_context(&ctx);
+
+        if !ctx.hmac_key_processed
+            && let Some(key) = H::key_ref(&ctx.key)
+        {
+            self.accumulate_blocking(key);
+            T::regs().str().write(|w| w.set_dcal(true));
+            while !T::regs().sr().read().dinis() {}
+            ctx.hmac_key_processed = true;
+        }
 
         // Hash the leftover bytes, if any.
         self.accumulate_blocking(&ctx.buffer()[0..ctx.buflen]);
@@ -614,6 +645,7 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             ctx.csr.set(i, T::regs().csr(i).read());
             i += 1;
         }
+        ctx.peripheral_initialized = true;
         trace!("store_context: csr[0..{}] saved", count);
 
         ctx.id = self.next_id;
@@ -644,10 +676,10 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         T::regs().str().write_value(Str { 0: ctx.str });
         T::regs().cr().write_value(Cr { 0: ctx.cr });
         T::regs().cr().modify(|w| w.set_init(true));
-        let mut i = 0;
-        while i < count {
-            T::regs().csr(i).write_value(ctx.csr.get(i));
-            i += 1;
+        if ctx.peripheral_initialized {
+            for i in 0..count {
+                T::regs().csr(i).write_value(ctx.csr.get(i));
+            }
         }
         trace!("load_context: csr[0..{}] restored", count);
     }
@@ -705,6 +737,15 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
 
         // Restore the peripheral state.
         self.load_context(&ctx);
+
+        if !ctx.hmac_key_processed
+            && let Some(key) = H::key_ref(&ctx.key)
+        {
+            self.accumulate(key).await;
+            T::regs().str().write(|w| w.set_dcal(true));
+            while !T::regs().sr().read().dinis() {}
+            ctx.hmac_key_processed = true;
+        }
 
         // Enable multiple DMA transfers.
         T::regs().cr().modify(|w| w.set_mdmat(true));
@@ -779,6 +820,15 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
     {
         // Restore the peripheral state.
         self.load_context(&ctx);
+
+        if !ctx.hmac_key_processed
+            && let Some(key) = H::key_ref(&ctx.key)
+        {
+            self.accumulate(key).await;
+            T::regs().str().write(|w| w.set_dcal(true));
+            while !T::regs().sr().read().dinis() {}
+            ctx.hmac_key_processed = true;
+        }
 
         // Must be cleared prior to the last DMA transfer.
         T::regs().cr().modify(|w| w.set_mdmat(false));

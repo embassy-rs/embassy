@@ -99,7 +99,7 @@ unitrait::unitrait! {
         pub fn sha256_init() -> Self::Context;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha256_init"]
+        #[symbol = "_emb_crypto_sha256_clone"]
         pub fn sha256_clone(ctx: &Self::Context) -> Self::Context;
 
         /// Hash update
@@ -127,7 +127,7 @@ unitrait::unitrait! {
         pub fn sha384_init() -> Self::Context;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha384_init"]
+        #[symbol = "_emb_crypto_sha384_clone"]
         pub fn sha384_clone(ctx: &Self::Context) -> Self::Context;
 
         /// Hash update
@@ -155,7 +155,7 @@ unitrait::unitrait! {
         pub fn sha512_224_init() -> Self::Context;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha512_224_init"]
+        #[symbol = "_emb_crypto_sha512_224_clone"]
         pub fn sha512_224_clone(ctx: &Self::Context) -> Self::Context;
 
         /// Hash update
@@ -183,7 +183,7 @@ unitrait::unitrait! {
         pub fn sha512_256_init() -> Self::Context;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha512_256_init"]
+        #[symbol = "_emb_crypto_sha512_256_clone"]
         pub fn sha512_256_clone(ctx: &Self::Context) -> Self::Context;
 
         /// Hash update
@@ -211,7 +211,7 @@ unitrait::unitrait! {
         pub fn sha512_init() -> Self::Context;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha512_init"]
+        #[symbol = "_emb_crypto_sha512_clone"]
         pub fn sha512_clone(ctx: &Self::Context) -> Self::Context;
 
         /// Hash update
