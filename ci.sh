@@ -24,15 +24,12 @@ if [[ -z "${CARGO_TARGET_DIR}" ]]; then
     export CARGO_TARGET_DIR=target_ci
 fi
 
-# always run check to prime cache
-cargo embassy-devtool check --force-incremental
+cargo embassy-devtool build
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
     exit
 fi
-
-cargo embassy-devtool build
 
 # temporarily disabled, these boards are dead.
 rm -rf out/tests/stm32f103c8

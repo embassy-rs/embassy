@@ -2503,7 +2503,7 @@ fn configure(
     let dem = r.cr3().read().dem();
 
     #[cfg(not(any(usart_v1, usart_v2)))]
-    if config.de_assertion_time > 31 {
+    if config.de_assertion_time > 32 {
         return Err(ConfigError::DeAssertionTimeTooHigh);
     } else if config.de_deassertion_time > 31 {
         return Err(ConfigError::DeDeassertionTimeTooHigh);
