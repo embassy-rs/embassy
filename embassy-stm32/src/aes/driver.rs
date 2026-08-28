@@ -1,0 +1,304 @@
+use embassy_crypto_driver::{AesOperation, CryptoError};
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::mutex::Mutex;
+
+use super::{Aes, AesCbc, AesCcm, AesEcb, AesGcm, Direction};
+#[cfg(aes_v3b)]
+use crate::mode::Blocking;
+use crate::suspend::ResumablePeripheral;
+
+foreach_peripheral!(
+    (aes, $inst:ident) => {
+        #[cfg(aes_v2)]
+        type BlockingAes = Aes<'static, crate::peripherals::$inst>;
+        #[cfg(aes_v3b)]
+        type BlockingAes = Aes<'static, crate::peripherals::$inst, Blocking>;
+
+        static DRIVER: Mutex<CriticalSectionRawMutex, ResumablePeripheral<BlockingAes>> =
+            Mutex::new(ResumablePeripheral::new_suspended(unsafe { crate::peripherals::$inst::steal() }));
+    };
+);
+
+fn map_error(error: super::Error) -> CryptoError {
+    match error {
+        super::Error::KeyError => CryptoError::InvalidKey,
+        super::Error::ConfigError => CryptoError::InvalidInput,
+        super::Error::ReadError | super::Error::WriteError => CryptoError::HardwareError,
+    }
+}
+
+fn run_in_place<'c, C>(
+    aes: &mut BlockingAes,
+    cipher: &'c C,
+    direction: Direction,
+    buffer: &mut [u8],
+) -> Result<(), CryptoError>
+where
+    C: super::Cipher<'c> + super::CipherSized + super::IVSized,
+{
+    let mut context = aes.start(cipher, direction);
+    for chunk in buffer.chunks_exact_mut(16) {
+        let mut block = [0u8; 16];
+        block.copy_from_slice(chunk);
+        aes.payload_blocking(&mut context, &block, chunk, true)
+            .map_err(map_error)?;
+    }
+    aes.finish_blocking(context).map(|_| ()).map_err(map_error)
+}
+
+fn run_authenticated<'c, C, const TAG_SIZE: usize>(
+    aes: &mut BlockingAes,
+    cipher: &'c C,
+    direction: Direction,
+    aad: &[u8],
+    input: &[u8],
+    output: &mut [u8],
+    tag: Option<&[u8; TAG_SIZE]>,
+    tag_output: Option<&mut [u8; TAG_SIZE]>,
+) -> Result<(), CryptoError>
+where
+    C: super::Cipher<'c> + super::CipherSized + super::IVSized + super::CipherAuthenticated<16>,
+{
+    let mut context = aes.start(cipher, direction);
+    aes.aad_blocking(&mut context, aad, true).map_err(map_error)?;
+    aes.payload_blocking(&mut context, input, output, true)
+        .map_err(map_error)?;
+    let result = aes
+        .finish_blocking(context)
+        .map_err(map_error)?
+        .ok_or(CryptoError::HardwareError)?;
+    if let Some(tag) = tag {
+        let mut difference = 0u8;
+        for (actual, expected) in result[..TAG_SIZE].iter().zip(tag.iter()) {
+            difference |= actual ^ expected;
+        }
+        if difference != 0 {
+            return Err(CryptoError::InvalidSignature);
+        }
+    } else if let Some(tag_output) = tag_output {
+        tag_output.copy_from_slice(&result[..TAG_SIZE]);
+    }
+    Ok(())
+}
+
+macro_rules! define_gcm_runner {
+    ($name:ident, $key_size:expr) => {
+        fn $name(
+            aes: &mut BlockingAes,
+            key: &[u8; $key_size],
+            nonce: &[u8],
+            aad: &[u8],
+            input: &[u8],
+            output: &mut [u8],
+            tag: Option<&[u8; 16]>,
+            tag_output: Option<&mut [u8; 16]>,
+            direction: Direction,
+        ) -> Result<(), CryptoError> {
+            let nonce: &[u8; 12] = nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
+            let cipher = AesGcm::<$key_size>::new(key, nonce);
+            run_authenticated(aes, &cipher, direction, aad, input, output, tag, tag_output)
+        }
+    };
+}
+
+define_gcm_runner!(run_gcm128, 16);
+define_gcm_runner!(run_gcm256, 32);
+
+macro_rules! run_ccm {
+    ($key_size:expr, $tag_size:expr, $aes:expr, $key:expr, $nonce:expr, $aad:expr, $input:expr, $output:expr, $tag:expr, $tag_output:expr, $direction:expr $(,)?) => {{
+        match $nonce.len() {
+            7 => {
+                let nonce: &[u8; 7] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                let cipher = AesCcm::<$key_size, 7, $tag_size>::new($key, nonce, $aad.len(), $input.len());
+                run_authenticated($aes, &cipher, $direction, $aad, $input, $output, $tag, $tag_output)
+            }
+            8 => {
+                let nonce: &[u8; 8] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                let cipher = AesCcm::<$key_size, 8, $tag_size>::new($key, nonce, $aad.len(), $input.len());
+                run_authenticated($aes, &cipher, $direction, $aad, $input, $output, $tag, $tag_output)
+            }
+            9 => {
+                let nonce: &[u8; 9] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                let cipher = AesCcm::<$key_size, 9, $tag_size>::new($key, nonce, $aad.len(), $input.len());
+                run_authenticated($aes, &cipher, $direction, $aad, $input, $output, $tag, $tag_output)
+            }
+            10 => {
+                let nonce: &[u8; 10] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                let cipher = AesCcm::<$key_size, 10, $tag_size>::new($key, nonce, $aad.len(), $input.len());
+                run_authenticated($aes, &cipher, $direction, $aad, $input, $output, $tag, $tag_output)
+            }
+            11 => {
+                let nonce: &[u8; 11] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                let cipher = AesCcm::<$key_size, 11, $tag_size>::new($key, nonce, $aad.len(), $input.len());
+                run_authenticated($aes, &cipher, $direction, $aad, $input, $output, $tag, $tag_output)
+            }
+            12 => {
+                let nonce: &[u8; 12] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                let cipher = AesCcm::<$key_size, 12, $tag_size>::new($key, nonce, $aad.len(), $input.len());
+                run_authenticated($aes, &cipher, $direction, $aad, $input, $output, $tag, $tag_output)
+            }
+            13 => {
+                let nonce: &[u8; 13] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                let cipher = AesCcm::<$key_size, 13, $tag_size>::new($key, nonce, $aad.len(), $input.len());
+                run_authenticated($aes, &cipher, $direction, $aad, $input, $output, $tag, $tag_output)
+            }
+            _ => Err(CryptoError::InvalidInput),
+        }
+    }};
+}
+
+struct AesDriver;
+
+impl embassy_crypto_driver::Aes for AesDriver {
+    fn aes_exec(op: AesOperation<'_>) -> Result<(), CryptoError> {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let aes = &mut driver.borrow();
+
+        match op {
+            AesOperation::Aes128EcbEncrypt { block, key } => {
+                let cipher = AesEcb::new(key);
+                run_in_place(aes, &cipher, Direction::Encrypt, block)
+            }
+            AesOperation::Aes128EcbDecrypt { block, key } => {
+                let cipher = AesEcb::new(key);
+                run_in_place(aes, &cipher, Direction::Decrypt, block)
+            }
+            AesOperation::Aes128CbcEncrypt { iv, buffer, key } => {
+                let cipher = AesCbc::new(key, iv);
+                run_in_place(aes, &cipher, Direction::Encrypt, buffer)
+            }
+            AesOperation::Aes128CbcDecrypt { iv, block, key } => {
+                let cipher = AesCbc::new(key, iv);
+                run_in_place(aes, &cipher, Direction::Decrypt, block)
+            }
+            AesOperation::Aes256CbcEncrypt { iv, block, key } => {
+                let cipher = AesCbc::new(key, iv);
+                run_in_place(aes, &cipher, Direction::Encrypt, block)
+            }
+            AesOperation::Aes256CbcDecrypt { iv, block, key } => {
+                let cipher = AesCbc::new(key, iv);
+                run_in_place(aes, &cipher, Direction::Decrypt, block)
+            }
+            AesOperation::AesGcm128Encrypt {
+                key,
+                nonce,
+                aad,
+                plaintext,
+                ciphertext,
+                tag,
+            } => run_gcm128(
+                aes,
+                key,
+                nonce,
+                aad,
+                plaintext,
+                ciphertext,
+                None,
+                Some(tag),
+                Direction::Encrypt,
+            ),
+            AesOperation::AesGcm128Decrypt {
+                key,
+                nonce,
+                aad,
+                ciphertext,
+                plaintext,
+                tag,
+            } => run_gcm128(
+                aes,
+                key,
+                nonce,
+                aad,
+                ciphertext,
+                plaintext,
+                Some(tag),
+                None,
+                Direction::Decrypt,
+            ),
+            AesOperation::AesGcm256Encrypt {
+                key,
+                nonce,
+                aad,
+                plaintext,
+                ciphertext,
+                tag,
+            } => run_gcm256(
+                aes,
+                key,
+                nonce,
+                aad,
+                plaintext,
+                ciphertext,
+                None,
+                Some(tag),
+                Direction::Encrypt,
+            ),
+            AesOperation::AesGcm256Decrypt {
+                key,
+                nonce,
+                aad,
+                ciphertext,
+                plaintext,
+                tag,
+            } => run_gcm256(
+                aes,
+                key,
+                nonce,
+                aad,
+                ciphertext,
+                plaintext,
+                Some(tag),
+                None,
+                Direction::Decrypt,
+            ),
+            AesOperation::AesCcm8_128Encrypt { .. }
+            | AesOperation::AesCcm8_128Decrypt { .. }
+            | AesOperation::AesCcm4_128Encrypt { .. }
+            | AesOperation::AesCcm4_128Decrypt { .. } => Err(CryptoError::Unsupported),
+            AesOperation::Aes128Cmac { .. } => Err(CryptoError::Unsupported),
+            AesOperation::AesCcm128Encrypt {
+                key,
+                nonce,
+                aad,
+                plaintext,
+                ciphertext,
+                tag,
+            } => run_ccm!(
+                16,
+                16,
+                aes,
+                key,
+                nonce,
+                aad,
+                plaintext,
+                ciphertext,
+                None,
+                Some(tag),
+                Direction::Encrypt,
+            ),
+            AesOperation::AesCcm128Decrypt {
+                key,
+                nonce,
+                aad,
+                ciphertext,
+                plaintext,
+                tag,
+            } => run_ccm!(
+                16,
+                16,
+                aes,
+                key,
+                nonce,
+                aad,
+                ciphertext,
+                plaintext,
+                Some(tag),
+                None,
+                Direction::Decrypt,
+            ),
+            _ => Err(CryptoError::Unsupported),
+        }
+    }
+}
+
+embassy_crypto_driver::embassy_crypto_aes_impl!(AesDriver);
