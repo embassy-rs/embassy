@@ -276,25 +276,12 @@ mod platform {
                 crate::rcc::reinit_saved(_cs);
             }
 
-            // Only read back on stm32wl/stm32wba builds without `_lp-time-driver`; dead
-            // elsewhere depending on the exact cfg combination.
-            #[allow(unused_mut, unused_variables, unused_assignments)]
-            let mut stop_mode_reached: Option<StopMode> = None;
-
             #[cfg(stm32wba)]
             match (es.stopf(), es.stop2f()) {
-                (true, true) => {
-                    stop_mode_reached = Some(StopMode::Stop2);
-                    debug!("low power: WBA woke from STOP2")
-                }
-                (true, false) => {
-                    stop_mode_reached = Some(StopMode::Stop1);
-                    debug!("low power: WBA woke from STOP0/1")
-                }
-                _ => {
-                    stop_mode_reached = None;
-                }
-            }
+                (true, true) => debug!("low power: WBA woke from STOP2"),
+                (true, false) => debug!("low power: WBA woke from STOP0/1"),
+                _ => {}
+            };
 
             #[cfg(stm32wl)]
             match (es.c1stopf(), es.c1stop2f()) {
@@ -331,7 +318,7 @@ mod platform {
                 trace!("low power: re-initializing timer");
                 // when we wake from STOP2, we need to re-initialize the time driver
                 #[cfg(not(feature = "_lp-time-driver"))]
-                super::get_driver().init_timer_from_stop_mode(_cs, stop_mode_reached);
+                super::get_driver().init_timer(_cs);
             }
         }
     }
