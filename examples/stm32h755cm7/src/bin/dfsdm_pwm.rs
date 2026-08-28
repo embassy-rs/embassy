@@ -59,6 +59,9 @@ async fn main(_spawner: Spawner) {
             creator.ch7.none(),
         )
     });
+    let (mut ch2, mut ch3) = a.ch2.new_parallel_dma_dual(a.ch3);
+    a.ch6.new_parallel_dma_dual(a.ch7);
+
     let mut channel_mic = a.ch1.new_synchronous_ext();
 
     loop {

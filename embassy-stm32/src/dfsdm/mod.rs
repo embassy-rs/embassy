@@ -724,6 +724,22 @@ where
         todo!()
     }
 
+    /// Create dualmode DMA
+    pub fn new_parallel_dma_dual<MN, SNN>(
+        self,
+        neighbor: TransceiverBuilder<'d, T, MN, C, SN, SNN>,
+    ) -> (
+        Transceiver<'static, 'd, T, M, S, ParallelDmaMode, Disabled>,
+        Transceiver<'static, 'd, T, MN, SN, ParallelDmaMode, Disabled>,
+    )
+    where
+        M: DualPackingAllowed + NextChannelForInstance<T, Next = MN>,
+        MN: TransceiverMarker + NextChannelForInstance<T>,
+        SNN: PinSet,
+    {
+        todo!()
+    }
+
     /// Parallel input from ADC writes to CHyDATINR (DATMPX=2).
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
