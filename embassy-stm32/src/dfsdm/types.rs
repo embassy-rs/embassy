@@ -53,11 +53,15 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
 pub(crate) mod capability {
     /// 2 transceiver channels.
     pub struct Tcv2;
+    /// 4 transceiver channels.
+    pub struct Tcv4;
     /// 8 transceiver channels.
     pub struct Tcv8;
 
     /// 1 filter.
     pub struct Flt1;
+    /// 4 filters.
+    pub struct Flt4;
     /// 8 filters.
     pub struct Flt8;
 
@@ -76,6 +80,9 @@ pub(crate) mod capability {
     impl TransceiverCount for Tcv2 {
         const COUNT: u8 = 2;
     }
+    impl TransceiverCount for Tcv4 {
+        const COUNT: u8 = 4;
+    }
     impl TransceiverCount for Tcv8 {
         const COUNT: u8 = 8;
     }
@@ -84,6 +91,9 @@ pub(crate) mod capability {
     }
     impl FilterCount for Flt1 {
         const COUNT: u8 = 1;
+    }
+    impl FilterCount for Flt4 {
+        const COUNT: u8 = 4;
     }
     impl FilterCount for Flt8 {
         const COUNT: u8 = 8;
@@ -103,12 +113,20 @@ pub trait Shape: sealed_shape::Sealed {
 }
 
 impl sealed_shape::Sealed for capability::Tcv2 {}
+impl sealed_shape::Sealed for capability::Tcv4 {}
 impl sealed_shape::Sealed for capability::Tcv8 {}
 
 impl Shape for capability::Tcv2 {
     type Selectors<T: Instance> = ChannelSelectors2<T>;
     fn selectors<T: Instance>() -> Self::Selectors<T> {
         ChannelSelectors2::new()
+    }
+}
+
+impl Shape for capability::Tcv4 {
+    type Selectors<T: Instance> = ChannelSelectors4<T>;
+    fn selectors<T: Instance>() -> Self::Selectors<T> {
+        ChannelSelectors4::new()
     }
 }
 
@@ -349,3 +367,27 @@ impl<T: Instance> InjectedDfsdmTrigger<T> {
         }
     }
 }
+
+// =============================================================================
+// PowerState (Enabled/Disabled) marker traits
+// =============================================================================
+
+mod sealed_state {
+    pub trait Sealed {}
+}
+
+pub trait PowerState: sealed_state::Sealed {}
+
+// Module States
+pub struct Disabled;
+pub struct Enabled;
+
+// Channel States (could reuse the above, but sometimes hardware has separate enables)
+pub struct ChannelDisabled;
+pub struct ChannelEnabled;
+
+impl sealed_state::Sealed for Disabled {}
+impl sealed_state::Sealed for Enabled {}
+
+impl PowerState for Disabled {}
+impl PowerState for Enabled {}

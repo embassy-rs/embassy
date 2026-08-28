@@ -32,7 +32,8 @@
     // ],
     "rust-analyzer.linkedProjects": [
       // "embassy-stm32/Cargo.toml",
-      "examples/stm32h7a3/Cargo.toml",
+      // "examples/stm32h7a3/Cargo.toml",
+      "examples/stm32h755cm7/Cargo.toml",
       // To work on the examples, comment the line above and all of the cargo.features lines,
       // then uncomment ONE line below to select the chip you want to work on.
       // This makes rust-analyzer work on the example crate and all its dependencies.

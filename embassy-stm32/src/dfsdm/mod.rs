@@ -158,38 +158,42 @@ impl DataSource for InternalSource {}
 
 /// [`Transceiver`]
 /// Configured DFSDM data input transceiver.
-pub struct Transceiver<'a, 'd, T, M, S, MODE>
+pub struct Transceiver<'a, 'd, T, M, S, MODE, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
+    P: PowerState,
 {
     _instance_marker: PhantomData<T>,
     _transceiver_marker: PhantomData<M>,
     _datasource_marker: PhantomData<MODE>,
+    _powerstate_marker: PhantomData<P>,
     pub(crate) datin: S::Datin<'d>,
     pub(crate) ckin: S::Ckin<'d>,
-    pub(crate) common: Option<&'a DfsdmCommon<'d, T>>,
+    pub(crate) common: Option<&'a DfsdmCommon<'d, T, Enabled>>,
     // ckin_pin: Option<Flex<'d>>,
     // data_pin: Flex<'d>,
 }
 
-impl<'a, 'd, T, M, S, MODE> sealed::SealedTransceiverChannelTrait<M> for Transceiver<'a, 'd, T, M, S, MODE>
+impl<'a, 'd, T, M, S, MODE, P> sealed::SealedTransceiverChannelTrait<M> for Transceiver<'a, 'd, T, M, S, MODE, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
+    P: PowerState,
 {
 }
 
-impl<'a, 'd, T, M, S, MODE> TransceiverTrait<M> for Transceiver<'a, 'd, T, M, S, MODE>
+impl<'a, 'd, T, M, S, MODE, P> TransceiverTrait<M> for Transceiver<'a, 'd, T, M, S, MODE, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
+    P: PowerState,
 {
 }
 
@@ -286,68 +290,6 @@ where
     _instance_marker: PhantomData<T>,
 }
 
-impl<T> DfsdmInner<T>
-where
-    T: Instance,
-{
-    //////WHOLE PERIPHERAL
-    fn enable() {
-        T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(true));
-    }
-
-    fn disable() {
-        T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(false));
-    }
-
-    ///ONLY WHEN OFF
-    pub fn set_output_clock_source(source: OutputSerialClockSource) {
-        T::regs()
-            .ch(0)
-            .cfgr1()
-            .modify(|reg| reg.set_ckoutsrc(source.to_reg_val()));
-    }
-
-    ///ONLY WHEN OFF
-    pub fn set_output_clock_divider(source: OutputSerialClockDivider) {
-        T::regs()
-            .ch(0)
-            .cfgr1()
-            .modify(|reg| reg.set_ckoutdiv(source.to_reg_val()));
-    }
-
-    //////CHANNELS
-    /// These might crash if they get a [`TransceiverChannel`] outside the capabilities of the [`Instance`]
-
-    pub fn set_data_packing_mode(ch: TransceiverChannel, mode: DataPackingMode) {
-        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
-            reg.set_datpack(mode as u8);
-        });
-    }
-
-    pub fn set_input_data_mux(ch: TransceiverChannel, mode: InputDataMux) {
-        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
-            reg.set_datmpx(mode as u8);
-        });
-    }
-
-    pub fn set_channel_input(ch: TransceiverChannel, mode: ChannelInput) {
-        /// TODO if we do neighbor we might not have to configure our own. YET ANOTHER MARKER!?
-        /// Ok How does it look: Channel 0 ... can use channel 1.. pins (and so on. the last one, 7 or 3 or 1 or whatever) can use 0.
-        /// Use of a neighbors pins makes the existence of the pin necessary.
-        /// Nonuse of the own pin (by yourself AND neighbor) makes the existence of the pin unnecessary.
-        /// So we need reference to the pin when instantiating
-        ///
-        /// ja ich wäre grundsätzlich auf ne viel lustigere und simplere idee gegangen, die leider embassys standardimplementierungen widerspricht, aber was willstetun:
-        /// zwei stufen.
-        /// dfsdim wird erstmal nciht gesplittet, sondern hat ne config_pins fuinktion, bzw bekommt die pins direkt im ersten init als optionen.
-        /// und dann bekommt man channelinput tokens (mit capabilities, weil wenn man nciht genug pins vergibt gibts ohne Ckin natürlich NUR manchester
-        /// https://chatgpt.com/share/6a8b4427-eb90-83ed-82e7-82c00036c750
-        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
-            reg.set_chinsel(mode.to_reg_val());
-        });
-    }
-}
-
 #[derive(Copy, Clone)]
 enum OutputSerialClockSource {
     System,
@@ -440,13 +382,62 @@ pub enum SerialInterfaceType {
 //     }
 // }
 
-//TODO EXAMPLE FOR NEIGHBORS USE
-impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE>
+/// Only when enabled
+impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE, Enabled>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
+{
+    /// Disables the channel
+    pub fn disable(self) -> Transceiver<'a, 'd, T, M, S, MODE, Disabled> {
+        T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(false));
+
+        Transceiver {
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+            datin: self.datin,
+            ckin: self.ckin,
+            common: self.common,
+        }
+    }
+}
+
+/// Only when disabled
+impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE, Disabled>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    MODE: ChannelMode,
+{
+    /// Disables the channel
+    pub fn enable(self) -> Transceiver<'a, 'd, T, M, S, MODE, Enabled> {
+        T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(true));
+
+        Transceiver {
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+            datin: self.datin,
+            ckin: self.ckin,
+            common: self.common,
+        }
+    }
+}
+
+/// Any powerstate
+impl<'a, 'd, T, M, S, MODE, P> Transceiver<'a, 'd, T, M, S, MODE, P>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    MODE: ChannelMode,
+    P: PowerState,
 {
     /// Configures the neighbor channel.
     /// Notice: No extra arguments! Rust knows `T` from `self`.
@@ -629,6 +620,50 @@ where
     }
 }
 
+/// Selectors for a 2-channel DFSDM instance.
+///
+/// NOTE: must never gain a `Drop` impl - partial moves out of it must remain legal.
+pub struct ChannelSelectors2<T: Instance> {
+    /// Selector for channel 0
+    pub ch0: Sel<T, Tcv0>,
+    /// Selector for channel 1
+    pub ch1: Sel<T, Tcv1>,
+}
+
+impl<T: Instance> ChannelSelectors2<T> {
+    pub(crate) fn new() -> Self {
+        Self {
+            ch0: Sel { _m: PhantomData },
+            ch1: Sel { _m: PhantomData },
+        }
+    }
+}
+
+/// Selectors for a 4-channel DFSDM instance.
+///
+/// NOTE: must never gain a `Drop` impl - partial moves out of it must remain legal.
+pub struct ChannelSelectors4<T: Instance> {
+    /// Selector for channel 0
+    pub ch0: Sel<T, Tcv0>,
+    /// Selector for channel 1
+    pub ch1: Sel<T, Tcv1>,
+    /// Selector for channel 2
+    pub ch2: Sel<T, Tcv2>,
+    /// Selector for channel 3
+    pub ch3: Sel<T, Tcv3>,
+}
+
+impl<T: Instance> ChannelSelectors4<T> {
+    pub(crate) fn new() -> Self {
+        Self {
+            ch0: Sel { _m: PhantomData },
+            ch1: Sel { _m: PhantomData },
+            ch2: Sel { _m: PhantomData },
+            ch3: Sel { _m: PhantomData },
+        }
+    }
+}
+
 /// Selectors for all channels of an 8-channel DFSDM instance.
 ///
 /// NOTE: must never gain a `Drop` impl - partial moves out of it
@@ -667,25 +702,6 @@ impl<T: Instance> ChannelSelectors8<T> {
     }
 }
 
-/// Selectors for a 2-channel DFSDM instance.
-///
-/// NOTE: must never gain a `Drop` impl - partial moves out of it must remain legal.
-pub struct ChannelSelectors2<T: Instance> {
-    /// Selector for channel 0
-    pub ch0: Sel<T, Tcv0>,
-    /// Selector for channel 1
-    pub ch1: Sel<T, Tcv1>,
-}
-
-impl<T: Instance> ChannelSelectors2<T> {
-    pub(crate) fn new() -> Self {
-        Self {
-            ch0: Sel { _m: PhantomData },
-            ch1: Sel { _m: PhantomData },
-        }
-    }
-}
-
 /// [`TransceiverBuilder`]
 ///
 ///
@@ -715,7 +731,7 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_parallel_adc(self) -> Transceiver<'static, 'd, T, M, S, ParallelAdcMode>
+    pub fn new_parallel_adc(self) -> Transceiver<'static, 'd, T, M, S, ParallelAdcMode, Disabled>
     where
         T: capability::AdcInput,
     {
@@ -723,7 +739,7 @@ where
     }
 
     ///Same as [`Self::new_parallel_adc`] but using neighbors pins
-    pub fn new_parallel_adc_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ParallelAdcMode>
+    pub fn new_parallel_adc_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ParallelAdcMode, Disabled>
     where
         T: capability::AdcInput,
     {
@@ -734,12 +750,12 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_parallel_dma(self) -> Transceiver<'static, 'd, T, M, S, ParallelDmaMode> {
+    pub fn new_parallel_dma(self) -> Transceiver<'static, 'd, T, M, S, ParallelDmaMode, Disabled> {
         todo!()
     }
 
     ///Same as [`Self::new_parallel_dma`] but using neighbors pins
-    pub fn new_parallel_dma_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ParallelDmaMode> {
+    pub fn new_parallel_dma_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ParallelDmaMode, Disabled> {
         todo!()
     }
 
@@ -747,7 +763,7 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_manchester(self) -> Transceiver<'static, 'd, T, M, S, ManchesterMode>
+    pub fn new_manchester(self) -> Transceiver<'static, 'd, T, M, S, ManchesterMode, Disabled>
     where
         S: HasData,
     {
@@ -755,7 +771,7 @@ where
     }
 
     ///Same as [`Self::new_manchester`] but using neighbors pins
-    pub fn new_manchester_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ManchesterMode>
+    pub fn new_manchester_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ManchesterMode, Disabled>
     where
         SN: HasData,
     {
@@ -763,7 +779,7 @@ where
     }
 
     ///TODO new_synchronous_int description
-    pub fn new_synchronous_int(self) -> Transceiver<'static, 'd, T, M, S, SpiExtMode>
+    pub fn new_synchronous_int(self) -> Transceiver<'static, 'd, T, M, S, SpiExtMode, Disabled>
     where
         S: HasDataAndClk,
     {
@@ -771,7 +787,7 @@ where
     }
 
     ///Same as [`Self::new_synchronous_int`] but using neighbors pins
-    pub fn new_synchronous_int_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, SpiExtMode>
+    pub fn new_synchronous_int_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, SpiExtMode, Disabled>
     where
         SN: HasDataAndClk,
     {
@@ -787,7 +803,7 @@ where
     SN: PinSet,
 {
     ///TODO new_synchronous_ext description
-    pub fn new_synchronous_ext(self) -> Transceiver<'static, 'd, T, M, S, SpiExtMode>
+    pub fn new_synchronous_ext(self) -> Transceiver<'static, 'd, T, M, S, SpiExtMode, Disabled>
     where
         S: HasData,
     {
@@ -796,6 +812,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
             datin: self.datin,
             ckin: self.ckin,
             common: None,
@@ -803,7 +820,7 @@ where
     }
 
     ///Same as [`Self::new_synchronous_ext`] but using neighbors pins
-    pub fn new_synchronous_ext_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, SpiExtMode>
+    pub fn new_synchronous_ext_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, SpiExtMode, Disabled>
     where
         SN: HasData,
     {
@@ -906,35 +923,69 @@ pub struct FilterBuilder<T: Instance, F: FilterMarker> {
 }
 
 /// Holds regerences to the peripheral and the optional clock-output. Disables the RCC of the peripheral when dropped.
-pub struct DfsdmCommon<'d, T: Instance> {
+pub struct DfsdmCommon<'d, T: Instance, P: PowerState> {
     pub(crate) _peri: Peri<'d, T>,
     /// `Some` iff the driver was created via [`Dfsdm::new_ckout`].
     pub(crate) _ckout: Option<Flex<'d>>,
+    _powerstate_marker: PhantomData<P>,
 }
 
-impl<'d, T> Drop for DfsdmCommon<'d, T>
+impl<'d, T, P> Drop for DfsdmCommon<'d, T, P>
 where
     T: Instance,
+    P: PowerState,
 {
     fn drop(&mut self) {
         T::RCC_INFO.disable();
     }
 }
 
-pub struct DfsdmSplit2<'d, T, C, S0, S1>
+impl<'d, T> DfsdmCommon<'d, T, Disabled>
+where
+    T: Instance,
+{
+    /// Disables the channel
+    pub fn disable(self) -> DfsdmCommon<'d, T, Enabled> {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(true));
+
+        DfsdmCommon {
+            _ckout: self._ckout,
+            _peri: self._peri,
+            _powerstate_marker: PhantomData,
+        }
+    }
+}
+
+impl<'d, T> DfsdmCommon<'d, T, Enabled>
+where
+    T: Instance,
+{
+    /// Disables the channel
+    pub fn disable(self) -> DfsdmCommon<'d, T, Disabled> {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(false));
+
+        DfsdmCommon {
+            _ckout: self._ckout,
+            _peri: self._peri,
+            _powerstate_marker: PhantomData,
+        }
+    }
+}
+
+pub struct DfsdmSplit2Ch1Flt<'d, T, C, S0, S1>
 where
     T: Instance,
     C: ClockOutputMode,
     S0: PinSet,
     S1: PinSet,
 {
-    pub common: DfsdmCommon<'d, T>,
+    pub common: DfsdmCommon<'d, T, Enabled>,
     pub ch0: TransceiverBuilder<'d, T, Tcv0, C, S0, S1>, // neighbor = ch1
     pub ch1: TransceiverBuilder<'d, T, Tcv1, C, S1, S0>, // neighbor = ch0 (wrap!)
     pub flt0: FilterBuilder<T, Flt0>,
 }
 
-pub struct DfsdmSplit8<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
+pub struct DfsdmSplit8Ch8Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
 where
     T: Instance,
     C: ClockOutputMode,
@@ -947,7 +998,7 @@ where
     S6: PinSet,
     S7: PinSet,
 {
-    pub common: DfsdmCommon<'d, T>,
+    pub common: DfsdmCommon<'d, T, Enabled>,
     pub ch0: TransceiverBuilder<'d, T, Tcv0, C, S0, S1>,
     pub ch1: TransceiverBuilder<'d, T, Tcv1, C, S1, S2>,
     pub ch2: TransceiverBuilder<'d, T, Tcv2, C, S2, S3>,
@@ -964,6 +1015,34 @@ where
     pub flt5: FilterBuilder<T, Flt5>,
     pub flt6: FilterBuilder<T, Flt6>,
     pub flt7: FilterBuilder<T, Flt7>,
+}
+
+pub struct DfsdmSplit8Ch4Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
+where
+    T: Instance,
+    C: ClockOutputMode,
+    S0: PinSet,
+    S1: PinSet,
+    S2: PinSet,
+    S3: PinSet,
+    S4: PinSet,
+    S5: PinSet,
+    S6: PinSet,
+    S7: PinSet,
+{
+    pub common: DfsdmCommon<'d, T, Enabled>,
+    pub ch0: TransceiverBuilder<'d, T, Tcv0, C, S0, S1>,
+    pub ch1: TransceiverBuilder<'d, T, Tcv1, C, S1, S2>,
+    pub ch2: TransceiverBuilder<'d, T, Tcv2, C, S2, S3>,
+    pub ch3: TransceiverBuilder<'d, T, Tcv3, C, S3, S4>,
+    pub ch4: TransceiverBuilder<'d, T, Tcv4, C, S4, S5>,
+    pub ch5: TransceiverBuilder<'d, T, Tcv5, C, S5, S6>,
+    pub ch6: TransceiverBuilder<'d, T, Tcv6, C, S6, S7>,
+    pub ch7: TransceiverBuilder<'d, T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
+    pub flt0: FilterBuilder<T, Flt0>,
+    pub flt1: FilterBuilder<T, Flt1>,
+    pub flt2: FilterBuilder<T, Flt2>,
+    pub flt3: FilterBuilder<T, Flt3>,
 }
 
 /// Dfsdm
@@ -1072,23 +1151,28 @@ where
 pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
     /// The fully-wired split (neighbor pin-sets already correct).
     type Split;
-    fn split_parts(self, common: DfsdmCommon<'d, T>) -> Self::Split;
+    fn split_parts(self, common: DfsdmCommon<'d, T, Enabled>) -> Self::Split;
 }
 
 impl<'d, T, C, C0, C1> ChannelCfgTuple<'d, T, C> for (C0, C1)
 where
-    T: Instance<Transceivers = capability::Tcv2>,
+    T: Instance<Transceivers = capability::Tcv2, Filters = capability::Flt1>,
     C: ClockOutputMode,
     C0: ChannelCfg<'d, T, Tcv0>,
     C1: ChannelCfg<'d, T, Tcv1>,
 {
-    type Split =
-        DfsdmSplit2<'d, T, C, <C0 as ChannelCfg<'d, T, Tcv0>>::Presence, <C1 as ChannelCfg<'d, T, Tcv1>>::Presence>;
+    type Split = DfsdmSplit2Ch1Flt<
+        'd,
+        T,
+        C,
+        <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
+        <C1 as ChannelCfg<'d, T, Tcv1>>::Presence,
+    >;
 
-    fn split_parts(self, common: DfsdmCommon<'d, T>) -> Self::Split {
+    fn split_parts(self, common: DfsdmCommon<'d, T, Enabled>) -> Self::Split {
         let (d0, k0) = self.0.into_parts();
         let (d1, k1) = self.1.into_parts();
-        DfsdmSplit2 {
+        DfsdmSplit2Ch1Flt {
             common,
             ch0: TransceiverBuilder {
                 datin: d0,
@@ -1105,44 +1189,81 @@ where
     }
 }
 
-impl<'d, T, C, C0, C1, C2, C3, C4, C5, C6, C7> ChannelCfgTuple<'d, T, C> for (C0, C1, C2, C3, C4, C5, C6, C7)
-where
-    T: Instance<Transceivers = capability::Tcv8>,
+/// Builds the actual split struct from 8 already-extracted pin pairs.
+/// Implemented separately for each filter-count capability.
+pub trait Flt8SplitBuild<
+    'd,
+    T: Instance,
     C: ClockOutputMode,
-    C0: ChannelCfg<'d, T, Tcv0>,
-    C1: ChannelCfg<'d, T, Tcv1>,
-    C2: ChannelCfg<'d, T, Tcv2>,
-    C3: ChannelCfg<'d, T, Tcv3>,
-    C4: ChannelCfg<'d, T, Tcv4>,
-    C5: ChannelCfg<'d, T, Tcv5>,
-    C6: ChannelCfg<'d, T, Tcv6>,
-    C7: ChannelCfg<'d, T, Tcv7>,
+    S0: PinSet,
+    S1: PinSet,
+    S2: PinSet,
+    S3: PinSet,
+    S4: PinSet,
+    S5: PinSet,
+    S6: PinSet,
+    S7: PinSet,
+>
 {
-    type Split = DfsdmSplit8<
-        'd,
-        T,
-        C,
-        <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
-        <C1 as ChannelCfg<'d, T, Tcv1>>::Presence,
-        <C2 as ChannelCfg<'d, T, Tcv2>>::Presence,
-        <C3 as ChannelCfg<'d, T, Tcv3>>::Presence,
-        <C4 as ChannelCfg<'d, T, Tcv4>>::Presence,
-        <C5 as ChannelCfg<'d, T, Tcv5>>::Presence,
-        <C6 as ChannelCfg<'d, T, Tcv6>>::Presence,
-        <C7 as ChannelCfg<'d, T, Tcv7>>::Presence,
-    >;
+    type Out;
+    fn build(
+        common: DfsdmCommon<'d, T, Enabled>,
+        d0: S0::Datin<'d>,
+        k0: S0::Ckin<'d>,
+        d1: S1::Datin<'d>,
+        k1: S1::Ckin<'d>,
+        d2: S2::Datin<'d>,
+        k2: S2::Ckin<'d>,
+        d3: S3::Datin<'d>,
+        k3: S3::Ckin<'d>,
+        d4: S4::Datin<'d>,
+        k4: S4::Ckin<'d>,
+        d5: S5::Datin<'d>,
+        k5: S5::Ckin<'d>,
+        d6: S6::Datin<'d>,
+        k6: S6::Ckin<'d>,
+        d7: S7::Datin<'d>,
+        k7: S7::Ckin<'d>,
+    ) -> Self::Out;
+}
 
-    fn split_parts(self, common: DfsdmCommon<'d, T>) -> Self::Split {
-        let (d0, k0) = self.0.into_parts();
-        let (d1, k1) = self.1.into_parts();
-        let (d2, k2) = self.2.into_parts();
-        let (d3, k3) = self.3.into_parts();
-        let (d4, k4) = self.4.into_parts();
-        let (d5, k5) = self.5.into_parts();
-        let (d6, k6) = self.6.into_parts();
-        let (d7, k7) = self.7.into_parts();
-        DfsdmSplit8 {
-            common: common,
+impl<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
+    for capability::Flt8
+where
+    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>,
+    C: ClockOutputMode,
+    S0: PinSet,
+    S1: PinSet,
+    S2: PinSet,
+    S3: PinSet,
+    S4: PinSet,
+    S5: PinSet,
+    S6: PinSet,
+    S7: PinSet,
+{
+    type Out = DfsdmSplit8Ch8Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
+
+    fn build(
+        common: DfsdmCommon<'d, T, Enabled>,
+        d0: S0::Datin<'d>,
+        k0: S0::Ckin<'d>,
+        d1: S1::Datin<'d>,
+        k1: S1::Ckin<'d>,
+        d2: S2::Datin<'d>,
+        k2: S2::Ckin<'d>,
+        d3: S3::Datin<'d>,
+        k3: S3::Ckin<'d>,
+        d4: S4::Datin<'d>,
+        k4: S4::Ckin<'d>,
+        d5: S5::Datin<'d>,
+        k5: S5::Ckin<'d>,
+        d6: S6::Datin<'d>,
+        k6: S6::Ckin<'d>,
+        d7: S7::Datin<'d>,
+        k7: S7::Ckin<'d>,
+    ) -> Self::Out {
+        DfsdmSplit8Ch8Flt {
+            common,
             ch0: TransceiverBuilder {
                 datin: d0,
                 ckin: k0,
@@ -1195,6 +1316,156 @@ where
     }
 }
 
+impl<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
+    for capability::Flt4
+where
+    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt4>,
+    C: ClockOutputMode,
+    S0: PinSet,
+    S1: PinSet,
+    S2: PinSet,
+    S3: PinSet,
+    S4: PinSet,
+    S5: PinSet,
+    S6: PinSet,
+    S7: PinSet,
+{
+    type Out = DfsdmSplit8Ch4Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
+
+    fn build(
+        common: DfsdmCommon<'d, T, Enabled>,
+        d0: S0::Datin<'d>,
+        k0: S0::Ckin<'d>,
+        d1: S1::Datin<'d>,
+        k1: S1::Ckin<'d>,
+        d2: S2::Datin<'d>,
+        k2: S2::Ckin<'d>,
+        d3: S3::Datin<'d>,
+        k3: S3::Ckin<'d>,
+        d4: S4::Datin<'d>,
+        k4: S4::Ckin<'d>,
+        d5: S5::Datin<'d>,
+        k5: S5::Ckin<'d>,
+        d6: S6::Datin<'d>,
+        k6: S6::Ckin<'d>,
+        d7: S7::Datin<'d>,
+        k7: S7::Ckin<'d>,
+    ) -> Self::Out {
+        DfsdmSplit8Ch4Flt {
+            common,
+            ch0: TransceiverBuilder {
+                datin: d0,
+                ckin: k0,
+                _m: PhantomData,
+            },
+            ch1: TransceiverBuilder {
+                datin: d1,
+                ckin: k1,
+                _m: PhantomData,
+            },
+            ch2: TransceiverBuilder {
+                datin: d2,
+                ckin: k2,
+                _m: PhantomData,
+            },
+            ch3: TransceiverBuilder {
+                datin: d3,
+                ckin: k3,
+                _m: PhantomData,
+            },
+            ch4: TransceiverBuilder {
+                datin: d4,
+                ckin: k4,
+                _m: PhantomData,
+            },
+            ch5: TransceiverBuilder {
+                datin: d5,
+                ckin: k5,
+                _m: PhantomData,
+            },
+            ch6: TransceiverBuilder {
+                datin: d6,
+                ckin: k6,
+                _m: PhantomData,
+            },
+            ch7: TransceiverBuilder {
+                datin: d7,
+                ckin: k7,
+                _m: PhantomData,
+            },
+            flt0: FilterBuilder { _m: PhantomData },
+            flt1: FilterBuilder { _m: PhantomData },
+            flt2: FilterBuilder { _m: PhantomData },
+            flt3: FilterBuilder { _m: PhantomData },
+        }
+    }
+}
+
+impl<'d, T, C, C0, C1, C2, C3, C4, C5, C6, C7> ChannelCfgTuple<'d, T, C> for (C0, C1, C2, C3, C4, C5, C6, C7)
+where
+    T: Instance<Transceivers = capability::Tcv8>,
+    C: ClockOutputMode,
+    C0: ChannelCfg<'d, T, Tcv0>,
+    C1: ChannelCfg<'d, T, Tcv1>,
+    C2: ChannelCfg<'d, T, Tcv2>,
+    C3: ChannelCfg<'d, T, Tcv3>,
+    C4: ChannelCfg<'d, T, Tcv4>,
+    C5: ChannelCfg<'d, T, Tcv5>,
+    C6: ChannelCfg<'d, T, Tcv6>,
+    C7: ChannelCfg<'d, T, Tcv7>,
+    T::Filters: Flt8SplitBuild<
+            'd,
+            T,
+            C,
+            <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
+            <C1 as ChannelCfg<'d, T, Tcv1>>::Presence,
+            <C2 as ChannelCfg<'d, T, Tcv2>>::Presence,
+            <C3 as ChannelCfg<'d, T, Tcv3>>::Presence,
+            <C4 as ChannelCfg<'d, T, Tcv4>>::Presence,
+            <C5 as ChannelCfg<'d, T, Tcv5>>::Presence,
+            <C6 as ChannelCfg<'d, T, Tcv6>>::Presence,
+            <C7 as ChannelCfg<'d, T, Tcv7>>::Presence,
+        >,
+{
+    type Split = <T::Filters as Flt8SplitBuild<
+        'd,
+        T,
+        C,
+        <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
+        <C1 as ChannelCfg<'d, T, Tcv1>>::Presence,
+        <C2 as ChannelCfg<'d, T, Tcv2>>::Presence,
+        <C3 as ChannelCfg<'d, T, Tcv3>>::Presence,
+        <C4 as ChannelCfg<'d, T, Tcv4>>::Presence,
+        <C5 as ChannelCfg<'d, T, Tcv5>>::Presence,
+        <C6 as ChannelCfg<'d, T, Tcv6>>::Presence,
+        <C7 as ChannelCfg<'d, T, Tcv7>>::Presence,
+    >>::Out;
+
+    fn split_parts(self, common: DfsdmCommon<'d, T, Enabled>) -> Self::Split {
+        let (d0, k0) = self.0.into_parts();
+        let (d1, k1) = self.1.into_parts();
+        let (d2, k2) = self.2.into_parts();
+        let (d3, k3) = self.3.into_parts();
+        let (d4, k4) = self.4.into_parts();
+        let (d5, k5) = self.5.into_parts();
+        let (d6, k6) = self.6.into_parts();
+        let (d7, k7) = self.7.into_parts();
+        <T::Filters as Flt8SplitBuild<
+            'd,
+            T,
+            C,
+            <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
+            <C1 as ChannelCfg<'d, T, Tcv1>>::Presence,
+            <C2 as ChannelCfg<'d, T, Tcv2>>::Presence,
+            <C3 as ChannelCfg<'d, T, Tcv3>>::Presence,
+            <C4 as ChannelCfg<'d, T, Tcv4>>::Presence,
+            <C5 as ChannelCfg<'d, T, Tcv5>>::Presence,
+            <C6 as ChannelCfg<'d, T, Tcv6>>::Presence,
+            <C7 as ChannelCfg<'d, T, Tcv7>>::Presence,
+        >>::build(common, d0, k0, d1, k1, d2, k2, d3, k3, d4, k4, d5, k5, d6, k6, d7, k7)
+    }
+}
+
 impl<'d, T, C> Dfsdm<'d, T, C>
 where
     T: Instance,
@@ -1237,6 +1508,7 @@ where
         out.split_parts(DfsdmCommon {
             _peri: self.peri.take().expect("taken once"),
             _ckout: self.ckout.take(),
+            _powerstate_marker: PhantomData,
         })
     }
 }
@@ -1247,4 +1519,67 @@ where
     T: Instance,
 {
     f(ChannelSelectors8::<T>::new())
+}
+
+///TODO MOVE ALL THIS SHIT INTO TRANSCEIVERS FILTERS AND COMMON
+impl<T> DfsdmInner<T>
+where
+    T: Instance,
+{
+    //////WHOLE PERIPHERAL
+    fn enable() {
+        T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(true));
+    }
+
+    fn disable() {
+        T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(false));
+    }
+
+    ///ONLY WHEN OFF
+    pub fn set_output_clock_source(source: OutputSerialClockSource) {
+        T::regs()
+            .ch(0)
+            .cfgr1()
+            .modify(|reg| reg.set_ckoutsrc(source.to_reg_val()));
+    }
+
+    ///ONLY WHEN OFF
+    pub fn set_output_clock_divider(source: OutputSerialClockDivider) {
+        T::regs()
+            .ch(0)
+            .cfgr1()
+            .modify(|reg| reg.set_ckoutdiv(source.to_reg_val()));
+    }
+
+    //////CHANNELS
+    /// These might crash if they get a [`TransceiverChannel`] outside the capabilities of the [`Instance`]
+
+    pub fn set_data_packing_mode(ch: TransceiverChannel, mode: DataPackingMode) {
+        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
+            reg.set_datpack(mode as u8);
+        });
+    }
+
+    pub fn set_input_data_mux(ch: TransceiverChannel, mode: InputDataMux) {
+        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
+            reg.set_datmpx(mode as u8);
+        });
+    }
+
+    pub fn set_channel_input(ch: TransceiverChannel, mode: ChannelInput) {
+        /// TODO if we do neighbor we might not have to configure our own. YET ANOTHER MARKER!?
+        /// Ok How does it look: Channel 0 ... can use channel 1.. pins (and so on. the last one, 7 or 3 or 1 or whatever) can use 0.
+        /// Use of a neighbors pins makes the existence of the pin necessary.
+        /// Nonuse of the own pin (by yourself AND neighbor) makes the existence of the pin unnecessary.
+        /// So we need reference to the pin when instantiating
+        ///
+        /// ja ich wäre grundsätzlich auf ne viel lustigere und simplere idee gegangen, die leider embassys standardimplementierungen widerspricht, aber was willstetun:
+        /// zwei stufen.
+        /// dfsdim wird erstmal nciht gesplittet, sondern hat ne config_pins fuinktion, bzw bekommt die pins direkt im ersten init als optionen.
+        /// und dann bekommt man channelinput tokens (mit capabilities, weil wenn man nciht genug pins vergibt gibts ohne Ckin natürlich NUR manchester
+        /// https://chatgpt.com/share/6a8b4427-eb90-83ed-82e7-82c00036c750
+        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
+            reg.set_chinsel(mode.to_reg_val());
+        });
+    }
 }

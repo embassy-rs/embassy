@@ -342,3 +342,11 @@ impl_dfsdm_filter_irqs! {
     FLT6 => Flt6,
     FLT7 => Flt7,
 }
+
+impl_dfsdm_filter_irqs! {
+    [DFSDM_8CH_4FLT_TRG5_ADC],
+    FLT0 => Flt0,
+    FLT1 => Flt1,
+    FLT2 => Flt2,
+    FLT3 => Flt3,
+}
