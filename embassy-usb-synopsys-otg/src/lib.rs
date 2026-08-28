@@ -1548,6 +1548,7 @@ where
 
     async fn enable(&mut self) {
         trace!("enable");
+        self.init_device();
         // TODO: enable the peripheral once enable/disable semantics are cleared up in embassy-usb
     }
 
@@ -1555,7 +1556,7 @@ where
         trace!("disable");
 
         // TODO: disable the peripheral once enable/disable semantics are cleared up in embassy-usb
-        //Bus::disable(self);
+        self.deinit_device();
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {

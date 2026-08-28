@@ -369,7 +369,25 @@ impl<'d, T: Instance> Bus<'d, T> {
     }
 
     fn disable(&mut self) {
+        if !self.inited {
+            return;
+        }
+
         T::Interrupt::disable();
+
+        #[cfg(all(stm32wba, peri_usb_otg_hs))]
+        {
+            debug!("disabling OTG clocks");
+            crate::pac::SYSCFG.otghsphycr().modify(|w| w.set_en(false));
+            critical_section::with(|_| {
+                crate::pac::RCC.ahb2enr().modify(|w| w.set_usb_otg_hs_phyen(false));
+                crate::pac::PWR.vosr().modify(|w| {
+                    w.set_usbboosten(false);
+                    w.set_usbpwren(false);
+                    w.set_vdd11usbdis(true);
+                });
+            });
+        }
 
         rcc::disable::<T>();
         self.inited = false;
@@ -407,8 +425,8 @@ impl<'d, T: Instance> embassy_usb_driver::Bus for Bus<'d, T> {
     }
 
     async fn disable(&mut self) {
-        // NOTE: inner call is a no-op
-        self.inner.disable().await
+        self.inner.disable().await;
+        Bus::disable(self);
     }
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
