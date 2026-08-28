@@ -64,12 +64,8 @@ impl Default for Config {
     }
 }
 
-pub(crate) struct Info {
-    pub(crate) waker: AtomicWaker,
-}
-
 pub(crate) trait SealedAdcInstance {
-    fn info() -> &'static Info;
+    fn waker() -> &'static AtomicWaker;
 }
 
 /// ADC instance
@@ -80,11 +76,9 @@ pub trait AdcInstance: SealedAdcInstance + PeripheralType {
 }
 
 impl SealedAdcInstance for ADC0 {
-    fn info() -> &'static Info {
-        static INFO: Info = Info {
-            waker: AtomicWaker::new(),
-        };
-        &INFO
+    fn waker() -> &'static AtomicWaker {
+        static WAKER: AtomicWaker = AtomicWaker::new();
+        &WAKER
     }
 }
 
@@ -101,7 +95,7 @@ impl<T: AdcInstance> crate::interrupt::typelevel::Handler<T::Interrupt> for Inte
     unsafe fn on_interrupt() {
         let adc: Adc0 = pac::ADC0;
         adc.ie().modify(|w| w.set_fwmie0(0.into()));
-        T::info().waker.wake();
+        T::waker().wake();
     }
 }
 
@@ -321,7 +315,7 @@ impl<'d> Adc<'d, Async> {
         });
 
         poll_fn(|cx| {
-            ADC0::info().waker.register(cx.waker());
+            ADC0::waker().register(cx.waker());
             if adc.fctrl(0).read().fcount() == 0 {
                 // ADC is not ready
                 adc.ie().modify(|w| w.set_fwmie0(1.into()));
