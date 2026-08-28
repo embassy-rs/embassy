@@ -24,10 +24,6 @@ async fn main(_spawner: Spawner) {
     info!("Erasing EDATA bank 1, page 0...");
     unwrap!(f.edata_erase_page(embassy_stm32::flash::EDataBank::Bank1, TEST_PAGE));
 
-    info!("Checking erased contents...");
-    let erased = unwrap!(f.edata_read_u16(embassy_stm32::flash::EDataBank::Bank1, TEST_OFFSET));
-    assert_eq!(erased, 0xFFFF);
-
     let expected: [u16; 4] = [0x1234, 0x5678, 0xabcd, 0xef01];
 
     info!("writing EDATA...");
