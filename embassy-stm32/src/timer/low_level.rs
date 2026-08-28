@@ -1132,7 +1132,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             WritableRingBuffer::new(
                 dma::Channel::new(dma, irq),
                 req,
-                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut T::Word,
+                self.regs_gp16().ccr(channel.index()).as_ptr() as *mut T::Word,
                 dma_buf,
                 dma_transfer_option,
             )
