@@ -214,7 +214,7 @@ impl Rtc {
 
     pub(self) fn new_inner(rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
-        crate::rcc::enable_and_reset::<RTC>();
+        critical_section::with(|cs| crate::rcc::enable_and_reset_with_cs_no_refcount::<RTC>(cs));
 
         let mut this = Self {
             #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
