@@ -225,3 +225,199 @@ unitrait::unitrait! {
 
     macro embassy_crypto_sha512_impl(path = $crate);
 }
+
+unitrait::unitrait! {
+    /// Sha1 trait
+    pub trait HmacSha1 {
+        /// Opaque storage for the implementation's hash state.
+        #[opaque(size = 512, align = 16)]
+        #[symbol = "_emb_crypto_hmac_sha1_context"]
+        pub type Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha1_init"]
+        pub fn hmac_sha1_init(key: &[u8]) -> Self::Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha1_clone"]
+        pub fn hmac_sha1_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Hash update
+        #[symbol = "_emb_crypto_hmac_sha1_update"]
+        pub fn hmac_sha1_update(ctx: &mut Self::Context, data: &[u8]);
+
+        /// Hash finalize
+        #[symbol = "_emb_crypto_hmac_sha1_finalize"]
+        pub fn hmac_sha1_finalize(ctx: Self::Context, data: &mut [u8]);
+    }
+
+    macro embassy_crypto_hmac_sha1_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// Sha224 trait
+    pub trait HmacSha224 {
+        /// Opaque storage for the implementation's hash state.
+        #[opaque(size = 512, align = 16)]
+        #[symbol = "_emb_crypto_hmac_sha224_context"]
+        pub type Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha224_init"]
+        pub fn hmac_sha224_init(key: &[u8]) -> Self::Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha224_clone"]
+        pub fn hmac_sha224_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Hash update
+        #[symbol = "_emb_crypto_hmac_sha224_update"]
+        pub fn hmac_sha224_update(ctx: &mut Self::Context, data: &[u8]);
+
+        /// Hash finalize
+        #[symbol = "_emb_crypto_hmac_sha224_finalize"]
+        pub fn hmac_sha224_finalize(ctx: Self::Context, data: &mut [u8]);
+    }
+
+    macro embassy_crypto_hmac_sha224_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// Sha256 trait
+    pub trait HmacSha256 {
+        /// Opaque storage for the implementation's hash state.
+        #[opaque(size = 512, align = 16)]
+        #[symbol = "_emb_crypto_hmac_sha256_context"]
+        pub type Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha256_init"]
+        pub fn hmac_sha256_init(key: &[u8]) -> Self::Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha256_clone"]
+        pub fn hmac_sha256_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Hash update
+        #[symbol = "_emb_crypto_hmac_sha256_update"]
+        pub fn hmac_sha256_update(ctx: &mut Self::Context, data: &[u8]);
+
+        /// Hash finalize
+        #[symbol = "_emb_crypto_hmac_sha256_finalize"]
+        pub fn hmac_sha256_finalize(ctx: Self::Context, data: &mut [u8]);
+    }
+
+    macro embassy_crypto_hmac_sha256_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// Sha384 trait
+    pub trait HmacSha384 {
+        /// Opaque storage for the implementation's hash state.
+        #[opaque(size = 1024, align = 16)]
+        #[symbol = "_emb_crypto_hmac_sha384_context"]
+        pub type Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha384_init"]
+        pub fn hmac_sha384_init(key: &[u8]) -> Self::Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha384_clone"]
+        pub fn hmac_sha384_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Hash update
+        #[symbol = "_emb_crypto_hmac_sha384_update"]
+        pub fn hmac_sha384_update(ctx: &mut Self::Context, data: &[u8]);
+
+        /// Hash finalize
+        #[symbol = "_emb_crypto_hmac_sha384_finalize"]
+        pub fn hmac_sha384_finalize(ctx: Self::Context, data: &mut [u8]);
+    }
+
+    macro embassy_crypto_hmac_sha384_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// Sha512_224 trait
+    pub trait HmacSha512_224 {
+        /// Opaque storage for the implementation's hash state.
+        #[opaque(size = 1024, align = 16)]
+        #[symbol = "_emb_crypto_hmac_sha512_224_context"]
+        pub type Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha512_224_init"]
+        pub fn hmac_sha512_224_init(key: &[u8]) -> Self::Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha512_224_clone"]
+        pub fn hmac_sha512_224_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Hash update
+        #[symbol = "_emb_crypto_hmac_sha512_224_update"]
+        pub fn hmac_sha512_224_update(ctx: &mut Self::Context, data: &[u8]);
+
+        /// Hash finalize
+        #[symbol = "_emb_crypto_hmac_sha512_224_finalize"]
+        pub fn hmac_sha512_224_finalize(ctx: Self::Context, data: &mut [u8]);
+    }
+
+    macro embassy_crypto_hmac_sha512_224_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// Sha512_256 trait
+    pub trait HmacSha512_256 {
+        /// Opaque storage for the implementation's hash state.
+        #[opaque(size = 1024, align = 16)]
+        #[symbol = "_emb_crypto_hmac_sha512_256_context"]
+        pub type Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha512_256_init"]
+        pub fn hmac_sha512_256_init(key: &[u8]) -> Self::Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha512_256_clone"]
+        pub fn hmac_sha512_256_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Hash update
+        #[symbol = "_emb_crypto_hmac_sha512_256_update"]
+        pub fn hmac_sha512_256_update(ctx: &mut Self::Context, data: &[u8]);
+
+        /// Hash finalize
+        #[symbol = "_emb_crypto_hmac_sha512_256_finalize"]
+        pub fn hmac_sha512_256_finalize(ctx: Self::Context, data: &mut [u8]);
+    }
+
+    macro embassy_crypto_hmac_sha512_256_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// Sha512 trait
+    pub trait HmacSha512 {
+        /// Opaque storage for the implementation's hash state.
+        #[opaque(size = 1024, align = 16)]
+        #[symbol = "_emb_crypto_hmac_sha512_context"]
+        pub type Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha512_init"]
+        pub fn hmac_sha512_init(key: &[u8]) -> Self::Context;
+
+        /// Hash init
+        #[symbol = "_emb_crypto_hmac_sha512_clone"]
+        pub fn hmac_sha512_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Hash update
+        #[symbol = "_emb_crypto_hmac_sha512_update"]
+        pub fn hmac_sha512_update(ctx: &mut Self::Context, data: &[u8]);
+
+        /// Hash finalize
+        #[symbol = "_emb_crypto_hmac_sha512_finalize"]
+        pub fn hmac_sha512_finalize(ctx: Self::Context, data: &mut [u8]);
+    }
+
+    macro embassy_crypto_hmac_sha512_impl(path = $crate);
+}
