@@ -1,0 +1,35 @@
+[package]
+name = "embassy-crypto"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Driver trait for `embassy-crypto`."
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-crypto"
+categories = [
+    "embedded",
+    "no-std",
+    "asynchronous",
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-crypto-driver-v$VERSION/embassy-net-driver/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-crypto-driver/src/"
+features = ["defmt"]
+target = "thumbv7em-none-eabi"
+
+[package.metadata.docs.rs]
+features = ["defmt"]
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["defmt"]},
+]
+
+[dependencies]
+embassy-crypto-driver = { path = "../embassy-crypto-driver" }
+digest = { version = "0.10", default-features = false, features = ["mac"] }
+crypto-common = "0.1"
+
+[features]
+defmt = ["embassy-crypto-driver/defmt"]
