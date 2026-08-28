@@ -932,21 +932,14 @@ impl<'d> SealedSuspendablePeripheral for Hash<'d, HASH, Blocking> {
 }
 
 mod driver {
-    use embassy_crypto_driver::{
-        embassy_crypto_hmac_sha1_impl, embassy_crypto_hmac_sha224_impl, embassy_crypto_hmac_sha256_impl,
-        embassy_crypto_sha1_impl, embassy_crypto_sha224_impl, embassy_crypto_sha256_impl,
-    };
-    #[cfg(hash_v3)]
-    use embassy_crypto_driver::{
-        embassy_crypto_hmac_sha384_impl, embassy_crypto_hmac_sha512_impl, embassy_crypto_sha384_impl,
-        embassy_crypto_sha512_impl,
-    };
     use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
     use embassy_sync::mutex::Mutex;
 
-    use crate::hash::{Context, DataType, Hash, Hmac, NonHmac, Sha1, Sha224, Sha256};
+    #[cfg(any(hash_v1, hash_v2, hash_v4))]
+    use crate::hash::Md5;
+    use crate::hash::{Context, DataType, Hash, Hmac, HmacMode, NonHmac, Sha1, Sha224, Sha256};
     #[cfg(hash_v3)]
-    use crate::hash::{Sha384, Sha512};
+    use crate::hash::{Sha384, Sha512, Sha512_224, Sha512_256};
     use crate::mode::Blocking;
     use crate::peripherals::HASH;
     use crate::suspend::ResumablePeripheral;
@@ -954,257 +947,269 @@ mod driver {
     static DRIVER: Mutex<CriticalSectionRawMutex, ResumablePeripheral<Hash<'static, HASH, Blocking>>> =
         Mutex::new(ResumablePeripheral::new_suspended((None, 0)));
 
-    struct Sha1Driver;
+    // =====================================================================
+    // Digest driver macro
+    // =====================================================================
 
-    impl embassy_crypto_driver::Sha1 for Sha1Driver {
-        type Context = Context<Sha1, Blocking, NonHmac>;
+    macro_rules! impl_digest_driver {
+        (
+            $(#[$meta:meta])*
+            $driver:ident, $trait:path, $algo:ty,
+            $init:ident, $clone:ident, $update:ident, $finalize:ident,
+            $impl_macro:path
+        ) => {
+            $(#[$meta])*
+            struct $driver;
+            impl $trait for $driver {
+                type Context = Context<$algo, Blocking, NonHmac>;
 
-        fn sha1_init() -> Self::Context {
-            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
-        }
+                fn $init() -> Self::Context {
+                    DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
+                }
 
-        fn sha1_clone(ctx: &Self::Context) -> Self::Context {
-            ctx.clone()
-        }
+                fn $clone(ctx: &Self::Context) -> Self::Context {
+                    ctx.clone()
+                }
 
-        fn sha1_update(ctx: &mut Self::Context, data: &[u8]) {
-            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
-        }
+                fn $update(ctx: &mut Self::Context, data: &[u8]) {
+                    DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
+                }
 
-        fn sha1_finalize(ctx: Self::Context, data: &mut [u8]) {
-            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
-        }
+                fn $finalize(ctx: Self::Context, data: &mut [u8]) {
+                    DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+                }
+            }
+            $impl_macro!($driver);
+        };
     }
 
-    embassy_crypto_sha1_impl!(Sha1Driver);
+    // =====================================================================
+    // HMAC driver macro
+    // =====================================================================
 
-    struct Sha224Driver;
+    macro_rules! impl_hmac_driver {
+        (
+            $(#[$meta:meta])*
+            $driver:ident, $trait:path, $algo:ty,
+            $init:ident, $clone:ident, $update:ident, $finalize:ident, $reset:ident,
+            $impl_macro:path
+        ) => {
+            $(#[$meta])*
+            struct $driver;
+            impl $trait for $driver {
+                type Context = Context<$algo, Blocking, Hmac>;
 
-    impl embassy_crypto_driver::Sha224 for Sha224Driver {
-        type Context = Context<Sha224, Blocking, NonHmac>;
+                fn $init(key: &[u8]) -> Self::Context {
+                    DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, Some(key))
+                }
 
-        fn sha224_init() -> Self::Context {
-            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
-        }
+                fn $clone(ctx: &Self::Context) -> Self::Context {
+                    ctx.clone()
+                }
 
-        fn sha224_clone(ctx: &Self::Context) -> Self::Context {
-            ctx.clone()
-        }
+                fn $update(ctx: &mut Self::Context, data: &[u8]) {
+                    DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
+                }
 
-        fn sha224_update(ctx: &mut Self::Context, data: &[u8]) {
-            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
-        }
+                fn $finalize(ctx: Self::Context, data: &mut [u8]) {
+                    DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+                }
 
-        fn sha224_finalize(ctx: Self::Context, data: &mut [u8]) {
-            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
-        }
+                fn $reset(ctx: &mut Self::Context) {
+                    *ctx = DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, <Hmac as HmacMode<$algo>>::key_ref(&ctx.key));
+                }
+            }
+            $impl_macro!($driver);
+        };
     }
 
-    embassy_crypto_sha224_impl!(Sha224Driver);
+    // =====================================================================
+    // Digest drivers
+    // =====================================================================
+    #[cfg(any(hash_v1, hash_v2, hash_v4))]
+    impl_digest_driver!(
+        Md5Driver,
+        embassy_crypto_driver::Md5,
+        Md5,
+        md5_init,
+        md5_clone,
+        md5_update,
+        md5_finalize,
+        embassy_crypto_driver::embassy_crypto_md5_impl
+    );
 
-    struct Sha256Driver;
+    impl_digest_driver!(
+        Sha1Driver,
+        embassy_crypto_driver::Sha1,
+        Sha1,
+        sha1_init,
+        sha1_clone,
+        sha1_update,
+        sha1_finalize,
+        embassy_crypto_driver::embassy_crypto_sha1_impl
+    );
 
-    impl embassy_crypto_driver::Sha256 for Sha256Driver {
-        type Context = Context<Sha256, Blocking, NonHmac>;
+    impl_digest_driver!(
+        Sha224Driver,
+        embassy_crypto_driver::Sha224,
+        Sha224,
+        sha224_init,
+        sha224_clone,
+        sha224_update,
+        sha224_finalize,
+        embassy_crypto_driver::embassy_crypto_sha224_impl
+    );
 
-        fn sha256_init() -> Self::Context {
-            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
-        }
-
-        fn sha256_clone(ctx: &Self::Context) -> Self::Context {
-            ctx.clone()
-        }
-
-        fn sha256_update(ctx: &mut Self::Context, data: &[u8]) {
-            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
-        }
-
-        fn sha256_finalize(ctx: Self::Context, data: &mut [u8]) {
-            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
-        }
-    }
-
-    embassy_crypto_sha256_impl!(Sha256Driver);
-
-    #[cfg(hash_v3)]
-    struct Sha384Driver;
-
-    #[cfg(hash_v3)]
-    impl embassy_crypto_driver::Sha384 for Sha384Driver {
-        type Context = Context<Sha384, Blocking, NonHmac>;
-
-        fn sha384_init() -> Self::Context {
-            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
-        }
-
-        fn sha384_clone(ctx: &Self::Context) -> Self::Context {
-            ctx.clone()
-        }
-
-        fn sha384_update(ctx: &mut Self::Context, data: &[u8]) {
-            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
-        }
-
-        fn sha384_finalize(ctx: Self::Context, data: &mut [u8]) {
-            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
-        }
-    }
+    impl_digest_driver!(
+        Sha256Driver,
+        embassy_crypto_driver::Sha256,
+        Sha256,
+        sha256_init,
+        sha256_clone,
+        sha256_update,
+        sha256_finalize,
+        embassy_crypto_driver::embassy_crypto_sha256_impl
+    );
 
     #[cfg(hash_v3)]
-    embassy_crypto_sha384_impl!(Sha384Driver);
+    impl_digest_driver!(
+        Sha384Driver,
+        embassy_crypto_driver::Sha384,
+        Sha384,
+        sha384_init,
+        sha384_clone,
+        sha384_update,
+        sha384_finalize,
+        embassy_crypto_driver::embassy_crypto_sha384_impl
+    );
 
     #[cfg(hash_v3)]
-    struct Sha512Driver;
+    impl_digest_driver!(
+        Sha512_224Driver,
+        embassy_crypto_driver::Sha512_224,
+        Sha512_224,
+        sha512_224_init,
+        sha512_224_clone,
+        sha512_224_update,
+        sha512_224_finalize,
+        embassy_crypto_driver::embassy_crypto_sha512_224_impl
+    );
 
     #[cfg(hash_v3)]
-    impl embassy_crypto_driver::Sha512 for Sha512Driver {
-        type Context = Context<Sha512, Blocking, NonHmac>;
-
-        fn sha512_init() -> Self::Context {
-            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, None)
-        }
-
-        fn sha512_clone(ctx: &Self::Context) -> Self::Context {
-            ctx.clone()
-        }
-
-        fn sha512_update(ctx: &mut Self::Context, data: &[u8]) {
-            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
-        }
-
-        fn sha512_finalize(ctx: Self::Context, data: &mut [u8]) {
-            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
-        }
-    }
+    impl_digest_driver!(
+        Sha512_256Driver,
+        embassy_crypto_driver::Sha512_256,
+        Sha512_256,
+        sha512_256_init,
+        sha512_256_clone,
+        sha512_256_update,
+        sha512_256_finalize,
+        embassy_crypto_driver::embassy_crypto_sha512_256_impl
+    );
 
     #[cfg(hash_v3)]
-    embassy_crypto_sha512_impl!(Sha512Driver);
+    impl_digest_driver!(
+        Sha512Driver,
+        embassy_crypto_driver::Sha512,
+        Sha512,
+        sha512_init,
+        sha512_clone,
+        sha512_update,
+        sha512_finalize,
+        embassy_crypto_driver::embassy_crypto_sha512_impl
+    );
 
-    struct HmacSha1Driver;
+    // =====================================================================
+    // HMAC drivers
+    // =====================================================================
 
-    impl embassy_crypto_driver::HmacSha1 for HmacSha1Driver {
-        type Context = Context<Sha1, Blocking, Hmac>;
+    impl_hmac_driver!(
+        HmacSha1Driver,
+        embassy_crypto_driver::HmacSha1,
+        Sha1,
+        hmac_sha1_init,
+        hmac_sha1_clone,
+        hmac_sha1_update,
+        hmac_sha1_finalize,
+        hmac_sha1_reset,
+        embassy_crypto_driver::embassy_crypto_hmac_sha1_impl
+    );
 
-        fn hmac_sha1_init(key: &[u8]) -> Self::Context {
-            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, Some(key))
-        }
+    impl_hmac_driver!(
+        HmacSha224Driver,
+        embassy_crypto_driver::HmacSha224,
+        Sha224,
+        hmac_sha224_init,
+        hmac_sha224_clone,
+        hmac_sha224_update,
+        hmac_sha224_finalize,
+        hmac_sha224_reset,
+        embassy_crypto_driver::embassy_crypto_hmac_sha224_impl
+    );
 
-        fn hmac_sha1_clone(ctx: &Self::Context) -> Self::Context {
-            ctx.clone()
-        }
-
-        fn hmac_sha1_update(ctx: &mut Self::Context, data: &[u8]) {
-            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
-        }
-
-        fn hmac_sha1_finalize(ctx: Self::Context, data: &mut [u8]) {
-            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
-        }
-    }
-
-    embassy_crypto_hmac_sha1_impl!(HmacSha1Driver);
-
-    struct HmacSha224Driver;
-
-    impl embassy_crypto_driver::HmacSha224 for HmacSha224Driver {
-        type Context = Context<Sha224, Blocking, Hmac>;
-
-        fn hmac_sha224_init(key: &[u8]) -> Self::Context {
-            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, Some(key))
-        }
-
-        fn hmac_sha224_clone(ctx: &Self::Context) -> Self::Context {
-            ctx.clone()
-        }
-
-        fn hmac_sha224_update(ctx: &mut Self::Context, data: &[u8]) {
-            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
-        }
-
-        fn hmac_sha224_finalize(ctx: Self::Context, data: &mut [u8]) {
-            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
-        }
-    }
-
-    embassy_crypto_hmac_sha224_impl!(HmacSha224Driver);
-
-    struct HmacSha256Driver;
-
-    impl embassy_crypto_driver::HmacSha256 for HmacSha256Driver {
-        type Context = Context<Sha256, Blocking, Hmac>;
-
-        fn hmac_sha256_init(key: &[u8]) -> Self::Context {
-            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, Some(key))
-        }
-
-        fn hmac_sha256_clone(ctx: &Self::Context) -> Self::Context {
-            ctx.clone()
-        }
-
-        fn hmac_sha256_update(ctx: &mut Self::Context, data: &[u8]) {
-            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
-        }
-
-        fn hmac_sha256_finalize(ctx: Self::Context, data: &mut [u8]) {
-            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
-        }
-    }
-
-    embassy_crypto_hmac_sha256_impl!(HmacSha256Driver);
+    impl_hmac_driver!(
+        HmacSha256Driver,
+        embassy_crypto_driver::HmacSha256,
+        Sha256,
+        hmac_sha256_init,
+        hmac_sha256_clone,
+        hmac_sha256_update,
+        hmac_sha256_finalize,
+        hmac_sha256_reset,
+        embassy_crypto_driver::embassy_crypto_hmac_sha256_impl
+    );
 
     #[cfg(hash_v3)]
-    struct HmacSha384Driver;
+    impl_hmac_driver!(
+        HmacSha384Driver,
+        embassy_crypto_driver::HmacSha384,
+        Sha384,
+        hmac_sha384_init,
+        hmac_sha384_clone,
+        hmac_sha384_update,
+        hmac_sha384_finalize,
+        hmac_sha384_reset,
+        embassy_crypto_driver::embassy_crypto_hmac_sha384_impl
+    );
 
     #[cfg(hash_v3)]
-    impl embassy_crypto_driver::HmacSha384 for HmacSha384Driver {
-        type Context = Context<Sha384, Blocking, Hmac>;
-
-        fn hmac_sha384_init(key: &[u8]) -> Self::Context {
-            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, Some(key))
-        }
-
-        fn hmac_sha384_clone(ctx: &Self::Context) -> Self::Context {
-            ctx.clone()
-        }
-
-        fn hmac_sha384_update(ctx: &mut Self::Context, data: &[u8]) {
-            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
-        }
-
-        fn hmac_sha384_finalize(ctx: Self::Context, data: &mut [u8]) {
-            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
-        }
-    }
+    impl_hmac_driver!(
+        HmacSha512_224Driver,
+        embassy_crypto_driver::HmacSha512_224,
+        Sha512_224,
+        hmac_sha512_224_init,
+        hmac_sha512_224_clone,
+        hmac_sha512_224_update,
+        hmac_sha512_224_finalize,
+        hmac_sha512_224_reset,
+        embassy_crypto_driver::embassy_crypto_hmac_sha512_224_impl
+    );
 
     #[cfg(hash_v3)]
-    embassy_crypto_hmac_sha384_impl!(HmacSha384Driver);
+    impl_hmac_driver!(
+        HmacSha512_256Driver,
+        embassy_crypto_driver::HmacSha512_256,
+        Sha512_256,
+        hmac_sha512_256_init,
+        hmac_sha512_256_clone,
+        hmac_sha512_256_update,
+        hmac_sha512_256_finalize,
+        hmac_sha512_256_reset,
+        embassy_crypto_driver::embassy_crypto_hmac_sha512_256_impl
+    );
 
     #[cfg(hash_v3)]
-    struct HmacSha512Driver;
-
-    #[cfg(hash_v3)]
-    impl embassy_crypto_driver::HmacSha512 for HmacSha512Driver {
-        type Context = Context<Sha512, Blocking, Hmac>;
-
-        fn hmac_sha512_init(key: &[u8]) -> Self::Context {
-            DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, Some(key))
-        }
-
-        fn hmac_sha512_clone(ctx: &Self::Context) -> Self::Context {
-            ctx.clone()
-        }
-
-        fn hmac_sha512_update(ctx: &mut Self::Context, data: &[u8]) {
-            DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
-        }
-
-        fn hmac_sha512_finalize(ctx: Self::Context, data: &mut [u8]) {
-            DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
-        }
-    }
-
-    #[cfg(hash_v3)]
-    embassy_crypto_hmac_sha512_impl!(HmacSha512Driver);
+    impl_hmac_driver!(
+        HmacSha512Driver,
+        embassy_crypto_driver::HmacSha512,
+        Sha512,
+        hmac_sha512_init,
+        hmac_sha512_clone,
+        hmac_sha512_update,
+        hmac_sha512_finalize,
+        hmac_sha512_reset,
+        embassy_crypto_driver::embassy_crypto_hmac_sha512_impl
+    );
 }
 
 trait SealedInstance {
