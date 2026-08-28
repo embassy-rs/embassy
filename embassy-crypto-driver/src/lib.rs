@@ -548,7 +548,7 @@ pub enum AesOperation<'a> {
         aad: &'a [u8],
         ciphertext: &'a [u8],
         plaintext: &'a mut [u8],
-        tag: &'a mut [u8; 4],
+        tag: &'a [u8; 4],
     },
 }
 
