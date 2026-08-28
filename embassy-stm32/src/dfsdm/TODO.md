@@ -4,38 +4,38 @@ Ref: RM0455
 [x] (Config CKOUT)
 
 ## 33.4.3
-[ ] Enable Peripheral
+[ ] Enable Peripheral                          [x] internal [ ] pub
 Set `DFSDMEN` in `DFSDM_CH0CFGR1`.
-[ ] Enable Transceiver (InputChannel)
+[ ] Enable Transceiver (InputChannel)          [x] internal [ ] pub
 Set `CHEN` in `DFSDM_CHnCFGR1`.
-[ ] Enable Filter
+[ ] Enable Filter                              [ ] internal [ ] pub
 Set `DFEN` in `DFSDM_FLTnCR1`.
 
 
 # Registers sorted by category
 ## Module config
 ### Moule off
-* DFSDM_CH0CFGR1.CKOUTSRC
-* DFSDM_CH0CFGR1.CKOUTDIV
+* DFSDM_CH0CFGR1.CKOUTSRC   [x] internal [ ] pub
+* DFSDM_CH0CFGR1.CKOUTDIV   [x] internal [ ] pub
 
 ## Inputchannel config
 ### Inputchannel off
-* DFSDM_CHnCFGR1.DATPACK
-* DFSDM_CHnCFGR1.DATMPX
-* DFSDM_CHnCFGR1.CHINSEL
-* DFSDM_CHnCFGR1.SPICKSEL
-* DFSDM_CHnCFGR1.SITP
-* DFSDM_CHnCFGR2.DTRBS
-* DFSDM_CHnAWSCDR.AWFORD
-* DFSDM_CHnAWSCDR.AWFOSR
+* DFSDM_CHnCFGR1.DATPACK    [x] internal [ ] pub
+* DFSDM_CHnCFGR1.DATMPX     [x] internal [ ] pub
+* DFSDM_CHnCFGR1.CHINSEL    [x] internal [ ] pub
+* DFSDM_CHnCFGR1.SPICKSEL   [x] internal [ ] pub
+* DFSDM_CHnCFGR1.SITP       [x] internal [ ] pub
+* DFSDM_CHnCFGR2.DTRBS      [x] internal [ ] pub
+* DFSDM_CHnAWSCDR.AWFORD    [x] internal [ ] pub
+* DFSDM_CHnAWSCDR.AWFOSR    [x] internal [ ] pub
 
 ### Inputchannel on
-* DFSDM_CHnCFGR1.CKABEN
-* DFSDM_CHnCFGR1.SCDEN
-* DFSDM_CHnCFGR2.OFFSET
-* DFSDM_CHnAWSCDR.BKSCD
-* DFSDM_CHnAWSCDR.SCDT
-* DFSDM_CHnDLYR.PLSSKP
+* DFSDM_CHnCFGR1.CKABEN     [x] internal [ ] pub
+* DFSDM_CHnCFGR1.SCDEN      [x] internal [ ] pub
+* DFSDM_CHnCFGR2.OFFSET     [x] internal [ ] pub
+* DFSDM_CHnAWSCDR.BKSCD     [x] internal [ ] pub
+* DFSDM_CHnAWSCDR.SCDT      [x] internal [ ] pub
+* DFSDM_CHnDLYR.PLSSKP      [x] internal [ ] pub
 
 ## Filter config
 ### Filter off

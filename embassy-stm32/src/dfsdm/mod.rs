@@ -6,13 +6,15 @@ pub mod associations;
 pub mod types;
 
 use core::marker::PhantomData;
+use core::mem::ManuallyDrop;
+use core::ptr;
 
 pub use associations::*;
+use chrono::offset;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 pub use types::*;
 
-// use types::se
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::{Peri, interrupt, rcc};
 
@@ -273,14 +275,6 @@ where
 
         // unsafe { core::ptr::read_volatile(T::regs().data()) }
     }
-
-    pub fn get_regs_test(&mut self) -> Registers {
-        DfsdmInner::<T>::enable();
-        DfsdmInner::<T>::disable();
-        DfsdmInner::<T>::set_output_clock_source(OutputSerialClockSource::Audio);
-        DfsdmInner::<T>::set_output_clock_divider(OutputSerialClockDivider::Enabled(123));
-        T::regs()
-    }
 }
 
 struct DfsdmInner<T>
@@ -289,98 +283,6 @@ where
 {
     _instance_marker: PhantomData<T>,
 }
-
-#[derive(Copy, Clone)]
-enum OutputSerialClockSource {
-    System,
-    Audio,
-}
-
-impl OutputSerialClockSource {
-    fn to_reg_val(self) -> bool {
-        match self {
-            Self::System => false,
-            Self::Audio => true,
-        }
-    }
-}
-
-#[derive(Copy, Clone)]
-enum OutputSerialClockDivider {
-    Disabled,
-    Enabled(u16),
-}
-
-impl OutputSerialClockDivider {
-    fn to_reg_val(self) -> u8 {
-        match self {
-            Self::Disabled => 0,
-            Self::Enabled(val) => (val - 1).try_into().expect("Clock divider must be between 2 and 256"), // TODO Maybe replace with error propagation?
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum DataPackingMode {
-    Standard = 0,
-    Interleaved = 1,
-    Dual = 2,
-    // 3 = Reserved
-}
-
-#[derive(Copy, Clone)]
-enum ChannelInput {
-    Same,
-    Neighbor,
-}
-
-impl ChannelInput {
-    fn to_reg_val(self) -> bool {
-        match self {
-            Self::Same => false,
-            Self::Neighbor => true,
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum InputDataMux {
-    ExternalSerial = 0,
-    InternalAdc = 1,
-    InternalRegisterWrite = 2,
-    // 3 = Reserved
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum SpiClockSelect {
-    ExternalCkin = 0,
-    InternalCkout = 1,
-    InternalCkoutFallingHalved = 2,
-    InternalCkoutRisingHalved = 3,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[repr(u8)]
-pub enum SerialInterfaceType {
-    SpiRisingEdge = 0,
-    SpiFallingEdge = 1,
-    ManchesterRising0 = 2,
-    ManchesterRising1 = 3,
-}
-
-//FUCKING IMPORTANT: DONT DROP, KEEP FLEX IN CHANNEL!!! TODO
-// impl<'d> Drop for Flex<'d> {
-//     #[inline]
-//     fn drop(&mut self) {
-//         trace!("gpio: dropping {}", self.pin);
-//         critical_section::with(|_| {
-//             self.pin.set_as_disconnected();
-//         });
-//     }
-// }
 
 /// Only when enabled
 impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE, Enabled>
@@ -414,7 +316,7 @@ where
     S: PinSet,
     MODE: ChannelMode,
 {
-    /// Disables the channel
+    /// Enables the channel
     pub fn enable(self) -> Transceiver<'a, 'd, T, M, S, MODE, Enabled> {
         T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(true));
 
@@ -427,6 +329,27 @@ where
             ckin: self.ckin,
             common: self.common,
         }
+    }
+
+    fn set_data_right_shift(&mut self, shift: config_types::UInt<5>) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .cfgr2()
+            .modify(|w| w.set_dtrbs(shift.into()));
+    }
+
+    fn select_analog_watchdog_filter_order(&mut self, filter_order: config_types::AnalogWatchdogFilterOrder) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .awscdr()
+            .modify(|w| w.set_awford(filter_order as u8));
+    }
+
+    fn select_analog_watchdog_osr(&mut self, osr: config_types::UInt<5>) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .awscdr()
+            .modify(|w| w.set_awfosr(osr.into()));
     }
 }
 
@@ -444,6 +367,48 @@ where
     pub fn do_something_with_neighbor(&self) {
         // The compiler knows that `M::Next` is valid for this specific instance `T`.
         let next_idx = <M::Next as TransceiverMarker>::CHANNEL.index();
+    }
+
+    fn set_clock_absence_detector(&mut self, enabled: bool) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .cfgr1()
+            .modify(|w| w.set_ckaben(enabled));
+    }
+
+    fn set_short_circuit_detector(&mut self, enabled: bool) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .cfgr1()
+            .modify(|w| w.set_scden(enabled));
+    }
+
+    fn set_offset(&mut self, offset: u32) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .cfgr2()
+            .modify(|w| w.set_offset(offset));
+    }
+
+    fn set_bkscd(&mut self, signals: config_types::BreakSignals) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .awscdr()
+            .modify(|w| w.set_bkscd(signals.bits()));
+    }
+
+    fn set_scdt_(&mut self, threshold: u8) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .awscdr()
+            .modify(|w| w.set_scdt(threshold));
+    }
+
+    fn set_plsskp(&mut self, pulse_skips: config_types::UInt<6>) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .dlyr()
+            .modify(|w| w.set_plsskp(pulse_skips.into()));
     }
 }
 
@@ -793,6 +758,55 @@ where
     {
         todo!()
     }
+
+    fn set_data_packing_mode(&mut self, mode: config_types::DataPackingMode)
+    where
+        M: DualPackingAllowed,
+    {
+        // Dual mode is
+        // available only on even channel numbers (y = 0, 2, 4, 6), for odd channel numbers (y = 1, 3, 5, 7)
+        // DFSDM_CHyDATINR is write protected. If an even channel is set to dual mode then the following
+        // odd channel must be set into standard mode (DATPACK[1:0]=0) for correct cooperation with even
+        // channel.
+        //  could make that explicit with a semantic constructor:
+        // ch0.new_parallel_dma_dual()
+        // meaning:
+        // "ch0 and its paired successor are now configured as a dual-input pair."
+        // then keeping the odd one for yourself, idk
+
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .cfgr1()
+            .modify(|w| w.set_datpack(mode as u8));
+    }
+
+    fn select_data_mux_input(&mut self, input: config_types::InputDataMux) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .cfgr1()
+            .modify(|w| w.set_datmpx(input as u8));
+    }
+
+    fn select_channel_input(&mut self, source: config_types::ChannelInput) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .cfgr1()
+            .modify(|w| w.set_chinsel(source.to_reg_val()));
+    }
+
+    fn select_spi_clock(&mut self, source: config_types::SpiClockSelect) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .cfgr1()
+            .modify(|w| w.set_spicksel(source as u8));
+    }
+
+    fn select_serial_interface_type(&mut self, if_type: config_types::SerialInterfaceType) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .cfgr1()
+            .modify(|w| w.set_sitp(if_type as u8));
+    }
 }
 
 impl<'d, T, M, S, SN> TransceiverBuilder<'d, T, M, OutputEnabled, S, SN>
@@ -944,15 +958,26 @@ impl<'d, T> DfsdmCommon<'d, T, Disabled>
 where
     T: Instance,
 {
-    /// Disables the channel
+    /// Enables the channel
     pub fn disable(self) -> DfsdmCommon<'d, T, Enabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(true));
 
+        let (_peri, _ckout) = self.into_raw_parts();
         DfsdmCommon {
-            _ckout: self._ckout,
-            _peri: self._peri,
+            _peri,
+            _ckout,
             _powerstate_marker: PhantomData,
         }
+    }
+
+    // Set's the clock-output clock-divider
+    fn set_ckout_div(&mut self, divider: config_types::OutputSerialClockDivider) {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutdiv(divider.to_reg_val()));
+    }
+
+    /// Set's the clock-output clock-source
+    fn set_ckout_src(&mut self, source: config_types::OutputSerialClockSource) {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutsrc(source.to_reg_val()));
     }
 }
 
@@ -964,11 +989,23 @@ where
     pub fn disable(self) -> DfsdmCommon<'d, T, Disabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(false));
 
+        let (_peri, _ckout) = self.into_raw_parts();
         DfsdmCommon {
-            _ckout: self._ckout,
-            _peri: self._peri,
+            _peri,
+            _ckout,
             _powerstate_marker: PhantomData,
         }
+    }
+}
+
+impl<'d, T, P> DfsdmCommon<'d, T, P>
+where
+    T: Instance,
+    P: PowerState,
+{
+    fn into_raw_parts(self) -> (Peri<'d, T>, Option<Flex<'d>>) {
+        let this = ManuallyDrop::new(self);
+        unsafe { (ptr::read(&this._peri), ptr::read(&this._ckout)) }
     }
 }
 
@@ -1521,65 +1558,65 @@ where
     f(ChannelSelectors8::<T>::new())
 }
 
-///TODO MOVE ALL THIS SHIT INTO TRANSCEIVERS FILTERS AND COMMON
-impl<T> DfsdmInner<T>
-where
-    T: Instance,
-{
-    //////WHOLE PERIPHERAL
-    fn enable() {
-        T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(true));
-    }
+//TODO MOVE ALL THIS SHIT INTO TRANSCEIVERS FILTERS AND COMMON
+// impl<T> DfsdmInner<T>
+// where
+//     T: Instance,
+// {
+//     //////WHOLE PERIPHERAL
+//     fn enable() {
+//         T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(true));
+//     }
 
-    fn disable() {
-        T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(false));
-    }
+//     fn disable() {
+//         T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(false));
+//     }
 
-    ///ONLY WHEN OFF
-    pub fn set_output_clock_source(source: OutputSerialClockSource) {
-        T::regs()
-            .ch(0)
-            .cfgr1()
-            .modify(|reg| reg.set_ckoutsrc(source.to_reg_val()));
-    }
+//     ///ONLY WHEN OFF
+//     pub fn set_output_clock_source(source: OutputSerialClockSource) {
+//         T::regs()
+//             .ch(0)
+//             .cfgr1()
+//             .modify(|reg| reg.set_ckoutsrc(source.to_reg_val()));
+//     }
 
-    ///ONLY WHEN OFF
-    pub fn set_output_clock_divider(source: OutputSerialClockDivider) {
-        T::regs()
-            .ch(0)
-            .cfgr1()
-            .modify(|reg| reg.set_ckoutdiv(source.to_reg_val()));
-    }
+//     ///ONLY WHEN OFF
+//     pub fn set_output_clock_divider(source: OutputSerialClockDivider) {
+//         T::regs()
+//             .ch(0)
+//             .cfgr1()
+//             .modify(|reg| reg.set_ckoutdiv(source.to_reg_val()));
+//     }
 
-    //////CHANNELS
-    /// These might crash if they get a [`TransceiverChannel`] outside the capabilities of the [`Instance`]
+//     //////CHANNELS
+//     /// These might crash if they get a [`TransceiverChannel`] outside the capabilities of the [`Instance`]
 
-    pub fn set_data_packing_mode(ch: TransceiverChannel, mode: DataPackingMode) {
-        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
-            reg.set_datpack(mode as u8);
-        });
-    }
+//     pub fn set_data_packing_mode(ch: TransceiverChannel, mode: DataPackingMode) {
+//         T::regs().ch(ch.index()).cfgr1().modify(|reg| {
+//             reg.set_datpack(mode as u8);
+//         });
+//     }
 
-    pub fn set_input_data_mux(ch: TransceiverChannel, mode: InputDataMux) {
-        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
-            reg.set_datmpx(mode as u8);
-        });
-    }
+//     pub fn set_input_data_mux(ch: TransceiverChannel, mode: InputDataMux) {
+//         T::regs().ch(ch.index()).cfgr1().modify(|reg| {
+//             reg.set_datmpx(mode as u8);
+//         });
+//     }
 
-    pub fn set_channel_input(ch: TransceiverChannel, mode: ChannelInput) {
-        /// TODO if we do neighbor we might not have to configure our own. YET ANOTHER MARKER!?
-        /// Ok How does it look: Channel 0 ... can use channel 1.. pins (and so on. the last one, 7 or 3 or 1 or whatever) can use 0.
-        /// Use of a neighbors pins makes the existence of the pin necessary.
-        /// Nonuse of the own pin (by yourself AND neighbor) makes the existence of the pin unnecessary.
-        /// So we need reference to the pin when instantiating
-        ///
-        /// ja ich wäre grundsätzlich auf ne viel lustigere und simplere idee gegangen, die leider embassys standardimplementierungen widerspricht, aber was willstetun:
-        /// zwei stufen.
-        /// dfsdim wird erstmal nciht gesplittet, sondern hat ne config_pins fuinktion, bzw bekommt die pins direkt im ersten init als optionen.
-        /// und dann bekommt man channelinput tokens (mit capabilities, weil wenn man nciht genug pins vergibt gibts ohne Ckin natürlich NUR manchester
-        /// https://chatgpt.com/share/6a8b4427-eb90-83ed-82e7-82c00036c750
-        T::regs().ch(ch.index()).cfgr1().modify(|reg| {
-            reg.set_chinsel(mode.to_reg_val());
-        });
-    }
-}
+//     pub fn set_channel_input(ch: TransceiverChannel, mode: ChannelInput) {
+//         /// TODO if we do neighbor we might not have to configure our own. YET ANOTHER MARKER!?
+//         /// Ok How does it look: Channel 0 ... can use channel 1.. pins (and so on. the last one, 7 or 3 or 1 or whatever) can use 0.
+//         /// Use of a neighbors pins makes the existence of the pin necessary.
+//         /// Nonuse of the own pin (by yourself AND neighbor) makes the existence of the pin unnecessary.
+//         /// So we need reference to the pin when instantiating
+//         ///
+//         /// ja ich wäre grundsätzlich auf ne viel lustigere und simplere idee gegangen, die leider embassys standardimplementierungen widerspricht, aber was willstetun:
+//         /// zwei stufen.
+//         /// dfsdim wird erstmal nciht gesplittet, sondern hat ne config_pins fuinktion, bzw bekommt die pins direkt im ersten init als optionen.
+//         /// und dann bekommt man channelinput tokens (mit capabilities, weil wenn man nciht genug pins vergibt gibts ohne Ckin natürlich NUR manchester
+//         /// https://chatgpt.com/share/6a8b4427-eb90-83ed-82e7-82c00036c750
+//         T::regs().ch(ch.index()).cfgr1().modify(|reg| {
+//             reg.set_chinsel(mode.to_reg_val());
+//         });
+//     }
+// }

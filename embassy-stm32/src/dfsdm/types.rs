@@ -349,6 +349,18 @@ define_indexed_channels!(
 );
 
 // =============================================================================
+// Datapacking markertrait
+// =============================================================================
+
+/// Marks a Transceiverchannel as being allowed to set Datapacking dual-mode.
+pub trait DualPackingAllowed {}
+
+impl DualPackingAllowed for Tcv0 {}
+impl DualPackingAllowed for Tcv2 {}
+impl DualPackingAllowed for Tcv4 {}
+impl DualPackingAllowed for Tcv6 {}
+
+// =============================================================================
 // Trigger types
 // =============================================================================
 
@@ -391,3 +403,138 @@ impl sealed_state::Sealed for Enabled {}
 
 impl PowerState for Disabled {}
 impl PowerState for Enabled {}
+
+pub mod config_types {
+
+    #[derive(Copy, Clone)]
+    pub enum OutputSerialClockSource {
+        System,
+        Audio,
+    }
+
+    impl OutputSerialClockSource {
+        pub fn to_reg_val(self) -> bool {
+            match self {
+                Self::System => false,
+                Self::Audio => true,
+            }
+        }
+    }
+
+    #[derive(Copy, Clone)]
+    pub enum OutputSerialClockDivider {
+        Disabled,
+        Enabled(u16),
+    }
+
+    impl OutputSerialClockDivider {
+        pub fn to_reg_val(self) -> u8 {
+            match self {
+                Self::Disabled => 0,
+                Self::Enabled(val) => (val - 1).try_into().expect("Clock divider must be between 2 and 256"), // TODO Maybe replace with error propagation?
+            }
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum DataPackingMode {
+        Standard = 0,
+        Interleaved = 1,
+        Dual = 2,
+        // 3 = Reserved
+    }
+
+    #[derive(Copy, Clone)]
+    pub enum ChannelInput {
+        Same,
+        Neighbor,
+    }
+
+    impl ChannelInput {
+        pub fn to_reg_val(self) -> bool {
+            match self {
+                Self::Same => false,
+                Self::Neighbor => true,
+            }
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum InputDataMux {
+        ExternalSerial = 0,
+        InternalAdc = 1,
+        InternalRegisterWrite = 2,
+        // 3 = Reserved
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum SpiClockSelect {
+        ExternalCkin = 0,
+        InternalCkout = 1,
+        InternalCkoutFallingHalved = 2,
+        InternalCkoutRisingHalved = 3,
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum SerialInterfaceType {
+        SpiRisingEdge = 0,
+        SpiFallingEdge = 1,
+        ManchesterRising0 = 2,
+        ManchesterRising1 = 3,
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum AnalogWatchdogFilterOrder {
+        FastSinc = 0,
+        Sinc1 = 1,
+        Sinc2 = 2,
+        Sinc3 = 3,
+    }
+
+    bitflags::bitflags! {
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        pub struct BreakSignals: u8 {
+            const BREAK0 = 0b0001;
+            const BREAK1 = 0b0010;
+            const BREAK2 = 0b0100;
+            const BREAK3 = 0b1000;
+        }
+    }
+
+    /// Unsigned integer constrained to `BITS` bits, backed by a `u32`.
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    pub struct UInt<const BITS: u8>(u32);
+
+    impl<const BITS: u8> UInt<BITS> {
+        ///Create new sized uint, asserts correctness at runtime. For a runtime-stabler variant try [`UInt::try_from`]
+        pub const fn new(value: u32) -> Self {
+            const { core::assert!(BITS > 0 && BITS <= 32, "invalid bit width") };
+            core::assert!(value < (1 << BITS), "value exceeds bit width");
+            Self(value)
+        }
+
+        pub const fn value(self) -> u32 {
+            self.0
+        }
+    }
+
+    impl<const BITS: u8> TryFrom<u32> for UInt<BITS> {
+        type Error = ();
+
+        /// Try to create new sized uint.
+        fn try_from(value: u32) -> Result<Self, Self::Error> {
+            if value < (1 << BITS) { Ok(Self(value)) } else { Err(()) }
+        }
+    }
+
+    impl<const BITS: u8> From<UInt<BITS>> for u8 {
+        fn from(value: UInt<BITS>) -> Self {
+            return value.0 as u8;
+        }
+    }
+}

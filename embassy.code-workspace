@@ -30,6 +30,7 @@
     //   "exti",
     //   "rt",
     // ],
+    "rust-analyzer.imports.preferNoStd": true,
     "rust-analyzer.linkedProjects": [
       // "embassy-stm32/Cargo.toml",
       // "examples/stm32h7a3/Cargo.toml",
