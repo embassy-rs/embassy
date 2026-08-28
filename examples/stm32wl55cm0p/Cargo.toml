@@ -35,8 +35,9 @@ embassy-net = { version = "0.9.1", path = "../../embassy-net", features = [
   "tcp",
   "dhcpv4",
   "medium-ethernet",
-  "proto-ipv6",
+  "ipv6",
   "dns",
+  "icmp-ping-reply",
 ] }
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = [
   "defmt",

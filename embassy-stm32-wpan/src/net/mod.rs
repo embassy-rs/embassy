@@ -52,7 +52,7 @@ pub struct State<'a, C: Controller> {
 }
 
 struct NetState<'a, B: ControllerToHostPacketBox> {
-    ch: ch::State<MTU, 4, 4>,
+    ch: ch::State<4, 4>,
     events: ZeroCopyPubSub<B>,
     _lifetime: PhantomData<&'a ()>,
 }
@@ -72,7 +72,7 @@ impl<'a, C: Controller> State<'a, C> {
 }
 
 /// Embassy-net driver.
-pub type NetDriver<'a> = ch::Device<'a, MTU>;
+pub type NetDriver<'a> = ch::Device<'a>;
 
 pub fn new<'a, C>(
     state: &'a mut State<'a, C>,
@@ -82,7 +82,7 @@ pub fn new<'a, C>(
 where
     C: Controller,
 {
-    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ieee802154(hw_addr));
+    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ieee802154(hw_addr), MTU);
     let state_ch = ch_runner.state_runner();
 
     state_ch.set_link_state(LinkState::Down);

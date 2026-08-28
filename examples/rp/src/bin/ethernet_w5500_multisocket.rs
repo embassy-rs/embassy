@@ -8,8 +8,8 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_futures::yield_now;
-use embassy_net::{Stack, StackResources};
+use embassy_net::tcp::TcpListener;
+use embassy_net::{Stack, StackStorage};
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
@@ -41,7 +41,7 @@ async fn ethernet_task(
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -76,20 +76,21 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(
-        device,
-        embassy_net::Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::new()),
-        seed,
-    );
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    iface.set_dhcpv4(Some(Default::default()));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
 
     info!("Waiting for DHCP...");
-    let cfg = wait_for_config(stack).await;
-    let local_addr = cfg.address.address();
+    iface.wait_config_up().await;
+    let lease = unwrap!(iface.dhcpv4_lease());
+    let local_addr = lease.address.address();
     info!("IP address: {:?}", local_addr);
 
     // Create two sockets listening to the same port, to handle simultaneous connections
@@ -102,15 +103,19 @@ async fn listen_task(stack: Stack<'static>, id: u8, port: u16) {
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
-    loop {
-        let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-        socket.set_timeout(Some(Duration::from_secs(10)));
+    let mut listener = TcpListener::new(stack);
+    unwrap!(listener.listen(port));
 
+    loop {
         info!("SOCKET {}: Listening on TCP:{}...", id, port);
-        if let Err(e) = socket.accept(port).await {
-            warn!("accept error: {:?}", e);
-            continue;
-        }
+        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
+            Ok(socket) => socket,
+            Err(e) => {
+                warn!("accept error: {:?}", e);
+                continue;
+            }
+        };
+        socket.set_timeout(Some(Duration::from_secs(10)));
         info!("SOCKET {}: Received connection from {:?}", id, socket.remote_endpoint());
 
         loop {
@@ -132,14 +137,5 @@ async fn listen_task(stack: Stack<'static>, id: u8, port: u16) {
                 break;
             }
         }
-    }
-}
-
-async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
-    loop {
-        if let Some(config) = stack.config_v4() {
-            return config.clone();
-        }
-        yield_now().await;
     }
 }

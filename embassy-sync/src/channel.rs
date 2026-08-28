@@ -211,6 +211,13 @@ impl<'ch, T> DynamicSender<'ch, T> {
     pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_send(cx)
     }
+
+    /// Returns whether the channel is full.
+    ///
+    /// See [`Channel::is_full()`]
+    pub fn is_full(&self) -> bool {
+        self.channel.is_full()
+    }
 }
 
 /// Send-only access to a [`Channel`] without knowing channel size.
@@ -655,6 +662,8 @@ pub(crate) trait DynamicChannel<T> {
     fn poll_ready_to_receive(&self, cx: &mut Context<'_>) -> Poll<()>;
 
     fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T>;
+
+    fn is_full(&self) -> bool;
 }
 
 /// Error returned by [`try_receive`](Channel::try_receive).
@@ -1019,6 +1028,10 @@ where
 
     fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
         Channel::poll_receive(self, cx)
+    }
+
+    fn is_full(&self) -> bool {
+        Channel::is_full(self)
     }
 }
 

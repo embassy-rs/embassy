@@ -424,7 +424,9 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         mac.maccr().modify(|w| {
             w.set_ipg(0b000); // 96 bit times
+            // Strip padding and FCS from received frames.
             w.set_acs(true);
+            w.set_cst(true);
             #[cfg(eth_v2a)]
             w.set_ps(true);
             w.set_fes(true);
@@ -518,18 +520,13 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_rxpbl(1); // 32 ?
             #[cfg(eth_v2a)]
             w.set_rxpbl(32);
-            w.set_rbsz(RX_BUFFER_SIZE as u16);
+            w.set_rbsz(xarxa_driver::config::PACKET_BUF_SIZE as u16);
         });
 
         let mut this = Self {
             _peri: peri,
             wake_guard: T::RCC_INFO.wake_guard().into(),
-            tx: TDesRing::new(
-                &mut queue.tx_desc,
-                &mut queue.tx_buf,
-                #[cfg(feature = "ptp")]
-                &mut queue.tx_id,
-            ),
+            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
             _pins: pins,
             phy,

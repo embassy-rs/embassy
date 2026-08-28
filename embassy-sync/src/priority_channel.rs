@@ -688,6 +688,10 @@ where
     fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
         PriorityChannel::poll_receive(self, cx)
     }
+
+    fn is_full(&self) -> bool {
+        PriorityChannel::is_full(self)
+    }
 }
 
 #[cfg(test)]

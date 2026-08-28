@@ -20,7 +20,7 @@ mod phy;
 mod protocol;
 mod regs;
 
-use ch::driver::LinkState;
+use ch::driver::{LinkState, PacketBuf};
 pub use crc32::ETH_FCS;
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
@@ -111,11 +111,11 @@ const FRAME_HEADER_LEN: usize = 2;
 const PORT_ID_BYTE: u8 = 0x00;
 
 /// Type alias for the embassy-net driver for ADIN1110
-pub type Device<'d> = embassy_net_driver_channel::Device<'d, MTU>;
+pub type Device<'d> = embassy_net_driver_channel::Device<'d>;
 
 /// Internal state for the embassy-net integration.
 pub struct State<const N_RX: usize, const N_TX: usize> {
-    ch_state: ch::State<MTU, N_RX, N_TX>,
+    ch_state: ch::State<N_RX, N_TX>,
 }
 impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
     /// Create a new `State`.
@@ -299,7 +299,7 @@ impl<P: Adin1110Protocol> mdio::MdioBus for ADIN1110<P> {
 /// You must call `.run()` in a background task for the ADIN1110 to operate.
 pub struct Runner<'d, P: Adin1110Protocol, INT, RST> {
     mac: ADIN1110<P>,
-    ch: ch::Runner<'d, MTU>,
+    ch: ch::Runner<'d>,
     int: INT,
     #[cfg_attr(not(feature = "generic-spi"), allow(dead_code))]
     is_link_up: bool,
@@ -318,43 +318,52 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, GenericSpi<SPI>, INT,
 
         loop {
             debug!("Waiting for interrupts");
-            match select(self.int.wait_for_low(), tx_chan.tx_buf()).await {
+            match select(self.int.wait_for_low(), tx_chan.tx()).await {
                 Either::First(_) => {
                     let mut status1_clr = Status1(0);
                     let mut status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
 
                     while status1.p1_rx_rdy() {
                         debug!("alloc RX packet buffer");
-                        match select(rx_chan.rx_buf(), tx_chan.tx_buf()).await {
+                        match select(rx_chan.rx_ready(), tx_chan.tx()).await {
                             // Handle frames that needs to transmit from the wire.
-                            // Note: rx_chan.rx_buf() channel don´t accept new request
-                            //       when the tx_chan is full. So these will be handled
+                            // Note: rx_chan.rx_ready() doesn't complete while the
+                            //       tx_chan is full. So these will be handled
                             //       automaticly.
-                            Either::First(mut frame) => match self.mac.read_fifo(&mut frame).await {
-                                Ok(n) => {
-                                    frame.rx_done(n);
+                            Either::First(()) => {
+                                let Some(mut frame) = PacketBuf::try_new() else {
+                                    error!("packet pool empty, can't receive");
+                                    // Back off, so we don't spin until the stack frees a buffer.
+                                    Timer::after_millis(1).await;
+                                    continue;
+                                };
+                                frame.set_len(MTU);
+                                match self.mac.read_fifo(&mut frame).await {
+                                    Ok(n) => {
+                                        frame.set_len(n);
+                                        rx_chan.rx(frame).await;
+                                    }
+                                    Err(e) => match e {
+                                        AdinError::PACKET_TOO_BIG => {
+                                            error!("RX Packet too big, DROP");
+                                            self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
+                                        }
+                                        AdinError::PACKET_TOO_SMALL => {
+                                            error!("RX Packet too small, DROP");
+                                            self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
+                                        }
+                                        AdinError::Spi(e) => {
+                                            error!("RX Spi error {}", e.kind());
+                                        }
+                                        e => {
+                                            error!("RX Error {:?}", e);
+                                        }
+                                    },
                                 }
-                                Err(e) => match e {
-                                    AdinError::PACKET_TOO_BIG => {
-                                        error!("RX Packet too big, DROP");
-                                        self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
-                                    }
-                                    AdinError::PACKET_TOO_SMALL => {
-                                        error!("RX Packet too small, DROP");
-                                        self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
-                                    }
-                                    AdinError::Spi(e) => {
-                                        error!("RX Spi error {}", e.kind());
-                                    }
-                                    e => {
-                                        error!("RX Error {:?}", e);
-                                    }
-                                },
-                            },
+                            }
                             Either::Second(frame) => {
                                 // Handle frames that needs to transmit to the wire.
                                 self.mac.write_fifo(&frame).await.unwrap();
-                                frame.tx_done();
                             }
                         }
                         status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
@@ -448,7 +457,6 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, GenericSpi<SPI>, INT,
                 Either::Second(packet) => {
                     // Handle frames that needs to transmit to the wire.
                     self.mac.write_fifo(&packet).await.unwrap();
-                    packet.tx_done();
                 }
             }
         }
@@ -475,7 +483,7 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
 
             if !service_needed {
                 debug!("Waiting for interrupts");
-                match select(int.wait_for_low(), tx_chan.tx_buf()).await {
+                match select(int.wait_for_low(), tx_chan.tx()).await {
                     Either::First(_) => {
                         // Fetch a footer to learn the current RCA/TXC/EXST.
                         if let Err(e) = mac.protocol.poll_status().await {
@@ -489,7 +497,6 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
                             Ok(()) => trace!("TX Done"),
                             Err(e) => Self::log_tc6_error("TX", &e),
                         }
-                        frame.tx_done();
                         continue;
                     }
                 }
@@ -502,10 +509,18 @@ impl<SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'_, Tc6<SPI>, INT, RST> {
 
             while mac.protocol.rx_available() {
                 debug!("alloc RX packet buffer");
-                let mut frame = rx_chan.rx_buf().await;
+                rx_chan.rx_ready().await;
+                let Some(mut frame) = PacketBuf::try_new() else {
+                    error!("packet pool empty, can't receive");
+                    // Back off, so we don't spin until the stack frees a buffer.
+                    Timer::after_millis(1).await;
+                    continue;
+                };
+                frame.set_len(MTU);
                 match mac.read_fifo(&mut frame).await {
                     Ok(n) => {
-                        frame.rx_done(n);
+                        frame.set_len(n);
+                        rx_chan.rx(frame).await;
                     }
                     Err(e) => Self::log_tc6_error("RX", &e),
                 }
@@ -737,7 +752,11 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
     // Program mac address but also sets mac filters.
     mac.set_mac_addr(&mac_addr).await.unwrap();
 
-    let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ethernet(mac_addr));
+    let (runner, device) = ch::new(
+        &mut state.ch_state,
+        ch::driver::HardwareAddress::Ethernet(mac_addr),
+        MTU,
+    );
     (
         device,
         Runner {
@@ -900,7 +919,11 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
     config0.set_sync(true);
     mac.write_reg(sr::CONFIG0, config0.0).await.unwrap();
 
-    let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ethernet(mac_addr));
+    let (runner, device) = ch::new(
+        &mut state.ch_state,
+        ch::driver::HardwareAddress::Ethernet(mac_addr),
+        MTU,
+    );
     (
         device,
         Runner {

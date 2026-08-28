@@ -30,10 +30,11 @@ use defmt_rtt as _; // global logger
 use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_futures::yield_now;
-use embassy_net::tcp::TcpSocket;
-use embassy_net::udp::{PacketMetadata, UdpSocket};
-use embassy_net::{IpAddress, IpEndpoint, Ipv6Address, Ipv6Cidr, Stack, StackResources, StaticConfigV6};
+use embassy_net::iface::Iface;
+use embassy_net::tcp::{TcpListener, TcpSocket};
+use embassy_net::udp::UdpSocket;
+use embassy_net::wire::{IpAddress, IpCidr, IpEndpoint, Ipv6Address, Ipv6Cidr};
+use embassy_net::{Stack, StackStorage};
 use embassy_net_adin1110::{ADIN1110, Device, Runner, Tc6, TxPort};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
@@ -51,7 +52,6 @@ use embedded_hal_async::i2c::I2c as I2cBus;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io::Write as bWrite;
 use embedded_io_async::Write;
-use heapless::Vec;
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -240,39 +240,42 @@ async fn main(spawner: Spawner) {
     // Generate random seed
     let seed = rng.next_u64();
 
-    let ip_cfg = embassy_net::Config::ipv6_static(StaticConfigV6 {
-        address: ip_address,
-        gateway: None,
-        dns_servers: Vec::new(),
-    });
-
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, ip_cfg, RESOURCES.init(StackResources::new()), seed);
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    unwrap!(iface.add_ip_addr(IpCidr::Ipv6(ip_address)));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
 
     // Announce ourselves and listen for peers, then poll whichever peer we find.
-    spawner.spawn(unwrap!(discovery_task(stack, node_id)));
+    spawner.spawn(unwrap!(discovery_task(iface, node_id)));
     spawner.spawn(unwrap!(neighbor_fetch_task(stack)));
 
-    let cfg = wait_for_config(stack).await;
-    let local_addr = cfg.address.address();
+    iface.wait_config_up().await;
+    let local_addr = ip_address.address();
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
     let mut mb_buf = [0; 4096];
-    loop {
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-        socket.set_timeout(Some(Duration::from_secs(1)));
+    let mut listener = TcpListener::new(stack);
+    unwrap!(listener.listen(HTTP_LISTEN_PORT));
 
+    loop {
         info!("Listening on http://{}:{}...", local_addr, HTTP_LISTEN_PORT);
-        if let Err(e) = socket.accept(HTTP_LISTEN_PORT).await {
-            defmt::error!("accept error: {:?}", e);
-            continue;
-        }
+        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
+            Ok(socket) => socket,
+            Err(e) => {
+                defmt::error!("accept error: {:?}", e);
+                continue;
+            }
+        };
+        socket.set_timeout(Some(Duration::from_secs(1)));
 
         loop {
             let _n = match socket.read(&mut mb_buf).await {
@@ -363,19 +366,18 @@ static PEER_NODE_ID: BlockingMutex<CriticalSectionRawMutex, Cell<u64>> = Blockin
 
 /// Announce this node's id on the discovery group, and record the ids of peers.
 #[embassy_executor::task]
-async fn discovery_task(stack: Stack<'static>, my_node_id: u64) -> ! {
-    let mut rx_meta = [PacketMetadata::EMPTY; 8];
-    let mut rx_buffer = [0u8; 256];
-    let mut tx_meta = [PacketMetadata::EMPTY; 8];
-    let mut tx_buffer = [0u8; 256];
+async fn discovery_task(iface: Iface<'static>, my_node_id: u64) -> ! {
+    let stack = iface.stack();
+    let _rx_buffer = [0u8; 256];
+    let _tx_buffer = [0u8; 256];
 
     // Without joining the group the interface drops the peers' beacons, so we
     // would still announce ourselves but never hear anybody.
-    if let Err(e) = stack.join_multicast_group(DISCOVERY_GROUP) {
+    if let Err(e) = iface.join_multicast_group(DISCOVERY_GROUP) {
         error!("Discovery: could not join {}: {:?}", DISCOVERY_GROUP, e);
     }
 
-    let mut socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
+    let mut socket = UdpSocket::new(stack);
     unwrap!(socket.bind(DISCOVERY_PORT));
 
     let group = IpEndpoint::new(IpAddress::Ipv6(DISCOVERY_GROUP), DISCOVERY_PORT);
@@ -535,15 +537,6 @@ async fn neighbor_fetch_task(stack: Stack<'static>) -> ! {
     }
 }
 
-async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV6 {
-    loop {
-        if let Some(config) = stack.config_v6() {
-            return config;
-        }
-        yield_now().await;
-    }
-}
-
 /// How long the heartbeat LED stays lit. The Bristlefin LEDs are bright, so
 /// this is a brief flash rather than a 50% duty cycle.
 const HEARTBEAT_ON: Duration = Duration::from_millis(100);
@@ -625,7 +618,7 @@ async fn ethernet_task(runner: Runner<'static, Tc6<SpeSpiCs>, SpeInt, SpeRst>) -
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 

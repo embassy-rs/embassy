@@ -7,7 +7,7 @@ teleprobe_meta::timeout!(120);
 use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackResources;
+use embassy_net::StackStorage;
 use embassy_net_enc28j60::Enc28j60;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::rng::Rng;
@@ -26,7 +26,7 @@ bind_interrupts!(struct Irqs {
 type MyDriver = Enc28j60<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Output<'static>>;
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, MyDriver>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -52,13 +52,6 @@ async fn main(spawner: Spawner) {
     let mac_addr = [2, 3, 4, 5, 6, 7];
     let device = Enc28j60::new(spi, Some(rst), mac_addr);
 
-    let config = embassy_net::Config::dhcpv4(Default::default());
-    // let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-    //    address: Ipv4Cidr::new(Ipv4Address::new(10, 42, 0, 61), 24),
-    //    dns_servers: Vec::new(),
-    //    gateway: Some(Ipv4Address::new(10, 42, 0, 1)),
-    // });
-
     // Generate random seed
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
@@ -66,13 +59,18 @@ async fn main(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<MyDriver> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    iface.set_dhcpv4(Some(Default::default()));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
-        stack,
+        iface,
         perf_client::Expected {
             down_kbps: 200,
             up_kbps: 200,

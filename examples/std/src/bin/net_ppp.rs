@@ -15,8 +15,10 @@ mod serial_port;
 use async_io::Async;
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
-use embassy_net::tcp::TcpSocket;
-use embassy_net::{Config, ConfigV4, Ipv4Cidr, Stack, StackResources};
+use embassy_net::iface::Iface;
+use embassy_net::tcp::TcpListener;
+use embassy_net::wire::IpCidr;
+use embassy_net::{Stack, StackStorage};
 use embassy_net_ppp::Runner;
 use embedded_io_async::Write;
 use futures::io::BufReader;
@@ -37,12 +39,12 @@ struct Opts {
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, embassy_net_ppp::Device<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
 #[embassy_executor::task]
-async fn ppp_task(stack: Stack<'static>, mut runner: Runner<'static>, port: SerialPort) -> ! {
+async fn ppp_task(iface: Iface<'static>, mut runner: Runner<'static>, port: SerialPort) -> ! {
     let port = Async::new(port).unwrap();
     let port = BufReader::new(port);
     let port = embedded_io_adapters::futures_03::FromFutures::new(port);
@@ -58,16 +60,12 @@ async fn ppp_task(stack: Stack<'static>, mut runner: Runner<'static>, port: Seri
                 warn!("PPP did not provide an IP address.");
                 return;
             };
-            let mut dns_servers = Vec::new();
+            let mut dns_servers = Vec::<_, 3>::new();
             for s in ipv4.dns_servers.iter().flatten() {
-                let _ = dns_servers.push(*s);
+                let _ = dns_servers.push(embassy_net::wire::IpAddress::Ipv4(*s));
             }
-            let config = ConfigV4::Static(embassy_net::StaticConfigV4 {
-                address: Ipv4Cidr::new(addr, 0),
-                gateway: None,
-                dns_servers,
-            });
-            stack.set_config_v4(config);
+            iface.set_ip_addrs([IpCidr::new(addr.into(), 0)]).unwrap();
+            iface.stack().set_dns_servers(&dns_servers);
         })
         .await;
     match r {
@@ -94,32 +92,36 @@ async fn main_task(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, net_runner) = embassy_net::new(
-        device,
-        Config::default(), // don't configure IP yet
-        RESOURCES.init(StackResources::new()),
-        seed,
-    );
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, net_runner) = Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the PPP interface to the stack. It gets its addresses from PPP itself,
+    // in `ppp_task`.
+    static DEVICE: StaticCell<embassy_net_ppp::Device<'static>> = StaticCell::new();
+    let iface = stack.add_iface(DEVICE.init(device)).unwrap();
 
     // Launch network task
     spawner.spawn(net_task(net_runner).unwrap());
-    spawner.spawn(ppp_task(stack, runner, port).unwrap());
+    spawner.spawn(ppp_task(iface, runner, port).unwrap());
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
 
-    loop {
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-        socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+    let mut listener = TcpListener::new(stack);
+    listener.listen(1234).unwrap();
 
+    loop {
         info!("Listening on TCP:1234...");
-        if let Err(e) = socket.accept(1234).await {
-            warn!("accept error: {:?}", e);
-            continue;
-        }
+        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
+            Ok(socket) => socket,
+            Err(e) => {
+                warn!("accept error: {:?}", e);
+                continue;
+            }
+        };
+        socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
         info!("Received connection from {:?}", socket.remote_endpoint());
 

@@ -1,7 +1,7 @@
-//! This example implements an echo (ping) with an ICMP Socket and using defmt to report the results.
+//! This example pings the default gateway with a raw socket, and reports the result with defmt.
 //!
-//! Although there is a better way to execute pings using the child module ping of the icmp module,
-//! this example allows for other icmp messages like `Destination unreachable` to be sent aswell.
+//! A raw socket carries whole IP packets, so the example builds the IPv4 and ICMP headers
+//! itself. The same socket can carry any other ICMP message, e.g. `Destination unreachable`.
 //!
 //! Example written for the [`WIZnet W5500-EVB-Pico`](https://docs.wiznet.io/Product/iEthernet/W5500/w5500-evb-pico) board.
 
@@ -11,9 +11,9 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_futures::yield_now;
-use embassy_net::icmp::{ChecksumCapabilities, IcmpEndpoint, IcmpSocket, Icmpv4Packet, Icmpv4Repr, PacketMetadata};
-use embassy_net::{Stack, StackResources};
+use embassy_net::StackStorage;
+use embassy_net::raw::{IpProtocol, IpVersion, RawSocket};
+use embassy_net::wire::{IPV4_HEADER_LEN, Icmpv4Message, Icmpv4Packet, Ipv4Packet};
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
@@ -38,7 +38,7 @@ async fn ethernet_task(runner: Runner<'static, W5500, ExclusiveSpiDevice, Input<
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -73,77 +73,92 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(
-        device,
-        embassy_net::Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::new()),
-        seed,
-    );
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    iface.set_dhcpv4(Some(Default::default()));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
 
     info!("Waiting for DHCP...");
-    let cfg = wait_for_config(stack).await;
-    let local_addr = cfg.address.address();
+    iface.wait_config_up().await;
+    let lease = unwrap!(iface.dhcpv4_lease());
+    let local_addr = lease.address.address();
     info!("IP address: {:?}", local_addr);
 
-    // Then we can use it!
-    let mut rx_buffer = [0; 256];
-    let mut tx_buffer = [0; 256];
-    let mut rx_meta = [PacketMetadata::EMPTY];
-    let mut tx_meta = [PacketMetadata::EMPTY];
+    // Then we can use it! A raw socket receives whole IPv4 packets carrying ICMP.
+    let socket = RawSocket::new(stack, Some(IpVersion::Ipv4), Some(IpProtocol::Icmp));
 
-    // Identifier used for the ICMP socket
+    // Identifier used to recognize our own echo replies.
     let ident = 42;
+    let payload = b"Hello, icmp!";
+    let icmp_len = 8 + payload.len();
+    let total_len = IPV4_HEADER_LEN + icmp_len;
 
-    // Create and bind the socket
-    let mut socket = IcmpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
-    socket.bind(IcmpEndpoint::Ident(ident)).unwrap();
+    let gateway = unwrap!(lease.router);
+    let mut buf = [0u8; 64];
+    {
+        let mut ip = unwrap!(Ipv4Packet::new_checked(&mut buf[..total_len]).ok());
+        ip.set_version(4);
+        ip.set_header_len(IPV4_HEADER_LEN as u8);
+        ip.set_dscp(0);
+        ip.set_ecn(0);
+        ip.set_total_len(total_len as u16);
+        ip.set_ident(0);
+        ip.clear_flags();
+        ip.set_dont_frag(true);
+        ip.set_frag_offset(0);
+        ip.set_hop_limit(64);
+        ip.set_next_header(IpProtocol::Icmp);
+        ip.set_src_addr(local_addr);
+        ip.set_dst_addr(gateway);
+        ip.fill_checksum();
 
-    // Create the repr for the packet
-    let icmp_repr = Icmpv4Repr::EchoRequest {
-        ident,
-        seq_no: 0,
-        data: b"Hello, icmp!",
-    };
+        let mut icmp = unwrap!(Icmpv4Packet::new_checked(ip.payload_mut()).ok());
+        icmp.set_msg_type(Icmpv4Message::EchoRequest);
+        icmp.set_msg_code(0);
+        icmp.set_echo_ident(ident);
+        icmp.set_echo_seq_no(0);
+        icmp.data_mut().copy_from_slice(payload);
+        icmp.fill_checksum();
+    }
 
-    // Send the packet and store the starting instant to mesure latency later
-    let start = socket
-        .send_to_with(icmp_repr.buffer_len(), cfg.gateway.unwrap(), |buf| {
-            // Create and populate the packet buffer allocated by `send_to_with`
-            let mut icmp_packet = Icmpv4Packet::new_unchecked(buf);
-            icmp_repr.emit(&mut icmp_packet, &ChecksumCapabilities::default());
-            (icmp_repr.buffer_len(), Instant::now()) // Return the instant where the packet was sent
-        })
-        .await
-        .unwrap();
+    // Send the packet, and remember when, to measure the latency of the reply.
+    let start = Instant::now();
+    unwrap!(socket.send(&buf[..total_len]).await);
 
-    // Recieve and log the data of the reply
-    socket
-        .recv_from_with(|(buf, addr)| {
-            let packet = Icmpv4Packet::new_checked(buf).unwrap();
-            info!(
-                "Recieved {:?} from {} in {}ms",
-                packet.data(),
-                addr,
-                start.elapsed().as_millis()
-            );
-        })
-        .await
-        .unwrap();
+    // Receive and log the reply. The socket sees every ICMP packet, so skip the ones
+    // that aren't the echo reply we're waiting for.
+    let mut rx = [0u8; 128];
+    loop {
+        let n = unwrap!(socket.recv(&mut rx).await);
+        let Ok(ip) = Ipv4Packet::new_checked(&mut rx[..n]) else {
+            continue;
+        };
+        if ip.src_addr() != gateway {
+            continue;
+        }
+        let src = ip.src_addr();
+        let Ok(icmp) = Icmpv4Packet::new_checked(&mut rx[IPV4_HEADER_LEN..n]) else {
+            continue;
+        };
+        if icmp.msg_type() != Icmpv4Message::EchoReply || icmp.echo_ident() != ident {
+            continue;
+        }
+        info!(
+            "Received {:?} from {} in {}ms",
+            icmp.data(),
+            src,
+            start.elapsed().as_millis()
+        );
+        break;
+    }
 
     loop {
         Timer::after_secs(10).await;
-    }
-}
-
-async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
-    loop {
-        if let Some(config) = stack.config_v4() {
-            return config.clone();
-        }
-        yield_now().await;
     }
 }

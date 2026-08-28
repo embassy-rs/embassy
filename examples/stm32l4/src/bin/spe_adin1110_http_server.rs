@@ -20,9 +20,9 @@ use defmt::{Format, error, info, println, unwrap};
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
-use embassy_futures::yield_now;
-use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
+use embassy_net::StackStorage;
+use embassy_net::tcp::TcpListener;
+use embassy_net::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
 use embassy_net_adin1110::{ADIN1110, Device, GenericSpi, Runner};
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
@@ -38,7 +38,6 @@ use embedded_hal_async::i2c::I2c as I2cBus;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io::Write as bWrite;
 use embedded_io_async::Write;
-use heapless::Vec;
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -201,41 +200,43 @@ async fn main(spawner: Spawner) {
     // Generate random seed
     let seed = rng.next_u64();
 
-    let ip_cfg = if uc_cfg0.is_low() {
-        println!("Waiting for DHCP...");
-        let dhcp4_config = embassy_net::DhcpConfig::default();
-        embassy_net::Config::dhcpv4(dhcp4_config)
-    } else {
-        embassy_net::Config::ipv4_static(StaticConfigV4 {
-            address: IP_ADDRESS,
-            gateway: None,
-            dns_servers: Vec::new(),
-        })
-    };
-
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, ip_cfg, RESOURCES.init(StackResources::new()), seed);
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    if uc_cfg0.is_low() {
+        println!("Waiting for DHCP...");
+        iface.set_dhcpv4(Some(Default::default()));
+    } else {
+        unwrap!(iface.add_ip_addr(IpCidr::Ipv4(IP_ADDRESS)));
+    }
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
 
-    let cfg = wait_for_config(stack).await;
-    let local_addr = cfg.address.address();
+    iface.wait_config_up().await;
+    let local_addr = unwrap!(iface.ip_addrs().first()).cidr.address();
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
     let mut mb_buf = [0; 4096];
-    loop {
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-        socket.set_timeout(Some(Duration::from_secs(1)));
+    let mut listener = TcpListener::new(stack);
+    unwrap!(listener.listen(HTTP_LISTEN_PORT));
 
+    loop {
         info!("Listening on http://{}:{}...", local_addr, HTTP_LISTEN_PORT);
-        if let Err(e) = socket.accept(HTTP_LISTEN_PORT).await {
-            defmt::error!("accept error: {:?}", e);
-            continue;
-        }
+        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
+            Ok(socket) => socket,
+            Err(e) => {
+                defmt::error!("accept error: {:?}", e);
+                continue;
+            }
+        };
+        socket.set_timeout(Some(Duration::from_secs(1)));
 
         loop {
             let _n = match socket.read(&mut mb_buf).await {
@@ -281,15 +282,6 @@ async fn main(spawner: Spawner) {
     }
 }
 
-async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
-    loop {
-        if let Some(config) = stack.config_v4() {
-            return config;
-        }
-        yield_now().await;
-    }
-}
-
 #[embassy_executor::task]
 async fn heartbeat_led(mut led: Output<'static>) {
     let mut tmr = Ticker::every(Duration::from_hz(3));
@@ -330,7 +322,7 @@ async fn ethernet_task(runner: Runner<'static, SpeSpiCs, SpeInt, SpeRst>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 

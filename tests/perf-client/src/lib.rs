@@ -2,9 +2,11 @@
 
 use defmt::{assert, *};
 use embassy_futures::join::join;
+use embassy_net::Stack;
+use embassy_net::iface::Iface;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, Stack};
-use embassy_time::{Duration, Timer, with_timeout};
+use embassy_net::wire::Ipv4Address;
+use embassy_time::{Duration, with_timeout};
 
 pub struct Expected {
     pub down_kbps: usize,
@@ -12,13 +14,12 @@ pub struct Expected {
     pub updown_kbps: usize,
 }
 
-pub async fn run(stack: Stack<'_>, expected: Expected) {
+pub async fn run(iface: Iface<'_>, expected: Expected) {
     info!("Waiting for DHCP up...");
-    while stack.config_v4().is_none() {
-        Timer::after_millis(100).await;
-    }
+    iface.wait_config_up().await;
     info!("IP addressing up!");
 
+    let stack = iface.stack();
     let down = test_download(stack).await;
     let up = test_upload(stack).await;
     let updown = test_upload_download(stack).await;
