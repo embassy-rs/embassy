@@ -112,6 +112,20 @@ impl<'d, T: Instance> Aes<'d, T> {
     }
 }
 
+impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Aes<'d, T> {
+    type InternalState = Peri<'d, T>;
+
+    fn resume(state: Self::InternalState) -> Self {
+        critical_section::with(|cs| rcc::enable_and_reset_with_cs_no_refcount::<T>(cs));
+
+        Self { _peripheral: state }
+    }
+
+    fn suspend(self) -> Self::InternalState {
+        unsafe { self._peripheral.clone_unchecked() }
+    }
+}
+
 /// Interrupt handler for the async AES API.
 ///
 /// Bind this to the instance's interrupt with `bind_interrupts!` before calling

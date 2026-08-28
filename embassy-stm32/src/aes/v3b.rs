@@ -100,6 +100,26 @@ impl<'d, T: Instance> Aes<'d, T, Blocking> {
     }
 }
 
+impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Aes<'d, T, Blocking> {
+    type InternalState = Peri<'d, T>;
+
+    fn resume(state: Self::InternalState) -> Self {
+        critical_section::with(|cs| rcc::enable_and_reset_with_cs_no_refcount::<T>(cs));
+
+        rcc::enable_and_reset::<peripherals::AES>();
+        Self {
+            _peripheral: state,
+            _marker: PhantomData,
+            dma_in: None,
+            dma_out: None,
+        }
+    }
+
+    fn suspend(self) -> Self::InternalState {
+        unsafe { self._peripheral.clone_unchecked() }
+    }
+}
+
 impl<'d, T: Instance> Aes<'d, T, Async> {
     /// Instantiates, resets, and enables the AES peripheral with DMA support.
     pub fn new<D1: DmaIn<T>, D2: DmaOut<T>>(

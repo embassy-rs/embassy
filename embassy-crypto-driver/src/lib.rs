@@ -2,6 +2,18 @@
 #![allow(missing_docs)]
 #![doc = include_str!("../README.md")]
 
+/// Error type for crypto operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CryptoError {
+    Unsupported,
+    InvalidKey,
+    InvalidInput,
+    InvalidSignature,
+    BufferTooSmall,
+    HardwareError,
+}
+
 unitrait::unitrait! {
     /// Md5 trait
     pub trait Md5 {
@@ -420,4 +432,133 @@ unitrait::unitrait! {
     }
 
     macro embassy_crypto_hmac_sha512_impl(path = $crate);
+}
+
+/// Discriminated union of all AES symmetric crypto operations.
+#[non_exhaustive]
+pub enum AesOperation<'a> {
+    Aes128EcbEncrypt {
+        block: &'a mut [u8; 16],
+        key: &'a [u8; 16],
+    },
+    Aes128EcbDecrypt {
+        block: &'a mut [u8; 16],
+        key: &'a [u8; 16],
+    },
+    Aes128Cmac {
+        key: &'a [u8; 16],
+        data: &'a [u8],
+        out: &'a mut [u8; 16],
+    },
+    AesCcm128Encrypt {
+        key: &'a [u8; 16],
+        nonce: &'a [u8],
+        aad: &'a [u8],
+        plaintext: &'a [u8],
+        ciphertext: &'a mut [u8],
+        tag: &'a mut [u8; 16],
+    },
+    AesCcm128Decrypt {
+        key: &'a [u8; 16],
+        nonce: &'a [u8],
+        aad: &'a [u8],
+        ciphertext: &'a [u8],
+        plaintext: &'a mut [u8],
+        tag: &'a [u8; 16],
+    },
+    AesCcm8_128Encrypt {
+        key: &'a [u8; 16],
+        nonce: &'a [u8],
+        aad: &'a [u8],
+        plaintext: &'a [u8],
+        ciphertext: &'a mut [u8],
+        tag: &'a mut [u8; 8],
+    },
+    AesCcm8_128Decrypt {
+        key: &'a [u8; 16],
+        nonce: &'a [u8],
+        aad: &'a [u8],
+        ciphertext: &'a [u8],
+        plaintext: &'a mut [u8],
+        tag: &'a [u8; 8],
+    },
+    AesGcm128Encrypt {
+        key: &'a [u8; 16],
+        nonce: &'a [u8],
+        aad: &'a [u8],
+        plaintext: &'a [u8],
+        ciphertext: &'a mut [u8],
+        tag: &'a mut [u8; 16],
+    },
+    AesGcm128Decrypt {
+        key: &'a [u8; 16],
+        nonce: &'a [u8],
+        aad: &'a [u8],
+        ciphertext: &'a [u8],
+        plaintext: &'a mut [u8],
+        tag: &'a [u8; 16],
+    },
+    AesGcm256Encrypt {
+        key: &'a [u8; 32],
+        nonce: &'a [u8],
+        aad: &'a [u8],
+        plaintext: &'a [u8],
+        ciphertext: &'a mut [u8],
+        tag: &'a mut [u8; 16],
+    },
+    AesGcm256Decrypt {
+        key: &'a [u8; 32],
+        nonce: &'a [u8],
+        aad: &'a [u8],
+        ciphertext: &'a [u8],
+        plaintext: &'a mut [u8],
+        tag: &'a [u8; 16],
+    },
+    Aes128CbcEncrypt {
+        iv: &'a [u8; 16],
+        buffer: &'a mut [u8],
+        key: &'a [u8; 16],
+    },
+    Aes128CbcDecrypt {
+        iv: &'a [u8; 16],
+        block: &'a mut [u8],
+        key: &'a [u8; 16],
+    },
+    Aes256CbcEncrypt {
+        iv: &'a [u8; 16],
+        block: &'a mut [u8],
+        key: &'a [u8; 32],
+    },
+    Aes256CbcDecrypt {
+        iv: &'a [u8; 16],
+        block: &'a mut [u8],
+        key: &'a [u8; 32],
+    },
+    AesCcm4_128Encrypt {
+        key: &'a [u8; 16],
+        nonce: &'a [u8],
+        aad: &'a [u8],
+        plaintext: &'a [u8],
+        ciphertext: &'a mut [u8],
+        tag: &'a mut [u8; 4],
+    },
+    AesCcm4_128Decrypt {
+        key: &'a [u8; 16],
+        nonce: &'a [u8],
+        aad: &'a [u8],
+        ciphertext: &'a [u8],
+        plaintext: &'a mut [u8],
+        tag: &'a mut [u8; 4],
+    },
+}
+
+unitrait::unitrait! {
+    /// AES trait
+    pub trait Aes {
+        /// Hash init
+        #[symbol = "_emb_crypto_aes_exec"]
+        pub fn aes_exec(op: AesOperation<'_>) -> Result<(), CryptoError>;
+    }
+
+    macro embassy_crypto_aes_impl(path = $crate);
 }

@@ -50,3 +50,6 @@ pub use common::*;
 mod _version;
 
 pub use _version::*;
+
+#[cfg(any(aes_v2, aes_v3b))]
+mod driver;
