@@ -48,8 +48,8 @@ async fn main(_spawner: Spawner) {
     cortex_m::asm::nop();
     assert!(!irq_flags.check(1));
     irq_flags.clear(0);
-    cortex_m::asm::nop();
-    assert!(irq_flags.check(1));
+    // no hard latency guarantees for PIO->CPU interrupt checking
+    assert!((0..10).any(|_| irq_flags.check(1)));
 
     info!("Test OK");
     cortex_m::asm::bkpt();

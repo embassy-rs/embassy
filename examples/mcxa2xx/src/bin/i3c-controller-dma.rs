@@ -17,7 +17,7 @@ use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::clocks::periph_helpers::{Div4, I3cClockSel};
 use embassy_mcxa::config::Config;
-use embassy_mcxa::i3c::controller::{self, BusType, I3c, IbiSlot, InterruptHandler, Operation, Payload};
+use embassy_mcxa::i3c::controller::{self, BusType, I3c, IbiEvent, IbiSlot, InterruptHandler, Operation, Payload};
 use embassy_mcxa::peripherals::I3C0;
 use embassy_mcxa::trng::Trng;
 use embassy_mcxa2xx_examples::util::verify_equal;
@@ -100,13 +100,14 @@ async fn main(_spawner: Spawner) {
             }
 
             let mut ibi_buf = [0u8; 8];
-            let (_ibi_addr, _ibi_len) = match i3c.async_wait_for_ibi(&mut ibi_buf).await {
-                Ok(ibi) => ibi,
+            match i3c.async_wait_for_ibi(&mut ibi_buf).await {
+                Ok(IbiEvent::Ibi { .. }) => {}
+                Ok(event) => panic!("unexpected IBI event: {:?}", event),
                 Err(e) => {
                     defmt::error!("[ctrl] sweep {} len={} wait_for_ibi err {:?}", sweep, transfer_len, e);
                     panic!("ctrl wait for IBI err");
                 }
-            };
+            }
 
             match i3c.async_read(TARGET_DYNAMIC_ADDR, &mut buf, BusType::I3cSdr).await {
                 Ok(n) => {

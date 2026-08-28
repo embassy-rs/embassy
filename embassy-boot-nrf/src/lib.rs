@@ -6,7 +6,7 @@ mod fmt;
 
 pub use embassy_boot::{
     AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
-    FirmwareUpdater, FirmwareUpdaterConfig,
+    FirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError,
 };
 use embassy_nrf::nvmc::PAGE_SIZE;
 use embassy_nrf::{Peri, wdt};

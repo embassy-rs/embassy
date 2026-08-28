@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
 
+USB:
+- fix: OTG_FS on STM32F1 uses 4 endpoints and 320 FIFO words.
+- fix: OTG_FS on STM32H7RS uses 6 endpoints and 320 FIFO words.
+
 DMA:
 - fix: stm32/dma: fix HTIF masking TCIF in on_irq when both flags fire simultaneously
 - fix: stm32/dma: defer read_index advance until after copy in read_raw to avoid partial-advance on overrun
@@ -68,6 +72,7 @@ RCC:
 - change: stm32/rcc/c0: rename `Hsi::sys_div` to `Hsi::div` and `HsiSysDiv` to `HsiDiv` (breaking change). The field sets HSIDIV, not SYSDIV; the old name suggested otherwise
 - fix: stm32/rcc/c0: raise the flash read access latency before anything that can raise the core frequency, so a configuration handed over from a bootloader without a reset cannot run above 24 MHz with too few wait states
 - fix: stm32/rcc/l: set the maximum flash latency before raising the MSI range, so MSI above the reset wait-state limit (e.g. 48 MHz) as sysclk no longer hardfaults in `init()` on L4, L5, WB and U0 (extends the WL-only fix from #2786; L0/L1 are unaffected, their MSI tops out at 4.194 MHz)
+- fix: stm32/rcc/f247: report correct PLL output frequencies when the source clock is not evenly divisible by the PLL input divisor
 
 SPI:
 - change default NSS configuration from active-high to active-low

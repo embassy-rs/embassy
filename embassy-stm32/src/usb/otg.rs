@@ -79,6 +79,7 @@ impl<'d, T: Instance> Driver<'d, T> {
             regs,
             state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            tx_fifo_count: T::state().endpoint_count() as u8,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             phy_type: PhyType::InternalFullSpeed,
             calculate_trdt_fn: calculate_trdt::<T>,
@@ -117,6 +118,7 @@ impl<'d, T: Instance> Driver<'d, T> {
             regs: T::regs(),
             state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            tx_fifo_count: T::state().endpoint_count() as u8,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             phy_type: PhyType::InternalHighSpeed,
             calculate_trdt_fn: calculate_trdt::<T>,
@@ -162,6 +164,7 @@ impl<'d, T: Instance> Driver<'d, T> {
             regs: T::regs(),
             state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            tx_fifo_count: T::state().endpoint_count() as u8,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             phy_type: PhyType::ExternalFullSpeed,
             calculate_trdt_fn: calculate_trdt::<T>,
@@ -209,6 +212,7 @@ impl<'d, T: Instance> Driver<'d, T> {
             regs: T::regs(),
             state: T::state(),
             fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            tx_fifo_count: T::state().endpoint_count() as u8,
             extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
             phy_type: PhyType::ExternalHighSpeed,
             calculate_trdt_fn: calculate_trdt::<T>,
@@ -473,9 +477,8 @@ foreach_interrupt!(
     (USB_OTG_FS, otg, $block:ident, GLOBAL, $irq:ident) => {
         impl crate::peripherals::USB_OTG_FS {
             cfg_if::cfg_if! {
-                if #[cfg(stm32f1)] {
-                    const ENDPOINT_COUNT: usize = 8;
-                } else if #[cfg(any(
+                if #[cfg(any(
+                    stm32f1,
                     stm32f2,
                     stm32f401,
                     stm32f405,
@@ -500,14 +503,13 @@ foreach_interrupt!(
                     stm32l4,
                     stm32u5,
                     stm32wba,
+                    stm32h7rs,
                 ))] {
                     const ENDPOINT_COUNT: usize = 6;
                 } else if #[cfg(stm32g0x1)] {
                     const ENDPOINT_COUNT: usize = 8;
-                } else if #[cfg(any(stm32h7, stm32h7rs))] {
+                } else if #[cfg(stm32h7)] {
                     const ENDPOINT_COUNT: usize = 9;
-                } else if #[cfg(any(stm32wba, stm32u5))] {
-                    const ENDPOINT_COUNT: usize = 6;
                 } else {
                     compile_error!("USB_OTG_FS peripheral is not supported by this chip.");
                 }
@@ -518,9 +520,8 @@ foreach_interrupt!(
             const HIGH_SPEED: bool = false;
 
             cfg_if::cfg_if! {
-                if #[cfg(stm32f1)] {
-                    const FIFO_DEPTH_WORDS: u16 = 128;
-                } else if #[cfg(any(
+                if #[cfg(any(
+                    stm32f1,
                     stm32f2,
                     stm32f401,
                     stm32f405,
@@ -532,9 +533,6 @@ foreach_interrupt!(
                     stm32f429,
                     stm32f437,
                     stm32f439,
-                ))] {
-                    const FIFO_DEPTH_WORDS: u16 = 320;
-                } else if #[cfg(any(
                     stm32f412,
                     stm32f413,
                     stm32f423,
@@ -545,14 +543,13 @@ foreach_interrupt!(
                     stm32l4,
                     stm32u5,
                     stm32wba,
+                    stm32h7rs,
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 320;
                 } else if #[cfg(stm32g0x1)] {
                     const FIFO_DEPTH_WORDS: u16 = 512;
-                } else if #[cfg(any(stm32h7, stm32h7rs))] {
+                } else if #[cfg(stm32h7)] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
-                } else if #[cfg(any(stm32wba, stm32u5))] {
-                    const FIFO_DEPTH_WORDS: u16 = 320;
                 } else {
                     compile_error!("USB_OTG_FS peripheral is not supported by this chip.");
                 }

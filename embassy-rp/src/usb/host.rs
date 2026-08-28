@@ -72,6 +72,7 @@ impl SealedHostInstance for crate::peripherals::USB {
 /// RP2040 USB host driver handle.
 pub struct Driver<'d, T: Instance> {
     phantom: PhantomData<&'d mut T>,
+    connected: bool,
 }
 
 impl<'d, T: SealedHostInstance> Driver<'d, T> {
@@ -128,14 +129,17 @@ impl<'d, T: SealedHostInstance> Driver<'d, T> {
         // Reset per-instance allocator state.
         T::host_state().reset();
 
-        Self { phantom: PhantomData }
+        Self {
+            phantom: PhantomData,
+            connected: false,
+        }
     }
 }
 
 /// USB endpoint.
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Channel<'d, T: Instance, E, D> {
+pub struct Channel<'d, T: SealedHostInstance, E, D> {
     _phantom: PhantomData<(&'d mut T, E, D)>,
     index: usize,
     buf: EndpointBuffer<T>,
@@ -153,7 +157,7 @@ pub struct Channel<'d, T: Instance, E, D> {
     pre: bool,
 }
 
-impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
+impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
     /// [EP_MEMORY]-relative address
     fn new(index: usize, buf_addr: u16, buf_len: u16, ep_info: &EndpointInfo, dev_addr: u8, pre: bool) -> Self {
         // TODO: assert only in debug?
@@ -161,9 +165,7 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
         assert!(buf_addr + buf_len <= EP_MEMORY_SIZE as u16);
         assert!(ep_info.max_packet_size <= buf_len);
 
-        // TODO: Support isochronous, bulk, and interrupt OUT
-        assert!(E::ep_type() != EndpointType::Isochronous);
-        assert!(E::ep_type() != EndpointType::Bulk);
+        // TODO: Support interrupt OUT
         assert!(!(E::ep_type() == EndpointType::Interrupt && D::is_out()));
 
         if ep_info.ep_type == EndpointType::Interrupt {
@@ -193,6 +195,57 @@ impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
 type BufferControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpBufferControl, rp_pac::common::RW>;
 type EpControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpControl, rp_pac::common::RW>;
 type AddrControlReg = rp_pac::common::Reg<rp_pac::usb::regs::AddrEndpX, rp_pac::common::RW>;
+
+struct TransactionGuard<T: SealedHostInstance> {
+    state: &'static HostState,
+    index: usize,
+    interrupt: bool,
+    ep_control: EpControlReg,
+    buffer_control: BufferControlReg,
+    transaction_active: bool,
+    abort_on_drop: bool,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: SealedHostInstance> TransactionGuard<T> {
+    fn arm(&mut self) {
+        self.transaction_active = true;
+    }
+
+    fn disarm(&mut self) {
+        self.transaction_active = false;
+    }
+}
+
+impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
+    fn drop(&mut self) {
+        let selected = self.state.current_channel.load(Ordering::Relaxed);
+        if self.interrupt || selected == self.index || selected == 0 {
+            if !self.interrupt {
+                if self.transaction_active && self.abort_on_drop {
+                    let regs = T::regs();
+                    regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
+                    while regs.sie_ctrl().read().stop_trans() {}
+                    regs.sie_status().write_clear(|w| {
+                        w.set_trans_complete(true);
+                        w.set_stall_rec(true);
+                        w.set_rx_timeout(true);
+                        w.set_rx_overflow(true);
+                    });
+                    regs.buff_status().write_clear(|w| w.0 = 0b11);
+                }
+                self.state.current_channel.store(0, Ordering::Relaxed);
+            }
+
+            self.ep_control.modify(|w| {
+                w.set_interrupt_per_buff(false);
+                w.set_enable(false);
+            });
+            self.buffer_control.modify(|w| w.set_available(0, false));
+        }
+    }
+}
+
 impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
     /// Get channel waker
     fn waker(&self) -> &AtomicWaker {
@@ -401,24 +454,16 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         }
     }
 
-    /// Clear current active channel and disable interrupt
-    ///
-    /// Safe to call outside of transfer context
-    fn clear_current(&self) {
-        // If this channel is selected
-        if self.is_ready_for_transaction() {
-            if !Self::is_interrupt_in() {
-                T::host_state().current_channel.store(0, Ordering::Relaxed);
-            }
-
-            self.ep_control().modify(|w| {
-                w.set_interrupt_per_buff(false);
-                w.set_enable(false);
-            });
-
-            self.buffer_control().modify(|w| {
-                w.set_available(0, false);
-            })
+    fn transaction_guard(&self) -> TransactionGuard<T> {
+        TransactionGuard {
+            state: T::host_state(),
+            index: self.index,
+            interrupt: Self::is_interrupt_in(),
+            ep_control: self.ep_control(),
+            buffer_control: self.buffer_control(),
+            transaction_active: false,
+            abort_on_drop: E::ep_type() == EndpointType::Bulk && D::is_in(),
+            _phantom: PhantomData,
         }
     }
 
@@ -445,8 +490,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             w.set_receive_data(false);
             w.set_send_setup(true);
         });
-
-        self.pid = true;
     }
 
     /// Reload interrupt channel buffer register
@@ -462,7 +505,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             w.set_available(0, true);
         });
 
-        self.pid = !self.pid;
         // TODO: SOF?
         // T::regs().sie_ctrl().modify(|w| {
         //     w.set_sof_en(true);
@@ -479,20 +521,22 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Set DATA IN transaction
     ///
-    /// WARNING: This flips PID
-    fn set_data_in(&mut self, len: u16) {
+    fn set_data_in(&mut self, len: u16, pid: bool) {
         assert!(E::ep_type() != EndpointType::Interrupt);
+        let pid = if E::ep_type() == EndpointType::Isochronous {
+            false
+        } else {
+            pid
+        };
 
         self.buffer_control().write(|w| {
-            w.set_pid(0, self.pid);
+            w.set_pid(0, pid);
             w.set_full(0, false);
             w.set_length(0, len);
             w.set_last(0, true);
             w.set_reset(true);
             w.set_available(0, true);
         });
-
-        self.pid = !self.pid;
 
         T::regs().sie_ctrl().modify(|w| {
             w.set_send_data(false);
@@ -503,8 +547,13 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Set DATA OUT transaction and copy data to buffer
     /// Returns count of copied bytes
-    fn set_data_out(&mut self, data: &[u8]) -> usize {
+    fn set_data_out(&mut self, data: &[u8], pid: bool) -> usize {
         assert!(E::ep_type() != EndpointType::Interrupt);
+        let pid = if E::ep_type() == EndpointType::Isochronous {
+            false
+        } else {
+            pid
+        };
 
         let chunk = if data.len() > 0 {
             data.chunks(self.max_packet_size as _).next().unwrap()
@@ -516,14 +565,12 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
         self.buffer_control().write(|w| {
             w.set_available(0, true);
-            w.set_pid(0, self.pid);
+            w.set_pid(0, pid);
             w.set_full(0, true);
             w.set_length(0, chunk.len() as _);
             w.set_last(0, true);
             w.set_reset(true);
         });
-
-        self.pid = !self.pid;
 
         T::regs().sie_ctrl().modify(|w| {
             w.set_send_data(true);
@@ -532,6 +579,12 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         });
 
         chunk.len()
+    }
+
+    fn advance_pid(&mut self) {
+        if E::ep_type() != EndpointType::Isochronous {
+            self.pid = !self.pid;
+        }
     }
 
     /// Clear buffer interrupt bit
@@ -552,6 +605,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
         // Set this channel for transaction
         self.set_current();
+        let _guard = self.transaction_guard();
 
         trace!("SEND SETUP");
         // Prepare HW
@@ -559,9 +613,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
         // Wait for SETUP end
         let res = self.wait_transaction().await;
-
-        self.clear_current();
-
+        if res.is_ok() {
+            self.pid = true;
+        }
         res
     }
 
@@ -572,20 +626,20 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
         // Set this channel for transaction
         self.set_current();
+        let _guard = self.transaction_guard();
 
         // Status packet always have DATA1
         trace!("SEND STATUS");
-        self.pid = true;
         if active_direction_out {
-            self.set_data_in(0);
+            self.set_data_in(0, true);
         } else {
-            self.set_data_out(&[]);
+            self.set_data_out(&[], true);
         }
 
         let res = self.wait_transaction().await;
-
-        self.clear_current();
-
+        if res.is_ok() {
+            self.pid = false;
+        }
         res
     }
 }
@@ -648,6 +702,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
         // Set this channel for transaction
         self.set_current();
+        let mut guard = self.transaction_guard();
 
         let mut count: usize = 0;
 
@@ -656,12 +711,18 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
                 trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
                 self.interrupt_reload();
                 self.wait_available().await;
+                self.advance_pid();
             } else {
                 trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
-                self.set_data_in(buf[count..].len() as _);
-                if let Err(e) = self.wait_transaction().await {
+                let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
+                self.set_data_in(packet_len as u16, self.pid);
+                guard.arm();
+                let result = self.wait_transaction().await;
+                guard.disarm();
+                if let Err(e) = result {
                     break Err(e);
                 }
+                self.advance_pid();
             }
 
             let free = &mut buf[count..];
@@ -682,8 +743,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             }
         };
 
-        self.clear_current();
-
         res
     }
 
@@ -698,16 +757,21 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
         // Set this channel for transaction
         self.set_current();
+        let mut guard = self.transaction_guard();
 
         let mut count = 0;
 
         let res = loop {
             trace!("CHANNEL {} START WRITE", self.index);
-            let packet = self.set_data_out(buf);
+            let packet = self.set_data_out(&buf[count..], self.pid);
 
-            if let Err(e) = self.wait_transaction().await {
+            guard.arm();
+            let result = self.wait_transaction().await;
+            guard.disarm();
+            if let Err(e) = result {
                 break Err(e);
             }
+            self.advance_pid();
 
             trace!("WRITE DONE, tx_len = {}", packet);
 
@@ -716,14 +780,20 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             if count == buf.len() {
                 if packet == self.max_packet_size as usize && ensure_transaction_end {
                     trace!("CHANNEL {} START ZLP WRITE", self.index);
-                    self.set_data_out(&[]);
+                    self.set_data_out(&[], self.pid);
+                    guard.arm();
+                    let result = self.wait_transaction().await;
+                    guard.disarm();
+                    if let Err(e) = result {
+                        break Err(e);
+                    }
+                    self.advance_pid();
                     trace!("ZLP WRITE DONE");
                 }
                 break Ok(());
             }
         };
 
-        self.clear_current();
         res
     }
 
@@ -736,16 +806,28 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     }
 }
 
-// TODO: channel should have reference to `allocated_pipes`
-// impl<'d, T: Instance, E: pipe::Type, D: pipe::Direction> Drop for Channel<'d, T, E, D> {
-//     fn drop(&mut self) {
-//         if E::ep_type() == EndpointType::Interrupt {
-//             // Clear interrupts
-//             channel.clear_current();
-//             self.allocated_pipes.fetch_and(!(1 << channel.index), Ordering::Relaxed);
-//         }
-//     }
-// }
+impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
+    fn drop(&mut self) {
+        if self.index < 16 {
+            // Disarm and clear stale state so the interrupt slot can be reused safely.
+            let regs = T::regs();
+            let dpram = T::dpram();
+
+            regs.int_ep_ctrl().modify(|w| {
+                w.set_int_ep_active(w.int_ep_active() & !(1 << (self.index - 1)));
+            });
+            dpram.ep_in_control(self.index - 1).write(|w| w.0 = 0);
+            dpram.ep_in_buffer_control(self.index).write(|w| w.0 = 0);
+            regs.buff_status().write_clear(|w| w.0 = 0b11 << (self.index * 2));
+
+            let state = T::host_state();
+            critical_section::with(|_| {
+                let pipes = &state.allocated_pipes;
+                pipes.store(pipes.load(Ordering::Relaxed) & !(1 << self.index), Ordering::Relaxed);
+            });
+        }
+    }
+}
 
 /// Pipe allocator handle for [`Driver`].
 pub struct Allocator<'d, T: Instance> {
@@ -816,8 +898,7 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
             _ => false,
         };
 
-        // Read current state
-        let was = is_connected(T::regs().sie_status().read().speed());
+        let was = self.connected;
 
         // Clear interrupt status
         T::regs().sie_status().write_clear(|w| {
@@ -845,6 +926,8 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
         })
         .await;
 
+        self.connected = matches!(ev, DeviceEvent::Connected(_));
+
         // Per the `UsbHostController` contract, drive a bus reset before
         // reporting the attach so the device transitions from the Powered
         // into the Default state (USB 2.0 §9.1.2). RP2040 is full-speed
@@ -862,6 +945,10 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
         });
 
         embassy_time::Timer::after_millis(50).await;
+
+        T::regs().sie_ctrl().modify(|w| {
+            w.set_reset_bus(false);
+        });
     }
 }
 

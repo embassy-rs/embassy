@@ -131,7 +131,7 @@ impl RtcDriver {
     ) {
         let r = regs_gp16();
 
-        rcc::enable_and_reset_with_cs::<T>(cs);
+        rcc::enable_and_reset_with_cs_no_refcount::<T>(cs);
 
         let timer_freq = T::frequency();
 
@@ -166,9 +166,6 @@ impl RtcDriver {
         unsafe {
             <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable();
             <T as CoreInstance>::UpdateInterrupt::enable();
-
-            #[cfg(feature = "low-power")]
-            crate::rcc::reset_stop_refcount(cs, stop_mode_reached);
         }
     }
 

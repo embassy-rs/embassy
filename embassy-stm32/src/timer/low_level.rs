@@ -313,11 +313,13 @@ struct PscArrConfig {
     actual_period_clocks: u64,
 }
 
-/// Error returned when the requested timer period is out of range.
+/// Error returned when the requested timer configuration is out of range.
 ///
 /// This occurs when:
 /// - For `RoundTo::Faster`: The requested period is less than 2 (minimum achievable is 2, since ARR >= 1).
 /// - For `RoundTo::Slower`: The required prescaler exceeds 16 bits.
+/// - The requested frequency is zero.
+/// - Converting the requested period to timer clock cycles overflows `u64`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OutOfRangeError;
@@ -497,17 +499,40 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
-    pub fn set_period_clocks(&self, mut clocks: u64, round: RoundTo) {
+    ///
+    /// # Panics
+    ///
+    /// Panics if the requested period cannot be represented by the timer.
+    pub fn set_period_clocks(&self, clocks: u64, round: RoundTo) {
+        unwrap!(self.try_set_period_clocks(clocks, round));
+    }
+
+    /// Try to set the timer period in timer clock cycles.
+    ///
+    /// In the edge-aligned mode, the timer will wrap in given clock cycles.
+    /// In the center-aligned mode, the timer will count up and down in given clock cycles.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OutOfRangeError`] if the requested period cannot be represented by the timer.
+    pub fn try_set_period_clocks(&self, mut clocks: u64, round: RoundTo) -> Result<(), OutOfRangeError> {
         if T::is_center_aligned() {
             clocks = clocks / 2;
         }
-        self.set_period_clocks_internal(clocks, round, T::Word::bits());
+        self.try_set_period_clocks_internal(clocks, round, T::Word::bits())
     }
 
-    pub(crate) fn set_period_clocks_internal(&self, clocks: u64, round: RoundTo, max_arr_bits: usize) {
-        // TODO: we might want to propagate errors to the user instead of panicking.
-        let config = unwrap!(calculate_psc_arr(clocks, round, max_arr_bits));
-        let arr: T::Word = unwrap!(T::Word::try_from(config.arr));
+    pub(crate) fn try_set_period_clocks_internal(
+        &self,
+        clocks: u64,
+        round: RoundTo,
+        max_arr_bits: usize,
+    ) -> Result<(), OutOfRangeError> {
+        let config = calculate_psc_arr(clocks, round, max_arr_bits)?;
+        let arr: T::Word = T::Word::try_from(config.arr).map_err(|_| OutOfRangeError)?;
 
         let regs = self.regs_gp32_unchecked();
         regs.psc().write_value(config.psc);
@@ -515,6 +540,7 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         regs.arr().write(|r| r.set_arr(unwrap!(arr.try_into())));
         #[cfg(not(stm32l0))]
         regs.arr().write_value(arr.into());
+        Ok(())
     }
 
     /// Set the frequency - how many times per second.
@@ -525,12 +551,30 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     ///
     /// The actual frequency may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the requested frequency is zero or cannot be represented by the timer.
     pub fn set_frequency(&self, frequency: Hertz, round: RoundTo) {
+        unwrap!(self.try_set_frequency(frequency, round));
+    }
+
+    /// Try to set the timer frequency.
+    ///
+    /// The actual frequency may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OutOfRangeError`] if the requested frequency is zero or cannot be represented by the timer.
+    pub fn try_set_frequency(&self, frequency: Hertz, round: RoundTo) -> Result<(), OutOfRangeError> {
         let f = frequency.0;
-        assert!(f > 0);
+        if f == 0 {
+            return Err(OutOfRangeError);
+        }
         let timer_f = T::frequency().0 as u64;
         let clocks = div_round(timer_f, f as u64, round);
-        self.set_period_clocks(clocks, round);
+        self.try_set_period_clocks(clocks, round)
     }
 
     /// Set the timer period in milliseconds.
@@ -540,10 +584,23 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the requested period cannot be represented by the timer.
     pub fn set_period_ms(&self, ms: u32, round: RoundTo) {
+        unwrap!(self.try_set_period_ms(ms, round));
+    }
+
+    /// Try to set the timer period in milliseconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OutOfRangeError`] if the requested period cannot be represented by the timer.
+    pub fn try_set_period_ms(&self, ms: u32, round: RoundTo) -> Result<(), OutOfRangeError> {
         let timer_f = T::frequency().0 as u64;
         let clocks = div_round(timer_f * ms as u64, 1_000, round);
-        self.set_period_clocks(clocks, round);
+        self.try_set_period_clocks(clocks, round)
     }
 
     /// Set the timer period in microseconds.
@@ -553,10 +610,23 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the requested period cannot be represented by the timer.
     pub fn set_period_us(&self, us: u32, round: RoundTo) {
+        unwrap!(self.try_set_period_us(us, round));
+    }
+
+    /// Try to set the timer period in microseconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OutOfRangeError`] if the requested period cannot be represented by the timer.
+    pub fn try_set_period_us(&self, us: u32, round: RoundTo) -> Result<(), OutOfRangeError> {
         let timer_f = T::frequency().0 as u64;
         let clocks = div_round(timer_f * us as u64, 1_000_000, round);
-        self.set_period_clocks(clocks, round);
+        self.try_set_period_clocks(clocks, round)
     }
 
     /// Set the timer period in seconds.
@@ -566,10 +636,23 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the requested period cannot be represented by the timer.
     pub fn set_period_secs(&self, secs: u32, round: RoundTo) {
+        unwrap!(self.try_set_period_secs(secs, round));
+    }
+
+    /// Try to set the timer period in seconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OutOfRangeError`] if the requested period cannot be represented by the timer.
+    pub fn try_set_period_secs(&self, secs: u32, round: RoundTo) -> Result<(), OutOfRangeError> {
         let timer_f = T::frequency().0 as u64;
         let clocks = timer_f * secs as u64;
-        self.set_period_clocks(clocks, round);
+        self.try_set_period_clocks(clocks, round)
     }
 
     /// Set the timer period using an `embassy_time::Duration`.
@@ -579,11 +662,27 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
     ///
     /// The actual period may differ from the requested value due to hardware
     /// limitations; the `round` parameter controls how rounding is performed.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the requested period cannot be represented by the timer.
     #[cfg(feature = "time")]
     pub fn set_period(&self, period: embassy_time::Duration, round: RoundTo) {
+        unwrap!(self.try_set_period(period, round));
+    }
+
+    /// Try to set the timer period using an [`embassy_time::Duration`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`OutOfRangeError`] if converting the period to timer clock cycles overflows or the resulting period
+    /// cannot be represented by the timer.
+    #[cfg(feature = "time")]
+    pub fn try_set_period(&self, period: embassy_time::Duration, round: RoundTo) -> Result<(), OutOfRangeError> {
         let timer_f = T::frequency().0 as u64;
-        let clocks = div_round(timer_f * period.as_ticks(), embassy_time::TICK_HZ, round);
-        self.set_period_clocks(clocks, round);
+        let timer_ticks = timer_f.checked_mul(period.as_ticks()).ok_or(OutOfRangeError)?;
+        let clocks = div_round(timer_ticks, embassy_time::TICK_HZ, round);
+        self.try_set_period_clocks(clocks, round)
     }
 
     /// Set tick frequency.
