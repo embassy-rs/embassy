@@ -20,6 +20,16 @@ pub enum Resolution {
     Bits12,
 }
 
+impl Resolution {
+    /// Getting maximum value for current resolution
+    pub fn to_max_count(&self) -> u16 {
+        match &self {
+            Self::Bits12 => (1 << 12) - 1,
+            Self::Bits16 => u16::MAX,
+        }
+    }
+}
+
 /// Averaging selection
 pub enum Averaging {
     None,
@@ -332,14 +342,6 @@ impl<'d> Adc<'d, Async> {
             }
         })
         .await
-    }
-}
-
-/// Getting maximum value for current resolution
-pub fn resolution_to_max_count(resolution: Resolution) -> u16 {
-    match resolution {
-        Resolution::Bits12 => (1 << 12) - 1,
-        Resolution::Bits16 => u16::MAX,
     }
 }
 
