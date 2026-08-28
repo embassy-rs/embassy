@@ -362,7 +362,7 @@ impl<T: Instance> HardwareSemaphore<T> {
         _peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, HardwareSemaphoreInterruptHandler<T>> + 'd,
     ) -> Self {
-        critical_section::with(|cs| init_hsem(cs));
+        critical_section::with(|cs| init_hsem(cs, false));
 
         HardwareSemaphore { _type: PhantomData }
     }
@@ -437,10 +437,14 @@ impl<T: Instance> HardwareSemaphore<T> {
     }
 }
 
-pub(crate) fn init_hsem(cs: CriticalSection) {
+pub(crate) fn init_hsem(cs: CriticalSection, no_refcount: bool) {
     // Do not attempt to reset the HSEM, as a race condition and deadlock can occur between cores
     // It is assumed the HSEM is already initialized during `init_primary()`
-    crate::rcc::enable_with_cs::<HSEM>(cs);
+    if no_refcount {
+        crate::rcc::enable_with_cs_no_refcount::<HSEM>(cs);
+    } else {
+        crate::rcc::enable_with_cs::<HSEM>(cs);
+    }
 
     <HSEM as Instance>::Interrupt::unpend();
     unsafe {

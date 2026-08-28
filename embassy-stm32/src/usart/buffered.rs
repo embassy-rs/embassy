@@ -532,7 +532,18 @@ impl<'d> BufferedUart<'d> {
                 .min(config.rx_fifo_threshold),
             );
         });
-        configure(info, self.rx.kernel_clock, &config, true, true)?;
+
+        // TODO support synchronous USART
+        configure(
+            info,
+            self.rx.kernel_clock,
+            &config,
+            false,
+            true,
+            true,
+            #[cfg(usart_v4)]
+            false,
+        )?;
 
         info.regs.cr1().modify(|w| {
             w.set_rxneie(cfg!(not(usart_v4)));

@@ -164,6 +164,8 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
+embassy-crypto-driver = { version = "0.1.0", path = "../embassy-crypto-driver" }
+embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
@@ -213,11 +215,11 @@ heapless = "0.9.3"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-3cab0b87f8195f13acae6282236a8ff042d68309" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-bbb4dc22cd1d257733291e21c8532d406b5a4873" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-3cab0b87f8195f13acae6282236a8ff042d68309" , default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-bbb4dc22cd1d257733291e21c8532d406b5a4873" , default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
@@ -245,6 +247,7 @@ defmt = [
     "embedded-io-async/defmt",
     "embassy-usb-driver/defmt",
     "embassy-net-driver/defmt",
+    "embassy-ptp-driver?/defmt",
     "embassy-time?/defmt",
     "embassy-usb-synopsys-otg/defmt",
     "stm32-metapac/defmt",
@@ -253,7 +256,7 @@ defmt = [
 ## Use log for logging
 log = ["dep:log"]
 ## Enable Ethernet PTP hardware timestamping.
-ptp = ["embassy-net-driver/packetmeta-timestamp"]
+ptp = ["embassy-net-driver/packetmeta-timestamp", "dep:embassy-ptp-driver"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
 
@@ -1153,7 +1156,7 @@ stm32g471rc = [ "stm32-metapac/stm32g471rc" ]
 stm32g471re = [ "stm32-metapac/stm32g471re" ]
 stm32g471vc = [ "stm32-metapac/stm32g471vc" ]
 stm32g471ve = [ "stm32-metapac/stm32g471ve" ]
-stm32g473cb = [ "stm32-metapac/stm32g473cb", "dual-bank" ]
+stm32g473cb = [ "stm32-metapac/stm32g473cb" ]
 stm32g473cc = [ "stm32-metapac/stm32g473cc" ]
 stm32g473ce = [ "stm32-metapac/stm32g473ce" ]
 stm32g473mb = [ "stm32-metapac/stm32g473mb" ]

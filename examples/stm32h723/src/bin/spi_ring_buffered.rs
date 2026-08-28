@@ -47,13 +47,22 @@ async fn main(spawner: Spawner) {
     let tx_cs = Output::new(p.PA4, Level::Low, Speed::VeryHigh);
     spawner.spawn(tx_task(tx_spi, tx_cs).unwrap());
 
-    let rx_spi = Spi::new_rxonly_slave(p.SPI2, p.PB13, p.PB15, p.PB12, p.DMA1_CH3, Irqs, spi_config);
+    let rx_spi = Spi::new_rxonly_slave(
+        p.SPI2,
+        p.PB13,
+        p.PB15,
+        p.PB12,
+        p.DMA1_CH3,
+        Some(p.EXTI12),
+        Irqs,
+        spi_config,
+    );
 
     #[unsafe(link_section = ".sram1")]
     static mut BUF: [u8; 64] = [0; 64];
     let buf = unsafe { &mut BUF[..] };
 
-    let rx_spi = rx_spi.into_ring_buffered(buf, p.EXTI12, Irqs);
+    let rx_spi = rx_spi.into_ring_buffered(buf);
     spawner.spawn(rx_task(rx_spi).unwrap());
 }
 

@@ -291,6 +291,11 @@ impl<'d, T: DefaultInstance> Adc<'d, T> {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
+    /// Read the currently configured resolution for this ADC driver and return it.
+    pub fn resolution(&self) -> Resolution {
+        T::regs().cfgr1().read().res().into()
+    }
+
     #[cfg(adc_l0)]
     pub fn set_ckmode(&mut self, ckmode: Ckmode) {
         // set ADC clock mode

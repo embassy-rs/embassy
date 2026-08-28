@@ -57,8 +57,10 @@ pub mod mode {
     }
 
     /// Blocking mode.
+    #[derive(Clone, Copy)]
     pub struct Blocking;
     /// Async mode.
+    #[derive(Clone, Copy)]
     pub struct Async;
 
     impl_mode!(Blocking, false);
@@ -88,14 +90,14 @@ pub mod aes;
 pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
-#[cfg(any(comp_u5, comp_v1, comp_v2))]
+#[cfg(any(comp_u5, comp_v1, comp_v2, comp_u0))]
 pub mod comp;
 #[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
 #[cfg(any(aes_v2, aes_v3b, saes_n6))]
 mod crypto;
 
-#[cfg(not(any(comp_u5, comp_v1, comp_v2)))]
+#[cfg(not(any(comp_u5, comp_v1, comp_v2, comp_u0)))]
 pub mod comp {
     //! Comp stub module to provide consistent API
 
@@ -110,12 +112,12 @@ pub mod comp {
 // Stub macros for COMP pin implementations when comp module is not compiled.
 // These are needed because build.rs generates macro calls for all chips with COMP,
 // but the actual macros are only defined in the comp module.
-#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2))))]
+#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2, comp_u0))))]
 #[allow(unused_macros)]
 macro_rules! impl_comp_inp_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
 }
-#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2))))]
+#[cfg(all(comp, not(any(comp_u5, comp_v1, comp_v2, comp_u0))))]
 #[allow(unused_macros)]
 macro_rules! impl_comp_inm_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
@@ -178,6 +180,7 @@ pub mod i3c;
 pub mod icache;
 #[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
+pub mod suspend;
 // JPEG is unavailable on some families (e.g. H7 uses different DMA signal names).
 #[cfg(all(jpeg, any(stm32n6, stm32u5f9, stm32u5g9)))]
 pub mod jpeg;
@@ -354,59 +357,6 @@ pub use embassy_hal_internal::{Peri, PeripheralType};
 pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use stm32_metapac as pac;
-
-#[cfg(not(feature = "low-power"))]
-pub mod low_power {
-    //! Low-power stub module to provide consistent API
-
-    trait_set::trait_set! {
-        /// Peripheral that can be suspended
-        #[allow(private_bounds)]
-        pub trait SuspendablePeripheral = SealedSuspendablePeripheral;
-    }
-
-    pub(crate) trait SealedSuspendablePeripheral {}
-
-    /// A mutex-like object to resume a peripheral. Does nothing when `low-power` is not enabled.
-    pub struct ResumablePeripheral<T: SuspendablePeripheral>(T);
-
-    impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
-        /// Create the object. Will suspend the peripheral as soon as it is passed.
-        pub fn new(peripheral: T) -> Self {
-            Self(peripheral)
-        }
-
-        /// Suspend the peripheral, if it is resumed
-        pub fn suspend(&mut self) {}
-
-        /// Resume the peripheral and get a mutable reference to it
-        pub fn resume(&mut self) -> &mut T {
-            &mut self.0
-        }
-
-        /// Get the resumable peripheral guard
-        pub fn borrow(&mut self) -> ResumablePeripheralGuard<'_, T> {
-            ResumablePeripheralGuard(&mut self.0)
-        }
-    }
-
-    /// A mutex-like object guard, that when held, activates the peripheral
-    pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral>(&'a mut T);
-
-    impl<'a, T: SuspendablePeripheral> core::ops::Deref for ResumablePeripheralGuard<'a, T> {
-        type Target = T;
-
-        fn deref(&self) -> &T {
-            self.0
-        }
-    }
-
-    impl<'a, T: SuspendablePeripheral> core::ops::DerefMut for ResumablePeripheralGuard<'a, T> {
-        fn deref_mut(&mut self) -> &mut T {
-            &mut self.0
-        }
-    }
-}
 
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
@@ -615,7 +565,7 @@ mod dual_core {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
         // Enable hardware semaphore.
-        critical_section::with(|cs| crate::hsem::init_hsem(cs));
+        critical_section::with(|cs| crate::hsem::init_hsem(cs, true));
 
         #[cfg(stm32h7)]
         {
@@ -650,7 +600,7 @@ mod dual_core {
     /// A hardware semaphore is used to coordinate the init with the second core.
     pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
         critical_section::with(|cs| {
-            rcc::enable_with_cs::<peripherals::HSEM>(cs);
+            rcc::enable_with_cs_no_refcount::<peripherals::HSEM>(cs);
         });
 
         // Wait for the semaphore to be unlocked by the primary core
@@ -805,16 +755,16 @@ fn init_hw(config: Config) -> Peripherals {
 
         #[cfg(any(stm32h7rs))]
         // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
-        rcc::enable_with_cs::<peripherals::SYSCFG>(cs);
+        rcc::enable_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5)))]
-        rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
+        rcc::enable_and_reset_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5)))]
-        rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);
+        rcc::enable_and_reset_with_cs_no_refcount::<peripherals::PWR>(cs);
         #[cfg(all(
             flash,
             not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs, stm32c5))
         ))]
-        rcc::enable_and_reset_with_cs::<peripherals::FLASH>(cs);
+        rcc::enable_and_reset_with_cs_no_refcount::<peripherals::FLASH>(cs);
 
         // Enable the VDDIO2 power supply on chips that have it.
         // Note that this requires the PWR peripheral to be enabled first.
@@ -831,11 +781,7 @@ fn init_hw(config: Config) -> Peripherals {
         {
             use crate::pac::pwr::vals;
             crate::pac::PWR.svmcr().modify(|w| {
-                w.set_io2sv(if config.enable_independent_io_supply {
-                    vals::Io2sv::B0x1
-                } else {
-                    vals::Io2sv::B0x0
-                });
+                w.set_io2sv(config.enable_independent_io_supply);
             });
 
             // Ultra-low-power BOR0 mode for lowest Stop 1 / Standby consumption.
@@ -898,14 +844,14 @@ fn init_hw(config: Config) -> Peripherals {
                     vals::Icrampds::Retained
                 });
                 w.set_prampds(if sram.otg_sram {
-                    vals::Prampds::B0x1
+                    vals::Srampds::PoweredOff
                 } else {
-                    vals::Prampds::B0x0
+                    vals::Srampds::PoweredOn
                 });
                 w.set_pkarampds(if sram.pka_sram {
-                    vals::Pkarampds::B0x1
+                    vals::Srampds::PoweredOff
                 } else {
-                    vals::Pkarampds::B0x0
+                    vals::Srampds::PoweredOn
                 });
             });
         }
@@ -985,7 +931,7 @@ fn init_hw(config: Config) -> Peripherals {
 
             // must be before time_driver init to allow refcount reset
             #[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
-            hsem::init_hsem(cs);
+            hsem::init_hsem(cs, true);
 
             // must be after rcc init
             #[cfg(feature = "_time-driver")]

@@ -11,6 +11,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::PeripheralType;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
+pub use embedded_hal_02::spi::{Phase, Polarity};
 use futures_util::future::{Either, select};
 
 use crate::Peri;
@@ -19,7 +20,7 @@ use crate::dma::ChannelAndRequest;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
-use crate::mode::{Async, Blocking, Mode};
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 #[cfg(not(any(usart_v1, usart_v2)))]
 use crate::pac::usart::Lpuart as Regs;
 #[cfg(any(usart_v1, usart_v2))]
@@ -183,6 +184,17 @@ impl Duplex {
     }
 }
 
+/// USART synchronous mode
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Mode {
+    /// Clock polarity
+    pub polarity: Polarity,
+    /// Clock phase
+    pub phase: Phase,
+    /// Output a clock pulse on the last bit if this flag is set to `true`
+    pub last_bit: bool,
+}
+
 #[non_exhaustive]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -207,7 +219,7 @@ pub enum ConfigError {
 }
 
 #[non_exhaustive]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 /// Config
 pub struct Config {
     /// Baud rate
@@ -218,6 +230,9 @@ pub struct Config {
     pub stop_bits: StopBits,
     /// Parity type
     pub parity: Parity,
+
+    /// Clock mode (when the USART is used in synchronous mode)
+    pub mode: Mode,
 
     /// If true: on a read-like method, if there is a latent error pending,
     /// the read will abort and the error will be reported and cleared
@@ -261,11 +276,18 @@ pub struct Config {
     /// Set this to true to enable the IrDA mode register
     pub irda_enable: bool,
 
+    /// Set the pull configuration for the CK pin (if in synchronous slave mode).
+    #[cfg(usart_v4)]
+    pub ck_pull: Pull,
+
     /// Set the pull configuration for the RX pin.
     pub rx_pull: Pull,
 
     /// Set the pull configuration for the CTS pin.
     pub cts_pull: Pull,
+
+    /// Set the pin configuration for the CK pin (if in synchronous master mode).
+    pub ck_config: OutputConfig,
 
     /// Set the pin configuration for the TX pin.
     pub tx_config: OutputConfig,
@@ -312,6 +334,20 @@ impl Config {
         };
         AfType::input(self.rx_pull)
     }
+
+    fn raw_polarity(&self) -> vals::Cpol {
+        match self.mode.polarity {
+            Polarity::IdleHigh => vals::Cpol::High,
+            Polarity::IdleLow => vals::Cpol::Low,
+        }
+    }
+
+    fn raw_phase(&self) -> vals::Cpha {
+        match self.mode.phase {
+            Phase::CaptureOnSecondTransition => vals::Cpha::Second,
+            Phase::CaptureOnFirstTransition => vals::Cpha::First,
+        }
+    }
 }
 
 impl Default for Config {
@@ -321,6 +357,11 @@ impl Default for Config {
             data_bits: DataBits::DataBits8,
             stop_bits: StopBits::STOP1,
             parity: Parity::ParityNone,
+            mode: Mode {
+                polarity: Polarity::IdleLow,
+                phase: Phase::CaptureOnFirstTransition,
+                last_bit: false,
+            },
             // historical behavior
             detect_previous_overrun: false,
             eager_reads: None,
@@ -333,8 +374,11 @@ impl Default for Config {
             #[cfg(any(usart_v3, usart_v4))]
             invert_rx: false,
             irda_enable: false,
+            #[cfg(usart_v4)]
+            ck_pull: Pull::None,
             rx_pull: Pull::None,
             cts_pull: Pull::None,
+            ck_config: OutputConfig::PushPull,
             tx_config: OutputConfig::PushPull,
             rts_config: OutputConfig::PushPull,
             de_config: OutputConfig::PushPull,
@@ -399,12 +443,13 @@ enum ReadCompletionEvent {
 ///
 /// See [`UartRx`] for more details, and see [`BufferedUart`] and [`RingBufferedUartRx`]
 /// as alternatives that do provide the necessary guarantees for `embedded_io::Read`.
-pub struct Uart<'d, M: Mode> {
+#[doc(alias = "USART")]
+pub struct Uart<'d, M: PeriMode> {
     tx: UartTx<'d, M>,
     rx: UartRx<'d, M>,
 }
 
-impl<'d, M: Mode> SetConfig for Uart<'d, M> {
+impl<'d, M: PeriMode> SetConfig for Uart<'d, M> {
     type Config = Config;
     type ConfigError = ConfigError;
 
@@ -418,10 +463,11 @@ impl<'d, M: Mode> SetConfig for Uart<'d, M> {
 ///
 /// Can be obtained from [`Uart::split`], or can be constructed independently,
 /// if you do not need the receiving half of the driver.
-pub struct UartTx<'d, M: Mode> {
+pub struct UartTx<'d, M: PeriMode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
+    _ck: Option<Flex<'d>>,
     _tx: Option<Flex<'d>>,
     cts: Option<Flex<'d>>,
     _de: Option<Flex<'d>>,
@@ -430,7 +476,7 @@ pub struct UartTx<'d, M: Mode> {
     _marker: PhantomData<M>,
 }
 
-impl<'d, M: Mode> SetConfig for UartTx<'d, M> {
+impl<'d, M: PeriMode> SetConfig for UartTx<'d, M> {
     type Config = Config;
     type ConfigError = ConfigError;
 
@@ -468,10 +514,11 @@ impl<'d, M: Mode> SetConfig for UartTx<'d, M> {
 /// store data received between calls.
 ///
 /// Also see [this github comment](https://github.com/embassy-rs/embassy/pull/2185#issuecomment-1810047043).
-pub struct UartRx<'d, M: Mode> {
+pub struct UartRx<'d, M: PeriMode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
+    _ck: Option<Flex<'d>>,
     rx: Option<Flex<'d>>,
     rts: Option<Flex<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
@@ -481,7 +528,7 @@ pub struct UartRx<'d, M: Mode> {
     _marker: PhantomData<M>,
 }
 
-impl<'d, M: Mode> SetConfig for UartRx<'d, M> {
+impl<'d, M: PeriMode> SetConfig for UartRx<'d, M> {
     type Config = Config;
     type ConfigError = ConfigError;
 
@@ -499,7 +546,16 @@ impl<'d> UartTx<'d, Async> {
         _irq: impl interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, new_dma!(tx_dma, _irq), config)
+        Self::new_inner(
+            peri,
+            None,
+            new_pin!(tx, config.tx_af()),
+            None,
+            new_dma!(tx_dma, _irq),
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
     }
 
     /// Create a new tx-only UART with a clear-to-send pin
@@ -513,10 +569,56 @@ impl<'d> UartTx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
+            None,
             new_pin!(tx, config.tx_af()),
             new_pin!(cts, AfType::input(config.cts_pull)),
             new_dma!(tx_dma, _irq),
             config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new tx-only USART in synchronous master mode.
+    pub fn new_master<T: Instance, D: TxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        tx_dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, config.ck_config.af_type()),
+            new_pin!(tx, config.tx_af()),
+            None,
+            new_dma!(tx_dma, _irq),
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new tx-only USART with a clear-to-send pin in synchronous master mode.
+    pub fn new_master_with_cts<T: Instance, D: TxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
+        tx_dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, config.ck_config.af_type()),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
+            new_dma!(tx_dma, _irq),
+            config,
+            #[cfg(usart_v4)]
+            false,
         )
     }
 
@@ -583,7 +685,16 @@ impl<'d> UartTx<'d, Blocking> {
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, None, config)
+        Self::new_inner(
+            peri,
+            None,
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
     }
 
     /// Create a new blocking tx-only UART with a clear-to-send pin
@@ -595,26 +706,71 @@ impl<'d> UartTx<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
+            None,
             new_pin!(tx, config.tx_af()),
             new_pin!(cts, AfType::input(config.cts_pull)),
             None,
             config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new blocking tx-only USART in synchronous master mode.
+    pub fn new_blocking_master<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, config.tx_config.af_type()),
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new blocking tx-only USART with a clear-to-send pin in synchronous master mode.
+    pub fn new_blocking_master_with_cts<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, config.tx_config.af_type()),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
+            None,
+            config,
+            #[cfg(usart_v4)]
+            false,
         )
     }
 }
 
-impl<'d, M: Mode> UartTx<'d, M> {
+impl<'d, M: PeriMode> UartTx<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
+        ck: Option<Flex<'d>>,
         tx: Option<Flex<'d>>,
         cts: Option<Flex<'d>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
+        #[cfg(usart_v4)] slave: bool,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
+            _ck: ck,
             _tx: tx,
             cts,
             _de: None,
@@ -622,11 +778,15 @@ impl<'d, M: Mode> UartTx<'d, M> {
             duplex: config.duplex,
             _marker: PhantomData,
         };
-        this.enable_and_configure(&config)?;
+        this.enable_and_configure(
+            &config,
+            #[cfg(usart_v4)]
+            slave,
+        )?;
         Ok(this)
     }
 
-    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+    fn enable_and_configure(&mut self, config: &Config, #[cfg(usart_v4)] slave: bool) -> Result<(), ConfigError> {
         let info = self.info;
         let state = self.state;
         state.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -636,7 +796,16 @@ impl<'d, M: Mode> UartTx<'d, M> {
         info.regs.cr3().modify(|w| {
             w.set_ctse(self.cts.is_some());
         });
-        configure(info, self.kernel_clock, config, false, true)?;
+        configure(
+            info,
+            self.kernel_clock,
+            config,
+            self._ck.is_some(),
+            false,
+            true,
+            #[cfg(usart_v4)]
+            slave,
+        )?;
 
         Ok(())
     }
@@ -782,7 +951,16 @@ impl<'d> UartRx<'d, Async> {
         + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(rx, config.rx_af()), None, new_dma!(rx_dma, _irq), config)
+        Self::new_inner(
+            peri,
+            None,
+            new_pin!(rx, config.rx_af()),
+            None,
+            new_dma!(rx_dma, _irq),
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
     }
 
     /// Create a new rx-only UART with a request-to-send pin
@@ -798,10 +976,60 @@ impl<'d> UartRx<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
+            None,
             new_pin!(rx, config.rx_af()),
             new_pin!(rts, config.rts_config.af_type()),
             new_dma!(rx_dma, _irq),
             config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new rx-only USART in synchronous slave mode
+    #[cfg(usart_v4)]
+    pub fn new_slave<T: Instance, D: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        rx_dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, AfType::input(config.ck_pull)),
+            new_pin!(rx, config.rx_af()),
+            None,
+            new_dma!(rx_dma, _irq),
+            config,
+            true,
+        )
+    }
+
+    /// Create a new rx-only USART with a request-to-send pin in synchronous slave mode
+    #[cfg(usart_v4)]
+    pub fn new_slave_with_rts<T: Instance, D: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
+        rx_dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, AfType::input(config.ck_pull)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_dma!(rx_dma, _irq),
+            config,
+            true,
         )
     }
 
@@ -814,7 +1042,10 @@ impl<'d> UartRx<'d, Async> {
         Ok(())
     }
 
-    /// Initiate an asynchronous read with idle line detection enabled
+    /// Initiate an asynchronous read with idle line detection enabled.
+    ///
+    /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
+    /// as if you had called [`read(buffer)`](Self::read) instead!
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
@@ -1044,7 +1275,16 @@ impl<'d> UartRx<'d, Blocking> {
         rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
-        Self::new_inner(peri, new_pin!(rx, config.rx_af()), None, None, config)
+        Self::new_inner(
+            peri,
+            None,
+            new_pin!(rx, config.rx_af()),
+            None,
+            None,
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
     }
 
     /// Create a new rx-only UART with a request-to-send pin
@@ -1056,27 +1296,72 @@ impl<'d> UartRx<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
+            None,
             new_pin!(rx, config.rx_af()),
             new_pin!(rts, config.rts_config.af_type()),
             None,
             config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new rx-only USART in synchronous slave mode
+    #[cfg(usart_v4)]
+    pub fn new_blocking_slave<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, AfType::input(config.ck_pull)),
+            new_pin!(rx, config.rx_af()),
+            None,
+            None,
+            config,
+            true,
+        )
+    }
+
+    /// Create a new rx-only USART with a request-to-send pin in synchronous slave mode
+    #[cfg(usart_v4)]
+    pub fn new_blocking_slave_with_rts<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, AfType::input(config.ck_pull)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
+            None,
+            config,
+            true,
         )
     }
 }
 
-impl<'d, M: Mode> UartRx<'d, M> {
+impl<'d, M: PeriMode> UartRx<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
+        ck: Option<Flex<'d>>,
         rx: Option<Flex<'d>>,
         rts: Option<Flex<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
+        #[cfg(usart_v4)] slave: bool,
     ) -> Result<Self, ConfigError> {
         let mut this = Self {
             _marker: PhantomData,
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
+            _ck: ck,
             rx,
             rts,
             rx_dma,
@@ -1084,11 +1369,15 @@ impl<'d, M: Mode> UartRx<'d, M> {
             #[cfg(any(usart_v1, usart_v2))]
             buffered_sr: regs::Sr(0),
         };
-        this.enable_and_configure(&config)?;
+        this.enable_and_configure(
+            &config,
+            #[cfg(usart_v4)]
+            slave,
+        )?;
         Ok(this)
     }
 
-    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+    fn enable_and_configure(&mut self, config: &Config, #[cfg(usart_v4)] slave: bool) -> Result<(), ConfigError> {
         let info = self.info;
         let state = self.state;
         state.tx_rx_refcount.store(1, Ordering::Relaxed);
@@ -1101,7 +1390,17 @@ impl<'d, M: Mode> UartRx<'d, M> {
         info.regs.cr3().write(|w| {
             w.set_rtse(self.rts.is_some());
         });
-        configure(info, self.kernel_clock, &config, true, false)?;
+
+        configure(
+            info,
+            self.kernel_clock,
+            &config,
+            self._ck.is_some(),
+            true,
+            false,
+            #[cfg(usart_v4)]
+            slave,
+        )?;
 
         info.interrupt.unpend();
         unsafe { info.interrupt.enable() };
@@ -1212,13 +1511,13 @@ impl<'d, M: Mode> UartRx<'d, M> {
     }
 }
 
-impl<'d, M: Mode> Drop for UartTx<'d, M> {
+impl<'d, M: PeriMode> Drop for UartTx<'d, M> {
     fn drop(&mut self) {
         drop_tx_rx(self.info, self.state);
     }
 }
 
-impl<'d, M: Mode> Drop for UartRx<'d, M> {
+impl<'d, M: PeriMode> Drop for UartRx<'d, M> {
     fn drop(&mut self) {
         drop_tx_rx(self.info, self.state);
     }
@@ -1246,6 +1545,7 @@ impl<'d> Uart<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
+            None,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
             None,
@@ -1254,6 +1554,8 @@ impl<'d> Uart<'d, Async> {
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
+            #[cfg(usart_v4)]
+            false,
         )
     }
 
@@ -1274,6 +1576,7 @@ impl<'d> Uart<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
+            None,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
             new_pin!(rts, config.rts_config.af_type()),
@@ -1282,6 +1585,8 @@ impl<'d> Uart<'d, Async> {
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
+            #[cfg(usart_v4)]
+            false,
         )
     }
 
@@ -1302,6 +1607,7 @@ impl<'d> Uart<'d, Async> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
+            None,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
             None,
@@ -1310,6 +1616,8 @@ impl<'d> Uart<'d, Async> {
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
+            #[cfg(usart_v4)]
+            false,
         )
     }
 
@@ -1346,6 +1654,7 @@ impl<'d> Uart<'d, Async> {
         Self::new_inner(
             peri,
             None,
+            None,
             new_pin!(tx, config.tx_af()),
             None,
             None,
@@ -1353,6 +1662,8 @@ impl<'d> Uart<'d, Async> {
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
+            #[cfg(usart_v4)]
+            false,
         )
     }
 
@@ -1386,12 +1697,171 @@ impl<'d> Uart<'d, Async> {
             peri,
             None,
             None,
+            None,
             new_pin!(rx, config.rx_af()),
             None,
             None,
             new_dma!(tx_dma, _irq),
             new_dma!(rx_dma, _irq),
             config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new bidirectional USART in synchronous master mode
+    pub fn new_master<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, config.ck_config.af_type()),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            None,
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new bidirectional USART with request-to-send and clear-to-send pins in synchronous master mode
+    pub fn new_master_with_rtscts<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
+        cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, config.ck_config.af_type()),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
+            None,
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    /// Create a new bidirectional USART with a driver-enable pin in synchronous master mode
+    pub fn new_master_with_de<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        de: Peri<'d, if_afio!(impl DePin<T, A>)>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, config.ck_config.af_type()),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            new_pin!(de, config.de_config.af_type()),
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new bidirectional USART in synchronous slave mode
+    #[cfg(usart_v4)]
+    pub fn new_slave<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, AfType::input(config.ck_pull)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            None,
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
+            config,
+            true,
+        )
+    }
+
+    /// Create a new bidirectional USART with request-to-send and clear-to-send pins in synchronous slave mode
+    #[cfg(usart_v4)]
+    pub fn new_slave_with_rtscts<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
+        cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, AfType::input(config.ck_pull)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
+            None,
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
+            config,
+            true,
         )
     }
 
@@ -1410,7 +1880,10 @@ impl<'d> Uart<'d, Async> {
         self.rx.read(buffer).await
     }
 
-    /// Perform an an asynchronous read with idle line detection enabled
+    /// Perform an an asynchronous read with idle line detection enabled.
+    ///
+    /// **WARNING:** In synchronous mode, idle detection does not work, and this behaves
+    /// as if you had called [`read(buffer)`](Self::read) instead!
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         self.rx.read_until_idle(buffer).await
     }
@@ -1426,6 +1899,7 @@ impl<'d> Uart<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
+            None,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
             None,
@@ -1434,6 +1908,8 @@ impl<'d> Uart<'d, Blocking> {
             None,
             None,
             config,
+            #[cfg(usart_v4)]
+            false,
         )
     }
 
@@ -1448,6 +1924,7 @@ impl<'d> Uart<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
+            None,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
             new_pin!(rts, config.rts_config.af_type()),
@@ -1456,6 +1933,8 @@ impl<'d> Uart<'d, Blocking> {
             None,
             None,
             config,
+            #[cfg(usart_v4)]
+            false,
         )
     }
 
@@ -1470,6 +1949,7 @@ impl<'d> Uart<'d, Blocking> {
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
+            None,
             new_pin!(rx, config.rx_af()),
             new_pin!(tx, config.tx_af()),
             None,
@@ -1478,6 +1958,8 @@ impl<'d> Uart<'d, Blocking> {
             None,
             None,
             config,
+            #[cfg(usart_v4)]
+            false,
         )
     }
 
@@ -1507,6 +1989,7 @@ impl<'d> Uart<'d, Blocking> {
         Self::new_inner(
             peri,
             None,
+            None,
             new_pin!(tx, config.tx_af()),
             None,
             None,
@@ -1514,6 +1997,8 @@ impl<'d> Uart<'d, Blocking> {
             None,
             None,
             config,
+            #[cfg(usart_v4)]
+            false,
         )
     }
 
@@ -1541,19 +2026,149 @@ impl<'d> Uart<'d, Blocking> {
             peri,
             None,
             None,
+            None,
             new_pin!(rx, config.rx_af()),
             None,
             None,
             None,
             None,
             config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new blocking bidirectional USART in synchronous master mode
+    pub fn new_blocking_master<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, config.ck_config.af_type()),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new bidirectional USART with request-to-send and clear-to-send pins in synchronous master mode
+    pub fn new_blocking_master_with_rtscts<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
+        cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, config.ck_config.af_type()),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
+            None,
+            None,
+            None,
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    /// Create a new bidirectional USART with a driver-enable pin in synchronous master mode
+    pub fn new_blocking_master_with_de<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        de: Peri<'d, if_afio!(impl DePin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, config.ck_config.af_type()),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            new_pin!(de, config.de_config.af_type()),
+            None,
+            None,
+            config,
+            #[cfg(usart_v4)]
+            false,
+        )
+    }
+
+    /// Create a new blocking bidirectional USART in synchronous slave mode
+    #[cfg(usart_v4)]
+    pub fn new_blocking_slave<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, AfType::input(config.ck_pull)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            config,
+            true,
+        )
+    }
+
+    /// Create a new bidirectional USART with request-to-send and clear-to-send pins in synchronous slave mode
+    #[cfg(usart_v4)]
+    pub fn new_blocking_slave_with_rtscts<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
+        cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
+        config: Config,
+    ) -> Result<Self, ConfigError> {
+        Self::new_inner(
+            peri,
+            new_pin!(ck, AfType::input(config.ck_pull)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
+            None,
+            None,
+            None,
+            config,
+            true,
         )
     }
 }
 
-impl<'d, M: Mode> Uart<'d, M> {
+impl<'d, M: PeriMode> Uart<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
+        ck: Option<Flex<'d>>,
         rx: Option<Flex<'d>>,
         tx: Option<Flex<'d>>,
         rts: Option<Flex<'d>>,
@@ -1562,10 +2177,17 @@ impl<'d, M: Mode> Uart<'d, M> {
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
+        #[cfg(usart_v4)] slave: bool,
     ) -> Result<Self, ConfigError> {
         let info = T::info();
         let state = T::state();
         let kernel_clock = T::frequency();
+
+        // Make sure we assign the correct pins to the correct instance.
+        // Otherwise, the USART stops working if we drop one half of the
+        // tuple returned by self.split().
+        #[cfg(any(usart_v3, usart_v4))]
+        let (rx, tx) = if config.swap_rx_tx { (tx, rx) } else { (rx, tx) };
 
         let mut this = Self {
             tx: UartTx {
@@ -1573,6 +2195,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 info,
                 state,
                 kernel_clock,
+                _ck: ck,
                 _tx: tx,
                 cts,
                 _de: de,
@@ -1584,6 +2207,7 @@ impl<'d, M: Mode> Uart<'d, M> {
                 info,
                 state,
                 kernel_clock,
+                _ck: None,
                 rx,
                 rts,
                 rx_dma,
@@ -1592,11 +2216,15 @@ impl<'d, M: Mode> Uart<'d, M> {
                 buffered_sr: regs::Sr(0),
             },
         };
-        this.enable_and_configure(&config)?;
+        this.enable_and_configure(
+            &config,
+            #[cfg(usart_v4)]
+            slave,
+        )?;
         Ok(this)
     }
 
-    fn enable_and_configure(&mut self, config: &Config) -> Result<(), ConfigError> {
+    fn enable_and_configure(&mut self, config: &Config, #[cfg(usart_v4)] slave: bool) -> Result<(), ConfigError> {
         let info = self.rx.info;
         let state = self.rx.state;
         state.tx_rx_refcount.store(2, Ordering::Relaxed);
@@ -1612,7 +2240,17 @@ impl<'d, M: Mode> Uart<'d, M> {
             #[cfg(not(any(usart_v1, usart_v2)))]
             w.set_dem(self.tx._de.is_some());
         });
-        configure(info, self.rx.kernel_clock, config, true, true)?;
+
+        configure(
+            info,
+            self.rx.kernel_clock,
+            config,
+            self.tx._ck.is_some(),
+            true,
+            true,
+            #[cfg(usart_v4)]
+            slave,
+        )?;
 
         info.interrupt.unpend();
         unsafe { info.interrupt.enable() };
@@ -1671,8 +2309,24 @@ fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), 
     info.interrupt.disable();
     let r = info.regs;
 
-    let cr = r.cr1().read();
-    configure(info, kernel_clock, config, cr.re(), cr.te())?;
+    let cr1 = r.cr1().read();
+    let cr2 = r.cr2().read();
+    #[cfg(not(usart_v4))]
+    let clken = cr2.clken();
+    #[cfg(usart_v4)]
+    let slave = cr2.slven();
+    #[cfg(usart_v4)]
+    let clken = slave || cr2.clken();
+    configure(
+        info,
+        kernel_clock,
+        config,
+        clken,
+        cr1.re(),
+        cr1.te(),
+        #[cfg(usart_v4)]
+        slave,
+    )?;
 
     info.interrupt.unpend();
     unsafe { info.interrupt.enable() };
@@ -1821,8 +2475,10 @@ fn configure(
     info: &Info,
     kernel_clock: Hertz,
     config: &Config,
+    enable_ck: bool,
     enable_rx: bool,
     enable_tx: bool,
+    #[cfg(usart_v4)] slave: bool,
 ) -> Result<(), ConfigError> {
     let r = info.regs;
     let kind = info.kind;
@@ -1874,6 +2530,16 @@ fn configure(
         if config.irda_enable {
             w.set_clken(false);
             w.set_linen(false);
+        } else if enable_ck {
+            w.set_clken(true);
+            w.set_cpol(config.raw_polarity());
+            w.set_cpha(config.raw_phase());
+            w.set_lbcl(config.mode.last_bit);
+            #[cfg(usart_v4)]
+            if slave {
+                w.set_clken(false);
+                w.set_slven(true);
+            }
         }
 
         #[cfg(any(usart_v3, usart_v4))]
@@ -1998,14 +2664,14 @@ fn configure(
     Ok(())
 }
 
-impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
     type Error = Error;
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
         self.nb_read()
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M> {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
         self.blocking_write(buffer)
@@ -2015,14 +2681,14 @@ impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M>
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for Uart<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_02::serial::Read<u8> for Uart<'d, M> {
     type Error = Error;
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
         self.nb_read()
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, M> {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
         self.blocking_write(buffer)
@@ -2044,25 +2710,25 @@ impl embedded_hal_nb::serial::Error for Error {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_nb::serial::ErrorType for Uart<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_nb::serial::ErrorType for Uart<'d, M> {
     type Error = Error;
 }
 
-impl<'d, M: Mode> embedded_hal_nb::serial::ErrorType for UartTx<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_nb::serial::ErrorType for UartTx<'d, M> {
     type Error = Error;
 }
 
-impl<'d, M: Mode> embedded_hal_nb::serial::ErrorType for UartRx<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_nb::serial::ErrorType for UartRx<'d, M> {
     type Error = Error;
 }
 
-impl<'d, M: Mode> embedded_hal_nb::serial::Read for UartRx<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_nb::serial::Read for UartRx<'d, M> {
     fn read(&mut self) -> nb::Result<u8, Self::Error> {
         self.nb_read()
     }
 }
 
-impl<'d, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_nb::serial::Write for UartTx<'d, M> {
     fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
         self.nb_write(char)
     }
@@ -2072,13 +2738,13 @@ impl<'d, M: Mode> embedded_hal_nb::serial::Write for UartTx<'d, M> {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_nb::serial::Read for Uart<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_nb::serial::Read for Uart<'d, M> {
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
         self.nb_read()
     }
 }
 
-impl<'d, M: Mode> embedded_hal_nb::serial::Write for Uart<'d, M> {
+impl<'d, M: PeriMode> embedded_hal_nb::serial::Write for Uart<'d, M> {
     fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
         self.blocking_write(&[char]).map_err(nb::Error::Other)
     }
@@ -2094,15 +2760,15 @@ impl embedded_io::Error for Error {
     }
 }
 
-impl<M: Mode> embedded_io::ErrorType for Uart<'_, M> {
+impl<M: PeriMode> embedded_io::ErrorType for Uart<'_, M> {
     type Error = Error;
 }
 
-impl<M: Mode> embedded_io::ErrorType for UartTx<'_, M> {
+impl<M: PeriMode> embedded_io::ErrorType for UartTx<'_, M> {
     type Error = Error;
 }
 
-impl<M: Mode> embedded_io::Write for Uart<'_, M> {
+impl<M: PeriMode> embedded_io::Write for Uart<'_, M> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf)?;
         Ok(buf.len())
@@ -2113,7 +2779,7 @@ impl<M: Mode> embedded_io::Write for Uart<'_, M> {
     }
 }
 
-impl<M: Mode> embedded_io::Write for UartTx<'_, M> {
+impl<M: PeriMode> embedded_io::Write for UartTx<'_, M> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf)?;
         Ok(buf.len())

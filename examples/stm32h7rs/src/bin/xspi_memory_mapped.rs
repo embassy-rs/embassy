@@ -13,6 +13,7 @@
 
 use core::cmp::min;
 
+use cortex_m::peripheral::{CPUID, SCB};
 use defmt::info;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -28,6 +29,16 @@ use embassy_stm32::xspi::{
 };
 use embassy_time::Timer;
 use panic_probe as _;
+
+#[inline(never)]
+fn enable_dcache(scb: &mut SCB, cpuid: &mut CPUID) {
+    scb.enable_dcache(cpuid);
+}
+
+#[inline(never)]
+fn enable_icache(scb: &mut SCB) {
+    scb.enable_icache();
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -122,9 +133,9 @@ async fn main(_spawner: Spawner) {
     let mut cor = cortex_m::Peripherals::take().unwrap();
 
     // Not necessary, but recommended if using XIP
-    cor.SCB.enable_icache();
+    enable_icache(&mut cor.SCB);
     // Note: Enabling data cache can cause issues with DMA transfers.
-    cor.SCB.enable_dcache(&mut cor.CPUID);
+    enable_dcache(&mut cor.SCB, &mut cor.CPUID);
 
     // Work-around the errata isse with automatic compensation cell tuning.
     // - Read the corrected, auto-tune values at around 30°C ambient and store

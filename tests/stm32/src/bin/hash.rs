@@ -10,11 +10,11 @@ use embassy_executor::Spawner;
 use embassy_stm32::hash::*;
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::{bind_interrupts, hash, peripherals};
-use hmac::{Hmac, KeyInit, Mac};
+use hmac::{Hmac as SoftwareHmac, KeyInit, Mac};
 use panic_probe as _;
-use sha2::{Digest, Sha224, Sha256};
+use sha2::{Digest, Sha224 as SoftwareSha224, Sha256 as SoftwareSha256};
 
-type HmacSha256 = Hmac<Sha256>;
+type HmacSha256 = SoftwareHmac<SoftwareSha256>;
 
 #[cfg(any(feature = "stm32l4a6zg", feature = "stm32h755zi", feature = "stm32h753zi"))]
 bind_interrupts!(struct Irqs {
@@ -40,12 +40,14 @@ fn test_interrupt(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     let test_2: &[u8] = b"fdhalksdjfhlasdjkfhalskdjfhgal;skdjfgalskdhfjgalskdjfglafgadfgdfgdafgaadsfgfgdfgadrgsyfthxfgjfhklhjkfgukhulkvhlvhukgfhfsrghzdhxyfufynufyuszeradrtydyytserr";
     let test_3: &[u8] = b"a.ewtkluGWEBR.KAJRBTA,RMNRBG,FDMGB.kger.tkasjrbt.akrjtba.krjtba.ktmyna,nmbvtyliasd;gdrtba,sfvs.kgjzshd.gkbsr.tksejb.SDkfBSE.gkfgb>ESkfbSE>gkJSBESE>kbSE>fk";
 
+    info!("Hardware start");
+
     // Start an SHA-256 digest.
-    let mut sha256context = hw_hasher.start(Algorithm::SHA256, DataType::Width8, None);
+    let mut sha256context = hw_hasher.start::<Sha256, NonHmac>(DataType::Width8, None);
     hw_hasher.update_blocking(&mut sha256context, test_1);
 
     // Interrupt the SHA-256 digest to compute an SHA-224 digest.
-    let mut sha224context = hw_hasher.start(Algorithm::SHA224, DataType::Width8, None);
+    let mut sha224context = hw_hasher.start::<Sha224, NonHmac>(DataType::Width8, None);
     hw_hasher.update_blocking(&mut sha224context, test_3);
     let mut sha224_digest_buffer: [u8; 28] = [0; 28];
     let _ = hw_hasher.finish_blocking(sha224context, &mut sha224_digest_buffer);
@@ -55,16 +57,21 @@ fn test_interrupt(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     let mut sha256_digest_buffer: [u8; 32] = [0; 32];
     let _ = hw_hasher.finish_blocking(sha256context, &mut sha256_digest_buffer);
 
+    info!("Hardware stop");
+    info!("Software start");
+
     // Compute the SHA-256 digest in software.
-    let mut sw_sha256_hasher = Sha256::new();
+    let mut sw_sha256_hasher = SoftwareSha256::new();
     sw_sha256_hasher.update(test_1);
     sw_sha256_hasher.update(test_2);
     let sw_sha256_digest = sw_sha256_hasher.finalize();
 
     //Compute the SHA-224 digest in software.
-    let mut sw_sha224_hasher = Sha224::new();
+    let mut sw_sha224_hasher = SoftwareSha224::new();
     sw_sha224_hasher.update(test_3);
     let sw_sha224_digest = sw_sha224_hasher.finalize();
+
+    info!("Software stop");
 
     // Compare the SHA-256 digests.
     info!("Hardware SHA-256 Digest: {:?}", sha256_digest_buffer);
@@ -78,12 +85,17 @@ fn test_interrupt(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
 
     let hmac_key: [u8; 64] = [0x55; 64];
 
+    info!("Hardware start");
+
     // Compute HMAC in hardware.
-    let mut sha256hmac_context = hw_hasher.start(Algorithm::SHA256, DataType::Width8, Some(&hmac_key));
+    let mut sha256hmac_context = hw_hasher.start::<Sha256, Hmac>(DataType::Width8, Some(&hmac_key));
     hw_hasher.update_blocking(&mut sha256hmac_context, test_1);
     hw_hasher.update_blocking(&mut sha256hmac_context, test_2);
     let mut hw_hmac: [u8; 32] = [0; 32];
     hw_hasher.finish_blocking(sha256hmac_context, &mut hw_hmac);
+
+    info!("Hardware stop");
+    info!("Software start");
 
     // Compute HMAC in software.
     let mut sw_mac = HmacSha256::new_from_slice(&hmac_key).unwrap();
@@ -91,8 +103,23 @@ fn test_interrupt(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     sw_mac.update(test_2);
     let sw_hmac = sw_mac.finalize().into_bytes();
 
+    info!("Software stop");
+
     info!("Hardware HMAC: {:?}", hw_hmac);
     info!("Software HMAC: {:?}", sw_hmac[..]);
+    defmt::assert!(hw_hmac == sw_hmac[..]);
+
+    let long_hmac_key = [0x37; 100];
+    let mut sha256hmac_context = hw_hasher.start::<Sha256, Hmac>(DataType::Width8, Some(&long_hmac_key));
+    hw_hasher.update_blocking(&mut sha256hmac_context, test_1);
+    hw_hasher.update_blocking(&mut sha256hmac_context, test_2);
+    let mut hw_hmac: [u8; 32] = [0; 32];
+    hw_hasher.finish_blocking(sha256hmac_context, &mut hw_hmac);
+
+    let mut sw_mac = HmacSha256::new_from_slice(&long_hmac_key).unwrap();
+    sw_mac.update(test_1);
+    sw_mac.update(test_2);
+    let sw_hmac = sw_mac.finalize().into_bytes();
     defmt::assert!(hw_hmac == sw_hmac[..]);
 }
 
@@ -107,7 +134,7 @@ fn test_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
         for j in [1, 1, 2, 3, 4, 5, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133] {
             info!("test_sizes i {} j {}", i, j);
             let mut sw = sha2::Sha512::new();
-            let mut ctx = hw_hasher.start(Algorithm::SHA512, DataType::Width8, None);
+            let mut ctx = hw_hasher.start::<Sha512, NonHmac>(DataType::Width8, None);
 
             sw.update(&in1[..i]);
             sw.update(&in2[..j]);
@@ -122,6 +149,16 @@ fn test_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
             defmt::assert!(hw_digest == *sw_digest);
         }
     }
+
+    let boundary_input = [0u8; 255];
+    let mut sw = sha2::Sha512::new();
+    let mut ctx = hw_hasher.start::<Sha512, NonHmac>(DataType::Width8, None);
+    sw.update(&boundary_input);
+    hw_hasher.update_blocking(&mut ctx, &boundary_input);
+    let sw_digest = sw.finalize();
+    let mut hw_digest = [0u8; 64];
+    hw_hasher.finish_blocking(ctx, &mut hw_digest);
+    defmt::assert!(hw_digest == *sw_digest);
 }
 
 #[cfg_attr(

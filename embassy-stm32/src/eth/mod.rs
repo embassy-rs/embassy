@@ -23,6 +23,13 @@ pub use crate::eth::generic_phy::*;
 pub use crate::eth::sma::{Instance as SmaInstance, Sma, StationManagement};
 use crate::pac::eth::Eth as Regs;
 
+#[cfg(feature = "ptp")]
+fn adjusted_ptp_addend(nominal: u32, adjustment: embassy_ptp_driver::ScaledPpm) -> u32 {
+    let scale = 1.0 + f64::from(adjustment.raw()) / ((1i32 << 16) as f64 * 1e6);
+    // The cast saturates; the addend must remain nonzero.
+    ((f64::from(nominal) * scale + 0.5) as u32).max(1)
+}
+
 #[allow(unused)]
 const MTU: usize = 1514;
 const TX_BUFFER_SIZE: usize = 1514;
@@ -186,6 +193,34 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
 
     fn hardware_address(&self) -> HardwareAddress {
         HardwareAddress::Ethernet(self.mac_addr)
+    }
+}
+
+#[cfg(all(test, feature = "ptp"))]
+mod tests {
+    use embassy_ptp_driver::ScaledPpm;
+
+    use super::adjusted_ptp_addend;
+
+    const NOMINAL: u32 = 0xa000_0000;
+
+    #[test]
+    fn ptp_addend_uses_absolute_scaled_ppm() {
+        assert_eq!(adjusted_ptp_addend(NOMINAL, ScaledPpm::ZERO), NOMINAL);
+        assert_eq!(
+            adjusted_ptp_addend(NOMINAL, ScaledPpm::from_raw(500 << 16)),
+            0xa014_7ae1
+        );
+        assert_eq!(
+            adjusted_ptp_addend(NOMINAL, ScaledPpm::from_raw(-500 << 16)),
+            0x9feb_851f
+        );
+    }
+
+    #[test]
+    fn ptp_addend_stays_in_the_valid_register_range() {
+        assert!(adjusted_ptp_addend(NOMINAL, ScaledPpm::from_raw(i32::MIN)) >= 1);
+        assert_eq!(adjusted_ptp_addend(u32::MAX, ScaledPpm::from_raw(i32::MAX)), u32::MAX);
     }
 }
 

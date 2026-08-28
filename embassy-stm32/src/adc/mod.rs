@@ -8,8 +8,7 @@
 #[cfg_attr(adc_f1, path = "f1.rs")]
 #[cfg_attr(adc_f3v1, path = "f3.rs")]
 #[cfg_attr(adc_f3v2, path = "l1.rs")]
-#[cfg_attr(adc_v1, path = "v1.rs")]
-#[cfg_attr(adc_l0, path = "v1.rs")]
+#[cfg_attr(any(adc_v1, adc_l0), path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
 #[cfg_attr(any(adc_v4, adc_u5, adc_u3, adc_n6, adc_c5), path = "v4.rs")]
@@ -841,7 +840,8 @@ impl VrefInt {
         stm32l5,
         stm32l5,
         stm32wb,
-        stm32wl
+        stm32wl,
+        stm32u0,
     ))]
     /// The value that vref would be if vdda was at the factory calibration voltage `VREF_CALIB_MV`.
     pub fn calibrated_value(&self) -> u16 {
@@ -852,6 +852,15 @@ impl VrefInt {
 /// Internal temperature channel.
 pub struct Temperature;
 impl SpecialChannel for Temperature {}
+
+impl Temperature {
+    #[cfg(any(stm32u0))]
+    pub fn calibrated_value(&self) -> (u16, u16) {
+        let lower = crate::pac::TSCAL.tscal1().read();
+        let upper = crate::pac::TSCAL.tscal2().read();
+        (lower, upper)
+    }
+}
 
 /// Internal battery voltage channel.
 pub struct Vbat;

@@ -216,16 +216,20 @@ impl<'d> SinglePwm<'d> {
         });
 
         // Configure PWM period
-        let period = self.pwm.source_freq / u32::from(self.pwm.pwm_freq) - 1;
-        self.pwm.max_period = period as u16;
+        // MR uses period_ticks - 1 because the counter includes zero. The duty
+        // range includes period_ticks so 0% can use an unreachable match value.
+        let period_ticks = self.pwm.source_freq / u32::from(self.pwm.pwm_freq);
+        let max_duty = u16::try_from(period_ticks).map_err(|_| PwmError::InvalidDutyCycle)?;
+        let period_match = period_ticks - 1;
+        self.pwm.max_period = max_duty;
         self.pwm
             .info
             .regs()
             .mr(self.period_ch.number().into())
-            .write(|w| w.set_match_(period));
+            .write(|w| w.set_match_(period_match));
 
         // Configure PWM duty cycle
-        let duty_cycle = ((period + 1) * (100 - u32::from(config.duty_cycle))) / 100;
+        let duty_cycle = ((period_ticks) * (100 - u32::from(config.duty_cycle))) / 100;
         self.pwm.configure_duty_cycle(duty_cycle);
 
         // Start CTimer

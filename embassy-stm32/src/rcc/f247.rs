@@ -15,7 +15,7 @@ use crate::pac::{FLASH, RCC};
 use crate::rcc::dsi;
 #[cfg(dsihost)]
 pub use crate::rcc::dsi::{DsiHostPllConfig, DsiPllInput, DsiPllNdiv, DsiPllOutput};
-use crate::time::Hertz;
+use crate::time::{Hertz, Prescaler};
 
 // TODO: on some F4s, PLLM is shared between all PLLs. Enforce that.
 // TODO: on some F4s, add support for plli2s_src
@@ -422,6 +422,12 @@ fn pll_enable(instance: PllInstance, enabled: bool) {
     }
 }
 
+fn divide_pll_output<D: Prescaler>(num: u64, denom: u64, div: D) -> Hertz {
+    let num = num * u64::from(div.denom());
+    let denom = denom * u64::from(div.num());
+    Hertz(unwrap!((num / denom).try_into()))
+}
+
 fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> PllOutput {
     // Disable PLL
     pll_enable(instance, false);
@@ -444,7 +450,11 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
 
     let in_freq = pll_src / pll.prediv;
     assert!(max::PLL_IN.contains(&in_freq));
-    let vco_freq = in_freq * pll.mul;
+
+    let vco_num = u64::from(pll_src.0) * u64::from(pll.mul.num()) * u64::from(pll.prediv.denom());
+    let vco_denom = u64::from(pll.mul.denom()) * u64::from(pll.prediv.num());
+
+    let vco_freq = Hertz(unwrap!((vco_num / vco_denom).try_into()));
     assert!(max::PLL_VCO.contains(&vco_freq));
 
     // stm32f2 plls are like swiss cheese
@@ -459,9 +469,9 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
         }
     }
 
-    let p = pll.divp.map(|div| vco_freq / div);
-    let q = pll.divq.map(|div| vco_freq / div);
-    let r = pll.divr.map(|div| vco_freq / div);
+    let p = pll.divp.map(|div| divide_pll_output(vco_num, vco_denom, div));
+    let q = pll.divq.map(|div| divide_pll_output(vco_num, vco_denom, div));
+    let r = pll.divr.map(|div| divide_pll_output(vco_num, vco_denom, div));
 
     macro_rules! write_fields {
         ($w:ident) => {

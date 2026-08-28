@@ -16,6 +16,7 @@ pub use crate::pac::timer::vals::{Bkbid as BreakBidirectionalMode, Bkdsrm as Bre
 pub use crate::pac::timer::vals::{
     Bkinp as BreakComparatorPolarity, Bkp as BreakInputPolarity, Ccds, Ckd, Mms2, Ossi, Ossr,
 };
+use crate::rcc::WakeGuard;
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
 #[cfg(timer_v2)]
@@ -78,6 +79,7 @@ pub struct ComplementaryPwm<'d, T: AdvancedInstance4Channel> {
     _ch3n: Option<Flex<'d>>,
     _ch4: Option<Flex<'d>>,
     _ch4n: Option<Flex<'d>>,
+    _wake_guard: WakeGuard,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -143,6 +145,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
             _ch3n,
             _ch4,
             _ch4n,
+            _wake_guard: T::RCC_INFO.wake_guard(),
         };
 
         this.inner.set_counting_mode(counting_mode);
