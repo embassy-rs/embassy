@@ -6,6 +6,7 @@ use core::mem::MaybeUninit;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_stm32::dfsdm::config_types::{CkoutDivider, InternalSpiMode};
 use embassy_stm32::dfsdm::{Dfsdm, Flt0, Flt1, InjectedTrigger, TransceiverTrait};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::{SharedData, dfsdm};
@@ -46,7 +47,12 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PB3, Level::High, Speed::Low);
     let mut led = Output::new(p.PE1, Level::High, Speed::Low);
 
-    let dfsdm1 = dfsdm::Dfsdm::new_ckout(p.DFSDM1, p.PC2, dfsdm::Config::default());
+    let dfsdm1 = dfsdm::Dfsdm::new_ckout(
+        p.DFSDM1,
+        p.PC2,
+        dfsdm::config_types::CkoutSource::System,
+        CkoutDivider::try_from(2).expect("Divider wrong?"),
+    );
     let a = dfsdm1.configure_pins(|creator| {
         (
             creator.ch0.none(),
@@ -62,7 +68,7 @@ async fn main(_spawner: Spawner) {
     let (mut ch2, mut ch3) = a.ch2.new_parallel_dma_dual(a.ch3);
     a.ch6.new_parallel_dma_dual(a.ch7);
 
-    let mut channel_mic = a.ch1.new_synchronous_ext();
+    let mut channel_mic = a.ch1.new_spi_int(InternalSpiMode::SpiFalling);
 
     loop {
         info!("led on!");

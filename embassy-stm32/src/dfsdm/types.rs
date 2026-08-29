@@ -24,6 +24,15 @@ macro_rules! impl_sealed_and {
     };
 }
 
+/// Impls [`sealed::Sealed`] + a target trait.
+macro_rules! impl_trait {
+    ($trait_:path => $($m:path),* $(,)?) => {
+        $(
+            impl $trait_ for $m {}
+        )*
+    };
+}
+
 // =============================================================================
 // Channel- and instance-specific pin traits
 // =============================================================================
@@ -47,7 +56,7 @@ pin_trait!(Datin7Pin, Instance, @A);
 pin_trait!(Ckin7Pin, Instance, @A);
 
 // =============================================================================
-// Instance
+// Instance + Instance-level markers
 // =============================================================================
 
 pub(crate) type Registers = crate::pac::dfsdm::DfsdmSuperset;
@@ -160,6 +169,19 @@ impl Shape for capability::Tcv8 {
     }
 }
 
+/// Marker trait for DFSDM clockmodes
+pub trait ClockOutputMode: sealed::Sealed {}
+/// Clock output enabled
+pub struct OutputEnabled;
+/// No clock output
+pub struct OutputDisabled;
+
+impl_sealed_and! {
+    ClockOutputMode =>
+    OutputEnabled,
+    OutputDisabled,
+}
+
 // =============================================================================
 // Interrupt-Marking
 // =============================================================================
@@ -245,6 +267,7 @@ impl_sealed! {
     DataOnly,
     DataClk,
 }
+
 impl PinSet for NoPins {
     const HAS_DATA: bool = false;
     const HAS_CLK: bool = false;
@@ -490,23 +513,6 @@ define_indexed_channels!(
 );
 
 // =============================================================================
-// Datapacking markertrait
-// =============================================================================
-
-/// Marks a Transceiverchannel as being allowed to set Datapacking dual-mode.
-#[diagnostic::on_unimplemented(
-    message = "Dual packing mode is only available on even channels (0, 2, 4, 6)",
-    label = "`{Self}` is odd — dual mode requires an even channel",
-    note = "call `new_parallel_dma_dual` on the even channel instead"
-)]
-pub trait DualPackingAllowed {}
-
-impl DualPackingAllowed for Tcv0 {}
-impl DualPackingAllowed for Tcv2 {}
-impl DualPackingAllowed for Tcv4 {}
-impl DualPackingAllowed for Tcv6 {}
-
-// =============================================================================
 // Trigger types
 // =============================================================================
 
@@ -528,12 +534,11 @@ trigger_trait!(InjectedTrigger, Instance);
 // }
 
 // =============================================================================
-// PowerState (Enabled/Disabled) marker traits
+// General-purpose markertraits
 // =============================================================================
 
 /// Marker trait for power-state
 pub trait PowerState: sealed::Sealed {}
-
 /// Powered down
 pub struct Disabled;
 /// Powered up
@@ -544,6 +549,188 @@ impl_sealed_and! {
     Disabled,
     Enabled,
 }
+
+// =============================================================================
+// Channel-level markertraits
+// =============================================================================
+
+/// Marks a Transceiverchannel as being allowed to set Datapacking dual-mode.
+#[diagnostic::on_unimplemented(
+    message = "Dual packing mode is only available on even channels (0, 2, 4, 6)",
+    label = "`{Self}` is odd — dual mode requires an even channel",
+    note = "call `new_parallel_dma_dual` on the even channel instead"
+)]
+pub trait DualPackingAllowed: sealed::Sealed {}
+
+impl_trait! {
+    DualPackingAllowed =>
+    Tcv0,
+    Tcv2,
+    Tcv4,
+    Tcv6,
+}
+
+/// Operational mode of a built [`Transceiver`]. Determined by which builder
+/// constructor was used; encodes the SITP/SPICKSEL/CHINSEL/DATMPX semantics.
+pub trait ChannelMode: sealed::Sealed {}
+/// SPI input, clock from own CKIN pin (SPICKSEL = 0).
+pub struct SpiExtMode;
+/// SPI input, clock derived from CKOUT (SPICKSEL = 1..3).
+pub struct SpiCkoutMode;
+/// Manchester-coded input, clock recovered from the data line (SITP = 2/3).
+pub struct ManchesterMode;
+/// PDM left half: owns the mic data line, samples on rising CKOUT edge.
+pub struct PdmLeftMode;
+/// PDM right half: pinless, decodes the NEXT channel's DATIN on the falling
+/// CKOUT edge (CHINSEL = 1, SITP = 1).
+pub struct PdmRightMode;
+/// 16-bit parallel input from CPU/DMA writes (DATMPX = 2).
+pub struct ParallelDmaMode;
+/// 16-bit parallel input from ADC writes (DATMPX = 1).
+pub struct ParallelAdcMode;
+
+impl_sealed_and! {
+    ChannelMode =>
+    SpiExtMode,
+    SpiCkoutMode,
+    ManchesterMode,
+    PdmLeftMode,
+    PdmRightMode,
+    ParallelDmaMode,
+    ParallelAdcMode
+}
+
+/// Marker trait for Transceiver channels data source
+pub trait DataSource: sealed::Sealed {}
+/// Transceiver get's data clock from outside
+pub struct ExternalSource;
+/// Transceiver get's data clock from inside
+pub struct InternalSource;
+
+impl_sealed_and! {
+    DataSource =>
+    ExternalSource,
+    InternalSource,
+}
+
+/// Per‑instance "successor" channel.
+///
+/// `C` is the instance's transceiver‑capability (`<T as Instance>::Transceivers`),
+/// so the modulo‑N wrap depends on the instance shape, not on the marker itself.
+pub trait NextChannel<C: capability::TransceiverCount>: TransceiverMarker {
+    /// Marker of the next channel, modulo the capability's max count.
+    type Next: TransceiverMarker;
+}
+
+/// Convenience trait to get the next channel directly from an Instance
+pub trait NextChannelForInstance<T: Instance>: TransceiverMarker {
+    /// Type representing the next TransceiverMarker in the sequence
+    type Next: TransceiverMarker;
+}
+
+impl<T, M> NextChannelForInstance<T> for M
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannel<T::Transceivers>,
+{
+    type Next = <M as NextChannel<T::Transceivers>>::Next;
+}
+
+macro_rules! impl_next_channel {
+    ($cap:ty, $($cur:ident => $next:ident),+ $(,)?) => {
+        $(
+            impl NextChannel<$cap> for $cur {
+                type Next = $next;
+            }
+        )+
+    };
+}
+
+// For 2-channel instances: wraps 1 -> 0
+impl_next_channel!(capability::Tcv2,
+    Tcv0 => Tcv1,
+    Tcv1 => Tcv0,
+);
+
+// For 4-channel instances: wraps 3 -> 0
+impl_next_channel!(capability::Tcv4,
+    Tcv0 => Tcv1,
+    Tcv1 => Tcv2,
+    Tcv2 => Tcv3,
+    Tcv3 => Tcv0,
+);
+
+// For 8-channel instances: wraps 7 -> 0
+impl_next_channel!(capability::Tcv8,
+    Tcv0 => Tcv1,
+    Tcv1 => Tcv2,
+    Tcv2 => Tcv3,
+    Tcv3 => Tcv4,
+    Tcv4 => Tcv5,
+    Tcv5 => Tcv6,
+    Tcv6 => Tcv7,
+    Tcv7 => Tcv0,
+);
+
+// =============================================================================
+// DMA Stuff
+// =============================================================================
+
+dma_trait!(Dma, Instance, FilterMarker); //TODO
+
+// =============================================================================
+// Generification traits
+// =============================================================================
+
+/// Trait for filters to generify them for TODO?
+pub trait FilterTrait<M: FilterMarker>: sealed::Sealed {
+    /// Get filter identifier
+    fn filter(&self) -> FilterChannel {
+        M::CHANNEL
+    }
+
+    /// Get filter index
+    fn index(&self) -> usize {
+        M::CHANNEL.index()
+    }
+}
+
+/// Trait for transceivers to generify them for Filterconfiguration
+pub trait TransceiverTrait<M: TransceiverMarker>: sealed::Sealed {
+    /// Get transceiver identifier
+    fn transceiver(&self) -> TransceiverChannel {
+        <M as TransceiverMarker>::CHANNEL
+    }
+
+    /// Get transceiver index
+    fn index(&self) -> usize {
+        M::CHANNEL.index()
+    }
+}
+
+impl<'a, 'd, T, M, S, MODE, P> sealed::Sealed for Transceiver<'a, 'd, T, M, S, MODE, P>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    MODE: ChannelMode,
+    P: PowerState,
+{
+}
+
+impl<'a, 'd, T, M, S, MODE, P> TransceiverTrait<M> for Transceiver<'a, 'd, T, M, S, MODE, P>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    MODE: ChannelMode,
+    P: PowerState,
+{
+}
+
+// =============================================================================
+// Config types
+// =============================================================================
 
 /// Register config types
 pub mod config_types {
@@ -760,164 +947,94 @@ pub mod config_types {
             return value.0 as u8;
         }
     }
-}
 
-/// Marker trait for DFSDM clockmodes
-pub trait ClockOutputMode: sealed::Sealed {}
+    // =============================================================================
+    // Types specifically used for pub config
+    // =============================================================================
 
-/// Clock output enabled
-pub struct OutputEnabled;
+    /// [`DataPackingMode`] restricted to non-dual modes
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub enum DataPackingModeReduced {
+        /// See [`DataPackingMode::Standard`]
+        Standard,
+        /// See [`DataPackingMode::Interleaved`]
+        Interleaved,
+    }
 
-/// No clock output
-pub struct OutputDisabled;
-
-impl_sealed_and! {
-    ClockOutputMode =>
-    OutputEnabled,
-    OutputDisabled,
-}
-
-/// Operational mode of a built [`Transceiver`]. Determined by which builder
-/// constructor was used; encodes the SITP/SPICKSEL/CHINSEL/DATMPX semantics.
-pub trait ChannelMode: sealed::Sealed {}
-
-/// SPI input, clock from own CKIN pin (SPICKSEL = 0).
-pub struct SpiExtMode;
-/// SPI input, clock derived from CKOUT (SPICKSEL = 1..3).
-pub struct SpiCkoutMode;
-/// Manchester-coded input, clock recovered from the data line (SITP = 2/3).
-pub struct ManchesterMode;
-/// PDM left half: owns the mic data line, samples on rising CKOUT edge.
-pub struct PdmLeftMode;
-/// PDM right half: pinless, decodes the NEXT channel's DATIN on the falling
-/// CKOUT edge (CHINSEL = 1, SITP = 1).
-pub struct PdmRightMode;
-/// 16-bit parallel input from CPU/DMA writes (DATMPX = 2).
-pub struct ParallelDmaMode;
-/// 16-bit parallel input from ADC writes (DATMPX = 1).
-pub struct ParallelAdcMode;
-
-impl_sealed_and! {
-    ChannelMode =>
-    SpiExtMode,
-    SpiCkoutMode,
-    ManchesterMode,
-    PdmLeftMode,
-    PdmRightMode,
-    ParallelDmaMode,
-    ParallelAdcMode
-}
-
-/// Per‑instance "successor" channel.
-///
-/// `C` is the instance's transceiver‑capability (`<T as Instance>::Transceivers`),
-/// so the modulo‑N wrap depends on the instance shape, not on the marker itself.
-pub trait NextChannel<C: capability::TransceiverCount>: TransceiverMarker {
-    /// Marker of the next channel, modulo the capability's max count.
-    type Next: TransceiverMarker;
-}
-
-/// Convenience trait to get the next channel directly from an Instance
-pub trait NextChannelForInstance<T: Instance>: TransceiverMarker {
-    /// Type representing the next TransceiverMarker in the sequence
-    type Next: TransceiverMarker;
-}
-
-impl<T, M> NextChannelForInstance<T> for M
-where
-    T: Instance,
-    M: TransceiverMarker + NextChannel<T::Transceivers>,
-{
-    type Next = <M as NextChannel<T::Transceivers>>::Next;
-}
-
-macro_rules! impl_next_channel {
-    ($cap:ty, $($cur:ident => $next:ident),+ $(,)?) => {
-        $(
-            impl NextChannel<$cap> for $cur {
-                type Next = $next;
+    impl From<DataPackingModeReduced> for DataPackingMode {
+        fn from(mode: DataPackingModeReduced) -> Self {
+            match mode {
+                DataPackingModeReduced::Standard => Self::Standard,
+                DataPackingModeReduced::Interleaved => Self::Interleaved,
             }
-        )+
-    };
-}
-
-// For 2-channel instances: wraps 1 -> 0
-impl_next_channel!(capability::Tcv2,
-    Tcv0 => Tcv1,
-    Tcv1 => Tcv0,
-);
-
-// For 8-channel instances: wraps 7 -> 0
-impl_next_channel!(capability::Tcv8,
-    Tcv0 => Tcv1,
-    Tcv1 => Tcv2,
-    Tcv2 => Tcv3,
-    Tcv3 => Tcv4,
-    Tcv4 => Tcv5,
-    Tcv5 => Tcv6,
-    Tcv6 => Tcv7,
-    Tcv7 => Tcv0,
-);
-
-dma_trait!(Dma, Instance, FilterMarker); //TODO
-
-/// Trait for filters to generify them for TODO?
-pub trait FilterTrait<M: FilterMarker>: sealed::Sealed {
-    /// Get filter identifier
-    fn filter(&self) -> FilterChannel {
-        M::CHANNEL
+        }
     }
 
-    /// Get filter index
-    fn index(&self) -> usize {
-        M::CHANNEL.index()
-    }
-}
-
-/// Trait for transceivers to generify them for Filterconfiguration
-pub trait TransceiverTrait<M: TransceiverMarker>: sealed::Sealed {
-    /// Get transceiver identifier
-    fn transceiver(&self) -> TransceiverChannel {
-        <M as TransceiverMarker>::CHANNEL
+    /// SPI edge mode
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub enum SpiMode {
+        /// Sampling on the rising edge of the clock
+        SpiRisingEdge,
+        /// Sampling on the falling edge of the clock
+        SpiFallingEdge,
     }
 
-    /// Get transceiver index
-    fn index(&self) -> usize {
-        M::CHANNEL.index()
+    impl From<SpiMode> for SerialInterfaceType {
+        fn from(value: SpiMode) -> Self {
+            match value {
+                SpiMode::SpiRisingEdge => Self::SpiRisingEdge,
+                SpiMode::SpiFallingEdge => Self::SpiFallingEdge,
+            }
+        }
     }
-}
 
-impl<'a, 'd, T, M, S, MODE, P> sealed::Sealed for Transceiver<'a, 'd, T, M, S, MODE, P>
-where
-    T: Instance,
-    M: TransceiverMarker + NextChannelForInstance<T>,
-    S: PinSet,
-    MODE: ChannelMode,
-    P: PowerState,
-{
-}
+    /// Manchester-encoding mode
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub enum ManchesterMode {
+        /// Rising edge = logic 0, falling edge = logic 1
+        ManchesterRising0,
+        /// Rising edge = logic 1, falling edge = logic 0
+        ManchesterRising1,
+    }
 
-impl<'a, 'd, T, M, S, MODE, P> TransceiverTrait<M> for Transceiver<'a, 'd, T, M, S, MODE, P>
-where
-    T: Instance,
-    M: TransceiverMarker + NextChannelForInstance<T>,
-    S: PinSet,
-    MODE: ChannelMode,
-    P: PowerState,
-{
-}
+    impl From<ManchesterMode> for SerialInterfaceType {
+        fn from(value: ManchesterMode) -> Self {
+            match value {
+                ManchesterMode::ManchesterRising0 => Self::ManchesterRising0,
+                ManchesterMode::ManchesterRising1 => Self::ManchesterRising1,
+            }
+        }
+    }
 
-/// Marker trait for Transceiver channels data source
-pub trait DataSource: sealed::Sealed {}
+    /// SPI Edge mode for internal clock use
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub enum InternalSpiMode {
+        /// Sampling on the rising edge of the clock
+        SpiRising,
+        /// Sampling on the falling edge of the clock
+        SpiFalling,
+        /// Sampling on each second CKOUT falling edge
+        HalfClockFalling,
+        /// Sampling on each second CKOUT rising edge
+        HalfClockRising,
+    }
 
-/// Transceiver get's data clock from outside
-pub struct ExternalSource;
+    impl From<InternalSpiMode> for SpiClockSelect {
+        fn from(value: InternalSpiMode) -> Self {
+            match value {
+                InternalSpiMode::SpiRising | InternalSpiMode::SpiFalling => SpiClockSelect::InternalCkout,
+                InternalSpiMode::HalfClockFalling => SpiClockSelect::InternalCkoutFallingHalved,
+                InternalSpiMode::HalfClockRising => SpiClockSelect::InternalCkoutRisingHalved,
+            }
+        }
+    }
 
-/// Transceiver get's data clock from inside
-pub struct InternalSource;
-
-impl_sealed_and! {
-    DataSource =>
-    ExternalSource,
-    InternalSource,
+    impl From<InternalSpiMode> for SerialInterfaceType {
+        fn from(value: InternalSpiMode) -> Self {
+            match value {
+                InternalSpiMode::SpiRising | InternalSpiMode::HalfClockRising => SerialInterfaceType::SpiRisingEdge,
+                InternalSpiMode::SpiFalling | InternalSpiMode::HalfClockFalling => SerialInterfaceType::SpiFallingEdge,
+            }
+        }
+    }
 }

@@ -15,16 +15,9 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 pub use types::*;
 
+use crate::can::config;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::{Peri, interrupt, rcc};
-
-/// TODO
-#[allow(missing_docs)]
-#[derive(Clone, Copy, PartialEq)]
-pub enum GenericConfigEnum {
-    Low,
-    High,
-}
 
 /// DFSDM error.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -410,32 +403,43 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_parallel_adc(self) -> Transceiver<'static, 'd, T, M, S, ParallelAdcMode, Disabled>
+    pub fn new_parallel_adc(mut self) -> Transceiver<'static, 'd, T, M, S, ParallelAdcMode, Disabled>
     where
         T: capability::AdcInput,
     {
-        todo!()
-    }
-
-    ///Same as [`Self::new_parallel_adc`] but using neighbors pins
-    pub fn new_parallel_adc_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ParallelAdcMode, Disabled>
-    where
-        T: capability::AdcInput,
-    {
-        todo!()
+        self.select_channel_input(config_types::ChannelInput::Same);
+        self.select_data_mux_input(config_types::InputDataMux::InternalAdc);
+        Transceiver {
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+            datin: self.datin,
+            ckin: self.ckin,
+            common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
+        }
     }
 
     /// Parallel input from CPU/DMA writes to CHyDATINR (DATMPX=2).
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_parallel_dma(self) -> Transceiver<'static, 'd, T, M, S, ParallelDmaMode, Disabled> {
-        todo!()
-    }
-
-    ///Same as [`Self::new_parallel_dma`] but using neighbors pins
-    pub fn new_parallel_dma_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ParallelDmaMode, Disabled> {
-        todo!()
+    pub fn new_parallel_dma(
+        mut self,
+        packing_mode: config_types::DataPackingModeReduced,
+    ) -> Transceiver<'static, 'd, T, M, S, ParallelDmaMode, Disabled> {
+        self.select_channel_input(config_types::ChannelInput::Same);
+        self.select_data_mux_input(config_types::InputDataMux::InternalRegisterWrite);
+        self.set_data_packing_mode(packing_mode.into());
+        Transceiver {
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+            datin: self.datin,
+            ckin: self.ckin,
+            common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
+        }
     }
 
     /// Create dualmode DMA
@@ -446,8 +450,8 @@ where
     /// (reads INDAT1, the upper word) - or the register won't drain and
     /// you'll get overrun errors.
     pub fn new_parallel_dma_dual<MN, SNN>(
-        self,
-        neighbor: TransceiverBuilder<'d, T, MN, C, SN, SNN>,
+        mut self,
+        mut neighbor: TransceiverBuilder<'d, T, MN, C, SN, SNN>,
     ) -> (
         Transceiver<'static, 'd, T, M, S, ParallelDmaMode, Disabled>,
         Transceiver<'static, 'd, T, MN, SN, ParallelDmaMode, Disabled>,
@@ -457,6 +461,12 @@ where
         MN: TransceiverMarker + NextChannelForInstance<T>,
         SNN: PinSet,
     {
+        self.select_channel_input(config_types::ChannelInput::Same);
+        neighbor.select_channel_input(config_types::ChannelInput::Same);
+        self.select_data_mux_input(config_types::InputDataMux::InternalRegisterWrite);
+        neighbor.select_data_mux_input(config_types::InputDataMux::InternalRegisterWrite);
+        self.set_data_packing_mode(config_types::DataPackingMode::Dual);
+        neighbor.set_data_packing_mode(config_types::DataPackingMode::Standard);
         let _ = neighbor;
         todo!()
     }
@@ -465,41 +475,99 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_manchester(self) -> Transceiver<'static, 'd, T, M, S, ManchesterMode, Disabled>
+    pub fn new_manchester(
+        mut self,
+        mode: config_types::ManchesterMode,
+    ) -> Transceiver<'static, 'd, T, M, S, ManchesterMode, Disabled>
     where
         S: HasData,
     {
-        todo!()
+        self.select_channel_input(config_types::ChannelInput::Same);
+        self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
+        self.select_serial_interface_type(mode.into());
+        Transceiver {
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+            datin: self.datin,
+            ckin: self.ckin,
+            common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
+        }
     }
 
     ///Same as [`Self::new_manchester`] but using neighbors pins
-    pub fn new_manchester_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, ManchesterMode, Disabled>
+    pub fn new_manchester_neighbor(
+        mut self,
+        mode: config_types::ManchesterMode,
+    ) -> Transceiver<'static, 'd, T, M, SN, ManchesterMode, Disabled>
     where
         SN: HasData,
     {
-        todo!()
+        self.select_channel_input(config_types::ChannelInput::Neighbor);
+        self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
+        self.select_serial_interface_type(mode.into());
+        // Transceiver {
+        //     _instance_marker: PhantomData,
+        //     _transceiver_marker: PhantomData,
+        //     _datasource_marker: PhantomData,
+        //     _powerstate_marker: PhantomData,
+        //     datin: self.datin,
+        //     ckin: self.ckin,
+        //     common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
+        // }
+        todo!(
+            "Implement neighbors correctly. Currently they'd hold the neighbors pins, but have no reference to it yet."
+        )
     }
 
-    ///TODO new_synchronous_int description
-    pub fn new_synchronous_int(self) -> Transceiver<'static, 'd, T, M, S, SpiExtMode, Disabled>
+    ///TODO new_spi_ext description
+    pub fn new_spi_ext(mut self, mode: config_types::SpiMode) -> Transceiver<'static, 'd, T, M, S, SpiExtMode, Disabled>
     where
         S: HasDataAndClk,
     {
-        todo!()
+        self.select_channel_input(config_types::ChannelInput::Same);
+        self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
+        self.select_serial_interface_type(mode.into());
+        self.select_spi_clock(config_types::SpiClockSelect::ExternalCkin);
+        Transceiver {
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+            datin: self.datin,
+            ckin: self.ckin,
+            common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
+        }
     }
 
-    ///Same as [`Self::new_synchronous_int`] but using neighbors pins
-    pub fn new_synchronous_int_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, SpiExtMode, Disabled>
+    ///Same as [`Self::new_spi_ext`] but using neighbors pins
+    pub fn new_spi_ext_neighbor(
+        mut self,
+        mode: config_types::SpiMode,
+    ) -> Transceiver<'static, 'd, T, M, SN, SpiExtMode, Disabled>
     where
         SN: HasDataAndClk,
     {
-        todo!()
+        self.select_channel_input(config_types::ChannelInput::Neighbor);
+        self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
+        self.select_serial_interface_type(mode.into());
+        self.select_spi_clock(config_types::SpiClockSelect::ExternalCkin);
+        // Transceiver {
+        //     _instance_marker: PhantomData,
+        //     _transceiver_marker: PhantomData,
+        //     _datasource_marker: PhantomData,
+        //     _powerstate_marker: PhantomData,
+        //     datin: self.datin,
+        //     ckin: self.ckin,
+        //     common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
+        // }
+        todo!(
+            "Implement neighbors correctly. Currently they'd hold the neighbors pins, but have no reference to it yet."
+        )
     }
 
-    fn set_data_packing_mode(&mut self, mode: config_types::DataPackingMode)
-    where
-        M: DualPackingAllowed,
-    {
+    fn set_data_packing_mode(&mut self, mode: config_types::DataPackingMode) {
         // Dual mode is
         // available only on even channel numbers (y = 0, 2, 4, 6), for odd channel numbers (y = 1, 3, 5, 7)
         // DFSDM_CHyDATINR is write protected. If an even channel is set to dual mode then the following
@@ -553,12 +621,41 @@ where
     S: PinSet,
     SN: PinSet,
 {
-    ///TODO new_synchronous_ext description
-    pub fn new_synchronous_ext(self) -> Transceiver<'static, 'd, T, M, S, SpiExtMode, Disabled>
+    ///TODO new_spi_int description
+    pub fn new_spi_int(
+        mut self,
+        mode: config_types::InternalSpiMode,
+    ) -> Transceiver<'static, 'd, T, M, S, SpiCkoutMode, Disabled>
     where
         S: HasData,
     {
-        todo!();
+        self.select_channel_input(config_types::ChannelInput::Neighbor);
+        self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
+        self.select_serial_interface_type(mode.into());
+        self.select_spi_clock(mode.into());
+        Transceiver {
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+            datin: self.datin,
+            ckin: self.ckin,
+            common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
+        }
+    }
+
+    ///Same as [`Self::new_spi_int`] but using neighbors pins
+    pub fn new_spi_int_neighbor(
+        mut self,
+        mode: config_types::InternalSpiMode,
+    ) -> Transceiver<'static, 'd, T, M, SN, SpiCkoutMode, Disabled>
+    where
+        SN: HasData,
+    {
+        self.select_channel_input(config_types::ChannelInput::Neighbor);
+        self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
+        self.select_serial_interface_type(mode.into());
+        self.select_spi_clock(mode.into());
         // Transceiver {
         //     _instance_marker: PhantomData,
         //     _transceiver_marker: PhantomData,
@@ -566,16 +663,11 @@ where
         //     _powerstate_marker: PhantomData,
         //     datin: self.datin,
         //     ckin: self.ckin,
-        //     common: None,
+        //     common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
         // }
-    }
-
-    ///Same as [`Self::new_synchronous_ext`] but using neighbors pins
-    pub fn new_synchronous_ext_neighbor(self) -> Transceiver<'static, 'd, T, M, SN, SpiExtMode, Disabled>
-    where
-        SN: HasData,
-    {
-        todo!()
+        todo!(
+            "Implement neighbors correctly. Currently they shold the neighbors pins, but have no reference to it yet."
+        )
     }
 }
 
@@ -705,16 +797,6 @@ where
             _ckout,
             _powerstate_marker: PhantomData,
         }
-    }
-
-    // Set's the clock-output clock-divider
-    fn set_ckout_div(&mut self, divider: config_types::CkoutDivider) {
-        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutdiv(divider.into()));
-    }
-
-    /// Set's the clock-output clock-source
-    fn set_ckout_src(&mut self, source: config_types::CkoutSource) {
-        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutsrc(source.into()));
     }
 }
 
@@ -867,33 +949,13 @@ where
     T: Instance,
 {
     /// Configure DFSDM module with a clock output
-    pub fn new_ckout(peri: Peri<'d, T>, ckout: Peri<'d, if_afio!(impl CkoutPin<T, A>)>, config: Config) -> Self {
+    pub fn new_ckout(
+        peri: Peri<'d, T>,
+        ckout: Peri<'d, if_afio!(impl CkoutPin<T, A>)>,
+        ckout_source: config_types::CkoutSource,
+        ckout_div: config_types::CkoutDivider,
+    ) -> Self {
         let ckout = new_pin!(ckout, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-
-        Self::new_inner(peri, ckout, config)
-    }
-}
-
-impl<'d, T> Dfsdm<'d, T, OutputDisabled>
-where
-    T: Instance,
-{
-    /// Configure DFSDM module without a clock output
-    pub fn new(peri: Peri<'d, T>, config: Config) -> Self {
-        Self::new_inner(peri, None, config)
-    }
-}
-
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    T: Instance,
-    C: ClockOutputMode,
-{
-    fn new_inner(peri: Peri<'d, T>, ckout: Option<Flex<'d>>, config: Config) -> Self {
-        let _ = config;
-        let _ = peri;
-
-        rcc::enable_and_reset::<T>();
 
         //         macro_rules! config_pins {
         //     ($($pin:ident),*) => {
@@ -905,6 +967,46 @@ where
         //     };
         // }
         // TODO MAYBE USE CRITICAL SECTION FOR AFS?!
+
+        let mut dfsdm = Self::new_inner(peri, ckout);
+
+        dfsdm.set_ckout_src(ckout_source);
+        dfsdm.set_ckout_div(ckout_div);
+
+        dfsdm
+    }
+
+    // Set's the clock-output clock-divider
+    fn set_ckout_div(&mut self, divider: config_types::CkoutDivider) {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutdiv(divider.into()));
+    }
+
+    /// Set's the clock-output clock-source
+    fn set_ckout_src(&mut self, source: config_types::CkoutSource) {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutsrc(source.into()));
+    }
+}
+
+impl<'d, T> Dfsdm<'d, T, OutputDisabled>
+where
+    T: Instance,
+{
+    /// Configure DFSDM module without a clock output
+    pub fn new(peri: Peri<'d, T>) -> Self {
+        Self::new_inner(peri, None)
+    }
+}
+
+impl<'d, T, C> Dfsdm<'d, T, C>
+where
+    T: Instance,
+    C: ClockOutputMode,
+{
+    fn new_inner(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
+        let _ = peri;
+
+        rcc::enable_and_reset::<T>();
+
         Self {
             _instance_marker: PhantomData,
             _clock_mode: PhantomData,

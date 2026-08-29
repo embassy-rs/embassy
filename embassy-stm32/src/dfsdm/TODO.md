@@ -15,16 +15,16 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 # Registers sorted by category
 ## Module config
 ### Moule off
-* DFSDM_CH0CFGR1.CKOUTSRC   [x] internal [ ] pub
-* DFSDM_CH0CFGR1.CKOUTDIV   [x] internal [ ] pub
+* DFSDM_CH0CFGR1.CKOUTSRC   [x] internal [X] pub
+* DFSDM_CH0CFGR1.CKOUTDIV   [x] internal [X] pub
 
 ## Inputchannel config
 ### Inputchannel off
-* DFSDM_CHnCFGR1.DATPACK    [x] internal [ ] pub
-* DFSDM_CHnCFGR1.DATMPX     [x] internal [ ] pub
-* DFSDM_CHnCFGR1.CHINSEL    [x] internal [ ] pub
-* DFSDM_CHnCFGR1.SPICKSEL   [x] internal [ ] pub
-* DFSDM_CHnCFGR1.SITP       [x] internal [ ] pub
+* DFSDM_CHnCFGR1.DATPACK    [x] internal [X] pub
+* DFSDM_CHnCFGR1.DATMPX     [x] internal [X] pub
+* DFSDM_CHnCFGR1.CHINSEL    [x] internal [X] pub
+* DFSDM_CHnCFGR1.SPICKSEL   [x] internal [X] pub
+* DFSDM_CHnCFGR1.SITP       [x] internal [X] pub
 * DFSDM_CHnCFGR2.DTRBS      [x] internal [ ] pub
 * DFSDM_CHnAWSCDR.AWFORD    [x] internal [ ] pub
 * DFSDM_CHnAWSCDR.AWFOSR    [x] internal [ ] pub
