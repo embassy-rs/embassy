@@ -764,7 +764,7 @@ pub mod config_types {
         /// Panics if out of range.
         /// For a runtime-stabler variant try [`CkoutDivider::try_from`]
         pub fn new(divider: u16) -> Self {
-            assert!((2..=256).contains(&divider), "CKOUT divider must be 2..=256");
+            debug_assert!((2..=256).contains(&divider), "CKOUT divider must be 2..=256");
             Self((divider - 1) as u8)
         }
 
@@ -792,6 +792,49 @@ pub mod config_types {
 
     impl From<CkoutDivider> for u8 {
         fn from(value: CkoutDivider) -> Self {
+            value.0
+        }
+    }
+
+    /// AWFORD register value.
+    ///
+    /// 0 = AW Filter disabled; 1..=31 = enabled (actual OSR = value + 1, range 2..=32).
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub struct AnalogWatchdogOsr(u8);
+
+    impl AnalogWatchdogOsr {
+        /// Create from the actual OSR value (2..=32).
+        /// Panics if out of range.
+        /// For a runtime-stabler variant try [`AnalogWatchdogOsr::try_from`]
+        pub fn new(divider: u16) -> Self {
+            debug_assert!((2..=32).contains(&divider), "OSR must be 2..=32");
+            Self((divider - 1) as u8)
+        }
+
+        /// Watchdog filter bypassed (register value 0).
+        pub(crate) const BYPASSED: Self = Self(0);
+
+        /// Raw register value.
+        pub const fn raw(self) -> u8 {
+            self.0
+        }
+    }
+
+    impl TryFrom<u16> for AnalogWatchdogOsr {
+        type Error = ();
+
+        /// Try to create from the actual OSR value (2..=32).
+        fn try_from(divider: u16) -> Result<Self, Self::Error> {
+            if (2..=32).contains(&divider) {
+                Ok(Self((divider - 1) as u8))
+            } else {
+                Err(())
+            }
+        }
+    }
+
+    impl From<AnalogWatchdogOsr> for u8 {
+        fn from(value: AnalogWatchdogOsr) -> Self {
             value.0
         }
     }
@@ -1034,6 +1077,44 @@ pub mod config_types {
             match value {
                 InternalSpiMode::SpiRising | InternalSpiMode::HalfClockRising => SerialInterfaceType::SpiRisingEdge,
                 InternalSpiMode::SpiFalling | InternalSpiMode::HalfClockFalling => SerialInterfaceType::SpiFallingEdge,
+            }
+        }
+    }
+
+    /// Filter order of the analog watchdogs Filter
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub enum AnalogWatchdogFilterConfiguration {
+        /// Filter bypassed
+        Bypass,
+        /// FastSinc Filter
+        FastSinc(AnalogWatchdogOsr),
+        /// Sinc1 filter
+        Sinc1(AnalogWatchdogOsr),
+        /// Sinc2 filter
+        Sinc2(AnalogWatchdogOsr),
+        /// Sinc3 filter
+        Sinc3(AnalogWatchdogOsr),
+    }
+
+    impl From<AnalogWatchdogFilterConfiguration> for AnalogWatchdogFilterOrder {
+        fn from(value: AnalogWatchdogFilterConfiguration) -> Self {
+            match value {
+                AnalogWatchdogFilterConfiguration::Bypass => AnalogWatchdogFilterOrder::FastSinc,
+                AnalogWatchdogFilterConfiguration::FastSinc(_) => AnalogWatchdogFilterOrder::FastSinc,
+                AnalogWatchdogFilterConfiguration::Sinc1(_) => AnalogWatchdogFilterOrder::Sinc1,
+                AnalogWatchdogFilterConfiguration::Sinc2(_) => AnalogWatchdogFilterOrder::Sinc2,
+                AnalogWatchdogFilterConfiguration::Sinc3(_) => AnalogWatchdogFilterOrder::Sinc3,
+            }
+        }
+    }
+    impl From<AnalogWatchdogFilterConfiguration> for AnalogWatchdogOsr {
+        fn from(value: AnalogWatchdogFilterConfiguration) -> Self {
+            match value {
+                AnalogWatchdogFilterConfiguration::Bypass => AnalogWatchdogOsr::BYPASSED,
+                AnalogWatchdogFilterConfiguration::FastSinc(osr)
+                | AnalogWatchdogFilterConfiguration::Sinc1(osr)
+                | AnalogWatchdogFilterConfiguration::Sinc2(osr)
+                | AnalogWatchdogFilterConfiguration::Sinc3(osr) => osr,
             }
         }
     }

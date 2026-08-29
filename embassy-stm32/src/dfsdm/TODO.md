@@ -25,9 +25,9 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_CHnCFGR1.CHINSEL    [x] internal [X] pub
 * DFSDM_CHnCFGR1.SPICKSEL   [x] internal [X] pub
 * DFSDM_CHnCFGR1.SITP       [x] internal [X] pub
-* DFSDM_CHnCFGR2.DTRBS      [x] internal [ ] pub
-* DFSDM_CHnAWSCDR.AWFORD    [x] internal [ ] pub
-* DFSDM_CHnAWSCDR.AWFOSR    [x] internal [ ] pub
+* DFSDM_CHnCFGR2.DTRBS      [x] internal [X] pub
+* DFSDM_CHnAWSCDR.AWFORD    [x] internal [X] pub
+* DFSDM_CHnAWSCDR.AWFOSR    [x] internal [X] pub
 
 ### Inputchannel on
 * DFSDM_CHnCFGR1.CKABEN     [x] internal [ ] pub

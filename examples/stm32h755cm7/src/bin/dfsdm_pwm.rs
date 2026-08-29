@@ -7,7 +7,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{CkoutDivider, InternalSpiMode};
-use embassy_stm32::dfsdm::{Dfsdm, Flt0, Flt1, InjectedTrigger, TransceiverTrait};
+use embassy_stm32::dfsdm::{Dfsdm, Flt0, Flt1, InjectedTrigger, TransceiverConfig, TransceiverTrait};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::{SharedData, dfsdm};
 use embassy_time::Timer;
@@ -47,13 +47,15 @@ async fn main(_spawner: Spawner) {
     let mut led = Output::new(p.PB3, Level::High, Speed::Low);
     let mut led = Output::new(p.PE1, Level::High, Speed::Low);
 
+    // Start driver instantiation using DFSDM1 with a CKOUT pin on pin C2
     let dfsdm1 = dfsdm::Dfsdm::new_ckout(
         p.DFSDM1,
         p.PC2,
         dfsdm::config_types::CkoutSource::System,
         CkoutDivider::try_from(2).expect("Divider wrong?"),
     );
-    let a = dfsdm1.configure_pins(|creator| {
+
+    let split = dfsdm1.configure_pins(|creator| {
         (
             creator.ch0.none(),
             creator.ch1.datin(p.PC3),
@@ -65,10 +67,13 @@ async fn main(_spawner: Spawner) {
             creator.ch7.none(),
         )
     });
-    let (mut ch2, mut ch3) = a.ch2.new_parallel_dma_dual(a.ch3);
-    a.ch6.new_parallel_dma_dual(a.ch7);
+    let tcv_cfg = TransceiverConfig::default();
+    let (mut ch2, mut ch3) = split.ch2.new_parallel_dma_dual(split.ch3);
+    let mut ch2 = ch2.configure(&tcv_cfg).enable();
+    let mut ch3 = ch3.configure(&tcv_cfg).enable();
+    split.ch6.new_parallel_dma_dual(split.ch7);
 
-    let mut channel_mic = a.ch1.new_spi_int(InternalSpiMode::SpiFalling);
+    let mut channel_mic = split.ch1.new_spi_int(InternalSpiMode::SpiFalling);
 
     loop {
         info!("led on!");

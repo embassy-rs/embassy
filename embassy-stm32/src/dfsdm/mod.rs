@@ -134,6 +134,22 @@ where
     }
 }
 
+/// Confgiguration for Transceiver
+pub struct TransceiverConfig {
+    /// Amount of right-shifts the data shall experience
+    data_right_shift: config_types::UInt<5>,
+    analog_watchdog_filter_config: config_types::AnalogWatchdogFilterConfiguration,
+}
+
+impl Default for TransceiverConfig {
+    fn default() -> Self {
+        Self {
+            data_right_shift: config_types::UInt::new(0),
+            analog_watchdog_filter_config: config_types::AnalogWatchdogFilterConfiguration::Bypass,
+        }
+    }
+}
+
 /// Only when disabled
 impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE, Disabled>
 where
@@ -157,6 +173,16 @@ where
         }
     }
 
+    /// Configure the transceiver
+    pub fn configure(mut self, config: &TransceiverConfig) -> Transceiver<'a, 'd, T, M, S, MODE, Disabled> {
+        self.set_data_right_shift(config.data_right_shift);
+
+        self.select_analog_watchdog_filter_order(config.analog_watchdog_filter_config.into());
+        self.select_analog_watchdog_osr(config.analog_watchdog_filter_config.into());
+
+        self
+    }
+
     /// Set channel right shift factor
     fn set_data_right_shift(&mut self, shift: config_types::UInt<5>) {
         T::regs()
@@ -174,7 +200,7 @@ where
     }
 
     /// Set the oversampling ratio of the analog watchdog filter
-    fn select_analog_watchdog_osr(&mut self, osr: config_types::UInt<5>) {
+    fn select_analog_watchdog_osr(&mut self, osr: config_types::AnalogWatchdogOsr) {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
@@ -779,7 +805,7 @@ where
     P: PowerState,
 {
     fn drop(&mut self) {
-        T::RCC_INFO.disable();
+        rcc::disable::<T>();
     }
 }
 
@@ -975,16 +1001,6 @@ where
 
         dfsdm
     }
-
-    // Set's the clock-output clock-divider
-    fn set_ckout_div(&mut self, divider: config_types::CkoutDivider) {
-        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutdiv(divider.into()));
-    }
-
-    /// Set's the clock-output clock-source
-    fn set_ckout_src(&mut self, source: config_types::CkoutSource) {
-        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutsrc(source.into()));
-    }
 }
 
 impl<'d, T> Dfsdm<'d, T, OutputDisabled>
@@ -993,7 +1009,11 @@ where
 {
     /// Configure DFSDM module without a clock output
     pub fn new(peri: Peri<'d, T>) -> Self {
-        Self::new_inner(peri, None)
+        let mut dfsdm = Self::new_inner(peri, None);
+
+        dfsdm.set_ckout_div(config_types::CkoutDivider::DISABLED);
+
+        dfsdm
     }
 }
 
@@ -1013,6 +1033,16 @@ where
             ckout: ckout,
             peri: Some(peri),
         }
+    }
+
+    // Set's the clock-output clock-divider
+    fn set_ckout_div(&mut self, divider: config_types::CkoutDivider) {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutdiv(divider.into()));
+    }
+
+    /// Set's the clock-output clock-source
+    fn set_ckout_src(&mut self, source: config_types::CkoutSource) {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutsrc(source.into()));
     }
 }
 
