@@ -444,7 +444,9 @@ macro_rules! impl_ecb {
             #[inline]
             fn encrypt_block(&self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
                 let out: &mut cipher::Block<Self> = block.get_out();
-                $enc(&self.ctx, out.as_mut_slice().try_into().unwrap());
+                let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
+                let blocks = core::slice::from_mut(arr);
+                $enc(&self.ctx, blocks);
             }
         }
 
@@ -459,7 +461,9 @@ macro_rules! impl_ecb {
             #[inline]
             fn decrypt_block(&self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
                 let out: &mut cipher::Block<Self> = block.get_out();
-                $dec(&self.ctx, out.as_mut_slice().try_into().unwrap());
+                let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
+                let blocks = core::slice::from_mut(arr);
+                $dec(&self.ctx, blocks);
             }
         }
 
@@ -538,7 +542,9 @@ macro_rules! impl_cbc {
             #[inline]
             fn encrypt_block(&mut self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
                 let out: &mut cipher::Block<Self> = block.get_out();
-                $enc(&mut self.ctx, out.as_mut_slice().try_into().unwrap());
+                let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
+                let blocks = core::slice::from_mut(arr);
+                $enc(&mut self.ctx, blocks);
             }
         }
 
@@ -547,13 +553,25 @@ macro_rules! impl_cbc {
             fn encrypt_with_backend(&mut self, f: impl BlockModeEncClosure<BlockSize = Self::BlockSize>) {
                 f.call(self);
             }
+
+            #[inline]
+            fn encrypt_blocks(&mut self, blocks: &mut [cipher::Block<Self>]) {
+                if blocks.is_empty() {
+                    return;
+                }
+                let ptr = blocks.as_mut_ptr() as *mut [u8; 16];
+                let blocks_arr = unsafe { core::slice::from_raw_parts_mut(ptr, blocks.len()) };
+                $enc(&mut self.ctx, blocks_arr);
+            }
         }
 
         impl BlockModeDecBackend for $name {
             #[inline]
             fn decrypt_block(&mut self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
                 let out: &mut cipher::Block<Self> = block.get_out();
-                $dec(&mut self.ctx, out.as_mut_slice().try_into().unwrap());
+                let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
+                let blocks = core::slice::from_mut(arr);
+                $dec(&mut self.ctx, blocks);
             }
         }
 
@@ -561,6 +579,16 @@ macro_rules! impl_cbc {
             #[inline]
             fn decrypt_with_backend(&mut self, f: impl BlockModeDecClosure<BlockSize = Self::BlockSize>) {
                 f.call(self);
+            }
+
+            #[inline]
+            fn decrypt_blocks(&mut self, blocks: &mut [cipher::Block<Self>]) {
+                if blocks.is_empty() {
+                    return;
+                }
+                let ptr = blocks.as_mut_ptr() as *mut [u8; 16];
+                let blocks_arr = unsafe { core::slice::from_raw_parts_mut(ptr, blocks.len()) };
+                $dec(&mut self.ctx, blocks_arr);
             }
         }
     };
