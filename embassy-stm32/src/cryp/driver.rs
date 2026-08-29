@@ -1,4 +1,4 @@
-use embassy_crypto_driver::{AesOperation, CryptoError};
+use embassy_crypto_driver::CryptoError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
@@ -116,11 +116,11 @@ define_gcm_runner!(run_gcm256, 32);
 
 #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
 macro_rules! run_ccm {
-    ($tag_size:expr, $cryp:expr, $key:expr, $nonce:expr, $aad:expr, $input:expr, $output:expr, $expected:expr, $tag_output:expr, $direction:expr) => {{
+    ($key_size:expr, $tag_size:expr, $cryp:expr, $key:expr, $nonce:expr, $aad:expr, $input:expr, $output:expr, $expected:expr, $tag_output:expr, $direction:expr) => {{
         match $nonce.len() {
             7 => {
                 let nonce: &[u8; 7] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
-                let cipher = super::AesCcm::<16, $tag_size, 7>::new($key, nonce, $aad.len(), $input.len());
+                let cipher = super::AesCcm::<$key_size, $tag_size, 7>::new($key, nonce, $aad.len(), $input.len());
                 run_authenticated(
                     $cryp,
                     &cipher,
@@ -134,7 +134,7 @@ macro_rules! run_ccm {
             }
             8 => {
                 let nonce: &[u8; 8] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
-                let cipher = super::AesCcm::<16, $tag_size, 8>::new($key, nonce, $aad.len(), $input.len());
+                let cipher = super::AesCcm::<$key_size, $tag_size, 8>::new($key, nonce, $aad.len(), $input.len());
                 run_authenticated(
                     $cryp,
                     &cipher,
@@ -148,7 +148,7 @@ macro_rules! run_ccm {
             }
             9 => {
                 let nonce: &[u8; 9] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
-                let cipher = super::AesCcm::<16, $tag_size, 9>::new($key, nonce, $aad.len(), $input.len());
+                let cipher = super::AesCcm::<$key_size, $tag_size, 9>::new($key, nonce, $aad.len(), $input.len());
                 run_authenticated(
                     $cryp,
                     &cipher,
@@ -162,7 +162,7 @@ macro_rules! run_ccm {
             }
             10 => {
                 let nonce: &[u8; 10] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
-                let cipher = super::AesCcm::<16, $tag_size, 10>::new($key, nonce, $aad.len(), $input.len());
+                let cipher = super::AesCcm::<$key_size, $tag_size, 10>::new($key, nonce, $aad.len(), $input.len());
                 run_authenticated(
                     $cryp,
                     &cipher,
@@ -176,7 +176,7 @@ macro_rules! run_ccm {
             }
             11 => {
                 let nonce: &[u8; 11] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
-                let cipher = super::AesCcm::<16, $tag_size, 11>::new($key, nonce, $aad.len(), $input.len());
+                let cipher = super::AesCcm::<$key_size, $tag_size, 11>::new($key, nonce, $aad.len(), $input.len());
                 run_authenticated(
                     $cryp,
                     &cipher,
@@ -190,7 +190,7 @@ macro_rules! run_ccm {
             }
             12 => {
                 let nonce: &[u8; 12] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
-                let cipher = super::AesCcm::<16, $tag_size, 12>::new($key, nonce, $aad.len(), $input.len());
+                let cipher = super::AesCcm::<$key_size, $tag_size, 12>::new($key, nonce, $aad.len(), $input.len());
                 run_authenticated(
                     $cryp,
                     &cipher,
@@ -204,7 +204,7 @@ macro_rules! run_ccm {
             }
             13 => {
                 let nonce: &[u8; 13] = $nonce.try_into().map_err(|_| CryptoError::InvalidInput)?;
-                let cipher = super::AesCcm::<16, $tag_size, 13>::new($key, nonce, $aad.len(), $input.len());
+                let cipher = super::AesCcm::<$key_size, $tag_size, 13>::new($key, nonce, $aad.len(), $input.len());
                 run_authenticated(
                     $cryp,
                     &cipher,
@@ -223,253 +223,521 @@ macro_rules! run_ccm {
 
 struct AesDriver;
 
-impl embassy_crypto_driver::Aes for AesDriver {
-    fn aes_exec(op: AesOperation<'_>) -> Result<(), CryptoError> {
+impl embassy_crypto_driver::Aes128Ecb for AesDriver {
+    type Context = [u8; 16];
+
+    fn aes128ecb_init(key: &[u8; 16]) -> Self::Context {
+        *key
+    }
+
+    fn aes128ecb_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes128ecb_encrypt_block(ctx: &Self::Context, block: &mut [u8; 16]) {
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
+        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Encrypt, block.as_mut_slice()).unwrap();
+    }
 
-        match op {
-            AesOperation::Aes128EcbEncrypt { block, key } => {
-                run_in_place(&cryp, &AesEcb::new(key), Direction::Encrypt, block)
-            }
-            AesOperation::Aes128EcbDecrypt { block, key } => {
-                run_in_place(&cryp, &AesEcb::new(key), Direction::Decrypt, block)
-            }
-            AesOperation::Aes128CbcEncrypt { iv, buffer, key } => {
-                run_in_place(&cryp, &AesCbc::new(key, iv), Direction::Encrypt, buffer)
-            }
-            AesOperation::Aes128CbcDecrypt { iv, block, key } => {
-                run_in_place(&cryp, &AesCbc::new(key, iv), Direction::Decrypt, block)
-            }
-            AesOperation::Aes256CbcEncrypt { iv, block, key } => {
-                run_in_place(&cryp, &AesCbc::new(key, iv), Direction::Encrypt, block)
-            }
-            AesOperation::Aes256CbcDecrypt { iv, block, key } => {
-                run_in_place(&cryp, &AesCbc::new(key, iv), Direction::Decrypt, block)
-            }
-            #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-            AesOperation::AesGcm128Encrypt {
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                tag,
-            } => run_gcm128(
-                &cryp,
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                None,
-                Some(tag),
-                Direction::Encrypt,
-            ),
-            #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-            AesOperation::AesGcm128Decrypt {
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                tag,
-            } => run_gcm128(
-                &cryp,
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                Some(tag),
-                None,
-                Direction::Decrypt,
-            ),
-            #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-            AesOperation::AesGcm256Encrypt {
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                tag,
-            } => run_gcm256(
-                &cryp,
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                None,
-                Some(tag),
-                Direction::Encrypt,
-            ),
-            #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-            AesOperation::AesGcm256Decrypt {
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                tag,
-            } => run_gcm256(
-                &cryp,
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                Some(tag),
-                None,
-                Direction::Decrypt,
-            ),
-            #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-            AesOperation::AesCcm128Encrypt {
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                tag,
-            } => {
+    fn aes128ecb_decrypt_block(ctx: &Self::Context, block: &mut [u8; 16]) {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Decrypt, block.as_mut_slice()).unwrap();
+    }
+}
+
+impl embassy_crypto_driver::Aes256Ecb for AesDriver {
+    type Context = [u8; 32];
+
+    fn aes256ecb_init(key: &[u8; 32]) -> Self::Context {
+        *key
+    }
+
+    fn aes256ecb_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes256ecb_encrypt_block(ctx: &Self::Context, block: &mut [u8; 16]) {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Encrypt, block.as_mut_slice()).unwrap();
+    }
+
+    fn aes256ecb_decrypt_block(ctx: &Self::Context, block: &mut [u8; 16]) {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Decrypt, block.as_mut_slice()).unwrap();
+    }
+}
+
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+impl embassy_crypto_driver::Aes128Gcm for AesDriver {
+    type Context = [u8; 16];
+
+    fn aes128gcm_init(key: &[u8; 16]) -> Self::Context {
+        *key
+    }
+
+    fn aes128gcm_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes128gcm_encrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &mut [u8; 16],
+    ) -> Result<(), CryptoError> {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
+        run_gcm128(
+            &cryp,
+            ctx,
+            nonce,
+            aad,
+            input,
+            buffer,
+            None,
+            Some(tag),
+            Direction::Encrypt,
+        )
+    }
+
+    fn aes128gcm_decrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &[u8; 16],
+    ) -> Result<(), CryptoError> {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
+        run_gcm128(
+            &cryp,
+            ctx,
+            nonce,
+            aad,
+            input,
+            buffer,
+            Some(tag),
+            None,
+            Direction::Decrypt,
+        )
+    }
+}
+
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+impl embassy_crypto_driver::Aes256Gcm for AesDriver {
+    type Context = [u8; 32];
+
+    fn aes256gcm_init(key: &[u8; 32]) -> Self::Context {
+        *key
+    }
+
+    fn aes256gcm_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes256gcm_encrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &mut [u8; 16],
+    ) -> Result<(), CryptoError> {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
+        run_gcm256(
+            &cryp,
+            ctx,
+            nonce,
+            aad,
+            input,
+            buffer,
+            None,
+            Some(tag),
+            Direction::Encrypt,
+        )
+    }
+
+    fn aes256gcm_decrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &[u8; 16],
+    ) -> Result<(), CryptoError> {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
+        run_gcm256(
+            &cryp,
+            ctx,
+            nonce,
+            aad,
+            input,
+            buffer,
+            Some(tag),
+            None,
+            Direction::Decrypt,
+        )
+    }
+}
+
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+impl embassy_crypto_driver::Aes128Ccm for AesDriver {
+    type Context = [u8; 16];
+
+    fn aes128ccm_init(key: &[u8; 16]) -> Self::Context {
+        *key
+    }
+
+    fn aes128ccm_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes128ccm_encrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &mut [u8],
+    ) -> Result<(), CryptoError> {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
+        match tag.len() {
+            4 => {
+                let tag_out: &mut [u8; 4] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
                 run_ccm!(
                     16,
+                    4,
                     &cryp,
-                    key,
+                    ctx,
                     nonce,
                     aad,
-                    plaintext,
-                    ciphertext,
+                    input,
+                    buffer,
                     None,
-                    Some(tag),
+                    Some(tag_out),
                     Direction::Encrypt
                 )
             }
-            #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-            AesOperation::AesCcm128Decrypt {
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                tag,
-            } => {
+            8 => {
+                let tag_out: &mut [u8; 8] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
                 run_ccm!(
                     16,
-                    &cryp,
-                    key,
-                    nonce,
-                    aad,
-                    ciphertext,
-                    plaintext,
-                    Some(tag),
-                    None,
-                    Direction::Decrypt
-                )
-            }
-            #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-            AesOperation::AesCcm8_128Encrypt {
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                tag,
-            } => {
-                run_ccm!(
                     8,
                     &cryp,
-                    key,
+                    ctx,
                     nonce,
                     aad,
-                    plaintext,
-                    ciphertext,
+                    input,
+                    buffer,
                     None,
-                    Some(tag),
+                    Some(tag_out),
                     Direction::Encrypt
                 )
             }
-            #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-            AesOperation::AesCcm8_128Decrypt {
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                tag,
-            } => {
+            16 => {
+                let tag_out: &mut [u8; 16] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
                 run_ccm!(
-                    8,
+                    16,
+                    16,
                     &cryp,
-                    key,
+                    ctx,
                     nonce,
                     aad,
-                    ciphertext,
-                    plaintext,
-                    Some(tag),
+                    input,
+                    buffer,
                     None,
-                    Direction::Decrypt
-                )
-            }
-            #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-            AesOperation::AesCcm4_128Encrypt {
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                tag,
-            } => {
-                run_ccm!(
-                    4,
-                    &cryp,
-                    key,
-                    nonce,
-                    aad,
-                    plaintext,
-                    ciphertext,
-                    None,
-                    Some(tag),
+                    Some(tag_out),
                     Direction::Encrypt
                 )
             }
-            #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
-            AesOperation::AesCcm4_128Decrypt {
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                tag,
-            } => {
+            _ => Err(CryptoError::InvalidInput),
+        }
+    }
+
+    fn aes128ccm_decrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &[u8],
+    ) -> Result<(), CryptoError> {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
+        match tag.len() {
+            4 => {
+                let tag_ref: &[u8; 4] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
                 run_ccm!(
+                    16,
                     4,
                     &cryp,
-                    key,
+                    ctx,
                     nonce,
                     aad,
-                    ciphertext,
-                    plaintext,
-                    Some(tag),
+                    input,
+                    buffer,
+                    Some(tag_ref),
                     None,
                     Direction::Decrypt
                 )
             }
-            AesOperation::Aes128Cmac { .. } => Err(CryptoError::Unsupported),
-            #[cfg(not(any(cryp_v2, cryp_v3, cryp_v4)))]
-            AesOperation::AesGcm128Encrypt { .. }
-            | AesOperation::AesGcm128Decrypt { .. }
-            | AesOperation::AesGcm256Encrypt { .. }
-            | AesOperation::AesGcm256Decrypt { .. }
-            | AesOperation::AesCcm128Encrypt { .. }
-            | AesOperation::AesCcm128Decrypt { .. }
-            | AesOperation::AesCcm8_128Encrypt { .. }
-            | AesOperation::AesCcm8_128Decrypt { .. }
-            | AesOperation::AesCcm4_128Encrypt { .. }
-            | AesOperation::AesCcm4_128Decrypt { .. } => Err(CryptoError::Unsupported),
-            _ => Err(CryptoError::Unsupported),
+            8 => {
+                let tag_ref: &[u8; 8] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                run_ccm!(
+                    16,
+                    8,
+                    &cryp,
+                    ctx,
+                    nonce,
+                    aad,
+                    input,
+                    buffer,
+                    Some(tag_ref),
+                    None,
+                    Direction::Decrypt
+                )
+            }
+            16 => {
+                let tag_ref: &[u8; 16] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                run_ccm!(
+                    16,
+                    16,
+                    &cryp,
+                    ctx,
+                    nonce,
+                    aad,
+                    input,
+                    buffer,
+                    Some(tag_ref),
+                    None,
+                    Direction::Decrypt
+                )
+            }
+            _ => Err(CryptoError::InvalidInput),
         }
     }
 }
 
-embassy_crypto_driver::embassy_crypto_aes_impl!(AesDriver);
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+impl embassy_crypto_driver::Aes256Ccm for AesDriver {
+    type Context = [u8; 32];
+
+    fn aes256ccm_init(key: &[u8; 32]) -> Self::Context {
+        *key
+    }
+
+    fn aes256ccm_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes256ccm_encrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &mut [u8],
+    ) -> Result<(), CryptoError> {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
+        match tag.len() {
+            4 => {
+                let tag_out: &mut [u8; 4] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                run_ccm!(
+                    32,
+                    4,
+                    &cryp,
+                    ctx,
+                    nonce,
+                    aad,
+                    input,
+                    buffer,
+                    None,
+                    Some(tag_out),
+                    Direction::Encrypt
+                )
+            }
+            8 => {
+                let tag_out: &mut [u8; 8] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                run_ccm!(
+                    32,
+                    8,
+                    &cryp,
+                    ctx,
+                    nonce,
+                    aad,
+                    input,
+                    buffer,
+                    None,
+                    Some(tag_out),
+                    Direction::Encrypt
+                )
+            }
+            16 => {
+                let tag_out: &mut [u8; 16] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                run_ccm!(
+                    32,
+                    16,
+                    &cryp,
+                    ctx,
+                    nonce,
+                    aad,
+                    input,
+                    buffer,
+                    None,
+                    Some(tag_out),
+                    Direction::Encrypt
+                )
+            }
+            _ => Err(CryptoError::InvalidInput),
+        }
+    }
+
+    fn aes256ccm_decrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &[u8],
+    ) -> Result<(), CryptoError> {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
+        match tag.len() {
+            4 => {
+                let tag_ref: &[u8; 4] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                run_ccm!(
+                    32,
+                    4,
+                    &cryp,
+                    ctx,
+                    nonce,
+                    aad,
+                    input,
+                    buffer,
+                    Some(tag_ref),
+                    None,
+                    Direction::Decrypt
+                )
+            }
+            8 => {
+                let tag_ref: &[u8; 8] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                run_ccm!(
+                    32,
+                    8,
+                    &cryp,
+                    ctx,
+                    nonce,
+                    aad,
+                    input,
+                    buffer,
+                    Some(tag_ref),
+                    None,
+                    Direction::Decrypt
+                )
+            }
+            16 => {
+                let tag_ref: &[u8; 16] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
+                run_ccm!(
+                    32,
+                    16,
+                    &cryp,
+                    ctx,
+                    nonce,
+                    aad,
+                    input,
+                    buffer,
+                    Some(tag_ref),
+                    None,
+                    Direction::Decrypt
+                )
+            }
+            _ => Err(CryptoError::InvalidInput),
+        }
+    }
+}
+
+impl embassy_crypto_driver::Aes128Cbc for AesDriver {
+    type Context = ([u8; 16], [u8; 16]);
+
+    fn aes128cbc_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context {
+        (*key, *iv)
+    }
+
+    fn aes128cbc_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes128cbc_encrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]) {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let (key, iv) = ctx;
+        let cipher = AesCbc::new(key, iv);
+        run_in_place(&cryp, &cipher, Direction::Encrypt, block.as_mut_slice()).unwrap();
+        iv.copy_from_slice(block);
+    }
+
+    fn aes128cbc_decrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]) {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let (key, iv) = ctx;
+        let old_ciphertext = *block;
+        let cipher = AesCbc::new(key, iv);
+        run_in_place(&cryp, &cipher, Direction::Decrypt, block.as_mut_slice()).unwrap();
+        iv.copy_from_slice(&old_ciphertext);
+    }
+}
+
+impl embassy_crypto_driver::Aes256Cbc for AesDriver {
+    type Context = ([u8; 32], [u8; 16]);
+
+    fn aes256cbc_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context {
+        (*key, *iv)
+    }
+
+    fn aes256cbc_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes256cbc_encrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]) {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let (key, iv) = ctx;
+        let cipher = AesCbc::new(key, iv);
+        run_in_place(&cryp, &cipher, Direction::Encrypt, block.as_mut_slice()).unwrap();
+        iv.copy_from_slice(block);
+    }
+
+    fn aes256cbc_decrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]) {
+        let mut driver = DRIVER.try_lock().unwrap();
+        let cryp = driver.borrow();
+        let (key, iv) = ctx;
+        let old_ciphertext = *block;
+        let cipher = AesCbc::new(key, iv);
+        run_in_place(&cryp, &cipher, Direction::Decrypt, block.as_mut_slice()).unwrap();
+        iv.copy_from_slice(&old_ciphertext);
+    }
+}
+
+embassy_crypto_driver::embassy_crypto_aes128ecb_impl!(AesDriver);
+embassy_crypto_driver::embassy_crypto_aes256ecb_impl!(AesDriver);
+embassy_crypto_driver::embassy_crypto_aes128cbc_impl!(AesDriver);
+embassy_crypto_driver::embassy_crypto_aes256cbc_impl!(AesDriver);
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+embassy_crypto_driver::embassy_crypto_aes128gcm_impl!(AesDriver);
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+embassy_crypto_driver::embassy_crypto_aes256gcm_impl!(AesDriver);
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+embassy_crypto_driver::embassy_crypto_aes128ccm_impl!(AesDriver);
+#[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
+embassy_crypto_driver::embassy_crypto_aes256ccm_impl!(AesDriver);

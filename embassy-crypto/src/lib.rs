@@ -624,14 +624,14 @@ macro_rules! impl_gcm {
                 &self,
                 nonce: &aead::Nonce<Self>,
                 associated_data: &[u8],
-                mut buffer: InOutBuf<'_, '_, u8>,
+                buffer: InOutBuf<'_, '_, u8>,
             ) -> Result<aead::Tag<Self>, aead::Error> {
                 let mut tag = aead::Tag::<Self>::default();
                 $enc(
                     &self.ctx,
                     nonce.as_slice(),
                     associated_data,
-                    buffer.get_out(),
+                    buffer.into_out_with_copied_in(),
                     tag.as_mut_slice().try_into().unwrap(),
                 )
                 .map_err(|_| aead::Error)?;
@@ -642,14 +642,14 @@ macro_rules! impl_gcm {
                 &self,
                 nonce: &aead::Nonce<Self>,
                 associated_data: &[u8],
-                mut buffer: InOutBuf<'_, '_, u8>,
+                buffer: InOutBuf<'_, '_, u8>,
                 tag: &aead::Tag<Self>,
             ) -> Result<(), aead::Error> {
                 $dec(
                     &self.ctx,
                     nonce.as_slice(),
                     associated_data,
-                    buffer.get_out(),
+                    buffer.into_out_with_copied_in(),
                     tag.as_slice().try_into().unwrap(),
                 )
                 .map_err(|_| aead::Error)
@@ -789,14 +789,14 @@ where
         &self,
         nonce: &aead::Nonce<Self>,
         associated_data: &[u8],
-        mut buffer: InOutBuf<'_, '_, u8>,
+        buffer: InOutBuf<'_, '_, u8>,
     ) -> Result<aead::Tag<Self>, aead::Error> {
         let mut tag = aead::Tag::<Self>::default();
         embassy_crypto_driver::aes128ccm_encrypt(
             &self.ctx,
             nonce.as_slice(),
             associated_data,
-            buffer.get_out(),
+            buffer.into_out_with_copied_in(),
             tag.as_mut_slice(),
         )
         .map_err(|_| aead::Error)?;
@@ -807,14 +807,14 @@ where
         &self,
         nonce: &aead::Nonce<Self>,
         associated_data: &[u8],
-        mut buffer: InOutBuf<'_, '_, u8>,
+        buffer: InOutBuf<'_, '_, u8>,
         tag: &aead::Tag<Self>,
     ) -> Result<(), aead::Error> {
         embassy_crypto_driver::aes128ccm_decrypt(
             &self.ctx,
             nonce.as_slice(),
             associated_data,
-            buffer.get_out(),
+            buffer.into_out_with_copied_in(),
             tag.as_slice(),
         )
         .map_err(|_| aead::Error)
@@ -876,14 +876,14 @@ where
         &self,
         nonce: &aead::Nonce<Self>,
         associated_data: &[u8],
-        mut buffer: InOutBuf<'_, '_, u8>,
+        buffer: InOutBuf<'_, '_, u8>,
     ) -> Result<aead::Tag<Self>, aead::Error> {
         let mut tag = aead::Tag::<Self>::default();
         embassy_crypto_driver::aes256ccm_encrypt(
             &self.ctx,
             nonce.as_slice(),
             associated_data,
-            buffer.get_out(),
+            buffer.into_out_with_copied_in(),
             tag.as_mut_slice(),
         )
         .map_err(|_| aead::Error)?;
@@ -894,14 +894,14 @@ where
         &self,
         nonce: &aead::Nonce<Self>,
         associated_data: &[u8],
-        mut buffer: InOutBuf<'_, '_, u8>,
+        buffer: InOutBuf<'_, '_, u8>,
         tag: &aead::Tag<Self>,
     ) -> Result<(), aead::Error> {
         embassy_crypto_driver::aes256ccm_decrypt(
             &self.ctx,
             nonce.as_slice(),
             associated_data,
-            buffer.get_out(),
+            buffer.into_out_with_copied_in(),
             tag.as_slice(),
         )
         .map_err(|_| aead::Error)
