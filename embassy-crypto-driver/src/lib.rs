@@ -478,13 +478,13 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_aes128ecb_clone"]
         pub fn aes128ecb_clone(ctx: &Self::Context) -> Self::Context;
 
-        /// Encrypt one 16-byte block in-place.
+        /// Encrypt 16-byte blocks in-place.
         #[symbol = "_emb_crypto_aes128ecb_encrypt_block"]
-        pub fn aes128ecb_encrypt_block(ctx: &Self::Context, block: &mut [u8; 16]);
+        pub fn aes128ecb_encrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]);
 
-        /// Decrypt one 16-byte block in-place.
+        /// Decrypt 16-byte blocks in-place.
         #[symbol = "_emb_crypto_aes128ecb_decrypt_block"]
-        pub fn aes128ecb_decrypt_block(ctx: &Self::Context, block: &mut [u8; 16]);
+        pub fn aes128ecb_decrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]);
     }
 
     macro embassy_crypto_aes128ecb_impl(path = $crate);
@@ -506,13 +506,13 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_aes256ecb_clone"]
         pub fn aes256ecb_clone(ctx: &Self::Context) -> Self::Context;
 
-        /// Encrypt one 16-byte block in-place.
+        /// Encrypt 16-byte blocks in-place.
         #[symbol = "_emb_crypto_aes256ecb_encrypt_block"]
-        pub fn aes256ecb_encrypt_block(ctx: &Self::Context, block: &mut [u8; 16]);
+        pub fn aes256ecb_encrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]);
 
-        /// Decrypt one 16-byte block in-place.
+        /// Decrypt 16-byte blocks in-place.
         #[symbol = "_emb_crypto_aes256ecb_decrypt_block"]
-        pub fn aes256ecb_decrypt_block(ctx: &Self::Context, block: &mut [u8; 16]);
+        pub fn aes256ecb_decrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]);
     }
 
     macro embassy_crypto_aes256ecb_impl(path = $crate);
@@ -534,13 +534,13 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_aes128cbc_clone"]
         pub fn aes128cbc_clone(ctx: &Self::Context) -> Self::Context;
 
-        /// Encrypt one 16-byte block in-place (updates internal chaining state).
+        /// Encrypt 16-byte blocks in-place (updates internal chaining state).
         #[symbol = "_emb_crypto_aes128cbc_encrypt_block"]
-        pub fn aes128cbc_encrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]);
+        pub fn aes128cbc_encrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]);
 
-        /// Decrypt one 16-byte block in-place (updates internal chaining state).
+        /// Decrypt 16-byte blocks in-place (updates internal chaining state).
         #[symbol = "_emb_crypto_aes128cbc_decrypt_block"]
-        pub fn aes128cbc_decrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]);
+        pub fn aes128cbc_decrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]);
     }
 
     macro embassy_crypto_aes128cbc_impl(path = $crate);
@@ -562,13 +562,13 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_aes256cbc_clone"]
         pub fn aes256cbc_clone(ctx: &Self::Context) -> Self::Context;
 
-        /// Encrypt one 16-byte block in-place (updates internal chaining state).
+        /// Encrypt 16-byte blocks in-place (updates internal chaining state).
         #[symbol = "_emb_crypto_aes256cbc_encrypt_block"]
-        pub fn aes256cbc_encrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]);
+        pub fn aes256cbc_encrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]);
 
-        /// Decrypt one 16-byte block in-place (updates internal chaining state).
+        /// Decrypt 16-byte blocks in-place (updates internal chaining state).
         #[symbol = "_emb_crypto_aes256cbc_decrypt_block"]
-        pub fn aes256cbc_decrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]);
+        pub fn aes256cbc_decrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]);
     }
 
     macro embassy_crypto_aes256cbc_impl(path = $crate);

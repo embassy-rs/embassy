@@ -234,16 +234,24 @@ impl embassy_crypto_driver::Aes128Ecb for AesDriver {
         *ctx
     }
 
-    fn aes128ecb_encrypt_block(ctx: &Self::Context, block: &mut [u8; 16]) {
+    fn aes128ecb_encrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]) {
+        if blocks.is_empty() {
+            return;
+        }
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
-        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Encrypt, block.as_mut_slice()).unwrap();
+        let flat = unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut u8, blocks.len() * 16) };
+        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Encrypt, flat).unwrap();
     }
 
-    fn aes128ecb_decrypt_block(ctx: &Self::Context, block: &mut [u8; 16]) {
+    fn aes128ecb_decrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]) {
+        if blocks.is_empty() {
+            return;
+        }
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
-        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Decrypt, block.as_mut_slice()).unwrap();
+        let flat = unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut u8, blocks.len() * 16) };
+        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Decrypt, flat).unwrap();
     }
 }
 
@@ -258,16 +266,24 @@ impl embassy_crypto_driver::Aes256Ecb for AesDriver {
         *ctx
     }
 
-    fn aes256ecb_encrypt_block(ctx: &Self::Context, block: &mut [u8; 16]) {
+    fn aes256ecb_encrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]) {
+        if blocks.is_empty() {
+            return;
+        }
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
-        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Encrypt, block.as_mut_slice()).unwrap();
+        let flat = unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut u8, blocks.len() * 16) };
+        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Encrypt, flat).unwrap();
     }
 
-    fn aes256ecb_decrypt_block(ctx: &Self::Context, block: &mut [u8; 16]) {
+    fn aes256ecb_decrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]) {
+        if blocks.is_empty() {
+            return;
+        }
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
-        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Decrypt, block.as_mut_slice()).unwrap();
+        let flat = unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut u8, blocks.len() * 16) };
+        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Decrypt, flat).unwrap();
     }
 }
 
@@ -678,23 +694,31 @@ impl embassy_crypto_driver::Aes128Cbc for AesDriver {
         *ctx
     }
 
-    fn aes128cbc_encrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]) {
+    fn aes128cbc_encrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]) {
+        if blocks.is_empty() {
+            return;
+        }
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
         let (key, iv) = ctx;
         let cipher = AesCbc::new(key, iv);
-        run_in_place(&cryp, &cipher, Direction::Encrypt, block.as_mut_slice()).unwrap();
-        iv.copy_from_slice(block);
+        let flat = unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut u8, blocks.len() * 16) };
+        run_in_place(&cryp, &cipher, Direction::Encrypt, flat).unwrap();
+        iv.copy_from_slice(&blocks[blocks.len() - 1]);
     }
 
-    fn aes128cbc_decrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]) {
+    fn aes128cbc_decrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]) {
+        if blocks.is_empty() {
+            return;
+        }
+        let last_ciphertext = *blocks.last().unwrap();
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
         let (key, iv) = ctx;
-        let old_ciphertext = *block;
         let cipher = AesCbc::new(key, iv);
-        run_in_place(&cryp, &cipher, Direction::Decrypt, block.as_mut_slice()).unwrap();
-        iv.copy_from_slice(&old_ciphertext);
+        let flat = unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut u8, blocks.len() * 16) };
+        run_in_place(&cryp, &cipher, Direction::Decrypt, flat).unwrap();
+        iv.copy_from_slice(&last_ciphertext);
     }
 }
 
@@ -709,23 +733,31 @@ impl embassy_crypto_driver::Aes256Cbc for AesDriver {
         *ctx
     }
 
-    fn aes256cbc_encrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]) {
+    fn aes256cbc_encrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]) {
+        if blocks.is_empty() {
+            return;
+        }
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
         let (key, iv) = ctx;
         let cipher = AesCbc::new(key, iv);
-        run_in_place(&cryp, &cipher, Direction::Encrypt, block.as_mut_slice()).unwrap();
-        iv.copy_from_slice(block);
+        let flat = unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut u8, blocks.len() * 16) };
+        run_in_place(&cryp, &cipher, Direction::Encrypt, flat).unwrap();
+        iv.copy_from_slice(&blocks[blocks.len() - 1]);
     }
 
-    fn aes256cbc_decrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]) {
+    fn aes256cbc_decrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]) {
+        if blocks.is_empty() {
+            return;
+        }
+        let last_ciphertext = *blocks.last().unwrap();
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
         let (key, iv) = ctx;
-        let old_ciphertext = *block;
         let cipher = AesCbc::new(key, iv);
-        run_in_place(&cryp, &cipher, Direction::Decrypt, block.as_mut_slice()).unwrap();
-        iv.copy_from_slice(&old_ciphertext);
+        let flat = unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut u8, blocks.len() * 16) };
+        run_in_place(&cryp, &cipher, Direction::Decrypt, flat).unwrap();
+        iv.copy_from_slice(&last_ciphertext);
     }
 }
 
