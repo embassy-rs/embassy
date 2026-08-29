@@ -67,8 +67,14 @@ fn tls_tx_listen() {
 
 fn tls_tx_conn(socket: TcpStream, acceptor: Arc<ServerConfig>) {
     let mut socket = StreamOwned::new(ServerConnection::new(acceptor).unwrap(), socket);
-    socket.get_mut().set_read_timeout(Some(Duration::from_secs(30))).unwrap();
-    socket.get_mut().set_write_timeout(Some(Duration::from_secs(30))).unwrap();
+    socket
+        .get_mut()
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
+    socket
+        .get_mut()
+        .set_write_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
     let buf = [0; 1024];
     loop {
         if let Err(e) = socket.write_all(&buf) {
@@ -115,8 +121,14 @@ fn tls_rx_listen() {
 
 fn tls_rx_conn(socket: TcpStream, acceptor: Arc<ServerConfig>) {
     let mut socket = StreamOwned::new(ServerConnection::new(acceptor).unwrap(), socket);
-    socket.get_mut().set_read_timeout(Some(Duration::from_secs(30))).unwrap();
-    socket.get_mut().set_write_timeout(Some(Duration::from_secs(30))).unwrap();
+    socket
+        .get_mut()
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
+    socket
+        .get_mut()
+        .set_write_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
     let mut buf = [0; 1024];
     loop {
         if let Err(e) = socket.read_exact(&mut buf) {
@@ -171,8 +183,14 @@ fn tls_rxtx_listen() {
 
 fn tls_rxtx_conn(socket: TcpStream, acceptor: Arc<ServerConfig>) {
     let mut socket = StreamOwned::new(ServerConnection::new(acceptor).unwrap(), socket);
-    socket.get_mut().set_read_timeout(Some(Duration::from_secs(30))).unwrap();
-    socket.get_mut().set_write_timeout(Some(Duration::from_secs(30))).unwrap();
+    socket
+        .get_mut()
+        .set_read_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
+    socket
+        .get_mut()
+        .set_write_timeout(Some(Duration::from_secs(30)))
+        .unwrap();
     let mut buf = [0; 1024];
     loop {
         match socket.read(&mut buf) {
