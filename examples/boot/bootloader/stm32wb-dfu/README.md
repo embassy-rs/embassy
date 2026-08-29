@@ -30,7 +30,7 @@ dfu-util -d c0de:cafe -w -D fw.bin
 
 ### 3. Sign Updates Before Flashing (Optional)
 
-Currently, embassy-usb-dfu only supports a limited implementation of the generic support for ed25519-based update verfication in embassy-boot. This implementation assumes that a signature is simply concatenated to the end of an update binary. For more details, please see https://embassy.dev/book/#_verification and/or refer to the documentation for embassy-boot-dfu.
+Currently, embassy-usb-dfu only supports a limited implementation of the generic support for ed25519-based update verification in embassy-boot. This implementation assumes that a signature is simply concatenated to the end of an update binary. For more details, please see https://embassy.dev/book/#_verification and/or refer to the documentation for embassy-boot-dfu.
 
 To sign (and then verify) application updates, you will first need to generate a key pair:
 
