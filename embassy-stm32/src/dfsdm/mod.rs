@@ -2,15 +2,15 @@
 
 #![macro_use]
 
+/// Connect pac and embassy infrastructure to our types
 pub mod associations;
+/// Type-system
 pub mod types;
 
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::ptr;
 
-pub use associations::*;
-use chrono::offset;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 pub use types::*;
@@ -50,114 +50,6 @@ impl Default for Config {
     }
 }
 
-/// Marker trait for DFSDM clockmodes
-mod sealed_clockmode {
-    pub trait ClockOutputMode {}
-}
-use sealed_clockmode::*;
-
-/// No clock output
-pub struct OutputEnabled;
-
-/// Clock output enabled
-pub struct OutputDisabled;
-
-impl ClockOutputMode for OutputEnabled {}
-impl ClockOutputMode for OutputDisabled {}
-
-/// Per‑instance "successor" channel.
-///
-/// `C` is the instance's transceiver‑capability (`<T as Instance>::Transceivers`),
-/// so the modulo‑N wrap depends on the instance shape, not on the marker itself.
-pub trait NextChannel<C: capability::TransceiverCount>: TransceiverMarker {
-    /// Marker of the next channel, modulo the capability's max count.
-    type Next: TransceiverMarker;
-}
-
-/// Convenience trait to get the next channel directly from an Instance
-pub trait NextChannelForInstance<T: Instance>: TransceiverMarker {
-    type Next: TransceiverMarker;
-}
-
-impl<T, M> NextChannelForInstance<T> for M
-where
-    T: Instance,
-    M: TransceiverMarker + NextChannel<T::Transceivers>,
-{
-    type Next = <M as NextChannel<T::Transceivers>>::Next;
-}
-
-macro_rules! impl_next_channel {
-    ($cap:ty, $($cur:ident => $next:ident),+ $(,)?) => {
-        $(
-            impl NextChannel<$cap> for $cur {
-                type Next = $next;
-            }
-        )+
-    };
-}
-
-// For 2-channel instances: wraps 1 -> 0
-impl_next_channel!(capability::Tcv2,
-    Tcv0 => Tcv1,
-    Tcv1 => Tcv0,
-);
-
-// For 8-channel instances: wraps 7 -> 0
-impl_next_channel!(capability::Tcv8,
-    Tcv0 => Tcv1,
-    Tcv1 => Tcv2,
-    Tcv2 => Tcv3,
-    Tcv3 => Tcv4,
-    Tcv4 => Tcv5,
-    Tcv5 => Tcv6,
-    Tcv6 => Tcv7,
-    Tcv7 => Tcv0,
-);
-
-dma_trait!(Dma, Instance, FilterMarker); //TODO
-
-/// Trait for filters to generify them for TODO?
-pub trait FilterTrait<M: FilterMarker>: sealed::SealedFilterChannelTrait<M> {
-    /// Get filter identifier
-    fn filter(&self) -> FilterChannel {
-        M::CHANNEL
-    }
-
-    /// Get filter index
-    fn index(&self) -> usize {
-        M::CHANNEL.index()
-    }
-}
-
-/// Trait for transceivers to generify them for Filterconfiguration
-pub trait TransceiverTrait<M: TransceiverMarker>: sealed::SealedTransceiverChannelTrait<M> {
-    /// Get transceiver identifier
-    fn transceiver(&self) -> TransceiverChannel {
-        <M as TransceiverMarker>::CHANNEL
-    }
-
-    /// Get transceiver index
-    fn index(&self) -> usize {
-        M::CHANNEL.index()
-    }
-}
-
-/// Marker trait for Transceiver channels data source
-mod sealed_datasource {
-    pub trait DataSource {}
-}
-use sealed_datasource::*;
-
-/// Transceiver get's data clock from outside
-pub struct ExternalSource;
-
-/// Transceiver get's data clock from inside
-pub struct InternalSource;
-
-impl DataSource for ExternalSource {}
-impl DataSource for InternalSource {}
-
 /// [`Transceiver`]
 /// Configured DFSDM data input transceiver.
 pub struct Transceiver<'a, 'd, T, M, S, MODE, P>
@@ -178,65 +70,6 @@ where
     // ckin_pin: Option<Flex<'d>>,
     // data_pin: Flex<'d>,
 }
-
-impl<'a, 'd, T, M, S, MODE, P> sealed::SealedTransceiverChannelTrait<M> for Transceiver<'a, 'd, T, M, S, MODE, P>
-where
-    T: Instance,
-    M: TransceiverMarker + NextChannelForInstance<T>,
-    S: PinSet,
-    MODE: ChannelMode,
-    P: PowerState,
-{
-}
-
-impl<'a, 'd, T, M, S, MODE, P> TransceiverTrait<M> for Transceiver<'a, 'd, T, M, S, MODE, P>
-where
-    T: Instance,
-    M: TransceiverMarker + NextChannelForInstance<T>,
-    S: PinSet,
-    MODE: ChannelMode,
-    P: PowerState,
-{
-}
-
-mod sealed_mode {
-    pub trait Sealed {}
-}
-
-/// Operational mode of a built [`Transceiver`]. Determined by which builder
-/// constructor was used; encodes the SITP/SPICKSEL/CHINSEL/DATMPX semantics.
-pub trait ChannelMode: sealed_mode::Sealed {}
-
-/// SPI input, clock from own CKIN pin (SPICKSEL = 0).
-pub struct SpiExtMode;
-/// SPI input, clock derived from CKOUT (SPICKSEL = 1..3).
-pub struct SpiCkoutMode;
-/// Manchester-coded input, clock recovered from the data line (SITP = 2/3).
-pub struct ManchesterMode;
-/// PDM left half: owns the mic data line, samples on rising CKOUT edge.
-pub struct PdmLeftMode;
-/// PDM right half: pinless, decodes the NEXT channel's DATIN on the falling
-/// CKOUT edge (CHINSEL = 1, SITP = 1).
-pub struct PdmRightMode;
-/// 16-bit parallel input from CPU/DMA writes (DATMPX = 2).
-pub struct ParallelDmaMode;
-/// 16-bit parallel input from ADC writes (DATMPX = 1).
-pub struct ParallelAdcMode;
-
-macro_rules! impl_mode {
-    ($($m:ident),*) => {
-        $( impl sealed_mode::Sealed for $m {} impl ChannelMode for $m {} )*
-    };
-}
-impl_mode!(
-    SpiExtMode,
-    SpiCkoutMode,
-    ManchesterMode,
-    PdmLeftMode,
-    PdmRightMode,
-    ParallelDmaMode,
-    ParallelAdcMode
-);
 
 pub struct Filter<T, M>
 where
@@ -331,6 +164,7 @@ where
         }
     }
 
+    /// Set channel right shift factor
     fn set_data_right_shift(&mut self, shift: config_types::UInt<5>) {
         T::regs()
             .ch(M::CHANNEL.index())
@@ -338,6 +172,7 @@ where
             .modify(|w| w.set_dtrbs(shift.into()));
     }
 
+    /// Set the filterorder of the analog watchdog
     fn select_analog_watchdog_filter_order(&mut self, filter_order: config_types::AnalogWatchdogFilterOrder) {
         T::regs()
             .ch(M::CHANNEL.index())
@@ -345,6 +180,7 @@ where
             .modify(|w| w.set_awford(filter_order as u8));
     }
 
+    /// Set the oversampling ratio of the analog watchdog filter
     fn select_analog_watchdog_osr(&mut self, osr: config_types::UInt<5>) {
         T::regs()
             .ch(M::CHANNEL.index())
@@ -362,13 +198,15 @@ where
     MODE: ChannelMode,
     P: PowerState,
 {
+    /// TODO REMOVE
     /// Configures the neighbor channel.
     /// Notice: No extra arguments! Rust knows `T` from `self`.
-    pub fn do_something_with_neighbor(&self) {
-        // The compiler knows that `M::Next` is valid for this specific instance `T`.
-        let next_idx = <M::Next as TransceiverMarker>::CHANNEL.index();
-    }
+    // pub fn do_something_with_neighbor(&self) {
+    //     // The compiler knows that `M::Next` is valid for this specific instance `T`.
+    //     let next_idx = <M::Next as TransceiverMarker>::CHANNEL.index();
+    // }
 
+    /// Enable/Disable clock-absence-detector
     fn set_clock_absence_detector(&mut self, enabled: bool) {
         T::regs()
             .ch(M::CHANNEL.index())
@@ -376,6 +214,7 @@ where
             .modify(|w| w.set_ckaben(enabled));
     }
 
+    /// Enable/Disable short-circuit-detector
     fn set_short_circuit_detector(&mut self, enabled: bool) {
         T::regs()
             .ch(M::CHANNEL.index())
@@ -383,6 +222,7 @@ where
             .modify(|w| w.set_scden(enabled));
     }
 
+    /// Set channel offset
     fn set_offset(&mut self, offset: u32) {
         T::regs()
             .ch(M::CHANNEL.index())
@@ -390,154 +230,28 @@ where
             .modify(|w| w.set_offset(offset));
     }
 
-    fn set_bkscd(&mut self, signals: config_types::BreakSignals) {
+    /// Assign to break-signals
+    fn assign_breakn(&mut self, signals: config_types::BreakSignals) {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
             .modify(|w| w.set_bkscd(signals.bits()));
     }
 
-    fn set_scdt_(&mut self, threshold: u8) {
+    /// Set short-circuit-detector-threshold
+    fn set_shortcircuit_threshold(&mut self, threshold: u8) {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
             .modify(|w| w.set_scdt(threshold));
     }
 
-    fn set_plsskp(&mut self, pulse_skips: config_types::UInt<6>) {
+    /// Set pulse skips
+    fn set_pulseskips(&mut self, skips: config_types::UInt<6>) {
         T::regs()
             .ch(M::CHANNEL.index())
             .dlyr()
-            .modify(|w| w.set_plsskp(pulse_skips.into()));
-    }
-}
-
-// ============================================================
-// Pin presence markers (PinSet)
-// ============================================================
-
-mod sealed_pinset {
-    pub trait Sealed {}
-}
-
-/// Type-level pin presence of one channel. Exactly three states exist;
-/// "clock without data" has no representative and is therefore inexpressible.
-#[allow(private_bounds)]
-pub trait PinSet: sealed_pinset::Sealed {
-    /// Channel owns a DATIN pin.
-    const HAS_DATA: bool;
-    /// Channel owns a CKIN pin.
-    const HAS_CLK: bool;
-    /// Storage for the DATIN pin: `Flex<'d>` if present, `()` if absent.
-    type Datin<'d>;
-    /// Storage for the CKIN pin: `Flex<'d>` if present, `()` if absent.
-    type Ckin<'d>;
-}
-
-/// Channel has no pins (unused, parallel input, or PDM-right reading the
-/// next channel's line).
-pub struct NoPins;
-/// Channel has a DATIN pin only (Manchester, CKOUT-clocked SPI, PDM left).
-pub struct DataOnly;
-/// Channel has DATIN + CKIN (externally clocked SPI).
-
-pub struct DataClk;
-
-impl sealed_pinset::Sealed for NoPins {}
-impl PinSet for NoPins {
-    const HAS_DATA: bool = false;
-    const HAS_CLK: bool = false;
-    type Datin<'d> = ();
-    type Ckin<'d> = ();
-}
-
-impl sealed_pinset::Sealed for DataOnly {}
-impl PinSet for DataOnly {
-    const HAS_DATA: bool = true;
-    const HAS_CLK: bool = false;
-    type Datin<'d> = Flex<'d>;
-    type Ckin<'d> = ();
-}
-
-impl sealed_pinset::Sealed for DataClk {}
-impl PinSet for DataClk {
-    const HAS_DATA: bool = true;
-    const HAS_CLK: bool = true;
-    type Datin<'d> = Flex<'d>;
-    type Ckin<'d> = Flex<'d>;
-}
-
-/// Pin sets that include a DATIN pin.
-pub trait HasData: PinSet {}
-impl HasData for DataOnly {}
-impl HasData for DataClk {}
-
-/// Pin sets that include a DataClk pin.
-pub trait HasDataAndClk: PinSet {}
-impl HasDataAndClk for DataClk {}
-
-// ============================================================
-// Channel config tokens
-// ============================================================
-
-/// Token: channel gets no pins. Valid in any slot.
-pub struct NoPinsCfg;
-
-/// Token: channel gets a DATIN pin (AF already configured). Only accepted by
-/// the `configure_pins` slot belonging to `M`'s channel.
-pub struct DatinCfg<'d, T: Instance, M: TransceiverMarker> {
-    pub(crate) datin: Flex<'d>,
-    _m: PhantomData<(T, M)>,
-}
-
-/// Token: channel gets DATIN + CKIN.
-pub struct DckCfg<'d, T: Instance, M: TransceiverMarker> {
-    pub(crate) datin: Flex<'d>,
-    pub(crate) ckin: Flex<'d>,
-    _m: PhantomData<(T, M)>,
-}
-
-/// Accepted by one `configure_pins` slot. `Presence` is the type-level pin
-/// state that flows into the split.
-#[diagnostic::on_unimplemented(
-    message = "`{Self}` is not a valid pin token for this DFSDM channel",
-    label = "this token doesn't belong to channel `{M}`",
-    note = "return the token from the matching `creator.chN` selector - a token for one channel can't be reused on another"
-)]
-pub trait ChannelCfg<'d, T: Instance, M: TransceiverMarker> {
-    /// Pin presence of the declaring channel.
-    type Presence: PinSet;
-    /// Consume the token, yielding its pins in storage form
-    /// (`()` for absent, `Flex` for present - no unwrapping anywhere).
-    fn into_parts(
-        self,
-    ) -> (
-        <Self::Presence as PinSet>::Datin<'d>,
-        <Self::Presence as PinSet>::Ckin<'d>,
-    );
-}
-
-// NoPinsCfg is valid at ANY position:
-impl<'d, T: Instance, M: TransceiverMarker> ChannelCfg<'d, T, M> for NoPinsCfg {
-    type Presence = NoPins;
-    fn into_parts(self) -> ((), ()) {
-        ((), ())
-    }
-}
-
-// DatinCfg/DckCfg implement the trait ONLY for their OWN channel marker.
-// A token minted from `s.ch4` passed to the ch3 slot: E0277.
-impl<'d, T: Instance, M: TransceiverMarker> ChannelCfg<'d, T, M> for DatinCfg<'d, T, M> {
-    type Presence = DataOnly;
-    fn into_parts(self) -> (Flex<'d>, ()) {
-        (self.datin, ())
-    }
-}
-
-impl<'d, T: Instance, M: TransceiverMarker> ChannelCfg<'d, T, M> for DckCfg<'d, T, M> {
-    type Presence = DataClk;
-    fn into_parts(self) -> (Flex<'d>, Flex<'d>) {
-        (self.datin, self.ckin)
+            .modify(|w| w.set_plsskp(skips.into()));
     }
 }
 
@@ -725,6 +439,12 @@ where
     }
 
     /// Create dualmode DMA
+    ///
+    /// Returns transceivers for channel `M` (even, owns DATINR) and `MN` (odd,
+    /// reads INDAT1 from M's DATINR). Two filters must be configured - one
+    /// assigned to `M` (reads INDAT0, the lower word) and one to `MN`
+    /// (reads INDAT1, the upper word) - or the register won't drain and
+    /// you'll get overrun errors.
     pub fn new_parallel_dma_dual<MN, SNN>(
         self,
         neighbor: TransceiverBuilder<'d, T, MN, C, SN, SNN>,
@@ -737,6 +457,7 @@ where
         MN: TransceiverMarker + NextChannelForInstance<T>,
         SNN: PinSet,
     {
+        let _ = neighbor;
         todo!()
     }
 
@@ -807,7 +528,7 @@ where
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr1()
-            .modify(|w| w.set_chinsel(source.to_reg_val()));
+            .modify(|w| w.set_chinsel(source.into()));
     }
 
     fn select_spi_clock(&mut self, source: config_types::SpiClockSelect) {
@@ -838,15 +559,15 @@ where
         S: HasData,
     {
         todo!();
-        Transceiver {
-            _instance_marker: PhantomData,
-            _transceiver_marker: PhantomData,
-            _datasource_marker: PhantomData,
-            _powerstate_marker: PhantomData,
-            datin: self.datin,
-            ckin: self.ckin,
-            common: None,
-        }
+        // Transceiver {
+        //     _instance_marker: PhantomData,
+        //     _transceiver_marker: PhantomData,
+        //     _datasource_marker: PhantomData,
+        //     _powerstate_marker: PhantomData,
+        //     datin: self.datin,
+        //     ckin: self.ckin,
+        //     common: None,
+        // }
     }
 
     ///Same as [`Self::new_synchronous_ext`] but using neighbors pins
@@ -987,13 +708,13 @@ where
     }
 
     // Set's the clock-output clock-divider
-    fn set_ckout_div(&mut self, divider: config_types::OutputSerialClockDivider) {
-        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutdiv(divider.to_reg_val()));
+    fn set_ckout_div(&mut self, divider: config_types::CkoutDivider) {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutdiv(divider.into()));
     }
 
     /// Set's the clock-output clock-source
-    fn set_ckout_src(&mut self, source: config_types::OutputSerialClockSource) {
-        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutsrc(source.to_reg_val()));
+    fn set_ckout_src(&mut self, source: config_types::CkoutSource) {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutsrc(source.into()));
     }
 }
 
@@ -1204,6 +925,8 @@ where
 pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
     /// The fully-wired split (neighbor pin-sets already correct).
     type Split;
+
+    /// Split helper-function
     fn split_parts(self, common: DfsdmCommon<'d, T, Enabled>) -> Self::Split;
 }
 
@@ -1573,66 +1296,3 @@ where
 {
     f(ChannelSelectors8::<T>::new())
 }
-
-//TODO MOVE ALL THIS SHIT INTO TRANSCEIVERS FILTERS AND COMMON
-// impl<T> DfsdmInner<T>
-// where
-//     T: Instance,
-// {
-//     //////WHOLE PERIPHERAL
-//     fn enable() {
-//         T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(true));
-//     }
-
-//     fn disable() {
-//         T::regs().ch(0).cfgr1().modify(|reg| reg.set_dfsdmen(false));
-//     }
-
-//     ///ONLY WHEN OFF
-//     pub fn set_output_clock_source(source: OutputSerialClockSource) {
-//         T::regs()
-//             .ch(0)
-//             .cfgr1()
-//             .modify(|reg| reg.set_ckoutsrc(source.to_reg_val()));
-//     }
-
-//     ///ONLY WHEN OFF
-//     pub fn set_output_clock_divider(source: OutputSerialClockDivider) {
-//         T::regs()
-//             .ch(0)
-//             .cfgr1()
-//             .modify(|reg| reg.set_ckoutdiv(source.to_reg_val()));
-//     }
-
-//     //////CHANNELS
-//     /// These might crash if they get a [`TransceiverChannel`] outside the capabilities of the [`Instance`]
-
-//     pub fn set_data_packing_mode(ch: TransceiverChannel, mode: DataPackingMode) {
-//         T::regs().ch(ch.index()).cfgr1().modify(|reg| {
-//             reg.set_datpack(mode as u8);
-//         });
-//     }
-
-//     pub fn set_input_data_mux(ch: TransceiverChannel, mode: InputDataMux) {
-//         T::regs().ch(ch.index()).cfgr1().modify(|reg| {
-//             reg.set_datmpx(mode as u8);
-//         });
-//     }
-
-//     pub fn set_channel_input(ch: TransceiverChannel, mode: ChannelInput) {
-//         /// TODO if we do neighbor we might not have to configure our own. YET ANOTHER MARKER!?
-//         /// Ok How does it look: Channel 0 ... can use channel 1.. pins (and so on. the last one, 7 or 3 or 1 or whatever) can use 0.
-//         /// Use of a neighbors pins makes the existence of the pin necessary.
-//         /// Nonuse of the own pin (by yourself AND neighbor) makes the existence of the pin unnecessary.
-//         /// So we need reference to the pin when instantiating
-//         ///
-//         /// ja ich wäre grundsätzlich auf ne viel lustigere und simplere idee gegangen, die leider embassys standardimplementierungen widerspricht, aber was willstetun:
-//         /// zwei stufen.
-//         /// dfsdim wird erstmal nciht gesplittet, sondern hat ne config_pins fuinktion, bzw bekommt die pins direkt im ersten init als optionen.
-//         /// und dann bekommt man channelinput tokens (mit capabilities, weil wenn man nciht genug pins vergibt gibts ohne Ckin natürlich NUR manchester
-//         /// https://chatgpt.com/share/6a8b4427-eb90-83ed-82e7-82c00036c750
-//         T::regs().ch(ch.index()).cfgr1().modify(|reg| {
-//             reg.set_chinsel(mode.to_reg_val());
-//         });
-//     }
-// }

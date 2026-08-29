@@ -343,6 +343,7 @@ impl_dfsdm_filter_irqs! {
     FLT7 => Flt7,
 }
 
+// Implement all four-channel IRQs
 impl_dfsdm_filter_irqs! {
     [DFSDM_8CH_4FLT_TRG5_ADC],
     FLT0 => Flt0,
