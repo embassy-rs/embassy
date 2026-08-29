@@ -1,4 +1,4 @@
-use embassy_crypto_driver::{AesOperation, CryptoError};
+use embassy_crypto_driver::CryptoError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
@@ -148,33 +148,6 @@ macro_rules! run_ccm {
 }
 
 struct AesDriver;
-
-impl embassy_crypto_driver::Aes for AesDriver {
-    fn aes_exec(op: AesOperation<'_>) -> Result<(), CryptoError> {
-        let mut driver = DRIVER.try_lock().unwrap();
-        let aes = &mut driver.borrow();
-
-        match op {
-            AesOperation::Aes128CbcEncrypt { iv, buffer, key } => {
-                let cipher = AesCbc::new(key, iv);
-                run_in_place(aes, &cipher, Direction::Encrypt, buffer)
-            }
-            AesOperation::Aes128CbcDecrypt { iv, block, key } => {
-                let cipher = AesCbc::new(key, iv);
-                run_in_place(aes, &cipher, Direction::Decrypt, block)
-            }
-            AesOperation::Aes256CbcEncrypt { iv, block, key } => {
-                let cipher = AesCbc::new(key, iv);
-                run_in_place(aes, &cipher, Direction::Encrypt, block)
-            }
-            AesOperation::Aes256CbcDecrypt { iv, block, key } => {
-                let cipher = AesCbc::new(key, iv);
-                run_in_place(aes, &cipher, Direction::Decrypt, block)
-            }
-            _ => Err(CryptoError::Unsupported),
-        }
-    }
-}
 
 impl embassy_crypto_driver::Aes128Ecb for AesDriver {
     type Context = [u8; 16];
@@ -461,7 +434,6 @@ impl embassy_crypto_driver::Aes256Cbc for AesDriver {
     }
 }
 
-embassy_crypto_driver::embassy_crypto_aes_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes128ecb_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes256ecb_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes128cbc_impl!(AesDriver);

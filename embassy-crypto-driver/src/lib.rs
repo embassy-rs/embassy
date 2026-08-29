@@ -462,42 +462,6 @@ unitrait::unitrait! {
     macro embassy_crypto_hmac_sha512_impl(path = $crate);
 }
 
-/// Discriminated union of all AES symmetric crypto operations.
-#[non_exhaustive]
-pub enum AesOperation<'a> {
-    Aes128CbcEncrypt {
-        iv: &'a [u8; 16],
-        buffer: &'a mut [u8],
-        key: &'a [u8; 16],
-    },
-    Aes128CbcDecrypt {
-        iv: &'a [u8; 16],
-        block: &'a mut [u8],
-        key: &'a [u8; 16],
-    },
-    Aes256CbcEncrypt {
-        iv: &'a [u8; 16],
-        block: &'a mut [u8],
-        key: &'a [u8; 32],
-    },
-    Aes256CbcDecrypt {
-        iv: &'a [u8; 16],
-        block: &'a mut [u8],
-        key: &'a [u8; 32],
-    },
-}
-
-unitrait::unitrait! {
-    /// AES trait
-    pub trait Aes {
-        /// Hash init
-        #[symbol = "_emb_crypto_aes_exec"]
-        pub fn aes_exec(op: AesOperation<'_>) -> Result<(), CryptoError>;
-    }
-
-    macro embassy_crypto_aes_impl(path = $crate);
-}
-
 unitrait::unitrait! {
     /// AES-128 ECB block cipher trait.
     pub trait Aes128Ecb {
