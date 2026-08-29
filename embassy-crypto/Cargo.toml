@@ -27,6 +27,7 @@ build = [
 ]
 
 [dependencies]
+signature = { version = "3", default-features = false, features = ["digest"] }
 embassy-crypto-driver = { path = "../embassy-crypto-driver" }
 digest = { version = "0.11", default-features = false, features = ["mac"] }
 crypto-common = "0.2"
