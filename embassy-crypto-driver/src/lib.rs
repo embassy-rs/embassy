@@ -590,3 +590,283 @@ unitrait::unitrait! {
 
     macro embassy_crypto_aes_impl(path = $crate);
 }
+
+unitrait::unitrait! {
+    /// AES-128 ECB block cipher trait.
+    pub trait Aes128Ecb {
+        /// Opaque storage for the implementation's key schedule.
+        #[opaque(size = 32, align = 16)]
+        #[symbol = "_emb_crypto_aes128ecb_context"]
+        pub type Context;
+
+        /// Initialize with a 128-bit key.
+        #[symbol = "_emb_crypto_aes128ecb_init"]
+        pub fn aes128ecb_init(key: &[u8; 16]) -> Self::Context;
+
+        /// Clone the context.
+        #[symbol = "_emb_crypto_aes128ecb_clone"]
+        pub fn aes128ecb_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Encrypt one 16-byte block in-place.
+        #[symbol = "_emb_crypto_aes128ecb_encrypt_block"]
+        pub fn aes128ecb_encrypt_block(ctx: &Self::Context, block: &mut [u8; 16]);
+
+        /// Decrypt one 16-byte block in-place.
+        #[symbol = "_emb_crypto_aes128ecb_decrypt_block"]
+        pub fn aes128ecb_decrypt_block(ctx: &Self::Context, block: &mut [u8; 16]);
+    }
+
+    macro embassy_crypto_aes128ecb_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// AES-256 ECB block cipher trait.
+    pub trait Aes256Ecb {
+        /// Opaque storage for the implementation's key schedule.
+        #[opaque(size = 48, align = 16)]
+        #[symbol = "_emb_crypto_aes256ecb_context"]
+        pub type Context;
+
+        /// Initialize with a 256-bit key.
+        #[symbol = "_emb_crypto_aes256ecb_init"]
+        pub fn aes256ecb_init(key: &[u8; 32]) -> Self::Context;
+
+        /// Clone the context.
+        #[symbol = "_emb_crypto_aes256ecb_clone"]
+        pub fn aes256ecb_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Encrypt one 16-byte block in-place.
+        #[symbol = "_emb_crypto_aes256ecb_encrypt_block"]
+        pub fn aes256ecb_encrypt_block(ctx: &Self::Context, block: &mut [u8; 16]);
+
+        /// Decrypt one 16-byte block in-place.
+        #[symbol = "_emb_crypto_aes256ecb_decrypt_block"]
+        pub fn aes256ecb_decrypt_block(ctx: &Self::Context, block: &mut [u8; 16]);
+    }
+
+    macro embassy_crypto_aes256ecb_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// AES-128 CBC block cipher trait.
+    pub trait Aes128Cbc {
+        /// Opaque storage for the implementation's key schedule and chaining state.
+        #[opaque(size = 48, align = 16)]
+        #[symbol = "_emb_crypto_aes128cbc_context"]
+        pub type Context;
+
+        /// Initialize with a 128-bit key and 128-bit IV.
+        #[symbol = "_emb_crypto_aes128cbc_init"]
+        pub fn aes128cbc_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context;
+
+        /// Clone the context.
+        #[symbol = "_emb_crypto_aes128cbc_clone"]
+        pub fn aes128cbc_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Encrypt one 16-byte block in-place (updates internal chaining state).
+        #[symbol = "_emb_crypto_aes128cbc_encrypt_block"]
+        pub fn aes128cbc_encrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]);
+
+        /// Decrypt one 16-byte block in-place (updates internal chaining state).
+        #[symbol = "_emb_crypto_aes128cbc_decrypt_block"]
+        pub fn aes128cbc_decrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]);
+    }
+
+    macro embassy_crypto_aes128cbc_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// AES-256 CBC block cipher trait.
+    pub trait Aes256Cbc {
+        /// Opaque storage for the implementation's key schedule and chaining state.
+        #[opaque(size = 64, align = 16)]
+        #[symbol = "_emb_crypto_aes256cbc_context"]
+        pub type Context;
+
+        /// Initialize with a 256-bit key and 128-bit IV.
+        #[symbol = "_emb_crypto_aes256cbc_init"]
+        pub fn aes256cbc_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context;
+
+        /// Clone the context.
+        #[symbol = "_emb_crypto_aes256cbc_clone"]
+        pub fn aes256cbc_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Encrypt one 16-byte block in-place (updates internal chaining state).
+        #[symbol = "_emb_crypto_aes256cbc_encrypt_block"]
+        pub fn aes256cbc_encrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]);
+
+        /// Decrypt one 16-byte block in-place (updates internal chaining state).
+        #[symbol = "_emb_crypto_aes256cbc_decrypt_block"]
+        pub fn aes256cbc_decrypt_block(ctx: &mut Self::Context, block: &mut [u8; 16]);
+    }
+
+    macro embassy_crypto_aes256cbc_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// AES-128 GCM AEAD trait.
+    pub trait Aes128Gcm {
+        /// Opaque storage for the implementation's key schedule.
+        #[opaque(size = 32, align = 16)]
+        #[symbol = "_emb_crypto_aes128gcm_context"]
+        pub type Context;
+
+        /// Initialize with a 128-bit key.
+        #[symbol = "_emb_crypto_aes128gcm_init"]
+        pub fn aes128gcm_init(key: &[u8; 16]) -> Self::Context;
+
+        /// Clone the context.
+        #[symbol = "_emb_crypto_aes128gcm_clone"]
+        pub fn aes128gcm_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Encrypt plaintext in-place and produce a 16-byte authentication tag.
+        #[symbol = "_emb_crypto_aes128gcm_encrypt"]
+        pub fn aes128gcm_encrypt(
+            ctx: &Self::Context,
+            nonce: &[u8],
+            aad: &[u8],
+            buffer: &mut [u8],
+            tag: &mut [u8; 16],
+        ) -> Result<(), CryptoError>;
+
+        /// Decrypt ciphertext in-place and verify a 16-byte authentication tag.
+        #[symbol = "_emb_crypto_aes128gcm_decrypt"]
+        pub fn aes128gcm_decrypt(
+            ctx: &Self::Context,
+            nonce: &[u8],
+            aad: &[u8],
+            buffer: &mut [u8],
+            tag: &[u8; 16],
+        ) -> Result<(), CryptoError>;
+    }
+
+    macro embassy_crypto_aes128gcm_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// AES-256 GCM AEAD trait.
+    pub trait Aes256Gcm {
+        /// Opaque storage for the implementation's key schedule.
+        #[opaque(size = 48, align = 16)]
+        #[symbol = "_emb_crypto_aes256gcm_context"]
+        pub type Context;
+
+        /// Initialize with a 256-bit key.
+        #[symbol = "_emb_crypto_aes256gcm_init"]
+        pub fn aes256gcm_init(key: &[u8; 32]) -> Self::Context;
+
+        /// Clone the context.
+        #[symbol = "_emb_crypto_aes256gcm_clone"]
+        pub fn aes256gcm_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Encrypt plaintext in-place and produce a 16-byte authentication tag.
+        #[symbol = "_emb_crypto_aes256gcm_encrypt"]
+        pub fn aes256gcm_encrypt(
+            ctx: &Self::Context,
+            nonce: &[u8],
+            aad: &[u8],
+            buffer: &mut [u8],
+            tag: &mut [u8; 16],
+        ) -> Result<(), CryptoError>;
+
+        /// Decrypt ciphertext in-place and verify a 16-byte authentication tag.
+        #[symbol = "_emb_crypto_aes256gcm_decrypt"]
+        pub fn aes256gcm_decrypt(
+            ctx: &Self::Context,
+            nonce: &[u8],
+            aad: &[u8],
+            buffer: &mut [u8],
+            tag: &[u8; 16],
+        ) -> Result<(), CryptoError>;
+    }
+
+    macro embassy_crypto_aes256gcm_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// AES-128 CCM AEAD trait.
+    ///
+    /// The tag and nonce sizes are validated at runtime by the HAL.
+    pub trait Aes128Ccm {
+        /// Opaque storage for the implementation's key schedule.
+        #[opaque(size = 32, align = 16)]
+        #[symbol = "_emb_crypto_aes128ccm_context"]
+        pub type Context;
+
+        /// Initialize with a 128-bit key.
+        #[symbol = "_emb_crypto_aes128ccm_init"]
+        pub fn aes128ccm_init(key: &[u8; 16]) -> Self::Context;
+
+        /// Clone the context.
+        #[symbol = "_emb_crypto_aes128ccm_clone"]
+        pub fn aes128ccm_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Encrypt plaintext in-place and produce an authentication tag.
+        /// The tag length is determined by the length of the `tag` slice.
+        #[symbol = "_emb_crypto_aes128ccm_encrypt"]
+        pub fn aes128ccm_encrypt(
+            ctx: &Self::Context,
+            nonce: &[u8],
+            aad: &[u8],
+            buffer: &mut [u8],
+            tag: &mut [u8],
+        ) -> Result<(), CryptoError>;
+
+        /// Decrypt ciphertext in-place and verify an authentication tag.
+        /// The tag length is determined by the length of the `tag` slice.
+        #[symbol = "_emb_crypto_aes128ccm_decrypt"]
+        pub fn aes128ccm_decrypt(
+            ctx: &Self::Context,
+            nonce: &[u8],
+            aad: &[u8],
+            buffer: &mut [u8],
+            tag: &[u8],
+        ) -> Result<(), CryptoError>;
+    }
+
+    macro embassy_crypto_aes128ccm_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// AES-256 CCM AEAD trait.
+    ///
+    /// The tag and nonce sizes are validated at runtime by the HAL.
+    pub trait Aes256Ccm {
+        /// Opaque storage for the implementation's key schedule.
+        #[opaque(size = 48, align = 16)]
+        #[symbol = "_emb_crypto_aes256ccm_context"]
+        pub type Context;
+
+        /// Initialize with a 256-bit key.
+        #[symbol = "_emb_crypto_aes256ccm_init"]
+        pub fn aes256ccm_init(key: &[u8; 32]) -> Self::Context;
+
+        /// Clone the context.
+        #[symbol = "_emb_crypto_aes256ccm_clone"]
+        pub fn aes256ccm_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Encrypt plaintext in-place and produce an authentication tag.
+        /// The tag length is determined by the length of the `tag` slice.
+        #[symbol = "_emb_crypto_aes256ccm_encrypt"]
+        pub fn aes256ccm_encrypt(
+            ctx: &Self::Context,
+            nonce: &[u8],
+            aad: &[u8],
+            buffer: &mut [u8],
+            tag: &mut [u8],
+        ) -> Result<(), CryptoError>;
+
+        /// Decrypt ciphertext in-place and verify an authentication tag.
+        /// The tag length is determined by the length of the `tag` slice.
+        #[symbol = "_emb_crypto_aes256ccm_decrypt"]
+        pub fn aes256ccm_decrypt(
+            ctx: &Self::Context,
+            nonce: &[u8],
+            aad: &[u8],
+            buffer: &mut [u8],
+            tag: &[u8],
+        ) -> Result<(), CryptoError>;
+    }
+
+    macro embassy_crypto_aes256ccm_impl(path = $crate);
+}

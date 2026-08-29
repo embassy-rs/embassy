@@ -28,8 +28,11 @@ build = [
 
 [dependencies]
 embassy-crypto-driver = { path = "../embassy-crypto-driver" }
-digest = { version = "0.10", default-features = false, features = ["mac"] }
-crypto-common = "0.1"
+digest = { version = "0.11", default-features = false, features = ["mac"] }
+crypto-common = "0.2"
+cipher = { version = "0.5", default-features = false }
+aead = { version = "0.6", default-features = false }
+generic-array = "1.4.5"
 
 [features]
 defmt = ["embassy-crypto-driver/defmt"]

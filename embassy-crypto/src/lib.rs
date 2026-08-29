@@ -28,13 +28,21 @@ using the `embassy_crypto_*_impl!` and `embassy_crypto_hmac_*_impl!` macros\n\
 from `embassy-crypto-driver`. If zero or multiple drivers are registered,\n\
 linking will fail."]
 
+use aead::common::array::ArraySize;
+use aead::inout::InOutBuf;
+use aead::{AeadCore, AeadInOut, TagPosition};
+use cipher::{
+    BlockCipherDecBackend, BlockCipherDecClosure, BlockCipherDecrypt, BlockCipherEncBackend, BlockCipherEncClosure,
+    BlockCipherEncrypt, BlockModeDecBackend, BlockModeDecClosure, BlockModeDecrypt, BlockModeEncBackend,
+    BlockModeEncClosure, BlockModeEncrypt, BlockSizeUser, InOut, IvSizeUser, KeyIvInit, ParBlocksSizeUser,
+};
 use crypto_common::KeySizeUser;
 pub use digest;
-use digest::generic_array::typenum::{U16, U20, U28, U32, U48, U64, U128};
 use digest::{
     FixedOutput, FixedOutputReset, HashMarker, InvalidLength, Key, KeyInit, MacMarker, Output, OutputSizeUser, Reset,
     Update,
 };
+use generic_array::typenum::{U1, U12, U16, U20, U28, U32, U48, U64, U128};
 
 // ===========================================================================
 // Digest macro
@@ -376,3 +384,526 @@ impl_hmac!(
     U128,
     U64
 );
+
+// ===========================================================================
+// ECB block-cipher macro
+// ===========================================================================
+
+macro_rules! impl_ecb {
+    (
+        $name:ident,
+        $ctx:ty,
+        $init:path,
+        $clone:path,
+        $enc:path,
+        $dec:path,
+        $key_size:ty
+    ) => {
+        /// RustCrypto `BlockCipherEncrypt`/`BlockCipherDecrypt` implementation backed by the embassy-crypto-driver unitrait.
+        pub struct $name {
+            ctx: $ctx,
+        }
+
+        impl Clone for $name {
+            #[inline]
+            fn clone(&self) -> Self {
+                Self {
+                    ctx: $clone(&self.ctx),
+                }
+            }
+        }
+
+        impl core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_struct(stringify!($name)).finish_non_exhaustive()
+            }
+        }
+
+        impl BlockSizeUser for $name {
+            type BlockSize = U16;
+        }
+
+        impl ParBlocksSizeUser for $name {
+            type ParBlocksSize = U1;
+        }
+
+        impl KeySizeUser for $name {
+            type KeySize = $key_size;
+        }
+
+        impl KeyInit for $name {
+            #[inline]
+            fn new(key: &Key<Self>) -> Self {
+                Self {
+                    ctx: $init(key.as_slice().try_into().unwrap()),
+                }
+            }
+        }
+
+        impl BlockCipherEncBackend for $name {
+            #[inline]
+            fn encrypt_block(&self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
+                let out: &mut cipher::Block<Self> = block.get_out();
+                $enc(&self.ctx, out.as_mut_slice().try_into().unwrap());
+            }
+        }
+
+        impl BlockCipherEncrypt for $name {
+            #[inline]
+            fn encrypt_with_backend(&self, f: impl BlockCipherEncClosure<BlockSize = Self::BlockSize>) {
+                f.call(self);
+            }
+        }
+
+        impl BlockCipherDecBackend for $name {
+            #[inline]
+            fn decrypt_block(&self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
+                let out: &mut cipher::Block<Self> = block.get_out();
+                $dec(&self.ctx, out.as_mut_slice().try_into().unwrap());
+            }
+        }
+
+        impl BlockCipherDecrypt for $name {
+            #[inline]
+            fn decrypt_with_backend(&self, f: impl BlockCipherDecClosure<BlockSize = Self::BlockSize>) {
+                f.call(self);
+            }
+        }
+    };
+}
+
+// ===========================================================================
+// CBC block-cipher macro
+// ===========================================================================
+
+macro_rules! impl_cbc {
+    (
+        $name:ident,
+        $ctx:ty,
+        $init:path,
+        $clone:path,
+        $enc:path,
+        $dec:path,
+        $key_size:ty
+    ) => {
+        /// RustCrypto `BlockModeEncrypt`/`BlockModeDecrypt` implementation backed by the embassy-crypto-driver unitrait.
+        pub struct $name {
+            ctx: $ctx,
+        }
+
+        impl Clone for $name {
+            #[inline]
+            fn clone(&self) -> Self {
+                Self {
+                    ctx: $clone(&self.ctx),
+                }
+            }
+        }
+
+        impl core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_struct(stringify!($name)).finish_non_exhaustive()
+            }
+        }
+
+        impl BlockSizeUser for $name {
+            type BlockSize = U16;
+        }
+
+        impl ParBlocksSizeUser for $name {
+            type ParBlocksSize = U1;
+        }
+
+        impl KeySizeUser for $name {
+            type KeySize = $key_size;
+        }
+
+        impl IvSizeUser for $name {
+            type IvSize = U16;
+        }
+
+        impl KeyIvInit for $name {
+            #[inline]
+            fn new(key: &Key<Self>, iv: &cipher::Iv<Self>) -> Self {
+                Self {
+                    ctx: $init(
+                        key.as_slice().try_into().unwrap(),
+                        iv.as_slice().try_into().unwrap(),
+                    ),
+                }
+            }
+        }
+
+        impl BlockModeEncBackend for $name {
+            #[inline]
+            fn encrypt_block(&mut self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
+                let out: &mut cipher::Block<Self> = block.get_out();
+                $enc(&mut self.ctx, out.as_mut_slice().try_into().unwrap());
+            }
+        }
+
+        impl BlockModeEncrypt for $name {
+            #[inline]
+            fn encrypt_with_backend(&mut self, f: impl BlockModeEncClosure<BlockSize = Self::BlockSize>) {
+                f.call(self);
+            }
+        }
+
+        impl BlockModeDecBackend for $name {
+            #[inline]
+            fn decrypt_block(&mut self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
+                let out: &mut cipher::Block<Self> = block.get_out();
+                $dec(&mut self.ctx, out.as_mut_slice().try_into().unwrap());
+            }
+        }
+
+        impl BlockModeDecrypt for $name {
+            #[inline]
+            fn decrypt_with_backend(&mut self, f: impl BlockModeDecClosure<BlockSize = Self::BlockSize>) {
+                f.call(self);
+            }
+        }
+    };
+}
+
+// ===========================================================================
+// GCM AEAD macro
+// ===========================================================================
+
+macro_rules! impl_gcm {
+    (
+        $name:ident,
+        $ctx:ty,
+        $init:path,
+        $clone:path,
+        $enc:path,
+        $dec:path,
+        $key_size:ty
+    ) => {
+        /// RustCrypto `AeadInPlace` implementation backed by the embassy-crypto-driver unitrait.
+        pub struct $name {
+            ctx: $ctx,
+        }
+
+        impl Clone for $name {
+            #[inline]
+            fn clone(&self) -> Self {
+                Self {
+                    ctx: $clone(&self.ctx),
+                }
+            }
+        }
+
+        impl core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_struct(stringify!($name)).finish_non_exhaustive()
+            }
+        }
+
+        impl KeySizeUser for $name {
+            type KeySize = $key_size;
+        }
+
+        impl KeyInit for $name {
+            #[inline]
+            fn new(key: &Key<Self>) -> Self {
+                Self {
+                    ctx: $init(key.as_slice().try_into().unwrap()),
+                }
+            }
+        }
+
+        impl AeadCore for $name {
+            type NonceSize = U12;
+            type TagSize = U16;
+            const TAG_POSITION: TagPosition = TagPosition::Postfix;
+        }
+
+        impl AeadInOut for $name {
+            fn encrypt_inout_detached(
+                &self,
+                nonce: &aead::Nonce<Self>,
+                associated_data: &[u8],
+                mut buffer: InOutBuf<'_, '_, u8>,
+            ) -> Result<aead::Tag<Self>, aead::Error> {
+                let mut tag = aead::Tag::<Self>::default();
+                $enc(
+                    &self.ctx,
+                    nonce.as_slice(),
+                    associated_data,
+                    buffer.get_out(),
+                    tag.as_mut_slice().try_into().unwrap(),
+                )
+                .map_err(|_| aead::Error)?;
+                Ok(tag)
+            }
+
+            fn decrypt_inout_detached(
+                &self,
+                nonce: &aead::Nonce<Self>,
+                associated_data: &[u8],
+                mut buffer: InOutBuf<'_, '_, u8>,
+                tag: &aead::Tag<Self>,
+            ) -> Result<(), aead::Error> {
+                $dec(
+                    &self.ctx,
+                    nonce.as_slice(),
+                    associated_data,
+                    buffer.get_out(),
+                    tag.as_slice().try_into().unwrap(),
+                )
+                .map_err(|_| aead::Error)
+            }
+        }
+    };
+}
+
+// ===========================================================================
+// ECB implementations
+// ===========================================================================
+
+impl_ecb!(
+    Aes128Ecb,
+    embassy_crypto_driver::Aes128EcbContext,
+    embassy_crypto_driver::aes128ecb_init,
+    embassy_crypto_driver::aes128ecb_clone,
+    embassy_crypto_driver::aes128ecb_encrypt_block,
+    embassy_crypto_driver::aes128ecb_decrypt_block,
+    U16
+);
+
+impl_ecb!(
+    Aes256Ecb,
+    embassy_crypto_driver::Aes256EcbContext,
+    embassy_crypto_driver::aes256ecb_init,
+    embassy_crypto_driver::aes256ecb_clone,
+    embassy_crypto_driver::aes256ecb_encrypt_block,
+    embassy_crypto_driver::aes256ecb_decrypt_block,
+    U32
+);
+
+// ===========================================================================
+// CBC implementations
+// ===========================================================================
+
+impl_cbc!(
+    Aes128Cbc,
+    embassy_crypto_driver::Aes128CbcContext,
+    embassy_crypto_driver::aes128cbc_init,
+    embassy_crypto_driver::aes128cbc_clone,
+    embassy_crypto_driver::aes128cbc_encrypt_block,
+    embassy_crypto_driver::aes128cbc_decrypt_block,
+    U16
+);
+
+impl_cbc!(
+    Aes256Cbc,
+    embassy_crypto_driver::Aes256CbcContext,
+    embassy_crypto_driver::aes256cbc_init,
+    embassy_crypto_driver::aes256cbc_clone,
+    embassy_crypto_driver::aes256cbc_encrypt_block,
+    embassy_crypto_driver::aes256cbc_decrypt_block,
+    U32
+);
+
+// ===========================================================================
+// GCM implementations
+// ===========================================================================
+
+impl_gcm!(
+    Aes128Gcm,
+    embassy_crypto_driver::Aes128GcmContext,
+    embassy_crypto_driver::aes128gcm_init,
+    embassy_crypto_driver::aes128gcm_clone,
+    embassy_crypto_driver::aes128gcm_encrypt,
+    embassy_crypto_driver::aes128gcm_decrypt,
+    U16
+);
+
+impl_gcm!(
+    Aes256Gcm,
+    embassy_crypto_driver::Aes256GcmContext,
+    embassy_crypto_driver::aes256gcm_init,
+    embassy_crypto_driver::aes256gcm_clone,
+    embassy_crypto_driver::aes256gcm_encrypt,
+    embassy_crypto_driver::aes256gcm_decrypt,
+    U32
+);
+
+// ===========================================================================
+// CCM implementations
+// ===========================================================================
+
+/// RustCrypto `AeadInPlace` implementation for AES-128 CCM.
+///
+/// Generic over `TagSize` (4, 8, or 16) and `NonceSize` (7–13).
+pub struct Aes128Ccm<TagSize, NonceSize> {
+    ctx: embassy_crypto_driver::Aes128CcmContext,
+    _phantom: core::marker::PhantomData<(TagSize, NonceSize)>,
+}
+
+impl<TagSize, NonceSize> Clone for Aes128Ccm<TagSize, NonceSize> {
+    fn clone(&self) -> Self {
+        Self {
+            ctx: embassy_crypto_driver::aes128ccm_clone(&self.ctx),
+            _phantom: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<TagSize, NonceSize> core::fmt::Debug for Aes128Ccm<TagSize, NonceSize> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Aes128Ccm").finish_non_exhaustive()
+    }
+}
+
+impl<TagSize, NonceSize> KeySizeUser for Aes128Ccm<TagSize, NonceSize> {
+    type KeySize = U16;
+}
+
+impl<TagSize, NonceSize> KeyInit for Aes128Ccm<TagSize, NonceSize> {
+    fn new(key: &Key<Self>) -> Self {
+        Self {
+            ctx: embassy_crypto_driver::aes128ccm_init(key.as_slice().try_into().unwrap()),
+            _phantom: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<TagSize, NonceSize> AeadCore for Aes128Ccm<TagSize, NonceSize>
+where
+    TagSize: ArraySize,
+    NonceSize: ArraySize,
+{
+    type NonceSize = NonceSize;
+    type TagSize = TagSize;
+    const TAG_POSITION: TagPosition = TagPosition::Postfix;
+}
+
+impl<TagSize, NonceSize> AeadInOut for Aes128Ccm<TagSize, NonceSize>
+where
+    TagSize: ArraySize,
+    NonceSize: ArraySize,
+{
+    fn encrypt_inout_detached(
+        &self,
+        nonce: &aead::Nonce<Self>,
+        associated_data: &[u8],
+        mut buffer: InOutBuf<'_, '_, u8>,
+    ) -> Result<aead::Tag<Self>, aead::Error> {
+        let mut tag = aead::Tag::<Self>::default();
+        embassy_crypto_driver::aes128ccm_encrypt(
+            &self.ctx,
+            nonce.as_slice(),
+            associated_data,
+            buffer.get_out(),
+            tag.as_mut_slice(),
+        )
+        .map_err(|_| aead::Error)?;
+        Ok(tag)
+    }
+
+    fn decrypt_inout_detached(
+        &self,
+        nonce: &aead::Nonce<Self>,
+        associated_data: &[u8],
+        mut buffer: InOutBuf<'_, '_, u8>,
+        tag: &aead::Tag<Self>,
+    ) -> Result<(), aead::Error> {
+        embassy_crypto_driver::aes128ccm_decrypt(
+            &self.ctx,
+            nonce.as_slice(),
+            associated_data,
+            buffer.get_out(),
+            tag.as_slice(),
+        )
+        .map_err(|_| aead::Error)
+    }
+}
+
+/// RustCrypto `AeadInPlace` implementation for AES-256 CCM.
+///
+/// Generic over `TagSize` (4, 8, or 16) and `NonceSize` (7–13).
+pub struct Aes256Ccm<TagSize, NonceSize> {
+    ctx: embassy_crypto_driver::Aes256CcmContext,
+    _phantom: core::marker::PhantomData<(TagSize, NonceSize)>,
+}
+
+impl<TagSize, NonceSize> Clone for Aes256Ccm<TagSize, NonceSize> {
+    fn clone(&self) -> Self {
+        Self {
+            ctx: embassy_crypto_driver::aes256ccm_clone(&self.ctx),
+            _phantom: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<TagSize, NonceSize> core::fmt::Debug for Aes256Ccm<TagSize, NonceSize> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Aes256Ccm").finish_non_exhaustive()
+    }
+}
+
+impl<TagSize, NonceSize> KeySizeUser for Aes256Ccm<TagSize, NonceSize> {
+    type KeySize = U32;
+}
+
+impl<TagSize, NonceSize> KeyInit for Aes256Ccm<TagSize, NonceSize> {
+    fn new(key: &Key<Self>) -> Self {
+        Self {
+            ctx: embassy_crypto_driver::aes256ccm_init(key.as_slice().try_into().unwrap()),
+            _phantom: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<TagSize, NonceSize> AeadCore for Aes256Ccm<TagSize, NonceSize>
+where
+    TagSize: ArraySize,
+    NonceSize: ArraySize,
+{
+    type NonceSize = NonceSize;
+    type TagSize = TagSize;
+    const TAG_POSITION: TagPosition = TagPosition::Postfix;
+}
+
+impl<TagSize, NonceSize> AeadInOut for Aes256Ccm<TagSize, NonceSize>
+where
+    TagSize: ArraySize,
+    NonceSize: ArraySize,
+{
+    fn encrypt_inout_detached(
+        &self,
+        nonce: &aead::Nonce<Self>,
+        associated_data: &[u8],
+        mut buffer: InOutBuf<'_, '_, u8>,
+    ) -> Result<aead::Tag<Self>, aead::Error> {
+        let mut tag = aead::Tag::<Self>::default();
+        embassy_crypto_driver::aes256ccm_encrypt(
+            &self.ctx,
+            nonce.as_slice(),
+            associated_data,
+            buffer.get_out(),
+            tag.as_mut_slice(),
+        )
+        .map_err(|_| aead::Error)?;
+        Ok(tag)
+    }
+
+    fn decrypt_inout_detached(
+        &self,
+        nonce: &aead::Nonce<Self>,
+        associated_data: &[u8],
+        mut buffer: InOutBuf<'_, '_, u8>,
+        tag: &aead::Tag<Self>,
+    ) -> Result<(), aead::Error> {
+        embassy_crypto_driver::aes256ccm_decrypt(
+            &self.ctx,
+            nonce.as_slice(),
+            associated_data,
+            buffer.get_out(),
+            tag.as_slice(),
+        )
+        .map_err(|_| aead::Error)
+    }
+}
