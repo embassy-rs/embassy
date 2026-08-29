@@ -35,26 +35,34 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_CHnCFGR2.OFFSET     [x] internal [X] pub [X] When Enabled
 * DFSDM_CHnAWSCDR.BKSCD     [x] internal [X] pub [X] When Enabled   Research if we need to connect to official triggers.
 * DFSDM_CHnAWSCDR.SCDT      [x] internal [X] pub [X] When Enabled
-* DFSDM_CHnDLYR.PLSSKP      [x] internal [X] pub [X] When Enabled   Not in config, implement as method!
+* DFSDM_CHnDLYR.PLSSKP      [x] internal [X] pub [X] When Enabled   Not in config, implemented as method.
+
+## TIMERS
+* Implement set_break_dfsdm_enable, set_break2_dfsdm_enable reference: set_break_comparator_enable
+* TIM1_AF1
+* BKDF1BK0E
+* BK2DF1BK1E
+* BKDF1BK2E
+* BK2DF1BK3E
 
 ## Filter config
 ### Filter off
-* DFSDM_FLTxCR1.RDMAEN      [ ] internal [ ] pub
+* DFSDM_FLTxCR1.RDMAEN      [ ] internal [ ] pub    This probably needs a typestate....
 * DFSDM_FLTxCR1.RSYNC       [ ] internal [ ] pub
-* DFSDM_FLTxCR1.RSWSTART    [ ] internal [ ] pub (only really relevant when on tho) 
 * DFSDM_FLTxCR1.JEXTEN      [ ] internal [ ] pub
 * DFSDM_FLTxCR1.JEXTSEL     [ ] internal [ ] pub
 * DFSDM_FLTxCR1.JDMAEN      [ ] internal [ ] pub
 * DFSDM_FLTxCR1.JSYNC       [ ] internal [ ] pub
-* DFSDM_FLTxCR1.JSWSTART    [ ] internal [ ] pub   (only really relevant when on tho) 
 * DFSDM_FLTxFCR.FORD        [ ] internal [ ] pub
 * DFSDM_FLTxFCR.FOSR        [ ] internal [ ] pub
 * DFSDM_FLTxFCR.IOSR        [ ] internal [ ] pub
 
 ### Filter on
+* DFSDM_FLTxCR1.JSWSTART    [x] internal [x] pub   (only really relevant when on tho)  Not in config, implemented as method.
+* DFSDM_FLTxCR1.RSWSTART    [x] internal [x] pub (only really relevant when on tho)  Not in config, implemented as method.
 * DFSDM_FLTxCR1.AWFSEL  [ ] internal [ ] pub [ ] When Enabled
 * DFSDM_FLTxCR1.FAST    [ ] internal [ ] pub [ ] When Enabled
-* DFSDM_FLTxCR1.RCH     [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR1.RCH     [X] internal [X] pub [ ] When Enabled
 * DFSDM_FLTxCR1.RCONT   [ ] internal [ ] pub [ ] When Enabled   
 * DFSDM_FLTxCR1.JSCAN   [ ] internal [ ] pub [ ] When Enabled
 * DFSDM_FLTxCR2.AWDCH   [ ] internal [ ] pub [ ] When Enabled
@@ -63,7 +71,7 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_FLTxCR2.JOVRIE  [ ] internal [ ] pub [ ] When Enabled
 * DFSDM_FLTxCR2.REOCIE  [ ] internal [ ] pub [ ] When Enabled
 * DFSDM_FLTxCR2.JEOCIE  [ ] internal [ ] pub [ ] When Enabled
-* DFSDM_FLTxJCHGR.JCHG  [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxJCHGR.JCHG  [X] internal [X] pub [ ] When Enabled
 * DFSDM_FLT0CR2.CKABIE  [ ] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
 * DFSDM_FLT0CR2.SCDIE   [ ] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
 * DFSDM_FLT0CR2.AWDIE   [ ] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
@@ -82,11 +90,11 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_CHnWDATR.WDATA
 
 ## Filter
-* DFSDM_FLTxJDATAR.JDATA
-* DFSDM_FLTxJDATAR.JDATACH
-* DFSDM_FLTxRDATAR.RDATA
-* DFSDM_FLTxRDATAR.RDATACH
-* DFSDM_FLTxRDATAR.RPEND
+* DFSDM_FLTxJDATAR.JDATA       [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
+* DFSDM_FLTxJDATAR.JDATACH     [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
+* DFSDM_FLTxRDATAR.RDATA       [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
+* DFSDM_FLTxRDATAR.RDATACH     [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
+* DFSDM_FLTxRDATAR.RPEND       [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLTxAWHTR.AWHT
 * DFSDM_FLTxAWHTR.BKAWH
 * DFSDM_FLTxAWLTR.AWLT
@@ -102,13 +110,13 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 ### Status
 * DFSDM_FLT0ISR.SCDF  (ONLY IN 0, GLOBAL)
 * DFSDM_FLT0ISR.CKABF  (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0ISR.RCIP
-* DFSDM_FLT0ISR.JCIP
+* DFSDM_FLT0ISR.RCIP            [x] internal [x] pub    
+* DFSDM_FLT0ISR.JCIP            [x] internal [x] pub    
 * DFSDM_FLT0ISR.AWDF
 * DFSDM_FLT0ISR.ROVRF
 * DFSDM_FLT0ISR.JOVRF
-* DFSDM_FLT0ISR.REOCF
-* DFSDM_FLT0ISR.JEOCF
+* DFSDM_FLT0ISR.REOCF           [x] internal [x] pub    Readable/Modifiable also when channel disabled, maybe read res after shutdown?
+* DFSDM_FLT0ISR.JEOCF           [x] internal [x] pub    Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLTxAWSR.AWHTF
 * DFSDM_FLTxAWSR.AWLTF
 

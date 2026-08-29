@@ -114,11 +114,189 @@ where
     }
 }
 
+impl<T, M, P> Filter<T, M, P>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+    P: PowerState,
+{
+    /// Trigger a regular conversion
+    pub fn start_regular_conversion(&mut self) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rswstart(true));
+    }
+
+    /// Trigger a injected conversion
+    pub fn start_injected_conversion(&mut self) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jswstart(true));
+    }
+
+    /// Attempts to read the current regular conversion result.
+    ///
+    /// Returns `Some((data, channel, rpend))` if `REOCF` is set, or `None` if no
+    /// regular conversion result is available.
+    ///
+    /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
+    ///
+    /// `rpend` is set if the regular conversion was delayed by an injected
+    /// conversion.
+    ///
+    /// Reading the result clears the corresponding data register.
+    pub fn try_read_regular_result(&mut self) -> Option<(i32, u8, bool)> {
+        if self.is_end_of_regular_conversion() {
+            let result = T::regs().flt(M::CHANNEL.index()).rdatar().read();
+            let data = sign_extend_24(result.rdata());
+            let channel = result.rdatach();
+            return Some((data, channel, result.rpend()));
+        }
+        None
+    }
+
+    /// Reads and clears the current regular conversion result without checking
+    /// `REOCF`.
+    ///
+    /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
+    ///
+    /// `rpend` is set if the regular conversion was delayed by an injected
+    /// conversion.
+    ///
+    /// The returned data is only valid if `REOCF` was set before reading.
+    ///
+    /// Returns `(data, channel, rpend)`.
+    pub fn read_regular_result_unchecked(&mut self) -> (i32, u8, bool) {
+        let result = T::regs().flt(M::CHANNEL.index()).rdatar().read();
+        let data = sign_extend_24(result.rdata());
+        let channel = result.rdatach();
+        (data, channel, result.rpend())
+    }
+
+    /// Attempts to read the current injected conversion result.
+    ///
+    /// Returns `Some((data, channel))` if `JEOCF` is set, or `None` if no injected
+    /// conversion result is available.
+    ///
+    /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
+    ///
+    /// Reading the result clears the corresponding data register.
+    pub fn try_read_injected_result(&mut self) -> Option<(i32, u8)> {
+        if self.is_end_of_injected_conversion() {
+            let result = T::regs().flt(M::CHANNEL.index()).jdatar().read();
+            let data = sign_extend_24(result.jdata());
+            let channel = result.jdatach();
+            return Some((data, channel));
+        }
+        None
+    }
+
+    /// Reads and clears the current injected conversion result without checking
+    /// `JEOCF`.
+    ///
+    /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
+    ///
+    /// The returned data is only valid if `JEOCF` was set before reading.
+    ///
+    /// Returns `(data, channel)`.
+    pub fn read_injected_result_unchecked(&mut self) -> (i32, u8) {
+        let result = T::regs().flt(M::CHANNEL.index()).jdatar().read();
+        let data = sign_extend_24(result.jdata());
+        let channel = result.jdatach();
+        (data, channel)
+    }
+
+    /// Returns whether a regular conversion result is available.
+    pub fn is_end_of_regular_conversion(&mut self) -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().reocf()
+    }
+
+    /// Returns whether an injected conversion result is available.
+    pub fn is_end_of_injected_conversion(&mut self) -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jeocf()
+    }
+
+    /// Returns whether a regular conversion is currently in progress or pendiong.
+    pub fn is_regular_conversion_in_progress(&mut self) -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().rcip()
+    }
+
+    /// Returns whether an injected conversion is currently in progress or pendiong.
+    pub fn is_injected_conversion_in_progress(&mut self) -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
+    }
+
+    fn set_regular_channel(&mut self, ch: u8) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rch(ch));
+    }
+
+    fn set_injected_channel(&mut self, ch: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .jchgr()
+            .modify(|w| w.set_jchg(w.jchg() | (1 << ch)));
+    }
+
+    fn clear_injected_channel(&mut self, ch: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .jchgr()
+            .modify(|w| w.set_jchg(w.jchg() & !(1 << ch)));
+    }
+
+    /// Assign the provided `Transceiver` as the regular conversion input for this `Filter`
+    pub fn assign_regular_transceiver<MT, S, MODE, PT>(
+        mut self,
+        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
+    ) -> Self
+    where
+        MT: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        MODE: ChannelMode,
+        PT: PowerState,
+    {
+        self.set_regular_channel(channel.index() as u8);
+        self
+    }
+
+    /// Assign the provided `Transceiver` to the injected conversion group of this `Filter`
+    pub fn assign_injected_transceiver<MT, S, MODE, PT>(
+        mut self,
+        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
+    ) -> Self
+    where
+        MT: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        MODE: ChannelMode,
+        PT: PowerState,
+    {
+        self.set_injected_channel(channel.index() as u8);
+        self
+    }
+
+    /// Unassign the provided channel from the injected conversion group of this `Filter`
+    pub fn unassign_injected_channel<MT, S, MODE, PT>(
+        mut self,
+        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
+    ) -> Self
+    where
+        MT: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        MODE: ChannelMode,
+        PT: PowerState,
+    {
+        self.clear_injected_channel(channel.index() as u8);
+        self
+    }
+}
+
+/// Sign-extends a 24bit LSB number to a i32
+fn sign_extend_24(x: u32) -> i32 {
+    ((x << 8) as i32) >> 8
+}
+
 impl<T, M> Filter<T, M, Enabled>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
 {
+    /// Disable the filter
     pub fn disable(self) -> Filter<T, M, Disabled> {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(false));
         Filter {
@@ -902,9 +1080,9 @@ where
 
 /// Holds regerences to the peripheral and the optional clock-output. Disables the RCC of the peripheral when dropped.
 pub struct DfsdmCommon<'d, T: Instance, P: PowerState> {
-    pub(crate) _peri: Peri<'d, T>,
+    _peri: Peri<'d, T>,
     /// `Some` iff the driver was created via [`Dfsdm::new_ckout`].
-    pub(crate) _ckout: Option<Flex<'d>>,
+    _ckout: Option<Flex<'d>>,
     _powerstate_marker: PhantomData<P>,
 }
 
@@ -922,8 +1100,15 @@ impl<'d, T> DfsdmCommon<'d, T, Disabled>
 where
     T: Instance,
 {
+    pub(crate) fn new(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
+        Self {
+            _peri: peri,
+            _ckout: ckout,
+            _powerstate_marker: PhantomData,
+        }
+    }
     /// Enables the peripheral
-    pub fn disable(self) -> DfsdmCommon<'d, T, Enabled> {
+    pub fn enable(self) -> DfsdmCommon<'d, T, Enabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(true));
 
         let (_peri, _ckout) = self.into_raw_parts();
@@ -1524,11 +1709,7 @@ where
         OUT: ChannelCfgTuple<'d, T, C>,
     {
         let out = f(<T::Transceivers as Shape>::selectors::<T>());
-        out.split_parts(DfsdmCommon {
-            _peri: self.peri.take().expect("taken once"),
-            _ckout: self.ckout.take(),
-            _powerstate_marker: PhantomData,
-        })
+        out.split_parts(DfsdmCommon::new(self.peri.expect("taken once"), self.ckout.take()).enable())
     }
 }
 

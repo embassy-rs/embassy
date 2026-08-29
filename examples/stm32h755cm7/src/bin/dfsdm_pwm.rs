@@ -8,7 +8,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{CkoutDivider, InternalSpiMode};
 use embassy_stm32::dfsdm::{
-    Dfsdm, Flt0, Flt1, InjectedTrigger, TransceiverConfig, TransceiverConfigOnline, TransceiverTrait,
+    Dfsdm, FilterConfig, Flt0, Flt1, InjectedTrigger, TransceiverConfig, TransceiverConfigOnline, TransceiverTrait,
 };
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::{SharedData, dfsdm};
@@ -42,12 +42,18 @@ async fn main(_spawner: Spawner) {
         config.rcc.voltage_scale = VoltageScale::Scale1;
         config.rcc.supply_config = SupplyConfig::DirectSMPS;
     }
+
+    //==================================================
+    // Goal: Dim LED according to PDM mic input using DFSM, DMA and PWM;
+    // Maybe enable breakinput to blink rapidly when detecting disconnection
+    //==================================================
+
     let p = embassy_stm32::init_primary(config, &SHARED_DATA);
     info!("Hello World!");
 
-    let mut led = Output::new(p.PB0, Level::High, Speed::Low);
-    let mut led = Output::new(p.PB3, Level::High, Speed::Low);
-    let mut led = Output::new(p.PE1, Level::High, Speed::Low);
+    // let mut led = Output::new(p.PB0, Level::High, Speed::Low);
+    // let mut led = Output::new(p.PB3, Level::High, Speed::Low);
+    // let mut led = Output::new(p.PE1, Level::High, Speed::Low);
 
     // Start driver instantiation using DFSDM1 with a CKOUT pin on pin C2
     let dfsdm1 = dfsdm::Dfsdm::new_ckout(
@@ -71,20 +77,38 @@ async fn main(_spawner: Spawner) {
     });
     let tcv_cfg = TransceiverConfig::default();
     let tcv_cfg_online = TransceiverConfigOnline::default();
-    let (mut ch2, mut ch3) = split.ch2.new_parallel_dma_dual(split.ch3);
-    let mut ch2 = ch2.configure(&tcv_cfg, &tcv_cfg_online).enable();
-    let mut ch3 = ch3.configure(&tcv_cfg, &tcv_cfg_online).enable();
-    split.ch6.new_parallel_dma_dual(split.ch7);
+    let channel_mic = split.ch1.new_spi_int(InternalSpiMode::SpiFalling).enable();
+    // let (mut ch2, mut ch3) = split.ch2.new_parallel_dma_dual(split.ch3);
+    // let mut ch2 = ch2.configure(&tcv_cfg, &tcv_cfg_online).enable();
+    // let mut ch3 = ch3.configure(&tcv_cfg, &tcv_cfg_online).enable();
+    // split.ch6.new_parallel_dma_dual(split.ch7);
 
-    let mut channel_mic = split.ch1.new_spi_int(InternalSpiMode::SpiFalling);
-    split.flt0;
+    //TODO the enable semantics should really also be linked to channel assignments in filters?
+
+    // split.common.disable();  Common is already enabled from the split!
+
+    let flt_cfg = FilterConfig::default();
+    let mut flt0 = split
+        .flt0
+        .configure(&flt_cfg)
+        .assign_regular_transceiver(&channel_mic)
+        .enable();
+    flt0.start_regular_conversion();
+
     loop {
-        info!("led on!");
-        led.set_high();
-        Timer::after_millis(500).await;
+        if let Some((data, channel, rpend)) = flt0.try_read_regular_result() {
+            println!("New measurement: ");
+            println!("Channel: {}", channel);
+            println!("Value: {}", data);
+            println!("Delayed: {}", rpend);
+        }
 
-        info!("led off!");
-        led.set_low();
-        Timer::after_millis(500).await;
+        // info!("led on!");
+        // led.set_high();
+        // Timer::after_millis(500).await;
+
+        // info!("led off!");
+        // led.set_low();
+        // Timer::after_millis(500).await;
     }
 }
