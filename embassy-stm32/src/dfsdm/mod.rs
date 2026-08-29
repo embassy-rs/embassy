@@ -64,19 +64,60 @@ where
     // data_pin: Flex<'d>,
 }
 
-pub struct Filter<T, M>
+pub struct Filter<T, M, P>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+    P: PowerState,
+{
+    _instance_marker: PhantomData<T>,
+    _filter_marker: PhantomData<M>,
+    _powerstate_marker: PhantomData<P>,
+}
+
+impl<T, M> Filter<T, M, Disabled>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
 {
-    _instance_marker: PhantomData<T>,
-    _filter_marker: PhantomData<M>,
+    pub(crate) fn new_disabled() -> Filter<T, M, Disabled> {
+        Filter {
+            _instance_marker: PhantomData,
+            _filter_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+        }
+    }
+
+    pub fn enable(self) -> Filter<T, M, Enabled> {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(true));
+        Filter {
+            _instance_marker: PhantomData,
+            _filter_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+        }
+    }
 }
 
-impl<T, M> Filter<T, M>
+impl<T, M> Filter<T, M, Enabled>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
+{
+    pub fn disable(self) -> Filter<T, M, Disabled> {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(false));
+        Filter {
+            _instance_marker: PhantomData,
+            _filter_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+        }
+    }
+}
+
+impl<T, M, P> Filter<T, M, P>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+    P: PowerState,
 {
     pub async fn wait_for_irq_test(&mut self) {
         use core::sync::atomic::{Ordering, compiler_fence};
@@ -783,13 +824,9 @@ where
 //     }
 // }
 
-/// Splits
-///
-///
-
-pub struct FilterBuilder<T: Instance, F: FilterMarker> {
-    _m: PhantomData<(T, F)>,
-}
+// =============================================================================
+// Splitting
+// =============================================================================
 
 /// Holds regerences to the peripheral and the optional clock-output. Disables the RCC of the peripheral when dropped.
 pub struct DfsdmCommon<'d, T: Instance, P: PowerState> {
@@ -813,7 +850,7 @@ impl<'d, T> DfsdmCommon<'d, T, Disabled>
 where
     T: Instance,
 {
-    /// Enables the channel
+    /// Enables the peripheral
     pub fn disable(self) -> DfsdmCommon<'d, T, Enabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(true));
 
@@ -830,7 +867,7 @@ impl<'d, T> DfsdmCommon<'d, T, Enabled>
 where
     T: Instance,
 {
-    /// Disables the channel
+    /// Disables the peripheral
     pub fn disable(self) -> DfsdmCommon<'d, T, Disabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(false));
 
@@ -856,7 +893,7 @@ where
 
 pub struct DfsdmSplit2Ch1Flt<'d, T, C, S0, S1>
 where
-    T: Instance,
+    T: Instance + FilterInterrupt<Flt0>,
     C: ClockOutputMode,
     S0: PinSet,
     S1: PinSet,
@@ -864,12 +901,12 @@ where
     pub common: DfsdmCommon<'d, T, Enabled>,
     pub ch0: TransceiverBuilder<'d, T, Tcv0, C, S0, S1>, // neighbor = ch1
     pub ch1: TransceiverBuilder<'d, T, Tcv1, C, S1, S0>, // neighbor = ch0 (wrap!)
-    pub flt0: FilterBuilder<T, Flt0>,
+    pub flt0: Filter<T, Flt0, Disabled>,
 }
 
 pub struct DfsdmSplit8Ch8Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
 where
-    T: Instance,
+    T: Instance + Flt8Ready,
     C: ClockOutputMode,
     S0: PinSet,
     S1: PinSet,
@@ -889,19 +926,19 @@ where
     pub ch5: TransceiverBuilder<'d, T, Tcv5, C, S5, S6>,
     pub ch6: TransceiverBuilder<'d, T, Tcv6, C, S6, S7>,
     pub ch7: TransceiverBuilder<'d, T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
-    pub flt0: FilterBuilder<T, Flt0>,
-    pub flt1: FilterBuilder<T, Flt1>,
-    pub flt2: FilterBuilder<T, Flt2>,
-    pub flt3: FilterBuilder<T, Flt3>,
-    pub flt4: FilterBuilder<T, Flt4>,
-    pub flt5: FilterBuilder<T, Flt5>,
-    pub flt6: FilterBuilder<T, Flt6>,
-    pub flt7: FilterBuilder<T, Flt7>,
+    pub flt0: Filter<T, Flt0, Disabled>,
+    pub flt1: Filter<T, Flt1, Disabled>,
+    pub flt2: Filter<T, Flt2, Disabled>,
+    pub flt3: Filter<T, Flt3, Disabled>,
+    pub flt4: Filter<T, Flt4, Disabled>,
+    pub flt5: Filter<T, Flt5, Disabled>,
+    pub flt6: Filter<T, Flt6, Disabled>,
+    pub flt7: Filter<T, Flt7, Disabled>,
 }
 
 pub struct DfsdmSplit8Ch4Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
 where
-    T: Instance,
+    T: Instance + Flt4Ready,
     C: ClockOutputMode,
     S0: PinSet,
     S1: PinSet,
@@ -921,10 +958,10 @@ where
     pub ch5: TransceiverBuilder<'d, T, Tcv5, C, S5, S6>,
     pub ch6: TransceiverBuilder<'d, T, Tcv6, C, S6, S7>,
     pub ch7: TransceiverBuilder<'d, T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
-    pub flt0: FilterBuilder<T, Flt0>,
-    pub flt1: FilterBuilder<T, Flt1>,
-    pub flt2: FilterBuilder<T, Flt2>,
-    pub flt3: FilterBuilder<T, Flt3>,
+    pub flt0: Filter<T, Flt0, Disabled>,
+    pub flt1: Filter<T, Flt1, Disabled>,
+    pub flt2: Filter<T, Flt2, Disabled>,
+    pub flt3: Filter<T, Flt3, Disabled>,
 }
 
 /// Dfsdm
@@ -958,16 +995,6 @@ where
     C: ClockOutputMode,
     T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>,
 {
-    pub fn get_filter_test<F>(&self) -> Filter<T, F>
-    where
-        T: FilterInterrupt<F>,
-        F: FilterMarker,
-    {
-        Filter {
-            _instance_marker: PhantomData,
-            _filter_marker: PhantomData,
-        }
-    }
 }
 
 impl<'d, T> Dfsdm<'d, T, OutputEnabled>
@@ -1064,7 +1091,7 @@ pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
 
 impl<'d, T, C, C0, C1> ChannelCfgTuple<'d, T, C> for (C0, C1)
 where
-    T: Instance<Transceivers = capability::Tcv2, Filters = capability::Flt1>,
+    T: Instance<Transceivers = capability::Tcv2, Filters = capability::Flt1> + FilterInterrupt<Flt0>,
     C: ClockOutputMode,
     C0: ChannelCfg<'d, T, Tcv0>,
     C1: ChannelCfg<'d, T, Tcv1>,
@@ -1092,7 +1119,7 @@ where
                 ckin: k1,
                 _m: PhantomData,
             },
-            flt0: FilterBuilder { _m: PhantomData },
+            flt0: Filter::new_disabled(),
         }
     }
 }
@@ -1138,7 +1165,15 @@ pub trait Flt8SplitBuild<
 impl<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
     for capability::Flt8
 where
-    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>,
+    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>
+        + FilterInterrupt<Flt0>
+        + FilterInterrupt<Flt1>
+        + FilterInterrupt<Flt2>
+        + FilterInterrupt<Flt3>
+        + FilterInterrupt<Flt4>
+        + FilterInterrupt<Flt5>
+        + FilterInterrupt<Flt6>
+        + FilterInterrupt<Flt7>,
     C: ClockOutputMode,
     S0: PinSet,
     S1: PinSet,
@@ -1212,14 +1247,14 @@ where
                 ckin: k7,
                 _m: PhantomData,
             },
-            flt0: FilterBuilder { _m: PhantomData },
-            flt1: FilterBuilder { _m: PhantomData },
-            flt2: FilterBuilder { _m: PhantomData },
-            flt3: FilterBuilder { _m: PhantomData },
-            flt4: FilterBuilder { _m: PhantomData },
-            flt5: FilterBuilder { _m: PhantomData },
-            flt6: FilterBuilder { _m: PhantomData },
-            flt7: FilterBuilder { _m: PhantomData },
+            flt0: Filter::new_disabled(),
+            flt1: Filter::new_disabled(),
+            flt2: Filter::new_disabled(),
+            flt3: Filter::new_disabled(),
+            flt4: Filter::new_disabled(),
+            flt5: Filter::new_disabled(),
+            flt6: Filter::new_disabled(),
+            flt7: Filter::new_disabled(),
         }
     }
 }
@@ -1227,7 +1262,11 @@ where
 impl<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
     for capability::Flt4
 where
-    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt4>,
+    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt4>
+        + FilterInterrupt<Flt0>
+        + FilterInterrupt<Flt1>
+        + FilterInterrupt<Flt2>
+        + FilterInterrupt<Flt3>,
     C: ClockOutputMode,
     S0: PinSet,
     S1: PinSet,
@@ -1301,10 +1340,10 @@ where
                 ckin: k7,
                 _m: PhantomData,
             },
-            flt0: FilterBuilder { _m: PhantomData },
-            flt1: FilterBuilder { _m: PhantomData },
-            flt2: FilterBuilder { _m: PhantomData },
-            flt3: FilterBuilder { _m: PhantomData },
+            flt0: Filter::new_disabled(),
+            flt1: Filter::new_disabled(),
+            flt2: Filter::new_disabled(),
+            flt3: Filter::new_disabled(),
         }
     }
 }

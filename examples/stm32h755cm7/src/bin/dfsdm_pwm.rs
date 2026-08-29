@@ -74,7 +74,7 @@ async fn main(_spawner: Spawner) {
     split.ch6.new_parallel_dma_dual(split.ch7);
 
     let mut channel_mic = split.ch1.new_spi_int(InternalSpiMode::SpiFalling);
-
+    split.flt0;
     loop {
         info!("led on!");
         led.set_high();

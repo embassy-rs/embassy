@@ -182,19 +182,6 @@ impl_sealed_and! {
     OutputDisabled,
 }
 
-// =============================================================================
-// Interrupt-Marking
-// =============================================================================
-
-/// Filter-marked interrupt state trait
-pub trait FilterInterrupt<F: FilterMarker> {
-    /// Interrupt type
-    type Interrupt: interrupt::typelevel::Interrupt;
-
-    /// Filter-interrupt state
-    fn state() -> &'static State;
-}
-
 /// Generalized pin traits
 ///
 ///
@@ -367,6 +354,15 @@ impl<'d, T: Instance, M: TransceiverMarker> ChannelCfg<'d, T, M> for DckCfg<'d, 
 // Interrupthandler
 // =============================================================================
 
+/// Filter-marked interrupt state trait
+pub trait FilterInterrupt<F: FilterMarker> {
+    /// Interrupt type
+    type Interrupt: interrupt::typelevel::Interrupt;
+
+    /// Filter-interrupt state
+    fn state() -> &'static State;
+}
+
 /// Trait for interrupt handlers
 pub struct InterruptHandler<T: Instance, F: FilterMarker> {
     _marker: PhantomData<(T, F)>,
@@ -384,6 +380,39 @@ where
         // T::clear_exti_pending();
         // handle this filter's status/ovr/regular-conversion bits only
     }
+}
+
+/// Markers for Interuptpresence
+pub trait Flt8Ready:
+    FilterInterrupt<Flt0>
+    + FilterInterrupt<Flt1>
+    + FilterInterrupt<Flt2>
+    + FilterInterrupt<Flt3>
+    + FilterInterrupt<Flt4>
+    + FilterInterrupt<Flt5>
+    + FilterInterrupt<Flt6>
+    + FilterInterrupt<Flt7>
+{
+}
+impl<T> Flt8Ready for T where
+    T: FilterInterrupt<Flt0>
+        + FilterInterrupt<Flt1>
+        + FilterInterrupt<Flt2>
+        + FilterInterrupt<Flt3>
+        + FilterInterrupt<Flt4>
+        + FilterInterrupt<Flt5>
+        + FilterInterrupt<Flt6>
+        + FilterInterrupt<Flt7>
+{
+}
+
+pub trait Flt4Ready:
+    FilterInterrupt<Flt0> + FilterInterrupt<Flt1> + FilterInterrupt<Flt2> + FilterInterrupt<Flt3>
+{
+}
+impl<T> Flt4Ready for T where
+    T: FilterInterrupt<Flt0> + FilterInterrupt<Flt1> + FilterInterrupt<Flt2> + FilterInterrupt<Flt3>
+{
 }
 
 // impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {

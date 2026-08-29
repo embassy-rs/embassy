@@ -4,11 +4,11 @@ Ref: RM0455
 [x] (Config CKOUT)
 
 ## 33.4.3
-[ ] Enable Peripheral                          [x] internal [ ] pub
+[ ] Enable Peripheral                          [x] internal [X] pub MOVE INTO DFSDM OR SO, IT'S CURRENTLY IN COMMON
 Set `DFSDMEN` in `DFSDM_CH0CFGR1`.
-[ ] Enable Transceiver (InputChannel)          [x] internal [ ] pub
+[X] Enable Transceiver (InputChannel)          [x] internal [X] pub
 Set `CHEN` in `DFSDM_CHnCFGR1`.
-[ ] Enable Filter                              [ ] internal [ ] pub
+[X] Enable Filter                              [X] internal [X] pub
 Set `DFEN` in `DFSDM_FLTnCR1`.
 
 
