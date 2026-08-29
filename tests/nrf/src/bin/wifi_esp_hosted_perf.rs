@@ -7,7 +7,7 @@ teleprobe_meta::timeout!(120);
 use defmt::{info, unwrap};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::{Config, StackResources};
+use embassy_net::StackStorage;
 use embassy_net_esp_hosted as hosted;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::rng::Rng;
@@ -42,7 +42,7 @@ async fn wifi_task(
 type MyDriver = hosted::NetDriver<'static>;
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, MyDriver>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -87,18 +87,18 @@ async fn main(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(
-        net_device,
-        Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::new()),
-        seed,
-    );
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<MyDriver> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)).ok());
+    iface.set_dhcpv4(Some(Default::default()));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
-        stack,
+        iface,
         perf_client::Expected {
             down_kbps: 50,
             up_kbps: 50,

@@ -12,7 +12,7 @@ use embassy_futures::select::{Either4 as EitherMany, select4 as select_many};
 #[cfg(feature = "bluetooth")]
 use embassy_futures::select::{Either5 as EitherMany, select5 as select_many};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::LinkState;
+use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
 use embassy_time::{Duration, Instant, Timer};
 use embedded_hal::digital::OutputPin;
 
@@ -136,7 +136,7 @@ pub struct State {
     shared: Shared,
     ioctl_buffer: [u8; MAX_IOCTL_SIZE],
     msg_buffer: IoctlMessage,
-    ch: ch::State<MTU, 4, 4>,
+    ch: ch::State<4, 4>,
     #[cfg(feature = "bluetooth")]
     bt: bluetooth::BtState,
 }
@@ -156,7 +156,7 @@ impl State {
 }
 
 /// Type alias for network driver.
-pub type NetDriver<'a> = ch::Device<'a, MTU>;
+pub type NetDriver<'a> = ch::Device<'a>;
 
 /// Handles returned by [`new`] for interacting with the esp-hosted driver.
 pub struct HostedResources<'a, I, OUT> {
@@ -183,7 +183,7 @@ where
     I: Interface,
     OUT: OutputPin,
 {
-    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]), MTU);
     let state_ch = ch_runner.state_runner();
 
     #[cfg(feature = "bluetooth")]
@@ -213,7 +213,7 @@ where
 
 /// Runner for communicating with the WiFi device.
 pub struct Runner<'a, I, OUT> {
-    ch: ch::Runner<'a, MTU>,
+    ch: ch::Runner<'a>,
     state_ch: ch::StateRunner<'a>,
     shared: &'a Shared,
     backend: Backend,
@@ -256,7 +256,7 @@ where
             self.iface.wait_for_handshake().await;
 
             let ioctl = self.shared.ioctl_wait_pending();
-            let tx = self.ch.tx_buf();
+            let tx = self.ch.tx();
             let ev = self.iface.wait_for_ready();
             let hb = Timer::at(self.heartbeat_deadline);
 
@@ -310,8 +310,6 @@ where
                         // packet and send nothing this iteration.
                         buffer[..PayloadHeader::SIZE].fill(0);
                     }
-
-                    packet.tx_done();
                 }
                 EitherMany::Third(()) => {
                     buffer[..PayloadHeader::SIZE].fill(0);
@@ -402,12 +400,15 @@ where
         let if_type = self.backend.decode_iface_type(if_type_and_num & 0x0f);
 
         match if_type {
-            Some(InterfaceType::Sta) => match self.ch.try_rx_buf() {
+            Some(InterfaceType::Sta) => match PacketBuf::try_new() {
                 Some(mut buf) => {
-                    buf[..payload.len()].copy_from_slice(payload);
-                    buf.rx_done(payload.len())
+                    buf.set_len(payload.len());
+                    buf.copy_from_slice(payload);
+                    if self.ch.try_rx(buf).is_err() {
+                        warn!("failed to push rxd packet to the channel.");
+                    }
                 }
-                None => warn!("failed to push rxd packet to the channel."),
+                None => warn!("packet pool empty, dropping rxd packet."),
             },
             Some(InterfaceType::Serial) => {
                 #[cfg(feature = "log")]

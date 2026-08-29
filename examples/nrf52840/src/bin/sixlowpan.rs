@@ -6,8 +6,9 @@ use core::net::Ipv6Addr;
 use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::udp::{PacketMetadata, UdpMetadata, UdpSocket};
-use embassy_net::{IpAddress, IpEndpoint, IpListenEndpoint, Ipv6Cidr, StackResources, StaticConfigV6};
+use embassy_net::StackStorage;
+use embassy_net::udp::{UdpMetadata, UdpSocket};
+use embassy_net::wire::{IpAddress, IpCidr, IpEndpoint, IpListenEndpoint, Ipv6Cidr};
 use embassy_nrf::config::{Config, HfclkSource};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::{bind_interrupts, embassy_net_802154_driver as net, peripherals, radio};
@@ -27,7 +28,7 @@ async fn ieee802154_task(runner: net::Runner<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, net::Device<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -50,12 +51,6 @@ async fn main(spawner: Spawner) {
     let peer = Ipv6Addr::new(0xfe80, 0, 0, 0, 0xd701, 0xda3f, 0x3955, 0x82a4);
     let local = Ipv6Addr::new(0xfe80, 0, 0, 0, 0xd701, 0xda3f, 0x3955, 0x82a5);
 
-    let config = embassy_net::Config::ipv6_static(StaticConfigV6 {
-        address: Ipv6Cidr::new(local, 64),
-        gateway: None,
-        dns_servers: Default::default(),
-    });
-
     // Generate random seed
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
@@ -63,25 +58,19 @@ async fn main(spawner: Spawner) {
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<net::Device<'static>> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    unwrap!(iface.add_ip_addr(IpCidr::Ipv6(Ipv6Cidr::new(local, 64))));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
-    let mut rx_buffer = [0; 2096];
-    let mut tx_buffer = [0; 2096];
-    let mut tx_m_buffer = [PacketMetadata::EMPTY; 5];
-    let mut rx_m_buffer = [PacketMetadata::EMPTY; 5];
-
     let mut delay = Delay;
     loop {
-        let mut socket = UdpSocket::new(
-            stack,
-            &mut tx_m_buffer,
-            &mut rx_buffer,
-            &mut rx_m_buffer,
-            &mut tx_buffer,
-        );
+        let mut socket = UdpSocket::new(stack);
         socket
             .bind(IpListenEndpoint {
                 addr: Some(IpAddress::Ipv6(local)),

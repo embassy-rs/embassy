@@ -1,164 +1,121 @@
 //! UDP sockets.
 
 use core::future::{Future, poll_fn};
-use core::mem;
 use core::task::{Context, Poll};
 
-pub use embassy_net_driver::PacketMeta;
-use xarxa::iface::{Interface, SocketHandle};
-use xarxa::socket::udp;
-pub use xarxa::socket::udp::PacketMetadata;
+pub use xarxa::driver::PacketMeta;
+use xarxa::udp::{self, UdpHandle};
+pub use xarxa::udp::{RecvPacket, UdpMetadata};
 use xarxa::wire::IpListenEndpoint;
 
-use crate::{IpAddress, IpEndpoint, Stack, TryError};
-
-/// Metadata for a sent or received UDP packet.
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub struct UdpMetadata {
-    /// The IP endpoint from which an incoming datagram was received, or to which an outgoing
-    /// datagram will be sent.
-    pub endpoint: IpEndpoint,
-    /// The IP address to which an incoming datagram was sent, or from which an outgoing datagram
-    /// will be sent. Incoming datagrams always have this set. On outgoing datagrams, if it is not
-    /// set, and the socket is not bound to a single address anyway, a suitable address will be
-    /// determined using the algorithms of RFC 6724 (candidate source address selection) or some
-    /// heuristic (for IPv4).
-    pub local_address: Option<IpAddress>,
-    /// Additional metadata for the packet.
-    pub meta: PacketMeta,
-}
-
-impl UdpMetadata {
-    fn from_xarxa(value: udp::UdpMetadata) -> Self {
-        UdpMetadata {
-            endpoint: value.endpoint,
-            local_address: value.local_address,
-            meta: crate::driver_util::into_embassy_net_meta(value.meta),
-        }
-    }
-
-    fn into_xarxa(self) -> udp::UdpMetadata {
-        udp::UdpMetadata {
-            endpoint: self.endpoint,
-            local_address: self.local_address,
-            meta: crate::driver_util::into_xarxa_meta(self.meta),
-        }
-    }
-}
-
-impl core::fmt::Display for UdpMetadata {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        #[cfg(feature = "packetmeta-id")]
-        return write!(f, "{}, PacketID: {:?}", self.endpoint, self.meta);
-
-        #[cfg(not(feature = "packetmeta-id"))]
-        write!(f, "{}", self.endpoint)
-    }
-}
-
-impl<T: Into<IpEndpoint>> From<T> for UdpMetadata {
-    fn from(value: T) -> Self {
-        Self {
-            endpoint: value.into(),
-            local_address: None,
-            meta: PacketMeta::default(),
-        }
-    }
-}
+use crate::wire::IpEndpoint;
+use crate::{Stack, TryError};
 
 /// Error returned by [`UdpSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BindError {
-    /// The socket was already open.
+    /// The socket is already bound.
     InvalidState,
-    /// No route to host.
-    NoRoute,
+    /// Another socket holds an identical 4-tuple.
+    InUse,
+    /// No free port in the ephemeral range (only possible with tens of thousands
+    /// of bound sockets).
+    NoFreePorts,
+    /// The local and remote addresses belong to different address families, or no
+    /// local address is available for the given remote.
+    Unaddressable,
 }
 
 /// Error returned by [`UdpSocket::send_to`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SendError {
-    /// No route to host.
-    NoRoute,
-    /// Socket not bound to an outgoing port.
-    SocketNotBound,
-    /// There is not enough transmit buffer capacity to ever send this packet.
-    PacketTooLarge,
+    /// The socket is not bound.
+    InvalidState,
+    /// The destination address or port is unspecified, or no matching source
+    /// address is available.
+    Unaddressable,
+    /// The payload does not fit in a packet buffer.
+    BufferFull,
 }
 
 /// Error returned by [`UdpSocket::recv_from`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RecvError {
+    /// The socket is not bound.
+    InvalidState,
     /// Provided buffer was smaller than the received packet.
     Truncated,
+    /// An ICMP error message quoting a packet this socket sent has arrived
+    /// (reported once, taking it clears it).
+    #[cfg(feature = "icmp-errors")]
+    IcmpError {
+        /// The kind of error.
+        error: crate::IcmpError,
+        /// The remote endpoint the erring packet was sent to.
+        remote: IpEndpoint,
+    },
 }
 
 /// An UDP socket.
-pub struct UdpSocket<'a> {
-    stack: Stack<'a>,
-    handle: SocketHandle,
+pub struct UdpSocket<'d> {
+    stack: Stack<'d>,
+    handle: UdpHandle,
 }
 
-impl<'a> UdpSocket<'a> {
-    /// Create a new UDP socket using the provided stack and buffers.
-    pub fn new(
-        stack: Stack<'a>,
-        rx_meta: &'a mut [PacketMetadata],
-        rx_buffer: &'a mut [u8],
-        tx_meta: &'a mut [PacketMetadata],
-        tx_buffer: &'a mut [u8],
-    ) -> Self {
-        let handle = stack.with_mut(|i| {
-            let rx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(rx_meta) };
-            let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
-            let tx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(tx_meta) };
-            let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
-            i.sockets.add(udp::Socket::new(
-                udp::PacketBuffer::new(rx_meta, rx_buffer),
-                udp::PacketBuffer::new(tx_meta, tx_buffer),
-            ))
+impl<'d> UdpSocket<'d> {
+    /// Create a new UDP socket using the provided stack.
+    ///
+    /// # Panics
+    /// Panics if the stack has no room for another UDP socket. The limit is set
+    /// by the `udp-socket-count-N` feature of `xarxa`.
+    pub fn new(stack: Stack<'d>) -> Self {
+        let handle = stack.with(|i| {
+            unwrap!(
+                i.stack.add_udp_socket().ok(),
+                "too many UDP sockets, raise the `udp-socket-count-N` feature of xarxa"
+            )
         });
 
         Self { stack, handle }
     }
 
     /// Bind the socket to a local endpoint.
+    ///
+    /// A port of 0 allocates an ephemeral port.
     pub fn bind<T>(&mut self, endpoint: T) -> Result<(), BindError>
     where
         T: Into<IpListenEndpoint>,
     {
-        let mut endpoint = endpoint.into();
+        self.bind_to(endpoint, IpListenEndpoint::UNSPECIFIED)
+    }
 
-        if endpoint.port == 0 {
-            // If user didn't specify port allocate a dynamic port.
-            endpoint.port = self.stack.with_mut(|i| i.get_local_port());
-        }
-
-        match self.with_mut(|s, _| s.bind(endpoint)) {
+    /// Bind the socket to a local endpoint, and connect it to a remote one.
+    ///
+    /// Only datagrams matching the specified parts of `remote` are received, and
+    /// unspecified parts of a send's destination default from it.
+    pub fn bind_to<L, R>(&mut self, local: L, remote: R) -> Result<(), BindError>
+    where
+        L: Into<IpListenEndpoint>,
+        R: Into<IpListenEndpoint>,
+    {
+        match self.with_mut(|s| s.bind(local, remote)) {
             Ok(()) => Ok(()),
             Err(udp::BindError::InvalidState) => Err(BindError::InvalidState),
-            Err(udp::BindError::Unaddressable) => Err(BindError::NoRoute),
+            Err(udp::BindError::InUse) => Err(BindError::InUse),
+            Err(udp::BindError::NoFreePorts) => Err(BindError::NoFreePorts),
+            Err(udp::BindError::Unaddressable) => Err(BindError::Unaddressable),
         }
     }
 
-    fn with<R>(&self, f: impl FnOnce(&udp::Socket, &Interface) -> R) -> R {
-        self.stack.with(|i| {
-            let socket = i.sockets.get::<udp::Socket>(self.handle);
-            f(socket, &i.iface)
-        })
+    fn with<R>(&self, f: impl FnOnce(&mut udp::UdpSocket<'_, 'd>) -> R) -> R {
+        self.stack.with(|i| f(&mut i.stack.udp_socket(self.handle)))
     }
 
-    fn with_mut<R>(&self, f: impl FnOnce(&mut udp::Socket, &mut Interface) -> R) -> R {
-        self.stack.with_mut(|i| {
-            let socket = i.sockets.get_mut::<udp::Socket>(self.handle);
-            let res = f(socket, &mut i.iface);
-            i.waker.wake();
-            res
-        })
+    fn with_mut<R>(&self, f: impl FnOnce(&mut udp::UdpSocket<'_, 'd>) -> R) -> R {
+        self.stack.with_mut(|i| f(&mut i.stack.udp_socket(self.handle)))
     }
 
     /// Wait until the socket becomes readable.
@@ -176,7 +133,7 @@ impl<'a> UdpSocket<'a> {
     ///
     /// When a datagram is received, this method will return `Poll::Ready`.
     pub fn poll_recv_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s, _| {
+        self.with_mut(|s| {
             if s.can_recv() {
                 Poll::Ready(())
             } else {
@@ -190,6 +147,8 @@ impl<'a> UdpSocket<'a> {
     /// Receive a datagram.
     ///
     /// This method will wait until a datagram is received.
+    ///
+    /// If the socket is not bound, this method will return `Err(RecvError::InvalidState)`.
     ///
     /// Returns the number of bytes received and the remote endpoint.
     pub fn recv_from<'s>(
@@ -207,8 +166,13 @@ impl<'a> UdpSocket<'a> {
     ///
     /// Returns the number of bytes received and the remote endpoint.
     pub fn try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, UdpMetadata), TryError<RecvError>> {
-        self.with_mut(|s, _| match s.recv_slice(buf) {
-            Ok((n, meta)) => Ok((n, UdpMetadata::from_xarxa(meta))),
+        self.with_mut(|s| match s.recv_slice(buf) {
+            Ok((n, meta)) => Ok((n, meta)),
+            Err(udp::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
+            #[cfg(feature = "icmp-errors")]
+            Err(udp::RecvError::IcmpError { error, remote }) => {
+                Err(TryError::Other(RecvError::IcmpError { error, remote }))
+            }
             Err(udp::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
             Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
         })
@@ -226,14 +190,63 @@ impl<'a> UdpSocket<'a> {
         buf: &mut [u8],
         cx: &mut Context<'_>,
     ) -> Poll<Result<(usize, UdpMetadata), RecvError>> {
-        self.with_mut(|s, _| match s.recv_slice(buf) {
-            Ok((n, meta)) => Poll::Ready(Ok((n, UdpMetadata::from_xarxa(meta)))),
-            // No data ready
+        self.with_mut(|s| match s.recv_slice(buf) {
+            Ok((n, meta)) => Poll::Ready(Ok((n, meta))),
+            Err(udp::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
+            #[cfg(feature = "icmp-errors")]
+            Err(udp::RecvError::IcmpError { error, remote }) => {
+                Poll::Ready(Err(RecvError::IcmpError { error, remote }))
+            }
             Err(udp::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
+            // No data ready
             Err(udp::RecvError::Exhausted) => {
                 s.register_recv_waker(cx.waker());
                 Poll::Pending
             }
+        })
+    }
+
+    /// Receive a datagram, taking ownership of its packet buffer.
+    ///
+    /// This method will wait until a datagram is received.
+    ///
+    /// If the socket is not bound, this method will return `Err(RecvError::InvalidState)`.
+    ///
+    /// The returned packet derefs to the payload. Dropping it frees the buffer.
+    pub async fn recv(&self) -> Result<RecvPacket, RecvError> {
+        poll_fn(|cx| {
+            self.with_mut(|s| match s.recv() {
+                Ok(packet) => Poll::Ready(Ok(packet)),
+                Err(udp::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
+                #[cfg(feature = "icmp-errors")]
+                Err(udp::RecvError::IcmpError { error, remote }) => {
+                    Poll::Ready(Err(RecvError::IcmpError { error, remote }))
+                }
+                Err(udp::RecvError::Truncated) => unreachable!(),
+                Err(udp::RecvError::Exhausted) => {
+                    s.register_recv_waker(cx.waker());
+                    Poll::Pending
+                }
+            })
+        })
+        .await
+    }
+
+    /// Receive a datagram, taking ownership of its packet buffer.
+    ///
+    /// This method will not wait for a datagram to be received.
+    ///
+    /// If no datagram is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_recv(&self) -> Result<RecvPacket, TryError<RecvError>> {
+        self.with_mut(|s| match s.recv() {
+            Ok(packet) => Ok(packet),
+            Err(udp::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
+            #[cfg(feature = "icmp-errors")]
+            Err(udp::RecvError::IcmpError { error, remote }) => {
+                Err(TryError::Other(RecvError::IcmpError { error, remote }))
+            }
+            Err(udp::RecvError::Truncated) => unreachable!(),
+            Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
         })
     }
 
@@ -245,25 +258,12 @@ impl<'a> UdpSocket<'a> {
     /// When a datagram is received, this method will call the provided function
     /// with a reference to the received bytes and the remote endpoint and return
     /// `Poll::Ready` with the function's returned value.
-    pub async fn recv_from_with<F, R>(&mut self, f: F) -> R
+    pub async fn recv_from_with<F, R>(&mut self, f: F) -> Result<R, RecvError>
     where
         F: FnOnce(&[u8], UdpMetadata) -> R,
     {
-        let mut f = Some(f);
-        poll_fn(move |cx| {
-            self.with_mut(|s, _| {
-                match s.recv() {
-                    Ok((buffer, endpoint)) => Poll::Ready(unwrap!(f.take())(buffer, UdpMetadata::from_xarxa(endpoint))),
-                    Err(udp::RecvError::Truncated) => unreachable!(),
-                    Err(udp::RecvError::Exhausted) => {
-                        // socket buffer is empty wait until at least one byte has arrived
-                        s.register_recv_waker(cx.waker());
-                        Poll::Pending
-                    }
-                }
-            })
-        })
-        .await
+        let packet = self.recv().await?;
+        Ok(f(packet.payload(), packet.meta()))
     }
 
     /// Receive a datagram with a zero-copy function.
@@ -275,47 +275,54 @@ impl<'a> UdpSocket<'a> {
     where
         F: FnOnce(&[u8], UdpMetadata) -> R,
     {
-        self.with_mut(|s, _| match s.recv() {
-            Ok((buffer, endpoint)) => Ok(f(buffer, UdpMetadata::from_xarxa(endpoint))),
-            Err(udp::RecvError::Truncated) => unreachable!(),
-            Err(udp::RecvError::Exhausted) => Err(TryError::WouldBlock),
-        })
+        let packet = self.try_recv()?;
+        Ok(f(packet.payload(), packet.meta()))
     }
 
     /// Wait until the socket becomes writable.
     ///
-    /// A socket becomes writable when there is space in the buffer, from initial memory or after
-    /// dispatching datagrams on a full buffer.
+    /// A socket becomes writable when the stack has a free packet buffer and the
+    /// network device has room for a frame.
     pub fn wait_send_ready(&self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| self.poll_send_ready(cx))
     }
 
     /// Wait until a datagram can be sent.
     ///
-    /// When no datagram can be sent (i.e. the buffer is full), this method will return
-    /// `Poll::Pending` and register the current task to be notified when
-    /// space is freed in the buffer after a datagram has been dispatched.
+    /// When no datagram can be sent (the stack has no free packet buffer, or the
+    /// network device has no room), this method will return `Poll::Pending` and
+    /// register the current task to be notified when it can.
     ///
     /// When a datagram can be sent, this method will return `Poll::Ready`.
     pub fn poll_send_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s, _| {
-            if s.can_send() {
+        self.with_mut(|s| {
+            if s.is_open() {
                 Poll::Ready(())
             } else {
-                // socket buffer is full wait until a datagram has been dispatched
                 s.register_send_waker(cx.waker());
                 Poll::Pending
             }
         })
     }
 
+    /// Map a xarxa send result to ours. `Pending` if the send must be retried later.
+    fn map_send(r: Result<(), udp::SendError>) -> Poll<Result<(), SendError>> {
+        match r {
+            Ok(()) => Poll::Ready(Ok(())),
+            Err(udp::SendError::NoBuffer) | Err(udp::SendError::DeviceBusy) => Poll::Pending,
+            Err(udp::SendError::BufferFull) => Poll::Ready(Err(SendError::BufferFull)),
+            Err(udp::SendError::InvalidState) => Poll::Ready(Err(SendError::InvalidState)),
+            Err(udp::SendError::Unaddressable) => Poll::Ready(Err(SendError::Unaddressable)),
+        }
+    }
+
     /// Send a datagram to the specified remote endpoint.
     ///
     /// This method will wait until the datagram has been sent.
     ///
-    /// If the socket's send buffer is too small to fit `buf`, this method will return `Err(SendError::PacketTooLarge)`
+    /// If the datagram does not fit in a packet buffer, this method will return `Err(SendError::BufferFull)`
     ///
-    /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
+    /// When the remote endpoint is not reachable, this method will return `Err(SendError::Unaddressable)`
     pub async fn send_to<T>(&self, buf: &[u8], remote_endpoint: T) -> Result<(), SendError>
     where
         T: Into<UdpMetadata>,
@@ -326,35 +333,23 @@ impl<'a> UdpSocket<'a> {
 
     /// Send a datagram to the specified remote endpoint.
     ///
-    /// This method will not wait for the buffer to become free.
+    /// This method will not wait for a packet buffer or device room to become free.
     ///
-    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    /// If the datagram cannot be sent right now, this method will return `Err(TryError::WouldBlock)`.
     ///
-    /// If the socket's send buffer is too small to fit `buf`, this method will return `Err(TryError::Other(SendError::PacketTooLarge))`
+    /// If the datagram does not fit in a packet buffer, this method will return `Err(TryError::Other(SendError::BufferFull))`
     ///
-    /// When the remote endpoint is not reachable, this method will return `Err(TryError::Other(SendError::NoRoute))`
+    /// When the remote endpoint is not reachable, this method will return `Err(TryError::Other(SendError::Unaddressable))`
     pub fn try_send_to<T>(&self, buf: &[u8], remote_endpoint: T) -> Result<(), TryError<SendError>>
     where
         T: Into<UdpMetadata>,
     {
         let remote_endpoint: UdpMetadata = remote_endpoint.into();
-
-        // Check if packet can ever fit in the transmit buffer
-        if self.with(|s, _| s.payload_send_capacity() < buf.len()) {
-            return Err(TryError::Other(SendError::PacketTooLarge));
-        }
-
-        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint.into_xarxa()) {
-            // Entire datagram has been sent
-            Ok(()) => Ok(()),
-            Err(udp::SendError::BufferFull) => Err(TryError::WouldBlock),
-            Err(udp::SendError::Unaddressable) => {
-                // If no sender/outgoing port is specified, there is not really "no route"
-                if s.endpoint().port == 0 {
-                    Err(TryError::Other(SendError::SocketNotBound))
-                } else {
-                    Err(TryError::Other(SendError::NoRoute))
-                }
+        self.with_mut(|s| {
+            let r = s.send_slice(buf, remote_endpoint);
+            match Self::map_send(r) {
+                Poll::Ready(r) => r.map_err(TryError::Other),
+                Poll::Pending => Err(TryError::WouldBlock),
             }
         })
     }
@@ -363,82 +358,56 @@ impl<'a> UdpSocket<'a> {
     ///
     /// When the datagram has been sent, this method will return `Poll::Ready(Ok())`.
     ///
-    /// When the socket's send buffer is full, this method will return `Poll::Pending`
-    /// and register the current task to be notified when the buffer has space available.
+    /// When the datagram cannot be sent right now, this method will return `Poll::Pending`
+    /// and register the current task to be notified when it can.
     ///
-    /// If the socket's send buffer is too small to fit `buf`, this method will return `Poll::Ready(Err(SendError::PacketTooLarge))`
+    /// If the datagram does not fit in a packet buffer, this method will return `Poll::Ready(Err(SendError::BufferFull))`
     ///
-    /// When the remote endpoint is not reachable, this method will return `Poll::Ready(Err(Error::NoRoute))`.
+    /// When the remote endpoint is not reachable, this method will return `Poll::Ready(Err(SendError::Unaddressable))`.
     pub fn poll_send_to<T>(&self, buf: &[u8], remote_endpoint: T, cx: &mut Context<'_>) -> Poll<Result<(), SendError>>
     where
         T: Into<UdpMetadata>,
     {
-        // Don't need to wake waker in `with_mut` if the buffer will never fit the udp tx_buffer.
-        let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < buf.len());
-        if send_capacity_too_small {
-            return Poll::Ready(Err(SendError::PacketTooLarge));
-        }
-
-        self.with_mut(|s, _| match s.send_slice(buf, remote_endpoint.into().into_xarxa()) {
-            // Entire datagram has been sent
-            Ok(()) => Poll::Ready(Ok(())),
-            Err(udp::SendError::BufferFull) => {
+        let remote_endpoint: UdpMetadata = remote_endpoint.into();
+        self.with_mut(|s| {
+            let r = s.send_slice(buf, remote_endpoint);
+            let r = Self::map_send(r);
+            if r.is_pending() {
                 s.register_send_waker(cx.waker());
-                Poll::Pending
             }
-            Err(udp::SendError::Unaddressable) => {
-                // If no sender/outgoing port is specified, there is not really "no route"
-                if s.endpoint().port == 0 {
-                    Poll::Ready(Err(SendError::SocketNotBound))
-                } else {
-                    Poll::Ready(Err(SendError::NoRoute))
-                }
-            }
+            r
         })
     }
 
     /// Send a datagram to the specified remote endpoint with a zero-copy function.
     ///
-    /// This method will wait until the buffer can fit the requested size before
-    /// passing it to the closure. The closure returns the number of bytes
-    /// written into the buffer.
+    /// This method will wait until a packet buffer is available before passing
+    /// it to the closure. The closure returns the number of bytes written into
+    /// the buffer.
     ///
-    /// If the socket's send buffer is too small to fit `max_size`, this method will return `Err(SendError::PacketTooLarge)`
+    /// If `max_size` does not fit in a packet buffer, this method will return `Err(SendError::BufferFull)`
     ///
-    /// When the remote endpoint is not reachable, this method will return `Err(SendError::NoRoute)`
+    /// When the remote endpoint is not reachable, this method will return `Err(SendError::Unaddressable)`
     pub async fn send_to_with<T, F, R>(&mut self, max_size: usize, remote_endpoint: T, f: F) -> Result<R, SendError>
     where
         T: Into<UdpMetadata> + Copy,
         F: FnOnce(&mut [u8]) -> (usize, R),
     {
-        // Don't need to wake waker in `with_mut` if the buffer will never fit the udp tx_buffer.
-        let send_capacity_too_small = self.with(|s, _| s.payload_send_capacity() < max_size);
-        if send_capacity_too_small {
-            return Err(SendError::PacketTooLarge);
-        }
-
         let mut f = Some(f);
         poll_fn(move |cx| {
-            self.with_mut(|s, _| {
+            self.with_mut(|s| {
                 let mut ret = None;
-
-                match s.send_with(max_size, remote_endpoint.into().into_xarxa(), |buf| {
+                let r = s.send_with(max_size, remote_endpoint.into(), |buf| {
                     let (size, r) = unwrap!(f.take())(buf);
                     ret = Some(r);
                     size
-                }) {
-                    Ok(_n) => Poll::Ready(Ok(unwrap!(ret))),
-                    Err(udp::SendError::BufferFull) => {
+                });
+                match Self::map_send(r) {
+                    Poll::Ready(Ok(())) => Poll::Ready(Ok(unwrap!(ret))),
+                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                    Poll::Pending => {
                         s.register_send_waker(cx.waker());
                         Poll::Pending
-                    }
-                    Err(udp::SendError::Unaddressable) => {
-                        // If no sender/outgoing port is specified, there is not really "no route"
-                        if s.endpoint().port == 0 {
-                            Poll::Ready(Err(SendError::SocketNotBound))
-                        } else {
-                            Poll::Ready(Err(SendError::NoRoute))
-                        }
                     }
                 }
             })
@@ -448,133 +417,81 @@ impl<'a> UdpSocket<'a> {
 
     /// Send a datagram to the specified remote endpoint with a zero-copy function.
     ///
-    /// This method will not wait for the buffer to become free.
+    /// This method will not wait for a packet buffer to become free.
     ///
-    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
+    /// If the datagram cannot be sent right now, this method will return `Err(TryError::WouldBlock)`.
     ///
-    /// If the socket's send buffer is too small to fit `size`, this method will return `Err(TryError::Other(SendError::PacketTooLarge))`
+    /// If `size` does not fit in a packet buffer, this method will return `Err(TryError::Other(SendError::BufferFull))`
     ///
-    /// When the remote endpoint is not reachable, this method will return `Err(TryError::Other(SendError::NoRoute))`
+    /// When the remote endpoint is not reachable, this method will return `Err(TryError::Other(SendError::Unaddressable))`
     pub fn try_send_to_with<T, F, R>(&mut self, size: usize, remote_endpoint: T, f: F) -> Result<R, TryError<SendError>>
     where
         T: Into<UdpMetadata>,
         F: FnOnce(&mut [u8]) -> R,
     {
         let remote_endpoint: UdpMetadata = remote_endpoint.into();
-
-        if self.with(|s, _| s.payload_send_capacity() < size) {
-            return Err(TryError::Other(SendError::PacketTooLarge));
-        }
-
-        self.with_mut(|s, _| match s.send(size, remote_endpoint.into_xarxa()) {
-            Ok(buffer) => Ok(f(buffer)),
-            Err(udp::SendError::BufferFull) => Err(TryError::WouldBlock),
-            Err(udp::SendError::Unaddressable) => {
-                // If no sender/outgoing port is specified, there is not really "no route"
-                if s.endpoint().port == 0 {
-                    Err(TryError::Other(SendError::SocketNotBound))
-                } else {
-                    Err(TryError::Other(SendError::NoRoute))
-                }
+        self.with_mut(|s| {
+            let mut ret = None;
+            let r = s.send_with(size, remote_endpoint, |buf| {
+                ret = Some(f(buf));
+                size
+            });
+            match Self::map_send(r) {
+                Poll::Ready(Ok(())) => Ok(unwrap!(ret)),
+                Poll::Ready(Err(e)) => Err(TryError::Other(e)),
+                Poll::Pending => Err(TryError::WouldBlock),
             }
         })
     }
 
-    /// Flush the socket.
-    ///
-    /// This method will wait until the socket is flushed.
-    pub fn flush(&mut self) -> impl Future<Output = ()> + '_ {
-        poll_fn(|cx| {
-            self.with_mut(|s, _| {
-                if s.send_queue() == 0 {
-                    Poll::Ready(())
-                } else {
-                    s.register_send_waker(cx.waker());
-                    Poll::Pending
-                }
-            })
-        })
-    }
-
-    /// Try to flush the socket.
-    ///
-    /// This method will check if the socket is flushed, and if not, return `Err(TryError::WouldBlock)`.
-    pub fn try_flush(&mut self) -> Result<(), TryError<SendError>> {
-        if self.with(|s, _| s.send_queue() == 0) {
-            Ok(())
-        } else {
-            Err(TryError::WouldBlock)
-        }
-    }
-
     /// Returns the local endpoint of the socket.
     pub fn endpoint(&self) -> IpListenEndpoint {
-        self.with(|s, _| s.endpoint())
+        self.with(|s| s.local_endpoint())
+    }
+
+    /// Returns the remote endpoint the socket is bound to, if any.
+    pub fn remote_endpoint(&self) -> IpListenEndpoint {
+        self.with(|s| s.remote_endpoint())
     }
 
     /// Returns whether the socket is open.
-
     pub fn is_open(&self) -> bool {
-        self.with(|s, _| s.is_open())
+        self.with(|s| s.is_open())
     }
 
     /// Close the socket.
     pub fn close(&mut self) {
-        self.with_mut(|s, _| s.close())
+        self.with_mut(|s| s.close())
     }
 
-    /// Returns whether the socket is ready to send data, i.e. it has enough buffer space to hold a packet.
+    /// Returns whether the socket is ready to send data, i.e. it is bound and a packet buffer is free.
     pub fn may_send(&self) -> bool {
-        self.with(|s, _| s.can_send())
+        self.with(|s| s.is_open())
     }
 
-    /// Returns whether the socket is ready to receive data, i.e. it has received a packet that's now in the buffer.
+    /// Returns whether the socket is ready to receive data, i.e. it has received a packet that's now in the queue.
     pub fn may_recv(&self) -> bool {
-        self.with(|s, _| s.can_recv())
-    }
-
-    /// Return the maximum number packets the socket can receive.
-    pub fn packet_recv_capacity(&self) -> usize {
-        self.with(|s, _| s.packet_recv_capacity())
-    }
-
-    /// Return the maximum number packets the socket can receive.
-    pub fn packet_send_capacity(&self) -> usize {
-        self.with(|s, _| s.packet_send_capacity())
-    }
-
-    /// Return the maximum number of bytes inside the recv buffer.
-    pub fn payload_recv_capacity(&self) -> usize {
-        self.with(|s, _| s.payload_recv_capacity())
-    }
-
-    /// Return the maximum number of bytes inside the transmit buffer.
-    pub fn payload_send_capacity(&self) -> usize {
-        self.with(|s, _| s.payload_send_capacity())
+        self.with(|s| s.can_recv())
     }
 
     /// Set the hop limit field in the IP header of sent packets.
     pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
-        self.with_mut(|s, _| s.set_hop_limit(hop_limit))
+        self.with_mut(|s| s.set_hop_limit(hop_limit))
     }
 }
 
 impl Drop for UdpSocket<'_> {
     fn drop(&mut self) {
-        self.stack.with_mut(|i| i.sockets.remove(self.handle));
+        self.stack.with_mut(|i| i.stack.remove_udp_socket(self.handle));
     }
-}
-
-fn _assert_covariant<'a, 'b: 'a>(x: UdpSocket<'b>) -> UdpSocket<'a> {
-    x
 }
 
 impl core::fmt::Display for SendError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::NoRoute => f.write_str("NoRoute"),
-            Self::SocketNotBound => f.write_str("SocketNotBound"),
-            Self::PacketTooLarge => f.write_str("PacketTooLarge"),
+            Self::InvalidState => f.write_str("InvalidState"),
+            Self::Unaddressable => f.write_str("Unaddressable"),
+            Self::BufferFull => f.write_str("BufferFull"),
         }
     }
 }
@@ -583,8 +500,27 @@ impl core::error::Error for SendError {}
 impl core::fmt::Display for RecvError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::InvalidState => f.write_str("InvalidState"),
             Self::Truncated => f.write_str("Truncated"),
+            #[cfg(feature = "icmp-errors")]
+            Self::IcmpError { .. } => f.write_str("IcmpError"),
         }
     }
 }
 impl core::error::Error for RecvError {}
+
+impl core::fmt::Display for BindError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidState => f.write_str("InvalidState"),
+            Self::InUse => f.write_str("InUse"),
+            Self::NoFreePorts => f.write_str("NoFreePorts"),
+            Self::Unaddressable => f.write_str("Unaddressable"),
+        }
+    }
+}
+impl core::error::Error for BindError {}
+
+// Keep `IpEndpoint` in scope for the `UdpMetadata: From<IpEndpoint>` docs links.
+#[allow(unused_imports)]
+use IpEndpoint as _IpEndpoint;

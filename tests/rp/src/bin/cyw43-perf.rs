@@ -7,7 +7,7 @@ use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::{panic, *};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::{Config, StackResources};
+use embassy_net::StackStorage;
 use embassy_rp::dma::{self, Channel};
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
@@ -35,7 +35,7 @@ async fn wifi_task(
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -89,13 +89,13 @@ async fn main(spawner: Spawner) {
     let seed = 0x0123_4567_89ab_cdef; // chosen by fair dice roll. guarenteed to be random.
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(
-        net_device,
-        Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::new()),
-        seed,
-    );
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)).ok());
+    iface.set_dhcpv4(Some(Default::default()));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -112,7 +112,7 @@ async fn main(spawner: Spawner) {
     }
 
     perf_client::run(
-        stack,
+        iface,
         perf_client::Expected {
             down_kbps: 200,
             up_kbps: 200,

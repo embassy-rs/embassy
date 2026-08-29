@@ -29,9 +29,9 @@ allows running Rust code without a SPM or TF-M binary, saving flash space and si
 
 If the `time-driver-rtc1` feature is enabled, the HAL uses the RTC peripheral as a global time driver for [embassy-time](https://crates.io/crates/embassy-time), with a tick rate of 32768 Hz.
 
-## Embassy-net-driver
+## Embassy-net driver
 
-If the board supports IEEE 802.15.4 (see `src/radio/mod.rs`) the corresponding [embassy-net-driver](https://crates.io/crates/embassy-net-driver) implementation can be enabled with the feature `net-driver`.
+If the board supports IEEE 802.15.4 (see `src/radio/mod.rs`) the corresponding [embassy-net](https://crates.io/crates/embassy-net) driver can be enabled with the feature `net-driver`.
 
 ## Embedded-hal
 

@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Changed underlying network stack from `smoltcp` to [`xarxa`](https://github.com/embassy-rs/xarxa).
+  - Increases perf, decreases code size. See [benchmarks](https://github.com/embassy-rs/xarxa#benchmarks)
+  - Fixes many bugs, some inherent to `smoltcp` design.
+- Driver implementations must now implement `xarxa-driver` instead of `embassy-net-driver`.
+- You can now attach multiple interfaces to the network stack.
+- UDP and raw sockets are now zero-copy.
+- Added `TcpListener`, used to accept incoming connections. Replcaes `TcpSocket::listen()`.
+  - More memory-efficient: you only need to allocate TCP buffers when actually accepting a connection.
+  - Avoids sending spurious RSTs that previously happened when all listening sockets were connected.
+- Reworked interface configuration to be simpler.
+  - DHCPv4 and SLAAC are configurable per-interface
+  - You can now add additional addresses manually even if using DHCPv4 or SLAAC.
+- Socket and buffer counts are configured via Cargo features instead of `StackResources` generic args.
+- `IcmpSocket` is gone.
+  - ICMP errors related to sent packets can be retrieved from sockets (feature `icmp-errors`).
+  - For other ICMP uses (e.g. pings) use a raw socket instead.
+- Added APIs to access and edit the route table
+- Added APIs to access and edit the neighbor cache
+- Feature `proto-ipv4`/`proto-ipv6` renamed to `ipv4`/`ipv6`.
+- Feature `icmp-ping-reply` is no longer enabled by default. Enable it if you want your device to respond to pings.
+- Wire types (`Ipv4Address`, `IpCidr`, ...) moved to `embassy_net::wire`.
 - Implement `core::error::Error` for `dns::Error`, `tcp::AcceptError`, `udp::SendError` and `udp::RecvError`.
 - Prevent double DHCP DISCOVER on link state change.
 
