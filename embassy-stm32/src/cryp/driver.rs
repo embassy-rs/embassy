@@ -241,6 +241,7 @@ impl embassy_crypto_driver::Aes for AesDriver {
             AesOperation::Aes256CbcDecrypt { iv, block, key } => {
                 run_in_place(&cryp, &AesCbc::new(key, iv), Direction::Decrypt, block)
             }
+            _ => Err(CryptoError::Unsupported),
         }
     }
 }

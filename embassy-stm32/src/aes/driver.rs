@@ -171,6 +171,7 @@ impl embassy_crypto_driver::Aes for AesDriver {
                 let cipher = AesCbc::new(key, iv);
                 run_in_place(aes, &cipher, Direction::Decrypt, block)
             }
+            _ => Err(CryptoError::Unsupported),
         }
     }
 }
