@@ -420,6 +420,7 @@ impl<'a> Adc<'a, Blocking> {
                 power: config.power,
                 source: config.source,
                 div: config.div,
+                instance: T::CLOCK_INSTANCE,
             })
             .map_err(Error::ClockSetup)?
         };
@@ -447,6 +448,7 @@ impl<'a> Adc<'a, Async> {
                 power: config.power,
                 source: config.source,
                 div: config.div,
+                instance: T::CLOCK_INSTANCE,
             })
             .map_err(Error::ClockSetup)?
         };
@@ -867,6 +869,7 @@ pub(crate) trait SealedInstance: Gate<MrccPeriphConfig = AdcConfig> {
     fn info() -> &'static Info;
 
     const PERF_INT_INCR: fn();
+    const CLOCK_INSTANCE: crate::clocks::periph_helpers::AdcInstance;
 }
 
 /// ADC Instance
@@ -892,6 +895,8 @@ macro_rules! impl_adc_instance {
                 }
 
                 const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
+                const CLOCK_INSTANCE: crate::clocks::periph_helpers::AdcInstance
+                    = crate::clocks::periph_helpers::AdcInstance::[<Adc $n>];
             }
 
             impl crate::adc::Instance for crate::peripherals::[<ADC $n>] {
