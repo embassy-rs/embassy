@@ -53,9 +53,9 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_FLTxCR1.JEXTSEL     [ ] internal [ ] pub
 * DFSDM_FLTxCR1.JDMAEN      [ ] internal [ ] pub
 * DFSDM_FLTxCR1.JSYNC       [ ] internal [ ] pub
-* DFSDM_FLTxFCR.FORD        [ ] internal [ ] pub
-* DFSDM_FLTxFCR.FOSR        [ ] internal [ ] pub
-* DFSDM_FLTxFCR.IOSR        [ ] internal [ ] pub
+* DFSDM_FLTxFCR.FORD        [X] internal [X] pub
+* DFSDM_FLTxFCR.FOSR        [X] internal [X] pub
+* DFSDM_FLTxFCR.IOSR        [X] internal [X] pub
 
 ### Filter on
 * DFSDM_FLTxCR1.JSWSTART    [x] internal [x] pub   (only really relevant when on tho)  Not in config, implemented as method.
@@ -81,8 +81,9 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 
 # Input data
 ## Inputchannel
-* DFSDM_CHnDATINR.INDAT0
-* DFSDM_CHnDATINR.INDAT1
+* DFSDM_CHnDATINR.INDAT0    [x] internal [x] pub    [ ] dma     
+* DFSDM_CHnDATINR.INDAT1    [x] internal [x] pub    [ ] dma
+* Typemark interleaved/standard and even dual for proper DMA call restriction. [ ] TODO
   
 # Output data
 ## Inputchannel

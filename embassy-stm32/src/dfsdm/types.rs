@@ -793,12 +793,12 @@ pub mod config_types {
         /// Panics if out of range.
         /// For a runtime-stabler variant try [`CkoutDivider::try_from`]
         pub fn new(divider: u16) -> Self {
-            debug_assert!((2..=256).contains(&divider), "CKOUT divider must be 2..=256");
+            assert!((2..=256).contains(&divider), "CKOUT divider must be 2..=256");
             Self((divider - 1) as u8)
         }
 
         /// CKOUT disabled (register value 0).
-        pub const DISABLED: Self = Self(0);
+        pub(crate) const DISABLED: Self = Self(0);
 
         /// Raw register value.
         pub const fn raw(self) -> u8 {
@@ -836,7 +836,7 @@ pub mod config_types {
         /// Panics if out of range.
         /// For a runtime-stabler variant try [`AnalogWatchdogOsr::try_from`]
         pub fn new(divider: u16) -> Self {
-            debug_assert!((2..=32).contains(&divider), "OSR must be 2..=32");
+            assert!((2..=32).contains(&divider), "OSR must be 2..=32");
             Self((divider - 1) as u8)
         }
 
@@ -988,35 +988,43 @@ pub mod config_types {
 
     /// Unsigned integer constrained to `BITS` bits, backed by a `u32`.
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct UInt<const BITS: u8>(u32);
+    pub struct UInt<const BITS: u8, T>(T);
 
-    impl<const BITS: u8> UInt<BITS> {
+    impl<const BITS: u8> UInt<BITS, u8> {
+        const MAX: u32 = {
+            core::assert!(BITS > 0 && BITS <= 32, "invalid bit width");
+            if BITS == 32 { u32::MAX } else { (1 << BITS) - 1 }
+        };
+
         /// Create new sized uint, asserts correctness at runtime.
         /// For a runtime-stabler variant try [`UInt::try_from`]
-        pub const fn new(value: u32) -> Self {
-            const { core::assert!(BITS > 0 && BITS <= 32, "invalid bit width") };
-            core::assert!(value < (1 << BITS), "value exceeds bit width");
+        pub const fn new(value: u8) -> Self {
+            core::assert!(value <= Self::MAX as u8, "value exceeds bit width");
             Self(value)
         }
 
         /// Unterlying value
-        pub const fn value(self) -> u32 {
+        pub const fn value(self) -> u8 {
             self.0
         }
     }
 
-    impl<const BITS: u8> TryFrom<u32> for UInt<BITS> {
+    impl<const BITS: u8> TryFrom<u32> for UInt<BITS, u8> {
         type Error = ();
 
         /// Try to create new sized uint.
         fn try_from(value: u32) -> Result<Self, Self::Error> {
-            if value < (1 << BITS) { Ok(Self(value)) } else { Err(()) }
+            if value <= Self::MAX {
+                Ok(Self(value as u8))
+            } else {
+                Err(())
+            }
         }
     }
 
-    impl<const BITS: u8> From<UInt<BITS>> for u8 {
-        fn from(value: UInt<BITS>) -> Self {
-            return value.0 as u8;
+    impl<const BITS: u8> From<UInt<BITS, u8>> for u8 {
+        fn from(value: UInt<BITS, u8>) -> Self {
+            value.0
         }
     }
 
@@ -1155,5 +1163,77 @@ pub mod config_types {
         Disabled,
         /// Detection is enabled, with threshold value
         Enabled(u8),
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub enum FilterOrder {
+        Disabled,
+        FastSinc { fosr: u16 },
+        Sinc1 { fosr: u16 },
+        Sinc2 { fosr: u16 },
+        Sinc3 { fosr: u16 },
+        Sinc4 { fosr: u16 },
+        Sinc5 { fosr: u16 },
+    }
+
+    impl FilterOrder {
+        pub const fn max_osr(&self) -> u16 {
+            match self {
+                Self::Disabled => 1,
+                Self::FastSinc { .. } | Self::Sinc1 { .. } | Self::Sinc2 { .. } | Self::Sinc3 { .. } => 1024,
+                Self::Sinc4 { .. } => 215,
+                Self::Sinc5 { .. } => 73,
+            }
+        }
+
+        fn fosr(&self) -> u16 {
+            match self {
+                Self::Disabled => 1,
+                Self::FastSinc { fosr }
+                | Self::Sinc1 { fosr }
+                | Self::Sinc2 { fosr }
+                | Self::Sinc3 { fosr }
+                | Self::Sinc4 { fosr }
+                | Self::Sinc5 { fosr } => *fosr,
+            }
+        }
+    }
+
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub struct FilterParameters {
+        order: FilterOrder,
+        iosr: u16,
+    }
+
+    impl FilterParameters {
+        /// Create from FilterOrder (carrying its FOSR) and the actual IOSR value.
+        /// Panics if out of range.
+        /// For a runtime-stabler variant try [`FilterParameters::try_new`]
+        pub fn new(order: FilterOrder, iosr: u16) -> Self {
+            Self::try_new(order, iosr).expect("FilterParameters: fosr or iosr out of range")
+        }
+
+        /// Try to create from the actual OSR value.
+        /// See TRM or [`FilterOrder::max_osr`] for valid OSR
+        pub fn try_new(order: FilterOrder, iosr: u16) -> Result<Self, ()> {
+            if (1..=256).contains(&iosr) && (1..=order.max_osr()).contains(&order.fosr()) {
+                Ok(Self { order, iosr })
+            } else {
+                Err(())
+            }
+        }
+
+        pub(crate) fn register_values(self) -> (u8, u16, u8) {
+            let discriminant = match self.order {
+                FilterOrder::Disabled => 0,
+                FilterOrder::FastSinc { .. } => 0,
+                FilterOrder::Sinc1 { .. } => 1,
+                FilterOrder::Sinc2 { .. } => 2,
+                FilterOrder::Sinc3 { .. } => 3,
+                FilterOrder::Sinc4 { .. } => 4,
+                FilterOrder::Sinc5 { .. } => 5,
+            };
+            (discriminant, self.order.fosr() - 1, (self.iosr - 1) as u8)
+        }
     }
 }

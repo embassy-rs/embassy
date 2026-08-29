@@ -7,7 +7,7 @@ use core::ops::Div;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::dfsdm::config_types::{CkoutDivider, InternalSpiMode};
+use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
 use embassy_stm32::dfsdm::{
     Dfsdm, FilterConfig, Flt0, Flt1, InjectedTrigger, TransceiverConfig, TransceiverConfigOnline, TransceiverTrait,
 };
@@ -93,31 +93,73 @@ async fn main(_spawner: Spawner) {
     });
     let tcv_cfg = TransceiverConfig::default();
     let tcv_cfg_online = TransceiverConfigOnline::default();
-    let channel_mic = split.ch1.new_spi_int(InternalSpiMode::SpiRising).enable();
+    let channel_mic = split
+        .ch1
+        .new_spi_int(InternalSpiMode::SpiRising)
+        .configure(&tcv_cfg, &tcv_cfg_online)
+        .enable();
     // let (mut ch2, mut ch3) = split.ch2.new_parallel_dma_dual(split.ch3);
     // let mut ch2 = ch2.configure(&tcv_cfg, &tcv_cfg_online).enable();
     // let mut ch3 = ch3.configure(&tcv_cfg, &tcv_cfg_online).enable();
     // split.ch6.new_parallel_dma_dual(split.ch7);
-
+    let ch_test = split
+        .ch6
+        .new_parallel_dma(dfsdm::config_types::DataPackingModeReduced::Standard)
+        .configure(&tcv_cfg, &tcv_cfg_online)
+        .enable();
     //TODO the enable semantics should really also be linked to channel assignments in filters?
 
     // split.common.disable();  Common is already enabled from the split!
 
-    let flt_cfg = FilterConfig::default();
+    let flt_cfg = FilterConfig {
+        // filter_cfg: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 5 }, 4).expect("This is inside the bounds"),
+        filter_cfg: FilterParameters::try_new(FilterOrder::Sinc2 { fosr: 10 }, 1).expect("This is inside the bounds"),
+    };
+
+    let mut flt1 = split
+        .flt1
+        .configure(&flt_cfg)
+        .assign_regular_transceiver(&ch_test)
+        .assign_injected_transceiver(&ch_test)
+        .enable();
+
     let mut flt0 = split
         .flt0
         .configure(&flt_cfg)
         .assign_regular_transceiver(&channel_mic)
+        .assign_injected_transceiver(&channel_mic)
         .enable();
-    flt0.start_regular_conversion();
+    // flt0.start_regular_conversion();
+
+    flt1.start_regular_conversion();
+
+    ch_test.write_sample_standard(10);
+
+    // We're injecting only samples of 10. Meaning the integrated average will be 10*ISR*(OSR)^(FORD-1)
+    // flt0.start_injected_conversion();
 
     loop {
+        ch_test.write_sample_standard(10);
         if let Some((data, channel, rpend)) = flt0.try_read_regular_result() {
-            println!("New measurement: ");
+            println!("New regular 0: ");
             println!("Channel: {}", channel);
             println!("Value: {}", data);
             println!("Delayed: {}", rpend);
             flt0.start_regular_conversion();
+        }
+        if let Some((data, channel)) = flt0.try_read_injected_result() {
+            println!("New injected 0: ");
+            println!("Channel: {}", channel);
+            println!("Value: {}", data);
+            flt0.start_injected_conversion();
+        }
+
+        if let Some((data, channel, rpend)) = flt1.try_read_regular_result() {
+            println!("New regular 1: ");
+            println!("Channel: {}", channel);
+            println!("Value: {}", data);
+            println!("Delayed: {}", rpend);
+            flt1.start_regular_conversion();
         }
 
         // info!("led on!");

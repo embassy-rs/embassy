@@ -17,6 +17,7 @@ pub use types::*;
 
 use crate::can::config;
 use crate::dfsdm::capability::HasDelay;
+use crate::dfsdm::config_types::FilterParameters;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::{Peri, interrupt, rcc};
 
@@ -66,11 +67,15 @@ where
 }
 
 /// Confgiguration for Filter
-pub struct FilterConfig {}
+pub struct FilterConfig {
+    pub filter_cfg: FilterParameters,
+}
 
 impl Default for FilterConfig {
     fn default() -> Self {
-        Self {}
+        Self {
+            filter_cfg: FilterParameters::new(config_types::FilterOrder::Disabled, 1),
+        }
     }
 }
 pub struct Filter<T, M, P>
@@ -100,6 +105,7 @@ where
     /// Enable the Filter
     pub fn enable(self) -> Filter<T, M, Enabled> {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(true));
+
         Filter {
             _instance_marker: PhantomData,
             _filter_marker: PhantomData,
@@ -109,8 +115,18 @@ where
 
     /// Configure the Filter
     pub fn configure(mut self, config: &FilterConfig) -> Filter<T, M, Disabled> {
-        // todo!();
+        self.set_filter_parameters(config.filter_cfg);
         self
+    }
+
+    /// Writes the filterparameters
+    fn set_filter_parameters(&mut self, params: config_types::FilterParameters) {
+        let (order, fosr, iosr) = params.register_values();
+        T::regs().flt(M::CHANNEL.index()).fcr().modify(|w| {
+            w.set_ford(order);
+            w.set_fosr(fosr);
+            w.set_iosr(iosr);
+        });
     }
 }
 
@@ -372,8 +388,8 @@ where
 /// Configuration for Transceiver
 pub struct TransceiverConfig {
     /// Amount of right-shifts the data shall experience
-    data_right_shift: config_types::UInt<5>,
-    analog_watchdog_filter_config: config_types::AnalogWatchdogFilterConfiguration,
+    pub data_right_shift: config_types::UInt<5, u8>,
+    pub analog_watchdog_filter_config: config_types::AnalogWatchdogFilterConfiguration,
 }
 
 impl Default for TransceiverConfig {
@@ -388,13 +404,13 @@ impl Default for TransceiverConfig {
 /// Configuration for Transceiver, also changable when enables
 pub struct TransceiverConfigOnline {
     /// Clock absende detection
-    enable_clock_absence_detection: bool,
+    pub enable_clock_absence_detection: bool,
     /// Short-circuit detection + threshold
-    short_circuit_detection_config: config_types::ShortCircuitDetectionConfig,
+    pub short_circuit_detection_config: config_types::ShortCircuitDetectionConfig,
     /// Offset
-    offset: u32,
+    pub offset: u32,
     /// Breaksignal assignment
-    break_signals: config_types::BreakSignals,
+    pub break_signals: config_types::BreakSignals,
 }
 
 impl Default for TransceiverConfigOnline {
@@ -447,7 +463,7 @@ where
     }
 
     /// Set channel right shift factor
-    fn set_data_right_shift(&mut self, shift: config_types::UInt<5>) {
+    fn set_data_right_shift(&mut self, shift: config_types::UInt<5, u8>) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr2()
@@ -471,6 +487,26 @@ where
     }
 }
 
+impl<'a, 'd, T, M, S, P> Transceiver<'a, 'd, T, M, S, ParallelDmaMode, P>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    P: PowerState,
+{
+    /// Manually write one sample into the DATINR register, used for standard mode
+    pub fn write_sample_standard(&self, data: u16) {
+        T::regs().ch(M::CHANNEL.index()).datinr().write(|w| w.set_indat0(data));
+    }
+
+    /// Manually write two subsequent samples into the DATINR register, used for interleaved mode
+    pub fn write_indat1(&self, data: [u16; 2]) {
+        T::regs().ch(M::CHANNEL.index()).datinr().write(|w| {
+            w.set_indat0(data[0]);
+            w.set_indat1(data[1]);
+        });
+    }
+}
 /// Any powerstate
 impl<'a, 'd, T, M, S, MODE, P> Transceiver<'a, 'd, T, M, S, MODE, P>
 where
@@ -552,12 +588,12 @@ where
     P: PowerState,
 {
     /// Configure to skip the next [`skips`] pulses
-    pub fn skip_pulses(&mut self, skips: config_types::UInt<6>) {
+    pub fn skip_pulses(&mut self, skips: config_types::UInt<6, u8>) {
         self.set_pulseskips(skips);
     }
 
     /// Set pulse skips
-    fn set_pulseskips(&mut self, skips: config_types::UInt<6>) {
+    fn set_pulseskips(&mut self, skips: config_types::UInt<6, u8>) {
         T::regs()
             .ch(M::CHANNEL.index())
             .dlyr()
