@@ -304,7 +304,19 @@ impl embassy_crypto_driver::Aes128Ccm for AesDriver {
         let aes = &mut driver.borrow();
         let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
         let tag_out: &mut [u8; 16] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
-        run_ccm!(16, 16, aes, ctx, nonce, aad, input, buffer, None, Some(tag_out), Direction::Encrypt)
+        run_ccm!(
+            16,
+            16,
+            aes,
+            ctx,
+            nonce,
+            aad,
+            input,
+            buffer,
+            None,
+            Some(tag_out),
+            Direction::Encrypt
+        )
     }
 
     fn aes128ccm_decrypt(
@@ -321,7 +333,19 @@ impl embassy_crypto_driver::Aes128Ccm for AesDriver {
         let aes = &mut driver.borrow();
         let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
         let tag_ref: &[u8; 16] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
-        run_ccm!(16, 16, aes, ctx, nonce, aad, input, buffer, Some(tag_ref), None, Direction::Decrypt)
+        run_ccm!(
+            16,
+            16,
+            aes,
+            ctx,
+            nonce,
+            aad,
+            input,
+            buffer,
+            Some(tag_ref),
+            None,
+            Direction::Decrypt
+        )
     }
 }
 
@@ -350,7 +374,19 @@ impl embassy_crypto_driver::Aes256Ccm for AesDriver {
         let aes = &mut driver.borrow();
         let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
         let tag_out: &mut [u8; 16] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
-        run_ccm!(32, 16, aes, ctx, nonce, aad, input, buffer, None, Some(tag_out), Direction::Encrypt)
+        run_ccm!(
+            32,
+            16,
+            aes,
+            ctx,
+            nonce,
+            aad,
+            input,
+            buffer,
+            None,
+            Some(tag_out),
+            Direction::Encrypt
+        )
     }
 
     fn aes256ccm_decrypt(
@@ -367,10 +403,21 @@ impl embassy_crypto_driver::Aes256Ccm for AesDriver {
         let aes = &mut driver.borrow();
         let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
         let tag_ref: &[u8; 16] = tag.try_into().map_err(|_| CryptoError::InvalidInput)?;
-        run_ccm!(32, 16, aes, ctx, nonce, aad, input, buffer, Some(tag_ref), None, Direction::Decrypt)
+        run_ccm!(
+            32,
+            16,
+            aes,
+            ctx,
+            nonce,
+            aad,
+            input,
+            buffer,
+            Some(tag_ref),
+            None,
+            Direction::Decrypt
+        )
     }
 }
-
 
 impl embassy_crypto_driver::Aes128Cbc for AesDriver {
     type Context = ([u8; 16], [u8; 16]);
