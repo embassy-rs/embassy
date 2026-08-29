@@ -2,6 +2,7 @@
 #![no_main]
 
 use core::mem::MaybeUninit;
+use core::ops::Div;
 
 use defmt::*;
 use defmt_rtt as _;
@@ -11,6 +12,10 @@ use embassy_stm32::dfsdm::{
     Dfsdm, FilterConfig, Flt0, Flt1, InjectedTrigger, TransceiverConfig, TransceiverConfigOnline, TransceiverTrait,
 };
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::peripherals::DFSDM1;
+use embassy_stm32::rcc::{self, Sysclk};
+use embassy_stm32::spi::Spi;
+use embassy_stm32::time::Hertz;
 use embassy_stm32::{SharedData, dfsdm};
 use embassy_time::Timer;
 use panic_probe as _;
@@ -48,6 +53,10 @@ async fn main(_spawner: Spawner) {
     // Maybe enable breakinput to blink rapidly when detecting disconnection
     //==================================================
 
+    // A0   PA3     MIC_SEL
+    // A2   PC3_C   MIC_CLK
+    // A4   PC2_C   MIT_DAT
+
     let p = embassy_stm32::init_primary(config, &SHARED_DATA);
     info!("Hello World!");
 
@@ -55,13 +64,20 @@ async fn main(_spawner: Spawner) {
     // let mut led = Output::new(p.PB3, Level::High, Speed::Low);
     // let mut led = Output::new(p.PE1, Level::High, Speed::Low);
 
+    // Setup mic as left channel, data is valid at clock low, to rising clock edge samples signal
+    let _mic_sel = Output::new(p.PA3, Level::Low, Speed::Low);
+
+    let prescaler = rcc::frequency::<DFSDM1>() / Hertz::mhz(2);
+
+    println!("Trying prescaler={}", prescaler);
     // Start driver instantiation using DFSDM1 with a CKOUT pin on pin C2
     let dfsdm1 = dfsdm::Dfsdm::new_ckout(
         p.DFSDM1,
         p.PC2,
         dfsdm::config_types::CkoutSource::System,
-        CkoutDivider::try_from(2).expect("Divider wrong?"),
+        CkoutDivider::try_from(prescaler as u16).expect("Divider wrong?"),
     );
+    println!("Running with prescaler={}", prescaler);
 
     let split = dfsdm1.configure_pins(|creator| {
         (
@@ -77,7 +93,7 @@ async fn main(_spawner: Spawner) {
     });
     let tcv_cfg = TransceiverConfig::default();
     let tcv_cfg_online = TransceiverConfigOnline::default();
-    let channel_mic = split.ch1.new_spi_int(InternalSpiMode::SpiFalling).enable();
+    let channel_mic = split.ch1.new_spi_int(InternalSpiMode::SpiRising).enable();
     // let (mut ch2, mut ch3) = split.ch2.new_parallel_dma_dual(split.ch3);
     // let mut ch2 = ch2.configure(&tcv_cfg, &tcv_cfg_online).enable();
     // let mut ch3 = ch3.configure(&tcv_cfg, &tcv_cfg_online).enable();
@@ -101,6 +117,7 @@ async fn main(_spawner: Spawner) {
             println!("Channel: {}", channel);
             println!("Value: {}", data);
             println!("Delayed: {}", rpend);
+            flt0.start_regular_conversion();
         }
 
         // info!("led on!");
