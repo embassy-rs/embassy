@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embedded_hal_async::spi::SpiDevice;
+use crate::wiznet_spi_interface::WiznetSpiBus;
 
 use crate::chip::Chip;
 
@@ -19,15 +19,15 @@ enum Interrupt {
 /// Wiznet chip in MACRAW mode
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub(crate) struct WiznetDevice<C, SPI> {
-    spi: SPI,
+pub(crate) struct WiznetDevice<C, WizInterface> {
+    spi: WizInterface,
     _phantom: PhantomData<C>,
 }
 
 /// Error type when initializing a new Wiznet device
 pub enum InitError<SE> {
-    /// Error occurred when sending or receiving SPI data
-    SpiError(SE),
+    /// Error occurred when sending or receiving WizInterface data
+    InterfaceError(SE),
     /// The chip returned a version that isn't expected or supported
     InvalidChipVersion {
         /// The version that is supported
@@ -39,7 +39,7 @@ pub enum InitError<SE> {
 
 impl<SE> From<SE> for InitError<SE> {
     fn from(e: SE) -> Self {
-        InitError::SpiError(e)
+        InitError::InterfaceError(e)
     }
 }
 
@@ -49,7 +49,7 @@ where
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            InitError::SpiError(e) => write!(f, "SpiError({:?})", e),
+            InitError::InterfaceError(e) => write!(f, "SpiError({:?})", e),
             InitError::InvalidChipVersion { expected, actual } => {
                 write!(f, "InvalidChipVersion {{ expected: {}, actual: {} }}", expected, actual)
             }
@@ -64,7 +64,7 @@ where
 {
     fn format(&self, f: defmt::Formatter) {
         match self {
-            InitError::SpiError(e) => defmt::write!(f, "SpiError({})", e),
+            InitError::InterfaceError(e) => defmt::write!(f, "SpiError({})", e),
             InitError::InvalidChipVersion { expected, actual } => {
                 defmt::write!(f, "InvalidChipVersion {{ expected: {}, actual: {} }}", expected, actual)
             }
@@ -72,9 +72,9 @@ where
     }
 }
 
-impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
+impl<C: Chip, WizInterface: WiznetSpiBus> WiznetDevice<C, WizInterface> {
     /// Create and initialize the driver
-    pub async fn new(spi: SPI, mac_addr: [u8; 6]) -> Result<Self, InitError<SPI::Error>> {
+    pub async fn new(spi: WizInterface, mac_addr: [u8; 6]) -> Result<Self, InitError<WizInterface::Error>> {
         let mut this = Self {
             spi,
             _phantom: PhantomData,
@@ -114,47 +114,47 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
         Ok(this)
     }
 
-    async fn bus_read(&mut self, address: C::Address, data: &mut [u8]) -> Result<(), SPI::Error> {
+    async fn bus_read(&mut self, address: C::Address, data: &mut [u8]) -> Result<(), WizInterface::Error> {
         C::bus_read(&mut self.spi, address, data).await
     }
 
-    async fn bus_write(&mut self, address: C::Address, data: &[u8]) -> Result<(), SPI::Error> {
+    async fn bus_write(&mut self, address: C::Address, data: &[u8]) -> Result<(), WizInterface::Error> {
         C::bus_write(&mut self.spi, address, data).await
     }
 
-    async fn reset_interrupt(&mut self, code: Interrupt) -> Result<(), SPI::Error> {
+    async fn reset_interrupt(&mut self, code: Interrupt) -> Result<(), WizInterface::Error> {
         let data = [code as u8];
         self.bus_write(C::SOCKET_INTR_CLR, &data).await
     }
 
-    async fn get_tx_write_ptr(&mut self) -> Result<u16, SPI::Error> {
+    async fn get_tx_write_ptr(&mut self) -> Result<u16, WizInterface::Error> {
         let mut data = [0u8; 2];
         self.bus_read(C::SOCKET_TX_DATA_WRITE_PTR, &mut data).await?;
         Ok(u16::from_be_bytes(data))
     }
 
-    async fn set_tx_write_ptr(&mut self, ptr: u16) -> Result<(), SPI::Error> {
+    async fn set_tx_write_ptr(&mut self, ptr: u16) -> Result<(), WizInterface::Error> {
         let data = ptr.to_be_bytes();
         self.bus_write(C::SOCKET_TX_DATA_WRITE_PTR, &data).await
     }
 
-    async fn get_rx_read_ptr(&mut self) -> Result<u16, SPI::Error> {
+    async fn get_rx_read_ptr(&mut self) -> Result<u16, WizInterface::Error> {
         let mut data = [0u8; 2];
         self.bus_read(C::SOCKET_RX_DATA_READ_PTR, &mut data).await?;
         Ok(u16::from_be_bytes(data))
     }
 
-    async fn set_rx_read_ptr(&mut self, ptr: u16) -> Result<(), SPI::Error> {
+    async fn set_rx_read_ptr(&mut self, ptr: u16) -> Result<(), WizInterface::Error> {
         let data = ptr.to_be_bytes();
         self.bus_write(C::SOCKET_RX_DATA_READ_PTR, &data).await
     }
 
-    async fn command(&mut self, command: Command) -> Result<(), SPI::Error> {
+    async fn command(&mut self, command: Command) -> Result<(), WizInterface::Error> {
         let data = [command as u8];
         self.bus_write(C::SOCKET_COMMAND, &data).await
     }
 
-    async fn get_rx_size(&mut self) -> Result<u16, SPI::Error> {
+    async fn get_rx_size(&mut self) -> Result<u16, WizInterface::Error> {
         loop {
             // Wait until two sequential reads are equal
             let mut res0 = [0u8; 2];
@@ -167,14 +167,14 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
         }
     }
 
-    async fn get_tx_free_size(&mut self) -> Result<u16, SPI::Error> {
+    async fn get_tx_free_size(&mut self) -> Result<u16, WizInterface::Error> {
         let mut data = [0; 2];
         self.bus_read(C::SOCKET_TX_FREE_SIZE, &mut data).await?;
         Ok(u16::from_be_bytes(data))
     }
 
     /// Read bytes from the RX buffer.
-    async fn read_bytes(&mut self, read_ptr: &mut u16, buffer: &mut [u8]) -> Result<(), SPI::Error> {
+    async fn read_bytes(&mut self, read_ptr: &mut u16, buffer: &mut [u8]) -> Result<(), WizInterface::Error> {
         if C::AUTO_WRAP {
             self.bus_read(C::rx_addr(*read_ptr), buffer).await?;
         } else {
@@ -194,7 +194,7 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
     }
 
     /// Read an ethernet frame from the device. Returns the number of bytes read.
-    pub async fn read_frame(&mut self, frame: &mut [u8]) -> Result<usize, SPI::Error> {
+    pub async fn read_frame(&mut self, frame: &mut [u8]) -> Result<usize, WizInterface::Error> {
         let rx_size = self.get_rx_size().await? as usize;
         if rx_size == 0 {
             return Ok(0);
@@ -239,7 +239,7 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
     }
 
     /// Write an ethernet frame to the device. Returns number of bytes written
-    pub async fn write_frame(&mut self, frame: &[u8]) -> Result<usize, SPI::Error> {
+    pub async fn write_frame(&mut self, frame: &[u8]) -> Result<usize, WizInterface::Error> {
         while self.get_tx_free_size().await? < frame.len() as u16 {}
         let write_ptr = self.get_tx_write_ptr().await?;
 

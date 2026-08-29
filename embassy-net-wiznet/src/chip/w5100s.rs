@@ -1,4 +1,4 @@
-use embedded_hal_async::spi::{Operation, SpiDevice};
+use crate::wiznet_spi_interface::{WiznetSpiBus, WiznetSpiOperation};
 
 const SOCKET_BASE: u16 = 0x400;
 const TX_BASE: u16 = 0x4000;
@@ -44,22 +44,26 @@ impl super::SealedChip for W5100S {
         TX_BASE + addr
     }
 
-    async fn bus_read<SPI: SpiDevice>(
+    async fn bus_read<SPI: WiznetSpiBus>(
         spi: &mut SPI,
         address: Self::Address,
         data: &mut [u8],
     ) -> Result<(), SPI::Error> {
-        spi.transaction(&mut [
-            Operation::Write(&[0x0F, (address >> 8) as u8, address as u8]),
-            Operation::Read(data),
+        spi.transaction([
+            WiznetSpiOperation::Write(&[0x0F, (address >> 8) as u8, address as u8]),
+            WiznetSpiOperation::Read(data),
         ])
         .await
     }
 
-    async fn bus_write<SPI: SpiDevice>(spi: &mut SPI, address: Self::Address, data: &[u8]) -> Result<(), SPI::Error> {
-        spi.transaction(&mut [
-            Operation::Write(&[0xF0, (address >> 8) as u8, address as u8]),
-            Operation::Write(data),
+    async fn bus_write<SPI: WiznetSpiBus>(
+        spi: &mut SPI,
+        address: Self::Address,
+        data: &[u8],
+    ) -> Result<(), SPI::Error> {
+        spi.transaction([
+            WiznetSpiOperation::Write(&[0xF0, (address >> 8) as u8, address as u8]),
+            WiznetSpiOperation::Write(data),
         ])
         .await
     }

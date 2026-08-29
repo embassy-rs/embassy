@@ -9,7 +9,7 @@ See [`examples`](https://github.com/embassy-rs/embassy/tree/main/examples/rp) di
 - W5500
 - W5100S
 - W6100
-- W6300 (Single SPI only)
+- W6300 (Single SPI and QSPI)
 
 ## Interoperability
 
