@@ -1147,4 +1147,13 @@ pub mod config_types {
             }
         }
     }
+
+    /// Configuration enum for the short-circuit-detection
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub enum ShortCircuitDetectionConfig {
+        /// Detection is disabled
+        Disabled,
+        /// Detection is enabled, with threshold value
+        Enabled(u8),
+    }
 }

@@ -7,7 +7,9 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{CkoutDivider, InternalSpiMode};
-use embassy_stm32::dfsdm::{Dfsdm, Flt0, Flt1, InjectedTrigger, TransceiverConfig, TransceiverTrait};
+use embassy_stm32::dfsdm::{
+    Dfsdm, Flt0, Flt1, InjectedTrigger, TransceiverConfig, TransceiverConfigOnline, TransceiverTrait,
+};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::{SharedData, dfsdm};
 use embassy_time::Timer;
@@ -68,9 +70,10 @@ async fn main(_spawner: Spawner) {
         )
     });
     let tcv_cfg = TransceiverConfig::default();
+    let tcv_cfg_online = TransceiverConfigOnline::default();
     let (mut ch2, mut ch3) = split.ch2.new_parallel_dma_dual(split.ch3);
-    let mut ch2 = ch2.configure(&tcv_cfg).enable();
-    let mut ch3 = ch3.configure(&tcv_cfg).enable();
+    let mut ch2 = ch2.configure(&tcv_cfg, &tcv_cfg_online).enable();
+    let mut ch3 = ch3.configure(&tcv_cfg, &tcv_cfg_online).enable();
     split.ch6.new_parallel_dma_dual(split.ch7);
 
     let mut channel_mic = split.ch1.new_spi_int(InternalSpiMode::SpiFalling);

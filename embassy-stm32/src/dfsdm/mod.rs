@@ -16,6 +16,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use types::*;
 
 use crate::can::config;
+use crate::dfsdm::capability::HasDelay;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::{Peri, interrupt, rcc};
 
@@ -64,6 +65,14 @@ where
     // data_pin: Flex<'d>,
 }
 
+/// Confgiguration for Filter
+pub struct FilterConfig {}
+
+impl Default for FilterConfig {
+    fn default() -> Self {
+        Self {}
+    }
+}
 pub struct Filter<T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
@@ -88,6 +97,7 @@ where
         }
     }
 
+    /// Enable the Filter
     pub fn enable(self) -> Filter<T, M, Enabled> {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(true));
         Filter {
@@ -95,6 +105,12 @@ where
             _filter_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
+    }
+
+    /// Configure the Filter
+    pub fn configure(mut self, config: &FilterConfig) -> Filter<T, M, Disabled> {
+        todo!();
+        self
     }
 }
 
@@ -175,7 +191,7 @@ where
     }
 }
 
-/// Confgiguration for Transceiver
+/// Configuration for Transceiver
 pub struct TransceiverConfig {
     /// Amount of right-shifts the data shall experience
     data_right_shift: config_types::UInt<5>,
@@ -187,6 +203,29 @@ impl Default for TransceiverConfig {
         Self {
             data_right_shift: config_types::UInt::new(0),
             analog_watchdog_filter_config: config_types::AnalogWatchdogFilterConfiguration::Bypass,
+        }
+    }
+}
+
+/// Configuration for Transceiver, also changable when enables
+pub struct TransceiverConfigOnline {
+    /// Clock absende detection
+    enable_clock_absence_detection: bool,
+    /// Short-circuit detection + threshold
+    short_circuit_detection_config: config_types::ShortCircuitDetectionConfig,
+    /// Offset
+    offset: u32,
+    /// Breaksignal assignment
+    break_signals: config_types::BreakSignals,
+}
+
+impl Default for TransceiverConfigOnline {
+    fn default() -> Self {
+        Self {
+            enable_clock_absence_detection: false,
+            short_circuit_detection_config: config_types::ShortCircuitDetectionConfig::Disabled,
+            offset: 0,
+            break_signals: config_types::BreakSignals::empty(),
         }
     }
 }
@@ -215,12 +254,17 @@ where
     }
 
     /// Configure the transceiver
-    pub fn configure(mut self, config: &TransceiverConfig) -> Transceiver<'a, 'd, T, M, S, MODE, Disabled> {
+    pub fn configure(
+        mut self,
+        config: &TransceiverConfig,
+        online_config: &TransceiverConfigOnline,
+    ) -> Transceiver<'a, 'd, T, M, S, MODE, Disabled> {
         self.set_data_right_shift(config.data_right_shift);
 
         self.select_analog_watchdog_filter_order(config.analog_watchdog_filter_config.into());
         self.select_analog_watchdog_osr(config.analog_watchdog_filter_config.into());
 
+        self.configure_online(online_config);
         self
     }
 
@@ -258,6 +302,20 @@ where
     MODE: ChannelMode,
     P: PowerState,
 {
+    /// Configure parameters changable in Enabled mode. May be used to reconfigure while running.
+    pub fn configure_online(&mut self, config: &TransceiverConfigOnline) {
+        self.set_clock_absence_detector(config.enable_clock_absence_detection);
+
+        let (scd_en, scd_ths) = match config.short_circuit_detection_config {
+            config_types::ShortCircuitDetectionConfig::Disabled => (false, 0),
+            config_types::ShortCircuitDetectionConfig::Enabled(threshold) => (true, threshold),
+        };
+
+        self.set_short_circuit_detector(scd_en);
+        self.set_shortcircuit_threshold(scd_ths);
+        self.set_offset(config.offset);
+        self.assign_breakn(config.break_signals);
+    }
     /// TODO REMOVE
     /// Configures the neighbor channel.
     /// Notice: No extra arguments! Rust knows `T` from `self`.
@@ -304,6 +362,20 @@ where
             .ch(M::CHANNEL.index())
             .awscdr()
             .modify(|w| w.set_scdt(threshold));
+    }
+}
+
+impl<'a, 'd, T, M, S, MODE, P> Transceiver<'a, 'd, T, M, S, MODE, P>
+where
+    T: Instance + HasDelay,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    MODE: ChannelMode,
+    P: PowerState,
+{
+    /// Configure to skip the next [`skips`] pulses
+    pub fn skip_pulses(&mut self, skips: config_types::UInt<6>) {
+        self.set_pulseskips(skips);
     }
 
     /// Set pulse skips

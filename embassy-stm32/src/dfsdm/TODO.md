@@ -30,43 +30,43 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_CHnAWSCDR.AWFOSR    [x] internal [X] pub
 
 ### Inputchannel on
-* DFSDM_CHnCFGR1.CKABEN     [x] internal [ ] pub
-* DFSDM_CHnCFGR1.SCDEN      [x] internal [ ] pub
-* DFSDM_CHnCFGR2.OFFSET     [x] internal [ ] pub
-* DFSDM_CHnAWSCDR.BKSCD     [x] internal [ ] pub
-* DFSDM_CHnAWSCDR.SCDT      [x] internal [ ] pub
-* DFSDM_CHnDLYR.PLSSKP      [x] internal [ ] pub
+* DFSDM_CHnCFGR1.CKABEN     [x] internal [X] pub [X] When Enabled
+* DFSDM_CHnCFGR1.SCDEN      [x] internal [X] pub [X] When Enabled
+* DFSDM_CHnCFGR2.OFFSET     [x] internal [X] pub [X] When Enabled
+* DFSDM_CHnAWSCDR.BKSCD     [x] internal [X] pub [X] When Enabled   Research if we need to connect to official triggers.
+* DFSDM_CHnAWSCDR.SCDT      [x] internal [X] pub [X] When Enabled
+* DFSDM_CHnDLYR.PLSSKP      [x] internal [X] pub [X] When Enabled   Not in config, implement as method!
 
 ## Filter config
 ### Filter off
-* DFSDM_FLTxCR1.RDMAEN
-* DFSDM_FLTxCR1.RSYNC
-* DFSDM_FLTxCR1.RSWSTART (only really relevant when on tho)
-* DFSDM_FLTxCR1.JEXTEN
-* DFSDM_FLTxCR1.JEXTSEL
-* DFSDM_FLTxCR1.JDMAEN
-* DFSDM_FLTxCR1.JSYNC
-* DFSDM_FLTxCR1.JSWSTART (only really relevant when on tho)
-* DFSDM_FLTxFCR.FORD
-* DFSDM_FLTxFCR.FOSR
-* DFSDM_FLTxFCR.IOSR
+* DFSDM_FLTxCR1.RDMAEN      [ ] internal [ ] pub
+* DFSDM_FLTxCR1.RSYNC       [ ] internal [ ] pub
+* DFSDM_FLTxCR1.RSWSTART    [ ] internal [ ] pub (only really relevant when on tho) 
+* DFSDM_FLTxCR1.JEXTEN      [ ] internal [ ] pub
+* DFSDM_FLTxCR1.JEXTSEL     [ ] internal [ ] pub
+* DFSDM_FLTxCR1.JDMAEN      [ ] internal [ ] pub
+* DFSDM_FLTxCR1.JSYNC       [ ] internal [ ] pub
+* DFSDM_FLTxCR1.JSWSTART    [ ] internal [ ] pub   (only really relevant when on tho) 
+* DFSDM_FLTxFCR.FORD        [ ] internal [ ] pub
+* DFSDM_FLTxFCR.FOSR        [ ] internal [ ] pub
+* DFSDM_FLTxFCR.IOSR        [ ] internal [ ] pub
 
 ### Filter on
-* DFSDM_FLTxCR1.AWFSEL
-* DFSDM_FLTxCR1.FAST
-* DFSDM_FLTxCR1.RCH
-* DFSDM_FLTxCR1.RCONT
-* DFSDM_FLTxCR1.JSCAN
-* DFSDM_FLTxCR2.AWDCH
-* DFSDM_FLTxCR2.EXCH
-* DFSDM_FLT0CR2.CKABIE  (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0CR2.SCDIE  (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0CR2.AWDIE  (ONLY IN 0, GLOBAL)
-* DFSDM_FLTxCR2.ROVRIE
-* DFSDM_FLTxCR2.JOVRIE
-* DFSDM_FLTxCR2.REOCIE
-* DFSDM_FLTxCR2.JEOCIE
-* DFSDM_FLTxJCHGR.JCHG
+* DFSDM_FLTxCR1.AWFSEL  [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR1.FAST    [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR1.RCH     [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR1.RCONT   [ ] internal [ ] pub [ ] When Enabled   
+* DFSDM_FLTxCR1.JSCAN   [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR2.AWDCH   [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR2.EXCH    [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR2.ROVRIE  [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR2.JOVRIE  [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR2.REOCIE  [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR2.JEOCIE  [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxJCHGR.JCHG  [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLT0CR2.CKABIE  [ ] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0CR2.SCDIE   [ ] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0CR2.AWDIE   [ ] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
 
 
 
