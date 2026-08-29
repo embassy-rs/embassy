@@ -155,14 +155,6 @@ impl embassy_crypto_driver::Aes for AesDriver {
         let aes = &mut driver.borrow();
 
         match op {
-            AesOperation::Aes128EcbEncrypt { block, key } => {
-                let cipher = AesEcb::new(key);
-                run_in_place(aes, &cipher, Direction::Encrypt, block)
-            }
-            AesOperation::Aes128EcbDecrypt { block, key } => {
-                let cipher = AesEcb::new(key);
-                run_in_place(aes, &cipher, Direction::Decrypt, block)
-            }
             AesOperation::Aes128CbcEncrypt { iv, buffer, key } => {
                 let cipher = AesCbc::new(key, iv);
                 run_in_place(aes, &cipher, Direction::Encrypt, buffer)
@@ -179,124 +171,6 @@ impl embassy_crypto_driver::Aes for AesDriver {
                 let cipher = AesCbc::new(key, iv);
                 run_in_place(aes, &cipher, Direction::Decrypt, block)
             }
-            AesOperation::AesGcm128Encrypt {
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                tag,
-            } => run_gcm128(
-                aes,
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                None,
-                Some(tag),
-                Direction::Encrypt,
-            ),
-            AesOperation::AesGcm128Decrypt {
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                tag,
-            } => run_gcm128(
-                aes,
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                Some(tag),
-                None,
-                Direction::Decrypt,
-            ),
-            AesOperation::AesGcm256Encrypt {
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                tag,
-            } => run_gcm256(
-                aes,
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                None,
-                Some(tag),
-                Direction::Encrypt,
-            ),
-            AesOperation::AesGcm256Decrypt {
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                tag,
-            } => run_gcm256(
-                aes,
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                Some(tag),
-                None,
-                Direction::Decrypt,
-            ),
-            AesOperation::AesCcm8_128Encrypt { .. }
-            | AesOperation::AesCcm8_128Decrypt { .. }
-            | AesOperation::AesCcm4_128Encrypt { .. }
-            | AesOperation::AesCcm4_128Decrypt { .. } => Err(CryptoError::Unsupported),
-            AesOperation::Aes128Cmac { .. } => Err(CryptoError::Unsupported),
-            AesOperation::AesCcm128Encrypt {
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                tag,
-            } => run_ccm!(
-                16,
-                16,
-                aes,
-                key,
-                nonce,
-                aad,
-                plaintext,
-                ciphertext,
-                None,
-                Some(tag),
-                Direction::Encrypt,
-            ),
-            AesOperation::AesCcm128Decrypt {
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                tag,
-            } => run_ccm!(
-                16,
-                16,
-                aes,
-                key,
-                nonce,
-                aad,
-                ciphertext,
-                plaintext,
-                Some(tag),
-                None,
-                Direction::Decrypt,
-            ),
-            _ => Err(CryptoError::Unsupported),
         }
     }
 }

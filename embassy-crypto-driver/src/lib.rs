@@ -465,83 +465,6 @@ unitrait::unitrait! {
 /// Discriminated union of all AES symmetric crypto operations.
 #[non_exhaustive]
 pub enum AesOperation<'a> {
-    Aes128EcbEncrypt {
-        block: &'a mut [u8; 16],
-        key: &'a [u8; 16],
-    },
-    Aes128EcbDecrypt {
-        block: &'a mut [u8; 16],
-        key: &'a [u8; 16],
-    },
-    Aes128Cmac {
-        key: &'a [u8; 16],
-        data: &'a [u8],
-        out: &'a mut [u8; 16],
-    },
-    AesCcm128Encrypt {
-        key: &'a [u8; 16],
-        nonce: &'a [u8],
-        aad: &'a [u8],
-        plaintext: &'a [u8],
-        ciphertext: &'a mut [u8],
-        tag: &'a mut [u8; 16],
-    },
-    AesCcm128Decrypt {
-        key: &'a [u8; 16],
-        nonce: &'a [u8],
-        aad: &'a [u8],
-        ciphertext: &'a [u8],
-        plaintext: &'a mut [u8],
-        tag: &'a [u8; 16],
-    },
-    AesCcm8_128Encrypt {
-        key: &'a [u8; 16],
-        nonce: &'a [u8],
-        aad: &'a [u8],
-        plaintext: &'a [u8],
-        ciphertext: &'a mut [u8],
-        tag: &'a mut [u8; 8],
-    },
-    AesCcm8_128Decrypt {
-        key: &'a [u8; 16],
-        nonce: &'a [u8],
-        aad: &'a [u8],
-        ciphertext: &'a [u8],
-        plaintext: &'a mut [u8],
-        tag: &'a [u8; 8],
-    },
-    AesGcm128Encrypt {
-        key: &'a [u8; 16],
-        nonce: &'a [u8],
-        aad: &'a [u8],
-        plaintext: &'a [u8],
-        ciphertext: &'a mut [u8],
-        tag: &'a mut [u8; 16],
-    },
-    AesGcm128Decrypt {
-        key: &'a [u8; 16],
-        nonce: &'a [u8],
-        aad: &'a [u8],
-        ciphertext: &'a [u8],
-        plaintext: &'a mut [u8],
-        tag: &'a [u8; 16],
-    },
-    AesGcm256Encrypt {
-        key: &'a [u8; 32],
-        nonce: &'a [u8],
-        aad: &'a [u8],
-        plaintext: &'a [u8],
-        ciphertext: &'a mut [u8],
-        tag: &'a mut [u8; 16],
-    },
-    AesGcm256Decrypt {
-        key: &'a [u8; 32],
-        nonce: &'a [u8],
-        aad: &'a [u8],
-        ciphertext: &'a [u8],
-        plaintext: &'a mut [u8],
-        tag: &'a [u8; 16],
-    },
     Aes128CbcEncrypt {
         iv: &'a [u8; 16],
         buffer: &'a mut [u8],
@@ -561,22 +484,6 @@ pub enum AesOperation<'a> {
         iv: &'a [u8; 16],
         block: &'a mut [u8],
         key: &'a [u8; 32],
-    },
-    AesCcm4_128Encrypt {
-        key: &'a [u8; 16],
-        nonce: &'a [u8],
-        aad: &'a [u8],
-        plaintext: &'a [u8],
-        ciphertext: &'a mut [u8],
-        tag: &'a mut [u8; 4],
-    },
-    AesCcm4_128Decrypt {
-        key: &'a [u8; 16],
-        nonce: &'a [u8],
-        aad: &'a [u8],
-        ciphertext: &'a [u8],
-        plaintext: &'a mut [u8],
-        tag: &'a [u8; 4],
     },
 }
 
