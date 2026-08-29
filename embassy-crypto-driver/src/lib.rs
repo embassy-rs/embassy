@@ -1,6 +1,6 @@
 #![no_std]
-#![allow(missing_docs)]
 #![doc = include_str!("../README.md")]
+#![allow(missing_docs)]
 
 /// Error type for crypto operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -740,4 +740,78 @@ unitrait::unitrait! {
     }
 
     macro embassy_crypto_aes256ccm_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// P256 ECDH (Elliptic Curve Diffie-Hellman) trait.
+    ///
+    /// Used for TLS 1.2/1.3 key exchange and Bluetooth LE Secure Connections.
+    pub trait P256Ecdh {
+        /// Generate a new P256 keypair.
+        ///
+        /// `private_key` receives the 32-byte scalar.
+        /// `public_key` receives the 65-byte uncompressed point (0x04 || x || y).
+        #[symbol = "_emb_crypto_p256ecdh_generate_keypair"]
+        pub fn p256ecdh_generate_keypair(
+            private_key: &mut [u8; 32],
+            public_key: &mut [u8; 65],
+        ) -> Result<(), CryptoError>;
+
+        /// Derive the public key from a private key.
+        ///
+        /// `private_key` is the 32-byte scalar.
+        /// `public_key` receives the 65-byte uncompressed point.
+        #[symbol = "_emb_crypto_p256ecdh_derive_public_key"]
+        pub fn p256ecdh_derive_public_key(
+            private_key: &[u8; 32],
+            public_key: &mut [u8; 65],
+        ) -> Result<(), CryptoError>;
+
+        /// Compute the ECDH shared secret.
+        ///
+        /// `private_key` is the local 32-byte scalar.
+        /// `peer_public_key` is the peer's 65-byte uncompressed point.
+        /// `shared_secret` receives the 32-byte x-coordinate of the shared point.
+        #[symbol = "_emb_crypto_p256ecdh_shared_secret"]
+        pub fn p256ecdh_shared_secret(
+            private_key: &[u8; 32],
+            peer_public_key: &[u8; 65],
+            shared_secret: &mut [u8; 32],
+        ) -> Result<(), CryptoError>;
+    }
+
+    macro embassy_crypto_p256ecdh_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// P256 ECDSA (Elliptic Curve Digital Signature Algorithm) trait.
+    ///
+    /// Used for TLS 1.2/1.3 certificate verification and authentication.
+    pub trait P256Ecdsa {
+        /// Sign a message digest with a private key.
+        ///
+        /// `private_key` is the 32-byte scalar.
+        /// `digest` is the pre-hashed message (e.g. SHA-256 digest).
+        /// `signature` receives the 64-byte raw signature (r || s, big-endian).
+        #[symbol = "_emb_crypto_p256ecdsa_sign"]
+        pub fn p256ecdsa_sign(
+            private_key: &[u8; 32],
+            digest: &[u8],
+            signature: &mut [u8; 64],
+        ) -> Result<(), CryptoError>;
+
+        /// Verify a message digest signature with a public key.
+        ///
+        /// `public_key` is the 65-byte uncompressed point.
+        /// `digest` is the pre-hashed message.
+        /// `signature` is the 64-byte raw signature (r || s, big-endian).
+        #[symbol = "_emb_crypto_p256ecdsa_verify"]
+        pub fn p256ecdsa_verify(
+            public_key: &[u8; 65],
+            digest: &[u8],
+            signature: &[u8; 64],
+        ) -> Result<(), CryptoError>;
+    }
+
+    macro embassy_crypto_p256ecdsa_impl(path = $crate);
 }
