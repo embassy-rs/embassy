@@ -9,7 +9,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo:rerun-if-changed=../link_ram_cortex_m.x");
 
     println!("cargo:rustc-link-arg-bins=--nmagic");
-    println!("cargo:rustc-link-arg-bins=-Tlink_ram.x");
+    // println!("cargo:rustc-link-arg-bins=-Tlink_ram.x");
+    println!("cargo:rustc-link-arg-bins=-Tlink.x");
     println!("cargo:rustc-link-arg-bins=-Tdefmt.x");
     println!("cargo:rustc-link-arg-bins=-Tteleprobe.x");
 
