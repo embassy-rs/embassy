@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 
 ## Unreleased - ReleaseDate
+- USB: support device-initiated remote wakeup on RP2040 and RP235x
 - Fix i2c_slave respond_to_read for buffers larger than one chunk
 
 - Update `fixed` dependency

@@ -477,7 +477,21 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
     async fn disable(&mut self) {}
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
-        Err(Unsupported)
+        // SIE_CTRL.RESUME ("Device: Remote wakeup. Device can initiate its own
+        // resume after suspend") is self-clearing per the RP2040 datasheet
+        // (pico-sdk: USB_SIE_CTRL_RESUME access type "SC"): the controller
+        // drives the resume signaling on the bus by itself, so a single write
+        // is sufficient.
+        //
+        // This returns once signaling is initiated rather than waiting for it
+        // to finish. That is safe because a full-speed device only transmits
+        // in response to host tokens: endpoints armed while the bus is still
+        // resuming simply wait until the host restarts polling. Callers must
+        // only invoke this while suspended with remote wakeup enabled by the
+        // host, which `embassy-usb`'s `UsbDevice::remote_wakeup` guarantees;
+        // calling it in any other bus state is unsupported.
+        T::regs().sie_ctrl().modify(|w| w.set_resume(true));
+        Ok(())
     }
 }
 
