@@ -442,8 +442,8 @@ macro_rules! impl_ecb {
 
         impl BlockCipherEncBackend for $name {
             #[inline]
-            fn encrypt_block(&self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
-                let out: &mut cipher::Block<Self> = block.get_out();
+            fn encrypt_block(&self, block: InOut<'_, '_, cipher::Block<Self>>) {
+                let out: &mut cipher::Block<Self> = block.into_out_with_copied_in();
                 let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
                 let blocks = core::slice::from_mut(arr);
                 $enc(&self.ctx, blocks);
@@ -459,8 +459,8 @@ macro_rules! impl_ecb {
 
         impl BlockCipherDecBackend for $name {
             #[inline]
-            fn decrypt_block(&self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
-                let out: &mut cipher::Block<Self> = block.get_out();
+            fn decrypt_block(&self, block: InOut<'_, '_, cipher::Block<Self>>) {
+                let out: &mut cipher::Block<Self> = block.into_out_with_copied_in();
                 let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
                 let blocks = core::slice::from_mut(arr);
                 $dec(&self.ctx, blocks);
@@ -540,8 +540,8 @@ macro_rules! impl_cbc {
 
         impl BlockModeEncBackend for $name {
             #[inline]
-            fn encrypt_block(&mut self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
-                let out: &mut cipher::Block<Self> = block.get_out();
+            fn encrypt_block(&mut self, block: InOut<'_, '_, cipher::Block<Self>>) {
+                let out: &mut cipher::Block<Self> = block.into_out_with_copied_in();
                 let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
                 let blocks = core::slice::from_mut(arr);
                 $enc(&mut self.ctx, blocks);
@@ -567,8 +567,8 @@ macro_rules! impl_cbc {
 
         impl BlockModeDecBackend for $name {
             #[inline]
-            fn decrypt_block(&mut self, mut block: InOut<'_, '_, cipher::Block<Self>>) {
-                let out: &mut cipher::Block<Self> = block.get_out();
+            fn decrypt_block(&mut self, block: InOut<'_, '_, cipher::Block<Self>>) {
+                let out: &mut cipher::Block<Self> = block.into_out_with_copied_in();
                 let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
                 let blocks = core::slice::from_mut(arr);
                 $dec(&mut self.ctx, blocks);
