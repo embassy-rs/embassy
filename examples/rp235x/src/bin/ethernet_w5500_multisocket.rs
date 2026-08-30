@@ -8,7 +8,7 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::tcp::TcpListener;
+use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::{Stack, StackStorage};
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
@@ -108,14 +108,19 @@ async fn listen_task(stack: Stack<'static>, id: u8, port: u16) {
 
     loop {
         info!("SOCKET {}: Listening on TCP:{}...", id, port);
-        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
-            Ok(socket) => socket,
+        let token = match listener.accept().await {
+            Ok(token) => token,
             Err(e) => {
                 warn!("accept error: {:?}", e);
                 continue;
             }
         };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
         socket.set_timeout(Some(Duration::from_secs(10)));
+        if let Err(e) = socket.accept(token).await {
+            warn!("accept error: {:?}", e);
+            continue;
+        }
         info!("SOCKET {}: Received connection from {:?}", id, socket.remote_endpoint());
 
         loop {

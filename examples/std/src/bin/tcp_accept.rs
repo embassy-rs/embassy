@@ -1,7 +1,7 @@
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::StackStorage;
-use embassy_net::tcp::TcpListener;
+use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::wire::{IpCidr, Ipv4Address};
 use embassy_net_tuntap::TunTapDevice;
 use embassy_time::{Duration, Timer};
@@ -71,14 +71,19 @@ async fn main_task(spawner: Spawner) {
 
     loop {
         info!("Listening on TCP:9999...");
-        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
-            Ok(socket) => socket,
+        let token = match listener.accept().await {
+            Ok(token) => token,
             Err(_) => {
                 warn!("accept error");
                 continue;
             }
         };
+        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer).unwrap();
         socket.set_timeout(Some(Duration::from_secs(10)));
+        if socket.accept(token).await.is_err() {
+            warn!("accept error");
+            continue;
+        }
 
         info!("Accepted a connection");
 

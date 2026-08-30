@@ -268,14 +268,19 @@ async fn main(spawner: Spawner) {
 
     loop {
         info!("Listening on http://{}:{}...", local_addr, HTTP_LISTEN_PORT);
-        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
-            Ok(socket) => socket,
+        let token = match listener.accept().await {
+            Ok(token) => token,
             Err(e) => {
                 defmt::error!("accept error: {:?}", e);
                 continue;
             }
         };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
         socket.set_timeout(Some(Duration::from_secs(1)));
+        if let Err(e) = socket.accept(token).await {
+            defmt::error!("accept error: {:?}", e);
+            continue;
+        }
 
         loop {
             let _n = match socket.read(&mut mb_buf).await {
