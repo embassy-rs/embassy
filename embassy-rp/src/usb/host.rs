@@ -55,6 +55,9 @@ pub struct HostState {
     allocated_pipes: AtomicU16,
     /// Bitset of allocated EPX pipes, indexed by `Channel::index - EP_COUNT`.
     allocated_epx: AtomicU16,
+    /// One waiter per EPX pipe. Completion is routed to the pipe that owns EPX,
+    /// while releasing it wakes every contender.
+    epx_wakers: [AtomicWaker; EPX_MAX_PIPES],
     /// Bitmap of used EPX buffer blocks, one bit per [`EPX_BLOCK_SIZE`] block.
     used_blocks: critical_section::Mutex<Cell<u64>>,
 }
@@ -66,6 +69,7 @@ impl HostState {
             current_channel: AtomicUsize::new(0),
             allocated_pipes: AtomicU16::new(0),
             allocated_epx: AtomicU16::new(0),
+            epx_wakers: [const { AtomicWaker::new() }; EPX_MAX_PIPES],
             used_blocks: critical_section::Mutex::new(Cell::new(0)),
         }
     }
@@ -75,6 +79,29 @@ impl HostState {
         self.allocated_pipes.store(0, Ordering::Relaxed);
         self.allocated_epx.store(0, Ordering::Relaxed);
         critical_section::with(|cs| self.used_blocks.borrow(cs).set(0));
+    }
+
+    /// Slot of an EPX pipe in [`HostState::epx_wakers`], or `None` for the idle
+    /// sentinel and for interrupt pipes.
+    fn epx_slot(index: usize) -> Option<usize> {
+        index.checked_sub(EP_COUNT).filter(|slot| *slot < EPX_MAX_PIPES)
+    }
+
+    /// Wake the pipe currently holding EPX.
+    fn wake_current_epx(&self) {
+        if let Some(slot) = Self::epx_slot(self.current_channel.load(Ordering::Acquire)) {
+            self.epx_wakers[slot].wake();
+        }
+    }
+
+    /// Wake every allocated EPX pipe, so whoever is queued can claim EPX.
+    fn wake_all_epx(&self) {
+        let allocated = self.allocated_epx.load(Ordering::Acquire);
+        for slot in 0..EPX_MAX_PIPES {
+            if allocated & (1 << slot) != 0 {
+                self.epx_wakers[slot].wake();
+            }
+        }
     }
 }
 
@@ -264,7 +291,8 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
                 });
                 regs.buff_status().write_clear(|w| w.0 = 0b11);
             }
-            self.state.current_channel.store(0, Ordering::Relaxed);
+            self.state.current_channel.store(0, Ordering::Release);
+            self.state.wake_all_epx();
 
             self.ep_control.modify(|w| {
                 w.set_interrupt_per_buff(false);
@@ -281,7 +309,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         if Self::is_interrupt_in() {
             &EP_IN_WAKERS[self.index]
         } else {
-            &EP_IN_WAKERS[0]
+            &T::host_state().epx_wakers[self.index - EP_COUNT]
         }
     }
 
@@ -369,9 +397,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     }
 
     async fn wait_ready_for_transaction(&self) {
-        // Wait transfer buffer to be free
-        self.wait_available().await;
-
         trace!("CHANNEL {} WAIT READY", self.index);
         // Wait for other transaction end
         poll_fn(|cx| {
@@ -385,6 +410,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             Poll::Ready(())
         })
         .await;
+
+        // Once this pipe owns EPX, wait for its transfer buffer to be free.
+        self.wait_available().await;
     }
 
     // FIXME: RX Timeout with LS device on hub
@@ -1103,7 +1131,7 @@ pub struct InterruptHandler<T: Instance> {
     _usb: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
         let ints = regs.ints().read();
@@ -1130,30 +1158,29 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 "data sequence error"
             } else if ints.stall() {
                 regs.inte().write_clear(|w| w.set_stall(true));
-                EP_IN_WAKERS[0].wake();
+                T::host_state().wake_current_epx();
                 "stall"
             } else if ints.error_rx_overflow() {
                 regs.inte().write_clear(|w| w.set_error_rx_overflow(true));
-                EP_IN_WAKERS[0].wake();
+                T::host_state().wake_current_epx();
                 "rx overflow"
             } else if ints.trans_complete() {
                 regs.inte().write_clear(|w| w.set_trans_complete(true));
-                EP_IN_WAKERS[0].wake();
+                T::host_state().wake_current_epx();
                 "transaction complete"
             } else if ints.error_rx_timeout() {
                 regs.inte().write_clear(|w| w.set_error_rx_timeout(true));
-                EP_IN_WAKERS[0].wake();
+                T::host_state().wake_current_epx();
                 "rx timeout"
             } else if ints.buff_status() {
                 let status = regs.buff_status().read().0;
-
                 // Bits 0 and 1 are EPX's IN/OUT pair; from bit 2 up they are the
                 // dedicated interrupt endpoints, two bits per endpoint. Only interrupt IN
                 // gets a dedicated endpoint, so of each pair only the IN bit is ever armed.
                 if status & 0b11 != 0 {
                     regs.buff_status().write_clear(|w| w.0 = status & 0b11);
                     trace!("USB IRQ: EPx");
-                    EP_IN_WAKERS[0].wake();
+                    T::host_state().wake_current_epx();
                 }
 
                 for n in 1..EP_COUNT {
