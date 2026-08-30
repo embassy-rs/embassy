@@ -326,8 +326,42 @@ macro_rules! impl_dfsdm_filter_irqs {
 
 // Implement all single-channel IRQs
 impl_dfsdm_filter_irqs! {
-    [DFSDM_2CH_1FLT_TRG3_ADC],
+    [
+        DFSDM_2CH_1FLT_DLY_TRG5_ADC,
+        DFSDM_2CH_1FLT_TRG3_ADC,
+        DFSDM_4CH_2FLT_TRG3,
+        DFSDM_4CH_2FLT_TRG3_ADC,
+        DFSDM_4CH_2FLT_DLY_TRG5_ADC,
+        DFSDM_4CH_2FLT_DLY_TRG5_ADC_HWID,
+    ],
     FLT0 => Flt0,
+}
+
+// Implement all four-channel IRQs
+impl_dfsdm_filter_irqs! {
+    [
+        DFSDM_4CH_4FLT_DLY_TRG5_ADC,
+        DFSDM_8CH_4FLT_TRG3,
+        DFSDM_8CH_4FLT_TRG5,
+        DFSDM_8CH_4FLT_TRG3_ADC,
+        DFSDM_8CH_4FLT_TRG5_ADC,
+        DFSDM_8CH_4FLT_DLY_TRG5_ADC,
+    ],
+    FLT0 => Flt0,
+    FLT1 => Flt1,
+    FLT2 => Flt2,
+    FLT3 => Flt3,
+}
+
+// Implement all six-channel IRQs
+impl_dfsdm_filter_irqs! {
+    [DFSDM_8CH_6FLT_DLY_TRG5_ADC_HWID],
+    FLT0 => Flt0,
+    FLT1 => Flt1,
+    FLT2 => Flt2,
+    FLT3 => Flt3,
+    FLT4 => Flt4,
+    FLT5 => Flt5,
 }
 
 // Implement all eight-channel IRQs
@@ -341,13 +375,4 @@ impl_dfsdm_filter_irqs! {
     FLT5 => Flt5,
     FLT6 => Flt6,
     FLT7 => Flt7,
-}
-
-// Implement all four-channel IRQs
-impl_dfsdm_filter_irqs! {
-    [DFSDM_8CH_4FLT_TRG5_ADC],
-    FLT0 => Flt0,
-    FLT1 => Flt1,
-    FLT2 => Flt2,
-    FLT3 => Flt3,
 }

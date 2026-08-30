@@ -84,7 +84,7 @@ async fn main(_spawner: Spawner) {
 
     let flt_cfg = FilterConfig {
         // filter_cfg: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 5 }, 4).expect("This is inside the bounds"),
-        filter_cfg: FilterParameters::try_new(FilterOrder::Disabled, 32).expect("This is inside the bounds"),
+        filter_params: FilterParameters::try_new(FilterOrder::Disabled, 32).expect("This is inside the bounds"),
     };
 
     let mut flt0 = split

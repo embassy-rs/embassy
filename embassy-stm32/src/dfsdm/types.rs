@@ -547,20 +547,23 @@ define_indexed_channels!(
 
 trigger_trait!(InjectedTrigger, Instance);
 
-// TODO MAYBE USE??
-// pub struct InjectedDfsdmTrigger<T: Instance> {
-//     _trigger: u8,
-//     _marker: PhantomData<T>,
-// }
+pub struct InjectedDfsdmTrigger<T: Instance> {
+    _trigger: u8,
+    _marker: PhantomData<T>,
+}
 
-// impl<T: Instance> InjectedDfsdmTrigger<T> {
-//     pub fn from(trigger: impl InjectedTrigger<T>) -> Self {
-//         Self {
-//             _trigger: trigger.signal(),
-//             _marker: PhantomData,
-//         }
-//     }
-// }
+impl<T: Instance> InjectedDfsdmTrigger<T> {
+    pub fn from(trigger: impl InjectedTrigger<T>) -> Self {
+        Self {
+            _trigger: trigger.signal(),
+            _marker: PhantomData,
+        }
+    }
+
+    pub fn id(&self) -> u8 {
+        self._trigger
+    }
+}
 
 // =============================================================================
 // General-purpose markertraits
@@ -1177,6 +1180,7 @@ pub mod config_types {
     }
 
     impl FilterOrder {
+        /// Maximum permissible OSR without overflow for the FilterOrder
         pub const fn max_osr(&self) -> u16 {
             match self {
                 Self::Disabled => 1,
@@ -1199,6 +1203,7 @@ pub mod config_types {
         }
     }
 
+    /// Filter parameters for Filter configuration
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub struct FilterParameters {
         order: FilterOrder,
@@ -1235,5 +1240,17 @@ pub mod config_types {
             };
             (discriminant, self.order.fosr() - 1, (self.iosr - 1) as u8)
         }
+    }
+
+    /// Type of the serial interface
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    #[repr(u8)]
+    pub enum TriggerEdge {
+        /// Detect only rising edges (low to high transitions)
+        Rising = 0b01,
+        /// Detect only falling edges (high to low transitions)
+        Falling = 0b10,
+        /// Detect both rising and falling edges
+        Any = 0b11,
     }
 }

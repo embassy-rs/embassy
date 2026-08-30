@@ -68,13 +68,13 @@ where
 
 /// Confgiguration for Filter
 pub struct FilterConfig {
-    pub filter_cfg: FilterParameters,
+    pub filter_params: FilterParameters,
 }
 
 impl Default for FilterConfig {
     fn default() -> Self {
         Self {
-            filter_cfg: FilterParameters::new(config_types::FilterOrder::Disabled, 1),
+            filter_params: FilterParameters::new(config_types::FilterOrder::Disabled, 1),
         }
     }
 }
@@ -115,7 +115,7 @@ where
 
     /// Configure the Filter
     pub fn configure(mut self, config: &FilterConfig) -> Filter<T, M, Disabled> {
-        self.set_filter_parameters(config.filter_cfg);
+        self.set_filter_parameters(config.filter_params);
         self
     }
 
@@ -127,6 +127,51 @@ where
             w.set_fosr(fosr);
             w.set_iosr(iosr);
         });
+    }
+
+    /// Enables or disables DMA transfers for regular conversions.
+    fn set_regular_dma_en(&mut self, dma_enable: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr1()
+            .modify(|w| w.set_rdmaen(dma_enable));
+    }
+
+    /// Enables or disables DMA transfers for injected conversions.
+    fn set_injected_dma_en(&mut self, dma_enable: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr1()
+            .modify(|w| w.set_jdmaen(dma_enable));
+    }
+
+    /// Enables or disables synchronization for regular conversions.
+    fn set_regular_synchronization(&mut self, enable: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rsync(enable));
+    }
+
+    /// Enables or disables synchronization for injected conversions.
+    fn set_injected_synchronization(&mut self, enable: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jsync(enable));
+    }
+
+    /// Configures the trigger for injected conversions.
+    ///
+    /// `Some` enables the trigger with the specified trigger source and edge.
+    /// `None` disables the trigger.
+    fn configure_injected_trigger(&mut self, trigger: Option<(InjectedDfsdmTrigger<T>, config_types::TriggerEdge)>) {
+        let (jextsel, jexten) = match trigger {
+            Some((trigger, edge)) => (trigger.id(), edge as u8),
+            None => (0, 0), // Disable
+        };
+
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr1()
+            .modify(|w: &mut stm32_metapac::dfsdm::regs::Cr1| {
+                w.set_jextsel(jextsel);
+                w.set_jexten(jexten);
+            });
     }
 }
 
@@ -300,6 +345,136 @@ where
         self.clear_injected_channel(channel.index() as u8);
         self
     }
+
+    /// Enables/Disables analog watchdog fast mode.
+    /// When enabled, the analog watchdog works on data directly from the transceiver.
+    /// When disabled, the analog watchdog works on data filtered by the filter.
+    pub fn set_analog_watchdog_fastmode(&mut self, enabled: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr1()
+            .modify(|w| w.set_awfsel(enabled));
+    }
+
+    /// Enables or disables fast conversion mode.
+    ///
+    /// In continuous mode, fast mode reduces the conversion time after the first
+    /// conversion because the filter is already filled and does not need to be
+    /// filled again. Subsequent conversions therefore take only `FOSR * IOSR / fCKIN`
+    /// instead of the normal filter fill time. Has no effect outside continuous mode.
+    pub fn set_fastmode(&mut self, enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_fast(enabled));
+    }
+
+    /// Enables or disables continuous conversion mode.
+    ///
+    /// When enabled, the regular channel is converted repeatedly after each
+    /// conversion request. Disabling it while a continuous conversion is in
+    /// progress stops the conversion immediately.
+    pub fn set_continuous(&mut self, enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rcont(enabled));
+    }
+
+    /// Enables or disables scanning mode for injected conversions.
+    ///
+    /// When enabled, injected conversions cycle through all selected channels,
+    /// starting again at the lowest selected channel. When disabled, each
+    /// conversion advances to the next selected channel.
+    ///
+    /// Changing the injected channel group while scanning is disabled resets the
+    /// channel selection to the lowest selected channel.
+    pub fn set_injected_scanning(&mut self, enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jscan(enabled));
+    }
+
+    /// Enables the analog watchdog for the specified channel.
+    fn set_watchdog_channel(&mut self, ch: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_awdch(w.awdch() | (1 << ch)));
+    }
+
+    /// Disables the analog watchdog for the specified channel.
+    fn clear_watchdog_channel(&mut self, ch: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_awdch(w.awdch() & !(1 << ch)));
+    }
+
+    /// Assign the provided `Transceiver` to the analog watchdog channel of this `Filter`
+    pub fn assign_watchdog_channel<MT, S, MODE, PT>(mut self, channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>) -> Self
+    where
+        MT: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        MODE: ChannelMode,
+        PT: PowerState,
+    {
+        self.set_watchdog_channel(channel.index() as u8);
+        self
+    }
+
+    /// Unassign the provided channel from the analog watchdog of this `Filter`
+    pub fn unassign_watchdog_channel<MT, S, MODE, PT>(
+        mut self,
+        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
+    ) -> Self
+    where
+        MT: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        MODE: ChannelMode,
+        PT: PowerState,
+    {
+        self.clear_watchdog_channel(channel.index() as u8);
+        self
+    }
+
+    /// Enables the extremes detector for the specified channel.
+    fn set_extremes_detector_channel(&mut self, ch: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_exch(w.exch() | (1 << ch)));
+    }
+
+    /// Disables the extremes detector for the specified channel.
+    fn clear_extremes_detector_channel(&mut self, ch: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_exch(w.exch() & !(1 << ch)));
+    }
+
+    /// Assign the provided `Transceiver` to the extremes detector of this `Filter`.
+    pub fn assign_extremes_detector_channel<MT, S, MODE, PT>(
+        mut self,
+        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
+    ) -> Self
+    where
+        MT: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        MODE: ChannelMode,
+        PT: PowerState,
+    {
+        self.set_extremes_detector_channel(channel.index() as u8);
+        self
+    }
+
+    /// Unassign the provided channel from the extremes detector of this `Filter`.
+    pub fn unassign_extremes_detector_channel<MT, S, MODE, PT>(
+        mut self,
+        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
+    ) -> Self
+    where
+        MT: TransceiverMarker + NextChannelForInstance<T>,
+        S: PinSet,
+        MODE: ChannelMode,
+        PT: PowerState,
+    {
+        self.clear_extremes_detector_channel(channel.index() as u8);
+        self
+    }
 }
 
 /// Sign-extends a 24bit LSB number to a i32
@@ -351,6 +526,38 @@ where
         .await;
 
         // unsafe { core::ptr::read_volatile(T::regs().data()) }
+    }
+
+    /// Enables or disables regular data overrun interrupts.
+    fn set_regular_overrun_interrupt(&mut self, enabled: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_rovrie(enabled));
+    }
+
+    /// Enables or disables injected data overrun interrupts.
+    fn set_injected_overrun_interrupt(&mut self, enabled: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_jovrie(enabled));
+    }
+
+    /// Enables or disables regular end-of-conversion interrupts.
+    fn set_regular_end_of_conversion_interrupt(&mut self, enabled: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_reocie(enabled));
+    }
+
+    /// Enables or disables injected end-of-conversion interrupts.
+    fn set_injected_end_of_conversion_interrupt(&mut self, enabled: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_jeocie(enabled));
     }
 }
 
@@ -1196,6 +1403,21 @@ where
     fn into_raw_parts(self) -> (Peri<'d, T>, Option<Flex<'d>>) {
         let this = ManuallyDrop::new(self);
         unsafe { (ptr::read(&this._peri), ptr::read(&this._ckout)) }
+    }
+
+    /// Enables or disables clock absence interrupts.
+    fn set_clock_absence_interrupt(&mut self, enabled: bool) {
+        T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
+    }
+
+    /// Enables or disables short-circuit detector interrupts.
+    fn set_short_circuit_detector_interrupt(&mut self, enabled: bool) {
+        T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
+    }
+
+    /// Enables or disables analog watchdog interrupts.
+    fn set_analog_watchdog_interrupt(&mut self, enabled: bool) {
+        T::regs().flt(0).cr2().modify(|w| w.set_awdie(enabled));
     }
 }
 

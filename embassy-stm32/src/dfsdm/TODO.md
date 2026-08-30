@@ -47,12 +47,12 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 
 ## Filter config
 ### Filter off
-* DFSDM_FLTxCR1.RDMAEN      [ ] internal [ ] pub    This probably needs a typestate....
-* DFSDM_FLTxCR1.RSYNC       [ ] internal [ ] pub
-* DFSDM_FLTxCR1.JEXTEN      [ ] internal [ ] pub
-* DFSDM_FLTxCR1.JEXTSEL     [ ] internal [ ] pub
-* DFSDM_FLTxCR1.JDMAEN      [ ] internal [ ] pub
-* DFSDM_FLTxCR1.JSYNC       [ ] internal [ ] pub
+* DFSDM_FLTxCR1.RDMAEN      [X] internal [ ] pub    This probably needs a typestate....
+* DFSDM_FLTxCR1.RSYNC       [X] internal [ ] pub
+* DFSDM_FLTxCR1.JEXTEN      [X] internal [ ] pub
+* DFSDM_FLTxCR1.JEXTSEL     [X] internal [ ] pub
+* DFSDM_FLTxCR1.JDMAEN      [X] internal [ ] pub
+* DFSDM_FLTxCR1.JSYNC       [X] internal [ ] pub
 * DFSDM_FLTxFCR.FORD        [X] internal [X] pub
 * DFSDM_FLTxFCR.FOSR        [X] internal [X] pub
 * DFSDM_FLTxFCR.IOSR        [X] internal [X] pub
@@ -60,22 +60,24 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 ### Filter on
 * DFSDM_FLTxCR1.JSWSTART    [x] internal [x] pub   (only really relevant when on tho)  Not in config, implemented as method.
 * DFSDM_FLTxCR1.RSWSTART    [x] internal [x] pub (only really relevant when on tho)  Not in config, implemented as method.
-* DFSDM_FLTxCR1.AWFSEL  [ ] internal [ ] pub [ ] When Enabled
-* DFSDM_FLTxCR1.FAST    [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR1.AWFSEL  [X] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR1.FAST    [X] internal [ ] pub [ ] When Enabled
 * DFSDM_FLTxCR1.RCH     [X] internal [X] pub [ ] When Enabled
-* DFSDM_FLTxCR1.RCONT   [ ] internal [ ] pub [ ] When Enabled   
-* DFSDM_FLTxCR1.JSCAN   [ ] internal [ ] pub [ ] When Enabled
-* DFSDM_FLTxCR2.AWDCH   [ ] internal [ ] pub [ ] When Enabled
-* DFSDM_FLTxCR2.EXCH    [ ] internal [ ] pub [ ] When Enabled
-* DFSDM_FLTxCR2.ROVRIE  [ ] internal [ ] pub [ ] When Enabled
-* DFSDM_FLTxCR2.JOVRIE  [ ] internal [ ] pub [ ] When Enabled
-* DFSDM_FLTxCR2.REOCIE  [ ] internal [ ] pub [ ] When Enabled
-* DFSDM_FLTxCR2.JEOCIE  [ ] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR1.RCONT   [X] internal [ ] pub [ ] When Enabled   
+* DFSDM_FLTxCR1.JSCAN   [X] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR2.AWDCH   [X] internal [X] pub [ ] When Enabled
+* DFSDM_FLTxCR2.EXCH    [X] internal [X] pub [ ] When Enabled
+* DFSDM_FLTxCR2.ROVRIE  [X] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR2.JOVRIE  [X] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR2.REOCIE  [X] internal [ ] pub [ ] When Enabled
+* DFSDM_FLTxCR2.JEOCIE  [X] internal [ ] pub [ ] When Enabled
 * DFSDM_FLTxJCHGR.JCHG  [X] internal [X] pub [ ] When Enabled
-* DFSDM_FLT0CR2.CKABIE  [ ] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0CR2.SCDIE   [ ] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0CR2.AWDIE   [ ] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0CR2.CKABIE  [X] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0CR2.SCDIE   [X] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0CR2.AWDIE   [X] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
 
+NOTE:
+Due to interrupts we should really put the IRQ requirement into the Common? And then the filters? global vs local interrupts etc idk
 
 
 
@@ -96,15 +98,15 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_FLTxRDATAR.RDATA       [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLTxRDATAR.RDATACH     [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLTxRDATAR.RPEND       [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
-* DFSDM_FLTxAWHTR.AWHT
-* DFSDM_FLTxAWHTR.BKAWH
-* DFSDM_FLTxAWLTR.AWLT
-* DFSDM_FLTxAWLTR.BKAWL
-* DFSDM_FLTxEXMAX.EXMAX
-* DFSDM_FLTxEXMAX.EXMAXCH
-* DFSDM_FLTxEXMIN.EXMIN
-* DFSDM_FLTxEXMIN.EXMINCH
-* DFSDM_FLTxCNVTIMR.CNVCNT
+* DFSDM_FLTxAWHTR.AWHT         [ ] internal [ ] pub
+* DFSDM_FLTxAWHTR.BKAWH        [ ] internal [ ] pub
+* DFSDM_FLTxAWLTR.AWLT         [ ] internal [ ] pub
+* DFSDM_FLTxAWLTR.BKAWL        [ ] internal [ ] pub
+* DFSDM_FLTxEXMAX.EXMAX        [ ] internal [ ] pub
+* DFSDM_FLTxEXMAX.EXMAXCH      [ ] internal [ ] pub
+* DFSDM_FLTxEXMIN.EXMIN        [ ] internal [ ] pub
+* DFSDM_FLTxEXMIN.EXMINCH      [ ] internal [ ] pub
+* DFSDM_FLTxCNVTIMR.CNVCNT     [ ] internal [ ] pub
 
 # Flags
 ## Filter
@@ -113,22 +115,34 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_FLT0ISR.CKABF  (ONLY IN 0, GLOBAL)
 * DFSDM_FLT0ISR.RCIP            [x] internal [x] pub    
 * DFSDM_FLT0ISR.JCIP            [x] internal [x] pub    
-* DFSDM_FLT0ISR.AWDF
-* DFSDM_FLT0ISR.ROVRF
-* DFSDM_FLT0ISR.JOVRF
+* DFSDM_FLT0ISR.AWDF            [ ] internal [ ] pub
+* DFSDM_FLT0ISR.ROVRF           [ ] internal [ ] pub
+* DFSDM_FLT0ISR.JOVRF           [ ] internal [ ] pub
 * DFSDM_FLT0ISR.REOCF           [x] internal [x] pub    Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLT0ISR.JEOCF           [x] internal [x] pub    Readable/Modifiable also when channel disabled, maybe read res after shutdown?
-* DFSDM_FLTxAWSR.AWHTF
-* DFSDM_FLTxAWSR.AWLTF
+* DFSDM_FLTxAWSR.AWHTF          [ ] internal [ ] pub
+* DFSDM_FLTxAWSR.AWLTF          [ ] internal [ ] pub
 
 ### Clear
 ## Filter
-* DFSDM_FLT0ISR.CLRSCDF  (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0ISR.CLRCKABF  (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0ISR.CLRROVRF
-* DFSDM_FLT0ISR.CLRJOVRF
-* DFSDM_FLTxAWCFR.CLRAWHTF
-* DFSDM_FLTxAWCFR.CLRAWLTF
+* DFSDM_FLT0ISR.CLRSCDF     [ ] internal [ ] pub    (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0ISR.CLRCKABF    [ ] internal [ ] pub    (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0ISR.CLRROVRF    [ ] internal [ ] pub    
+* DFSDM_FLT0ISR.CLRJOVRF    [ ] internal [ ] pub    
+* DFSDM_FLTxAWCFR.CLRAWHTF  [ ] internal [ ] pub    
+* DFSDM_FLTxAWCFR.CLRAWLTF  [ ] internal [ ] pub    
 
 
-Note: mem2mem currently bugged in main, cherrypick PR from here is in order.
+# General ToDos:
+* Polling conversion            [X]
+* Async polling conversion      [ ]
+* Async interrupt conversion    [ ]
+* Async dma conversion          [ ]
+* ADC to DFSDM conversions?     [ ]
+  * Also do the same with DMA for non-adc channels  [ ]
+* Break signals                 [ ]
+* Timer-triggering              [ ]     I tihnk this works as soon as we assign triggers properly, but who knows...
+* Buttload of examples using combined PWM and other stuff   [ ]
+
+# Notes
+* When enabled vs pub: COnstructor/config vs accessor I guess?
