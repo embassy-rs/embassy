@@ -439,8 +439,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 w.set_endpoint_type(EpControlEndpointType::Interrupt);
                 w.set_interrupt_per_buff(true);
 
-                // FIXME: host_poll_interval (bits 16:25)
-                let interval = self.interval as u32 - 1;
+                // `host_poll_interval` (bits 16:25) has no PAC accessor and counts from
+                // zero, so clamp: a descriptor may declare an interval of 0.
+                let interval = self.interval.max(1) as u32 - 1;
                 w.0 |= interval << 16;
 
                 w.set_buffer_address(self.buf.addr);
@@ -680,6 +681,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     {
         trace!("CONTROL IN: {:?}", setup);
         let length = u16::from_le_bytes([setup[6], setup[7]]) as usize;
+        if length > buf.len() {
+            return Err(PipeError::BufferOverflow);
+        }
 
         // Setup stage
         // TODO: Whole transaction error handling?
@@ -705,6 +709,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     {
         trace!("CONTROL OUT: {:?}", setup);
         let length = u16::from_le_bytes([setup[6], setup[7]]) as usize;
+        if length > buf.len() {
+            return Err(PipeError::BufferOverflow);
+        }
 
         // Setup stage
         // TODO: Whole transaction error handling?
