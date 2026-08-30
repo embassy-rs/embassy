@@ -114,16 +114,15 @@ async fn main(_spawner: Spawner) {
 
     //TODO the enable semantics should really also be linked to channel assignments in filters?
 
-    let prescaler = mic_clk_freq / Hertz::hz(200); // =~ 10000
-    let ford: u8 = 2;
-    let fosr: u16 = 1000;
-    let iosr: u16 = 10;
-    let gain = (fosr as u32).pow(ford as u32) * iosr as u32;
-    // 200Hz 3dB frequency
+    let ford: u8 = 3;
+    let fosr: u16 = 100;
+    let iosr: u16 = 50;
+    let gain = (fosr as u64).pow(ford as u32) * iosr as u64;
+    // 2MHz/100/50 = 400Hz 3dB frequency
 
     let flt_cfg = FilterConfig {
         // filter_cfg: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 5 }, 4).expect("This is inside the bounds"),
-        filter_cfg: FilterParameters::try_new(FilterOrder::Sinc2 { fosr: fosr }, iosr)
+        filter_cfg: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: fosr }, iosr)
             .expect("This is inside the bounds"),
     };
     let mut flt0 = split
@@ -134,25 +133,37 @@ async fn main(_spawner: Spawner) {
 
     flt0.start_regular_conversion();
 
-    const DECAY_SHIFT: u32 = 6;
+    let mut dc_offset: i32 = 0;
+    let mut bass_signal: i32 = 0;
     let mut envelope: u32 = 0;
+
+    // Tuning parameters
+    const LPF_SHIFT: i32 = 3; // Low-pass filter speed (lower = tighter bass, try 2 to 4)
+    const DECAY_SHIFT: u32 = 5; // Envelope decay speed
 
     loop {
         // ch_test.write_sample_standard(10);
         if let Some((data, _channel, _rpend)) = flt0.try_read_regular_result() {
-            let abs = data.abs() as u32;
+            // 1. DC Blocker (Track the slow-moving average to remove mic bias)
+            // Shift by 8 makes it track very slowly, ignoring the fast bass beats
+            dc_offset += (data - dc_offset) >> 8;
+            let ac_signal = data - dc_offset;
 
-            if abs > envelope {
-                // Fast attack: diode "conducts" and instantly charges the capacitor
-                envelope = abs;
+            // 2. Rectifier (Absolute value of the AC signal)
+            let abs = ac_signal.abs() as i32;
+
+            // 3. Software Low-Pass Filter (Kills mid/high bleed!)
+            // Formula: bass_signal = bass_signal + (abs - bass_signal) / 2^LPF_SHIFT
+            bass_signal += (abs - bass_signal) >> LPF_SHIFT;
+
+            // Convert to u32 for the envelope math
+            let bass_abs = bass_signal as u32;
+
+            // 4. Envelope Follower (Diode Detector)
+            if bass_abs > envelope {
+                envelope = bass_abs; // Fast attack
             } else {
-                // Exponential decay: capacitor drains through a resistor.
-                // Using bit shift (>> DECAY_SHIFT) is the no_std equivalent of
-                // envelope = envelope - (envelope * 0.015)
-                let decay_step = envelope >> DECAY_SHIFT;
-
-                // Ensure we always subtract at least 1 so we don't get stuck
-                // slightly above zero forever.
+                let decay_step = envelope >> DECAY_SHIFT; // Slow decay
                 if decay_step > 0 {
                     envelope -= decay_step;
                 } else if envelope > 0 {
@@ -160,8 +171,12 @@ async fn main(_spawner: Spawner) {
                 }
             }
 
-            let duty = ((abs as u64) * (pwm_ld2.max_duty_cycle() as u64) / (gain as u64)) as u32;
+            // 5. PWM Output
+            // Note: Recalculate your 'gain' based on your new Sinc3 parameters!
+
+            let duty = ((envelope as u64) * (pwm_ld2.max_duty_cycle() as u64) / (gain as u64)) as u32;
             pwm_ld2.set_duty_cycle(duty);
+
             flt0.start_regular_conversion();
         }
 
