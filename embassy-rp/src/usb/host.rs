@@ -26,6 +26,10 @@ use crate::usb::EP_MEMORY_SIZE;
 use crate::{Peri, RegExt};
 
 const MAIN_BUFFER_SIZE: usize = 1024;
+/// Root port reset drive time (USB 2.0 §7.1.7.5, TDRSTR).
+const ROOT_RESET_MS: u64 = 50;
+/// Reset recovery time (USB 2.0 §7.1.7.5, TRSTRCY).
+const RESET_RECOVERY_MS: u64 = 10;
 /// Register writes need two clk_usb cycles to transfer; 12 clk_sys cycles cover this at the supported 150 MHz maximum.
 const USB_CLOCK_DELAY_CYCLES: u32 = 12;
 
@@ -81,17 +85,17 @@ impl<'d, T: SealedHostInstance> Driver<'d, T> {
     /// Create a new USB driver.
     pub fn new(_usb: Peri<'d, USB>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         let regs = T::regs();
-        unsafe {
-            // FIXME(magic):
-            // zero fill regs
-            let p = regs.as_ptr() as *mut u32;
-            for i in 0..0x9c / 4 {
-                p.add(i).write_volatile(0)
-            }
 
-            // zero fill epmem
+        // Reset the peripheral: zeroing its registers by hand would clobber those that
+        // do not reset to zero, notably `USBPHY_TRIM` and `NAK_POLL`.
+        crate::pac::RESETS.reset().modify(|w| w.set_usbctrl(true));
+        crate::pac::RESETS.reset().modify(|w| w.set_usbctrl(false));
+        while !crate::pac::RESETS.reset_done().read().usbctrl() {}
+
+        // DPRAM is outside the peripheral reset, so clear the control area by hand.
+        unsafe {
             let p = EP_MEMORY as *mut u32;
-            for i in 0..0x180 / 4 {
+            for i in 0..DPRAM_DATA_OFFSET as usize / 4 {
                 p.add(i).write_volatile(0)
             }
         }
@@ -107,6 +111,9 @@ impl<'d, T: SealedHostInstance> Driver<'d, T> {
         regs.main_ctrl().modify(|w| {
             w.set_controller_en(true);
             w.set_host_ndevice(true);
+            // RP2350 resets PHY isolation asserted; the PHY is unusable until cleared (§12.7.2).
+            #[cfg(feature = "_rp235x")]
+            w.set_phy_iso(false);
         });
         regs.sie_ctrl().modify(|w| {
             w.set_sof_en(true);
@@ -975,11 +982,13 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
             w.set_reset_bus(true);
         });
 
-        embassy_time::Timer::after_millis(50).await;
+        embassy_time::Timer::after_millis(ROOT_RESET_MS).await;
 
         T::regs().sie_ctrl().modify(|w| {
             w.set_reset_bus(false);
         });
+
+        embassy_time::Timer::after_millis(RESET_RECOVERY_MS).await;
     }
 }
 
