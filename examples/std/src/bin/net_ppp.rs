@@ -109,7 +109,7 @@ async fn main_task(spawner: Spawner) {
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
 
-    let mut listener = TcpListener::new(stack);
+    let mut listener = TcpListener::new(stack).unwrap();
     listener.listen(1234).unwrap();
 
     loop {

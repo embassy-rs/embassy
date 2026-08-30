@@ -63,7 +63,7 @@ async fn main_task(spawner: Spawner) {
     // Then we can use it!
     let mut buf = [0; 4096];
 
-    let mut socket = UdpSocket::new(stack);
+    let mut socket = UdpSocket::new(stack).unwrap();
     socket.bind(9400).unwrap();
 
     loop {

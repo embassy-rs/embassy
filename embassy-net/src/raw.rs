@@ -14,7 +14,7 @@ pub use xarxa::wire::EthernetProtocol;
 #[cfg(feature = "raw-ip")]
 pub use xarxa::wire::{IpProtocol, IpVersion};
 
-use crate::{Stack, TryError};
+use crate::{Full, Stack, TryError};
 
 /// Error returned by [`RawSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -62,12 +62,13 @@ impl<'d> RawSocket<'d> {
     /// Create a new raw socket using the provided stack, receiving IP packets
     /// of the given version and protocol (`None` for any).
     ///
-    /// # Panics
-    /// Panics if the stack has no room for another raw socket. The limit is set
-    /// by the `raw-socket-count-N` feature of `xarxa`.
+    /// Errors:
+    /// - `Full` if the stack has no room for another raw socket. The limit is set
+    ///   by the `raw-socket-count-N` feature of `xarxa`.
     #[cfg(feature = "raw-ip")]
-    pub fn new(stack: Stack<'d>, ip_version: Option<IpVersion>, ip_protocol: Option<IpProtocol>) -> Self {
-        let mut this = Self::new_unbound(stack);
+    pub fn new(stack: Stack<'d>, ip_version: Option<IpVersion>, ip_protocol: Option<IpProtocol>) -> Result<Self, Full> {
+        let mut this = Self::new_unbound(stack)?;
+        // The socket was just created, so it is unbound and cannot fail to bind.
         unwrap!(
             this.bind(RawMode::Ip {
                 version: ip_version,
@@ -75,22 +76,17 @@ impl<'d> RawSocket<'d> {
             })
             .ok()
         );
-        this
+        Ok(this)
     }
 
     /// Create a new raw socket using the provided stack, without binding it.
     ///
-    /// # Panics
-    /// Panics if the stack has no room for another raw socket. The limit is set
-    /// by the `raw-socket-count-N` feature of `xarxa`.
-    pub fn new_unbound(stack: Stack<'d>) -> Self {
-        let handle = stack.with(|i| {
-            unwrap!(
-                i.stack.add_raw_socket().ok(),
-                "too many raw sockets, raise the `raw-socket-count-N` feature of xarxa"
-            )
-        });
-        Self { stack, handle }
+    /// Errors:
+    /// - `Full` if the stack has no room for another raw socket. The limit is set
+    ///   by the `raw-socket-count-N` feature of `xarxa`.
+    pub fn new_unbound(stack: Stack<'d>) -> Result<Self, Full> {
+        let handle = stack.with(|i| i.stack.add_raw_socket())?;
+        Ok(Self { stack, handle })
     }
 
     /// Bind the socket to the given mode.

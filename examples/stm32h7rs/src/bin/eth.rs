@@ -89,7 +89,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     unwrap!(iface.add_ip_addr(IpCidr::new(Ipv4Address::new(10, 42, 0, 61).into(), 24)));
     unwrap!(
         stack
@@ -108,7 +108,7 @@ async fn main(spawner: Spawner) -> ! {
     // Then we can use it!
 
     let remote_endpoint = (Ipv4Address::new(10, 42, 0, 1), 8000);
-    let socket = UdpSocket::new(stack);
+    let socket = unwrap!(UdpSocket::new(stack));
     loop {
         // You need to start a server on the host machine, for example: `nc -lu 8000`
         socket

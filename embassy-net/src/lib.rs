@@ -130,7 +130,12 @@ impl<'d> Stack<'d> {
         let mut stack = xarxa::Stack::new(random_seed);
 
         #[cfg(feature = "dns")]
-        let dns = unwrap!(xarxa::dns::DnsClient::new(&mut stack, &[]).ok());
+        // The stack is brand new, so its UDP socket table can only be full if it
+        // has no slots at all.
+        let dns = unwrap!(
+            xarxa::dns::DnsClient::new(&mut stack, &[]).ok(),
+            "the DNS client needs a UDP socket, raise the `udp-socket-count-N` feature of xarxa"
+        );
 
         let inner = Inner {
             stack,

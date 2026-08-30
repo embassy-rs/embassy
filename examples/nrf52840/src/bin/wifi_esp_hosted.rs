@@ -87,7 +87,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<hosted::NetDriver<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)));
     iface.set_dhcpv4(Some(Default::default()));
 
     spawner.spawn(unwrap!(net_task(runner)));
@@ -98,7 +98,7 @@ async fn main(spawner: Spawner) {
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
 
-    let mut listener = TcpListener::new(stack);
+    let mut listener = unwrap!(TcpListener::new(stack));
     unwrap!(listener.listen(1234));
 
     loop {

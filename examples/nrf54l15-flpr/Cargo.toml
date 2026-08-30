@@ -16,5 +16,5 @@ riscv-rt = { version = "0.17.1", features = ["single-hart"] }
 
 [package.metadata.embassy]
 build = [
-    {group = "nightly", target = "riscv32emc-unknown-none-elf", "build-std" = ["core", "compiler_builtins"]}
+    {group = "nightly", target = "riscv32emc-unknown-none-elf", "build-std" = ["core", "compiler_builtins"], artifact-dir = "out/examples/nrf54l15-flpr"}
 ]

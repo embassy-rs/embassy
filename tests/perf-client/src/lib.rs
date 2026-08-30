@@ -43,7 +43,7 @@ async fn test_download(stack: Stack<'_>) -> usize {
 
     let mut rx_buffer = [0; RX_BUFFER_SIZE];
     let mut tx_buffer = [0; TX_BUFFER_SIZE];
-    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
     socket.set_timeout(Some(Duration::from_secs(10)));
 
     info!("connecting to {:?}:{}...", SERVER_ADDRESS, DOWNLOAD_PORT);
@@ -83,7 +83,7 @@ async fn test_upload(stack: Stack<'_>) -> usize {
 
     let mut rx_buffer = [0; RX_BUFFER_SIZE];
     let mut tx_buffer = [0; TX_BUFFER_SIZE];
-    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
     socket.set_timeout(Some(Duration::from_secs(10)));
 
     info!("connecting to {:?}:{}...", SERVER_ADDRESS, UPLOAD_PORT);
@@ -123,7 +123,7 @@ async fn test_upload_download(stack: Stack<'_>) -> usize {
 
     let mut rx_buffer = [0; RX_BUFFER_SIZE];
     let mut tx_buffer = [0; TX_BUFFER_SIZE];
-    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
     socket.set_timeout(Some(Duration::from_secs(10)));
 
     info!("connecting to {:?}:{}...", SERVER_ADDRESS, UPLOAD_DOWNLOAD_PORT);

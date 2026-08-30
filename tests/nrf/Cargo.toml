@@ -18,7 +18,7 @@ embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defm
 embassy-net-esp-hosted = { version = "0.3.0", path = "../../embassy-net-esp-hosted", features = ["defmt", "esp-hosted-fg"] }
 embassy-net-enc28j60 = { version = "0.3.0", path = "../../embassy-net-enc28j60", features = ["defmt"] }
 # Shrink the packet pool: the tests link everything into RAM, and the default 16 buffers don't fit.
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "8e3d55c1c8351ee7728a0cbe3a504a4223c81488", features = ["packet-buf-count-8"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "5923ce43a5540e07b887646e2627ddc0a29c5b47", features = ["packet-buf-count-8"] }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-bus = { version = "0.1", features = ["async"] }
 static_cell = "2"

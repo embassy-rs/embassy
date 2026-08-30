@@ -80,7 +80,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     iface.set_dhcpv4(Some(Default::default()));
 
     // Launch network task
@@ -95,7 +95,7 @@ async fn main(spawner: Spawner) {
     // Then we can use it!
     let mut buf = [0; 4096];
     loop {
-        let mut socket = UdpSocket::new(stack);
+        let mut socket = unwrap!(UdpSocket::new(stack));
         socket.bind(1234).unwrap();
 
         loop {
