@@ -32,6 +32,7 @@ const ROOT_RESET_MS: u64 = 50;
 const RESET_RECOVERY_MS: u64 = 10;
 /// Register writes need two clk_usb cycles to transfer; 12 clk_sys cycles cover this at the supported 150 MHz maximum.
 const USB_CLOCK_DELAY_CYCLES: u32 = 12;
+const SIE_START_DELAY_CYCLES: u32 = 12;
 
 /// Per-instance state shared between [`Driver`], [`Allocator`] and [`Channel`].
 pub struct HostState {
@@ -384,9 +385,8 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             w.set_error_rx_overflow(true);
         });
 
-        // Start transaction
-        // This field should be modified separately after delay
-        cortex_m::asm::delay(12);
+        // START_TRANS is synchronized separately (RP2040 §4.1.2.9, RP2350 §12.7.3.9).
+        cortex_m::asm::delay(SIE_START_DELAY_CYCLES);
         T::regs().sie_ctrl().modify(|w| {
             w.set_start_trans(true);
         });
@@ -541,8 +541,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         //     w.set_pulldown_en(true);
         // });
 
-        // FIXME: delay reason
-        cortex_m::asm::delay(12);
+        cortex_m::asm::delay(USB_CLOCK_DELAY_CYCLES);
         T::regs().int_ep_ctrl().modify(|w| {
             w.set_int_ep_active(w.int_ep_active() | 1 << (self.index - 1));
         });
