@@ -206,13 +206,34 @@ where
         self.start_regular_conversion();
 
         poll_fn(|cx| {
+            self.set_regular_end_of_conversion_interrupt(false);
             T::state().waker.register(cx.waker());
-
-            self.set_regular_end_of_conversion_interrupt(true);
 
             if let Some(result) = self.try_get_regular_result() {
                 Poll::Ready(result)
             } else {
+                self.set_regular_end_of_conversion_interrupt(true);
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    /// Trigger a injected conversion and read it asynchronously using interrupts
+    pub async fn read_injected(
+        &mut self,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T, M>>,
+    ) -> (i32, u8) {
+        self.start_injected_conversion();
+
+        poll_fn(|cx| {
+            self.set_injected_end_of_conversion_interrupt(false);
+            T::state().waker.register(cx.waker());
+
+            if let Some(result) = self.try_get_injected_result() {
+                Poll::Ready(result)
+            } else {
+                self.set_injected_end_of_conversion_interrupt(true);
                 Poll::Pending
             }
         })
@@ -311,7 +332,7 @@ where
         T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
     }
 
-    fn set_regular_channel(&mut self, ch: u8) {
+    fn set_regular_transceiver(&mut self, ch: u8) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rch(ch));
     }
 
@@ -322,7 +343,7 @@ where
             .modify(|w| w.set_jchg(w.jchg() | (1 << ch)));
     }
 
-    fn clear_injected_channel(&mut self, ch: u8) {
+    fn clear_injected_transceiver(&mut self, ch: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .jchgr()
@@ -340,7 +361,7 @@ where
         MODE: ChannelMode,
         PT: PowerState,
     {
-        self.set_regular_channel(channel.index() as u8);
+        self.set_regular_transceiver(channel.index() as u8);
         self
     }
 
@@ -360,7 +381,7 @@ where
     }
 
     /// Unassign the provided channel from the injected conversion group of this `Filter`
-    pub fn unassign_injected_channel<MT, S, MODE, PT>(
+    pub fn unassign_injected_transceiver<MT, S, MODE, PT>(
         mut self,
         channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
     ) -> Self
@@ -370,7 +391,7 @@ where
         MODE: ChannelMode,
         PT: PowerState,
     {
-        self.clear_injected_channel(channel.index() as u8);
+        self.clear_injected_transceiver(channel.index() as u8);
         self
     }
 
@@ -571,6 +592,14 @@ where
             .cr2()
             .modify(|w| w.set_jeocie(enabled));
     }
+
+    // Associated function test TODO
+    pub(crate) fn set_injected_end_of_conversion_interrupt_raw(enabled: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_jeocie(enabled));
+    }
 }
 
 impl<T, F> interrupt::typelevel::Handler<<T as FilterInterrupt<F>>::Interrupt> for InterruptHandler<T, F>
@@ -580,6 +609,7 @@ where
 {
     unsafe fn on_interrupt() {
         Filter::<T, F, Enabled>::set_regular_end_of_conversion_interrupt_raw(false);
+        Filter::<T, F, Enabled>::set_injected_end_of_conversion_interrupt_raw(false);
         <T as FilterInterrupt<F>>::state().waker.wake();
     }
 }
