@@ -669,6 +669,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             self.waker().register(cx.waker());
 
             if self.is_ready_for_transaction() {
+                #[cfg(feature = "_rp235x")]
                 if !Self::is_interrupt_in() {
                     disarm_epx_yield::<T>();
                 }
@@ -1471,9 +1472,14 @@ fn on_host_sof<T: SealedHostInstance>() -> &'static str {
         let state = T::host_state();
         let index = state.current_channel.load(Ordering::Acquire);
 
-        if index == 0 {
+        if state.with_arbiter(|a| a.waiting) == 0 {
+            // Nobody is queued for EPX, so there is nothing to yield to.
             disarm_epx_yield::<T>();
             "sof idle"
+        } else if index == 0 {
+            // EPX is free; the queue will claim it without a yield.
+            state.with_arbiter(|a| a.switch_requested = false);
+            "sof free"
         } else if state.with_arbiter(|a| a.switch_requested) {
             // Two frame boundaries with no EPX completion in between means
             // the holder is retrying NAKs. Stop it at this safe boundary
