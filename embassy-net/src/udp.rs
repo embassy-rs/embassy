@@ -4,6 +4,8 @@ use core::future::{Future, poll_fn};
 use core::task::{Context, Poll};
 
 pub use xarxa::driver::PacketMeta;
+#[cfg(feature = "iface-bind")]
+pub use xarxa::iface::IfaceHandle;
 use xarxa::udp::{self, UdpHandle};
 pub use xarxa::udp::{RecvPacket, UdpMetadata};
 use xarxa::wire::IpListenEndpoint;
@@ -108,6 +110,38 @@ impl<'d> UdpSocket<'d> {
             Err(udp::BindError::NoFreePorts) => Err(BindError::NoFreePorts),
             Err(udp::BindError::Unaddressable) => Err(BindError::Unaddressable),
         }
+    }
+
+    /// Bind the socket to an interface, or unbind it with `None`.
+    ///
+    /// A socket bound to an interface only sends and receives packets on it:
+    /// - Destinations must be on-link on that interface, or have a route through it.
+    /// - Broadcast and multicast destinations go out on that interface only.
+    /// - Local addresses are picked from that interface only.
+    ///
+    /// The socket must be closed. The binding is kept across [`close`](Self::close),
+    /// so a socket stays bound to its interface when it is bound again.
+    ///
+    /// Two sockets with otherwise identical tuples may coexist if they are bound
+    /// to different interfaces. On ingress, a socket bound to the arrival
+    /// interface wins over an unbound one with an equal tuple.
+    ///
+    /// Returns `Err(BindError::InvalidState)` if the socket is open.
+    #[cfg(feature = "iface-bind")]
+    pub fn bind_to_iface(&mut self, iface: Option<IfaceHandle>) -> Result<(), BindError> {
+        match self.with_mut(|s| s.bind_to_iface(iface)) {
+            Ok(()) => Ok(()),
+            Err(udp::BindError::InvalidState) => Err(BindError::InvalidState),
+            Err(_) => unreachable!(),
+        }
+    }
+
+    /// Return the interface the socket is bound to, or `None`.
+    ///
+    /// See [`bind_to_iface`](Self::bind_to_iface).
+    #[cfg(feature = "iface-bind")]
+    pub fn bound_iface(&self) -> Option<IfaceHandle> {
+        self.with(|s| s.bound_iface())
     }
 
     fn with<R>(&self, f: impl FnOnce(&mut udp::UdpSocket<'_, 'd>) -> R) -> R {

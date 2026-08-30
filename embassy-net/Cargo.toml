@@ -18,7 +18,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "packet-log", "ipv4", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "multicast", "ipv4", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dns", "medium-ethernet", "tcp", "udp"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-options", "dns", "medium-ethernet", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-options", "dns", "medium-ethernet", "hostname", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-options", "dns", "medium-ethernet", "slaac", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "ipv6", "slaac", "tcp", "udp"]},
@@ -27,18 +27,18 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "ipv4", "ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ip", "ipv4", "ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ip", "ipv4", "ipv6", "tcp", "udp"]},
-    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "tcp-listener", "udp", "raw"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "ipv4", "ipv6", "tcp", "udp", "packetmeta-id", "packetmeta-timestamp"]},
 ]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["defmt", "tcp", "tcp-listener", "udp", "raw", "dns", "dhcpv4", "dhcpv4-options", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp"]
+features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "hostname", "dns", "dhcpv4", "dhcpv4-options", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp"]
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["defmt", "tcp", "tcp-listener", "udp", "raw", "dns", "dhcpv4", "dhcpv4-options", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp"]
+features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "hostname", "dns", "dhcpv4", "dhcpv4-options", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp"]
 
 [features]
 ## Enable APIs that use the heap.
@@ -65,8 +65,12 @@ ipv4-fragmentation = ["ipv4", "xarxa/ipv4-fragmentation"]
 ipv4-reassembly = ["ipv4", "xarxa/ipv4-reassembly"]
 ## Support IPv6 (and, with `medium-ethernet`, NDISC).
 ipv6 = ["xarxa/ipv6"]
-## Raw sockets.
-raw = ["xarxa/raw"]
+# Raw socket machinery shared by both modes. Private, do not enable directly.
+_raw = []
+## Ethernet-mode raw sockets: send and receive whole Ethernet frames. Needs `medium-ethernet`.
+raw-ethernet = ["_raw", "medium-ethernet", "xarxa/raw-ethernet"]
+## IP-mode raw sockets: send and receive whole IP packets.
+raw-ip = ["_raw", "xarxa/raw-ip"]
 ## UDP sockets.
 udp = ["xarxa/udp"]
 ## TCP sockets.
@@ -77,6 +81,9 @@ tcp-listener = ["tcp", "xarxa/tcp-listener"]
 dhcpv4 = ["ipv4", "medium-ethernet", "xarxa/dhcpv4"]
 ## Allow reading received DHCP options.
 dhcpv4-options = ["dhcpv4", "xarxa/dhcpv4-options"]
+## Give the stack a hostname, with `Stack::set_hostname`. If set, it is sent
+## to the DHCP server in outgoing DHCP messages.
+hostname = ["xarxa/hostname"]
 ## IPv6 stateless address autoconfiguration (SLAAC). Needs `ipv6`, and
 ## `medium-ethernet` or `medium-ieee802154`.
 slaac = ["ipv6", "xarxa/slaac"]
@@ -92,6 +99,9 @@ tcp-timestamps = ["tcp", "xarxa/tcp-timestamps"]
 tcp-sack = ["tcp", "xarxa/tcp-sack"]
 ## Automatically reply to pings (ICMP echo requests).
 icmp-ping-reply = ["xarxa/icmp-ping-reply"]
+## Bind sockets to an interface with `bind_to_iface`. A bound socket only
+## receives packets that arrive on that interface, and only sends out of it.
+iface-bind = ["xarxa/iface-bind"]
 ## Deliver incoming ICMP error messages (destination unreachable, packet too big, ...) to
 ## the sockets that provoked them.
 icmp-errors = ["xarxa/icmp-errors"]
@@ -126,7 +136,7 @@ packet-log = ["xarxa/packet-log"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "85784cb2f84a73c2e1ce4a5405b7666ad9361f71", default-features = false, features = ["async"] }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "8e3d55c1c8351ee7728a0cbe3a504a4223c81488", default-features = false, features = ["async"] }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
