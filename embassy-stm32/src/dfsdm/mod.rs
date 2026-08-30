@@ -997,7 +997,7 @@ where
     where
         S: HasData,
     {
-        self.select_channel_input(config_types::ChannelInput::Neighbor);
+        self.select_channel_input(config_types::ChannelInput::Same);
         self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
         self.select_serial_interface_type(mode.into());
         self.select_spi_clock(mode.into());

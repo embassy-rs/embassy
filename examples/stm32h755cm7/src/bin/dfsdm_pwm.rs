@@ -8,11 +8,13 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
 use embassy_stm32::dfsdm::{FilterConfig, TransceiverConfig, TransceiverConfigOnline};
-use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
-use embassy_stm32::time::Hertz;
+use embassy_stm32::time::{Hertz, khz};
+use embassy_stm32::timer::simple_pwm::{PwmPin, PwmPinConfig, SimplePwm, SimplePwmChannel, SimplePwmChannels};
 use embassy_stm32::{SharedData, dfsdm};
+use embedded_hal::Pwm;
 use panic_probe as _;
 
 #[unsafe(link_section = ".ram_d3.shared_data")]
@@ -49,20 +51,35 @@ async fn main(_spawner: Spawner) {
     //==================================================
 
     // A0   PA3     MIC_SEL
-    // A2   PC3_C   MIC_CLK
-    // A4   PC2_C   MIT_DAT
+    // A2   PC3_C   MIT_DAT
+    // A4   PC2_C   MIC_CLK
 
     let p = embassy_stm32::init_primary(config, &SHARED_DATA);
     info!("Hello World!");
 
-    // let mut led = Output::new(p.PB0, Level::High, Speed::Low);
-    // let mut led = Output::new(p.PB3, Level::High, Speed::Low);
-    // let mut led = Output::new(p.PE1, Level::High, Speed::Low);
+    // let mut ld1 = Output::new(p.PB0, Level::High, Speed::Low);
+    // let mut ld2 = Output::new(p.PE1, Level::High, Speed::Low);
+    // let mut ld3 = Output::new(p.PB14, Level::High, Speed::Low);
+
+    let ld2_pwm_pin: PwmPin<'_, embassy_stm32::peripherals::TIM12, embassy_stm32::timer::Ch1> =
+        PwmPin::new(p.PB14, OutputType::PushPull);
+    let mut pwm = SimplePwm::new(
+        p.TIM12,
+        Some(ld2_pwm_pin),
+        None,
+        None,
+        None,
+        khz(10),
+        Default::default(),
+    );
+    let mut pwm_ld2 = pwm.ch1();
+    pwm_ld2.enable();
 
     // Setup mic as left channel, data is valid at clock low, to rising clock edge samples signal
     let _mic_sel = Output::new(p.PA3, Level::Low, Speed::Low);
 
-    let prescaler = rcc::frequency::<DFSDM1>() / Hertz::mhz(2);
+    let mic_clk_freq = Hertz::mhz(2);
+    let prescaler = rcc::frequency::<DFSDM1>() / mic_clk_freq;
 
     println!("Trying prescaler={}", prescaler);
     // Start driver instantiation using DFSDM1 with a CKOUT pin on pin C2
@@ -97,9 +114,17 @@ async fn main(_spawner: Spawner) {
 
     //TODO the enable semantics should really also be linked to channel assignments in filters?
 
+    let prescaler = mic_clk_freq / Hertz::hz(200); // =~ 10000
+    let ford: u8 = 2;
+    let fosr: u16 = 1000;
+    let iosr: u16 = 10;
+    let gain = (fosr as u32).pow(ford as u32) * iosr as u32;
+    // 200Hz 3dB frequency
+
     let flt_cfg = FilterConfig {
         // filter_cfg: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 5 }, 4).expect("This is inside the bounds"),
-        filter_cfg: FilterParameters::try_new(FilterOrder::Sinc2 { fosr: 32 }, 2).expect("This is inside the bounds"),
+        filter_cfg: FilterParameters::try_new(FilterOrder::Sinc2 { fosr: fosr }, iosr)
+            .expect("This is inside the bounds"),
     };
     let mut flt0 = split
         .flt0
@@ -109,13 +134,34 @@ async fn main(_spawner: Spawner) {
 
     flt0.start_regular_conversion();
 
+    const DECAY_SHIFT: u32 = 6;
+    let mut envelope: u32 = 0;
+
     loop {
         // ch_test.write_sample_standard(10);
-        if let Some((data, channel, rpend)) = flt0.try_read_regular_result() {
-            println!("New regular 0: ");
-            println!("Channel: {}", channel);
-            println!("Value: {}", data);
-            println!("Delayed: {}", rpend);
+        if let Some((data, _channel, _rpend)) = flt0.try_read_regular_result() {
+            let abs = data.abs() as u32;
+
+            if abs > envelope {
+                // Fast attack: diode "conducts" and instantly charges the capacitor
+                envelope = abs;
+            } else {
+                // Exponential decay: capacitor drains through a resistor.
+                // Using bit shift (>> DECAY_SHIFT) is the no_std equivalent of
+                // envelope = envelope - (envelope * 0.015)
+                let decay_step = envelope >> DECAY_SHIFT;
+
+                // Ensure we always subtract at least 1 so we don't get stuck
+                // slightly above zero forever.
+                if decay_step > 0 {
+                    envelope -= decay_step;
+                } else if envelope > 0 {
+                    envelope -= 1;
+                }
+            }
+
+            let duty = ((abs as u64) * (pwm_ld2.max_duty_cycle() as u64) / (gain as u64)) as u32;
+            pwm_ld2.set_duty_cycle(duty);
             flt0.start_regular_conversion();
         }
 
