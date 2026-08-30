@@ -26,6 +26,8 @@ use crate::usb::EP_MEMORY_SIZE;
 use crate::{Peri, RegExt};
 
 const MAIN_BUFFER_SIZE: usize = 1024;
+/// Register writes need two clk_usb cycles to transfer; 12 clk_sys cycles cover this at the supported 150 MHz maximum.
+const USB_CLOCK_DELAY_CYCLES: u32 = 12;
 
 /// Per-instance state shared between [`Driver`], [`Allocator`] and [`Channel`].
 pub struct HostState {
@@ -219,23 +221,26 @@ impl<T: SealedHostInstance> TransactionGuard<T> {
 
 impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
     fn drop(&mut self) {
+        // Dedicated interrupt endpoints belong to the pipe
+        if self.interrupt {
+            return;
+        }
+
         let selected = self.state.current_channel.load(Ordering::Relaxed);
-        if self.interrupt || selected == self.index || selected == 0 {
-            if !self.interrupt {
-                if self.transaction_active && self.abort_on_drop {
-                    let regs = T::regs();
-                    regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
-                    while regs.sie_ctrl().read().stop_trans() {}
-                    regs.sie_status().write_clear(|w| {
-                        w.set_trans_complete(true);
-                        w.set_stall_rec(true);
-                        w.set_rx_timeout(true);
-                        w.set_rx_overflow(true);
-                    });
-                    regs.buff_status().write_clear(|w| w.0 = 0b11);
-                }
-                self.state.current_channel.store(0, Ordering::Relaxed);
+        if selected == self.index || selected == 0 {
+            if self.transaction_active && self.abort_on_drop {
+                let regs = T::regs();
+                regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
+                while regs.sie_ctrl().read().stop_trans() {}
+                regs.sie_status().write_clear(|w| {
+                    w.set_trans_complete(true);
+                    w.set_stall_rec(true);
+                    w.set_rx_timeout(true);
+                    w.set_rx_overflow(true);
+                });
+                regs.buff_status().write_clear(|w| w.0 = 0b11);
             }
+            self.state.current_channel.store(0, Ordering::Relaxed);
 
             self.ep_control.modify(|w| {
                 w.set_interrupt_per_buff(false);
@@ -265,6 +270,24 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             0
         };
         T::dpram().ep_in_buffer_control(index)
+    }
+
+    /// Give the buffer to the USB controller only after the rest of its
+    /// control fields have crossed into the USB clock domain.
+    fn write_buffer_control(&self, f: impl FnOnce(&mut rp_pac::usb_dpram::regs::EpBufferControl)) {
+        let reg = self.buffer_control();
+        let mut value = Default::default();
+        f(&mut value);
+
+        let available = value.available(0);
+        value.set_available(0, false);
+        reg.write_value(value);
+
+        if available {
+            cortex_m::asm::delay(USB_CLOCK_DELAY_CYCLES);
+            value.set_available(0, true);
+            reg.write_value(value);
+        }
     }
 
     /// Get endpoint control register
@@ -495,8 +518,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     /// Reload interrupt channel buffer register
     fn interrupt_reload(&mut self) {
         assert!(E::ep_type() == EndpointType::Interrupt);
-        let ctrl = self.buffer_control();
-        ctrl.write(|w| {
+        self.write_buffer_control(|w| {
             w.set_last(0, true);
             w.set_pid(0, self.pid);
             w.set_full(0, false);
@@ -529,7 +551,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             pid
         };
 
-        self.buffer_control().write(|w| {
+        self.write_buffer_control(|w| {
             w.set_pid(0, pid);
             w.set_full(0, false);
             w.set_length(0, len);
@@ -563,7 +585,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
         self.buf.write(&chunk);
 
-        self.buffer_control().write(|w| {
+        self.write_buffer_control(|w| {
             w.set_available(0, true);
             w.set_pid(0, pid);
             w.set_full(0, true);
@@ -708,10 +730,13 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
         let res = loop {
             if Self::is_interrupt_in() {
-                trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
-                self.interrupt_reload();
-                self.wait_available().await;
-                self.advance_pid();
+                // Consume completed packet that may have arrived after last poll.
+                // Reloading would discard the packet that hardware already ACKed.
+                if !self.buffer_control().read().full(0) {
+                    trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
+                    self.interrupt_reload();
+                    self.wait_available().await;
+                }
             } else {
                 trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
                 let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
@@ -735,6 +760,12 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
             self.buf.read(&mut free[..rx_len]);
             count += rx_len;
+
+            if Self::is_interrupt_in() {
+                self.advance_pid();
+                self.interrupt_reload();
+                break Ok(count);
+            }
 
             // If transfer is smaller than max_packet_size, we are done
             // If we have read buf.len() bytes, we are done
