@@ -11,7 +11,6 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::ptr;
-use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
@@ -336,6 +335,13 @@ where
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rch(ch));
     }
 
+    fn set_injected_channels(&mut self, channels: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .jchgr()
+            .write(|w| w.set_jchg(channels));
+    }
+
     fn set_injected_channel(&mut self, ch: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
@@ -365,6 +371,14 @@ where
         self
     }
 
+    /// Assign transceivers to the injected conversion group of this `Filter`
+    ///
+    /// Note: Overwrites all assignments.
+    pub fn assign_injected_transceivers(mut self, transceivers: &[&dyn TransceiverTrait<T>]) -> Self {
+        let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
+        self.set_injected_channels(filterword);
+        self
+    }
     /// Assign the provided `Transceiver` to the injected conversion group of this `Filter`
     pub fn assign_injected_transceiver<MT, S, MODE, PT>(
         mut self,
@@ -381,6 +395,8 @@ where
     }
 
     /// Unassign the provided channel from the injected conversion group of this `Filter`
+    ///
+    /// Warning: Can't unassign the last remaining transceiver as the group always needs at least one.
     pub fn unassign_injected_transceiver<MT, S, MODE, PT>(
         mut self,
         channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,

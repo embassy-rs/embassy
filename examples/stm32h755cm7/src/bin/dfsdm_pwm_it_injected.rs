@@ -114,7 +114,6 @@ async fn main(_spawner: Spawner) {
         .new_spi_int(InternalSpiMode::SpiRising)
         .configure(&tcv_cfg, &tcv_cfg_online)
         .enable();
-    let dummy_ch0 = split.ch0.new_parallel_adc();
 
     //TODO the enable semantics should really also be linked to channel assignments in filters?
 
@@ -132,12 +131,8 @@ async fn main(_spawner: Spawner) {
         .flt0
         .configure(&flt_cfg)
         .assign_regular_transceiver(&channel_mic)
-        .assign_injected_transceiver(&channel_mic)
-        .unassign_injected_transceiver(&dummy_ch0)
+        .assign_injected_transceivers(&[&channel_mic])
         .enable();
-
-    // flt0.start_regular_conversion();
-    // flt0.start_regular_conversion();
 
     let mut dc_offset: i32 = 0;
     let mut bass_signal: i32 = 0;
@@ -208,7 +203,6 @@ async fn main(_spawner: Spawner) {
     const STATS_INTERVAL_US: u64 = 1_000_000; // report every 1s
 
     loop {
-        // let (data, _channel, _rpend) = flt0.read_regular(Irqs).await;
         let (data, _channel) = flt0.read_injected(Irqs).await;
 
         let result_ready_at = Instant::now();

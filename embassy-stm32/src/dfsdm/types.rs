@@ -702,28 +702,18 @@ dma_trait!(Dma, Instance, FilterMarker); //TODO
 
 /// Trait for filters to generify them for TODO?
 pub trait FilterTrait<M: FilterMarker>: sealed::Sealed {
-    /// Get filter identifier
-    fn filter(&self) -> FilterChannel {
-        M::CHANNEL
-    }
-
     /// Get filter index
-    fn index(&self) -> usize {
-        M::CHANNEL.index()
-    }
+    fn index(&self) -> usize;
 }
 
-/// Trait for transceivers to generify them for Filterconfiguration
-pub trait TransceiverTrait<M: TransceiverMarker>: sealed::Sealed {
-    /// Get transceiver identifier
-    fn transceiver(&self) -> TransceiverChannel {
-        <M as TransceiverMarker>::CHANNEL
-    }
-
+/// Trait for transceivers to generify all transceivers
+/// over one instance for Filterconfiguration
+pub trait TransceiverTrait<T>: sealed::Sealed
+where
+    T: Instance,
+{
     /// Get transceiver index
-    fn index(&self) -> usize {
-        M::CHANNEL.index()
-    }
+    fn index(&self) -> usize;
 }
 
 impl<'a, 'd, T, M, S, MODE, P> sealed::Sealed for Transceiver<'a, 'd, T, M, S, MODE, P>
@@ -735,8 +725,7 @@ where
     P: PowerState,
 {
 }
-
-impl<'a, 'd, T, M, S, MODE, P> TransceiverTrait<M> for Transceiver<'a, 'd, T, M, S, MODE, P>
+impl<'a, 'd, T, M, S, MODE, P> TransceiverTrait<T> for Transceiver<'a, 'd, T, M, S, MODE, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
@@ -744,6 +733,9 @@ where
     MODE: ChannelMode,
     P: PowerState,
 {
+    fn index(&self) -> usize {
+        M::CHANNEL.index()
+    }
 }
 
 // =============================================================================
