@@ -55,6 +55,39 @@ const NAK_POLL_DELAY_YIELD: u16 = 300;
 #[cfg(feature = "rp2040")]
 const NAK_POLL_DELAY_NORMAL: u16 = 16;
 
+/// Bits reserved per EPX pipe in [`HostState::epx_error`].
+const EPX_ERROR_BITS: usize = 4;
+/// Mask of one pipe's error field.
+const EPX_ERROR_MASK: u64 = (1 << EPX_ERROR_BITS) - 1;
+
+/// Terminal errors the interrupt handler can record, packed [`EPX_ERROR_BITS`] wide.
+/// Zero means no error, so the whole field clears to "nothing recorded".
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u64)]
+enum EpxError {
+    BadResponse = 1,
+    DataToggle = 2,
+}
+
+impl EpxError {
+    fn from_code(code: u64) -> Option<Self> {
+        match code {
+            1 => Some(Self::BadResponse),
+            2 => Some(Self::DataToggle),
+            _ => None,
+        }
+    }
+}
+
+impl From<EpxError> for PipeError {
+    fn from(error: EpxError) -> Self {
+        match error {
+            EpxError::BadResponse => PipeError::BadResponse,
+            EpxError::DataToggle => PipeError::DataToggleError,
+        }
+    }
+}
+
 /// Who holds EPX, who is queued for it, and what the interrupt recorded for a
 /// transfer that was stopped.
 struct EpxArbiter {
@@ -65,6 +98,10 @@ struct EpxArbiter {
     /// Bitset of EPX pipes whose packet landed as the transfer was being stopped.
     /// `STOP_TRANS` suppresses `trans_complete`, so the completion is reported here.
     completed: u16,
+    /// Terminal error seen by the interrupt handler, [`EPX_ERROR_BITS`] per EPX pipe.
+    /// Clearing the status bit is what stops the interrupt re-firing, so the reason has
+    /// to be carried in software for the waiting transfer to see it.
+    error: u64,
     /// Slot that last held EPX. The queue is served starting after it, so a pipe
     /// that just released goes to the back.
     last: usize,
@@ -81,6 +118,7 @@ impl EpxArbiter {
             yielded: 0,
             waiting: 0,
             completed: 0,
+            error: 0,
             last: 0,
             #[cfg(feature = "rp2040")]
             switch_requested: false,
@@ -125,6 +163,25 @@ impl EpxArbiter {
         let was = self.completed & (1 << slot) != 0;
         self.completed &= !(1 << slot);
         was
+    }
+
+    fn mark_error(&mut self, slot: usize, error: EpxError) {
+        let shift = slot * EPX_ERROR_BITS;
+        self.error = (self.error & !(EPX_ERROR_MASK << shift)) | ((error as u64) << shift);
+    }
+
+    fn take_error(&mut self, slot: usize) -> Option<PipeError> {
+        let shift = slot * EPX_ERROR_BITS;
+        let code = (self.error >> shift) & EPX_ERROR_MASK;
+        self.error &= !(EPX_ERROR_MASK << shift);
+        EpxError::from_code(code).map(PipeError::from)
+    }
+
+    /// Void any outcome the interrupt recorded for a pipe's finished attempt.
+    fn discard_outcome(&mut self, slot: usize) {
+        self.take_completed(slot);
+        self.take_error(slot);
+        self.take_yielded(slot);
     }
 }
 
@@ -222,9 +279,26 @@ impl HostState {
         self.with_arbiter(|a| a.take_completed(slot))
     }
 
+    /// Record a terminal error against the pipe currently holding EPX.
+    fn mark_epx_error(&self, index: usize, error: EpxError) {
+        if let Some(slot) = Self::epx_slot(index) {
+            self.with_arbiter(|a| a.mark_error(slot, error));
+        }
+    }
+
+    /// Take any terminal error recorded for a pipe.
+    fn take_epx_error(&self, slot: usize) -> Option<PipeError> {
+        self.with_arbiter(|a| a.take_error(slot))
+    }
+
     /// Clear a pipe's yield bit, returning whether it was set.
     fn take_epx_yielded(&self, slot: usize) -> bool {
         self.with_arbiter(|a| a.take_yielded(slot))
+    }
+
+    /// Void any outcome the interrupt recorded for a pipe's finished attempt.
+    fn discard_epx_outcome(&self, slot: usize) {
+        self.with_arbiter(|a| a.discard_outcome(slot));
     }
 }
 
@@ -419,6 +493,13 @@ fn note_epx_progress<T: SealedHostInstance>() {
     T::host_state().with_arbiter(|a| a.switch_requested = false);
 }
 
+/// Record a terminal error against the EPX owner and wake it.
+fn record_epx_error<T: SealedHostInstance>(error: EpxError) {
+    let state = T::host_state();
+    state.mark_epx_error(state.current_channel.load(Ordering::Acquire), error);
+    state.wake_current_epx();
+}
+
 /// Hand EPX from the pipe at `index` to whoever is queued for it. Returns `true` when the
 /// transfer was stopped short; a packet landing as the stop takes effect stays with its owner.
 fn yield_epx<T: SealedHostInstance>(index: usize) -> bool {
@@ -532,8 +613,7 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
                 // it: a cancelled transfer never consumes them, and the next transaction
                 // on this pipe would otherwise take one as its own and report a success,
                 // failure or yield that never happened.
-                self.state.take_epx_completed(slot);
-                self.state.take_epx_yielded(slot);
+                self.state.discard_epx_outcome(slot);
             }
             self.state.current_channel.store(0, Ordering::Release);
             disarm_epx_yield::<T>();
@@ -715,6 +795,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         let res = poll_fn(|cx| {
             self.waker().register(cx.waker());
 
+            if let Some(error) = T::host_state().take_epx_error(self.epx_slot()) {
+                return Poll::Ready(Err(error));
+            }
             if T::host_state().take_epx_completed(self.epx_slot()) {
                 return Poll::Ready(Ok(TransactionStatus::Complete));
             }
@@ -1220,8 +1303,7 @@ impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
             let state = T::host_state();
             // Return the EPX buffer and the pipe slot to the pool.
             free_epx_mem(state, self.buf.addr, self.buf.len);
-            state.take_epx_yielded(self.epx_slot());
-            state.take_epx_completed(self.epx_slot());
+            state.discard_epx_outcome(self.epx_slot());
             critical_section::with(|_| {
                 let epx = &state.allocated_epx;
                 epx.store(
@@ -1562,6 +1644,18 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
                     }
                 }
                 "^^^"
+            } else if ints.error_crc() {
+                regs.sie_status().write_clear(|w| w.set_crc_error(true));
+                record_epx_error::<T>(EpxError::BadResponse);
+                "crc error"
+            } else if ints.error_bit_stuff() {
+                regs.sie_status().write_clear(|w| w.set_bit_stuff_error(true));
+                record_epx_error::<T>(EpxError::BadResponse);
+                "bit stuff error"
+            } else if ints.error_data_seq() {
+                regs.sie_status().write_clear(|w| w.set_data_seq_error(true));
+                record_epx_error::<T>(EpxError::DataToggle);
+                "data sequence error"
             } else if ints.host_sof() {
                 on_host_sof::<T>()
             } else {
