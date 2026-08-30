@@ -59,6 +59,11 @@ const NAK_POLL_DELAY_NORMAL: u16 = 16;
 struct EpxArbiter {
     /// Bitset of EPX pipes whose transaction was stopped at a NAK boundary.
     yielded: u16,
+    /// Bitset of EPX pipes queued in `wait_ready_for_transaction`.
+    waiting: u16,
+    /// Slot that last held EPX. The queue is served starting after it, so a pipe
+    /// that just released goes to the back.
+    last: usize,
     /// RP2040 only: set on the first SOF of a contended EPX transfer, so the
     /// second SOF with no completion in between can stop it.
     #[cfg(feature = "rp2040")]
@@ -70,8 +75,30 @@ impl EpxArbiter {
     const fn new() -> Self {
         Self {
             yielded: 0,
+            waiting: 0,
+            last: 0,
             #[cfg(feature = "rp2040")]
             switch_requested: false,
+        }
+    }
+
+    /// Slot whose turn it is to take a free EPX: the first queued pipe after the one
+    /// that last held it. `None` when nobody is queued.
+    fn turn(&self) -> Option<usize> {
+        if self.waiting == 0 {
+            return None;
+        }
+        (1..=EPX_MAX_PIPES)
+            .map(|step| (self.last + step) % EPX_MAX_PIPES)
+            .find(|slot| self.waiting & (1 << slot) != 0)
+    }
+
+    /// Queue a pipe for EPX, or take it out of the queue.
+    fn set_waiting(&mut self, slot: usize, waiting: bool) {
+        if waiting {
+            self.waiting |= 1 << slot;
+        } else {
+            self.waiting &= !(1 << slot);
         }
     }
 
@@ -153,6 +180,12 @@ impl HostState {
                 self.epx_wakers[slot].wake();
             }
         }
+    }
+
+    /// Slot whose turn it is to take a free EPX: the first queued pipe at or after
+    /// the one following [`HostState::epx_last`]. `None` when nobody is queued.
+    fn epx_turn(&self) -> Option<usize> {
+        self.with_arbiter(|a| a.turn())
     }
 
     /// Record that the pipe holding EPX had its transaction stopped.
@@ -370,6 +403,30 @@ fn yield_epx<T: SealedHostInstance>(index: usize) {
     state.wake_all_epx();
 }
 
+/// Queue membership for a pipe waiting on EPX. Clearing the bit on drop keeps a
+/// cancelled wait from stalling the rotation on a pipe that will never claim it.
+struct WaitTicket<T: SealedHostInstance> {
+    slot: usize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: SealedHostInstance> WaitTicket<T> {
+    fn new(slot: usize) -> Self {
+        T::host_state().with_arbiter(|a| a.set_waiting(slot, true));
+
+        Self {
+            slot,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T: SealedHostInstance> Drop for WaitTicket<T> {
+    fn drop(&mut self) {
+        T::host_state().with_arbiter(|a| a.set_waiting(self.slot, false));
+    }
+}
+
 /// Outcome of one EPX transaction attempt.
 enum TransactionStatus {
     /// The transaction ran to completion.
@@ -419,6 +476,9 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
                     w.set_rx_overflow(true);
                 });
                 regs.buff_status().write_clear(|w| w.0 = 0b11);
+            }
+            if let Some(slot) = HostState::epx_slot(self.index) {
+                self.state.with_arbiter(|a| a.last = slot);
             }
             self.state.current_channel.store(0, Ordering::Release);
             disarm_epx_yield::<T>();
@@ -526,13 +586,29 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         if Self::is_interrupt_in() {
             true
         } else {
-            let sel = T::host_state().current_channel.load(Ordering::Relaxed);
-            sel == self.index || sel == 0
+            let state = T::host_state();
+            let sel = state.current_channel.load(Ordering::Relaxed);
+            if sel == self.index {
+                return true;
+            }
+            if sel != 0 {
+                return false;
+            }
+
+            // EPX is free: take it only when the queue says it is our turn, so a
+            // pipe that keeps re-arming cannot monopolise the endpoint.
+            match state.epx_turn() {
+                Some(slot) => slot == self.epx_slot(),
+                None => true,
+            }
         }
     }
 
     async fn wait_ready_for_transaction(&self) {
         trace!("CHANNEL {} WAIT READY", self.index);
+
+        // Join the queue for EPX. Dropped with this future, cancelled or not.
+        let _ticket = (!Self::is_interrupt_in()).then(|| WaitTicket::<T>::new(self.epx_slot()));
         // Wait for other transaction end
         poll_fn(|cx| {
             self.waker().register(cx.waker());
