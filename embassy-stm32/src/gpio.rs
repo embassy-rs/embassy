@@ -609,6 +609,15 @@ impl AfType {
             pull: Pull::None,
         }
     }
+
+    /// Output with output type, speed and pull-up or pull-down;
+    pub const fn output_pull(output_type: OutputType, speed: Speed, pull: Pull) -> Self {
+        Self {
+            mode: speed.to_mode(),
+            cnf: output_type.to_cnf_out().to_bits(),
+            pull,
+        }
+    }
 }
 
 #[inline(never)]
