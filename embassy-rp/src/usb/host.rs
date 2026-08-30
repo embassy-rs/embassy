@@ -95,12 +95,14 @@ struct EpxArbiter {
     yielded: u16,
     /// Bitset of EPX pipes queued in `wait_ready_for_transaction`.
     waiting: u16,
+    /// Whether EPX has a transaction armed. Framing errors come from the shared RX
+    /// engine, so they are only charged to EPX while it is mid-transaction.
+    armed: bool,
     /// Bitset of EPX pipes whose packet landed as the transfer was being stopped.
     /// `STOP_TRANS` suppresses `trans_complete`, so the completion is reported here.
     completed: u16,
-    /// Terminal error seen by the interrupt handler, [`EPX_ERROR_BITS`] per EPX pipe.
-    /// Clearing the status bit is what stops the interrupt re-firing, so the reason has
-    /// to be carried in software for the waiting transfer to see it.
+    /// Terminal error per EPX pipe, [`EPX_ERROR_BITS`] wide. Clearing the status bit is
+    /// what stops the interrupt re-firing, so the reason is carried here instead.
     error: u64,
     /// Slot that last held EPX. The queue is served starting after it, so a pipe
     /// that just released goes to the back.
@@ -117,6 +119,7 @@ impl EpxArbiter {
         Self {
             yielded: 0,
             waiting: 0,
+            armed: false,
             completed: 0,
             error: 0,
             last: 0,
@@ -446,9 +449,8 @@ type BufferControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpBufferCon
 type EpControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpControl, rp_pac::common::RW>;
 type AddrControlReg = rp_pac::common::Reg<rp_pac::usb::regs::AddrEndpX, rp_pac::common::RW>;
 
-/// Ask the controller to stop the in-flight EPX transaction at its next safe boundary,
-/// so a queued pipe can take the endpoint. Armed only while contended: otherwise an idle
-/// bulk IN would trip the mechanism for every NAK it retries.
+/// Stop the in-flight EPX transaction at its next safe boundary so a queued pipe can take
+/// the endpoint. Armed only while contended, or an idle bulk IN would trip it on every NAK.
 fn arm_epx_yield<T: SealedHostInstance>() {
     #[cfg(feature = "_rp235x")]
     {
@@ -496,6 +498,13 @@ fn note_epx_progress<T: SealedHostInstance>() {
 /// Record a terminal error against the EPX owner and wake it.
 fn record_epx_error<T: SealedHostInstance>(error: EpxError) {
     let state = T::host_state();
+
+    // With no EPX transaction in flight the error belongs to a polled endpoint. One
+    // raised while EPX is also active is still charged here; the source is unknowable.
+    if !state.with_arbiter(|a| a.armed) {
+        return;
+    }
+
     state.mark_epx_error(state.current_channel.load(Ordering::Acquire), error);
     state.wake_current_epx();
 }
@@ -505,9 +514,8 @@ fn record_epx_error<T: SealedHostInstance>(error: EpxError) {
 fn yield_epx<T: SealedHostInstance>(index: usize) -> bool {
     let state = T::host_state();
 
-    // Sample after the stop. The processor sets `full` when arming an OUT and the
-    // controller sets it on a received IN, so the test is direction-dependent:
-    // still `available`, or the buffer in its armed state, means nothing moved.
+    // Sample after the stop. `full` is set by the processor when arming an OUT and by the
+    // controller on a received IN, so what counts as "nothing moved" depends on direction.
     let buf_ctrl = T::dpram().ep_in_buffer_control(0);
     let bc = buf_ctrl.read();
     let is_out = T::regs().sie_ctrl().read().send_data();
@@ -576,10 +584,12 @@ struct TransactionGuard<T: SealedHostInstance> {
 impl<T: SealedHostInstance> TransactionGuard<T> {
     fn arm(&mut self) {
         self.transaction_active = true;
+        self.state.with_arbiter(|a| a.armed = true);
     }
 
     fn disarm(&mut self) {
         self.transaction_active = false;
+        self.state.with_arbiter(|a| a.armed = false);
     }
 }
 
@@ -609,12 +619,11 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
             if let Some(slot) = HostState::epx_slot(self.index) {
                 self.state.with_arbiter(|a| a.last = slot);
 
-                // This attempt is over. Discard any outcome the interrupt recorded for
-                // it: a cancelled transfer never consumes them, and the next transaction
-                // on this pipe would otherwise take one as its own and report a success,
-                // failure or yield that never happened.
+                // This attempt is over. A cancelled transfer never consumes its recorded
+                // outcome, and the next transaction would take it as its own.
                 self.state.discard_epx_outcome(slot);
             }
+            self.state.with_arbiter(|a| a.armed = false);
             self.state.current_channel.store(0, Ordering::Release);
             disarm_epx_yield::<T>();
             self.state.wake_all_epx();
@@ -943,13 +952,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             w.set_available(0, true);
         });
 
-        // TODO: SOF?
-        // T::regs().sie_ctrl().modify(|w| {
-        //     w.set_sof_en(true);
-        //     w.set_keep_alive_en(true);
-        //     w.set_pulldown_en(true);
-        // });
-
         cortex_m::asm::delay(USB_CLOCK_DELAY_CYCLES);
         T::regs().int_ep_ctrl().modify(|w| {
             w.set_int_ep_active(w.int_ep_active() | 1 << (self.index - 1));
@@ -1045,10 +1047,8 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             guard.arm();
             let result = self.wait_transaction().await;
 
-            // Only a completed transaction is known to have released the SIE. The
-            // datasheet does not say the engine abandons a transfer on a framing error,
-            // so on any other outcome the guard stays armed and its `Drop` issues
-            // STOP_TRANS before the endpoint registers are torn down.
+            // Only a completed transaction is known to have released the SIE, so any other
+            // outcome leaves the guard armed and its `Drop` issues STOP_TRANS.
             match result? {
                 TransactionStatus::Complete => {
                     guard.disarm();
@@ -1485,11 +1485,8 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
 
         self.connected = matches!(ev, DeviceEvent::Connected(_));
 
-        // Per the `UsbHostController` contract, drive a bus reset before
-        // reporting the attach so the device transitions from the Powered
-        // into the Default state (USB 2.0 §9.1.2). RP2040 is full-speed
-        // only, so no chirp handshake occurs and the speed observed before
-        // reset is authoritative after reset — no re-read is needed.
+        // Per the `UsbHostController` contract, reset before reporting the attach so the
+        // device leaves Powered for Default (USB 2.0 §9.1.2). Full-speed only, so no chirp.
         if matches!(ev, DeviceEvent::Connected(_)) {
             self.bus_reset().await;
         }
@@ -1563,9 +1560,8 @@ fn on_host_sof<T: SealedHostInstance>() -> &'static str {
             state.with_arbiter(|a| a.switch_requested = false);
             "sof free"
         } else if state.with_arbiter(|a| a.switch_requested) {
-            // Two frame boundaries with no EPX completion in between means
-            // the holder is retrying NAKs. Stop it at this safe boundary
-            // and let another pipe run.
+            // Two frame boundaries with no completion between them means the
+            // holder is retrying NAKs: safe to stop it here.
             regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
             while regs.sie_ctrl().read().stop_trans() {}
 
