@@ -15,7 +15,7 @@ use xarxa::tcp::{self, TcpHandle};
 use xarxa::wire::{IpEndpoint, IpListenEndpoint};
 
 use crate::time::duration_to_xarxa;
-use crate::{Stack, TryError};
+use crate::{Full, Stack, TryError};
 
 /// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -66,6 +66,9 @@ pub enum ListenError {
 pub enum AcceptError {
     /// The listener is not listening.
     InvalidState,
+    /// The stack has no room for another TCP socket. The limit is set by the
+    /// `tcp-socket-count-N` feature of `xarxa`.
+    Full,
 }
 
 /// A TCP socket.
@@ -284,23 +287,20 @@ impl<'a, 'd> TcpWriter<'a, 'd> {
 impl<'a, 'd> TcpSocket<'a, 'd> {
     /// Create a new TCP socket on the given stack, with the given buffers.
     ///
-    /// # Panics
-    /// Panics if the stack has no room for another TCP socket. The limit is set
-    /// by the `tcp-socket-count-N` feature of `xarxa`.
-    pub fn new(stack: Stack<'d>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
+    /// Errors:
+    /// - `Full` if the stack has no room for another TCP socket. The limit is set
+    ///   by the `tcp-socket-count-N` feature of `xarxa`.
+    pub fn new(stack: Stack<'d>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Result<Self, Full> {
         let handle = stack.with(|i| {
             let rx_buffer: &'d mut [u8] = unsafe { mem::transmute(rx_buffer) };
             let tx_buffer: &'d mut [u8] = unsafe { mem::transmute(tx_buffer) };
-            unwrap!(
-                i.stack.add_tcp_socket_with_bufs(rx_buffer, tx_buffer).ok(),
-                "too many TCP sockets, raise the `tcp-socket-count-N` feature of xarxa"
-            )
-        });
+            i.stack.add_tcp_socket_with_bufs(rx_buffer, tx_buffer)
+        })?;
 
-        Self {
+        Ok(Self {
             io: TcpIo { stack, handle },
             bufs: PhantomData,
-        }
+        })
     }
 
     /// Return the maximum number of bytes inside the recv buffer.
@@ -709,18 +709,13 @@ impl<'d> TcpListener<'d> {
     ///
     /// The listener starts closed. Call [`listen`](Self::listen) to start listening.
     ///
-    /// # Panics
-    /// Panics if the stack has no room for another TCP listener. The limit is set
-    /// by the `tcp-listener-count-N` feature of `xarxa`.
-    pub fn new(stack: Stack<'d>) -> Self {
-        let handle = stack.with(|i| {
-            unwrap!(
-                i.stack.add_tcp_listener().ok(),
-                "too many TCP listeners, raise the `tcp-listener-count-N` feature of xarxa"
-            )
-        });
+    /// Errors:
+    /// - `Full` if the stack has no room for another TCP listener. The limit is set
+    ///   by the `tcp-listener-count-N` feature of `xarxa`.
+    pub fn new(stack: Stack<'d>) -> Result<Self, Full> {
+        let handle = stack.with(|i| i.stack.add_tcp_listener())?;
 
-        Self { stack, handle }
+        Ok(Self { stack, handle })
     }
 
     fn with<R>(&self, f: impl FnOnce(&mut tcp::TcpListener<'_, 'd>) -> R) -> R {
@@ -829,15 +824,15 @@ impl<'d> TcpListener<'d> {
     /// If the returned future is dropped before it completes, the accepted connection attempt, if
     /// any, is reset.
     ///
-    /// # Panics
-    /// Panics if the stack has no room for another TCP socket. The limit is set
-    /// by the `tcp-socket-count-N` feature of `xarxa`.
+    /// Errors:
+    /// - `Full` if the stack has no room for another TCP socket. The limit is set
+    ///   by the `tcp-socket-count-N` feature of `xarxa`.
     pub async fn accept<'a>(
         &mut self,
         rx_buffer: &'a mut [u8],
         tx_buffer: &'a mut [u8],
     ) -> Result<TcpSocket<'a, 'd>, AcceptError> {
-        let mut socket = TcpSocket::new(self.stack, rx_buffer, tx_buffer);
+        let mut socket = TcpSocket::new(self.stack, rx_buffer, tx_buffer).map_err(|Full| AcceptError::Full)?;
         poll_fn(|cx| self.poll_accept(&mut socket, cx)).await?;
         Ok(socket)
     }
@@ -1266,6 +1261,7 @@ impl core::fmt::Display for AcceptError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::InvalidState => f.write_str("InvalidState"),
+            Self::Full => f.write_str("Full"),
         }
     }
 }
@@ -1367,11 +1363,15 @@ pub mod client {
     impl<'a, 'd, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpConnection<'a, 'd, N, TX_SZ, RX_SZ> {
         fn new(stack: Stack<'d>, state: &'a TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
             let mut bufs = state.pool.alloc().ok_or(Error::ConnectionReset)?;
-            Ok(Self {
-                socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().1, &mut bufs.as_mut().0) },
-                state,
-                bufs,
-            })
+            let socket = unsafe { TcpSocket::new(stack, &mut bufs.as_mut().1, &mut bufs.as_mut().0) };
+            let socket = match socket {
+                Ok(socket) => socket,
+                Err(Full) => {
+                    unsafe { state.pool.free(bufs) };
+                    return Err(Error::ConnectionReset);
+                }
+            };
+            Ok(Self { socket, state, bufs })
         }
     }
 

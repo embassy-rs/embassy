@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `IcmpSocket` is gone.
   - ICMP errors related to sent packets can be retrieved from sockets (feature `icmp-errors`).
   - For other ICMP uses (e.g. pings) use a raw socket instead.
+- Socket and listener constructors no longer panic when the stack is out of slots, they return `Err(Full)` instead.
 - Added APIs to access and edit the route table
 - Added APIs to access and edit the neighbor cache
 - Feature `proto-ipv4`/`proto-ipv6` renamed to `ipv4`/`ipv6`.

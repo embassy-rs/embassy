@@ -103,7 +103,7 @@ async fn main(spawner: Spawner) {
 
     // Add the ethernet interface to the stack.
     static ETH: StaticCell<Device> = StaticCell::new();
-    let eth = unwrap!(stack.add_iface(ETH.init(device)).ok());
+    let eth = unwrap!(stack.add_iface(ETH.init(device)));
 
     // Get an address over DHCP.
     eth.set_dhcpv4(Some(Default::default()));

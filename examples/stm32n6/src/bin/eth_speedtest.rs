@@ -241,7 +241,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     unwrap!(iface.add_ip_addr(IpCidr::Ipv4(Ipv4Cidr::new(LOCAL_IP, 24))));
     unwrap!(stack.routes().add_default_ipv4_route(GATEWAY, iface.handle()));
 
@@ -258,7 +258,7 @@ async fn main(spawner: Spawner) -> ! {
     let rx_buf = RX_BUF.init([0; TCP_BUFFER_SIZE]);
     let tx_buf = TX_BUF.init([0; TCP_BUFFER_SIZE]);
 
-    let mut listener = TcpListener::new(stack);
+    let mut listener = unwrap!(TcpListener::new(stack));
     unwrap!(listener.listen(PORT));
 
     loop {

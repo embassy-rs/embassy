@@ -92,7 +92,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<MyDriver> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)));
     iface.set_dhcpv4(Some(Default::default()));
 
     spawner.spawn(unwrap!(net_task(runner)));

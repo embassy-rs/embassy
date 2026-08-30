@@ -90,7 +90,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     iface.set_dhcpv4(Some(Default::default()));
 
     // Launch network task
@@ -106,7 +106,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut tx_buffer = [0; 1024];
 
     loop {
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
 
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 
