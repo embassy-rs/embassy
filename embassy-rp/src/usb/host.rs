@@ -18,7 +18,7 @@ fn split_to_pre(split: Option<SplitInfo>) -> bool {
 }
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
 
-use super::{BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY, EndpointBuffer, Instance};
+use super::{BUS_WAKER, DPRAM_DATA_OFFSET, EP_COUNT, EP_IN_WAKERS, EP_MEMORY, EndpointBuffer, Instance};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::interrupt::{self};
 use crate::peripherals::USB;
@@ -1039,23 +1039,21 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 "rx timeout"
             } else if ints.buff_status() {
                 let status = regs.buff_status().read().0;
-                for i in 0..32 {
-                    // ith bit set
-                    if (status >> i) & 1 == 1 {
-                        regs.buff_status().write_clear(|w| w.0 = 1 << i);
-                        // control transfers (buffer 0)
-                        if i != 0 {
-                            let idx = i / 2;
-                            // T::regs().int_ep_ctrl().modify(|w| {
-                            //     w.set_int_ep_active(w.int_ep_active() | 1 << idx);
-                            // });
-                            trace!("USB IRQ: Interrupt EP {}", idx);
-                            EP_IN_WAKERS[idx].wake();
-                        } else {
-                            trace!("USB IRQ: EPx");
-                            EP_IN_WAKERS[0].wake();
-                        }
-                        break;
+
+                // Bits 0 and 1 are EPX's IN/OUT pair; from bit 2 up they are the
+                // dedicated interrupt endpoints, two bits per endpoint. Only interrupt IN
+                // gets a dedicated endpoint, so of each pair only the IN bit is ever armed.
+                if status & 0b11 != 0 {
+                    regs.buff_status().write_clear(|w| w.0 = status & 0b11);
+                    trace!("USB IRQ: EPx");
+                    EP_IN_WAKERS[0].wake();
+                }
+
+                for n in 1..EP_COUNT {
+                    if status & (1 << (n * 2)) != 0 {
+                        regs.buff_status().write_clear(|w| w.0 = 0b11 << (n * 2));
+                        trace!("USB IRQ: Interrupt EP {}", n);
+                        EP_IN_WAKERS[n].wake();
                     }
                 }
                 "^^^"
