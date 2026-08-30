@@ -12,9 +12,9 @@ use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
 use embassy_stm32::time::{Hertz, khz};
-use embassy_stm32::timer::simple_pwm::{PwmPin, PwmPinConfig, SimplePwm, SimplePwmChannel, SimplePwmChannels};
+use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::{SharedData, dfsdm};
-use embedded_hal::Pwm;
+use embassy_time::Instant;
 use panic_probe as _;
 
 #[unsafe(link_section = ".ram_d3.shared_data")]
@@ -114,16 +114,15 @@ async fn main(_spawner: Spawner) {
 
     //TODO the enable semantics should really also be linked to channel assignments in filters?
 
-    let ford: u8 = 3;
-    let fosr: u16 = 100;
-    let iosr: u16 = 50;
-    let gain = (fosr as u64).pow(ford as u32) * iosr as u64;
     // 2MHz/100/50 = 400Hz 3dB frequency
+
+    let filter_params =
+        FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 100 }, 50).expect("This is inside the bounds");
+    let gain = filter_params.total_gain();
 
     let flt_cfg = FilterConfig {
         // filter_cfg: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 5 }, 4).expect("This is inside the bounds"),
-        filter_params: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: fosr }, iosr)
-            .expect("This is inside the bounds"),
+        filter_params,
     };
     let mut flt0 = split
         .flt0
@@ -138,23 +137,86 @@ async fn main(_spawner: Spawner) {
     let mut envelope: u32 = 0;
 
     // Tuning parameters
-    const LPF_SHIFT: i32 = 3; // Low-pass filter speed (lower = tighter bass, try 2 to 4)
+    const LPF_SHIFT: u32 = 3; // Low-pass filter speed (lower = tighter bass, try 2 to 4)
     const DECAY_SHIFT: u32 = 5; // Envelope decay speed
+    const DC_SHIFT: u32 = 8; // DC blocker speed
+    let _ = gain; // theoretical filter gain, no longer used directly for scaling
+
+    // ---- AGC (automatic gain control) ----
+    // Feedback loop: a multiplicative gain applied to `envelope`, adjusted
+    // over time so the *average* output level settles near a target
+    // brightness. Fast attack (gain goes down quickly) protects against
+    // clipping on loud content; slow release (gain goes up slowly) lets
+    // quieter / less bass-heavy material gradually brighten up on its own,
+    // regardless of what played before it.
+
+    // Fixed-point gain, Q16 (65536 = 1.0x)
+    let mut agc_gain_q16: u32 = 1 << 16;
+    const AGC_GAIN_MIN_Q16: u32 = 1 << 10; // floor, ~0.016x, avoids gain collapsing to zero
+    const AGC_GAIN_MAX_Q16: u32 = 1 << 24; // ceiling, ~256x, avoids amplifying noise floor forever on silence
+
+    // Running average of the (gain-scaled) output level, used to drive the AGC loop
+    let mut avg_scaled: u32 = 0;
+    const AVG_SHIFT: u32 = 7; // averaging window, roughly a few hundred ms at this loop rate
+
+    // Target: aim for the average scaled output to sit at this fraction of max_duty_cycle.
+    // Not 100%, so there's still headroom for transients/peaks above the average.
+    const TARGET_NUM: u64 = 11;
+    const TARGET_DEN: u64 = 20; // ~55%
+
+    // Gain adjustment speed: attack (turn gain down) is faster than release
+    // (turn gain up), same idea as a compressor - react quickly to loud
+    // content, recover slowly so it doesn't pump/flicker.
+    const GAIN_ATTACK_SHIFT: u32 = 9; // faster
+    const GAIN_RELEASE_SHIFT: u32 = 16; // slower
+
+    // Below this envelope level we don't push the gain up further - avoids
+    // the AGC amplifying mic self-noise/silence into a slowly brightening glow.
+    const NOISE_GATE: u32 = 50;
+
+    // EMA step with rounding and a guaranteed minimum step of 1, so the
+    // filter can't stall (a plain ">>" would give step=0 whenever
+    // 0 < |diff| < 2^shift, freezing the filter on small differences).
+    #[inline]
+    fn ema_step(diff: i32, shift: u32) -> i32 {
+        if diff == 0 {
+            0
+        } else if diff > 0 {
+            ((diff + (1 << (shift - 1))) >> shift).max(1)
+        } else {
+            ((diff - (1 << (shift - 1))) >> shift).min(-1)
+        }
+    }
+
+    // ---- Metering ----
+    // Tracks how much wall-clock time is spent actually computing (from the
+    // instant a result becomes available to the instant processing for that
+    // sample finishes) versus how much time is spent idling/polling while
+    // waiting for the next result. Printed once per second.
+    let mut wait_start = Instant::now(); // start of the current "waiting for a sample" span
+    let mut busy_us_acc: u64 = 0; // accumulated compute time this reporting window
+    let mut wait_us_acc: u64 = 0; // accumulated wait time this reporting window
+    let mut sample_count: u32 = 0; // samples processed this reporting window
+    let mut stats_window_start = Instant::now();
+    const STATS_INTERVAL_US: u64 = 1_000_000; // report every 1s
 
     loop {
         // ch_test.write_sample_standard(10);
         if let Some((data, _channel, _rpend)) = flt0.try_read_regular_result() {
+            let result_ready_at = Instant::now();
+            let wait_dur = result_ready_at - wait_start;
+
             // 1. DC Blocker (Track the slow-moving average to remove mic bias)
             // Shift by 8 makes it track very slowly, ignoring the fast bass beats
-            dc_offset += (data - dc_offset) >> 8;
+            dc_offset += ema_step(data - dc_offset, DC_SHIFT);
             let ac_signal = data - dc_offset;
 
             // 2. Rectifier (Absolute value of the AC signal)
-            let abs = ac_signal.abs() as i32;
+            let abs = ac_signal.unsigned_abs() as i32;
 
             // 3. Software Low-Pass Filter (Kills mid/high bleed!)
             // Formula: bass_signal = bass_signal + (abs - bass_signal) / 2^LPF_SHIFT
-            bass_signal += (abs - bass_signal) >> LPF_SHIFT;
+            bass_signal += ema_step(abs - bass_signal, LPF_SHIFT);
 
             // Convert to u32 for the envelope math
             let bass_abs = bass_signal as u32;
@@ -171,13 +233,64 @@ async fn main(_spawner: Spawner) {
                 }
             }
 
-            // 5. PWM Output
-            // Note: Recalculate your 'gain' based on your new Sinc3 parameters!
+            // 5. AGC: apply current gain, then adjust gain based on how the
+            // running average compares to the target.
+            let max_duty = pwm_ld2.max_duty_cycle();
 
-            let duty = ((envelope as u64) * (pwm_ld2.max_duty_cycle() as u64) / (gain as u64)) as u32;
+            let scaled = ((envelope as u64) * (agc_gain_q16 as u64)) >> 16;
+            let scaled = scaled.min(u32::MAX as u64) as u32;
+
+            avg_scaled = (avg_scaled as i64 + ema_step(scaled as i32 - avg_scaled as i32, AVG_SHIFT) as i64) as u32;
+
+            let target = ((max_duty as u64) * TARGET_NUM / TARGET_DEN) as u32;
+
+            if avg_scaled > target {
+                let reduction = (agc_gain_q16 >> GAIN_ATTACK_SHIFT).max(1);
+                agc_gain_q16 = agc_gain_q16.saturating_sub(reduction).max(AGC_GAIN_MIN_Q16);
+            } else if avg_scaled < target && envelope > NOISE_GATE {
+                let increase = (agc_gain_q16 >> GAIN_RELEASE_SHIFT).max(1);
+                agc_gain_q16 = agc_gain_q16.saturating_add(increase).min(AGC_GAIN_MAX_Q16);
+            }
+
+            // 6. PWM Output, clamped defensively against max_duty_cycle
+            let duty = scaled.min(max_duty);
             pwm_ld2.set_duty_cycle(duty);
 
             flt0.start_regular_conversion();
+
+            let processing_done_at = Instant::now();
+            let busy_dur = processing_done_at - result_ready_at;
+
+            busy_us_acc += busy_dur.as_micros();
+            wait_us_acc += wait_dur.as_micros();
+            sample_count += 1;
+
+            // Next wait span starts now
+            wait_start = Instant::now();
+        }
+
+        // Print metering stats roughly once per second, independent of
+        // whether a sample was processed on this particular loop iteration.
+        let now = Instant::now();
+        let window_elapsed_us = (now - stats_window_start).as_micros();
+        if window_elapsed_us >= STATS_INTERVAL_US {
+            let total_us = busy_us_acc + wait_us_acc;
+            let busy_pct = if total_us > 0 { busy_us_acc * 100 / total_us } else { 0 };
+            let avg_period_us = if sample_count > 0 {
+                total_us / sample_count as u64
+            } else {
+                0
+            };
+
+            info!(
+                "metering: samples={} busy_us={} wait_us={} busy_pct={}% avg_period_us={} window_us={}",
+                sample_count, busy_us_acc, wait_us_acc, busy_pct, avg_period_us, window_elapsed_us,
+            );
+
+            busy_us_acc = 0;
+            wait_us_acc = 0;
+            sample_count = 0;
+            stats_window_start = now;
         }
 
         // info!("led on!");

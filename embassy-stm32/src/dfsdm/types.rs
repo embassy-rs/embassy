@@ -1276,7 +1276,7 @@ pub mod config_types {
         }
 
         /// Returns the total gain of this filter parametrization
-        pub fn total_gain_checked(&self) -> Option<u32> {
+        fn total_gain_checked(&self) -> Option<u32> {
             self.order
                 .gain()
                 .and_then(|filter_gain| filter_gain.checked_mul(self.iosr as u32))
