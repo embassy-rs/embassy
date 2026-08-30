@@ -88,6 +88,15 @@ impl From<EpxError> for PipeError {
     }
 }
 
+/// Default control timeout, overriding the trait's 50 ms: devices may overrun the
+/// USB 2.0 §9.2.6.4 response requirement while configuring.
+#[allow(clippy::field_reassign_with_default)]
+fn default_timeout() -> TimeoutConfig {
+    let mut timeout = TimeoutConfig::default();
+    timeout.no_data_timeout = core::time::Duration::from_millis(500);
+    timeout
+}
+
 /// Who holds EPX, who is queued for it, and what the interrupt recorded for a
 /// transfer that was stopped.
 struct EpxArbiter {
@@ -408,9 +417,46 @@ pub struct Channel<'d, T: SealedHostInstance, E, D> {
     pid: bool,
     /// Send PRE packet
     pre: bool,
+    timeout: TimeoutConfig,
+    /// Per-transaction control response budget, or `None` outside a control transfer.
+    control_timeout_us: Option<u64>,
 }
 
 impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
+    fn start_control_timeout(&mut self, has_data: bool) {
+        let timeout = if has_data {
+            self.timeout.data_timeout
+        } else {
+            self.timeout.no_data_timeout
+        };
+        self.control_timeout_us = Some(timeout.as_micros().min(u64::MAX as u128) as u64);
+    }
+
+    fn stop_timed_out_transaction(&self) -> TransactionStatus {
+        let regs = T::regs();
+        let setup = regs.sie_ctrl().read().send_setup();
+        regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
+        while regs.sie_ctrl().read().stop_trans() {}
+
+        if setup && regs.sie_status().read().trans_complete() {
+            regs.sie_status().write_clear(|w| w.set_trans_complete(true));
+            TransactionStatus::Complete
+        } else if !setup && !yield_epx::<T>(self.index) {
+            T::host_state().take_epx_completed(self.epx_slot());
+            TransactionStatus::Complete
+        } else {
+            // Clear global status so the next pipe cannot consume this transaction's result.
+            regs.sie_status().write_clear(|w| {
+                w.set_trans_complete(true);
+                w.set_stall_rec(true);
+                w.set_rx_timeout(true);
+                w.set_rx_overflow(true);
+            });
+            regs.buff_status().write_clear(|w| w.0 = 0b11);
+            TransactionStatus::Timeout
+        }
+    }
+
     /// [EP_MEMORY]-relative address
     fn new(index: usize, buf_addr: u16, buf_len: u16, ep_info: &EndpointInfo, dev_addr: u8, pre: bool) -> Self {
         // TODO: assert only in debug?
@@ -441,6 +487,8 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             interval: ep_info.interval_ms,
             pid: false,
             pre,
+            timeout: default_timeout(),
+            control_timeout_us: None,
         }
     }
 }
@@ -569,6 +617,8 @@ enum TransactionStatus {
     Complete,
     /// EPX was taken away at a NAK boundary; the caller should retry.
     NakYield,
+    /// The software response budget expired.
+    Timeout,
 }
 
 struct TransactionGuard<T: SealedHostInstance> {
@@ -823,10 +873,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 regs.sie_status().write_clear(|w| w.set_stall_rec(true));
                 return Poll::Ready(Err(PipeError::Stall));
             }
-            // if stat.rx_timeout() {
-            //     regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
-            //     return Poll::Ready(Err(PipeError::Timeout))
-            // }
             if stat.rx_overflow() {
                 regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
                 return Poll::Ready(Err(PipeError::BufferOverflow));
@@ -1038,6 +1084,10 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     /// Claim EPX and run one transaction on it. `arm` programs the buffer once this
     /// pipe owns the endpoint.
     async fn run_transaction(&mut self, mut arm: impl FnMut(&mut Self)) -> Result<(), PipeError> {
+        let deadline = self
+            .control_timeout_us
+            .map(|us| embassy_time::Instant::now() + embassy_time::Duration::from_micros(us));
+
         loop {
             self.wait_ready_for_transaction().await;
             self.set_current();
@@ -1045,7 +1095,14 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
             arm(self);
             guard.arm();
-            let result = self.wait_transaction().await;
+            let result = if let Some(deadline) = deadline {
+                match embassy_time::with_deadline(deadline, self.wait_transaction()).await {
+                    Ok(result) => result,
+                    Err(_) => Ok(self.stop_timed_out_transaction()),
+                }
+            } else {
+                self.wait_transaction().await
+            };
 
             // Only a completed transaction is known to have released the SIE, so any other
             // outcome leaves the guard armed and its `Drop` issues STOP_TRANS.
@@ -1060,6 +1117,10 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                     return Err(PipeError::Canceled);
                 }
                 TransactionStatus::NakYield => {}
+                TransactionStatus::Timeout => {
+                    guard.disarm();
+                    return Err(PipeError::Timeout);
+                }
             }
 
             drop(guard);
@@ -1123,21 +1184,20 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             return Err(PipeError::BufferOverflow);
         }
 
-        // Setup stage
-        // TODO: Whole transaction error handling?
-        self.send_setup(setup).await?;
-
-        // Data stage
-        let read = if length > 0 {
-            self.request_in(&mut buf[..length]).await?
-        } else {
-            0
-        };
-
-        // Status stage
-        self.control_status(false).await?;
-
-        Ok(read)
+        self.start_control_timeout(length != 0);
+        let result = async {
+            self.send_setup(setup).await?;
+            let read = if length > 0 {
+                self.request_in(&mut buf[..length]).await?
+            } else {
+                0
+            };
+            self.control_status(false).await?;
+            Ok(read)
+        }
+        .await;
+        self.control_timeout_us = None;
+        result
     }
 
     async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), PipeError>
@@ -1151,19 +1211,18 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             return Err(PipeError::BufferOverflow);
         }
 
-        // Setup stage
-        // TODO: Whole transaction error handling?
-        self.send_setup(setup).await?;
-
-        // Data stage
-        if length > 0 {
-            self.request_out(&buf[..length], false).await?;
+        self.start_control_timeout(length != 0);
+        let result = async {
+            self.send_setup(setup).await?;
+            if length > 0 {
+                self.request_out(&buf[..length], false).await?;
+            }
+            self.control_status(true).await?;
+            Ok(())
         }
-
-        // Status stage
-        self.control_status(true).await?;
-
-        Ok(())
+        .await;
+        self.control_timeout_us = None;
+        result
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
@@ -1264,8 +1323,8 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
         res
     }
 
-    fn set_timeout(&mut self, _: TimeoutConfig) {
-        // Not yet implemented for RP2040.
+    fn set_timeout(&mut self, timeout: TimeoutConfig) {
+        self.timeout = timeout;
     }
 
     fn reset_data_toggle(&mut self) {
