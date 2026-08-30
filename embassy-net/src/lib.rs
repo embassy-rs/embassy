@@ -21,7 +21,7 @@ pub mod dns;
 pub mod iface;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 mod neighbor;
-#[cfg(feature = "raw")]
+#[cfg(feature = "_raw")]
 pub mod raw;
 pub mod route;
 #[cfg(feature = "tcp")]
@@ -209,6 +209,26 @@ impl<'d> Stack<'d> {
     /// Panics if the handle does not belong to an interface on this stack.
     pub fn remove_iface(&self, handle: IfaceHandle) {
         self.with_mut(|i| i.stack.remove_iface(handle))
+    }
+
+    /// The stack's hostname, or `None` if not set.
+    #[cfg(feature = "hostname")]
+    pub fn hostname<R>(&self, f: impl FnOnce(Option<&str>) -> R) -> R {
+        self.with(|i| f(i.stack.hostname()))
+    }
+
+    /// Set the stack's hostname.
+    ///
+    /// If set, it is sent to the DHCP server in outgoing DHCP messages, as the
+    /// host name option.
+    ///
+    /// An empty string clears the hostname.
+    ///
+    /// # Panics
+    /// Panics if `hostname` is longer than 63 bytes.
+    #[cfg(feature = "hostname")]
+    pub fn set_hostname(&self, hostname: &str) {
+        self.with_mut(|i| i.stack.set_hostname(hostname))
     }
 
     /// The stack's neighbor cache, shared by all interfaces.

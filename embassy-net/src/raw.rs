@@ -5,8 +5,13 @@ use core::task::{Context, Poll};
 
 use xarxa::driver::PacketBuf;
 pub use xarxa::driver::PacketMeta;
+#[cfg(feature = "iface-bind")]
+pub use xarxa::iface::IfaceHandle;
 pub use xarxa::raw::RawMode;
 use xarxa::raw::{self, RawHandle};
+#[cfg(feature = "raw-ethernet")]
+pub use xarxa::wire::EthernetProtocol;
+#[cfg(feature = "raw-ip")]
 pub use xarxa::wire::{IpProtocol, IpVersion};
 
 use crate::{Stack, TryError};
@@ -17,8 +22,9 @@ use crate::{Stack, TryError};
 pub enum BindError {
     /// The socket is already bound.
     InvalidState,
-    /// The interface of an Ethernet-mode bind is not an Ethernet-medium interface.
-    #[cfg(feature = "medium-ethernet")]
+    /// An Ethernet-mode bind on a socket bound to an interface whose medium is
+    /// not Ethernet.
+    #[cfg(feature = "raw-ethernet")]
     InvalidMedium,
 }
 
@@ -59,6 +65,7 @@ impl<'d> RawSocket<'d> {
     /// # Panics
     /// Panics if the stack has no room for another raw socket. The limit is set
     /// by the `raw-socket-count-N` feature of `xarxa`.
+    #[cfg(feature = "raw-ip")]
     pub fn new(stack: Stack<'d>, ip_version: Option<IpVersion>, ip_protocol: Option<IpProtocol>) -> Self {
         let mut this = Self::new_unbound(stack);
         unwrap!(
@@ -91,9 +98,35 @@ impl<'d> RawSocket<'d> {
         match self.with_mut(|s| s.bind(mode)) {
             Ok(()) => Ok(()),
             Err(raw::BindError::InvalidState) => Err(BindError::InvalidState),
-            #[cfg(feature = "medium-ethernet")]
+            #[cfg(feature = "raw-ethernet")]
             Err(raw::BindError::InvalidMedium) => Err(BindError::InvalidMedium),
         }
+    }
+
+    /// Bind the socket to an interface, or unbind it with `None`.
+    ///
+    /// A socket bound to an interface only sends and receives packets on it.
+    ///
+    /// The socket must be closed. The binding is kept across [`close`](Self::close),
+    /// so a socket stays bound to its interface when it is bound again.
+    ///
+    /// Returns `Err(BindError::InvalidState)` if the socket is open.
+    #[cfg(feature = "iface-bind")]
+    pub fn bind_to_iface(&mut self, iface: Option<IfaceHandle>) -> Result<(), BindError> {
+        match self.with_mut(|s| s.bind_to_iface(iface)) {
+            Ok(()) => Ok(()),
+            Err(raw::BindError::InvalidState) => Err(BindError::InvalidState),
+            #[cfg(feature = "raw-ethernet")]
+            Err(raw::BindError::InvalidMedium) => unreachable!(),
+        }
+    }
+
+    /// Return the interface the socket is bound to, or `None`.
+    ///
+    /// See [`bind_to_iface`](Self::bind_to_iface).
+    #[cfg(feature = "iface-bind")]
+    pub fn bound_iface(&self) -> Option<IfaceHandle> {
+        self.with(|s| s.bound_iface())
     }
 
     fn with<R>(&self, f: impl FnOnce(&mut raw::RawSocket<'_, 'd>) -> R) -> R {

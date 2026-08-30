@@ -6,6 +6,8 @@ use core::mem;
 use core::task::{Context, Poll};
 
 use embassy_time::Duration;
+#[cfg(feature = "iface-bind")]
+pub use xarxa::iface::IfaceHandle;
 pub use xarxa::tcp::State;
 #[cfg(feature = "tcp-listener")]
 use xarxa::tcp::TcpListenerHandle;
@@ -385,6 +387,37 @@ impl<'a, 'd> TcpSocket<'a, 'd> {
         )
     }
 
+    /// Bind the socket to an interface, or unbind it with `None`.
+    ///
+    /// A socket bound to an interface only sends and receives packets on it:
+    /// - Destinations must be on-link on that interface, or have a route through it.
+    /// - Local addresses are picked from that interface only.
+    ///
+    /// The socket must be closed. The binding is kept across [`close`](Self::close),
+    /// so a socket stays bound to its interface when it is connected again.
+    ///
+    /// Two sockets with otherwise identical tuples may coexist if they are bound
+    /// to different interfaces. On ingress, a socket bound to the arrival
+    /// interface wins over an unbound one with an equal tuple.
+    ///
+    /// Returns `Err(ConnectError::InvalidState)` if the socket is open.
+    #[cfg(feature = "iface-bind")]
+    pub fn bind_to_iface(&mut self, iface: Option<IfaceHandle>) -> Result<(), ConnectError> {
+        match self.io.with_mut(|s| s.bind_to_iface(iface)) {
+            Ok(()) => Ok(()),
+            Err(tcp::ConnectError::InvalidState) => Err(ConnectError::InvalidState),
+            Err(_) => unreachable!(),
+        }
+    }
+
+    /// Return the interface the socket is bound to, or `None`.
+    ///
+    /// See [`bind_to_iface`](Self::bind_to_iface).
+    #[cfg(feature = "iface-bind")]
+    pub fn bound_iface(&self) -> Option<IfaceHandle> {
+        self.io.with(|s| s.bound_iface())
+    }
+
     fn start_connect<T>(&mut self, remote_endpoint: T) -> Result<(), ConnectError>
     where
         T: Into<IpEndpoint>,
@@ -696,6 +729,36 @@ impl<'d> TcpListener<'d> {
 
     fn with_mut<R>(&self, f: impl FnOnce(&mut tcp::TcpListener<'_, 'd>) -> R) -> R {
         self.stack.with_mut(|i| f(&mut i.stack.tcp_listener(self.handle)))
+    }
+
+    /// Bind the listener to an interface, or unbind it with `None`.
+    ///
+    /// A listener bound to an interface only accepts connection attempts arriving
+    /// on it, and the accepted sockets are bound to it too.
+    ///
+    /// The listener must not be listening. The binding is kept across
+    /// [`close`](Self::close).
+    ///
+    /// Two listeners with otherwise identical endpoints may coexist if they are
+    /// bound to different interfaces. A listener bound to the arrival interface
+    /// wins over an unbound one with an equal endpoint.
+    ///
+    /// Returns `Err(ListenError::InvalidState)` if the listener is listening.
+    #[cfg(feature = "iface-bind")]
+    pub fn bind_to_iface(&mut self, iface: Option<IfaceHandle>) -> Result<(), ListenError> {
+        match self.with_mut(|l| l.bind_to_iface(iface)) {
+            Ok(()) => Ok(()),
+            Err(tcp::ListenError::InvalidState) => Err(ListenError::InvalidState),
+            Err(_) => unreachable!(),
+        }
+    }
+
+    /// Return the interface the listener is bound to, or `None`.
+    ///
+    /// See [`bind_to_iface`](Self::bind_to_iface).
+    #[cfg(feature = "iface-bind")]
+    pub fn bound_iface(&self) -> Option<IfaceHandle> {
+        self.with(|l| l.bound_iface())
     }
 
     /// Start listening on the given endpoint.
