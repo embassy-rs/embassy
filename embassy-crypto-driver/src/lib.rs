@@ -466,7 +466,7 @@ unitrait::unitrait! {
     /// AES-128 ECB block cipher trait.
     pub trait Aes128Ecb {
         /// Opaque storage for the implementation's key schedule.
-        #[opaque(size = 32, align = 16)]
+        #[opaque(size = 1024, align = 16)]
         #[symbol = "_emb_crypto_aes128ecb_context"]
         pub type Context;
 
@@ -494,7 +494,7 @@ unitrait::unitrait! {
     /// AES-256 ECB block cipher trait.
     pub trait Aes256Ecb {
         /// Opaque storage for the implementation's key schedule.
-        #[opaque(size = 48, align = 16)]
+        #[opaque(size = 1024, align = 16)]
         #[symbol = "_emb_crypto_aes256ecb_context"]
         pub type Context;
 
@@ -522,7 +522,7 @@ unitrait::unitrait! {
     /// AES-128 CBC block cipher trait.
     pub trait Aes128Cbc {
         /// Opaque storage for the implementation's key schedule and chaining state.
-        #[opaque(size = 48, align = 16)]
+        #[opaque(size = 1024, align = 16)]
         #[symbol = "_emb_crypto_aes128cbc_context"]
         pub type Context;
 
@@ -550,7 +550,7 @@ unitrait::unitrait! {
     /// AES-256 CBC block cipher trait.
     pub trait Aes256Cbc {
         /// Opaque storage for the implementation's key schedule and chaining state.
-        #[opaque(size = 64, align = 16)]
+        #[opaque(size = 1024, align = 16)]
         #[symbol = "_emb_crypto_aes256cbc_context"]
         pub type Context;
 
@@ -578,7 +578,7 @@ unitrait::unitrait! {
     /// AES-128 GCM AEAD trait.
     pub trait Aes128Gcm {
         /// Opaque storage for the implementation's key schedule.
-        #[opaque(size = 32, align = 16)]
+        #[opaque(size = 1024, align = 16)]
         #[symbol = "_emb_crypto_aes128gcm_context"]
         pub type Context;
 
@@ -618,7 +618,7 @@ unitrait::unitrait! {
     /// AES-256 GCM AEAD trait.
     pub trait Aes256Gcm {
         /// Opaque storage for the implementation's key schedule.
-        #[opaque(size = 48, align = 16)]
+        #[opaque(size = 1280, align = 16)]
         #[symbol = "_emb_crypto_aes256gcm_context"]
         pub type Context;
 
@@ -660,7 +660,7 @@ unitrait::unitrait! {
     /// The tag and nonce sizes are validated at runtime by the HAL.
     pub trait Aes128Ccm {
         /// Opaque storage for the implementation's key schedule.
-        #[opaque(size = 32, align = 16)]
+        #[opaque(size = 1024, align = 16)]
         #[symbol = "_emb_crypto_aes128ccm_context"]
         pub type Context;
 
@@ -704,7 +704,7 @@ unitrait::unitrait! {
     /// The tag and nonce sizes are validated at runtime by the HAL.
     pub trait Aes256Ccm {
         /// Opaque storage for the implementation's key schedule.
-        #[opaque(size = 48, align = 16)]
+        #[opaque(size = 1024, align = 16)]
         #[symbol = "_emb_crypto_aes256ccm_context"]
         pub type Context;
 
