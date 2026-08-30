@@ -690,25 +690,37 @@ impl<'d> Channel<'d> {
                     }
                 };
 
+                // mem_len is element count; BNDT is in bytes.
+                let mem_len_bytes = mem_len * usize::from(mem_size.bytes()); // or peri_size, depending on dir
+                assert!(mem_len_bytes > 0 && mem_len_bytes <= MDMA_MAX_BLOCK * MDMA_MAX_BLOCK_COUNT);
+
                 // Find the best block size/count. This is essentially a factorisation problem
                 // So it's best to avoid large prime number transfer sizes.
-                let mut block_count = mem_len.div_ceil(MDMA_MAX_BLOCK);
-                let mut block_size = mem_len.div_ceil(block_count);
+                let mut block_count = mem_len_bytes.div_ceil(MDMA_MAX_BLOCK);
+                let mut block_size = mem_len_bytes.div_ceil(block_count);
 
                 loop {
                     // Everything matches up so we're good to go
-                    if block_count * block_size == mem_len {
+                    if block_count * block_size == mem_len_bytes {
                         break;
                     }
 
                     // Try a higher block count, lower block size
                     block_count += 1;
-                    block_size = mem_len.div_ceil(block_count);
+                    block_size = mem_len_bytes.div_ceil(block_count);
 
                     if block_count > MDMA_MAX_BLOCK_COUNT {
                         panic!("MDMA: max block count hit");
                     }
                 }
+
+                // MDMA requires BNDT (block_size) to be a multiple of TLEN+1 (buffer_size).
+                // Auto-decrease buffer_size until it divides cleanly into block_size.
+                let mut buffer_size = options.buffer_size as usize;
+                while block_size % buffer_size != 0 && buffer_size > 1 {
+                    buffer_size -= 1;
+                }
+                // Update the options so the TCR write uses the correct value
 
                 let (sinc, dinc) = match (incr_mem, dir) {
                     (Increment::None, _) => (Incmode::Fixed, Incmode::Fixed),
@@ -721,7 +733,7 @@ impl<'d> Channel<'d> {
                 };
 
                 ch.tcr().write(|w| {
-                    w.set_tlen((options.buffer_size - 1) as u8);
+                    w.set_tlen((buffer_size - 1) as u8);
                     match dir {
                         Dir::MemoryToPeripheral => {
                             w.set_sincos(mem_size.into());
