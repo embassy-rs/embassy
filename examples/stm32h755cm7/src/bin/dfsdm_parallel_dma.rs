@@ -2,21 +2,31 @@
 #![no_main]
 
 use core::mem::MaybeUninit;
+use core::ops::Div;
 
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{FilterConfig, TransceiverConfig, TransceiverConfigOnline};
+use embassy_stm32::dfsdm::{
+    Dfsdm, FilterConfig, Flt0, Flt1, InjectedTrigger, TransceiverConfig, TransceiverConfigOnline, TransceiverTrait,
+};
+use embassy_stm32::dma::{self, Channel, Request, Transfer, TransferOptions};
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::peripherals::DFSDM1;
-use embassy_stm32::rcc::{self};
+use embassy_stm32::peripherals::{self, DFSDM1, MDMA};
+use embassy_stm32::rcc::{self, Sysclk};
+use embassy_stm32::spi::Spi;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{SharedData, dfsdm};
+use embassy_stm32::{SharedData, bind_interrupts, dfsdm, pac};
+use embassy_time::Timer;
 use panic_probe as _;
 
 #[unsafe(link_section = ".ram_d3.shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
+
+bind_interrupts! (struct Irqs{
+    MDMA => dma::InterruptHandler<peripherals::MDMA_CH0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -44,40 +54,18 @@ async fn main(_spawner: Spawner) {
     }
 
     //==================================================
-    // Goal: Dim LED according to PDM mic input using DFSM, DMA and PWM;
-    // Maybe enable breakinput to blink rapidly when detecting disconnection
+    // Goal: Write fixed sequence into DFSDM via MDMA mem2mem and read the integration result
     //==================================================
-
-    // A0   PA3     MIC_SEL
-    // A2   PC3_C   MIC_CLK
-    // A4   PC2_C   MIT_DAT
-
     let p = embassy_stm32::init_primary(config, &SHARED_DATA);
     info!("Hello World!");
 
-    // let mut led = Output::new(p.PB0, Level::High, Speed::Low);
-    // let mut led = Output::new(p.PB3, Level::High, Speed::Low);
-    // let mut led = Output::new(p.PE1, Level::High, Speed::Low);
-
-    // Setup mic as left channel, data is valid at clock low, to rising clock edge samples signal
-    let _mic_sel = Output::new(p.PA3, Level::Low, Speed::Low);
-
-    let prescaler = rcc::frequency::<DFSDM1>() / Hertz::mhz(2);
-
-    println!("Trying prescaler={}", prescaler);
     // Start driver instantiation using DFSDM1 with a CKOUT pin on pin C2
-    let dfsdm1 = dfsdm::Dfsdm::new_ckout(
-        p.DFSDM1,
-        p.PC2,
-        dfsdm::config_types::CkoutSource::System,
-        CkoutDivider::try_from(prescaler as u16).expect("Divider wrong?"),
-    );
-    println!("Running with prescaler={}", prescaler);
+    let dfsdm1 = dfsdm::Dfsdm::new(p.DFSDM1);
 
     let split = dfsdm1.configure_pins(|creator| {
         (
             creator.ch0.none(),
-            creator.ch1.datin(p.PC3),
+            creator.ch1.none(),
             creator.ch2.none(),
             creator.ch3.none(),
             creator.ch4.none(),
@@ -86,29 +74,49 @@ async fn main(_spawner: Spawner) {
             creator.ch7.none(),
         )
     });
-
     let tcv_cfg = TransceiverConfig::default();
     let tcv_cfg_online = TransceiverConfigOnline::default();
-    let channel_mic = split
-        .ch1
-        .new_spi_int(InternalSpiMode::SpiRising)
+    let ch_test = split
+        .ch0
+        .new_parallel_dma(dfsdm::config_types::DataPackingModeReduced::Standard)
         .configure(&tcv_cfg, &tcv_cfg_online)
         .enable();
 
-    //TODO the enable semantics should really also be linked to channel assignments in filters?
-
     let flt_cfg = FilterConfig {
         // filter_cfg: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 5 }, 4).expect("This is inside the bounds"),
-        filter_cfg: FilterParameters::try_new(FilterOrder::Sinc2 { fosr: 32 }, 2).expect("This is inside the bounds"),
+        filter_cfg: FilterParameters::try_new(FilterOrder::Disabled, 32).expect("This is inside the bounds"),
     };
+
     let mut flt0 = split
         .flt0
         .configure(&flt_cfg)
-        .assign_regular_transceiver(&channel_mic)
+        .assign_regular_transceiver(&ch_test)
         .enable();
 
-    flt0.start_regular_conversion();
+    flt0.start_regular_conversion(); // Waiting for data now
 
+    // Generate a 32-element array with a distinct pattern for each index
+    // This ensures we aren't accidentally transferring the same word 32 times
+    // or skipping/offsetting any bytes.
+    let source: [u32; 32] = core::array::from_fn(|i| (i as u32).wrapping_mul(0x01010101) ^ 0xDEADBEEF);
+
+    let mut dma_ch = Channel::new(p.MDMA_CH0, Irqs);
+    let tfer_opts = TransferOptions::default();
+
+    println!("DMA starting...");
+
+    // No request number needed as MEM2MEM transfers on MDMA are software-controlled. Defaulting to 0.
+    let tfer = unsafe { dma_ch.write_mem2mem::<u32, u32>(0, &source, ch_test.get_datinr_as_ptr(), tfer_opts) };
+    tfer.await; // theoretically unnecessary
+
+    println!("DMA finished.");
+
+    let dfsdm_data: [i32; 32] = source.map(|x| {
+        let signed_32 = x as i32; // 1. Reinterpret as i32
+        (signed_32 << 16) >> 16 // 2. Shift left to drop bottom 8 bits, then arithmetic shift right to sign-extend the 24th bit
+    });
+    let integral: i64 = dfsdm_data.iter().map(|&x| x as i64).sum();
+    println!("Manual integration: {}", integral);
     loop {
         // ch_test.write_sample_standard(10);
         if let Some((data, channel, rpend)) = flt0.try_read_regular_result() {
@@ -116,15 +124,8 @@ async fn main(_spawner: Spawner) {
             println!("Channel: {}", channel);
             println!("Value: {}", data);
             println!("Delayed: {}", rpend);
-            flt0.start_regular_conversion();
+
+            return;
         }
-
-        // info!("led on!");
-        // led.set_high();
-        // Timer::after_millis(500).await;
-
-        // info!("led off!");
-        // led.set_low();
-        // Timer::after_millis(500).await;
     }
 }

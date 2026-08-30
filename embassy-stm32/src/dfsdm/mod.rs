@@ -494,6 +494,21 @@ where
     S: PinSet,
     P: PowerState,
 {
+    /// Get direct pointer tothe DATINR register for dma mem2mem use
+    pub fn get_datinr_as_ptr(&self) -> *mut u32 {
+        T::regs().ch(M::CHANNEL.index()).datinr().as_ptr() as *mut u32
+    }
+
+    //TODO REF SOURCE ME MTUABLE TO TO ACCESS RULES ISNT YET
+    /// Get reference tothe DATINR register for dma mem2mem use
+    pub fn get_datinr_as_ref(&self) -> &mut u32 {
+        let ptr = T::regs().ch(M::CHANNEL.index()).datinr().as_ptr() as *mut u32;
+
+        // Safety: The pointer points to a valid memory-mapped register
+        // address, and we hold a &mut self, guaranteeing exclusive access
+        // for the lifetime of the returned reference.
+        unsafe { &mut *ptr }
+    }
     /// Manually write one sample into the DATINR register, used for standard mode
     pub fn write_sample_standard(&self, data: u16) {
         T::regs().ch(M::CHANNEL.index()).datinr().write(|w| w.set_indat0(data));
