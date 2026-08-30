@@ -43,6 +43,7 @@ sha2 = { version = "0.11", default-features = false, optional = true }
 hmac = { version = "0.13", default-features = false, optional = true }
 aes = { version = "0.9", default-features = false, optional = true }
 aes-gcm = { version = "0.11", default-features = false, features = ["aes"], optional = true }
+ccm = { version = "0.6", default-features = false, features = ["aes"], optional = true }
 
 [features]
 defmt = ["embassy-crypto-driver/defmt"]
@@ -54,4 +55,5 @@ driver-rustcrypto = [
     "dep:hmac",
     "dep:aes",
     "dep:aes-gcm",
+    "dep:ccm",
 ]

@@ -256,7 +256,10 @@ impl embassy_crypto_driver::HmacSha1 for HmacSha1Driver {
         let mut key_storage = heapless::Vec::new();
         key_storage.extend_from_slice(key).unwrap();
         let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha1Context { key: key_storage, inner }
+        HmacSha1Context {
+            key: key_storage,
+            inner,
+        }
     }
 
     fn hmac_sha1_clone(ctx: &Self::Context) -> Self::Context {
@@ -297,7 +300,10 @@ impl embassy_crypto_driver::HmacSha224 for HmacSha224Driver {
         let mut key_storage = heapless::Vec::new();
         key_storage.extend_from_slice(key).unwrap();
         let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha224Context { key: key_storage, inner }
+        HmacSha224Context {
+            key: key_storage,
+            inner,
+        }
     }
 
     fn hmac_sha224_clone(ctx: &Self::Context) -> Self::Context {
@@ -338,7 +344,10 @@ impl embassy_crypto_driver::HmacSha256 for HmacSha256Driver {
         let mut key_storage = heapless::Vec::new();
         key_storage.extend_from_slice(key).unwrap();
         let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha256Context { key: key_storage, inner }
+        HmacSha256Context {
+            key: key_storage,
+            inner,
+        }
     }
 
     fn hmac_sha256_clone(ctx: &Self::Context) -> Self::Context {
@@ -379,7 +388,10 @@ impl embassy_crypto_driver::HmacSha384 for HmacSha384Driver {
         let mut key_storage = heapless::Vec::new();
         key_storage.extend_from_slice(key).unwrap();
         let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha384Context { key: key_storage, inner }
+        HmacSha384Context {
+            key: key_storage,
+            inner,
+        }
     }
 
     fn hmac_sha384_clone(ctx: &Self::Context) -> Self::Context {
@@ -420,7 +432,10 @@ impl embassy_crypto_driver::HmacSha512_224 for HmacSha512_224Driver {
         let mut key_storage = heapless::Vec::new();
         key_storage.extend_from_slice(key).unwrap();
         let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha512_224Context { key: key_storage, inner }
+        HmacSha512_224Context {
+            key: key_storage,
+            inner,
+        }
     }
 
     fn hmac_sha512_224_clone(ctx: &Self::Context) -> Self::Context {
@@ -461,7 +476,10 @@ impl embassy_crypto_driver::HmacSha512_256 for HmacSha512_256Driver {
         let mut key_storage = heapless::Vec::new();
         key_storage.extend_from_slice(key).unwrap();
         let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha512_256Context { key: key_storage, inner }
+        HmacSha512_256Context {
+            key: key_storage,
+            inner,
+        }
     }
 
     fn hmac_sha512_256_clone(ctx: &Self::Context) -> Self::Context {
@@ -502,7 +520,10 @@ impl embassy_crypto_driver::HmacSha512 for HmacSha512Driver {
         let mut key_storage = heapless::Vec::new();
         key_storage.extend_from_slice(key).unwrap();
         let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha512Context { key: key_storage, inner }
+        HmacSha512Context {
+            key: key_storage,
+            inner,
+        }
     }
 
     fn hmac_sha512_clone(ctx: &Self::Context) -> Self::Context {
@@ -800,3 +821,377 @@ impl embassy_crypto_driver::Aes256Gcm for Aes256GcmDriver {
 }
 
 embassy_crypto_driver::embassy_crypto_aes256gcm_impl!(Aes256GcmDriver);
+
+// ===========================================================================
+// AES CCM
+// ===========================================================================
+
+#[derive(Clone)]
+struct Aes128CcmContext {
+    key: [u8; 16],
+}
+
+struct Aes128CcmDriver;
+
+impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
+    type Context = Aes128CcmContext;
+
+    fn aes128ccm_init(key: &[u8; 16]) -> Self::Context {
+        Aes128CcmContext { key: *key }
+    }
+
+    fn aes128ccm_clone(ctx: &Self::Context) -> Self::Context {
+        ctx.clone()
+    }
+
+    fn aes128ccm_encrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &mut [u8],
+    ) -> Result<(), CryptoError> {
+        use aead::AeadInPlace;
+        use generic_array::GenericArray;
+
+        if tag.len() != 16 {
+            return Err(CryptoError::Unsupported);
+        }
+
+        match nonce.len() {
+            7 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U7>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            8 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U8>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            9 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U9>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            10 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U10>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            11 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U11>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            12 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U12>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            13 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U13>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            _ => Err(CryptoError::Unsupported),
+        }
+    }
+
+    fn aes128ccm_decrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &[u8],
+    ) -> Result<(), CryptoError> {
+        use aead::AeadInPlace;
+        use generic_array::GenericArray;
+
+        if tag.len() != 16 {
+            return Err(CryptoError::Unsupported);
+        }
+
+        match nonce.len() {
+            7 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U7>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            8 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U8>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            9 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U9>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            10 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U10>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            11 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U11>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            12 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U12>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            13 => {
+                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U13>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            _ => Err(CryptoError::Unsupported),
+        }
+    }
+}
+
+embassy_crypto_driver::embassy_crypto_aes128ccm_impl!(Aes128CcmDriver);
+
+#[derive(Clone)]
+struct Aes256CcmContext {
+    key: [u8; 32],
+}
+
+struct Aes256CcmDriver;
+
+impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
+    type Context = Aes256CcmContext;
+
+    fn aes256ccm_init(key: &[u8; 32]) -> Self::Context {
+        Aes256CcmContext { key: *key }
+    }
+
+    fn aes256ccm_clone(ctx: &Self::Context) -> Self::Context {
+        ctx.clone()
+    }
+
+    fn aes256ccm_encrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &mut [u8],
+    ) -> Result<(), CryptoError> {
+        use aead::AeadInPlace;
+        use generic_array::GenericArray;
+
+        if tag.len() != 16 {
+            return Err(CryptoError::Unsupported);
+        }
+
+        match nonce.len() {
+            7 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U7>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            8 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U8>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            9 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U9>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            10 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U10>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            11 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U11>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            12 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U12>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            13 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U13>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = ccm
+                    .encrypt_in_place_detached(n, aad, buffer)
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            _ => Err(CryptoError::Unsupported),
+        }
+    }
+
+    fn aes256ccm_decrypt(
+        ctx: &Self::Context,
+        nonce: &[u8],
+        aad: &[u8],
+        buffer: &mut [u8],
+        tag: &[u8],
+    ) -> Result<(), CryptoError> {
+        use aead::AeadInPlace;
+        use generic_array::GenericArray;
+
+        if tag.len() != 16 {
+            return Err(CryptoError::Unsupported);
+        }
+
+        match nonce.len() {
+            7 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U7>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            8 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U8>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            9 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U9>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            10 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U10>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            11 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U11>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            12 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U12>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            13 => {
+                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U13>;
+                let ccm = C::new_from_slice(&ctx.key).unwrap();
+                let n = GenericArray::from_slice(nonce);
+                let t = GenericArray::from_slice(tag);
+                ccm.decrypt_in_place_detached(n, aad, buffer, t)
+                    .map_err(|_| CryptoError::InvalidSignature)
+            }
+            _ => Err(CryptoError::Unsupported),
+        }
+    }
+}
+
+embassy_crypto_driver::embassy_crypto_aes256ccm_impl!(Aes256CcmDriver);
