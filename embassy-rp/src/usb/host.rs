@@ -669,51 +669,62 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         }
     }
 
+    /// Claim EPX and run one transaction on it. `arm` programs the buffer once this
+    /// pipe owns the endpoint.
+    async fn run_transaction(&mut self, arm: impl FnOnce(&mut Self)) -> Result<(), PipeError> {
+        self.wait_ready_for_transaction().await;
+        self.set_current();
+        let mut guard = self.transaction_guard();
+
+        arm(self);
+        guard.arm();
+        let result = self.wait_transaction().await;
+        guard.disarm();
+
+        result
+    }
+
+    /// Receive one packet, returning its length.
+    async fn transfer_in_packet(&mut self, len: u16, pid: bool) -> Result<usize, PipeError> {
+        self.run_transaction(|s| s.set_data_in(len, pid)).await?;
+
+        Ok(self.buffer_control().read().length(0) as usize)
+    }
+
+    /// Send one packet, returning how much of `data` it carried.
+    async fn transfer_out_packet(&mut self, data: &[u8], pid: bool) -> Result<usize, PipeError> {
+        let mut len = 0;
+        self.run_transaction(|s| len = s.set_data_out(data, pid)).await?;
+
+        Ok(len)
+    }
+
     /// Send SETUP packet
     ///
     /// WARNING: This flips PID
     async fn send_setup(&mut self, setup: &[u8; 8]) -> Result<(), PipeError> {
-        // Wait transfer buffer to be free
-        self.wait_ready_for_transaction().await;
-
-        // Set this channel for transaction
-        self.set_current();
-        let _guard = self.transaction_guard();
-
         trace!("SEND SETUP");
-        // Prepare HW
-        self.set_setup_packet(setup);
+        self.run_transaction(|s| s.set_setup_packet(setup)).await?;
+        self.pid = true;
 
-        // Wait for SETUP end
-        let res = self.wait_transaction().await;
-        if res.is_ok() {
-            self.pid = true;
-        }
-        res
+        Ok(())
     }
 
     /// Send status packet
     async fn control_status(&mut self, active_direction_out: bool) -> Result<(), PipeError> {
-        // Wait transfer buffer to be free
-        self.wait_ready_for_transaction().await;
-
-        // Set this channel for transaction
-        self.set_current();
-        let _guard = self.transaction_guard();
-
         // Status packet always have DATA1
         trace!("SEND STATUS");
-        if active_direction_out {
-            self.set_data_in(0, true);
-        } else {
-            self.set_data_out(&[], true);
-        }
+        self.run_transaction(|s| {
+            if active_direction_out {
+                s.set_data_in(0, true);
+            } else {
+                s.set_data_out(&[], true);
+            }
+        })
+        .await?;
+        self.pid = false;
 
-        let res = self.wait_transaction().await;
-        if res.is_ok() {
-            self.pid = false;
-        }
-        res
+        Ok(())
     }
 }
 
@@ -776,17 +787,19 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     where
         D: pipe::IsIn,
     {
-        // Wait transfer buffer to be free
-        self.wait_ready_for_transaction().await;
-
-        // Set this channel for transaction
-        self.set_current();
-        let mut guard = self.transaction_guard();
+        // An interrupt pipe owns its endpoint for the whole read.
+        let _interrupt_guard = if Self::is_interrupt_in() {
+            self.wait_ready_for_transaction().await;
+            self.set_current();
+            Some(self.transaction_guard())
+        } else {
+            None
+        };
 
         let mut count: usize = 0;
 
         let res = loop {
-            if Self::is_interrupt_in() {
+            let rx_len = if Self::is_interrupt_in() {
                 // Consume completed packet that may have arrived after last poll.
                 // Reloading would discard the packet that hardware already ACKed.
                 if !self.buffer_control().read().full(0) {
@@ -794,21 +807,17 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
                     self.interrupt_reload();
                     self.wait_available().await;
                 }
+                self.buffer_control().read().length(0) as usize
             } else {
                 trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
                 let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
-                self.set_data_in(packet_len as u16, self.pid);
-                guard.arm();
-                let result = self.wait_transaction().await;
-                guard.disarm();
-                if let Err(e) = result {
-                    break Err(e);
-                }
+                let rx_len = self.transfer_in_packet(packet_len as u16, self.pid).await?;
                 self.advance_pid();
-            }
+
+                rx_len
+            };
 
             let free = &mut buf[count..];
-            let rx_len = self.buffer_control().read().length(0) as usize;
             trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
 
             if rx_len > free.len() {
@@ -838,27 +847,11 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     where
         D: pipe::IsOut,
     {
-        // Wait transfer buffer to be free
-        self.wait_ready_for_transaction().await;
-
-        let _regs = T::regs();
-
-        // Set this channel for transaction
-        self.set_current();
-        let mut guard = self.transaction_guard();
-
         let mut count = 0;
 
         let res = loop {
             trace!("CHANNEL {} START WRITE", self.index);
-            let packet = self.set_data_out(&buf[count..], self.pid);
-
-            guard.arm();
-            let result = self.wait_transaction().await;
-            guard.disarm();
-            if let Err(e) = result {
-                break Err(e);
-            }
+            let packet = self.transfer_out_packet(&buf[count..], self.pid).await?;
             self.advance_pid();
 
             trace!("WRITE DONE, tx_len = {}", packet);
@@ -868,13 +861,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             if count == buf.len() {
                 if packet == self.max_packet_size as usize && ensure_transaction_end {
                     trace!("CHANNEL {} START ZLP WRITE", self.index);
-                    self.set_data_out(&[], self.pid);
-                    guard.arm();
-                    let result = self.wait_transaction().await;
-                    guard.disarm();
-                    if let Err(e) = result {
-                        break Err(e);
-                    }
+                    self.transfer_out_packet(&[], self.pid).await?;
                     self.advance_pid();
                     trace!("ZLP WRITE DONE");
                 }
