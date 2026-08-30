@@ -1,24 +1,27 @@
 #![no_std]
 #![no_main]
-
 use core::mem::MaybeUninit;
 
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{FilterConfig, TransceiverConfig, TransceiverConfigOnline};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, TransceiverConfig, TransceiverConfigOnline};
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
 use embassy_stm32::time::{Hertz, khz};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::{SharedData, dfsdm};
+use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
 use embassy_time::Instant;
 use panic_probe as _;
 
 #[unsafe(link_section = ".ram_d3.shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
+
+bind_interrupts!(struct Irqs {
+    DFSDM1_FLT0 => dfsdm::InterruptHandler<DFSDM1, Flt0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -201,81 +204,83 @@ async fn main(_spawner: Spawner) {
     const STATS_INTERVAL_US: u64 = 1_000_000; // report every 1s
 
     loop {
-        // ch_test.write_sample_standard(10);
-        if let Some((data, _channel, _rpend)) = flt0.try_get_regular_result() {
-            let result_ready_at = Instant::now();
-            let wait_dur = result_ready_at - wait_start;
+        let (data, _channel, _rpend) = flt0.read_regular(Irqs).await;
 
-            // 1. DC Blocker (Track the slow-moving average to remove mic bias)
-            // Shift by 8 makes it track very slowly, ignoring the fast bass beats
-            dc_offset += ema_step(data - dc_offset, DC_SHIFT);
-            let ac_signal = data - dc_offset;
+        let result_ready_at = Instant::now();
+        let wait_dur = result_ready_at - wait_start;
 
-            // 2. Rectifier (Absolute value of the AC signal)
-            let abs = ac_signal.unsigned_abs() as i32;
+        // 1. DC Blocker (Track the slow-moving average to remove mic bias)
+        // Shift by 8 makes it track very slowly, ignoring the fast bass beats
+        dc_offset += ema_step(data - dc_offset, DC_SHIFT);
+        let ac_signal = data - dc_offset;
 
-            // 3. Software Low-Pass Filter (Kills mid/high bleed!)
-            // Formula: bass_signal = bass_signal + (abs - bass_signal) / 2^LPF_SHIFT
-            bass_signal += ema_step(abs - bass_signal, LPF_SHIFT);
+        // 2. Rectifier (Absolute value of the AC signal)
+        let abs = ac_signal.unsigned_abs() as i32;
 
-            // Convert to u32 for the envelope math
-            let bass_abs = bass_signal as u32;
+        // 3. Software Low-Pass Filter (Kills mid/high bleed!)
+        // Formula: bass_signal = bass_signal + (abs - bass_signal) / 2^LPF_SHIFT
+        bass_signal += ema_step(abs - bass_signal, LPF_SHIFT);
 
-            // 4. Envelope Follower (Diode Detector)
-            if bass_abs > envelope {
-                envelope = bass_abs; // Fast attack
-            } else {
-                let decay_step = envelope >> DECAY_SHIFT; // Slow decay
-                if decay_step > 0 {
-                    envelope -= decay_step;
-                } else if envelope > 0 {
-                    envelope -= 1;
-                }
+        // Convert to u32 for the envelope math
+        let bass_abs = bass_signal as u32;
+
+        // 4. Envelope Follower (Diode Detector)
+        if bass_abs > envelope {
+            envelope = bass_abs; // Fast attack
+        } else {
+            let decay_step = envelope >> DECAY_SHIFT; // Slow decay
+            if decay_step > 0 {
+                envelope -= decay_step;
+            } else if envelope > 0 {
+                envelope -= 1;
             }
-
-            // 5. AGC: apply current gain, then adjust gain based on how the
-            // running average compares to the target.
-            let max_duty = pwm_ld2.max_duty_cycle();
-
-            let scaled = ((envelope as u64) * (agc_gain_q16 as u64)) >> 16;
-            let scaled = scaled.min(u32::MAX as u64) as u32;
-
-            avg_scaled = (avg_scaled as i64 + ema_step(scaled as i32 - avg_scaled as i32, AVG_SHIFT) as i64) as u32;
-
-            let target = ((max_duty as u64) * TARGET_NUM / TARGET_DEN) as u32;
-
-            if avg_scaled > target {
-                let reduction = (agc_gain_q16 >> GAIN_ATTACK_SHIFT).max(1);
-                agc_gain_q16 = agc_gain_q16.saturating_sub(reduction).max(AGC_GAIN_MIN_Q16);
-            } else if avg_scaled < target && envelope > NOISE_GATE {
-                let increase = (agc_gain_q16 >> GAIN_RELEASE_SHIFT).max(1);
-                agc_gain_q16 = agc_gain_q16.saturating_add(increase).min(AGC_GAIN_MAX_Q16);
-            }
-
-            // 6. PWM Output, clamped defensively against max_duty_cycle
-            let duty = scaled.min(max_duty);
-            pwm_ld2.set_duty_cycle(duty);
-
-            flt0.start_regular_conversion();
-
-            let processing_done_at = Instant::now();
-            let busy_dur = processing_done_at - result_ready_at;
-
-            busy_us_acc += busy_dur.as_micros();
-            wait_us_acc += wait_dur.as_micros();
-            sample_count += 1;
-
-            // Next wait span starts now
-            wait_start = Instant::now();
         }
 
-        // Print metering stats roughly once per second, independent of
-        // whether a sample was processed on this particular loop iteration.
+        // 5. AGC: apply current gain, then adjust gain based on how the
+        // running average compares to the target.
+        let max_duty = pwm_ld2.max_duty_cycle();
+
+        let scaled = ((envelope as u64) * (agc_gain_q16 as u64)) >> 16;
+        let scaled = scaled.min(u32::MAX as u64) as u32;
+
+        avg_scaled = (avg_scaled as i64 + ema_step(scaled as i32 - avg_scaled as i32, AVG_SHIFT) as i64) as u32;
+
+        let target = ((max_duty as u64) * TARGET_NUM / TARGET_DEN) as u32;
+
+        if avg_scaled > target {
+            let reduction = (agc_gain_q16 >> GAIN_ATTACK_SHIFT).max(1);
+            agc_gain_q16 = agc_gain_q16.saturating_sub(reduction).max(AGC_GAIN_MIN_Q16);
+        } else if avg_scaled < target && envelope > NOISE_GATE {
+            let increase = (agc_gain_q16 >> GAIN_RELEASE_SHIFT).max(1);
+            agc_gain_q16 = agc_gain_q16.saturating_add(increase).min(AGC_GAIN_MAX_Q16);
+        }
+
+        // 6. PWM Output, clamped defensively against max_duty_cycle
+        let duty = scaled.min(max_duty);
+        pwm_ld2.set_duty_cycle(duty);
+
+        flt0.start_regular_conversion();
+
+        let processing_done_at = Instant::now();
+        let busy_dur = processing_done_at - result_ready_at;
+
+        busy_us_acc += busy_dur.as_micros();
+        wait_us_acc += wait_dur.as_micros();
+        sample_count += 1;
+
+        // Next wait span starts now
+        wait_start = Instant::now();
+
+        // Print metering stats roughly once per second
         let now = Instant::now();
         let window_elapsed_us = (now - stats_window_start).as_micros();
         if window_elapsed_us >= STATS_INTERVAL_US {
             let total_us = busy_us_acc + wait_us_acc;
-            let busy_pct = if total_us > 0 { busy_us_acc * 100 / total_us } else { 0 };
+            let busy_pct = if total_us > 0 {
+                busy_us_acc as f32 * 100.0 / total_us as f32
+            } else {
+                0.0
+            };
             let avg_period_us = if sample_count > 0 {
                 total_us / sample_count as u64
             } else {
@@ -297,13 +302,5 @@ async fn main(_spawner: Spawner) {
             sample_count = 0;
             stats_window_start = now;
         }
-
-        // info!("led on!");
-        // led.set_high();
-        // Timer::after_millis(500).await;
-
-        // info!("led off!");
-        // led.set_low();
-        // Timer::after_millis(500).await;
     }
 }

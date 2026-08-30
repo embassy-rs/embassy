@@ -119,7 +119,7 @@ async fn main(_spawner: Spawner) {
     println!("Manual integration: {}", integral);
     loop {
         // ch_test.write_sample_standard(10);
-        if let Some((data, channel, rpend)) = flt0.try_read_regular_result() {
+        if let Some((data, channel, rpend)) = flt0.try_get_regular_result() {
             println!("New regular 0: ");
             println!("Channel: {}", channel);
             println!("Value: {}", data);

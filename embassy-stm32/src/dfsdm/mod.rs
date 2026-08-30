@@ -7,15 +7,18 @@ pub mod associations;
 /// Type-system
 pub mod types;
 
+use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::ptr;
+use core::sync::atomic::{Ordering, compiler_fence};
+use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
+use interrupt::typelevel::Interrupt;
 pub use types::*;
 
-use crate::can::config;
 use crate::dfsdm::capability::HasDelay;
 use crate::dfsdm::config_types::FilterParameters;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
@@ -95,6 +98,10 @@ where
     M: FilterMarker,
 {
     pub(crate) fn new_disabled() -> Filter<T, M, Disabled> {
+        unsafe {
+            T::Interrupt::enable();
+        }
+
         Filter {
             _instance_marker: PhantomData,
             _filter_marker: PhantomData,
@@ -191,6 +198,27 @@ where
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jswstart(true));
     }
 
+    /// Trigger a regular conversion and read it asynchronously using interrupts
+    pub async fn read_regular(
+        &mut self,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T, M>>,
+    ) -> (i32, u8, bool) {
+        self.start_regular_conversion();
+
+        poll_fn(|cx| {
+            T::state().waker.register(cx.waker());
+
+            self.set_regular_end_of_conversion_interrupt(true);
+
+            if let Some(result) = self.try_get_regular_result() {
+                Poll::Ready(result)
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
     /// Attempts to read the current regular conversion result.
     ///
     /// Returns `Some((data, channel, rpend))` if `REOCF` is set, or `None` if no
@@ -202,7 +230,7 @@ where
     /// conversion.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_read_regular_result(&mut self) -> Option<(i32, u8, bool)> {
+    pub fn try_get_regular_result(&mut self) -> Option<(i32, u8, bool)> {
         if self.is_end_of_regular_conversion() {
             let result = T::regs().flt(M::CHANNEL.index()).rdatar().read();
             let data = sign_extend_24(result.rdata());
@@ -223,7 +251,7 @@ where
     /// The returned data is only valid if `REOCF` was set before reading.
     ///
     /// Returns `(data, channel, rpend)`.
-    pub fn read_regular_result_unchecked(&mut self) -> (i32, u8, bool) {
+    pub fn get_regular_result_unchecked(&mut self) -> (i32, u8, bool) {
         let result = T::regs().flt(M::CHANNEL.index()).rdatar().read();
         let data = sign_extend_24(result.rdata());
         let channel = result.rdatach();
@@ -238,7 +266,7 @@ where
     /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_read_injected_result(&mut self) -> Option<(i32, u8)> {
+    pub fn try_get_injected_result(&mut self) -> Option<(i32, u8)> {
         if self.is_end_of_injected_conversion() {
             let result = T::regs().flt(M::CHANNEL.index()).jdatar().read();
             let data = sign_extend_24(result.jdata());
@@ -256,7 +284,7 @@ where
     /// The returned data is only valid if `JEOCF` was set before reading.
     ///
     /// Returns `(data, channel)`.
-    pub fn read_injected_result_unchecked(&mut self) -> (i32, u8) {
+    pub fn get_injected_result_unchecked(&mut self) -> (i32, u8) {
         let result = T::regs().flt(M::CHANNEL.index()).jdatar().read();
         let data = sign_extend_24(result.jdata());
         let channel = result.jdatach();
@@ -504,30 +532,6 @@ where
     M: FilterMarker,
     P: PowerState,
 {
-    pub async fn wait_for_irq_test(&mut self) {
-        use core::sync::atomic::{Ordering, compiler_fence};
-        use core::task::Poll;
-
-        use futures_util::future::poll_fn;
-
-        // T::regs().start();
-
-        poll_fn(|cx| {
-            T::state().waker.register(cx.waker());
-
-            compiler_fence(Ordering::SeqCst);
-            if !false {
-                //T::regs().wait_done() {
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await;
-
-        // unsafe { core::ptr::read_volatile(T::regs().data()) }
-    }
-
     /// Enables or disables regular data overrun interrupts.
     fn set_regular_overrun_interrupt(&mut self, enabled: bool) {
         T::regs()
@@ -552,12 +556,31 @@ where
             .modify(|w| w.set_reocie(enabled));
     }
 
+    // Associated function test TODO
+    pub(crate) fn set_regular_end_of_conversion_interrupt_raw(enabled: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_reocie(enabled));
+    }
+
     /// Enables or disables injected end-of-conversion interrupts.
     fn set_injected_end_of_conversion_interrupt(&mut self, enabled: bool) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr2()
             .modify(|w| w.set_jeocie(enabled));
+    }
+}
+
+impl<T, F> interrupt::typelevel::Handler<<T as FilterInterrupt<F>>::Interrupt> for InterruptHandler<T, F>
+where
+    T: Instance + FilterInterrupt<F>,
+    F: FilterMarker,
+{
+    unsafe fn on_interrupt() {
+        Filter::<T, F, Enabled>::set_regular_end_of_conversion_interrupt_raw(false);
+        <T as FilterInterrupt<F>>::state().waker.wake();
     }
 }
 

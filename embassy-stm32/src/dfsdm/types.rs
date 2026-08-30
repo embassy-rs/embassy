@@ -368,20 +368,6 @@ pub struct InterruptHandler<T: Instance, F: FilterMarker> {
     _marker: PhantomData<(T, F)>,
 }
 
-impl<T, F> interrupt::typelevel::Handler<<T as FilterInterrupt<F>>::Interrupt> for InterruptHandler<T, F>
-where
-    T: Instance + FilterInterrupt<F>,
-    F: FilterMarker,
-{
-    unsafe fn on_interrupt() {
-        <T as FilterInterrupt<F>>::state().waker.wake();
-        // T::disable_exti_interrupt();
-        // T::state().waker.wake();
-        // T::clear_exti_pending();
-        // handle this filter's status/ovr/regular-conversion bits only
-    }
-}
-
 /// Markers for Interuptpresence
 pub trait Flt8Ready:
     FilterInterrupt<Flt0>
