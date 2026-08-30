@@ -578,7 +578,7 @@ unitrait::unitrait! {
     /// AES-128 GCM AEAD trait.
     pub trait Aes128Gcm {
         /// Opaque storage for the implementation's key schedule.
-        #[opaque(size = 1024, align = 16)]
+        #[opaque(size = 1280, align = 16)]
         #[symbol = "_emb_crypto_aes128gcm_context"]
         pub type Context;
 
