@@ -1168,28 +1168,38 @@ pub mod config_types {
         Enabled(u8),
     }
 
+    /// Filter order and filter oversampling ratio (FOSR).
+    ///
+    /// `fosr` is the actual oversampling ratio. The value written to the
+    /// hardware register is `FOSR - 1`.
+    #[allow(missing_docs)]
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     pub enum FilterOrder {
+        /// Filter disabled.
         Disabled,
+
+        /// Fast Sinc filter, with a gain of `2 * FOSR^2`.
         FastSinc { fosr: u16 },
+
+        /// First-order Sinc filter, with a gain of `FOSR`.
         Sinc1 { fosr: u16 },
+
+        /// Second-order Sinc filter, with a gain of `FOSR^2`.
         Sinc2 { fosr: u16 },
+
+        /// Third-order Sinc filter, with a gain of `FOSR^3`.
         Sinc3 { fosr: u16 },
+
+        /// Fourth-order Sinc filter, with a gain of `FOSR^4`.
         Sinc4 { fosr: u16 },
+
+        /// Fifth-order Sinc filter, with a gain of `FOSR^5`.
         Sinc5 { fosr: u16 },
     }
 
-    impl FilterOrder {
-        /// Maximum permissible OSR without overflow for the FilterOrder
-        pub const fn max_osr(&self) -> u16 {
-            match self {
-                Self::Disabled => 1,
-                Self::FastSinc { .. } | Self::Sinc1 { .. } | Self::Sinc2 { .. } | Self::Sinc3 { .. } => 1024,
-                Self::Sinc4 { .. } => 215,
-                Self::Sinc5 { .. } => 73,
-            }
-        }
+    const MAX_GAIN: u32 = i32::MAX as u32;
 
+    impl FilterOrder {
         fn fosr(&self) -> u16 {
             match self {
                 Self::Disabled => 1,
@@ -1200,6 +1210,27 @@ pub mod config_types {
                 | Self::Sinc4 { fosr }
                 | Self::Sinc5 { fosr } => *fosr,
             }
+        }
+
+        /// Returns Some(gain) for valid filter order + OSR combinations
+        /// Returns None for invalid combinations
+        fn gain(&self) -> Option<u32> {
+            let gain = match *self {
+                Self::Disabled => 1,
+                Self::FastSinc { fosr } => 2u32.checked_mul((fosr as u32).checked_pow(2)?)?,
+                Self::Sinc1 { fosr } => (fosr as u32).checked_pow(1)?,
+                Self::Sinc2 { fosr } => (fosr as u32).checked_pow(2)?,
+                Self::Sinc3 { fosr } => (fosr as u32).checked_pow(3)?,
+                Self::Sinc4 { fosr } => (fosr as u32).checked_pow(4)?,
+                Self::Sinc5 { fosr } => (fosr as u32).checked_pow(5)?,
+            };
+
+            (gain <= i32::MAX as u32).then_some(gain)
+        }
+        /// Tests whether filter order + OSR combinations results
+        /// in sub-i32 measurements
+        fn valid(&self) -> bool {
+            self.gain().is_some()
         }
     }
 
@@ -1219,13 +1250,16 @@ pub mod config_types {
         }
 
         /// Try to create from the actual OSR value.
-        /// See TRM or [`FilterOrder::max_osr`] for valid OSR
+        /// See TRM or [`FilterOrder::max_osr`] for valid OSR and IOSR
+        /// Filter gain and total gain must each <= 2^31
         pub fn try_new(order: FilterOrder, iosr: u16) -> Result<Self, ()> {
-            if (1..=256).contains(&iosr) && (1..=order.max_osr()).contains(&order.fosr()) {
-                Ok(Self { order, iosr })
-            } else {
-                Err(())
+            if (1..=256).contains(&iosr) && order.fosr() > 0 {
+                let params = Self { order, iosr };
+                if params.total_gain_checked().is_some() {
+                    return Ok(params);
+                }
             }
+            Err(())
         }
 
         pub(crate) fn register_values(self) -> (u8, u16, u8) {
@@ -1239,6 +1273,27 @@ pub mod config_types {
                 FilterOrder::Sinc5 { .. } => 5,
             };
             (discriminant, self.order.fosr() - 1, (self.iosr - 1) as u8)
+        }
+
+        /// Returns the total gain of this filter parametrization
+        pub fn total_gain_checked(&self) -> Option<u32> {
+            self.order
+                .gain()
+                .and_then(|filter_gain| filter_gain.checked_mul(self.iosr as u32))
+                .filter(|&gain| gain <= i32::MAX as u32)
+        }
+
+        /// Returns the total gain of this filter parametrization
+        pub fn total_gain(&self) -> u32 {
+            // Safe to unwrap after successful instantiation: total gain is guaranteed to be valid.
+            self.total_gain_checked().unwrap()
+        }
+
+        /// Recommended right-shift to achieve i24-fullscale results
+        pub fn recommended_shift(&self) -> u8 {
+            let gain = self.total_gain();
+
+            gain.saturating_sub(1).ilog2().saturating_sub(23) as u8
         }
     }
 
