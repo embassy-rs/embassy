@@ -713,6 +713,7 @@ impl<'d> Channel<'d> {
                 let (sinc, dinc) = match (incr_mem, dir) {
                     (Increment::None, _) => (Incmode::Fixed, Incmode::Fixed),
                     (Increment::Both, _) => (Incmode::Increment, Incmode::Increment),
+                    (Increment::Memory, Dir::MemoryToMemory) => (Incmode::Increment, Incmode::Fixed),
                     (_, Dir::MemoryToMemory) => (Incmode::Increment, Incmode::Increment),
                     (Increment::Peripheral, Dir::PeripheralToMemory) => (Incmode::Increment, Incmode::Fixed),
                     (Increment::Peripheral, Dir::MemoryToPeripheral) => (Incmode::Fixed, Incmode::Increment),
@@ -1169,6 +1170,71 @@ impl<'d> Channel<'d> {
             Increment::None,
             W::size(),
             W::size(),
+            options,
+        );
+        self.start();
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
+
+    /// Create a memory DMA transfer (memory to memory) to a fixed destination address.
+    ///
+    /// This transfers data from a memory buffer (`buf`) to a fixed destination address (`dest_addr`).
+    ///
+    /// This is specifically required for peripherals like the DFSDM, which need
+    /// memory-to-memory DMA transfers to write data into their internal input registers
+    /// (e.g., `DATINR`), rather than standard memory-to-peripheral transfers.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the destination address is valid and that the
+    /// DMA transfer does not violate Rust's aliasing rules for the duration of the transfer.
+    pub unsafe fn write_mem2mem<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        buf: &'a [MW],
+        dest_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        self.write_mem2mem_raw(request, buf, dest_addr, options)
+    }
+
+    /// Create a memory DMA transfer (memory to memory) to a fixed destination address, using raw pointers.
+    ///
+    /// This is the raw pointer variant of [`write_mem2mem`](Self::write_mem2mem).
+    /// It transfers data from a raw source slice (`buf`) to a fixed destination address (`dest_addr`).
+    ///
+    /// This is specifically used for peripherals like the DFSDM, which require
+    /// memory-to-memory DMA to feed data into their internal registers.
+    ///
+    /// Note: The arguments are ordered logically as `(source, destination)` to avoid
+    /// the internal `peri_addr`/`mem_addr` ambiguity present in the underlying
+    /// `Dir::MemoryToMemory` hardware configuration.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the source and destination pointers are valid
+    /// and properly aligned for the duration of the transfer.
+    pub unsafe fn write_mem2mem_raw<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        buf: *const [MW],
+        dest_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        let mem_len = buf.len();
+
+        self.configure(
+            request,
+            Dir::MemoryToMemory,
+            buf as *const MW as *mut u32,
+            dest_addr as *mut u32,
+            mem_len,
+            Increment::Memory,
+            MW::size(),
+            PW::size(),
             options,
         );
         self.start();
