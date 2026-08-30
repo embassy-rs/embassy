@@ -44,15 +44,17 @@ const EPX_BUFFER_OFFSET: u16 = DPRAM_DATA_OFFSET + ((EP_COUNT - 1) * EPX_BLOCK_S
 /// Number of allocatable EPX blocks.
 const EPX_NUM_BLOCKS: usize = (EP_MEMORY_SIZE - EPX_BUFFER_OFFSET as usize) / EPX_BLOCK_SIZE;
 
+/// Maximum number of concurrently allocated EPX pipes.
+const EPX_MAX_PIPES: usize = 16;
+
 /// Per-instance state shared between [`Driver`], [`Allocator`] and [`Channel`].
 pub struct HostState {
     /// Current channel with ongoing non-interrupt transfer. `0` means None.
     current_channel: AtomicUsize,
     /// Bitset of allocated interrupt pipes.
     allocated_pipes: AtomicU16,
-    /// Next 'allocated' non-interrupt channel index. Indexes 1-15 are reserved for
-    /// interrupt endpoints, so allocation starts at [`EP_COUNT`].
-    channel_index: AtomicUsize,
+    /// Bitset of allocated EPX pipes, indexed by `Channel::index - EP_COUNT`.
+    allocated_epx: AtomicU16,
     /// Bitmap of used EPX buffer blocks, one bit per [`EPX_BLOCK_SIZE`] block.
     used_blocks: critical_section::Mutex<Cell<u64>>,
 }
@@ -63,7 +65,7 @@ impl HostState {
         Self {
             current_channel: AtomicUsize::new(0),
             allocated_pipes: AtomicU16::new(0),
-            channel_index: AtomicUsize::new(EP_COUNT),
+            allocated_epx: AtomicU16::new(0),
             used_blocks: critical_section::Mutex::new(Cell::new(0)),
         }
     }
@@ -71,7 +73,7 @@ impl HostState {
     fn reset(&self) {
         self.current_channel.store(0, Ordering::Relaxed);
         self.allocated_pipes.store(0, Ordering::Relaxed);
-        self.channel_index.store(EP_COUNT, Ordering::Relaxed);
+        self.allocated_epx.store(0, Ordering::Relaxed);
         critical_section::with(|cs| self.used_blocks.borrow(cs).set(0));
     }
 }
@@ -195,7 +197,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         if ep_info.ep_type == EndpointType::Interrupt {
             assert!(index > 0 && index < EP_COUNT);
         } else {
-            assert!(index >= EP_COUNT);
+            assert!(index >= EP_COUNT && index < EP_COUNT + EPX_MAX_PIPES);
         }
 
         Self {
@@ -884,8 +886,21 @@ impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
                 pipes.store(pipes.load(Ordering::Relaxed) & !(1 << self.index), Ordering::Relaxed);
             });
         } else {
-            // Return the EPX buffer to the pool.
-            free_epx_mem(T::host_state(), self.buf.addr, self.buf.len);
+            let state = T::host_state();
+            // Return the EPX buffer and the pipe slot to the pool.
+            free_epx_mem(state, self.buf.addr, self.buf.len);
+            critical_section::with(|_| {
+                let epx = &state.allocated_epx;
+                epx.store(
+                    epx.load(Ordering::Relaxed) & !(1 << (self.index - EP_COUNT)),
+                    Ordering::Relaxed,
+                );
+            });
+            debug!(
+                "EPX pipe FREE  slot {} (bitset {:04x})",
+                self.index - EP_COUNT,
+                state.allocated_epx.load(Ordering::Relaxed)
+            );
         }
     }
 }
@@ -974,14 +989,40 @@ impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
             Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
         } else {
             let index = critical_section::with(|_| {
-                let old = state.channel_index.load(Ordering::Relaxed);
-                state.channel_index.store(old + 1, Ordering::Relaxed);
-                old
-            });
+                let alloc = state.allocated_epx.load(Ordering::Relaxed);
+                let slot = alloc.trailing_ones() as usize;
+                if slot >= EPX_MAX_PIPES {
+                    return Err(HostError::OutOfPipes);
+                }
+                state.allocated_epx.store(alloc | (1 << slot), Ordering::Relaxed);
+                Ok(EP_COUNT + slot)
+            })?;
             // One buffer per pipe: a parked transfer's data must survive another pipe
             // taking EPX in the meantime.
             let len = (blocks_for(endpoint.max_packet_size) * EPX_BLOCK_SIZE) as u16;
-            let addr = alloc_epx_mem(state, len).map_err(|()| HostError::InsufficientMemory)?;
+            let addr = match alloc_epx_mem(state, len) {
+                Ok(addr) => addr,
+                Err(()) => {
+                    // Hand back the slot claimed above, or repeated buffer failures
+                    // would exhaust the bitset and report `OutOfPipes` instead.
+                    critical_section::with(|_| {
+                        let epx = &state.allocated_epx;
+                        epx.store(
+                            epx.load(Ordering::Relaxed) & !(1 << (index - EP_COUNT)),
+                            Ordering::Relaxed,
+                        );
+                    });
+
+                    return Err(HostError::InsufficientMemory);
+                }
+            };
+            debug!(
+                "EPX pipe ALLOC slot {} (bitset {:04x}) buf {:#x}+{}",
+                index - EP_COUNT,
+                state.allocated_epx.load(Ordering::Relaxed),
+                addr,
+                len
+            );
 
             Ok(Channel::new(index, addr, len, endpoint, dev_addr, pre))
         }
