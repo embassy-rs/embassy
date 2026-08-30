@@ -28,7 +28,8 @@ use crate::{Peri, RegExt};
 
 /// Root port reset drive time (USB 2.0 §7.1.7.5, TDRSTR).
 const ROOT_RESET_MS: u64 = 50;
-/// Reset recovery time (USB 2.0 §7.1.7.5, TRSTRCY).
+/// Reset recovery time (USB 2.0 §7.1.7.5, TRSTRCY). A device need not answer any request
+/// until this has elapsed after reset is deasserted.
 const RESET_RECOVERY_MS: u64 = 10;
 /// Register writes need two clk_usb cycles to transfer; 12 clk_sys cycles cover this at the supported 150 MHz maximum.
 const USB_CLOCK_DELAY_CYCLES: u32 = 12;
@@ -61,6 +62,9 @@ struct EpxArbiter {
     yielded: u16,
     /// Bitset of EPX pipes queued in `wait_ready_for_transaction`.
     waiting: u16,
+    /// Bitset of EPX pipes whose packet landed as the transfer was being stopped.
+    /// `STOP_TRANS` suppresses `trans_complete`, so the completion is reported here.
+    completed: u16,
     /// Slot that last held EPX. The queue is served starting after it, so a pipe
     /// that just released goes to the back.
     last: usize,
@@ -76,6 +80,7 @@ impl EpxArbiter {
         Self {
             yielded: 0,
             waiting: 0,
+            completed: 0,
             last: 0,
             #[cfg(feature = "rp2040")]
             switch_requested: false,
@@ -109,6 +114,16 @@ impl EpxArbiter {
     fn take_yielded(&mut self, slot: usize) -> bool {
         let was = self.yielded & (1 << slot) != 0;
         self.yielded &= !(1 << slot);
+        was
+    }
+
+    fn mark_completed(&mut self, slot: usize) {
+        self.completed |= 1 << slot;
+    }
+
+    fn take_completed(&mut self, slot: usize) -> bool {
+        let was = self.completed & (1 << slot) != 0;
+        self.completed &= !(1 << slot);
         was
     }
 }
@@ -193,6 +208,18 @@ impl HostState {
         if let Some(slot) = Self::epx_slot(index) {
             self.with_arbiter(|a| a.mark_yielded(slot));
         }
+    }
+
+    /// Record a completion the hardware could not signal because EPX was stopped.
+    fn mark_epx_completed(&self, index: usize) {
+        if let Some(slot) = Self::epx_slot(index) {
+            self.with_arbiter(|a| a.mark_completed(slot));
+        }
+    }
+
+    /// Clear a pipe's completion bit, returning whether it was set.
+    fn take_epx_completed(&self, slot: usize) -> bool {
+        self.with_arbiter(|a| a.take_completed(slot))
     }
 
     /// Clear a pipe's yield bit, returning whether it was set.
@@ -392,15 +419,35 @@ fn note_epx_progress<T: SealedHostInstance>() {
     T::host_state().with_arbiter(|a| a.switch_requested = false);
 }
 
-/// Hand EPX from the pipe at `index` to whoever is queued for it.
-fn yield_epx<T: SealedHostInstance>(index: usize) {
+/// Hand EPX from the pipe at `index` to whoever is queued for it. Returns `true` when the
+/// transfer was stopped short; a packet landing as the stop takes effect stays with its owner.
+fn yield_epx<T: SealedHostInstance>(index: usize) -> bool {
     let state = T::host_state();
+
+    // Sample after the stop. The processor sets `full` when arming an OUT and the
+    // controller sets it on a received IN, so the test is direction-dependent:
+    // still `available`, or the buffer in its armed state, means nothing moved.
+    let buf_ctrl = T::dpram().ep_in_buffer_control(0);
+    let bc = buf_ctrl.read();
+    let is_out = T::regs().sie_ctrl().read().send_data();
+    let completed = !bc.available(0) && if is_out { !bc.full(0) } else { bc.full(0) };
+
+    if completed {
+        // The stop suppressed `trans_complete`, so report it in software and let the
+        // owner collect its packet. It keeps EPX until the transfer finishes.
+        state.mark_epx_completed(index);
+        state.wake_current_epx();
+        return false;
+    }
+
     state.mark_epx_yielded(index);
 
-    // EPX is idle now. Revoke its buffer before another pipe installs its own.
-    T::dpram().ep_in_buffer_control(0).modify(|w| w.set_available(0, false));
+    // Nothing was transferred. Revoke the buffer before another pipe installs its own.
+    buf_ctrl.modify(|w| w.set_available(0, false));
     state.current_channel.store(0, Ordering::Release);
     state.wake_all_epx();
+
+    true
 }
 
 /// Queue membership for a pipe waiting on EPX. Clearing the bit on drop keeps a
@@ -442,7 +489,6 @@ struct TransactionGuard<T: SealedHostInstance> {
     ep_control: EpControlReg,
     buffer_control: BufferControlReg,
     transaction_active: bool,
-    abort_on_drop: bool,
     _phantom: PhantomData<T>,
 }
 
@@ -465,7 +511,9 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
 
         let selected = self.state.current_channel.load(Ordering::Relaxed);
         if selected == self.index || selected == 0 {
-            if self.transaction_active && self.abort_on_drop {
+            // Any armed transaction must be stopped before the endpoint registers are
+            // torn down below, or the SIE may still be driving the bus while they change.
+            if self.transaction_active {
                 let regs = T::regs();
                 regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
                 while regs.sie_ctrl().read().stop_trans() {}
@@ -479,6 +527,13 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
             }
             if let Some(slot) = HostState::epx_slot(self.index) {
                 self.state.with_arbiter(|a| a.last = slot);
+
+                // This attempt is over. Discard any outcome the interrupt recorded for
+                // it: a cancelled transfer never consumes them, and the next transaction
+                // on this pipe would otherwise take one as its own and report a success,
+                // failure or yield that never happened.
+                self.state.take_epx_completed(slot);
+                self.state.take_epx_yielded(slot);
             }
             self.state.current_channel.store(0, Ordering::Release);
             disarm_epx_yield::<T>();
@@ -644,6 +699,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             w.set_stall(true);
             w.set_error_rx_timeout(false);
             w.set_error_rx_overflow(true);
+            w.set_error_crc(true);
+            w.set_error_bit_stuff(true);
+            w.set_error_data_seq(true);
         });
 
         // START_TRANS is synchronized separately (RP2040 §4.1.2.9, RP2350 §12.7.3.9).
@@ -656,6 +714,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         let res = poll_fn(|cx| {
             self.waker().register(cx.waker());
 
+            if T::host_state().take_epx_completed(self.epx_slot()) {
+                return Poll::Ready(Ok(TransactionStatus::Complete));
+            }
             if self.take_nak_yield() {
                 return Poll::Ready(Ok(TransactionStatus::NakYield));
             }
@@ -677,7 +738,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
                 return Poll::Ready(Err(PipeError::BufferOverflow));
             }
-
             Poll::Pending
         })
         .await;
@@ -758,7 +818,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             ep_control: self.ep_control(),
             buffer_control: self.buffer_control(),
             transaction_active: false,
-            abort_on_drop: E::ep_type() == EndpointType::Bulk && D::is_in(),
             _phantom: PhantomData,
         }
     }
@@ -901,12 +960,26 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             arm(self);
             guard.arm();
             let result = self.wait_transaction().await;
-            guard.disarm();
 
+            // Only a completed transaction is known to have released the SIE. The
+            // datasheet does not say the engine abandons a transfer on a framing error,
+            // so on any other outcome the guard stays armed and its `Drop` issues
+            // STOP_TRANS before the endpoint registers are torn down.
             match result? {
-                TransactionStatus::Complete => return Ok(()),
-                TransactionStatus::NakYield => embassy_futures::yield_now().await,
+                TransactionStatus::Complete => {
+                    guard.disarm();
+                    return Ok(());
+                }
+                // Isochronous data is only valid in its own frame, so a yielded
+                // transfer is dropped rather than replayed later.
+                TransactionStatus::NakYield if E::ep_type() == EndpointType::Isochronous => {
+                    return Err(PipeError::Canceled);
+                }
+                TransactionStatus::NakYield => {}
             }
+
+            drop(guard);
+            embassy_futures::yield_now().await;
         }
     }
 
@@ -1026,10 +1099,19 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
         let res = loop {
             let rx_len = if Self::is_interrupt_in() {
-                // Consume completed packet that may have arrived after last poll.
-                // Reloading would discard the packet that hardware already ACKed.
-                if !self.buffer_control().read().full(0) {
+                let ctrl = self.buffer_control().read();
+                if ctrl.full(0) {
+                    // A packet arrived while nobody was reading. Take it as it stands:
+                    // re-arming would clear `full` and discard what the device already sent.
+                } else if ctrl.available(0) {
+                    // Already armed, so the controller owns the buffer and may fill it at
+                    // any moment. Writing to it here would race that; just wait.
                     trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
+                    self.wait_available().await;
+                } else {
+                    // Idle: not armed and holding nothing, so the controller cannot be
+                    // touching the buffer and it is safe to program.
+                    trace!("CHANNEL {} ARM INTERRUPT", self.index);
                     self.interrupt_reload();
                     self.wait_available().await;
                 }
@@ -1138,6 +1220,7 @@ impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
             // Return the EPX buffer and the pipe slot to the pool.
             free_epx_mem(state, self.buf.addr, self.buf.len);
             state.take_epx_yielded(self.epx_slot());
+            state.take_epx_completed(self.epx_slot());
             critical_section::with(|_| {
                 let epx = &state.allocated_epx;
                 epx.store(
@@ -1357,7 +1440,10 @@ fn on_nak_stop<T: SealedHostInstance>() -> bool {
             // Acknowledge, stop asking, then hand the endpoint over.
             regs.nak_poll().modify(|w| w.set_epx_stopped_on_nak(true));
             disarm_epx_yield::<T>();
-            yield_epx::<T>(index);
+            let yielded = yield_epx::<T>(index);
+            if !yielded {
+                trace!("USB IRQ: EPx completed as it was stopped; keeping the packet");
+            }
 
             trace!("USB IRQ: EPx stopped on NAK, yielded channel {}", index);
             BUS_WAKER.wake();
@@ -1395,9 +1481,12 @@ fn on_host_sof<T: SealedHostInstance>() -> &'static str {
             regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
             while regs.sie_ctrl().read().stop_trans() {}
 
-            disarm_epx_yield::<T>();
-            yield_epx::<T>(index);
-            "sof yielded EPx"
+            state.with_arbiter(|a| a.switch_requested = false);
+            if yield_epx::<T>(index) {
+                "sof yielded EPx"
+            } else {
+                "sof stop raced a completion; packet kept"
+            }
         } else {
             state.with_arbiter(|a| a.switch_requested = true);
             "sof armed EPx yield"
@@ -1431,15 +1520,6 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
             } else if ints.host_resume() {
                 regs.sie_status().write_clear(|w| w.set_resume(true));
                 "resume"
-            } else if ints.error_crc() {
-                regs.sie_status().write_clear(|w| w.set_crc_error(true));
-                "crc error"
-            } else if ints.error_bit_stuff() {
-                regs.sie_status().write_clear(|w| w.set_bit_stuff_error(true));
-                "bit stuff error"
-            } else if ints.error_data_seq() {
-                regs.sie_status().write_clear(|w| w.set_data_seq_error(true));
-                "data sequence error"
             } else if ints.stall() {
                 regs.inte().write_clear(|w| w.set_stall(true));
                 T::host_state().wake_current_epx();
