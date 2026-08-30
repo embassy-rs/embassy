@@ -15,15 +15,15 @@ categories = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-crypto-driver-v$VERSION/embassy-net-driver/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-crypto-driver/src/"
-features = ["defmt"]
+features = ["defmt", "driver-rustcrypto"]
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["defmt"]
+features = ["defmt", "driver-rustcrypto"]
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv7em-none-eabi", features = ["defmt"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "driver-rustcrypto"]},
 ]
 
 [dependencies]
@@ -34,6 +34,26 @@ crypto-common = "0.2"
 cipher = { version = "0.5", default-features = false }
 aead = { version = "0.6", default-features = false }
 generic-array = "1.4.5"
+heapless = "0.8"
+
+# RustCrypto software-driver dependencies (all optional)
+md-5 = { version = "0.11", default-features = false, optional = true }
+sha1 = { version = "0.11", default-features = false, optional = true }
+sha2 = { version = "0.11", default-features = false, optional = true }
+hmac = { version = "0.13", default-features = false, optional = true }
+aes = { version = "0.9", default-features = false, optional = true }
+aes-gcm = { version = "0.11", default-features = false, features = ["aes"], optional = true }
+ccm = { version = "0.6", default-features = false, optional = true }
 
 [features]
 defmt = ["embassy-crypto-driver/defmt"]
+## Use RustCrypto crates as a software fallback driver.
+driver-rustcrypto = [
+    "dep:md-5",
+    "dep:sha1",
+    "dep:sha2",
+    "dep:hmac",
+    "dep:aes",
+    "dep:aes-gcm",
+    "dep:ccm",
+]

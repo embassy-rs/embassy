@@ -2,6 +2,9 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
+#[cfg(feature = "driver-rustcrypto")]
+mod driver_rustcrypto;
+
 use aead::common::array::ArraySize;
 use aead::inout::InOutBuf;
 use aead::{AeadCore, AeadInOut, TagPosition};
