@@ -317,18 +317,46 @@ impl embassy_crypto_driver::Aes128Ecb for Aes128EcbDriver {
     fn aes128ecb_encrypt_block(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherEncrypt;
         let blocks = blocks.into_out_with_copied_in();
-        for chunk in blocks.chunks_exact_mut(16) {
-            let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes128>) };
-            ctx.encrypt_block(ga);
+        if blocks.len() >= 32 {
+            // Process pairs of blocks using encrypt_blocks for potential SIMD
+            let mut chunks = blocks.chunks_exact_mut(32);
+            for pair in &mut chunks {
+                let ga =
+                    unsafe { core::slice::from_raw_parts_mut(pair.as_mut_ptr() as *mut cipher::Block<aes::Aes128>, 2) };
+                ctx.encrypt_blocks(ga);
+            }
+            // Remainder
+            for chunk in chunks.into_remainder().chunks_exact_mut(16) {
+                let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes128>) };
+                ctx.encrypt_block(ga);
+            }
+        } else {
+            for chunk in blocks.chunks_exact_mut(16) {
+                let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes128>) };
+                ctx.encrypt_block(ga);
+            }
         }
     }
 
     fn aes128ecb_decrypt_block(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherDecrypt;
         let blocks = blocks.into_out_with_copied_in();
-        for chunk in blocks.chunks_exact_mut(16) {
-            let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes128>) };
-            ctx.decrypt_block(ga);
+        if blocks.len() >= 32 {
+            let mut chunks = blocks.chunks_exact_mut(32);
+            for pair in &mut chunks {
+                let ga =
+                    unsafe { core::slice::from_raw_parts_mut(pair.as_mut_ptr() as *mut cipher::Block<aes::Aes128>, 2) };
+                ctx.decrypt_blocks(ga);
+            }
+            for chunk in chunks.into_remainder().chunks_exact_mut(16) {
+                let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes128>) };
+                ctx.decrypt_block(ga);
+            }
+        } else {
+            for chunk in blocks.chunks_exact_mut(16) {
+                let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes128>) };
+                ctx.decrypt_block(ga);
+            }
         }
     }
 }
@@ -352,18 +380,44 @@ impl embassy_crypto_driver::Aes256Ecb for Aes256EcbDriver {
     fn aes256ecb_encrypt_block(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherEncrypt;
         let blocks = blocks.into_out_with_copied_in();
-        for chunk in blocks.chunks_exact_mut(16) {
-            let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes256>) };
-            ctx.encrypt_block(ga);
+        if blocks.len() >= 32 {
+            let mut chunks = blocks.chunks_exact_mut(32);
+            for pair in &mut chunks {
+                let ga =
+                    unsafe { core::slice::from_raw_parts_mut(pair.as_mut_ptr() as *mut cipher::Block<aes::Aes256>, 2) };
+                ctx.encrypt_blocks(ga);
+            }
+            for chunk in chunks.into_remainder().chunks_exact_mut(16) {
+                let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes256>) };
+                ctx.encrypt_block(ga);
+            }
+        } else {
+            for chunk in blocks.chunks_exact_mut(16) {
+                let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes256>) };
+                ctx.encrypt_block(ga);
+            }
         }
     }
 
     fn aes256ecb_decrypt_block(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherDecrypt;
         let blocks = blocks.into_out_with_copied_in();
-        for chunk in blocks.chunks_exact_mut(16) {
-            let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes256>) };
-            ctx.decrypt_block(ga);
+        if blocks.len() >= 32 {
+            let mut chunks = blocks.chunks_exact_mut(32);
+            for pair in &mut chunks {
+                let ga =
+                    unsafe { core::slice::from_raw_parts_mut(pair.as_mut_ptr() as *mut cipher::Block<aes::Aes256>, 2) };
+                ctx.decrypt_blocks(ga);
+            }
+            for chunk in chunks.into_remainder().chunks_exact_mut(16) {
+                let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes256>) };
+                ctx.decrypt_block(ga);
+            }
+        } else {
+            for chunk in blocks.chunks_exact_mut(16) {
+                let ga = unsafe { &mut *(chunk.as_mut_ptr() as *mut cipher::Block<aes::Aes256>) };
+                ctx.decrypt_block(ga);
+            }
         }
     }
 }
@@ -827,9 +881,9 @@ embassy_crypto_driver::embassy_crypto_aes256ccm_impl!(Aes256CcmDriver);
 // AES-128 CTR
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Aes128CtrContext {
-    key: [u8; 16],
+    cipher: aes::Aes128,
     iv: [u8; 16],
 }
 
@@ -839,18 +893,21 @@ impl embassy_crypto_driver::Aes128Ctr for Aes128CtrDriver {
     type Context = Aes128CtrContext;
 
     fn aes128ctr_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context {
-        Aes128CtrContext { key: *key, iv: *iv }
+        use cipher::KeyInit;
+        Aes128CtrContext {
+            cipher: aes::Aes128::new_from_slice(key.as_slice()).unwrap(),
+            iv: *iv,
+        }
     }
 
     fn aes128ctr_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
+        ctx.clone()
     }
 
     fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
-        use cipher::{BlockCipherEncrypt, KeyInit};
+        use cipher::BlockCipherEncrypt;
 
         let buf = buf.into_out_with_copied_in();
-        let cipher = aes::Aes128::new_from_slice(&ctx.key).unwrap();
         let mut counter = ctx.iv;
         let mut offset = 0usize;
 
@@ -858,7 +915,7 @@ impl embassy_crypto_driver::Aes128Ctr for Aes128CtrDriver {
             let mut block = counter;
             let block_ptr = &mut block as *mut [u8; 16] as *mut cipher::Block<aes::Aes128>;
             let block_ref = unsafe { &mut *block_ptr };
-            cipher.encrypt_block(block_ref);
+            ctx.cipher.encrypt_block(block_ref);
 
             for i in 0..16 {
                 buf[offset + i] ^= block[i];
@@ -872,7 +929,7 @@ impl embassy_crypto_driver::Aes128Ctr for Aes128CtrDriver {
             let mut block = counter;
             let block_ptr = &mut block as *mut [u8; 16] as *mut cipher::Block<aes::Aes128>;
             let block_ref = unsafe { &mut *block_ptr };
-            cipher.encrypt_block(block_ref);
+            ctx.cipher.encrypt_block(block_ref);
 
             for i in 0..buf.len() - offset {
                 buf[offset + i] ^= block[i];
@@ -882,11 +939,6 @@ impl embassy_crypto_driver::Aes128Ctr for Aes128CtrDriver {
         }
 
         ctx.iv = counter;
-    }
-
-    fn aes128ctr_seek(ctx: &mut Self::Context, block_offset: u64) {
-        let counter = u128::from_be_bytes(ctx.iv).wrapping_add(block_offset as u128);
-        ctx.iv = counter.to_be_bytes();
     }
 }
 
@@ -896,9 +948,9 @@ embassy_crypto_driver::embassy_crypto_aes128ctr_impl!(Aes128CtrDriver);
 // AES-256 CTR
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Aes256CtrContext {
-    key: [u8; 32],
+    cipher: aes::Aes256,
     iv: [u8; 16],
 }
 
@@ -908,18 +960,21 @@ impl embassy_crypto_driver::Aes256Ctr for Aes256CtrDriver {
     type Context = Aes256CtrContext;
 
     fn aes256ctr_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context {
-        Aes256CtrContext { key: *key, iv: *iv }
+        use cipher::KeyInit;
+        Aes256CtrContext {
+            cipher: aes::Aes256::new_from_slice(key.as_slice()).unwrap(),
+            iv: *iv,
+        }
     }
 
     fn aes256ctr_clone(ctx: &Self::Context) -> Self::Context {
-        *ctx
+        ctx.clone()
     }
 
     fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
-        use cipher::{BlockCipherEncrypt, KeyInit};
+        use cipher::BlockCipherEncrypt;
 
         let buf = buf.into_out_with_copied_in();
-        let cipher = aes::Aes256::new_from_slice(&ctx.key).unwrap();
         let mut counter = ctx.iv;
         let mut offset = 0usize;
 
@@ -927,7 +982,7 @@ impl embassy_crypto_driver::Aes256Ctr for Aes256CtrDriver {
             let mut block = counter;
             let block_ptr = &mut block as *mut [u8; 16] as *mut cipher::Block<aes::Aes256>;
             let block_ref = unsafe { &mut *block_ptr };
-            cipher.encrypt_block(block_ref);
+            ctx.cipher.encrypt_block(block_ref);
 
             for i in 0..16 {
                 buf[offset + i] ^= block[i];
@@ -941,7 +996,7 @@ impl embassy_crypto_driver::Aes256Ctr for Aes256CtrDriver {
             let mut block = counter;
             let block_ptr = &mut block as *mut [u8; 16] as *mut cipher::Block<aes::Aes256>;
             let block_ref = unsafe { &mut *block_ptr };
-            cipher.encrypt_block(block_ref);
+            ctx.cipher.encrypt_block(block_ref);
 
             for i in 0..buf.len() - offset {
                 buf[offset + i] ^= block[i];
@@ -951,11 +1006,6 @@ impl embassy_crypto_driver::Aes256Ctr for Aes256CtrDriver {
         }
 
         ctx.iv = counter;
-    }
-
-    fn aes256ctr_seek(ctx: &mut Self::Context, block_offset: u64) {
-        let counter = u128::from_be_bytes(ctx.iv).wrapping_add(block_offset as u128);
-        ctx.iv = counter.to_be_bytes();
     }
 }
 
