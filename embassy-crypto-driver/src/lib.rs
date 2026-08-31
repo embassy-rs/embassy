@@ -14,6 +14,97 @@ pub enum CryptoError {
     HardwareError,
 }
 
+/// Error returned when a pair of input/output slices have unequal lengths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotEqualError;
+
+/// A lightweight I/O buffer abstraction without depending on the RustCrypto `inout` crate.
+pub struct InOutBuf<'inp, 'out, T> {
+    in_ptr: *const T,
+    out_ptr: *mut T,
+    len: usize,
+    _pd: core::marker::PhantomData<(&'inp T, &'out mut T)>,
+}
+
+impl<'a, T> From<&'a mut [T]> for InOutBuf<'a, 'a, T> {
+    fn from(buf: &'a mut [T]) -> Self {
+        let p = buf.as_mut_ptr();
+        Self {
+            in_ptr: p,
+            out_ptr: p,
+            len: buf.len(),
+            _pd: core::marker::PhantomData,
+        }
+    }
+}
+
+impl<'inp, 'out, T> InOutBuf<'inp, 'out, T> {
+    /// Create an in/out buffer from separate input and output slices.
+    pub fn new(in_buf: &'inp [T], out_buf: &'out mut [T]) -> Result<Self, NotEqualError> {
+        if in_buf.len() != out_buf.len() {
+            return Err(NotEqualError);
+        }
+
+        Ok(Self {
+            in_ptr: in_buf.as_ptr(),
+            out_ptr: out_buf.as_mut_ptr(),
+            len: in_buf.len(),
+            _pd: core::marker::PhantomData,
+        })
+    }
+
+    /// Construct from raw pointers.
+    pub unsafe fn from_raw(in_ptr: *const T, out_ptr: *mut T, len: usize) -> Self {
+        Self {
+            in_ptr,
+            out_ptr,
+            len,
+            _pd: core::marker::PhantomData,
+        }
+    }
+
+    /// Access the input side without copying.
+    pub fn get_in(&self) -> &[T] {
+        unsafe { core::slice::from_raw_parts(self.in_ptr, self.len) }
+    }
+
+    /// Access the output side without copying.
+    pub fn get_out(&mut self) -> &mut [T] {
+        unsafe { core::slice::from_raw_parts_mut(self.out_ptr, self.len) }
+    }
+
+    /// Return the output slice while preserving the caller's write access.
+    pub fn into_out(self) -> &'out mut [T] {
+        unsafe { core::slice::from_raw_parts_mut(self.out_ptr, self.len) }
+    }
+
+    /// Return the output slice, copying input into output when the regions differ.
+    pub fn into_out_with_copied_in(self) -> &'out mut [T]
+    where
+        T: Copy,
+    {
+        if !core::ptr::eq(self.in_ptr, self.out_ptr) {
+            unsafe { core::ptr::copy(self.in_ptr, self.out_ptr, self.len) };
+        }
+        unsafe { core::slice::from_raw_parts_mut(self.out_ptr, self.len) }
+    }
+
+    /// Consume the buffer and return the raw pointers.
+    pub fn into_raw(self) -> (*const T, *mut T) {
+        (self.in_ptr, self.out_ptr)
+    }
+
+    /// Length of the buffer.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether the buffer is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
 unitrait::unitrait! {
     /// Md5 trait
     pub trait Md5 {
@@ -480,11 +571,11 @@ unitrait::unitrait! {
 
         /// Encrypt 16-byte blocks in-place.
         #[symbol = "_emb_crypto_aes128ecb_encrypt_block"]
-        pub fn aes128ecb_encrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]);
+        pub fn aes128ecb_encrypt_block(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
 
         /// Decrypt 16-byte blocks in-place.
         #[symbol = "_emb_crypto_aes128ecb_decrypt_block"]
-        pub fn aes128ecb_decrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]);
+        pub fn aes128ecb_decrypt_block(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
     }
 
     macro embassy_crypto_aes128ecb_impl(path = $crate);
@@ -508,11 +599,11 @@ unitrait::unitrait! {
 
         /// Encrypt 16-byte blocks in-place.
         #[symbol = "_emb_crypto_aes256ecb_encrypt_block"]
-        pub fn aes256ecb_encrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]);
+        pub fn aes256ecb_encrypt_block(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
 
         /// Decrypt 16-byte blocks in-place.
         #[symbol = "_emb_crypto_aes256ecb_decrypt_block"]
-        pub fn aes256ecb_decrypt_block(ctx: &Self::Context, blocks: &mut [[u8; 16]]);
+        pub fn aes256ecb_decrypt_block(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
     }
 
     macro embassy_crypto_aes256ecb_impl(path = $crate);
@@ -536,11 +627,11 @@ unitrait::unitrait! {
 
         /// Encrypt 16-byte blocks in-place (updates internal chaining state).
         #[symbol = "_emb_crypto_aes128cbc_encrypt_block"]
-        pub fn aes128cbc_encrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]);
+        pub fn aes128cbc_encrypt_block(ctx: &mut Self::Context, blocks: InOutBuf<'_, '_, u8>);
 
         /// Decrypt 16-byte blocks in-place (updates internal chaining state).
         #[symbol = "_emb_crypto_aes128cbc_decrypt_block"]
-        pub fn aes128cbc_decrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]);
+        pub fn aes128cbc_decrypt_block(ctx: &mut Self::Context, blocks: InOutBuf<'_, '_, u8>);
     }
 
     macro embassy_crypto_aes128cbc_impl(path = $crate);
@@ -564,11 +655,11 @@ unitrait::unitrait! {
 
         /// Encrypt 16-byte blocks in-place (updates internal chaining state).
         #[symbol = "_emb_crypto_aes256cbc_encrypt_block"]
-        pub fn aes256cbc_encrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]);
+        pub fn aes256cbc_encrypt_block(ctx: &mut Self::Context, blocks: InOutBuf<'_, '_, u8>);
 
         /// Decrypt 16-byte blocks in-place (updates internal chaining state).
         #[symbol = "_emb_crypto_aes256cbc_decrypt_block"]
-        pub fn aes256cbc_decrypt_block(ctx: &mut Self::Context, blocks: &mut [[u8; 16]]);
+        pub fn aes256cbc_decrypt_block(ctx: &mut Self::Context, blocks: InOutBuf<'_, '_, u8>);
     }
 
     macro embassy_crypto_aes256cbc_impl(path = $crate);
@@ -596,7 +687,7 @@ unitrait::unitrait! {
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
-            buffer: &mut [u8],
+            buffer: InOutBuf<'_, '_, u8>,
             tag: &mut [u8; 16],
         ) -> Result<(), CryptoError>;
 
@@ -606,7 +697,7 @@ unitrait::unitrait! {
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
-            buffer: &mut [u8],
+            buffer: InOutBuf<'_, '_, u8>,
             tag: &[u8; 16],
         ) -> Result<(), CryptoError>;
     }
@@ -636,7 +727,7 @@ unitrait::unitrait! {
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
-            buffer: &mut [u8],
+            buffer: InOutBuf<'_, '_, u8>,
             tag: &mut [u8; 16],
         ) -> Result<(), CryptoError>;
 
@@ -646,7 +737,7 @@ unitrait::unitrait! {
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
-            buffer: &mut [u8],
+            buffer: InOutBuf<'_, '_, u8>,
             tag: &[u8; 16],
         ) -> Result<(), CryptoError>;
     }
@@ -679,7 +770,7 @@ unitrait::unitrait! {
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
-            buffer: &mut [u8],
+            buffer: InOutBuf<'_, '_, u8>,
             tag: &mut [u8],
         ) -> Result<(), CryptoError>;
 
@@ -690,7 +781,7 @@ unitrait::unitrait! {
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
-            buffer: &mut [u8],
+            buffer: InOutBuf<'_, '_, u8>,
             tag: &[u8],
         ) -> Result<(), CryptoError>;
     }
@@ -723,7 +814,7 @@ unitrait::unitrait! {
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
-            buffer: &mut [u8],
+            buffer: InOutBuf<'_, '_, u8>,
             tag: &mut [u8],
         ) -> Result<(), CryptoError>;
 
@@ -734,7 +825,7 @@ unitrait::unitrait! {
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
-            buffer: &mut [u8],
+            buffer: InOutBuf<'_, '_, u8>,
             tag: &[u8],
         ) -> Result<(), CryptoError>;
     }
@@ -843,7 +934,7 @@ unitrait::unitrait! {
 
         /// Apply keystream to `buf` in-place (encrypt == decrypt for CTR).
         #[symbol = "_emb_crypto_aes128ctr_apply_keystream"]
-        pub fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: &mut [u8]);
+        pub fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
 
         /// Seek by 16-byte block offset.
         ///
@@ -872,7 +963,7 @@ unitrait::unitrait! {
         pub fn aes256ctr_clone(ctx: &Self::Context) -> Self::Context;
 
         #[symbol = "_emb_crypto_aes256ctr_apply_keystream"]
-        pub fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: &mut [u8]);
+        pub fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
 
         #[symbol = "_emb_crypto_aes256ctr_seek"]
         pub fn aes256ctr_seek(ctx: &mut Self::Context, block_offset: u64);
