@@ -1812,6 +1812,10 @@ fn main() {
         let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
         let mut seen_lcd_seg_pins = HashSet::new();
 
+        if (regs.kind == "dac" || regs.kind == "hash") && chip_name.starts_with("stm32c5") {
+            continue;
+        }
+
         if let Some(peri) = p.name.strip_prefix("SPI")
             && peripheral_map.contains_key(format!("I2S{}", peri).as_str())
         {
@@ -2223,7 +2227,9 @@ fn main() {
     }
 
     for (p, regs) in &peripheral_list {
-        if regs.kind == "adc" && (regs.version == "f3v3" || regs.version == "wb1") {
+        if (regs.kind == "adc" && (regs.version == "f3v3" || regs.version == "wb1"))
+            || ((regs.kind == "dac" || regs.kind == "hash") && chip_name.starts_with("stm32c5"))
+        {
             continue;
         }
 
