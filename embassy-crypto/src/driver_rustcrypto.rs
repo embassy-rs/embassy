@@ -826,6 +826,576 @@ embassy_crypto_driver::embassy_crypto_aes256gcm_impl!(Aes256GcmDriver);
 // AES CCM
 // ===========================================================================
 
+macro_rules! ccm_case {
+    (encrypt, $cipher:ty, $key:expr, $nonce:expr, $aad:expr, $buffer:expr, $tag:expr, $tag_len:ty, $nonce_len:ty) => {{
+        type C = ccm::Ccm<$cipher, $tag_len, $nonce_len>;
+        let ccm = C::new_from_slice($key).unwrap();
+        let t = ccm
+            .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+            .map_err(|_| CryptoError::InvalidInput)?;
+        $tag.copy_from_slice(t.as_slice());
+        Ok(())
+    }};
+    (decrypt, $cipher:ty, $key:expr, $nonce:expr, $aad:expr, $buffer:expr, $tag:expr, $tag_len:ty, $nonce_len:ty) => {{
+        type C = ccm::Ccm<$cipher, $tag_len, $nonce_len>;
+        let ccm = C::new_from_slice($key).unwrap();
+        ccm.decrypt_inout_detached(
+            $nonce.try_into().unwrap(),
+            $aad,
+            InOutBuf::from($buffer),
+            $tag.try_into().unwrap(),
+        )
+        .map_err(|_| CryptoError::InvalidSignature)
+    }};
+}
+
+macro_rules! ccm_dispatch {
+    ($op:ident, $cipher:ty, $key:expr, $nonce:expr, $aad:expr, $buffer:expr, $tag:expr) => {
+        match ($tag.len(), $nonce.len()) {
+            (4, 7) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U4,
+                ccm::consts::U7
+            ),
+            (4, 8) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U4,
+                ccm::consts::U8
+            ),
+            (4, 9) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U4,
+                ccm::consts::U9
+            ),
+            (4, 10) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U4,
+                ccm::consts::U10
+            ),
+            (4, 11) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U4,
+                ccm::consts::U11
+            ),
+            (4, 12) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U4,
+                ccm::consts::U12
+            ),
+            (4, 13) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U4,
+                ccm::consts::U13
+            ),
+            (6, 7) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U6,
+                ccm::consts::U7
+            ),
+            (6, 8) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U6,
+                ccm::consts::U8
+            ),
+            (6, 9) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U6,
+                ccm::consts::U9
+            ),
+            (6, 10) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U6,
+                ccm::consts::U10
+            ),
+            (6, 11) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U6,
+                ccm::consts::U11
+            ),
+            (6, 12) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U6,
+                ccm::consts::U12
+            ),
+            (6, 13) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U6,
+                ccm::consts::U13
+            ),
+            (8, 7) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U8,
+                ccm::consts::U7
+            ),
+            (8, 8) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U8,
+                ccm::consts::U8
+            ),
+            (8, 9) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U8,
+                ccm::consts::U9
+            ),
+            (8, 10) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U8,
+                ccm::consts::U10
+            ),
+            (8, 11) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U8,
+                ccm::consts::U11
+            ),
+            (8, 12) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U8,
+                ccm::consts::U12
+            ),
+            (8, 13) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U8,
+                ccm::consts::U13
+            ),
+            (10, 7) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U10,
+                ccm::consts::U7
+            ),
+            (10, 8) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U10,
+                ccm::consts::U8
+            ),
+            (10, 9) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U10,
+                ccm::consts::U9
+            ),
+            (10, 10) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U10,
+                ccm::consts::U10
+            ),
+            (10, 11) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U10,
+                ccm::consts::U11
+            ),
+            (10, 12) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U10,
+                ccm::consts::U12
+            ),
+            (10, 13) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U10,
+                ccm::consts::U13
+            ),
+            (12, 7) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U12,
+                ccm::consts::U7
+            ),
+            (12, 8) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U12,
+                ccm::consts::U8
+            ),
+            (12, 9) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U12,
+                ccm::consts::U9
+            ),
+            (12, 10) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U12,
+                ccm::consts::U10
+            ),
+            (12, 11) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U12,
+                ccm::consts::U11
+            ),
+            (12, 12) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U12,
+                ccm::consts::U12
+            ),
+            (12, 13) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U12,
+                ccm::consts::U13
+            ),
+            (14, 7) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U14,
+                ccm::consts::U7
+            ),
+            (14, 8) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U14,
+                ccm::consts::U8
+            ),
+            (14, 9) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U14,
+                ccm::consts::U9
+            ),
+            (14, 10) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U14,
+                ccm::consts::U10
+            ),
+            (14, 11) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U14,
+                ccm::consts::U11
+            ),
+            (14, 12) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U14,
+                ccm::consts::U12
+            ),
+            (14, 13) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U14,
+                ccm::consts::U13
+            ),
+            (16, 7) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U16,
+                ccm::consts::U7
+            ),
+            (16, 8) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U16,
+                ccm::consts::U8
+            ),
+            (16, 9) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U16,
+                ccm::consts::U9
+            ),
+            (16, 10) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U16,
+                ccm::consts::U10
+            ),
+            (16, 11) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U16,
+                ccm::consts::U11
+            ),
+            (16, 12) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U16,
+                ccm::consts::U12
+            ),
+            (16, 13) => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                ccm::consts::U16,
+                ccm::consts::U13
+            ),
+            _ => Err(CryptoError::Unsupported),
+        }
+    };
+}
+
 #[derive(Clone)]
 struct Aes128CcmContext {
     key: [u8; 16],
@@ -844,7 +1414,6 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
         ctx.clone()
     }
 
-    #[allow(deprecated)]
     fn aes128ccm_encrypt(
         ctx: &Self::Context,
         nonce: &[u8],
@@ -852,82 +1421,11 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
         buffer: &mut [u8],
         tag: &mut [u8],
     ) -> Result<(), CryptoError> {
-        use aead::{AeadInPlace, KeyInit};
-        use cipher::Array;
-
-        if tag.len() != 16 {
-            return Err(CryptoError::Unsupported);
-        }
-
-        match nonce.len() {
-            7 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U7>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            8 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U8>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            9 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U9>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            10 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U10>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            11 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U11>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            12 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U12>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            13 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U13>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            _ => Err(CryptoError::Unsupported),
-        }
+        use aead::inout::InOutBuf;
+        use aead::{AeadInOut, KeyInit};
+        ccm_dispatch!(encrypt, aes::Aes128, &ctx.key, nonce, aad, buffer, tag)
     }
 
-    #[allow(deprecated)]
     fn aes128ccm_decrypt(
         ctx: &Self::Context,
         nonce: &[u8],
@@ -935,58 +1433,9 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
         buffer: &mut [u8],
         tag: &[u8],
     ) -> Result<(), CryptoError> {
-        use aead::{AeadInPlace, KeyInit};
-        use cipher::Array;
-
-        if tag.len() != 16 {
-            return Err(CryptoError::Unsupported);
-        }
-
-        match nonce.len() {
-            7 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U7>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            8 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U8>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            9 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U9>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            10 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U10>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            11 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U11>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            12 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U12>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            13 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U13>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            _ => Err(CryptoError::Unsupported),
-        }
+        use aead::inout::InOutBuf;
+        use aead::{AeadInOut, KeyInit};
+        ccm_dispatch!(decrypt, aes::Aes128, &ctx.key, nonce, aad, buffer, tag)
     }
 }
 
@@ -1010,7 +1459,6 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
         ctx.clone()
     }
 
-    #[allow(deprecated)]
     fn aes256ccm_encrypt(
         ctx: &Self::Context,
         nonce: &[u8],
@@ -1018,82 +1466,11 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
         buffer: &mut [u8],
         tag: &mut [u8],
     ) -> Result<(), CryptoError> {
-        use aead::{AeadInPlace, KeyInit};
-        use cipher::Array;
-
-        if tag.len() != 16 {
-            return Err(CryptoError::Unsupported);
-        }
-
-        match nonce.len() {
-            7 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U7>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            8 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U8>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            9 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U9>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            10 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U10>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            11 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U11>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            12 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U12>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            13 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U13>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_in_place_detached(Array::from_slice(nonce), aad, buffer)
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            _ => Err(CryptoError::Unsupported),
-        }
+        use aead::inout::InOutBuf;
+        use aead::{AeadInOut, KeyInit};
+        ccm_dispatch!(encrypt, aes::Aes256, &ctx.key, nonce, aad, buffer, tag)
     }
 
-    #[allow(deprecated)]
     fn aes256ccm_decrypt(
         ctx: &Self::Context,
         nonce: &[u8],
@@ -1101,58 +1478,9 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
         buffer: &mut [u8],
         tag: &[u8],
     ) -> Result<(), CryptoError> {
-        use aead::{AeadInPlace, KeyInit};
-        use cipher::Array;
-
-        if tag.len() != 16 {
-            return Err(CryptoError::Unsupported);
-        }
-
-        match nonce.len() {
-            7 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U7>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            8 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U8>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            9 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U9>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            10 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U10>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            11 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U11>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            12 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U12>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            13 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U13>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_in_place_detached(Array::from_slice(nonce), aad, buffer, Array::from_slice(tag))
-                    .map_err(|_| CryptoError::InvalidSignature)
-            }
-            _ => Err(CryptoError::Unsupported),
-        }
+        use aead::inout::InOutBuf;
+        use aead::{AeadInOut, KeyInit};
+        ccm_dispatch!(decrypt, aes::Aes256, &ctx.key, nonce, aad, buffer, tag)
     }
 }
 

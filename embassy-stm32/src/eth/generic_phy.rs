@@ -46,7 +46,6 @@ mod phy_consts {
     pub const PHY_REG_BSR_JABBER: u16 = 1 << 1;
     pub const PHY_REG_BSR_UP: u16 = 1 << 2;
     pub const PHY_REG_BSR_FAULT: u16 = 1 << 4;
-    pub const PHY_REG_BSR_ANDONE: u16 = 1 << 5;
 }
 use self::phy_consts::*;
 
@@ -144,17 +143,7 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
 
         let bsr = self.sm.smi_read(self.phy_addr, PHY_REG_BSR);
 
-        // No link without autonegotiate
-        if bsr & PHY_REG_BSR_ANDONE == 0 {
-            return Some(false);
-        }
-        // No link if link is down
-        if bsr & PHY_REG_BSR_UP == 0 {
-            return Some(false);
-        }
-
-        // Got link
-        Some(true)
+        Some(bsr & PHY_REG_BSR_UP != 0)
     }
 }
 
