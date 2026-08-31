@@ -1,4 +1,4 @@
-use core::cell::Cell;
+use core::cell::{Cell, RefCell};
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
@@ -28,7 +28,8 @@ use crate::{Peri, RegExt};
 
 /// Root port reset drive time (USB 2.0 §7.1.7.5, TDRSTR).
 const ROOT_RESET_MS: u64 = 50;
-/// Reset recovery time (USB 2.0 §7.1.7.5, TRSTRCY).
+/// Reset recovery time (USB 2.0 §7.1.7.5, TRSTRCY). A device need not answer any request
+/// until this has elapsed after reset is deasserted.
 const RESET_RECOVERY_MS: u64 = 10;
 /// Register writes need two clk_usb cycles to transfer; 12 clk_sys cycles cover this at the supported 150 MHz maximum.
 const USB_CLOCK_DELAY_CYCLES: u32 = 12;
@@ -47,6 +48,155 @@ const EPX_NUM_BLOCKS: usize = (EP_MEMORY_SIZE - EPX_BUFFER_OFFSET as usize) / EP
 /// Maximum number of concurrently allocated EPX pipes.
 const EPX_MAX_PIPES: usize = 16;
 
+/// NAK retry interval, stretched so a NAKing transfer cannot retry within the frame.
+#[cfg(feature = "rp2040")]
+const NAK_POLL_DELAY_YIELD: u16 = 300;
+/// NAK retry interval outside a yield.
+#[cfg(feature = "rp2040")]
+const NAK_POLL_DELAY_NORMAL: u16 = 16;
+
+/// Bits reserved per EPX pipe in [`EpxArbiter::error`].
+const EPX_ERROR_BITS: usize = 4;
+/// Mask of one pipe's error field.
+const EPX_ERROR_MASK: u64 = (1 << EPX_ERROR_BITS) - 1;
+
+/// Terminal errors the interrupt handler can record, packed [`EPX_ERROR_BITS`] wide.
+/// Zero means no error, so the whole field clears to "nothing recorded".
+#[derive(Clone, Copy, PartialEq, Eq)]
+#[repr(u64)]
+enum EpxError {
+    BadResponse = 1,
+    DataToggle = 2,
+}
+
+impl EpxError {
+    fn from_code(code: u64) -> Option<Self> {
+        match code {
+            1 => Some(Self::BadResponse),
+            2 => Some(Self::DataToggle),
+            _ => None,
+        }
+    }
+}
+
+impl From<EpxError> for PipeError {
+    fn from(error: EpxError) -> Self {
+        match error {
+            EpxError::BadResponse => PipeError::BadResponse,
+            EpxError::DataToggle => PipeError::DataToggleError,
+        }
+    }
+}
+
+/// Default control timeout, overriding the trait's 50 ms: devices may overrun the
+/// USB 2.0 §9.2.6.4 response requirement while configuring.
+#[allow(clippy::field_reassign_with_default)]
+fn default_timeout() -> TimeoutConfig {
+    let mut timeout = TimeoutConfig::default();
+    timeout.no_data_timeout = core::time::Duration::from_millis(500);
+    timeout
+}
+
+/// Who holds EPX, who is queued for it, and what the interrupt recorded for a
+/// transfer that was stopped.
+struct EpxArbiter {
+    /// Bitset of EPX pipes whose transaction was stopped at a NAK boundary.
+    yielded: u16,
+    /// Bitset of EPX pipes queued in `wait_ready_for_transaction`.
+    waiting: u16,
+    /// Whether EPX has a transaction armed. Framing errors come from the shared RX
+    /// engine, so they are only charged to EPX while it is mid-transaction.
+    armed: bool,
+    /// Bitset of EPX pipes whose packet landed as the transfer was being stopped.
+    /// `STOP_TRANS` suppresses `trans_complete`, so the completion is reported here.
+    completed: u16,
+    /// Terminal error per EPX pipe, [`EPX_ERROR_BITS`] wide. Clearing the status bit is
+    /// what stops the interrupt re-firing, so the reason is carried here instead.
+    error: u64,
+    /// Slot that last held EPX. The queue is served starting after it, so a pipe
+    /// that just released goes to the back.
+    last: usize,
+    /// RP2040 only: set on the first SOF of a contended EPX transfer, so the
+    /// second SOF with no completion in between can stop it.
+    #[cfg(feature = "rp2040")]
+    switch_requested: bool,
+}
+
+impl EpxArbiter {
+    /// Arbitration state with nothing queued, held or recorded.
+    const fn new() -> Self {
+        Self {
+            yielded: 0,
+            waiting: 0,
+            armed: false,
+            completed: 0,
+            error: 0,
+            last: 0,
+            #[cfg(feature = "rp2040")]
+            switch_requested: false,
+        }
+    }
+
+    /// Slot whose turn it is to take a free EPX: the first queued pipe after the one
+    /// that last held it. `None` when nobody is queued.
+    fn turn(&self) -> Option<usize> {
+        if self.waiting == 0 {
+            return None;
+        }
+        (1..=EPX_MAX_PIPES)
+            .map(|step| (self.last + step) % EPX_MAX_PIPES)
+            .find(|slot| self.waiting & (1 << slot) != 0)
+    }
+
+    /// Queue a pipe for EPX, or take it out of the queue.
+    fn set_waiting(&mut self, slot: usize, waiting: bool) {
+        if waiting {
+            self.waiting |= 1 << slot;
+        } else {
+            self.waiting &= !(1 << slot);
+        }
+    }
+
+    fn mark_yielded(&mut self, slot: usize) {
+        self.yielded |= 1 << slot;
+    }
+
+    fn take_yielded(&mut self, slot: usize) -> bool {
+        let was = self.yielded & (1 << slot) != 0;
+        self.yielded &= !(1 << slot);
+        was
+    }
+
+    fn mark_completed(&mut self, slot: usize) {
+        self.completed |= 1 << slot;
+    }
+
+    fn take_completed(&mut self, slot: usize) -> bool {
+        let was = self.completed & (1 << slot) != 0;
+        self.completed &= !(1 << slot);
+        was
+    }
+
+    fn mark_error(&mut self, slot: usize, error: EpxError) {
+        let shift = slot * EPX_ERROR_BITS;
+        self.error = (self.error & !(EPX_ERROR_MASK << shift)) | ((error as u64) << shift);
+    }
+
+    fn take_error(&mut self, slot: usize) -> Option<PipeError> {
+        let shift = slot * EPX_ERROR_BITS;
+        let code = (self.error >> shift) & EPX_ERROR_MASK;
+        self.error &= !(EPX_ERROR_MASK << shift);
+        EpxError::from_code(code).map(PipeError::from)
+    }
+
+    /// Void any outcome the interrupt recorded for a pipe's finished attempt.
+    fn discard_outcome(&mut self, slot: usize) {
+        self.take_completed(slot);
+        self.take_error(slot);
+        self.take_yielded(slot);
+    }
+}
+
 /// Per-instance state shared between [`Driver`], [`Allocator`] and [`Channel`].
 pub struct HostState {
     /// Current channel with ongoing non-interrupt transfer. `0` means None.
@@ -60,9 +210,17 @@ pub struct HostState {
     epx_wakers: [AtomicWaker; EPX_MAX_PIPES],
     /// Bitmap of used EPX buffer blocks, one bit per [`EPX_BLOCK_SIZE`] block.
     used_blocks: critical_section::Mutex<Cell<u64>>,
+    /// EPX arbitration. One lock keeps multi-field decisions consistent; it also masks
+    /// the interrupt, so a re-entrant borrow cannot happen.
+    arbiter: critical_section::Mutex<RefCell<EpxArbiter>>,
 }
 
 impl HostState {
+    /// Run `f` with the arbiter locked.
+    fn with_arbiter<R>(&self, f: impl FnOnce(&mut EpxArbiter) -> R) -> R {
+        critical_section::with(|cs| f(&mut self.arbiter.borrow(cs).borrow_mut()))
+    }
+
     /// Create a new, reset host state.
     pub const fn new() -> Self {
         Self {
@@ -71,6 +229,7 @@ impl HostState {
             allocated_epx: AtomicU16::new(0),
             epx_wakers: [const { AtomicWaker::new() }; EPX_MAX_PIPES],
             used_blocks: critical_section::Mutex::new(Cell::new(0)),
+            arbiter: critical_section::Mutex::new(RefCell::new(EpxArbiter::new())),
         }
     }
 
@@ -78,7 +237,10 @@ impl HostState {
         self.current_channel.store(0, Ordering::Relaxed);
         self.allocated_pipes.store(0, Ordering::Relaxed);
         self.allocated_epx.store(0, Ordering::Relaxed);
-        critical_section::with(|cs| self.used_blocks.borrow(cs).set(0));
+        critical_section::with(|cs| {
+            *self.arbiter.borrow(cs).borrow_mut() = EpxArbiter::new();
+            self.used_blocks.borrow(cs).set(0);
+        });
     }
 
     /// Slot of an EPX pipe in [`HostState::epx_wakers`], or `None` for the idle
@@ -102,6 +264,52 @@ impl HostState {
                 self.epx_wakers[slot].wake();
             }
         }
+    }
+
+    /// Slot whose turn it is to take a free EPX. `None` when nobody is queued.
+    fn epx_turn(&self) -> Option<usize> {
+        self.with_arbiter(|a| a.turn())
+    }
+
+    /// Record that the pipe holding EPX had its transaction stopped.
+    fn mark_epx_yielded(&self, index: usize) {
+        if let Some(slot) = Self::epx_slot(index) {
+            self.with_arbiter(|a| a.mark_yielded(slot));
+        }
+    }
+
+    /// Record a completion the hardware could not signal because EPX was stopped.
+    fn mark_epx_completed(&self, index: usize) {
+        if let Some(slot) = Self::epx_slot(index) {
+            self.with_arbiter(|a| a.mark_completed(slot));
+        }
+    }
+
+    /// Clear a pipe's completion bit, returning whether it was set.
+    fn take_epx_completed(&self, slot: usize) -> bool {
+        self.with_arbiter(|a| a.take_completed(slot))
+    }
+
+    /// Record a terminal error against the pipe currently holding EPX.
+    fn mark_epx_error(&self, index: usize, error: EpxError) {
+        if let Some(slot) = Self::epx_slot(index) {
+            self.with_arbiter(|a| a.mark_error(slot, error));
+        }
+    }
+
+    /// Take any terminal error recorded for a pipe.
+    fn take_epx_error(&self, slot: usize) -> Option<PipeError> {
+        self.with_arbiter(|a| a.take_error(slot))
+    }
+
+    /// Clear a pipe's yield bit, returning whether it was set.
+    fn take_epx_yielded(&self, slot: usize) -> bool {
+        self.with_arbiter(|a| a.take_yielded(slot))
+    }
+
+    /// Void any outcome the interrupt recorded for a pipe's finished attempt.
+    fn discard_epx_outcome(&self, slot: usize) {
+        self.with_arbiter(|a| a.discard_outcome(slot));
     }
 }
 
@@ -208,9 +416,46 @@ pub struct Channel<'d, T: SealedHostInstance, E, D> {
     pid: bool,
     /// Send PRE packet
     pre: bool,
+    timeout: TimeoutConfig,
+    /// Per-transaction control response budget, or `None` outside a control transfer.
+    control_timeout_us: Option<u64>,
 }
 
 impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
+    fn start_control_timeout(&mut self, has_data: bool) {
+        let timeout = if has_data {
+            self.timeout.data_timeout
+        } else {
+            self.timeout.no_data_timeout
+        };
+        self.control_timeout_us = Some(timeout.as_micros().min(u64::MAX as u128) as u64);
+    }
+
+    fn stop_timed_out_transaction(&self) -> TransactionStatus {
+        let regs = T::regs();
+        let setup = regs.sie_ctrl().read().send_setup();
+        regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
+        while regs.sie_ctrl().read().stop_trans() {}
+
+        if setup && regs.sie_status().read().trans_complete() {
+            regs.sie_status().write_clear(|w| w.set_trans_complete(true));
+            TransactionStatus::Complete
+        } else if !setup && !yield_epx::<T>(self.index) {
+            T::host_state().take_epx_completed(self.epx_slot());
+            TransactionStatus::Complete
+        } else {
+            // Clear global status so the next pipe cannot consume this transaction's result.
+            regs.sie_status().write_clear(|w| {
+                w.set_trans_complete(true);
+                w.set_stall_rec(true);
+                w.set_rx_timeout(true);
+                w.set_rx_overflow(true);
+            });
+            regs.buff_status().write_clear(|w| w.0 = 0b11);
+            TransactionStatus::Timeout
+        }
+    }
+
     /// [EP_MEMORY]-relative address
     fn new(index: usize, buf_addr: u16, buf_len: u16, ep_info: &EndpointInfo, dev_addr: u8, pre: bool) -> Self {
         // TODO: assert only in debug?
@@ -241,6 +486,8 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             interval: ep_info.interval_ms,
             pid: false,
             pre,
+            timeout: default_timeout(),
+            control_timeout_us: None,
         }
     }
 }
@@ -249,6 +496,130 @@ type BufferControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpBufferCon
 type EpControlReg = rp_pac::common::Reg<rp_pac::usb_dpram::regs::EpControl, rp_pac::common::RW>;
 type AddrControlReg = rp_pac::common::Reg<rp_pac::usb::regs::AddrEndpX, rp_pac::common::RW>;
 
+/// Stop the in-flight EPX transaction at its next safe boundary so a queued pipe can take
+/// the endpoint. Armed only while contended, or an idle bulk IN would trip it on every NAK.
+fn arm_epx_yield<T: SealedHostInstance>() {
+    #[cfg(feature = "_rp235x")]
+    {
+        // RP235x stops EPX at its next NAK and raises an interrupt.
+        T::regs().nak_poll().modify(|w| w.set_stop_epx_on_nak(true));
+        T::regs().inte().modify(|w| w.set_epx_stopped_on_nak(true));
+    }
+    #[cfg(feature = "rp2040")]
+    {
+        // RP2040 has no stop-on-NAK bit, so stretch the retry interval and watch frame
+        // boundaries instead, as TinyUSB's fallback does.
+        T::regs().nak_poll().write(|w| {
+            w.set_delay_fs(NAK_POLL_DELAY_YIELD);
+            w.set_delay_ls(NAK_POLL_DELAY_YIELD);
+        });
+        T::regs().inte().modify(|w| w.set_host_sof(true));
+    }
+}
+
+/// Stop asking for a yield: EPX is ours, or nobody is queued for it.
+fn disarm_epx_yield<T: SealedHostInstance>() {
+    #[cfg(feature = "_rp235x")]
+    {
+        T::regs().nak_poll().modify(|w| w.set_stop_epx_on_nak(false));
+        T::regs().inte().modify(|w| w.set_epx_stopped_on_nak(false));
+    }
+    #[cfg(feature = "rp2040")]
+    {
+        T::host_state().with_arbiter(|a| a.switch_requested = false);
+        T::regs().inte().modify(|w| w.set_host_sof(false));
+        T::regs().nak_poll().write(|w| {
+            w.set_delay_fs(NAK_POLL_DELAY_NORMAL);
+            w.set_delay_ls(NAK_POLL_DELAY_NORMAL);
+        });
+    }
+}
+
+/// Note that EPX made progress, so a pending yield request starts counting again.
+#[allow(unused_variables)]
+fn note_epx_progress<T: SealedHostInstance>() {
+    #[cfg(feature = "rp2040")]
+    T::host_state().with_arbiter(|a| a.switch_requested = false);
+}
+
+/// Record a terminal error against the EPX owner and wake it.
+fn record_epx_error<T: SealedHostInstance>(error: EpxError) {
+    let state = T::host_state();
+
+    // With no EPX transaction in flight the error belongs to a polled endpoint. One
+    // raised while EPX is also active is still charged here; the source is unknowable.
+    if !state.with_arbiter(|a| a.armed) {
+        return;
+    }
+
+    state.mark_epx_error(state.current_channel.load(Ordering::Acquire), error);
+    state.wake_current_epx();
+}
+
+/// Hand EPX from the pipe at `index` to whoever is queued for it. Returns `true` when the
+/// transfer was stopped short; a packet landing as the stop takes effect stays with its owner.
+fn yield_epx<T: SealedHostInstance>(index: usize) -> bool {
+    let state = T::host_state();
+
+    // Sample after the stop. `full` is set by the processor when arming an OUT and by the
+    // controller on a received IN, so what counts as "nothing moved" depends on direction.
+    let buf_ctrl = T::dpram().ep_in_buffer_control(0);
+    let bc = buf_ctrl.read();
+    let is_out = T::regs().sie_ctrl().read().send_data();
+    let completed = !bc.available(0) && if is_out { !bc.full(0) } else { bc.full(0) };
+
+    if completed {
+        // The stop suppressed `trans_complete`, so report it in software and let the
+        // owner collect its packet. It keeps EPX until the transfer finishes.
+        state.mark_epx_completed(index);
+        state.wake_current_epx();
+        return false;
+    }
+
+    state.mark_epx_yielded(index);
+
+    // Nothing was transferred. Revoke the buffer before another pipe installs its own.
+    buf_ctrl.modify(|w| w.set_available(0, false));
+    state.current_channel.store(0, Ordering::Release);
+    state.wake_all_epx();
+
+    true
+}
+
+/// Queue membership for a pipe waiting on EPX. Clearing the bit on drop keeps a
+/// cancelled wait from stalling the rotation on a pipe that will never claim it.
+struct WaitTicket<T: SealedHostInstance> {
+    slot: usize,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: SealedHostInstance> WaitTicket<T> {
+    fn new(slot: usize) -> Self {
+        T::host_state().with_arbiter(|a| a.set_waiting(slot, true));
+
+        Self {
+            slot,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<T: SealedHostInstance> Drop for WaitTicket<T> {
+    fn drop(&mut self) {
+        T::host_state().with_arbiter(|a| a.set_waiting(self.slot, false));
+    }
+}
+
+/// Outcome of one EPX transaction attempt.
+enum TransactionStatus {
+    /// The transaction ran to completion.
+    Complete,
+    /// EPX was taken away at a NAK boundary; the caller should retry.
+    NakYield,
+    /// The software response budget expired.
+    Timeout,
+}
+
 struct TransactionGuard<T: SealedHostInstance> {
     state: &'static HostState,
     index: usize,
@@ -256,17 +627,18 @@ struct TransactionGuard<T: SealedHostInstance> {
     ep_control: EpControlReg,
     buffer_control: BufferControlReg,
     transaction_active: bool,
-    abort_on_drop: bool,
     _phantom: PhantomData<T>,
 }
 
 impl<T: SealedHostInstance> TransactionGuard<T> {
     fn arm(&mut self) {
         self.transaction_active = true;
+        self.state.with_arbiter(|a| a.armed = true);
     }
 
     fn disarm(&mut self) {
         self.transaction_active = false;
+        self.state.with_arbiter(|a| a.armed = false);
     }
 }
 
@@ -279,7 +651,9 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
 
         let selected = self.state.current_channel.load(Ordering::Relaxed);
         if selected == self.index || selected == 0 {
-            if self.transaction_active && self.abort_on_drop {
+            // Any armed transaction must be stopped before the endpoint registers are
+            // torn down below, or the SIE may still be driving the bus while they change.
+            if self.transaction_active {
                 let regs = T::regs();
                 regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
                 while regs.sie_ctrl().read().stop_trans() {}
@@ -291,7 +665,16 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
                 });
                 regs.buff_status().write_clear(|w| w.0 = 0b11);
             }
+            if let Some(slot) = HostState::epx_slot(self.index) {
+                self.state.with_arbiter(|a| a.last = slot);
+
+                // This attempt is over. A cancelled transfer never consumes its recorded
+                // outcome, and the next transaction would take it as its own.
+                self.state.discard_epx_outcome(slot);
+            }
+            self.state.with_arbiter(|a| a.armed = false);
             self.state.current_channel.store(0, Ordering::Release);
+            disarm_epx_yield::<T>();
             self.state.wake_all_epx();
 
             self.ep_control.modify(|w| {
@@ -309,8 +692,13 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         if Self::is_interrupt_in() {
             &EP_IN_WAKERS[self.index]
         } else {
-            &T::host_state().epx_wakers[self.index - EP_COUNT]
+            &T::host_state().epx_wakers[self.epx_slot()]
         }
+    }
+
+    /// Whether this pipe was made to yield EPX since the last check.
+    fn take_nak_yield(&self) -> bool {
+        T::host_state().take_epx_yielded(self.epx_slot())
     }
 
     /// Get buffer control register
@@ -391,23 +779,46 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         if Self::is_interrupt_in() {
             true
         } else {
-            let sel = T::host_state().current_channel.load(Ordering::Relaxed);
-            sel == self.index || sel == 0
+            let state = T::host_state();
+            let sel = state.current_channel.load(Ordering::Relaxed);
+            if sel == self.index {
+                return true;
+            }
+            if sel != 0 {
+                return false;
+            }
+
+            // EPX is free: take it only when the queue says it is our turn, so a
+            // pipe that keeps re-arming cannot monopolise the endpoint.
+            match state.epx_turn() {
+                Some(slot) => slot == self.epx_slot(),
+                None => true,
+            }
         }
     }
 
     async fn wait_ready_for_transaction(&self) {
         trace!("CHANNEL {} WAIT READY", self.index);
+
+        // Join the queue for EPX. Dropped with this future, cancelled or not.
+        let _ticket = (!Self::is_interrupt_in()).then(|| WaitTicket::<T>::new(self.epx_slot()));
         // Wait for other transaction end
         poll_fn(|cx| {
             self.waker().register(cx.waker());
 
-            // Other transaction in progress
-            if !self.is_ready_for_transaction() {
-                return Poll::Pending;
+            if self.is_ready_for_transaction() {
+                #[cfg(feature = "_rp235x")]
+                if !Self::is_interrupt_in() {
+                    disarm_epx_yield::<T>();
+                }
+
+                return Poll::Ready(());
             }
 
-            Poll::Ready(())
+            trace!("CHANNEL {} EPX contention: request yield", self.index);
+            arm_epx_yield::<T>();
+
+            Poll::Pending
         })
         .await;
 
@@ -417,7 +828,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     // FIXME: RX Timeout with LS device on hub
     /// Start transaction and wait it to be complete
-    async fn wait_transaction(&self) -> Result<(), PipeError> {
+    async fn wait_transaction(&self) -> Result<TransactionStatus, PipeError> {
         assert!(!Self::is_interrupt_in());
         let regs = T::regs();
 
@@ -427,6 +838,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             w.set_stall(true);
             w.set_error_rx_timeout(false);
             w.set_error_rx_overflow(true);
+            w.set_error_crc(true);
+            w.set_error_bit_stuff(true);
+            w.set_error_data_seq(true);
         });
 
         // START_TRANS is synchronized separately (RP2040 §4.1.2.9, RP2350 §12.7.3.9).
@@ -439,24 +853,29 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         let res = poll_fn(|cx| {
             self.waker().register(cx.waker());
 
+            if let Some(error) = T::host_state().take_epx_error(self.epx_slot()) {
+                return Poll::Ready(Err(error));
+            }
+            if T::host_state().take_epx_completed(self.epx_slot()) {
+                return Poll::Ready(Ok(TransactionStatus::Complete));
+            }
+            if self.take_nak_yield() {
+                return Poll::Ready(Ok(TransactionStatus::NakYield));
+            }
+
             let stat = regs.sie_status().read();
             if stat.trans_complete() {
                 regs.sie_status().write_clear(|w| w.set_trans_complete(true));
-                return Poll::Ready(Ok(()));
+                return Poll::Ready(Ok(TransactionStatus::Complete));
             }
             if stat.stall_rec() {
                 regs.sie_status().write_clear(|w| w.set_stall_rec(true));
                 return Poll::Ready(Err(PipeError::Stall));
             }
-            // if stat.rx_timeout() {
-            //     regs.sie_status().write_clear(|w| w.set_rx_timeout(true));
-            //     return Poll::Ready(Err(PipeError::Timeout))
-            // }
             if stat.rx_overflow() {
                 regs.sie_status().write_clear(|w| w.set_rx_overflow(true));
                 return Poll::Ready(Err(PipeError::BufferOverflow));
             }
-
             Poll::Pending
         })
         .await;
@@ -537,7 +956,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             ep_control: self.ep_control(),
             buffer_control: self.buffer_control(),
             transaction_active: false,
-            abort_on_drop: E::ep_type() == EndpointType::Bulk && D::is_in(),
             _phantom: PhantomData,
         }
     }
@@ -578,13 +996,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             w.set_length(0, self.max_packet_size);
             w.set_available(0, true);
         });
-
-        // TODO: SOF?
-        // T::regs().sie_ctrl().modify(|w| {
-        //     w.set_sof_en(true);
-        //     w.set_keep_alive_en(true);
-        //     w.set_pulldown_en(true);
-        // });
 
         cortex_m::asm::delay(USB_CLOCK_DELAY_CYCLES);
         T::regs().int_ep_ctrl().modify(|w| {
@@ -671,17 +1082,49 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Claim EPX and run one transaction on it. `arm` programs the buffer once this
     /// pipe owns the endpoint.
-    async fn run_transaction(&mut self, arm: impl FnOnce(&mut Self)) -> Result<(), PipeError> {
-        self.wait_ready_for_transaction().await;
-        self.set_current();
-        let mut guard = self.transaction_guard();
+    async fn run_transaction(&mut self, mut arm: impl FnMut(&mut Self)) -> Result<(), PipeError> {
+        let deadline = self
+            .control_timeout_us
+            .map(|us| embassy_time::Instant::now() + embassy_time::Duration::from_micros(us));
 
-        arm(self);
-        guard.arm();
-        let result = self.wait_transaction().await;
-        guard.disarm();
+        loop {
+            self.wait_ready_for_transaction().await;
+            self.set_current();
+            let mut guard = self.transaction_guard();
 
-        result
+            arm(self);
+            guard.arm();
+            let result = if let Some(deadline) = deadline {
+                match embassy_time::with_deadline(deadline, self.wait_transaction()).await {
+                    Ok(result) => result,
+                    Err(_) => Ok(self.stop_timed_out_transaction()),
+                }
+            } else {
+                self.wait_transaction().await
+            };
+
+            // Only a completed transaction is known to have released the SIE, so any other
+            // outcome leaves the guard armed and its `Drop` issues STOP_TRANS.
+            match result? {
+                TransactionStatus::Complete => {
+                    guard.disarm();
+                    return Ok(());
+                }
+                // Isochronous data is only valid in its own frame, so a yielded
+                // transfer is dropped rather than replayed later.
+                TransactionStatus::NakYield if E::ep_type() == EndpointType::Isochronous => {
+                    return Err(PipeError::Canceled);
+                }
+                TransactionStatus::NakYield => {}
+                TransactionStatus::Timeout => {
+                    guard.disarm();
+                    return Err(PipeError::Timeout);
+                }
+            }
+
+            drop(guard);
+            embassy_futures::yield_now().await;
+        }
     }
 
     /// Receive one packet, returning its length.
@@ -740,21 +1183,20 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             return Err(PipeError::BufferOverflow);
         }
 
-        // Setup stage
-        // TODO: Whole transaction error handling?
-        self.send_setup(setup).await?;
-
-        // Data stage
-        let read = if length > 0 {
-            self.request_in(&mut buf[..length]).await?
-        } else {
-            0
-        };
-
-        // Status stage
-        self.control_status(false).await?;
-
-        Ok(read)
+        self.start_control_timeout(length != 0);
+        let result = async {
+            self.send_setup(setup).await?;
+            let read = if length > 0 {
+                self.request_in(&mut buf[..length]).await?
+            } else {
+                0
+            };
+            self.control_status(false).await?;
+            Ok(read)
+        }
+        .await;
+        self.control_timeout_us = None;
+        result
     }
 
     async fn control_out(&mut self, setup: &[u8; 8], buf: &[u8]) -> Result<(), PipeError>
@@ -768,19 +1210,18 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             return Err(PipeError::BufferOverflow);
         }
 
-        // Setup stage
-        // TODO: Whole transaction error handling?
-        self.send_setup(setup).await?;
-
-        // Data stage
-        if length > 0 {
-            self.request_out(&buf[..length], false).await?;
+        self.start_control_timeout(length != 0);
+        let result = async {
+            self.send_setup(setup).await?;
+            if length > 0 {
+                self.request_out(&buf[..length], false).await?;
+            }
+            self.control_status(true).await?;
+            Ok(())
         }
-
-        // Status stage
-        self.control_status(true).await?;
-
-        Ok(())
+        .await;
+        self.control_timeout_us = None;
+        result
     }
 
     async fn request_in(&mut self, buf: &mut [u8]) -> Result<usize, PipeError>
@@ -800,10 +1241,19 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
         let res = loop {
             let rx_len = if Self::is_interrupt_in() {
-                // Consume completed packet that may have arrived after last poll.
-                // Reloading would discard the packet that hardware already ACKed.
-                if !self.buffer_control().read().full(0) {
+                let ctrl = self.buffer_control().read();
+                if ctrl.full(0) {
+                    // A packet arrived while nobody was reading. Take it as it stands:
+                    // re-arming would clear `full` and discard what the device already sent.
+                } else if ctrl.available(0) {
+                    // Already armed, so the controller owns the buffer and may fill it at
+                    // any moment. Writing to it here would race that; just wait.
                     trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
+                    self.wait_available().await;
+                } else {
+                    // Idle: not armed and holding nothing, so the controller cannot be
+                    // touching the buffer and it is safe to program.
+                    trace!("CHANNEL {} ARM INTERRUPT", self.index);
                     self.interrupt_reload();
                     self.wait_available().await;
                 }
@@ -872,12 +1322,19 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
         res
     }
 
-    fn set_timeout(&mut self, _: TimeoutConfig) {
-        // Not yet implemented for RP2040.
+    fn set_timeout(&mut self, timeout: TimeoutConfig) {
+        self.timeout = timeout;
     }
 
     fn reset_data_toggle(&mut self) {
         self.pid = false;
+    }
+}
+
+impl<'d, T: SealedHostInstance, E, D> Channel<'d, T, E, D> {
+    /// This pipe's slot in the EPX arrays. Only meaningful for non-interrupt pipes.
+    fn epx_slot(&self) -> usize {
+        self.index - EP_COUNT
     }
 }
 
@@ -904,16 +1361,17 @@ impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
             let state = T::host_state();
             // Return the EPX buffer and the pipe slot to the pool.
             free_epx_mem(state, self.buf.addr, self.buf.len);
+            state.discard_epx_outcome(self.epx_slot());
             critical_section::with(|_| {
                 let epx = &state.allocated_epx;
                 epx.store(
-                    epx.load(Ordering::Relaxed) & !(1 << (self.index - EP_COUNT)),
+                    epx.load(Ordering::Relaxed) & !(1 << (self.epx_slot())),
                     Ordering::Relaxed,
                 );
             });
             debug!(
                 "EPX pipe FREE  slot {} (bitset {:04x})",
-                self.index - EP_COUNT,
+                self.epx_slot(),
                 state.allocated_epx.load(Ordering::Relaxed)
             );
         }
@@ -1012,6 +1470,7 @@ impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
                 state.allocated_epx.store(alloc | (1 << slot), Ordering::Relaxed);
                 Ok(EP_COUNT + slot)
             })?;
+            let slot = index - EP_COUNT;
             // One buffer per pipe: a parked transfer's data must survive another pipe
             // taking EPX in the meantime.
             let len = (blocks_for(endpoint.max_packet_size) * EPX_BLOCK_SIZE) as u16;
@@ -1022,10 +1481,7 @@ impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
                     // would exhaust the bitset and report `OutOfPipes` instead.
                     critical_section::with(|_| {
                         let epx = &state.allocated_epx;
-                        epx.store(
-                            epx.load(Ordering::Relaxed) & !(1 << (index - EP_COUNT)),
-                            Ordering::Relaxed,
-                        );
+                        epx.store(epx.load(Ordering::Relaxed) & !(1 << slot), Ordering::Relaxed);
                     });
 
                     return Err(HostError::InsufficientMemory);
@@ -1033,7 +1489,7 @@ impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
             };
             debug!(
                 "EPX pipe ALLOC slot {} (bitset {:04x}) buf {:#x}+{}",
-                index - EP_COUNT,
+                slot,
                 state.allocated_epx.load(Ordering::Relaxed),
                 addr,
                 len
@@ -1087,11 +1543,8 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
 
         self.connected = matches!(ev, DeviceEvent::Connected(_));
 
-        // Per the `UsbHostController` contract, drive a bus reset before
-        // reporting the attach so the device transitions from the Powered
-        // into the Default state (USB 2.0 §9.1.2). RP2040 is full-speed
-        // only, so no chirp handshake occurs and the speed observed before
-        // reset is authoritative after reset — no re-read is needed.
+        // Per the `UsbHostController` contract, reset before reporting the attach so the
+        // device leaves Powered for Default (USB 2.0 §9.1.2). Full-speed only, so no chirp.
         if matches!(ev, DeviceEvent::Connected(_)) {
             self.bus_reset().await;
         }
@@ -1113,6 +1566,76 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
     }
 }
 
+/// Service the RP235x stop-on-NAK interrupt, handing EPX to whoever is queued.
+/// Returns `true` when it consumed the interrupt; RP2040 has no such interrupt.
+fn on_nak_stop<T: SealedHostInstance>() -> bool {
+    #[cfg(feature = "_rp235x")]
+    {
+        let regs = T::regs();
+        if T::regs().ints().read().epx_stopped_on_nak() {
+            let index = T::host_state().current_channel.load(Ordering::Acquire);
+
+            // Acknowledge, stop asking, then hand the endpoint over.
+            regs.nak_poll().modify(|w| w.set_epx_stopped_on_nak(true));
+            disarm_epx_yield::<T>();
+            let yielded = yield_epx::<T>(index);
+            if !yielded {
+                trace!("USB IRQ: EPx completed as it was stopped; keeping the packet");
+            }
+
+            trace!("USB IRQ: EPx stopped on NAK, yielded channel {}", index);
+            BUS_WAKER.wake();
+            return true;
+        }
+    }
+    false
+}
+
+/// Service the SOF interrupt. RP235x only silences it; RP2040 uses frame boundaries
+/// to stop a NAKing holder so a queued pipe can take EPX.
+fn on_host_sof<T: SealedHostInstance>() -> &'static str {
+    #[allow(unused)]
+    let regs = T::regs();
+    #[cfg(feature = "_rp235x")]
+    {
+        // Prevent nonstop SOF interrupt
+        T::regs().inte().write_clear(|w| w.set_host_sof(true));
+        "sof"
+    }
+    #[cfg(feature = "rp2040")]
+    {
+        // Reading SOF_RD acknowledges HOST_SOF on RP2040.
+        let _ = regs.sof_rd().read();
+        let state = T::host_state();
+        let index = state.current_channel.load(Ordering::Acquire);
+
+        if state.with_arbiter(|a| a.waiting) == 0 {
+            // Nobody is queued for EPX, so there is nothing to yield to.
+            disarm_epx_yield::<T>();
+            "sof idle"
+        } else if index == 0 {
+            // EPX is free; the queue will claim it without a yield.
+            state.with_arbiter(|a| a.switch_requested = false);
+            "sof free"
+        } else if state.with_arbiter(|a| a.switch_requested) {
+            // Two frame boundaries with no completion between them means the
+            // holder is retrying NAKs: safe to stop it here.
+            regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
+            while regs.sie_ctrl().read().stop_trans() {}
+
+            state.with_arbiter(|a| a.switch_requested = false);
+            if yield_epx::<T>(index) {
+                "sof yielded EPx"
+            } else {
+                "sof stop raced a completion; packet kept"
+            }
+        } else {
+            state.with_arbiter(|a| a.switch_requested = true);
+            "sof armed EPx yield"
+        }
+    }
+}
+
 /// USB interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _usb: PhantomData<T>,
@@ -1122,6 +1645,11 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
     unsafe fn on_interrupt() {
         let regs = T::regs();
         let ints = regs.ints().read();
+
+        // Hand EPX over if the controller stopped it at a NAK boundary.
+        if on_nak_stop::<T>() {
+            return;
+        }
 
         let ev = {
             if ints.host_conn_dis() {
@@ -1134,15 +1662,6 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
             } else if ints.host_resume() {
                 regs.sie_status().write_clear(|w| w.set_resume(true));
                 "resume"
-            } else if ints.error_crc() {
-                regs.sie_status().write_clear(|w| w.set_crc_error(true));
-                "crc error"
-            } else if ints.error_bit_stuff() {
-                regs.sie_status().write_clear(|w| w.set_bit_stuff_error(true));
-                "bit stuff error"
-            } else if ints.error_data_seq() {
-                regs.sie_status().write_clear(|w| w.set_data_seq_error(true));
-                "data sequence error"
             } else if ints.stall() {
                 regs.inte().write_clear(|w| w.set_stall(true));
                 T::host_state().wake_current_epx();
@@ -1153,6 +1672,7 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
                 "rx overflow"
             } else if ints.trans_complete() {
                 regs.inte().write_clear(|w| w.set_trans_complete(true));
+                note_epx_progress::<T>();
                 T::host_state().wake_current_epx();
                 "transaction complete"
             } else if ints.error_rx_timeout() {
@@ -1178,10 +1698,20 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
                     }
                 }
                 "^^^"
+            } else if ints.error_crc() {
+                regs.sie_status().write_clear(|w| w.set_crc_error(true));
+                record_epx_error::<T>(EpxError::BadResponse);
+                "crc error"
+            } else if ints.error_bit_stuff() {
+                regs.sie_status().write_clear(|w| w.set_bit_stuff_error(true));
+                record_epx_error::<T>(EpxError::BadResponse);
+                "bit stuff error"
+            } else if ints.error_data_seq() {
+                regs.sie_status().write_clear(|w| w.set_data_seq_error(true));
+                record_epx_error::<T>(EpxError::DataToggle);
+                "data sequence error"
             } else if ints.host_sof() {
-                // Prevent nonstop SOF interrupt
-                T::regs().inte().write_clear(|w| w.set_host_sof(true));
-                "sof"
+                on_host_sof::<T>()
             } else {
                 "???"
             }
