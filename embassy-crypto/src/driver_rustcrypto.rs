@@ -10,229 +10,117 @@ use embassy_crypto_driver::CryptoError;
 // Digests
 // ===========================================================================
 
-struct Md5Driver;
+macro_rules! impl_digest {
+    (
+        $driver:ident,
+        $trait:path,
+        $ctx:ty,
+        [$init:ident, $clone:ident, $update:ident, $finalize:ident],
+        $impl_macro:path
+    ) => {
+        struct $driver;
 
-impl embassy_crypto_driver::Md5 for Md5Driver {
-    type Context = md5::Md5;
+        impl $trait for $driver {
+            type Context = $ctx;
 
-    fn md5_init() -> Self::Context {
-        use digest::Digest;
-        md5::Md5::new()
-    }
+            fn $init() -> Self::Context {
+                use digest::Digest;
+                Self::Context::new()
+            }
 
-    fn md5_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
+            fn $clone(ctx: &Self::Context) -> Self::Context {
+                ctx.clone()
+            }
 
-    fn md5_update(ctx: &mut Self::Context, data: &[u8]) {
-        use digest::Update;
-        ctx.update(data);
-    }
+            fn $update(ctx: &mut Self::Context, data: &[u8]) {
+                use digest::Update;
+                ctx.update(data);
+            }
 
-    fn md5_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use digest::FixedOutput;
-        let result = ctx.finalize_fixed();
-        out.copy_from_slice(result.as_slice());
-    }
+            fn $finalize(ctx: Self::Context, out: &mut [u8]) {
+                use digest::FixedOutput;
+                let result = ctx.finalize_fixed();
+                out.copy_from_slice(result.as_slice());
+            }
+        }
+
+        $impl_macro!($driver);
+    };
 }
 
-embassy_crypto_driver::embassy_crypto_md5_impl!(Md5Driver);
+impl_digest!(
+    Md5Driver,
+    embassy_crypto_driver::Md5,
+    md5::Md5,
+    [md5_init, md5_clone, md5_update, md5_finalize],
+    embassy_crypto_driver::embassy_crypto_md5_impl
+);
 
-struct Sha1Driver;
+impl_digest!(
+    Sha1Driver,
+    embassy_crypto_driver::Sha1,
+    sha1::Sha1,
+    [sha1_init, sha1_clone, sha1_update, sha1_finalize],
+    embassy_crypto_driver::embassy_crypto_sha1_impl
+);
 
-impl embassy_crypto_driver::Sha1 for Sha1Driver {
-    type Context = sha1::Sha1;
+impl_digest!(
+    Sha224Driver,
+    embassy_crypto_driver::Sha224,
+    sha2::Sha224,
+    [sha224_init, sha224_clone, sha224_update, sha224_finalize],
+    embassy_crypto_driver::embassy_crypto_sha224_impl
+);
 
-    fn sha1_init() -> Self::Context {
-        use digest::Digest;
-        sha1::Sha1::new()
-    }
+impl_digest!(
+    Sha256Driver,
+    embassy_crypto_driver::Sha256,
+    sha2::Sha256,
+    [sha256_init, sha256_clone, sha256_update, sha256_finalize],
+    embassy_crypto_driver::embassy_crypto_sha256_impl
+);
 
-    fn sha1_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
+impl_digest!(
+    Sha384Driver,
+    embassy_crypto_driver::Sha384,
+    sha2::Sha384,
+    [sha384_init, sha384_clone, sha384_update, sha384_finalize],
+    embassy_crypto_driver::embassy_crypto_sha384_impl
+);
 
-    fn sha1_update(ctx: &mut Self::Context, data: &[u8]) {
-        use digest::Update;
-        ctx.update(data);
-    }
+impl_digest!(
+    Sha512_224Driver,
+    embassy_crypto_driver::Sha512_224,
+    sha2::Sha512_224,
+    [
+        sha512_224_init,
+        sha512_224_clone,
+        sha512_224_update,
+        sha512_224_finalize
+    ],
+    embassy_crypto_driver::embassy_crypto_sha512_224_impl
+);
 
-    fn sha1_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use digest::FixedOutput;
-        let result = ctx.finalize_fixed();
-        out.copy_from_slice(result.as_slice());
-    }
-}
+impl_digest!(
+    Sha512_256Driver,
+    embassy_crypto_driver::Sha512_256,
+    sha2::Sha512_256,
+    [
+        sha512_256_init,
+        sha512_256_clone,
+        sha512_256_update,
+        sha512_256_finalize
+    ],
+    embassy_crypto_driver::embassy_crypto_sha512_256_impl
+);
 
-embassy_crypto_driver::embassy_crypto_sha1_impl!(Sha1Driver);
-
-struct Sha224Driver;
-
-impl embassy_crypto_driver::Sha224 for Sha224Driver {
-    type Context = sha2::Sha224;
-
-    fn sha224_init() -> Self::Context {
-        use digest::Digest;
-        sha2::Sha224::new()
-    }
-
-    fn sha224_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn sha224_update(ctx: &mut Self::Context, data: &[u8]) {
-        use digest::Update;
-        ctx.update(data);
-    }
-
-    fn sha224_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use digest::FixedOutput;
-        let result = ctx.finalize_fixed();
-        out.copy_from_slice(result.as_slice());
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_sha224_impl!(Sha224Driver);
-
-struct Sha256Driver;
-
-impl embassy_crypto_driver::Sha256 for Sha256Driver {
-    type Context = sha2::Sha256;
-
-    fn sha256_init() -> Self::Context {
-        use digest::Digest;
-        sha2::Sha256::new()
-    }
-
-    fn sha256_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn sha256_update(ctx: &mut Self::Context, data: &[u8]) {
-        use digest::Update;
-        ctx.update(data);
-    }
-
-    fn sha256_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use digest::FixedOutput;
-        let result = ctx.finalize_fixed();
-        out.copy_from_slice(result.as_slice());
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_sha256_impl!(Sha256Driver);
-
-struct Sha384Driver;
-
-impl embassy_crypto_driver::Sha384 for Sha384Driver {
-    type Context = sha2::Sha384;
-
-    fn sha384_init() -> Self::Context {
-        use digest::Digest;
-        sha2::Sha384::new()
-    }
-
-    fn sha384_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn sha384_update(ctx: &mut Self::Context, data: &[u8]) {
-        use digest::Update;
-        ctx.update(data);
-    }
-
-    fn sha384_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use digest::FixedOutput;
-        let result = ctx.finalize_fixed();
-        out.copy_from_slice(result.as_slice());
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_sha384_impl!(Sha384Driver);
-
-struct Sha512_224Driver;
-
-impl embassy_crypto_driver::Sha512_224 for Sha512_224Driver {
-    type Context = sha2::Sha512_224;
-
-    fn sha512_224_init() -> Self::Context {
-        use digest::Digest;
-        sha2::Sha512_224::new()
-    }
-
-    fn sha512_224_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn sha512_224_update(ctx: &mut Self::Context, data: &[u8]) {
-        use digest::Update;
-        ctx.update(data);
-    }
-
-    fn sha512_224_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use digest::FixedOutput;
-        let result = ctx.finalize_fixed();
-        out.copy_from_slice(result.as_slice());
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_sha512_224_impl!(Sha512_224Driver);
-
-struct Sha512_256Driver;
-
-impl embassy_crypto_driver::Sha512_256 for Sha512_256Driver {
-    type Context = sha2::Sha512_256;
-
-    fn sha512_256_init() -> Self::Context {
-        use digest::Digest;
-        sha2::Sha512_256::new()
-    }
-
-    fn sha512_256_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn sha512_256_update(ctx: &mut Self::Context, data: &[u8]) {
-        use digest::Update;
-        ctx.update(data);
-    }
-
-    fn sha512_256_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use digest::FixedOutput;
-        let result = ctx.finalize_fixed();
-        out.copy_from_slice(result.as_slice());
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_sha512_256_impl!(Sha512_256Driver);
-
-struct Sha512Driver;
-
-impl embassy_crypto_driver::Sha512 for Sha512Driver {
-    type Context = sha2::Sha512;
-
-    fn sha512_init() -> Self::Context {
-        use digest::Digest;
-        sha2::Sha512::new()
-    }
-
-    fn sha512_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn sha512_update(ctx: &mut Self::Context, data: &[u8]) {
-        use digest::Update;
-        ctx.update(data);
-    }
-
-    fn sha512_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use digest::FixedOutput;
-        let result = ctx.finalize_fixed();
-        out.copy_from_slice(result.as_slice());
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_sha512_impl!(Sha512Driver);
+impl_digest!(
+    Sha512Driver,
+    embassy_crypto_driver::Sha512,
+    sha2::Sha512,
+    [sha512_init, sha512_clone, sha512_update, sha512_finalize],
+    embassy_crypto_driver::embassy_crypto_sha512_impl
+);
 
 // ===========================================================================
 // HMACs
@@ -240,313 +128,173 @@ embassy_crypto_driver::embassy_crypto_sha512_impl!(Sha512Driver);
 
 // HMAC reset is not available in hmac 0.13, so we store the key and recreate.
 
-#[derive(Clone)]
-struct HmacSha1Context {
-    key: heapless::Vec<u8, 64>,
-    inner: hmac::Hmac<sha1::Sha1>,
-}
-
-struct HmacSha1Driver;
-
-impl embassy_crypto_driver::HmacSha1 for HmacSha1Driver {
-    type Context = HmacSha1Context;
-
-    fn hmac_sha1_init(key: &[u8]) -> Self::Context {
-        use hmac::KeyInit;
-        let mut key_storage = heapless::Vec::new();
-        key_storage.extend_from_slice(key).unwrap();
-        let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha1Context {
-            key: key_storage,
-            inner,
+macro_rules! impl_hmac {
+    (
+        $driver:ident,
+        $ctx:ident,
+        $trait:path,
+        $hash:ty,
+        $key_cap:literal,
+        [$init:ident, $clone:ident, $update:ident, $finalize:ident, $reset:ident],
+        $impl_macro:path
+    ) => {
+        #[derive(Clone)]
+        struct $ctx {
+            key: heapless::Vec<u8, $key_cap>,
+            inner: hmac::Hmac<$hash>,
         }
-    }
 
-    fn hmac_sha1_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
+        struct $driver;
 
-    fn hmac_sha1_update(ctx: &mut Self::Context, data: &[u8]) {
-        use hmac::Mac;
-        ctx.inner.update(data);
-    }
+        impl $trait for $driver {
+            type Context = $ctx;
 
-    fn hmac_sha1_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use hmac::Mac;
-        let result = ctx.inner.finalize();
-        out.copy_from_slice(result.into_bytes().as_slice());
-    }
+            fn $init(key: &[u8]) -> Self::Context {
+                use hmac::KeyInit;
+                let mut key_storage = heapless::Vec::new();
+                key_storage.extend_from_slice(key).unwrap();
+                let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
+                $ctx {
+                    key: key_storage,
+                    inner,
+                }
+            }
 
-    fn hmac_sha1_reset(ctx: &mut Self::Context) {
-        *ctx = Self::hmac_sha1_init(&ctx.key);
-    }
-}
+            fn $clone(ctx: &Self::Context) -> Self::Context {
+                ctx.clone()
+            }
 
-embassy_crypto_driver::embassy_crypto_hmac_sha1_impl!(HmacSha1Driver);
+            fn $update(ctx: &mut Self::Context, data: &[u8]) {
+                use hmac::Mac;
+                ctx.inner.update(data);
+            }
 
-#[derive(Clone)]
-struct HmacSha224Context {
-    key: heapless::Vec<u8, 64>,
-    inner: hmac::Hmac<sha2::Sha224>,
-}
+            fn $finalize(ctx: Self::Context, out: &mut [u8]) {
+                use hmac::Mac;
+                let result = ctx.inner.finalize();
+                out.copy_from_slice(result.into_bytes().as_slice());
+            }
 
-struct HmacSha224Driver;
-
-impl embassy_crypto_driver::HmacSha224 for HmacSha224Driver {
-    type Context = HmacSha224Context;
-
-    fn hmac_sha224_init(key: &[u8]) -> Self::Context {
-        use hmac::KeyInit;
-        let mut key_storage = heapless::Vec::new();
-        key_storage.extend_from_slice(key).unwrap();
-        let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha224Context {
-            key: key_storage,
-            inner,
+            fn $reset(ctx: &mut Self::Context) {
+                *ctx = Self::$init(&ctx.key);
+            }
         }
-    }
 
-    fn hmac_sha224_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn hmac_sha224_update(ctx: &mut Self::Context, data: &[u8]) {
-        use hmac::Mac;
-        ctx.inner.update(data);
-    }
-
-    fn hmac_sha224_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use hmac::Mac;
-        let result = ctx.inner.finalize();
-        out.copy_from_slice(result.into_bytes().as_slice());
-    }
-
-    fn hmac_sha224_reset(ctx: &mut Self::Context) {
-        *ctx = Self::hmac_sha224_init(&ctx.key);
-    }
+        $impl_macro!($driver);
+    };
 }
 
-embassy_crypto_driver::embassy_crypto_hmac_sha224_impl!(HmacSha224Driver);
+impl_hmac!(
+    HmacSha1Driver,
+    HmacSha1Context,
+    embassy_crypto_driver::HmacSha1,
+    sha1::Sha1,
+    64,
+    [
+        hmac_sha1_init,
+        hmac_sha1_clone,
+        hmac_sha1_update,
+        hmac_sha1_finalize,
+        hmac_sha1_reset
+    ],
+    embassy_crypto_driver::embassy_crypto_hmac_sha1_impl
+);
 
-#[derive(Clone)]
-struct HmacSha256Context {
-    key: heapless::Vec<u8, 64>,
-    inner: hmac::Hmac<sha2::Sha256>,
-}
+impl_hmac!(
+    HmacSha224Driver,
+    HmacSha224Context,
+    embassy_crypto_driver::HmacSha224,
+    sha2::Sha224,
+    64,
+    [
+        hmac_sha224_init,
+        hmac_sha224_clone,
+        hmac_sha224_update,
+        hmac_sha224_finalize,
+        hmac_sha224_reset
+    ],
+    embassy_crypto_driver::embassy_crypto_hmac_sha224_impl
+);
 
-struct HmacSha256Driver;
+impl_hmac!(
+    HmacSha256Driver,
+    HmacSha256Context,
+    embassy_crypto_driver::HmacSha256,
+    sha2::Sha256,
+    64,
+    [
+        hmac_sha256_init,
+        hmac_sha256_clone,
+        hmac_sha256_update,
+        hmac_sha256_finalize,
+        hmac_sha256_reset
+    ],
+    embassy_crypto_driver::embassy_crypto_hmac_sha256_impl
+);
 
-impl embassy_crypto_driver::HmacSha256 for HmacSha256Driver {
-    type Context = HmacSha256Context;
+impl_hmac!(
+    HmacSha384Driver,
+    HmacSha384Context,
+    embassy_crypto_driver::HmacSha384,
+    sha2::Sha384,
+    128,
+    [
+        hmac_sha384_init,
+        hmac_sha384_clone,
+        hmac_sha384_update,
+        hmac_sha384_finalize,
+        hmac_sha384_reset
+    ],
+    embassy_crypto_driver::embassy_crypto_hmac_sha384_impl
+);
 
-    fn hmac_sha256_init(key: &[u8]) -> Self::Context {
-        use hmac::KeyInit;
-        let mut key_storage = heapless::Vec::new();
-        key_storage.extend_from_slice(key).unwrap();
-        let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha256Context {
-            key: key_storage,
-            inner,
-        }
-    }
+impl_hmac!(
+    HmacSha512_224Driver,
+    HmacSha512_224Context,
+    embassy_crypto_driver::HmacSha512_224,
+    sha2::Sha512_224,
+    128,
+    [
+        hmac_sha512_224_init,
+        hmac_sha512_224_clone,
+        hmac_sha512_224_update,
+        hmac_sha512_224_finalize,
+        hmac_sha512_224_reset
+    ],
+    embassy_crypto_driver::embassy_crypto_hmac_sha512_224_impl
+);
 
-    fn hmac_sha256_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
+impl_hmac!(
+    HmacSha512_256Driver,
+    HmacSha512_256Context,
+    embassy_crypto_driver::HmacSha512_256,
+    sha2::Sha512_256,
+    128,
+    [
+        hmac_sha512_256_init,
+        hmac_sha512_256_clone,
+        hmac_sha512_256_update,
+        hmac_sha512_256_finalize,
+        hmac_sha512_256_reset
+    ],
+    embassy_crypto_driver::embassy_crypto_hmac_sha512_256_impl
+);
 
-    fn hmac_sha256_update(ctx: &mut Self::Context, data: &[u8]) {
-        use hmac::Mac;
-        ctx.inner.update(data);
-    }
-
-    fn hmac_sha256_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use hmac::Mac;
-        let result = ctx.inner.finalize();
-        out.copy_from_slice(result.into_bytes().as_slice());
-    }
-
-    fn hmac_sha256_reset(ctx: &mut Self::Context) {
-        *ctx = Self::hmac_sha256_init(&ctx.key);
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_hmac_sha256_impl!(HmacSha256Driver);
-
-#[derive(Clone)]
-struct HmacSha384Context {
-    key: heapless::Vec<u8, 128>,
-    inner: hmac::Hmac<sha2::Sha384>,
-}
-
-struct HmacSha384Driver;
-
-impl embassy_crypto_driver::HmacSha384 for HmacSha384Driver {
-    type Context = HmacSha384Context;
-
-    fn hmac_sha384_init(key: &[u8]) -> Self::Context {
-        use hmac::KeyInit;
-        let mut key_storage = heapless::Vec::new();
-        key_storage.extend_from_slice(key).unwrap();
-        let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha384Context {
-            key: key_storage,
-            inner,
-        }
-    }
-
-    fn hmac_sha384_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn hmac_sha384_update(ctx: &mut Self::Context, data: &[u8]) {
-        use hmac::Mac;
-        ctx.inner.update(data);
-    }
-
-    fn hmac_sha384_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use hmac::Mac;
-        let result = ctx.inner.finalize();
-        out.copy_from_slice(result.into_bytes().as_slice());
-    }
-
-    fn hmac_sha384_reset(ctx: &mut Self::Context) {
-        *ctx = Self::hmac_sha384_init(&ctx.key);
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_hmac_sha384_impl!(HmacSha384Driver);
-
-#[derive(Clone)]
-struct HmacSha512_224Context {
-    key: heapless::Vec<u8, 128>,
-    inner: hmac::Hmac<sha2::Sha512_224>,
-}
-
-struct HmacSha512_224Driver;
-
-impl embassy_crypto_driver::HmacSha512_224 for HmacSha512_224Driver {
-    type Context = HmacSha512_224Context;
-
-    fn hmac_sha512_224_init(key: &[u8]) -> Self::Context {
-        use hmac::KeyInit;
-        let mut key_storage = heapless::Vec::new();
-        key_storage.extend_from_slice(key).unwrap();
-        let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha512_224Context {
-            key: key_storage,
-            inner,
-        }
-    }
-
-    fn hmac_sha512_224_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn hmac_sha512_224_update(ctx: &mut Self::Context, data: &[u8]) {
-        use hmac::Mac;
-        ctx.inner.update(data);
-    }
-
-    fn hmac_sha512_224_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use hmac::Mac;
-        let result = ctx.inner.finalize();
-        out.copy_from_slice(result.into_bytes().as_slice());
-    }
-
-    fn hmac_sha512_224_reset(ctx: &mut Self::Context) {
-        *ctx = Self::hmac_sha512_224_init(&ctx.key);
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_hmac_sha512_224_impl!(HmacSha512_224Driver);
-
-#[derive(Clone)]
-struct HmacSha512_256Context {
-    key: heapless::Vec<u8, 128>,
-    inner: hmac::Hmac<sha2::Sha512_256>,
-}
-
-struct HmacSha512_256Driver;
-
-impl embassy_crypto_driver::HmacSha512_256 for HmacSha512_256Driver {
-    type Context = HmacSha512_256Context;
-
-    fn hmac_sha512_256_init(key: &[u8]) -> Self::Context {
-        use hmac::KeyInit;
-        let mut key_storage = heapless::Vec::new();
-        key_storage.extend_from_slice(key).unwrap();
-        let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha512_256Context {
-            key: key_storage,
-            inner,
-        }
-    }
-
-    fn hmac_sha512_256_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn hmac_sha512_256_update(ctx: &mut Self::Context, data: &[u8]) {
-        use hmac::Mac;
-        ctx.inner.update(data);
-    }
-
-    fn hmac_sha512_256_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use hmac::Mac;
-        let result = ctx.inner.finalize();
-        out.copy_from_slice(result.into_bytes().as_slice());
-    }
-
-    fn hmac_sha512_256_reset(ctx: &mut Self::Context) {
-        *ctx = Self::hmac_sha512_256_init(&ctx.key);
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_hmac_sha512_256_impl!(HmacSha512_256Driver);
-
-#[derive(Clone)]
-struct HmacSha512Context {
-    key: heapless::Vec<u8, 128>,
-    inner: hmac::Hmac<sha2::Sha512>,
-}
-
-struct HmacSha512Driver;
-
-impl embassy_crypto_driver::HmacSha512 for HmacSha512Driver {
-    type Context = HmacSha512Context;
-
-    fn hmac_sha512_init(key: &[u8]) -> Self::Context {
-        use hmac::KeyInit;
-        let mut key_storage = heapless::Vec::new();
-        key_storage.extend_from_slice(key).unwrap();
-        let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-        HmacSha512Context {
-            key: key_storage,
-            inner,
-        }
-    }
-
-    fn hmac_sha512_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn hmac_sha512_update(ctx: &mut Self::Context, data: &[u8]) {
-        use hmac::Mac;
-        ctx.inner.update(data);
-    }
-
-    fn hmac_sha512_finalize(ctx: Self::Context, out: &mut [u8]) {
-        use hmac::Mac;
-        let result = ctx.inner.finalize();
-        out.copy_from_slice(result.into_bytes().as_slice());
-    }
-
-    fn hmac_sha512_reset(ctx: &mut Self::Context) {
-        *ctx = Self::hmac_sha512_init(&ctx.key);
-    }
-}
-
-embassy_crypto_driver::embassy_crypto_hmac_sha512_impl!(HmacSha512Driver);
+impl_hmac!(
+    HmacSha512Driver,
+    HmacSha512Context,
+    embassy_crypto_driver::HmacSha512,
+    sha2::Sha512,
+    128,
+    [
+        hmac_sha512_init,
+        hmac_sha512_clone,
+        hmac_sha512_update,
+        hmac_sha512_finalize,
+        hmac_sha512_reset
+    ],
+    embassy_crypto_driver::embassy_crypto_hmac_sha512_impl
+);
 
 // ===========================================================================
 // AES ECB
