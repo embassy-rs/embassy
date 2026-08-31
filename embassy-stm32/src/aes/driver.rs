@@ -2,7 +2,7 @@ use embassy_crypto_driver::CryptoError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use super::{Aes, AesCbc, AesCcm, AesEcb, AesGcm, Direction};
+use super::{Aes, AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, Direction};
 #[cfg(aes_v3b)]
 use crate::mode::Blocking;
 use crate::suspend::ResumablePeripheral;
@@ -147,7 +147,6 @@ macro_rules! run_ccm {
     }};
 }
 
-/// Dispatch AES-CCM over all supported tag sizes (4, 6, 8, 10, 12, 14, 16 bytes).
 macro_rules! aes_ccm_dispatch {
     ($key_size:literal, $aes:expr, $ctx:expr, $nonce:expr, $aad:expr, $input:expr, $output:expr, $tag:expr, $direction:expr, encrypt) => {
         match $tag.len() {
@@ -475,8 +474,6 @@ impl embassy_crypto_driver::Aes128Gcm for AesDriver {
     ) -> Result<(), CryptoError> {
         let mut driver = DRIVER.try_lock().unwrap();
         let aes = &mut driver.borrow();
-        // SAFETY: AES-GCM processes each output byte based only on the corresponding input byte,
-        // so in-place operation is safe even with overlapping input/output views.
         let input = unsafe { core::slice::from_raw_parts(buffer.as_ptr(), buffer.len()) };
         run_gcm128(aes, ctx, nonce, aad, input, buffer, None, Some(tag), Direction::Encrypt)
     }
@@ -731,6 +728,170 @@ impl embassy_crypto_driver::Aes256Cbc for AesDriver {
     }
 }
 
+// ===========================================================================
+// AES-128/256 CTR (stream cipher)
+// ===========================================================================
+
+fn ctr_block_in_place_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16], buffer: &mut [u8]) {
+    let blocks = buffer.len() / 16;
+    if blocks == 0 {
+        return;
+    }
+
+    let cipher = AesCtr::<16>::new(key, iv);
+    let mut context = aes.start(&cipher, Direction::Encrypt);
+    for chunk in buffer.chunks_exact_mut(16) {
+        let mut tmp = [0u8; 16];
+        tmp.copy_from_slice(chunk);
+        aes.payload_blocking(&mut context, &tmp, chunk, true).unwrap();
+    }
+    let mut counter = u128::from_be_bytes(*iv);
+    counter = counter.wrapping_add(blocks as u128);
+    *iv = counter.to_be_bytes();
+}
+
+fn ctr_block_in_place_32(aes: &mut BlockingAes, key: &[u8; 32], iv: &mut [u8; 16], buffer: &mut [u8]) {
+    let blocks = buffer.len() / 16;
+    if blocks == 0 {
+        return;
+    }
+
+    let cipher = AesCtr::<32>::new(key, iv);
+    let mut context = aes.start(&cipher, Direction::Encrypt);
+    for chunk in buffer.chunks_exact_mut(16) {
+        let mut block = [0u8; 16];
+        block.copy_from_slice(chunk);
+        aes.payload_blocking(&mut context, &block, chunk, true).unwrap();
+    }
+    let mut counter = u128::from_be_bytes(*iv);
+    counter = counter.wrapping_add(blocks as u128);
+    *iv = counter.to_be_bytes();
+}
+
+impl embassy_crypto_driver::Aes128Ctr for AesDriver {
+    type Context = ([u8; 16], [u8; 16], [u8; 16], u8);
+    // (key, iv/counter, partial_keystream_buffer, partial_len)
+
+    fn aes128ctr_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context {
+        (*key, *iv, [0; 16], 0)
+    }
+
+    fn aes128ctr_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: &mut [u8]) {
+        let (key, iv, partial, partial_len) = ctx;
+        let mut buf = buf;
+
+        // 1. Consume any buffered partial keystream from a previous call.
+        if *partial_len > 0 {
+            let n = core::cmp::min(*partial_len as usize, buf.len());
+            for i in 0..n {
+                buf[i] ^= partial[i];
+            }
+            partial.copy_within(n..*partial_len as usize, 0);
+            *partial_len -= n as u8;
+            buf = &mut buf[n..];
+        }
+
+        // 2. Process full 16-byte blocks via hardware without copying the whole
+        //    buffer into a temporary allocation.
+        let full_len = (buf.len() / 16) * 16;
+        if full_len > 0 {
+            let mut driver = DRIVER.try_lock().unwrap();
+            let aes = &mut driver.borrow();
+            ctr_block_in_place_16(aes, key, iv, &mut buf[..full_len]);
+        }
+
+        // 3. Generate one extra keystream block for any trailing partial data.
+        let tail = &mut buf[full_len..];
+        if !tail.is_empty() {
+            let mut driver = DRIVER.try_lock().unwrap();
+            let aes = &mut driver.borrow();
+            let cipher = AesCtr::<16>::new(key, iv);
+            let mut context = aes.start(&cipher, Direction::Encrypt);
+            let mut keystream = [0u8; 16];
+            let block = [0u8; 16];
+            aes.payload_blocking(&mut context, &block, &mut keystream, true)
+                .unwrap();
+            for i in 0..tail.len() {
+                tail[i] ^= keystream[i];
+            }
+            let saved = 16 - tail.len();
+            partial[..saved].copy_from_slice(&keystream[tail.len()..]);
+            *partial_len = saved as u8;
+        }
+    }
+
+    fn aes128ctr_seek(ctx: &mut Self::Context, block_offset: u64) {
+        let (_, iv, _, partial_len) = ctx;
+        let mut counter = u128::from_be_bytes(*iv);
+        counter = counter.wrapping_add(u128::from(block_offset));
+        *iv = counter.to_be_bytes();
+        *partial_len = 0;
+    }
+}
+
+impl embassy_crypto_driver::Aes256Ctr for AesDriver {
+    type Context = ([u8; 32], [u8; 16], [u8; 16], u8);
+
+    fn aes256ctr_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context {
+        (*key, *iv, [0; 16], 0)
+    }
+
+    fn aes256ctr_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: &mut [u8]) {
+        let (key, iv, partial, partial_len) = ctx;
+        let mut buf = buf;
+
+        if *partial_len > 0 {
+            let n = core::cmp::min(*partial_len as usize, buf.len());
+            for i in 0..n {
+                buf[i] ^= partial[i];
+            }
+            partial.copy_within(n..*partial_len as usize, 0);
+            *partial_len -= n as u8;
+            buf = &mut buf[n..];
+        }
+
+        let full_len = (buf.len() / 16) * 16;
+        if full_len > 0 {
+            let mut driver = DRIVER.try_lock().unwrap();
+            let aes = &mut driver.borrow();
+            ctr_block_in_place_32(aes, key, iv, &mut buf[..full_len]);
+        }
+
+        let tail = &mut buf[full_len..];
+        if !tail.is_empty() {
+            let mut driver = DRIVER.try_lock().unwrap();
+            let aes = &mut driver.borrow();
+            let cipher = AesCtr::<32>::new(key, iv);
+            let mut context = aes.start(&cipher, Direction::Encrypt);
+            let mut keystream = [0u8; 16];
+            let block = [0u8; 16];
+            aes.payload_blocking(&mut context, &block, &mut keystream, true)
+                .unwrap();
+            for i in 0..tail.len() {
+                tail[i] ^= keystream[i];
+            }
+            let saved = 16 - tail.len();
+            partial[..saved].copy_from_slice(&keystream[tail.len()..]);
+            *partial_len = saved as u8;
+        }
+    }
+
+    fn aes256ctr_seek(ctx: &mut Self::Context, block_offset: u64) {
+        let (_, iv, _, partial_len) = ctx;
+        let mut counter = u128::from_be_bytes(*iv);
+        counter = counter.wrapping_add(u128::from(block_offset));
+        *iv = counter.to_be_bytes();
+        *partial_len = 0;
+    }
+}
 embassy_crypto_driver::embassy_crypto_aes128ecb_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes256ecb_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes128cbc_impl!(AesDriver);
@@ -739,3 +900,5 @@ embassy_crypto_driver::embassy_crypto_aes128gcm_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes256gcm_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes128ccm_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes256ccm_impl!(AesDriver);
+embassy_crypto_driver::embassy_crypto_aes128ctr_impl!(AesDriver);
+embassy_crypto_driver::embassy_crypto_aes256ctr_impl!(AesDriver);

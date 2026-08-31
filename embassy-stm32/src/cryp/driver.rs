@@ -2,7 +2,7 @@ use embassy_crypto_driver::CryptoError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
-use super::{AesCbc, AesEcb, Blocking, Cipher, CipherSized, Cryp, Direction, IVSized};
+use super::{AesCbc, AesCtr, AesEcb, Blocking, Cipher, CipherSized, Cryp, Direction, IVSized};
 use crate::suspend::ResumablePeripheral;
 
 foreach_peripheral!(
@@ -844,6 +844,166 @@ impl embassy_crypto_driver::Aes256Cbc for AesDriver {
     }
 }
 
+// ===========================================================================
+// AES-128/256 CTR (stream cipher) via CRYP peripheral
+// ===========================================================================
+
+/// Run CTR keystream generation over a buffer that is already a multiple of 16 bytes.
+/// Uses a temporary 16-byte block for input/output since CRYP's payload_blocking
+/// requires distinct input and output buffers.
+/// The IV (counter) is updated in software (counter += blocks_processed).
+fn run_ctr_cryp_16(cryp: &BlockingCryp, key: &[u8; 16], iv: &mut [u8; 16], buffer: &mut [u8]) {
+    let blocks = buffer.len() / 16;
+    if blocks == 0 {
+        return;
+    }
+
+    let cipher = AesCtr::<16>::new(key, iv);
+    let mut context = cryp.start_blocking(&cipher, Direction::Encrypt);
+    for chunk in buffer.chunks_exact_mut(16) {
+        let mut temp = [0u8; 16];
+        temp.copy_from_slice(chunk);
+        cryp.payload_blocking(&mut context, &temp, chunk, false);
+    }
+
+    let mut counter = u128::from_be_bytes(*iv);
+    counter = counter.wrapping_add(blocks as u128);
+    *iv = counter.to_be_bytes();
+}
+
+fn run_ctr_cryp_32(cryp: &BlockingCryp, key: &[u8; 32], iv: &mut [u8; 16], buffer: &mut [u8]) {
+    let blocks = buffer.len() / 16;
+    if blocks == 0 {
+        return;
+    }
+
+    let cipher = AesCtr::<32>::new(key, iv);
+    let mut context = cryp.start_blocking(&cipher, Direction::Encrypt);
+    for chunk in buffer.chunks_exact_mut(16) {
+        let mut temp = [0u8; 16];
+        temp.copy_from_slice(chunk);
+        cryp.payload_blocking(&mut context, &temp, chunk, false);
+    }
+
+    let mut counter = u128::from_be_bytes(*iv);
+    counter = counter.wrapping_add(blocks as u128);
+    *iv = counter.to_be_bytes();
+}
+
+impl embassy_crypto_driver::Aes128Ctr for AesDriver {
+    type Context = ([u8; 16], [u8; 16], [u8; 16], u8);
+
+    fn aes128ctr_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context {
+        (*key, *iv, [0; 16], 0)
+    }
+
+    fn aes128ctr_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: &mut [u8]) {
+        let (key, iv, partial, partial_len) = ctx;
+        let mut buf = buf;
+
+        // 1. Consume buffered partial keystream.
+        if *partial_len > 0 {
+            let n = core::cmp::min(*partial_len as usize, buf.len());
+            for i in 0..n {
+                buf[i] ^= partial[i];
+            }
+            partial.copy_within(n..*partial_len as usize, 0);
+            *partial_len -= n as u8;
+            buf = &mut buf[n..];
+        }
+
+        // 2. Process full 16-byte blocks.
+        let full_len = (buf.len() / 16) * 16;
+        if full_len > 0 {
+            let mut driver = DRIVER.try_lock().unwrap();
+            let cryp = driver.borrow();
+            run_ctr_cryp_16(&cryp, key, iv, &mut buf[..full_len]);
+        }
+
+        // 3. Generate one extra keystream block for trailing partial data.
+        let tail = &mut buf[full_len..];
+        if !tail.is_empty() {
+            let mut driver = DRIVER.try_lock().unwrap();
+            let cryp = driver.borrow();
+            let mut keystream = [0u8; 16];
+            run_ctr_cryp_16(&cryp, key, iv, &mut keystream);
+            for i in 0..tail.len() {
+                tail[i] ^= keystream[i];
+            }
+            let saved = 16 - tail.len();
+            partial[..saved].copy_from_slice(&keystream[tail.len()..]);
+            *partial_len = saved as u8;
+        }
+    }
+
+    fn aes128ctr_seek(ctx: &mut Self::Context, block_offset: u64) {
+        let (_, iv, _, partial_len) = ctx;
+        let mut counter = u128::from_be_bytes(*iv);
+        counter = counter.wrapping_add(u128::from(block_offset));
+        *iv = counter.to_be_bytes();
+        *partial_len = 0;
+    }
+}
+
+impl embassy_crypto_driver::Aes256Ctr for AesDriver {
+    type Context = ([u8; 32], [u8; 16], [u8; 16], u8);
+
+    fn aes256ctr_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context {
+        (*key, *iv, [0; 16], 0)
+    }
+
+    fn aes256ctr_clone(ctx: &Self::Context) -> Self::Context {
+        *ctx
+    }
+
+    fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: &mut [u8]) {
+        let (key, iv, partial, partial_len) = ctx;
+        let mut buf = buf;
+
+        if *partial_len > 0 {
+            let n = core::cmp::min(*partial_len as usize, buf.len());
+            for i in 0..n {
+                buf[i] ^= partial[i];
+            }
+            partial.copy_within(n..*partial_len as usize, 0);
+            *partial_len -= n as u8;
+            buf = &mut buf[n..];
+        }
+
+        let full_len = (buf.len() / 16) * 16;
+        if full_len > 0 {
+            let mut driver = DRIVER.try_lock().unwrap();
+            let cryp = driver.borrow();
+            run_ctr_cryp_32(&cryp, key, iv, &mut buf[..full_len]);
+        }
+
+        let tail = &mut buf[full_len..];
+        if !tail.is_empty() {
+            let mut driver = DRIVER.try_lock().unwrap();
+            let cryp = driver.borrow();
+            let mut keystream = [0u8; 16];
+            run_ctr_cryp_32(&cryp, key, iv, &mut keystream);
+            for i in 0..tail.len() {
+                tail[i] ^= keystream[i];
+            }
+            let saved = 16 - tail.len();
+            partial[..saved].copy_from_slice(&keystream[tail.len()..]);
+            *partial_len = saved as u8;
+        }
+    }
+
+    fn aes256ctr_seek(ctx: &mut Self::Context, block_offset: u64) {
+        let (_, iv, _, partial_len) = ctx;
+        let mut counter = u128::from_be_bytes(*iv);
+        counter = counter.wrapping_add(u128::from(block_offset));
+        *iv = counter.to_be_bytes();
+        *partial_len = 0;
+    }
+}
 embassy_crypto_driver::embassy_crypto_aes128ecb_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes256ecb_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes128cbc_impl!(AesDriver);
@@ -856,3 +1016,5 @@ embassy_crypto_driver::embassy_crypto_aes256gcm_impl!(AesDriver);
 embassy_crypto_driver::embassy_crypto_aes128ccm_impl!(AesDriver);
 #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
 embassy_crypto_driver::embassy_crypto_aes256ccm_impl!(AesDriver);
+embassy_crypto_driver::embassy_crypto_aes128ctr_impl!(AesDriver);
+embassy_crypto_driver::embassy_crypto_aes256ctr_impl!(AesDriver);
