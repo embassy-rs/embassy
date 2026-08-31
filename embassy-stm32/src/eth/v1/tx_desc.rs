@@ -140,8 +140,9 @@ impl TDes {
     // set up as a part of the ring buffer - configures the tdes
     fn setup(&self, next: Option<&Self>) {
         // Defer this initialization to this function, so we can have `RingEntry` on bss.
-        // No checksum insertion: the stack computes checksums in software.
-        self.tdes0.set(TXDESC_0_TCH | TXDESC_0_IOC | TXDESC_0_FS | TXDESC_0_LS);
+        // Enable full checksum insertion (IP header + TCP/UDP payload + pseudo-header)
+        self.tdes0
+            .set(TXDESC_0_TCH | TXDESC_0_IOC | TXDESC_0_FS | TXDESC_0_LS | TXDESC_0_CIC_FULL);
         // Clear extended status and timestamp fields
         #[cfg(any(eth_v1b, eth_v1c))]
         self.tdes4.set(0);
