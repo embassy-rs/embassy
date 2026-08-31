@@ -176,7 +176,7 @@ pub mod i2c;
 pub mod i2s;
 #[cfg(all(i3c, any(stm32n6, stm32h5, stm32u3, stm32c5, stm32h7rs)))]
 pub mod i3c;
-#[cfg(icache)]
+#[cfg(all(icache, not(stm32c5)))]
 pub mod icache;
 #[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
