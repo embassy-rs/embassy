@@ -36,9 +36,29 @@ where
     validate_payload(buffer, buffer)?;
     let mut context = cryp.start_blocking(cipher, direction);
     for chunk in buffer.chunks_exact_mut(16) {
-        let mut block = [0u8; 16];
-        block.copy_from_slice(chunk);
-        cryp.payload_blocking(&mut context, &block, chunk, false);
+        let ptr = chunk.as_mut_ptr();
+        let len = chunk.len();
+        let input = unsafe { core::slice::from_raw_parts(ptr, len) };
+        let output = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
+        cryp.payload_blocking(&mut context, input, output, false);
+    }
+    Ok(())
+}
+
+fn run_separate<'c, C>(
+    cryp: &BlockingCryp,
+    cipher: &'c C,
+    direction: Direction,
+    input: &[u8],
+    output: &mut [u8],
+) -> Result<(), CryptoError>
+where
+    C: Cipher<'c> + CipherSized + IVSized,
+{
+    validate_payload(input, output)?;
+    let mut context = cryp.start_blocking(cipher, direction);
+    for (in_chunk, out_chunk) in input.chunks_exact(16).zip(output.chunks_exact_mut(16)) {
+        cryp.payload_blocking(&mut context, in_chunk, out_chunk, false);
     }
     Ok(())
 }
@@ -479,8 +499,16 @@ impl embassy_crypto_driver::Aes128Ecb for AesDriver {
         }
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
-        let flat = blocks.into_out_with_copied_in();
-        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Encrypt, flat).unwrap();
+        let len = blocks.len();
+        let (in_ptr, out_ptr) = blocks.into_raw();
+        if in_ptr == out_ptr {
+            let flat = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_in_place(&cryp, &AesEcb::new(ctx), Direction::Encrypt, flat).unwrap();
+        } else {
+            let input = unsafe { core::slice::from_raw_parts(in_ptr, len) };
+            let output = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_separate(&cryp, &AesEcb::new(ctx), Direction::Encrypt, input, output).unwrap();
+        }
     }
 
     fn aes128ecb_decrypt_block(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
@@ -489,8 +517,16 @@ impl embassy_crypto_driver::Aes128Ecb for AesDriver {
         }
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
-        let flat = blocks.into_out_with_copied_in();
-        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Decrypt, flat).unwrap();
+        let len = blocks.len();
+        let (in_ptr, out_ptr) = blocks.into_raw();
+        if in_ptr == out_ptr {
+            let flat = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_in_place(&cryp, &AesEcb::new(ctx), Direction::Decrypt, flat).unwrap();
+        } else {
+            let input = unsafe { core::slice::from_raw_parts(in_ptr, len) };
+            let output = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_separate(&cryp, &AesEcb::new(ctx), Direction::Decrypt, input, output).unwrap();
+        }
     }
 }
 
@@ -511,8 +547,16 @@ impl embassy_crypto_driver::Aes256Ecb for AesDriver {
         }
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
-        let flat = blocks.into_out_with_copied_in();
-        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Encrypt, flat).unwrap();
+        let len = blocks.len();
+        let (in_ptr, out_ptr) = blocks.into_raw();
+        if in_ptr == out_ptr {
+            let flat = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_in_place(&cryp, &AesEcb::new(ctx), Direction::Encrypt, flat).unwrap();
+        } else {
+            let input = unsafe { core::slice::from_raw_parts(in_ptr, len) };
+            let output = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_separate(&cryp, &AesEcb::new(ctx), Direction::Encrypt, input, output).unwrap();
+        }
     }
 
     fn aes256ecb_decrypt_block(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
@@ -521,8 +565,16 @@ impl embassy_crypto_driver::Aes256Ecb for AesDriver {
         }
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
-        let flat = blocks.into_out_with_copied_in();
-        run_in_place(&cryp, &AesEcb::new(ctx), Direction::Decrypt, flat).unwrap();
+        let len = blocks.len();
+        let (in_ptr, out_ptr) = blocks.into_raw();
+        if in_ptr == out_ptr {
+            let flat = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_in_place(&cryp, &AesEcb::new(ctx), Direction::Decrypt, flat).unwrap();
+        } else {
+            let input = unsafe { core::slice::from_raw_parts(in_ptr, len) };
+            let output = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_separate(&cryp, &AesEcb::new(ctx), Direction::Decrypt, input, output).unwrap();
+        }
     }
 }
 
@@ -809,24 +861,44 @@ impl embassy_crypto_driver::Aes128Cbc for AesDriver {
         let cryp = driver.borrow();
         let (key, iv) = ctx;
         let cipher = AesCbc::new(key, iv);
-        let flat = blocks.into_out_with_copied_in();
-        let last_block: [u8; 16] = flat[flat.len() - 16..].try_into().unwrap();
-        run_in_place(&cryp, &cipher, Direction::Encrypt, flat).unwrap();
-        iv.copy_from_slice(&last_block);
+        let len = blocks.len();
+        let (in_ptr, out_ptr) = blocks.into_raw();
+        if in_ptr == out_ptr {
+            let flat = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_in_place(&cryp, &cipher, Direction::Encrypt, flat).unwrap();
+            let last_block: [u8; 16] = flat[flat.len() - 16..].try_into().unwrap();
+            iv.copy_from_slice(&last_block);
+        } else {
+            let input = unsafe { core::slice::from_raw_parts(in_ptr, len) };
+            let output = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_separate(&cryp, &cipher, Direction::Encrypt, input, output).unwrap();
+            let last_block: [u8; 16] = output[output.len() - 16..].try_into().unwrap();
+            iv.copy_from_slice(&last_block);
+        }
     }
 
     fn aes128cbc_decrypt_block(ctx: &mut Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         if blocks.is_empty() {
             return;
         }
-        let flat = blocks.into_out_with_copied_in();
-        let last_ciphertext: [u8; 16] = flat[flat.len() - 16..].try_into().unwrap();
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
         let (key, iv) = ctx;
         let cipher = AesCbc::new(key, iv);
-        run_in_place(&cryp, &cipher, Direction::Decrypt, flat).unwrap();
-        iv.copy_from_slice(&last_ciphertext);
+        let len = blocks.len();
+        let (in_ptr, out_ptr) = blocks.into_raw();
+        if in_ptr == out_ptr {
+            let flat = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            let last_ciphertext: [u8; 16] = flat[flat.len() - 16..].try_into().unwrap();
+            run_in_place(&cryp, &cipher, Direction::Decrypt, flat).unwrap();
+            iv.copy_from_slice(&last_ciphertext);
+        } else {
+            let input = unsafe { core::slice::from_raw_parts(in_ptr, len) };
+            let output = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            let last_ciphertext: [u8; 16] = input[input.len() - 16..].try_into().unwrap();
+            run_separate(&cryp, &cipher, Direction::Decrypt, input, output).unwrap();
+            iv.copy_from_slice(&last_ciphertext);
+        }
     }
 }
 
@@ -849,24 +921,44 @@ impl embassy_crypto_driver::Aes256Cbc for AesDriver {
         let cryp = driver.borrow();
         let (key, iv) = ctx;
         let cipher = AesCbc::new(key, iv);
-        let flat = blocks.into_out_with_copied_in();
-        let last_block: [u8; 16] = flat[flat.len() - 16..].try_into().unwrap();
-        run_in_place(&cryp, &cipher, Direction::Encrypt, flat).unwrap();
-        iv.copy_from_slice(&last_block);
+        let len = blocks.len();
+        let (in_ptr, out_ptr) = blocks.into_raw();
+        if in_ptr == out_ptr {
+            let flat = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_in_place(&cryp, &cipher, Direction::Encrypt, flat).unwrap();
+            let last_block: [u8; 16] = flat[flat.len() - 16..].try_into().unwrap();
+            iv.copy_from_slice(&last_block);
+        } else {
+            let input = unsafe { core::slice::from_raw_parts(in_ptr, len) };
+            let output = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            run_separate(&cryp, &cipher, Direction::Encrypt, input, output).unwrap();
+            let last_block: [u8; 16] = output[output.len() - 16..].try_into().unwrap();
+            iv.copy_from_slice(&last_block);
+        }
     }
 
     fn aes256cbc_decrypt_block(ctx: &mut Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         if blocks.is_empty() {
             return;
         }
-        let flat = blocks.into_out_with_copied_in();
-        let last_ciphertext: [u8; 16] = flat[flat.len() - 16..].try_into().unwrap();
         let mut driver = DRIVER.try_lock().unwrap();
         let cryp = driver.borrow();
         let (key, iv) = ctx;
         let cipher = AesCbc::new(key, iv);
-        run_in_place(&cryp, &cipher, Direction::Decrypt, flat).unwrap();
-        iv.copy_from_slice(&last_ciphertext);
+        let len = blocks.len();
+        let (in_ptr, out_ptr) = blocks.into_raw();
+        if in_ptr == out_ptr {
+            let flat = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            let last_ciphertext: [u8; 16] = flat[flat.len() - 16..].try_into().unwrap();
+            run_in_place(&cryp, &cipher, Direction::Decrypt, flat).unwrap();
+            iv.copy_from_slice(&last_ciphertext);
+        } else {
+            let input = unsafe { core::slice::from_raw_parts(in_ptr, len) };
+            let output = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+            let last_ciphertext: [u8; 16] = input[input.len() - 16..].try_into().unwrap();
+            run_separate(&cryp, &cipher, Direction::Decrypt, input, output).unwrap();
+            iv.copy_from_slice(&last_ciphertext);
+        }
     }
 }
 
@@ -887,9 +979,29 @@ fn run_ctr_cryp_16(cryp: &BlockingCryp, key: &[u8; 16], iv: &mut [u8; 16], buffe
     let cipher = AesCtr::<16>::new(key, iv);
     let mut context = cryp.start_blocking(&cipher, Direction::Encrypt);
     for chunk in buffer.chunks_exact_mut(16) {
-        let mut temp = [0u8; 16];
-        temp.copy_from_slice(chunk);
-        cryp.payload_blocking(&mut context, &temp, chunk, false);
+        let ptr = chunk.as_mut_ptr();
+        let len = chunk.len();
+        let input = unsafe { core::slice::from_raw_parts(ptr, len) };
+        let output = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
+        cryp.payload_blocking(&mut context, input, output, false);
+    }
+
+    let mut counter = u128::from_be_bytes(*iv);
+    counter = counter.wrapping_add(blocks as u128);
+    *iv = counter.to_be_bytes();
+}
+
+fn run_ctr_cryp_16_separate(cryp: &BlockingCryp, key: &[u8; 16], iv: &mut [u8; 16], input: &[u8], output: &mut [u8]) {
+    assert_eq!(input.len(), output.len());
+    let blocks = input.len() / 16;
+    if blocks == 0 {
+        return;
+    }
+
+    let cipher = AesCtr::<16>::new(key, iv);
+    let mut context = cryp.start_blocking(&cipher, Direction::Encrypt);
+    for (in_chunk, out_chunk) in input.chunks_exact(16).zip(output.chunks_exact_mut(16)) {
+        cryp.payload_blocking(&mut context, in_chunk, out_chunk, false);
     }
 
     let mut counter = u128::from_be_bytes(*iv);
@@ -906,9 +1018,29 @@ fn run_ctr_cryp_32(cryp: &BlockingCryp, key: &[u8; 32], iv: &mut [u8; 16], buffe
     let cipher = AesCtr::<32>::new(key, iv);
     let mut context = cryp.start_blocking(&cipher, Direction::Encrypt);
     for chunk in buffer.chunks_exact_mut(16) {
-        let mut temp = [0u8; 16];
-        temp.copy_from_slice(chunk);
-        cryp.payload_blocking(&mut context, &temp, chunk, false);
+        let ptr = chunk.as_mut_ptr();
+        let len = chunk.len();
+        let input = unsafe { core::slice::from_raw_parts(ptr, len) };
+        let output = unsafe { core::slice::from_raw_parts_mut(ptr, len) };
+        cryp.payload_blocking(&mut context, input, output, false);
+    }
+
+    let mut counter = u128::from_be_bytes(*iv);
+    counter = counter.wrapping_add(blocks as u128);
+    *iv = counter.to_be_bytes();
+}
+
+fn run_ctr_cryp_32_separate(cryp: &BlockingCryp, key: &[u8; 32], iv: &mut [u8; 16], input: &[u8], output: &mut [u8]) {
+    assert_eq!(input.len(), output.len());
+    let blocks = input.len() / 16;
+    if blocks == 0 {
+        return;
+    }
+
+    let cipher = AesCtr::<32>::new(key, iv);
+    let mut context = cryp.start_blocking(&cipher, Direction::Encrypt);
+    for (in_chunk, out_chunk) in input.chunks_exact(16).zip(output.chunks_exact_mut(16)) {
+        cryp.payload_blocking(&mut context, in_chunk, out_chunk, false);
     }
 
     let mut counter = u128::from_be_bytes(*iv);
@@ -929,40 +1061,83 @@ impl embassy_crypto_driver::Aes128Ctr for AesDriver {
 
     fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         let (key, iv, partial, partial_len) = ctx;
-        let mut buf = buf.into_out_with_copied_in();
+        let len = buf.len();
+        let (in_ptr, out_ptr) = buf.into_raw();
+        if in_ptr == out_ptr {
+            let mut buf = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
 
-        // 1. Consume buffered partial keystream.
-        if *partial_len > 0 {
-            let n = core::cmp::min(*partial_len as usize, buf.len());
-            for i in 0..n {
-                buf[i] ^= partial[i];
+            // 1. Consume buffered partial keystream.
+            if *partial_len > 0 {
+                let n = core::cmp::min(*partial_len as usize, buf.len());
+                for i in 0..n {
+                    buf[i] ^= partial[i];
+                }
+                partial.copy_within(n..*partial_len as usize, 0);
+                *partial_len -= n as u8;
+                buf = &mut buf[n..];
             }
-            partial.copy_within(n..*partial_len as usize, 0);
-            *partial_len -= n as u8;
-            buf = &mut buf[n..];
-        }
 
-        // 2. Process full 16-byte blocks.
-        let full_len = (buf.len() / 16) * 16;
-        if full_len > 0 {
-            let mut driver = DRIVER.try_lock().unwrap();
-            let cryp = driver.borrow();
-            run_ctr_cryp_16(&cryp, key, iv, &mut buf[..full_len]);
-        }
-
-        // 3. Generate one extra keystream block for trailing partial data.
-        let tail = &mut buf[full_len..];
-        if !tail.is_empty() {
-            let mut driver = DRIVER.try_lock().unwrap();
-            let cryp = driver.borrow();
-            let mut keystream = [0u8; 16];
-            run_ctr_cryp_16(&cryp, key, iv, &mut keystream);
-            for i in 0..tail.len() {
-                tail[i] ^= keystream[i];
+            // 2. Process full 16-byte blocks.
+            let full_len = (buf.len() / 16) * 16;
+            if full_len > 0 {
+                let mut driver = DRIVER.try_lock().unwrap();
+                let cryp = driver.borrow();
+                run_ctr_cryp_16(&cryp, key, iv, &mut buf[..full_len]);
             }
-            let saved = 16 - tail.len();
-            partial[..saved].copy_from_slice(&keystream[tail.len()..]);
-            *partial_len = saved as u8;
+
+            // 3. Generate one extra keystream block for trailing partial data.
+            let tail = &mut buf[full_len..];
+            if !tail.is_empty() {
+                let mut driver = DRIVER.try_lock().unwrap();
+                let cryp = driver.borrow();
+                let mut keystream = [0u8; 16];
+                run_ctr_cryp_16(&cryp, key, iv, &mut keystream);
+                for i in 0..tail.len() {
+                    tail[i] ^= keystream[i];
+                }
+                let saved = 16 - tail.len();
+                partial[..saved].copy_from_slice(&keystream[tail.len()..]);
+                *partial_len = saved as u8;
+            }
+        } else {
+            let mut input = unsafe { core::slice::from_raw_parts(in_ptr, len) };
+            let mut output = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+
+            // 1. Consume buffered partial keystream.
+            if *partial_len > 0 {
+                let n = core::cmp::min(*partial_len as usize, input.len());
+                for i in 0..n {
+                    output[i] = input[i] ^ partial[i];
+                }
+                partial.copy_within(n..*partial_len as usize, 0);
+                *partial_len -= n as u8;
+                input = &input[n..];
+                output = &mut output[n..];
+            }
+
+            // 2. Process full 16-byte blocks.
+            let full_len = (input.len() / 16) * 16;
+            if full_len > 0 {
+                let mut driver = DRIVER.try_lock().unwrap();
+                let cryp = driver.borrow();
+                run_ctr_cryp_16_separate(&cryp, key, iv, &input[..full_len], &mut output[..full_len]);
+            }
+
+            // 3. Generate one extra keystream block for trailing partial data.
+            let tail_in = &input[full_len..];
+            let tail_out = &mut output[full_len..];
+            if !tail_in.is_empty() {
+                let mut driver = DRIVER.try_lock().unwrap();
+                let cryp = driver.borrow();
+                let mut keystream = [0u8; 16];
+                run_ctr_cryp_16(&cryp, key, iv, &mut keystream);
+                for i in 0..tail_in.len() {
+                    tail_out[i] = tail_in[i] ^ keystream[i];
+                }
+                let saved = 16 - tail_in.len();
+                partial[..saved].copy_from_slice(&keystream[tail_in.len()..]);
+                *partial_len = saved as u8;
+            }
         }
     }
 
@@ -988,37 +1163,77 @@ impl embassy_crypto_driver::Aes256Ctr for AesDriver {
 
     fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         let (key, iv, partial, partial_len) = ctx;
-        let mut buf = buf.into_out_with_copied_in();
+        let len = buf.len();
+        let (in_ptr, out_ptr) = buf.into_raw();
+        if in_ptr == out_ptr {
+            let mut buf = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
 
-        if *partial_len > 0 {
-            let n = core::cmp::min(*partial_len as usize, buf.len());
-            for i in 0..n {
-                buf[i] ^= partial[i];
+            if *partial_len > 0 {
+                let n = core::cmp::min(*partial_len as usize, buf.len());
+                for i in 0..n {
+                    buf[i] ^= partial[i];
+                }
+                partial.copy_within(n..*partial_len as usize, 0);
+                *partial_len -= n as u8;
+                buf = &mut buf[n..];
             }
-            partial.copy_within(n..*partial_len as usize, 0);
-            *partial_len -= n as u8;
-            buf = &mut buf[n..];
-        }
 
-        let full_len = (buf.len() / 16) * 16;
-        if full_len > 0 {
-            let mut driver = DRIVER.try_lock().unwrap();
-            let cryp = driver.borrow();
-            run_ctr_cryp_32(&cryp, key, iv, &mut buf[..full_len]);
-        }
-
-        let tail = &mut buf[full_len..];
-        if !tail.is_empty() {
-            let mut driver = DRIVER.try_lock().unwrap();
-            let cryp = driver.borrow();
-            let mut keystream = [0u8; 16];
-            run_ctr_cryp_32(&cryp, key, iv, &mut keystream);
-            for i in 0..tail.len() {
-                tail[i] ^= keystream[i];
+            let full_len = (buf.len() / 16) * 16;
+            if full_len > 0 {
+                let mut driver = DRIVER.try_lock().unwrap();
+                let cryp = driver.borrow();
+                run_ctr_cryp_32(&cryp, key, iv, &mut buf[..full_len]);
             }
-            let saved = 16 - tail.len();
-            partial[..saved].copy_from_slice(&keystream[tail.len()..]);
-            *partial_len = saved as u8;
+
+            let tail = &mut buf[full_len..];
+            if !tail.is_empty() {
+                let mut driver = DRIVER.try_lock().unwrap();
+                let cryp = driver.borrow();
+                let mut keystream = [0u8; 16];
+                run_ctr_cryp_32(&cryp, key, iv, &mut keystream);
+                for i in 0..tail.len() {
+                    tail[i] ^= keystream[i];
+                }
+                let saved = 16 - tail.len();
+                partial[..saved].copy_from_slice(&keystream[tail.len()..]);
+                *partial_len = saved as u8;
+            }
+        } else {
+            let mut input = unsafe { core::slice::from_raw_parts(in_ptr, len) };
+            let mut output = unsafe { core::slice::from_raw_parts_mut(out_ptr, len) };
+
+            if *partial_len > 0 {
+                let n = core::cmp::min(*partial_len as usize, input.len());
+                for i in 0..n {
+                    output[i] = input[i] ^ partial[i];
+                }
+                partial.copy_within(n..*partial_len as usize, 0);
+                *partial_len -= n as u8;
+                input = &input[n..];
+                output = &mut output[n..];
+            }
+
+            let full_len = (input.len() / 16) * 16;
+            if full_len > 0 {
+                let mut driver = DRIVER.try_lock().unwrap();
+                let cryp = driver.borrow();
+                run_ctr_cryp_32_separate(&cryp, key, iv, &input[..full_len], &mut output[..full_len]);
+            }
+
+            let tail_in = &input[full_len..];
+            let tail_out = &mut output[full_len..];
+            if !tail_in.is_empty() {
+                let mut driver = DRIVER.try_lock().unwrap();
+                let cryp = driver.borrow();
+                let mut keystream = [0u8; 16];
+                run_ctr_cryp_32(&cryp, key, iv, &mut keystream);
+                for i in 0..tail_in.len() {
+                    tail_out[i] = tail_in[i] ^ keystream[i];
+                }
+                let saved = 16 - tail_in.len();
+                partial[..saved].copy_from_slice(&keystream[tail_in.len()..]);
+                *partial_len = saved as u8;
+            }
         }
     }
 
