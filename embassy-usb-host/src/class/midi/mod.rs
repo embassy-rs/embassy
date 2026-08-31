@@ -14,7 +14,8 @@ mod descriptors;
 mod transport;
 
 use descriptors::{
-    MAX_MIDI_JACKS, MidiDescriptorError, MidiEndpointDescriptor, MidiStreamingInterface, parse_midi_interfaces,
+    MAX_MIDI_JACKS, MidiDescriptorError, MidiEndpointDescriptor, MidiStreamingInterface,
+    parse_midi_interfaces_for_device,
 };
 
 /// Advanced descriptor and endpoint-level USB-MIDI APIs.
@@ -280,7 +281,7 @@ pub struct MidiHost<'d, A: UsbHostAllocator<'d>> {
 impl<'d, A: UsbHostAllocator<'d>> MidiHost<'d, A> {
     /// Discover the MIDI ports and allocate the available bulk pipes.
     pub fn new(alloc: &A, config_desc: &[u8], enum_info: &EnumerationInfo) -> Result<Self, MidiError> {
-        let interfaces = parse_midi_interfaces(config_desc)?;
+        let interfaces = parse_midi_interfaces_for_device(&enum_info.device_desc, config_desc)?;
         let (interface, input_endpoint, output_endpoint) = select_streaming_interface(&interfaces)?;
 
         let receiver = Receiver::open(alloc, interface, input_endpoint, enum_info)?;

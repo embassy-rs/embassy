@@ -6,7 +6,8 @@ use heapless::Vec;
 use super::{USB_CLASS_AUDIO, USB_MIDI_1_PROTOCOL, USB_SUBCLASS_MIDI_STREAMING};
 use crate::descriptor::descriptor_type::{CS_ENDPOINT, CS_INTERFACE, ENDPOINT};
 use crate::descriptor::{
-    ConfigurationDescriptorChain, EndpointDescriptor, InterfaceDescriptorChain, RawDescriptorIterator, USBDescriptor,
+    ConfigurationDescriptorChain, DeviceDescriptor, EndpointDescriptor, InterfaceDescriptorChain,
+    RawDescriptorIterator, USBDescriptor,
 };
 
 const MS_HEADER: u8 = 0x01;
@@ -209,6 +210,12 @@ impl<'a> MidiDescriptorIterator<'a> {
             descriptors: interface.iter_descriptors(),
         })
     }
+
+    fn new_unchecked(interface: &'a InterfaceDescriptorChain<'a>) -> Self {
+        Self {
+            descriptors: interface.iter_descriptors(),
+        }
+    }
 }
 
 impl Iterator for MidiDescriptorIterator<'_> {
@@ -277,7 +284,14 @@ pub struct MidiStreamingInterface {
 impl MidiStreamingInterface {
     /// Parse one MIDIStreaming interface and associate each endpoint with its jacks.
     pub fn try_from_interface(interface: &InterfaceDescriptorChain<'_>) -> Result<Self, MidiDescriptorError> {
-        let descriptors = MidiDescriptorIterator::new(interface).ok_or(MidiDescriptorError::InvalidDescriptor)?;
+        if !is_midi_streaming_interface(interface) {
+            return Err(MidiDescriptorError::InvalidDescriptor);
+        }
+        Self::try_from_interface_unchecked(interface)
+    }
+
+    fn try_from_interface_unchecked(interface: &InterfaceDescriptorChain<'_>) -> Result<Self, MidiDescriptorError> {
+        let descriptors = MidiDescriptorIterator::new_unchecked(interface);
         let mut result = Self {
             interface_number: interface.interface_number,
             alternate_setting: interface.alternate_setting,
@@ -336,10 +350,40 @@ pub fn parse_midi_interfaces(
     Ok(result)
 }
 
+/// Parse USB-MIDI interfaces, including recognized vendor-specific device layouts.
+pub fn parse_midi_interfaces_for_device(
+    device: &DeviceDescriptor,
+    config_desc: &[u8],
+) -> Result<Vec<MidiStreamingInterface, MAX_MIDI_INTERFACES>, MidiDescriptorError> {
+    let config = ConfigurationDescriptorChain::try_from_slice(config_desc)
+        .map_err(|_| MidiDescriptorError::InvalidDescriptor)?;
+    let mut result = Vec::new();
+    for interface in config.iter_interface() {
+        if is_midi_streaming_interface(&interface) {
+            result
+                .push(MidiStreamingInterface::try_from_interface(&interface)?)
+                .map_err(|_| MidiDescriptorError::Capacity)?;
+        } else if is_legacy_yamaha_midi_interface(device, &interface) {
+            let parsed = MidiStreamingInterface::try_from_interface_unchecked(&interface)?;
+            if parsed.header.is_some() && !parsed.endpoints.is_empty() {
+                result.push(parsed).map_err(|_| MidiDescriptorError::Capacity)?;
+            }
+        }
+    }
+    Ok(result)
+}
+
 fn is_midi_streaming_interface(interface: &InterfaceDescriptorChain<'_>) -> bool {
     interface.interface_class == USB_CLASS_AUDIO
         && interface.interface_subclass == USB_SUBCLASS_MIDI_STREAMING
         && interface.interface_protocol == USB_MIDI_1_PROTOCOL
+}
+
+fn is_legacy_yamaha_midi_interface(device: &DeviceDescriptor, interface: &InterfaceDescriptorChain<'_>) -> bool {
+    device.vendor_id == 0x0499
+        && interface.interface_class == 0xff
+        && interface.interface_subclass == 0x00
+        && interface.interface_protocol == 0xff
 }
 
 fn check_descriptor(raw: &[u8], descriptor_type: u8, subtype: u8, min_len: usize) -> Result<(), MidiDescriptorError> {
@@ -381,6 +425,30 @@ mod tests {
         0, 7, 36, 1, 0, 1, 65, 0, 6, 36, 2, 1, 1, 0, 6, 36, 2, 2, 2, 0, 9, 36, 3, 1, 3, 1, 2, 1, 0, 9, 36, 3, 2, 4, 1,
         1, 1, 0, 9, 5, 2, 2, 32, 0, 0, 0, 0, 5, 37, 1, 1, 1, 9, 5, 129, 2, 32, 0, 0, 0, 0, 5, 37, 1, 1, 3,
     ];
+
+    #[rustfmt::skip]
+    const YAMAHA_DGX205_LEGACY_CONFIG: &[u8] = &[
+        9, 2, 0x36, 0, 1, 1, 0, 0xc0, 0, 9, 4, 0, 0, 2, 0xff, 0, 0xff, 0,
+        7, 0x24, 1, 0, 1, 0x24, 0, 6, 0x24, 2, 2, 1, 0, 9, 0x24, 3, 2, 1, 1, 1, 1, 0,
+        7, 5, 1, 2, 0x40, 0, 1, 7, 5, 0x82, 2, 0x40, 0, 1,
+    ];
+
+    fn device(vendor_id: u16) -> DeviceDescriptor {
+        DeviceDescriptor {
+            bcd_usb: 0x0110,
+            device_class: 0,
+            device_subclass: 0,
+            device_protocol: 0,
+            max_packet_size0: 8,
+            vendor_id,
+            product_id: 0x1031,
+            bcd_device: 0x0110,
+            manufacturer: 1,
+            product: 2,
+            serial_number: 0,
+            num_configurations: 1,
+        }
+    }
 
     #[test]
     fn finds_midi_streaming_bulk_endpoints() {
@@ -428,6 +496,33 @@ mod tests {
         assert_eq!(midi.endpoints[0].jack_ids.as_slice(), &[1]);
         assert_eq!(midi.endpoints[1].address, 0x81);
         assert_eq!(midi.endpoints[1].jack_ids.as_slice(), &[3]);
+    }
+
+    #[test]
+    fn parses_legacy_yamaha_vendor_interface() {
+        assert!(parse_midi_interfaces(YAMAHA_DGX205_LEGACY_CONFIG).unwrap().is_empty());
+
+        let interfaces = parse_midi_interfaces_for_device(&device(0x0499), YAMAHA_DGX205_LEGACY_CONFIG).unwrap();
+        assert_eq!(interfaces.len(), 1);
+        assert_eq!(interfaces[0].interface_number, 0);
+        assert_eq!(interfaces[0].endpoints.len(), 2);
+        assert_eq!(interfaces[0].endpoints[0].address, 0x01);
+        assert_eq!(interfaces[0].endpoints[1].address, 0x82);
+        assert!(
+            interfaces[0]
+                .endpoints
+                .iter()
+                .all(|endpoint| endpoint.jack_ids.is_empty())
+        );
+    }
+
+    #[test]
+    fn does_not_claim_other_vendors_legacy_interface() {
+        assert!(
+            parse_midi_interfaces_for_device(&device(0x1234), YAMAHA_DGX205_LEGACY_CONFIG)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
