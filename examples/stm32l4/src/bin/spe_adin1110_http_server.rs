@@ -21,7 +21,7 @@ use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_net::StackStorage;
-use embassy_net::tcp::TcpListener;
+use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
 use embassy_net_adin1110::{ADIN1110, Device, GenericSpi, Runner};
 use embassy_stm32::exti::ExtiInput;
@@ -229,14 +229,19 @@ async fn main(spawner: Spawner) {
 
     loop {
         info!("Listening on http://{}:{}...", local_addr, HTTP_LISTEN_PORT);
-        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
-            Ok(socket) => socket,
+        let token = match listener.accept().await {
+            Ok(token) => token,
             Err(e) => {
                 defmt::error!("accept error: {:?}", e);
                 continue;
             }
         };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
         socket.set_timeout(Some(Duration::from_secs(1)));
+        if let Err(e) = socket.accept(token).await {
+            defmt::error!("accept error: {:?}", e);
+            continue;
+        }
 
         loop {
             let _n = match socket.read(&mut mb_buf).await {

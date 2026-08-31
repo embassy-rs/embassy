@@ -5,7 +5,7 @@ use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
-use embassy_net::tcp::{self, TcpListener};
+use embassy_net::tcp::{self, TcpListener, TcpSocket};
 use embassy_net::wire::IpListenEndpoint;
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
@@ -87,7 +87,9 @@ async fn main(spawner: Spawner) -> ! {
     unwrap!(listener.listen(IpListenEndpoint { addr: None, port: 80 }));
 
     loop {
-        let mut socket = unwrap!(listener.accept(&mut rx_buffer, &mut tx_buffer).await);
+        let token = unwrap!(listener.accept().await);
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
+        unwrap!(socket.accept(token).await);
 
         let mut read_buffer = [0; 1024];
         loop {

@@ -42,9 +42,10 @@ use embassy_time::{Instant, Timer};
 pub use xarxa::IcmpError;
 use xarxa::driver::{Driver, LinkState};
 use xarxa::iface::IfaceHandle;
-pub use xarxa::{Full, config, driver, wire};
+pub use xarxa::{Full, config, wire};
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 pub use xarxa::{Neighbor, NeighborState};
+pub use xarxa_driver as driver;
 
 use crate::iface::Iface;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
