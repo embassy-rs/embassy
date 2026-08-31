@@ -20,6 +20,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-options", "dns", "medium-ethernet", "hostname", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-options", "dns", "medium-ethernet", "slaac", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4-server", "dns", "medium-ethernet", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "ipv6", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "ipv6", "slaac", "tcp", "udp"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ieee802154", "ipv6", "tcp", "udp"]},
@@ -34,11 +35,11 @@ build = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"
-features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "hostname", "dns", "dhcpv4", "dhcpv4-options", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp"]
+features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "hostname", "dns", "dhcpv4", "dhcpv4-options", "dhcpv4-server", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp"]
 target = "thumbv7em-none-eabi"
 
 [package.metadata.docs.rs]
-features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "hostname", "dns", "dhcpv4", "dhcpv4-options", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp"]
+features = ["defmt", "tcp", "tcp-listener", "udp", "raw-ethernet", "raw-ip", "iface-bind", "hostname", "dns", "dhcpv4", "dhcpv4-options", "dhcpv4-server", "ipv4", "ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "slaac", "packetmeta-id", "packetmeta-timestamp"]
 
 [features]
 ## Enable APIs that use the heap.
@@ -81,6 +82,8 @@ tcp-listener = ["tcp", "xarxa/tcp-listener"]
 dhcpv4 = ["ipv4", "medium-ethernet", "xarxa/dhcpv4"]
 ## Allow reading received DHCP options.
 dhcpv4-options = ["dhcpv4", "xarxa/dhcpv4-options"]
+## DHCPv4 server, built into the interface. Needs `ipv4` and `medium-ethernet`.
+dhcpv4-server = ["ipv4", "medium-ethernet", "xarxa/dhcpv4-server"]
 ## Give the stack a hostname, with `Stack::set_hostname`. If set, it is sent
 ## to the DHCP server in outgoing DHCP messages.
 hostname = ["xarxa/hostname"]
@@ -136,8 +139,8 @@ packet-log = ["xarxa/packet-log"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "324376018b2f7e5f1c70bb0070d92306afea32e3", default-features = false, features = ["async"] }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "324376018b2f7e5f1c70bb0070d92306afea32e3", default-features = false, features = ["async"] }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "4312cc99a88df20c49967e2ec94befdb84e4ba36", default-features = false, features = ["async"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "4312cc99a88df20c49967e2ec94befdb84e4ba36", default-features = false, features = ["async"] }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
