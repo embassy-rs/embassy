@@ -1,3 +1,4 @@
+use core::cell::Cell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
@@ -18,14 +19,33 @@ fn split_to_pre(split: Option<SplitInfo>) -> bool {
 }
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
 
-use super::{BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY, EndpointBuffer, Instance};
+use super::{BUS_WAKER, DPRAM_DATA_OFFSET, EP_COUNT, EP_IN_WAKERS, EP_MEMORY, EndpointBuffer, Instance};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::interrupt::{self};
 use crate::peripherals::USB;
 use crate::usb::EP_MEMORY_SIZE;
 use crate::{Peri, RegExt};
 
-const MAIN_BUFFER_SIZE: usize = 1024;
+/// Root port reset drive time (USB 2.0 §7.1.7.5, TDRSTR).
+const ROOT_RESET_MS: u64 = 50;
+/// Reset recovery time (USB 2.0 §7.1.7.5, TRSTRCY).
+const RESET_RECOVERY_MS: u64 = 10;
+/// Register writes need two clk_usb cycles to transfer; 12 clk_sys cycles cover this at the supported 150 MHz maximum.
+const USB_CLOCK_DELAY_CYCLES: u32 = 12;
+const SIE_START_DELAY_CYCLES: u32 = 12;
+
+// DPRAM layout - `EP_COUNT` blocks for control and interrupts, then remaining blocks
+// allocatable to EPX pipes.
+const EPX_BLOCK_SIZE: usize = 64;
+
+/// First EPX buffer after the control and interrupt buffers.
+const EPX_BUFFER_OFFSET: u16 = DPRAM_DATA_OFFSET + ((EP_COUNT - 1) * EPX_BLOCK_SIZE) as u16;
+
+/// Number of allocatable EPX blocks.
+const EPX_NUM_BLOCKS: usize = (EP_MEMORY_SIZE - EPX_BUFFER_OFFSET as usize) / EPX_BLOCK_SIZE;
+
+/// Maximum number of concurrently allocated EPX pipes.
+const EPX_MAX_PIPES: usize = 16;
 
 /// Per-instance state shared between [`Driver`], [`Allocator`] and [`Channel`].
 pub struct HostState {
@@ -33,9 +53,13 @@ pub struct HostState {
     current_channel: AtomicUsize,
     /// Bitset of allocated interrupt pipes.
     allocated_pipes: AtomicU16,
-    /// Next 'allocated' non-interrupt channel index. Indexes 1-15 are reserved for
-    /// interrupt endpoints, so allocation starts at 16.
-    channel_index: AtomicUsize,
+    /// Bitset of allocated EPX pipes, indexed by `Channel::index - EP_COUNT`.
+    allocated_epx: AtomicU16,
+    /// One waiter per EPX pipe. Completion is routed to the pipe that owns EPX,
+    /// while releasing it wakes every contender.
+    epx_wakers: [AtomicWaker; EPX_MAX_PIPES],
+    /// Bitmap of used EPX buffer blocks, one bit per [`EPX_BLOCK_SIZE`] block.
+    used_blocks: critical_section::Mutex<Cell<u64>>,
 }
 
 impl HostState {
@@ -44,14 +68,40 @@ impl HostState {
         Self {
             current_channel: AtomicUsize::new(0),
             allocated_pipes: AtomicU16::new(0),
-            channel_index: AtomicUsize::new(16),
+            allocated_epx: AtomicU16::new(0),
+            epx_wakers: [const { AtomicWaker::new() }; EPX_MAX_PIPES],
+            used_blocks: critical_section::Mutex::new(Cell::new(0)),
         }
     }
 
     fn reset(&self) {
         self.current_channel.store(0, Ordering::Relaxed);
         self.allocated_pipes.store(0, Ordering::Relaxed);
-        self.channel_index.store(16, Ordering::Relaxed);
+        self.allocated_epx.store(0, Ordering::Relaxed);
+        critical_section::with(|cs| self.used_blocks.borrow(cs).set(0));
+    }
+
+    /// Slot of an EPX pipe in [`HostState::epx_wakers`], or `None` for the idle
+    /// sentinel and for interrupt pipes.
+    fn epx_slot(index: usize) -> Option<usize> {
+        index.checked_sub(EP_COUNT).filter(|slot| *slot < EPX_MAX_PIPES)
+    }
+
+    /// Wake the pipe currently holding EPX.
+    fn wake_current_epx(&self) {
+        if let Some(slot) = Self::epx_slot(self.current_channel.load(Ordering::Acquire)) {
+            self.epx_wakers[slot].wake();
+        }
+    }
+
+    /// Wake every allocated EPX pipe, so whoever is queued can claim EPX.
+    fn wake_all_epx(&self) {
+        let allocated = self.allocated_epx.load(Ordering::Acquire);
+        for slot in 0..EPX_MAX_PIPES {
+            if allocated & (1 << slot) != 0 {
+                self.epx_wakers[slot].wake();
+            }
+        }
     }
 }
 
@@ -79,17 +129,17 @@ impl<'d, T: SealedHostInstance> Driver<'d, T> {
     /// Create a new USB driver.
     pub fn new(_usb: Peri<'d, USB>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         let regs = T::regs();
-        unsafe {
-            // FIXME(magic):
-            // zero fill regs
-            let p = regs.as_ptr() as *mut u32;
-            for i in 0..0x9c / 4 {
-                p.add(i).write_volatile(0)
-            }
 
-            // zero fill epmem
+        // Reset the peripheral: zeroing its registers by hand would clobber those that
+        // do not reset to zero, notably `USBPHY_TRIM` and `NAK_POLL`.
+        crate::pac::RESETS.reset().modify(|w| w.set_usbctrl(true));
+        crate::pac::RESETS.reset().modify(|w| w.set_usbctrl(false));
+        while !crate::pac::RESETS.reset_done().read().usbctrl() {}
+
+        // DPRAM is outside the peripheral reset, so clear the control area by hand.
+        unsafe {
             let p = EP_MEMORY as *mut u32;
-            for i in 0..0x180 / 4 {
+            for i in 0..DPRAM_DATA_OFFSET as usize / 4 {
                 p.add(i).write_volatile(0)
             }
         }
@@ -105,6 +155,9 @@ impl<'d, T: SealedHostInstance> Driver<'d, T> {
         regs.main_ctrl().modify(|w| {
             w.set_controller_en(true);
             w.set_host_ndevice(true);
+            // RP2350 resets PHY isolation asserted; the PHY is unusable until cleared (§12.7.2).
+            #[cfg(feature = "_rp235x")]
+            w.set_phy_iso(false);
         });
         regs.sie_ctrl().modify(|w| {
             w.set_sof_en(true);
@@ -169,9 +222,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         assert!(!(E::ep_type() == EndpointType::Interrupt && D::is_out()));
 
         if ep_info.ep_type == EndpointType::Interrupt {
-            assert!(index > 0 && index < 16);
+            assert!(index > 0 && index < EP_COUNT);
         } else {
-            assert!(index >= 16);
+            assert!(index >= EP_COUNT && index < EP_COUNT + EPX_MAX_PIPES);
         }
 
         Self {
@@ -219,23 +272,27 @@ impl<T: SealedHostInstance> TransactionGuard<T> {
 
 impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
     fn drop(&mut self) {
+        // Dedicated interrupt endpoints belong to the pipe
+        if self.interrupt {
+            return;
+        }
+
         let selected = self.state.current_channel.load(Ordering::Relaxed);
-        if self.interrupt || selected == self.index || selected == 0 {
-            if !self.interrupt {
-                if self.transaction_active && self.abort_on_drop {
-                    let regs = T::regs();
-                    regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
-                    while regs.sie_ctrl().read().stop_trans() {}
-                    regs.sie_status().write_clear(|w| {
-                        w.set_trans_complete(true);
-                        w.set_stall_rec(true);
-                        w.set_rx_timeout(true);
-                        w.set_rx_overflow(true);
-                    });
-                    regs.buff_status().write_clear(|w| w.0 = 0b11);
-                }
-                self.state.current_channel.store(0, Ordering::Relaxed);
+        if selected == self.index || selected == 0 {
+            if self.transaction_active && self.abort_on_drop {
+                let regs = T::regs();
+                regs.sie_ctrl().modify(|w| w.set_stop_trans(true));
+                while regs.sie_ctrl().read().stop_trans() {}
+                regs.sie_status().write_clear(|w| {
+                    w.set_trans_complete(true);
+                    w.set_stall_rec(true);
+                    w.set_rx_timeout(true);
+                    w.set_rx_overflow(true);
+                });
+                regs.buff_status().write_clear(|w| w.0 = 0b11);
             }
+            self.state.current_channel.store(0, Ordering::Release);
+            self.state.wake_all_epx();
 
             self.ep_control.modify(|w| {
                 w.set_interrupt_per_buff(false);
@@ -252,7 +309,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         if Self::is_interrupt_in() {
             &EP_IN_WAKERS[self.index]
         } else {
-            &EP_IN_WAKERS[0]
+            &T::host_state().epx_wakers[self.index - EP_COUNT]
         }
     }
 
@@ -265,6 +322,24 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             0
         };
         T::dpram().ep_in_buffer_control(index)
+    }
+
+    /// Give the buffer to the USB controller only after the rest of its
+    /// control fields have crossed into the USB clock domain.
+    fn write_buffer_control(&self, f: impl FnOnce(&mut rp_pac::usb_dpram::regs::EpBufferControl)) {
+        let reg = self.buffer_control();
+        let mut value = Default::default();
+        f(&mut value);
+
+        let available = value.available(0);
+        value.set_available(0, false);
+        reg.write_value(value);
+
+        if available {
+            cortex_m::asm::delay(USB_CLOCK_DELAY_CYCLES);
+            value.set_available(0, true);
+            reg.write_value(value);
+        }
     }
 
     /// Get endpoint control register
@@ -322,9 +397,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     }
 
     async fn wait_ready_for_transaction(&self) {
-        // Wait transfer buffer to be free
-        self.wait_available().await;
-
         trace!("CHANNEL {} WAIT READY", self.index);
         // Wait for other transaction end
         poll_fn(|cx| {
@@ -338,6 +410,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             Poll::Ready(())
         })
         .await;
+
+        // Once this pipe owns EPX, wait for its transfer buffer to be free.
+        self.wait_available().await;
     }
 
     // FIXME: RX Timeout with LS device on hub
@@ -354,9 +429,8 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             w.set_error_rx_overflow(true);
         });
 
-        // Start transaction
-        // This field should be modified separately after delay
-        cortex_m::asm::delay(12);
+        // START_TRANS is synchronized separately (RP2040 §4.1.2.9, RP2350 §12.7.3.9).
+        cortex_m::asm::delay(SIE_START_DELAY_CYCLES);
         T::regs().sie_ctrl().modify(|w| {
             w.set_start_trans(true);
         });
@@ -409,8 +483,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 w.set_endpoint_type(EpControlEndpointType::Interrupt);
                 w.set_interrupt_per_buff(true);
 
-                // FIXME: host_poll_interval (bits 16:25)
-                let interval = self.interval as u32 - 1;
+                // `host_poll_interval` (bits 16:25) has no PAC accessor and counts from
+                // zero, so clamp: a descriptor may declare an interval of 0.
+                let interval = self.interval.max(1) as u32 - 1;
                 w.0 |= interval << 16;
 
                 w.set_buffer_address(self.buf.addr);
@@ -495,8 +570,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     /// Reload interrupt channel buffer register
     fn interrupt_reload(&mut self) {
         assert!(E::ep_type() == EndpointType::Interrupt);
-        let ctrl = self.buffer_control();
-        ctrl.write(|w| {
+        self.write_buffer_control(|w| {
             w.set_last(0, true);
             w.set_pid(0, self.pid);
             w.set_full(0, false);
@@ -512,8 +586,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         //     w.set_pulldown_en(true);
         // });
 
-        // FIXME: delay reason
-        cortex_m::asm::delay(12);
+        cortex_m::asm::delay(USB_CLOCK_DELAY_CYCLES);
         T::regs().int_ep_ctrl().modify(|w| {
             w.set_int_ep_active(w.int_ep_active() | 1 << (self.index - 1));
         });
@@ -529,7 +602,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             pid
         };
 
-        self.buffer_control().write(|w| {
+        self.write_buffer_control(|w| {
             w.set_pid(0, pid);
             w.set_full(0, false);
             w.set_length(0, len);
@@ -563,7 +636,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
         self.buf.write(&chunk);
 
-        self.buffer_control().write(|w| {
+        self.write_buffer_control(|w| {
             w.set_available(0, true);
             w.set_pid(0, pid);
             w.set_full(0, true);
@@ -596,51 +669,62 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         }
     }
 
+    /// Claim EPX and run one transaction on it. `arm` programs the buffer once this
+    /// pipe owns the endpoint.
+    async fn run_transaction(&mut self, arm: impl FnOnce(&mut Self)) -> Result<(), PipeError> {
+        self.wait_ready_for_transaction().await;
+        self.set_current();
+        let mut guard = self.transaction_guard();
+
+        arm(self);
+        guard.arm();
+        let result = self.wait_transaction().await;
+        guard.disarm();
+
+        result
+    }
+
+    /// Receive one packet, returning its length.
+    async fn transfer_in_packet(&mut self, len: u16, pid: bool) -> Result<usize, PipeError> {
+        self.run_transaction(|s| s.set_data_in(len, pid)).await?;
+
+        Ok(self.buffer_control().read().length(0) as usize)
+    }
+
+    /// Send one packet, returning how much of `data` it carried.
+    async fn transfer_out_packet(&mut self, data: &[u8], pid: bool) -> Result<usize, PipeError> {
+        let mut len = 0;
+        self.run_transaction(|s| len = s.set_data_out(data, pid)).await?;
+
+        Ok(len)
+    }
+
     /// Send SETUP packet
     ///
     /// WARNING: This flips PID
     async fn send_setup(&mut self, setup: &[u8; 8]) -> Result<(), PipeError> {
-        // Wait transfer buffer to be free
-        self.wait_ready_for_transaction().await;
-
-        // Set this channel for transaction
-        self.set_current();
-        let _guard = self.transaction_guard();
-
         trace!("SEND SETUP");
-        // Prepare HW
-        self.set_setup_packet(setup);
+        self.run_transaction(|s| s.set_setup_packet(setup)).await?;
+        self.pid = true;
 
-        // Wait for SETUP end
-        let res = self.wait_transaction().await;
-        if res.is_ok() {
-            self.pid = true;
-        }
-        res
+        Ok(())
     }
 
     /// Send status packet
     async fn control_status(&mut self, active_direction_out: bool) -> Result<(), PipeError> {
-        // Wait transfer buffer to be free
-        self.wait_ready_for_transaction().await;
-
-        // Set this channel for transaction
-        self.set_current();
-        let _guard = self.transaction_guard();
-
         // Status packet always have DATA1
         trace!("SEND STATUS");
-        if active_direction_out {
-            self.set_data_in(0, true);
-        } else {
-            self.set_data_out(&[], true);
-        }
+        self.run_transaction(|s| {
+            if active_direction_out {
+                s.set_data_in(0, true);
+            } else {
+                s.set_data_out(&[], true);
+            }
+        })
+        .await?;
+        self.pid = false;
 
-        let res = self.wait_transaction().await;
-        if res.is_ok() {
-            self.pid = false;
-        }
-        res
+        Ok(())
     }
 }
 
@@ -652,6 +736,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     {
         trace!("CONTROL IN: {:?}", setup);
         let length = u16::from_le_bytes([setup[6], setup[7]]) as usize;
+        if length > buf.len() {
+            return Err(PipeError::BufferOverflow);
+        }
 
         // Setup stage
         // TODO: Whole transaction error handling?
@@ -677,6 +764,9 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     {
         trace!("CONTROL OUT: {:?}", setup);
         let length = u16::from_le_bytes([setup[6], setup[7]]) as usize;
+        if length > buf.len() {
+            return Err(PipeError::BufferOverflow);
+        }
 
         // Setup stage
         // TODO: Whole transaction error handling?
@@ -697,36 +787,37 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     where
         D: pipe::IsIn,
     {
-        // Wait transfer buffer to be free
-        self.wait_ready_for_transaction().await;
-
-        // Set this channel for transaction
-        self.set_current();
-        let mut guard = self.transaction_guard();
+        // An interrupt pipe owns its endpoint for the whole read.
+        let _interrupt_guard = if Self::is_interrupt_in() {
+            self.wait_ready_for_transaction().await;
+            self.set_current();
+            Some(self.transaction_guard())
+        } else {
+            None
+        };
 
         let mut count: usize = 0;
 
         let res = loop {
-            if Self::is_interrupt_in() {
-                trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
-                self.interrupt_reload();
-                self.wait_available().await;
-                self.advance_pid();
+            let rx_len = if Self::is_interrupt_in() {
+                // Consume completed packet that may have arrived after last poll.
+                // Reloading would discard the packet that hardware already ACKed.
+                if !self.buffer_control().read().full(0) {
+                    trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
+                    self.interrupt_reload();
+                    self.wait_available().await;
+                }
+                self.buffer_control().read().length(0) as usize
             } else {
                 trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
                 let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
-                self.set_data_in(packet_len as u16, self.pid);
-                guard.arm();
-                let result = self.wait_transaction().await;
-                guard.disarm();
-                if let Err(e) = result {
-                    break Err(e);
-                }
+                let rx_len = self.transfer_in_packet(packet_len as u16, self.pid).await?;
                 self.advance_pid();
-            }
+
+                rx_len
+            };
 
             let free = &mut buf[count..];
-            let rx_len = self.buffer_control().read().length(0) as usize;
             trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
 
             if rx_len > free.len() {
@@ -735,6 +826,12 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
             self.buf.read(&mut free[..rx_len]);
             count += rx_len;
+
+            if Self::is_interrupt_in() {
+                self.advance_pid();
+                self.interrupt_reload();
+                break Ok(count);
+            }
 
             // If transfer is smaller than max_packet_size, we are done
             // If we have read buf.len() bytes, we are done
@@ -750,27 +847,11 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     where
         D: pipe::IsOut,
     {
-        // Wait transfer buffer to be free
-        self.wait_ready_for_transaction().await;
-
-        let _regs = T::regs();
-
-        // Set this channel for transaction
-        self.set_current();
-        let mut guard = self.transaction_guard();
-
         let mut count = 0;
 
         let res = loop {
             trace!("CHANNEL {} START WRITE", self.index);
-            let packet = self.set_data_out(&buf[count..], self.pid);
-
-            guard.arm();
-            let result = self.wait_transaction().await;
-            guard.disarm();
-            if let Err(e) = result {
-                break Err(e);
-            }
+            let packet = self.transfer_out_packet(&buf[count..], self.pid).await?;
             self.advance_pid();
 
             trace!("WRITE DONE, tx_len = {}", packet);
@@ -780,13 +861,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
             if count == buf.len() {
                 if packet == self.max_packet_size as usize && ensure_transaction_end {
                     trace!("CHANNEL {} START ZLP WRITE", self.index);
-                    self.set_data_out(&[], self.pid);
-                    guard.arm();
-                    let result = self.wait_transaction().await;
-                    guard.disarm();
-                    if let Err(e) = result {
-                        break Err(e);
-                    }
+                    self.transfer_out_packet(&[], self.pid).await?;
                     self.advance_pid();
                     trace!("ZLP WRITE DONE");
                 }
@@ -808,7 +883,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
 
 impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
     fn drop(&mut self) {
-        if self.index < 16 {
+        if self.index < EP_COUNT {
             // Disarm and clear stale state so the interrupt slot can be reused safely.
             let regs = T::regs();
             let dpram = T::dpram();
@@ -825,6 +900,22 @@ impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
                 let pipes = &state.allocated_pipes;
                 pipes.store(pipes.load(Ordering::Relaxed) & !(1 << self.index), Ordering::Relaxed);
             });
+        } else {
+            let state = T::host_state();
+            // Return the EPX buffer and the pipe slot to the pool.
+            free_epx_mem(state, self.buf.addr, self.buf.len);
+            critical_section::with(|_| {
+                let epx = &state.allocated_epx;
+                epx.store(
+                    epx.load(Ordering::Relaxed) & !(1 << (self.index - EP_COUNT)),
+                    Ordering::Relaxed,
+                );
+            });
+            debug!(
+                "EPX pipe FREE  slot {} (bitset {:04x})",
+                self.index - EP_COUNT,
+                state.allocated_epx.load(Ordering::Relaxed)
+            );
         }
     }
 }
@@ -842,6 +933,50 @@ impl<'d, T: Instance> Clone for Allocator<'d, T> {
 
 impl<'d, T: Instance> Copy for Allocator<'d, T> {}
 
+/// Number of [`EPX_BLOCK_SIZE`] blocks needed to hold `len` bytes.
+fn blocks_for(len: u16) -> usize {
+    (len as usize).div_ceil(EPX_BLOCK_SIZE)
+}
+
+/// `used_blocks` mask for a run of `blocks` blocks starting at `start`.
+fn block_mask(start: usize, blocks: usize) -> u64 {
+    ((1u64 << blocks) - 1) << start
+}
+
+/// Allocate `len` bytes of EPX buffer memory, returning its [`EP_MEMORY`]-relative byte address.
+/// First-fit over contiguous free blocks.
+fn alloc_epx_mem(state: &HostState, len: u16) -> Result<u16, ()> {
+    let blocks = blocks_for(len);
+    if blocks == 0 || blocks > EPX_NUM_BLOCKS {
+        error!("EPX buffer request of {} bytes is too large", len);
+        return Err(());
+    }
+    critical_section::with(|cs| {
+        let used_blocks = state.used_blocks.borrow(cs);
+        let used = used_blocks.get();
+        for start in 0..=(EPX_NUM_BLOCKS - blocks) {
+            let mask = block_mask(start, blocks);
+            if used & mask == 0 {
+                used_blocks.set(used | mask);
+                return Ok(EPX_BUFFER_OFFSET + (start * EPX_BLOCK_SIZE) as u16);
+            }
+        }
+        error!("EPX buffer memory full");
+        Err(())
+    })
+}
+
+/// Free EPX buffer memory previously returned by [`alloc_epx_mem`].
+fn free_epx_mem(state: &HostState, addr: u16, len: u16) {
+    let blocks = blocks_for(len);
+    let start = (addr - EPX_BUFFER_OFFSET) as usize / EPX_BLOCK_SIZE;
+    let mask = block_mask(start, blocks);
+    critical_section::with(|cs| {
+        let used_blocks = state.used_blocks.borrow(cs);
+        used_blocks.set(used_blocks.get() & !mask);
+    });
+}
+
 impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
     type Pipe<E: pipe::Type, D: pipe::Direction> = Channel<'d, T, E, D>;
 
@@ -856,31 +991,55 @@ impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
         if E::ep_type() == EndpointType::Interrupt {
             let free_index = critical_section::with(|_| {
                 let alloc = state.allocated_pipes.load(Ordering::Relaxed);
-                if let Some(idx) = (1..16).find(|i| alloc & (1 << i) == 0) {
+                if let Some(idx) = (1..EP_COUNT).find(|i| alloc & (1 << i) == 0) {
                     state.allocated_pipes.store(alloc | (1 << idx), Ordering::Relaxed);
                     Ok(idx as u8)
                 } else {
                     Err(HostError::OutOfPipes)
                 }
             })?;
-            // Use fixed layout
-            let addr = DPRAM_DATA_OFFSET + MAIN_BUFFER_SIZE as u16 + free_index as u16 * 64;
+            // Fixed layout: pipe index 1..EP_COUNT maps to block 0..EP_COUNT-1.
+            let addr = DPRAM_DATA_OFFSET + (free_index as u16 - 1) * EPX_BLOCK_SIZE as u16;
 
             Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
         } else {
             let index = critical_section::with(|_| {
-                let old = state.channel_index.load(Ordering::Relaxed);
-                state.channel_index.store(old + 1, Ordering::Relaxed);
-                old
-            });
-            Ok(Channel::new(
-                index,
-                DPRAM_DATA_OFFSET,
-                MAIN_BUFFER_SIZE as u16,
-                endpoint,
-                dev_addr,
-                pre,
-            ))
+                let alloc = state.allocated_epx.load(Ordering::Relaxed);
+                let slot = alloc.trailing_ones() as usize;
+                if slot >= EPX_MAX_PIPES {
+                    return Err(HostError::OutOfPipes);
+                }
+                state.allocated_epx.store(alloc | (1 << slot), Ordering::Relaxed);
+                Ok(EP_COUNT + slot)
+            })?;
+            // One buffer per pipe: a parked transfer's data must survive another pipe
+            // taking EPX in the meantime.
+            let len = (blocks_for(endpoint.max_packet_size) * EPX_BLOCK_SIZE) as u16;
+            let addr = match alloc_epx_mem(state, len) {
+                Ok(addr) => addr,
+                Err(()) => {
+                    // Hand back the slot claimed above, or repeated buffer failures
+                    // would exhaust the bitset and report `OutOfPipes` instead.
+                    critical_section::with(|_| {
+                        let epx = &state.allocated_epx;
+                        epx.store(
+                            epx.load(Ordering::Relaxed) & !(1 << (index - EP_COUNT)),
+                            Ordering::Relaxed,
+                        );
+                    });
+
+                    return Err(HostError::InsufficientMemory);
+                }
+            };
+            debug!(
+                "EPX pipe ALLOC slot {} (bitset {:04x}) buf {:#x}+{}",
+                index - EP_COUNT,
+                state.allocated_epx.load(Ordering::Relaxed),
+                addr,
+                len
+            );
+
+            Ok(Channel::new(index, addr, len, endpoint, dev_addr, pre))
         }
     }
 }
@@ -944,11 +1103,13 @@ impl<'d, T: SealedHostInstance> UsbHostController<'d> for Driver<'d, T> {
             w.set_reset_bus(true);
         });
 
-        embassy_time::Timer::after_millis(50).await;
+        embassy_time::Timer::after_millis(ROOT_RESET_MS).await;
 
         T::regs().sie_ctrl().modify(|w| {
             w.set_reset_bus(false);
         });
+
+        embassy_time::Timer::after_millis(RESET_RECOVERY_MS).await;
     }
 }
 
@@ -957,7 +1118,7 @@ pub struct InterruptHandler<T: Instance> {
     _usb: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
         let ints = regs.ints().read();
@@ -984,39 +1145,36 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 "data sequence error"
             } else if ints.stall() {
                 regs.inte().write_clear(|w| w.set_stall(true));
-                EP_IN_WAKERS[0].wake();
+                T::host_state().wake_current_epx();
                 "stall"
             } else if ints.error_rx_overflow() {
                 regs.inte().write_clear(|w| w.set_error_rx_overflow(true));
-                EP_IN_WAKERS[0].wake();
+                T::host_state().wake_current_epx();
                 "rx overflow"
             } else if ints.trans_complete() {
                 regs.inte().write_clear(|w| w.set_trans_complete(true));
-                EP_IN_WAKERS[0].wake();
+                T::host_state().wake_current_epx();
                 "transaction complete"
             } else if ints.error_rx_timeout() {
                 regs.inte().write_clear(|w| w.set_error_rx_timeout(true));
-                EP_IN_WAKERS[0].wake();
+                T::host_state().wake_current_epx();
                 "rx timeout"
             } else if ints.buff_status() {
                 let status = regs.buff_status().read().0;
-                for i in 0..32 {
-                    // ith bit set
-                    if (status >> i) & 1 == 1 {
-                        regs.buff_status().write_clear(|w| w.0 = 1 << i);
-                        // control transfers (buffer 0)
-                        if i != 0 {
-                            let idx = i / 2;
-                            // T::regs().int_ep_ctrl().modify(|w| {
-                            //     w.set_int_ep_active(w.int_ep_active() | 1 << idx);
-                            // });
-                            trace!("USB IRQ: Interrupt EP {}", idx);
-                            EP_IN_WAKERS[idx].wake();
-                        } else {
-                            trace!("USB IRQ: EPx");
-                            EP_IN_WAKERS[0].wake();
-                        }
-                        break;
+                // Bits 0 and 1 are EPX's IN/OUT pair; from bit 2 up they are the
+                // dedicated interrupt endpoints, two bits per endpoint. Only interrupt IN
+                // gets a dedicated endpoint, so of each pair only the IN bit is ever armed.
+                if status & 0b11 != 0 {
+                    regs.buff_status().write_clear(|w| w.0 = status & 0b11);
+                    trace!("USB IRQ: EPx");
+                    T::host_state().wake_current_epx();
+                }
+
+                for n in 1..EP_COUNT {
+                    if status & (1 << (n * 2)) != 0 {
+                        regs.buff_status().write_clear(|w| w.0 = 0b11 << (n * 2));
+                        trace!("USB IRQ: Interrupt EP {}", n);
+                        EP_IN_WAKERS[n].wake();
                     }
                 }
                 "^^^"
