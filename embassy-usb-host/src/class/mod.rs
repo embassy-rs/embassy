@@ -1,5 +1,6 @@
 //! USB host class drivers.
 
+pub mod ccid;
 pub mod cdc_acm;
 pub mod gip;
 pub mod hid;
