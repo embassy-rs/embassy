@@ -12,6 +12,7 @@ use cipher::{
     BlockCipherDecBackend, BlockCipherDecClosure, BlockCipherDecrypt, BlockCipherEncBackend, BlockCipherEncClosure,
     BlockCipherEncrypt, BlockModeDecBackend, BlockModeDecClosure, BlockModeDecrypt, BlockModeEncBackend,
     BlockModeEncClosure, BlockModeEncrypt, BlockSizeUser, InOut, IvSizeUser, KeyIvInit, ParBlocksSizeUser,
+    StreamCipher, StreamCipherError,
 };
 use crypto_common::KeySizeUser;
 pub use digest;
@@ -1191,3 +1192,104 @@ pub mod p256 {
         }
     }
 }
+
+// ===========================================================================
+// CTR stream-cipher wrapper types
+// ===========================================================================
+
+macro_rules! impl_ctr {
+    (
+        $name:ident,
+        $ctx:ty,
+        $init:path,
+        $clone:path,
+        $apply:path,
+        $seek:path,
+        $key_size:ty
+    ) => {
+        /// RustCrypto `StreamCipher` implementation backed by the
+        /// embassy-crypto-driver unitrait.
+        ///
+        /// Uses AES-CTR mode with a 128-bit big-endian counter (NIST SP 800-38A).
+        /// Encryption and decryption are the same operation.
+        pub struct $name {
+            ctx: $ctx,
+        }
+
+        impl Clone for $name {
+            #[inline]
+            fn clone(&self) -> Self {
+                Self {
+                    ctx: $clone(&self.ctx),
+                }
+            }
+        }
+
+        impl core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_struct(stringify!($name)).finish_non_exhaustive()
+            }
+        }
+
+        impl KeySizeUser for $name {
+            type KeySize = $key_size;
+        }
+
+        impl IvSizeUser for $name {
+            type IvSize = U16;
+        }
+
+        impl KeyIvInit for $name {
+            #[inline]
+            fn new(key: &Key<Self>, iv: &cipher::Iv<Self>) -> Self {
+                Self {
+                    ctx: $init(
+                        key.as_slice().try_into().unwrap(),
+                        iv.as_slice().try_into().unwrap(),
+                    ),
+                }
+            }
+        }
+
+        impl StreamCipher for $name {
+            #[inline]
+            fn check_remaining(&self, _data_len: usize) -> Result<(), StreamCipherError> {
+                // AES-CTR with a 128-bit counter has 2^128 blocks = 2^132 bytes
+                // of keystream before repetition. For any practical embedded
+                // buffer this is effectively infinite.
+                Ok(())
+            }
+
+            #[inline]
+            fn unchecked_apply_keystream_inout(&mut self, buf: InOutBuf<'_, '_, u8>) {
+                $apply(&mut self.ctx, buf.into_out_with_copied_in());
+            }
+
+            #[inline]
+            fn unchecked_write_keystream(&mut self, buf: &mut [u8]) {
+                buf.fill(0);
+                $apply(&mut self.ctx, buf);
+            }
+        }
+    };
+}
+
+impl_ctr!(
+    Aes128Ctr,
+    embassy_crypto_driver::Aes128CtrContext,
+    embassy_crypto_driver::aes128ctr_init,
+    embassy_crypto_driver::aes128ctr_clone,
+    embassy_crypto_driver::aes128ctr_apply_keystream,
+    embassy_crypto_driver::aes128ctr_seek,
+    U16
+);
+
+impl_ctr!(
+    Aes256Ctr,
+    embassy_crypto_driver::Aes256CtrContext,
+    embassy_crypto_driver::aes256ctr_init,
+    embassy_crypto_driver::aes256ctr_clone,
+    embassy_crypto_driver::aes256ctr_apply_keystream,
+    embassy_crypto_driver::aes256ctr_seek,
+    U32
+);

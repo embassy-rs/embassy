@@ -815,3 +815,68 @@ unitrait::unitrait! {
 
     macro embassy_crypto_p256ecdsa_impl(path = $crate);
 }
+
+// ===========================================================================
+// AES-128 CTR stream cipher trait
+// ===========================================================================
+
+unitrait::unitrait! {
+    /// AES-128 CTR stream cipher trait.
+    ///
+    /// CTR mode turns a block cipher into a synchronous stream cipher.
+    /// Encryption and decryption are identical: XOR data with the AES-ECB
+    /// encrypted counter keystream. The counter is a 128-bit big-endian integer
+    /// incremented after each block, matching NIST SP 800-38A.
+    pub trait Aes128Ctr {
+        /// Opaque storage for key schedule, counter state, and partial-block buffer.
+        #[opaque(size = 128, align = 16)]
+        #[symbol = "_emb_crypto_aes128ctr_context"]
+        pub type Context;
+
+        /// Initialize with a 128-bit key and 128-bit initial counter (IV).
+        #[symbol = "_emb_crypto_aes128ctr_init"]
+        pub fn aes128ctr_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context;
+
+        /// Clone the context (including current counter position).
+        #[symbol = "_emb_crypto_aes128ctr_clone"]
+        pub fn aes128ctr_clone(ctx: &Self::Context) -> Self::Context;
+
+        /// Apply keystream to `buf` in-place (encrypt == decrypt for CTR).
+        #[symbol = "_emb_crypto_aes128ctr_apply_keystream"]
+        pub fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: &mut [u8]);
+
+        /// Seek by 16-byte block offset.
+        ///
+        /// The driver increments the 128-bit counter by `block_offset`.
+        /// Any buffered partial-block keystream is discarded.
+        #[symbol = "_emb_crypto_aes128ctr_seek"]
+        pub fn aes128ctr_seek(ctx: &mut Self::Context, block_offset: u64);
+    }
+
+    macro embassy_crypto_aes128ctr_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// AES-256 CTR stream cipher trait.
+    ///
+    /// See [`Aes128Ctr`] for CTR mode semantics. Uses a 256-bit key.
+    pub trait Aes256Ctr {
+        #[opaque(size = 128, align = 16)]
+        #[symbol = "_emb_crypto_aes256ctr_context"]
+        pub type Context;
+
+        #[symbol = "_emb_crypto_aes256ctr_init"]
+        pub fn aes256ctr_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context;
+
+        #[symbol = "_emb_crypto_aes256ctr_clone"]
+        pub fn aes256ctr_clone(ctx: &Self::Context) -> Self::Context;
+
+        #[symbol = "_emb_crypto_aes256ctr_apply_keystream"]
+        pub fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: &mut [u8]);
+
+        #[symbol = "_emb_crypto_aes256ctr_seek"]
+        pub fn aes256ctr_seek(ctx: &mut Self::Context, block_offset: u64);
+    }
+
+    macro embassy_crypto_aes256ctr_impl(path = $crate);
+}
