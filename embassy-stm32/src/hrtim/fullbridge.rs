@@ -63,7 +63,7 @@ impl<T: Instance, CH1: AdvancedChannel<T>, CH2: AdvancedChannel<T>> FullBridgeCo
         // Set output 2 to inactive on a period event
         T::regs().tim(CH2::index()).rstr(0).modify(|w| w.set_mstper(true));
         // Set output 2 to inactive on a cmp event
-        T::regs().tim(CH2::index()).setr(0).modify(|w| w.set_mstcmpx(0, true));
+        T::regs().tim(CH2::index()).setr(0).modify(|w| w.set_mstcmp(0, true));
         // Enable deadtime
         T::regs().tim(CH2::index()).outr().modify(|w| {
             w.set_dten(true);
