@@ -150,30 +150,30 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 macro_rules! impl_ctimer_instance {
     ($n:literal) => {
         paste::paste! {
-            impl crate::ctimer::SealedInstance for crate::peripherals::[<CTIMER $n>] {
-                fn info() -> &'static crate::ctimer::Info {
-                    static INFO: crate::ctimer::Info = crate::ctimer::Info {
-                        regs: crate::pac::[<CTIMER $n>],
+            impl $crate::ctimer::SealedInstance for $crate::peripherals::[<CTIMER $n>] {
+                fn info() -> &'static $crate::ctimer::Info {
+                    static INFO: $crate::ctimer::Info = $crate::ctimer::Info {
+                        regs: $crate::pac::[<CTIMER $n>],
                         wait_cell: maitake_sync::WaitCell::new(),
                         irq_flags: core::sync::atomic::AtomicU8::new(0),
                     };
                     &INFO
                 }
 
-                const CLOCK_INSTANCE: crate::clocks::periph_helpers::CTimerInstance =
-                    crate::clocks::periph_helpers::CTimerInstance::[<CTimer $n>];
-                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_ctimer $n>];
-                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_ctimer $n _wake>];
+                const CLOCK_INSTANCE: $crate::clocks::periph_helpers::CTimerInstance =
+                    $crate::clocks::periph_helpers::CTimerInstance::[<CTimer $n>];
+                    const PERF_INT_INCR: fn() = $crate::perf_counters::[<incr_interrupt_ctimer $n>];
+                    const PERF_INT_WAKE_INCR: fn() = $crate::perf_counters::[<incr_interrupt_ctimer $n _wake>];
             }
 
-            impl crate::ctimer::Instance for crate::peripherals::[<CTIMER $n>] {
-                type Interrupt = crate::interrupt::typelevel::[<CTIMER $n>];
+            impl $crate::ctimer::Instance for $crate::peripherals::[<CTIMER $n>] {
+                type Interrupt = $crate::interrupt::typelevel::[<CTIMER $n>];
             }
 
-            crate::impl_ctimer_channel!([<CTIMER $n _CH0>], [<CTIMER $n>], Zero);
-            crate::impl_ctimer_channel!([<CTIMER $n _CH1>], [<CTIMER $n>], One);
-            crate::impl_ctimer_channel!([<CTIMER $n _CH2>], [<CTIMER $n>], Two);
-            crate::impl_ctimer_channel!([<CTIMER $n _CH3>], [<CTIMER $n>], Three);
+            $crate::impl_ctimer_channel!([<CTIMER $n _CH0>], [<CTIMER $n>], Zero);
+            $crate::impl_ctimer_channel!([<CTIMER $n _CH1>], [<CTIMER $n>], One);
+            $crate::impl_ctimer_channel!([<CTIMER $n _CH2>], [<CTIMER $n>], Two);
+            $crate::impl_ctimer_channel!([<CTIMER $n _CH3>], [<CTIMER $n>], Three);
         }
     };
 }
@@ -193,18 +193,18 @@ pub trait CTimerChannel<T: Instance>:
 #[macro_export]
 macro_rules! impl_ctimer_channel {
     ($ch:ident, $peri:ident, $n:ident) => {
-        impl crate::ctimer::SealedCTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {
+        impl $crate::ctimer::SealedCTimerChannel<$crate::peripherals::$peri> for $crate::peripherals::$ch {
             #[inline(always)]
-            fn number(&self) -> crate::ctimer::Channel {
-                crate::ctimer::Channel::$n
+            fn number(&self) -> $crate::ctimer::Channel {
+                $crate::ctimer::Channel::$n
             }
         }
 
-        impl crate::ctimer::CTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {}
+        impl $crate::ctimer::CTimerChannel<$crate::peripherals::$peri> for $crate::peripherals::$ch {}
 
-        impl From<crate::peripherals::$ch> for crate::ctimer::AnyChannel {
-            fn from(value: crate::peripherals::$ch) -> Self {
-                use crate::ctimer::SealedCTimerChannel;
+        impl From<$crate::peripherals::$ch> for $crate::ctimer::AnyChannel {
+            fn from(value: $crate::peripherals::$ch) -> Self {
+                use $crate::ctimer::SealedCTimerChannel;
                 Self::new(value.number())
             }
         }
@@ -250,16 +250,16 @@ pub trait OutputPin<T: Instance>: GpioPin + SealedOutputPin<T> + PeripheralType 
 #[macro_export]
 macro_rules! impl_ctimer_input_pin {
     ($pin:ident, $peri:ident, $fn:ident) => {
-        impl crate::ctimer::SealedInputPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
+        impl $crate::ctimer::SealedInputPin<$crate::peripherals::$peri> for $crate::peripherals::$pin {}
 
-        impl crate::ctimer::InputPin<crate::peripherals::$peri> for crate::peripherals::$pin {
+        impl $crate::ctimer::InputPin<$crate::peripherals::$peri> for $crate::peripherals::$pin {
             #[inline(always)]
             fn mux(&self) {
-                use crate::gpio::SealedPin;
-                self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-                self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                self.set_function(crate::pac::port::Mux::$fn);
+                use $crate::gpio::SealedPin;
+                self.set_pull($crate::gpio::Pull::Disabled);
+                self.set_slew_rate($crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength($crate::gpio::DriveStrength::Double.into());
+                self.set_function($crate::pac::port::Mux::$fn);
                 self.set_enable_input_buffer(true);
             }
         }
@@ -270,16 +270,16 @@ macro_rules! impl_ctimer_input_pin {
 #[macro_export]
 macro_rules! impl_ctimer_output_pin {
     ($pin:ident, $peri:ident, $fn:ident) => {
-        impl crate::ctimer::SealedOutputPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
+        impl $crate::ctimer::SealedOutputPin<$crate::peripherals::$peri> for $crate::peripherals::$pin {}
 
-        impl crate::ctimer::OutputPin<crate::peripherals::$peri> for crate::peripherals::$pin {
+        impl $crate::ctimer::OutputPin<$crate::peripherals::$peri> for $crate::peripherals::$pin {
             #[inline(always)]
             fn mux(&self) {
-                use crate::gpio::SealedPin;
-                self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-                self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-                self.set_function(crate::pac::port::Mux::$fn);
+                use $crate::gpio::SealedPin;
+                self.set_pull($crate::gpio::Pull::Disabled);
+                self.set_slew_rate($crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength($crate::gpio::DriveStrength::Normal.into());
+                self.set_function($crate::pac::port::Mux::$fn);
                 self.set_enable_input_buffer(false);
             }
         }

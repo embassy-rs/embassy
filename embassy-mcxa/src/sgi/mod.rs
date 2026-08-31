@@ -287,13 +287,13 @@ impl<'d, M: Mode> Sgi<'d, M> {
 
         // Enable hash engine with FIFO limits.
         self.info.regs().sgi_sha2_ctrl().write(|w| {
-            w.set_sha2_en(true.into());
+            w.set_sha2_en(true);
             w.set_sha2_mode((sha2_mode_auto as u8).into());
             w.set_sha2_size(sha2_size.into());
             w.set_sha2_low_lim(fifo_low_lim);
             w.set_sha2_high_lim(fifo_high_lim);
             w.set_sha2_count_en((true as u8).into());
-            w.set_hash_reload(hash_reload.into());
+            w.set_hash_reload(hash_reload);
             w.set_no_auto_init((no_auto_init as u8).into());
         });
         Ok(())
@@ -406,14 +406,14 @@ impl<'d, M: Mode> Sgi<'d, M> {
         data: &[u8],
         length: usize,
     ) -> Result<Transfer<'a>, SgiError> {
-        if length == 0 || length > data.len() || length % MAX_BLOCK_SIZE != 0 {
+        if length == 0 || length > data.len() || !length.is_multiple_of(MAX_BLOCK_SIZE) {
             return Err(SgiError::InvalidSize);
         }
 
         // Destination is SHAFIFO (32-bit). If the source buffer is not word aligned, we need smaller transfers and the mux
         // will handle byte/halfword packing, but this is less efficient. Warn about it since it may indicate a usage issue.
         let align_addr = data.as_ptr() as usize;
-        if (align_addr % 4) != 0 {
+        if !align_addr.is_multiple_of(4) {
             #[cfg(feature = "defmt")]
             defmt::warn!("Data buffer is not word-aligned, which means 4x AHB reads.");
         }
@@ -431,10 +431,10 @@ impl<'d, M: Mode> Sgi<'d, M> {
         let src_addr = data.as_ptr() as usize;
         unsafe {
             let software_start = true; // need to trigger the hash operation start via software after setting up the DMA, so this is true regardless of auto vs. normal mode.
-            if (src_addr % 4) == 0 {
+            if src_addr.is_multiple_of(4) {
                 let words = core::slice::from_raw_parts(data.as_ptr() as *const u32, length / 4);
                 dma_ch.setup_write_to_peripheral(words, peri_address, software_start, options)
-            } else if (src_addr % 2) == 0 {
+            } else if src_addr.is_multiple_of(2) {
                 let halfwords = core::slice::from_raw_parts(data.as_ptr() as *const u16, length / 2);
                 dma_ch.setup_write_to_peripheral(halfwords, peri_address, software_start, options)
             } else {
@@ -555,11 +555,12 @@ impl<'d, M: Mode> Sgi<'d, M> {
     /// Reads the hash output from the SGI dataout registers into the provided buffer. This should be called after confirming operation completion,
     /// and it checks for errors before reading. It handles both normal and auto mode completion, including triggering additional reads for the larger SHA-512 outputs.
     fn read_hash_output(&mut self, options: HashOptions, output: &mut [u8]) -> Result<(), SgiError> {
-        if options.hash_size == HashSize::Sha384 && output.len() < 48 {
-            return Err(SgiError::BufferTooSmall);
-        } else if options.hash_size == HashSize::Sha512 && output.len() < 64 {
+        if options.hash_size == HashSize::Sha384 && output.len() < 48
+            || options.hash_size == HashSize::Sha512 && output.len() < 64
+        {
             return Err(SgiError::BufferTooSmall);
         }
+
         if options.op_mode == HashMode::Auto {
             // Automatic mode
             self.info

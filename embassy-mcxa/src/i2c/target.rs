@@ -340,8 +340,8 @@ impl<'d, M: Mode> I2c<'d, M> {
             info: T::info(),
             _scl,
             _sda,
-            smbus_alert: config.smbus_alert.clone(),
-            general_call: config.general_call.clone(),
+            smbus_alert: config.smbus_alert,
+            general_call: config.general_call,
             mode,
             _wg: parts.wake_guard,
         };
@@ -1007,8 +1007,8 @@ where
     /// Enable only the interrupts relevant to listening for a new address match.
     fn enable_listen_ints(&self) {
         self.info.regs().sier().write(|w| {
-            w.set_sarie(self.smbus_alert.clone().into());
-            w.set_gcie(self.general_call.clone().into());
+            w.set_sarie(self.smbus_alert.into());
+            w.set_gcie(self.general_call.into());
             w.set_am1ie(true);
             w.set_am0ie(true);
             w.set_feie(true);

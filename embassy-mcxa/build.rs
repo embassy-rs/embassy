@@ -29,7 +29,7 @@ fn main() {
 
     // Declare all drivers in nxp-pac (used or unused)
     for peripheral in nxp_pac::metadata::META_PERIPHERALS {
-        cfgs.declare(&driver_to_cfg_name(peripheral));
+        cfgs.declare(driver_to_cfg_name(peripheral));
     }
 
     // Enable all drivers for this chip
@@ -38,7 +38,7 @@ fn main() {
             continue;
         }
 
-        cfgs.enable(&driver_to_cfg_name(peripheral.driver_name));
+        cfgs.enable(driver_to_cfg_name(peripheral.driver_name));
     }
 
     let generated = [
@@ -191,7 +191,7 @@ fn pin_feature_gate(pin_name: &str) -> TokenStream {
         .pins
         .iter()
         .find(|pin| pin.name == pin_name)
-        .expect(&format!("Failed to find pin {pin_name}"));
+        .unwrap_or_else(|| panic!("Failed to find pin {pin_name}"));
     pin.feature
         .as_ref()
         .map_or(TokenStream::default(), |feature| quote! { #[cfg(feature = #feature)] })
@@ -274,7 +274,7 @@ fn generate_adc_pin_impls() -> TokenStream {
         let adc_name = format_ident!("{}", adc.name);
         for signal in adc.signals {
             let channel: u8 = get_regex_num(signal.name, &adc_channel_regex)
-                .expect(&format!("Could not get ADC channel from: {}", signal.name))
+                .unwrap_or_else(|| panic!("Could not get ADC channel from: {}", signal.name))
                 .try_into()
                 .unwrap();
             for pin in signal.pins {
@@ -298,7 +298,7 @@ fn generate_clkout_impls() -> TokenStream {
     for clkout in METADATA
         .peripherals
         .iter()
-        .filter(|p| p.name.to_ascii_lowercase() == "clkout")
+        .filter(|p| p.name.eq_ignore_ascii_case("clkout"))
     {
         for signal in clkout.signals {
             for pin in signal.pins {

@@ -9,24 +9,24 @@
 //! ## Features
 //!
 //! - **Blocking and Asynchronous Modes**: Supports both blocking and
-//! async APIs for flexibility in different runtime environments.
+//!   async APIs for flexibility in different runtime environments.
 //! - **DMA Support**: Enables high-performance data transfers using
-//! DMA.
+//!   DMA.
 //! - **Configurable Bus Speeds**: Supports standard (100 kHz), fast
-//! (400 kHz), and fast-plus (1 MHz) modes. Ultra-fast (3.4 MHz) mode
-//! is not yet implemented.
+//!   (400 kHz), and fast-plus (1 MHz) modes. Ultra-fast (3.4 MHz) mode
+//!   is not yet implemented.
 //! - **Error Handling**: Comprehensive error reporting, including
-//! FIFO errors, arbitration loss, and address NACK conditions.
+//!   FIFO errors, arbitration loss, and address NACK conditions.
 //! - **Embedded HAL Compatibility**: Implements traits from
-//! `embedded-hal` and `embedded-hal-async` for interoperability with
-//! other libraries.
+//!   `embedded-hal` and `embedded-hal-async` for interoperability with
+//!   other libraries.
 //!
 //! ### Error Types
 //!
 //! - `SetupError`: Errors related to hardware initialization, such as
-//! clock configuration issues.
+//!   clock configuration issues.
 //! - `IOError`: Errors during I2C operations, including FIFO errors,
-//! arbitration loss, and invalid buffer lengths.
+//!   arbitration loss, and invalid buffer lengths.
 //!
 //! ## Example
 //!

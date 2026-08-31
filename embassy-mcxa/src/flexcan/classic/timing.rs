@@ -115,7 +115,7 @@ pub(crate) fn set_baudrate(info: &Info, src_clk_hz: u32, baud_rate_bps: u32) -> 
     /* Calculate timing automatically with given Baud Rate. */
     let config = calculate_improved_timing_values(baud_rate_bps, src_clk_hz)?;
 
-    Ok(set_timing_config(info, config)?)
+    set_timing_config(info, config)
 }
 
 /// Rust version of `FLEXCAN_GetSegments()` from the NXP Zephyr HAL.
@@ -201,7 +201,7 @@ fn calculate_improved_timing_values(baud_rate_bps: u32, src_clk_hz: u32) -> Resu
     if baud_rate_bps > MAX_CAN_BITRATE {
         return Err(TimingError::BitrateTooHigh);
     }
-    if (src_clk_hz % baud_rate_bps) != 0 {
+    if !src_clk_hz.is_multiple_of(baud_rate_bps) {
         return Err(TimingError::BitrateIncompatibleWithClock);
     }
 
@@ -216,12 +216,14 @@ fn calculate_improved_timing_values(baud_rate_bps: u32, src_clk_hz: u32) -> Resu
             continue; // tq_num too large: baud_rate_bps * tq_num would exceed src_clk_hz, meaning the prescaler would have to be < 1.
         }
 
-        if (src_clk_hz % clk) != 0 {
+        if !src_clk_hz.is_multiple_of(clk) {
             continue; // src_clk_hz is not an exact integer multiple of (baud_rate_bps * tq_num), so this tq_num cannot produce the requested baud rate with zero error.
         }
 
-        let mut config_temp = FlexcanTimingConfig::default();
-        config_temp.pre_divider = ((src_clk_hz / clk) - 1) as u16;
+        let mut config_temp = FlexcanTimingConfig {
+            pre_divider: ((src_clk_hz / clk) - 1) as u16,
+            ..Default::default()
+        };
         if (config_temp.pre_divider as u32) > MAX_ENPRESDIV {
             break; // pre_divider exceeds the hardware field maximum. Since pre_divider grows monotonically as tq_num shrinks, no smaller tq_num can succeed either. So, abort the search entirely.
         }

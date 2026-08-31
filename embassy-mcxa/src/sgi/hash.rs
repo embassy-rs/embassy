@@ -299,7 +299,7 @@ impl<'d> BlockingHasher<'d> {
         let sgi = &mut self.sgi;
 
         let options = HashOptions {
-            hash_size: hash_size,
+            hash_size,
             op_mode: HashMode::Auto,
             init: HashInit::Init,
             reload: HashReload::NoReload,
@@ -318,18 +318,11 @@ impl<'d> BlockingHasher<'d> {
         }
 
         let mut hash_buffer = [0u8; MAX_BLOCK_SIZE * 5];
-        let len = match create_padded_message(input, &mut hash_buffer) {
-            Some(len) => len,
-            None => {
-                #[cfg(feature = "defmt")]
-                defmt::error!("Failed to create padded message");
-                0
-            }
-        };
+        let len = create_padded_message(input, &mut hash_buffer).unwrap_or_default();
 
         #[cfg(feature = "defmt")]
         defmt::trace!("Padded message length: {=usize}", len);
-        if len == 0 || len > MAX_BLOCK_SIZE * 5 || len % 128 != 0 {
+        if len == 0 || len > MAX_BLOCK_SIZE * 5 || !len.is_multiple_of(128) {
             #[cfg(feature = "defmt")]
             defmt::error!("Padded message length is not multiple of 128 bytes");
             return Err(SgiError::InvalidSize);
@@ -422,7 +415,7 @@ impl<'d> StreamingHasher<'d> {
     /// Update the hash state with the provided input data. This can be called multiple times to process streaming data. Input limit per call is maximum 512 bytes,
     /// but it's recommended to keep it to 128 bytes (one block) for better performance and to avoid auto mode FIFO filling which can be slower.
     pub fn update(&mut self, input: &[u8]) -> Result<(), SgiError> {
-        let input_len = input.len() as usize;
+        let input_len = input.len();
         if input_len > MAX_BLOCK_SIZE * 4 || input_len == 0 {
             return Err(SgiError::InvalidSize);
             // 512 bytes seems like a reasonable upper limit for UPDATE calls that are > 128 bytes,
@@ -442,7 +435,7 @@ impl<'d> StreamingHasher<'d> {
             let copy_len = if input_len + self.ctx.curr_block_ptr > copy_buffer.len() {
                 copy_buffer.len()
             } else {
-                ((input_len + self.ctx.curr_block_ptr) / MAX_BLOCK_SIZE) as usize * MAX_BLOCK_SIZE
+                ((input_len + self.ctx.curr_block_ptr) / MAX_BLOCK_SIZE) * MAX_BLOCK_SIZE
             };
 
             // We can only copy as much as fits in the copy buffer, and we need to make sure we only copy full blocks worth of data for processing
@@ -659,7 +652,7 @@ impl<'d> StreamingHasher<'d> {
     }
 
     fn process_single_block_update(&mut self, input: &[u8]) -> Result<(), SgiError> {
-        let input_len = input.len() as usize;
+        let input_len = input.len();
         let mut next_curr_block_ptr = 0;
         let mut overflow_suffix = None;
 
@@ -672,7 +665,7 @@ impl<'d> StreamingHasher<'d> {
                 .ok_or(SgiError::InvalidSize)?
                 .copy_from_slice(input);
             self.ctx.curr_block_ptr += input_len;
-            self.ctx.curr_block_ptr = self.ctx.curr_block_ptr % MAX_BLOCK_SIZE; // Wrap around if we exceed block size, but we won't process until we have a full block;
+            self.ctx.curr_block_ptr %= MAX_BLOCK_SIZE; // Wrap around if we exceed block size, but we won't process until we have a full block;
             return Ok(()); // Wait until we have a full block before processing
         } else if self.ctx.curr_block_ptr + input_len > MAX_BLOCK_SIZE {
             let space_left = MAX_BLOCK_SIZE - self.ctx.curr_block_ptr;
