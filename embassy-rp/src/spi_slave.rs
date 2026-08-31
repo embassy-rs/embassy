@@ -8,13 +8,12 @@ pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::dma::{Channel, ChannelInstance};
 use crate::gpio::AnyPin;
+pub use crate::spi::{Async, Blocking, ClkPin, CsPin, Instance, MisoPin, Mode, MosiPin};
 use crate::spi::{
     Info, blocking_read_inner, blocking_transfer_in_place_inner, blocking_write_inner, configure_pins, dma_read_inner,
     flush_inner, instance_info,
 };
 use crate::{dma, interrupt, mode};
-
-pub use crate::spi::{Async, Blocking, ClkPin, CsPin, Instance, MisoPin, Mode, MosiPin};
 
 /// SPI errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
