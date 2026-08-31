@@ -134,6 +134,17 @@ impl TaskTracker {
         #[cfg(target_has_atomic = "ptr")]
         loop {
             let current_head = self.head.load(Ordering::Acquire);
+
+            // Check whether this task is already being tracked.
+            let mut current = current_head;
+            while !current.is_null() {
+                if current.cast_const() == task_ptr {
+                    return;
+                }
+
+                current = unsafe { (*current).all_tasks_next.load(Ordering::Acquire) };
+            }
+
             unsafe {
                 (*task_ptr).all_tasks_next.store(current_head, Ordering::Relaxed);
             }
@@ -150,9 +161,21 @@ impl TaskTracker {
         #[cfg(not(target_has_atomic = "ptr"))]
         critical_section::with(|_| {
             let current_head = self.head.load(Ordering::Acquire);
+
+            // Check whether this task is already being tracked.
+            let mut current = current_head;
+            while !current.is_null() {
+                if current.cast_const() == task_ptr {
+                    return;
+                }
+
+                current = unsafe { (*current).all_tasks_next.load(Ordering::Acquire) };
+            }
+
             unsafe {
                 (*task_ptr).all_tasks_next.store(current_head, Ordering::Relaxed);
             }
+
             self.head.store(task_ptr.cast_mut(), Ordering::Release);
         });
     }
@@ -399,3 +422,58 @@ impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
 
 #[cfg(feature = "rtos-trace")]
 rtos_trace::global_os_callbacks! {SyncExecutor}
+
+#[cfg(all(test, feature = "rtos-trace"))]
+mod tests {
+    use core::future::Ready;
+
+    use super::*;
+    use crate::raw::TaskStorage;
+
+    struct NoopTrace;
+
+    impl rtos_trace::RtosTrace for NoopTrace {
+        fn start() {}
+        fn stop() {}
+        fn task_new(_: u32) {}
+        fn task_send_info(_: u32, _: rtos_trace::TaskInfo) {}
+        fn task_new_stackless(_: u32, _: &'static str, _: u32) {}
+        fn task_terminate(_: u32) {}
+        fn task_exec_begin(_: u32) {}
+        fn task_exec_end() {}
+        fn task_ready_begin(_: u32) {}
+        fn task_ready_end(_: u32) {}
+        fn system_idle() {}
+        fn isr_enter() {}
+        fn isr_exit() {}
+        fn isr_exit_to_scheduler() {}
+        fn name_marker(_: u32, _: &'static str) {}
+        fn marker(_: u32) {}
+        fn marker_begin(_: u32) {}
+        fn marker_end(_: u32) {}
+    }
+
+    rtos_trace::global_trace! { NoopTrace }
+
+    #[test]
+    fn adding_tracked_task_again_does_not_corrupt_list() {
+        static TASK_A: TaskStorage<Ready<()>> = TaskStorage::new();
+        static TASK_B: TaskStorage<Ready<()>> = TaskStorage::new();
+
+        let tracker = TaskTracker::new();
+        let task_a = TaskRef::new(&TASK_A);
+        let task_b = TaskRef::new(&TASK_B);
+
+        tracker.add(task_a);
+        tracker.add(task_b);
+        tracker.add(task_a);
+
+        let head = tracker.head.load(Ordering::Acquire);
+        let a_next = unsafe { (*task_a.as_ptr()).all_tasks_next.load(Ordering::Acquire) };
+        let b_next = unsafe { (*task_b.as_ptr()).all_tasks_next.load(Ordering::Acquire) };
+
+        assert_eq!(head, task_b.as_ptr().cast_mut());
+        assert_eq!(b_next, task_a.as_ptr().cast_mut());
+        assert!(a_next.is_null());
+    }
+}

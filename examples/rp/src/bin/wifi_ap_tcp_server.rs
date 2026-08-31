@@ -12,8 +12,9 @@ use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::tcp::TcpSocket;
-use embassy_net::{Config, StackResources};
+use embassy_net::StackStorage;
+use embassy_net::tcp::{TcpListener, TcpSocket};
+use embassy_net::wire::{IpCidr, Ipv4Address};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
@@ -37,7 +38,7 @@ async fn cyw43_task(
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, cyw43::NetDriver<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -85,18 +86,18 @@ async fn main(spawner: Spawner) {
         .await;
 
     // Use a link-local address for communication without DHCP server
-    let config = Config::ipv4_static(embassy_net::StaticConfigV4 {
-        address: embassy_net::Ipv4Cidr::new(embassy_net::Ipv4Address::new(169, 254, 1, 1), 16),
-        dns_servers: heapless::Vec::new(),
-        gateway: None,
-    });
-
     // Generate random seed
     let seed = rng.next_u64();
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(net_device, config, RESOURCES.init(StackResources::new()), seed);
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)));
+    // Static address, we're the access point.
+    unwrap!(iface.add_ip_addr(IpCidr::new(Ipv4Address::new(169, 254, 1, 1).into(), 16)));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -111,13 +112,22 @@ async fn main(spawner: Spawner) {
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
 
-    loop {
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
-        socket.set_timeout(Some(Duration::from_secs(10)));
+    let mut listener = unwrap!(TcpListener::new(stack));
+    unwrap!(listener.listen(1234));
 
+    loop {
         control.gpio_set(0, false).await;
         info!("Listening on TCP:1234...");
-        if let Err(e) = socket.accept(1234).await {
+        let token = match listener.accept().await {
+            Ok(token) => token,
+            Err(e) => {
+                warn!("accept error: {:?}", e);
+                continue;
+            }
+        };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
+        socket.set_timeout(Some(Duration::from_secs(10)));
+        if let Err(e) = socket.accept(token).await {
             warn!("accept error: {:?}", e);
             continue;
         }

@@ -1,10 +1,11 @@
 use core::sync::atomic::{Ordering, fence};
 
-#[cfg(feature = "ptp")]
-use embassy_net_driver::{PacketMeta, Timestamp};
 use vcell::VolatileCell;
+use xarxa_driver::PacketBuf;
+#[cfg(feature = "ptp")]
+use xarxa_driver::Timestamp;
+use xarxa_driver::config::PACKET_BUF_SIZE;
 
-use crate::eth::{Packet, RX_BUFFER_SIZE, TX_BUFFER_SIZE};
 #[cfg(eth_v2)]
 use crate::pac::ETH;
 #[cfg(any(eth_v2a, eth_v2b))]
@@ -94,38 +95,40 @@ impl TDes {
     }
 
     #[cfg(feature = "ptp")]
-    fn timestamp(&self) -> Option<embassy_net_driver::Timestamp> {
+    fn timestamp(&self) -> Option<xarxa_driver::Timestamp> {
         (self.tdes3.get() & EMAC_TDES3_TTSS != 0)
-            .then(|| embassy_net_driver::Timestamp::from_seconds_and_nanos(self.tdes1.get(), self.tdes0.get()))
+            .then(|| xarxa_driver::Timestamp::from_seconds_and_nanos(self.tdes1.get(), self.tdes0.get()))
     }
 }
 
+/// What reclaiming a completed transmit descriptor yields: its timestamp with PTP,
+/// nothing without.
+#[cfg(feature = "ptp")]
+type Completion = Option<Timestamp>;
+#[cfg(not(feature = "ptp"))]
+type Completion = ();
+
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
-    buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-    #[cfg(feature = "ptp")]
-    ids: &'a mut [u32],
+    /// The buffer of each frame in flight, held until the DMA is done with it.
+    buffers: &'a mut [Option<PacketBuf>],
+    /// Next descriptor to submit.
     index: usize,
-    #[cfg(feature = "ptp")]
+    /// Submitted descriptors not yet reclaimed.
     in_flight: usize,
-    #[cfg(feature = "ptp")]
-    enable_timestamp: bool,
 }
 
 impl<'a> TDesRing<'a> {
     /// Initialise this TDesRing. Assume TDesRing is corrupt.
-    pub fn new(
-        descriptors: &'a mut [TDes],
-        buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-        #[cfg(feature = "ptp")] ids: &'a mut [u32],
-    ) -> Self {
+    pub fn new(descriptors: &'a mut [TDes], buffers: &'a mut [Option<PacketBuf>]) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
-        #[cfg(feature = "ptp")]
-        assert!(ids.len() == descriptors.len());
 
         for td in descriptors.iter_mut() {
             *td = TDes::new();
+        }
+        for buf in buffers.iter_mut() {
+            *buf = None;
         }
 
         // Initialize the pointers in the DMA engine. (There will be a memory barrier later
@@ -138,13 +141,8 @@ impl<'a> TDesRing<'a> {
         Self {
             descriptors,
             buffers,
-            #[cfg(feature = "ptp")]
-            ids,
             index: 0,
-            #[cfg(feature = "ptp")]
             in_flight: 0,
-            #[cfg(feature = "ptp")]
-            enable_timestamp: false,
         }
     }
 
@@ -152,104 +150,100 @@ impl<'a> TDesRing<'a> {
         self.descriptors.len()
     }
 
-    #[cfg(feature = "ptp")]
-    pub(crate) const fn completion_index(&self) -> usize {
+    /// The oldest submitted descriptor not yet reclaimed.
+    const fn completion_index(&self) -> usize {
         (self.index + self.len() - self.in_flight) % self.len()
     }
 
-    /// Return the next available packet buffer for transmitting, or None
-    pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
-        #[cfg(feature = "ptp")]
-        // If every descriptor is already submitted but not yet polled,
-        // the slot at `index` has not been polled and must not be reused.
-        if self.in_flight == self.len() {
+    /// Reclaim the oldest completed descriptor: free its buffer and return its
+    /// transmit timestamp, if any. `None` if nothing completed.
+    fn reclaim_one(&mut self) -> Option<Completion> {
+        if self.in_flight == 0 {
+            return None;
+        }
+        let completion_index = self.completion_index();
+        let descriptor = &self.descriptors[completion_index];
+        if !descriptor.available() {
             return None;
         }
 
-        let d = &mut self.descriptors[self.index];
-        if d.available() {
-            Some(&mut self.buffers[self.index].0)
-        } else {
-            None
+        #[cfg(feature = "ptp")]
+        let timestamp = descriptor.timestamp();
+        #[cfg(not(feature = "ptp"))]
+        let timestamp = ();
+
+        // Dropping the buffer frees it.
+        self.buffers[completion_index] = None;
+        self.in_flight -= 1;
+        Some(timestamp)
+    }
+
+    /// Whether the next `transmit` will be accepted.
+    pub(crate) fn can_transmit(&mut self) -> bool {
+        // Without PTP nothing else reclaims completed descriptors, so do it here.
+        // With PTP, `poll_timestamp` reclaims them so their timestamps are reported.
+        #[cfg(not(feature = "ptp"))]
+        while self.reclaim_one().is_some() {}
+
+        // If every descriptor is already submitted but not yet reclaimed,
+        // the slot at `index` must not be reused.
+        if self.in_flight == self.len() {
+            return false;
         }
+
+        self.descriptors[self.index].available()
     }
 
     #[cfg(feature = "ptp")]
-    pub(crate) fn poll_timestamp(&mut self) -> Option<embassy_net_driver::TxTimestamp> {
+    pub(crate) fn poll_timestamp(&mut self) -> Option<xarxa_driver::TxTimestamp> {
         loop {
             let completion_index = self.completion_index();
-            let descriptor = &self.descriptors[completion_index];
+            let packet_id = self.buffers[completion_index].as_ref().map(|b| b.meta().id);
+            let timestamp = self.reclaim_one()?;
 
-            if self.in_flight == 0 || !descriptor.available() {
-                break None;
-            }
-
-            let timestamp = descriptor.timestamp();
-            let packet_id = self.ids[completion_index];
-
-            if packet_id != 0 && timestamp.is_some() {
-                trace!(
-                    "eth ptp tx complete idx={} packet_id={} tdes3={:#010x} tdes1={} tdes0={}",
-                    completion_index,
-                    packet_id,
-                    descriptor.tdes3.get(),
-                    descriptor.tdes1.get(),
-                    descriptor.tdes0.get()
-                );
-            } else if packet_id != 0 {
-                trace!(
-                    "eth ptp tx complete no-ts idx={} packet_id={} tdes3={:#010x} tdes2={:#010x}",
-                    completion_index,
-                    packet_id,
-                    descriptor.tdes3.get(),
-                    descriptor.tdes2.get()
-                );
-            }
-
-            self.in_flight -= 1;
-            self.ids[completion_index] = 0;
-
-            if let Some(timestamp) = timestamp {
-                break Some(embassy_net_driver::TxTimestamp {
-                    id: packet_id,
-                    timestamp: timestamp,
-                });
+            if let Some(timestamp) = timestamp
+                && let Some(id) = packet_id
+            {
+                trace!("eth ptp tx complete idx={} packet_id={}", completion_index, id);
+                break Some(xarxa_driver::TxTimestamp { id, timestamp });
             }
         }
     }
 
-    #[cfg(feature = "ptp")]
-    pub(crate) fn set_meta(&mut self, meta: PacketMeta) {
-        self.enable_timestamp = meta.request_timestamp;
-        self.ids[self.index] = meta.id;
-    }
-
-    /// Transmit the packet written in a buffer returned by `available`.
-    pub(crate) fn transmit(&mut self, len: usize) {
+    /// Transmit a frame. `can_transmit` must have returned `true`.
+    pub(crate) fn transmit(&mut self, buf: PacketBuf) {
+        debug_assert!(self.in_flight < self.len());
         let td = &mut self.descriptors[self.index];
         debug_assert!(td.available());
+        let len = buf.len();
         assert!(len as u32 <= EMAC_TDES2_B1L);
 
         // Read format
-        td.tdes0.set(self.buffers[self.index].0.as_ptr() as u32);
+        td.tdes0.set(buf.as_ptr() as u32);
         let mut tdes2 = len as u32 & EMAC_TDES2_B1L;
         tdes2 |= EMAC_TDES2_IOC;
         #[cfg(feature = "ptp")]
-        if self.enable_timestamp {
+        if buf.meta().request_timestamp {
             tdes2 |= EMAC_TDES2_TTSE;
             trace!(
                 "eth ptp tx submit idx={} packet_id={} len={} tdes2={:#010x}",
-                self.index, self.ids[self.index], len, tdes2
+                self.index,
+                buf.meta().id,
+                len,
+                tdes2
             );
         }
         td.tdes2.set(tdes2);
 
+        // The DMA reads the frame from the buffer, so it must stay alive until
+        // the descriptor is reclaimed.
+        self.buffers[self.index] = Some(buf);
+
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
         // Give the DMA engine ownership
+        // No checksum insertion: the stack computes checksums in software.
         let tdes3 = EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_OWN;
-        // CIC_FULL: let the MAC compute and insert the IP/TCP/UDP checksums.
-        let tdes3 = tdes3 | EMAC_TDES3_CIC_FULL;
         td.tdes3.set(tdes3);
 
         // Ensure changes to the descriptor are committed before DMA engine sees tail pointer store.
@@ -261,12 +255,7 @@ impl<'a> TDesRing<'a> {
         // See issue #2129
         dma_ch0!(ETH.ethernet_dma(), dmac_tx_dtpr).write(|w| w.0 = &td as *const _ as u32);
 
-        // Invalidate state
-        #[cfg(feature = "ptp")]
-        {
-            self.enable_timestamp = false;
-            self.in_flight += 1;
-        }
+        self.in_flight += 1;
 
         // Increment index.
         self.index = (self.index + 1) % self.descriptors.len();
@@ -372,20 +361,26 @@ impl RDes {
 /// Rx ring of descriptors and packets
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
-    buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
+    /// One buffer per descriptor, DMA'd into in place. Always `Some` outside of
+    /// `receive`.
+    buffers: &'a mut [Option<PacketBuf>],
     index: usize,
-    #[cfg(feature = "ptp")]
-    timestamp: Option<Timestamp>,
 }
 
 impl<'a> RDesRing<'a> {
-    pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Packet<RX_BUFFER_SIZE>]) -> Self {
+    pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Option<PacketBuf>]) -> Self {
         assert!(descriptors.len() > 1);
         assert!(descriptors.len() == buffers.len());
 
         for (i, desc) in descriptors.iter_mut().enumerate() {
             *desc = RDes::new();
-            desc.set_ready(buffers[i].0.as_mut_ptr());
+            let buf = buffers[i].get_or_insert_with(|| {
+                unwrap!(
+                    PacketBuf::try_new(),
+                    "packet pool exhausted while filling the ethernet RX ring"
+                )
+            });
+            desc.set_ready(buf.storage_mut().as_mut_ptr());
         }
 
         let dma = ETH.ethernet_dma();
@@ -397,8 +392,6 @@ impl<'a> RDesRing<'a> {
             descriptors,
             buffers,
             index: 0,
-            #[cfg(feature = "ptp")]
-            timestamp: None,
         }
     }
 
@@ -426,8 +419,12 @@ impl<'a> RDesRing<'a> {
         }
     }
 
-    /// Get a received packet if any, or None.
-    pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
+    /// Take a received packet, if any.
+    ///
+    /// The buffer the frame was DMA'd into is handed out, and the descriptor is
+    /// re-armed with a fresh one from the pool. If the pool is empty, the frame
+    /// is dropped and the descriptor keeps its buffer.
+    pub(crate) fn receive(&mut self) -> Option<PacketBuf> {
         // Not sure if the contents of the write buffer on the M7 can affects reads, so we are using
         // a DMB here just in case, it also serves as a hint to the compiler that we're syncing the
         // buffer (I think .-.)
@@ -436,11 +433,37 @@ impl<'a> RDesRing<'a> {
         let info = self.fast_forward()?;
 
         #[cfg(feature = "ptp")]
-        if self.timestamp.is_none() {
-            self.timestamp = Some(self.timestamp(&info)?);
+        let timestamp = self.timestamp(&info)?;
+
+        let len = info.len() as usize;
+        if len > PACKET_BUF_SIZE {
+            debug!("oversized packet: {}", len);
+            self.pop_current();
+            return None;
         }
 
-        return Some(&mut self.buffers[self.index].0[..info.len() as usize]);
+        let Some(fresh) = PacketBuf::try_new() else {
+            warn!("packet pool exhausted, dropping received frame");
+            self.pop_current();
+            return None;
+        };
+
+        let mut buf = unwrap!(self.buffers[self.index].take());
+        buf.set_len(len);
+        #[cfg(feature = "ptp")]
+        {
+            buf.meta_mut().timestamp = match timestamp {
+                Timestamp {
+                    seconds: 0,
+                    quarter_nanos: 0,
+                } => None,
+                timestamp => Some(timestamp),
+            };
+        }
+
+        self.buffers[self.index] = Some(fresh);
+        self.pop_current();
+        Some(buf)
     }
 
     #[cfg(feature = "ptp")]
@@ -468,32 +491,13 @@ impl<'a> RDesRing<'a> {
         }
     }
 
-    #[cfg(feature = "ptp")]
-    pub(crate) fn meta(&self) -> PacketMeta {
-        let mut meta = PacketMeta::default();
-
-        meta.timestamp = match self.timestamp {
-            None
-            | Some(Timestamp {
-                seconds: 0,
-                quarter_nanos: 0,
-            }) => None,
-            Some(timestamp) => Some(timestamp),
-        };
-        meta
-    }
-
-    /// Pop the packet previously returned by `available`.
-    pub(crate) fn pop_packet(&mut self) {
-        self.pop_current();
-        self.fast_forward();
-    }
-
+    /// Give the current descriptor back to the DMA with the buffer in its slot.
     fn pop_current(&mut self) {
         let rd = &mut self.descriptors[self.index];
         debug_assert!(rd.info().available());
 
-        rd.set_ready(self.buffers[self.index].0.as_mut_ptr());
+        let ptr = unwrap!(self.buffers[self.index].as_mut()).storage_mut().as_mut_ptr();
+        rd.set_ready(ptr);
 
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::Release);
@@ -501,10 +505,6 @@ impl<'a> RDesRing<'a> {
         // signal DMA it can try again.
         // See issue #2129
         dma_ch0!(ETH.ethernet_dma(), dmac_rx_dtpr).write(|w| w.0 = &rd as *const _ as u32);
-
-        // Invalidate state
-        #[cfg(feature = "ptp")]
-        self.timestamp.take();
 
         // Increment index.
         self.index = (self.index + 1) % self.descriptors.len();

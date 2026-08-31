@@ -1,11 +1,12 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
-#[cfg(feature = "ptp")]
-use embassy_net_driver::{PacketMeta, Timestamp};
 use stm32_metapac::eth::vals::{Rpd, Rps};
 use vcell::VolatileCell;
+use xarxa_driver::PacketBuf;
+#[cfg(feature = "ptp")]
+use xarxa_driver::Timestamp;
+use xarxa_driver::config::PACKET_BUF_SIZE;
 
-use crate::eth::RX_BUFFER_SIZE;
 use crate::pac::ETH;
 
 mod rx_consts {
@@ -46,8 +47,6 @@ mod rx_consts {
 }
 
 use rx_consts::*;
-
-use super::Packet;
 
 /// Enhanced Receive Descriptor representation (8 words, 32 bytes)
 ///
@@ -184,7 +183,7 @@ impl RDes {
     #[inline(always)]
     fn set_ready(&self, buf: *mut u8) {
         self.rdes1
-            .set(self.rdes1.get() | (RX_BUFFER_SIZE as u32) & RXDESC_1_RBS1_MASK);
+            .set(self.rdes1.get() | (PACKET_BUF_SIZE as u32) & RXDESC_1_RBS1_MASK);
         self.rdes2.set(buf as u32);
 
         // "Preceding reads and writes cannot be moved past subsequent writes."
@@ -246,17 +245,25 @@ pub enum RunningState {
 /// Rx ring of descriptors and packets
 pub(crate) struct RDesRing<'a> {
     descriptors: &'a mut [RDes],
-    buffers: &'a mut [Packet<RX_BUFFER_SIZE>],
+    /// One buffer per descriptor, DMA'd into in place. Always `Some` outside of
+    /// `receive`.
+    buffers: &'a mut [Option<PacketBuf>],
     index: usize,
 }
 
 impl<'a> RDesRing<'a> {
-    pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Packet<RX_BUFFER_SIZE>]) -> Self {
+    pub(crate) fn new(descriptors: &'a mut [RDes], buffers: &'a mut [Option<PacketBuf>]) -> Self {
         assert!(descriptors.len() > 1);
         assert!(descriptors.len() == buffers.len());
 
         for (i, entry) in descriptors.iter().enumerate() {
-            entry.setup(descriptors.get(i + 1), buffers[i].0.as_mut_ptr());
+            let buf = buffers[i].get_or_insert_with(|| {
+                unwrap!(
+                    PacketBuf::try_new(),
+                    "packet pool exhausted while filling the ethernet RX ring"
+                )
+            });
+            entry.setup(descriptors.get(i + 1), buf.storage_mut().as_mut_ptr());
         }
 
         // Register rx descriptor start
@@ -295,8 +302,12 @@ impl<'a> RDesRing<'a> {
         }
     }
 
-    /// Get a received packet if any, or None.
-    pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
+    /// Take a received packet, if any.
+    ///
+    /// The buffer the frame was DMA'd into is handed out, and the descriptor is
+    /// re-armed with a fresh one from the pool. If the pool is empty, the frame
+    /// is dropped and the descriptor keeps its buffer.
+    pub(crate) fn receive(&mut self) -> Option<PacketBuf> {
         if self.running_state() != RunningState::Running {
             self.demand_poll();
         }
@@ -316,7 +327,7 @@ impl<'a> RDesRing<'a> {
             // If packet is invalid, pop it and try again.
             if !info.valid() {
                 debug!("invalid packet: {:08x}", info.rdes0);
-                self.pop_packet();
+                self.pop_current();
                 continue;
             }
 
@@ -324,24 +335,44 @@ impl<'a> RDesRing<'a> {
         };
 
         let len = info.packet_len();
+        // See `Ethernet::new`: this MAC can't strip the FCS itself, so the reported
+        // length includes it.
+        #[cfg(eth_v1a)]
+        let len = len.saturating_sub(4);
+        if len > PACKET_BUF_SIZE {
+            debug!("oversized packet: {}", len);
+            self.pop_current();
+            return None;
+        }
 
-        return Some(&mut self.buffers[self.index].0[..len]);
+        let Some(mut fresh) = PacketBuf::try_new() else {
+            warn!("packet pool exhausted, dropping received frame");
+            self.pop_current();
+            return None;
+        };
+
+        let mut buf = unwrap!(self.buffers[self.index].take());
+        buf.set_len(len);
+        #[cfg(feature = "ptp")]
+        {
+            buf.meta_mut().timestamp = self.descriptors[self.index].timestamp();
+        }
+
+        self.descriptors[self.index].set_ready(fresh.storage_mut().as_mut_ptr());
+        self.buffers[self.index] = Some(fresh);
+        self.demand_poll();
+        self.index = (self.index + 1) % self.descriptors.len();
+
+        Some(buf)
     }
 
-    #[cfg(feature = "ptp")]
-    pub(crate) fn meta(&self) -> PacketMeta {
-        let mut meta = PacketMeta::default();
-
-        meta.timestamp = self.descriptors[self.index].timestamp();
-        meta
-    }
-
-    /// Pop the packet previously returned by `available`.
-    pub(crate) fn pop_packet(&mut self) {
+    /// Give the current descriptor back to the DMA, keeping its buffer.
+    fn pop_current(&mut self) {
         let descriptor = &mut self.descriptors[self.index];
         debug_assert!(descriptor.info().available());
 
-        self.descriptors[self.index].set_ready(self.buffers[self.index].0.as_mut_ptr());
+        let ptr = unwrap!(self.buffers[self.index].as_mut()).storage_mut().as_mut_ptr();
+        self.descriptors[self.index].set_ready(ptr);
 
         self.demand_poll();
 

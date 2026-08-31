@@ -395,7 +395,7 @@ impl Channel for AnyChannel {}
 /// Macro to implement Channel trait for a peripheral.
 macro_rules! impl_dma_channel {
     ($peri:ident, $dma:expr, $channel:expr, $irq:ident) => {
-        impl crate::dma::sealed::SealedChannel for crate::peripherals::$peri {
+        impl $crate::dma::sealed::SealedChannel for $crate::peripherals::$peri {
             fn dma(&self) -> usize {
                 $dma
             }
@@ -408,11 +408,11 @@ macro_rules! impl_dma_channel {
                 nxp_pac::Interrupt::$irq
             }
         }
-        impl crate::dma::Channel for crate::peripherals::$peri {}
+        impl $crate::dma::Channel for $crate::peripherals::$peri {}
 
-        impl From<crate::peripherals::$peri> for crate::dma::AnyChannel {
-            fn from(_: crate::peripherals::$peri) -> Self {
-                crate::dma::AnyChannel {
+        impl From<$crate::peripherals::$peri> for $crate::dma::AnyChannel {
+            fn from(_: $crate::peripherals::$peri) -> Self {
+                $crate::dma::AnyChannel {
                     dma: $dma,
                     channel: $channel,
                     interrupt: nxp_pac::Interrupt::$irq,
@@ -813,7 +813,7 @@ impl DmaChannel<'_> {
     /// Requires that the source/destination buffers remain valid for the duration
     /// of the transfer.
     unsafe fn setup_transfers<WSRC: Word, WDST: Word>(&self, params: DmaTransferParameters<WSRC, WDST>) {
-        let byte_count = (params.dst_count as usize * WDST::size().bytes()) as u32;
+        let byte_count = (params.dst_count * WDST::size().bytes()) as u32;
 
         let t = self.tcd();
         self.prepare_regular_transfer();
@@ -1344,7 +1344,7 @@ impl DmaChannel<'_> {
     /// * `buf` - Source buffer to write from
     /// * `peri_addr` - Peripheral register address
     /// * `software` - Use software start for the transfer; otherwise use hardware ERQ to drive the transfer.
-    ///                Should be `false` unless your peripheral does not support hardware ERQ.
+    ///   Should be `false` unless your peripheral does not support hardware ERQ.
     /// * `enable_interrupt` - Whether to enable interrupt on completion
     ///
     /// # Safety
@@ -1395,7 +1395,7 @@ impl DmaChannel<'_> {
     /// * `peri_addr` - Peripheral register address
     /// * `buf` - Destination buffer to read into
     /// * `software` - Use software start for the transfer; otherwise use hardware ERQ to drive the transfer.
-    ///                Should be `false` unless your peripheral does not support hardware ERQ.
+    ///   Should be `false` unless your peripheral does not support hardware ERQ.
     /// * `enable_interrupt` - Whether to enable interrupt on completion
     ///
     /// # Safety
@@ -2686,10 +2686,10 @@ macro_rules! impl_dma_interrupt_handler {
             // SAFETY: The correct $ch is called as generated, We check that
             // the given callback is non-null before calling.
             unsafe {
-                crate::dma::on_interrupt($dma, $ch);
+                $crate::dma::on_interrupt($dma, $ch);
 
                 // See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
-                let cb: *mut () = crate::dma::CALLBACKS[$dma][$ch].load(core::sync::atomic::Ordering::Acquire);
+                let cb: *mut () = $crate::dma::CALLBACKS[$dma][$ch].load(core::sync::atomic::Ordering::Acquire);
                 if !cb.is_null() {
                     let cb: fn() = core::mem::transmute(cb);
                     (cb)();

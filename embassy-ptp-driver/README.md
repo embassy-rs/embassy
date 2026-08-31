@@ -5,7 +5,7 @@ hardware clocks. Hardware implementations and clock-synchronization engines can
 depend on this crate without depending on each other or on `embassy-net`.
 
 Packet timestamp transport and its timestamp type remain independently owned by
-`embassy-net-driver`. An integration crate may convert between timestamps when
+`xarxa-driver`. An integration crate may convert between timestamps when
 the packet timestamp source and adjustable clock are the same hardware time
 domain.
 

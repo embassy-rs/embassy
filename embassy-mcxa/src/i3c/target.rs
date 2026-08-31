@@ -477,7 +477,7 @@ impl<'d> I3c<'d> {
             // if (matchCount == 0) matchCount = 1;`. We were one tick high which
             // shifts the bus-available detect window.
             let mhz = self.freq / 1_000_000;
-            let bamatch = mhz.saturating_sub(1).max(1).min(63) as u8;
+            let bamatch = mhz.saturating_sub(1).clamp(1, 63) as u8;
             w.set_bamatch(bamatch);
         });
 

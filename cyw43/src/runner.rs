@@ -4,7 +4,7 @@ use core::sync::atomic::Ordering::Relaxed;
 use aligned::{A4, Aligned};
 use embassy_futures::select::{Either4, select4};
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::LinkState;
+use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
 use embassy_time::Duration;
 use sdio::sdio::{CCCR_INT_ENABLE, CCCR_IO_ENABLE, CCCR_IO_READY};
 
@@ -18,7 +18,7 @@ use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
 use crate::util::try_until;
-use crate::{Chip, ChipId, Core, MTU, WithContext, events};
+use crate::{Chip, ChipId, Core, WithContext, events};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -117,7 +117,7 @@ async fn wlan_write(bus: &mut impl Bus, buf: &mut Aligned<A4, [u8]>, len: usize)
 
 /// Driver communicating with the WiFi chip.
 pub struct Runner<'a, BUS: Bus, CHIP: Chip> {
-    ch: ch::Runner<'a, MTU>,
+    ch: ch::Runner<'a>,
     bus: BUS,
     chip: CHIP,
 
@@ -142,7 +142,7 @@ pub struct Runner<'a, BUS: Bus, CHIP: Chip> {
 
 impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
     pub(crate) fn new(
-        ch: ch::Runner<'a, MTU>,
+        ch: ch::Runner<'a>,
         bus: BUS,
         chip: CHIP,
         ioctl_state: &'a IoctlState,
@@ -754,7 +754,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
             if self.has_credit() {
                 let ioctl = self.ioctl_state.wait_pending();
-                let wifi_tx = self.ch.tx_buf();
+                let wifi_tx = self.ch.tx();
                 #[cfg(feature = "bluetooth")]
                 let bt_tx = async {
                     match &mut self.bt {
@@ -836,7 +836,7 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
                         let _ = wlan_write(&mut self.bus, &mut buf, total_len).await;
-                        packet.tx_done();
+                        drop(packet);
                         self.check_status(&mut buf).await;
                     }
                     Either4::Third(_) => {
@@ -1221,12 +1221,15 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 };
                 trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
-                match self.ch.try_rx_buf() {
+                match PacketBuf::try_new() {
                     Some(mut buf) => {
-                        buf[..packet.len()].copy_from_slice(packet);
-                        buf.rx_done(packet.len())
+                        buf.set_len(packet.len());
+                        buf.copy_from_slice(packet);
+                        if self.ch.try_rx(buf).is_err() {
+                            warn!("failed to push rxd packet to the channel.");
+                        }
                     }
-                    None => warn!("failed to push rxd packet to the channel."),
+                    None => warn!("packet pool empty, dropping rxd packet."),
                 }
             }
             _ => {}

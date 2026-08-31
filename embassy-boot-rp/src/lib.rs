@@ -6,7 +6,7 @@ mod fmt;
 
 pub use embassy_boot::{
     AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
-    FirmwareUpdater, FirmwareUpdaterConfig, State,
+    FirmwareUpdater, FirmwareUpdaterConfig, FirmwareUpdaterError, State,
 };
 use embassy_rp::Peri;
 use embassy_rp::flash::{Blocking, ERASE_SIZE, Flash};

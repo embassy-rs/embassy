@@ -546,20 +546,20 @@ pub trait ValidMatchConfig: SealedValidMatchConfig {}
 #[macro_export]
 macro_rules! impl_ctimer_match {
     ($peri:ident, $ch:ident, $pin:ident) => {
-        impl crate::ctimer::pwm::SealedValidMatchConfig
+        impl $crate::ctimer::pwm::SealedValidMatchConfig
             for (
-                crate::peripherals::$peri,
-                crate::peripherals::$ch,
-                crate::peripherals::$pin,
+                $crate::peripherals::$peri,
+                $crate::peripherals::$ch,
+                $crate::peripherals::$pin,
             )
         {
         }
 
-        impl crate::ctimer::pwm::ValidMatchConfig
+        impl $crate::ctimer::pwm::ValidMatchConfig
             for (
-                crate::peripherals::$peri,
-                crate::peripherals::$ch,
-                crate::peripherals::$pin,
+                $crate::peripherals::$peri,
+                $crate::peripherals::$ch,
+                $crate::peripherals::$pin,
             )
         {
         }

@@ -690,29 +690,42 @@ impl<'d> Channel<'d> {
                     }
                 };
 
+                // mem_len is element count; BNDT is in bytes.
+                let mem_len_bytes = mem_len * usize::from(mem_size.bytes()); // or peri_size, depending on dir
+                assert!(mem_len_bytes > 0 && mem_len_bytes <= MDMA_MAX_BLOCK * MDMA_MAX_BLOCK_COUNT);
+
                 // Find the best block size/count. This is essentially a factorisation problem
                 // So it's best to avoid large prime number transfer sizes.
-                let mut block_count = mem_len.div_ceil(MDMA_MAX_BLOCK);
-                let mut block_size = mem_len.div_ceil(block_count);
+                let mut block_count = mem_len_bytes.div_ceil(MDMA_MAX_BLOCK);
+                let mut block_size = mem_len_bytes.div_ceil(block_count);
 
                 loop {
                     // Everything matches up so we're good to go
-                    if block_count * block_size == mem_len {
+                    if block_count * block_size == mem_len_bytes {
                         break;
                     }
 
                     // Try a higher block count, lower block size
                     block_count += 1;
-                    block_size = mem_len.div_ceil(block_count);
+                    block_size = mem_len_bytes.div_ceil(block_count);
 
                     if block_count > MDMA_MAX_BLOCK_COUNT {
                         panic!("MDMA: max block count hit");
                     }
                 }
 
+                // MDMA requires BNDT (block_size) to be a multiple of TLEN+1 (buffer_size).
+                // Auto-decrease buffer_size until it divides cleanly into block_size.
+                let mut buffer_size = options.buffer_size as usize;
+                while block_size % buffer_size != 0 && buffer_size > 1 {
+                    buffer_size -= 1;
+                }
+                // Update the options so the TCR write uses the correct value
+
                 let (sinc, dinc) = match (incr_mem, dir) {
                     (Increment::None, _) => (Incmode::Fixed, Incmode::Fixed),
                     (Increment::Both, _) => (Incmode::Increment, Incmode::Increment),
+                    (Increment::Memory, Dir::MemoryToMemory) => (Incmode::Increment, Incmode::Fixed),
                     (_, Dir::MemoryToMemory) => (Incmode::Increment, Incmode::Increment),
                     (Increment::Peripheral, Dir::PeripheralToMemory) => (Incmode::Increment, Incmode::Fixed),
                     (Increment::Peripheral, Dir::MemoryToPeripheral) => (Incmode::Fixed, Incmode::Increment),
@@ -721,7 +734,7 @@ impl<'d> Channel<'d> {
                 };
 
                 ch.tcr().write(|w| {
-                    w.set_tlen((options.buffer_size - 1) as u8);
+                    w.set_tlen((buffer_size - 1) as u8);
                     match dir {
                         Dir::MemoryToPeripheral => {
                             w.set_sincos(mem_size.into());
@@ -1169,6 +1182,71 @@ impl<'d> Channel<'d> {
             Increment::None,
             W::size(),
             W::size(),
+            options,
+        );
+        self.start();
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
+
+    /// Create a memory DMA transfer (memory to memory) to a fixed destination address.
+    ///
+    /// This transfers data from a memory buffer (`buf`) to a fixed destination address (`dest_addr`).
+    ///
+    /// This is specifically required for peripherals like the DFSDM, which need
+    /// memory-to-memory DMA transfers to write data into their internal input registers
+    /// (e.g., `DATINR`), rather than standard memory-to-peripheral transfers.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the destination address is valid and that the
+    /// DMA transfer does not violate Rust's aliasing rules for the duration of the transfer.
+    pub unsafe fn write_mem2mem<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        buf: &'a [MW],
+        dest_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        self.write_mem2mem_raw(request, buf, dest_addr, options)
+    }
+
+    /// Create a memory DMA transfer (memory to memory) to a fixed destination address, using raw pointers.
+    ///
+    /// This is the raw pointer variant of [`write_mem2mem`](Self::write_mem2mem).
+    /// It transfers data from a raw source slice (`buf`) to a fixed destination address (`dest_addr`).
+    ///
+    /// This is specifically used for peripherals like the DFSDM, which require
+    /// memory-to-memory DMA to feed data into their internal registers.
+    ///
+    /// Note: The arguments are ordered logically as `(source, destination)` to avoid
+    /// the internal `peri_addr`/`mem_addr` ambiguity present in the underlying
+    /// `Dir::MemoryToMemory` hardware configuration.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the source and destination pointers are valid
+    /// and properly aligned for the duration of the transfer.
+    pub unsafe fn write_mem2mem_raw<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        buf: *const [MW],
+        dest_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        let mem_len = buf.len();
+
+        self.configure(
+            request,
+            Dir::MemoryToMemory,
+            buf as *const MW as *mut u32,
+            dest_addr as *mut u32,
+            mem_len,
+            Increment::Memory,
+            MW::size(),
+            PW::size(),
             options,
         );
         self.start();

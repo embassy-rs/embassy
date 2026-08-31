@@ -148,23 +148,23 @@ pub(in crate::flexcan) mod tx {
     #[repr(u8)]
     pub(in crate::flexcan) enum TxCode {
         /// TX: INACTIVE - Message buffer is not active.
-        TxInactive = 0b1000,
+        Inactive = 0b1000,
 
         /// TX: ABORT - Message buffer is aborted.
-        TxAbort = 0b1001,
+        Abort = 0b1001,
 
         /// TX: DATA - Message buffer is a TX data frame (either normal or RTR) ready to be transmitted.
-        TxReady = 0b1100,
+        Ready = 0b1100,
 
         /// TX: TANSWER - Message buffer is a Transmit Response frame from an incoming Remote Request frame.
-        TxTanswer = 0b1110,
+        Tanswer = 0b1110,
     }
 
     impl TxCode {
-        pub(in crate::flexcan) const INACTIVE: u8 = Self::TxInactive as u8;
-        pub(in crate::flexcan) const ABORT: u8 = Self::TxAbort as u8;
-        pub(in crate::flexcan) const READY: u8 = Self::TxReady as u8;
-        pub(in crate::flexcan) const TANSWER: u8 = Self::TxTanswer as u8;
+        pub(in crate::flexcan) const INACTIVE: u8 = Self::Inactive as u8;
+        pub(in crate::flexcan) const ABORT: u8 = Self::Abort as u8;
+        pub(in crate::flexcan) const READY: u8 = Self::Ready as u8;
+        pub(in crate::flexcan) const TANSWER: u8 = Self::Tanswer as u8;
     }
 
     /// Struct representing a TX message.
@@ -181,10 +181,10 @@ pub(in crate::flexcan) mod tx {
         const fn code(&self) -> Result<TxCode, MailboxError> {
             let code: u8 = self.inner.cs.code();
             match code {
-                TxCode::INACTIVE => Ok(TxCode::TxInactive),
-                TxCode::ABORT => Ok(TxCode::TxAbort),
-                TxCode::READY => Ok(TxCode::TxReady),
-                TxCode::TANSWER => Ok(TxCode::TxTanswer),
+                TxCode::INACTIVE => Ok(TxCode::Inactive),
+                TxCode::ABORT => Ok(TxCode::Abort),
+                TxCode::READY => Ok(TxCode::Ready),
+                TxCode::TANSWER => Ok(TxCode::Tanswer),
                 _ => Err(MailboxError::UnknownTxCode),
             }
         }
@@ -192,10 +192,10 @@ pub(in crate::flexcan) mod tx {
         /// Sets this message's `CODE` field.
         const fn set_code(&mut self, code: TxCode) {
             match code {
-                TxCode::TxInactive => self.inner.cs.set_code(TxCode::INACTIVE),
-                TxCode::TxAbort => self.inner.cs.set_code(TxCode::ABORT),
-                TxCode::TxReady => self.inner.cs.set_code(TxCode::READY),
-                TxCode::TxTanswer => self.inner.cs.set_code(TxCode::TANSWER),
+                TxCode::Inactive => self.inner.cs.set_code(TxCode::INACTIVE),
+                TxCode::Abort => self.inner.cs.set_code(TxCode::ABORT),
+                TxCode::Ready => self.inner.cs.set_code(TxCode::READY),
+                TxCode::Tanswer => self.inner.cs.set_code(TxCode::TANSWER),
             }
         }
     }
@@ -230,7 +230,7 @@ pub(in crate::flexcan) mod tx {
                 }
             }
 
-            message.set_code(TxCode::TxReady);
+            message.set_code(TxCode::Ready);
 
             message
         }
@@ -342,8 +342,8 @@ pub(in crate::flexcan) mod rx {
             // Read the FIFO words
             let mut words = [0u32; MAX_WORDS];
             let last_word_index = to_words(len); // The index of the last word for this specific `len`. The word at this index will contain ID_HIT.
-            for i in 0..=last_word_index {
-                words[i] = info.control.regs().erfifo_data(i).read();
+            for (i, word) in words.iter_mut().enumerate().take(last_word_index + 1) {
+                *word = info.control.regs().erfifo_data(i).read();
             }
 
             // At this point we've read all the FIFO data we need, so flag the FIFO to start re-filling.

@@ -44,3 +44,9 @@ impl<'d> Crc<'d> {
         PAC_CRC.dr().read()
     }
 }
+
+impl Drop for Crc<'_> {
+    fn drop(&mut self) {
+        rcc::disable::<CRC>();
+    }
+}

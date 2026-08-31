@@ -6,7 +6,7 @@ teleprobe_meta::timeout!(120);
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::StackResources;
+use embassy_net::StackStorage;
 use embassy_net_wiznet::chip::W5100S;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
@@ -37,7 +37,7 @@ async fn ethernet_task(
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -72,19 +72,20 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(
-        device,
-        embassy_net::Config::dhcpv4(Default::default()),
-        RESOURCES.init(StackResources::new()),
-        seed,
-    );
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
+    // Get an address over DHCP.
+    iface.set_dhcpv4(Some(Default::default()));
 
     // Launch network task
     spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
-        stack,
+        iface,
         perf_client::Expected {
             down_kbps: 500,
             up_kbps: 500,

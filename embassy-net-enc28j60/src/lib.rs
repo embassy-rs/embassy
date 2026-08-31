@@ -18,11 +18,11 @@ mod traits;
 
 use core::cmp;
 
-use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_time::Duration;
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::{Operation, SpiDevice};
 use traits::U16Ext;
+use xarxa_driver::{Capabilities, HardwareAddress, LinkState, NotSupported, PacketBuf};
 
 // Total buffer size (see section 3.2)
 const BUF_SZ: u16 = 8 * 1024;
@@ -627,48 +627,11 @@ pub enum Packet {
     Unicast,
 }
 
-static mut TX_BUF: [u8; MTU] = [0; MTU];
-static mut RX_BUF: [u8; MTU] = [0; MTU];
-
-impl<S, O> embassy_net_driver::Driver for Enc28j60<S, O>
+impl<S, O> xarxa_driver::Driver for Enc28j60<S, O>
 where
     S: SpiDevice,
     O: OutputPin,
 {
-    type RxToken<'a>
-        = RxToken<'a>
-    where
-        Self: 'a;
-
-    type TxToken<'a>
-        = TxToken<'a, S, O>
-    where
-        Self: 'a;
-
-    fn receive(&mut self, cx: &mut core::task::Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        let rx_buf = unsafe { &mut *core::ptr::addr_of_mut!(RX_BUF) };
-        let tx_buf = unsafe { &mut *core::ptr::addr_of_mut!(TX_BUF) };
-        if let Some(n) = self.receive(rx_buf) {
-            Some((RxToken { buf: &mut rx_buf[..n] }, TxToken { buf: tx_buf, eth: self }))
-        } else {
-            cx.waker().wake_by_ref();
-            None
-        }
-    }
-
-    fn transmit(&mut self, _cx: &mut core::task::Context) -> Option<Self::TxToken<'_>> {
-        let tx_buf = unsafe { &mut *core::ptr::addr_of_mut!(TX_BUF) };
-        Some(TxToken { buf: tx_buf, eth: self })
-    }
-
-    fn link_state(&mut self, cx: &mut core::task::Context) -> LinkState {
-        cx.waker().wake_by_ref();
-        match self.is_link_up() {
-            true => LinkState::Up,
-            false => LinkState::Down,
-        }
-    }
-
     fn capabilities(&self) -> Capabilities {
         let mut caps = Capabilities::default();
         caps.max_transmission_unit = MTU;
@@ -678,44 +641,35 @@ where
     fn hardware_address(&self) -> HardwareAddress {
         HardwareAddress::Ethernet(self.mac_addr)
     }
-}
 
-/// embassy-net RX token.
-pub struct RxToken<'a> {
-    buf: &'a mut [u8],
-}
-
-impl<'a> embassy_net_driver::RxToken for RxToken<'a> {
-    fn consume<R, F>(self, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        f(self.buf)
+    fn link_state(&mut self) -> LinkState {
+        match self.is_link_up() {
+            true => LinkState::Up,
+            false => LinkState::Down,
+        }
     }
-}
 
-/// embassy-net TX token.
-pub struct TxToken<'a, S, O>
-where
-    S: SpiDevice,
-    O: OutputPin,
-{
-    eth: &'a mut Enc28j60<S, O>,
-    buf: &'a mut [u8],
-}
+    fn register_waker(&mut self, waker: &core::task::Waker) -> Result<(), NotSupported> {
+        // The chip has no interrupt hooked up here, so the only way to notice anything
+        // happened is to poll it again right away.
+        waker.wake_by_ref();
+        Ok(())
+    }
 
-impl<'a, S, O> embassy_net_driver::TxToken for TxToken<'a, S, O>
-where
-    S: SpiDevice,
-    O: OutputPin,
-{
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        assert!(len <= self.buf.len());
-        let r = f(&mut self.buf[..len]);
-        self.eth.transmit(&self.buf[..len]);
-        r
+    fn receive(&mut self) -> Option<PacketBuf> {
+        let mut buf = PacketBuf::try_new()?;
+        buf.set_len(MTU.min(buf.capacity()));
+        let n = self.receive(&mut buf)?;
+        buf.set_len(n);
+        Some(buf)
+    }
+
+    fn can_transmit(&mut self) -> bool {
+        true
+    }
+
+    fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
+        Enc28j60::transmit(self, &buf);
+        Ok(())
     }
 }

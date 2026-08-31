@@ -19,9 +19,9 @@ pub use mco::*;
 #[cfg(dsihost)]
 pub(crate) mod dsi;
 
-#[cfg(crs)]
+#[cfg(all(crs, not(stm32c5)))]
 mod hsi48;
-#[cfg(crs)]
+#[cfg(all(crs, not(stm32c5)))]
 pub use hsi48::*;
 
 #[cfg_attr(any(stm32f0, stm32f1, stm32f3), path = "f013.rs")]
@@ -174,13 +174,6 @@ pub fn get_stop_mode(_cs: CriticalSection) -> Option<StopMode> {
 }
 
 #[cfg(feature = "low-power")]
-#[allow(dead_code)]
-pub(crate) unsafe fn reset_stop_refcount(_cs: CriticalSection) {
-    REFCOUNT_STOP2 = 0;
-    REFCOUNT_STOP1 = 0;
-}
-
-#[cfg(feature = "low-power")]
 fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
     match stop_mode {
         StopMode::Standby => {}
@@ -298,6 +291,14 @@ impl RccInfo {
 
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset_with_cs(&self, cs: CriticalSection) {
+        self.enable_and_reset_with_cs_inner(cs, false);
+    }
+
+    pub(crate) fn enable_and_reset_with_cs_no_refcount(&self, cs: CriticalSection) {
+        self.enable_and_reset_with_cs_inner(cs, true);
+    }
+
+    fn enable_and_reset_with_cs_inner(&self, cs: CriticalSection, no_refcount: bool) {
         if let Some(refcount_idx) = self.refcount_idx {
             let refcount_idx = refcount_idx as usize;
             let refcount = unsafe { &mut (*&raw mut crate::_generated::REFCOUNTS)[refcount_idx] };
@@ -327,11 +328,20 @@ impl RccInfo {
             }
         }
 
-        self.enable_with_cs(cs);
+        self.enable_with_cs_inner(cs, no_refcount);
+    }
+
+    pub(crate) fn enable_with_cs(&self, cs: CriticalSection) {
+        self.enable_with_cs_inner(cs, false);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn enable_with_cs_no_refcount(&self, cs: CriticalSection) {
+        self.enable_with_cs_inner(cs, true);
     }
 
     // TODO: should this be `unsafe`?
-    pub(crate) fn enable_with_cs(&self, cs: CriticalSection) {
+    fn enable_with_cs_inner(&self, cs: CriticalSection, no_refcount: bool) {
         // set the xxxEN bit
         let already_enabled = unsafe {
             let val = self.enable_ptr().read_volatile();
@@ -360,7 +370,7 @@ impl RccInfo {
             }
         }
 
-        if !already_enabled {
+        if !already_enabled && !no_refcount {
             self.increment_minimum_stop_refcount_with_cs(cs);
         }
     }
@@ -553,6 +563,17 @@ pub fn frequency<T: RccPeripheral>() -> Hertz {
     T::frequency()
 }
 
+/// Enables and resets peripheral `T` without incrementing refcount.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+// TODO: should this be `unsafe`?
+#[allow(dead_code)]
+pub(crate) fn enable_and_reset_with_cs_no_refcount<T: RccPeripheral>(cs: CriticalSection) {
+    let _ = T::RCC_INFO.enable_and_reset_with_cs_no_refcount(cs);
+}
+
 /// Enables and resets peripheral `T`.
 ///
 /// # Safety
@@ -561,6 +582,16 @@ pub fn frequency<T: RccPeripheral>() -> Hertz {
 // TODO: should this be `unsafe`?
 pub fn enable_and_reset_with_cs<T: RccPeripheral>(cs: CriticalSection) {
     let _ = T::RCC_INFO.enable_and_reset_with_cs(cs);
+}
+
+/// Enables and clears the reset for peripheral `T` without incrementing refcount.
+///
+/// # Safety
+///
+/// The peripheral can be in use since this does not reset it
+#[allow(dead_code)]
+pub(crate) fn enable_with_cs_no_refcount<T: RccPeripheral>(cs: CriticalSection) {
+    T::RCC_INFO.enable_with_cs_no_refcount(cs);
 }
 
 /// Enables and clears the reset for peripheral `T`.

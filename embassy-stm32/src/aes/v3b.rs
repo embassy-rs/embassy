@@ -100,6 +100,26 @@ impl<'d, T: Instance> Aes<'d, T, Blocking> {
     }
 }
 
+impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Aes<'d, T, Blocking> {
+    type InternalState = Peri<'d, T>;
+
+    fn resume(state: Self::InternalState) -> Self {
+        critical_section::with(|cs| rcc::enable_and_reset_with_cs_no_refcount::<T>(cs));
+
+        rcc::enable_and_reset::<peripherals::AES>();
+        Self {
+            _peripheral: state,
+            _marker: PhantomData,
+            dma_in: None,
+            dma_out: None,
+        }
+    }
+
+    fn suspend(self) -> Self::InternalState {
+        unsafe { self._peripheral.clone_unchecked() }
+    }
+}
+
 impl<'d, T: Instance> Aes<'d, T, Async> {
     /// Instantiates, resets, and enables the AES peripheral with DMA support.
     pub fn new<D1: DmaIn<T>, D2: DmaOut<T>>(
@@ -139,9 +159,14 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
     /// Process authenticated additional data (AAD) for GCM/CCM modes.
     /// Must be called after `start` and before `payload_blocking`.
     /// Set `last` to true for the final AAD block.
-    pub fn aad_blocking<'c, C>(&mut self, ctx: &mut Context<'c, C>, aad: &[u8], last: bool) -> Result<(), Error>
+    pub fn aad_blocking<'c, C, const TAG_SIZE: usize>(
+        &mut self,
+        ctx: &mut Context<'c, C>,
+        aad: &[u8],
+        last: bool,
+    ) -> Result<(), Error>
     where
-        C: Cipher<'c> + CipherAuthenticated<16>,
+        C: Cipher<'c> + CipherAuthenticated<TAG_SIZE>,
     {
         common::op_aad(T::regs(), ctx, aad, last)
     }

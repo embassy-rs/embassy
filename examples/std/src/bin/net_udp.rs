@@ -1,9 +1,9 @@
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
-use embassy_net::udp::{PacketMetadata, UdpSocket};
-use embassy_net::{Config, Ipv4Address, Ipv4Cidr, StackResources};
+use embassy_net::StackStorage;
+use embassy_net::udp::UdpSocket;
+use embassy_net::wire::{IpCidr, Ipv4Address};
 use embassy_net_tuntap::TunTapDevice;
-use heapless::Vec;
 use log::*;
 use rand_core::{OsRng, TryRngCore};
 use static_cell::StaticCell;
@@ -20,7 +20,7 @@ struct Opts {
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, TunTapDevice>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -31,37 +31,39 @@ async fn main_task(spawner: Spawner) {
     // Init network device
     let device = TunTapDevice::new(&opts.tap).unwrap();
 
-    // Choose between dhcp or static ip
-    let config = if opts.static_ip {
-        Config::ipv4_static(embassy_net::StaticConfigV4 {
-            address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 69, 2), 24),
-            dns_servers: Vec::new(),
-            gateway: Some(Ipv4Address::new(192, 168, 69, 1)),
-        })
-    } else {
-        Config::dhcpv4(Default::default())
-    };
-
     // Generate random seed
     let mut seed = [0; 8];
     OsRng.try_fill_bytes(&mut seed).unwrap();
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the TAP interface to the stack.
+    static DEVICE: StaticCell<TunTapDevice> = StaticCell::new();
+    let iface = stack.add_iface(DEVICE.init(device)).unwrap();
+
+    // Choose between dhcp or static ip
+    if opts.static_ip {
+        iface
+            .add_ip_addr(IpCidr::new(Ipv4Address::new(192, 168, 69, 2).into(), 24))
+            .unwrap();
+        stack
+            .routes()
+            .add_default_ipv4_route(Ipv4Address::new(192, 168, 69, 1), iface.handle())
+            .unwrap();
+    } else {
+        iface.set_dhcpv4(Some(Default::default()));
+    }
 
     // Launch network task
     spawner.spawn(net_task(runner).unwrap());
 
     // Then we can use it!
-    let mut rx_meta = [PacketMetadata::EMPTY; 16];
-    let mut rx_buffer = [0; 4096];
-    let mut tx_meta = [PacketMetadata::EMPTY; 16];
-    let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
 
-    let mut socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
+    let mut socket = UdpSocket::new(stack).unwrap();
     socket.bind(9400).unwrap();
 
     loop {

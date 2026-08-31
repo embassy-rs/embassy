@@ -98,19 +98,19 @@ pub(crate) trait SealedInstance {
 macro_rules! impl_gpio_instance {
     ($n:expr) => {
         paste::paste! {
-            impl crate::gpio::SealedInstance for crate::peripherals::[<GPIO $n>] {
-                fn info() -> &'static crate::gpio::Info {
-                    static INFO: crate::gpio::Info =  crate::gpio::Info {
-                        gpio: crate::pac::[<GPIO $n>],
+            impl $crate::gpio::SealedInstance for $crate::peripherals::[<GPIO $n>] {
+                fn info() -> &'static $crate::gpio::Info {
+                    static INFO: $crate::gpio::Info =  $crate::gpio::Info {
+                        gpio: $crate::pac::[<GPIO $n>],
                         port_index: $n,
                     };
                     &INFO
                 }
-            const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_gpio $n _wake>];
+            const PERF_INT_INCR: fn() = $crate::perf_counters::[<incr_interrupt_gpio $n _wake>];
             }
 
-            impl crate::gpio::Instance for crate::peripherals::[<GPIO $n>] {
-                type Interrupt = crate::interrupt::typelevel::[<GPIO $n>];
+            impl $crate::gpio::Instance for $crate::peripherals::[<GPIO $n>] {
+                type Interrupt = $crate::interrupt::typelevel::[<GPIO $n>];
             }
         }
     };
@@ -432,7 +432,7 @@ impl GpioPin for AnyPin {}
 macro_rules! impl_gpio_pin {
     ($peri:ident, $port:expr, $pin:expr, $block:ident) => {
         ::paste::paste! {
-            impl crate::gpio::SealedPin for $crate::peripherals::$peri {
+            impl $crate::gpio::SealedPin for $crate::peripherals::$peri {
                 #[inline(always)]
                 fn port(&self) -> u8 {
                     $port
@@ -444,27 +444,27 @@ macro_rules! impl_gpio_pin {
                 }
 
                 #[inline(always)]
-                fn gpio(&self) -> crate::pac::gpio::Gpio {
-                    crate::pac::$block
+                fn gpio(&self) -> $crate::pac::gpio::Gpio {
+                    $crate::pac::$block
                 }
 
                 #[inline(always)]
-                fn port_reg(&self) -> crate::pac::port::Port {
-                    crate::pac::[<PORT $port>]
+                fn port_reg(&self) -> $crate::pac::port::Port {
+                    $crate::pac::[<PORT $port>]
                 }
 
                 #[inline(always)]
-                fn pcr_reg(&self) -> crate::pac::common::Reg<crate::pac::port::Pcr, crate::pac::common::RW> {
+                fn pcr_reg(&self) -> $crate::pac::common::Reg<$crate::pac::port::Pcr, $crate::pac::common::RW> {
                     self.port_reg().pcr($pin)
                 }
 
                 #[inline(always)]
-                fn set_function(&self, function: crate::pac::port::Mux) {
+                fn set_function(&self, function: $crate::pac::port::Mux) {
                     self.pcr_reg().modify(|w| w.set_mux(function));
                 }
 
                 #[inline(always)]
-                fn set_pull(&self, pull: crate::gpio::Pull) {
+                fn set_pull(&self, pull: $crate::gpio::Pull) {
                     let (pull_enable, pull_select) = pull.into();
                     self.pcr_reg().modify(|w| {
                         w.set_pe(pull_enable);
@@ -473,29 +473,29 @@ macro_rules! impl_gpio_pin {
                 }
 
                 #[inline(always)]
-                fn set_drive_strength(&self, strength: crate::pac::port::Dse) {
+                fn set_drive_strength(&self, strength: $crate::pac::port::Dse) {
                     self.pcr_reg().modify(|w| w.set_dse(strength));
                 }
 
                 #[inline(always)]
-                fn set_slew_rate(&self, slew_rate: crate::pac::port::Sre) {
+                fn set_slew_rate(&self, slew_rate: $crate::pac::port::Sre) {
                     self.pcr_reg().modify(|w| w.set_sre(slew_rate));
                 }
 
                 #[inline(always)]
                 fn set_enable_input_buffer(&self, buffer_enabled: bool) {
-                    use crate::pac::port::Ibe;
+                    use $crate::pac::port::Ibe;
                     self.pcr_reg().modify(|w| w.set_ibe(if buffer_enabled { Ibe::Ibe1 } else { Ibe::Ibe0 }));
                 }
 
                 #[inline(always)]
                 fn set_as_disabled(&self) {
                     // Set GPIO direction as input
-                    self.gpio().pddr().modify(|w| w.set_pdd(self.pin() as usize, crate::pac::gpio::Pdd::Pdd0));
+                    self.gpio().pddr().modify(|w| w.set_pdd(self.pin() as usize, $crate::pac::gpio::Pdd::Pdd0));
                     // Set input buffer as disabled
                     self.set_enable_input_buffer(false);
                     // Set mode as GPIO (vs other potential functions)
-                    self.set_function(crate::pac::port::Mux::Mux0);
+                    self.set_function($crate::pac::port::Mux::Mux0);
                     // Set pin as disabled
                     self.set_input_enabled(false);
                 }
@@ -504,24 +504,24 @@ macro_rules! impl_gpio_pin {
                 fn set_input_enabled(&self, input_enabled: bool) {
                     // if `input_enabled` is true then we want Pid0 since this means "Configured for general-purpose input."
                     // if `input_enabled` is false then we want Pid1 since this means "Disabled for general-purpose input".
-                    self.gpio().pidr().modify(|w| w.set_pid(self.pin() as usize, if input_enabled { crate::pac::gpio::Pid::Pid0 } else { crate::pac::gpio::Pid::Pid1 }))
+                    self.gpio().pidr().modify(|w| w.set_pid(self.pin() as usize, if input_enabled { $crate::pac::gpio::Pid::Pid0 } else { $crate::pac::gpio::Pid::Pid1 }))
                 }
             }
 
-            impl crate::gpio::GpioPin for crate::peripherals::$peri {}
+            impl $crate::gpio::GpioPin for $crate::peripherals::$peri {}
 
-            impl From<crate::peripherals::$peri> for crate::gpio::AnyPin {
-                fn from(value: crate::peripherals::$peri) -> Self {
+            impl From<$crate::peripherals::$peri> for $crate::gpio::AnyPin {
+                fn from(value: $crate::peripherals::$peri) -> Self {
                     value.degrade()
                 }
             }
 
-            impl crate::peripherals::$peri {
+            impl $crate::peripherals::$peri {
                 /// Convenience helper to obtain a type-erased handle to this pin.
-                pub fn degrade(&self) -> crate::gpio::AnyPin {
-                    use crate::gpio::SealedPin;
+                pub fn degrade(&self) -> $crate::gpio::AnyPin {
+                    use $crate::gpio::SealedPin;
 
-                    crate::gpio::AnyPin::new(
+                    $crate::gpio::AnyPin::new(
                         self.port(),
                         self.pin(),
                         self.gpio(),
@@ -532,22 +532,22 @@ macro_rules! impl_gpio_pin {
                 }
             }
 
-            impl crate::gpio::HasGpioInstance for crate::peripherals::$peri {
-                type Instance = crate::peripherals::$block;
+            impl $crate::gpio::HasGpioInstance for $crate::peripherals::$peri {
+                type Instance = $crate::peripherals::$block;
                 fn degrade_async<'p>(
                     this: embassy_hal_internal::Peri<'p, Self>,
-                    _irq: impl crate::interrupt::typelevel::Binding<
-                        <Self::Instance as crate::gpio::Instance>::Interrupt,
-                        crate::gpio::InterruptHandler<Self::Instance>,
+                    _irq: impl $crate::interrupt::typelevel::Binding<
+                        <Self::Instance as $crate::gpio::Instance>::Interrupt,
+                        $crate::gpio::InterruptHandler<Self::Instance>,
                     >,
-                ) -> embassy_hal_internal::Peri<'p, crate::gpio::AnyPin> {
-                    use crate::interrupt::typelevel::Interrupt;
-                    use crate::gpio::SealedPin;
+                ) -> embassy_hal_internal::Peri<'p, $crate::gpio::AnyPin> {
+                    use $crate::interrupt::typelevel::Interrupt;
+                    use $crate::gpio::SealedPin;
                     unsafe {
-                        <<Self as crate::gpio::HasGpioInstance>::Instance as crate::gpio::Instance>::Interrupt::enable();
+                        <<Self as $crate::gpio::HasGpioInstance>::Instance as $crate::gpio::Instance>::Interrupt::enable();
                     }
                     unsafe {
-                        embassy_hal_internal::Peri::new_unchecked(crate::gpio::AnyPin::new(
+                        embassy_hal_internal::Peri::new_unchecked($crate::gpio::AnyPin::new(
                             this.port(),
                             this.pin(),
                             this.gpio(),
