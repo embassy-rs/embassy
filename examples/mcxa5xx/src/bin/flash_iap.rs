@@ -12,10 +12,10 @@
 
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_mcxa as hal;
+use embassy_mcxa::rom::FlashProperty;
+use embassy_mcxa::{self as hal};
 use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
 use hal::config::Config;
-use hal::flash::{Flash, FlashProperty};
 use panic_probe as _;
 
 /// Number of sectors from the end of flash to use as the test target.
@@ -36,7 +36,7 @@ async fn main(_spawner: Spawner) {
     // 1. Initialise the flash driver via ROM API
     // -----------------------------------------------------------------------
     defmt::info!("\n Initializing flash driver.");
-    let mut flash = defmt::unwrap!(Flash::new());
+    let mut flash = defmt::unwrap!(hal::rom::get().flash());
     defmt::info!("\n Flash init successfull!\n");
 
     defmt::info!("\n Config flash memory access time.\n");
@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) {
     // 4. Erase the sector
     // -----------------------------------------------------------------------
     defmt::info!("\n Erase a sector of flash");
-    defmt::unwrap!(flash.blocking_erase(dest_addr, pflash_sector_size));
+    defmt::unwrap!(flash.erase_sector(dest_addr, pflash_sector_size));
 
     defmt::info!("\n Calling flash_verify_erase_sector() API.");
     defmt::unwrap!(flash.verify_erase_sector(dest_addr, pflash_sector_size));
@@ -79,14 +79,14 @@ async fn main(_spawner: Spawner) {
     }
 
     defmt::info!("\n Calling FLASH_Program() API.");
-    defmt::unwrap!(flash.blocking_program(dest_addr, &write_buf));
+    defmt::unwrap!(flash.program_phrase(dest_addr, &write_buf));
 
     defmt::info!("\n Calling FLASH_VerifyProgram() API.");
     defmt::unwrap!(flash.verify_program(dest_addr, &write_buf));
 
     let mut read_buf = [0u8; 512];
     let read_offset = dest_addr - pflash_block_base;
-    defmt::unwrap!(flash.blocking_read(read_offset, &mut read_buf));
+    defmt::unwrap!(flash.read(read_offset, &mut read_buf));
     defmt::assert_eq!(read_buf, write_buf);
 
     defmt::info!(
@@ -95,7 +95,7 @@ async fn main(_spawner: Spawner) {
         dest_addr + (write_buf.len() as u32)
     );
 
-    defmt::unwrap!(flash.blocking_erase(dest_addr, pflash_sector_size));
+    defmt::unwrap!(flash.erase_sector(dest_addr, pflash_sector_size));
 
     // -----------------------------------------------------------------------
     // 5. NorFlash trait
@@ -157,7 +157,7 @@ async fn main(_spawner: Spawner) {
         dest_addr + (write_buf.len() as u32)
     );
 
-    defmt::unwrap!(flash.blocking_erase(
+    defmt::unwrap!(flash.erase_sector(
         pflash_total_size - ((SECTOR_INDEX_FROM_END + 1) * pflash_sector_size),
         pflash_sector_size
     ));
