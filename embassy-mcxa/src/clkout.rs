@@ -242,18 +242,18 @@ pub(crate) mod sealed {
     #[macro_export]
     macro_rules! impl_clkout_pin {
         ($pin:ident, $func:ident) => {
-            impl crate::clkout::sealed::ClockOutPin for crate::peripherals::$pin {
+            impl $crate::clkout::sealed::ClockOutPin for $crate::peripherals::$pin {
                 fn mux(&self) {
-                    use crate::gpio::SealedPin;
+                    use $crate::gpio::SealedPin;
 
-                    self.set_function(crate::pac::port::Mux::$func);
-                    self.set_pull(crate::gpio::Pull::Disabled);
+                    self.set_function($crate::pac::port::Mux::$func);
+                    self.set_pull($crate::gpio::Pull::Disabled);
 
                     // TODO: we may want to expose these as options to allow the slew rate
                     // and drive strength for clocks if they are particularly high speed.
                     //
-                    // self.set_drive_strength(crate::pac::port::pcr::Dse::Dse1);
-                    // self.set_slew_rate(crate::pac::port::pcr::Sre::Sre0);
+                    // self.set_drive_strength($crate::pac::port::pcr::Dse::Dse1);
+                    // self.set_slew_rate($crate::pac::port::pcr::Sre::Sre0);
                 }
             }
         };

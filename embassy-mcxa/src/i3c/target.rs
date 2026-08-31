@@ -455,7 +455,7 @@ impl<'d> I3c<'d> {
             // if (matchCount == 0) matchCount = 1;`. We were one tick high which
             // shifts the bus-available detect window.
             let mhz = self.freq / 1_000_000;
-            let bamatch = mhz.saturating_sub(1).max(1).min(63) as u8;
+            let bamatch = mhz.saturating_sub(1).clamp(1, 63) as u8;
             w.set_bamatch(bamatch);
         });
 
@@ -468,9 +468,7 @@ impl<'d> I3c<'d> {
         // Diagnostic logging below dumps SDYNADDR via a raw pointer so
         // we can tell whether the HW absorbed SETDASA at all.
 
-        if config.partno.is_some() {
-            let partno = config.partno.unwrap();
-
+        if let Some(partno) = config.partno {
             if partno == 0 {
                 return Err(SetupError::InvalidPartNumber);
             }
@@ -478,9 +476,7 @@ impl<'d> I3c<'d> {
             self.info.regs().sidpartno().write(|w| w.set_partno(partno));
         }
 
-        if config.vendor_id.is_some() {
-            let vendor_id = config.vendor_id.unwrap();
-
+        if let Some(vendor_id) = config.vendor_id {
             if vendor_id == 0 {
                 return Err(SetupError::InvalidVendorId);
             }

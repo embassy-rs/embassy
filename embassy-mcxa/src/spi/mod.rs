@@ -58,25 +58,25 @@ unsafe impl Sync for Info {}
 macro_rules! impl_lpspi_instance {
     ($n:expr) => {
         paste::paste! {
-            impl crate::spi::SealedInstance for crate::peripherals::[<LPSPI $n>] {
-                fn info() -> &'static crate::spi::Info {
-                    static INFO: crate::spi::Info = crate::spi::Info {
-                        regs: crate::pac::[<LPSPI $n>],
+            impl $crate::spi::SealedInstance for $crate::peripherals::[<LPSPI $n>] {
+                fn info() -> &'static $crate::spi::Info {
+                    static INFO: $crate::spi::Info = $crate::spi::Info {
+                        regs: $crate::pac::[<LPSPI $n>],
                         wait_cell: maitake_sync::WaitCell::new(),
                     };
                     &INFO
                 }
 
-                const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpspiInstance
-                    = crate::clocks::periph_helpers::LpspiInstance::[<Lpspi $n>];
-                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n>];
-                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_spi $n _wake>];
+                const CLOCK_INSTANCE: $crate::clocks::periph_helpers::LpspiInstance
+                    = $crate::clocks::periph_helpers::LpspiInstance::[<Lpspi $n>];
+                const PERF_INT_INCR: fn() = $crate::perf_counters::[<incr_interrupt_spi $n>];
+                const PERF_INT_WAKE_INCR: fn() = $crate::perf_counters::[<incr_interrupt_spi $n _wake>];
                 const TX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Tx>];
                 const RX_DMA_REQUEST: DmaRequest = DmaRequest::[<Lpspi $n Rx>];
             }
 
-            impl crate::spi::Instance for crate::peripherals::[<LPSPI $n>] {
-                type Interrupt = crate::interrupt::typelevel::[<LPSPI $n>];
+            impl $crate::spi::Instance for $crate::peripherals::[<LPSPI $n>] {
+                type Interrupt = $crate::interrupt::typelevel::[<LPSPI $n>];
             }
         }
     };
@@ -158,15 +158,15 @@ impl AsyncMode for Dma<'_> {}
 #[macro_export]
 macro_rules! impl_spi_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
-        impl crate::spi::sealed::SealedSpiPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
+        impl $crate::spi::sealed::SealedSpiPin<$crate::peripherals::$peri> for $crate::peripherals::$pin {}
 
-        impl crate::spi::$trait<crate::peripherals::$peri> for crate::peripherals::$pin {
+        impl $crate::spi::$trait<$crate::peripherals::$peri> for $crate::peripherals::$pin {
             fn mux(&self) {
-                use crate::gpio::SealedPin;
-                self.set_pull(crate::gpio::Pull::Disabled);
-                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-                self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                self.set_function(crate::pac::port::Mux::$fn);
+                use $crate::gpio::SealedPin;
+                self.set_pull($crate::gpio::Pull::Disabled);
+                self.set_slew_rate($crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength($crate::gpio::DriveStrength::Double.into());
+                self.set_function($crate::pac::port::Mux::$fn);
                 self.set_enable_input_buffer(true);
             }
         }
