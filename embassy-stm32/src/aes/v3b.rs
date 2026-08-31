@@ -159,9 +159,14 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
     /// Process authenticated additional data (AAD) for GCM/CCM modes.
     /// Must be called after `start` and before `payload_blocking`.
     /// Set `last` to true for the final AAD block.
-    pub fn aad_blocking<'c, C>(&mut self, ctx: &mut Context<'c, C>, aad: &[u8], last: bool) -> Result<(), Error>
+    pub fn aad_blocking<'c, C, const TAG_SIZE: usize>(
+        &mut self,
+        ctx: &mut Context<'c, C>,
+        aad: &[u8],
+        last: bool,
+    ) -> Result<(), Error>
     where
-        C: Cipher<'c> + CipherAuthenticated<16>,
+        C: Cipher<'c> + CipherAuthenticated<TAG_SIZE>,
     {
         common::op_aad(T::regs(), ctx, aad, last)
     }
