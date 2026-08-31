@@ -55,7 +55,7 @@ const NAK_POLL_DELAY_YIELD: u16 = 300;
 #[cfg(feature = "rp2040")]
 const NAK_POLL_DELAY_NORMAL: u16 = 16;
 
-/// Bits reserved per EPX pipe in [`HostState::epx_error`].
+/// Bits reserved per EPX pipe in [`EpxArbiter::error`].
 const EPX_ERROR_BITS: usize = 4;
 /// Mask of one pipe's error field.
 const EPX_ERROR_MASK: u64 = (1 << EPX_ERROR_BITS) - 1;
@@ -266,8 +266,7 @@ impl HostState {
         }
     }
 
-    /// Slot whose turn it is to take a free EPX: the first queued pipe at or after
-    /// the one following [`HostState::epx_last`]. `None` when nobody is queued.
+    /// Slot whose turn it is to take a free EPX. `None` when nobody is queued.
     fn epx_turn(&self) -> Option<usize> {
         self.with_arbiter(|a| a.turn())
     }
