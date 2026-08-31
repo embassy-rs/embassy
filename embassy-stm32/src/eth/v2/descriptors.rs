@@ -242,8 +242,8 @@ impl<'a> TDesRing<'a> {
         // FD: Contains first buffer of packet
         // LD: Contains last buffer of packet
         // Give the DMA engine ownership
-        // No checksum insertion: the stack computes checksums in software.
-        let tdes3 = EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_OWN;
+        // CIC_FULL: let the MAC compute and insert the IP/TCP/UDP checksums.
+        let tdes3 = EMAC_DES3_FD | EMAC_DES3_LD | EMAC_DES3_OWN | EMAC_TDES3_CIC_FULL;
         td.tdes3.set(tdes3);
 
         // Ensure changes to the descriptor are committed before DMA engine sees tail pointer store.

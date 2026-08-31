@@ -95,6 +95,16 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
         let mut caps = Capabilities::default();
         caps.medium = Medium::Ethernet;
         caps.max_transmission_unit = MTU;
+        // The v2/v1b/v1c MAC offloads the IPv4 header and TCP/UDP payload
+        // checksums in hardware (MACCR.IPC + TDES3.CIC; bad RX frames are dropped
+        // in the descriptor ring), so xarxa can skip them.
+        #[cfg(any(eth_v2, eth_v2a, eth_v1b, eth_v1c))]
+        {
+            use xarxa_driver::Checksum;
+            caps.checksum.ipv4 = Checksum::None;
+            caps.checksum.tcp = Checksum::None;
+            caps.checksum.udp = Checksum::None;
+        }
         caps
     }
 
