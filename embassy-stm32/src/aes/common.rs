@@ -693,9 +693,14 @@ where
 }
 
 /// Process authenticated additional data (AAD) for GCM/CCM modes (blocking).
-pub(crate) fn op_aad<'c, C>(p: pac::aes::Aes, ctx: &mut Context<'c, C>, aad: &[u8], last: bool) -> Result<(), Error>
+pub(crate) fn op_aad<'c, C, const TAG_SIZE: usize>(
+    p: pac::aes::Aes,
+    ctx: &mut Context<'c, C>,
+    aad: &[u8],
+    last: bool,
+) -> Result<(), Error>
 where
-    C: Cipher<'c> + CipherAuthenticated<16>,
+    C: Cipher<'c> + CipherAuthenticated<TAG_SIZE>,
 {
     if ctx.header_processed && last {
         return Ok(());

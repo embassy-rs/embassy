@@ -826,6 +826,999 @@ embassy_crypto_driver::embassy_crypto_aes256gcm_impl!(Aes256GcmDriver);
 // AES CCM
 // ===========================================================================
 
+macro_rules! ccm_dispatch {
+    (encrypt, $cipher:ty, $key:expr, $nonce:expr, $aad:expr, $buffer:expr, $tag:expr) => {
+        match ($tag.len(), $nonce.len()) {
+            (4, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (4, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (4, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (4, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (4, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (4, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (4, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (6, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (6, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (6, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (6, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (6, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (6, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (6, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (8, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (8, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (8, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (8, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (8, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (8, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (8, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (10, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (10, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (10, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (10, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (10, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (10, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (10, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (12, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (12, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (12, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (12, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (12, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (12, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (12, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (14, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (14, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (14, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (14, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (14, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (14, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (14, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (16, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (16, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (16, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (16, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (16, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (16, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            (16, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                let t = ccm
+                    .encrypt_inout_detached($nonce.try_into().unwrap(), $aad, InOutBuf::from($buffer))
+                    .map_err(|_| CryptoError::InvalidInput)?;
+                $tag.copy_from_slice(t.as_slice());
+                Ok(())
+            }
+            _ => Err(CryptoError::Unsupported),
+        }
+    };
+    (decrypt, $cipher:ty, $key:expr, $nonce:expr, $aad:expr, $buffer:expr, $tag:expr) => {
+        match ($tag.len(), $nonce.len()) {
+            (4, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (4, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (4, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (4, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (4, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (4, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (4, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U4, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (6, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (6, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (6, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (6, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (6, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (6, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (6, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U6, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (8, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (8, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (8, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (8, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (8, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (8, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (8, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U8, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (10, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (10, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (10, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (10, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (10, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (10, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (10, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U10, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (12, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (12, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (12, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (12, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (12, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (12, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (12, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U12, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (14, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (14, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (14, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (14, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (14, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (14, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (14, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U14, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (16, 7) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U7>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (16, 8) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U8>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (16, 9) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U9>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (16, 10) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U10>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (16, 11) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U11>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (16, 12) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U12>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            (16, 13) => {
+                type C = ccm::Ccm<$cipher, ccm::consts::U16, ccm::consts::U13>;
+                let ccm = C::new_from_slice($key).unwrap();
+                ccm.decrypt_inout_detached(
+                    $nonce.try_into().unwrap(),
+                    $aad,
+                    InOutBuf::from($buffer),
+                    $tag.try_into().unwrap(),
+                )
+                .map_err(|_| CryptoError::InvalidSignature)
+            }
+            _ => Err(CryptoError::Unsupported),
+        }
+    };
+}
+
 #[derive(Clone)]
 struct Aes128CcmContext {
     key: [u8; 16],
@@ -853,77 +1846,7 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
     ) -> Result<(), CryptoError> {
         use aead::inout::InOutBuf;
         use aead::{AeadInOut, KeyInit};
-
-        if tag.len() != 16 {
-            return Err(CryptoError::Unsupported);
-        }
-
-        match nonce.len() {
-            7 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U7>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            8 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U8>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            9 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U9>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            10 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U10>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            11 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U11>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            12 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U12>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            13 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U13>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            _ => Err(CryptoError::Unsupported),
-        }
+        ccm_dispatch!(encrypt, aes::Aes128, &ctx.key, nonce, aad, buffer, tag)
     }
 
     fn aes128ccm_decrypt(
@@ -935,91 +1858,7 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
     ) -> Result<(), CryptoError> {
         use aead::inout::InOutBuf;
         use aead::{AeadInOut, KeyInit};
-
-        if tag.len() != 16 {
-            return Err(CryptoError::Unsupported);
-        }
-
-        match nonce.len() {
-            7 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U7>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            8 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U8>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            9 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U9>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            10 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U10>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            11 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U11>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            12 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U12>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            13 => {
-                type C = ccm::Ccm<aes::Aes128, ccm::consts::U16, ccm::consts::U13>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            _ => Err(CryptoError::Unsupported),
-        }
+        ccm_dispatch!(decrypt, aes::Aes128, &ctx.key, nonce, aad, buffer, tag)
     }
 }
 
@@ -1052,77 +1891,7 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
     ) -> Result<(), CryptoError> {
         use aead::inout::InOutBuf;
         use aead::{AeadInOut, KeyInit};
-
-        if tag.len() != 16 {
-            return Err(CryptoError::Unsupported);
-        }
-
-        match nonce.len() {
-            7 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U7>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            8 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U8>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            9 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U9>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            10 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U10>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            11 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U11>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            12 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U12>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            13 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U13>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                let t = ccm
-                    .encrypt_inout_detached(nonce.try_into().unwrap(), aad, InOutBuf::from(buffer))
-                    .map_err(|_| CryptoError::InvalidInput)?;
-                tag.copy_from_slice(t.as_slice());
-                Ok(())
-            }
-            _ => Err(CryptoError::Unsupported),
-        }
+        ccm_dispatch!(encrypt, aes::Aes256, &ctx.key, nonce, aad, buffer, tag)
     }
 
     fn aes256ccm_decrypt(
@@ -1134,91 +1903,7 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
     ) -> Result<(), CryptoError> {
         use aead::inout::InOutBuf;
         use aead::{AeadInOut, KeyInit};
-
-        if tag.len() != 16 {
-            return Err(CryptoError::Unsupported);
-        }
-
-        match nonce.len() {
-            7 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U7>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            8 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U8>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            9 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U9>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            10 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U10>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            11 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U11>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            12 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U12>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            13 => {
-                type C = ccm::Ccm<aes::Aes256, ccm::consts::U16, ccm::consts::U13>;
-                let ccm = C::new_from_slice(&ctx.key).unwrap();
-                ccm.decrypt_inout_detached(
-                    nonce.try_into().unwrap(),
-                    aad,
-                    InOutBuf::from(buffer),
-                    tag.try_into().unwrap(),
-                )
-                .map_err(|_| CryptoError::InvalidSignature)
-            }
-            _ => Err(CryptoError::Unsupported),
-        }
+        ccm_dispatch!(decrypt, aes::Aes256, &ctx.key, nonce, aad, buffer, tag)
     }
 }
 
