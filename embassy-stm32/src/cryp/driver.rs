@@ -1140,14 +1140,6 @@ impl embassy_crypto_driver::Aes128Ctr for AesDriver {
             }
         }
     }
-
-    fn aes128ctr_seek(ctx: &mut Self::Context, block_offset: u64) {
-        let (_, iv, _, partial_len) = ctx;
-        let mut counter = u128::from_be_bytes(*iv);
-        counter = counter.wrapping_add(u128::from(block_offset));
-        *iv = counter.to_be_bytes();
-        *partial_len = 0;
-    }
 }
 
 impl embassy_crypto_driver::Aes256Ctr for AesDriver {
@@ -1235,14 +1227,6 @@ impl embassy_crypto_driver::Aes256Ctr for AesDriver {
                 *partial_len = saved as u8;
             }
         }
-    }
-
-    fn aes256ctr_seek(ctx: &mut Self::Context, block_offset: u64) {
-        let (_, iv, _, partial_len) = ctx;
-        let mut counter = u128::from_be_bytes(*iv);
-        counter = counter.wrapping_add(u128::from(block_offset));
-        *iv = counter.to_be_bytes();
-        *partial_len = 0;
     }
 }
 embassy_crypto_driver::embassy_crypto_aes128ecb_impl!(AesDriver);

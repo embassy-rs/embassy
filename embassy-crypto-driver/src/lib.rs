@@ -920,7 +920,7 @@ unitrait::unitrait! {
     /// incremented after each block, matching NIST SP 800-38A.
     pub trait Aes128Ctr {
         /// Opaque storage for key schedule, counter state, and partial-block buffer.
-        #[opaque(size = 128, align = 16)]
+        #[opaque(size = 1024, align = 16)]
         #[symbol = "_emb_crypto_aes128ctr_context"]
         pub type Context;
 
@@ -935,13 +935,6 @@ unitrait::unitrait! {
         /// Apply keystream to `buf` in-place (encrypt == decrypt for CTR).
         #[symbol = "_emb_crypto_aes128ctr_apply_keystream"]
         pub fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
-
-        /// Seek by 16-byte block offset.
-        ///
-        /// The driver increments the 128-bit counter by `block_offset`.
-        /// Any buffered partial-block keystream is discarded.
-        #[symbol = "_emb_crypto_aes128ctr_seek"]
-        pub fn aes128ctr_seek(ctx: &mut Self::Context, block_offset: u64);
     }
 
     macro embassy_crypto_aes128ctr_impl(path = $crate);
@@ -952,7 +945,7 @@ unitrait::unitrait! {
     ///
     /// See [`Aes128Ctr`] for CTR mode semantics. Uses a 256-bit key.
     pub trait Aes256Ctr {
-        #[opaque(size = 128, align = 16)]
+        #[opaque(size = 1024, align = 16)]
         #[symbol = "_emb_crypto_aes256ctr_context"]
         pub type Context;
 
@@ -964,9 +957,6 @@ unitrait::unitrait! {
 
         #[symbol = "_emb_crypto_aes256ctr_apply_keystream"]
         pub fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
-
-        #[symbol = "_emb_crypto_aes256ctr_seek"]
-        pub fn aes256ctr_seek(ctx: &mut Self::Context, block_offset: u64);
     }
 
     macro embassy_crypto_aes256ctr_impl(path = $crate);
