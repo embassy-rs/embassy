@@ -7,7 +7,7 @@ publish = false
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv7em-none-eabihf", artifact-dir = "out/examples/ambiq" }
+  { target = "thumbv7em-none-eabihf", artifact-dir = "out/examples/ambiq/sparkfun-artemis" }
 ]
 
 [dependencies]

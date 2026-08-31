@@ -5,7 +5,7 @@ use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
-use embassy_net::tcp::{self, TcpListener};
+use embassy_net::tcp::{self, TcpListener, TcpSocket};
 use embassy_net::wire::IpListenEndpoint;
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH, ETH_SMA};
@@ -73,7 +73,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     iface.set_dhcpv4(Some(Default::default()));
     spawner.spawn(unwrap!(net_task(runner)));
     iface.wait_config_up().await;
@@ -83,11 +83,13 @@ async fn main(spawner: Spawner) -> ! {
     let mut rx_buffer = [0; 1024];
     let mut tx_buffer = [0; 1024];
 
-    let mut listener = TcpListener::new(stack);
+    let mut listener = unwrap!(TcpListener::new(stack));
     unwrap!(listener.listen(IpListenEndpoint { addr: None, port: 80 }));
 
     loop {
-        let mut socket = unwrap!(listener.accept(&mut rx_buffer, &mut tx_buffer).await);
+        let token = unwrap!(listener.accept().await);
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
+        unwrap!(socket.accept(token).await);
 
         let mut read_buffer = [0; 1024];
         loop {

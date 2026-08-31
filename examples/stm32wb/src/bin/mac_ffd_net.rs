@@ -113,7 +113,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(driver)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(driver)));
     unwrap!(iface.add_ip_addr(IpCidr::Ipv6(Ipv6Cidr::new(ipv6_addr, 104))));
 
     // wpan runner
@@ -137,7 +137,7 @@ async fn main(spawner: Spawner) {
 
     // Then we can use it!
 
-    let mut socket = UdpSocket::new(stack);
+    let mut socket = unwrap!(UdpSocket::new(stack));
 
     let remote_endpoint = (Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2fb), 8000);
 

@@ -11,7 +11,7 @@ pub use xarxa::udp::{RecvPacket, UdpMetadata};
 use xarxa::wire::IpListenEndpoint;
 
 use crate::wire::IpEndpoint;
-use crate::{Stack, TryError};
+use crate::{Full, Stack, TryError};
 
 /// Error returned by [`UdpSocket::bind`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -70,18 +70,13 @@ pub struct UdpSocket<'d> {
 impl<'d> UdpSocket<'d> {
     /// Create a new UDP socket using the provided stack.
     ///
-    /// # Panics
-    /// Panics if the stack has no room for another UDP socket. The limit is set
-    /// by the `udp-socket-count-N` feature of `xarxa`.
-    pub fn new(stack: Stack<'d>) -> Self {
-        let handle = stack.with(|i| {
-            unwrap!(
-                i.stack.add_udp_socket().ok(),
-                "too many UDP sockets, raise the `udp-socket-count-N` feature of xarxa"
-            )
-        });
+    /// Errors:
+    /// - `Full` if the stack has no room for another UDP socket. The limit is set
+    ///   by the `udp-socket-count-N` feature of `xarxa`.
+    pub fn new(stack: Stack<'d>) -> Result<Self, Full> {
+        let handle = stack.with(|i| i.stack.add_udp_socket())?;
 
-        Self { stack, handle }
+        Ok(Self { stack, handle })
     }
 
     /// Bind the socket to a local endpoint.

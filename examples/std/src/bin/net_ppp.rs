@@ -16,7 +16,7 @@ use async_io::Async;
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::iface::Iface;
-use embassy_net::tcp::TcpListener;
+use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::wire::IpCidr;
 use embassy_net::{Stack, StackStorage};
 use embassy_net_ppp::Runner;
@@ -109,19 +109,24 @@ async fn main_task(spawner: Spawner) {
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
 
-    let mut listener = TcpListener::new(stack);
+    let mut listener = TcpListener::new(stack).unwrap();
     listener.listen(1234).unwrap();
 
     loop {
         info!("Listening on TCP:1234...");
-        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
-            Ok(socket) => socket,
+        let token = match listener.accept().await {
+            Ok(token) => token,
             Err(e) => {
                 warn!("accept error: {:?}", e);
                 continue;
             }
         };
+        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer).unwrap();
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+        if let Err(e) = socket.accept(token).await {
+            warn!("accept error: {:?}", e);
+            continue;
+        }
 
         info!("Received connection from {:?}", socket.remote_endpoint());
 

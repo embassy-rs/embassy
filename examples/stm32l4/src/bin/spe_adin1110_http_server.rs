@@ -21,7 +21,7 @@ use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_net::StackStorage;
-use embassy_net::tcp::TcpListener;
+use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
 use embassy_net_adin1110::{ADIN1110, Device, GenericSpi, Runner};
 use embassy_stm32::exti::ExtiInput;
@@ -206,7 +206,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     if uc_cfg0.is_low() {
         println!("Waiting for DHCP...");
         iface.set_dhcpv4(Some(Default::default()));
@@ -224,19 +224,24 @@ async fn main(spawner: Spawner) {
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
     let mut mb_buf = [0; 4096];
-    let mut listener = TcpListener::new(stack);
+    let mut listener = unwrap!(TcpListener::new(stack));
     unwrap!(listener.listen(HTTP_LISTEN_PORT));
 
     loop {
         info!("Listening on http://{}:{}...", local_addr, HTTP_LISTEN_PORT);
-        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
-            Ok(socket) => socket,
+        let token = match listener.accept().await {
+            Ok(token) => token,
             Err(e) => {
                 defmt::error!("accept error: {:?}", e);
                 continue;
             }
         };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
         socket.set_timeout(Some(Duration::from_secs(1)));
+        if let Err(e) = socket.accept(token).await {
+            defmt::error!("accept error: {:?}", e);
+            continue;
+        }
 
         loop {
             let _n = match socket.read(&mut mb_buf).await {

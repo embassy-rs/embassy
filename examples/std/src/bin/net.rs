@@ -67,7 +67,7 @@ async fn main_task(spawner: Spawner) {
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
-    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer).unwrap();
 
     socket.set_timeout(Some(Duration::from_secs(10)));
 

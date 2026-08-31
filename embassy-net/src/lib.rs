@@ -42,9 +42,10 @@ use embassy_time::{Instant, Timer};
 pub use xarxa::IcmpError;
 use xarxa::driver::{Driver, LinkState};
 use xarxa::iface::IfaceHandle;
-pub use xarxa::{Full, config, driver, wire};
+pub use xarxa::{Full, config, wire};
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
 pub use xarxa::{Neighbor, NeighborState};
+pub use xarxa_driver as driver;
 
 use crate::iface::Iface;
 #[cfg(any(feature = "medium-ethernet", feature = "medium-ieee802154"))]
@@ -130,7 +131,12 @@ impl<'d> Stack<'d> {
         let mut stack = xarxa::Stack::new(random_seed);
 
         #[cfg(feature = "dns")]
-        let dns = unwrap!(xarxa::dns::DnsClient::new(&mut stack, &[]).ok());
+        // The stack is brand new, so its UDP socket table can only be full if it
+        // has no slots at all.
+        let dns = unwrap!(
+            xarxa::dns::DnsClient::new(&mut stack, &[]).ok(),
+            "the DNS client needs a UDP socket, raise the `udp-socket-count-N` feature of xarxa"
+        );
 
         let inner = Inner {
             stack,

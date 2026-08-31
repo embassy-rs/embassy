@@ -10,7 +10,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
-use embassy_net::tcp::TcpListener;
+use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
@@ -83,7 +83,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     iface.set_dhcpv4(Some(Default::default()));
 
     // Launch network task
@@ -98,20 +98,25 @@ async fn main(spawner: Spawner) {
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
-    let mut listener = TcpListener::new(stack);
+    let mut listener = unwrap!(TcpListener::new(stack));
     unwrap!(listener.listen(1234));
 
     loop {
         led.set_low();
         info!("Listening on TCP:1234...");
-        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
-            Ok(socket) => socket,
+        let token = match listener.accept().await {
+            Ok(token) => token,
             Err(e) => {
                 warn!("accept error: {:?}", e);
                 continue;
             }
         };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
         socket.set_timeout(Some(Duration::from_secs(10)));
+        if let Err(e) = socket.accept(token).await {
+            warn!("accept error: {:?}", e);
+            continue;
+        }
         info!("Received connection from {:?}", socket.remote_endpoint());
         led.set_high();
 

@@ -78,7 +78,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     iface.set_dhcpv4(Some(Default::default()));
 
     // Launch network task
@@ -91,7 +91,7 @@ async fn main(spawner: Spawner) {
     info!("IP address: {:?}", local_addr);
 
     // Then we can use it! A raw socket receives whole IPv4 packets carrying ICMP.
-    let socket = RawSocket::new(stack, Some(IpVersion::Ipv4), Some(IpProtocol::Icmp));
+    let socket = unwrap!(RawSocket::new(stack, Some(IpVersion::Ipv4), Some(IpProtocol::Icmp)));
 
     // Identifier used to recognize our own echo replies.
     let ident = 42;
@@ -102,7 +102,7 @@ async fn main(spawner: Spawner) {
     let gateway = unwrap!(lease.router);
     let mut buf = [0u8; 64];
     {
-        let mut ip = unwrap!(Ipv4Packet::new_checked(&mut buf[..total_len]).ok());
+        let mut ip = unwrap!(Ipv4Packet::new_checked(&mut buf[..total_len]));
         ip.set_version(4);
         ip.set_header_len(IPV4_HEADER_LEN as u8);
         ip.set_dscp(0);
@@ -118,7 +118,7 @@ async fn main(spawner: Spawner) {
         ip.set_dst_addr(gateway);
         ip.fill_checksum();
 
-        let mut icmp = unwrap!(Icmpv4Packet::new_checked(ip.payload_mut()).ok());
+        let mut icmp = unwrap!(Icmpv4Packet::new_checked(ip.payload_mut()));
         icmp.set_msg_type(Icmpv4Message::EchoRequest);
         icmp.set_msg_code(0);
         icmp.set_echo_ident(ident);

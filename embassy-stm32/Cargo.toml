@@ -163,7 +163,7 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "8e3d55c1c8351ee7728a0cbe3a504a4223c81488", features = ["async", "packet-buf-align-8"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "324376018b2f7e5f1c70bb0070d92306afea32e3", features = ["async", "packet-buf-align-8"] }
 embassy-crypto-driver = { version = "0.1.0", path = "../embassy-crypto-driver" }
 embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
@@ -215,11 +215,11 @@ heapless = "0.9.3"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-acdae7e49440d2a61573a1da0dc6ff5a98b952ce" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-b98e71c0587d052b1a10e79c5e958a2fe9207c91" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-acdae7e49440d2a61573a1da0dc6ff5a98b952ce" , default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-b98e71c0587d052b1a10e79c5e958a2fe9207c91" , default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"

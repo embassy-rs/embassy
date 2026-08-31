@@ -246,7 +246,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     unwrap!(iface.add_ip_addr(IpCidr::Ipv6(ip_address)));
 
     // Launch network task
@@ -263,19 +263,24 @@ async fn main(spawner: Spawner) {
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
     let mut mb_buf = [0; 4096];
-    let mut listener = TcpListener::new(stack);
+    let mut listener = unwrap!(TcpListener::new(stack));
     unwrap!(listener.listen(HTTP_LISTEN_PORT));
 
     loop {
         info!("Listening on http://{}:{}...", local_addr, HTTP_LISTEN_PORT);
-        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
-            Ok(socket) => socket,
+        let token = match listener.accept().await {
+            Ok(token) => token,
             Err(e) => {
                 defmt::error!("accept error: {:?}", e);
                 continue;
             }
         };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
         socket.set_timeout(Some(Duration::from_secs(1)));
+        if let Err(e) = socket.accept(token).await {
+            defmt::error!("accept error: {:?}", e);
+            continue;
+        }
 
         loop {
             let _n = match socket.read(&mut mb_buf).await {
@@ -377,7 +382,7 @@ async fn discovery_task(iface: Iface<'static>, my_node_id: u64) -> ! {
         error!("Discovery: could not join {}: {:?}", DISCOVERY_GROUP, e);
     }
 
-    let mut socket = UdpSocket::new(stack);
+    let mut socket = unwrap!(UdpSocket::new(stack));
     unwrap!(socket.bind(DISCOVERY_PORT));
 
     let group = IpEndpoint::new(IpAddress::Ipv6(DISCOVERY_GROUP), DISCOVERY_PORT);
@@ -459,7 +464,7 @@ async fn neighbor_fetch_task(stack: Stack<'static>) -> ! {
         let remote = IpEndpoint::new(IpAddress::Ipv6(neighbor_ip), HTTP_LISTEN_PORT);
 
         let started = embassy_time::Instant::now();
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
         socket.set_timeout(Some(NEIGHBOR_FETCH_TIMEOUT));
 
         info!("Fetch #{}: connecting to {}...", seq, remote);

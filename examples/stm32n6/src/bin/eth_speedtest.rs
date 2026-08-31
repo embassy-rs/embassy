@@ -25,7 +25,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_net::StackStorage;
-use embassy_net::tcp::TcpListener;
+use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH_SMA, ETH1};
@@ -241,7 +241,7 @@ async fn main(spawner: Spawner) -> ! {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<Device> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     unwrap!(iface.add_ip_addr(IpCidr::Ipv4(Ipv4Cidr::new(LOCAL_IP, 24))));
     unwrap!(stack.routes().add_default_ipv4_route(GATEWAY, iface.handle()));
 
@@ -258,20 +258,25 @@ async fn main(spawner: Spawner) -> ! {
     let rx_buf = RX_BUF.init([0; TCP_BUFFER_SIZE]);
     let tx_buf = TX_BUF.init([0; TCP_BUFFER_SIZE]);
 
-    let mut listener = TcpListener::new(stack);
+    let mut listener = unwrap!(TcpListener::new(stack));
     unwrap!(listener.listen(PORT));
 
     loop {
         info!("listening on :{}", PORT);
-        let mut socket = match listener.accept(&mut rx_buf[..], &mut tx_buf[..]).await {
-            Ok(socket) => socket,
+        let token = match listener.accept().await {
+            Ok(token) => token,
             Err(e) => {
                 warn!("accept error: {:?}", e);
                 continue;
             }
         };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buf[..], &mut tx_buf[..]));
         // Generous idle timeout so a stalled peer can't wedge us forever.
         socket.set_timeout(Some(Duration::from_secs(20)));
+        if let Err(e) = socket.accept(token).await {
+            warn!("accept error: {:?}", e);
+            continue;
+        }
         info!("client connected");
 
         // First byte selects the test mode.

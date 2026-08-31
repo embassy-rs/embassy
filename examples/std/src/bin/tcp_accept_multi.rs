@@ -1,14 +1,17 @@
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
-use embassy_net::StackStorage;
-use embassy_net::tcp::{TcpListener, TcpSocket};
+use embassy_net::tcp::{AcceptToken, TcpListener, TcpSocket};
 use embassy_net::wire::{IpCidr, Ipv4Address};
+use embassy_net::{Stack, StackStorage};
 use embassy_net_tuntap::TunTapDevice;
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write as _;
 use log::*;
 use rand_core::{OsRng, TryRngCore};
 use static_cell::StaticCell;
+
+/// How many connections we serve at the same time.
+const SOCKET_COUNT: usize = 4;
 
 #[derive(Parser)]
 #[clap(version = "1.0")]
@@ -24,6 +27,42 @@ struct Opts {
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
+}
+
+/// Serve one connection.
+///
+/// The socket buffers are locals of this task, so each of the `SOCKET_COUNT` copies gets its
+/// own.
+#[embassy_executor::task(pool_size = SOCKET_COUNT)]
+async fn connection_task(stack: Stack<'static>, id: usize, token: AcceptToken) {
+    let mut rx_buffer = [0; 4096];
+    let mut tx_buffer = [0; 4096];
+
+    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer).unwrap();
+    socket.set_timeout(Some(Duration::from_secs(10)));
+    if let Err(e) = socket.accept(token).await {
+        warn!("conn {}: accept error: {:?}", id, e);
+        return;
+    }
+
+    info!("conn {}: accepted", id);
+
+    // Write some quick output
+    for i in 1..=5 {
+        let s = format!("{}!  ", i);
+        if let Err(e) = socket.write_all(s.as_bytes()).await {
+            warn!("conn {}: write error: {:?}", id, e);
+            return;
+        }
+
+        Timer::after_millis(500).await;
+    }
+
+    info!("conn {}: closing", id);
+    socket.abort();
+    // Flush the RST out.
+    _ = socket.flush().await;
+    info!("conn {}: done", id);
 }
 
 #[embassy_executor::task]
@@ -63,46 +102,28 @@ async fn main_task(spawner: Spawner) {
     spawner.spawn(net_task(runner).unwrap());
 
     // Then we can use it!
-    let mut rx_buffer = [0; 4096];
-    let mut tx_buffer = [0; 4096];
-
     let mut listener = TcpListener::new(stack).unwrap();
     listener.listen(9999).unwrap();
 
-    loop {
-        info!("Listening on TCP:9999...");
+    info!("Listening on TCP:9999...");
+
+    for id in 0.. {
         let token = match listener.accept().await {
             Ok(token) => token,
-            Err(_) => {
-                warn!("accept error");
+            Err(e) => {
+                warn!("accept error: {:?}", e);
                 continue;
             }
         };
-        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer).unwrap();
-        socket.set_timeout(Some(Duration::from_secs(10)));
-        if socket.accept(token).await.is_err() {
-            warn!("accept error");
-            continue;
+        info!("conn {}: connection attempt from {}", id, token.remote_endpoint());
+
+        // If all `SOCKET_COUNT` tasks are busy, spawning fails and the token is dropped, which
+        // forgets the connection attempt. The client retransmits its SYN, which queues the
+        // attempt on the listener again, so we retry it once a task frees up.
+        match connection_task(stack, id, token) {
+            Ok(token) => spawner.spawn(token),
+            Err(_) => warn!("conn {}: no free socket, dropping the connection attempt", id),
         }
-
-        info!("Accepted a connection");
-
-        // Write some quick output
-        for i in 1..=5 {
-            let s = format!("{}!  ", i);
-            let r = socket.write_all(s.as_bytes()).await;
-            if let Err(e) = r {
-                warn!("write error: {:?}", e);
-                return;
-            }
-
-            Timer::after_millis(500).await;
-        }
-        info!("Closing the connection");
-        socket.abort();
-        info!("Flushing the RST out...");
-        _ = socket.flush().await;
-        info!("Finished with the socket");
     }
 }
 

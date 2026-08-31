@@ -132,7 +132,7 @@ pub mod crc;
 pub mod cryp;
 #[cfg(csi)]
 pub mod csi;
-#[cfg(dac)]
+#[cfg(all(dac, not(stm32c5)))]
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
@@ -162,7 +162,7 @@ pub mod gfxmmu;
 pub mod gfxtim;
 #[cfg(all(gpu2d, stm32u5))]
 pub mod gpu2d;
-#[cfg(hash)]
+#[cfg(all(hash, not(stm32c5)))]
 pub mod hash;
 #[cfg(hrtim)]
 pub mod hrtim;

@@ -5,7 +5,7 @@ use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
-use embassy_net::tcp::TcpListener;
+use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net_esp_hosted as hosted;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::rng::Rng;
@@ -87,7 +87,7 @@ async fn main(spawner: Spawner) {
 
     // Add the network interface to the stack.
     static DEVICE: StaticCell<hosted::NetDriver<'static>> = StaticCell::new();
-    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)).ok());
+    let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)));
     iface.set_dhcpv4(Some(Default::default()));
 
     spawner.spawn(unwrap!(net_task(runner)));
@@ -98,19 +98,24 @@ async fn main(spawner: Spawner) {
     let mut tx_buffer = [0; 4096];
     let mut buf = [0; 4096];
 
-    let mut listener = TcpListener::new(stack);
+    let mut listener = unwrap!(TcpListener::new(stack));
     unwrap!(listener.listen(1234));
 
     loop {
         info!("Listening on TCP:1234...");
-        let mut socket = match listener.accept(&mut rx_buffer, &mut tx_buffer).await {
-            Ok(socket) => socket,
+        let token = match listener.accept().await {
+            Ok(token) => token,
             Err(e) => {
                 warn!("accept error: {:?}", e);
                 continue;
             }
         };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
+        if let Err(e) = socket.accept(token).await {
+            warn!("accept error: {:?}", e);
+            continue;
+        }
 
         info!("Received connection from {:?}", socket.remote_endpoint());
 

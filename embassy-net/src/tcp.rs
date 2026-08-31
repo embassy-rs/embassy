@@ -8,6 +8,8 @@ use core::task::{Context, Poll};
 use embassy_time::Duration;
 #[cfg(feature = "iface-bind")]
 pub use xarxa::iface::IfaceHandle;
+#[cfg(feature = "tcp-listener")]
+pub use xarxa::tcp::AcceptToken;
 pub use xarxa::tcp::State;
 #[cfg(feature = "tcp-listener")]
 use xarxa::tcp::TcpListenerHandle;
@@ -15,7 +17,7 @@ use xarxa::tcp::{self, TcpHandle};
 use xarxa::wire::{IpEndpoint, IpListenEndpoint};
 
 use crate::time::duration_to_xarxa;
-use crate::{Stack, TryError};
+use crate::{Full, Stack, TryError};
 
 /// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -59,13 +61,15 @@ pub enum ListenError {
     InUse,
 }
 
-/// Error returned by [`TcpListener::accept`].
+/// Error returned by [`TcpListener::accept`] and [`TcpSocket::accept`].
 #[cfg(feature = "tcp-listener")]
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AcceptError {
-    /// The listener is not listening.
+    /// The listener is not listening, or the socket is not closed.
     InvalidState,
+    /// The remote reset the connection during the handshake.
+    ConnectionReset,
 }
 
 /// A TCP socket.
@@ -284,23 +288,20 @@ impl<'a, 'd> TcpWriter<'a, 'd> {
 impl<'a, 'd> TcpSocket<'a, 'd> {
     /// Create a new TCP socket on the given stack, with the given buffers.
     ///
-    /// # Panics
-    /// Panics if the stack has no room for another TCP socket. The limit is set
-    /// by the `tcp-socket-count-N` feature of `xarxa`.
-    pub fn new(stack: Stack<'d>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Self {
+    /// Errors:
+    /// - `Full` if the stack has no room for another TCP socket. The limit is set
+    ///   by the `tcp-socket-count-N` feature of `xarxa`.
+    pub fn new(stack: Stack<'d>, rx_buffer: &'a mut [u8], tx_buffer: &'a mut [u8]) -> Result<Self, Full> {
         let handle = stack.with(|i| {
             let rx_buffer: &'d mut [u8] = unsafe { mem::transmute(rx_buffer) };
             let tx_buffer: &'d mut [u8] = unsafe { mem::transmute(tx_buffer) };
-            unwrap!(
-                i.stack.add_tcp_socket_with_bufs(rx_buffer, tx_buffer).ok(),
-                "too many TCP sockets, raise the `tcp-socket-count-N` feature of xarxa"
-            )
-        });
+            i.stack.add_tcp_socket_with_bufs(rx_buffer, tx_buffer)
+        })?;
 
-        Self {
+        Ok(Self {
             io: TcpIo { stack, handle },
             bufs: PhantomData,
-        }
+        })
     }
 
     /// Return the maximum number of bytes inside the recv buffer.
@@ -445,6 +446,37 @@ impl<'a, 'd> TcpSocket<'a, 'd> {
             self.io.with_mut(|s| match s.state() {
                 tcp::State::Closed | tcp::State::TimeWait => Poll::Ready(Err(ConnectError::ConnectionReset)),
                 tcp::State::SynSent | tcp::State::SynReceived => {
+                    s.register_send_waker(cx.waker());
+                    Poll::Pending
+                }
+                _ => Poll::Ready(Ok(())),
+            })
+        })
+        .await
+    }
+
+    /// Accept a connection attempt into this socket, and wait until its handshake completes.
+    ///
+    /// The token comes from [`TcpListener::accept`].
+    ///
+    /// The socket's interface binding is set to the listener's binding. Other configuration
+    /// (hop limit, timeout, keep-alive, Nagle, ACK delay) is left unchanged.
+    ///
+    /// If the returned future is dropped before it completes, the connection attempt is reset.
+    ///
+    /// Errors:
+    /// - `InvalidState` if the socket is not closed.
+    /// - `ConnectionReset` if the remote resets the connection during the handshake.
+    #[cfg(feature = "tcp-listener")]
+    pub async fn accept(&mut self, token: AcceptToken) -> Result<(), AcceptError> {
+        self.io.with_mut(|s| s.accept(token)).map_err(|e| match e {
+            tcp::AcceptError::InvalidState => AcceptError::InvalidState,
+        })?;
+
+        poll_fn(|cx| {
+            self.io.with_mut(|s| match s.state() {
+                tcp::State::Closed | tcp::State::TimeWait => Poll::Ready(Err(AcceptError::ConnectionReset)),
+                tcp::State::SynReceived => {
                     s.register_send_waker(cx.waker());
                     Poll::Pending
                 }
@@ -692,8 +724,8 @@ fn _assert_covariant_writer<'a, 'b: 'a, 'd>(x: TcpWriter<'b, 'd>) -> TcpWriter<'
 /// A TCP listener.
 ///
 /// A listener listens on a local endpoint, and queues the incoming connection attempts.
-/// [`accept`](Self::accept) takes the next queued attempt, completes its handshake, and returns
-/// a [`TcpSocket`] for it, using the buffers you pass in.
+/// [`accept`](Self::accept) takes the next queued attempt as an [`AcceptToken`]. Pass it to
+/// [`TcpSocket::accept`] to set up a socket for it, possibly in another task.
 ///
 /// Connection attempts (SYN packets) are not answered (with a SYN|ACK packet) until you accept
 /// them. The queue depth is set by the `tcp-listener-backlog-N` feature of `xarxa`.
@@ -709,25 +741,20 @@ impl<'d> TcpListener<'d> {
     ///
     /// The listener starts closed. Call [`listen`](Self::listen) to start listening.
     ///
-    /// # Panics
-    /// Panics if the stack has no room for another TCP listener. The limit is set
-    /// by the `tcp-listener-count-N` feature of `xarxa`.
-    pub fn new(stack: Stack<'d>) -> Self {
-        let handle = stack.with(|i| {
-            unwrap!(
-                i.stack.add_tcp_listener().ok(),
-                "too many TCP listeners, raise the `tcp-listener-count-N` feature of xarxa"
-            )
-        });
+    /// Errors:
+    /// - `Full` if the stack has no room for another TCP listener. The limit is set
+    ///   by the `tcp-listener-count-N` feature of `xarxa`.
+    pub fn new(stack: Stack<'d>) -> Result<Self, Full> {
+        let handle = stack.with(|i| i.stack.add_tcp_listener())?;
 
-        Self { stack, handle }
+        Ok(Self { stack, handle })
     }
 
-    fn with<R>(&self, f: impl FnOnce(&mut tcp::TcpListener<'_, 'd>) -> R) -> R {
+    fn with<R>(&self, f: impl FnOnce(&mut tcp::TcpListener<'_>) -> R) -> R {
         self.stack.with(|i| f(&mut i.stack.tcp_listener(self.handle)))
     }
 
-    fn with_mut<R>(&self, f: impl FnOnce(&mut tcp::TcpListener<'_, 'd>) -> R) -> R {
+    fn with_mut<R>(&self, f: impl FnOnce(&mut tcp::TcpListener<'_>) -> R) -> R {
         self.stack.with_mut(|i| f(&mut i.stack.tcp_listener(self.handle)))
     }
 
@@ -821,60 +848,32 @@ impl<'d> TcpListener<'d> {
         })
     }
 
-    /// Accept a connection.
+    /// Accept a queued connection attempt, waiting if none is queued yet.
     ///
-    /// This waits until a connection attempt is queued, then completes its handshake using the
-    /// given buffers, and returns the newly created socket.
+    /// Returns an [`AcceptToken`]. Pass it to [`TcpSocket::accept`] to set up a socket for the
+    /// incoming connection, possibly in another task.
     ///
-    /// If the returned future is dropped before it completes, the accepted connection attempt, if
-    /// any, is reset.
+    /// Dropping the token forgets the attempt. The client retransmits its SYN, which queues the
+    /// attempt on the listener again.
     ///
-    /// # Panics
-    /// Panics if the stack has no room for another TCP socket. The limit is set
-    /// by the `tcp-socket-count-N` feature of `xarxa`.
-    pub async fn accept<'a>(
-        &mut self,
-        rx_buffer: &'a mut [u8],
-        tx_buffer: &'a mut [u8],
-    ) -> Result<TcpSocket<'a, 'd>, AcceptError> {
-        let mut socket = TcpSocket::new(self.stack, rx_buffer, tx_buffer);
-        poll_fn(|cx| self.poll_accept(&mut socket, cx)).await?;
-        Ok(socket)
-    }
-
-    fn poll_accept(&mut self, socket: &mut TcpSocket<'_, 'd>, cx: &mut Context<'_>) -> Poll<Result<(), AcceptError>> {
-        let handle = socket.io.handle;
-        self.stack.with_mut(|i| {
-            match i.stack.tcp_socket(handle).state() {
-                // Not accepted yet (or the accepted connection was reset before it was
-                // established). Take the next connection attempt, if any.
-                tcp::State::Closed => {
-                    let mut l = i.stack.tcp_listener(self.handle);
-                    if !l.is_open() {
-                        return Poll::Ready(Err(AcceptError::InvalidState));
-                    }
-                    match l.accept_with_socket(handle) {
-                        // The handshake completes on a later poll: wait for it.
-                        Ok(()) => {
-                            i.stack.tcp_socket(handle).register_send_waker(cx.waker());
-                            Poll::Pending
-                        }
-                        Err(tcp::AcceptError::InvalidState) => Poll::Ready(Err(AcceptError::InvalidState)),
-                        Err(tcp::AcceptError::Exhausted) => {
-                            i.stack.tcp_listener(self.handle).register_accept_waker(cx.waker());
-                            Poll::Pending
-                        }
+    /// Errors:
+    /// - `InvalidState` if the listener is not listening.
+    pub async fn accept(&mut self) -> Result<AcceptToken, AcceptError> {
+        poll_fn(|cx| {
+            self.with_mut(|l| {
+                if !l.is_open() {
+                    return Poll::Ready(Err(AcceptError::InvalidState));
+                }
+                match l.accept() {
+                    Some(token) => Poll::Ready(Ok(token)),
+                    None => {
+                        l.register_accept_waker(cx.waker());
+                        Poll::Pending
                     }
                 }
-                // Handshake in progress.
-                tcp::State::SynReceived => {
-                    i.stack.tcp_socket(handle).register_send_waker(cx.waker());
-                    Poll::Pending
-                }
-                // Connected.
-                _ => Poll::Ready(Ok(())),
-            }
+            })
         })
+        .await
     }
 }
 
@@ -1266,6 +1265,7 @@ impl core::fmt::Display for AcceptError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::InvalidState => f.write_str("InvalidState"),
+            Self::ConnectionReset => f.write_str("ConnectionReset"),
         }
     }
 }
@@ -1367,11 +1367,15 @@ pub mod client {
     impl<'a, 'd, const N: usize, const TX_SZ: usize, const RX_SZ: usize> TcpConnection<'a, 'd, N, TX_SZ, RX_SZ> {
         fn new(stack: Stack<'d>, state: &'a TcpClientState<N, TX_SZ, RX_SZ>) -> Result<Self, Error> {
             let mut bufs = state.pool.alloc().ok_or(Error::ConnectionReset)?;
-            Ok(Self {
-                socket: unsafe { TcpSocket::new(stack, &mut bufs.as_mut().1, &mut bufs.as_mut().0) },
-                state,
-                bufs,
-            })
+            let socket = unsafe { TcpSocket::new(stack, &mut bufs.as_mut().1, &mut bufs.as_mut().0) };
+            let socket = match socket {
+                Ok(socket) => socket,
+                Err(Full) => {
+                    unsafe { state.pool.free(bufs) };
+                    return Err(Error::ConnectionReset);
+                }
+            };
+            Ok(Self { socket, state, bufs })
         }
     }
 
