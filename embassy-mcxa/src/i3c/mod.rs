@@ -321,7 +321,7 @@ impl Info {
     ///
     /// The caller must exclusively own the I3C instance and stop all software-
     /// controlled peripheral and DMA activity before pulsing the reset.
-    /// 
+    ///
     /// Active SCL/SDA at reset release has defined hardware behavior: the I3C
     /// module enters Hot-Join mode and remains inactive until software
     /// reinitializes it or the controller handles the Hot-Join.
