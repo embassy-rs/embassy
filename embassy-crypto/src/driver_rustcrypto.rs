@@ -849,548 +849,101 @@ macro_rules! ccm_case {
     }};
 }
 
+macro_rules! ccm_nonce_match {
+    ($op:ident, $cipher:ty, $key:expr, $nonce:expr, $aad:expr, $buffer:expr, $tag:expr, $tag_len:ty) => {
+        match $nonce.len() {
+            7 => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                $tag_len,
+                ccm::consts::U7
+            ),
+            8 => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                $tag_len,
+                ccm::consts::U8
+            ),
+            9 => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                $tag_len,
+                ccm::consts::U9
+            ),
+            10 => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                $tag_len,
+                ccm::consts::U10
+            ),
+            11 => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                $tag_len,
+                ccm::consts::U11
+            ),
+            12 => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                $tag_len,
+                ccm::consts::U12
+            ),
+            13 => ccm_case!(
+                $op,
+                $cipher,
+                $key,
+                $nonce,
+                $aad,
+                $buffer,
+                $tag,
+                $tag_len,
+                ccm::consts::U13
+            ),
+            _ => Err(CryptoError::Unsupported),
+        }
+    };
+}
+
 macro_rules! ccm_dispatch {
     ($op:ident, $cipher:ty, $key:expr, $nonce:expr, $aad:expr, $buffer:expr, $tag:expr) => {
-        match ($tag.len(), $nonce.len()) {
-            (4, 7) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U4,
-                ccm::consts::U7
-            ),
-            (4, 8) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U4,
-                ccm::consts::U8
-            ),
-            (4, 9) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U4,
-                ccm::consts::U9
-            ),
-            (4, 10) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U4,
-                ccm::consts::U10
-            ),
-            (4, 11) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U4,
-                ccm::consts::U11
-            ),
-            (4, 12) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U4,
-                ccm::consts::U12
-            ),
-            (4, 13) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U4,
-                ccm::consts::U13
-            ),
-            (6, 7) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U6,
-                ccm::consts::U7
-            ),
-            (6, 8) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U6,
-                ccm::consts::U8
-            ),
-            (6, 9) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U6,
-                ccm::consts::U9
-            ),
-            (6, 10) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U6,
-                ccm::consts::U10
-            ),
-            (6, 11) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U6,
-                ccm::consts::U11
-            ),
-            (6, 12) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U6,
-                ccm::consts::U12
-            ),
-            (6, 13) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U6,
-                ccm::consts::U13
-            ),
-            (8, 7) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U8,
-                ccm::consts::U7
-            ),
-            (8, 8) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U8,
-                ccm::consts::U8
-            ),
-            (8, 9) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U8,
-                ccm::consts::U9
-            ),
-            (8, 10) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U8,
-                ccm::consts::U10
-            ),
-            (8, 11) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U8,
-                ccm::consts::U11
-            ),
-            (8, 12) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U8,
-                ccm::consts::U12
-            ),
-            (8, 13) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U8,
-                ccm::consts::U13
-            ),
-            (10, 7) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U10,
-                ccm::consts::U7
-            ),
-            (10, 8) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U10,
-                ccm::consts::U8
-            ),
-            (10, 9) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U10,
-                ccm::consts::U9
-            ),
-            (10, 10) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U10,
-                ccm::consts::U10
-            ),
-            (10, 11) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U10,
-                ccm::consts::U11
-            ),
-            (10, 12) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U10,
-                ccm::consts::U12
-            ),
-            (10, 13) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U10,
-                ccm::consts::U13
-            ),
-            (12, 7) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U12,
-                ccm::consts::U7
-            ),
-            (12, 8) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U12,
-                ccm::consts::U8
-            ),
-            (12, 9) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U12,
-                ccm::consts::U9
-            ),
-            (12, 10) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U12,
-                ccm::consts::U10
-            ),
-            (12, 11) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U12,
-                ccm::consts::U11
-            ),
-            (12, 12) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U12,
-                ccm::consts::U12
-            ),
-            (12, 13) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U12,
-                ccm::consts::U13
-            ),
-            (14, 7) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U14,
-                ccm::consts::U7
-            ),
-            (14, 8) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U14,
-                ccm::consts::U8
-            ),
-            (14, 9) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U14,
-                ccm::consts::U9
-            ),
-            (14, 10) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U14,
-                ccm::consts::U10
-            ),
-            (14, 11) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U14,
-                ccm::consts::U11
-            ),
-            (14, 12) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U14,
-                ccm::consts::U12
-            ),
-            (14, 13) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U14,
-                ccm::consts::U13
-            ),
-            (16, 7) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U16,
-                ccm::consts::U7
-            ),
-            (16, 8) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U16,
-                ccm::consts::U8
-            ),
-            (16, 9) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U16,
-                ccm::consts::U9
-            ),
-            (16, 10) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U16,
-                ccm::consts::U10
-            ),
-            (16, 11) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U16,
-                ccm::consts::U11
-            ),
-            (16, 12) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U16,
-                ccm::consts::U12
-            ),
-            (16, 13) => ccm_case!(
-                $op,
-                $cipher,
-                $key,
-                $nonce,
-                $aad,
-                $buffer,
-                $tag,
-                ccm::consts::U16,
-                ccm::consts::U13
-            ),
+        match $tag.len() {
+            4 => ccm_nonce_match!($op, $cipher, $key, $nonce, $aad, $buffer, $tag, ccm::consts::U4),
+            6 => ccm_nonce_match!($op, $cipher, $key, $nonce, $aad, $buffer, $tag, ccm::consts::U6),
+            8 => ccm_nonce_match!($op, $cipher, $key, $nonce, $aad, $buffer, $tag, ccm::consts::U8),
+            10 => ccm_nonce_match!($op, $cipher, $key, $nonce, $aad, $buffer, $tag, ccm::consts::U10),
+            12 => ccm_nonce_match!($op, $cipher, $key, $nonce, $aad, $buffer, $tag, ccm::consts::U12),
+            14 => ccm_nonce_match!($op, $cipher, $key, $nonce, $aad, $buffer, $tag, ccm::consts::U14),
+            16 => ccm_nonce_match!($op, $cipher, $key, $nonce, $aad, $buffer, $tag, ccm::consts::U16),
             _ => Err(CryptoError::Unsupported),
         }
     };
