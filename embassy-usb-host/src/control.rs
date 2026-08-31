@@ -413,7 +413,17 @@ pub trait ControlPipeExt<D: pipe::Direction>: UsbPipe<pipe::Control, D> {
     {
         let setup = SetupPacket::get_configuration();
         let mut buf = [0u8; 1];
-        self.control_in(&setup.to_bytes(), &mut buf).await?;
+        // Retried on the same grounds as a descriptor read, and for the
+        // same devices: GET_CONFIGURATION is an idempotent read, and a
+        // control transfer restarts from its SETUP, which clears a
+        // control endpoint's protocol stall (USB 2.0 §8.5.3.4).
+        //
+        // Without this a device flaky enough to STALL one read is
+        // reported by every class driver as an outright registration
+        // failure — `RegisterError::HostError(PipeError(Stall))` where
+        // the honest answer is usually `NoSupportedInterface`, since
+        // registration never got far enough to look at an interface.
+        crate::handler::retry_descriptor(async || self.control_in(&setup.to_bytes(), &mut buf).await).await?;
         Ok(NonZeroU8::new(buf[0]))
     }
 
