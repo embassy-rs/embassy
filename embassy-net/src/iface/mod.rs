@@ -278,6 +278,18 @@ impl<'d> Iface<'d> {
         self.with(|i| is_config_up(i))
     }
 
+    /// Check whether the network stack has a valid IPv4 configuration.
+    #[cfg(feature = "ipv4")]
+    pub fn is_config_v4_up(&self) -> bool {
+        self.with(|i| crate::is_config_v4_up(i))
+    }
+
+    /// Check whether the network stack has a valid non link-local IPv6 configuration.
+    #[cfg(feature = "ipv6")]
+    pub fn is_config_v6_up(&self) -> bool {
+        self.with(|i| crate::is_config_v6_up(i))
+    }
+
     /// Wait for the network device to obtain a link signal.
     pub async fn wait_link_up(&self) {
         wait_iface(self.stack, self.handle, is_link_up).await
@@ -296,5 +308,33 @@ impl<'d> Iface<'d> {
     /// Wait for the interface to lose a valid IP configuration.
     pub async fn wait_config_down(&self) {
         wait_iface(self.stack, self.handle, |i| !is_config_up(i)).await
+    }
+
+    /// Wait for the interface to obtain a valid IPv4 configuration.
+    #[cfg(feature = "ipv4")]
+    pub async fn wait_config_v4_up(&self) {
+        wait_iface(self.stack, self.handle, |i| crate::is_config_v4_up(i)).await
+    }
+
+    /// Wait for the interface to lose a valid IPv4 configuration.
+    #[cfg(feature = "ipv4")]
+    pub async fn wait_config_v4_down(&self) {
+        wait_iface(self.stack, self.handle, |i| !crate::is_config_v4_up(i)).await
+    }
+
+    /// Wait for the interface to obtain a valid IPv6 configuration.
+    ///
+    /// This does not include link-local addresses.
+    #[cfg(feature = "ipv6")]
+    pub async fn wait_config_v6_up(&self) {
+        wait_iface(self.stack, self.handle, |i| crate::is_config_v6_up(i)).await
+    }
+
+    /// Wait for the interface to lose a valid IPv6 configuration.
+    ///
+    /// This does not include link-local addresses.
+    #[cfg(feature = "ipv6")]
+    pub async fn wait_config_v6_down(&self) {
+        wait_iface(self.stack, self.handle, |i| !crate::is_config_v6_up(i)).await
     }
 }

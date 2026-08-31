@@ -544,6 +544,18 @@ pub(crate) fn is_config_up(iface: &xarxa::iface::Iface<'_, '_>) -> bool {
     iface.ip_addrs().iter().any(|a| !is_link_local(a))
 }
 
+#[cfg(feature = "ipv4")]
+/// Check if any IPv4 address is configured.
+pub(crate) fn is_config_v4_up(iface: &xarxa::iface::Iface<'_, '_>) -> bool {
+    iface.ip_addrs().iter().any(|a| a.cidr.is_ipv4())
+}
+
+#[cfg(feature = "ipv6")]
+/// Check if any non link-local IPv6 address is configured.
+pub(crate) fn is_config_v6_up(iface: &xarxa::iface::Iface<'_, '_>) -> bool {
+    iface.ip_addrs().iter().any(|a| a.cidr.is_ipv6() && !is_link_local(a))
+}
+
 /// Whether an interface's link is up.
 pub(crate) fn is_link_up(iface: &mut xarxa::iface::Iface<'_, '_>) -> bool {
     iface.link_state() == LinkState::Up
