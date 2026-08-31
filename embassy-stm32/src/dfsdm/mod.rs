@@ -206,7 +206,7 @@ where
 
         poll_fn(|cx| {
             Self::set_regular_end_of_conversion_interrupt(false);
-            T::state().waker.register(cx.waker());
+            T::state().regular_waker.register(cx.waker());
 
             if let Some(result) = self.try_get_regular_result() {
                 Poll::Ready(result)
@@ -227,7 +227,7 @@ where
 
         poll_fn(|cx| {
             Self::set_injected_end_of_conversion_interrupt(false);
-            T::state().waker.register(cx.waker());
+            T::state().injected_waker.register(cx.waker());
 
             if let Some(result) = self.try_get_injected_result() {
                 Poll::Ready(result)
@@ -585,11 +585,12 @@ where
     unsafe fn on_interrupt() {
         if Filter::<T, F, Enabled>::end_of_injected_conversion() {
             Filter::<T, F, Enabled>::set_injected_end_of_conversion_interrupt(false);
+            <T as FilterInterrupt<F>>::state().injected_waker.wake();
         }
         if Filter::<T, F, Enabled>::end_of_regular_conversion() {
             Filter::<T, F, Enabled>::set_regular_end_of_conversion_interrupt(false);
+            <T as FilterInterrupt<F>>::state().regular_waker.wake();
         }
-        <T as FilterInterrupt<F>>::state().waker.wake();
     }
 }
 

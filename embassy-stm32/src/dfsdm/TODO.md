@@ -146,4 +146,4 @@ Due to interrupts we should really put the IRQ requirement into the Common? And 
 
 # Notes
 * When enabled vs pub: COnstructor/config vs accessor I guess?
-* Injected group always has to contian channel. Migrate to "set group of channels" vs unassign? Or flag to reset on next first assignment...
+* Handle overrun etc in normal handler? Or external, registerable?

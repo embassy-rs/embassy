@@ -401,36 +401,16 @@ impl<T> Flt4Ready for T where
 {
 }
 
-// impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-//     unsafe fn on_interrupt() {
-//         //TODO THIS IS DCMI STUFF
-//         crate::pac::DFSDM1.ch(0);
-//         crate::pac::DFSDM2.ch(0);
-//         let ris = crate::pac::DCMI.ris().read();
-//         if ris.err_ris() {
-//             trace!("DCMI IRQ: Error.");
-//             crate::pac::DCMI.ier().modify(|ier| ier.set_err_ie(false));
-//         }
-//         if ris.ovr_ris() {
-//             trace!("DCMI IRQ: Overrun.");
-//             crate::pac::DCMI.ier().modify(|ier| ier.set_ovr_ie(false));
-//         }
-//         if ris.frame_ris() {
-//             trace!("DCMI IRQ: Frame captured.");
-//             crate::pac::DCMI.ier().modify(|ier| ier.set_frame_ie(false));
-//         }
-//         STATE.waker.wake();
-//     }
-// }
-
 // =============================================================================
 // Interrupt/FilterChannel state
 // =============================================================================
 
 /// State shared between interrupt routine and filter object
 pub struct State {
-    /// Waker for the state
-    pub waker: AtomicWaker,
+    /// Waker for the injected interrupt requests
+    pub injected_waker: AtomicWaker,
+    /// Waker for the regular interrupt requests
+    pub regular_waker: AtomicWaker,
     // Maybe we need some atomics? pub injected_done: core::sync::atomic::AtomicBool,
 }
 
@@ -438,7 +418,8 @@ impl State {
     /// Instantiate fresh State
     pub const fn new() -> Self {
         Self {
-            waker: AtomicWaker::new(),
+            injected_waker: AtomicWaker::new(),
+            regular_waker: AtomicWaker::new(),
         }
     }
 }
