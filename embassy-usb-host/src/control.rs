@@ -203,6 +203,31 @@ impl SetupPacket {
         Self::get_descriptor(false, descriptor_type::CONFIGURATION, index, max_len)
     }
 
+    /// Build a GET_DESCRIPTOR(String) SETUP packet.
+    ///
+    /// String descriptors are the one case where `wIndex` is not unused: USB 2.0
+    /// spec §9.4.3 defines it as the LANGID, so it cannot go through
+    /// [`SetupPacket::get_descriptor`], which always sends zero there.
+    ///
+    /// Index 0 returns the device's supported LANGIDs (see
+    /// [`StringDescriptorZero`]) and is the one request for which `lang_id: 0`
+    /// is correct. Any other index needs a LANGID the device listed there.
+    ///
+    /// [`StringDescriptorZero`]: crate::descriptor::StringDescriptorZero
+    pub const fn get_string_descriptor(index: u8, lang_id: u16, max_len: u16) -> Self {
+        Self {
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
+            request: Request::GET_DESCRIPTOR,
+            value: ((descriptor_type::STRING as u16) << 8) | index as u16,
+            index: lang_id,
+            length: max_len,
+        }
+    }
+
     /// Build a standard GET_DESCRIPTOR SETUP packet delivered to an Interface recipient.
     ///
     /// Used for interface-owned descriptors such as the HID Report Descriptor.
