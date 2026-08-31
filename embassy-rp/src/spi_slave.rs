@@ -1,6 +1,7 @@
 //! Serial Peripheral Interface
 use core::marker::PhantomData;
 
+use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
 use embassy_hal_internal::Peri;
 pub use embedded_hal_02::spi::{Phase, Polarity};
@@ -363,6 +364,16 @@ impl<'d> Spi<'d, Async> {
         };
         join(tx_transfer, rx_transfer).await;
 
+        Ok(())
+    }
+}
+
+impl<'d, M: Mode> SetConfig for Spi<'d, M> {
+    type Config = Config;
+    type ConfigError = ();
+
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+        self.set_config(config);
         Ok(())
     }
 }
