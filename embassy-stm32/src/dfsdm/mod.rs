@@ -136,7 +136,7 @@ where
     }
 
     /// Enables or disables DMA transfers for regular conversions.
-    fn set_regular_dma_en(&mut self, dma_enable: bool) {
+    pub(crate) fn set_regular_dma_en(dma_enable: bool) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr1()
@@ -144,7 +144,7 @@ where
     }
 
     /// Enables or disables DMA transfers for injected conversions.
-    fn set_injected_dma_en(&mut self, dma_enable: bool) {
+    pub(crate) fn set_injected_dma_en(dma_enable: bool) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr1()
@@ -152,12 +152,12 @@ where
     }
 
     /// Enables or disables synchronization for regular conversions.
-    fn set_regular_synchronization(&mut self, enable: bool) {
+    pub(crate) fn set_regular_synchronization(enable: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rsync(enable));
     }
 
     /// Enables or disables synchronization for injected conversions.
-    fn set_injected_synchronization(&mut self, enable: bool) {
+    pub(crate) fn set_injected_synchronization(enable: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jsync(enable));
     }
 
@@ -165,7 +165,7 @@ where
     ///
     /// `Some` enables the trigger with the specified trigger source and edge.
     /// `None` disables the trigger.
-    fn configure_injected_trigger(&mut self, trigger: Option<(InjectedDfsdmTrigger<T>, config_types::TriggerEdge)>) {
+    pub(crate) fn configure_injected_trigger(trigger: Option<(InjectedDfsdmTrigger<T>, config_types::TriggerEdge)>) {
         let (jextsel, jexten) = match trigger {
             Some((trigger, edge)) => (trigger.id(), edge as u8),
             None => (0, 0), // Disable
@@ -205,13 +205,13 @@ where
         self.start_regular_conversion();
 
         poll_fn(|cx| {
-            self.set_regular_end_of_conversion_interrupt(false);
+            Self::set_regular_end_of_conversion_interrupt(false);
             T::state().waker.register(cx.waker());
 
             if let Some(result) = self.try_get_regular_result() {
                 Poll::Ready(result)
             } else {
-                self.set_regular_end_of_conversion_interrupt(true);
+                Self::set_regular_end_of_conversion_interrupt(true);
                 Poll::Pending
             }
         })
@@ -226,13 +226,13 @@ where
         self.start_injected_conversion();
 
         poll_fn(|cx| {
-            self.set_injected_end_of_conversion_interrupt(false);
+            Self::set_injected_end_of_conversion_interrupt(false);
             T::state().waker.register(cx.waker());
 
             if let Some(result) = self.try_get_injected_result() {
                 Poll::Ready(result)
             } else {
-                self.set_injected_end_of_conversion_interrupt(true);
+                Self::set_injected_end_of_conversion_interrupt(true);
                 Poll::Pending
             }
         })
@@ -312,23 +312,43 @@ where
     }
 
     /// Returns whether a regular conversion result is available.
-    pub fn is_end_of_regular_conversion(&mut self) -> bool {
+    pub(crate) fn end_of_regular_conversion() -> bool {
         T::regs().flt(M::CHANNEL.index()).isr().read().reocf()
+    }
+
+    /// Returns whether a regular conversion result is available.
+    pub fn is_end_of_regular_conversion(&mut self) -> bool {
+        Self::end_of_regular_conversion()
+    }
+
+    /// Returns whether an injected conversion result is available.
+    pub(crate) fn end_of_injected_conversion() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jeocf()
     }
 
     /// Returns whether an injected conversion result is available.
     pub fn is_end_of_injected_conversion(&mut self) -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().jeocf()
+        Self::end_of_injected_conversion()
+    }
+
+    /// Returns whether a regular conversion is currently in progress or pendiong.
+    pub fn regular_conversion_in_progress() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().rcip()
     }
 
     /// Returns whether a regular conversion is currently in progress or pendiong.
     pub fn is_regular_conversion_in_progress(&mut self) -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().rcip()
+        Self::regular_conversion_in_progress()
+    }
+
+    /// Returns whether an injected conversion is currently in progress or pendiong.
+    pub fn injected_conversion_in_progress() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
     }
 
     /// Returns whether an injected conversion is currently in progress or pendiong.
     pub fn is_injected_conversion_in_progress(&mut self) -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
+        Self::injected_conversion_in_progress()
     }
 
     fn set_regular_transceiver(&mut self, ch: u8) {
@@ -340,20 +360,6 @@ where
             .flt(M::CHANNEL.index())
             .jchgr()
             .write(|w| w.set_jchg(channels));
-    }
-
-    fn set_injected_channel(&mut self, ch: u8) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .jchgr()
-            .modify(|w| w.set_jchg(w.jchg() | (1 << ch)));
-    }
-
-    fn clear_injected_transceiver(&mut self, ch: u8) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .jchgr()
-            .modify(|w| w.set_jchg(w.jchg() & !(1 << ch)));
     }
 
     /// Assign the provided `Transceiver` as the regular conversion input for this `Filter`
@@ -379,42 +385,11 @@ where
         self.set_injected_channels(filterword);
         self
     }
-    /// Assign the provided `Transceiver` to the injected conversion group of this `Filter`
-    pub fn assign_injected_transceiver<MT, S, MODE, PT>(
-        mut self,
-        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
-    ) -> Self
-    where
-        MT: TransceiverMarker + NextChannelForInstance<T>,
-        S: PinSet,
-        MODE: ChannelMode,
-        PT: PowerState,
-    {
-        self.set_injected_channel(channel.index() as u8);
-        self
-    }
-
-    /// Unassign the provided channel from the injected conversion group of this `Filter`
-    ///
-    /// Warning: Can't unassign the last remaining transceiver as the group always needs at least one.
-    pub fn unassign_injected_transceiver<MT, S, MODE, PT>(
-        mut self,
-        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
-    ) -> Self
-    where
-        MT: TransceiverMarker + NextChannelForInstance<T>,
-        S: PinSet,
-        MODE: ChannelMode,
-        PT: PowerState,
-    {
-        self.clear_injected_transceiver(channel.index() as u8);
-        self
-    }
 
     /// Enables/Disables analog watchdog fast mode.
     /// When enabled, the analog watchdog works on data directly from the transceiver.
     /// When disabled, the analog watchdog works on data filtered by the filter.
-    pub fn set_analog_watchdog_fastmode(&mut self, enabled: bool) {
+    pub(crate) fn set_analog_watchdog_fastmode(enabled: bool) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr1()
@@ -427,7 +402,7 @@ where
     /// conversion because the filter is already filled and does not need to be
     /// filled again. Subsequent conversions therefore take only `FOSR * IOSR / fCKIN`
     /// instead of the normal filter fill time. Has no effect outside continuous mode.
-    pub fn set_fastmode(&mut self, enabled: bool) {
+    pub(crate) fn set_fastmode(enabled: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_fast(enabled));
     }
 
@@ -436,7 +411,7 @@ where
     /// When enabled, the regular channel is converted repeatedly after each
     /// conversion request. Disabling it while a continuous conversion is in
     /// progress stops the conversion immediately.
-    pub fn set_continuous(&mut self, enabled: bool) {
+    pub(crate) fn set_continuous(enabled: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rcont(enabled));
     }
 
@@ -448,12 +423,12 @@ where
     ///
     /// Changing the injected channel group while scanning is disabled resets the
     /// channel selection to the lowest selected channel.
-    pub fn set_injected_scanning(&mut self, enabled: bool) {
+    pub(crate) fn set_injected_scanning(enabled: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jscan(enabled));
     }
 
     /// Enables the analog watchdog for the specified channel.
-    fn set_watchdog_channel(&mut self, ch: u8) {
+    pub(crate) fn set_watchdog_channel(ch: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr2()
@@ -461,7 +436,7 @@ where
     }
 
     /// Disables the analog watchdog for the specified channel.
-    fn clear_watchdog_channel(&mut self, ch: u8) {
+    pub(crate) fn clear_watchdog_channel(ch: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr2()
@@ -476,7 +451,7 @@ where
         MODE: ChannelMode,
         PT: PowerState,
     {
-        self.set_watchdog_channel(channel.index() as u8);
+        Self::set_watchdog_channel(channel.index() as u8);
         self
     }
 
@@ -491,12 +466,12 @@ where
         MODE: ChannelMode,
         PT: PowerState,
     {
-        self.clear_watchdog_channel(channel.index() as u8);
+        Self::clear_watchdog_channel(channel.index() as u8);
         self
     }
 
     /// Enables the extremes detector for the specified channel.
-    fn set_extremes_detector_channel(&mut self, ch: u8) {
+    pub(crate) fn set_extremes_detector_channel(ch: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr2()
@@ -504,7 +479,7 @@ where
     }
 
     /// Disables the extremes detector for the specified channel.
-    fn clear_extremes_detector_channel(&mut self, ch: u8) {
+    pub(crate) fn clear_extremes_detector_channel(ch: u8) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr2()
@@ -522,7 +497,7 @@ where
         MODE: ChannelMode,
         PT: PowerState,
     {
-        self.set_extremes_detector_channel(channel.index() as u8);
+        Self::set_extremes_detector_channel(channel.index() as u8);
         self
     }
 
@@ -537,7 +512,7 @@ where
         MODE: ChannelMode,
         PT: PowerState,
     {
-        self.clear_extremes_detector_channel(channel.index() as u8);
+        Self::clear_extremes_detector_channel(channel.index() as u8);
         self
     }
 }
@@ -570,7 +545,7 @@ where
     P: PowerState,
 {
     /// Enables or disables regular data overrun interrupts.
-    fn set_regular_overrun_interrupt(&mut self, enabled: bool) {
+    pub(crate) fn set_regular_overrun_interrupt(enabled: bool) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr2()
@@ -578,7 +553,7 @@ where
     }
 
     /// Enables or disables injected data overrun interrupts.
-    fn set_injected_overrun_interrupt(&mut self, enabled: bool) {
+    pub(crate) fn set_injected_overrun_interrupt(enabled: bool) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr2()
@@ -586,15 +561,7 @@ where
     }
 
     /// Enables or disables regular end-of-conversion interrupts.
-    fn set_regular_end_of_conversion_interrupt(&mut self, enabled: bool) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_reocie(enabled));
-    }
-
-    // Associated function test TODO
-    pub(crate) fn set_regular_end_of_conversion_interrupt_raw(enabled: bool) {
+    pub(crate) fn set_regular_end_of_conversion_interrupt(enabled: bool) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr2()
@@ -602,15 +569,7 @@ where
     }
 
     /// Enables or disables injected end-of-conversion interrupts.
-    fn set_injected_end_of_conversion_interrupt(&mut self, enabled: bool) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_jeocie(enabled));
-    }
-
-    // Associated function test TODO
-    pub(crate) fn set_injected_end_of_conversion_interrupt_raw(enabled: bool) {
+    pub(crate) fn set_injected_end_of_conversion_interrupt(enabled: bool) {
         T::regs()
             .flt(M::CHANNEL.index())
             .cr2()
@@ -624,8 +583,12 @@ where
     F: FilterMarker,
 {
     unsafe fn on_interrupt() {
-        Filter::<T, F, Enabled>::set_regular_end_of_conversion_interrupt_raw(false);
-        Filter::<T, F, Enabled>::set_injected_end_of_conversion_interrupt_raw(false);
+        if Filter::<T, F, Enabled>::end_of_injected_conversion() {
+            Filter::<T, F, Enabled>::set_injected_end_of_conversion_interrupt(false);
+        }
+        if Filter::<T, F, Enabled>::end_of_regular_conversion() {
+            Filter::<T, F, Enabled>::set_regular_end_of_conversion_interrupt(false);
+        }
         <T as FilterInterrupt<F>>::state().waker.wake();
     }
 }

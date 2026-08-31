@@ -1176,7 +1176,10 @@ pub mod config_types {
     }
 
     /// absolute gain limit, after that 32bit signed accumulators might overflow
-    const MAX_GAIN: u32 = i32::MIN.unsigned_abs(); //   TODO Really should be i32::MAX.unsigned_abs(); which is 1-less, TRM wrong?
+    const MAX_GAIN: u32 = i32::MIN.unsigned_abs();
+    // TODO TEST IN HARDWARE.
+    // // TRM states <=2^32 but to all accounts that's 1 too much as signed ints have 1-less positive headroom than negative
+    // const MAX_GAIN: u32 = i32::MAX.unsigned_abs();
 
     impl FilterOrder {
         fn fosr(&self) -> u16 {
