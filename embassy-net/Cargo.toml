@@ -137,6 +137,7 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "324376018b2f7e5f1c70bb0070d92306afea32e3", default-features = false, features = ["async"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "324376018b2f7e5f1c70bb0070d92306afea32e3", default-features = false, features = ["async"] }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
