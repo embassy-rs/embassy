@@ -107,7 +107,16 @@ async fn main(_spawner: Spawner) {
         )
     });
 
-    let tcv_cfg = TransceiverConfig::default();
+    // 2MHz/100/50 = 400Hz 3dB+3dB+3dB frequency
+    let filter_params =
+        FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 100 }, 50).expect("This is inside the bounds");
+    let gain = filter_params.total_gain();
+
+    let tcv_cfg = TransceiverConfig {
+        data_right_shift: filter_params.recommended_shift().try_into().unwrap(),
+        ..Default::default()
+    };
+
     let tcv_cfg_online = TransceiverConfigOnline::default();
     let channel_mic = split
         .ch1
@@ -115,18 +124,7 @@ async fn main(_spawner: Spawner) {
         .configure(&tcv_cfg, &tcv_cfg_online)
         .enable();
 
-    //TODO the enable semantics should really also be linked to channel assignments in filters?
-
-    // 2MHz/100/50 = 400Hz 3dB frequency
-
-    let filter_params =
-        FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 100 }, 50).expect("This is inside the bounds");
-    let gain = filter_params.total_gain();
-
-    let flt_cfg = FilterConfig {
-        // filter_cfg: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 5 }, 4).expect("This is inside the bounds"),
-        filter_params,
-    };
+    let flt_cfg = FilterConfig { filter_params };
     let mut flt0 = split
         .flt0
         .configure(&flt_cfg)

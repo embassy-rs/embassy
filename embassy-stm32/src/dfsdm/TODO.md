@@ -147,3 +147,6 @@ Due to interrupts we should really put the IRQ requirement into the Common? And 
 # Notes
 * When enabled vs pub: COnstructor/config vs accessor I guess?
 * Handle overrun etc in normal handler? Or external, registerable?
+* The enable semantics should really also be linked to channel assignments in filters?
+
+   

@@ -953,9 +953,9 @@ pub mod config_types {
     pub struct UInt<const BITS: u8, T>(T);
 
     impl<const BITS: u8> UInt<BITS, u8> {
-        const MAX: u32 = {
+        const MAX: u8 = {
             core::assert!(BITS > 0 && BITS <= 32, "invalid bit width");
-            if BITS == 32 { u32::MAX } else { (1 << BITS) - 1 }
+            if BITS == 32 { u8::MAX } else { (1 << BITS) - 1 }
         };
 
         /// Create new sized uint, asserts correctness at runtime.
@@ -971,11 +971,11 @@ pub mod config_types {
         }
     }
 
-    impl<const BITS: u8> TryFrom<u32> for UInt<BITS, u8> {
+    impl<const BITS: u8> TryFrom<u8> for UInt<BITS, u8> {
         type Error = ();
 
         /// Try to create new sized uint.
-        fn try_from(value: u32) -> Result<Self, Self::Error> {
+        fn try_from(value: u8) -> Result<Self, Self::Error> {
             if value <= Self::MAX {
                 Ok(Self(value as u8))
             } else {
@@ -1157,10 +1157,9 @@ pub mod config_types {
     }
 
     /// absolute gain limit, after that 32bit signed accumulators might overflow
-    const MAX_GAIN: u32 = i32::MIN.unsigned_abs();
-    // TODO TEST IN HARDWARE.
-    // // TRM states <=2^32 but to all accounts that's 1 too much as signed ints have 1-less positive headroom than negative
-    // const MAX_GAIN: u32 = i32::MAX.unsigned_abs();
+    /// TRM states <=2^32 (`i32::MIN.unsigned_abs()`) but to that's 1 too much
+    /// as signed ints have 1-less positive headroom than negative
+    const MAX_GAIN: u32 = i32::MAX.unsigned_abs();
 
     impl FilterOrder {
         fn fosr(&self) -> u16 {
