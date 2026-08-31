@@ -490,10 +490,15 @@ impl Iterator for ReceivedMidiPackets<'_> {
     type Item = ReceivedMidiPacket;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let chunk = self.chunks.next()?;
-        let packet = UsbMidiEventPacket::new([chunk[0], chunk[1], chunk[2], chunk[3]]);
-        let port = self.ports.iter().find(|port| port.cable == packet.cable()).copied()?;
-        Some(ReceivedMidiPacket { port, packet })
+        loop {
+            let chunk = self.chunks.next()?;
+            let packet = UsbMidiEventPacket::new([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            if packet.data().is_none() {
+                continue;
+            }
+            let port = self.ports.iter().find(|port| port.cable == packet.cable()).copied()?;
+            return Some(ReceivedMidiPacket { port, packet });
+        }
     }
 }
 
@@ -673,7 +678,7 @@ mod tests {
             jack_ids: Vec::from_slice(&[3, 7]).unwrap(),
         };
         let ports = input_ports(2, &endpoint, 5).unwrap();
-        let transfer = [0x19, 0x90, 60, 100];
+        let transfer = [0, 0, 0, 0, 0x19, 0x90, 60, 100, 0, 0, 0, 0];
         let mut packets = ReceivedMidiPackets {
             chunks: transfer.chunks_exact(EVENT_PACKET_SIZE),
             ports: &ports,
