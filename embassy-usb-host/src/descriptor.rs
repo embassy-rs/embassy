@@ -592,7 +592,7 @@ impl<'a> ConfigurationDescriptorChain<'a> {
         let first_interface_offset = self
             .iter_descriptors()
             .find_map(|(offset, bytes)| {
-                if bytes[1] == descriptor_type::INTERFACE {
+                if bytes.get(1) == Some(&descriptor_type::INTERFACE) {
                     Some(offset)
                 } else {
                     None
@@ -1588,5 +1588,13 @@ mod test {
             assert_eq!(descriptor.write_to_bytes(&mut bytes), Ok(2 + 2 * n));
             assert_eq!(StringDescriptor::try_from_bytes(&bytes), Ok(descriptor));
         }
+    }
+
+    /// A 1-byte descriptor must not be indexed past its end.
+    #[test]
+    fn iter_interface_skips_short_descriptors() {
+        const BUF: [u8; 10] = [9, 2, 10, 0, 1, 1, 0, 0x80, 50, 0x01];
+        let cfg = ConfigurationDescriptorChain::try_from_slice(&BUF).expect("configuration parses");
+        assert_eq!(cfg.iter_interface().count(), 0);
     }
 }
