@@ -316,8 +316,11 @@ impl Info {
     ///
     /// # Safety
     ///
-    /// The caller must exclusively own the I3C instance, stop all peripheral
-    /// and DMA activity, and ensure SCL/SDA are inactive during reset release.
+    /// The caller must exclusively own the I3C instance and stop all software-
+    /// controlled peripheral and DMA activity before pulsing the reset.
+    /// Active SCL/SDA at reset release has defined hardware behavior: the I3C
+    /// module enters Hot-Join mode and remains inactive until software
+    /// reinitializes it or the controller handles the Hot-Join.
     pub(crate) unsafe fn reset_peripheral<T: Instance>() {
         unsafe { crate::clocks::pulse_reset::<T>() };
     }

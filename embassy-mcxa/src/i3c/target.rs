@@ -652,16 +652,18 @@ impl<'d> I3c<'d> {
     /// Reset and reconfigure the I3C target without releasing its pins,
     /// DMA channels, or RX buffer.
     ///
-    /// This prevents new DMA requests, drains any active DMA minor loop,
-    /// discards unread RX data, resets and configures I3C, then re-arms RX DMA
-    /// before enabling the target again.
+    /// This is a destructive operation. Any active transaction is aborted,
+    /// and partial or queued RX data is discarded rather than returned to the
+    /// caller.
     ///
     /// A peripheral reset also clears the dynamic address, so the controller
     /// must assign a new address before directed I3C traffic resumes.
-    /// NOTE: Per reference manual, the controller must not be active when reset is
-    /// released, otherwise, the target will stay in hot-join mode. Therefore, caller
-    /// must ensure the bus is inactive before calling this method or ensure the controller
-    /// will handle the hot-join state after reset.
+    ///
+    /// Per NXP, if SCL or SDA is active when reset is released, the peripheral
+    /// enters Hot-Join mode and remains inactive. This method recovers the
+    /// peripheral from that state by reinitializing it. Alternatively, the
+    /// controller may recover it by handling the Hot-Join, but this method does
+    /// not rely on that path.
     pub fn reset(&mut self) {
         // Disable the I3C IRQ so we can safely manipulate the peripheral and BBQ state.
         (self.info.disable_interrupt)();
@@ -691,7 +693,9 @@ impl<'d> I3c<'d> {
         // Reset the peripheral.
         //
         // SAFETY: This driver exclusively owns the peripheral, all I3C/DMA
-        // activity is stopped, and the caller guarantees the bus is inactive.
+        // activity owned by the driver is stopped, and active SCL/SDA at reset
+        // release has defined hardware behavior. Reinitialization below recovers
+        // the peripheral from the resulting inactive state.
         unsafe { (self.info.reset_peripheral)() };
 
         // Reconfigure the peripheral with the same settings as before.
@@ -1611,7 +1615,12 @@ impl BbqState {
         }
     }
 
-    /// Stop RX DMA and discard any queued data.
+    /// Stop RX DMA and discard all buffered data.
+    ///
+    /// This is the first half of the reset-only RX teardown and rearm
+    /// sequence. It must be followed by a peripheral reset and reconfiguration,
+    /// then by [`Self::rearm_rx`]. Bytes in the active write grant and committed
+    /// unread grants are discarded and are not returned to the caller.
     ///
     /// # Safety
     ///
@@ -1667,8 +1676,9 @@ impl BbqState {
 
     /// Re-arm RX DMA using the retained queue and channel.
     ///
-    /// Arms the bus STOP interrupt whether or not a grant opened, so a ring
-    /// that is transiently full is retried by the IRQ on the next bus event.
+    /// This is the second half of the reset-only RX teardown and rearm
+    /// sequence. It must only be called after [`Self::stop_and_drain_rx`] and
+    /// after the peripheral has been reset and reconfigured.
     ///
     /// # Safety
     ///
@@ -1683,10 +1693,15 @@ impl BbqState {
             return;
         }
 
-        // SAFETY: RXDMA_PRESENT guarantees initialized queue/DMA storage.
-        // The preceding stop_and_drain_rx call removed the active grant, and
+        // Should not fail: init validated the grant size and DMA setup, and the
+        // preceding `stop_and_drain_rx` freed the whole ring.
+        //
+        // SAFETY: RXDMA_PRESENT guarantees initialized queue/DMA storage, and
         // reset keeps the owning I3C interrupt disabled.
-        unsafe { self.start_read_transfer(info) };
+        let started = unsafe { self.start_read_transfer(info) };
+        debug_assert!(started, "RX DMA rearm failed after draining the queue");
+
+        // Re-arm the BBQ rotation trigger; the reset cleared every interrupt enable.
         info.regs().sintset().write(|w| w.set_stop(true));
     }
 

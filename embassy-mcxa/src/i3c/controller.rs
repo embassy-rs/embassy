@@ -544,6 +544,8 @@ impl<'d, M: Mode> I3c<'d, M> {
             w.set_urun(true);
             w.set_nack(true);
             w.set_wrabt(true);
+            // status() reports TERM, so it must be clearable or it latches forever.
+            w.set_term(true);
             w.set_hpar(true);
             w.set_hcrc(true);
             w.set_oread(true);
@@ -1602,6 +1604,25 @@ where
     /// next directed transfer. The caller should follow up with
     /// [`Self::async_read`] or [`Self::async_write`] as needed.
     pub async fn async_wait_for_ibi(&mut self, buf: &mut [u8]) -> Result<IbiEvent, IOError> {
+        let result = self.async_wait_for_ibi_inner(buf).await;
+
+        // Bailing out mid-sequence skips the Stop in step 7 and leaves SLVSTART
+        // and MERRWARN latched, so the next call re-reports the stale error and
+        // fires AUTO_IBI at a target that never requested the bus (INVREQ).
+        if result.is_err() {
+            if self.info.regs().mstatus().read().state() == State::Normact {
+                let _ = self.async_stop(BusType::I3cSdr).await;
+            }
+            self.info.regs().mdatactrl().modify(|w| w.set_flushfb(true));
+            self.clear_flags();
+            self.clear_errors();
+            self.info.regs().mstatus().write(|w| w.set_errwarn(true));
+        }
+
+        result
+    }
+
+    async fn async_wait_for_ibi_inner(&mut self, buf: &mut [u8]) -> Result<IbiEvent, IOError> {
         // Step 1: Wait for SLVSTART (a target is asserting SDA low to request the bus).
         //
         // NOTE: we deliberately do *not* gate on `mstatus.state() == Slvreq`
