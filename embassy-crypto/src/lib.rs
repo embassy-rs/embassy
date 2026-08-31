@@ -22,6 +22,13 @@ use digest::{
 };
 use generic_array::typenum::{U1, U12, U16, U20, U28, U32, U48, U64, U128};
 
+#[inline]
+fn unwrap_inout<'inp, 'out>(buf: InOutBuf<'inp, 'out, u8>) -> embassy_crypto_driver::InOutBuf<'inp, 'out, u8> {
+    let len = buf.len();
+    let (in_ptr, out_ptr) = buf.into_raw();
+    unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr, out_ptr, len) }
+}
+
 // ===========================================================================
 // Digest macro
 // ===========================================================================
@@ -421,10 +428,10 @@ macro_rules! impl_ecb {
         impl BlockCipherEncBackend for $name {
             #[inline]
             fn encrypt_block(&self, block: InOut<'_, '_, cipher::Block<Self>>) {
-                let out: &mut cipher::Block<Self> = block.into_out_with_copied_in();
-                let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
-                let blocks = core::slice::from_mut(arr);
-                $enc(&self.ctx, blocks);
+                let (in_ptr, out_ptr) = block.into_raw();
+                let buf =
+                    unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr as *const u8, out_ptr as *mut u8, 16) };
+                $enc(&self.ctx, buf);
             }
         }
 
@@ -438,10 +445,10 @@ macro_rules! impl_ecb {
         impl BlockCipherDecBackend for $name {
             #[inline]
             fn decrypt_block(&self, block: InOut<'_, '_, cipher::Block<Self>>) {
-                let out: &mut cipher::Block<Self> = block.into_out_with_copied_in();
-                let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
-                let blocks = core::slice::from_mut(arr);
-                $dec(&self.ctx, blocks);
+                let (in_ptr, out_ptr) = block.into_raw();
+                let buf =
+                    unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr as *const u8, out_ptr as *mut u8, 16) };
+                $dec(&self.ctx, buf);
             }
         }
 
@@ -519,10 +526,10 @@ macro_rules! impl_cbc {
         impl BlockModeEncBackend for $name {
             #[inline]
             fn encrypt_block(&mut self, block: InOut<'_, '_, cipher::Block<Self>>) {
-                let out: &mut cipher::Block<Self> = block.into_out_with_copied_in();
-                let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
-                let blocks = core::slice::from_mut(arr);
-                $enc(&mut self.ctx, blocks);
+                let (in_ptr, out_ptr) = block.into_raw();
+                let buf =
+                    unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr as *const u8, out_ptr as *mut u8, 16) };
+                $enc(&mut self.ctx, buf);
             }
         }
 
@@ -537,19 +544,20 @@ macro_rules! impl_cbc {
                 if blocks.is_empty() {
                     return;
                 }
-                let ptr = blocks.as_mut_ptr() as *mut [u8; 16];
-                let blocks_arr = unsafe { core::slice::from_raw_parts_mut(ptr, blocks.len()) };
-                $enc(&mut self.ctx, blocks_arr);
+                let in_ptr = blocks.as_ptr() as *const u8;
+                let out_ptr = blocks.as_mut_ptr() as *mut u8;
+                let buf = unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr, out_ptr, blocks.len() * 16) };
+                $enc(&mut self.ctx, buf);
             }
         }
 
         impl BlockModeDecBackend for $name {
             #[inline]
             fn decrypt_block(&mut self, block: InOut<'_, '_, cipher::Block<Self>>) {
-                let out: &mut cipher::Block<Self> = block.into_out_with_copied_in();
-                let arr: &mut [u8; 16] = out.as_mut_slice().try_into().unwrap();
-                let blocks = core::slice::from_mut(arr);
-                $dec(&mut self.ctx, blocks);
+                let (in_ptr, out_ptr) = block.into_raw();
+                let buf =
+                    unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr as *const u8, out_ptr as *mut u8, 16) };
+                $dec(&mut self.ctx, buf);
             }
         }
 
@@ -564,9 +572,10 @@ macro_rules! impl_cbc {
                 if blocks.is_empty() {
                     return;
                 }
-                let ptr = blocks.as_mut_ptr() as *mut [u8; 16];
-                let blocks_arr = unsafe { core::slice::from_raw_parts_mut(ptr, blocks.len()) };
-                $dec(&mut self.ctx, blocks_arr);
+                let in_ptr = blocks.as_ptr() as *const u8;
+                let out_ptr = blocks.as_mut_ptr() as *mut u8;
+                let buf = unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr, out_ptr, blocks.len() * 16) };
+                $dec(&mut self.ctx, buf);
             }
         }
     };
@@ -637,7 +646,7 @@ macro_rules! impl_gcm {
                     &self.ctx,
                     nonce.as_slice(),
                     associated_data,
-                    buffer.into_out_with_copied_in(),
+                    unwrap_inout(buffer),
                     tag.as_mut_slice().try_into().unwrap(),
                 )
                 .map_err(|_| aead::Error)?;
@@ -655,7 +664,7 @@ macro_rules! impl_gcm {
                     &self.ctx,
                     nonce.as_slice(),
                     associated_data,
-                    buffer.into_out_with_copied_in(),
+                    unwrap_inout(buffer),
                     tag.as_slice().try_into().unwrap(),
                 )
                 .map_err(|_| aead::Error)
@@ -802,7 +811,7 @@ where
             &self.ctx,
             nonce.as_slice(),
             associated_data,
-            buffer.into_out_with_copied_in(),
+            unwrap_inout(buffer),
             tag.as_mut_slice(),
         )
         .map_err(|_| aead::Error)?;
@@ -820,7 +829,7 @@ where
             &self.ctx,
             nonce.as_slice(),
             associated_data,
-            buffer.into_out_with_copied_in(),
+            unwrap_inout(buffer),
             tag.as_slice(),
         )
         .map_err(|_| aead::Error)
@@ -889,7 +898,7 @@ where
             &self.ctx,
             nonce.as_slice(),
             associated_data,
-            buffer.into_out_with_copied_in(),
+            unwrap_inout(buffer),
             tag.as_mut_slice(),
         )
         .map_err(|_| aead::Error)?;
@@ -907,7 +916,7 @@ where
             &self.ctx,
             nonce.as_slice(),
             associated_data,
-            buffer.into_out_with_copied_in(),
+            unwrap_inout(buffer),
             tag.as_slice(),
         )
         .map_err(|_| aead::Error)
@@ -1262,13 +1271,13 @@ macro_rules! impl_ctr {
 
             #[inline]
             fn unchecked_apply_keystream_inout(&mut self, buf: InOutBuf<'_, '_, u8>) {
-                $apply(&mut self.ctx, buf.into_out_with_copied_in());
+                $apply(&mut self.ctx, unwrap_inout(buf));
             }
 
             #[inline]
             fn unchecked_write_keystream(&mut self, buf: &mut [u8]) {
                 buf.fill(0);
-                $apply(&mut self.ctx, buf);
+                $apply(&mut self.ctx, buf.into());
             }
         }
     };
