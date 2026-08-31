@@ -310,6 +310,9 @@ impl Info {
 
         T::Interrupt::disable();
         T::Interrupt::unpend();
+        // Add a DSB/ISB to ensure that the interrupt is fully disabled before returning.
+        cortex_m::asm::dsb();
+        cortex_m::asm::isb();
     }
 
     /// Pulse the MRCC reset.
