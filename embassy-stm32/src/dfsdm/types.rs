@@ -1175,7 +1175,8 @@ pub mod config_types {
         Sinc5 { fosr: u16 },
     }
 
-    const MAX_GAIN: u32 = i32::MAX as u32;
+    /// absolute gain limit, after that 32bit signed accumulators might overflow
+    const MAX_GAIN: u32 = i32::MIN.unsigned_abs(); //   TODO Really should be i32::MAX.unsigned_abs(); which is 1-less, TRM wrong?
 
     impl FilterOrder {
         fn fosr(&self) -> u16 {
@@ -1203,7 +1204,7 @@ pub mod config_types {
                 Self::Sinc5 { fosr } => (fosr as u32).checked_pow(5)?,
             };
 
-            (gain <= i32::MAX as u32).then_some(gain)
+            (gain <= MAX_GAIN).then_some(gain)
         }
         /// Tests whether filter order + OSR combinations results
         /// in sub-i32 measurements
@@ -1258,7 +1259,7 @@ pub mod config_types {
             self.order
                 .gain()
                 .and_then(|filter_gain| filter_gain.checked_mul(self.iosr as u32))
-                .filter(|&gain| gain <= i32::MAX as u32)
+                .filter(|&gain| gain <= MAX_GAIN)
         }
 
         /// Returns the total gain of this filter parametrization
@@ -1271,7 +1272,7 @@ pub mod config_types {
         pub fn recommended_shift(&self) -> u8 {
             let gain = self.total_gain();
 
-            gain.saturating_sub(1).ilog2().saturating_sub(23) as u8
+            gain.next_power_of_two().ilog2().saturating_sub(23) as u8
         }
     }
 
