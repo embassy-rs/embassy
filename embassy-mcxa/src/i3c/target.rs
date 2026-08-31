@@ -692,10 +692,10 @@ impl<'d> I3c<'d> {
 
         // Reset the peripheral.
         //
-        // SAFETY: This driver exclusively owns the peripheral, all I3C/DMA
-        // activity owned by the driver is stopped, and active SCL/SDA at reset
-        // release has defined hardware behavior. Reinitialization below recovers
-        // the peripheral from the resulting inactive state.
+        // SAFETY: This driver exclusively owns the peripheral, its IRQ is masked
+        // and both DMA channels are stopped. The bus itself may still be active,
+        // which has defined hardware behavior at reset release; the
+        // reinitialization below recovers the peripheral from that state.
         unsafe { (self.info.reset_peripheral)() };
 
         // Reconfigure the peripheral with the same settings as before.
