@@ -14,14 +14,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `#[unsafe(export_name = "__pender")]` implementations keep working.
 - The `trace` feature callbacks are now defined as a trait: implement
   `embassy_executor::raw::trace::hooks::Trace` and register it with
-  `embassy_executor::trace_impl!`. The `_embassy_trace_*` extern symbols and signatures are
-  unchanged, so existing manual implementations keep working.
+  `embassy_executor::trace_impl!`.
 - Added `platform-riscv64` for RISC-V 64-bit targets (thread executor only, uses `WFI`; shares implementation with `platform-riscv32`).
 - Relaxed memory ordering of work flag in RISC-V thread executor.
 - Skip the run queue's `take_all` write when the queue is empty.
 - Renamed `platform-cortex-ar` to `platform-aarch32`.
 - Added `executor-interrupt` support to `platform-aarch32`, using GICv1/GICv2 software-generated
   interrupts. `InterruptExecutor::start()` takes the GIC distributor base address and the SGI ID.
+- Changed trace callback signatures & added traces for when the task metadata changes
+- Create proper types for task id & executor id
+- Changed trace callback signatures to take `ExecutorId` and `TaskRef` instead of `u32` ids, and
+  renamed the extern symbols from `_embassy_trace_*` to `_embassy_trace_v2_*`.
+- Added trace callbacks for when the task metadata (name, priority, deadline) changes.
+- Added `TaskId` and `ExecutorId` types.
 
 ## 0.10.0 - 2026-03-10
 
