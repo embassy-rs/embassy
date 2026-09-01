@@ -69,9 +69,24 @@ pub struct RomApi {
 }
 
 impl RomApi {
-    #[allow(clippy::not_unsafe_ptr_arg_deref, reason = "ROM will check the pointer for validity")]
-    pub fn run_bootloader(&self, arg: *const u32) {
-        unsafe { (self.run_bootloader)(arg) }
+    pub fn run_bootloader(
+        &self,
+        mode: RunBootMode,
+        isp_interface: RunBootIspInterface,
+        master_flash_boot_option: RunBootMasterFlashBootOption,
+        interface_instance: RunBootInterfaceInstance,
+        image_index: RunBootImageIndex,
+        recovery_boot_cfg1: RunBootRecoveryBootCfg1,
+        recovery_boot_cfg0: RunBootRecoveryBootCfg0,
+    ) {
+        let arg = mode as u32
+            | isp_interface as u32
+            | master_flash_boot_option as u32
+            | interface_instance as u32
+            | image_index as u32
+            | recovery_boot_cfg1 as u32
+            | recovery_boot_cfg0 as u32;
+        unsafe { (self.run_bootloader)(&raw const arg) }
     }
 
     pub fn flash(&self) -> Result<Flash, FlashError> {
@@ -109,16 +124,15 @@ impl RomApi {
     }
 }
 
-// runBootloader API fields (Table 31)
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RunBootTag {
+pub enum RunBootTag {
     EnterBoot = 0xEB << 24,
 }
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RunBootMode {
+pub enum RunBootMode {
     PrimaryMasterBoot = 0x0 << 20,
     IspBoot = 0x1 << 20,
     ProvFwMode = 0x2 << 20,
@@ -126,7 +140,7 @@ enum RunBootMode {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RunBootIspInterface {
+pub enum RunBootIspInterface {
     AutoDetection = 0x0 << 16,
     Uart = 0x1 << 16,
     Spi = 0x2 << 16,
@@ -136,7 +150,7 @@ enum RunBootIspInterface {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RunBootMasterFlashBootOption {
+pub enum RunBootMasterFlashBootOption {
     InternalFlash = 0x0 << 16,
     FlexspiFlash = 0x2 << 16,
     OneBitSpiNorFlash = 0x3 << 16,
@@ -145,7 +159,7 @@ enum RunBootMasterFlashBootOption {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RunBootInterfaceInstance {
+pub enum RunBootInterfaceInstance {
     FlexspiPortA = 0x0 << 12,
     FlexspiPortB = 0x1 << 12,
     FlexspiPortAAndB = 0x2 << 12,
@@ -153,14 +167,14 @@ enum RunBootInterfaceInstance {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RunBootImageIndex {
+pub enum RunBootImageIndex {
     Image0 = 0x0 << 8,
     Image1 = 0x1 << 8,
 }
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RunBootRecoveryBootCfg1 {
+pub enum RunBootRecoveryBootCfg1 {
     SpiNorBaudRate0 = 0x0 << 6,
     SpiNorBaudRate1 = 0x1 << 6,
     SpiNorBaudRate2 = 0x2 << 6,
@@ -169,7 +183,7 @@ enum RunBootRecoveryBootCfg1 {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum RunBootRecoveryBootCfg0 {
+pub enum RunBootRecoveryBootCfg0 {
     SpiNorChipSelect0 = 0x0 << 4,
     SpiNorChipSelect1 = 0x1 << 4,
     SpiNorChipSelect2 = 0x2 << 4,
