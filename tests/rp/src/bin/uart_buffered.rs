@@ -20,7 +20,7 @@ bind_interrupts!(struct Irqs {
     UART0_IRQ => BufferedInterruptHandler<UART0>;
 });
 
-async fn read<const N: usize>(uart: &mut BufferedUart) -> Result<[u8; N], Error> {
+async fn read<const N: usize>(uart: &mut BufferedUart<'_>) -> Result<[u8; N], Error> {
     let mut buf = [255; N];
     match uart.read_exact(&mut buf).await {
         Ok(()) => Ok(buf),
@@ -30,7 +30,7 @@ async fn read<const N: usize>(uart: &mut BufferedUart) -> Result<[u8; N], Error>
     }
 }
 
-async fn read1<const N: usize>(uart: &mut BufferedUartRx) -> Result<[u8; N], Error> {
+async fn read1<const N: usize>(uart: &mut BufferedUartRx<'_>) -> Result<[u8; N], Error> {
     let mut buf = [255; N];
     match uart.read_exact(&mut buf).await {
         Ok(()) => Ok(buf),

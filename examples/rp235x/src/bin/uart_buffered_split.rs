@@ -49,7 +49,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn reader(mut rx: BufferedUartRx) {
+async fn reader(mut rx: BufferedUartRx<'static>) {
     info!("Reading...");
     loop {
         let mut buf = [0; 31];
