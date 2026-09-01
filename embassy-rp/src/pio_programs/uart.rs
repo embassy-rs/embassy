@@ -3,12 +3,8 @@
 use core::convert::Infallible;
 
 use embedded_io_async::{ErrorType, Read, Write};
-use fixed::FixedU32;
-use fixed::traits::ToFixed;
-use fixed::types::extra::U8;
 
 use crate::Peri;
-use crate::clocks::clk_sys_freq;
 use crate::gpio::Level;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
@@ -125,7 +121,7 @@ impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
 
     /// Change baud rate on run time  
     pub fn set_baudrate(&mut self, baud: u32) {
-        let clock_divider: FixedU32<U8> = (clk_sys_freq() / (8 * baud)).to_fixed();
+        let clock_divider = calculate_pio_clock_divider(8 * baud);
         self.sm_tx.set_enable(false);
         self.sm_tx.clear_fifos();
         self.sm_tx.restart();
@@ -231,7 +227,7 @@ impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
 
     /// Change Baud rate on runtime
     pub fn set_baudrate(&mut self, baud: u32) {
-        let clock_divider: FixedU32<U8> = (clk_sys_freq() / (8 * baud)).to_fixed();
+        let clock_divider = calculate_pio_clock_divider(8 * baud);
         self.sm_rx.set_enable(false);
         self.sm_rx.clear_fifos();
         self.sm_rx.restart();
