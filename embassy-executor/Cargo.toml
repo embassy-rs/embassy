@@ -33,10 +33,13 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline", "trace"]},
     {target = "thumbv7em-none-eabi", features = ["platform-spin"]},
     {target = "thumbv7em-none-eabi", features = ["platform-spin", "scheduler-deadline"]},
-    {target = "armv7a-none-eabi", features = ["platform-cortex-ar", "executor-thread"]},
-    {target = "armv7r-none-eabi", features = ["platform-cortex-ar", "executor-thread"]},
-    {target = "armv7r-none-eabihf", features = ["platform-cortex-ar", "executor-thread"]},
-    {target = "armv8r-none-eabihf", features = ["platform-cortex-ar", "executor-thread"]},
+    {target = "armv7a-none-eabi", features = ["platform-aarch32", "executor-thread"]},
+    {target = "armv7a-none-eabi", features = ["platform-aarch32", "executor-interrupt"]},
+    {target = "armv7a-none-eabi", features = ["platform-aarch32", "executor-thread", "executor-interrupt"]},
+    {target = "armv7r-none-eabi", features = ["platform-aarch32", "executor-thread", "executor-interrupt"]},
+    {target = "armv7r-none-eabi", features = ["platform-aarch32", "executor-thread"]},
+    {target = "armv7r-none-eabihf", features = ["platform-aarch32", "executor-thread"]},
+    {target = "armv8r-none-eabihf", features = ["platform-aarch32", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "trace"]},
@@ -63,7 +66,7 @@ build = [
     {group = "nightly", target = "riscv64imac-unknown-none-elf", features = ["nightly", "platform-riscv64", "executor-thread"]},
     {group = "nightly", target = "riscv64gc-unknown-none-elf", features = ["nightly", "platform-riscv64"]},
     {group = "nightly", target = "riscv64gc-unknown-none-elf", features = ["nightly", "platform-riscv64", "executor-thread"]},
-    {group = "nightly", target = "armv7a-none-eabi", features = ["nightly", "platform-cortex-ar", "executor-thread"]},
+    {group = "nightly", target = "armv7a-none-eabi", features = ["nightly", "platform-aarch32", "executor-thread"]},
     {group = "nightly", target = "avr-none", features = ["nightly", "platform-avr", "avr-device/atmega328p"], build-std = ["core", "alloc"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" }},
     # Xtensa builds
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = []},
@@ -115,7 +118,7 @@ portable-atomic = { version = "1.5", optional = true }
 # platform-cortex-m dependencies
 cortex-m = { version = "0.7.6", optional = true }
 
-# platform-cortex-ar dependencies
+# platform-aarch32 dependencies
 aarch32-cpu = { version = "0.3", optional = true }
 
 # platform-wasm dependencies
@@ -124,10 +127,6 @@ js-sys = { version = "0.3", optional = true }
 
 # platform-avr dependencies
 avr-device = { version = "0.8.1", optional = true }
-
-# platform-z7 dependencies
-zynq7000 = { version = "0.4", optional = true }
-arbitrary-int = { version = "2", optional = true }
 
 [dependencies.cordyceps]
 version = "0.3.5"
@@ -165,14 +164,12 @@ platform-std = ["_platform"]
 ## - Only usable on **bare-metal**. Do not use this if you want to run the executor inside an RTOS thread, you must use RTOS primitives to sleep/notify the thread instead.
 ## - Only usable on **privileged mode**. 
 platform-cortex-m = ["_platform", "dep:cortex-m"]
-## Cortex-A/R platform. Uses `WFE`/`SEV` for the thread executor. Interrupt executor is not supported.
+## AArch32 platform (Cortex-A/R and other ARMv7-A/R and ARMv8-A/R cores in 32-bit mode). Uses `WFE`/`SEV` for the thread executor, GICv1/GICv2 software-generated interrupts (SGI) for the interrupt executor.
 ## 
 ## - Only usable on **single-core chips**. (Exception: the thread executor might work if your chip has wired the "event" signal between the cores, so `SEV` on one core can break a `WFE` in the other)
 ## - Only usable on **bare-metal**. Do not use this if you want to run the executor inside an RTOS thread, you must use RTOS primitives to sleep/notify the thread instead.
 ## - Only usable on **privileged mode**. 
-platform-cortex-ar = ["_platform", "dep:aarch32-cpu", "dep:arm-targets"]
-# Zynq7000 Platform, Extension of the Cortex-A platform with interrupt executor support.
-platform-z7 = ["_platform", "dep:aarch32-cpu", "dep:arm-targets", "dep:zynq7000", "dep:arbitrary-int"]
+platform-aarch32 = ["_platform", "dep:aarch32-cpu", "dep:arm-targets"]
 ## RISC-V 32-bit platform. Uses WFI for the thread executor. Interrupt executor is not supported.
 ##
 ## - Only usable on **single-core chips**.
