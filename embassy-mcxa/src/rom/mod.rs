@@ -3,8 +3,8 @@ use core::ffi::c_char;
 mod flash;
 #[cfg(feature = "mcxa5xx")]
 mod flexspi_nor;
-// #[cfg(feature = "mcxa5xx")]
-// mod kb;
+#[cfg(feature = "mcxa5xx")]
+mod kb;
 // #[cfg(feature = "mcxa5xx")]
 // mod nboot;
 // #[cfg(feature = "mcxa5xx")]
@@ -13,8 +13,8 @@ mod flexspi_nor;
 pub use flash::*;
 #[cfg(feature = "mcxa5xx")]
 pub use flexspi_nor::*;
-// #[cfg(feature = "mcxa5xx")]
-// pub use kb::*;
+#[cfg(feature = "mcxa5xx")]
+pub use kb::*;
 // #[cfg(feature = "mcxa5xx")]
 // pub use nboot::*;
 // #[cfg(feature = "mcxa5xx")]
@@ -56,8 +56,8 @@ pub struct RomApi {
     flash: *const FlashVtable,
     #[cfg(feature = "mcxa2xx")]
     jump: unsafe extern "C" fn(image_base: u32),
-    // #[cfg(feature = "mcxa5xx")]
-    // kb_api: *const KBApiVtable,
+    #[cfg(feature = "mcxa5xx")]
+    kb: *const KbVtable,
     // #[cfg(feature = "mcxa5xx")]
     // nboot_api: *const NbootVtable,
     #[cfg(feature = "mcxa5xx")]
@@ -80,10 +80,10 @@ impl RomApi {
         Flash::new(unsafe { &*self.flash })
     }
 
-    // #[cfg(feature = "mcxa5xx")]
-    // pub fn kb(&self) -> &'static KBApiDriver {
-    //     unsafe { &*self.kb_api }
-    // }
+    #[cfg(feature = "mcxa5xx")]
+    pub fn kb(&self, options: KbOptions) -> Result<Kb, KbStatus> {
+        Kb::new(unsafe { &*self.kb }, options)
+    }
 
     // #[cfg(feature = "mcxa5xx")]
     // pub fn nboot(&self) -> &'static NbootDriver {
