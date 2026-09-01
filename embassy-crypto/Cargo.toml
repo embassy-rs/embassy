@@ -45,17 +45,47 @@ aes = { version = "0.9", default-features = false, optional = true }
 aes-gcm = { version = "0.11", default-features = false, features = ["aes"], optional = true }
 ccm = { version = "0.6", default-features = false, optional = true }
 ctr = { version = "0.10", default-features = false, optional = true }
+cbc = { version = "0.2", default-features = false, optional = true }
+cmac = { version = "0.8", default-features = false, optional = true }
 
 [features]
 defmt = ["embassy-crypto-driver/defmt"]
+
 ## Use RustCrypto crates as a software fallback driver.
 driver-rustcrypto = [
-    "dep:md-5",
-    "dep:sha1",
-    "dep:sha2",
-    "dep:hmac",
-    "dep:aes",
-    "dep:aes-gcm",
-    "dep:ccm",
-    "dep:ctr",
+    "driver-md5",
+    "driver-sha1",
+    "driver-sha2",
+    "driver-hmac-sha1",
+    "driver-hmac-sha2",
+    "driver-aes128",
+    "driver-aes256",
+    "driver-aes128cbc",
+    "driver-aes256cbc",
+    "driver-aes128ctr",
+    "driver-aes256ctr",
+    "driver-aes128gcm",
+    "driver-aes256gcm",
+    "driver-aes128ccm",
+    "driver-aes256ccm",
+    "driver-aes128cmac",
+    "driver-aes256cmac",
 ]
+
+driver-md5 = ["dep:md-5"]
+driver-sha1 = ["dep:sha1"]
+driver-sha2 = ["dep:sha2"]
+driver-hmac-sha1 = ["dep:hmac", "dep:sha1"]
+driver-hmac-sha2 = ["dep:hmac", "dep:sha2"]
+driver-aes128 = ["dep:aes"]
+driver-aes256 = ["dep:aes"]
+driver-aes128cbc = ["dep:aes", "dep:cbc"]
+driver-aes256cbc = ["dep:aes", "dep:cbc"]
+driver-aes128ctr = ["dep:aes", "dep:ctr"]
+driver-aes256ctr = ["dep:aes", "dep:ctr"]
+driver-aes128gcm = ["dep:aes-gcm"]
+driver-aes256gcm = ["dep:aes-gcm"]
+driver-aes128ccm = ["dep:ccm", "dep:aes"]
+driver-aes256ccm = ["dep:ccm", "dep:aes"]
+driver-aes128cmac = ["dep:cmac", "dep:aes"]
+driver-aes256cmac = ["dep:cmac", "dep:aes"]

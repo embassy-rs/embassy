@@ -164,7 +164,10 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
 xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", features = ["async", "packet-buf-align-8"] }
-embassy-crypto-driver = { version = "0.1.0", path = "../embassy-crypto-driver" }
+embassy-crypto-driver = { version = "0.1.0", path = "../embassy-crypto-driver", features = [
+    "large-md5", "large-sha1", "large-sha224", "large-sha256", "large-sha384", "large-sha512-224", "large-sha512-256", "large-sha512", 
+    "large-hmac-sha1", "large-hmac-sha224", "large-hmac-sha256", "large-hmac-sha384", "large-hmac-sha512-224", "large-hmac-sha512-256", "large-hmac-sha512"
+] }
 embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
@@ -253,6 +256,7 @@ defmt = [
     "stm32-metapac/defmt",
     "sdio/defmt"
 ]
+
 ## Use log for logging
 log = ["dep:log"]
 ## Enable Ethernet PTP hardware timestamping.
