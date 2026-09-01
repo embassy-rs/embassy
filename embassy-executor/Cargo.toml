@@ -20,7 +20,7 @@ build = [
     {target = "thumbv6m-none-eabi", features = ["defmt"]},
     {target = "thumbv6m-none-eabi", features = ["platform-cortex-m", "defmt", "executor-interrupt", "executor-thread"]},
     {target = "thumbv7em-none-eabi", features = ["platform-cortex-m"]},
-    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "rtos-trace"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "trace"]},
     {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-thread"]},
     {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt"]},
     {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"]},
@@ -43,7 +43,7 @@ build = [
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "trace"]},
-    {target = "riscv32imc-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "rtos-trace"]},
+    {target = "riscv32imc-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "trace"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread"]},
     {target = "riscv64imac-unknown-none-elf", features = ["platform-riscv64", "executor-thread", "trace"]},
@@ -77,7 +77,7 @@ build = [
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt", "platform-spin", "executor-thread"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s3-none-elf", features = ["defmt", "platform-spin", "executor-thread"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin"]},
-    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin", "rtos-trace"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin", "trace"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin", "executor-thread"]},
 ]
 
@@ -102,7 +102,6 @@ features = ["defmt", "platform-cortex-m", "executor-thread", "executor-interrupt
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
-rtos-trace = { version = "0.2", optional = true }
 
 embassy-executor-macros = { version = "0.8.0", path = "../embassy-executor-macros" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
@@ -203,10 +202,7 @@ executor-thread = []
 ## Enable the interrupt-mode executor (available in Cortex-M only)
 executor-interrupt = []
 ## Enable tracing hooks
-trace = ["_any_trace"]
-## Enable support for rtos-trace framework
-rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "embassy-time-driver"]
-_any_trace = []
+trace = []
 
 ## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
 ## tasks based on the remaining time before their deadline. Adds some overhead.
