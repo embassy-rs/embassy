@@ -314,12 +314,12 @@ impl From<NbootStatus> for Result<(), NbootError> {
         // The ROM returns a usable 32-bit value; upper 32 bits are likely security related metadata/ fault attack protection, need to mask it out.
         let raw = raw.0 & 0xFFFF_FFFF;
         match raw {
-            super::KSTATUS_NBOOT_SUCCESS => Ok(()),
-            super::KSTATUS_NBOOT_FAIL => Err(NbootError::Fail),
-            super::KSTATUS_NBOOT_INVALID_ARGUMENT => Err(NbootError::InvalidArgument),
-            super::KNBOOT_OPERATION_ALLOWED => Err(NbootError::OperationAllowed),
-            super::KNBOOT_OPERATION_DISALLOWED => Err(NbootError::OperationDisallowed),
-            super::KSTATUS_NBOOT_KEY_NOT_AVAILABLE => Err(NbootError::KeyNotAvailable),
+            KSTATUS_NBOOT_SUCCESS => Ok(()),
+            KSTATUS_NBOOT_FAIL => Err(NbootError::Fail),
+            KSTATUS_NBOOT_INVALID_ARGUMENT => Err(NbootError::InvalidArgument),
+            KNBOOT_OPERATION_ALLOWED => Err(NbootError::OperationAllowed),
+            KNBOOT_OPERATION_DISALLOWED => Err(NbootError::OperationDisallowed),
+            KSTATUS_NBOOT_KEY_NOT_AVAILABLE => Err(NbootError::KeyNotAvailable),
             other => Err(NbootError::Unknown(other)),
         }
     }
@@ -360,3 +360,13 @@ impl TryFrom<NbootBool> for NbootBoolValue {
 
 #[repr(transparent)]
 struct NbootStatus(u64);
+
+const KSTATUS_NBOOT_SUCCESS: u64 = 0x5A5A_5A5A;
+const KSTATUS_NBOOT_FAIL: u64 = 0x5A5A_A5A5;
+const KSTATUS_NBOOT_INVALID_ARGUMENT: u64 = 0x5A5A_A5F0;
+
+// NBOOT API status codes (MCXA ROM, Table 46 / 9.2.5.11)
+// These are returned by APIs such as `nboot_mem_crypt_range_checker`.
+const KNBOOT_OPERATION_ALLOWED: u64 = 0x3C5A_33CC;
+const KNBOOT_OPERATION_DISALLOWED: u64 = 0x5AA5_CC33;
+const KSTATUS_NBOOT_KEY_NOT_AVAILABLE: u64 = 0x5A5A_A5E6;

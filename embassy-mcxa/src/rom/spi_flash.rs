@@ -97,9 +97,12 @@ pub enum SpiFlashError {
 impl From<Status> for Result<(), SpiFlashError> {
     fn from(raw: Status) -> Self {
         match raw.0 {
-            super::KSTATUS_SPIFLASH_SUCCESS => Ok(()),
-            super::KSTATUS_SPIFLASH_FAIL => Err(SpiFlashError::Fail),
+            KSTATUS_SPIFLASH_SUCCESS => Ok(()),
+            KSTATUS_SPIFLASH_FAIL => Err(SpiFlashError::Fail),
             other => Err(SpiFlashError::Unknown(other)),
         }
     }
 }
+
+const KSTATUS_SPIFLASH_SUCCESS: u32 = 0;
+const KSTATUS_SPIFLASH_FAIL: u32 = 1;

@@ -440,23 +440,42 @@ pub enum FlexspiError {
 impl From<Status> for Result<(), FlexspiError> {
     fn from(raw: Status) -> Self {
         match raw.0 {
-            super::KSTATUS_FLEXSPI_SUCCESS => Ok(()),
-            super::KSTATUS_FLEXSPI_FAIL => Err(FlexspiError::Fail),
-            super::KSTATUS_FLEXSPI_INVALID_ARGUMENT => Err(FlexspiError::InvalidArgument),
-            super::KSTATUS_FLEXSPI_SEQUENCE_EXECUTION_TIMEOUT => Err(FlexspiError::SequenceExecutionTimeout),
-            super::KSTATUS_FLEXSPI_INVALID_SEQUENCE => Err(FlexspiError::InvalidSequence),
-            super::KSTATUS_FLEXSPI_DEVICE_TIMEOUT => Err(FlexspiError::DeviceTimeout),
-            super::KSTATUS_FLEXSPINOR_PROGRAM_FAIL => Err(FlexspiError::ProgramFail),
-            super::KSTATUS_FLEXSPINOR_ERASE_SECTOR_FAIL => Err(FlexspiError::EraseSectorFail),
-            super::KSTATUS_FLEXSPINOR_ERASE_ALL_FAIL => Err(FlexspiError::EraseAllFail),
-            super::KSTATUS_FLEXSPINOR_WAIT_TIMEOUT => Err(FlexspiError::WaitTimeout),
-            super::KSTATUS_FLEXSPINOR_WRITE_ALIGNMENT_ERROR => Err(FlexspiError::WriteAlignmentError),
-            super::KSTATUS_FLEXSPINOR_COMMAND_FAILURE => Err(FlexspiError::CommandFailure),
-            super::KSTATUS_FLEXSPINOR_SFDP_NOT_FOUND => Err(FlexspiError::SfdpNotFound),
-            super::KSTATUS_FLEXSPINOR_UNSUPPORTED_SFDP_VERSION => Err(FlexspiError::UnsupportedSfdpVersion),
-            super::KSTATUS_FLEXSPINOR_FLASH_NOT_FOUND => Err(FlexspiError::FlashNotFound),
-            super::KSTATUS_FLEXSPINOR_DTR_READ_DUMMY_PROBE_FAILED => Err(FlexspiError::DtrReadDummyProbeFailed),
+            KSTATUS_FLEXSPI_SUCCESS => Ok(()),
+            KSTATUS_FLEXSPI_FAIL => Err(FlexspiError::Fail),
+            KSTATUS_FLEXSPI_INVALID_ARGUMENT => Err(FlexspiError::InvalidArgument),
+            KSTATUS_FLEXSPI_SEQUENCE_EXECUTION_TIMEOUT => Err(FlexspiError::SequenceExecutionTimeout),
+            KSTATUS_FLEXSPI_INVALID_SEQUENCE => Err(FlexspiError::InvalidSequence),
+            KSTATUS_FLEXSPI_DEVICE_TIMEOUT => Err(FlexspiError::DeviceTimeout),
+            KSTATUS_FLEXSPINOR_PROGRAM_FAIL => Err(FlexspiError::ProgramFail),
+            KSTATUS_FLEXSPINOR_ERASE_SECTOR_FAIL => Err(FlexspiError::EraseSectorFail),
+            KSTATUS_FLEXSPINOR_ERASE_ALL_FAIL => Err(FlexspiError::EraseAllFail),
+            KSTATUS_FLEXSPINOR_WAIT_TIMEOUT => Err(FlexspiError::WaitTimeout),
+            KSTATUS_FLEXSPINOR_WRITE_ALIGNMENT_ERROR => Err(FlexspiError::WriteAlignmentError),
+            KSTATUS_FLEXSPINOR_COMMAND_FAILURE => Err(FlexspiError::CommandFailure),
+            KSTATUS_FLEXSPINOR_SFDP_NOT_FOUND => Err(FlexspiError::SfdpNotFound),
+            KSTATUS_FLEXSPINOR_UNSUPPORTED_SFDP_VERSION => Err(FlexspiError::UnsupportedSfdpVersion),
+            KSTATUS_FLEXSPINOR_FLASH_NOT_FOUND => Err(FlexspiError::FlashNotFound),
+            KSTATUS_FLEXSPINOR_DTR_READ_DUMMY_PROBE_FAILED => Err(FlexspiError::DtrReadDummyProbeFailed),
             other => Err(FlexspiError::Unknown(other)),
         }
     }
 }
+
+// FlexSPI flash driver status codes
+const KSTATUS_FLEXSPI_SUCCESS: u32 = 0;
+const KSTATUS_FLEXSPI_FAIL: u32 = 1;
+const KSTATUS_FLEXSPI_INVALID_ARGUMENT: u32 = 4;
+const KSTATUS_FLEXSPI_SEQUENCE_EXECUTION_TIMEOUT: u32 = 6000;
+const KSTATUS_FLEXSPI_INVALID_SEQUENCE: u32 = 6001;
+const KSTATUS_FLEXSPI_DEVICE_TIMEOUT: u32 = 6002;
+
+const KSTATUS_FLEXSPINOR_PROGRAM_FAIL: u32 = 20100;
+const KSTATUS_FLEXSPINOR_ERASE_SECTOR_FAIL: u32 = 20101;
+const KSTATUS_FLEXSPINOR_ERASE_ALL_FAIL: u32 = 20102;
+const KSTATUS_FLEXSPINOR_WAIT_TIMEOUT: u32 = 20103;
+const KSTATUS_FLEXSPINOR_WRITE_ALIGNMENT_ERROR: u32 = 20105;
+const KSTATUS_FLEXSPINOR_COMMAND_FAILURE: u32 = 20106;
+const KSTATUS_FLEXSPINOR_SFDP_NOT_FOUND: u32 = 20107;
+const KSTATUS_FLEXSPINOR_UNSUPPORTED_SFDP_VERSION: u32 = 20108;
+const KSTATUS_FLEXSPINOR_FLASH_NOT_FOUND: u32 = 20109;
+const KSTATUS_FLEXSPINOR_DTR_READ_DUMMY_PROBE_FAILED: u32 = 20110;

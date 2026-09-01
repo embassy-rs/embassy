@@ -63,6 +63,7 @@ pub struct FlashReadSingleWordConfig {
     pub reserved1: [u8; 3],
 }
 
+#[cfg(feature = "mcxa5xx")]
 impl FlashReadSingleWordConfig {
     pub const fn new(ecc: FlashReadEccOption, margin: FlashReadMarginOption, dmacc: FlashReadDmaccOption) -> Self {
         Self {
@@ -333,21 +334,21 @@ pub enum FlashError {
 impl From<Status> for Result<(), FlashError> {
     fn from(raw: Status) -> Self {
         match raw.0 {
-            super::KSTATUS_FLASH_SUCCESS => Ok(()),
-            super::KSTATUS_FLASH_INVALID_ARGUMENT => Err(FlashError::InvalidArgument),
-            super::KSTATUS_FLASH_ALIGNMENT_ERROR => Err(FlashError::AlignmentError),
-            super::KSTATUS_FLASH_ADDRESS_ERROR => Err(FlashError::AddressError),
-            super::KSTATUS_FLASH_SIZE_ERROR => Err(FlashError::SizeError),
-            super::KSTATUS_FLASH_COMMAND_FAILURE => Err(FlashError::CommandFailure),
-            super::KSTATUS_FLASH_UNKNOWN_PROPERTY => Err(FlashError::UnknownProperty),
-            super::KSTATUS_FLASH_ERASE_KEY_ERROR => Err(FlashError::EraseKeyError),
-            super::KSTATUS_FLASH_REGION_EXECUTE_ONLY => Err(FlashError::RegionExecuteOnly),
-            super::KSTATUS_FLASH_COMMAND_NOT_SUPPORTED => Err(FlashError::CommandNotSupported),
-            super::KSTATUS_FLASH_READ_ONLY_PROPERTY => Err(FlashError::ReadOnlyProperty),
-            super::KSTATUS_FLASH_INVALID_PROPERTY_VALUE => Err(FlashError::InvalidPropertyValue),
-            super::KSTATUS_FLASH_ECC_ERROR => Err(FlashError::EccError),
-            super::KSTATUS_FLASH_COMPARE_ERROR => Err(FlashError::CompareError),
-            super::KSTATUS_FLASH_INVALID_WAIT_STATE_CYCLES => Err(FlashError::InvalidWaitStateCycles),
+            KSTATUS_FLASH_SUCCESS => Ok(()),
+            KSTATUS_FLASH_INVALID_ARGUMENT => Err(FlashError::InvalidArgument),
+            KSTATUS_FLASH_ALIGNMENT_ERROR => Err(FlashError::AlignmentError),
+            KSTATUS_FLASH_ADDRESS_ERROR => Err(FlashError::AddressError),
+            KSTATUS_FLASH_SIZE_ERROR => Err(FlashError::SizeError),
+            KSTATUS_FLASH_COMMAND_FAILURE => Err(FlashError::CommandFailure),
+            KSTATUS_FLASH_UNKNOWN_PROPERTY => Err(FlashError::UnknownProperty),
+            KSTATUS_FLASH_ERASE_KEY_ERROR => Err(FlashError::EraseKeyError),
+            KSTATUS_FLASH_REGION_EXECUTE_ONLY => Err(FlashError::RegionExecuteOnly),
+            KSTATUS_FLASH_COMMAND_NOT_SUPPORTED => Err(FlashError::CommandNotSupported),
+            KSTATUS_FLASH_READ_ONLY_PROPERTY => Err(FlashError::ReadOnlyProperty),
+            KSTATUS_FLASH_INVALID_PROPERTY_VALUE => Err(FlashError::InvalidPropertyValue),
+            KSTATUS_FLASH_ECC_ERROR => Err(FlashError::EccError),
+            KSTATUS_FLASH_COMPARE_ERROR => Err(FlashError::CompareError),
+            KSTATUS_FLASH_INVALID_WAIT_STATE_CYCLES => Err(FlashError::InvalidWaitStateCycles),
             other => Err(FlashError::Unknown(other)),
         }
     }
@@ -469,3 +470,19 @@ impl NorFlashError for FlashError {
         }
     }
 }
+
+const KSTATUS_FLASH_SUCCESS: u32 = 0;
+const KSTATUS_FLASH_INVALID_ARGUMENT: u32 = 4;
+const KSTATUS_FLASH_ALIGNMENT_ERROR: u32 = 101;
+const KSTATUS_FLASH_ADDRESS_ERROR: u32 = 102;
+const KSTATUS_FLASH_SIZE_ERROR: u32 = 100;
+const KSTATUS_FLASH_COMMAND_FAILURE: u32 = 105;
+const KSTATUS_FLASH_UNKNOWN_PROPERTY: u32 = 106;
+const KSTATUS_FLASH_ERASE_KEY_ERROR: u32 = 107;
+const KSTATUS_FLASH_REGION_EXECUTE_ONLY: u32 = 108;
+const KSTATUS_FLASH_COMMAND_NOT_SUPPORTED: u32 = 111;
+const KSTATUS_FLASH_READ_ONLY_PROPERTY: u32 = 112;
+const KSTATUS_FLASH_INVALID_PROPERTY_VALUE: u32 = 113;
+const KSTATUS_FLASH_ECC_ERROR: u32 = 116;
+const KSTATUS_FLASH_COMPARE_ERROR: u32 = 117;
+const KSTATUS_FLASH_INVALID_WAIT_STATE_CYCLES: u32 = 119;

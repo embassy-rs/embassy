@@ -157,16 +157,28 @@ pub enum KbError {
 impl From<Status> for Result<(), KbError> {
     fn from(raw: Status) -> Self {
         match raw.0 {
-            super::KSTATUS_KB_SUCCESS => Ok(()),
-            super::KSTATUS_KB_FAIL => Err(KbError::Fail),
-            super::KSTATUS_KB_INVALID_ARGUMENT => Err(KbError::InvalidArgument),
-            super::KSTATUS_KB_ROMLDR_DATA_UNDERRUN => Err(KbError::RomLdrDataUnderrun),
-            super::KSTATUS_KB_ROMLDR_JUMP_RETURNED => Err(KbError::RomLdrJumpReturned),
-            super::KSTATUS_KB_ROMLDR_ROLLBACK_BLOCKED => Err(KbError::RomLdrRollbackBlocked),
-            super::KSTATUS_KB_ROMLDR_PENDING_JUMP_COMMAND => Err(KbError::RomLdrPendingJumpCommand),
-            super::KSTATUS_KB_BUFFER_SIZE_NOT_ENOUGH => Err(KbError::RomApiBufferSizeNotEnough),
-            super::KSTATUS_KB_INVALID_BUFFER => Err(KbError::RomApiInvalidBuffer),
+            KSTATUS_KB_SUCCESS => Ok(()),
+            KSTATUS_KB_FAIL => Err(KbError::Fail),
+            KSTATUS_KB_INVALID_ARGUMENT => Err(KbError::InvalidArgument),
+            KSTATUS_KB_ROMLDR_DATA_UNDERRUN => Err(KbError::RomLdrDataUnderrun),
+            KSTATUS_KB_ROMLDR_JUMP_RETURNED => Err(KbError::RomLdrJumpReturned),
+            KSTATUS_KB_ROMLDR_ROLLBACK_BLOCKED => Err(KbError::RomLdrRollbackBlocked),
+            KSTATUS_KB_ROMLDR_PENDING_JUMP_COMMAND => Err(KbError::RomLdrPendingJumpCommand),
+            KSTATUS_KB_BUFFER_SIZE_NOT_ENOUGH => Err(KbError::RomApiBufferSizeNotEnough),
+            KSTATUS_KB_INVALID_BUFFER => Err(KbError::RomApiInvalidBuffer),
             other => Err(KbError::Unknown(other)),
         }
     }
 }
+
+const KSTATUS_KB_SUCCESS: u32 = 0;
+const KSTATUS_KB_FAIL: u32 = 1;
+const KSTATUS_KB_INVALID_ARGUMENT: u32 = 4;
+
+const KSTATUS_KB_ROMLDR_DATA_UNDERRUN: u32 = 10109;
+const KSTATUS_KB_ROMLDR_JUMP_RETURNED: u32 = 10110;
+const KSTATUS_KB_ROMLDR_ROLLBACK_BLOCKED: u32 = 10115;
+const KSTATUS_KB_ROMLDR_PENDING_JUMP_COMMAND: u32 = 10119;
+
+const KSTATUS_KB_BUFFER_SIZE_NOT_ENOUGH: u32 = 10802;
+const KSTATUS_KB_INVALID_BUFFER: u32 = 10803;
