@@ -105,17 +105,28 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
-        if r.events_suspended().read() != 0 {
+        let suspended = r.events_suspended().read() != 0;
+        let stopped = r.events_stopped().read() != 0;
+        let error = r.events_error().read() != 0;
+
+        if suspended {
             s.end_waker.wake();
             r.intenclr().write(|w| w.set_suspended(true));
         }
-        if r.events_stopped().read() != 0 {
+        if stopped {
             s.end_waker.wake();
             r.intenclr().write(|w| w.set_stopped(true));
         }
-        if r.events_error().read() != 0 {
-            s.end_waker.wake();
+
+        // On error, instead of waking we will first issue a STOP (if it hasn't been issued yet).
+        if error {
             r.intenclr().write(|w| w.set_error(true));
+
+            // Explicitly issue a STOP if an error has occurred which has not yet resulted in a STOP.
+            // This can happen with for example an ANACK.
+            if !stopped {
+                r.tasks_stop().write_value(1);
+            }
         }
     }
 }
@@ -365,28 +376,16 @@ impl<'d> Twim<'d> {
         Ok(())
     }
 
-    /// Wait for stop or error
-    async fn async_wait(&mut self) -> Result<(), Error> {
+    /// Wait for suspend or stop
+    async fn async_wait(&mut self) {
         poll_fn(|cx| {
             let r = self.r;
             let s = self.state;
 
             s.end_waker.register(cx.waker());
             if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
-                r.events_stopped().write_value(0);
-
-                return Poll::Ready(Ok(()));
-            }
-
-            // stop if an error occurred
-            if r.events_error().read() != 0 {
-                r.events_error().write_value(0);
-                r.tasks_stop().write_value(1);
-                if let Err(e) = self.check_errorsrc() {
-                    return Poll::Ready(Err(e));
-                } else {
-                    return Poll::Ready(Err(Error::Timeout));
-                }
+                // Events are cleared when setting up the next operation.
+                return Poll::Ready(());
             }
 
             Poll::Pending
@@ -627,7 +626,7 @@ impl<'d> Twim<'d> {
         while !operations.is_empty() {
             let ops = self.setup_operations(address, operations, last_op, true)?;
             let (in_progress, rest) = operations.split_at_mut(ops);
-            self.async_wait().await?;
+            self.async_wait().await;
             self.check_operations(in_progress)?;
             last_op = in_progress.last();
             operations = rest;
