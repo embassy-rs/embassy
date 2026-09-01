@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - Add WPA3 and WPA2/WPA3 transition-mode SoftAP support.
+- The multicast hardware address filter is now managed automatically by `embassy-net`/`xarxa` through the driver trait. `Control::(add|remove)_multicast_address` is removed.
 - Add `bt-hci-transport` 0.1.0 support.
 
 ## 0.7.0 - 2026-03-10

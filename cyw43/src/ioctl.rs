@@ -98,6 +98,11 @@ impl IoctlState {
         self.state.set(IoctlStateInner::Done { resp_len: 0 });
     }
 
+    /// Whether no ioctl is submitted or in flight right now.
+    pub fn is_idle(&self) -> bool {
+        matches!(self.state.get(), IoctlStateInner::Done { .. })
+    }
+
     pub async fn do_ioctl(&self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
         self.state
             .set(IoctlStateInner::Pending(PendingIoctl { buf, kind, cmd, iface }));

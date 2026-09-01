@@ -15,6 +15,34 @@ use embassy_sync::waitqueue::WakerRegistration;
 pub use xarxa_driver as driver;
 use xarxa_driver::{Capabilities, HardwareAddress, LinkState, NotSupported, PacketBuf};
 
+/// Max multicast hardware addresses the multicast filter list holds.
+pub const MULTICAST_FILTER_SIZE: usize = 10;
+
+/// A snapshot of the multicast filter list, returned by [`StateRunner::multicast_filter`].
+///
+/// The list holds the multicast hardware addresses the stack listens on. The
+/// device end of the channel applies it to the hardware filter, if it has one.
+#[derive(Clone, Copy, Debug)]
+pub struct MulticastFilter {
+    addrs: [[u8; 6]; MULTICAST_FILTER_SIZE],
+    len: usize,
+    /// More addresses were asked for than the list holds.
+    ///
+    /// The device should stop filtering and receive all multicast instead, so
+    /// the addresses that did not fit get through too.
+    pub overflow: bool,
+    /// Bumped on every change of the list. Pass it to
+    /// [`StateRunner::multicast_filter_changed`] to wait for the next change.
+    pub generation: u32,
+}
+
+impl MulticastFilter {
+    /// The addresses in the filter list.
+    pub fn addrs(&self) -> &[[u8; 6]] {
+        &self.addrs[..self.len]
+    }
+}
+
 /// Channel state.
 ///
 /// Holds the inbound and outbound packet queues, `N_RX` and `N_TX` packets long.
@@ -37,6 +65,13 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
                 link_state: LinkState::Down,
                 waker: WakerRegistration::new(),
                 hardware_address: HardwareAddress::Ip,
+                mcast: MulticastFilter {
+                    addrs: [[0; 6]; MULTICAST_FILTER_SIZE],
+                    len: 0,
+                    overflow: false,
+                    generation: 0,
+                },
+                mcast_waker: WakerRegistration::new(),
             })),
         }
     }
@@ -52,6 +87,11 @@ struct Shared {
     link_state: LinkState,
     waker: WakerRegistration,
     hardware_address: HardwareAddress,
+    // The list the stack set through `Driver::set_multicast_filter`, cut to
+    // what fits. `overflow` says it was cut.
+    mcast: MulticastFilter,
+    // Wakes the device end of the channel on a filter list change.
+    mcast_waker: WakerRegistration,
 }
 
 /// Channel runner.
@@ -171,6 +211,50 @@ impl StateRunner<'_> {
     /// Get the hardware address.
     pub fn get_hardware_address(&self) -> HardwareAddress {
         self.shared.lock(|s| s.borrow().hardware_address)
+    }
+
+    /// Get the current multicast filter list.
+    pub fn multicast_filter(&self) -> MulticastFilter {
+        self.shared.lock(|s| s.borrow().mcast)
+    }
+
+    /// Poll for a change of the multicast filter list.
+    ///
+    /// Returns the new list once its generation differs from `generation`.
+    /// While it does not, registers `cx`'s waker to be woken at the next change.
+    /// Start with generation 0 and pass the returned snapshot's
+    /// [`generation`](MulticastFilter::generation) on later calls.
+    pub fn poll_multicast_filter_changed(&self, generation: u32, cx: &mut Context<'_>) -> Poll<MulticastFilter> {
+        self.shared.lock(|s| {
+            let s = &mut *s.borrow_mut();
+            s.mcast_waker.register(cx.waker());
+            if s.mcast.generation == generation {
+                return Poll::Pending;
+            }
+            Poll::Ready(s.mcast)
+        })
+    }
+
+    /// Wait for a change of the multicast filter list, returning the new list.
+    ///
+    /// See [`poll_multicast_filter_changed`](Self::poll_multicast_filter_changed).
+    pub async fn multicast_filter_changed(&self, generation: u32) -> MulticastFilter {
+        core::future::poll_fn(|cx| self.poll_multicast_filter_changed(generation, cx)).await
+    }
+
+    /// Mark the multicast filter list changed without changing it.
+    ///
+    /// The poll/wait methods report a change, with the same list. Use this to
+    /// re-apply the filter after the device lost it, for example on a reset.
+    pub fn mark_multicast_filter_changed(&self) {
+        self.shared.lock(|s| s.borrow_mut().multicast_filter_changed())
+    }
+}
+
+impl Shared {
+    fn multicast_filter_changed(&mut self) {
+        self.mcast.generation = self.mcast.generation.wrapping_add(1);
+        self.mcast_waker.wake();
     }
 }
 
@@ -316,5 +400,20 @@ impl driver::Driver for Device<'_> {
 
     fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
         self.tx.try_send(buf).map_err(|TrySendError::Full(buf)| buf)
+    }
+
+    fn set_multicast_filter(&mut self, addrs: &[[u8; 6]]) {
+        self.shared.lock(|s| {
+            let s = &mut *s.borrow_mut();
+            let n = addrs.len().min(MULTICAST_FILTER_SIZE);
+            let overflow = addrs.len() > MULTICAST_FILTER_SIZE;
+            if s.mcast.addrs() == &addrs[..n] && s.mcast.overflow == overflow {
+                return;
+            }
+            s.mcast.addrs[..n].copy_from_slice(&addrs[..n]);
+            s.mcast.len = n;
+            s.mcast.overflow = overflow;
+            s.multicast_filter_changed();
+        })
     }
 }

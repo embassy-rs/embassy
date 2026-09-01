@@ -35,7 +35,7 @@ embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal" }
 embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-channel", optional=true}
 stm32-bindings = { version = "0.2.2", optional=true, default-features = false }
 
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "4312cc99a88df20c49967e2ec94befdb84e4ba36", optional = true, default-features = false }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", optional = true, default-features = false }
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
