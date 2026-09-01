@@ -33,9 +33,7 @@ use embedded_hal_1::digital::OutputPin;
 use events::Events;
 use ioctl::IoctlState;
 
-pub use crate::control::{
-    AddMulticastAddressError, ApAuth, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
-};
+pub use crate::control::{ApAuth, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner};
 pub use crate::runner::Runner;
 pub use crate::sdio::SdioBus;
 pub use crate::spi::{SpiBus, SpiBusCyw43};

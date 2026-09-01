@@ -12,7 +12,7 @@ documentation = "https://docs.embassy.dev/embassy-net-enc28j60"
 [dependencies]
 embedded-hal = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "4312cc99a88df20c49967e2ec94befdb84e4ba36", features = ["async"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", features = ["async"] }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 

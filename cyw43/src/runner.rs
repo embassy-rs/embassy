@@ -1,8 +1,9 @@
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::Relaxed;
+use core::task::Poll;
 
 use aligned::{A4, Aligned};
-use embassy_futures::select::{Either4, select4};
+use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{LinkState, PacketBuf};
 use embassy_time::Duration;
@@ -126,6 +127,14 @@ pub struct Runner<'a, BUS: Bus, CHIP: Chip> {
     sdpcm_seq: u8,
     sdpcm_seq_max: u8,
 
+    /// An ioctl sent by the runner itself is in flight: its response goes to
+    /// `rx` and clears this flag, instead of going to `ioctl_state`.
+    inline_ioctl_pending: bool,
+    /// Generation of the last applied multicast filter list.
+    mcast_gen: u32,
+    /// Whether the firmware is set to receive all multicast ("allmulti").
+    allmulti: bool,
+
     events: &'a Events,
 
     secure_network: &'a AtomicBool,
@@ -158,6 +167,9 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
             ioctl_id: 0,
             sdpcm_seq: 0,
             sdpcm_seq_max: 1,
+            inline_ioctl_pending: false,
+            mcast_gen: 0,
+            allmulti: false,
             events,
             secure_network,
             join_ok: false,
@@ -754,6 +766,18 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
             if self.has_credit() {
                 let ioctl = self.ioctl_state.wait_pending();
+                // The multicast filter list the stack wants, when it changes. Applying
+                // it sends ioctls with the shared ioctl id, so wait until no Control
+                // ioctl is in flight. There is no waker for that: an in-flight ioctl
+                // completes within an iteration of this loop, which re-polls this.
+                let state_ch = self.ch.state_runner();
+                let ioctl_state = self.ioctl_state;
+                let mcast_gen = self.mcast_gen;
+                let mcast =
+                    core::future::poll_fn(move |cx| match state_ch.poll_multicast_filter_changed(mcast_gen, cx) {
+                        Poll::Ready(filter) if ioctl_state.is_idle() => Poll::Ready(filter),
+                        _ => Poll::Pending,
+                    });
                 let wifi_tx = self.ch.tx();
                 #[cfg(feature = "bluetooth")]
                 let bt_tx = async {
@@ -775,15 +799,19 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                 #[cfg(not(feature = "bluetooth"))]
                 let ev = self.bus.wait_for_event();
 
-                match select4(ioctl, wifi_tx, bt_tx, ev).await {
-                    Either4::First(PendingIoctl {
+                match select4(select(ioctl, mcast), wifi_tx, bt_tx, ev).await {
+                    Either4::First(Either::First(PendingIoctl {
                         buf: iobuf,
                         kind,
                         cmd,
                         iface,
-                    }) => {
+                    })) => {
                         self.send_ioctl(kind, cmd, iface, unsafe { &*iobuf }, &mut buf).await;
                         self.check_status(&mut buf).await;
+                    }
+                    Either4::First(Either::Second(filter)) => {
+                        self.apply_multicast_filter(&filter, &mut buf).await;
+                        self.mcast_gen = filter.generation;
                     }
                     Either4::Second(packet) => {
                         trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
@@ -1058,7 +1086,11 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
                         warn!("IOCTL error {}", cdc_header.status as i32);
                     }
 
-                    self.ioctl_state.ioctl_done(response);
+                    if self.inline_ioctl_pending {
+                        self.inline_ioctl_pending = false;
+                    } else {
+                        self.ioctl_state.ioctl_done(response);
+                    }
                 }
             }
             CHANNEL_TYPE_EVENT => {
@@ -1248,6 +1280,70 @@ impl<'a, BUS: Bus, CHIP: Chip> Runner<'a, BUS, CHIP> {
 
     fn has_credit(&self) -> bool {
         self.sdpcm_seq != self.sdpcm_seq_max && self.sdpcm_seq_max.wrapping_sub(self.sdpcm_seq) & 0x80 == 0
+    }
+
+    /// Write the multicast filter list to the firmware.
+    async fn apply_multicast_filter(&mut self, filter: &ch::MulticastFilter, buf: &mut Aligned<A4, [u8; 4 + 2048]>) {
+        let addrs = filter.addrs();
+        debug!(
+            "applying multicast filter: {} addresses, overflow={}",
+            addrs.len(),
+            filter.overflow
+        );
+
+        // "mcast_list" iovar: count, then the addresses. The whole list is
+        // replaced in one write.
+        const NAME: &[u8] = b"mcast_list\x00";
+        let mut req = [0u8; NAME.len() + 4 + 6 * ch::MULTICAST_FILTER_SIZE];
+        req[..NAME.len()].copy_from_slice(NAME);
+        req[NAME.len()..][..4].copy_from_slice(&(addrs.len() as u32).to_le_bytes());
+        for (i, addr) in addrs.iter().enumerate() {
+            req[NAME.len() + 4 + i * 6..][..6].copy_from_slice(addr);
+        }
+        self.inline_ioctl(IoctlType::Set, Ioctl::SetVar, 0, &req, buf).await;
+
+        // With more addresses than the list holds, turn off multicast filtering
+        // altogether so the addresses that didn't fit get through too.
+        if filter.overflow != self.allmulti {
+            const NAME: &[u8] = b"allmulti\x00";
+            let mut req = [0u8; NAME.len() + 4];
+            req[..NAME.len()].copy_from_slice(NAME);
+            req[NAME.len()..].copy_from_slice(&(filter.overflow as u32).to_le_bytes());
+            self.inline_ioctl(IoctlType::Set, Ioctl::SetVar, 0, &req, buf).await;
+            self.allmulti = filter.overflow;
+        }
+    }
+
+    /// Send an ioctl from the runner itself and wait for its response.
+    ///
+    /// The caller must check no Control ioctl is in flight ([`IoctlState::is_idle`]).
+    /// A Control ioctl submitted while this runs stays queued and is picked up by
+    /// the main loop afterwards.
+    async fn inline_ioctl(
+        &mut self,
+        kind: IoctlType,
+        cmd: Ioctl,
+        iface: u32,
+        data: &[u8],
+        buf: &mut Aligned<A4, [u8; 4 + 2048]>,
+    ) {
+        while !self.has_credit() {
+            #[cfg(not(feature = "bluetooth"))]
+            self.bus.wait_for_event().await;
+            self.handle_irq(buf).await;
+            #[cfg(feature = "bluetooth")]
+            embassy_futures::yield_now().await;
+        }
+        self.inline_ioctl_pending = true;
+        self.send_ioctl(kind, cmd, iface, data, buf).await;
+        self.check_status(buf).await;
+        while self.inline_ioctl_pending {
+            #[cfg(not(feature = "bluetooth"))]
+            self.bus.wait_for_event().await;
+            self.handle_irq(buf).await;
+            #[cfg(feature = "bluetooth")]
+            embassy_futures::yield_now().await;
+        }
     }
 
     async fn send_ioctl(

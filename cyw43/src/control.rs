@@ -26,15 +26,6 @@ pub enum JoinError {
     AuthenticationFailure,
 }
 
-/// Multicast errors.
-#[derive(Debug)]
-pub enum AddMulticastAddressError {
-    /// Not a multicast address.
-    NotMulticast,
-    /// No free address slots.
-    NoFreeSlots,
-}
-
 /// Control driver.
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
@@ -296,6 +287,10 @@ impl<'a> Control<'a> {
         Timer::after_millis(100).await;
 
         self.state_ch.set_hardware_address(HardwareAddress::Ethernet(mac_addr));
+
+        // Have the runner (re-)apply the multicast filter list, in case the
+        // network stack was configured before init got this far.
+        self.state_ch.mark_multicast_filter_changed();
 
         debug!("cyw43 control init done");
     }
@@ -599,39 +594,6 @@ impl<'a> Control<'a> {
 
         // Set wifi up again
         self.up().await;
-    }
-
-    /// Add specified address to the list of hardware addresses the device
-    /// listens on. The address must be a Group address (I/G bit set). Up
-    /// to 10 addresses are supported by the firmware. Returns the number of
-    /// address slots filled after adding, or an error.
-    pub async fn add_multicast_address(&mut self, address: [u8; 6]) -> Result<usize, AddMulticastAddressError> {
-        // The firmware seems to ignore non-multicast addresses, so let's
-        // prevent the user from adding them and wasting space.
-        if address[0] & 0x01 != 1 {
-            return Err(AddMulticastAddressError::NotMulticast);
-        }
-
-        let mut buf = [0; 64];
-        self.get_iovar("mcast_list", &mut buf).await;
-
-        let n = u32::from_le_bytes(buf[..4].try_into().unwrap()) as usize;
-        let (used, free) = buf[4..].split_at_mut(n * 6);
-
-        if used.chunks(6).any(|a| a == address) {
-            return Ok(n);
-        }
-
-        if free.len() < 6 {
-            return Err(AddMulticastAddressError::NoFreeSlots);
-        }
-
-        free[..6].copy_from_slice(&address);
-        let n = n + 1;
-        buf[..4].copy_from_slice(&(n as u32).to_le_bytes());
-
-        self.set_iovar_v::<80>("mcast_list", &buf).await;
-        Ok(n)
     }
 
     /// Retrieve the list of configured multicast hardware addresses.
