@@ -23,6 +23,7 @@ const TARGET_ADDR: u8 = 0x0a;
 const RESET_COMMAND: u8 = 0xf0;
 const MAX_TRANSFER_LEN: usize = 1024;
 const RX_BUF_SIZE: usize = 2 * MAX_TRANSFER_LEN;
+const IBI_MDB: u8 = 0x01;
 static RX_BUF: ConstStaticCell<[u8; RX_BUF_SIZE]> = ConstStaticCell::new([0u8; RX_BUF_SIZE]);
 
 bind_interrupts!(
@@ -78,7 +79,10 @@ async fn main(_spawner: Spawner) {
 
             info!("[tgt] iter {} len={} received", iter, transfer_len);
 
-            match tgt.dma_respond_to_read_with_ibi(&sink[..transfer_len]).await {
+            match tgt
+                .dma_respond_to_read_with_ibi(&[IBI_MDB], &sink[..transfer_len])
+                .await
+            {
                 Ok(()) => {
                     info!("[tgt] iter {} len={} OK", iter, transfer_len);
                 }

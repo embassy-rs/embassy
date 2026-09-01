@@ -28,6 +28,17 @@ use crate::pac::i3c::{
     SstatusStart, SstatusTxnotfull, Stnotstop, Streqrd, Type,
 };
 
+/// Maximum number of bytes accepted in the ibi payload argument of the
+/// target-side IBI APIs.
+///
+/// Presently only the 1-byte Mandatory Data Byte (MDB) path is implemented:
+/// `ibi_payload[0]` (if any) is written to `SCTRL.IBIDATA` and emitted with
+/// the IBI header.
+///
+/// APIs return [`IOError::IbiPayloadTooLarge`] when the caller exceeds this
+/// bound.
+pub const MAX_IBI_PAYLOAD: usize = 1;
+
 /// Setup Errors
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -86,6 +97,9 @@ pub enum IOError {
     IbiNacked,
     /// IBIs are disabled by the controller (via DISEC CCC).
     IbiDisabled,
+    /// The `ibi_payload` supplied to an IBI API is larger than
+    /// [`MAX_IBI_PAYLOAD`].
+    IbiPayloadTooLarge,
     /// Other internal errors or unexpected state.
     Other,
 }
@@ -835,23 +849,27 @@ impl<'d> I3c<'d> {
     ///
     /// Asserts an IBI request on the bus and waits for the controller to
     /// ACK it. The device must be configured with `Config::ibi_capable =
-    /// true` (and optionally `Config::ibi_has_payload = true`) for this to
-    /// be meaningful.
+    /// true` (and, when `ibi_payload` is non-empty, `Config::ibi_has_payload
+    /// = true`).
     ///
-    /// If `payload` is non-empty, `payload[0]` is placed in `SCTRL.IBIDATA`
-    /// as the mandatory data byte (requires `ibi_has_payload = true` /
-    /// BCR\[2\]=1).
+    /// If `ibi_payload` is non-empty, `ibi_payload[0]` is placed in
+    /// `SCTRL.IBIDATA` as the Mandatory Data Byte. Passing more than
+    /// [`MAX_IBI_PAYLOAD`] bytes returns [`IOError::IbiPayloadTooLarge`].
     ///
     /// If the future is dropped before completion, `SCTRL.EVENT` is
     /// restored to `NormalMode` to cancel the pending request.
-    pub async fn dma_send_ibi(&mut self, payload: &[u8]) -> Result<(), IOError> {
+    pub async fn dma_send_ibi(&mut self, ibi_payload: &[u8]) -> Result<(), IOError> {
+        if ibi_payload.len() > MAX_IBI_PAYLOAD {
+            return Err(IOError::IbiPayloadTooLarge);
+        }
+
         // Bail out early if the controller has disabled IBIs via DISEC CCC.
         if self.info.regs().sstatus().read().ibidis() == Ibidis::InterruptsDisabled {
             return Err(IOError::IbiDisabled);
         }
 
         self.info.regs().sctrl().modify(|w| {
-            if let Some(&b) = payload.first() {
+            if let Some(&b) = ibi_payload.first() {
                 w.set_ibidata(b);
             }
             w.set_event(SctrlEvent::Ibi);
@@ -905,7 +923,7 @@ impl<'d> I3c<'d> {
         Ok(())
     }
 
-    /// Send an IBI and respond to the controller read that follows with `buf`.
+    /// Send an IBI and respond to the directed read that follows.
     ///
     /// At I3C-SDR speeds the post-IBI Sr→addr window is too tight (~640 ns)
     /// for the slave software to load the TX FIFO after observing the IBI
@@ -913,22 +931,35 @@ impl<'d> I3c<'d> {
     /// IBI so HW already has bytes queued by the time the controller starts
     /// clocking the directed read that follows.
     ///
-    /// The first byte of `buf` is also sent as the IBI mandatory data byte.
-    /// `buf` must be non-empty, and IBIs must be enabled by the controller.
+    /// `ibi_payload[0]`, if present, is written to `SCTRL.IBIDATA` as the
+    /// Mandatory Data Byte; passing more than [`MAX_IBI_PAYLOAD`] bytes
+    /// returns [`IOError::IbiPayloadTooLarge`].
+    ///
+    /// `read_response` is streamed through the TX FIFO for the directed read and
+    /// must be non-empty; it is independent of `ibi_payload` — the MDB is *not*
+    /// prepended to `read_response` on the wire.
     ///
     /// # Cancellation safety
     ///
     /// Dropping the future aborts the DMA transfer, disables target TX DMA,
     /// and restores `SCTRL.EVENT` to `NormalMode`. Bytes already queued or
     /// transmitted cannot be recalled.
-    pub async fn dma_respond_to_read_with_ibi(&mut self, buf: &[u8]) -> Result<(), IOError> {
+    pub async fn dma_respond_to_read_with_ibi(
+        &mut self,
+        ibi_payload: &[u8],
+        read_response: &[u8],
+    ) -> Result<(), IOError> {
+        if ibi_payload.len() > MAX_IBI_PAYLOAD {
+            return Err(IOError::IbiPayloadTooLarge);
+        }
+
         if self.info.regs().sstatus().read().ibidis() == Ibidis::InterruptsDisabled {
             return Err(IOError::IbiDisabled);
         }
 
-        let (last, rest) = buf.split_last().ok_or(IOError::Other)?;
+        let (last, rest) = read_response.split_last().ok_or(IOError::Other)?;
         let last = core::slice::from_ref(last);
-        let mdb = buf[0];
+        let mdb = ibi_payload.first().copied().unwrap_or(0);
         let swdatabe = self.info.regs().swdatabe().as_ptr() as *mut u8;
 
         if rest.is_empty() {
