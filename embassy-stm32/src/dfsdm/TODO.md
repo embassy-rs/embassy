@@ -47,11 +47,11 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 
 ## Filter config
 ### Filter off
-* DFSDM_FLTxCR1.RDMAEN      [X] internal [ ] pub    This probably needs a typestate....
+* DFSDM_FLTxCR1.RDMAEN      [X] internal [X] pub    This probably needs a typestate....
 * DFSDM_FLTxCR1.RSYNC       [X] internal [ ] pub
 * DFSDM_FLTxCR1.JEXTEN      [X] internal [ ] pub
 * DFSDM_FLTxCR1.JEXTSEL     [X] internal [ ] pub
-* DFSDM_FLTxCR1.JDMAEN      [X] internal [ ] pub
+* DFSDM_FLTxCR1.JDMAEN      [X] internal [X] pub    This probably needs a typestate....
 * DFSDM_FLTxCR1.JSYNC       [X] internal [ ] pub
 * DFSDM_FLTxFCR.FORD        [X] internal [X] pub
 * DFSDM_FLTxFCR.FOSR        [X] internal [X] pub

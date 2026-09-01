@@ -9,10 +9,12 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
 use embassy_stm32::dfsdm::{
-    Dfsdm, FilterConfig, Flt0, Flt1, InjectedTrigger, TransceiverConfig, TransceiverConfigOnline, TransceiverTrait,
+    Dfsdm, FilterConfig, Flt0, Flt1, InjectedTrigger, RingBufferedFilter, TransceiverConfig, TransceiverConfigOnline,
+    TransceiverTrait,
 };
 use embassy_stm32::dma::{self, Channel, Request, Transfer, TransferOptions};
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::pac::dfsdm::regs::{Datinr, Rdatar};
 use embassy_stm32::peripherals::{self, DFSDM1, MDMA};
 use embassy_stm32::rcc::{self, Sysclk};
 use embassy_stm32::spi::Spi;
@@ -26,6 +28,7 @@ static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 bind_interrupts! (struct Irqs{
     MDMA => dma::InterruptHandler<peripherals::MDMA_CH0>;
+    DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
 });
 
 #[embassy_executor::main]
@@ -83,9 +86,11 @@ async fn main(_spawner: Spawner) {
         .enable();
 
     let flt_cfg = FilterConfig {
-        // filter_cfg: FilterParameters::try_new(FilterOrder::Sinc3 { fosr: 5 }, 4).expect("This is inside the bounds"),
         filter_params: FilterParameters::try_new(FilterOrder::Disabled, 32).expect("This is inside the bounds"),
-        ..Default::default()
+        enable_injected_dma: false,
+        enable_regular_dma: true,
+        enable_continuous_regular: true,
+        enable_fast_regular: false,
     };
 
     let mut flt0 = split
@@ -94,12 +99,17 @@ async fn main(_spawner: Spawner) {
         .assign_regular_transceiver(&ch_test)
         .enable();
 
+    let mut buffer = [0u32; 32];
+
     flt0.start_regular_conversion(); // Waiting for data now
+    let mut ring_buffered_filter = RingBufferedFilter::new(&flt0, p.DMA1_CH0, Irqs, &mut buffer);
+
+    ring_buffered_filter.start();
 
     // Generate a 32-element array with a distinct pattern for each index
     // This ensures we aren't accidentally transferring the same word 32 times
     // or skipping/offsetting any bytes.
-    let source: [u32; 32] = core::array::from_fn(|i| (i as u32).wrapping_mul(0x01010101) ^ 0xDEADBEEF);
+    let source: [u32; 32 * 4] = core::array::from_fn(|i| (i as u32).wrapping_mul(0x01010101) ^ 0xDEADBEEF);
 
     let mut dma_ch = Channel::new(p.MDMA_CH0, Irqs);
     let tfer_opts = TransferOptions::default();
@@ -107,26 +117,30 @@ async fn main(_spawner: Spawner) {
     println!("DMA starting...");
 
     // No request number needed as MEM2MEM transfers on MDMA are software-controlled. Defaulting to 0.
-    let tfer = unsafe { dma_ch.write_mem2mem::<u32, u32>(0, &source, ch_test.get_datinr_as_ptr(), tfer_opts) };
+    let tfer: Transfer<'_> =
+        unsafe { dma_ch.write_mem2mem::<u32, u32>(0, &source, ch_test.get_datinr_as_ptr(), tfer_opts) };
     tfer.await; // theoretically unnecessary
 
     println!("DMA finished.");
 
-    let dfsdm_data: [i32; 32] = source.map(|x| {
+    let dfsdm_data = source.map(|x| {
         let signed_32 = x as i32; // 1. Reinterpret as i32
         (signed_32 << 16) >> 16 // 2. Shift left to drop bottom 8 bits, then arithmetic shift right to sign-extend the 24th bit
     });
     let integral: i64 = dfsdm_data.iter().map(|&x| x as i64).sum();
     println!("Manual integration: {}", integral);
-    loop {
-        // ch_test.write_sample_standard(10);
-        if let Some((data, channel, rpend)) = flt0.try_get_regular_result() {
-            println!("New regular 0: ");
-            println!("Channel: {}", channel);
-            println!("Value: {}", data);
-            println!("Delayed: {}", rpend);
 
-            return;
+    let mut result_buffer = [0u32; 32];
+
+    loop {
+        let amount = ring_buffered_filter.read_latest(&mut result_buffer);
+        if amount > 0 {
+            let a: Rdatar = pac::dfsdm::regs::Rdatar(result_buffer[0]);
+
+            println!("New regular, num; {} ", amount);
+            println!("Channel: {}", a.rdatach());
+            println!("Value: {}", a.rdata());
+            println!("Delayed: {}", a.rpend());
         }
     }
 }

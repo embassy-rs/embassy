@@ -4,6 +4,7 @@
 
 /// Connect pac and embassy infrastructure to our types
 pub mod associations;
+pub mod dma;
 /// Type-system
 pub mod types;
 
@@ -13,6 +14,7 @@ use core::mem::ManuallyDrop;
 use core::ptr;
 use core::task::Poll;
 
+pub use dma::*;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use interrupt::typelevel::Interrupt;
@@ -71,12 +73,20 @@ where
 /// Confgiguration for Filter
 pub struct FilterConfig {
     pub filter_params: FilterParameters,
+    pub enable_injected_dma: bool,
+    pub enable_regular_dma: bool,
+    pub enable_continuous_regular: bool,
+    pub enable_fast_regular: bool,
 }
 
 impl Default for FilterConfig {
     fn default() -> Self {
         Self {
             filter_params: FilterParameters::new(config_types::FilterOrder::Disabled, 1),
+            enable_injected_dma: false,
+            enable_regular_dma: false,
+            enable_continuous_regular: false,
+            enable_fast_regular: false,
         }
     }
 }
@@ -122,6 +132,10 @@ where
     /// Configure the Filter
     pub fn configure(mut self, config: &FilterConfig) -> Filter<T, M, Disabled> {
         self.set_filter_parameters(config.filter_params);
+        Self::set_regular_dma_en(config.enable_regular_dma);
+        Self::set_injected_dma_en(config.enable_injected_dma);
+        Self::set_continuous(config.enable_continuous_regular);
+        Self::set_fastmode(config.enable_fast_regular);
         self
     }
 

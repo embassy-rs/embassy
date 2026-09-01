@@ -124,7 +124,10 @@ async fn main(_spawner: Spawner) {
         .configure(&tcv_cfg, &tcv_cfg_online)
         .enable();
 
-    let flt_cfg = FilterConfig { filter_params };
+    let flt_cfg = FilterConfig {
+        filter_params,
+        ..Default::default()
+    };
     let mut flt0 = split
         .flt0
         .configure(&flt_cfg)
