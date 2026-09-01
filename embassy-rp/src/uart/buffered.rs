@@ -414,6 +414,15 @@ impl<'d> BufferedUartTx<'d> {
                 return Poll::Ready(Ok(0));
             }
 
+            // Register before pushing, mirroring `read`. With the old
+            // push-then-register order the irq handler could drain the whole
+            // buffer and wake in the window between a failed push and the
+            // register; its final drain pops an empty buffer and does not wake
+            // again, so the writer parked forever on an empty buffer with the
+            // FIFO idle. Registering first closes the window: any drain after
+            // this wakes us for a re-poll.
+            state.tx_waker.register(cx.waker());
+
             let mut tx_writer = unsafe { state.tx_buf.writer() };
             let n = tx_writer.push(|data| {
                 let n = data.len().min(buf.len());
@@ -421,7 +430,6 @@ impl<'d> BufferedUartTx<'d> {
                 n
             });
             if n == 0 {
-                state.tx_waker.register(cx.waker());
                 return Poll::Pending;
             }
 
@@ -436,8 +444,11 @@ impl<'d> BufferedUartTx<'d> {
 
     fn flush(state: &'static State) -> impl Future<Output = Result<(), Error>> {
         poll_fn(move |cx| {
+            // Register before checking, for the same lost-wakeup window as in
+            // `write` above.
+            state.tx_waker.register(cx.waker());
+
             if !state.tx_buf.is_empty() {
-                state.tx_waker.register(cx.waker());
                 return Poll::Pending;
             }
 
