@@ -15,6 +15,47 @@ use crate::pio::{
 };
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 
+///This struct is a unification of the PioRx and PioTx state machines.
+pub struct PioUart<'d, P: Instance, const TX_SM: usize, const RX_SM: usize> {
+    ///Transimiter half of the Pio Uart
+    pub tx: PioUartTx<'d, P, TX_SM>,
+    ///Receiver half of the Pio Uart
+    pub rx: PioUartRx<'d, P, RX_SM>,
+}
+
+impl<'d, P, const TX_SM: usize, const RX_SM: usize> PioUart<'d, P, TX_SM, RX_SM>
+where
+    P: Instance,
+{
+    /// Configures a new instance of pio uart
+    pub fn new(
+        baud: u32,
+        common: &mut Common<'d, P>,
+        tx_sm: StateMachine<'d, P, TX_SM>,
+        rx_sm: StateMachine<'d, P, RX_SM>,
+        tx_pin: Peri<'d, impl PioPin>,
+        rx_pin: Peri<'d, impl PioPin>,
+    ) -> Self {
+        let tx_prg = PioUartTxProgram::new(common);
+        let rx_prg = PioUartRxProgram::new(common);
+        Self {
+            tx: PioUartTx::new(baud, common, tx_sm, tx_pin, &tx_prg),
+            rx: PioUartRx::new(baud, common, rx_sm, rx_pin, &rx_prg),
+        }
+    }
+    /// Split the Uart into a transmitter and receiver, which is particularly
+    /// useful when having two tasks correlating to transmitting and receiving.
+    pub fn split(self) -> (PioUartTx<'d, P, TX_SM>, PioUartRx<'d, P, RX_SM>) {
+        (self.tx, self.rx)
+    }
+    /// Split the Uart into a transmitter and receiver by mutable reference,
+    /// which is particularly useful when having two tasks correlating to
+    /// transmitting and receiving.
+    pub fn split_ref(&mut self) -> (&mut PioUartTx<'d, P, TX_SM>, &mut PioUartRx<'d, P, RX_SM>) {
+        (&mut self.tx, &mut self.rx)
+    }
+}
+
 /// This struct represents a uart tx program loaded into pio instruction memory.
 pub struct PioUartTxProgram<'d, PIO: Instance> {
     prg: LoadedProgram<'d, PIO>,
