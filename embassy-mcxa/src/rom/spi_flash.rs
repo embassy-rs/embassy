@@ -1,71 +1,105 @@
 use core::ffi::c_void;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use super::Status;
 
-// LPSPI external flash (SPI NOR/EEPROM) ROM API
-
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-struct SpiMemConfigOption {
-    option0: u32,
-    option1: u32,
+pub struct SpiFlashConfig {
+    /// - `tag [31:28]`: Must be 0x0C (kSpiMem_ConfigOption_Tag)
+    /// - `option_size [27:24]`: Option size in terms of uint32_t, actual size = (option_size + 1) × 4 bytes
+    /// - `spi_index [23:20]`: Index of SPI module instance
+    /// - `pcs_index [19:16]`: PCS (chip select) instance of SPI module
+    /// - `memory_type [15:12]`: Determines the connected memory type (NOR/EEPROM)
+    /// - `memory_size [11:8]`: NOR/EEPROM memory size
+    /// - `sector_size [7:4]`: NOR/EEPROM sector size
+    /// - `page_size [3:0]`: NOR/EEPROM page size
+    pub option0: u32,
+    /// - `spi_speed [3:0]`: SPI transfer speed to connected NOR/EEPROM
+    ///   - 0 = 22.5 MHz
+    ///   - 1 = 11.25 MHz
+    ///   - 2 = 5.625 MHz
+    ///   - 3 = 2.8125 MHz
+    /// - reserved [31:4]: Reserved for future use (set to 0)
+    pub option1: u32,
 }
 
 #[repr(C)]
-pub struct SpiFlashDriver {
-    spi_eeprom_init: unsafe extern "C" fn() -> Status,
-    spi_eeprom_read: unsafe extern "C" fn(address: u32, NoOfBytes: u32, buffer: *mut u8) -> Status,
-    spi_eeprom_write: unsafe extern "C" fn(address: u32, NoOfBytes: u32, buffer: *const u8) -> Status,
-    spi_eeprom_erase: unsafe extern "C" fn(address: u32, length: u32) -> Status,
-    spi_eeprom_config: unsafe extern "C" fn(config: *mut u32) -> Status,
-    spi_eeprom_flush: unsafe extern "C" fn() -> Status,
+pub struct SpiFlashVtable {
+    init: unsafe extern "C" fn() -> Status,
+    read: unsafe extern "C" fn(address: u32, no_of_bytes: u32, buffer: *mut u8) -> Status,
+    write: unsafe extern "C" fn(address: u32, no_of_bytes: u32, buffer: *const u8) -> Status,
+    erase: unsafe extern "C" fn(address: u32, length: u32) -> Status,
+    config: unsafe extern "C" fn(config: *mut SpiFlashConfig) -> Status,
+    flush: unsafe extern "C" fn() -> Status,
     reserved0: *mut c_void,
-    spi_eeprom_erase_all: unsafe extern "C" fn() -> Status,
+    erase_all: unsafe extern "C" fn() -> Status,
 }
 
-impl SpiFlashDriver {
-    fn spi_eeprom_init(&self) -> SpiFlashStatus {
-        unsafe { SpiFlashStatus::from_raw((self.spi_eeprom_init)()) }
+pub struct SpiFlash {
+    vtable: &'static SpiFlashVtable,
+}
+
+static TAKEN: AtomicBool = AtomicBool::new(false);
+
+impl SpiFlash {
+    pub(super) fn new(vtable: &'static SpiFlashVtable, mut config: SpiFlashConfig) -> Result<Self, SpiFlashError> {
+        if TAKEN
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return Err(SpiFlashError::Unavailable);
+        }
+
+        Result::from(unsafe { (vtable.init)() })?;
+        Result::from(unsafe { (vtable.config)(&raw mut config) })?;
+        Ok(Self { vtable })
     }
 
-    fn spi_eeprom_read(&self, address: u32, no_of_bytes: u32, buffer: *mut u8) -> SpiFlashStatus {
-        unsafe { SpiFlashStatus::from_raw((self.spi_eeprom_read)(address, no_of_bytes, buffer)) }
+    pub fn read(&mut self, address: u32, buffer: &mut [u8]) -> Result<(), SpiFlashError> {
+        unsafe { (self.vtable.read)(address, buffer.len() as _, buffer.as_mut_ptr()) }.into()
     }
 
-    fn spi_eeprom_write(&self, address: u32, no_of_bytes: u32, buffer: *const u8) -> SpiFlashStatus {
-        unsafe { SpiFlashStatus::from_raw((self.spi_eeprom_write)(address, no_of_bytes, buffer)) }
+    pub fn write(&mut self, address: u32, buffer: &[u8]) -> Result<(), SpiFlashError> {
+        unsafe { (self.vtable.write)(address, buffer.len() as _, buffer.as_ptr()) }.into()
     }
 
-    fn spi_eeprom_erase(&self, address: u32, length: u32) -> SpiFlashStatus {
-        unsafe { SpiFlashStatus::from_raw((self.spi_eeprom_erase)(address, length)) }
+    pub fn erase(&mut self, address: u32, length: u32) -> Result<(), SpiFlashError> {
+        unsafe { (self.vtable.erase)(address, length) }.into()
     }
 
-    fn spi_eeprom_config(&self, config: *mut u32) -> SpiFlashStatus {
-        unsafe { SpiFlashStatus::from_raw((self.spi_eeprom_config)(config)) }
+    pub fn config(&mut self, mut config: SpiFlashConfig) -> Result<(), SpiFlashError> {
+        unsafe { (self.vtable.config)(&raw mut config) }.into()
     }
 
-    fn spi_eeprom_flush(&self) -> SpiFlashStatus {
-        unsafe { SpiFlashStatus::from_raw((self.spi_eeprom_flush)()) }
+    pub fn flush(&mut self) -> Result<(), SpiFlashError> {
+        unsafe { (self.vtable.flush)() }.into()
     }
 
-    fn spi_eeprom_erase_all(&self) -> SpiFlashStatus {
-        unsafe { SpiFlashStatus::from_raw((self.spi_eeprom_erase_all)()) }
+    pub fn erase_all(&mut self) -> Result<(), SpiFlashError> {
+        unsafe { (self.vtable.erase_all)() }.into()
+    }
+}
+
+impl Drop for SpiFlash {
+    fn drop(&mut self) {
+        TAKEN.store(false, Ordering::Relaxed);
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SpiFlashStatus {
-    Success,
+pub enum SpiFlashError {
     Fail,
     Unknown(u32),
+    Unavailable,
 }
 
-impl SpiFlashStatus {
-    const fn from_raw(raw: u32) -> Self {
-        match raw {
-            super::KSTATUS_SPIFLASH_SUCCESS => Self::Success,
-            super::KSTATUS_SPIFLASH_FAIL => Self::Fail,
-            other => Self::Unknown(other),
+impl From<Status> for Result<(), SpiFlashError> {
+    fn from(raw: Status) -> Self {
+        match raw.0 {
+            super::KSTATUS_SPIFLASH_SUCCESS => Ok(()),
+            super::KSTATUS_SPIFLASH_FAIL => Err(SpiFlashError::Fail),
+            other => Err(SpiFlashError::Unknown(other)),
         }
     }
 }

@@ -7,8 +7,8 @@ mod flexspi_nor;
 mod kb;
 #[cfg(feature = "mcxa5xx")]
 mod nboot;
-// #[cfg(feature = "mcxa5xx")]
-// mod spi_flash;
+#[cfg(feature = "mcxa5xx")]
+mod spi_flash;
 
 pub use flash::*;
 #[cfg(feature = "mcxa5xx")]
@@ -17,8 +17,8 @@ pub use flexspi_nor::*;
 pub use kb::*;
 #[cfg(feature = "mcxa5xx")]
 pub use nboot::*;
-// #[cfg(feature = "mcxa5xx")]
-// pub use spi_flash::*;
+#[cfg(feature = "mcxa5xx")]
+pub use spi_flash::*;
 
 #[repr(transparent)]
 struct Status(u32);
@@ -60,8 +60,8 @@ pub struct RomApi {
     nboot: *const NbootVtable,
     #[cfg(feature = "mcxa5xx")]
     flex_spi_nor: *const FlexspiNorVtable,
-    // #[cfg(feature = "mcxa5xx")]
-    // spi_flash_api: *const SpiFlashVtable,
+    #[cfg(feature = "mcxa5xx")]
+    spi_flash: *const SpiFlashVtable,
     #[cfg(feature = "mcxa5xx")]
     version: StandardVersion,
     #[cfg(feature = "mcxa5xx")]
@@ -93,10 +93,10 @@ impl RomApi {
         FlexspiNor::new(unsafe { &*self.flex_spi_nor }, instance, config)
     }
 
-    // #[cfg(feature = "mcxa5xx")]
-    // pub fn spi_flash(&self) -> &'static SpiFlashDriver {
-    //     unsafe { &*self.spi_flash_api }
-    // }
+    #[cfg(feature = "mcxa5xx")]
+    pub fn spi_flash(&self, config: SpiFlashConfig) -> Result<SpiFlash, SpiFlashError> {
+        SpiFlash::new(unsafe { &*self.spi_flash }, config)
+    }
 
     #[cfg(feature = "mcxa5xx")]
     pub fn version(&self) -> StandardVersion {
