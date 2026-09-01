@@ -203,6 +203,31 @@ impl SetupPacket {
         Self::get_descriptor(false, descriptor_type::CONFIGURATION, index, max_len)
     }
 
+    /// Build a GET_DESCRIPTOR(String) SETUP packet.
+    ///
+    /// String descriptors are the one case where `wIndex` is not unused: USB 2.0
+    /// spec §9.4.3 defines it as the LANGID, so it cannot go through
+    /// [`SetupPacket::get_descriptor`], which always sends zero there.
+    ///
+    /// Index 0 returns the device's supported LANGIDs (see
+    /// [`StringDescriptorZero`]) and is the one request for which `lang_id: 0`
+    /// is correct. Any other index needs a LANGID the device listed there.
+    ///
+    /// [`StringDescriptorZero`]: crate::descriptor::StringDescriptorZero
+    pub const fn get_string_descriptor(index: u8, lang_id: u16, max_len: u16) -> Self {
+        Self {
+            request_type: RequestType {
+                direction: Direction::In,
+                control_type: ControlType::Standard,
+                recipient: Recipient::Device,
+            },
+            request: Request::GET_DESCRIPTOR,
+            value: ((descriptor_type::STRING as u16) << 8) | index as u16,
+            index: lang_id,
+            length: max_len,
+        }
+    }
+
     /// Build a standard GET_DESCRIPTOR SETUP packet delivered to an Interface recipient.
     ///
     /// Used for interface-owned descriptors such as the HID Report Descriptor.
@@ -388,7 +413,17 @@ pub trait ControlPipeExt<D: pipe::Direction>: UsbPipe<pipe::Control, D> {
     {
         let setup = SetupPacket::get_configuration();
         let mut buf = [0u8; 1];
-        self.control_in(&setup.to_bytes(), &mut buf).await?;
+        // Retried on the same grounds as a descriptor read, and for the
+        // same devices: GET_CONFIGURATION is an idempotent read, and a
+        // control transfer restarts from its SETUP, which clears a
+        // control endpoint's protocol stall (USB 2.0 §8.5.3.4).
+        //
+        // Without this a device flaky enough to STALL one read is
+        // reported by every class driver as an outright registration
+        // failure — `RegisterError::HostError(PipeError(Stall))` where
+        // the honest answer is usually `NoSupportedInterface`, since
+        // registration never got far enough to look at an interface.
+        crate::handler::retry_descriptor(async || self.control_in(&setup.to_bytes(), &mut buf).await).await?;
         Ok(NonZeroU8::new(buf[0]))
     }
 

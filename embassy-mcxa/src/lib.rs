@@ -89,6 +89,7 @@ pub(crate) mod _generated {
     #![allow(unused_imports)]
     #![allow(non_snake_case)]
     #![allow(missing_docs)]
+    #![allow(clippy::missing_safety_doc)]
 
     include!(concat!(env!("OUT_DIR"), "/_generated.rs"));
 }

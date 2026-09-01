@@ -172,6 +172,29 @@ impl From<Payload> for crate::pac::i3c::Nobyte {
     }
 }
 
+/// In-band event surfaced by [`I3c::async_wait_for_ibi`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum IbiEvent {
+    /// A Hot-Join request — the target is asking to be admitted to the
+    /// bus. The controller should follow up with DAA (`ENTDAA`) to
+    /// assign it a dynamic address.
+    HotJoin,
+    /// A directed IBI from an already-addressed target, optionally with
+    /// `payload_len` bytes drained into the caller's buffer.
+    Ibi {
+        /// Dynamic address of the target that raised the IBI.
+        address: u8,
+        /// Number of payload bytes written into the caller's buffer.
+        payload_len: usize,
+    },
+    /// A Controller-Request (secondary-controller handoff request).
+    MasterRequest {
+        /// Address of the secondary controller requesting the bus.
+        address: u8,
+    },
+}
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum Dir {
@@ -274,6 +297,12 @@ pub struct DeviceInfo {
 
     /// Dynamic address
     pub addr: u8,
+}
+
+impl Default for DeviceInfo {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl DeviceInfo {
@@ -712,10 +741,8 @@ impl<'d, M: Mode> I3c<'d, M> {
 
     /// DAA sequence
     pub fn daa(&mut self, devices: &mut [DeviceInfo], starting_address: u8) -> Result<(), IOError> {
-        let mut address = starting_address;
-
-        if address == 0 || address >= 0x7e || (address as usize) + devices.len() >= 0x7e {
-            return Err(IOError::AddressOutOfRange(address));
+        if starting_address == 0 || starting_address >= 0x7e || (starting_address as usize) + devices.len() >= 0x7e {
+            return Err(IOError::AddressOutOfRange(starting_address));
         }
 
         // Check if the bus is already in use.
@@ -734,7 +761,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         // Enumerate responding targets. The loop is bounded by the caller's
         // `devices` slice; DAA itself ends when no further target arbitrates,
         // which the hardware signals via `mstatus.complete()` (see below).
-        'daa: for device in devices {
+        'daa: for (device, address) in devices.iter_mut().zip(starting_address..) {
             // Wait for controller event
             loop {
                 let s = self.info.regs().mstatus().read();
@@ -781,8 +808,6 @@ impl<'d, M: Mode> I3c<'d, M> {
 
             // Trigger DAA processing
             self.info.regs().mctrl().write(|w| w.set_request(Request::Processdaa));
-
-            address += 1;
         }
 
         self.clear_flags();
@@ -1167,7 +1192,14 @@ impl<'d> AsyncEngine for I3c<'d, Dma<'d>> {
             cortex_m::asm::dsb();
 
             // How many bytes did DMA actually move into this chunk?
-            let chunk_done = self.mode.rx_dma.transferred_bytes().min(chunk.len());
+            let chunk_done = if self.mode.rx_dma.is_done() {
+                chunk.len()
+            } else {
+                // DMA didn't finish, but I3C COMPLETE or errwarn fired.
+                // The target may have T-bit'd early. Check how many bytes
+                // actually made it into the buffer.
+                self.mode.rx_dma.transferred_bytes().min(chunk.len())
+            };
 
             // Cleanup
             self.info
@@ -1539,7 +1571,25 @@ where
         Ok(())
     }
 
-    /// Wait for a target IBI, ACK it, and drain any payload bytes.
+    /// Emit an explicit IBI ACK/NACK response while the peripheral is parked in
+    /// the `IBIACK` manual-hold state.
+    ///
+    /// Required for Hot-Join and controller-request arbitration, which the
+    /// hardware never auto-answers (RM 53.7.31 `MSTATUS[IBIWON]`). Equivalent to
+    /// the SDK's `I3C_MasterEmitIBIResponse()`.
+    async fn async_emit_ibi_response(&self, response: Ibiresp) -> Result<(), IOError> {
+        self.info.regs().mctrl().write(|w| {
+            w.set_request(Request::Ibiacknack);
+            w.set_ibiresp(response);
+        });
+
+        self.async_wait_for_ctrldone().await?;
+        self.status()
+    }
+
+    /// Wait for any in-band event from a target — an IBI, a Hot-Join
+    /// request, or a Controller-Request (Master-Request) — ACK it, and
+    /// drain any payload bytes into `buf`.
     ///
     /// Returns the IBI target address and the number of payload bytes written into `buf`.
     /// The P3T1755 (and most sensors) set BCR\[2\]=0 so no payload bytes follow the address header;
@@ -1551,7 +1601,7 @@ where
     /// `fsl_i3c.c`) and is what spec-compliant targets expect before the
     /// next directed transfer. The caller should follow up with
     /// [`Self::async_read`] or [`Self::async_write`] as needed.
-    pub async fn async_wait_for_ibi(&mut self, buf: &mut [u8]) -> Result<(u8, usize), IOError> {
+    pub async fn async_wait_for_ibi(&mut self, buf: &mut [u8]) -> Result<IbiEvent, IOError> {
         // Step 1: Wait for SLVSTART (a target is asserting SDA low to request the bus).
         //
         // NOTE: we deliberately do *not* gate on `mstatus.state() == Slvreq`
@@ -1606,6 +1656,12 @@ where
         let ibi_addr = mstatus.ibiaddr();
         let ibi_type = mstatus.ibitype();
 
+        // Hot-Join and controller-request arbitration must be
+        // acknowledged explicitly by software.
+        if matches!(ibi_type, Ibitype::Hj | Ibitype::Mr) {
+            self.async_emit_ibi_response(Ibiresp::Ack).await?;
+        }
+
         // Step 5: For normal IBIs (not Hot-Join or Controller-Request), drain the RX FIFO payload.
         let mut payload_len = 0;
         if ibi_type == Ibitype::Ibi && !buf.is_empty() {
@@ -1659,9 +1715,19 @@ where
         // (`fsl_i3c.c` I3C_MasterTransferHandleIRQ → I3C_MasterEmitStop on
         // `kStatus_I3C_IBIWon`) and is what spec-compliant targets expect.
         self.clear_flags();
-        self.async_stop(BusType::I3cSdr).await?;
 
-        Ok((ibi_addr, payload_len))
+        if self.info.regs().mstatus().read().state() == State::Normact {
+            self.async_stop(BusType::I3cSdr).await?;
+        }
+
+        Ok(match ibi_type {
+            Ibitype::Hj => IbiEvent::HotJoin,
+            Ibitype::Mr => IbiEvent::MasterRequest { address: ibi_addr },
+            Ibitype::Ibi | Ibitype::None => IbiEvent::Ibi {
+                address: ibi_addr,
+                payload_len,
+            },
+        })
     }
 
     /// Read from address into buffer asynchronously.

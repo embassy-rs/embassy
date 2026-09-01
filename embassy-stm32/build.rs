@@ -1812,6 +1812,10 @@ fn main() {
         let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
         let mut seen_lcd_seg_pins = HashSet::new();
 
+        if (regs.kind == "dac" || regs.kind == "hash") && chip_name.starts_with("stm32c5") {
+            continue;
+        }
+
         if let Some(peri) = p.name.strip_prefix("SPI")
             && peripheral_map.contains_key(format!("I2S{}", peri).as_str())
         {
@@ -2223,7 +2227,9 @@ fn main() {
     }
 
     for (p, regs) in &peripheral_list {
-        if regs.kind == "adc" && (regs.version == "f3v3" || regs.version == "wb1") {
+        if (regs.kind == "adc" && (regs.version == "f3v3" || regs.version == "wb1"))
+            || ((regs.kind == "dac" || regs.kind == "hash") && chip_name.starts_with("stm32c5"))
+        {
             continue;
         }
 
@@ -2291,6 +2297,21 @@ fn main() {
 
                     let request = if let Some(request) = ch.request {
                         let request = request as u8;
+                        quote!(#request)
+                    } else if let Some(channel) = &ch.channel
+                        && ch.dmamux.is_none()
+                    {
+                        // Peripheral is connected directly to a DMA/BDMA channel without going
+                        // through a DMAMUX. In that case there is no separate "request number" —
+                        // the request IS the fixed channel index (e.g. BDMA1/DFSDM1 on H7A3/H7B3/H7B0,
+                        // see RM0455 §16.3.2). Verified only for that case; if other chip families
+                        // hit this branch, confirm the same equivalence holds for them too.
+                        let found_channel = METADATA
+                            .dma_channels
+                            .iter()
+                            .find(|dma| dma.name == *channel)
+                            .expect("DMA channel not found in metadata");
+                        let request = found_channel.channel as u8;
                         quote!(#request)
                     } else {
                         quote!(())

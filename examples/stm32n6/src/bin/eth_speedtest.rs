@@ -24,15 +24,15 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, Ipv4Cidr, StackResources, StaticConfigV4};
+use embassy_net::StackStorage;
+use embassy_net::tcp::{TcpListener, TcpSocket};
+use embassy_net::wire::{IpCidr, Ipv4Address, Ipv4Cidr};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
 use embassy_stm32::peripherals::{ETH_SMA, ETH1};
 use embassy_stm32::rcc::{CpuClk, IcConfig, Icint, Icsel, Pll, Plldivm, Pllpdiv, Pllsel, SupplyConfig, SysClk};
 use embassy_stm32::{Config, bind_interrupts, eth};
 use embassy_time::{Duration, Instant};
 use embedded_io_async::{Read, Write};
-use heapless::Vec;
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -118,7 +118,7 @@ fn configure_dma_noncacheable(mpu: &mut MPU, base: u32, len: usize) {
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -234,20 +234,20 @@ async fn main(spawner: Spawner) -> ! {
         p.PD1,  // MDC
     );
 
-    let config = embassy_net::Config::ipv4_static(StaticConfigV4 {
-        address: Ipv4Cidr::new(LOCAL_IP, 24),
-        gateway: Some(GATEWAY),
-        dns_servers: Vec::new(),
-    });
-
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
     // Fixed seed: this is a local test, no need for entropy.
     let seed = 0x0123_4567_89ab_cdef;
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<Device> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
+    unwrap!(iface.add_ip_addr(IpCidr::Ipv4(Ipv4Cidr::new(LOCAL_IP, 24))));
+    unwrap!(stack.routes().add_default_ipv4_route(GATEWAY, iface.handle()));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
-    stack.wait_link_up().await;
+    iface.wait_link_up().await;
     info!("link up, IP {}", LOCAL_IP);
 
     const TCP_BUFFER_SIZE: usize = 4096;
@@ -258,13 +258,22 @@ async fn main(spawner: Spawner) -> ! {
     let rx_buf = RX_BUF.init([0; TCP_BUFFER_SIZE]);
     let tx_buf = TX_BUF.init([0; TCP_BUFFER_SIZE]);
 
+    let mut listener = unwrap!(TcpListener::new(stack));
+    unwrap!(listener.listen(PORT));
+
     loop {
-        let mut socket = TcpSocket::new(stack, rx_buf, tx_buf);
+        info!("listening on :{}", PORT);
+        let token = match listener.accept().await {
+            Ok(token) => token,
+            Err(e) => {
+                warn!("accept error: {:?}", e);
+                continue;
+            }
+        };
+        let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buf[..], &mut tx_buf[..]));
         // Generous idle timeout so a stalled peer can't wedge us forever.
         socket.set_timeout(Some(Duration::from_secs(20)));
-
-        info!("listening on :{}", PORT);
-        if let Err(e) = socket.accept(PORT).await {
+        if let Err(e) = socket.accept(token).await {
             warn!("accept error: {:?}", e);
             continue;
         }

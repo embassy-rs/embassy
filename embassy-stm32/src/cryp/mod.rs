@@ -1002,6 +1002,25 @@ pub struct Cryp<'d, T: Instance, M: Mode> {
     outdma: Option<ChannelAndRequest<'d>>,
 }
 
+impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Cryp<'d, T, Blocking> {
+    type InternalState = Peri<'d, T>;
+
+    fn resume(state: Self::InternalState) -> Self {
+        critical_section::with(|cs| rcc::enable_and_reset_with_cs_no_refcount::<peripherals::CRYP>(cs));
+
+        Self {
+            _peripheral: state,
+            _marker: PhantomData,
+            indma: None,
+            outdma: None,
+        }
+    }
+
+    fn suspend(self) -> Self::InternalState {
+        unsafe { self._peripheral.clone_unchecked() }
+    }
+}
+
 impl<'d, T: Instance> Cryp<'d, T, Blocking> {
     /// Create a new CRYP driver in blocking mode.
     pub fn new_blocking(
@@ -1959,3 +1978,5 @@ foreach_interrupt!(
 
 dma_trait!(DmaIn, Instance);
 dma_trait!(DmaOut, Instance);
+
+mod driver;

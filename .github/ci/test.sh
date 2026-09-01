@@ -19,6 +19,7 @@ cargo test --manifest-path ./embassy-embedded-hal/Cargo.toml
 cargo test --manifest-path ./embassy-hal-internal/Cargo.toml
 cargo test --manifest-path ./embassy-time/Cargo.toml --features mock-driver,embassy-time-queue-utils/generic-queue-8
 cargo test --manifest-path ./embassy-time-driver/Cargo.toml
+cargo test --manifest-path ./embassy-ptp-driver/Cargo.toml --all-features
 
 cargo test --manifest-path ./embassy-boot/Cargo.toml
 cargo test --manifest-path ./embassy-boot/Cargo.toml --features ed25519-dalek
@@ -38,4 +39,4 @@ cargo test --manifest-path ./embassy-stm32/Cargo.toml --no-default-features --fe
 cargo test --manifest-path ./embassy-net-adin1110/Cargo.toml
 cargo test --manifest-path ./embassy-usb-dfu/Cargo.toml --features dfu
 cargo test --manifest-path ./embassy-usb-host/Cargo.toml
-cargo test --manifest-path ./embassy-net/Cargo.toml --features tcp,dhcpv4,medium-ethernet,proto-ipv6
+cargo test --manifest-path ./embassy-net/Cargo.toml --features tcp,dhcpv4,medium-ethernet,ipv6

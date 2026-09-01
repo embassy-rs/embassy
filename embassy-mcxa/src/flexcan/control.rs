@@ -42,10 +42,10 @@ impl Control {
         // Busy-wait for the low-power-mode acknowledge to clear.
         let deadline = timeout.map(|t| Instant::now() + t);
         while self.regs.mcr().read().lpmack() != pac::Lpmack::LowPowerNo {
-            if let Some(deadline) = deadline {
-                if Instant::now() >= deadline {
-                    return Err(ControlError::EnableTimeout);
-                }
+            if let Some(deadline) = deadline
+                && Instant::now() >= deadline
+            {
+                return Err(ControlError::EnableTimeout);
             }
         }
 
@@ -63,10 +63,10 @@ impl Control {
 
         let deadline = timeout.map(|t| Instant::now() + t);
         while self.regs.mcr().read().lpmack() != pac::Lpmack::LowPowerYes {
-            if let Some(deadline) = deadline {
-                if Instant::now() >= deadline {
-                    return Err(ControlError::DisableTimeout);
-                }
+            if let Some(deadline) = deadline
+                && Instant::now() >= deadline
+            {
+                return Err(ControlError::DisableTimeout);
             }
         }
 
@@ -94,10 +94,10 @@ impl Control {
         // Busy-wait for the freeze acknowledge
         let deadline = timeout.map(|t| Instant::now() + t);
         while !self.is_frozen() {
-            if let Some(deadline) = deadline {
-                if Instant::now() >= deadline {
-                    return Err(ControlError::FreezeTimeout);
-                }
+            if let Some(deadline) = deadline
+                && Instant::now() >= deadline
+            {
+                return Err(ControlError::FreezeTimeout);
             }
         }
 
@@ -127,6 +127,10 @@ impl Control {
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "Removing timeout from the variants makes things less clear"
+)]
 pub(in crate::flexcan) enum ControlError {
     /// The hardware did not assert `MCR[FRZACK]` within the requested time bound.
     FreezeTimeout,

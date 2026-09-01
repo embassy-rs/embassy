@@ -57,8 +57,10 @@ pub mod mode {
     }
 
     /// Blocking mode.
+    #[derive(Clone, Copy)]
     pub struct Blocking;
     /// Async mode.
+    #[derive(Clone, Copy)]
     pub struct Async;
 
     impl_mode!(Blocking, false);
@@ -130,7 +132,7 @@ pub mod crc;
 pub mod cryp;
 #[cfg(csi)]
 pub mod csi;
-#[cfg(dac)]
+#[cfg(all(dac, not(stm32c5)))]
 pub mod dac;
 #[cfg(dcmi)]
 pub mod dcmi;
@@ -160,7 +162,7 @@ pub mod gfxmmu;
 pub mod gfxtim;
 #[cfg(all(gpu2d, stm32u5))]
 pub mod gpu2d;
-#[cfg(hash)]
+#[cfg(all(hash, not(stm32c5)))]
 pub mod hash;
 #[cfg(hrtim)]
 pub mod hrtim;
@@ -174,10 +176,11 @@ pub mod i2c;
 pub mod i2s;
 #[cfg(all(i3c, any(stm32n6, stm32h5, stm32u3, stm32c5, stm32h7rs)))]
 pub mod i3c;
-#[cfg(icache)]
+#[cfg(all(icache, not(stm32c5)))]
 pub mod icache;
 #[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
+pub mod suspend;
 // JPEG is unavailable on some families (e.g. H7 uses different DMA signal names).
 #[cfg(all(jpeg, any(stm32n6, stm32u5f9, stm32u5g9)))]
 pub mod jpeg;
@@ -354,59 +357,6 @@ pub use embassy_hal_internal::{Peri, PeripheralType};
 pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use stm32_metapac as pac;
-
-#[cfg(not(feature = "low-power"))]
-pub mod low_power {
-    //! Low-power stub module to provide consistent API
-
-    trait_set::trait_set! {
-        /// Peripheral that can be suspended
-        #[allow(private_bounds)]
-        pub trait SuspendablePeripheral = SealedSuspendablePeripheral;
-    }
-
-    pub(crate) trait SealedSuspendablePeripheral {}
-
-    /// A mutex-like object to resume a peripheral. Does nothing when `low-power` is not enabled.
-    pub struct ResumablePeripheral<T: SuspendablePeripheral>(T);
-
-    impl<T: SuspendablePeripheral> ResumablePeripheral<T> {
-        /// Create the object. Will suspend the peripheral as soon as it is passed.
-        pub fn new(peripheral: T) -> Self {
-            Self(peripheral)
-        }
-
-        /// Suspend the peripheral, if it is resumed
-        pub fn suspend(&mut self) {}
-
-        /// Resume the peripheral and get a mutable reference to it
-        pub fn resume(&mut self) -> &mut T {
-            &mut self.0
-        }
-
-        /// Get the resumable peripheral guard
-        pub fn borrow(&mut self) -> ResumablePeripheralGuard<'_, T> {
-            ResumablePeripheralGuard(&mut self.0)
-        }
-    }
-
-    /// A mutex-like object guard, that when held, activates the peripheral
-    pub struct ResumablePeripheralGuard<'a, T: SuspendablePeripheral>(&'a mut T);
-
-    impl<'a, T: SuspendablePeripheral> core::ops::Deref for ResumablePeripheralGuard<'a, T> {
-        type Target = T;
-
-        fn deref(&self) -> &T {
-            self.0
-        }
-    }
-
-    impl<'a, T: SuspendablePeripheral> core::ops::DerefMut for ResumablePeripheralGuard<'a, T> {
-        fn deref_mut(&mut self) -> &mut T {
-            &mut self.0
-        }
-    }
-}
 
 use crate::interrupt::Priority;
 #[cfg(feature = "rt")]
@@ -615,7 +565,7 @@ mod dual_core {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
         // Enable hardware semaphore.
-        critical_section::with(|cs| crate::hsem::init_hsem(cs));
+        critical_section::with(|cs| crate::hsem::init_hsem(cs, true));
 
         #[cfg(stm32h7)]
         {
@@ -650,7 +600,7 @@ mod dual_core {
     /// A hardware semaphore is used to coordinate the init with the second core.
     pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
         critical_section::with(|cs| {
-            rcc::enable_with_cs::<peripherals::HSEM>(cs);
+            rcc::enable_with_cs_no_refcount::<peripherals::HSEM>(cs);
         });
 
         // Wait for the semaphore to be unlocked by the primary core
@@ -805,16 +755,16 @@ fn init_hw(config: Config) -> Peripherals {
 
         #[cfg(any(stm32h7rs))]
         // On the H7RS the SYSCFG should not be reset if it is already enabled. This is typically the case when running from external flash and the bootloader enables the SYSCFG.
-        rcc::enable_with_cs::<peripherals::SYSCFG>(cs);
+        rcc::enable_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs, stm32c5)))]
-        rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
+        rcc::enable_and_reset_with_cs_no_refcount::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl, stm32c5)))]
-        rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);
+        rcc::enable_and_reset_with_cs_no_refcount::<peripherals::PWR>(cs);
         #[cfg(all(
             flash,
             not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs, stm32c5))
         ))]
-        rcc::enable_and_reset_with_cs::<peripherals::FLASH>(cs);
+        rcc::enable_and_reset_with_cs_no_refcount::<peripherals::FLASH>(cs);
 
         // Enable the VDDIO2 power supply on chips that have it.
         // Note that this requires the PWR peripheral to be enabled first.
@@ -981,7 +931,7 @@ fn init_hw(config: Config) -> Peripherals {
 
             // must be before time_driver init to allow refcount reset
             #[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
-            hsem::init_hsem(cs);
+            hsem::init_hsem(cs, true);
 
             // must be after rcc init
             #[cfg(feature = "_time-driver")]

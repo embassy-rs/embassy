@@ -11,42 +11,45 @@ mod generic_phy;
 mod sma;
 
 use core::mem::MaybeUninit;
-use core::task::Context;
+use core::task::{Context, Waker};
 
-#[cfg(feature = "ptp")]
-use embassy_net_driver::PacketMeta;
-use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_sync::waitqueue::AtomicWaker;
+use xarxa_driver::{Capabilities, Driver, HardwareAddress, LinkState, Medium, NotSupported, PacketBuf};
 
 pub use crate::eth::_version::{InterruptHandler, *};
 pub use crate::eth::generic_phy::*;
 pub use crate::eth::sma::{Instance as SmaInstance, Sma, StationManagement};
 use crate::pac::eth::Eth as Regs;
 
-#[allow(unused)]
+#[cfg(feature = "ptp")]
+fn adjusted_ptp_addend(nominal: u32, adjustment: embassy_ptp_driver::ScaledPpm) -> u32 {
+    let scale = 1.0 + f64::from(adjustment.raw()) / ((1i32 << 16) as f64 * 1e6);
+    // The cast saturates; the addend must remain nonzero.
+    ((f64::from(nominal) * scale + 0.5) as u32).max(1)
+}
+
+/// Maximum Ethernet frame size, header included, FCS excluded.
 const MTU: usize = 1514;
-const TX_BUFFER_SIZE: usize = 1514;
-const RX_BUFFER_SIZE: usize = 1536;
 
-#[repr(C, align(8))]
-#[derive(Copy, Clone)]
-pub(crate) struct Packet<const N: usize>([u8; N]);
-
-/// Ethernet packet queue.
+/// Ethernet descriptor rings.
 ///
-/// This struct owns the memory used for reading and writing packets.
+/// This struct owns the DMA descriptors of the transmit and receive rings.
+/// The frames themselves live in `embassy-net`'s packet buffer pool: the
+/// receive ring holds one buffer per descriptor, filled by DMA in place, and
+/// the transmit ring holds each frame's buffer until the hardware is done
+/// with it.
 ///
-/// `TX` is the number of packets in the transmit queue, `RX` in the receive
-/// queue. A bigger queue allows the hardware to receive more packets while the
-/// CPU is busy doing other things, which may increase performance (especially for RX)
-/// at the cost of more RAM usage.
+/// `TX` is the number of descriptors in the transmit ring, `RX` in the receive
+/// ring. A bigger ring allows the hardware to receive more frames while the
+/// CPU is busy doing other things, which may increase performance (especially
+/// for RX), at the cost of pinning more packet buffers. Make sure the packet
+/// pool (the `packet-buf-count-N` feature of `xarxa`) is bigger than
+/// `TX + RX`, with room to spare for the stack and sockets.
 pub struct PacketQueue<const TX: usize, const RX: usize> {
     tx_desc: [TDes; TX],
     rx_desc: [RDes; RX],
-    tx_buf: [Packet<TX_BUFFER_SIZE>; TX],
-    rx_buf: [Packet<RX_BUFFER_SIZE>; RX],
-    #[cfg(feature = "ptp")]
-    tx_id: [u32; TX],
+    tx_buf: [Option<PacketBuf>; TX],
+    rx_buf: [Option<PacketBuf>; RX],
 }
 
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
@@ -59,10 +62,8 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
         Self {
             tx_desc: [const { TDes::new() }; TX],
             rx_desc: [const { RDes::new() }; RX],
-            tx_buf: [Packet([0; TX_BUFFER_SIZE]); TX],
-            rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
-            #[cfg(feature = "ptp")]
-            tx_id: [0u32; TX],
+            tx_buf: [const { None }; TX],
+            rx_buf: [const { None }; RX],
         }
     }
 
@@ -79,6 +80,7 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     ///
     /// After calling this function, calling `assume_init` on the MaybeUninit is guaranteed safe.
     pub fn init(this: &mut MaybeUninit<Self>) {
+        // All-zero bytes are a valid `PacketQueue`: zeroed descriptors, and `None` buffers.
         unsafe {
             this.as_mut_ptr().write_bytes(0u8, 1);
         }
@@ -87,157 +89,109 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
-impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> {
-    type RxToken<'a>
-        = RxToken<'a, 'd>
-    where
-        Self: 'a;
-    type TxToken<'a>
-        = TxToken<'a, 'd>
-    where
-        Self: 'a;
-
-    fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-        WAKER.register(cx.waker());
-
-        if let Some(rx) = self.rx.available()
-            && let Some(tx) = self.tx.available()
-        {
-            self.wake_guard.disable();
-
-            Some((
-                RxToken {
-                    pkt: rx,
-                    rx: &mut self.rx,
-                },
-                TxToken {
-                    pkt: tx,
-                    tx: &mut self.tx,
-                },
-            ))
-        } else {
-            self.wake_guard.enable();
-
-            None
-        }
-    }
-
-    fn transmit(&mut self, cx: &mut Context) -> Option<Self::TxToken<'_>> {
-        WAKER.register(cx.waker());
-        if let Some(tx) = self.tx.available() {
-            self.wake_guard.disable();
-
-            Some(TxToken {
-                pkt: tx,
-                tx: &mut self.tx,
-            })
-        } else {
-            self.wake_guard.enable();
-
-            None
-        }
-    }
-
+impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
     #[inline]
     fn capabilities(&self) -> Capabilities {
         let mut caps = Capabilities::default();
+        caps.medium = Medium::Ethernet;
         caps.max_transmission_unit = MTU;
-        caps.max_burst_size = Some(self.tx.len());
-        // The v2 MAC offloads the IPv4 header and TCP/UDP payload
+        // The v2/v1b/v1c MAC offloads the IPv4 header and TCP/UDP payload
         // checksums in hardware (MACCR.IPC + TDES3.CIC; bad RX frames are dropped
         // in the descriptor ring), so xarxa can skip them.
         #[cfg(any(eth_v2, eth_v2a, eth_v1b, eth_v1c))]
         {
-            use embassy_net_driver::Checksum;
+            use xarxa_driver::Checksum;
             caps.checksum.ipv4 = Checksum::None;
             caps.checksum.tcp = Checksum::None;
             caps.checksum.udp = Checksum::None;
         }
-        #[cfg(feature = "ptp")]
-        {
-            caps.timestamp = true;
-        }
-
         caps
     }
 
-    #[cfg(feature = "ptp")]
-    fn poll_timestamp(&mut self, cx: &mut Context) -> Option<embassy_net_driver::TxTimestamp> {
-        WAKER.register(cx.waker());
-
-        if let Some(timestamp) = self.tx.poll_timestamp() {
-            self.wake_guard.disable();
-
-            Some(timestamp)
-        } else {
-            self.wake_guard.enable();
-
-            None
+    fn receive(&mut self) -> Option<PacketBuf> {
+        match self.rx.receive() {
+            Some(buf) => {
+                self.wake_guard.disable();
+                Some(buf)
+            }
+            None => {
+                self.wake_guard.enable();
+                None
+            }
         }
     }
 
-    fn link_state(&mut self, cx: &mut Context) -> LinkState {
-        if let Some(link_state) = self.phy.poll_link(cx) {
-            self.link_state = if link_state { LinkState::Up } else { LinkState::Down };
+    fn can_transmit(&mut self) -> bool {
+        if self.tx.can_transmit() {
+            self.wake_guard.disable();
+            true
+        } else {
+            self.wake_guard.enable();
+            false
         }
+    }
 
-        self.link_state
+    fn transmit(&mut self, buf: PacketBuf) -> Result<(), PacketBuf> {
+        if !self.tx.can_transmit() {
+            return Err(buf);
+        }
+        self.tx.transmit(buf);
+        Ok(())
     }
 
     fn hardware_address(&self) -> HardwareAddress {
         HardwareAddress::Ethernet(self.mac_addr)
     }
-}
 
-/// `embassy-net` RX token.
-pub struct RxToken<'a, 'd> {
-    pkt: *mut [u8],
-    rx: &'a mut RDesRing<'d>,
-}
+    fn link_state(&mut self) -> LinkState {
+        self.link_state
+    }
 
-impl<'a, 'd> embassy_net_driver::RxToken for RxToken<'a, 'd> {
+    fn register_waker(&mut self, waker: &Waker) -> Result<(), NotSupported> {
+        WAKER.register(waker);
+
+        // The periodic PHY link poll is driven from here: this is called once
+        // per stack poll, with the waker `Phy::poll_link` re-arms its timer
+        // against. `Driver::link_state` then reports the cached state.
+        let mut cx = Context::from_waker(waker);
+        if let Some(link_state) = self.phy.poll_link(&mut cx) {
+            self.link_state = if link_state { LinkState::Up } else { LinkState::Down };
+        }
+
+        Ok(())
+    }
+
     #[cfg(feature = "ptp")]
-    fn meta(&self) -> PacketMeta {
-        self.rx.meta()
-    }
-
-    fn buf(&mut self) -> &mut [u8] {
-        unsafe { &mut *self.pkt }
-    }
-
-    #[inline]
-    fn consume<R, F>(self, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        let r = f(unsafe { &mut *self.pkt });
-        self.rx.pop_packet();
-        r
+    fn poll_tx_timestamp(&mut self) -> Option<xarxa_driver::TxTimestamp> {
+        self.tx.poll_timestamp()
     }
 }
 
-/// `embassy-net` TX token.
-pub struct TxToken<'a, 'd> {
-    pkt: *mut [u8],
-    tx: &'a mut TDesRing<'d>,
-}
+#[cfg(all(test, feature = "ptp"))]
+mod tests {
+    use embassy_ptp_driver::ScaledPpm;
 
-impl<'a, 'd> embassy_net_driver::TxToken for TxToken<'a, 'd> {
-    #[cfg(feature = "ptp")]
-    fn set_meta(&mut self, meta: PacketMeta) {
-        self.tx.set_meta(meta);
+    use super::adjusted_ptp_addend;
+
+    const NOMINAL: u32 = 0xa000_0000;
+
+    #[test]
+    fn ptp_addend_uses_absolute_scaled_ppm() {
+        assert_eq!(adjusted_ptp_addend(NOMINAL, ScaledPpm::ZERO), NOMINAL);
+        assert_eq!(
+            adjusted_ptp_addend(NOMINAL, ScaledPpm::from_raw(500 << 16)),
+            0xa014_7ae1
+        );
+        assert_eq!(
+            adjusted_ptp_addend(NOMINAL, ScaledPpm::from_raw(-500 << 16)),
+            0x9feb_851f
+        );
     }
 
-    #[inline]
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        // NOTE(unwrap): we checked the queue wasn't full when creating the token.
-        let pkt = unsafe { &mut *self.pkt };
-        let r = f(&mut pkt[..len]);
-        self.tx.transmit(len);
-        r
+    #[test]
+    fn ptp_addend_stays_in_the_valid_register_range() {
+        assert!(adjusted_ptp_addend(NOMINAL, ScaledPpm::from_raw(i32::MIN)) >= 1);
+        assert_eq!(adjusted_ptp_addend(u32::MAX, ScaledPpm::from_raw(i32::MAX)), u32::MAX);
     }
 }
 

@@ -277,7 +277,17 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         mac.maccr().modify(|w| {
             w.set_ifg(Ifg::Ifg96); // inter frame gap 96 bit times
-            w.set_apcs(Apcs::Strip); // automatic padding and crc stripping
+            // Strip padding and FCS from received frames.
+            #[cfg(any(eth_v1b, eth_v1c))]
+            {
+                w.set_apcs(Apcs::Strip);
+                w.set_cstf(true);
+            }
+            // This MAC has no CSTF. Rather than have the FCS stripped off some frames and
+            // not others, leave stripping off entirely and take the FCS off the length in
+            // software, in `RDesRing::pop_packet`.
+            #[cfg(eth_v1a)]
+            w.set_apcs(Apcs::Disabled);
             w.set_fes(Fes::Fes100); // fast ethernet speed
             w.set_dm(Dm::FullDuplex); // full duplex
             #[cfg(any(eth_v1b, eth_v1c))]
@@ -318,9 +328,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         // TODO MTU size setting not found for v1 ethernet, check if correct
 
-        #[cfg(feature = "ptp")]
-        let tx_ids = &mut queue.tx_id;
-
         let mut this = Self {
             _peri: peri,
             _pins: pins,
@@ -328,12 +335,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             mac_addr,
             wake_guard: T::RCC_INFO.wake_guard().into(),
             link_state: LinkState::Down,
-            tx: TDesRing::new(
-                &mut queue.tx_desc,
-                &mut queue.tx_buf,
-                #[cfg(feature = "ptp")]
-                tx_ids,
-            ),
+            tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
             #[cfg(feature = "ptp")]
             ptp_clock_taken: false,

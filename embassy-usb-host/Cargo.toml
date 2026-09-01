@@ -19,7 +19,7 @@ target = "thumbv7em-none-eabi"
 features = ["defmt"]
 
 [dependencies]
-embassy-usb = { version = "0.6.0", path = "../embassy-usb" }
+embassy-usb = { version = "0.6.0", path = "../embassy-usb", default-features = false }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }

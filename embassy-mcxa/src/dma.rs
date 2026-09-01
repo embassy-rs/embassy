@@ -395,7 +395,7 @@ impl Channel for AnyChannel {}
 /// Macro to implement Channel trait for a peripheral.
 macro_rules! impl_dma_channel {
     ($peri:ident, $dma:expr, $channel:expr, $irq:ident) => {
-        impl crate::dma::sealed::SealedChannel for crate::peripherals::$peri {
+        impl $crate::dma::sealed::SealedChannel for $crate::peripherals::$peri {
             fn dma(&self) -> usize {
                 $dma
             }
@@ -408,11 +408,11 @@ macro_rules! impl_dma_channel {
                 nxp_pac::Interrupt::$irq
             }
         }
-        impl crate::dma::Channel for crate::peripherals::$peri {}
+        impl $crate::dma::Channel for $crate::peripherals::$peri {}
 
-        impl From<crate::peripherals::$peri> for crate::dma::AnyChannel {
-            fn from(_: crate::peripherals::$peri) -> Self {
-                crate::dma::AnyChannel {
+        impl From<$crate::peripherals::$peri> for $crate::dma::AnyChannel {
+            fn from(_: $crate::peripherals::$peri) -> Self {
+                $crate::dma::AnyChannel {
                     dma: $dma,
                     channel: $channel,
                     interrupt: nxp_pac::Interrupt::$irq,
@@ -813,7 +813,7 @@ impl DmaChannel<'_> {
     /// Requires that the source/destination buffers remain valid for the duration
     /// of the transfer.
     unsafe fn setup_transfers<WSRC: Word, WDST: Word>(&self, params: DmaTransferParameters<WSRC, WDST>) {
-        let byte_count = (params.dst_count as usize * WDST::size().bytes()) as u32;
+        let byte_count = (params.dst_count * WDST::size().bytes()) as u32;
 
         let t = self.tcd();
         self.prepare_regular_transfer();
@@ -1344,7 +1344,7 @@ impl DmaChannel<'_> {
     /// * `buf` - Source buffer to write from
     /// * `peri_addr` - Peripheral register address
     /// * `software` - Use software start for the transfer; otherwise use hardware ERQ to drive the transfer.
-    ///                Should be `false` unless your peripheral does not support hardware ERQ.
+    ///   Should be `false` unless your peripheral does not support hardware ERQ.
     /// * `enable_interrupt` - Whether to enable interrupt on completion
     ///
     /// # Safety
@@ -1395,7 +1395,7 @@ impl DmaChannel<'_> {
     /// * `peri_addr` - Peripheral register address
     /// * `buf` - Destination buffer to read into
     /// * `software` - Use software start for the transfer; otherwise use hardware ERQ to drive the transfer.
-    ///                Should be `false` unless your peripheral does not support hardware ERQ.
+    ///   Should be `false` unless your peripheral does not support hardware ERQ.
     /// * `enable_interrupt` - Whether to enable interrupt on completion
     ///
     /// # Safety
@@ -1488,6 +1488,63 @@ impl DmaChannel<'_> {
             w.set_erq(false);
             w.set_earq(false);
         });
+    }
+
+    /// Abort the transfer.
+    ///
+    /// When this returns, DMA can no longer access the transfer's buffers or
+    /// descriptors and the channel completion state has been cleared. A wake
+    /// stored in the `WaitCell` before aborting may remain. This is fine
+    /// because a wake only prompts the waiter to recheck completion state;
+    /// it does not indicate completion by itself.
+    ///
+    /// With IRQs masked we:
+    /// 1. Clear `ERQ`/`EARQ` so no further service requests are issued.
+    /// 2. Spin until `CH_CSR.ACTIVE` clears, so any in-flight minor loop
+    ///    or software-triggered transfer drains.
+    /// 3. Clear `CH_CSR.DONE` and `CH_INT.INT` (both W1C) bookkeeping.
+    /// 4. Unpend the channel's IRQ in the NVIC so a queued dispatch is
+    ///    dropped on the floor instead of running redundantly after CS
+    ///    exit.
+    pub(crate) fn stop(&mut self) {
+        let t = self.tcd();
+        let irq = self.channel.interrupt();
+
+        critical_section::with(|_| {
+            // 1. Stop accepting new requests.
+            t.ch_csr().modify(|w| {
+                w.set_erq(false);
+                w.set_earq(false);
+            });
+
+            // 2. Mask interrupts so we don't have to worry about the
+            // IRQ firing while we're in the middle of the shutdown
+            // sequence.
+            t.tcd_csr().modify(|w| {
+                w.set_intmajor(false);
+                w.set_inthalf(false);
+            });
+
+            // 3. Drop any IRQ the hardware queued in the NVIC while we
+            //    were masked.
+            cortex_m::peripheral::NVIC::unpend(irq);
+        });
+
+        // 4. Wait for any in-flight minor loop / SW-triggered transfer
+        //    to drain. Bounded by the size of one minor loop / SW
+        //    transfer this driver issues (microseconds at most).
+        while t.ch_csr().read().active() {
+            core::hint::spin_loop();
+        }
+
+        // 5. Clear completion bookkeeping (W1C).
+        t.ch_int().write(|w| w.set_int(true));
+        t.ch_csr().modify(|w| w.set_done(true));
+        let state = &STATES[self.dma()][self.channel()];
+        state.peripheral_scatter_gather_active.store(false, Ordering::Release);
+        state.peripheral_scatter_gather_done.store(false, Ordering::Release);
+
+        fence(Ordering::SeqCst);
     }
 
     /// Return true if the current transfer has completed.
@@ -1858,66 +1915,9 @@ impl<'a> Transfer<'a> {
         .await
     }
 
-    /// Abort the transfer.
-    ///
-    /// Runs the entire shutdown sequence under `critical_section` so that
-    /// the cancelled transfer's completion IRQ can never fire. This is
-    /// crucial because the IRQ handler unconditionally calls `wake()` on
-    /// this channel's `WaitCell` when `CH_CSR.DONE` is set, which would
-    /// leave the cell in the `WOKEN` state. The next `Transfer` future on
-    /// this channel would then have its first `poll_wait` consume that
-    /// stale wake and return `Ready` *without registering its waker*; the
-    /// next IRQ would have nothing to wake -- a deadlock.
-    ///
-    /// With IRQs masked we:
-    /// 1. Clear `ERQ`/`EARQ` so no further service requests are issued.
-    /// 2. Spin until `CH_CSR.ACTIVE` clears, so any in-flight minor loop
-    ///    or software-triggered transfer drains.
-    /// 3. Clear `CH_CSR.DONE` and `CH_INT.INT` (both W1C). After this,
-    ///    even if the IRQ does dispatch when masking is lifted, the
-    ///    handler will see `DONE=0` and skip the `wake()`.
-    /// 4. Unpend the channel's IRQ in the NVIC so a queued dispatch is
-    ///    dropped on the floor instead of running redundantly after CS
-    ///    exit.
-    ///
-    /// Because `wake()` is never called for the cancelled transfer, the
-    /// `WaitCell` is guaranteed to never enter the `WOKEN` state on
-    /// account of this cancellation, and there is nothing to "drain".
+    /// Abort the transfer and leave the channel ready for reuse.
     fn abort(&mut self) {
-        let t = self.channel.tcd();
-        let irq = self.channel.channel.interrupt();
-
-        critical_section::with(|_| {
-            // 1. Stop accepting new requests.
-            t.ch_csr().modify(|w| {
-                w.set_erq(false);
-                w.set_earq(false);
-            });
-
-            // 2. Mask interrupts so we don't have to worry about the
-            // IRQ firing while we're in the middle of the shutdown
-            // sequence.
-            t.tcd_csr().modify(|w| {
-                w.set_intmajor(false);
-                w.set_inthalf(false)
-            });
-
-            // 3. Drop any IRQ the hardware queued in the NVIC while we
-            //    were masked.
-            cortex_m::peripheral::NVIC::unpend(irq);
-        });
-
-        // 4. Wait for any in-flight minor loop / SW-triggered transfer
-        //    to drain. Bounded by the size of one minor loop / SW
-        //    transfer this driver issues (microseconds at most).
-        while t.ch_csr().read().active() {
-            core::hint::spin_loop();
-        }
-
-        // 5. Clear completion bookkeeping (W1C).
-        t.ch_int().write(|w| w.set_int(true));
-
-        fence(Ordering::SeqCst);
+        self.channel.stop();
     }
 }
 
@@ -2686,10 +2686,10 @@ macro_rules! impl_dma_interrupt_handler {
             // SAFETY: The correct $ch is called as generated, We check that
             // the given callback is non-null before calling.
             unsafe {
-                crate::dma::on_interrupt($dma, $ch);
+                $crate::dma::on_interrupt($dma, $ch);
 
                 // See https://doc.rust-lang.org/std/primitive.fn.html#casting-to-and-from-integers
-                let cb: *mut () = crate::dma::CALLBACKS[$dma][$ch].load(core::sync::atomic::Ordering::Acquire);
+                let cb: *mut () = $crate::dma::CALLBACKS[$dma][$ch].load(core::sync::atomic::Ordering::Acquire);
                 if !cb.is_null() {
                     let cb: fn() = core::mem::transmute(cb);
                     (cb)();

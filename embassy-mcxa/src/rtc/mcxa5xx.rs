@@ -486,7 +486,7 @@ impl<'a> Rtc<'a> {
         let hm = self.info.regs().hourmin().read();
         let second = self.info.regs().seconds().read().sec_cnt();
 
-        let year = (i16::from(ym.yrofst() as i8) + Self::BASE_YEAR).into();
+        let year = i16::from(ym.yrofst() as i8) + Self::BASE_YEAR;
         let month = ym.mon_cnt().into();
         let dow = d.dow().into();
         let day = d.day_cnt();

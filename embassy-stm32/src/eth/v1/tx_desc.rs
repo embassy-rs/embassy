@@ -1,10 +1,10 @@
 use core::sync::atomic::{Ordering, compiler_fence, fence};
 
-#[cfg(feature = "ptp")]
-use embassy_net_driver::{PacketMeta, Timestamp};
 use vcell::VolatileCell;
+use xarxa_driver::PacketBuf;
+#[cfg(feature = "ptp")]
+use xarxa_driver::Timestamp;
 
-use crate::eth::TX_BUFFER_SIZE;
 use crate::pac::ETH;
 
 /// Transmit and Receive Descriptor fields
@@ -56,8 +56,6 @@ mod tx_consts {
     pub const TXDESC_0_TTSS: u32 = 1 << 17;
 }
 use tx_consts::*;
-
-use super::Packet;
 
 /// Enhanced Transmit Descriptor representation (8 words, 32 bytes)
 ///
@@ -177,32 +175,34 @@ impl TDes {
     }
 }
 
+/// What reclaiming a completed transmit descriptor yields: its timestamp with PTP,
+/// nothing without.
+#[cfg(feature = "ptp")]
+type Completion = Option<Timestamp>;
+#[cfg(not(feature = "ptp"))]
+type Completion = ();
+
 pub(crate) struct TDesRing<'a> {
     descriptors: &'a mut [TDes],
-    buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-    #[cfg(feature = "ptp")]
-    ids: &'a mut [u32],
+    /// The buffer of each frame in flight, held until the DMA is done with it.
+    buffers: &'a mut [Option<PacketBuf>],
+    /// Next descriptor to submit.
     index: usize,
-    #[cfg(feature = "ptp")]
+    /// Submitted descriptors not yet reclaimed.
     in_flight: usize,
-    #[cfg(feature = "ptp")]
-    enable_timestamp: bool,
 }
 
 impl<'a> TDesRing<'a> {
     /// Initialise this TDesRing. Assume TDesRing is corrupt
-    pub(crate) fn new(
-        descriptors: &'a mut [TDes],
-        buffers: &'a mut [Packet<TX_BUFFER_SIZE>],
-        #[cfg(feature = "ptp")] ids: &'a mut [u32],
-    ) -> Self {
+    pub(crate) fn new(descriptors: &'a mut [TDes], buffers: &'a mut [Option<PacketBuf>]) -> Self {
         assert!(descriptors.len() > 0);
         assert!(descriptors.len() == buffers.len());
-        #[cfg(feature = "ptp")]
-        assert!(ids.len() == descriptors.len());
 
         for (i, entry) in descriptors.iter().enumerate() {
             entry.setup(descriptors.get(i + 1));
+        }
+        for buf in buffers.iter_mut() {
+            *buf = None;
         }
 
         // Register txdescriptor start
@@ -213,13 +213,8 @@ impl<'a> TDesRing<'a> {
         Self {
             descriptors,
             buffers,
-            #[cfg(feature = "ptp")]
-            ids,
             index: 0,
-            #[cfg(feature = "ptp")]
             in_flight: 0,
-            #[cfg(feature = "ptp")]
-            enable_timestamp: false,
         }
     }
 
@@ -227,99 +222,91 @@ impl<'a> TDesRing<'a> {
         self.descriptors.len()
     }
 
-    #[cfg(feature = "ptp")]
-    pub(crate) const fn completion_index(&self) -> usize {
+    /// The oldest submitted descriptor not yet reclaimed.
+    const fn completion_index(&self) -> usize {
         (self.index + self.len() - self.in_flight) % self.len()
     }
 
-    /// Return the next available packet buffer for transmitting, or None
-    pub(crate) fn available(&mut self) -> Option<&mut [u8]> {
-        #[cfg(feature = "ptp")]
-        // If every descriptor is already submitted but not yet polled,
-        // the slot at `index` has not been polled and must not be reused.z
-        if self.in_flight == self.len() {
+    /// Reclaim the oldest completed descriptor: free its buffer and return its
+    /// transmit timestamp, if any. `None` if nothing completed.
+    fn reclaim_one(&mut self) -> Option<Completion> {
+        if self.in_flight == 0 {
+            return None;
+        }
+        let completion_index = self.completion_index();
+        let descriptor = &self.descriptors[completion_index];
+        if !descriptor.available() {
             return None;
         }
 
-        let descriptor = &mut self.descriptors[self.index];
-        if descriptor.available() {
-            Some(&mut self.buffers[self.index].0)
-        } else {
-            None
+        #[cfg(feature = "ptp")]
+        let timestamp = descriptor.timestamp();
+        #[cfg(not(feature = "ptp"))]
+        let timestamp = ();
+
+        // Dropping the buffer frees it.
+        self.buffers[completion_index] = None;
+        self.in_flight -= 1;
+        Some(timestamp)
+    }
+
+    /// Whether the next `transmit` will be accepted.
+    pub(crate) fn can_transmit(&mut self) -> bool {
+        // Without PTP nothing else reclaims completed descriptors, so do it here.
+        // With PTP, `poll_timestamp` reclaims them so their timestamps are reported.
+        #[cfg(not(feature = "ptp"))]
+        while self.reclaim_one().is_some() {}
+
+        // If every descriptor is already submitted but not yet reclaimed,
+        // the slot at `index` must not be reused.
+        if self.in_flight == self.len() {
+            return false;
         }
+
+        self.descriptors[self.index].available()
     }
 
     #[cfg(feature = "ptp")]
-    pub(crate) fn poll_timestamp(&mut self) -> Option<embassy_net_driver::TxTimestamp> {
+    pub(crate) fn poll_timestamp(&mut self) -> Option<xarxa_driver::TxTimestamp> {
         loop {
             let completion_index = self.completion_index();
-            let descriptor = &self.descriptors[completion_index];
+            let packet_id = self.buffers[completion_index].as_ref().map(|b| b.meta().id);
+            let timestamp = self.reclaim_one()?;
 
-            if self.in_flight == 0 || !descriptor.available() {
-                break None;
-            }
-
-            let timestamp = descriptor.timestamp();
-            let packet_id = self.ids[completion_index];
-
-            if packet_id != 0 && timestamp.is_some() {
-                trace!(
-                    "eth ptp tx complete idx={} packet_id={} tdes0={:#010x} tdes7={} tdes6={}",
-                    completion_index,
-                    packet_id,
-                    descriptor.tdes0.get(),
-                    descriptor.tdes7.get(),
-                    descriptor.tdes6.get()
-                );
-            } else if packet_id != 0 {
-                trace!(
-                    "eth ptp tx complete no-ts idx={} packet_id={} tdes0={:#010x} tdes1={:#010x}",
-                    completion_index,
-                    packet_id,
-                    descriptor.tdes0.get(),
-                    descriptor.tdes1.get()
-                );
-            }
-
-            self.in_flight -= 1;
-            self.ids[completion_index] = 0;
-
-            if let Some(timestamp) = timestamp {
-                break Some(embassy_net_driver::TxTimestamp {
-                    id: packet_id,
-                    timestamp: timestamp,
-                });
+            if let Some(timestamp) = timestamp
+                && let Some(id) = packet_id
+            {
+                trace!("eth ptp tx complete idx={} packet_id={}", completion_index, id);
+                break Some(xarxa_driver::TxTimestamp { id, timestamp });
             }
         }
     }
 
-    #[cfg(feature = "ptp")]
-    pub(crate) fn set_meta(&mut self, meta: PacketMeta) {
-        self.enable_timestamp = meta.request_timestamp;
-        self.ids[self.index] = meta.id;
-    }
-
-    /// Transmit the packet written in a buffer returned by `available`.
-    pub(crate) fn transmit(&mut self, len: usize) {
+    /// Transmit a frame. `can_transmit` must have returned `true`.
+    pub(crate) fn transmit(&mut self, buf: PacketBuf) {
+        debug_assert!(self.in_flight < self.len());
         let descriptor = &mut self.descriptors[self.index];
         debug_assert!(descriptor.available());
 
-        descriptor.set_buffer1(self.buffers[self.index].0.as_ptr());
-        descriptor.set_buffer1_len(len);
+        descriptor.set_buffer1(buf.as_ptr());
+        descriptor.set_buffer1_len(buf.len());
 
         #[cfg(feature = "ptp")]
-        if self.enable_timestamp {
+        if buf.meta().request_timestamp {
             descriptor.tdes0.set(descriptor.tdes0.get() | TXDESC_0_TTSE);
             trace!(
-                "eth ptp tx submit idx={} packet_id={} len={} tdes0={:#010x}",
+                "eth ptp tx submit idx={} packet_id={} len={}",
                 self.index,
-                self.ids[self.index],
-                len,
-                descriptor.tdes0.get()
+                buf.meta().id,
+                buf.len()
             );
         } else {
             descriptor.tdes0.set(descriptor.tdes0.get() & !TXDESC_0_TTSE);
         }
+
+        // The DMA reads the frame from the buffer, so it must stay alive until
+        // the descriptor is reclaimed.
+        self.buffers[self.index] = Some(buf);
 
         descriptor.set_owned();
 
@@ -331,12 +318,7 @@ impl<'a> TDesRing<'a> {
         // Request the DMA engine to poll the latest tx descriptor
         ETH.ethernet_dma().dmatpdr().modify(|w| w.0 = 1);
 
-        // Invalidate state
-        #[cfg(feature = "ptp")]
-        {
-            self.enable_timestamp = false;
-            self.in_flight += 1;
-        }
+        self.in_flight += 1;
 
         // Increment index.
         self.index = (self.index + 1) % self.descriptors.len();

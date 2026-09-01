@@ -32,6 +32,7 @@ embassy-net = { version = "0.9.1", path = "../../embassy-net", features = [
     "tcp",
     "dhcpv4",
     "medium-ethernet",
+    "icmp-ping-reply",
 ] }
 embedded-io-async = { version = "0.7.0" }
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = [

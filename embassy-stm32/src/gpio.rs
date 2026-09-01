@@ -33,7 +33,7 @@ impl<'d> Flex<'d> {
     }
 
     /// Unsafely clone (duplicate) a Flex.
-    pub unsafe fn clone_unchecked(&self) -> Flex<'d> {
+    pub const unsafe fn clone_unchecked(&self) -> Flex<'d> {
         Flex {
             pin: self.pin.clone_unchecked(),
         }
@@ -336,7 +336,7 @@ impl<'d> Input<'d> {
     /// peripheral token. The pin should already be configured as an input via
     /// [`Flex::set_as_input()`].
     #[inline]
-    pub fn from_flex(pin: Flex<'d>) -> Self {
+    pub const fn from_flex(pin: Flex<'d>) -> Self {
         Self { pin }
     }
 
@@ -607,6 +607,15 @@ impl AfType {
             mode: speed.to_mode(),
             cnf: output_type.to_cnf_out().to_bits(),
             pull: Pull::None,
+        }
+    }
+
+    /// Output with output type, speed and pull-up or pull-down;
+    pub const fn output_pull(output_type: OutputType, speed: Speed, pull: Pull) -> Self {
+        Self {
+            mode: speed.to_mode(),
+            cnf: output_type.to_cnf_out().to_bits(),
+            pull,
         }
     }
 }

@@ -163,7 +163,9 @@ embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-ut
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
-embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "324376018b2f7e5f1c70bb0070d92306afea32e3", features = ["async", "packet-buf-align-8"] }
+embassy-crypto-driver = { version = "0.1.0", path = "../embassy-crypto-driver" }
+embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
@@ -213,11 +215,11 @@ heapless = "0.9.3"
 once_cell = { version = "1.21.4", default-features = false, features=["critical-section"] }
 
 # stm32-metapac = { version = "21" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7a8bb7113f8548e09dca4ed214af3acb7925aa31" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-b98e71c0587d052b1a10e79c5e958a2fe9207c91" }
 
 [build-dependencies]
 # stm32-metapac = { version = "21", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-7a8bb7113f8548e09dca4ed214af3acb7925aa31" , default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-b98e71c0587d052b1a10e79c5e958a2fe9207c91" , default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.107"
 quote = "1.0.47"
@@ -244,7 +246,8 @@ defmt = [
     "embassy-hal-internal/defmt",
     "embedded-io-async/defmt",
     "embassy-usb-driver/defmt",
-    "embassy-net-driver/defmt",
+    "xarxa-driver/defmt",
+    "embassy-ptp-driver?/defmt",
     "embassy-time?/defmt",
     "embassy-usb-synopsys-otg/defmt",
     "stm32-metapac/defmt",
@@ -253,7 +256,7 @@ defmt = [
 ## Use log for logging
 log = ["dep:log"]
 ## Enable Ethernet PTP hardware timestamping.
-ptp = ["embassy-net-driver/packetmeta-timestamp"]
+ptp = ["xarxa-driver/packetmeta-timestamp", "dep:embassy-ptp-driver"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
 

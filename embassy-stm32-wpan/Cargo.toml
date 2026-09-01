@@ -35,12 +35,7 @@ embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal" }
 embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-channel", optional=true}
 stm32-bindings = { version = "0.2.2", optional=true, default-features = false }
 
-xarxa = { 
-    git = "https://github.com/embassy-rs/xarxa",
-    rev = "1f332ac32cc33d86aefc8e1c1a9749b93234a6de",
-    optional = true,
-    default-features = false,
-}
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "324376018b2f7e5f1c70bb0070d92306afea32e3", optional = true, default-features = false }
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
@@ -52,7 +47,7 @@ critical-section = "1.2"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
-stm32wb-hci = { version = "0.18.0", optional = true, git = "https://github.com/embassy-rs/stm32wb-hci.git", rev = "ca024be3d2ff107aeae4f9c9889edb9785b242ca" }
+stm32wb-hci = { version = "0.19.0",  optional = true }
 futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
 bt-hci = { version = "0.10.1", optional = true }

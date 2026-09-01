@@ -5,13 +5,12 @@
 //! not using `embedded-nal-async`.
 
 use heapless::Vec;
-pub use xarxa::socket::dns::{DnsQuery, Socket};
-pub(crate) use xarxa::socket::dns::{GetQueryResultError, StartQueryError};
-pub use xarxa::wire::{DnsQueryType, IpAddress};
+pub(crate) use xarxa::dns::{GetQueryResultError, StartQueryError};
+pub use xarxa::wire::{DnsType as DnsQueryType, IpAddress};
 
 use crate::Stack;
 
-/// Errors returned by DnsSocket.
+/// Errors returned by DnsClient.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
@@ -44,15 +43,15 @@ impl From<StartQueryError> for Error {
 /// This exists only for compatibility with crates that use `embedded-nal-async`.
 /// Prefer using [`Stack::dns_query`](crate::Stack::dns_query) directly if you're
 /// not using `embedded-nal-async`.
-pub struct DnsSocket<'a> {
-    stack: Stack<'a>,
+pub struct DnsClient<'d> {
+    stack: Stack<'d>,
 }
 
-impl<'a> DnsSocket<'a> {
+impl<'d> DnsClient<'d> {
     /// Create a new DNS socket using the provided stack.
     ///
     /// NOTE: If using DHCP, make sure it has reconfigured the stack to ensure the DNS servers are updated.
-    pub fn new(stack: Stack<'a>) -> Self {
+    pub fn new(stack: Stack<'d>) -> Self {
         Self { stack }
     }
 
@@ -66,7 +65,7 @@ impl<'a> DnsSocket<'a> {
     }
 }
 
-impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
+impl<'d> embedded_nal_async::Dns for DnsClient<'d> {
     type Error = Error;
 
     async fn get_host_by_name(
@@ -82,10 +81,10 @@ impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
             AddrType::IPv4 => (DnsQueryType::A, None),
             AddrType::IPv6 => (DnsQueryType::Aaaa, None),
             AddrType::Either => {
-                #[cfg(not(feature = "proto-ipv6"))]
+                #[cfg(not(feature = "ipv6"))]
                 let v6_first = false;
-                #[cfg(feature = "proto-ipv6")]
-                let v6_first = self.stack.config_v6().is_some();
+                #[cfg(feature = "ipv6")]
+                let v6_first = self.stack.any_ipv6();
                 match v6_first {
                     true => (DnsQueryType::Aaaa, Some(DnsQueryType::A)),
                     false => (DnsQueryType::A, Some(DnsQueryType::Aaaa)),
@@ -100,9 +99,9 @@ impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
         }
         if let Some(first) = addrs.get(0) {
             Ok(match first {
-                #[cfg(feature = "proto-ipv4")]
+                #[cfg(feature = "ipv4")]
                 IpAddress::Ipv4(addr) => IpAddr::V4(*addr),
-                #[cfg(feature = "proto-ipv6")]
+                #[cfg(feature = "ipv6")]
                 IpAddress::Ipv6(addr) => IpAddr::V6(*addr),
             })
         } else {
@@ -113,10 +112,6 @@ impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
     async fn get_host_by_address(&self, _addr: core::net::IpAddr, _result: &mut [u8]) -> Result<usize, Self::Error> {
         todo!()
     }
-}
-
-fn _assert_covariant<'a, 'b: 'a>(x: DnsSocket<'b>) -> DnsSocket<'a> {
-    x
 }
 
 impl core::fmt::Display for Error {

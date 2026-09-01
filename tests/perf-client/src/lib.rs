@@ -2,9 +2,11 @@
 
 use defmt::{assert, *};
 use embassy_futures::join::join;
+use embassy_net::Stack;
+use embassy_net::iface::Iface;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, Stack};
-use embassy_time::{Duration, Timer, with_timeout};
+use embassy_net::wire::Ipv4Address;
+use embassy_time::{Duration, with_timeout};
 
 pub struct Expected {
     pub down_kbps: usize,
@@ -12,13 +14,12 @@ pub struct Expected {
     pub updown_kbps: usize,
 }
 
-pub async fn run(stack: Stack<'_>, expected: Expected) {
+pub async fn run(iface: Iface<'_>, expected: Expected) {
     info!("Waiting for DHCP up...");
-    while stack.config_v4().is_none() {
-        Timer::after_millis(100).await;
-    }
+    iface.wait_config_up().await;
     info!("IP addressing up!");
 
+    let stack = iface.stack();
     let down = test_download(stack).await;
     let up = test_upload(stack).await;
     let updown = test_upload_download(stack).await;
@@ -42,7 +43,7 @@ async fn test_download(stack: Stack<'_>) -> usize {
 
     let mut rx_buffer = [0; RX_BUFFER_SIZE];
     let mut tx_buffer = [0; TX_BUFFER_SIZE];
-    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
     socket.set_timeout(Some(Duration::from_secs(10)));
 
     info!("connecting to {:?}:{}...", SERVER_ADDRESS, DOWNLOAD_PORT);
@@ -82,7 +83,7 @@ async fn test_upload(stack: Stack<'_>) -> usize {
 
     let mut rx_buffer = [0; RX_BUFFER_SIZE];
     let mut tx_buffer = [0; TX_BUFFER_SIZE];
-    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
     socket.set_timeout(Some(Duration::from_secs(10)));
 
     info!("connecting to {:?}:{}...", SERVER_ADDRESS, UPLOAD_PORT);
@@ -122,7 +123,7 @@ async fn test_upload_download(stack: Stack<'_>) -> usize {
 
     let mut rx_buffer = [0; RX_BUFFER_SIZE];
     let mut tx_buffer = [0; TX_BUFFER_SIZE];
-    let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+    let mut socket = unwrap!(TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
     socket.set_timeout(Some(Duration::from_secs(10)));
 
     info!("connecting to {:?}:{}...", SERVER_ADDRESS, UPLOAD_DOWNLOAD_PORT);

@@ -10,7 +10,9 @@ use core::str::FromStr;
 use defmt::{info, unwrap, warn};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_net::{Ipv4Cidr, Stack, StackResources};
+use embassy_net::StackStorage;
+use embassy_net::iface::Iface;
+use embassy_net::wire::{IpCidr, Ipv4Cidr};
 use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{Runner, State, TraceBuffer, TraceReader, context};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
@@ -20,7 +22,6 @@ use embassy_nrf::uarte::Baudrate;
 use embassy_nrf::{Peri, bind_interrupts, interrupt, peripherals, uarte};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
-use heapless::Vec;
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -48,7 +49,7 @@ async fn modem_task(runner: Runner<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn net_task(mut runner: embassy_net::Runner<'static, embassy_net_nrf91::NetDriver<'static>>) -> ! {
+async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
     runner.run().await
 }
 
@@ -56,40 +57,33 @@ async fn net_task(mut runner: embassy_net::Runner<'static, embassy_net_nrf91::Ne
 async fn control_task(
     control: &'static context::Control<'static>,
     config: context::Config<'static>,
-    stack: Stack<'static>,
+    iface: Iface<'static>,
 ) {
     unwrap!(control.configure(&config).await);
     unwrap!(
         control
             .run(|status| {
-                stack.set_config_v4(status_to_config(status));
+                apply_status(iface, status);
             })
             .await
     );
 }
 
-fn status_to_config(status: &Status) -> embassy_net::ConfigV4 {
+/// Copy the modem's context state onto the interface: its address and its
+/// default route. (The DNS servers it reports need the `dns` feature to be used.)
+fn apply_status(iface: Iface<'static>, status: &Status) {
     let Some(IpAddr::V4(addr)) = status.ip else {
         panic!("Unexpected IP address");
     };
 
-    let gateway = match status.gateway {
-        Some(IpAddr::V4(addr)) => Some(addr),
-        _ => None,
-    };
+    unwrap!(iface.set_ip_addrs([IpCidr::Ipv4(Ipv4Cidr::new(addr, 32))]));
 
-    let mut dns_servers = Vec::new();
-    for dns in status.dns.iter() {
-        if let IpAddr::V4(ip) = dns {
-            unwrap!(dns_servers.push(*ip));
-        }
+    let stack = iface.stack();
+    if let Some(IpAddr::V4(gateway)) = status.gateway {
+        unwrap!(stack.routes().add_default_ipv4_route(gateway, iface.handle()));
+    } else {
+        stack.routes().remove_default_ipv4_route();
     }
-
-    embassy_net::ConfigV4::Static(embassy_net::StaticConfigV4 {
-        address: Ipv4Cidr::new(addr, 32),
-        gateway,
-        dns_servers,
-    })
 }
 
 #[embassy_executor::task]
@@ -143,15 +137,17 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(modem_task(runner)));
     spawner.spawn(unwrap!(trace_task(uart, tracer)));
 
-    let config = embassy_net::Config::default();
-
     // Generate random seed.
     let mut rng = CcRng::new_blocking(p.CC_RNG);
     let seed = rng.blocking_next_u64();
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::<2>::new()), seed);
+    static STACK: StaticCell<StackStorage> = StaticCell::new();
+    let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
+
+    // Add the network interface to the stack.
+    static DEVICE: StaticCell<embassy_net_nrf91::NetDriver<'static>> = StaticCell::new();
+    let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
 
     spawner.spawn(unwrap!(net_task(runner)));
 
@@ -166,19 +162,19 @@ async fn main(spawner: Spawner) {
             auth: Some((b"orange", b"orange")),
             pin: None,
         },
-        stack
+        iface
     )));
 
-    stack.wait_config_up().await;
+    iface.wait_config_up().await;
 
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
     loop {
-        let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+        let mut socket = unwrap!(embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer));
         socket.set_timeout(Some(Duration::from_secs(10)));
 
         info!("Connecting...");
-        let host_addr = embassy_net::Ipv4Address::from_str("45.79.112.203").unwrap();
+        let host_addr = embassy_net::wire::Ipv4Address::from_str("45.79.112.203").unwrap();
         if let Err(e) = socket.connect((host_addr, 4242)).await {
             warn!("connect error: {:?}", e);
             Timer::after_secs(10).await;

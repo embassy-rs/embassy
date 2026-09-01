@@ -592,7 +592,7 @@ impl<'a> ConfigurationDescriptorChain<'a> {
         let first_interface_offset = self
             .iter_descriptors()
             .find_map(|(offset, bytes)| {
-                if bytes[1] == descriptor_type::INTERFACE {
+                if bytes.get(1) == Some(&descriptor_type::INTERFACE) {
                     Some(offset)
                 } else {
                     None
@@ -892,6 +892,9 @@ impl Iterator for EndpointIterator<'_> {
         }
         while self.buffer_idx + 7 <= self.iface_desc.buffer.len() {
             let working = &self.iface_desc.buffer[self.buffer_idx..];
+            if working[0] == 0 {
+                return None;
+            }
             self.buffer_idx += working[0] as usize;
             if let Ok(d) = EndpointDescriptor::try_from_bytes(working) {
                 self.index += 1;
@@ -1588,5 +1591,26 @@ mod test {
             assert_eq!(descriptor.write_to_bytes(&mut bytes), Ok(2 + 2 * n));
             assert_eq!(StringDescriptor::try_from_bytes(&bytes), Ok(descriptor));
         }
+    }
+
+    /// A 1-byte descriptor must not be indexed past its end.
+    #[test]
+    fn iter_interface_skips_short_descriptors() {
+        const BUF: [u8; 10] = [9, 2, 10, 0, 1, 1, 0, 0x80, 50, 0x01];
+        let cfg = ConfigurationDescriptorChain::try_from_slice(&BUF).expect("configuration parses");
+        assert_eq!(cfg.iter_interface().count(), 0);
+    }
+
+    /// A zero-length descriptor must end the walk instead of stalling it.
+    #[test]
+    fn iter_endpoints_stops_at_zero_length_descriptor() {
+        const BUF: [u8; 25] = [
+            9, 2, 25, 0, 1, 1, 0, 0x80, 50, // configuration
+            9, 4, 0, 0, 1, 0, 0, 0, 0, // interface declaring one endpoint
+            0, 0, 0, 0, 0, 0, 0, // zero-length descriptor
+        ];
+        let cfg = ConfigurationDescriptorChain::try_from_slice(&BUF).expect("configuration parses");
+        let iface = cfg.iter_interface().next().expect("one interface");
+        assert_eq!(iface.iter_endpoints().count(), 0);
     }
 }

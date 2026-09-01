@@ -178,7 +178,11 @@ macro_rules! dma_trait_impl {
     (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $channel:ident, $request:expr, $remap:expr) => {
         impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$channel {
             fn request(&self) -> crate::dma::Request {
-                $request
+                #[cfg(any(dma_v2, bdma_v2, gpdma, dmamux, lpdma))]
+                { return $request }
+
+                #[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux, lpdma)))]
+                { return () }
             }
 
             fn remap(&self) {

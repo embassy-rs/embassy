@@ -1,64 +1,136 @@
 //! Raw sockets.
 
 use core::future::{Future, poll_fn};
-use core::mem;
 use core::task::{Context, Poll};
 
-use xarxa::iface::{Interface, SocketHandle};
-use xarxa::socket::raw;
-pub use xarxa::socket::raw::PacketMetadata;
+use xarxa::driver::PacketBuf;
+pub use xarxa::driver::PacketMeta;
+#[cfg(feature = "iface-bind")]
+pub use xarxa::iface::IfaceHandle;
+pub use xarxa::raw::RawMode;
+use xarxa::raw::{self, RawHandle};
+#[cfg(feature = "raw-ethernet")]
+pub use xarxa::wire::EthernetProtocol;
+#[cfg(feature = "raw-ip")]
 pub use xarxa::wire::{IpProtocol, IpVersion};
 
-use crate::{Stack, TryError};
+use crate::{Full, Stack, TryError};
+
+/// Error returned by [`RawSocket::bind`].
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum BindError {
+    /// The socket is already bound.
+    InvalidState,
+    /// An Ethernet-mode bind on a socket bound to an interface whose medium is
+    /// not Ethernet.
+    #[cfg(feature = "raw-ethernet")]
+    InvalidMedium,
+}
+
+/// Error returned by [`RawSocket::send`].
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SendError {
+    /// The socket is not bound.
+    InvalidState,
+    /// There is no route to the packet's destination.
+    Unaddressable,
+    /// The packet does not fit in a packet buffer.
+    BufferFull,
+    /// The packet is malformed, or does not match the socket's filters.
+    Malformed,
+}
 
 /// Error returned by [`RawSocket::recv`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RecvError {
+    /// The socket is not bound.
+    InvalidState,
     /// Provided buffer was smaller than the received packet.
     Truncated,
 }
 
 /// An Raw socket.
-pub struct RawSocket<'a> {
-    stack: Stack<'a>,
-    handle: SocketHandle,
+pub struct RawSocket<'d> {
+    stack: Stack<'d>,
+    handle: RawHandle,
 }
 
-impl<'a> RawSocket<'a> {
-    /// Create a new Raw socket using the provided stack and buffers.
-    pub fn new(
-        stack: Stack<'a>,
-        ip_version: Option<IpVersion>,
-        ip_protocol: Option<IpProtocol>,
-        rx_meta: &'a mut [PacketMetadata],
-        rx_buffer: &'a mut [u8],
-        tx_meta: &'a mut [PacketMetadata],
-        tx_buffer: &'a mut [u8],
-    ) -> Self {
-        let handle = stack.with_mut(|i| {
-            let rx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(rx_meta) };
-            let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
-            let tx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(tx_meta) };
-            let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
-            i.sockets.add(raw::Socket::new(
-                ip_version,
-                ip_protocol,
-                raw::PacketBuffer::new(rx_meta, rx_buffer),
-                raw::PacketBuffer::new(tx_meta, tx_buffer),
-            ))
-        });
-
-        Self { stack, handle }
+impl<'d> RawSocket<'d> {
+    /// Create a new raw socket using the provided stack, receiving IP packets
+    /// of the given version and protocol (`None` for any).
+    ///
+    /// Errors:
+    /// - `Full` if the stack has no room for another raw socket. The limit is set
+    ///   by the `raw-socket-count-N` feature of `xarxa`.
+    #[cfg(feature = "raw-ip")]
+    pub fn new(stack: Stack<'d>, ip_version: Option<IpVersion>, ip_protocol: Option<IpProtocol>) -> Result<Self, Full> {
+        let mut this = Self::new_unbound(stack)?;
+        // The socket was just created, so it is unbound and cannot fail to bind.
+        unwrap!(
+            this.bind(RawMode::Ip {
+                version: ip_version,
+                protocol: ip_protocol,
+            })
+            .ok()
+        );
+        Ok(this)
     }
 
-    fn with_mut<R>(&self, f: impl FnOnce(&mut raw::Socket, &mut Interface) -> R) -> R {
-        self.stack.with_mut(|i| {
-            let socket = i.sockets.get_mut::<raw::Socket>(self.handle);
-            let res = f(socket, &mut i.iface);
-            i.waker.wake();
-            res
-        })
+    /// Create a new raw socket using the provided stack, without binding it.
+    ///
+    /// Errors:
+    /// - `Full` if the stack has no room for another raw socket. The limit is set
+    ///   by the `raw-socket-count-N` feature of `xarxa`.
+    pub fn new_unbound(stack: Stack<'d>) -> Result<Self, Full> {
+        let handle = stack.with(|i| i.stack.add_raw_socket())?;
+        Ok(Self { stack, handle })
+    }
+
+    /// Bind the socket to the given mode.
+    pub fn bind(&mut self, mode: RawMode) -> Result<(), BindError> {
+        match self.with_mut(|s| s.bind(mode)) {
+            Ok(()) => Ok(()),
+            Err(raw::BindError::InvalidState) => Err(BindError::InvalidState),
+            #[cfg(feature = "raw-ethernet")]
+            Err(raw::BindError::InvalidMedium) => Err(BindError::InvalidMedium),
+        }
+    }
+
+    /// Bind the socket to an interface, or unbind it with `None`.
+    ///
+    /// A socket bound to an interface only sends and receives packets on it.
+    ///
+    /// The socket must be closed. The binding is kept across [`close`](Self::close),
+    /// so a socket stays bound to its interface when it is bound again.
+    ///
+    /// Returns `Err(BindError::InvalidState)` if the socket is open.
+    #[cfg(feature = "iface-bind")]
+    pub fn bind_to_iface(&mut self, iface: Option<IfaceHandle>) -> Result<(), BindError> {
+        match self.with_mut(|s| s.bind_to_iface(iface)) {
+            Ok(()) => Ok(()),
+            Err(raw::BindError::InvalidState) => Err(BindError::InvalidState),
+            #[cfg(feature = "raw-ethernet")]
+            Err(raw::BindError::InvalidMedium) => unreachable!(),
+        }
+    }
+
+    /// Return the interface the socket is bound to, or `None`.
+    ///
+    /// See [`bind_to_iface`](Self::bind_to_iface).
+    #[cfg(feature = "iface-bind")]
+    pub fn bound_iface(&self) -> Option<IfaceHandle> {
+        self.with(|s| s.bound_iface())
+    }
+
+    fn with<R>(&self, f: impl FnOnce(&mut raw::RawSocket<'_, 'd>) -> R) -> R {
+        self.stack.with(|i| f(&mut i.stack.raw_socket(self.handle)))
+    }
+
+    fn with_mut<R>(&self, f: impl FnOnce(&mut raw::RawSocket<'_, 'd>) -> R) -> R {
+        self.stack.with_mut(|i| f(&mut i.stack.raw_socket(self.handle)))
     }
 
     /// Wait until the socket becomes readable.
@@ -69,52 +141,48 @@ impl<'a> RawSocket<'a> {
         poll_fn(move |cx| self.poll_recv_ready(cx))
     }
 
-    /// Receive a datagram.
-    ///
-    /// This method will wait until a datagram is received.
-    pub async fn recv(&self, buf: &mut [u8]) -> Result<usize, RecvError> {
-        poll_fn(move |cx| self.poll_recv(buf, cx)).await
-    }
-
-    /// Receive a datagram.
-    ///
-    /// This method will not wait for a datagram to be received.
-    ///
-    /// If no datagram is available, this method will return `Err(TryError::WouldBlock)`.
-    pub fn try_recv(&self, buf: &mut [u8]) -> Result<usize, TryError<RecvError>> {
-        self.with_mut(|s, _| match s.recv_slice(buf) {
-            Ok(n) => Ok(n),
-            Err(raw::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
-            Err(raw::RecvError::Exhausted) => Err(TryError::WouldBlock),
-        })
-    }
-
-    /// Wait until a datagram can be read.
-    ///
-    /// When no datagram is readable, this method will return `Poll::Pending` and
-    /// register the current task to be notified when a datagram is received.
-    ///
-    /// When a datagram is received, this method will return `Poll::Ready`.
+    /// Wait until a packet can be read.
     pub fn poll_recv_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s, _| {
+        self.with_mut(|s| {
             if s.can_recv() {
                 Poll::Ready(())
             } else {
-                // socket buffer is empty wait until at least one byte has arrived
                 s.register_recv_waker(cx.waker());
                 Poll::Pending
             }
         })
     }
 
-    /// Receive a datagram.
+    /// Receive a packet, copying it into the given buffer.
     ///
-    /// When no datagram is available, this method will return `Poll::Pending` and
-    /// register the current task to be notified when a datagram is received.
+    /// This method will wait until a packet is received.
+    ///
+    /// If the socket is not bound, this method will return `Err(RecvError::InvalidState)`.
+    ///
+    /// Returns the number of bytes received.
+    pub fn recv<'s>(&'s self, buf: &'s mut [u8]) -> impl Future<Output = Result<usize, RecvError>> + 's {
+        poll_fn(|cx| self.poll_recv(buf, cx))
+    }
+
+    /// Receive a packet, copying it into the given buffer.
+    ///
+    /// This method will not wait for a packet to be received.
+    ///
+    /// If no packet is available, this method will return `Err(TryError::WouldBlock)`.
+    pub fn try_recv(&self, buf: &mut [u8]) -> Result<usize, TryError<RecvError>> {
+        self.with_mut(|s| match s.recv_slice(buf) {
+            Ok(n) => Ok(n),
+            Err(raw::RecvError::InvalidState) => Err(TryError::Other(RecvError::InvalidState)),
+            Err(raw::RecvError::Truncated) => Err(TryError::Other(RecvError::Truncated)),
+            Err(raw::RecvError::Exhausted) => Err(TryError::WouldBlock),
+        })
+    }
+
+    /// Receive a packet, copying it into the given buffer.
     pub fn poll_recv(&self, buf: &mut [u8], cx: &mut Context<'_>) -> Poll<Result<usize, RecvError>> {
-        self.with_mut(|s, _| match s.recv_slice(buf) {
+        self.with_mut(|s| match s.recv_slice(buf) {
             Ok(n) => Poll::Ready(Ok(n)),
-            // No data ready
+            Err(raw::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
             Err(raw::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
             Err(raw::RecvError::Exhausted) => {
                 s.register_recv_waker(cx.waker());
@@ -123,105 +191,172 @@ impl<'a> RawSocket<'a> {
         })
     }
 
-    /// Wait until the socket becomes writable.
+    /// Receive a packet, taking ownership of its buffer.
     ///
-    /// A socket becomes writable when there is space in the buffer, from initial memory or after
-    /// dispatching datagrams on a full buffer.
-    pub fn wait_send_ready(&self) -> impl Future<Output = ()> + '_ {
-        poll_fn(move |cx| self.poll_send_ready(cx))
-    }
-
-    /// Wait until a datagram can be sent.
+    /// This method will wait until a packet is received.
     ///
-    /// When no datagram can be sent (i.e. the buffer is full), this method will return
-    /// `Poll::Pending` and register the current task to be notified when
-    /// space is freed in the buffer after a datagram has been dispatched.
-    ///
-    /// When a datagram can be sent, this method will return `Poll::Ready`.
-    pub fn poll_send_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s, _| {
-            if s.can_send() {
-                Poll::Ready(())
-            } else {
-                // socket buffer is full wait until a datagram has been dispatched
-                s.register_send_waker(cx.waker());
-                Poll::Pending
-            }
-        })
-    }
-
-    /// Send a datagram.
-    ///
-    /// This method will wait until the datagram has been sent.`
-    pub fn send<'s>(&'s self, buf: &'s [u8]) -> impl Future<Output = ()> + 's {
-        poll_fn(|cx| self.poll_send(buf, cx))
-    }
-
-    /// Send a datagram.
-    ///
-    /// This method will not wait for the buffer to become free.
-    ///
-    /// If the socket's send buffer is full, this method will return `Err(TryError::WouldBlock)`.
-    pub fn try_send(&self, buf: &[u8]) -> Result<(), TryError<core::convert::Infallible>> {
-        self.with_mut(|s, _| match s.send_slice(buf) {
-            Ok(()) => Ok(()),
-            Err(raw::SendError::BufferFull) => Err(TryError::WouldBlock),
-        })
-    }
-
-    /// Send a datagram.
-    ///
-    /// When the datagram has been sent, this method will return `Poll::Ready(Ok())`.
-    ///
-    /// When the socket's send buffer is full, this method will return `Poll::Pending`
-    /// and register the current task to be notified when the buffer has space available.
-    pub fn poll_send(&self, buf: &[u8], cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s, _| match s.send_slice(buf) {
-            // Entire datagram has been sent
-            Ok(()) => Poll::Ready(()),
-            Err(raw::SendError::BufferFull) => {
-                s.register_send_waker(cx.waker());
-                Poll::Pending
-            }
-        })
-    }
-
-    /// Flush the socket.
-    ///
-    /// This method will wait until the socket is flushed.
-    pub fn flush(&mut self) -> impl Future<Output = ()> + '_ {
+    /// If the socket is not bound, this method will return `Err(RecvError::InvalidState)`.
+    pub async fn recv_packet(&self) -> Result<PacketBuf, RecvError> {
         poll_fn(|cx| {
-            self.with_mut(|s, _| {
-                if s.send_queue() == 0 {
-                    Poll::Ready(())
-                } else {
-                    s.register_send_waker(cx.waker());
+            self.with_mut(|s| match s.recv() {
+                Ok(packet) => Poll::Ready(Ok(packet)),
+                Err(raw::RecvError::InvalidState) => Poll::Ready(Err(RecvError::InvalidState)),
+                Err(raw::RecvError::Truncated) => unreachable!(),
+                Err(raw::RecvError::Exhausted) => {
+                    s.register_recv_waker(cx.waker());
                     Poll::Pending
                 }
             })
         })
+        .await
     }
 
-    /// Try to flush the socket.
+    /// Receive a packet with a zero-copy function.
     ///
-    /// This method will check if the socket is flushed, and if not, return `Err(TryError::WouldBlock)`.
-    pub fn try_flush(&mut self) -> Result<(), TryError<core::convert::Infallible>> {
-        self.with_mut(|s, _| {
-            if s.send_queue() == 0 {
-                Ok(())
+    /// This method will wait until a packet is received.
+    pub async fn recv_with<F, R>(&mut self, f: F) -> Result<R, RecvError>
+    where
+        F: FnOnce(&[u8], PacketMeta) -> R,
+    {
+        let packet = self.recv_packet().await?;
+        Ok(f(&packet, packet.meta()))
+    }
+
+    /// Wait until the socket becomes writable.
+    pub fn wait_send_ready(&self) -> impl Future<Output = ()> + '_ {
+        poll_fn(|cx| self.poll_send_ready(cx))
+    }
+
+    /// Wait until a packet can be sent.
+    pub fn poll_send_ready(&self, cx: &mut Context<'_>) -> Poll<()> {
+        self.with_mut(|s| {
+            if s.is_open() {
+                Poll::Ready(())
             } else {
-                Err(TryError::WouldBlock)
+                s.register_send_waker(cx.waker());
+                Poll::Pending
             }
         })
+    }
+
+    /// Map a xarxa send result to ours. `Pending` if the send must be retried later.
+    fn map_send(r: Result<(), raw::SendError>) -> Poll<Result<(), SendError>> {
+        match r {
+            Ok(()) => Poll::Ready(Ok(())),
+            Err(raw::SendError::NoBuffer) | Err(raw::SendError::DeviceBusy) => Poll::Pending,
+            Err(raw::SendError::BufferFull) => Poll::Ready(Err(SendError::BufferFull)),
+            Err(raw::SendError::InvalidState) => Poll::Ready(Err(SendError::InvalidState)),
+            Err(raw::SendError::Unaddressable) => Poll::Ready(Err(SendError::Unaddressable)),
+            Err(raw::SendError::Malformed) => Poll::Ready(Err(SendError::Malformed)),
+        }
+    }
+
+    /// Send a packet.
+    ///
+    /// This method will wait until the packet has been sent.
+    pub async fn send(&self, buf: &[u8]) -> Result<(), SendError> {
+        self.send_with_meta(buf, PacketMeta::default()).await
+    }
+
+    /// Send a packet with the given metadata attached.
+    ///
+    /// This method will wait until the packet has been sent.
+    pub async fn send_with_meta(&self, buf: &[u8], meta: PacketMeta) -> Result<(), SendError> {
+        poll_fn(move |cx| self.poll_send_with_meta(buf, meta, cx)).await
+    }
+
+    /// Send a packet.
+    ///
+    /// This method will not wait for a packet buffer or device room to become free.
+    pub fn try_send(&self, buf: &[u8]) -> Result<(), TryError<SendError>> {
+        self.with_mut(|s| match Self::map_send(s.send_slice(buf)) {
+            Poll::Ready(r) => r.map_err(TryError::Other),
+            Poll::Pending => Err(TryError::WouldBlock),
+        })
+    }
+
+    /// Send a packet with the given metadata attached.
+    pub fn poll_send_with_meta(
+        &self,
+        buf: &[u8],
+        meta: PacketMeta,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), SendError>> {
+        self.with_mut(|s| {
+            let r = Self::map_send(s.send_slice_with_meta(buf, meta));
+            if r.is_pending() {
+                s.register_send_waker(cx.waker());
+            }
+            r
+        })
+    }
+
+    /// Send a packet with a zero-copy function.
+    ///
+    /// This method will wait until a packet buffer is available before passing
+    /// it to the closure. The closure returns the number of bytes written into
+    /// the buffer.
+    pub async fn send_with<F, R>(&mut self, max_size: usize, f: F) -> Result<R, SendError>
+    where
+        F: FnOnce(&mut [u8]) -> (usize, R),
+    {
+        let mut f = Some(f);
+        poll_fn(move |cx| {
+            self.with_mut(|s| {
+                let mut ret = None;
+                let r = s.send_with(max_size, |buf| {
+                    let (size, r) = unwrap!(f.take())(buf);
+                    ret = Some(r);
+                    size
+                });
+                match Self::map_send(r) {
+                    Poll::Ready(Ok(())) => Poll::Ready(Ok(unwrap!(ret))),
+                    Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+                    Poll::Pending => {
+                        s.register_send_waker(cx.waker());
+                        Poll::Pending
+                    }
+                }
+            })
+        })
+        .await
+    }
+
+    /// Returns whether the socket is bound.
+    pub fn is_open(&self) -> bool {
+        self.with(|s| s.is_open())
+    }
+
+    /// Close the socket.
+    pub fn close(&mut self) {
+        self.with_mut(|s| s.close())
     }
 }
 
 impl Drop for RawSocket<'_> {
     fn drop(&mut self) {
-        self.stack.with_mut(|i| i.sockets.remove(self.handle));
+        self.stack.with_mut(|i| i.stack.remove_raw_socket(self.handle));
     }
 }
 
-fn _assert_covariant<'a, 'b: 'a>(x: RawSocket<'b>) -> RawSocket<'a> {
-    x
+impl core::fmt::Display for SendError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidState => f.write_str("InvalidState"),
+            Self::Unaddressable => f.write_str("Unaddressable"),
+            Self::BufferFull => f.write_str("BufferFull"),
+            Self::Malformed => f.write_str("Malformed"),
+        }
+    }
 }
+impl core::error::Error for SendError {}
+
+impl core::fmt::Display for RecvError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::InvalidState => f.write_str("InvalidState"),
+            Self::Truncated => f.write_str("Truncated"),
+        }
+    }
+}
+impl core::error::Error for RecvError {}

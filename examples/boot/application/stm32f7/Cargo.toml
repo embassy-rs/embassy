@@ -34,5 +34,5 @@ skip-include = []
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv7em-none-eabi", features = ["skip-include"], artifact-dir = "out/examples/boot/stm32f7" }
+  { target = "thumbv7em-none-eabi", features = ["skip-include"], artifact-dir = "out/examples/boot/application/stm32f7" }
 ]
