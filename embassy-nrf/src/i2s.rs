@@ -423,13 +423,36 @@ pub struct I2S<'d> {
 }
 
 impl<'d> I2S<'d> {
-    /// Create a new I2S in master mode
+    /// Create a new I2S in master mode without an MCK output pin.
     pub fn new_master<T: Instance>(
-        _i2s: Peri<'d, T>,
+        i2s: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        sck: Peri<'d, impl GpioPin>,
+        lrck: Peri<'d, impl GpioPin>,
+        master_clock: MasterClock,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(i2s, None, sck.into(), lrck.into(), master_clock, config)
+    }
+
+    /// Create a new I2S in master mode with an MCK output pin.
+    pub fn new_master_with_mck<T: Instance>(
+        i2s: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mck: Peri<'d, impl GpioPin>,
         sck: Peri<'d, impl GpioPin>,
         lrck: Peri<'d, impl GpioPin>,
+        master_clock: MasterClock,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(i2s, Some(mck.into()), sck.into(), lrck.into(), master_clock, config)
+    }
+
+    fn new_inner<T: Instance>(
+        _i2s: Peri<'d, T>,
+        mck: Option<Peri<'d, AnyPin>>,
+        sck: Peri<'d, AnyPin>,
+        lrck: Peri<'d, AnyPin>,
         master_clock: MasterClock,
         config: Config,
     ) -> Self {
@@ -439,9 +462,9 @@ impl<'d> I2S<'d> {
         Self {
             r: T::regs(),
             state: T::state(),
-            mck: Some(mck.into()),
-            sck: sck.into(),
-            lrck: lrck.into(),
+            mck,
+            sck,
+            lrck,
             sdin: None,
             sdout: None,
             master_clock: Some(master_clock),

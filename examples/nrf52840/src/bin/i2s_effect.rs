@@ -34,7 +34,7 @@ async fn main(_spawner: Spawner) {
 
     let buffers_out = MultiBuffering::<Sample, NUM_BUFFERS, NUM_SAMPLES>::new();
     let buffers_in = MultiBuffering::<Sample, NUM_BUFFERS, NUM_SAMPLES>::new();
-    let mut full_duplex_stream = I2S::new_master(p.I2S, Irqs, p.P0_25, p.P0_26, p.P0_27, master_clock, config)
+    let mut full_duplex_stream = I2S::new_master_with_mck(p.I2S, Irqs, p.P0_25, p.P0_26, p.P0_27, master_clock, config)
         .full_duplex(p.P0_29, p.P0_28, buffers_out, buffers_in);
 
     let mut modulator = SineOsc::new();
