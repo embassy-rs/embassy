@@ -34,13 +34,14 @@ const MIDI_OUT_SIZE: u8 = 0x09;
 ///   can be sent if there is no other data to send. This is because USB bulk transactions must be
 ///   terminated with a short packet, even if the bulk endpoint is used for stream-like data.
 pub struct MidiClass<'d, D: Driver<'d>> {
-    read_ep: D::EndpointOut,
-    write_ep: D::EndpointIn,
+    read_ep: Option<D::EndpointOut>,
+    write_ep: Option<D::EndpointIn>,
 }
 
 impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     /// Creates a new `MidiClass` with the provided UsbBus, number of input and output jacks and `max_packet_size` in bytes.
     /// For full-speed devices, `max_packet_size` has to be one of 8, 16, 32 or 64.
+    /// Either `n_in_jacks` or `n_out_jacks` can be set to 0 when a device should only act as sender or receiver.
     pub fn new(builder: &mut Builder<'d, D>, n_in_jacks: u8, n_out_jacks: u8, max_packet_size: u16) -> Self {
         let mut func = builder.function(USB_AUDIO_CLASS, USB_AUDIOCONTROL_SUBCLASS, PROTOCOL_NONE);
 
@@ -58,10 +59,16 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
 
         let midi_streaming_total_length = 7
             + (n_in_jacks + n_out_jacks) as usize * (MIDI_IN_SIZE + MIDI_OUT_SIZE) as usize
-            + 7
-            + (4 + n_out_jacks as usize)
-            + 7
-            + (4 + n_in_jacks as usize);
+            + if n_out_jacks > 0 {
+                7 + (4 + n_out_jacks as usize)
+            } else {
+                0
+            }
+            + if n_in_jacks > 0 {
+                7 + (4 + n_in_jacks as usize)
+            } else {
+                0
+            };
 
         alt.descriptor(
             CS_INTERFACE,
@@ -125,19 +132,30 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
             MS_GENERAL, 0, // Number of jacks
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // Jack mappings
         ];
-        endpoint_data[1] = n_out_jacks;
-        for i in 0..n_out_jacks {
-            endpoint_data[2 + i as usize] = in_jack_id_emb(i);
-        }
-        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
-        alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_out_jacks as usize]);
 
-        endpoint_data[1] = n_in_jacks;
-        for i in 0..n_in_jacks {
-            endpoint_data[2 + i as usize] = out_jack_id_emb(i);
-        }
-        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
-        alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_in_jacks as usize]);
+        let read_ep = if n_out_jacks > 0 {
+            endpoint_data[1] = n_out_jacks;
+            for i in 0..n_out_jacks {
+                endpoint_data[2 + i as usize] = in_jack_id_emb(i);
+            }
+            let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
+            alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_out_jacks as usize]);
+            Some(read_ep)
+        } else {
+            None
+        };
+
+        let write_ep = if n_in_jacks > 0 {
+            endpoint_data[1] = n_in_jacks;
+            for i in 0..n_in_jacks {
+                endpoint_data[2 + i as usize] = out_jack_id_emb(i);
+            }
+            let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
+            alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_in_jacks as usize]);
+            Some(write_ep)
+        } else {
+            None
+        };
 
         MidiClass { read_ep, write_ep }
     }
@@ -145,34 +163,41 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
     /// Gets the maximum packet size in bytes.
     pub fn max_packet_size(&self) -> u16 {
         // The size is the same for both endpoints.
-        self.read_ep.info().max_packet_size
+        if let Some(read_ep) = &self.read_ep {
+            read_ep.info().max_packet_size
+        } else if let Some(write_ep) = &self.write_ep {
+            write_ep.info().max_packet_size
+        } else {
+            0
+        }
     }
 
     /// Writes a single packet into the IN endpoint.
     pub async fn write_packet(&mut self, data: &[u8]) -> Result<(), EndpointError> {
-        self.write_ep.write(data).await
+        let write_ep = self.write_ep.as_mut().ok_or(EndpointError::Disabled)?;
+        write_ep.write(data).await
     }
 
     /// Reads a single packet from the OUT endpoint.
     pub async fn read_packet(&mut self, data: &mut [u8]) -> Result<usize, EndpointError> {
-        self.read_ep.read(data).await
+        let read_ep = self.read_ep.as_mut().ok_or(EndpointError::Disabled)?;
+        read_ep.read(data).await
     }
 
     /// Waits for the USB host to enable this interface
     pub async fn wait_connection(&mut self) {
-        self.read_ep.wait_enabled().await;
+        if let Some(read_ep) = &mut self.read_ep {
+            read_ep.wait_enabled().await;
+        }
     }
 
     /// Split the class into a sender and receiver.
     ///
     /// This allows concurrently sending and receiving packets from separate tasks.
-    pub fn split(self) -> (Sender<'d, D>, Receiver<'d, D>) {
-        (
-            Sender {
-                write_ep: self.write_ep,
-            },
-            Receiver { read_ep: self.read_ep },
-        )
+    pub fn split(mut self) -> (Option<Sender<'d, D>>, Option<Receiver<'d, D>>) {
+        let sender = self.write_ep.take().map(|write_ep| Sender { write_ep });
+        let receiver = self.read_ep.take().map(|read_ep| Receiver { read_ep });
+        (sender, receiver)
     }
 }
 
