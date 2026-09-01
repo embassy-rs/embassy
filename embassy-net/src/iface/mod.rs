@@ -4,22 +4,61 @@
 //! configuration: hardware address, IP addresses, and whatever address
 //! autoconfiguration is turned on for it.
 
+#[cfg(feature = "dhcpv4")]
+pub mod dhcpv4;
+#[cfg(feature = "dhcpv4-server")]
+pub mod dhcpv4_server;
+
+use embassy_time::Instant;
 use heapless::Vec;
 use xarxa::Full;
 use xarxa::config::IFACE_ADDR_COUNT;
 use xarxa::driver::{Capabilities, Driver, LinkState};
 #[cfg(feature = "multicast")]
 pub use xarxa::iface::MulticastError;
-#[cfg(feature = "dhcpv4")]
-pub use xarxa::iface::dhcpv4;
-#[cfg(feature = "dhcpv4-server")]
-pub use xarxa::iface::dhcpv4_server;
 #[cfg(feature = "slaac")]
 pub use xarxa::iface::slaac;
-pub use xarxa::iface::{AddrOrigin, IfaceAddr, IfaceHandle, Medium};
+pub use xarxa::iface::{AddrOrigin, IfaceHandle, Medium};
 use xarxa::wire::{HardwareAddress, IpAddress, IpCidr};
 
+use crate::time::instant_from_xarxa;
 use crate::{Stack, is_config_up, is_link_up, wait_iface};
+
+/// An IP address assigned to an interface.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct IfaceAddr {
+    /// The address and its prefix.
+    pub cidr: IpCidr,
+    /// Where the address came from.
+    pub origin: AddrOrigin,
+    /// When the address stops being preferred and becomes deprecated
+    /// (RFC 4862 section 5.5.4). `None` means "forever".
+    ///
+    /// Only SLAAC sets this: a router advertises a preferred lifetime alongside
+    /// the valid one, and shortens it to zero to signal that a prefix is on its
+    /// way out while addresses formed from it still work.
+    pub preferred_until: Option<Instant>,
+}
+
+impl IfaceAddr {
+    fn from_xarxa(addr: xarxa::iface::IfaceAddr) -> Self {
+        Self {
+            cidr: addr.cidr,
+            origin: addr.origin,
+            preferred_until: addr.preferred_until.map(instant_from_xarxa),
+        }
+    }
+
+    /// Whether the address is still preferred, i.e. not deprecated.
+    ///
+    /// A deprecated address keeps working for connections that already use it,
+    /// but is avoided when a source address is chosen for a new one.
+    pub fn is_preferred(&self, now: Instant) -> bool {
+        self.preferred_until.is_none_or(|until| until > now)
+    }
+}
 
 /// An interface added to a [`Stack`].
 ///
@@ -112,7 +151,7 @@ impl<'d> Iface<'d> {
 
     /// The IP addresses assigned to the interface.
     pub fn ip_addrs(&self) -> Vec<IfaceAddr, IFACE_ADDR_COUNT> {
-        self.with(|i| i.ip_addrs().iter().copied().collect())
+        self.with(|i| i.ip_addrs().iter().copied().map(IfaceAddr::from_xarxa).collect())
     }
 
     /// Whether the given address is assigned to the interface.
@@ -175,7 +214,7 @@ impl<'d> Iface<'d> {
     /// Panics if the interface is not an Ethernet interface.
     #[cfg(feature = "dhcpv4")]
     pub fn set_dhcpv4(&self, config: Option<dhcpv4::DhcpConfig>) {
-        self.with_mut(|i| i.set_dhcpv4(config))
+        self.with_mut(|i| i.set_dhcpv4(config.map(|c| c.to_xarxa())))
     }
 
     /// The current DHCPv4 lease, if the client is on and has one.
@@ -207,17 +246,27 @@ impl<'d> Iface<'d> {
     /// backwards (`pool_start` above `pool_end`).
     #[cfg(feature = "dhcpv4-server")]
     pub fn set_dhcpv4_server(&self, config: Option<dhcpv4_server::DhcpServerConfig>) {
-        self.with_mut(|i| i.set_dhcpv4_server(config))
+        self.with_mut(|i| i.set_dhcpv4_server(config.map(|c| c.to_xarxa())))
     }
 
-    /// Call `f` with the DHCP server's lease table. It is empty if the server is off.
+    /// Call `f` with an iterator over the DHCP server's lease table. It is empty
+    /// if the server is off.
     ///
     /// All entries are passed, whether their lease is running or already over.
     /// Check each entry's [`state`](dhcpv4_server::DhcpServerLease::state) and
     /// [`expires_at`](dhcpv4_server::DhcpServerLease::expires_at).
     #[cfg(feature = "dhcpv4-server")]
-    pub fn dhcpv4_server_leases<R>(&self, f: impl FnOnce(&[dhcpv4_server::DhcpServerLease]) -> R) -> R {
-        self.with(|i| f(i.dhcpv4_server_leases()))
+    pub fn dhcpv4_server_leases<R>(
+        &self,
+        f: impl FnOnce(&mut dyn Iterator<Item = dhcpv4_server::DhcpServerLease>) -> R,
+    ) -> R {
+        self.with(|i| {
+            let mut leases = i
+                .dhcpv4_server_leases()
+                .iter()
+                .map(|l| dhcpv4_server::DhcpServerLease::from_xarxa(l.clone()));
+            f(&mut leases)
+        })
     }
 
     /// Remove the DHCP server lease of the given address, freeing it for other
