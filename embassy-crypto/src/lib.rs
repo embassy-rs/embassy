@@ -14,7 +14,7 @@ use cipher::{
     BlockModeEncClosure, BlockModeEncrypt, BlockSizeUser, InOut, IvSizeUser, KeyIvInit, ParBlocksSizeUser,
     StreamCipher, StreamCipherError,
 };
-use crypto_common::KeySizeUser;
+use crypto_common::{AlgorithmName, KeySizeUser};
 pub use digest;
 use digest::{
     FixedOutput, FixedOutputReset, HashMarker, InvalidLength, Key, KeyInit, MacMarker, Output, OutputSizeUser, Reset,
@@ -41,7 +41,9 @@ macro_rules! impl_digest {
         $clone:path,
         $update:path,
         $finalize:path,
-        $size:ty
+        $size:ty,
+        $block_size:ty,
+        $alg_name:expr
     ) => {
         /// RustCrypto `Digest` implementation backed by the embassy-crypto-driver unitrait.
         pub struct $name {
@@ -104,6 +106,16 @@ macro_rules! impl_digest {
         }
 
         impl HashMarker for $name {}
+
+        impl BlockSizeUser for $name {
+            type BlockSize = $block_size;
+        }
+
+        impl AlgorithmName for $name {
+            fn write_alg_name(f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.write_str($alg_name)
+            }
+        }
     };
 }
 
@@ -209,7 +221,9 @@ impl_digest!(
     embassy_crypto_driver::md5_clone,
     embassy_crypto_driver::md5_update,
     embassy_crypto_driver::md5_finalize,
-    U16
+    U16,
+    U64,
+    "MD5"
 );
 
 impl_digest!(
@@ -219,7 +233,9 @@ impl_digest!(
     embassy_crypto_driver::sha1_clone,
     embassy_crypto_driver::sha1_update,
     embassy_crypto_driver::sha1_finalize,
-    U20
+    U20,
+    U64,
+    "SHA-1"
 );
 
 impl_digest!(
@@ -229,7 +245,9 @@ impl_digest!(
     embassy_crypto_driver::sha224_clone,
     embassy_crypto_driver::sha224_update,
     embassy_crypto_driver::sha224_finalize,
-    U28
+    U28,
+    U64,
+    "SHA-224"
 );
 
 impl_digest!(
@@ -239,7 +257,9 @@ impl_digest!(
     embassy_crypto_driver::sha256_clone,
     embassy_crypto_driver::sha256_update,
     embassy_crypto_driver::sha256_finalize,
-    U32
+    U32,
+    U64,
+    "SHA-256"
 );
 
 impl_digest!(
@@ -249,7 +269,9 @@ impl_digest!(
     embassy_crypto_driver::sha384_clone,
     embassy_crypto_driver::sha384_update,
     embassy_crypto_driver::sha384_finalize,
-    U48
+    U48,
+    U128,
+    "SHA-384"
 );
 
 impl_digest!(
@@ -259,7 +281,9 @@ impl_digest!(
     embassy_crypto_driver::sha512_224_clone,
     embassy_crypto_driver::sha512_224_update,
     embassy_crypto_driver::sha512_224_finalize,
-    U28
+    U28,
+    U128,
+    "SHA-512/224"
 );
 
 impl_digest!(
@@ -269,7 +293,9 @@ impl_digest!(
     embassy_crypto_driver::sha512_256_clone,
     embassy_crypto_driver::sha512_256_update,
     embassy_crypto_driver::sha512_256_finalize,
-    U32
+    U32,
+    U128,
+    "SHA-512/256"
 );
 
 impl_digest!(
@@ -279,7 +305,9 @@ impl_digest!(
     embassy_crypto_driver::sha512_clone,
     embassy_crypto_driver::sha512_update,
     embassy_crypto_driver::sha512_finalize,
-    U64
+    U64,
+    U128,
+    "SHA-512"
 );
 
 // ===========================================================================
@@ -389,18 +417,17 @@ macro_rules! impl_ecb {
             ctx: $ctx,
         }
 
+        impl core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_struct(stringify!($name)).finish_non_exhaustive()
+            }
+        }
+
         impl Clone for $name {
-            #[inline]
             fn clone(&self) -> Self {
                 Self {
                     ctx: $clone(&self.ctx),
                 }
-            }
-        }
-
-        impl core::fmt::Debug for $name {
-            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-                f.debug_struct(stringify!($name)).finish_non_exhaustive()
             }
         }
 
@@ -440,6 +467,29 @@ macro_rules! impl_ecb {
             fn encrypt_with_backend(&self, f: impl BlockCipherEncClosure<BlockSize = Self::BlockSize>) {
                 f.call(self);
             }
+
+            #[inline]
+            fn encrypt_blocks(&self, blocks: &mut [cipher::Block<Self>]) {
+                if blocks.is_empty() {
+                    return;
+                }
+                let in_ptr = blocks.as_ptr() as *const u8;
+                let out_ptr = blocks.as_mut_ptr() as *mut u8;
+                let buf = unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr, out_ptr, blocks.len() * 16) };
+                $enc(&self.ctx, buf);
+            }
+
+            #[inline]
+            fn encrypt_blocks_inout(&self, blocks: InOutBuf<'_, '_, cipher::Block<Self>>) {
+                if blocks.is_empty() {
+                    return;
+                }
+                let len = blocks.len() * 16;
+                let (in_ptr, out_ptr) = blocks.into_raw();
+                let buf =
+                    unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr as *const u8, out_ptr as *mut u8, len) };
+                $enc(&self.ctx, buf);
+            }
         }
 
         impl BlockCipherDecBackend for $name {
@@ -457,6 +507,29 @@ macro_rules! impl_ecb {
             fn decrypt_with_backend(&self, f: impl BlockCipherDecClosure<BlockSize = Self::BlockSize>) {
                 f.call(self);
             }
+
+            #[inline]
+            fn decrypt_blocks(&self, blocks: &mut [cipher::Block<Self>]) {
+                if blocks.is_empty() {
+                    return;
+                }
+                let in_ptr = blocks.as_ptr() as *const u8;
+                let out_ptr = blocks.as_mut_ptr() as *mut u8;
+                let buf = unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr, out_ptr, blocks.len() * 16) };
+                $dec(&self.ctx, buf);
+            }
+
+            #[inline]
+            fn decrypt_blocks_inout(&self, blocks: InOutBuf<'_, '_, cipher::Block<Self>>) {
+                if blocks.is_empty() {
+                    return;
+                }
+                let len = blocks.len() * 16;
+                let (in_ptr, out_ptr) = blocks.into_raw();
+                let buf =
+                    unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr as *const u8, out_ptr as *mut u8, len) };
+                $dec(&self.ctx, buf);
+            }
         }
     };
 }
@@ -465,28 +538,17 @@ macro_rules! impl_ecb {
 // CBC block-cipher macro
 // ===========================================================================
 
-macro_rules! impl_cbc {
+macro_rules! impl_cbc_enc {
     (
         $name:ident,
         $ctx:ty,
         $init:path,
-        $clone:path,
         $enc:path,
-        $dec:path,
         $key_size:ty
     ) => {
-        /// RustCrypto `BlockModeEncrypt`/`BlockModeDecrypt` implementation backed by the embassy-crypto-driver unitrait.
+        /// RustCrypto `BlockModeEncrypt` implementation backed by the embassy-crypto-driver unitrait.
         pub struct $name {
             ctx: $ctx,
-        }
-
-        impl Clone for $name {
-            #[inline]
-            fn clone(&self) -> Self {
-                Self {
-                    ctx: $clone(&self.ctx),
-                }
-            }
         }
 
         impl core::fmt::Debug for $name {
@@ -550,6 +612,55 @@ macro_rules! impl_cbc {
                 $enc(&mut self.ctx, buf);
             }
         }
+    };
+}
+
+macro_rules! impl_cbc_dec {
+    (
+        $name:ident,
+        $ctx:ty,
+        $init:path,
+        $dec:path,
+        $key_size:ty
+    ) => {
+        /// RustCrypto `BlockModeDecrypt` implementation backed by the embassy-crypto-driver unitrait.
+        pub struct $name {
+            ctx: $ctx,
+        }
+
+        impl core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_struct(stringify!($name)).finish_non_exhaustive()
+            }
+        }
+
+        impl BlockSizeUser for $name {
+            type BlockSize = U16;
+        }
+
+        impl ParBlocksSizeUser for $name {
+            type ParBlocksSize = U1;
+        }
+
+        impl KeySizeUser for $name {
+            type KeySize = $key_size;
+        }
+
+        impl IvSizeUser for $name {
+            type IvSize = U16;
+        }
+
+        impl KeyIvInit for $name {
+            #[inline]
+            fn new(key: &Key<Self>, iv: &cipher::Iv<Self>) -> Self {
+                Self {
+                    ctx: $init(
+                        key.as_slice().try_into().unwrap(),
+                        iv.as_slice().try_into().unwrap(),
+                    ),
+                }
+            }
+        }
 
         impl BlockModeDecBackend for $name {
             #[inline]
@@ -598,15 +709,6 @@ macro_rules! impl_gcm {
         /// RustCrypto `AeadInPlace` implementation backed by the embassy-crypto-driver unitrait.
         pub struct $name {
             ctx: $ctx,
-        }
-
-        impl Clone for $name {
-            #[inline]
-            fn clone(&self) -> Self {
-                Self {
-                    ctx: $clone(&self.ctx),
-                }
-            }
         }
 
         impl core::fmt::Debug for $name {
@@ -678,22 +780,22 @@ macro_rules! impl_gcm {
 // ===========================================================================
 
 impl_ecb!(
-    Aes128Ecb,
+    Aes128,
     embassy_crypto_driver::Aes128EcbContext,
     embassy_crypto_driver::aes128ecb_init,
     embassy_crypto_driver::aes128ecb_clone,
-    embassy_crypto_driver::aes128ecb_encrypt_block,
-    embassy_crypto_driver::aes128ecb_decrypt_block,
+    embassy_crypto_driver::aes128ecb_encrypt_blocks,
+    embassy_crypto_driver::aes128ecb_decrypt_blocks,
     U16
 );
 
 impl_ecb!(
-    Aes256Ecb,
+    Aes256,
     embassy_crypto_driver::Aes256EcbContext,
     embassy_crypto_driver::aes256ecb_init,
     embassy_crypto_driver::aes256ecb_clone,
-    embassy_crypto_driver::aes256ecb_encrypt_block,
-    embassy_crypto_driver::aes256ecb_decrypt_block,
+    embassy_crypto_driver::aes256ecb_encrypt_blocks,
+    embassy_crypto_driver::aes256ecb_decrypt_blocks,
     U32
 );
 
@@ -701,23 +803,35 @@ impl_ecb!(
 // CBC implementations
 // ===========================================================================
 
-impl_cbc!(
-    Aes128Cbc,
-    embassy_crypto_driver::Aes128CbcContext,
-    embassy_crypto_driver::aes128cbc_init,
-    embassy_crypto_driver::aes128cbc_clone,
-    embassy_crypto_driver::aes128cbc_encrypt_block,
-    embassy_crypto_driver::aes128cbc_decrypt_block,
+impl_cbc_enc!(
+    Aes128CbcEncrypt,
+    embassy_crypto_driver::Aes128CbcEncryptContext,
+    embassy_crypto_driver::aes128cbc_encrypt_init,
+    embassy_crypto_driver::aes128cbc_encrypt_blocks,
     U16
 );
 
-impl_cbc!(
-    Aes256Cbc,
-    embassy_crypto_driver::Aes256CbcContext,
-    embassy_crypto_driver::aes256cbc_init,
-    embassy_crypto_driver::aes256cbc_clone,
-    embassy_crypto_driver::aes256cbc_encrypt_block,
-    embassy_crypto_driver::aes256cbc_decrypt_block,
+impl_cbc_dec!(
+    Aes128CbcDecrypt,
+    embassy_crypto_driver::Aes128CbcDecryptContext,
+    embassy_crypto_driver::aes128cbc_decrypt_init,
+    embassy_crypto_driver::aes128cbc_decrypt_blocks,
+    U16
+);
+
+impl_cbc_enc!(
+    Aes256CbcEncrypt,
+    embassy_crypto_driver::Aes256CbcEncryptContext,
+    embassy_crypto_driver::aes256cbc_encrypt_init,
+    embassy_crypto_driver::aes256cbc_encrypt_blocks,
+    U32
+);
+
+impl_cbc_dec!(
+    Aes256CbcDecrypt,
+    embassy_crypto_driver::Aes256CbcDecryptContext,
+    embassy_crypto_driver::aes256cbc_decrypt_init,
+    embassy_crypto_driver::aes256cbc_decrypt_blocks,
     U32
 );
 
@@ -924,285 +1038,6 @@ where
 }
 
 // ===========================================================================
-// P256 Elliptic Curve
-// ===========================================================================
-
-/// P-256 (secp256r1) elliptic-curve types.
-///
-/// Provides ECDH key exchange and ECDSA signing/verification primitives
-/// backed by the `embassy-crypto-driver` unitraits. These types mirror
-/// the API shape of RustCrypto's `p256` crate but delegate all operations
-/// to the registered hardware (or software) driver.
-///
-/// # TLS and Bluetooth LE
-/// - `SecretKey::diffie_hellman` is used for TLS 1.2/1.3 key exchange and
-///   Bluetooth LE Secure Connections pairing.
-/// - `ecdsa::SigningKey::sign` / `ecdsa::VerifyingKey::verify`
-///   are used for TLS certificate authentication and Bluetooth LE signing.
-pub mod p256 {
-    use core::fmt;
-
-    /// A P-256 secret key (32-byte scalar).
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct SecretKey([u8; 32]);
-
-    impl SecretKey {
-        /// Create a secret key from a 32-byte scalar.
-        pub fn from_bytes(bytes: &[u8; 32]) -> Self {
-            Self(*bytes)
-        }
-
-        /// Return the secret key bytes.
-        pub fn as_bytes(&self) -> &[u8; 32] {
-            &self.0
-        }
-
-        /// Generate a new random secret key and its corresponding public key.
-        pub fn generate() -> Result<(Self, PublicKey), embassy_crypto_driver::CryptoError> {
-            let mut sk = [0u8; 32];
-            let mut pk = [0u8; 65];
-            embassy_crypto_driver::p256ecdh_generate_keypair(&mut sk, &mut pk)?;
-            Ok((Self(sk), PublicKey(pk)))
-        }
-
-        /// Derive the public key from this secret key.
-        pub fn public_key(&self) -> Result<PublicKey, embassy_crypto_driver::CryptoError> {
-            let mut pk = [0u8; 65];
-            embassy_crypto_driver::p256ecdh_derive_public_key(&self.0, &mut pk)?;
-            Ok(PublicKey(pk))
-        }
-
-        /// Compute the ECDH shared secret with a peer's public key.
-        pub fn diffie_hellman(
-            &self,
-            peer_public_key: &PublicKey,
-        ) -> Result<SharedSecret, embassy_crypto_driver::CryptoError> {
-            let mut shared = [0u8; 32];
-            embassy_crypto_driver::p256ecdh_shared_secret(&self.0, peer_public_key.as_bytes(), &mut shared)?;
-            Ok(SharedSecret(shared))
-        }
-    }
-
-    impl fmt::Debug for SecretKey {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_struct("SecretKey").finish_non_exhaustive()
-        }
-    }
-
-    /// A P-256 public key (65-byte uncompressed point: 0x04 || x || y).
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct PublicKey([u8; 65]);
-
-    impl PublicKey {
-        /// Create a public key from a 65-byte uncompressed point.
-        pub fn from_bytes(bytes: &[u8; 65]) -> Self {
-            Self(*bytes)
-        }
-
-        /// Return the public key bytes.
-        pub fn as_bytes(&self) -> &[u8; 65] {
-            &self.0
-        }
-    }
-
-    impl fmt::Debug for PublicKey {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_struct("PublicKey").finish_non_exhaustive()
-        }
-    }
-
-    /// A P-256 ECDH shared secret.
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct SharedSecret([u8; 32]);
-
-    impl SharedSecret {
-        /// Return the shared secret bytes.
-        pub fn as_bytes(&self) -> &[u8; 32] {
-            &self.0
-        }
-    }
-
-    impl fmt::Debug for SharedSecret {
-        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.debug_struct("SharedSecret").finish_non_exhaustive()
-        }
-    }
-
-    /// P-256 ECDSA types.
-    pub mod ecdsa {
-        use core::fmt;
-
-        use digest::Digest;
-
-        use super::*;
-
-        /// A raw P-256 ECDSA signature (64 bytes: r || s, big-endian).
-        #[derive(Clone, Copy, PartialEq, Eq)]
-        pub struct Signature([u8; 64]);
-
-        impl Signature {
-            /// Create a signature from its raw bytes.
-            pub fn from_bytes(bytes: &[u8; 64]) -> Self {
-                Self(*bytes)
-            }
-
-            /// Return the signature as a 64-byte array.
-            pub fn to_bytes(&self) -> [u8; 64] {
-                self.0
-            }
-        }
-
-        impl fmt::Debug for Signature {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.debug_struct("Signature").finish_non_exhaustive()
-            }
-        }
-
-        impl AsRef<[u8]> for Signature {
-            fn as_ref(&self) -> &[u8] {
-                &self.0
-            }
-        }
-
-        /// P-256 ECDSA signing key.
-        #[derive(Clone)]
-        pub struct SigningKey(SecretKey);
-
-        impl SigningKey {
-            /// Create a signing key from a 32-byte secret key.
-            pub fn from_bytes(secret_key: &[u8; 32]) -> Self {
-                Self(SecretKey(*secret_key))
-            }
-
-            /// Create a signing key from a `SecretKey`.
-            pub fn from_secret_key(secret_key: &SecretKey) -> Self {
-                Self(*secret_key)
-            }
-
-            /// Return the underlying secret key.
-            pub fn secret_key(&self) -> &SecretKey {
-                &self.0
-            }
-
-            /// Derive the verifying key from this signing key.
-            pub fn verifying_key(&self) -> Result<VerifyingKey, embassy_crypto_driver::CryptoError> {
-                self.0.public_key().map(|key| VerifyingKey::from_public_key(&key))
-            }
-        }
-
-        impl fmt::Debug for SigningKey {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.debug_struct("SigningKey").finish_non_exhaustive()
-            }
-        }
-
-        impl signature::Signer<Signature> for SigningKey {
-            fn try_sign(&self, msg: &[u8]) -> Result<Signature, signature::Error> {
-                let mut hasher = crate::Sha256::new();
-                digest::Update::update(&mut hasher, msg);
-                let out = digest::FixedOutput::finalize_fixed(hasher);
-                let mut digest = [0u8; 32];
-                digest.copy_from_slice(out.as_slice());
-
-                let mut sig = [0u8; 64];
-                embassy_crypto_driver::p256ecdsa_sign(self.0.as_bytes(), &digest, &mut sig)
-                    .map_err(|_| signature::Error::new())?;
-                Ok(Signature(sig))
-            }
-        }
-
-        impl<D> signature::DigestSigner<D, Signature> for SigningKey
-        where
-            D: Default + digest::Update + digest::FixedOutput,
-        {
-            fn try_sign_digest<F: Fn(&mut D) -> Result<(), signature::Error>>(
-                &self,
-                f: F,
-            ) -> Result<Signature, signature::Error> {
-                let mut digest = D::default();
-                f(&mut digest)?;
-                let out = digest.finalize_fixed();
-                let mut digest_bytes = [0u8; 32];
-                digest_bytes.copy_from_slice(out.as_slice());
-
-                let mut sig = [0u8; 64];
-                embassy_crypto_driver::p256ecdsa_sign(self.0.as_bytes(), &digest_bytes, &mut sig)
-                    .map_err(|_| signature::Error::new())?;
-                Ok(Signature(sig))
-            }
-        }
-
-        /// P-256 ECDSA verifying key.
-        #[derive(Clone, Copy)]
-        pub struct VerifyingKey(PublicKey);
-
-        impl VerifyingKey {
-            /// Create a verifying key from a public key.
-            pub fn from_public_key(public_key: &PublicKey) -> Self {
-                Self(*public_key)
-            }
-
-            /// Create a verifying key from raw uncompressed point bytes.
-            pub fn from_bytes(bytes: &[u8; 65]) -> Self {
-                Self(PublicKey(*bytes))
-            }
-
-            /// Return the underlying public key.
-            pub fn public_key(&self) -> &PublicKey {
-                &self.0
-            }
-        }
-
-        impl fmt::Debug for VerifyingKey {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                f.debug_struct("VerifyingKey").finish_non_exhaustive()
-            }
-        }
-
-        impl signature::Verifier<Signature> for VerifyingKey {
-            fn verify(&self, msg: &[u8], signature: &Signature) -> Result<(), signature::Error> {
-                let mut hasher = crate::Sha256::new();
-                digest::Update::update(&mut hasher, msg);
-                let out = digest::FixedOutput::finalize_fixed(hasher);
-                let mut digest = [0u8; 32];
-                digest.copy_from_slice(out.as_slice());
-
-                embassy_crypto_driver::p256ecdsa_verify(
-                    self.0.as_bytes(),
-                    &digest,
-                    signature.as_ref().try_into().unwrap(),
-                )
-                .map_err(|_| signature::Error::new())
-            }
-        }
-
-        impl<D> signature::DigestVerifier<D, Signature> for VerifyingKey
-        where
-            D: Default + digest::Update + digest::FixedOutput,
-        {
-            fn verify_digest<F: Fn(&mut D) -> Result<(), signature::Error>>(
-                &self,
-                f: F,
-                signature: &Signature,
-            ) -> Result<(), signature::Error> {
-                let mut digest = D::default();
-                f(&mut digest)?;
-                let out = digest.finalize_fixed();
-                let mut digest_bytes = [0u8; 32];
-                digest_bytes.copy_from_slice(out.as_slice());
-
-                embassy_crypto_driver::p256ecdsa_verify(
-                    self.0.as_bytes(),
-                    &digest_bytes,
-                    signature.as_ref().try_into().unwrap(),
-                )
-                .map_err(|_| signature::Error::new())
-            }
-        }
-    }
-}
-
-// ===========================================================================
 // CTR stream-cipher wrapper types
 // ===========================================================================
 
@@ -1211,7 +1046,6 @@ macro_rules! impl_ctr {
         $name:ident,
         $ctx:ty,
         $init:path,
-        $clone:path,
         $apply:path,
         $seek:path,
         $key_size:ty
@@ -1223,15 +1057,6 @@ macro_rules! impl_ctr {
         /// Encryption and decryption are the same operation.
         pub struct $name {
             ctx: $ctx,
-        }
-
-        impl Clone for $name {
-            #[inline]
-            fn clone(&self) -> Self {
-                Self {
-                    ctx: $clone(&self.ctx),
-                }
-            }
         }
 
         impl core::fmt::Debug for $name {
@@ -1287,7 +1112,6 @@ impl_ctr!(
     Aes128Ctr,
     embassy_crypto_driver::Aes128CtrContext,
     embassy_crypto_driver::aes128ctr_init,
-    embassy_crypto_driver::aes128ctr_clone,
     embassy_crypto_driver::aes128ctr_apply_keystream,
     embassy_crypto_driver::aes128ctr_seek,
     U16
@@ -1297,8 +1121,118 @@ impl_ctr!(
     Aes256Ctr,
     embassy_crypto_driver::Aes256CtrContext,
     embassy_crypto_driver::aes256ctr_init,
-    embassy_crypto_driver::aes256ctr_clone,
     embassy_crypto_driver::aes256ctr_apply_keystream,
     embassy_crypto_driver::aes256ctr_seek,
+    U32
+);
+
+// ===========================================================================
+// CMAC macro
+// ===========================================================================
+
+macro_rules! impl_cmac {
+    (
+        $name:ident,
+        $ctx:ty,
+        $init:path,
+        $clone:path,
+        $update:path,
+        $finalize:path,
+        $reset:path,
+        $key_size:ty
+    ) => {
+        /// RustCrypto `Mac` implementation backed by the embassy-crypto-driver unitrait.
+        pub struct $name {
+            ctx: $ctx,
+        }
+
+        impl Clone for $name {
+            #[inline]
+            fn clone(&self) -> Self {
+                Self {
+                    ctx: $clone(&self.ctx),
+                }
+            }
+        }
+
+        impl core::fmt::Debug for $name {
+            fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+                f.debug_struct(stringify!($name)).finish_non_exhaustive()
+            }
+        }
+
+        impl OutputSizeUser for $name {
+            type OutputSize = U16;
+        }
+
+        impl KeySizeUser for $name {
+            type KeySize = $key_size;
+        }
+
+        impl KeyInit for $name {
+            #[inline]
+            fn new(key: &Key<Self>) -> Self {
+                Self {
+                    ctx: $init(key.as_slice().try_into().unwrap()),
+                }
+            }
+        }
+
+        impl Update for $name {
+            #[inline]
+            fn update(&mut self, data: &[u8]) {
+                $update(&mut self.ctx, data);
+            }
+        }
+
+        impl FixedOutput for $name {
+            #[inline]
+            fn finalize_into(self, out: &mut Output<Self>) {
+                $finalize(self.ctx, out.as_mut_slice().try_into().unwrap());
+            }
+        }
+
+        impl Reset for $name {
+            #[inline]
+            fn reset(&mut self) {
+                $reset(&mut self.ctx);
+            }
+        }
+
+        impl FixedOutputReset for $name {
+            #[inline]
+            fn finalize_into_reset(&mut self, out: &mut Output<Self>) {
+                self.clone().finalize_into(out);
+                self.reset();
+            }
+        }
+
+        impl MacMarker for $name {}
+    };
+}
+
+// ===========================================================================
+// CMAC implementations
+// ===========================================================================
+
+impl_cmac!(
+    Aes128Cmac,
+    embassy_crypto_driver::Aes128CmacContext,
+    embassy_crypto_driver::aes128cmac_init,
+    embassy_crypto_driver::aes128cmac_clone,
+    embassy_crypto_driver::aes128cmac_update,
+    embassy_crypto_driver::aes128cmac_finalize,
+    embassy_crypto_driver::aes128cmac_reset,
+    U16
+);
+
+impl_cmac!(
+    Aes256Cmac,
+    embassy_crypto_driver::Aes256CmacContext,
+    embassy_crypto_driver::aes256cmac_init,
+    embassy_crypto_driver::aes256cmac_clone,
+    embassy_crypto_driver::aes256cmac_update,
+    embassy_crypto_driver::aes256cmac_finalize,
+    embassy_crypto_driver::aes256cmac_reset,
     U32
 );
