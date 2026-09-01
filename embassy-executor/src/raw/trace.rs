@@ -211,7 +211,7 @@ pub mod hooks {
             /// be paired with a later call to `executor_idle`.
             ///
             /// This marks the EXECUTOR state transition from IDLE -> SCHEDULING.
-            #[symbol = "_embassy_trace_poll_start"]
+            #[symbol = "_embassy_trace_v2_poll_start"]
             pub(crate) fn poll_start(executor: ExecutorId);
 
             /// This callback is called AFTER a task is initialized/allocated, and BEFORE
@@ -219,12 +219,12 @@ pub mod hooks {
             /// loop "forever"), there will be a matching call to `task_end`.
             ///
             /// Tasks start life in the SPAWNED state.
-            #[symbol = "_embassy_trace_task_new"]
+            #[symbol = "_embassy_trace_v2_task_new"]
             pub(crate) fn task_new(executor: ExecutorId, task: TaskRef);
 
             /// This callback is called AFTER a task is destructed/freed. This will always
             /// have a prior matching call to `task_new`.
-            #[symbol = "_embassy_trace_task_end"]
+            #[symbol = "_embassy_trace_v2_task_end"]
             pub(crate) fn task_end(executor: ExecutorId, task: TaskRef);
 
             /// This callback is called AFTER a task has been dequeued from the runqueue,
@@ -233,7 +233,7 @@ pub mod hooks {
             ///
             /// This marks the TASK state transition from WAITING -> RUNNING
             /// This marks the EXECUTOR state transition from SCHEDULING -> POLLING
-            #[symbol = "_embassy_trace_task_exec_begin"]
+            #[symbol = "_embassy_trace_v2_task_exec_begin"]
             pub(crate) fn task_exec_begin(executor: ExecutorId, task: TaskRef);
 
             /// This callback is called AFTER a task has completed polling. There will
@@ -246,7 +246,7 @@ pub mod hooks {
             ///     for this task since the last `task_exec_begin` for THIS task
             ///
             /// This marks the EXECUTOR state transition from POLLING -> SCHEDULING
-            #[symbol = "_embassy_trace_task_exec_end"]
+            #[symbol = "_embassy_trace_v2_task_exec_end"]
             pub(crate) fn task_exec_end(executor: ExecutorId, task: TaskRef);
 
             /// This callback is called AFTER the waker for a task is awoken, and BEFORE it
@@ -260,7 +260,7 @@ pub mod hooks {
             ///
             /// NOTE: This may be called from an interrupt, outside the context of the current
             /// task or executor.
-            #[symbol = "_embassy_trace_task_ready_begin"]
+            #[symbol = "_embassy_trace_v2_task_ready_begin"]
             pub(crate) fn task_ready_begin(executor: ExecutorId, task: TaskRef);
 
             /// This callback is called AFTER all dequeued tasks in a single call to poll
@@ -268,25 +268,25 @@ pub mod hooks {
             /// `poll_start`.
             ///
             /// This marks the EXECUTOR state transition from SCHEDULING -> IDLE
-            #[symbol = "_embassy_trace_executor_idle"]
+            #[symbol = "_embassy_trace_v2_executor_idle"]
             pub(crate) fn executor_idle(executor: ExecutorId);
 
             /// This callback is called AFTER the name of a task is set.
             ///
             /// This function can be called when the task is not running and it does not signal a state change.
-            #[symbol = "_embassy_trace_task_name_set"]
+            #[symbol = "_embassy_trace_v2_task_name_set"]
             pub(crate) fn task_name_set(task: TaskRef, name: &'static str);
 
             /// This callback is called AFTER the priority of a task is set.
             ///
             /// This function can be called when the task is not running and it does not signal a state change.
-            #[symbol = "_embassy_trace_task_priority_set"]
+            #[symbol = "_embassy_trace_v2_task_priority_set"]
             pub(crate) fn task_priority_set(task: TaskRef, priority: u8);
 
             /// This callback is called AFTER the deadline of a task is set.
             ///
             /// This function can be called when the task is not running and it does not signal a state change.
-            #[symbol = "_embassy_trace_task_deadline_set"]
+            #[symbol = "_embassy_trace_v2_task_deadline_set"]
             pub(crate) fn task_deadline_set(task: TaskRef, deadline: u64);
         }
 
