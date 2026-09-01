@@ -33,8 +33,7 @@ macro_rules! check_at_most_one {
 check_at_most_one!(
     "platform-avr",
     "platform-cortex-m",
-    "platform-cortex-ar",
-    "platform-z7",
+    "platform-aarch32",
     "platform-riscv32",
     "platform-riscv64",
     "platform-std",
@@ -45,10 +44,9 @@ check_at_most_one!(
 #[cfg(feature = "_platform")]
 #[cfg_attr(feature = "platform-avr", path = "platform/avr.rs")]
 #[cfg_attr(feature = "platform-cortex-m", path = "platform/cortex_m.rs")]
-#[cfg_attr(feature = "platform-cortex-ar", path = "platform/cortex_ar.rs")]
+#[cfg_attr(feature = "platform-aarch32", path = "platform/aarch32.rs")]
 #[cfg_attr(feature = "platform-riscv32", path = "platform/riscv.rs")]
 #[cfg_attr(feature = "platform-riscv64", path = "platform/riscv.rs")]
-#[cfg_attr(feature = "platform-z7", path = "platform/z7.rs")]
 #[cfg_attr(feature = "platform-std", path = "platform/std.rs")]
 #[cfg_attr(feature = "platform-wasm", path = "platform/wasm.rs")]
 #[cfg_attr(feature = "platform-spin", path = "platform/spin.rs")]

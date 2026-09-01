@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added `platform-riscv64` for RISC-V 64-bit targets (thread executor only, uses `WFI`; shares implementation with `platform-riscv32`).
 - Relaxed memory ordering of work flag in RISC-V thread executor.
 - Skip the run queue's `take_all` write when the queue is empty.
+- Renamed `platform-cortex-ar` to `platform-aarch32`.
+- Added `executor-interrupt` support to `platform-aarch32`, using GICv1/GICv2 software-generated
+  interrupts. `InterruptExecutor::start()` takes the GIC distributor base address and the SGI ID.
 
 ## 0.10.0 - 2026-03-10
 
