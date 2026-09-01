@@ -199,34 +199,34 @@ pub struct Flash {
 static TAKEN: AtomicBool = AtomicBool::new(false);
 
 impl Flash {
-    pub(super) fn new(vtable: &'static FlashVtable) -> Result<Self, FlashStatus> {
+    pub(super) fn new(vtable: &'static FlashVtable) -> Result<Self, FlashError> {
         let mut config = FlashConfig::default();
         if TAKEN
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            return Err(FlashStatus::Unavailable);
+            return Err(FlashError::Unavailable);
         }
 
         Result::from(unsafe { (vtable.flash_init)(&raw mut config) })?;
         Ok(Self { vtable, config })
     }
 
-    pub fn erase_sector(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashStatus> {
+    pub fn erase_sector(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashError> {
         Result::from(unsafe {
             (self.vtable.flash_erase_sector)(&raw mut self.config, start, length_in_bytes, 0x6b65666c)
         })
         .map(|()| clear_caches())
     }
 
-    pub fn program_phrase(&mut self, start: u32, src: &[u8]) -> Result<(), FlashStatus> {
+    pub fn program_phrase(&mut self, start: u32, src: &[u8]) -> Result<(), FlashError> {
         Result::from(unsafe {
             (self.vtable.flash_program_phrase)(&raw mut self.config, start, src.as_ptr(), src.len() as u32)
         })
         .map(|()| clear_caches())
     }
 
-    pub fn program_page(&mut self, start: u32, src: &[u8]) -> Result<(), FlashStatus> {
+    pub fn program_page(&mut self, start: u32, src: &[u8]) -> Result<(), FlashError> {
         Result::from(unsafe {
             (self.vtable.flash_program_page)(&raw mut self.config, start, src.as_ptr(), src.len() as u32)
         })
@@ -234,7 +234,7 @@ impl Flash {
     }
 
     /// Returns the [FlashStatus::VerifyError] error with the failed address in case the verification encountered unexpected values
-    pub fn verify_program(&mut self, start: u32, expected_data: &[u8]) -> Result<(), FlashStatus> {
+    pub fn verify_program(&mut self, start: u32, expected_data: &[u8]) -> Result<(), FlashError> {
         let mut failed_address: u32 = 0;
         let mut failed_data: u32 = 0;
 
@@ -249,27 +249,27 @@ impl Flash {
             )
         })
         .map_err(|e| {
-            if let FlashStatus::CompareError = e {
-                FlashStatus::VerifyError(failed_address)
+            if let FlashError::CompareError = e {
+                FlashError::VerifyError(failed_address)
             } else {
                 e
             }
         })
     }
 
-    pub fn verify_erase_phrase(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashStatus> {
+    pub fn verify_erase_phrase(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashError> {
         unsafe { (self.vtable.flash_verify_erase_phrase)(&raw mut self.config, start, length_in_bytes) }.into()
     }
 
-    pub fn verify_erase_page(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashStatus> {
+    pub fn verify_erase_page(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashError> {
         unsafe { (self.vtable.flash_verify_erase_page)(&raw mut self.config, start, length_in_bytes) }.into()
     }
 
-    pub fn verify_erase_sector(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashStatus> {
+    pub fn verify_erase_sector(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashError> {
         unsafe { (self.vtable.flash_verify_erase_sector)(&raw mut self.config, start, length_in_bytes) }.into()
     }
 
-    pub fn get_property(&mut self, which_property: FlashProperty) -> Result<u32, FlashStatus> {
+    pub fn get_property(&mut self, which_property: FlashProperty) -> Result<u32, FlashError> {
         let mut value = 0;
         Result::from(unsafe {
             (self.vtable.flash_get_property)(&raw mut self.config, which_property as u32, &raw mut value)
@@ -278,21 +278,21 @@ impl Flash {
     }
 
     #[cfg(feature = "mcxa5xx")]
-    pub fn ifr_verify_erase_phrase(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashStatus> {
+    pub fn ifr_verify_erase_phrase(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashError> {
         unsafe { (self.vtable.ifr_verify_erase_phrase)(&raw mut self.config, start, length_in_bytes) }.into()
     }
 
     #[cfg(feature = "mcxa5xx")]
-    pub fn ifr_verify_erase_page(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashStatus> {
+    pub fn ifr_verify_erase_page(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashError> {
         unsafe { (self.vtable.ifr_verify_erase_page)(&raw mut self.config, start, length_in_bytes) }.into()
     }
 
     #[cfg(feature = "mcxa5xx")]
-    pub fn ifr_verify_erase_sector(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashStatus> {
+    pub fn ifr_verify_erase_sector(&mut self, start: u32, length_in_bytes: u32) -> Result<(), FlashError> {
         unsafe { (self.vtable.ifr_verify_erase_sector)(&raw mut self.config, start, length_in_bytes) }.into()
     }
 
-    pub fn read(&mut self, start: u32, dest: &mut [u8]) -> Result<(), FlashStatus> {
+    pub fn read(&mut self, start: u32, dest: &mut [u8]) -> Result<(), FlashError> {
         unsafe { (self.vtable.flash_read)(&raw mut self.config, start, dest.as_mut_ptr(), dest.len() as u32) }.into()
     }
 
@@ -309,7 +309,7 @@ impl Drop for Flash {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum FlashStatus {
+pub enum FlashError {
     InvalidArgument,
     AlignmentError,
     AddressError,
@@ -330,25 +330,25 @@ pub enum FlashStatus {
     VerifyError(u32),
 }
 
-impl From<Status> for Result<(), FlashStatus> {
+impl From<Status> for Result<(), FlashError> {
     fn from(raw: Status) -> Self {
         match raw.0 {
             super::KSTATUS_FLASH_SUCCESS => Ok(()),
-            super::KSTATUS_FLASH_INVALID_ARGUMENT => Err(FlashStatus::InvalidArgument),
-            super::KSTATUS_FLASH_ALIGNMENT_ERROR => Err(FlashStatus::AlignmentError),
-            super::KSTATUS_FLASH_ADDRESS_ERROR => Err(FlashStatus::AddressError),
-            super::KSTATUS_FLASH_SIZE_ERROR => Err(FlashStatus::SizeError),
-            super::KSTATUS_FLASH_COMMAND_FAILURE => Err(FlashStatus::CommandFailure),
-            super::KSTATUS_FLASH_UNKNOWN_PROPERTY => Err(FlashStatus::UnknownProperty),
-            super::KSTATUS_FLASH_ERASE_KEY_ERROR => Err(FlashStatus::EraseKeyError),
-            super::KSTATUS_FLASH_REGION_EXECUTE_ONLY => Err(FlashStatus::RegionExecuteOnly),
-            super::KSTATUS_FLASH_COMMAND_NOT_SUPPORTED => Err(FlashStatus::CommandNotSupported),
-            super::KSTATUS_FLASH_READ_ONLY_PROPERTY => Err(FlashStatus::ReadOnlyProperty),
-            super::KSTATUS_FLASH_INVALID_PROPERTY_VALUE => Err(FlashStatus::InvalidPropertyValue),
-            super::KSTATUS_FLASH_ECC_ERROR => Err(FlashStatus::EccError),
-            super::KSTATUS_FLASH_COMPARE_ERROR => Err(FlashStatus::CompareError),
-            super::KSTATUS_FLASH_INVALID_WAIT_STATE_CYCLES => Err(FlashStatus::InvalidWaitStateCycles),
-            other => Err(FlashStatus::Unknown(other)),
+            super::KSTATUS_FLASH_INVALID_ARGUMENT => Err(FlashError::InvalidArgument),
+            super::KSTATUS_FLASH_ALIGNMENT_ERROR => Err(FlashError::AlignmentError),
+            super::KSTATUS_FLASH_ADDRESS_ERROR => Err(FlashError::AddressError),
+            super::KSTATUS_FLASH_SIZE_ERROR => Err(FlashError::SizeError),
+            super::KSTATUS_FLASH_COMMAND_FAILURE => Err(FlashError::CommandFailure),
+            super::KSTATUS_FLASH_UNKNOWN_PROPERTY => Err(FlashError::UnknownProperty),
+            super::KSTATUS_FLASH_ERASE_KEY_ERROR => Err(FlashError::EraseKeyError),
+            super::KSTATUS_FLASH_REGION_EXECUTE_ONLY => Err(FlashError::RegionExecuteOnly),
+            super::KSTATUS_FLASH_COMMAND_NOT_SUPPORTED => Err(FlashError::CommandNotSupported),
+            super::KSTATUS_FLASH_READ_ONLY_PROPERTY => Err(FlashError::ReadOnlyProperty),
+            super::KSTATUS_FLASH_INVALID_PROPERTY_VALUE => Err(FlashError::InvalidPropertyValue),
+            super::KSTATUS_FLASH_ECC_ERROR => Err(FlashError::EccError),
+            super::KSTATUS_FLASH_COMPARE_ERROR => Err(FlashError::CompareError),
+            super::KSTATUS_FLASH_INVALID_WAIT_STATE_CYCLES => Err(FlashError::InvalidWaitStateCycles),
+            other => Err(FlashError::Unknown(other)),
         }
     }
 }
@@ -390,7 +390,7 @@ fn clear_caches() {
 }
 
 impl ErrorType for Flash {
-    type Error = FlashStatus;
+    type Error = FlashError;
 }
 
 impl ReadNorFlash for Flash {
@@ -411,10 +411,10 @@ impl NorFlash for Flash {
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
         if to < from || to as usize > FLASH_SIZE {
-            return Err(FlashStatus::AddressError);
+            return Err(FlashError::AddressError);
         }
         if !(from as usize).is_multiple_of(Self::ERASE_SIZE) || !(to as usize).is_multiple_of(Self::ERASE_SIZE) {
-            return Err(FlashStatus::AlignmentError);
+            return Err(FlashError::AlignmentError);
         }
 
         // Erase one sector at a time
@@ -426,10 +426,10 @@ impl NorFlash for Flash {
 
     fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
         if offset as usize + bytes.len() > FLASH_SIZE {
-            return Err(FlashStatus::AddressError);
+            return Err(FlashError::AddressError);
         }
         if !(offset as usize).is_multiple_of(Self::WRITE_SIZE) || !bytes.len().is_multiple_of(Self::WRITE_SIZE) {
-            return Err(FlashStatus::AlignmentError);
+            return Err(FlashError::AlignmentError);
         }
 
         // Program one phrase at a time (16 bytes — the smallest write unit)
@@ -460,7 +460,7 @@ pub const PAGE_SIZE: usize = 128;
 /// Phrase size in bytes (16) — minimum program unit.
 pub const PHRASE_SIZE: usize = 16;
 
-impl NorFlashError for FlashStatus {
+impl NorFlashError for FlashError {
     fn kind(&self) -> NorFlashErrorKind {
         match self {
             Self::AddressError => NorFlashErrorKind::OutOfBounds,

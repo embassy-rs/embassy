@@ -111,12 +111,12 @@ pub struct Kb {
 static TAKEN: AtomicBool = AtomicBool::new(false);
 
 impl Kb {
-    pub(super) fn new(vtable: &'static KbVtable, options: KbOptions) -> Result<Self, KbStatus> {
+    pub(super) fn new(vtable: &'static KbVtable, options: KbOptions) -> Result<Self, KbError> {
         if TAKEN
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            return Err(KbStatus::Unavailable);
+            return Err(KbError::Unavailable);
         }
 
         let mut session_ptr = null_mut();
@@ -125,14 +125,14 @@ impl Kb {
         Ok(Self { vtable, session_ptr })
     }
 
-    pub fn kb_execute(&self, data: &[u8]) -> Result<(), KbStatus> {
+    pub fn kb_execute(&mut self, data: &[u8]) -> Result<(), KbError> {
         unsafe { (self.vtable.kb_execute)(self.session_ptr, data.as_ptr(), data.len() as u32) }.into()
     }
 }
 
 impl Drop for Kb {
     fn drop(&mut self) {
-        if let Err(_e) = Result::<(), KbStatus>::from(unsafe { (self.vtable.kb_deinit)(self.session_ptr) }) {
+        if let Err(_e) = Result::<(), KbError>::from(unsafe { (self.vtable.kb_deinit)(self.session_ptr) }) {
             // Not sure what we can do...
         }
 
@@ -141,7 +141,7 @@ impl Drop for Kb {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KbStatus {
+pub enum KbError {
     Fail,
     InvalidArgument,
     RomLdrDataUnderrun,
@@ -154,19 +154,19 @@ pub enum KbStatus {
     Unavailable,
 }
 
-impl From<Status> for Result<(), KbStatus> {
+impl From<Status> for Result<(), KbError> {
     fn from(raw: Status) -> Self {
         match raw.0 {
             super::KSTATUS_KB_SUCCESS => Ok(()),
-            super::KSTATUS_KB_FAIL => Err(KbStatus::Fail),
-            super::KSTATUS_KB_INVALID_ARGUMENT => Err(KbStatus::InvalidArgument),
-            super::KSTATUS_KB_ROMLDR_DATA_UNDERRUN => Err(KbStatus::RomLdrDataUnderrun),
-            super::KSTATUS_KB_ROMLDR_JUMP_RETURNED => Err(KbStatus::RomLdrJumpReturned),
-            super::KSTATUS_KB_ROMLDR_ROLLBACK_BLOCKED => Err(KbStatus::RomLdrRollbackBlocked),
-            super::KSTATUS_KB_ROMLDR_PENDING_JUMP_COMMAND => Err(KbStatus::RomLdrPendingJumpCommand),
-            super::KSTATUS_KB_BUFFER_SIZE_NOT_ENOUGH => Err(KbStatus::RomApiBufferSizeNotEnough),
-            super::KSTATUS_KB_INVALID_BUFFER => Err(KbStatus::RomApiInvalidBuffer),
-            other => Err(KbStatus::Unknown(other)),
+            super::KSTATUS_KB_FAIL => Err(KbError::Fail),
+            super::KSTATUS_KB_INVALID_ARGUMENT => Err(KbError::InvalidArgument),
+            super::KSTATUS_KB_ROMLDR_DATA_UNDERRUN => Err(KbError::RomLdrDataUnderrun),
+            super::KSTATUS_KB_ROMLDR_JUMP_RETURNED => Err(KbError::RomLdrJumpReturned),
+            super::KSTATUS_KB_ROMLDR_ROLLBACK_BLOCKED => Err(KbError::RomLdrRollbackBlocked),
+            super::KSTATUS_KB_ROMLDR_PENDING_JUMP_COMMAND => Err(KbError::RomLdrPendingJumpCommand),
+            super::KSTATUS_KB_BUFFER_SIZE_NOT_ENOUGH => Err(KbError::RomApiBufferSizeNotEnough),
+            super::KSTATUS_KB_INVALID_BUFFER => Err(KbError::RomApiInvalidBuffer),
+            other => Err(KbError::Unknown(other)),
         }
     }
 }

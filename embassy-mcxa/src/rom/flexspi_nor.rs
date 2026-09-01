@@ -325,12 +325,12 @@ impl FlexspiNor {
         vtable: &'static FlexspiNorVtable,
         instance: u32,
         mut config: FlexspiNorConfig,
-    ) -> Result<Self, FlexspiStatus> {
+    ) -> Result<Self, FlexspiError> {
         if TAKEN
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_err()
         {
-            return Err(FlexspiStatus::Unavailable);
+            return Err(FlexspiError::Unavailable);
         }
 
         Result::from(unsafe { (vtable.init)(instance, &raw mut config) })?;
@@ -346,33 +346,33 @@ impl FlexspiNor {
     }
 
     #[allow(clippy::not_unsafe_ptr_arg_deref, reason = "ROM will check the pointer for validity")]
-    pub fn page_program(&mut self, dst: u32, src: *const u32) -> Result<(), FlexspiStatus> {
+    pub fn page_program(&mut self, dst: u32, src: *const u32) -> Result<(), FlexspiError> {
         unsafe { (self.vtable.page_program)(self.instance, &raw mut self.config, dst, src) }.into()
     }
 
-    pub fn erase_all(&mut self) -> Result<(), FlexspiStatus> {
+    pub fn erase_all(&mut self) -> Result<(), FlexspiError> {
         unsafe { (self.vtable.erase_all)(self.instance, &raw mut self.config) }.into()
     }
 
-    pub fn erase(&mut self, start: u32, len: u32) -> Result<(), FlexspiStatus> {
+    pub fn erase(&mut self, start: u32, len: u32) -> Result<(), FlexspiError> {
         unsafe { (self.vtable.erase)(self.instance, &raw mut self.config, start, len) }.into()
     }
 
-    pub fn erase_sector(&mut self, addr: u32) -> Result<(), FlexspiStatus> {
+    pub fn erase_sector(&mut self, addr: u32) -> Result<(), FlexspiError> {
         unsafe { (self.vtable.erase_sector)(self.instance, &raw mut self.config, addr) }.into()
     }
 
-    pub fn erase_block(&mut self, addr: u32) -> Result<(), FlexspiStatus> {
+    pub fn erase_block(&mut self, addr: u32) -> Result<(), FlexspiError> {
         unsafe { (self.vtable.erase_block)(self.instance, &raw mut self.config, addr) }.into()
     }
 
-    pub fn get_config(&mut self) -> Result<SerialNorConfigOption, FlexspiStatus> {
+    pub fn get_config(&mut self) -> Result<SerialNorConfigOption, FlexspiError> {
         let mut opt = SerialNorConfigOption::default();
         Result::from(unsafe { (self.vtable.get_config)(self.instance, &raw mut self.config, &raw mut opt) })
             .map(|()| opt)
     }
 
-    pub fn read(&mut self, dst: &mut [u32], start: u32) -> Result<(), FlexspiStatus> {
+    pub fn read(&mut self, dst: &mut [u32], start: u32) -> Result<(), FlexspiError> {
         unsafe {
             (self.vtable.read)(
                 self.instance,
@@ -385,16 +385,16 @@ impl FlexspiNor {
         .into()
     }
 
-    pub fn xfer(&mut self, xfer: &mut FlexspiXfer) -> Result<(), FlexspiStatus> {
+    pub fn xfer(&mut self, xfer: &mut FlexspiXfer) -> Result<(), FlexspiError> {
         unsafe { (self.vtable.xfer)(self.instance, xfer) }.into()
     }
 
     #[allow(clippy::not_unsafe_ptr_arg_deref, reason = "ROM will check the pointer for validity")]
-    pub fn update_lut(&mut self, seq_index: u32, lut_base: *const u32, num_seq: u32) -> Result<(), FlexspiStatus> {
+    pub fn update_lut(&mut self, seq_index: u32, lut_base: *const u32, num_seq: u32) -> Result<(), FlexspiError> {
         unsafe { (self.vtable.update_lut)(self.instance, seq_index, lut_base, num_seq) }.into()
     }
 
-    pub fn set_clock_source(&mut self, clock_src: FlexspiClockSource) -> Result<(), FlexspiStatus> {
+    pub fn set_clock_source(&mut self, clock_src: FlexspiClockSource) -> Result<(), FlexspiError> {
         unsafe { (self.vtable.set_clock_source)(clock_src as u32) }.into()
     }
 
@@ -402,7 +402,7 @@ impl FlexspiNor {
         unsafe { (self.vtable.config_clock)(self.instance, freq_option as u32, sample_clk_mode as u32) }
     }
 
-    pub fn partial_program(&mut self, dst: u32, src: &[u32]) -> Result<(), FlexspiStatus> {
+    pub fn partial_program(&mut self, dst: u32, src: &[u32]) -> Result<(), FlexspiError> {
         unsafe {
             (self.vtable.partial_program)(self.instance, &raw mut self.config, dst, src.as_ptr(), src.len() as u32)
         }
@@ -417,7 +417,7 @@ impl Drop for FlexspiNor {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FlexspiStatus {
+pub enum FlexspiError {
     Fail,
     InvalidArgument,
     SequenceExecutionTimeout,
@@ -437,26 +437,26 @@ pub enum FlexspiStatus {
     Unavailable,
 }
 
-impl From<Status> for Result<(), FlexspiStatus> {
+impl From<Status> for Result<(), FlexspiError> {
     fn from(raw: Status) -> Self {
         match raw.0 {
             super::KSTATUS_FLEXSPI_SUCCESS => Ok(()),
-            super::KSTATUS_FLEXSPI_FAIL => Err(FlexspiStatus::Fail),
-            super::KSTATUS_FLEXSPI_INVALID_ARGUMENT => Err(FlexspiStatus::InvalidArgument),
-            super::KSTATUS_FLEXSPI_SEQUENCE_EXECUTION_TIMEOUT => Err(FlexspiStatus::SequenceExecutionTimeout),
-            super::KSTATUS_FLEXSPI_INVALID_SEQUENCE => Err(FlexspiStatus::InvalidSequence),
-            super::KSTATUS_FLEXSPI_DEVICE_TIMEOUT => Err(FlexspiStatus::DeviceTimeout),
-            super::KSTATUS_FLEXSPINOR_PROGRAM_FAIL => Err(FlexspiStatus::ProgramFail),
-            super::KSTATUS_FLEXSPINOR_ERASE_SECTOR_FAIL => Err(FlexspiStatus::EraseSectorFail),
-            super::KSTATUS_FLEXSPINOR_ERASE_ALL_FAIL => Err(FlexspiStatus::EraseAllFail),
-            super::KSTATUS_FLEXSPINOR_WAIT_TIMEOUT => Err(FlexspiStatus::WaitTimeout),
-            super::KSTATUS_FLEXSPINOR_WRITE_ALIGNMENT_ERROR => Err(FlexspiStatus::WriteAlignmentError),
-            super::KSTATUS_FLEXSPINOR_COMMAND_FAILURE => Err(FlexspiStatus::CommandFailure),
-            super::KSTATUS_FLEXSPINOR_SFDP_NOT_FOUND => Err(FlexspiStatus::SfdpNotFound),
-            super::KSTATUS_FLEXSPINOR_UNSUPPORTED_SFDP_VERSION => Err(FlexspiStatus::UnsupportedSfdpVersion),
-            super::KSTATUS_FLEXSPINOR_FLASH_NOT_FOUND => Err(FlexspiStatus::FlashNotFound),
-            super::KSTATUS_FLEXSPINOR_DTR_READ_DUMMY_PROBE_FAILED => Err(FlexspiStatus::DtrReadDummyProbeFailed),
-            other => Err(FlexspiStatus::Unknown(other)),
+            super::KSTATUS_FLEXSPI_FAIL => Err(FlexspiError::Fail),
+            super::KSTATUS_FLEXSPI_INVALID_ARGUMENT => Err(FlexspiError::InvalidArgument),
+            super::KSTATUS_FLEXSPI_SEQUENCE_EXECUTION_TIMEOUT => Err(FlexspiError::SequenceExecutionTimeout),
+            super::KSTATUS_FLEXSPI_INVALID_SEQUENCE => Err(FlexspiError::InvalidSequence),
+            super::KSTATUS_FLEXSPI_DEVICE_TIMEOUT => Err(FlexspiError::DeviceTimeout),
+            super::KSTATUS_FLEXSPINOR_PROGRAM_FAIL => Err(FlexspiError::ProgramFail),
+            super::KSTATUS_FLEXSPINOR_ERASE_SECTOR_FAIL => Err(FlexspiError::EraseSectorFail),
+            super::KSTATUS_FLEXSPINOR_ERASE_ALL_FAIL => Err(FlexspiError::EraseAllFail),
+            super::KSTATUS_FLEXSPINOR_WAIT_TIMEOUT => Err(FlexspiError::WaitTimeout),
+            super::KSTATUS_FLEXSPINOR_WRITE_ALIGNMENT_ERROR => Err(FlexspiError::WriteAlignmentError),
+            super::KSTATUS_FLEXSPINOR_COMMAND_FAILURE => Err(FlexspiError::CommandFailure),
+            super::KSTATUS_FLEXSPINOR_SFDP_NOT_FOUND => Err(FlexspiError::SfdpNotFound),
+            super::KSTATUS_FLEXSPINOR_UNSUPPORTED_SFDP_VERSION => Err(FlexspiError::UnsupportedSfdpVersion),
+            super::KSTATUS_FLEXSPINOR_FLASH_NOT_FOUND => Err(FlexspiError::FlashNotFound),
+            super::KSTATUS_FLEXSPINOR_DTR_READ_DUMMY_PROBE_FAILED => Err(FlexspiError::DtrReadDummyProbeFailed),
+            other => Err(FlexspiError::Unknown(other)),
         }
     }
 }

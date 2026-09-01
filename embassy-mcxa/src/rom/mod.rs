@@ -5,8 +5,8 @@ mod flash;
 mod flexspi_nor;
 #[cfg(feature = "mcxa5xx")]
 mod kb;
-// #[cfg(feature = "mcxa5xx")]
-// mod nboot;
+#[cfg(feature = "mcxa5xx")]
+mod nboot;
 // #[cfg(feature = "mcxa5xx")]
 // mod spi_flash;
 
@@ -15,15 +15,13 @@ pub use flash::*;
 pub use flexspi_nor::*;
 #[cfg(feature = "mcxa5xx")]
 pub use kb::*;
-// #[cfg(feature = "mcxa5xx")]
-// pub use nboot::*;
+#[cfg(feature = "mcxa5xx")]
+pub use nboot::*;
 // #[cfg(feature = "mcxa5xx")]
 // pub use spi_flash::*;
 
 #[repr(transparent)]
 struct Status(u32);
-pub type NbootBool = u32;
-pub type NbootStatusProtected = u64;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -58,8 +56,8 @@ pub struct RomApi {
     jump: unsafe extern "C" fn(image_base: u32),
     #[cfg(feature = "mcxa5xx")]
     kb: *const KbVtable,
-    // #[cfg(feature = "mcxa5xx")]
-    // nboot_api: *const NbootVtable,
+    #[cfg(feature = "mcxa5xx")]
+    nboot: *const NbootVtable,
     #[cfg(feature = "mcxa5xx")]
     flex_spi_nor: *const FlexspiNorVtable,
     // #[cfg(feature = "mcxa5xx")]
@@ -76,22 +74,22 @@ impl RomApi {
         unsafe { (self.run_bootloader)(arg) }
     }
 
-    pub fn flash(&self) -> Result<Flash, FlashStatus> {
+    pub fn flash(&self) -> Result<Flash, FlashError> {
         Flash::new(unsafe { &*self.flash })
     }
 
     #[cfg(feature = "mcxa5xx")]
-    pub fn kb(&self, options: KbOptions) -> Result<Kb, KbStatus> {
+    pub fn kb(&self, options: KbOptions) -> Result<Kb, KbError> {
         Kb::new(unsafe { &*self.kb }, options)
     }
 
-    // #[cfg(feature = "mcxa5xx")]
-    // pub fn nboot(&self) -> &'static NbootDriver {
-    //     unsafe { &*self.nboot_api }
-    // }
+    #[cfg(feature = "mcxa5xx")]
+    pub fn nboot(&self) -> Result<Nboot, NbootError> {
+        Nboot::new(unsafe { &*self.nboot })
+    }
 
     #[cfg(feature = "mcxa5xx")]
-    pub fn flex_spi(&self, instance: u32, config: FlexspiNorConfig) -> Result<FlexspiNor, FlexspiStatus> {
+    pub fn flex_spi(&self, instance: u32, config: FlexspiNorConfig) -> Result<FlexspiNor, FlexspiError> {
         FlexspiNor::new(unsafe { &*self.flex_spi_nor }, instance, config)
     }
 
