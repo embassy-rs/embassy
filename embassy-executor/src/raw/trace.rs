@@ -7,7 +7,7 @@
 //! ends, and is re-spawned, it MAY or MAY NOT have the same ID. While a task is active, the id will not change.
 //! For executors, the same applies, but the IDs will be stable for practical embedded programs.
 //!
-//! Callbacks can be used by enabling the `trace` feature, implementing the `hooks::Trace`
+//! Callbacks can be used by enabling the `trace` feature, implementing the `Trace`
 //! trait, and registering the implementation with the `embassy_executor::trace_impl!` macro.
 //! All callbacks must be implemented.
 //!
@@ -68,441 +68,103 @@
 //! 4. The executor finishes polling the task. `task_exec_end` is called
 //! 5. The executor has finished polling tasks. `executor_idle` is called
 
-#![allow(unused)]
-
-use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
-
-#[cfg(feature = "rtos-trace")]
-use rtos_trace::TaskInfo;
-
-#[cfg(feature = "trace")]
 use crate::ExecutorId;
-use crate::raw::{SyncExecutor, TaskHeader, TaskRef};
-use crate::spawner::{SpawnError, SpawnToken, Spawner};
+use crate::raw::TaskRef;
 
-/// Global task tracker instance
-///
-/// This static provides access to the global task tracker which maintains
-/// a list of all tasks in the system. It's automatically updated by the
-/// task lifecycle hooks in the trace module.
-#[cfg(feature = "rtos-trace")]
-pub(crate) static TASK_TRACKER: TaskTracker = TaskTracker::new();
-
-/// A thread-safe tracker for all tasks in the system
-///
-/// This struct uses an intrusive linked list approach to track all tasks
-/// without additional memory allocations. It maintains a global list of
-/// tasks that can be traversed to find all currently existing tasks.
-#[cfg(feature = "rtos-trace")]
-pub(crate) struct TaskTracker {
-    head: AtomicPtr<TaskHeader>,
-}
-
-#[cfg(feature = "rtos-trace")]
-impl TaskTracker {
-    /// Creates a new empty task tracker
+unitrait::unitrait! {
+    /// Executor trace hooks.
     ///
-    /// Initializes a tracker with no tasks in its list.
-    pub const fn new() -> Self {
-        Self {
-            head: AtomicPtr::new(core::ptr::null_mut()),
-        }
-    }
-
-    /// Adds a task to the tracker
+    /// Implement this trait and register the implementation with the
+    /// `embassy_executor::trace_impl!` macro to receive callbacks on task and executor
+    /// lifecycle events. All callbacks must be implemented.
     ///
-    /// This method inserts a task at the head of the intrusive linked list.
-    /// The operation is lock-free on targets with pointer compare-and-swap.
-    /// On targets without it, insertions are serialized by a critical section.
-    ///
-    /// # Arguments
-    /// * `task` - The task reference to add to the tracker
-    pub fn add(&self, task: TaskRef) {
-        let task_ptr = task.as_ptr();
-
-        #[cfg(target_has_atomic = "ptr")]
-        loop {
-            let current_head = self.head.load(Ordering::Acquire);
-
-            // Check whether this task is already being tracked.
-            let mut current = current_head;
-            while !current.is_null() {
-                if current.cast_const() == task_ptr {
-                    return;
-                }
-
-                current = unsafe { (*current).all_tasks_next.load(Ordering::Acquire) };
-            }
-
-            unsafe {
-                (*task_ptr).all_tasks_next.store(current_head, Ordering::Relaxed);
-            }
-
-            if self
-                .head
-                .compare_exchange(current_head, task_ptr.cast_mut(), Ordering::Release, Ordering::Relaxed)
-                .is_ok()
-            {
-                break;
-            }
-        }
-
-        #[cfg(not(target_has_atomic = "ptr"))]
-        critical_section::with(|_| {
-            let current_head = self.head.load(Ordering::Acquire);
-
-            // Check whether this task is already being tracked.
-            let mut current = current_head;
-            while !current.is_null() {
-                if current.cast_const() == task_ptr {
-                    return;
-                }
-
-                current = unsafe { (*current).all_tasks_next.load(Ordering::Acquire) };
-            }
-
-            unsafe {
-                (*task_ptr).all_tasks_next.store(current_head, Ordering::Relaxed);
-            }
-
-            self.head.store(task_ptr.cast_mut(), Ordering::Release);
-        });
-    }
-
-    /// Performs an operation on each task in the tracker
-    ///
-    /// This method traverses the entire list of tasks and calls the provided
-    /// function for each task. This allows inspecting or processing all tasks
-    /// in the system without modifying the tracker's structure.
-    ///
-    /// # Arguments
-    /// * `f` - A function to call for each task in the tracker
-    pub fn for_each<F>(&self, mut f: F)
-    where
-        F: FnMut(TaskRef),
-    {
-        let mut current = self.head.load(Ordering::Acquire);
-        while !current.is_null() {
-            let task = unsafe { TaskRef::from_ptr(current) };
-            f(task);
-
-            current = unsafe { (*current).all_tasks_next.load(Ordering::Acquire) };
-        }
-    }
-}
-
-/// The executor trace hooks, defined with the [`unitrait`] crate.
-#[cfg(feature = "trace")]
-pub mod hooks {
-    use crate::ExecutorId;
-    use crate::raw::TaskRef;
-
-    unitrait::unitrait! {
-        /// Executor trace hooks.
+    /// See the [module documentation](super) for the task and executor tracing lifecycles.
+    pub trait Trace {
+        /// This callback is called when the executor begins polling. This will always
+        /// be paired with a later call to `executor_idle`.
         ///
-        /// Implement this trait and register the implementation with the
-        /// `embassy_executor::trace_impl!` macro to receive callbacks on task and executor
-        /// lifecycle events. All callbacks must be implemented.
+        /// This marks the EXECUTOR state transition from IDLE -> SCHEDULING.
+        #[symbol = "_embassy_trace_v2_poll_start"]
+        pub(crate) fn poll_start(executor: ExecutorId);
+
+        /// This callback is called AFTER a task is initialized/allocated, and BEFORE
+        /// it is enqueued to run for the first time. If the task ends (and does not
+        /// loop "forever"), there will be a matching call to `task_end`.
         ///
-        /// See the [module documentation](super) for the task and executor tracing lifecycles.
-        pub trait Trace {
-            /// This callback is called when the executor begins polling. This will always
-            /// be paired with a later call to `executor_idle`.
-            ///
-            /// This marks the EXECUTOR state transition from IDLE -> SCHEDULING.
-            #[symbol = "_embassy_trace_v2_poll_start"]
-            pub(crate) fn poll_start(executor: ExecutorId);
+        /// Tasks start life in the SPAWNED state.
+        #[symbol = "_embassy_trace_v2_task_new"]
+        pub(crate) fn task_new(executor: ExecutorId, task: TaskRef);
 
-            /// This callback is called AFTER a task is initialized/allocated, and BEFORE
-            /// it is enqueued to run for the first time. If the task ends (and does not
-            /// loop "forever"), there will be a matching call to `task_end`.
-            ///
-            /// Tasks start life in the SPAWNED state.
-            #[symbol = "_embassy_trace_v2_task_new"]
-            pub(crate) fn task_new(executor: ExecutorId, task: TaskRef);
+        /// This callback is called AFTER a task is destructed/freed. This will always
+        /// have a prior matching call to `task_new`.
+        #[symbol = "_embassy_trace_v2_task_end"]
+        pub(crate) fn task_end(executor: ExecutorId, task: TaskRef);
 
-            /// This callback is called AFTER a task is destructed/freed. This will always
-            /// have a prior matching call to `task_new`.
-            #[symbol = "_embassy_trace_v2_task_end"]
-            pub(crate) fn task_end(executor: ExecutorId, task: TaskRef);
-
-            /// This callback is called AFTER a task has been dequeued from the runqueue,
-            /// and BEFORE the task is polled. There will always be a matching call to
-            /// `task_exec_end`.
-            ///
-            /// This marks the TASK state transition from WAITING -> RUNNING
-            /// This marks the EXECUTOR state transition from SCHEDULING -> POLLING
-            #[symbol = "_embassy_trace_v2_task_exec_begin"]
-            pub(crate) fn task_exec_begin(executor: ExecutorId, task: TaskRef);
-
-            /// This callback is called AFTER a task has completed polling. There will
-            /// always be a matching call to `task_exec_begin`.
-            ///
-            /// This marks the TASK state transition from either:
-            /// * RUNNING -> IDLE - if there were no `task_ready_begin` events
-            ///     for this task since the last `task_exec_begin` for THIS task
-            /// * RUNNING -> WAITING - if there WAS a `task_ready_begin` event
-            ///     for this task since the last `task_exec_begin` for THIS task
-            ///
-            /// This marks the EXECUTOR state transition from POLLING -> SCHEDULING
-            #[symbol = "_embassy_trace_v2_task_exec_end"]
-            pub(crate) fn task_exec_end(executor: ExecutorId, task: TaskRef);
-
-            /// This callback is called AFTER the waker for a task is awoken, and BEFORE it
-            /// is added to the run queue.
-            ///
-            /// If the given task is currently RUNNING, this marks no state change, BUT the
-            /// RUNNING task will then move to the WAITING stage when polling is complete.
-            ///
-            /// If the given task is currently IDLE, this marks the TASK state transition
-            /// from IDLE -> WAITING.
-            ///
-            /// NOTE: This may be called from an interrupt, outside the context of the current
-            /// task or executor.
-            #[symbol = "_embassy_trace_v2_task_ready_begin"]
-            pub(crate) fn task_ready_begin(executor: ExecutorId, task: TaskRef);
-
-            /// This callback is called AFTER all dequeued tasks in a single call to poll
-            /// have been processed. This will always be paired with a call to
-            /// `poll_start`.
-            ///
-            /// This marks the EXECUTOR state transition from SCHEDULING -> IDLE
-            #[symbol = "_embassy_trace_v2_executor_idle"]
-            pub(crate) fn executor_idle(executor: ExecutorId);
-
-            /// This callback is called AFTER the name of a task is set.
-            ///
-            /// This function can be called when the task is not running and it does not signal a state change.
-            #[symbol = "_embassy_trace_v2_task_name_set"]
-            pub(crate) fn task_name_set(task: TaskRef, name: &'static str);
-
-            /// This callback is called AFTER the priority of a task is set.
-            ///
-            /// This function can be called when the task is not running and it does not signal a state change.
-            #[symbol = "_embassy_trace_v2_task_priority_set"]
-            pub(crate) fn task_priority_set(task: TaskRef, priority: u8);
-
-            /// This callback is called AFTER the deadline of a task is set.
-            ///
-            /// This function can be called when the task is not running and it does not signal a state change.
-            #[symbol = "_embassy_trace_v2_task_deadline_set"]
-            pub(crate) fn task_deadline_set(task: TaskRef, deadline: u64);
-        }
-
-        /// Register a type as the global executor trace hook implementation.
+        /// This callback is called AFTER a task has been dequeued from the runqueue,
+        /// and BEFORE the task is polled. There will always be a matching call to
+        /// `task_exec_end`.
         ///
-        /// See [`raw::trace::hooks::Trace`](crate::raw::trace::hooks::Trace).
-        macro trace_impl(path = $crate::raw::trace::hooks);
-    }
-}
+        /// This marks the TASK state transition from WAITING -> RUNNING
+        /// This marks the EXECUTOR state transition from SCHEDULING -> POLLING
+        #[symbol = "_embassy_trace_v2_task_exec_begin"]
+        pub(crate) fn task_exec_begin(executor: ExecutorId, task: TaskRef);
 
-#[inline]
-pub(crate) fn poll_start(executor: &'static SyncExecutor) {
-    #[cfg(feature = "trace")]
-    hooks::poll_start(executor.id());
-}
+        /// This callback is called AFTER a task has completed polling. There will
+        /// always be a matching call to `task_exec_begin`.
+        ///
+        /// This marks the TASK state transition from either:
+        /// * RUNNING -> IDLE - if there were no `task_ready_begin` events
+        ///     for this task since the last `task_exec_begin` for THIS task
+        /// * RUNNING -> WAITING - if there WAS a `task_ready_begin` event
+        ///     for this task since the last `task_exec_begin` for THIS task
+        ///
+        /// This marks the EXECUTOR state transition from POLLING -> SCHEDULING
+        #[symbol = "_embassy_trace_v2_task_exec_end"]
+        pub(crate) fn task_exec_end(executor: ExecutorId, task: TaskRef);
 
-#[inline]
-pub(crate) fn task_new(executor: &'static SyncExecutor, task: TaskRef) {
-    #[cfg(feature = "trace")]
-    hooks::task_new(executor.id(), task);
+        /// This callback is called AFTER the waker for a task is awoken, and BEFORE it
+        /// is added to the run queue.
+        ///
+        /// If the given task is currently RUNNING, this marks no state change, BUT the
+        /// RUNNING task will then move to the WAITING stage when polling is complete.
+        ///
+        /// If the given task is currently IDLE, this marks the TASK state transition
+        /// from IDLE -> WAITING.
+        ///
+        /// NOTE: This may be called from an interrupt, outside the context of the current
+        /// task or executor.
+        #[symbol = "_embassy_trace_v2_task_ready_begin"]
+        pub(crate) fn task_ready_begin(executor: ExecutorId, task: TaskRef);
 
-    #[cfg(feature = "rtos-trace")]
-    {
-        rtos_trace::trace::task_new(task.as_ptr() as u32);
-        let name = task.metadata().name().unwrap_or("unnamed task\0");
-        let info = rtos_trace::TaskInfo {
-            name,
-            priority: 0,
-            stack_base: 0,
-            stack_size: 0,
-        };
-        rtos_trace::trace::task_send_info(task.id().get() as u32, info);
-    }
+        /// This callback is called AFTER all dequeued tasks in a single call to poll
+        /// have been processed. This will always be paired with a call to
+        /// `poll_start`.
+        ///
+        /// This marks the EXECUTOR state transition from SCHEDULING -> IDLE
+        #[symbol = "_embassy_trace_v2_executor_idle"]
+        pub(crate) fn executor_idle(executor: ExecutorId);
 
-    #[cfg(feature = "rtos-trace")]
-    TASK_TRACKER.add(task);
-}
+        /// This callback is called AFTER the name of a task is set.
+        ///
+        /// This function can be called when the task is not running and it does not signal a state change.
+        #[symbol = "_embassy_trace_v2_task_name_set"]
+        pub(crate) fn task_name_set(task: TaskRef, name: &'static str);
 
-#[inline]
-pub(crate) fn task_end(executor: *const SyncExecutor, task: TaskRef) {
-    #[cfg(feature = "trace")]
-    hooks::task_end(unsafe { &*executor }.id(), task);
-}
+        /// This callback is called AFTER the priority of a task is set.
+        ///
+        /// This function can be called when the task is not running and it does not signal a state change.
+        #[symbol = "_embassy_trace_v2_task_priority_set"]
+        pub(crate) fn task_priority_set(task: TaskRef, priority: u8);
 
-#[inline]
-pub(crate) fn task_ready_begin(executor: &'static SyncExecutor, task: TaskRef) {
-    #[cfg(feature = "trace")]
-    hooks::task_ready_begin(executor.id(), task);
-    #[cfg(feature = "rtos-trace")]
-    rtos_trace::trace::task_ready_begin(task.as_ptr() as u32);
-}
-
-#[inline]
-pub(crate) fn task_exec_begin(executor: &'static SyncExecutor, task: TaskRef) {
-    #[cfg(feature = "trace")]
-    hooks::task_exec_begin(executor.id(), task);
-    #[cfg(feature = "rtos-trace")]
-    rtos_trace::trace::task_exec_begin(task.as_ptr() as u32);
-}
-
-#[inline]
-pub(crate) fn task_exec_end(executor: &'static SyncExecutor, task: TaskRef) {
-    #[cfg(feature = "trace")]
-    hooks::task_exec_end(executor.id(), task);
-    #[cfg(feature = "rtos-trace")]
-    rtos_trace::trace::task_exec_end();
-}
-
-#[inline]
-pub(crate) fn executor_idle(executor: &'static SyncExecutor) {
-    #[cfg(feature = "trace")]
-    hooks::executor_idle(executor.id());
-    #[cfg(feature = "rtos-trace")]
-    rtos_trace::trace::system_idle();
-}
-
-#[inline]
-pub(crate) fn task_name_set(task: TaskRef, name: &'static str) {
-    #[cfg(feature = "trace")]
-    hooks::task_name_set(task, name);
-}
-
-#[inline]
-pub(crate) fn task_priority_set(task: TaskRef, priority: u8) {
-    #[cfg(feature = "trace")]
-    hooks::task_priority_set(task, priority);
-}
-
-#[inline]
-pub(crate) fn task_deadline_set(task: TaskRef, deadline: u64) {
-    #[cfg(feature = "trace")]
-    hooks::task_deadline_set(task, deadline);
-}
-
-/// Returns an iterator over all active tasks in the system
-///
-/// This function provides a convenient way to iterate over all tasks
-/// that are currently tracked in the system. The returned iterator
-/// yields each task in the global task tracker.
-///
-/// # Returns
-/// An iterator that yields `TaskRef` items for each task
-#[cfg(feature = "rtos-trace")]
-fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
-    struct TaskIterator<'a> {
-        tracker: &'a TaskTracker,
-        current: *mut TaskHeader,
+        /// This callback is called AFTER the deadline of a task is set.
+        ///
+        /// This function can be called when the task is not running and it does not signal a state change.
+        #[symbol = "_embassy_trace_v2_task_deadline_set"]
+        pub(crate) fn task_deadline_set(task: TaskRef, deadline: u64);
     }
 
-    impl<'a> Iterator for TaskIterator<'a> {
-        type Item = TaskRef;
-
-        fn next(&mut self) -> Option<Self::Item> {
-            if self.current.is_null() {
-                return None;
-            }
-
-            let task = unsafe { TaskRef::from_ptr(self.current) };
-            self.current = unsafe { (*self.current).all_tasks_next.load(Ordering::Acquire) };
-
-            Some(task)
-        }
-    }
-
-    TaskIterator {
-        tracker: &TASK_TRACKER,
-        current: TASK_TRACKER.head.load(Ordering::Acquire),
-    }
-}
-
-/// Perform an action on each active task
-#[cfg(feature = "rtos-trace")]
-fn with_all_active_tasks<F>(f: F)
-where
-    F: FnMut(TaskRef),
-{
-    TASK_TRACKER.for_each(f);
-}
-
-#[cfg(feature = "rtos-trace")]
-impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
-    fn task_list() {
-        with_all_active_tasks(|task| {
-            let info = rtos_trace::TaskInfo {
-                name: task.metadata().name().unwrap_or("unnamed task\0"),
-                priority: 0,
-                stack_base: 0,
-                stack_size: 0,
-            };
-            rtos_trace::trace::task_send_info(task.id().get() as u32, info);
-        });
-    }
-    fn time() -> u64 {
-        const fn gcd(a: u64, b: u64) -> u64 {
-            if b == 0 { a } else { gcd(b, a % b) }
-        }
-
-        const GCD_1M: u64 = gcd(embassy_time_driver::TICK_HZ, 1_000_000);
-        embassy_time_driver::now() * (1_000_000 / GCD_1M) / (embassy_time_driver::TICK_HZ / GCD_1M)
-    }
-}
-
-#[cfg(feature = "rtos-trace")]
-rtos_trace::global_os_callbacks! {SyncExecutor}
-
-#[cfg(all(test, feature = "rtos-trace"))]
-mod tests {
-    use core::future::Ready;
-
-    use super::*;
-    use crate::raw::TaskStorage;
-
-    struct NoopTrace;
-
-    impl rtos_trace::RtosTrace for NoopTrace {
-        fn start() {}
-        fn stop() {}
-        fn task_new(_: u32) {}
-        fn task_send_info(_: u32, _: rtos_trace::TaskInfo) {}
-        fn task_new_stackless(_: u32, _: &'static str, _: u32) {}
-        fn task_terminate(_: u32) {}
-        fn task_exec_begin(_: u32) {}
-        fn task_exec_end() {}
-        fn task_ready_begin(_: u32) {}
-        fn task_ready_end(_: u32) {}
-        fn system_idle() {}
-        fn isr_enter() {}
-        fn isr_exit() {}
-        fn isr_exit_to_scheduler() {}
-        fn name_marker(_: u32, _: &'static str) {}
-        fn marker(_: u32) {}
-        fn marker_begin(_: u32) {}
-        fn marker_end(_: u32) {}
-    }
-
-    rtos_trace::global_trace! { NoopTrace }
-
-    #[test]
-    fn adding_tracked_task_again_does_not_corrupt_list() {
-        static TASK_A: TaskStorage<Ready<()>> = TaskStorage::new();
-        static TASK_B: TaskStorage<Ready<()>> = TaskStorage::new();
-
-        let tracker = TaskTracker::new();
-        let task_a = TaskRef::new(&TASK_A);
-        let task_b = TaskRef::new(&TASK_B);
-
-        tracker.add(task_a);
-        tracker.add(task_b);
-        tracker.add(task_a);
-
-        let head = tracker.head.load(Ordering::Acquire);
-        let a_next = unsafe { (*task_a.as_ptr()).all_tasks_next.load(Ordering::Acquire) };
-        let b_next = unsafe { (*task_b.as_ptr()).all_tasks_next.load(Ordering::Acquire) };
-
-        assert_eq!(head, task_b.as_ptr().cast_mut());
-        assert_eq!(b_next, task_a.as_ptr().cast_mut());
-        assert!(a_next.is_null());
-    }
+    /// Register a type as the global executor trace hook implementation.
+    ///
+    /// See [`raw::trace::Trace`](crate::raw::trace::Trace).
+    macro trace_impl(path = $crate::raw::trace);
 }

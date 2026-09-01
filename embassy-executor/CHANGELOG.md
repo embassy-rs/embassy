@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The `__pender` extern symbol and signature are unchanged, so existing manual
   `#[unsafe(export_name = "__pender")]` implementations keep working.
 - The `trace` feature callbacks are now defined as a trait: implement
-  `embassy_executor::raw::trace::hooks::Trace` and register it with
+  `embassy_executor::raw::trace::Trace` and register it with
   `embassy_executor::trace_impl!`.
 - Added `platform-riscv64` for RISC-V 64-bit targets (thread executor only, uses `WFI`; shares implementation with `platform-riscv32`).
 - Relaxed memory ordering of work flag in RISC-V thread executor.
@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   renamed the extern symbols from `_embassy_trace_*` to `_embassy_trace_v2_*`.
 - Added trace callbacks for when the task metadata (name, priority, deadline) changes.
 - Added `TaskId` and `ExecutorId` types.
+- Removed the `rtos-trace` feature.
 
 ## 0.10.0 - 2026-03-10
 

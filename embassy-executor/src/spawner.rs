@@ -36,7 +36,7 @@ impl<S> SpawnToken<S> {
     }
 
     /// Returns the task ID.
-    /// This can be used in combination with rtos-trace to match task names with IDs
+    /// This can be used in combination with trace to match task names with IDs
     pub fn id(&self) -> TaskId {
         self.raw_task.id()
     }
