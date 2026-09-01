@@ -252,7 +252,13 @@ impl<'d, PIO: Instance> PioIrNecTxProgram<'d, PIO> {
         let mut cycle_loop = burst_a.label();
         burst_a.bind(&mut wrap_target);
         burst_a.set(pio::SetDestination::X, NUM_CYCLES);
-        burst_a.wait(1, pio::WaitSource::IRQ, irq_flag, false);
+        burst_a.wait(
+            1,
+            pio::WaitSource::Irq {
+                index_mode: pio::IrqIndexMode::DIRECT,
+                irq: irq_flag,
+            },
+        );
         burst_a.bind(&mut cycle_loop);
         burst_a.set(pio::SetDestination::PINS, 1);
         burst_a.set_with_delay(pio::SetDestination::PINS, 0, 1);
