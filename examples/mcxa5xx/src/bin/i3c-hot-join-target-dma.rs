@@ -29,6 +29,7 @@ const RX_BUFFER_LEN: usize = 2 * TRANSFER_LEN;
 const WRITE_PATTERN: u8 = 0xaa;
 const READ_PATTERN: u8 = 0x55;
 const READ_LEN: usize = 16;
+const IBI_MDB: u8 = 0x01;
 static RX_BUFFER: ConstStaticCell<[u8; RX_BUFFER_LEN]> = ConstStaticCell::new([0; RX_BUFFER_LEN]);
 
 bind_interrupts! {
@@ -93,7 +94,7 @@ async fn main(_spawner: Spawner) {
                     error!("[tgt] write mismatch n={} data={:?}", n, &sink[..n]);
                     panic!("verify write mismatch");
                 }
-                tgt.dma_respond_to_read_with_ibi(&tx_payload).await.unwrap();
+                tgt.dma_respond_to_read_with_ibi(&[IBI_MDB], &tx_payload).await.unwrap();
             }
             _ => {}
         }
