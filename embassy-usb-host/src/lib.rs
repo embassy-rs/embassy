@@ -162,8 +162,7 @@ struct AddressGuard<'a> {
     state: &'a BusState,
     addr: u8,
     /// Whether dropping still frees the address. Cleared by
-    /// [`AddressGuard::release`], which consumes the guard, so this
-    /// cannot be observed false through a live one.
+    /// [`AddressGuard::release`] once the device owns the address.
     armed: bool,
 }
 
@@ -183,7 +182,7 @@ impl<'a> AddressGuard<'a> {
 
     /// Gives up ownership: the device now holds this address, so it must
     /// not be returned to the pool.
-    fn release(mut self) -> u8 {
+    fn release(&mut self) -> u8 {
         self.armed = false;
         self.addr
     }
@@ -320,7 +319,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
         // the same bus: the default (address 0) state is bus-global.
         let _enum_guard = self.state.enum_lock.lock().await;
 
-        let addr = AddressGuard::new(self.state, self.state.alloc_address().ok_or(EnumerationError::NoPipe)?);
+        let mut addr = AddressGuard::new(self.state, self.state.alloc_address().ok_or(EnumerationError::NoPipe)?);
 
         // use smallest size "8", since some devices use lower than default for given speed.
         const DEFAULT_MAX_PACKET_SIZE: u16 = 8;
@@ -368,6 +367,10 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
         // USB 2.0 §9.2.6.3: allow the device a 2ms recovery interval after SET_ADDRESS.
         Timer::after_millis(2).await;
 
+        // From this point on, the device will answer to the assigned address, even if
+        // enumeration fails. Take the address and release the guard.
+        let assigned_addr = addr.release();
+
         // Drop pipe to re-allocate with new address and correct max_packet_size.
         drop(ch);
 
@@ -380,7 +383,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
 
         let mut ch = self
             .alloc
-            .alloc_pipe::<pipe::Control, pipe::InOut>(addr.addr(), &ep0_info, route.split())
+            .alloc_pipe::<pipe::Control, pipe::InOut>(assigned_addr, &ep0_info, route.split())
             .map_err(|_| EnumerationError::NoPipe)?;
 
         // Retried on any error, not only on a timeout as this read used
@@ -442,7 +445,7 @@ impl<'d, A: UsbHostAllocator<'d>> BusHandle<'d, A> {
 
         Ok((
             EnumerationInfo {
-                device_address: addr.release(),
+                device_address: assigned_addr,
                 route,
                 device_desc: dev_desc,
             },
