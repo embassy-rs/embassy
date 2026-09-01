@@ -148,4 +148,4 @@ embedded-io-async = { version = "0.7.0" }
 
 heapless = { version = "0.9", default-features = false }
 embedded-nal-async = "0.9.0"
-document-features = "0.2.7"
+document-features = "0.2.12"
