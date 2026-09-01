@@ -9,6 +9,8 @@
 #![no_std]
 #![no_main]
 
+use core::num::NonZeroU32;
+
 use defmt::{error, info};
 use defmt_rtt as _;
 use embassy_executor::Spawner;
@@ -17,7 +19,7 @@ use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::config::Config;
 use embassy_mcxa::i3c::DeviceCharacteristics;
-use embassy_mcxa::i3c::target::{self, Div4, Event, HotJoinError, I3cClockSel};
+use embassy_mcxa::i3c::target::{self, Div4, Event, HotJoinError, I3cClockSel, VendorId};
 use embassy_mcxa::peripherals::I3C0;
 use panic_probe as _;
 use static_cell::ConstStaticCell;
@@ -45,8 +47,8 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(config);
 
     let mut cfg = target::Config::default();
-    cfg.vendor_id = Some(TARGET_VENDOR_ID);
-    cfg.partno = Some(TARGET_PART_NUMBER);
+    cfg.vendor_id = VendorId::new(TARGET_VENDOR_ID);
+    cfg.partno = NonZeroU32::new(TARGET_PART_NUMBER);
     cfg.device_characteristics = DeviceCharacteristics::Generic;
     cfg.ibi_capable = true;
     cfg.ibi_has_payload = true;
