@@ -100,10 +100,10 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
         // in the descriptor ring), so xarxa can skip them.
         #[cfg(any(eth_v2, eth_v2a, eth_v1b, eth_v1c))]
         {
-            use xarxa_driver::Checksum;
-            caps.checksum.ipv4 = Checksum::None;
-            caps.checksum.tcp = Checksum::None;
-            caps.checksum.udp = Checksum::None;
+            use xarxa_driver::ChecksumOffload;
+            caps.checksum.ipv4 = ChecksumOffload::BOTH;
+            caps.checksum.tcp = ChecksumOffload::BOTH;
+            caps.checksum.udp = ChecksumOffload::BOTH;
         }
         caps
     }

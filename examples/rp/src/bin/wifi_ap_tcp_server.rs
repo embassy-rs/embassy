@@ -13,6 +13,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_net::StackStorage;
+use embassy_net::iface::dhcpv4_server::DhcpServerConfig;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net::wire::{IpCidr, Ipv4Address};
 use embassy_rp::clocks::RoscRng;
@@ -97,7 +98,9 @@ async fn main(spawner: Spawner) {
     static DEVICE: StaticCell<cyw43::NetDriver<'static>> = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(net_device)));
     // Static address, we're the access point.
-    unwrap!(iface.add_ip_addr(IpCidr::new(Ipv4Address::new(169, 254, 1, 1).into(), 16)));
+    unwrap!(iface.add_ip_addr(IpCidr::new(Ipv4Address::new(10, 0, 0, 1).into(), 24)));
+    let dhcp_config = DhcpServerConfig::new(Ipv4Address::new(10, 0, 0, 100), Ipv4Address::new(10, 0, 0, 199));
+    iface.set_dhcpv4_server(Some(dhcp_config));
 
     spawner.spawn(unwrap!(net_task(runner)));
 

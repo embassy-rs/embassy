@@ -12,6 +12,8 @@ use xarxa::driver::{Capabilities, Driver, LinkState};
 pub use xarxa::iface::MulticastError;
 #[cfg(feature = "dhcpv4")]
 pub use xarxa::iface::dhcpv4;
+#[cfg(feature = "dhcpv4-server")]
+pub use xarxa::iface::dhcpv4_server;
 #[cfg(feature = "slaac")]
 pub use xarxa::iface::slaac;
 pub use xarxa::iface::{AddrOrigin, IfaceAddr, IfaceHandle, Medium};
@@ -187,6 +189,44 @@ impl<'d> Iface<'d> {
     #[cfg(feature = "dhcpv4")]
     pub fn restart_dhcpv4(&self) {
         self.with_mut(|i| i.restart_dhcpv4())
+    }
+
+    /// Turn the DHCPv4 server on, with the given configuration, or off with `None`.
+    ///
+    /// While on, the stack answers DHCP requests arriving on this interface,
+    /// handing out addresses from the configured pool.
+    ///
+    /// You must configure at least one IPv4 address on the interface, and the
+    /// pool must be inside its subnet.
+    ///
+    /// Turning the server off, or on again with a new configuration, drops all
+    /// leases.
+    ///
+    /// # Panics
+    /// Panics if the interface is not an Ethernet interface, or if the pool is
+    /// backwards (`pool_start` above `pool_end`).
+    #[cfg(feature = "dhcpv4-server")]
+    pub fn set_dhcpv4_server(&self, config: Option<dhcpv4_server::DhcpServerConfig>) {
+        self.with_mut(|i| i.set_dhcpv4_server(config))
+    }
+
+    /// Call `f` with the DHCP server's lease table. It is empty if the server is off.
+    ///
+    /// All entries are passed, whether their lease is running or already over.
+    /// Check each entry's [`state`](dhcpv4_server::DhcpServerLease::state) and
+    /// [`expires_at`](dhcpv4_server::DhcpServerLease::expires_at).
+    #[cfg(feature = "dhcpv4-server")]
+    pub fn dhcpv4_server_leases<R>(&self, f: impl FnOnce(&[dhcpv4_server::DhcpServerLease]) -> R) -> R {
+        self.with(|i| f(i.dhcpv4_server_leases()))
+    }
+
+    /// Remove the DHCP server lease of the given address, freeing it for other
+    /// clients. Returns whether there was one.
+    ///
+    /// The client is not told: it keeps using the address until it next renews.
+    #[cfg(feature = "dhcpv4-server")]
+    pub fn remove_dhcpv4_server_lease(&self, address: xarxa::wire::Ipv4Address) -> bool {
+        self.with_mut(|i| i.remove_dhcpv4_server_lease(address))
     }
 
     /// Turn SLAAC on, with the given configuration, or off with `None`.

@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Reworked interface configuration to be simpler.
   - DHCPv4 and SLAAC are configurable per-interface
   - You can now add additional addresses manually even if using DHCPv4 or SLAAC.
+- Added a DHCPv4 server (feature `dhcpv4-server`).
 - Socket and buffer counts are configured via Cargo features instead of `StackResources` generic args.
 - `IcmpSocket` is gone.
   - ICMP errors related to sent packets can be retrieved from sockets (feature `icmp-errors`).
