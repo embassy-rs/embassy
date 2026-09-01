@@ -196,7 +196,7 @@ rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
-pio = { version = "0.3" }
+pio = { version = "0.4" }
 rp2040-boot2 = "0.3"
 document-features = "0.2.10"
 sha2-const-stable = "0.1"
