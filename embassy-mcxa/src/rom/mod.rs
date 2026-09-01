@@ -1,8 +1,8 @@
 use core::ffi::c_char;
 
 mod flash;
-// #[cfg(feature = "mcxa5xx")]
-// mod flexspi_nor;
+#[cfg(feature = "mcxa5xx")]
+mod flexspi_nor;
 // #[cfg(feature = "mcxa5xx")]
 // mod kb;
 // #[cfg(feature = "mcxa5xx")]
@@ -11,8 +11,8 @@ mod flash;
 // mod spi_flash;
 
 pub use flash::*;
-// #[cfg(feature = "mcxa5xx")]
-// pub use flexspi_nor::*;
+#[cfg(feature = "mcxa5xx")]
+pub use flexspi_nor::*;
 // #[cfg(feature = "mcxa5xx")]
 // pub use kb::*;
 // #[cfg(feature = "mcxa5xx")]
@@ -57,13 +57,13 @@ pub struct RomApi {
     #[cfg(feature = "mcxa2xx")]
     jump: unsafe extern "C" fn(image_base: u32),
     // #[cfg(feature = "mcxa5xx")]
-    // kb_api: *const KBApiDriver,
+    // kb_api: *const KBApiVtable,
     // #[cfg(feature = "mcxa5xx")]
-    // nboot_api: *const NbootDriver,
+    // nboot_api: *const NbootVtable,
+    #[cfg(feature = "mcxa5xx")]
+    flex_spi_nor: *const FlexspiNorVtable,
     // #[cfg(feature = "mcxa5xx")]
-    // flex_spi_api: *const FlexspiNorFlashDriver,
-    // #[cfg(feature = "mcxa5xx")]
-    // spi_flash_api: *const SpiFlashDriver,
+    // spi_flash_api: *const SpiFlashVtable,
     #[cfg(feature = "mcxa5xx")]
     version: StandardVersion,
     #[cfg(feature = "mcxa5xx")]
@@ -71,6 +71,7 @@ pub struct RomApi {
 }
 
 impl RomApi {
+    #[allow(clippy::not_unsafe_ptr_arg_deref, reason = "ROM will check the pointer for validity")]
     pub fn run_bootloader(&self, arg: *const u32) {
         unsafe { (self.run_bootloader)(arg) }
     }
@@ -89,10 +90,10 @@ impl RomApi {
     //     unsafe { &*self.nboot_api }
     // }
 
-    // #[cfg(feature = "mcxa5xx")]
-    // pub fn flex_spi(&self) -> &'static FlexspiNorFlashDriver {
-    //     unsafe { &*self.flex_spi_api }
-    // }
+    #[cfg(feature = "mcxa5xx")]
+    pub fn flex_spi(&self, instance: u32, config: FlexspiNorConfig) -> Result<FlexspiNor, FlexspiStatus> {
+        FlexspiNor::new(unsafe { &*self.flex_spi_nor }, instance, config)
+    }
 
     // #[cfg(feature = "mcxa5xx")]
     // pub fn spi_flash(&self) -> &'static SpiFlashDriver {
