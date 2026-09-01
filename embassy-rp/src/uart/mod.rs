@@ -240,12 +240,13 @@ impl<'d> UartTx<'d, Blocking> {
         self,
         _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
-    ) -> BufferedUartTx {
+    ) -> BufferedUartTx<'d> {
         buffered::init_buffers(T::info(), T::buffered_state(), Some(tx_buffer), None);
 
         BufferedUartTx {
             info: T::info(),
             state: T::buffered_state(),
+            _phantom: PhantomData,
         }
     }
 }
@@ -369,12 +370,13 @@ impl<'d> UartRx<'d, Blocking> {
         self,
         _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx_buffer: &'d mut [u8],
-    ) -> BufferedUartRx {
+    ) -> BufferedUartRx<'d> {
         buffered::init_buffers(T::info(), T::buffered_state(), None, Some(rx_buffer));
 
         BufferedUartRx {
             info: T::info(),
             state: T::buffered_state(),
+            _phantom: PhantomData,
         }
     }
 }
@@ -788,17 +790,19 @@ impl<'d> Uart<'d, Blocking> {
         _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
-    ) -> BufferedUart {
+    ) -> BufferedUart<'d> {
         buffered::init_buffers(T::info(), T::buffered_state(), Some(tx_buffer), Some(rx_buffer));
 
         BufferedUart {
             rx: BufferedUartRx {
                 info: T::info(),
                 state: T::buffered_state(),
+                _phantom: PhantomData,
             },
             tx: BufferedUartTx {
                 info: T::info(),
                 state: T::buffered_state(),
+                _phantom: PhantomData,
             },
         }
     }
