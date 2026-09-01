@@ -362,7 +362,7 @@ impl<'d> Stack<'d> {
     }
 
     /// Whether any interface has a non-link-local IPv6 address.
-    #[cfg(all(feature = "ipv6", feature = "dns"))]
+    #[cfg(all(feature = "ipv6", feature = "dns", feature = "embedded-nal"))]
     pub(crate) fn any_ipv6(&self) -> bool {
         self.with(|i| {
             let mut iter = i.stack.ifaces();

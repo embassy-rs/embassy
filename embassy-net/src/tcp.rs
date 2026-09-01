@@ -1286,6 +1286,7 @@ impl core::fmt::Display for ListenError {
 impl core::error::Error for ListenError {}
 
 /// TCP client compatible with `embedded-nal-async` traits.
+#[cfg(feature = "embedded-nal")]
 pub mod client {
     use core::cell::{Cell, UnsafeCell};
     use core::mem::MaybeUninit;

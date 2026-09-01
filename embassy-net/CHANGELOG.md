@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- `tcp::client` and `dns::DnsClient` (the `embedded-nal-async` trait implementations) are now gated behind the `embedded-nal` feature.
 - Changed underlying network stack from `smoltcp` to [`xarxa`](https://github.com/embassy-rs/xarxa).
   - Increases perf, decreases code size. See [benchmarks](https://github.com/embassy-rs/xarxa#benchmarks)
   - Fixes many bugs, some inherent to `smoltcp` design.
