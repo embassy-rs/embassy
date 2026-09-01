@@ -14,7 +14,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_mcxa::rom::FlashProperty;
 use embassy_mcxa::{self as hal};
-use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+use embedded_storage::nor_flash::NorFlash;
 use hal::config::Config;
 use panic_probe as _;
 
