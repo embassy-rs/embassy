@@ -4,11 +4,8 @@
 //! Prefer using [`Stack::dns_query`](crate::Stack::dns_query) directly if you're
 //! not using `embedded-nal-async`.
 
-use heapless::Vec;
 pub(crate) use xarxa::dns::{GetQueryResultError, StartQueryError};
 pub use xarxa::wire::{DnsType as DnsQueryType, IpAddress};
-
-use crate::Stack;
 
 /// Errors returned by DnsClient.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -43,15 +40,17 @@ impl From<StartQueryError> for Error {
 /// This exists only for compatibility with crates that use `embedded-nal-async`.
 /// Prefer using [`Stack::dns_query`](crate::Stack::dns_query) directly if you're
 /// not using `embedded-nal-async`.
+#[cfg(feature = "embedded-nal")]
 pub struct DnsClient<'d> {
-    stack: Stack<'d>,
+    stack: crate::Stack<'d>,
 }
 
+#[cfg(feature = "embedded-nal")]
 impl<'d> DnsClient<'d> {
     /// Create a new DNS socket using the provided stack.
     ///
     /// NOTE: If using DHCP, make sure it has reconfigured the stack to ensure the DNS servers are updated.
-    pub fn new(stack: Stack<'d>) -> Self {
+    pub fn new(stack: crate::Stack<'d>) -> Self {
         Self { stack }
     }
 
@@ -60,11 +59,12 @@ impl<'d> DnsClient<'d> {
         &self,
         name: &str,
         qtype: DnsQueryType,
-    ) -> Result<Vec<IpAddress, { xarxa::config::DNS_MAX_RESULT_COUNT }>, Error> {
+    ) -> Result<heapless::Vec<IpAddress, { xarxa::config::DNS_MAX_RESULT_COUNT }>, Error> {
         self.stack.dns_query(name, qtype).await
     }
 }
 
+#[cfg(feature = "embedded-nal")]
 impl<'d> embedded_nal_async::Dns for DnsClient<'d> {
     type Error = Error;
 
