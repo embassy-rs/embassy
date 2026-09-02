@@ -1253,6 +1253,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
             return Ok(());
         }
 
+        #[cfg(not(spi_v1))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -1392,6 +1393,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
             return Ok(());
         }
 
+        #[cfg(not(spi_v1))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -1457,6 +1459,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
             return Ok(());
         }
 
+        #[cfg(not(spi_v1))]
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
