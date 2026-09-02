@@ -136,11 +136,11 @@ pub struct BootLoader<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> {
     /// The state partition has the following format:
     /// All ranges are in multiples of WRITE_SIZE bytes.
     /// N = Active partition size divided by WRITE_SIZE.
-    /// | Range              | Description                                                                      |
-    /// | 0..1               | Magic indicating bootloader state.                                             |
-    /// | 1..2               | Progress validity. ERASE_VALUE means valid, !ERASE_VALUE means invalid.          |
-    /// | 2..(2 + 2N)        | Progress index used while swapping                                               |
-    /// | (2 + 2N)..(2 + 4N) | Progress index used while reverting
+    /// | Range              | Description                                                             |
+    /// | 0..1               | Magic indicating bootloader state.                                      |
+    /// | 1..2               | Progress validity. ERASE_VALUE means valid, !ERASE_VALUE means invalid. |
+    /// | 2..(2 + 2N)        | Progress index used while swapping                                      |
+    /// | (2 + 2N)..(2 + 4N) | Progress index used while reverting                                     |
     state: STATE,
 }
 
