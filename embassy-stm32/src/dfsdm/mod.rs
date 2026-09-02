@@ -8,10 +8,12 @@ pub mod dma;
 /// Type-system
 pub mod types;
 
+use core::cell::RefCell;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 use core::ptr;
+use core::sync::atomic::{AtomicU8, Ordering};
 use core::task::Poll;
 
 pub use dma::*;
@@ -35,6 +37,8 @@ pub enum Error {
     Overrun,
     /// Internal peripheral error.
     PeripheralError,
+    /// Neighbor pin unavailable.
+    NeighborPinUnavailable,
 }
 
 /// DFSDM configuration.
@@ -49,6 +53,30 @@ impl Default for Config {
     }
 }
 
+// =============================================================================
+// Pin Reference Counting Storage
+// =============================================================================
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PinKind {
+    Datin,
+    Ckin,
+}
+
+pub struct PinSlot<'d> {
+    inner: critical_section::Mutex<RefCell<Option<Flex<'d>>>>,
+    rc: AtomicU8,
+}
+
+impl<'d> PinSlot<'d> {
+    const fn new() -> Self {
+        Self {
+            inner: critical_section::Mutex::new(RefCell::new(None)),
+            rc: AtomicU8::new(0),
+        }
+    }
+}
+
 /// [`Transceiver`]
 /// Configured DFSDM data input transceiver.
 pub struct Transceiver<'a, 'd, T, M, S, MODE, P>
@@ -59,15 +87,36 @@ where
     MODE: ChannelMode,
     P: PowerState,
 {
+    pub(crate) common: &'a DfsdmCommon<'d, T, Enabled>,
     _instance_marker: PhantomData<T>,
     _transceiver_marker: PhantomData<M>,
+    _pinset_marker: PhantomData<S>,
     _datasource_marker: PhantomData<MODE>,
     _powerstate_marker: PhantomData<P>,
-    pub(crate) datin: S::Datin<'d>,
-    pub(crate) ckin: S::Ckin<'d>,
-    pub(crate) common: Option<&'a DfsdmCommon<'d, T, Enabled>>,
-    // ckin_pin: Option<Flex<'d>>,
-    // data_pin: Flex<'d>,
+}
+
+impl<'a, 'd, T, M, S, MODE, P> Drop for Transceiver<'a, 'd, T, M, S, MODE, P>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    MODE: ChannelMode,
+    P: PowerState,
+{
+    fn drop(&mut self) {
+        let ch = if MODE::USES_NEIGHBOR_PINS {
+            <M::Next as TransceiverMarker>::CHANNEL.index()
+        } else {
+            M::CHANNEL.index()
+        };
+
+        if S::HAS_DATA {
+            self.common.release_pin(ch, PinKind::Datin);
+        }
+        if S::HAS_CLK {
+            self.common.release_pin(ch, PinKind::Ckin);
+        }
+    }
 }
 
 /// Confgiguration for Filter
@@ -625,13 +674,12 @@ where
         T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(false));
 
         Transceiver {
+            common: self.common,
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
             _datasource_marker: PhantomData,
             _powerstate_marker: PhantomData,
-            datin: self.datin,
-            ckin: self.ckin,
-            common: self.common,
         }
     }
 }
@@ -688,13 +736,12 @@ where
         T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(true));
 
         Transceiver {
+            common: self.common,
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
             _datasource_marker: PhantomData,
             _powerstate_marker: PhantomData,
-            datin: self.datin,
-            ckin: self.ckin,
-            common: self.common,
         }
     }
 
@@ -997,7 +1044,7 @@ impl<T: Instance> ChannelSelectors8<T> {
 ///
 ///
 ///
-pub struct TransceiverBuilder<'d, T, M, C, S, SN>
+pub struct TransceiverBuilder<T, M, C, S, SN>
 where
     T: Instance,
     M: TransceiverMarker,
@@ -1005,12 +1052,10 @@ where
     S: PinSet,  //Own pins
     SN: PinSet, //Neighbors pins
 {
-    pub(crate) datin: S::Datin<'d>,
-    pub(crate) ckin: S::Ckin<'d>,
-    _m: PhantomData<(T, M, C, SN)>,
+    _m: PhantomData<(T, M, C, S, SN)>,
 }
 
-impl<'d, T, M, C, S, SN> TransceiverBuilder<'d, T, M, C, S, SN>
+impl<T, M, C, S, SN> TransceiverBuilder<T, M, C, S, SN>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
@@ -1022,20 +1067,22 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_parallel_adc(mut self) -> Transceiver<'static, 'd, T, M, S, ParallelAdcMode, Disabled>
+    pub fn new_parallel_adc<'a, 'd>(
+        mut self,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
+    ) -> Transceiver<'a, 'd, T, M, S, ParallelAdcMode, Disabled>
     where
         T: capability::AdcInput,
     {
         self.select_channel_input(config_types::ChannelInput::Same);
         self.select_data_mux_input(config_types::InputDataMux::InternalAdc);
         Transceiver {
+            common,
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
             _datasource_marker: PhantomData,
             _powerstate_marker: PhantomData,
-            datin: self.datin,
-            ckin: self.ckin,
-            common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
         }
     }
 
@@ -1043,21 +1090,21 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_parallel_dma(
+    pub fn new_parallel_dma<'a, 'd>(
         mut self,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
         packing_mode: config_types::DataPackingModeReduced,
-    ) -> Transceiver<'static, 'd, T, M, S, ParallelDmaMode, Disabled> {
+    ) -> Transceiver<'a, 'd, T, M, S, ParallelDmaMode, Disabled> {
         self.select_channel_input(config_types::ChannelInput::Same);
         self.select_data_mux_input(config_types::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(packing_mode.into());
         Transceiver {
+            common,
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
             _datasource_marker: PhantomData,
             _powerstate_marker: PhantomData,
-            datin: self.datin,
-            ckin: self.ckin,
-            common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
         }
     }
 
@@ -1068,12 +1115,13 @@ where
     /// assigned to `M` (reads INDAT0, the lower word) and one to `MN`
     /// (reads INDAT1, the upper word) - or the register won't drain and
     /// you'll get overrun errors.
-    pub fn new_parallel_dma_dual<MN, SNN>(
+    pub fn new_parallel_dma_dual<'a, 'd, MN, SNN>(
         mut self,
-        mut neighbor: TransceiverBuilder<'d, T, MN, C, SN, SNN>,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
+        mut neighbor: TransceiverBuilder<T, MN, C, SN, SNN>,
     ) -> (
-        Transceiver<'static, 'd, T, M, S, ParallelDmaMode, Disabled>,
-        Transceiver<'static, 'd, T, MN, SN, ParallelDmaMode, Disabled>,
+        Transceiver<'a, 'd, T, M, S, ParallelDmaMode, Disabled>,
+        Transceiver<'a, 'd, T, MN, SN, ParallelDmaMode, Disabled>,
     )
     where
         M: DualPackingAllowed + NextChannelForInstance<T, Next = MN>,
@@ -1086,18 +1134,35 @@ where
         neighbor.select_data_mux_input(config_types::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(config_types::DataPackingMode::Dual);
         neighbor.set_data_packing_mode(config_types::DataPackingMode::Standard);
-        let _ = neighbor;
-        todo!()
+        (
+            Transceiver {
+                common,
+                _instance_marker: PhantomData,
+                _transceiver_marker: PhantomData,
+                _pinset_marker: PhantomData,
+                _datasource_marker: PhantomData,
+                _powerstate_marker: PhantomData,
+            },
+            Transceiver {
+                common,
+                _instance_marker: PhantomData,
+                _transceiver_marker: PhantomData,
+                _pinset_marker: PhantomData,
+                _datasource_marker: PhantomData,
+                _powerstate_marker: PhantomData,
+            },
+        )
     }
 
     /// Parallel input from ADC writes to CHyDATINR (DATMPX=2).
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_manchester(
+    pub fn new_manchester<'a, 'd>(
         mut self,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::ManchesterMode,
-    ) -> Transceiver<'static, 'd, T, M, S, ManchesterMode, Disabled>
+    ) -> Transceiver<'a, 'd, T, M, S, ManchesterMode, Disabled>
     where
         S: HasData,
     {
@@ -1105,43 +1170,46 @@ where
         self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
         self.select_serial_interface_type(mode.into());
         Transceiver {
+            common,
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
             _datasource_marker: PhantomData,
             _powerstate_marker: PhantomData,
-            datin: self.datin,
-            ckin: self.ckin,
-            common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
         }
     }
 
     ///Same as [`Self::new_manchester`] but using neighbors pins
-    pub fn new_manchester_neighbor(
+    pub fn new_manchester_neighbor<'a, 'd>(
         mut self,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::ManchesterMode,
-    ) -> Transceiver<'static, 'd, T, M, SN, ManchesterMode, Disabled>
+    ) -> Result<Transceiver<'a, 'd, T, M, DataOnly, ManchesterNeighborMode, Disabled>, Error>
     where
         SN: HasData,
     {
+        let next_ch = <M::Next as TransceiverMarker>::CHANNEL.index();
+        common.acquire_pin(next_ch, PinKind::Datin)?;
+
         self.select_channel_input(config_types::ChannelInput::Neighbor);
         self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
         self.select_serial_interface_type(mode.into());
-        // Transceiver {
-        //     _instance_marker: PhantomData,
-        //     _transceiver_marker: PhantomData,
-        //     _datasource_marker: PhantomData,
-        //     _powerstate_marker: PhantomData,
-        //     datin: self.datin,
-        //     ckin: self.ckin,
-        //     common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
-        // }
-        todo!(
-            "Implement neighbors correctly. Currently they'd hold the neighbors pins, but have no reference to it yet."
-        )
+        Ok(Transceiver {
+            common,
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+        })
     }
 
     ///TODO new_spi_ext description
-    pub fn new_spi_ext(mut self, mode: config_types::SpiMode) -> Transceiver<'static, 'd, T, M, S, SpiExtMode, Disabled>
+    pub fn new_spi_ext<'a, 'd>(
+        mut self,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
+        mode: config_types::SpiMode,
+    ) -> Transceiver<'a, 'd, T, M, S, SpiExtMode, Disabled>
     where
         S: HasDataAndClk,
     {
@@ -1150,40 +1218,39 @@ where
         self.select_serial_interface_type(mode.into());
         self.select_spi_clock(config_types::SpiClockSelect::ExternalCkin);
         Transceiver {
+            common,
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
             _datasource_marker: PhantomData,
             _powerstate_marker: PhantomData,
-            datin: self.datin,
-            ckin: self.ckin,
-            common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
         }
     }
 
     ///Same as [`Self::new_spi_ext`] but using neighbors pins
-    pub fn new_spi_ext_neighbor(
+    pub fn new_spi_ext_neighbor<'a, 'd>(
         mut self,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::SpiMode,
-    ) -> Transceiver<'static, 'd, T, M, SN, SpiExtMode, Disabled>
+    ) -> Result<Transceiver<'a, 'd, T, M, DataClk, SpiExtNeighborMode, Disabled>, Error>
     where
         SN: HasDataAndClk,
     {
+        let next_ch = <M::Next as TransceiverMarker>::CHANNEL.index();
+        common.acquire_pins::<DataClk>(next_ch)?;
+
         self.select_channel_input(config_types::ChannelInput::Neighbor);
         self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
         self.select_serial_interface_type(mode.into());
         self.select_spi_clock(config_types::SpiClockSelect::ExternalCkin);
-        // Transceiver {
-        //     _instance_marker: PhantomData,
-        //     _transceiver_marker: PhantomData,
-        //     _datasource_marker: PhantomData,
-        //     _powerstate_marker: PhantomData,
-        //     datin: self.datin,
-        //     ckin: self.ckin,
-        //     common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
-        // }
-        todo!(
-            "Implement neighbors correctly. Currently they'd hold the neighbors pins, but have no reference to it yet."
-        )
+        Ok(Transceiver {
+            common,
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+        })
     }
 
     fn set_data_packing_mode(&mut self, mode: config_types::DataPackingMode) {
@@ -1233,7 +1300,7 @@ where
     }
 }
 
-impl<'d, T, M, S, SN> TransceiverBuilder<'d, T, M, OutputEnabled, S, SN>
+impl<T, M, S, SN> TransceiverBuilder<T, M, OutputEnabled, S, SN>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
@@ -1241,10 +1308,11 @@ where
     SN: PinSet,
 {
     ///TODO new_spi_int description
-    pub fn new_spi_int(
+    pub fn new_spi_int<'a, 'd>(
         mut self,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::InternalSpiMode,
-    ) -> Transceiver<'static, 'd, T, M, S, SpiCkoutMode, Disabled>
+    ) -> Transceiver<'a, 'd, T, M, S, SpiCkoutMode, Disabled>
     where
         S: HasData,
     {
@@ -1253,40 +1321,39 @@ where
         self.select_serial_interface_type(mode.into());
         self.select_spi_clock(mode.into());
         Transceiver {
+            common,
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
             _datasource_marker: PhantomData,
             _powerstate_marker: PhantomData,
-            datin: self.datin,
-            ckin: self.ckin,
-            common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
         }
     }
 
     ///Same as [`Self::new_spi_int`] but using neighbors pins
-    pub fn new_spi_int_neighbor(
+    pub fn new_spi_int_neighbor<'a, 'd>(
         mut self,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::InternalSpiMode,
-    ) -> Transceiver<'static, 'd, T, M, SN, SpiCkoutMode, Disabled>
+    ) -> Result<Transceiver<'a, 'd, T, M, DataOnly, SpiCkoutNeighborMode, Disabled>, Error>
     where
         SN: HasData,
     {
+        let next_ch = <M::Next as TransceiverMarker>::CHANNEL.index();
+        common.acquire_pin(next_ch, PinKind::Datin)?;
+
         self.select_channel_input(config_types::ChannelInput::Neighbor);
         self.select_data_mux_input(config_types::InputDataMux::ExternalSerial);
         self.select_serial_interface_type(mode.into());
         self.select_spi_clock(mode.into());
-        // Transceiver {
-        //     _instance_marker: PhantomData,
-        //     _transceiver_marker: PhantomData,
-        //     _datasource_marker: PhantomData,
-        //     _powerstate_marker: PhantomData,
-        //     datin: self.datin,
-        //     ckin: self.ckin,
-        //     common: None, //TODO assign common later? or leave transceiver reference in common?? make common enable transceiver??
-        // }
-        todo!(
-            "Implement neighbors correctly. Currently they shold the neighbors pins, but have no reference to it yet."
-        )
+        Ok(Transceiver {
+            common,
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+        })
     }
 }
 
@@ -1383,9 +1450,107 @@ where
 /// Holds regerences to the peripheral and the optional clock-output. Disables the RCC of the peripheral when dropped.
 pub struct DfsdmCommon<'d, T: Instance, P: PowerState> {
     _peri: Peri<'d, T>,
-    /// `Some` iff the driver was created via [`Dfsdm::new_ckout`].
     _ckout: Option<Flex<'d>>,
     _powerstate_marker: PhantomData<P>,
+    datin_slots: [PinSlot<'d>; 8],
+    ckin_slots: [PinSlot<'d>; 8],
+}
+impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
+    fn insert_pin(&mut self, ch: usize, kind: PinKind, flex: Option<Flex<'d>>) {
+        if let Some(p) = flex {
+            let slot = match kind {
+                PinKind::Datin => &mut self.datin_slots[ch],
+                PinKind::Ckin => &mut self.ckin_slots[ch],
+            };
+            critical_section::with(|cs| {
+                *slot.inner.borrow_ref_mut(cs) = Some(p);
+            });
+            slot.rc.store(1, Ordering::Relaxed);
+        }
+    }
+
+    fn get_slot(&self, ch: usize, kind: PinKind) -> &PinSlot<'d> {
+        match kind {
+            PinKind::Datin => &self.datin_slots[ch],
+            PinKind::Ckin => &self.ckin_slots[ch],
+        }
+    }
+
+    pub(crate) fn acquire_pin(&self, ch: usize, kind: PinKind) -> Result<(), Error> {
+        let slot = self.get_slot(ch, kind);
+        loop {
+            let val = slot.rc.load(Ordering::Acquire);
+            if val == 0 {
+                return Err(Error::NeighborPinUnavailable);
+            }
+            if slot
+                .rc
+                .compare_exchange(val, val + 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+    }
+
+    pub(crate) fn release_pin(&self, ch: usize, kind: PinKind) {
+        let slot = self.get_slot(ch, kind);
+        loop {
+            let val = slot.rc.load(Ordering::Acquire);
+            if val == 0 {
+                return; // Prevent underflow
+            }
+            if slot
+                .rc
+                .compare_exchange(val, val - 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                if val - 1 == 0 {
+                    critical_section::with(|cs| {
+                        let _ = slot.inner.borrow_ref_mut(cs).take();
+                    });
+                }
+                return;
+            }
+        }
+    }
+
+    pub(crate) fn acquire_pins<S: PinSet>(&self, ch: usize) -> Result<(), Error> {
+        if S::HAS_DATA {
+            self.acquire_pin(ch, PinKind::Datin)?;
+        }
+        if S::HAS_CLK {
+            if let Err(e) = self.acquire_pin(ch, PinKind::Ckin) {
+                if S::HAS_DATA {
+                    self.release_pin(ch, PinKind::Datin);
+                }
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+
+    fn into_raw_parts(self) -> (Peri<'d, T>, Option<Flex<'d>>, [PinSlot<'d>; 8], [PinSlot<'d>; 8]) {
+        let this = ManuallyDrop::new(self);
+        unsafe {
+            (
+                ptr::read(&this._peri),
+                ptr::read(&this._ckout),
+                ptr::read(&this.datin_slots),
+                ptr::read(&this.ckin_slots),
+            )
+        }
+    }
+
+    /// Enables or disables clock absence interrupts.
+    fn set_clock_absence_interrupt(&mut self, enabled: bool) {
+        T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
+    }
+
+    /// Enables or disables short-circuit detector interrupts.
+    fn set_short_circuit_detector_interrupt(&mut self, enabled: bool) {
+        T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
+    }
 }
 
 impl<'d, T, P> Drop for DfsdmCommon<'d, T, P>
@@ -1407,17 +1572,39 @@ where
             _peri: peri,
             _ckout: ckout,
             _powerstate_marker: PhantomData,
+            datin_slots: [
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+            ],
+            ckin_slots: [
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+            ],
         }
     }
+
     /// Enables the peripheral
     pub fn enable(self) -> DfsdmCommon<'d, T, Enabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(true));
-
-        let (_peri, _ckout) = self.into_raw_parts();
+        let (_peri, _ckout, datin_slots, ckin_slots) = self.into_raw_parts();
         DfsdmCommon {
             _peri,
             _ckout,
             _powerstate_marker: PhantomData,
+            datin_slots,
+            ckin_slots,
         }
     }
 }
@@ -1430,33 +1617,14 @@ where
     pub fn disable(self) -> DfsdmCommon<'d, T, Disabled> {
         T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(false));
 
-        let (_peri, _ckout) = self.into_raw_parts();
+        let (_peri, _ckout, datin_slots, ckin_slots) = self.into_raw_parts();
         DfsdmCommon {
             _peri,
             _ckout,
             _powerstate_marker: PhantomData,
+            datin_slots,
+            ckin_slots,
         }
-    }
-}
-
-impl<'d, T, P> DfsdmCommon<'d, T, P>
-where
-    T: Instance,
-    P: PowerState,
-{
-    fn into_raw_parts(self) -> (Peri<'d, T>, Option<Flex<'d>>) {
-        let this = ManuallyDrop::new(self);
-        unsafe { (ptr::read(&this._peri), ptr::read(&this._ckout)) }
-    }
-
-    /// Enables or disables clock absence interrupts.
-    fn set_clock_absence_interrupt(&mut self, enabled: bool) {
-        T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
-    }
-
-    /// Enables or disables short-circuit detector interrupts.
-    fn set_short_circuit_detector_interrupt(&mut self, enabled: bool) {
-        T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
     }
 }
 
@@ -1468,8 +1636,8 @@ where
     S1: PinSet,
 {
     pub common: DfsdmCommon<'d, T, Enabled>,
-    pub ch0: TransceiverBuilder<'d, T, Tcv0, C, S0, S1>, // neighbor = ch1
-    pub ch1: TransceiverBuilder<'d, T, Tcv1, C, S1, S0>, // neighbor = ch0 (wrap!)
+    pub ch0: TransceiverBuilder<T, Tcv0, C, S0, S1>, // neighbor = ch1
+    pub ch1: TransceiverBuilder<T, Tcv1, C, S1, S0>, // neighbor = ch0 (wrap!)
     pub flt0: Filter<T, Flt0, Disabled>,
 }
 
@@ -1487,14 +1655,14 @@ where
     S7: PinSet,
 {
     pub common: DfsdmCommon<'d, T, Enabled>,
-    pub ch0: TransceiverBuilder<'d, T, Tcv0, C, S0, S1>,
-    pub ch1: TransceiverBuilder<'d, T, Tcv1, C, S1, S2>,
-    pub ch2: TransceiverBuilder<'d, T, Tcv2, C, S2, S3>,
-    pub ch3: TransceiverBuilder<'d, T, Tcv3, C, S3, S4>,
-    pub ch4: TransceiverBuilder<'d, T, Tcv4, C, S4, S5>,
-    pub ch5: TransceiverBuilder<'d, T, Tcv5, C, S5, S6>,
-    pub ch6: TransceiverBuilder<'d, T, Tcv6, C, S6, S7>,
-    pub ch7: TransceiverBuilder<'d, T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
+    pub ch0: TransceiverBuilder<T, Tcv0, C, S0, S1>,
+    pub ch1: TransceiverBuilder<T, Tcv1, C, S1, S2>,
+    pub ch2: TransceiverBuilder<T, Tcv2, C, S2, S3>,
+    pub ch3: TransceiverBuilder<T, Tcv3, C, S3, S4>,
+    pub ch4: TransceiverBuilder<T, Tcv4, C, S4, S5>,
+    pub ch5: TransceiverBuilder<T, Tcv5, C, S5, S6>,
+    pub ch6: TransceiverBuilder<T, Tcv6, C, S6, S7>,
+    pub ch7: TransceiverBuilder<T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
     pub flt0: Filter<T, Flt0, Disabled>,
     pub flt1: Filter<T, Flt1, Disabled>,
     pub flt2: Filter<T, Flt2, Disabled>,
@@ -1519,14 +1687,14 @@ where
     S7: PinSet,
 {
     pub common: DfsdmCommon<'d, T, Enabled>,
-    pub ch0: TransceiverBuilder<'d, T, Tcv0, C, S0, S1>,
-    pub ch1: TransceiverBuilder<'d, T, Tcv1, C, S1, S2>,
-    pub ch2: TransceiverBuilder<'d, T, Tcv2, C, S2, S3>,
-    pub ch3: TransceiverBuilder<'d, T, Tcv3, C, S3, S4>,
-    pub ch4: TransceiverBuilder<'d, T, Tcv4, C, S4, S5>,
-    pub ch5: TransceiverBuilder<'d, T, Tcv5, C, S5, S6>,
-    pub ch6: TransceiverBuilder<'d, T, Tcv6, C, S6, S7>,
-    pub ch7: TransceiverBuilder<'d, T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
+    pub ch0: TransceiverBuilder<T, Tcv0, C, S0, S1>,
+    pub ch1: TransceiverBuilder<T, Tcv1, C, S1, S2>,
+    pub ch2: TransceiverBuilder<T, Tcv2, C, S2, S3>,
+    pub ch3: TransceiverBuilder<T, Tcv3, C, S3, S4>,
+    pub ch4: TransceiverBuilder<T, Tcv4, C, S4, S5>,
+    pub ch5: TransceiverBuilder<T, Tcv5, C, S5, S6>,
+    pub ch6: TransceiverBuilder<T, Tcv6, C, S6, S7>,
+    pub ch7: TransceiverBuilder<T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
     pub flt0: Filter<T, Flt0, Disabled>,
     pub flt1: Filter<T, Flt1, Disabled>,
     pub flt2: Filter<T, Flt2, Disabled>,
@@ -1673,21 +1841,19 @@ where
         <C1 as ChannelCfg<'d, T, Tcv1>>::Presence,
     >;
 
-    fn split_parts(self, common: DfsdmCommon<'d, T, Enabled>) -> Self::Split {
+    fn split_parts(self, mut common: DfsdmCommon<'d, T, Enabled>) -> Self::Split {
         let (d0, k0) = self.0.into_parts();
         let (d1, k1) = self.1.into_parts();
+
+        common.insert_pin(0, PinKind::Datin, C0::Presence::extract_datin(d0));
+        common.insert_pin(0, PinKind::Ckin, C0::Presence::extract_ckin(k0));
+        common.insert_pin(1, PinKind::Datin, C1::Presence::extract_datin(d1));
+        common.insert_pin(1, PinKind::Ckin, C1::Presence::extract_ckin(k1));
+
         DfsdmSplit2Ch1Flt {
             common,
-            ch0: TransceiverBuilder {
-                datin: d0,
-                ckin: k0,
-                _m: PhantomData,
-            },
-            ch1: TransceiverBuilder {
-                datin: d1,
-                ckin: k1,
-                _m: PhantomData,
-            },
+            ch0: TransceiverBuilder { _m: PhantomData },
+            ch1: TransceiverBuilder { _m: PhantomData },
             flt0: Filter::new_disabled(),
         }
     }
@@ -1756,7 +1922,7 @@ where
     type Out = DfsdmSplit8Ch8Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
 
     fn build(
-        common: DfsdmCommon<'d, T, Enabled>,
+        mut common: DfsdmCommon<'d, T, Enabled>,
         d0: S0::Datin<'d>,
         k0: S0::Ckin<'d>,
         d1: S1::Datin<'d>,
@@ -1774,48 +1940,33 @@ where
         d7: S7::Datin<'d>,
         k7: S7::Ckin<'d>,
     ) -> Self::Out {
+        common.insert_pin(0, PinKind::Datin, S0::extract_datin(d0));
+        common.insert_pin(0, PinKind::Ckin, S0::extract_ckin(k0));
+        common.insert_pin(1, PinKind::Datin, S1::extract_datin(d1));
+        common.insert_pin(1, PinKind::Ckin, S1::extract_ckin(k1));
+        common.insert_pin(2, PinKind::Datin, S2::extract_datin(d2));
+        common.insert_pin(2, PinKind::Ckin, S2::extract_ckin(k2));
+        common.insert_pin(3, PinKind::Datin, S3::extract_datin(d3));
+        common.insert_pin(3, PinKind::Ckin, S3::extract_ckin(k3));
+        common.insert_pin(4, PinKind::Datin, S4::extract_datin(d4));
+        common.insert_pin(4, PinKind::Ckin, S4::extract_ckin(k4));
+        common.insert_pin(5, PinKind::Datin, S5::extract_datin(d5));
+        common.insert_pin(5, PinKind::Ckin, S5::extract_ckin(k5));
+        common.insert_pin(6, PinKind::Datin, S6::extract_datin(d6));
+        common.insert_pin(6, PinKind::Ckin, S6::extract_ckin(k6));
+        common.insert_pin(7, PinKind::Datin, S7::extract_datin(d7));
+        common.insert_pin(7, PinKind::Ckin, S7::extract_ckin(k7));
+
         DfsdmSplit8Ch8Flt {
             common,
-            ch0: TransceiverBuilder {
-                datin: d0,
-                ckin: k0,
-                _m: PhantomData,
-            },
-            ch1: TransceiverBuilder {
-                datin: d1,
-                ckin: k1,
-                _m: PhantomData,
-            },
-            ch2: TransceiverBuilder {
-                datin: d2,
-                ckin: k2,
-                _m: PhantomData,
-            },
-            ch3: TransceiverBuilder {
-                datin: d3,
-                ckin: k3,
-                _m: PhantomData,
-            },
-            ch4: TransceiverBuilder {
-                datin: d4,
-                ckin: k4,
-                _m: PhantomData,
-            },
-            ch5: TransceiverBuilder {
-                datin: d5,
-                ckin: k5,
-                _m: PhantomData,
-            },
-            ch6: TransceiverBuilder {
-                datin: d6,
-                ckin: k6,
-                _m: PhantomData,
-            },
-            ch7: TransceiverBuilder {
-                datin: d7,
-                ckin: k7,
-                _m: PhantomData,
-            },
+            ch0: TransceiverBuilder { _m: PhantomData },
+            ch1: TransceiverBuilder { _m: PhantomData },
+            ch2: TransceiverBuilder { _m: PhantomData },
+            ch3: TransceiverBuilder { _m: PhantomData },
+            ch4: TransceiverBuilder { _m: PhantomData },
+            ch5: TransceiverBuilder { _m: PhantomData },
+            ch6: TransceiverBuilder { _m: PhantomData },
+            ch7: TransceiverBuilder { _m: PhantomData },
             flt0: Filter::new_disabled(),
             flt1: Filter::new_disabled(),
             flt2: Filter::new_disabled(),
@@ -1869,46 +2020,14 @@ where
     ) -> Self::Out {
         DfsdmSplit8Ch4Flt {
             common,
-            ch0: TransceiverBuilder {
-                datin: d0,
-                ckin: k0,
-                _m: PhantomData,
-            },
-            ch1: TransceiverBuilder {
-                datin: d1,
-                ckin: k1,
-                _m: PhantomData,
-            },
-            ch2: TransceiverBuilder {
-                datin: d2,
-                ckin: k2,
-                _m: PhantomData,
-            },
-            ch3: TransceiverBuilder {
-                datin: d3,
-                ckin: k3,
-                _m: PhantomData,
-            },
-            ch4: TransceiverBuilder {
-                datin: d4,
-                ckin: k4,
-                _m: PhantomData,
-            },
-            ch5: TransceiverBuilder {
-                datin: d5,
-                ckin: k5,
-                _m: PhantomData,
-            },
-            ch6: TransceiverBuilder {
-                datin: d6,
-                ckin: k6,
-                _m: PhantomData,
-            },
-            ch7: TransceiverBuilder {
-                datin: d7,
-                ckin: k7,
-                _m: PhantomData,
-            },
+            ch0: TransceiverBuilder { _m: PhantomData },
+            ch1: TransceiverBuilder { _m: PhantomData },
+            ch2: TransceiverBuilder { _m: PhantomData },
+            ch3: TransceiverBuilder { _m: PhantomData },
+            ch4: TransceiverBuilder { _m: PhantomData },
+            ch5: TransceiverBuilder { _m: PhantomData },
+            ch6: TransceiverBuilder { _m: PhantomData },
+            ch7: TransceiverBuilder { _m: PhantomData },
             flt0: Filter::new_disabled(),
             flt1: Filter::new_disabled(),
             flt2: Filter::new_disabled(),

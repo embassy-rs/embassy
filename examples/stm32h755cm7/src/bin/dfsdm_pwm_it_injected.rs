@@ -120,7 +120,7 @@ async fn main(_spawner: Spawner) {
     let tcv_cfg_online = TransceiverConfigOnline::default();
     let channel_mic = split
         .ch1
-        .new_spi_int(InternalSpiMode::SpiRising)
+        .new_spi_int(&split.common, InternalSpiMode::SpiRising)
         .configure(&tcv_cfg, &tcv_cfg_online)
         .enable();
 

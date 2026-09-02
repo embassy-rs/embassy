@@ -238,6 +238,11 @@ pub trait PinSet: sealed::Sealed {
     type Datin<'d>;
     /// Storage for the CKIN pin: `Flex<'d>` if present, `()` if absent.
     type Ckin<'d>;
+
+    /// Extracts the `Flex` if present, otherwise returns `None`.
+    fn extract_datin<'d>(pin: Self::Datin<'d>) -> Option<Flex<'d>>;
+    /// Extracts the `Flex` if present, otherwise returns `None`.
+    fn extract_ckin<'d>(pin: Self::Ckin<'d>) -> Option<Flex<'d>>;
 }
 
 /// Channel has no pins (unused, parallel input, or PDM-right reading the
@@ -260,6 +265,13 @@ impl PinSet for NoPins {
     const HAS_CLK: bool = false;
     type Datin<'d> = ();
     type Ckin<'d> = ();
+
+    fn extract_datin<'d>(_: Self::Datin<'d>) -> Option<Flex<'d>> {
+        None
+    }
+    fn extract_ckin<'d>(_: Self::Ckin<'d>) -> Option<Flex<'d>> {
+        None
+    }
 }
 
 impl PinSet for DataOnly {
@@ -267,6 +279,13 @@ impl PinSet for DataOnly {
     const HAS_CLK: bool = false;
     type Datin<'d> = Flex<'d>;
     type Ckin<'d> = ();
+
+    fn extract_datin<'d>(pin: Self::Datin<'d>) -> Option<Flex<'d>> {
+        Some(pin)
+    }
+    fn extract_ckin<'d>(_: Self::Ckin<'d>) -> Option<Flex<'d>> {
+        None
+    }
 }
 
 impl PinSet for DataClk {
@@ -274,6 +293,13 @@ impl PinSet for DataClk {
     const HAS_CLK: bool = true;
     type Datin<'d> = Flex<'d>;
     type Ckin<'d> = Flex<'d>;
+
+    fn extract_datin<'d>(pin: Self::Datin<'d>) -> Option<Flex<'d>> {
+        Some(pin)
+    }
+    fn extract_ckin<'d>(pin: Self::Ckin<'d>) -> Option<Flex<'d>> {
+        Some(pin)
+    }
 }
 
 /// Pin sets that include a DATIN pin.
@@ -571,32 +597,53 @@ impl_trait! {
 
 /// Operational mode of a built [`Transceiver`]. Determined by which builder
 /// constructor was used; encodes the SITP/SPICKSEL/CHINSEL/DATMPX semantics.
-pub trait ChannelMode: sealed::Sealed {}
+pub trait ChannelMode: sealed::Sealed {
+    /// True if this mode sources its serial pins from the next channel.
+    const USES_NEIGHBOR_PINS: bool = false;
+}
 /// SPI input, clock from own CKIN pin (SPICKSEL = 0).
 pub struct SpiExtMode;
 /// SPI input, clock derived from CKOUT (SPICKSEL = 1..3).
 pub struct SpiCkoutMode;
 /// Manchester-coded input, clock recovered from the data line (SITP = 2/3).
 pub struct ManchesterMode;
-/// PDM left half: owns the mic data line, samples on rising CKOUT edge.
-pub struct PdmLeftMode;
-/// PDM right half: pinless, decodes the NEXT channel's DATIN on the falling
-/// CKOUT edge (CHINSEL = 1, SITP = 1).
-pub struct PdmRightMode;
 /// 16-bit parallel input from CPU/DMA writes (DATMPX = 2).
 pub struct ParallelDmaMode;
 /// 16-bit parallel input from ADC writes (DATMPX = 1).
 pub struct ParallelAdcMode;
+
+// Neighbor Mode Types
+
+/// SPI input from neighbor, clock from own CKIN pin (SPICKSEL = 0).
+pub struct SpiExtNeighborMode;
+/// SPI input from neighbor, clock derived from CKOUT (SPICKSEL = 1..3).
+pub struct SpiCkoutNeighborMode;
+/// Manchester-coded input from neighbor, clock recovered from the data line (SITP = 2/3).
+pub struct ManchesterNeighborMode;
 
 impl_sealed_and! {
     ChannelMode =>
     SpiExtMode,
     SpiCkoutMode,
     ManchesterMode,
-    PdmLeftMode,
-    PdmRightMode,
     ParallelDmaMode,
-    ParallelAdcMode
+    ParallelAdcMode,
+}
+
+impl_sealed! {
+    SpiExtNeighborMode,
+    SpiCkoutNeighborMode,
+    ManchesterNeighborMode,
+}
+
+impl ChannelMode for SpiExtNeighborMode {
+    const USES_NEIGHBOR_PINS: bool = true;
+}
+impl ChannelMode for SpiCkoutNeighborMode {
+    const USES_NEIGHBOR_PINS: bool = true;
+}
+impl ChannelMode for ManchesterNeighborMode {
+    const USES_NEIGHBOR_PINS: bool = true;
 }
 
 /// Marker trait for Transceiver channels data source

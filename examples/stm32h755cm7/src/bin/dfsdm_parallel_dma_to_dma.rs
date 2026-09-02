@@ -82,7 +82,7 @@ async fn main(_spawner: Spawner) {
     let tcv_cfg_online = TransceiverConfigOnline::default();
     let ch_test = split
         .ch0
-        .new_parallel_dma(dfsdm::config_types::DataPackingModeReduced::Standard)
+        .new_parallel_dma(&split.common, dfsdm::config_types::DataPackingModeReduced::Standard)
         .configure(&tcv_cfg, &tcv_cfg_online)
         .enable();
 
