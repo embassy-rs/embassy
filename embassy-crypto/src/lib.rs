@@ -131,7 +131,6 @@ macro_rules! impl_hmac {
         $clone:path,
         $update:path,
         $finalize:path,
-        $reset:path,
         $key_size:ty,
         $out_size:ty
     ) => {
@@ -188,21 +187,6 @@ macro_rules! impl_hmac {
             #[inline]
             fn finalize_into(self, out: &mut Output<Self>) {
                 $finalize(self.ctx, out.as_mut_slice());
-            }
-        }
-
-        impl Reset for $name {
-            #[inline]
-            fn reset(&mut self) {
-                $reset(&mut self.ctx);
-            }
-        }
-
-        impl FixedOutputReset for $name {
-            #[inline]
-            fn finalize_into_reset(&mut self, out: &mut Output<Self>) {
-                self.clone().finalize_into(out);
-                self.reset();
             }
         }
 
@@ -321,7 +305,6 @@ impl_hmac!(
     embassy_crypto_driver::hmac_sha1_clone,
     embassy_crypto_driver::hmac_sha1_update,
     embassy_crypto_driver::hmac_sha1_finalize,
-    embassy_crypto_driver::hmac_sha1_reset,
     U64,
     U20
 );
@@ -333,7 +316,6 @@ impl_hmac!(
     embassy_crypto_driver::hmac_sha224_clone,
     embassy_crypto_driver::hmac_sha224_update,
     embassy_crypto_driver::hmac_sha224_finalize,
-    embassy_crypto_driver::hmac_sha224_reset,
     U64,
     U28
 );
@@ -345,7 +327,6 @@ impl_hmac!(
     embassy_crypto_driver::hmac_sha256_clone,
     embassy_crypto_driver::hmac_sha256_update,
     embassy_crypto_driver::hmac_sha256_finalize,
-    embassy_crypto_driver::hmac_sha256_reset,
     U64,
     U32
 );
@@ -357,7 +338,6 @@ impl_hmac!(
     embassy_crypto_driver::hmac_sha384_clone,
     embassy_crypto_driver::hmac_sha384_update,
     embassy_crypto_driver::hmac_sha384_finalize,
-    embassy_crypto_driver::hmac_sha384_reset,
     U128,
     U48
 );
@@ -369,7 +349,6 @@ impl_hmac!(
     embassy_crypto_driver::hmac_sha512_224_clone,
     embassy_crypto_driver::hmac_sha512_224_update,
     embassy_crypto_driver::hmac_sha512_224_finalize,
-    embassy_crypto_driver::hmac_sha512_224_reset,
     U128,
     U28
 );
@@ -381,7 +360,6 @@ impl_hmac!(
     embassy_crypto_driver::hmac_sha512_256_clone,
     embassy_crypto_driver::hmac_sha512_256_update,
     embassy_crypto_driver::hmac_sha512_256_finalize,
-    embassy_crypto_driver::hmac_sha512_256_reset,
     U128,
     U32
 );
@@ -393,7 +371,6 @@ impl_hmac!(
     embassy_crypto_driver::hmac_sha512_clone,
     embassy_crypto_driver::hmac_sha512_update,
     embassy_crypto_driver::hmac_sha512_finalize,
-    embassy_crypto_driver::hmac_sha512_reset,
     U128,
     U64
 );

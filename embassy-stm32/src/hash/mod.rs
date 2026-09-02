@@ -937,7 +937,7 @@ mod driver {
 
     #[cfg(any(hash_v1, hash_v2, hash_v4))]
     use crate::hash::Md5;
-    use crate::hash::{Context, DataType, Hash, Hmac, HmacMode, NonHmac, Sha1, Sha224, Sha256};
+    use crate::hash::{Context, DataType, Hash, Hmac, NonHmac, Sha1, Sha224, Sha256};
     #[cfg(hash_v3)]
     use crate::hash::{Sha384, Sha512, Sha512_224, Sha512_256};
     use crate::mode::Blocking;
@@ -991,7 +991,7 @@ mod driver {
         (
             $(#[$meta:meta])*
             $driver:ident, $trait:path, $algo:ty,
-            $init:ident, $clone:ident, $update:ident, $finalize:ident, $reset:ident,
+            $init:ident, $clone:ident, $update:ident, $finalize:ident,
             $impl_macro:path
         ) => {
             $(#[$meta])*
@@ -1015,9 +1015,6 @@ mod driver {
                     DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
                 }
 
-                fn $reset(ctx: &mut Self::Context) {
-                    *ctx = DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, <Hmac as HmacMode<$algo>>::key_ref(&ctx.key));
-                }
             }
             $impl_macro!($driver);
         };
@@ -1131,7 +1128,6 @@ mod driver {
         hmac_sha1_clone,
         hmac_sha1_update,
         hmac_sha1_finalize,
-        hmac_sha1_reset,
         embassy_crypto_driver::embassy_crypto_hmac_sha1_impl
     );
 
@@ -1143,7 +1139,6 @@ mod driver {
         hmac_sha224_clone,
         hmac_sha224_update,
         hmac_sha224_finalize,
-        hmac_sha224_reset,
         embassy_crypto_driver::embassy_crypto_hmac_sha224_impl
     );
 
@@ -1155,7 +1150,6 @@ mod driver {
         hmac_sha256_clone,
         hmac_sha256_update,
         hmac_sha256_finalize,
-        hmac_sha256_reset,
         embassy_crypto_driver::embassy_crypto_hmac_sha256_impl
     );
 
@@ -1168,7 +1162,6 @@ mod driver {
         hmac_sha384_clone,
         hmac_sha384_update,
         hmac_sha384_finalize,
-        hmac_sha384_reset,
         embassy_crypto_driver::embassy_crypto_hmac_sha384_impl
     );
 
@@ -1181,7 +1174,6 @@ mod driver {
         hmac_sha512_224_clone,
         hmac_sha512_224_update,
         hmac_sha512_224_finalize,
-        hmac_sha512_224_reset,
         embassy_crypto_driver::embassy_crypto_hmac_sha512_224_impl
     );
 
@@ -1194,7 +1186,6 @@ mod driver {
         hmac_sha512_256_clone,
         hmac_sha512_256_update,
         hmac_sha512_256_finalize,
-        hmac_sha512_256_reset,
         embassy_crypto_driver::embassy_crypto_hmac_sha512_256_impl
     );
 
@@ -1207,7 +1198,6 @@ mod driver {
         hmac_sha512_clone,
         hmac_sha512_update,
         hmac_sha512_finalize,
-        hmac_sha512_reset,
         embassy_crypto_driver::embassy_crypto_hmac_sha512_impl
     );
 }
