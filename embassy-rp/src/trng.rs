@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use core::ops::Not;
 use core::task::Poll;
 
+use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -63,26 +64,27 @@ impl From<InverterChainLength> for u8 {
 /// - ROSC frequency controlled by selecting one of ROSC chain lengths
 /// - Sample period in terms of system clock ticks
 ///
+/// The RP2350 datasheet (12.12.2) suggests sample count settings of 20-25 for
+/// an average generation time of about 2 milliseconds. On real hardware that
+/// setting only works while the core is busy: with the core sleeping in WFE
+/// (which is what the async executor does while waiting for the TRNG
+/// interrupt) the ring oscillator output becomes regular enough that every
+/// generation fails the autocorrelation or CRNGT health check.
 ///
-/// Default configuration is based on the following from documentation:
+/// Measured on a Pico 2 with the core sleeping, filling 1024 bytes:
 ///
-/// ----
+/// | `sample_count` | result                     |
+/// |----------------|----------------------------|
+/// | 25             | never completes            |
+/// | 50             | 761 ms, many failed checks |
+/// | 100            | 19 ms                      |
+/// | 200            | 38 ms                      |
+/// | 1000           | 232 ms                     |
 ///
-/// RP2350 Datasheet 12.12.2
-///
-/// ...
-///
-/// When configuring the TRNG block, consider the following principles:
-/// • As average generation time increases, result quality increases and failed entropy checks decrease.
-/// • A low sample count decreases average generation time, but increases the chance of NIST test-failing results and
-/// failed entropy checks.
-/// For acceptable results with an average generation time of about 2 milliseconds, use ROSC chain length settings of 0 or
-/// 1 and sample count settings of 20-25.
-/// Larger sample count settings (e.g. 100) provide proportionately slower average generation times. These settings
-/// significantly reduce, but do not eliminate NIST test failures and entropy check failures. Results occasionally take an
-/// especially long time to generate.
-///
-/// ---
+/// The default is 200. Autocorrelation failures are retried automatically
+/// (up to 1000 times per block before panicking), so a marginal value degrades
+/// into slower generation rather than a hang. A value of 25 with a sleeping
+/// core fails every attempt and panics.
 ///
 /// Note, Pico SDK and Bootrom don't use any of the entropy checks and sample the ROSC directly
 /// by setting the sample period to 0. Random data collected this way is then passed through
@@ -116,7 +118,7 @@ impl Default for Config {
             disable_autocorrelation_test: false,
             disable_crngt_test: false,
             disable_von_neumann_balancer: false,
-            sample_count: 25,
+            sample_count: 200,
             inverter_chain_length: InverterChainLength::One,
         }
     }
@@ -162,49 +164,76 @@ pub struct Trng<'d, T: Instance> {
 const TRNG_BLOCK_SIZE_BITS: usize = 192;
 const TRNG_BLOCK_SIZE_BYTES: usize = TRNG_BLOCK_SIZE_BITS / 8;
 
+/// Consecutive failed health checks tolerated before giving up on a block.
+///
+/// Health check failures are expected and are retried transparently. Hitting this
+/// many in a row means the ROSC is not producing usable entropy at all with the
+/// current [`Config`].
+const MAX_HEALTH_CHECK_RETRIES: u32 = 1000;
+
 impl<'d, T: Instance> Trng<'d, T> {
     /// Create a new TRNG driver.
     pub fn new(_trng: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd, config: Config) -> Self {
         let trng = Trng {
             phantom: PhantomData,
-            config: config,
+            config,
         };
-        trng.initialize_rng();
+        trng.reset_rng();
         trng
     }
 
+    /// Clear all status bits and unmask all interrupt sources, then start generation.
+    ///
+    /// Clearing the status first means a stale bit from an earlier run cannot be
+    /// mistaken for a failure of the run being started.
     fn start_rng(&self) {
         let regs = T::regs();
-        let source_enable_register = regs.rnd_source_enable();
-        // Enable TRNG ROSC
-        source_enable_register.write(|w| w.set_rnd_src_en(true));
+        regs.rng_icr().write(|w| {
+            w.set_ehr_valid(true);
+            w.set_autocorr_err(true);
+            w.set_crngt_err(true);
+            w.set_vn_err(true);
+        });
+        self.unmask_irq();
+        regs.rnd_source_enable().write(|w| w.set_rnd_src_en(true));
     }
 
     fn stop_rng(&self) {
         let regs = T::regs();
-        let source_enable_register = regs.rnd_source_enable();
-        source_enable_register.write(|w| w.set_rnd_src_en(false));
-        let reset_bits_counter_register = regs.rst_bits_counter();
-        reset_bits_counter_register.write(|w| w.set_rst_bits_counter(true));
+        regs.rnd_source_enable().write(|w| w.set_rnd_src_en(false));
+        regs.rst_bits_counter().write(|w| w.set_rst_bits_counter(true));
+    }
+
+    /// Soft-reset the TRNG and apply the configuration.
+    ///
+    /// The reset takes a number of cycles to complete and register writes made
+    /// during that window are lost. Like the Arm CryptoCell reference driver,
+    /// keep writing the sample count until it reads back before configuring the
+    /// rest.
+    fn reset_rng(&self) {
+        let regs = T::regs();
+        regs.trng_sw_reset().write(|w| w.set_trng_sw_reset(true));
+        loop {
+            regs.sample_cnt1().write(|w| *w = self.config.sample_count);
+            if regs.sample_cnt1().read() == self.config.sample_count {
+                break;
+            }
+        }
+        self.initialize_rng();
     }
 
     fn initialize_rng(&self) {
         let regs = T::regs();
 
-        regs.rng_imr().write(|w| w.set_ehr_valid_int_mask(false));
-
-        let trng_config_register = regs.trng_config();
-        trng_config_register.write(|w| {
-            w.set_rnd_src_sel(self.config.inverter_chain_length.clone().into());
+        regs.trng_config().write(|w| {
+            w.set_rnd_src_sel(self.config.inverter_chain_length.into());
         });
 
-        let sample_count_register = regs.sample_cnt1();
-        sample_count_register.write(|w| {
+        regs.sample_cnt1().write(|w| {
             *w = self.config.sample_count;
         });
 
-        let debug_control_register = regs.trng_debug_control();
-        debug_control_register.write(|w| {
+        regs.trng_debug_control().write(|w| {
             w.set_auto_correlate_bypass(self.config.disable_autocorrelation_test);
             w.set_trng_crngt_bypass(self.config.disable_crngt_test);
             w.set_vnc_bypass(self.config.disable_von_neumann_balancer);
@@ -212,38 +241,63 @@ impl<'d, T: Instance> Trng<'d, T> {
     }
 
     fn enable_irq(&self) {
+        // A pending interrupt left over from a blocking call would otherwise
+        // fire immediately and mask the interrupt before the real one.
+        T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() }
     }
 
-    fn disable_irq(&self) {
-        T::Interrupt::disable();
+    /// Handle health check status bits. Returns true if generation had to be restarted.
+    ///
+    /// A CRNGT or von Neumann error means a stretch of bits was rejected. The
+    /// block keeps running, so those bits only need to be cleared. The
+    /// autocorrelation error stops the block, and only a reset clears its status
+    /// bit, so generation is reset and restarted.
+    fn handle_health_check_status(&self) -> bool {
+        let regs = T::regs();
+        let isr = regs.rng_isr().read();
+        if isr.autocorr_err() {
+            self.reset_rng();
+            self.start_rng();
+            return true;
+        }
+        if isr.crngt_err() || isr.vn_err() {
+            regs.rng_icr().write(|w| {
+                w.set_crngt_err(true);
+                w.set_vn_err(true);
+            });
+        }
+        false
+    }
+
+    /// Unmask all interrupt sources. The interrupt handler masks them when it fires.
+    fn unmask_irq(&self) {
+        T::regs().rng_imr().write(|w| {
+            w.set_ehr_valid_int_mask(false);
+            w.set_autocorr_err_int_mask(false);
+            w.set_crngt_err_int_mask(false);
+            w.set_vn_err_int_mask(false);
+        });
     }
 
     fn blocking_wait_for_successful_generation(&self) {
         let regs = T::regs();
-
-        let trng_busy_register = regs.trng_busy();
-        let trng_valid_register = regs.trng_valid();
-
-        let mut success = false;
-        while success.not() {
-            while trng_busy_register.read().trng_busy() {}
-            if trng_valid_register.read().ehr_valid().not() {
-                if regs.rng_isr().read().autocorr_err() {
-                    regs.trng_sw_reset().write(|w| w.set_trng_sw_reset(true));
-                    // Fixed delay is required after TRNG soft reset. This read is sufficient.
-                    regs.trng_sw_reset().read();
-                    self.initialize_rng();
-                    self.start_rng();
-                } else {
-                    panic!("RNG not busy, but ehr is not valid!")
+        let mut failures = 0;
+        while regs.trng_valid().read().ehr_valid().not() {
+            if self.handle_health_check_status() {
+                failures += 1;
+                if failures >= MAX_HEALTH_CHECK_RETRIES {
+                    panic!(
+                        "TRNG: {} consecutive health check failures. Increase Config::sample_count.",
+                        MAX_HEALTH_CHECK_RETRIES
+                    );
                 }
-            } else {
-                success = true
             }
         }
     }
 
+    /// Read out a completed block. Reading `EHR_DATA5` clears the result registers
+    /// and starts the next generation.
     fn read_ehr_registers_into_array(&mut self, buffer: &mut [u8; TRNG_BLOCK_SIZE_BYTES]) {
         let regs = T::regs();
         let ehr_data_regs = [
@@ -260,11 +314,6 @@ impl<'d, T: Instance> Trng<'d, T> {
         }
     }
 
-    fn blocking_read_ehr_registers_into_array(&mut self, buffer: &mut [u8; TRNG_BLOCK_SIZE_BYTES]) {
-        self.blocking_wait_for_successful_generation();
-        self.read_ehr_registers_into_array(buffer);
-    }
-
     /// Fill the buffer with random bytes, async version.
     pub async fn fill_bytes(&mut self, destination: &mut [u8]) {
         if destination.is_empty() {
@@ -274,53 +323,50 @@ impl<'d, T: Instance> Trng<'d, T> {
         self.start_rng();
         self.enable_irq();
 
+        // Stop the block and the interrupt on completion and on cancellation.
+        let _guard = OnDrop::new(|| {
+            let regs = T::regs();
+            regs.rnd_source_enable().write(|w| w.set_rnd_src_en(false));
+            regs.rst_bits_counter().write(|w| w.set_rst_bits_counter(true));
+            T::Interrupt::disable();
+        });
+
         let mut bytes_transferred = 0usize;
+        let mut failures = 0;
         let mut buffer = [0u8; TRNG_BLOCK_SIZE_BYTES];
 
         let regs = T::regs();
-
-        let trng_busy_register = regs.trng_busy();
-        let trng_valid_register = regs.trng_valid();
-
         let waker = T::waker();
-
         let destination_length = destination.len();
 
         poll_fn(|context| {
             waker.register(context.waker());
-            if bytes_transferred == destination_length {
-                self.stop_rng();
-                self.disable_irq();
-                Poll::Ready(())
-            } else {
-                if trng_busy_register.read().trng_busy() {
-                    Poll::Pending
-                } else {
-                    // If woken up and EHR is *not* valid, assume the trng has been reset and reinitialize, restart.
-                    if trng_valid_register.read().ehr_valid().not() {
-                        self.initialize_rng();
-                        self.start_rng();
-                        return Poll::Pending;
-                    }
+            loop {
+                if bytes_transferred == destination_length {
+                    return Poll::Ready(());
+                }
+                if regs.trng_valid().read().ehr_valid() {
                     self.read_ehr_registers_into_array(&mut buffer);
-                    let remaining = destination_length - bytes_transferred;
-                    if remaining > TRNG_BLOCK_SIZE_BYTES {
-                        destination[bytes_transferred..bytes_transferred + TRNG_BLOCK_SIZE_BYTES]
-                            .copy_from_slice(&buffer);
-                        bytes_transferred += TRNG_BLOCK_SIZE_BYTES
-                    } else {
-                        destination[bytes_transferred..bytes_transferred + remaining]
-                            .copy_from_slice(&buffer[0..remaining]);
-                        bytes_transferred += remaining
-                    }
-                    if bytes_transferred == destination_length {
-                        self.stop_rng();
-                        self.disable_irq();
-                        Poll::Ready(())
-                    } else {
-                        Poll::Pending
+                    let n = (destination_length - bytes_transferred).min(TRNG_BLOCK_SIZE_BYTES);
+                    destination[bytes_transferred..bytes_transferred + n].copy_from_slice(&buffer[..n]);
+                    bytes_transferred += n;
+                    failures = 0;
+                    regs.rng_icr().write(|w| w.set_ehr_valid(true));
+                    continue;
+                }
+                if self.handle_health_check_status() {
+                    failures += 1;
+                    if failures >= MAX_HEALTH_CHECK_RETRIES {
+                        panic!(
+                            "TRNG: {} consecutive health check failures. Increase Config::sample_count.",
+                            MAX_HEALTH_CHECK_RETRIES
+                        );
                     }
                 }
+                // The interrupt handler masks the interrupt when it fires;
+                // rearm it now that the status has been handled.
+                self.unmask_irq();
+                return Poll::Pending;
             }
         })
         .await
@@ -337,7 +383,7 @@ impl<'d, T: Instance> Trng<'d, T> {
 
         for chunk in destination.chunks_mut(TRNG_BLOCK_SIZE_BYTES) {
             self.blocking_wait_for_successful_generation();
-            self.blocking_read_ehr_registers_into_array(&mut buffer);
+            self.read_ehr_registers_into_array(&mut buffer);
             chunk.copy_from_slice(&buffer[..chunk.len()])
         }
         self.stop_rng()
@@ -435,35 +481,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let regs = T::regs();
         let isr = regs.rng_isr().read();
-        if isr.ehr_valid() {
-            regs.rng_icr().write(|w| {
-                w.set_ehr_valid(true);
+        if isr.ehr_valid() || isr.autocorr_err() || isr.crngt_err() || isr.vn_err() {
+            // The interrupt is level triggered from the status bits, and the
+            // autocorrelation error can only be cleared by a reset, so mask
+            // everything here and let the task handle the event and rearm.
+            regs.rng_imr().write(|w| {
+                w.set_ehr_valid_int_mask(true);
+                w.set_autocorr_err_int_mask(true);
+                w.set_crngt_err_int_mask(true);
+                w.set_vn_err_int_mask(true);
             });
-            T::waker().wake();
-        } else if isr.crngt_err() {
-            warn!("TRNG CRNGT error! Increase sample count to reduce likelihood");
-            regs.rng_icr().write(|w| {
-                w.set_crngt_err(true);
-            });
-        } else if isr.vn_err() {
-            warn!("TRNG Von-Neumann balancer error! Increase sample count to reduce likelihood");
-            regs.rng_icr().write(|w| {
-                w.set_vn_err(true);
-            });
-        } else if isr.autocorr_err() {
-            // 12.12.5. List of Registers
-            // ...
-            // TRNG: RNG_ISR Register
-            // ...
-            // AUTOCORR_ERR: 1 indicates Autocorrelation test failed four times in a row.
-            // When set, RNG ceases functioning until next reset
-            warn!("TRNG Autocorrect error! Resetting TRNG. Increase sample count to reduce likelihood");
-            regs.trng_sw_reset().write(|w| {
-                w.set_trng_sw_reset(true);
-            });
-            // Fixed delay is required after TRNG soft reset, this read is sufficient.
-            regs.trng_sw_reset().read();
-            // Wake up to reinitialize and restart the TRNG.
             T::waker().wake();
         }
     }
