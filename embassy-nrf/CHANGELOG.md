@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- bugfix: enforce each peripheral's own EasyDMA `MAXCNT` limit in uarte, buffered_uarte, spim, spis, twim, twis, i2s, pdm, pwm and saadc instead of the chip-wide `DMA_SIZE`.
+- added: per-peripheral `DMA_SIZE` constants in the `uarte`, `spim`, `spis`, `twim`, `twis`, `i2s`, `pdm` and `saadc` modules, and `pwm::MAX_SEQUENCE_LEN`.
+- removed: the crate-level `DMA_SIZE` constant. It was wrong because the max DMA size changes per peripheral.
 - added: System OFF support for the nRF54L series.
 - bugfix: usb: don't re-arm OUT endpoints twice per packet, which could silently drop received packets under load.
 - bugfix: usb: apply the nRF52840 Erratum 199 workaround around USBD EasyDMA transfers.
@@ -199,4 +202,3 @@ Support for chip-specific features:
   - nrf52840
   - nrf5340
   - nrf9160
-

@@ -28,8 +28,10 @@ use crate::ppi::{
     self, AnyConfigurableChannel, AnyGroup, Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task,
 };
 use crate::timer::{Instance as TimerInstance, Timer};
-use crate::uarte::{Config, Instance as UarteInstance, configure, configure_rx_pins, configure_tx_pins, drop_tx_rx};
-use crate::{EASY_DMA_SIZE, interrupt, pac};
+use crate::uarte::{
+    Config, DMA_SIZE, Instance as UarteInstance, configure, configure_rx_pins, configure_tx_pins, drop_tx_rx,
+};
+use crate::{interrupt, pac};
 
 pub(crate) struct State {
     tx_buf: RingBuffer,
@@ -193,7 +195,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
             // If not TXing, start.
             if s.tx_count.load(Ordering::Relaxed) == 0 {
                 let (ptr, len) = tx.pop_buf();
-                let len = len.min(EASY_DMA_SIZE);
+                let len = len.min(DMA_SIZE);
                 if len != 0 {
                     //trace!("  irq_tx: starting {:?}", len);
                     s.tx_count.store(len, Ordering::Relaxed);
@@ -695,7 +697,7 @@ impl<'d> BufferedUarteRx<'d> {
         buffered_state.rx_ended_count.store(0, Ordering::Relaxed);
         buffered_state.rx_started.store(false, Ordering::Relaxed);
         buffered_state.rx_overrun.store(false, Ordering::Relaxed);
-        let rx_len = rx_buffer.len().min(EASY_DMA_SIZE * 2);
+        let rx_len = rx_buffer.len().min(DMA_SIZE * 2);
         unsafe { buffered_state.rx_buf.init(rx_buffer.as_mut_ptr(), rx_len) };
 
         // clear errors

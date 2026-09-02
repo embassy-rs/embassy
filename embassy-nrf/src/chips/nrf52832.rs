@@ -1,7 +1,5 @@
 pub use nrf_pac as pac;
 
-/// The maximum buffer size that the EasyDMA can send/recv in one operation.
-pub const EASY_DMA_SIZE: usize = (1 << 8) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 255;
 
 // There are two variants. We set the higher size to make the entire flash

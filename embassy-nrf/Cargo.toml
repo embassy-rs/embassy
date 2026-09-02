@@ -234,8 +234,8 @@ rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 rand-core-10 = { package = "rand_core", version = "0.10" }
 
-nrf-pac = "0.4.0"
-# nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "dcbec3723fa14fc81e004ab288c9b2e454dba802" }
+# nrf-pac = "0.4.0"
+nrf-pac = { git = "https://github.com/embassy-rs/nrf-pac", rev = "4499375510e2fdb3a5426911beb846d8d2dbbb80" }
 
 defmt = { version = "1.0.1", optional = true }
 thiserror = { version = "2", default-features = false }

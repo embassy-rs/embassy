@@ -130,6 +130,9 @@ impl<'d> ChannelConfig<'d> {
 
 const CNT_UNIT: usize = if cfg!(feature = "_nrf54l") { 2 } else { 1 };
 
+/// The maximum buffer size (in 16-bit samples) that the SAADC EasyDMA can transfer in one operation.
+pub const DMA_SIZE: usize = crate::util::easy_dma_max!(crate::pac::saadc::regs::Maxcnt, set_maxcnt, maxcnt) / CNT_UNIT;
+
 /// Value returned by the SAADC callback, deciding what happens next.
 #[derive(PartialEq)]
 pub enum CallbackResult {
@@ -250,6 +253,8 @@ impl<'d, const N: usize> Saadc<'d, N> {
     /// consumption remains higher if sampling is not stopped explicitly). Cancellation will
     /// also cause the sampling to be stopped.
     pub async fn sample(&mut self, buf: &mut [i16; N]) {
+        const { core::assert!(N <= DMA_SIZE, "buffer is too long for the SAADC EasyDMA") }
+
         // In case the future is dropped, stop the task and wait for it to end.
         let on_drop = OnDrop::new(Self::stop_sampling_immediately);
 
@@ -389,6 +394,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
         // Set up the initial DMA
         r.result().ptr().write_value(bufs[0].as_mut_ptr() as u32);
+        const { core::assert!(N0 * N <= DMA_SIZE, "buffer is too long for the SAADC EasyDMA") }
         r.result().maxcnt().write(|w| w.set_maxcnt((N0 * N * CNT_UNIT) as _));
 
         // Reset and enable the events

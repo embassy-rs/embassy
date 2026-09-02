@@ -16,13 +16,16 @@ use embassy_time::{Duration, Instant};
 use embedded_hal_1::i2c::Operation;
 pub use pac::twim::vals::Frequency;
 
-use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::Pin as GpioPin;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
+use crate::pac::twim::regs::RxMaxcnt;
 use crate::pac::twim::vals;
 use crate::util::slice_in_ram;
 use crate::{gpio, interrupt, pac};
+
+/// The maximum buffer size (in bytes) that the TWIM EasyDMA can transfer in one operation.
+pub const DMA_SIZE: usize = crate::util::easy_dma_max!(RxMaxcnt, set_maxcnt, maxcnt);
 
 /// TWIM config.
 #[non_exhaustive]
@@ -241,7 +244,7 @@ impl<'d> Twim<'d> {
             &*ram_buffer
         };
 
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > DMA_SIZE {
             return Err(Error::TxBufferTooLong);
         }
 
@@ -268,7 +271,7 @@ impl<'d> Twim<'d> {
         // NOTE: RAM slice check is not necessary, as a mutable
         // slice can only be built from data located in RAM.
 
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > DMA_SIZE {
             return Err(Error::RxBufferTooLong);
         }
 

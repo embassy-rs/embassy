@@ -12,7 +12,6 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::I7F1;
 
-use crate::chip::EASY_DMA_SIZE;
 use crate::gpio::{AnyPin, DISCONNECTED, Pin as GpioPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
@@ -26,6 +25,9 @@ pub use crate::pac::pdm::vals::Freq as Frequency;
 ))]
 pub use crate::pac::pdm::vals::Ratio;
 use crate::{interrupt, pac};
+
+/// The maximum buffer size (in 16-bit samples) that the PDM EasyDMA can transfer in one operation.
+pub const DMA_SIZE: usize = crate::util::easy_dma_max!(crate::pac::pdm::regs::Maxcnt, set_buffsize, buffsize);
 
 /// Interrupt handler
 pub struct InterruptHandler<T: Instance> {
@@ -184,7 +186,7 @@ impl<'d> Pdm<'d> {
         if buffer.is_empty() {
             return Err(Error::BufferZeroLength);
         }
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
 

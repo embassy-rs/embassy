@@ -335,7 +335,7 @@ macro_rules! bind_interrupts {
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
-pub use chip::{EASY_DMA_SIZE, Peripherals, peripherals};
+pub use chip::{Peripherals, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
 
 pub use crate::chip::interrupt;

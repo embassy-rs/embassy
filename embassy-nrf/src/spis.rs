@@ -12,14 +12,18 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
 pub use pac::spis::vals::Order as BitOrder;
 
-use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::{self, AnyPin, OutputDrive, Pin as GpioPin, SealedPin as _, convert_drive};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
+use crate::pac::spis::regs::RxMaxcnt;
 use crate::pac::spis::vals;
 use crate::ppi::Event;
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac};
+
+/// The maximum buffer size (in bytes) that the SPIS EasyDMA can transfer in one operation.
+pub const DMA_SIZE: usize = crate::util::easy_dma_max!(RxMaxcnt, set_maxcnt, maxcnt);
 
 /// SPIS error
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -225,14 +229,14 @@ impl<'d> Spis<'d> {
         let r = self.r;
 
         // Set up the DMA write.
-        if tx.len() > EASY_DMA_SIZE {
+        if tx.len() > DMA_SIZE {
             return Err(Error::TxBufferTooLong);
         }
         r.dma().tx().ptr().write_value(tx as *const u8 as _);
         r.dma().tx().maxcnt().write(|w| w.set_maxcnt(tx.len() as _));
 
         // Set up the DMA read.
-        if rx.len() > EASY_DMA_SIZE {
+        if rx.len() > DMA_SIZE {
             return Err(Error::RxBufferTooLong);
         }
         r.dma().rx().ptr().write_value(rx as *mut u8 as _);
