@@ -4,6 +4,10 @@ pub use nrf_pac as pac;
 pub const EASY_DMA_SIZE: usize = (1 << 14) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 256;
 
+/// The maximum buffer size that the EasyDMA on UARTE can send/recv in one operation.
+/// This value is derived from the bit-width of the UARTE.{RXD, TXD} registers.
+pub const UARTE_DMA_SIZE: usize = (1 << 10) - 1;
+
 pub const FLASH_SIZE: usize = 192 * 1024;
 
 pub const RESET_PIN: u32 = 21;

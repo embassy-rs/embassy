@@ -162,6 +162,10 @@ pub mod pac {
 pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
+/// The maximum buffer size that the EasyDMA on UARTE can send/recv in one operation.
+/// This value is derived from the bit-width of the UARTE.{RXD, TXD} registers.
+pub const UARTE_DMA_SIZE: usize = EASY_DMA_SIZE;
+
 pub const FLASH_SIZE: usize = 1024 * 1024;
 
 embassy_hal_internal::peripherals! {

@@ -24,7 +24,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 // Re-export SVD variants to allow user to directly set values.
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
-use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::chip::{FORCE_COPY_BUFFER_SIZE, UARTE_DMA_SIZE};
 use crate::gpio::{self, AnyPin, DISCONNECTED, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
@@ -471,7 +471,7 @@ impl<'d> UarteTx<'d> {
         }
 
         slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > UARTE_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
 
@@ -541,7 +541,7 @@ impl<'d> UarteTx<'d> {
         }
 
         slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > UARTE_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
 
@@ -701,7 +701,7 @@ impl<'d> UarteRx<'d> {
         if buffer.is_empty() {
             return Ok(());
         }
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > UARTE_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
 
@@ -769,7 +769,7 @@ impl<'d> UarteRx<'d> {
         if buffer.is_empty() {
             return Ok(());
         }
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > UARTE_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
 
@@ -886,7 +886,7 @@ impl<'d> UarteRx<'d> {
         if buffer.is_empty() {
             return Ok(0);
         }
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > UARTE_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
 
@@ -945,7 +945,7 @@ impl<'d> UarteRx<'d> {
         if buffer.is_empty() {
             return Ok(0);
         }
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > UARTE_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
 
@@ -1059,7 +1059,7 @@ impl<'d> UarteRxWithIdle<'d> {
         if buffer.is_empty() {
             return Ok(0);
         }
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > UARTE_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
 
@@ -1133,7 +1133,7 @@ impl<'d> UarteRxWithIdle<'d> {
         if buffer.is_empty() {
             return Ok(0);
         }
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > UARTE_DMA_SIZE {
             return Err(Error::BufferTooLong);
         }
 

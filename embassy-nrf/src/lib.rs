@@ -331,6 +331,8 @@ macro_rules! bind_interrupts {
 
 // Reexports
 
+#[cfg(not(feature = "nrf51"))]
+pub use chip::UARTE_DMA_SIZE;
 #[cfg(feature = "unstable-pac")]
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
