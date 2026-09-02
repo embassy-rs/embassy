@@ -17,7 +17,10 @@ use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2s::vals;
 use crate::util::slice_in_ram_or;
-use crate::{EASY_DMA_SIZE, interrupt, pac};
+use crate::{interrupt, pac};
+
+/// The maximum buffer size (in 32-bit words) that the I2S EasyDMA can transfer in one operation.
+pub const DMA_SIZE: usize = crate::util::easy_dma_max!(pac::i2s::regs::Maxcnt, set_maxcnt, maxcnt);
 
 /// Type alias for `MultiBuffering` with 2 buffers.
 pub type DoubleBuffering<S, const NS: usize> = MultiBuffering<S, 2, NS>;
@@ -1066,7 +1069,7 @@ impl Device {
             Err(Error::BufferMisaligned)
         } else if bytes_len % 4 != 0 {
             Err(Error::BufferLengthMisaligned)
-        } else if maxcnt as usize > EASY_DMA_SIZE {
+        } else if maxcnt as usize > DMA_SIZE {
             Err(Error::BufferTooLong)
         } else {
             Ok((ptr, maxcnt))

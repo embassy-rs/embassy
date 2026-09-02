@@ -17,3 +17,18 @@ pub(crate) fn slice_in_ram<T>(slice: *const [T]) -> bool {
 pub(crate) fn slice_in_ram_or<T, E>(slice: *const [T], err: E) -> Result<(), E> {
     if slice_in_ram(slice) { Ok(()) } else { Err(err) }
 }
+
+/// Compute the maximum value of an EasyDMA `MAXCNT`-style register field.
+///
+/// Writes all-ones through the PAC's (masking) field setter and reads the field
+/// back, so the result is exactly the largest value the hardware field can hold.
+#[cfg(not(feature = "_nrf51"))]
+macro_rules! easy_dma_max {
+    ($reg:path, $set:ident, $get:ident) => {{
+        let mut r = $reg(0);
+        r.$set(!0);
+        r.$get() as usize
+    }};
+}
+#[cfg(not(feature = "_nrf51"))]
+pub(crate) use easy_dma_max;

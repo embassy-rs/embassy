@@ -1,8 +1,5 @@
 pub use nrf_pac as pac;
 
-/// The maximum buffer size that the EasyDMA can send/recv in one operation.
-pub const EASY_DMA_SIZE: usize = (1 << 14) - 1;
-
 pub const FLASH_SIZE: usize = 128 * 1024;
 
 embassy_hal_internal::peripherals! {

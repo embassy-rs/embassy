@@ -201,8 +201,6 @@ pub mod pac {
     };
 }
 
-/// The maximum buffer size that the EasyDMA can send/recv in one operation.
-pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
 // 2 MB NVM

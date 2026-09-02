@@ -39,8 +39,8 @@ pub struct SequencePwm<'d> {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
-    /// Max Sequence size is 32767
-    #[error("sequence too long: max sequence size is 32767")]
+    /// Sequence is longer than `MAX_SEQUENCE_LEN`.
+    #[error("sequence too long")]
     SequenceTooLong,
     /// Min Sequence count is 1
     #[error("sequence must play at least once")]
@@ -50,7 +50,9 @@ pub enum Error {
     BufferNotInRAM,
 }
 
-const MAX_SEQUENCE_LEN: usize = 32767;
+/// The maximum number of words in a PWM sequence.
+pub const MAX_SEQUENCE_LEN: usize =
+    crate::util::easy_dma_max!(pac::pwm::regs::Maxcnt, set_maxcnt, maxcnt) / CNT_UNIT as usize;
 /// The used pwm clock frequency
 pub const PWM_CLK_HZ: u32 = 16_000_000;
 
@@ -386,7 +388,7 @@ impl Default for SequenceConfig {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Sequence<'s> {
-    /// The words comprising the sequence. Must not exceed 32767 words.
+    /// The words comprising the sequence. Must not exceed [`MAX_SEQUENCE_LEN`] words.
     pub words: &'s [u16],
     /// Configuration associated with the sequence.
     pub config: SequenceConfig,

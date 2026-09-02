@@ -13,13 +13,17 @@ use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
 
-use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::Pin as GpioPin;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
+use crate::pac::twis::regs::RxMaxcnt;
 use crate::pac::twis::vals;
 use crate::util::slice_in_ram_or;
 use crate::{gpio, interrupt, pac};
+
+/// The maximum buffer size (in bytes) that the TWIS EasyDMA can transfer in one operation.
+pub const DMA_SIZE: usize = crate::util::easy_dma_max!(RxMaxcnt, set_maxcnt, maxcnt);
 
 /// TWIS config.
 #[non_exhaustive]
@@ -245,7 +249,7 @@ impl<'d> Twis<'d> {
     unsafe fn set_tx_buffer(&mut self, buffer: &[u8]) -> Result<(), Error> {
         slice_in_ram_or(buffer, Error::BufferNotInRAM)?;
 
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > DMA_SIZE {
             return Err(Error::TxBufferTooLong);
         }
 
@@ -272,7 +276,7 @@ impl<'d> Twis<'d> {
         // NOTE: RAM slice check is not necessary, as a mutable
         // slice can only be built from data located in RAM.
 
-        if buffer.len() > EASY_DMA_SIZE {
+        if buffer.len() > DMA_SIZE {
             return Err(Error::RxBufferTooLong);
         }
 

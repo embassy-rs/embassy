@@ -15,13 +15,17 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
 pub use pac::spim::vals::Order as BitOrder;
 
-use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+use crate::chip::FORCE_COPY_BUFFER_SIZE;
 use crate::gpio::{self, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
+use crate::pac::spim::regs::RxMaxcnt;
 use crate::pac::spim::vals;
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac};
+
+/// The maximum buffer size (in bytes) that the SPIM EasyDMA can transfer in one operation.
+pub const DMA_SIZE: usize = crate::util::easy_dma_max!(RxMaxcnt, set_maxcnt, maxcnt);
 
 /// SPI frequencies.
 #[repr(transparent)]
@@ -416,8 +420,8 @@ impl<'d> Spim<'d> {
         // slice can only be built from data located in RAM.
 
         let xfer_len = core::cmp::max(rx.len(), tx.len());
-        for offset in (0..xfer_len).step_by(EASY_DMA_SIZE) {
-            let length = core::cmp::min(xfer_len - offset, EASY_DMA_SIZE);
+        for offset in (0..xfer_len).step_by(DMA_SIZE) {
+            let length = core::cmp::min(xfer_len - offset, DMA_SIZE);
             self.blocking_inner_from_ram_chunk(rx, tx, offset, length);
         }
         Ok(())
@@ -470,8 +474,8 @@ impl<'d> Spim<'d> {
         // slice can only be built from data located in RAM.
 
         let xfer_len = core::cmp::max(rx.len(), tx.len());
-        for offset in (0..xfer_len).step_by(EASY_DMA_SIZE) {
-            let length = core::cmp::min(xfer_len - offset, EASY_DMA_SIZE);
+        for offset in (0..xfer_len).step_by(DMA_SIZE) {
+            let length = core::cmp::min(xfer_len - offset, DMA_SIZE);
             self.async_inner_from_ram_chunk(rx, tx, offset, length).await;
         }
         Ok(())
