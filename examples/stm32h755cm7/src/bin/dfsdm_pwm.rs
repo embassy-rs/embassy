@@ -124,11 +124,7 @@ async fn main(_spawner: Spawner) {
         filter_params,
         ..Default::default()
     };
-    let mut flt0 = split
-        .flt0
-        .configure(&flt_cfg)
-        .assign_regular_transceiver(&channel_mic)
-        .enable();
+    let mut flt0 = split.flt0.configure(&flt_cfg).enable(&channel_mic, [&channel_mic]);
 
     flt0.start_regular_conversion();
 

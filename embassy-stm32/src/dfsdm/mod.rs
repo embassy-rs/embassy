@@ -139,7 +139,7 @@ impl Default for FilterConfig {
         }
     }
 }
-pub struct Filter<T, M, P>
+pub struct Filter<'reg, 'inj, T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
@@ -148,14 +148,16 @@ where
     _instance_marker: PhantomData<T>,
     _filter_marker: PhantomData<M>,
     _powerstate_marker: PhantomData<P>,
+    regular: Option<&'reg dyn TransceiverTrait<T, Enabled>>,
+    injected: [Option<&'inj dyn TransceiverTrait<T, Enabled>>; 8],
 }
 
-impl<T, M> Filter<T, M, Disabled>
+impl<'reg, 'inj, T, M> Filter<'reg, 'inj, T, M, Disabled>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
 {
-    pub(crate) fn new_disabled() -> Filter<T, M, Disabled> {
+    pub(crate) fn new_disabled() -> Filter<'reg, 'inj, T, M, Disabled> {
         unsafe {
             T::Interrupt::enable();
         }
@@ -164,22 +166,37 @@ where
             _instance_marker: PhantomData,
             _filter_marker: PhantomData,
             _powerstate_marker: PhantomData,
+            regular: None,
+            injected: [None; 8],
         }
     }
 
     /// Enable the Filter
-    pub fn enable(self) -> Filter<T, M, Enabled> {
+    pub fn enable<'new_reg, 'new_inj, const N: usize>(
+        mut self,
+        reg_transceiver: &'new_reg dyn TransceiverTrait<T, Enabled>,
+        inj_transceivers: [&'new_inj dyn TransceiverTrait<T, Enabled>; N],
+    ) -> Filter<'new_reg, 'new_inj, T, M, Enabled>
+    where
+        [(); N]: NonEmpty,
+    {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(true));
+
+        let this = self
+            .assign_regular_transceiver(reg_transceiver)
+            .assign_injected_transceivers(inj_transceivers);
 
         Filter {
             _instance_marker: PhantomData,
             _filter_marker: PhantomData,
             _powerstate_marker: PhantomData,
+            regular: this.regular,
+            injected: this.injected,
         }
     }
 
     /// Configure the Filter
-    pub fn configure(mut self, config: &FilterConfig) -> Filter<T, M, Disabled> {
+    pub fn configure(mut self, config: &FilterConfig) -> Filter<'reg, 'inj, T, M, Disabled> {
         self.set_filter_parameters(config.filter_params);
         Self::set_regular_dma_en(config.enable_regular_dma);
         Self::set_injected_dma_en(config.enable_injected_dma);
@@ -244,7 +261,7 @@ where
     }
 }
 
-impl<T, M, P> Filter<T, M, P>
+impl<'reg, 'inj, T, M, P> Filter<'reg, 'inj, T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
@@ -425,30 +442,6 @@ where
             .write(|w| w.set_jchg(channels));
     }
 
-    /// Assign the provided `Transceiver` as the regular conversion input for this `Filter`
-    pub fn assign_regular_transceiver<MT, S, MODE, PT>(
-        mut self,
-        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
-    ) -> Self
-    where
-        MT: TransceiverMarker + NextChannelForInstance<T>,
-        S: PinSet,
-        MODE: ChannelMode,
-        PT: PowerState,
-    {
-        self.set_regular_transceiver(channel.index() as u8);
-        self
-    }
-
-    /// Assign transceivers to the injected conversion group of this `Filter`
-    ///
-    /// Note: Overwrites all assignments.
-    pub fn assign_injected_transceivers(mut self, transceivers: &[&dyn TransceiverTrait<T>]) -> Self {
-        let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
-        self.set_injected_channels(filterword);
-        self
-    }
-
     /// Enables/Disables analog watchdog fast mode.
     /// When enabled, the analog watchdog works on data directly from the transceiver.
     /// When disabled, the analog watchdog works on data filtered by the filter.
@@ -549,6 +542,48 @@ where
             .modify(|w| w.set_exch(w.exch() & !(1 << ch)));
     }
 
+    /// Assign the provided `Transceiver` as the regular conversion input for this `Filter`
+    pub(crate) fn assign_regular_transceiver<'new_reg>(
+        mut self,
+        channel: &'new_reg dyn TransceiverTrait<T, Enabled>,
+    ) -> Filter<'new_reg, 'inj, T, M, P> {
+        self.set_regular_transceiver(channel.index() as u8);
+
+        Filter {
+            _instance_marker: PhantomData,
+            _filter_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+            regular: Some(channel),
+            injected: self.injected,
+        }
+    }
+
+    /// Assign transceivers to the injected conversion group of this `Filter`
+    ///
+    /// Note: Overwrites all assignments.
+    pub(crate) fn assign_injected_transceivers<'new_inj, const N: usize>(
+        mut self,
+        transceivers: [&'new_inj dyn TransceiverTrait<T, Enabled>; N],
+    ) -> Filter<'reg, 'new_inj, T, M, P>
+    where
+        [(); N]: NonEmpty,
+    {
+        let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
+        self.set_injected_channels(filterword);
+
+        let mut injected = [None; 8];
+        for (i, tcv) in transceivers.iter().enumerate() {
+            injected[i] = Some(*tcv);
+        }
+        Filter {
+            _instance_marker: PhantomData,
+            _filter_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+            regular: self.regular,
+            injected: injected,
+        }
+    }
+
     /// Assign the provided `Transceiver` to the extremes detector of this `Filter`.
     pub fn assign_extremes_detector_channel<MT, S, MODE, PT>(
         mut self,
@@ -621,19 +656,42 @@ fn sign_extend_24(x: u32) -> i32 {
     ((x << 8) as i32) >> 8
 }
 
-impl<T, M> Filter<T, M, Enabled>
+impl<'reg, 'inj, T, M> Filter<'reg, 'inj, T, M, Enabled>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
 {
     /// Disable the filter
-    pub fn disable(self) -> Filter<T, M, Disabled> {
+    pub fn disable(self) -> Filter<'reg, 'inj, T, M, Disabled> {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(false));
         Filter {
             _instance_marker: PhantomData,
             _filter_marker: PhantomData,
             _powerstate_marker: PhantomData,
+            regular: self.regular,
+            injected: self.injected,
         }
+    }
+
+    /// Reassign the provided `Transceiver` as the regular conversion input for this `Filter`
+    pub fn reassign_regular_transceiver<'new_reg>(
+        self,
+        channel: &'new_reg dyn TransceiverTrait<T, Enabled>,
+    ) -> Filter<'new_reg, 'inj, T, M, Enabled> {
+        self.assign_regular_transceiver(channel)
+    }
+
+    /// Reassign transceivers to the injected conversion group of this `Filter`
+    ///
+    /// Note: Overwrites all assignments.
+    pub fn reassign_injected_transceivers<'new_inj, const N: usize>(
+        self,
+        transceivers: [&'new_inj dyn TransceiverTrait<T, Enabled>; N],
+    ) -> Filter<'reg, 'new_inj, T, M, Enabled>
+    where
+        [(); N]: NonEmpty,
+    {
+        self.assign_injected_transceivers(transceivers)
     }
 }
 
@@ -1628,7 +1686,7 @@ where
     }
 }
 
-pub struct DfsdmSplit2Ch1Flt<'d, T, C, S0, S1>
+pub struct DfsdmSplit2Ch1Flt<'reg, 'inj, 'd, T, C, S0, S1>
 where
     T: Instance + FilterInterrupt<Flt0>,
     C: ClockOutputMode,
@@ -1638,10 +1696,10 @@ where
     pub common: DfsdmCommon<'d, T, Enabled>,
     pub ch0: TransceiverBuilder<T, Tcv0, C, S0, S1>, // neighbor = ch1
     pub ch1: TransceiverBuilder<T, Tcv1, C, S1, S0>, // neighbor = ch0 (wrap!)
-    pub flt0: Filter<T, Flt0, Disabled>,
+    pub flt0: Filter<'reg, 'inj, T, Flt0, Disabled>,
 }
 
-pub struct DfsdmSplit8Ch8Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
+pub struct DfsdmSplit8Ch8Flt<'reg, 'inj, 'd, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
 where
     T: Instance + Flt8Ready,
     C: ClockOutputMode,
@@ -1663,17 +1721,17 @@ where
     pub ch5: TransceiverBuilder<T, Tcv5, C, S5, S6>,
     pub ch6: TransceiverBuilder<T, Tcv6, C, S6, S7>,
     pub ch7: TransceiverBuilder<T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
-    pub flt0: Filter<T, Flt0, Disabled>,
-    pub flt1: Filter<T, Flt1, Disabled>,
-    pub flt2: Filter<T, Flt2, Disabled>,
-    pub flt3: Filter<T, Flt3, Disabled>,
-    pub flt4: Filter<T, Flt4, Disabled>,
-    pub flt5: Filter<T, Flt5, Disabled>,
-    pub flt6: Filter<T, Flt6, Disabled>,
-    pub flt7: Filter<T, Flt7, Disabled>,
+    pub flt0: Filter<'reg, 'inj, T, Flt0, Disabled>,
+    pub flt1: Filter<'reg, 'inj, T, Flt1, Disabled>,
+    pub flt2: Filter<'reg, 'inj, T, Flt2, Disabled>,
+    pub flt3: Filter<'reg, 'inj, T, Flt3, Disabled>,
+    pub flt4: Filter<'reg, 'inj, T, Flt4, Disabled>,
+    pub flt5: Filter<'reg, 'inj, T, Flt5, Disabled>,
+    pub flt6: Filter<'reg, 'inj, T, Flt6, Disabled>,
+    pub flt7: Filter<'reg, 'inj, T, Flt7, Disabled>,
 }
 
-pub struct DfsdmSplit8Ch4Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
+pub struct DfsdmSplit8Ch4Flt<'reg, 'inj, 'd, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
 where
     T: Instance + Flt4Ready,
     C: ClockOutputMode,
@@ -1695,10 +1753,10 @@ where
     pub ch5: TransceiverBuilder<T, Tcv5, C, S5, S6>,
     pub ch6: TransceiverBuilder<T, Tcv6, C, S6, S7>,
     pub ch7: TransceiverBuilder<T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
-    pub flt0: Filter<T, Flt0, Disabled>,
-    pub flt1: Filter<T, Flt1, Disabled>,
-    pub flt2: Filter<T, Flt2, Disabled>,
-    pub flt3: Filter<T, Flt3, Disabled>,
+    pub flt0: Filter<'reg, 'inj, T, Flt0, Disabled>,
+    pub flt1: Filter<'reg, 'inj, T, Flt1, Disabled>,
+    pub flt2: Filter<'reg, 'inj, T, Flt2, Disabled>,
+    pub flt3: Filter<'reg, 'inj, T, Flt3, Disabled>,
 }
 
 /// Dfsdm
@@ -1818,7 +1876,7 @@ where
     label = "tuple length doesn't match `{T}`'s transceiver count",
     note = "check `{T}`'s channel count and return a tuple of that length, one token per `creator.chN`"
 )]
-pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
+pub trait ChannelCfgTuple<'reg, 'inj, 'd, T: Instance, C: ClockOutputMode> {
     /// The fully-wired split (neighbor pin-sets already correct).
     type Split;
 
@@ -1826,7 +1884,7 @@ pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
     fn split_parts(self, common: DfsdmCommon<'d, T, Enabled>) -> Self::Split;
 }
 
-impl<'d, T, C, C0, C1> ChannelCfgTuple<'d, T, C> for (C0, C1)
+impl<'reg, 'inj, 'd, T, C, C0, C1> ChannelCfgTuple<'reg, 'inj, 'd, T, C> for (C0, C1)
 where
     T: Instance<Transceivers = capability::Tcv2, Filters = capability::Flt1> + FilterInterrupt<Flt0>,
     C: ClockOutputMode,
@@ -1834,6 +1892,8 @@ where
     C1: ChannelCfg<'d, T, Tcv1>,
 {
     type Split = DfsdmSplit2Ch1Flt<
+        'reg,
+        'inj,
         'd,
         T,
         C,
@@ -1862,6 +1922,8 @@ where
 /// Builds the actual split struct from 8 already-extracted pin pairs.
 /// Implemented separately for each filter-count capability.
 pub trait Flt8SplitBuild<
+    'reg,
+    'inj,
     'd,
     T: Instance,
     C: ClockOutputMode,
@@ -1897,8 +1959,8 @@ pub trait Flt8SplitBuild<
     ) -> Self::Out;
 }
 
-impl<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
-    for capability::Flt8
+impl<'reg, 'inj, 'd, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
+    Flt8SplitBuild<'reg, 'inj, 'd, T, C, S0, S1, S2, S3, S4, S5, S6, S7> for capability::Flt8
 where
     T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>
         + FilterInterrupt<Flt0>
@@ -1919,7 +1981,7 @@ where
     S6: PinSet,
     S7: PinSet,
 {
-    type Out = DfsdmSplit8Ch8Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
+    type Out = DfsdmSplit8Ch8Flt<'reg, 'inj, 'd, T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
 
     fn build(
         mut common: DfsdmCommon<'d, T, Enabled>,
@@ -1979,8 +2041,8 @@ where
     }
 }
 
-impl<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
-    for capability::Flt4
+impl<'reg, 'inj, 'd, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
+    Flt8SplitBuild<'reg, 'inj, 'd, T, C, S0, S1, S2, S3, S4, S5, S6, S7> for capability::Flt4
 where
     T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt4>
         + FilterInterrupt<Flt0>
@@ -1997,7 +2059,7 @@ where
     S6: PinSet,
     S7: PinSet,
 {
-    type Out = DfsdmSplit8Ch4Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
+    type Out = DfsdmSplit8Ch4Flt<'reg, 'inj, 'd, T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
 
     fn build(
         common: DfsdmCommon<'d, T, Enabled>,
@@ -2036,7 +2098,8 @@ where
     }
 }
 
-impl<'d, T, C, C0, C1, C2, C3, C4, C5, C6, C7> ChannelCfgTuple<'d, T, C> for (C0, C1, C2, C3, C4, C5, C6, C7)
+impl<'reg, 'inj, 'd, T, C, C0, C1, C2, C3, C4, C5, C6, C7> ChannelCfgTuple<'reg, 'inj, 'd, T, C>
+    for (C0, C1, C2, C3, C4, C5, C6, C7)
 where
     T: Instance<Transceivers = capability::Tcv8>,
     C: ClockOutputMode,
@@ -2049,6 +2112,8 @@ where
     C6: ChannelCfg<'d, T, Tcv6>,
     C7: ChannelCfg<'d, T, Tcv7>,
     T::Filters: Flt8SplitBuild<
+            'reg,
+            'inj,
             'd,
             T,
             C,
@@ -2063,6 +2128,8 @@ where
         >,
 {
     type Split = <T::Filters as Flt8SplitBuild<
+        'reg,
+        'inj,
         'd,
         T,
         C,
@@ -2086,6 +2153,8 @@ where
         let (d6, k6) = self.6.into_parts();
         let (d7, k7) = self.7.into_parts();
         <T::Filters as Flt8SplitBuild<
+            'reg,
+            'inj,
             'd,
             T,
             C,
@@ -2134,10 +2203,10 @@ where
     ///     )
     /// });
     /// ```
-    pub fn configure_pins<F, OUT>(mut self, f: F) -> <OUT as ChannelCfgTuple<'d, T, C>>::Split
+    pub fn configure_pins<'reg, 'inj, F, OUT>(mut self, f: F) -> <OUT as ChannelCfgTuple<'reg, 'inj, 'd, T, C>>::Split
     where
         F: FnOnce(<T::Transceivers as Shape>::Selectors<T>) -> OUT,
-        OUT: ChannelCfgTuple<'d, T, C>,
+        OUT: ChannelCfgTuple<'reg, 'inj, 'd, T, C>,
     {
         let out = f(<T::Transceivers as Shape>::selectors::<T>());
         out.split_parts(DfsdmCommon::new(self.peri.expect("taken once"), self.ckout.take()).enable())

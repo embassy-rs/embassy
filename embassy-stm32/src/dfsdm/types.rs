@@ -736,9 +736,10 @@ pub trait FilterTrait<M: FilterMarker>: sealed::Sealed {
 
 /// Trait for transceivers to generify all transceivers
 /// over one instance for Filterconfiguration
-pub trait TransceiverTrait<T>: sealed::Sealed
+pub trait TransceiverTrait<T, P>: sealed::Sealed
 where
     T: Instance,
+    P: PowerState,
 {
     /// Get transceiver index
     fn index(&self) -> usize;
@@ -753,7 +754,7 @@ where
     P: PowerState,
 {
 }
-impl<'a, 'd, T, M, S, MODE, P> TransceiverTrait<T> for Transceiver<'a, 'd, T, M, S, MODE, P>
+impl<'a, 'd, T, M, S, MODE, P> TransceiverTrait<T, P> for Transceiver<'a, 'd, T, M, S, MODE, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
@@ -765,6 +766,19 @@ where
         M::CHANNEL.index()
     }
 }
+
+// =============================================================================
+// NonEmpty
+// =============================================================================
+
+/// Marker trait to enforce that a const generic `N` is greater than 0.
+pub trait NonEmpty {}
+// Only implement `NonEmpty` for arrays of unit type `()`
+// with lengths 1 through 8.
+macro_rules! impl_non_empty {
+    ($($n:expr),+) => { $( impl NonEmpty for [(); $n] {} )+ };
+}
+impl_non_empty!(1, 2, 3, 4, 5, 6, 7, 8);
 
 // =============================================================================
 // Config types

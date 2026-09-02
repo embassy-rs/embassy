@@ -88,11 +88,7 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split
-        .flt0
-        .configure(&flt_cfg)
-        .assign_regular_transceiver(&ch_test)
-        .enable();
+    let mut flt0 = split.flt0.enable(&ch_test, [&ch_test]);
 
     flt0.start_regular_conversion(); // Waiting for data now
 
