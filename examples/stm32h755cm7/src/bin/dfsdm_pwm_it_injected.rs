@@ -128,7 +128,11 @@ async fn main(_spawner: Spawner) {
         filter_params,
         ..Default::default()
     };
-    let mut flt0 = split.flt0.configure(&flt_cfg).enable(&channel_mic, [&channel_mic]);
+    let mut flt0 = split
+        .flt0
+        .build(&split.common)
+        .configure(&flt_cfg)
+        .enable(&channel_mic, [&channel_mic]);
 
     let mut dc_offset: i32 = 0;
     let mut bass_signal: i32 = 0;

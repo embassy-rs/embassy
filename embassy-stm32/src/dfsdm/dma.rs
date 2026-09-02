@@ -4,29 +4,29 @@ use super::*;
 use crate::dma::{Channel, ReadableRingBuffer};
 use crate::rcc::WakeGuard;
 
-pub struct RingBufferedFilter<'reg, 'inj, 'd, T, M, P>
+pub struct RingBufferedFilter<'a, 'd, 'reg, 'inj, 'e, T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
     P: PowerState,
 {
-    filter: &'d Filter<'reg, 'inj, T, M, P>,
-    ring_buf: ReadableRingBuffer<'d, u32>,
+    filter: &'e Filter<'a, 'd, 'reg, 'inj, T, M, P>,
+    ring_buf: ReadableRingBuffer<'e, u32>,
     _wake_guard: WakeGuard,
 }
 
 #[allow(private_bounds)]
-impl<'reg, 'inj, 'd, T, M, P> RingBufferedFilter<'reg, 'inj, 'd, T, M, P>
+impl<'a, 'd, 'reg, 'inj, 'e, T, M, P> RingBufferedFilter<'a, 'd, 'reg, 'inj, 'e, T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
     P: PowerState,
 {
     pub fn new_regular<D: Dma<T, M>>(
-        filter: &'d Filter<'reg, 'inj, T, M, P>,
-        dma: Peri<'d, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
-        dma_buf: &'d mut [u32],
+        filter: &'e Filter<'a, 'd, 'reg, 'inj, T, M, P>,
+        dma: Peri<'e, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
+        dma_buf: &'e mut [u32],
     ) -> Self {
         let opts = Default::default();
 
@@ -55,10 +55,10 @@ where
     }
 
     pub fn new_injected<D: Dma<T, M>>(
-        filter: &'d Filter<'reg, 'inj, T, M, P>,
-        dma: Peri<'d, D>,
+        filter: &'e Filter<'a, 'd, 'reg, 'inj, T, M, P>,
+        dma: Peri<'e, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
-        dma_buf: &'d mut [u32],
+        dma_buf: &'e mut [u32],
     ) -> Self {
         let opts = Default::default();
 

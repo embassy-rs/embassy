@@ -94,7 +94,11 @@ async fn main(_spawner: Spawner) {
         enable_fast_regular: false,
     };
 
-    let mut flt0 = split.flt0.configure(&flt_cfg).enable(&ch_test, [&ch_test]);
+    let mut flt0 = split
+        .flt0
+        .build(&split.common)
+        .configure(&flt_cfg)
+        .enable(&ch_test, [&ch_test]);
 
     let mut buffer_regular = [0u32; 32];
     let mut buffer_injected = [0u32; 32];
