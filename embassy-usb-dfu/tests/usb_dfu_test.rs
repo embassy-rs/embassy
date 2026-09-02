@@ -2,13 +2,19 @@ use core::cell::RefCell;
 use core::convert::Infallible;
 
 use dfu_core::DfuIo;
+#[cfg(feature = "_verify")]
+use embassy_boot::State;
 use embassy_boot::{BlockingFirmwareUpdater, FirmwareUpdaterConfig};
 use embassy_usb::Handler;
 use embassy_usb::class::dfu::dfu_mode::Handler as DfuModeHandler;
 use embassy_usb::control::{InResponse, OutResponse, Recipient, Request as ControlRequest, RequestType};
 use embassy_usb::driver::Direction;
 use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{Reset, UsbDfuState, new_state};
+#[cfg(not(feature = "_verify"))]
+use embassy_usb_dfu::new_state;
+#[cfg(feature = "_verify")]
+use embassy_usb_dfu::new_state_deferred;
+use embassy_usb_dfu::{Reset, UsbDfuState};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 const READ_WRITE_SIZE: usize = 8;
@@ -162,7 +168,10 @@ fn usb_dfu(dfu_attributes: DfuAttributes) {
         transfer_size: READ_WRITE_SIZE as u16,
         dfu_version: (1, 1),
     };
+    #[cfg(not(feature = "_verify"))]
     let dfu_state = new_state::<_, _, _, BLOCK_SIZE>(updater, dfu_attributes, NoopReset {});
+    #[cfg(feature = "_verify")]
+    let dfu_state = new_state_deferred::<_, _, _, BLOCK_SIZE>(updater, dfu_attributes, NoopReset {});
     let mut dfu = dfu_core::sync::DfuSync::new(InMemoryDfu {
         functional_descriptor,
         dfu_state: RefCell::new(dfu_state),
@@ -173,6 +182,11 @@ fn usb_dfu(dfu_attributes: DfuAttributes) {
     println!("{:?}", err);
     assert_eq!(&dfu_buffer.borrow()[..firmware.len()], firmware);
     assert!(err.is_ok());
+    #[cfg(feature = "_verify")]
+    {
+        drop(dfu);
+        assert_eq!(State::from(&state_buffer.borrow()[..READ_WRITE_SIZE]), State::Verify);
+    }
 }
 
 #[test]
