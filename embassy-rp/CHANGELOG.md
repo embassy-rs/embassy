@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 
 ## Unreleased - ReleaseDate
+- TRNG: retry failed health checks instead of hanging or panicking, panic only after 1000 consecutive failures.
+- TRNG: wait for the soft reset to complete before applying the configuration.
+- TRNG: stop the block and disable the interrupt when `fill_bytes` is dropped.
+- TRNG: `Config::default()` now uses `sample_count: 200` (was 25).
 - USB: support device-initiated remote wakeup on RP2040 and RP235x
 - USB device: clearing an endpoint halt now resets the data toggle to DATA0.
 - USB device: stalling an endpoint with a transfer in flight no longer lets that transfer complete, and the queued packet is no longer delivered once the halt is cleared.
