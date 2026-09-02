@@ -29,9 +29,15 @@ embassy-registered crypto drivers without modification.
 - `Aes128Ecb`, `Aes256Ecb` — ECB mode
 - `Aes128Cbc`, `Aes256Cbc` — CBC mode
 
+## Stream Ciphers
+- `Aes128Ctr`, `Aes256Ctr` — CTR mode
+
 ## AEAD
 - `Aes128Gcm`, `Aes256Gcm` — GCM mode
 - `Aes128Ccm<TagSize, NonceSize>`, `Aes256Ccm<TagSize, NonceSize>` — CCM mode
+
+## MAC
+- `Aes128Cmac`, `Aes256Cmac` — CMAC
 
 # Digest Usage
 ```rust,ignore
@@ -77,3 +83,19 @@ let ciphertext = cipher.encrypt(nonce, b"plaintext message".as_ref()).unwrap();
 At link time exactly one crate in the dependency tree must register a driver
 using the `embassy_crypto_*_impl!` macros from `embassy-crypto-driver`.
 If zero or multiple drivers are registered, linking will fail.
+
+# TODO
+
+- RNG, backed by the MCU peripheral (`embassy-nrf`, `embassy-stm32`, `embassy-rp`, `embassy-mspm0` and `embassy-imxrt` all have one)
+- P256 ECDH and ECDSA (`p256`), for `trouble-host` LE Secure Connections and `embedded-tls`
+- P384 ECDH and ECDSA (`p384`)
+- X25519 and Ed25519 (`x25519-dalek`, `ed25519-dalek`), needed by `embassy-boot`; not RustCrypto, so the reference driver rule needs a decision first
+- ChaCha20-Poly1305 (`chacha20poly1305`), accelerated by CryptoCell 312
+- SHA-3 and SHAKE (`sha3`)
+- AES key wrap (`aes-kw`), for moving keys in and out of hardware key stores
+- ML-KEM and ML-DSA (`ml-kem`, `ml-dsa`)
+
+HKDF, PBKDF2 and similar constructions are deliberately absent: they are HMAC plus
+glue, so `hkdf::SimpleHkdf<Sha256>` over the types here is already accelerated. Note
+that `Hkdf<Sha256>` will not compile, only `SimpleHkdf` — `Hmac` requires a block-level
+core that these types do not implement.
