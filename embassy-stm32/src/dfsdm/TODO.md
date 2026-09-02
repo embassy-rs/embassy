@@ -74,7 +74,7 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_FLTxJCHGR.JCHG  [X] internal [X] pub [ ] When Enabled
 * DFSDM_FLT0CR2.CKABIE  [X] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
 * DFSDM_FLT0CR2.SCDIE   [X] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0CR2.AWDIE   [X] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0CR2.AWDIE   [X] internal [ ] pub [ ] When Enabled
 
 NOTE:
 Due to interrupts we should really put the IRQ requirement into the Common? And then the filters? global vs local interrupts etc idk

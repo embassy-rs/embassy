@@ -75,7 +75,7 @@
     "editor.bracketPairColorization.enabled": false,
     "editor.guides.bracketPairs": "active",
     "rust-analyzer.semanticHighlighting.punctuation.enable": true,
-    "chat.disableAIFeatures": true,
+    "chat.disableAIFeatures": false,
     "editor.inlineSuggest.enabled": true,
   },
 }

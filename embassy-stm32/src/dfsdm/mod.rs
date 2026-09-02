@@ -529,35 +529,6 @@ where
         Self::clear_extremes_detector_channel(channel.index() as u8);
         self
     }
-}
-
-/// Sign-extends a 24bit LSB number to a i32
-fn sign_extend_24(x: u32) -> i32 {
-    ((x << 8) as i32) >> 8
-}
-
-impl<T, M> Filter<T, M, Enabled>
-where
-    T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
-{
-    /// Disable the filter
-    pub fn disable(self) -> Filter<T, M, Disabled> {
-        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(false));
-        Filter {
-            _instance_marker: PhantomData,
-            _filter_marker: PhantomData,
-            _powerstate_marker: PhantomData,
-        }
-    }
-}
-
-impl<T, M, P> Filter<T, M, P>
-where
-    T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
-    P: PowerState,
-{
     /// Enables or disables regular data overrun interrupts.
     pub(crate) fn set_regular_overrun_interrupt(enabled: bool) {
         T::regs()
@@ -588,6 +559,32 @@ where
             .flt(M::CHANNEL.index())
             .cr2()
             .modify(|w| w.set_jeocie(enabled));
+    }
+
+    /// Enables or disables analog watchdog interrupts.
+    fn set_analog_watchdog_interrupt(&mut self, enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr2().modify(|w| w.set_awdie(enabled));
+    }
+}
+
+/// Sign-extends a 24bit LSB number to a i32
+fn sign_extend_24(x: u32) -> i32 {
+    ((x << 8) as i32) >> 8
+}
+
+impl<T, M> Filter<T, M, Enabled>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+{
+    /// Disable the filter
+    pub fn disable(self) -> Filter<T, M, Disabled> {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(false));
+        Filter {
+            _instance_marker: PhantomData,
+            _filter_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+        }
     }
 }
 
@@ -1460,11 +1457,6 @@ where
     /// Enables or disables short-circuit detector interrupts.
     fn set_short_circuit_detector_interrupt(&mut self, enabled: bool) {
         T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
-    }
-
-    /// Enables or disables analog watchdog interrupts.
-    fn set_analog_watchdog_interrupt(&mut self, enabled: bool) {
-        T::regs().flt(0).cr2().modify(|w| w.set_awdie(enabled));
     }
 }
 
