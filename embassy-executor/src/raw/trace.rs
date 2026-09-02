@@ -67,6 +67,16 @@
 //! 3. The executor has decided a task to poll. `task_exec_begin` is called
 //! 4. The executor finishes polling the task. `task_exec_end` is called
 //! 5. The executor has finished polling tasks. `executor_idle` is called
+//!
+//! ## Idle
+//!
+//! `executor_idle` only means that a single executor has run out of work. With
+//! multiple executors (e.g. a thread-mode executor plus one or more interrupt
+//! executors), an interrupt executor going idle returns to the preempted
+//! lower-priority context, which keeps running. The current thread/core is only
+//! idle when its thread-mode executor reaches its sleep site, at which point
+//! `idle` is called. In multi-core chips, or when using threads under std or an
+//! RTOS, this does not mean the entire system is idle.
 
 use crate::ExecutorId;
 use crate::raw::TaskRef;
@@ -143,6 +153,18 @@ unitrait::unitrait! {
         /// This marks the EXECUTOR state transition from SCHEDULING -> IDLE
         #[symbol = "_embassy_trace_v2_executor_idle"]
         pub(crate) fn executor_idle(executor: ExecutorId);
+
+        /// This callback is called right before the thread-mode executor puts the
+        /// current thread/core to sleep (e.g. `wfe`/`wfi`).
+        ///
+        /// Unlike `executor_idle`, this is never called by interrupt executors,
+        /// since they return to a preempted context after polling and the system
+        /// keeps running.
+        ///
+        /// Note in multi-core chips, or when using threads under std or an RTOS, this
+        /// doesn't mean the entire system is idle, it only means the current core/thread is.
+        #[symbol = "_embassy_trace_v2_idle"]
+        pub(crate) fn idle();
 
         /// This callback is called AFTER the name of a task is set.
         ///

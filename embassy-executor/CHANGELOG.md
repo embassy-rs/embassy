@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added trace callbacks for when the task metadata (name, priority, deadline) changes.
 - Added `TaskId` and `ExecutorId` types.
 - Removed the `rtos-trace` feature.
+- Added `idle` trace callback (`_embassy_trace_v2_idle`), called by thread-mode executors right before sleeping.
+- Added `embassy_executor::trace_idle()` for custom thread-mode executors to emit the `idle` trace callback.
 
 ## 0.10.0 - 2026-03-10
 

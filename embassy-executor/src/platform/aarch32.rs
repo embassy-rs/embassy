@@ -91,6 +91,7 @@ mod thread {
                 unsafe {
                     self.inner.poll();
                 }
+                crate::trace_idle();
                 wfe();
             }
         }

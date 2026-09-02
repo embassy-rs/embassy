@@ -119,6 +119,7 @@ mod thread {
                         if SIGNAL_WORK_THREAD_MODE.load(Ordering::SeqCst) {
                             SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);
                         } else {
+                            embassy_executor::trace_idle();
                             crate::low_power::sleep(cs);
                         }
                     });
