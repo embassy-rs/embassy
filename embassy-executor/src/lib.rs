@@ -60,6 +60,23 @@ pub use platform::*;
 
 pub mod raw;
 
+/// Signal to the tracing system that the current thread/core is about to go idle.
+///
+/// Thread-mode executor implementations must call this right before putting the
+/// current thread/core to sleep (e.g. `wfe`/`wfi`). Do NOT call it from an
+/// interrupt executor, which returns to a preempted context after polling and
+/// is therefore not idle.
+///
+/// Note in multi-core chips, or when using threads under std or an RTOS, this
+/// doesn't mean the entire system is idle, it only means the current core/thread is.
+///
+/// This is a no-op unless the `trace` feature is enabled.
+#[inline]
+pub fn trace_idle() {
+    #[cfg(feature = "trace")]
+    raw::trace::idle();
+}
+
 mod spawner;
 pub use spawner::*;
 
