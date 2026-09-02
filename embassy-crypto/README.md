@@ -6,6 +6,17 @@ This crate wraps the hardware-agnostic unitraits from `embassy-crypto-driver`
 with the standard RustCrypto traits, so existing RustCrypto code can use
 embassy-registered crypto drivers without modification.
 
+# crate design
+
+- The crate must match closely to the existing rustcrypto API. Deviations from this API
+  must have a very good reason that can be clearly explained.
+- Aside from RNG, every operation must have a backing rustcrypto driver that serves as
+  the reference implementation. *embassy-crypto* should function as a thin layer that calls
+  into rustcrypto with the `driver-rustcrypto` feature enabled.
+- Given that hardware takes some time to setup, the *embassy-crypto* types should batch
+  operations with calls into the unitrait that operate on large buffers where possible.
+  At least, the implemented traits or methods should allow the user the possibility of this.
+
 # Supported Operations
 
 ## Digests
@@ -21,10 +32,6 @@ embassy-registered crypto drivers without modification.
 ## AEAD
 - `Aes128Gcm`, `Aes256Gcm` — GCM mode
 - `Aes128Ccm<TagSize, NonceSize>`, `Aes256Ccm<TagSize, NonceSize>` — CCM mode
-
-## Elliptic Curve (P256)
-- `p256::SecretKey`, `p256::PublicKey`, `p256::SharedSecret` — ECDH primitives
-- `p256::ecdsa::SigningKey`, `p256::ecdsa::VerifyingKey`, `p256::ecdsa::Signature` — ECDSA primitives
 
 # Digest Usage
 ```rust,ignore
@@ -64,28 +71,6 @@ use aead::{Aead, KeyInit, Nonce};
 let cipher = Aes128Gcm::new_from_slice(b"my secret key!!!").unwrap();
 let nonce = Nonce::from_slice(b"unique nonce");
 let ciphertext = cipher.encrypt(nonce, b"plaintext message".as_ref()).unwrap();
-```
-
-# P256 ECDH Usage
-```rust,ignore
-use embassy_crypto::p256::{SecretKey, PublicKey};
-
-let (secret_key, public_key) = SecretKey::generate().unwrap();
-
-let peer_public_key = PublicKey::from_bytes(&[0u8; 65]); // received from peer
-let shared_secret = secret_key.diffie_hellman(&peer_public_key).unwrap();
-```
-
-# P256 ECDSA Usage
-```rust,ignore
-use embassy_crypto::p256::ecdsa::{SigningKey, VerifyingKey, Signature};
-use signature::{Signer, Verifier};
-
-let signing_key = SigningKey::from_bytes(&[0u8; 32]);
-let signature: Signature = signing_key.sign(b"message");
-
-let verifying_key = signing_key.verifying_key().unwrap();
-verifying_key.verify(b"message", &signature).unwrap();
 ```
 
 # Linkage
