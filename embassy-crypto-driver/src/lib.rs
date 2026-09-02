@@ -371,9 +371,6 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_hmac_sha1_finalize"]
         pub fn hmac_sha1_finalize(ctx: Self::Context, data: &mut [u8]);
 
-        /// Hash reset – restores the context to its post-init, pre-message state.
-        #[symbol = "_emb_crypto_hmac_sha1_reset"]
-        pub fn hmac_sha1_reset(ctx: &mut Self::Context);
     }
 
     macro embassy_crypto_hmac_sha1_impl(path = $crate);
@@ -405,9 +402,6 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_hmac_sha224_finalize"]
         pub fn hmac_sha224_finalize(ctx: Self::Context, data: &mut [u8]);
 
-        /// Hash reset – restores the context to its post-init, pre-message state.
-        #[symbol = "_emb_crypto_hmac_sha224_reset"]
-        pub fn hmac_sha224_reset(ctx: &mut Self::Context);
     }
 
     macro embassy_crypto_hmac_sha224_impl(path = $crate);
@@ -439,9 +433,6 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_hmac_sha256_finalize"]
         pub fn hmac_sha256_finalize(ctx: Self::Context, data: &mut [u8]);
 
-        /// Hash reset – restores the context to its post-init, pre-message state.
-        #[symbol = "_emb_crypto_hmac_sha256_reset"]
-        pub fn hmac_sha256_reset(ctx: &mut Self::Context);
     }
 
     macro embassy_crypto_hmac_sha256_impl(path = $crate);
@@ -473,9 +464,6 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_hmac_sha384_finalize"]
         pub fn hmac_sha384_finalize(ctx: Self::Context, data: &mut [u8]);
 
-        /// Hash reset – restores the context to its post-init, pre-message state.
-        #[symbol = "_emb_crypto_hmac_sha384_reset"]
-        pub fn hmac_sha384_reset(ctx: &mut Self::Context);
     }
 
     macro embassy_crypto_hmac_sha384_impl(path = $crate);
@@ -507,9 +495,6 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_hmac_sha512_224_finalize"]
         pub fn hmac_sha512_224_finalize(ctx: Self::Context, data: &mut [u8]);
 
-        /// Hash reset – restores the context to its post-init, pre-message state.
-        #[symbol = "_emb_crypto_hmac_sha512_224_reset"]
-        pub fn hmac_sha512_224_reset(ctx: &mut Self::Context);
     }
 
     macro embassy_crypto_hmac_sha512_224_impl(path = $crate);
@@ -541,9 +526,6 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_hmac_sha512_256_finalize"]
         pub fn hmac_sha512_256_finalize(ctx: Self::Context, data: &mut [u8]);
 
-        /// Hash reset – restores the context to its post-init, pre-message state.
-        #[symbol = "_emb_crypto_hmac_sha512_256_reset"]
-        pub fn hmac_sha512_256_reset(ctx: &mut Self::Context);
     }
 
     macro embassy_crypto_hmac_sha512_256_impl(path = $crate);
@@ -575,9 +557,6 @@ unitrait::unitrait! {
         #[symbol = "_emb_crypto_hmac_sha512_finalize"]
         pub fn hmac_sha512_finalize(ctx: Self::Context, data: &mut [u8]);
 
-        /// Hash reset – restores the context to its post-init, pre-message state.
-        #[symbol = "_emb_crypto_hmac_sha512_reset"]
-        pub fn hmac_sha512_reset(ctx: &mut Self::Context);
     }
 
     macro embassy_crypto_hmac_sha512_impl(path = $crate);

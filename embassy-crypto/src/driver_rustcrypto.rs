@@ -162,12 +162,11 @@ macro_rules! impl_hmac_fast {
         $trait:path,
         $hash:ty,
         $key_cap:literal,
-        [$init:ident, $clone:ident, $update:ident, $finalize:ident, $reset:ident],
+        [$init:ident, $clone:ident, $update:ident, $finalize:ident],
         $impl_macro:path
     ) => {
         #[derive(Clone)]
         struct $ctx {
-            key: heapless::Vec<u8, $key_cap>,
             inner: hmac::Hmac<$hash>,
         }
 
@@ -178,13 +177,8 @@ macro_rules! impl_hmac_fast {
 
             fn $init(key: &[u8]) -> Self::Context {
                 use hmac::KeyInit;
-                let mut key_storage = heapless::Vec::new();
-                key_storage.extend_from_slice(key).unwrap();
                 let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
-                $ctx {
-                    key: key_storage,
-                    inner,
-                }
+                $ctx { inner }
             }
 
             fn $clone(ctx: &Self::Context) -> Self::Context {
@@ -200,10 +194,6 @@ macro_rules! impl_hmac_fast {
                 use hmac::Mac;
                 let result = ctx.inner.finalize();
                 out.copy_from_slice(result.into_bytes().as_slice());
-            }
-
-            fn $reset(ctx: &mut Self::Context) {
-                *ctx = Self::$init(&ctx.key);
             }
         }
 
@@ -219,12 +209,11 @@ macro_rules! impl_hmac_delegated {
         $trait:path,
         $hash:ty,
         $key_cap:literal,
-        [$init:ident, $clone:ident, $update:ident, $finalize:ident, $reset:ident],
+        [$init:ident, $clone:ident, $update:ident, $finalize:ident],
         $impl_macro:path
     ) => {
         #[derive(Clone)]
         struct $ctx {
-            key: heapless::Vec<u8, $key_cap>,
             inner: hmac::SimpleHmac<$hash>,
         }
 
@@ -235,13 +224,8 @@ macro_rules! impl_hmac_delegated {
 
             fn $init(key: &[u8]) -> Self::Context {
                 use hmac::KeyInit;
-                let mut key_storage = heapless::Vec::new();
-                key_storage.extend_from_slice(key).unwrap();
                 let inner = hmac::SimpleHmac::new_from_slice(key).expect("key length validated by caller");
-                $ctx {
-                    key: key_storage,
-                    inner,
-                }
+                $ctx { inner }
             }
 
             fn $clone(ctx: &Self::Context) -> Self::Context {
@@ -258,10 +242,6 @@ macro_rules! impl_hmac_delegated {
                 let result = ctx.inner.finalize();
                 out.copy_from_slice(result.into_bytes().as_slice());
             }
-
-            fn $reset(ctx: &mut Self::Context) {
-                *ctx = Self::$init(&ctx.key);
-            }
         }
 
         $impl_macro!($driver);
@@ -276,13 +256,7 @@ impl_hmac_fast!(
     embassy_crypto_driver::HmacSha1,
     sha1::Sha1,
     64,
-    [
-        hmac_sha1_init,
-        hmac_sha1_clone,
-        hmac_sha1_update,
-        hmac_sha1_finalize,
-        hmac_sha1_reset
-    ],
+    [hmac_sha1_init, hmac_sha1_clone, hmac_sha1_update, hmac_sha1_finalize],
     embassy_crypto_driver::embassy_crypto_hmac_sha1_impl
 );
 
@@ -293,13 +267,7 @@ impl_hmac_delegated!(
     embassy_crypto_driver::HmacSha1,
     crate::Sha1,
     64,
-    [
-        hmac_sha1_init,
-        hmac_sha1_clone,
-        hmac_sha1_update,
-        hmac_sha1_finalize,
-        hmac_sha1_reset
-    ],
+    [hmac_sha1_init, hmac_sha1_clone, hmac_sha1_update, hmac_sha1_finalize],
     embassy_crypto_driver::embassy_crypto_hmac_sha1_impl
 );
 
@@ -315,8 +283,7 @@ impl_hmac_fast!(
         hmac_sha224_init,
         hmac_sha224_clone,
         hmac_sha224_update,
-        hmac_sha224_finalize,
-        hmac_sha224_reset
+        hmac_sha224_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha224_impl
 );
@@ -332,8 +299,7 @@ impl_hmac_delegated!(
         hmac_sha224_init,
         hmac_sha224_clone,
         hmac_sha224_update,
-        hmac_sha224_finalize,
-        hmac_sha224_reset
+        hmac_sha224_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha224_impl
 );
@@ -350,8 +316,7 @@ impl_hmac_fast!(
         hmac_sha256_init,
         hmac_sha256_clone,
         hmac_sha256_update,
-        hmac_sha256_finalize,
-        hmac_sha256_reset
+        hmac_sha256_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha256_impl
 );
@@ -367,8 +332,7 @@ impl_hmac_delegated!(
         hmac_sha256_init,
         hmac_sha256_clone,
         hmac_sha256_update,
-        hmac_sha256_finalize,
-        hmac_sha256_reset
+        hmac_sha256_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha256_impl
 );
@@ -385,8 +349,7 @@ impl_hmac_fast!(
         hmac_sha384_init,
         hmac_sha384_clone,
         hmac_sha384_update,
-        hmac_sha384_finalize,
-        hmac_sha384_reset
+        hmac_sha384_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha384_impl
 );
@@ -402,8 +365,7 @@ impl_hmac_delegated!(
         hmac_sha384_init,
         hmac_sha384_clone,
         hmac_sha384_update,
-        hmac_sha384_finalize,
-        hmac_sha384_reset
+        hmac_sha384_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha384_impl
 );
@@ -420,8 +382,7 @@ impl_hmac_fast!(
         hmac_sha512_224_init,
         hmac_sha512_224_clone,
         hmac_sha512_224_update,
-        hmac_sha512_224_finalize,
-        hmac_sha512_224_reset
+        hmac_sha512_224_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha512_224_impl
 );
@@ -437,8 +398,7 @@ impl_hmac_delegated!(
         hmac_sha512_224_init,
         hmac_sha512_224_clone,
         hmac_sha512_224_update,
-        hmac_sha512_224_finalize,
-        hmac_sha512_224_reset
+        hmac_sha512_224_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha512_224_impl
 );
@@ -455,8 +415,7 @@ impl_hmac_fast!(
         hmac_sha512_256_init,
         hmac_sha512_256_clone,
         hmac_sha512_256_update,
-        hmac_sha512_256_finalize,
-        hmac_sha512_256_reset
+        hmac_sha512_256_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha512_256_impl
 );
@@ -472,8 +431,7 @@ impl_hmac_delegated!(
         hmac_sha512_256_init,
         hmac_sha512_256_clone,
         hmac_sha512_256_update,
-        hmac_sha512_256_finalize,
-        hmac_sha512_256_reset
+        hmac_sha512_256_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha512_256_impl
 );
@@ -490,8 +448,7 @@ impl_hmac_fast!(
         hmac_sha512_init,
         hmac_sha512_clone,
         hmac_sha512_update,
-        hmac_sha512_finalize,
-        hmac_sha512_reset
+        hmac_sha512_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha512_impl
 );
@@ -507,8 +464,7 @@ impl_hmac_delegated!(
         hmac_sha512_init,
         hmac_sha512_clone,
         hmac_sha512_update,
-        hmac_sha512_finalize,
-        hmac_sha512_reset
+        hmac_sha512_finalize
     ],
     embassy_crypto_driver::embassy_crypto_hmac_sha512_impl
 );
