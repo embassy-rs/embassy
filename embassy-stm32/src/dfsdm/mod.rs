@@ -1103,6 +1103,7 @@ where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
 {
+    /// Creates a new builder for a filter.
     pub(crate) fn new() -> Self {
         Self {
             _t: PhantomData,
@@ -1153,11 +1154,16 @@ where
     S: PinSet,
     SN: PinSet,
 {
+    /// Creates a new builder for a transceiver.
+    pub(crate) fn new() -> Self {
+        Self { _m: PhantomData }
+    }
+
     /// Parallel input from ADC writes to CHyDATINR (DATMPX=2).
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_parallel_adc<'a, 'd>(
+    pub fn build_parallel_adc<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
     ) -> Transceiver<'a, 'd, T, M, S, ParallelAdcMode, Disabled>
@@ -1180,7 +1186,7 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_parallel_dma<'a, 'd>(
+    pub fn build_parallel_dma<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         packing_mode: config_types::DataPackingModeReduced,
@@ -1205,7 +1211,7 @@ where
     /// assigned to `M` (reads INDAT0, the lower word) and one to `MN`
     /// (reads INDAT1, the upper word) - or the register won't drain and
     /// you'll get overrun errors.
-    pub fn new_parallel_dma_dual<'a, 'd, MN, SNN>(
+    pub fn build_parallel_dma_dual<'a, 'd, MN, SNN>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mut neighbor: TransceiverBuilder<T, MN, C, SN, SNN>,
@@ -1248,7 +1254,7 @@ where
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
-    pub fn new_manchester<'a, 'd>(
+    pub fn build_manchester<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::ManchesterMode,
@@ -1269,8 +1275,8 @@ where
         }
     }
 
-    ///Same as [`Self::new_manchester`] but using neighbors pins
-    pub fn new_manchester_neighbor<'a, 'd>(
+    ///Same as [`Self::build_manchester`] but using neighbors pins
+    pub fn build_manchester_neighbor<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::ManchesterMode,
@@ -1294,8 +1300,8 @@ where
         })
     }
 
-    ///TODO new_spi_ext description
-    pub fn new_spi_ext<'a, 'd>(
+    ///TODO build_spi_ext description
+    pub fn build_spi_ext<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::SpiMode,
@@ -1317,8 +1323,8 @@ where
         }
     }
 
-    ///Same as [`Self::new_spi_ext`] but using neighbors pins
-    pub fn new_spi_ext_neighbor<'a, 'd>(
+    ///Same as [`Self::build_spi_ext`] but using neighbors pins
+    pub fn build_spi_ext_neighbor<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::SpiMode,
@@ -1397,8 +1403,8 @@ where
     S: PinSet,
     SN: PinSet,
 {
-    ///TODO new_spi_int description
-    pub fn new_spi_int<'a, 'd>(
+    ///TODO build_spi_int description
+    pub fn build_spi_int<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::InternalSpiMode,
@@ -1420,8 +1426,8 @@ where
         }
     }
 
-    ///Same as [`Self::new_spi_int`] but using neighbors pins
-    pub fn new_spi_int_neighbor<'a, 'd>(
+    ///Same as [`Self::build_spi_int`] but using neighbors pins
+    pub fn build_spi_int_neighbor<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::InternalSpiMode,
@@ -1446,92 +1452,6 @@ where
         })
     }
 }
-
-/// Used to configure a [`Transceiver`].
-// pub struct TransceiverBuilder<T, M, C>
-// where
-//     T: Instance,
-//     M: TransceiverMarker,
-//     C: ClockOutputMode,
-// {
-//     _dfsdm_marker: PhantomData<T>,
-//     _clockmode_marker: PhantomData<C>,
-//     _transceiver_marker: PhantomData<M>,
-// }
-
-// impl<T, M, C> TransceiverBuilder<T, M, C>
-// where
-//     T: Instance,
-//     M: TransceiverMarker,
-//     C: ClockOutputMode,
-// {
-//     pub(crate) fn new(_dfsdm: &Dfsdm<T, C>) -> Self {
-//         //TODO Remove dfsdm reference maybe
-//         Self {
-//             _dfsdm_marker: PhantomData,
-//             _clockmode_marker: PhantomData,
-//             _transceiver_marker: PhantomData,
-//         }
-//     }
-
-//     /// Configure [`Transceiver`]. as receiving data from its internal register
-//     pub fn new_parallel(self) -> Transceiver<T, M, InternalSource> {
-//         // TODO
-//         Transceiver {
-//             _instance_marker: PhantomData,
-//             _transceiver_marker: PhantomData,
-//             _datasource_marker: PhantomData,
-//         }
-//     }
-
-//     /// Configure [`Transceiver`]. as receiving data from an externally clocked bus
-//     pub fn new_clk_ext(
-//         self,
-//         ckin: Peri<if_afio!(impl CkinPin<T, M, A>)>,
-//         datin: Peri<if_afio!(impl DatinPin<T, M, A>)>,
-//     ) -> Transceiver<T, M, ExternalSource> {
-//         set_as_af!(ckin, AfType::input(Pull::None));
-//         set_as_af!(datin, AfType::input(Pull::None));
-
-//         Transceiver {
-//             _instance_marker: PhantomData,
-//             _transceiver_marker: PhantomData,
-//             _datasource_marker: PhantomData,
-//         }
-//     }
-
-//     /// Configure [`Transceiver`]. as receiving data from a manchester-coded signal
-//     pub fn new_manchester(self, datin: Peri<if_afio!(impl DatinPin<T, M, A>)>) -> Transceiver<T, M, ExternalSource> {
-//         set_as_af!(datin, AfType::input(Pull::None));
-
-//         Transceiver {
-//             _instance_marker: PhantomData,
-//             _transceiver_marker: PhantomData,
-//             _datasource_marker: PhantomData,
-//         }
-//     }
-// }
-
-// impl<T, M> TransceiverBuilder<T, M, OutputEnabled>
-// where
-//     T: Instance,
-//     M: TransceiverMarker,
-// {
-//     /// Configure transceiver as receiving data from a synchronously clocked bus clocked by the controller
-//     pub fn new_clk_int(self, datin: Peri<if_afio!(impl DatinPin<T, M, A>)>) -> Transceiver<T, M, ExternalSource>
-//     where
-//         T: Instance,
-//         M: TransceiverMarker,
-//     {
-//         set_as_af!(datin, AfType::input(Pull::None));
-
-//         Transceiver {
-//             _instance_marker: PhantomData,
-//             _transceiver_marker: PhantomData,
-//             _datasource_marker: PhantomData,
-//         }
-//     }
-// }
 
 // =============================================================================
 // Splitting
@@ -1942,8 +1862,8 @@ where
 
         DfsdmSplit2Ch1Flt {
             common,
-            ch0: TransceiverBuilder { _m: PhantomData },
-            ch1: TransceiverBuilder { _m: PhantomData },
+            ch0: TransceiverBuilder::new(),
+            ch1: TransceiverBuilder::new(),
             flt0: FilterBuilder::new(),
         }
     }
@@ -2049,14 +1969,14 @@ where
 
         DfsdmSplit8Ch8Flt {
             common,
-            ch0: TransceiverBuilder { _m: PhantomData },
-            ch1: TransceiverBuilder { _m: PhantomData },
-            ch2: TransceiverBuilder { _m: PhantomData },
-            ch3: TransceiverBuilder { _m: PhantomData },
-            ch4: TransceiverBuilder { _m: PhantomData },
-            ch5: TransceiverBuilder { _m: PhantomData },
-            ch6: TransceiverBuilder { _m: PhantomData },
-            ch7: TransceiverBuilder { _m: PhantomData },
+            ch0: TransceiverBuilder::new(),
+            ch1: TransceiverBuilder::new(),
+            ch2: TransceiverBuilder::new(),
+            ch3: TransceiverBuilder::new(),
+            ch4: TransceiverBuilder::new(),
+            ch5: TransceiverBuilder::new(),
+            ch6: TransceiverBuilder::new(),
+            ch7: TransceiverBuilder::new(),
             flt0: FilterBuilder::new(),
             flt1: FilterBuilder::new(),
             flt2: FilterBuilder::new(),
@@ -2110,14 +2030,14 @@ where
     ) -> Self::Out {
         DfsdmSplit8Ch4Flt {
             common,
-            ch0: TransceiverBuilder { _m: PhantomData },
-            ch1: TransceiverBuilder { _m: PhantomData },
-            ch2: TransceiverBuilder { _m: PhantomData },
-            ch3: TransceiverBuilder { _m: PhantomData },
-            ch4: TransceiverBuilder { _m: PhantomData },
-            ch5: TransceiverBuilder { _m: PhantomData },
-            ch6: TransceiverBuilder { _m: PhantomData },
-            ch7: TransceiverBuilder { _m: PhantomData },
+            ch0: TransceiverBuilder::new(),
+            ch1: TransceiverBuilder::new(),
+            ch2: TransceiverBuilder::new(),
+            ch3: TransceiverBuilder::new(),
+            ch4: TransceiverBuilder::new(),
+            ch5: TransceiverBuilder::new(),
+            ch6: TransceiverBuilder::new(),
+            ch7: TransceiverBuilder::new(),
             flt0: FilterBuilder::new(),
             flt1: FilterBuilder::new(),
             flt2: FilterBuilder::new(),

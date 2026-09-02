@@ -119,7 +119,7 @@ async fn main(_spawner: Spawner) {
     let tcv_cfg_online = TransceiverConfigOnline::default();
     let channel_mic = split
         .ch1
-        .new_spi_int(&split.common, InternalSpiMode::SpiRising)
+        .build_spi_int(&split.common, InternalSpiMode::SpiRising)
         .configure(&tcv_cfg, &tcv_cfg_online)
         .enable();
 
@@ -133,7 +133,7 @@ async fn main(_spawner: Spawner) {
         .configure(&flt_cfg)
         .enable(&channel_mic, [&channel_mic]);
 
-    let channel_test = split.ch0.new_parallel_adc(&split.common).enable();
+    let channel_test = split.ch0.build_parallel_adc(&split.common).enable();
 
     flt0.start_regular_conversion();
 
