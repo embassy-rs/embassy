@@ -2,12 +2,14 @@ use cfg_if::cfg_if;
 #[cfg(adc_g0)]
 use heapless::Vec;
 #[cfg(adc_g0)]
+use pac::adc::regs::Chselr;
+#[cfg(adc_g0)]
 use pac::adc::vals::Ckmode;
 use pac::adc::vals::Dmacfg;
+#[cfg(adc_g0)]
+pub use pac::adc::vals::{Align, Ovsr, Ovss, Presc, Scandir, Sq};
 #[cfg(adc_v3)]
 use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
-#[cfg(adc_g0)]
-pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 #[cfg(adc_h5)]
 use pac::adccommon::vals::Ckmode;
 #[cfg(any(adc_h5, adc_h7rs))]
@@ -288,14 +290,34 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>, _injected: bool) {
         #[cfg(adc_g0)]
         {
+            // Configurable sequencer channel count
+            const CHSELR_SQ_SIZE: usize = 8;
+            // Max channel that configurable sequencer supports
+            const CHSELR_SQ_MAX_CHANNEL: u8 = 14;
+
             let mut sample_times = Vec::<SampleTime, SAMPLE_TIMES_CAPACITY>::new();
 
-            self.chselr().write(|chselr| {
-                self.smpr().write(|smpr| {
-                    for ((channel, _), sample_time) in sequence {
-                        chselr.set_chsel(channel.into(), true);
-                        if let Some(i) = sample_times.iter().position(|&t| t == sample_time) {
-                            smpr.set_smpsel(channel.into(), (i as u8).into());
+            let mut needs_hw = sequence.len() == 1 || sequence.len() > CHSELR_SQ_SIZE;
+            let mut is_ordered_up = true;
+            let mut is_ordered_down = true;
+
+            let sequence_len = sequence.len();
+            let mut hw_channel_selection: u32 = 0;
+            let mut last_channel: u8 = 0;
+
+            self.chselr_1().write(|w| {
+                for (i, ((channel, _), sample_time)) in sequence.enumerate() {
+                    // Determine if we can use sequencer
+                    needs_hw = needs_hw || channel > CHSELR_SQ_MAX_CHANNEL;
+                    is_ordered_up = is_ordered_up && (channel > last_channel || i == 0);
+                    is_ordered_down = is_ordered_down && (channel < last_channel || i == 0);
+                    hw_channel_selection |= 1 << channel;
+                    last_channel = channel;
+
+                    // Assign & check sample times
+                    self.smpr().write(|smpr| {
+                        if let Some(j) = sample_times.iter().position(|&t| t == sample_time) {
+                            smpr.set_smpsel(channel.into(), (j as u8).into());
                         } else {
                             smpr.set_sample_time(sample_times.len(), sample_time);
                             if let Err(_) = sample_times.push(sample_time) {
@@ -305,9 +327,49 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                                 );
                             }
                         }
+                    });
+
+                    // Prepare sequencer
+                    if !needs_hw {
+                        w.set_sq(i, channel.into());
                     }
-                })
+                }
+
+                // Terminate sequence
+                for i in sequence_len..CHSELR_SQ_SIZE {
+                    w.set_sq(i, Sq::Eos);
+                }
             });
+
+            if needs_hw {
+                assert!(
+                    sequence_len <= CHSELR_SQ_SIZE || is_ordered_up || is_ordered_down,
+                    "Sequencer is required because of unordered channels, but read set cannot be more than {} in size.",
+                    CHSELR_SQ_SIZE
+                );
+                assert!(
+                    sequence_len > CHSELR_SQ_SIZE || is_ordered_up || is_ordered_down,
+                    "Sequencer is required because of unordered channels, but only support HW channels smaller than {}.",
+                    CHSELR_SQ_MAX_CHANNEL
+                );
+
+                // Set required channels for multi-convert.
+                self.chselr().write_value(Chselr(hw_channel_selection));
+            }
+
+            self.cfgr1().modify(|w| {
+                w.set_chselrmod(!needs_hw);
+                w.set_align(Align::Right);
+                w.set_scandir(if is_ordered_up {
+                    Scandir::Upward
+                } else {
+                    Scandir::Backward
+                });
+            });
+
+            // Trigger and wait for the channel selection procedure to complete.
+            self.isr().modify(|w| w.set_ccrdy(false));
+            while !self.isr().read().ccrdy() {}
         }
 
         #[cfg(adc_u0)]
