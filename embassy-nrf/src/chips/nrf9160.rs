@@ -62,7 +62,15 @@ pub mod pac {
     #[cfg(feature = "_s")]
     #[doc(no_inline)]
     pub use nrf_pac::{
+        CC_AES_S as CC_AES,
+        CC_CHACHA_S as CC_CHACHA,
+        CC_CTL_S as CC_CTL,
+        CC_DIN_S as CC_DIN,
+        CC_DOUT_S as CC_DOUT,
+        CC_HASH_S as CC_HASH,
         CC_HOST_RGF_S as CC_HOST_RGF,
+        CC_MISC_S as CC_MISC,
+        CC_PKA_S as CC_PKA,
         CC_RNG_S as CC_RNG,
         CLOCK_S as CLOCK,
         CRYPTOCELL_S as CRYPTOCELL,
@@ -241,7 +249,12 @@ embassy_hal_internal::peripherals! {
 
     // CryptoCell RNG
     #[cfg(feature = "_s")]
-    CC_RNG
+    CC_RNG,
+    AES,
+    HASH,
+    CHACHA,
+    #[cfg(feature = "_s")]
+    PKA
 }
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);

@@ -9,6 +9,7 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use crate::pac;
 
+pub(crate) mod dma;
 pub mod rng;
 
 static ACTIVE_USERS: AtomicU16 = AtomicU16::new(0);

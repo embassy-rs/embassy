@@ -188,7 +188,15 @@ embassy_hal_internal::peripherals! {
     NFCT,
 
     // CryptoCell RNG
-    CC_RNG
+    CC_RNG,
+
+    // CryptoCell symmetric engines
+    AES,
+    HASH,
+    CHACHA,
+
+    // CryptoCell public key engine
+    PKA,
 }
 
 impl_usb!(USBD, USBD, USBD);

@@ -180,12 +180,19 @@ pub mod reset;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
 
-// Currently supported chips
-#[cfg(any(
-    feature = "nrf52840",
-    all(any(feature = "_nrf91", feature = "_nrf5340-app"), feature = "_s"),
-))]
+#[cfg(feature = "_cryptocell")]
 pub mod cryptocell;
+
+#[cfg(any(feature = "_cryptocell", feature = "_cracen"))]
+pub mod aes;
+#[cfg(any(feature = "_cryptocell", feature = "_cracen"))]
+pub mod chacha;
+#[cfg(any(feature = "_cryptocell", feature = "_cracen"))]
+mod crypto_driver;
+#[cfg(any(feature = "_cryptocell", feature = "_cracen"))]
+pub mod hash;
+#[cfg(any(feature = "_cryptocell", feature = "_cracen"))]
+pub mod pka;
 
 #[cfg(not(feature = "_nrf54l"))]
 pub mod rtc;

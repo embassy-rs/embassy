@@ -132,35 +132,35 @@ nrf52832 = ["nrf-pac/nrf52832", "_nrf52", "_nrf52832_anomaly_109", "_spi-v1"]
 ## nRF52833
 nrf52833 = ["nrf-pac/nrf52833", "_nrf52", "_gpio-p1"]
 ## nRF52840
-nrf52840 = ["nrf-pac/nrf52840", "_nrf52", "_gpio-p1"]
+nrf52840 = ["nrf-pac/nrf52840", "_nrf52", "_gpio-p1", "_cryptocell"]
 ## nRF5340 application core in Secure mode
-nrf5340-app-s = ["_nrf5340-app", "_s"]
+nrf5340-app-s = ["_nrf5340-app", "_s", "_cryptocell", "_cryptocell-312"]
 ## nRF5340 application core in Non-Secure mode
 nrf5340-app-ns = ["_nrf5340-app", "_ns"]
 ## nRF5340 network core
 nrf5340-net = ["_nrf5340-net"]
 ## nRF54L15 application core in Secure mode
-nrf54l15-app-s = ["_nrf54l15-app", "_s", "_multi_wdt"]
+nrf54l15-app-s = ["_nrf54l15-app", "_s", "_multi_wdt", "_cracen"]
 ## nRF54L15 application core in Non-Secure mode
 nrf54l15-app-ns = ["_nrf54l15-app", "_ns"]
 ## nRF54L10 application core in Secure mode
-nrf54l10-app-s = ["_nrf54l10-app", "_s", "_multi_wdt"]
+nrf54l10-app-s = ["_nrf54l10-app", "_s", "_multi_wdt", "_cracen"]
 ## nRF54L10 application core in Non-Secure mode
 nrf54l10-app-ns = ["_nrf54l10-app", "_ns"]
 ## nRF54L05 application core in Secure mode
-nrf54l05-app-s = ["_nrf54l05-app", "_s", "_multi_wdt"]
+nrf54l05-app-s = ["_nrf54l05-app", "_s", "_multi_wdt", "_cracen"]
 ## nRF54L05 application core in Non-Secure mode
 nrf54l05-app-ns = ["_nrf54l05-app", "_ns"]
 ## nRF54LM20 application core in Secure mode
-nrf54lm20-app-s = ["_nrf54lm20-app", "_s", "_multi_wdt"]
+nrf54lm20-app-s = ["_nrf54lm20-app", "_s", "_multi_wdt", "_cracen"]
 
 ## nRF9160 in Secure mode
-nrf9160-s = ["_nrf9160", "_s", "_nrf91"]
+nrf9160-s = ["_nrf9160", "_s", "_nrf91", "_cryptocell"]
 ## nRF9160 in Non-Secure mode
 nrf9160-ns = ["_nrf9160", "_ns", "_nrf91"]
 ## The nRF9120 is the internal part number for the nRF9161 and nRF9151.
 ## nRF9120 in Secure mode
-nrf9120-s = ["_nrf9120", "_s", "_nrf91"]
+nrf9120-s = ["_nrf9120", "_s", "_nrf91", "_cryptocell"]
 nrf9151-s = ["nrf9120-s"]
 nrf9161-s = ["nrf9120-s"]
 ## nRF9120 in Non-Secure mode
@@ -189,6 +189,11 @@ _nrf9120 = ["nrf-pac/nrf9120", "_dppi", "_spi-v1"]
 _nrf52 = ["_ppi"]
 _nrf51 = ["_ppi", "_spi-v1"]
 _nrf91 = []
+
+# Crypto accelerators
+_cryptocell = []
+_cryptocell-312 = []
+_cracen = []
 
 _time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
 
@@ -223,6 +228,7 @@ embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg", optional = true }
 embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-channel", optional = true}
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
+embassy-crypto-driver = { version = "0.1.0", path = "../embassy-crypto-driver" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }

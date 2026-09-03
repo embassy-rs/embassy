@@ -467,6 +467,14 @@ embassy_hal_internal::peripherals! {
     // CRACEN
     #[cfg(feature = "_s")]
     CRACEN,
+    #[cfg(feature = "_s")]
+    AES,
+    #[cfg(feature = "_s")]
+    HASH,
+    #[cfg(feature = "_s")]
+    CHACHA,
+    #[cfg(feature = "_s")]
+    PKA,
 
     #[cfg(feature = "_s")]
     // RRAMC

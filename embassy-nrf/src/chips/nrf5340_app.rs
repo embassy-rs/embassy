@@ -81,7 +81,16 @@ pub mod pac {
         CACHEDATA_S as CACHEDATA,
         CACHEINFO_S as CACHEINFO,
         CACHE_S as CACHE,
+        CC_AES_S as CC_AES,
+        CC_CHACHA_S as CC_CHACHA,
+        CC_CTL_S as CC_CTL,
+        CC_DIN_S as CC_DIN,
+        CC_DOUT_S as CC_DOUT,
+        CC_GHASH_S as CC_GHASH,
+        CC_HASH_S as CC_HASH,
         CC_HOST_RGF_S as CC_HOST_RGF,
+        CC_MISC_S as CC_MISC,
+        CC_PKA_S as CC_PKA,
         CC_RNG_S as CC_RNG,
         CLOCK_S as CLOCK,
         COMP_S as COMP,
@@ -332,7 +341,12 @@ embassy_hal_internal::peripherals! {
 
     // CryptoCell RNG
     #[cfg(feature = "_s")]
-    CC_RNG
+    CC_RNG,
+    AES,
+    HASH,
+    CHACHA,
+    #[cfg(feature = "_s")]
+    PKA
 }
 
 impl_ipc!(IPC, IPC, IPC);
