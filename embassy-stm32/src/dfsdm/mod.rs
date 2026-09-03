@@ -683,7 +683,6 @@ where
         let channel = result.jdatach();
         (data, channel)
     }
-
     /// Returns whether a regular conversion result is available.
     pub(crate) fn end_of_regular_conversion() -> bool {
         T::regs().flt(M::CHANNEL.index()).isr().read().reocf()
@@ -947,8 +946,39 @@ where
     }
 
     /// Enables or disables analog watchdog interrupts.
-    fn set_analog_watchdog_interrupt(&mut self, enabled: bool) {
+    pub(crate) fn set_analog_watchdog_interrupt(enabled: bool) {
         T::regs().flt(M::CHANNEL.index()).cr2().modify(|w| w.set_awdie(enabled));
+    }
+
+    /// Returns whether the analog watchdog has been triggerd
+    pub(crate) fn analog_watchdog_triggered() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().awdf()
+    }
+
+    /// Returns bitmap of channels who triggered the high threshold
+    pub(crate) fn analog_watchdog_high_channels() -> u8 {
+        T::regs().flt(M::CHANNEL.index()).awsr().read().awhtf()
+    }
+
+    /// Returns bitmap of channels who triggered the low threshold
+    pub(crate) fn analog_watchdog_low_channels() -> u8 {
+        T::regs().flt(M::CHANNEL.index()).awsr().read().awltf()
+    }
+
+    /// Clears the provided channels' analog watchdog flags
+    pub(crate) fn clear_analog_watchdog_high(channels: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .awsr()
+            .modify(|w| w.set_awhtf(channels));
+    }
+
+    /// Clears the provided channels' analog watchdog flags
+    pub(crate) fn clear_analog_watchdog_low(channels: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .awsr()
+            .modify(|w| w.set_awltf(channels));
     }
 }
 
@@ -985,8 +1015,8 @@ pub struct TransceiverConfigOnline {
     pub short_circuit_detection_config: config_types::ShortCircuitDetectionConfig,
     /// Offset
     pub offset: u32,
-    /// Breaksignal assignment
-    pub break_signals: config_types::BreakSignals,
+    /// Breaksignal assignment for short-circuit detector
+    pub break_signals: config_types::BreakSignals, //TODO maybe merge with shortcircuit config
 }
 
 impl Default for TransceiverConfigOnline {
@@ -1188,7 +1218,7 @@ where
         self.set_short_circuit_detector(scd_en);
         self.set_shortcircuit_threshold(scd_ths);
         self.set_offset(config.offset);
-        self.assign_breakn(config.break_signals);
+        self.assign_break_short_circuit(config.break_signals);
     }
 
     /// Enable/Disable the transceiver
@@ -1213,15 +1243,15 @@ where
     }
 
     /// Set channel offset
-    fn set_offset(&mut self, offset: u32) {
+    pub fn set_offset(&mut self, offset: u32) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr2()
             .modify(|w| w.set_offset(offset));
     }
 
-    /// Assign to break-signals
-    fn assign_breakn(&mut self, signals: config_types::BreakSignals) {
+    /// Assign short-circuit detector of transceiver to break-signals
+    pub fn assign_break_short_circuit(&mut self, signals: config_types::BreakSignals) {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
@@ -1229,7 +1259,7 @@ where
     }
 
     /// Set short-circuit-detector-threshold
-    fn set_shortcircuit_threshold(&mut self, threshold: u8) {
+    pub fn set_shortcircuit_threshold(&mut self, threshold: u8) {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
@@ -1276,6 +1306,10 @@ where
         if Filter::<T, F, Enabled>::end_of_regular_conversion() {
             Filter::<T, F, Enabled>::set_regular_end_of_conversion_interrupt(false);
             <T as FilterInterrupt<F>>::state().regular_waker.wake();
+        }
+        if Filter::<T, F, Enabled>::analog_watchdog_triggered() {
+            Filter::<T, F, Enabled>::set_analog_watchdog_interrupt(false);
+            <T as FilterInterrupt<F>>::state().watchdog_waker.wake();
         }
     }
 }
@@ -1646,6 +1680,78 @@ where
     }
 }
 
+// ============================================================
+// Interrupt/Event accessors
+// ============================================================
+
+//TODO DOCSTRINGS, BITMAP TYPE, SPLIT
+pub enum AnalogWatchdogEvent {
+    /// AnalogWatchdog high threshold trigerred.
+    HighThreshold { transceivers: u8 },
+    /// AnalogWatchdog low threshold trigerred.
+    LowThreshold { transceivers: u8 },
+}
+pub struct AnalogWatchdog<'a, 'd, T, M>
+where
+    T: Instance,
+    M: FilterMarker,
+{
+    _instance_marker: PhantomData<(T, M)>,
+    common: &'a DfsdmCommon<'d, T, Enabled>,
+}
+
+impl<'a, 'd, T, M> AnalogWatchdog<'a, 'd, T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+{
+    /// Wait for a analog watchdog event
+    pub async fn wait_for_event(&mut self) -> AnalogWatchdogEvent {
+        // self.start_regular_conversion();
+
+        poll_fn(|cx| {
+            Filter::<T, M, Enabled>::set_analog_watchdog_interrupt(false);
+            T::state().watchdog_waker.register(cx.waker());
+
+            let high = Filter::<T, M, Enabled>::analog_watchdog_high_channels();
+            let low = Filter::<T, M, Enabled>::analog_watchdog_low_channels();
+
+            if high != 0 {
+                Filter::<T, M, Enabled>::clear_analog_watchdog_high(high);
+                return Poll::Ready(AnalogWatchdogEvent::HighThreshold { transceivers: high });
+            }
+            if low != 0 {
+                Filter::<T, M, Enabled>::clear_analog_watchdog_low(low);
+                return Poll::Ready(AnalogWatchdogEvent::LowThreshold { transceivers: low });
+            }
+
+            Filter::<T, M, Enabled>::set_analog_watchdog_interrupt(true);
+            Poll::Pending
+        })
+        .await
+    }
+
+    pub fn set_high_threshold(&mut self, threshold: i32) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .awhtr()
+            .modify(|w| w.set_awht(threshold as u32));
+    }
+
+    pub fn set_low_threshold(&mut self, threshold: i32) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .awltr()
+            .modify(|w| w.set_awlt(threshold as u32));
+    }
+
+    pub fn assign_to_break_signals(&mut self, break_signals: config_types::BreakSignals) {
+        T::regs()
+            .ch(M::CHANNEL.index())
+            .awscdr()
+            .modify(|w| w.set_bkscd(break_signals.bits()));
+    }
+}
 // ============================================================
 // Single-use selectors
 // ============================================================

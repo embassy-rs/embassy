@@ -1,3 +1,5 @@
+use core::sync::atomic::AtomicU32;
+
 use super::*;
 
 // =============================================================================
@@ -437,6 +439,8 @@ pub struct State {
     pub injected_waker: AtomicWaker,
     /// Waker for the regular interrupt requests
     pub regular_waker: AtomicWaker,
+    /// Waker for analog interrupt watchdog events
+    pub watchdog_waker: AtomicWaker,
     // Maybe we need some atomics? pub injected_done: core::sync::atomic::AtomicBool,
 }
 
@@ -446,6 +450,7 @@ impl State {
         Self {
             injected_waker: AtomicWaker::new(),
             regular_waker: AtomicWaker::new(),
+            watchdog_waker: AtomicWaker::new(),
         }
     }
 }

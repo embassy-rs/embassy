@@ -30,12 +30,18 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_CHnAWSCDR.AWFOSR    [x] internal [X] pub
 
 ### Inputchannel on
-* DFSDM_CHnCFGR1.CKABEN     [x] internal [X] pub [X] When Enabled
-* DFSDM_CHnCFGR1.SCDEN      [x] internal [X] pub [X] When Enabled
-* DFSDM_CHnCFGR2.OFFSET     [x] internal [X] pub [X] When Enabled
-* DFSDM_CHnAWSCDR.BKSCD     [x] internal [X] pub [X] When Enabled   Research if we need to connect to official triggers.
-* DFSDM_CHnAWSCDR.SCDT      [x] internal [X] pub [X] When Enabled
+* DFSDM_CHnCFGR1.CKABEN     [x] internal [X] pub [X] Config
+* DFSDM_CHnCFGR1.SCDEN      [x] internal [X] pub [X] Config
+* DFSDM_CHnCFGR2.OFFSET     [x] internal [X] pub [X] Config
+* DFSDM_CHnAWSCDR.BKSCD     [x] internal [X] pub [X] Config   Research if we need to connect to official triggers.
+* DFSDM_CHnAWSCDR.SCDT      [x] internal [X] pub [X] Config
 * DFSDM_CHnDLYR.PLSSKP      [x] internal [X] pub [X] When Enabled   Not in config, implemented as method.
+
+MAYBE REMOVE ONLINE RECONFIG AND ONLY USE ACCESSORS
+
+WATCHDOG FOR SPLIT!
+
+OTHER INTERRUPT POLLERS!!
 
 ## TIMERS
 * Implement set_break_dfsdm_enable, set_break2_dfsdm_enable reference: set_break_comparator_enable
@@ -98,10 +104,10 @@ Due to interrupts we should really put the IRQ requirement into the Common? And 
 * DFSDM_FLTxRDATAR.RDATA       [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLTxRDATAR.RDATACH     [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLTxRDATAR.RPEND       [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
-* DFSDM_FLTxAWHTR.AWHT         [ ] internal [ ] pub
+* DFSDM_FLTxAWHTR.AWHT         [X] internal [X] pub   [ ] Config
 * DFSDM_FLTxAWHTR.BKAWH        [ ] internal [ ] pub
-* DFSDM_FLTxAWLTR.AWLT         [ ] internal [ ] pub
-* DFSDM_FLTxAWLTR.BKAWL        [ ] internal [ ] pub
+* DFSDM_FLTxAWLTR.AWLT         [X] internal [X] pub   [ ] Config
+* DFSDM_FLTxAWLTR.BKAWL        [X] internal [X] pub   [ ] Config
 * DFSDM_FLTxEXMAX.EXMAX        [ ] internal [ ] pub
 * DFSDM_FLTxEXMAX.EXMAXCH      [ ] internal [ ] pub
 * DFSDM_FLTxEXMIN.EXMIN        [ ] internal [ ] pub
@@ -115,22 +121,22 @@ Due to interrupts we should really put the IRQ requirement into the Common? And 
 * DFSDM_FLT0ISR.CKABF  (ONLY IN 0, GLOBAL)
 * DFSDM_FLT0ISR.RCIP            [x] internal [x] pub    
 * DFSDM_FLT0ISR.JCIP            [x] internal [x] pub    
-* DFSDM_FLT0ISR.AWDF            [ ] internal [ ] pub
-* DFSDM_FLT0ISR.ROVRF           [ ] internal [ ] pub
-* DFSDM_FLT0ISR.JOVRF           [ ] internal [ ] pub
 * DFSDM_FLT0ISR.REOCF           [x] internal [x] pub    Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLT0ISR.JEOCF           [x] internal [x] pub    Readable/Modifiable also when channel disabled, maybe read res after shutdown?
-* DFSDM_FLTxAWSR.AWHTF          [ ] internal [ ] pub
-* DFSDM_FLTxAWSR.AWLTF          [ ] internal [ ] pub
+* DFSDM_FLT0ISR.AWDF            [X] internal [ ] pub
+* DFSDM_FLT0ISR.ROVRF           [ ] internal [ ] pub
+* DFSDM_FLT0ISR.JOVRF           [ ] internal [ ] pub
+* DFSDM_FLTxAWSR.AWHTF          [X] internal [ ] pub
+* DFSDM_FLTxAWSR.AWLTF          [X] internal [ ] pub
 
 ### Clear
 ## Filter
-* DFSDM_FLT0ISR.CLRSCDF     [ ] internal [ ] pub    (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0ISR.CLRCKABF    [ ] internal [ ] pub    (ONLY IN 0, GLOBAL)
 * DFSDM_FLT0ISR.CLRROVRF    [ ] internal [ ] pub    
 * DFSDM_FLT0ISR.CLRJOVRF    [ ] internal [ ] pub    
-* DFSDM_FLTxAWCFR.CLRAWHTF  [ ] internal [ ] pub    
-* DFSDM_FLTxAWCFR.CLRAWLTF  [ ] internal [ ] pub    
+* DFSDM_FLT0ISR.CLRSCDF     [ ] internal [ ] pub    (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0ISR.CLRCKABF    [ ] internal [ ] pub    (ONLY IN 0, GLOBAL)
+* DFSDM_FLTxAWCFR.CLRAWHTF  [X] internal [ ] pub    
+* DFSDM_FLTxAWCFR.CLRAWLTF  [X] internal [ ] pub    
 
 
 # General ToDos:
@@ -150,3 +156,46 @@ Due to interrupts we should really put the IRQ requirement into the Common? And 
 * The enable semantics should really also be linked to channel assignments in filters?
 
    
+
+# Interrupts:
+## AnalogWatchdog
+* Enable: DFSDM_FLTyCR2.AWDIE
+* Flag: DFSDM_FLTyISR.AWDF, DFSDM_FLTxAWSR.CLRAWHTF, DFSDM_FLTxAWSR.CLRAWLTF
+* Clear: DFSDM_FLTxAWCFR.CLRAWHTF, DFSDM_FLTxAWCFR.CLRAWLTF
+
+## ShortcircuitDetector
+* Enable: DFSDM_FLT0CR2.SCDIE
+* Flag: DFSDM_FLT0ISR.SCDF
+* Clear: DFSDM_FLT0ICR.CLRSCDF
+
+ClockAbsenceDetector
+* Enable: DFSDM_FLT0CR2.CKABIE
+* Flag: DFSDM_FLT0ISR.CKABF
+* Clear: DFSDM_FLT0ICR.CLRCKABF
+
+
+Overrun:
+
+* Enable: DFSDM_FLTyCR2.ROVRIE
+* Flag: DFSDM_FLTyISR.ROVRF
+
+* Enable: DFSDM_FLTyCR2.JOVRIE
+* Flag: DFSDM_FLTyISR.JOVRF
+
+``` rust
+use static_cell::StaticCell;
+
+static SURV: StaticCell<Surveillance<'static>> = StaticCell::new();
+
+// in main/init:
+let surveillance = Surveillance::new(/* ... */);
+let surveillance: &'static mut Surveillance<'static> = SURV.init(surveillance);
+
+// now split by move, each half independently 'static-ownable
+let Surveillance { scd, ckab } = surveillance; // or a real .split() consuming self
+
+spawner.spawn(scd_task(scd)).unwrap();
+spawner.spawn(ckab_task(ckab)).unwrap();
+
+let (reg, inj, mut watchdog, common) = Filter::new(Irqs).split();
+```
