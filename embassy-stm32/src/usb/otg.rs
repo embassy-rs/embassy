@@ -130,6 +130,44 @@ impl<'d, T: Instance> Driver<'d, T> {
         }
     }
 
+    /// Initializes USB OTG peripheral with internal High-Speed PHY, on chips where that PHY
+    /// drives dedicated package pins instead of GPIO alternate functions.
+    ///
+    /// On the STM32N6 the integrated UTMI+ PHY is wired to the `OTGx_HSDP` / `OTGx_HSDM`
+    /// balls (RM0486 Rev 4, Figure 982, p. 3763), which are not GPIOs and therefore have no
+    /// [`DpPin`] / [`DmPin`] implementations — there is nothing to hand over here.
+    /// For chips whose internal High-Speed PHY *is* reached through GPIO alternate functions
+    /// (STM32U5, STM32H7RS, ...), use [`Driver::new_hs`] and pass the two pins.
+    ///
+    /// # Arguments
+    ///
+    /// * `ep_out_buffer` - An internal buffer used to temporarily store received packets.
+    /// Must be large enough to fit all OUT endpoint max packet sizes.
+    /// Endpoint allocation will fail if it is too small.
+    pub fn new_hs_dedicated_pins(
+        _peri: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        ep_out_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        assert!(T::HIGH_SPEED, "Peripheral is not capable of high-speed USB");
+
+        let instance = OtgInstance {
+            regs: T::regs(),
+            state: T::state(),
+            fifo_depth_words: T::FIFO_DEPTH_WORDS,
+            tx_fifo_count: T::state().endpoint_count() as u8,
+            extra_rx_fifo_words: RX_FIFO_EXTRA_SIZE_WORDS,
+            phy_type: PhyType::InternalHighSpeed,
+            calculate_trdt_fn: calculate_trdt::<T>,
+        };
+
+        Self {
+            inner: OtgDriver::new(ep_out_buffer, instance, config),
+            phantom: PhantomData,
+        }
+    }
+
     /// Initializes USB OTG peripheral with external Full-speed PHY (usually, a High-speed PHY in Full-speed mode).
     ///
     /// # Arguments
@@ -440,12 +478,37 @@ impl<'d, T: Instance> Drop for Bus<'d, T> {
     }
 }
 
-trait SealedInstance {
+pub(super) trait SealedInstance {
     const HIGH_SPEED: bool;
     const FIFO_DEPTH_WORDS: u16;
 
     fn regs() -> Otg;
     fn state() -> State<'static>;
+
+    /// Bring up the PHY that feeds this instance, if it needs a bring-up of its own.
+    ///
+    /// Called by `common_init` before the OTG core is enabled and reset. Empty for every
+    /// family whose PHY is handled by the core's own clock/power gating.
+    fn phy_init() {}
+}
+
+/// STM32N6: map the PHY reference clock to `USBPHYC_CR.FSEL`.
+///
+/// The integrated High-Speed PHY only accepts these three frequencies
+/// (RM0486 Rev 4, `USBPHYC_CR.FSEL`, p. 3929).
+#[cfg(stm32n6)]
+pub(super) fn fsel_from_freq(freq: crate::time::Hertz) -> crate::pac::usbphyc::vals::Fsel {
+    use crate::pac::usbphyc::vals::Fsel;
+
+    match freq.0 {
+        19_200_000 => Fsel::Mhz192,
+        20_000_000 => Fsel::Mhz20,
+        24_000_000 => Fsel::Mhz24,
+        _ => panic!(
+            "USB HS PHY reference clock should be 19.2, 20 or 24 MHz but is {} Hz. Please double-check your RCC settings.",
+            freq.0
+        ),
+    }
 }
 
 /// USB instance trait.
@@ -652,6 +715,135 @@ foreach_interrupt!(
         }
 
         impl Instance for crate::peripherals::USB_OTG_HS {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+
+    (USB1_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
+        impl crate::peripherals::USB1_OTG_HS {
+            cfg_if::cfg_if! {
+                if #[cfg(stm32n6)] {
+                    // RM0486 Rev 4, §73.3 Table 736, p. 3762: 9 bidirectional device
+                    // endpoints including EP0, and 4 KB of dedicated SRAM = 1024 words.
+                    const ENDPOINT_COUNT: usize = 9;
+                } else {
+                    compile_error!("USB1_OTG_HS peripheral is not supported by this chip.");
+                }
+            }
+        }
+
+        impl SealedInstance for crate::peripherals::USB1_OTG_HS {
+            const HIGH_SPEED: bool = true;
+
+            cfg_if::cfg_if! {
+                if #[cfg(stm32n6)] {
+                    const FIFO_DEPTH_WORDS: u16 = 1024;
+                } else {
+                    compile_error!("USB1_OTG_HS peripheral is not supported by this chip.");
+                }
+            }
+
+            fn regs() -> Otg {
+                unsafe { Otg::from_ptr(crate::pac::USB1_OTG_HS.as_ptr()) }
+            }
+
+            fn state() -> State<'static> {
+                use embassy_usb_synopsys_otg::StateStorage;
+                use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+
+                const EP_COUNT: usize = crate::peripherals::USB1_OTG_HS::ENDPOINT_COUNT;
+                static STATE: StateStorage<EP_COUNT> = StateStorage::new(CriticalSectionRawMutex::new());
+                STATE.as_state()
+            }
+
+            fn phy_init() {
+                let fsel = fsel_from_freq(<Self as crate::rcc::SealedRccPeripheral>::frequency());
+                let rcc = crate::pac::RCC;
+
+                // The RM requires the PHY trims to be programmed while the PHY is under
+                // reset (RM0486 Rev 4, §74.4.4, p. 3928) and says nothing either way about
+                // FSEL, which lives next to them in USBPHYC_CR; program it in the same
+                // window to be safe. Use the atomic set/clear reset registers so the reset
+                // stays asserted across the write; the generic `rcc::enable_and_reset`
+                // would already have released it.
+                rcc.ahb5rstsr().write(|w| {
+                    w.set_otgphy1rsts(true);
+                    w.set_syscfgotghsphy1rsts(true);
+                });
+                // Clocking the PHY by hand skips the RCC refcount. That is fine here:
+                // the PHY is private to its OTG core and lives and dies with it.
+                rcc.ahb5ensr().write(|w| w.set_otgphy1ens(true));
+                // The trims (TRIM1CR / TRIM2CR) keep their reset values, which are the
+                // recommended ones (RM0486 Rev 4, §74.5, pp. 3930-3934).
+                crate::pac::OTG1PHYCTL.cr().modify(|w| w.set_fsel(fsel));
+                rcc.ahb5rstcr().write(|w| {
+                    w.set_otgphy1rstc(true);
+                    w.set_syscfgotghsphy1rstc(true);
+                });
+            }
+        }
+
+        impl Instance for crate::peripherals::USB1_OTG_HS {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+
+    (USB2_OTG_HS, otg, $block:ident, GLOBAL, $irq:ident) => {
+        impl crate::peripherals::USB2_OTG_HS {
+            cfg_if::cfg_if! {
+                if #[cfg(stm32n6)] {
+                    // Second instance, identical to the first — RM0486 Rev 4,
+                    // §73.3 Table 736, p. 3762.
+                    const ENDPOINT_COUNT: usize = 9;
+                } else {
+                    compile_error!("USB2_OTG_HS peripheral is not supported by this chip.");
+                }
+            }
+        }
+
+        impl SealedInstance for crate::peripherals::USB2_OTG_HS {
+            const HIGH_SPEED: bool = true;
+
+            cfg_if::cfg_if! {
+                if #[cfg(stm32n6)] {
+                    const FIFO_DEPTH_WORDS: u16 = 1024;
+                } else {
+                    compile_error!("USB2_OTG_HS peripheral is not supported by this chip.");
+                }
+            }
+
+            fn regs() -> Otg {
+                unsafe { Otg::from_ptr(crate::pac::USB2_OTG_HS.as_ptr()) }
+            }
+
+            fn state() -> State<'static> {
+                use embassy_usb_synopsys_otg::StateStorage;
+                use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+
+                const EP_COUNT: usize = crate::peripherals::USB2_OTG_HS::ENDPOINT_COUNT;
+                static STATE: StateStorage<EP_COUNT> = StateStorage::new(CriticalSectionRawMutex::new());
+                STATE.as_state()
+            }
+
+            fn phy_init() {
+                // Same sequence as USB1_OTG_HS above, on PHY2.
+                let fsel = fsel_from_freq(<Self as crate::rcc::SealedRccPeripheral>::frequency());
+                let rcc = crate::pac::RCC;
+
+                rcc.ahb5rstsr().write(|w| {
+                    w.set_otgphy2rsts(true);
+                    w.set_syscfgotghsphy2rsts(true);
+                });
+                rcc.ahb5ensr().write(|w| w.set_otgphy2ens(true));
+                crate::pac::OTG2PHYCTL.cr().modify(|w| w.set_fsel(fsel));
+                rcc.ahb5rstcr().write(|w| {
+                    w.set_otgphy2rstc(true);
+                    w.set_syscfgotghsphy2rstc(true);
+                });
+            }
+        }
+
+        impl Instance for crate::peripherals::USB2_OTG_HS {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
     };
