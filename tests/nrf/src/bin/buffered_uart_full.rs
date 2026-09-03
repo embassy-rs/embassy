@@ -15,7 +15,7 @@ use panic_probe as _;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_nrf::init(Default::default());
+    let mut p = embassy_nrf::init(Default::default());
     let mut config = uarte::Config::default();
     config.parity = uarte::Parity::Excluded;
     config.baudrate = uarte::Baudrate::Baud1m;
@@ -23,19 +23,7 @@ async fn main(_spawner: Spawner) {
     let mut tx_buffer = [0u8; 500];
     let mut rx_buffer = [0u8; 500];
 
-    let u = BufferedUarte::new(
-        peri!(p, UART0),
-        p.TIMER0,
-        p.PPI_CH0,
-        p.PPI_CH1,
-        p.PPI_GROUP0,
-        peri!(p, PIN_A),
-        peri!(p, PIN_B),
-        irqs!(UART0_BUFFERED),
-        config.clone(),
-        &mut rx_buffer,
-        &mut tx_buffer,
-    );
+    let u = buffered_uarte_new!(p, config.clone(), &mut rx_buffer, &mut tx_buffer);
 
     info!("uarte initialized!");
 

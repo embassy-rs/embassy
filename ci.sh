@@ -43,6 +43,7 @@ rm -rf out/tests/nrf51422-dk
  
 # disabled because these boards are not on the shelf
 rm -rf out/tests/mspm0g3507
+rm -rf out/tests/nrf54l15-dk
 
 # rm out/tests/stm32wb55rg/wpan_mac
 # rm out/tests/stm32wb55rg/wpan_ble

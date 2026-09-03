@@ -15,7 +15,7 @@ use embassy_nrf::buffered_uarte::{self, BufferedUarteRx};
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::ppi::{Event, Ppi, Task};
 use embassy_nrf::uarte::UarteTx;
-use embassy_nrf::{pac, peripherals, uarte};
+use embassy_nrf::{peripherals, uarte};
 use embassy_time::Timer;
 use panic_probe as _;
 
@@ -34,17 +34,7 @@ async fn main(_spawner: Spawner) {
         OutputDrive::Standard,
     ));
 
-    let mut u = BufferedUarteRx::new(
-        peri!(p, UART0),
-        p.TIMER0,
-        p.PPI_CH0,
-        p.PPI_CH1,
-        p.PPI_GROUP0,
-        irqs!(UART0_BUFFERED),
-        peri!(p, PIN_B),
-        config.clone(),
-        &mut rx_buffer,
-    );
+    let mut u = buffered_uarte_rx_new!(p, peri!(p, PIN_B).reborrow(), config.clone(), &mut rx_buffer);
 
     info!("uarte initialized!");
 
@@ -54,14 +44,19 @@ async fn main(_spawner: Spawner) {
     // Tx spam in a loop.
     const NSPAM: usize = 17;
     static mut TX_BUF: [u8; NSPAM] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
-    let _spam = UarteTx::new(peri!(p, UART1), irqs!(UART1), peri!(p, PIN_A), config.clone());
-    let spam_peri = pac::UARTE1;
+    let _spam = UarteTx::new(
+        peri!(p, UART1).reborrow(),
+        irqs!(UART1),
+        peri!(p, PIN_A).reborrow(),
+        config.clone(),
+    );
+    let spam_peri = peri_pac!(UART1);
     let event = unsafe { Event::new_unchecked(NonNull::new_unchecked(spam_peri.events_dma().tx().end().as_ptr())) };
     let task = unsafe { Task::new_unchecked(NonNull::new_unchecked(spam_peri.tasks_dma().tx().start().as_ptr())) };
-    let mut spam_ppi = Ppi::new_one_to_one(p.PPI_CH2, event, task);
+    let mut spam_ppi = Ppi::new_one_to_one(peri!(p, PPI_CH2).reborrow(), event, task);
     spam_ppi.enable();
-    let p = (&raw mut TX_BUF) as *mut u8;
-    spam_peri.dma().tx().ptr().write_value(p as u32);
+    let buf = (&raw mut TX_BUF) as *mut u8;
+    spam_peri.dma().tx().ptr().write_value(buf as u32);
     spam_peri.dma().tx().maxcnt().write(|w| w.set_maxcnt(NSPAM as _));
     spam_peri.tasks_dma().tx().start().write_value(1);
 
