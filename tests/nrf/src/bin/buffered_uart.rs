@@ -25,19 +25,7 @@ async fn main(_spawner: Spawner) {
 
     // test teardown + recreate of the buffereduarte works fine.
     for _ in 0..2 {
-        let u = BufferedUarte::new(
-            peri!(p, UART0).reborrow(),
-            p.TIMER0.reborrow(),
-            p.PPI_CH0.reborrow(),
-            p.PPI_CH1.reborrow(),
-            p.PPI_GROUP0.reborrow(),
-            peri!(p, PIN_A).reborrow(),
-            peri!(p, PIN_B).reborrow(),
-            irqs!(UART0_BUFFERED),
-            config.clone(),
-            &mut rx_buffer,
-            &mut tx_buffer,
-        );
+        let u = buffered_uarte_new!(p, config.clone(), &mut rx_buffer, &mut tx_buffer);
 
         info!("uarte initialized!");
 

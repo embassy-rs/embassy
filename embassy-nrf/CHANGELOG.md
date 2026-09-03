@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added: per-peripheral `DMA_SIZE` constants in the `uarte`, `spim`, `spis`, `twim`, `twis`, `i2s`, `pdm` and `saadc` modules, and `pwm::MAX_SEQUENCE_LEN`.
 - removed: the crate-level `DMA_SIZE` constant. It was wrong because the max DMA size changes per peripheral.
 - added: System OFF support for the nRF54L series.
+- bugfix: buffered_uarte: nRF54: reset the RX state when creating a `BufferedUarteRx`, so recreating one after dropping it receives data again.
+- bugfix: buffered_uarte: nRF54: stop the RX DMA and resume it on `consume()` when the RX buffer fills up, instead of panicking.
 - bugfix: usb: don't re-arm OUT endpoints twice per packet, which could silently drop received packets under load.
 - bugfix: usb: apply the nRF52840 Erratum 199 workaround around USBD EasyDMA transfers.
 - changed: allow configuring I2S in master mode without master clock output pin
