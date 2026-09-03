@@ -77,47 +77,297 @@ impl<'d> PinSlot<'d> {
     }
 }
 
-/// [`Transceiver`]
-/// Configured DFSDM data input transceiver.
-pub struct Transceiver<'a, 'd, T, M, S, MODE, P>
-where
-    T: Instance,
-    M: TransceiverMarker + NextChannelForInstance<T>,
-    S: PinSet,
-    MODE: ChannelMode,
-    P: PowerState,
-{
-    pub(crate) common: &'a DfsdmCommon<'d, T, Enabled>,
+// =============================================================================
+// Entrypoint to creating a DFSDM driver instance.
+// =============================================================================
+
+/// DFSDM driver.
+pub struct Dfsdm<'d, T: Instance, C: ClockOutputMode> {
     _instance_marker: PhantomData<T>,
-    _transceiver_marker: PhantomData<M>,
-    _pinset_marker: PhantomData<S>,
-    _datasource_marker: PhantomData<MODE>,
-    _powerstate_marker: PhantomData<P>,
+    _clock_mode: PhantomData<C>,
+    peri: Option<Peri<'d, T>>,
+    ckout: Option<Flex<'d>>,
 }
 
-impl<'a, 'd, T, M, S, MODE, P> Drop for Transceiver<'a, 'd, T, M, S, MODE, P>
+impl<'d, T, C> Dfsdm<'d, T, C>
 where
     T: Instance,
-    M: TransceiverMarker + NextChannelForInstance<T>,
-    S: PinSet,
-    MODE: ChannelMode,
+    C: ClockOutputMode,
+{
+}
+
+#[allow(private_bounds)]
+impl<'d, T, C> Dfsdm<'d, T, C>
+where
+    C: ClockOutputMode,
+    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>,
+{
+}
+
+impl<'d, T> Dfsdm<'d, T, OutputEnabled>
+where
+    T: Instance,
+{
+    /// Configure DFSDM module with a clock output
+    pub fn new_ckout(
+        peri: Peri<'d, T>,
+        ckout: Peri<'d, if_afio!(impl CkoutPin<T, A>)>,
+        ckout_source: config_types::CkoutSource,
+        ckout_div: config_types::CkoutDivider,
+    ) -> Self {
+        let ckout = new_pin!(ckout, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+
+        //         macro_rules! config_pins {
+        //     ($($pin:ident),*) => {
+        //                 critical_section::with(|_| {
+        //             $(
+        //                 set_as_af!($pin, AfType::input(Pull::None));
+        //             )*
+        //         })
+        //     };
+        // }
+        // TODO MAYBE USE CRITICAL SECTION FOR AFS?!
+
+        let mut dfsdm = Self::new_inner(peri, ckout);
+
+        dfsdm.set_ckout_src(ckout_source);
+        dfsdm.set_ckout_div(ckout_div);
+
+        dfsdm
+    }
+}
+
+impl<'d, T> Dfsdm<'d, T, OutputDisabled>
+where
+    T: Instance,
+{
+    /// Configure DFSDM module without a clock output
+    pub fn new(peri: Peri<'d, T>) -> Self {
+        let mut dfsdm = Self::new_inner(peri, None);
+
+        dfsdm.set_ckout_div(config_types::CkoutDivider::DISABLED);
+
+        dfsdm
+    }
+}
+
+impl<'d, T, C> Dfsdm<'d, T, C>
+where
+    T: Instance,
+    C: ClockOutputMode,
+{
+    fn new_inner(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
+        let _ = peri;
+
+        rcc::enable_and_reset::<T>();
+
+        Self {
+            _instance_marker: PhantomData,
+            _clock_mode: PhantomData,
+            ckout: ckout,
+            peri: Some(peri),
+        }
+    }
+
+    // Set's the clock-output clock-divider
+    fn set_ckout_div(&mut self, divider: config_types::CkoutDivider) {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutdiv(divider.into()));
+    }
+
+    /// Set's the clock-output clock-source
+    fn set_ckout_src(&mut self, source: config_types::CkoutSource) {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutsrc(source.into()));
+    }
+}
+
+// =============================================================================
+// DfsdmCommon
+// =============================================================================
+
+/// Holds regerences to the peripheral and the optional clock-output. Disables the RCC of the peripheral when dropped.
+pub struct DfsdmCommon<'d, T: Instance, P: PowerState> {
+    _peri: Peri<'d, T>,
+    _ckout: Option<Flex<'d>>,
+    _powerstate_marker: PhantomData<P>,
+    datin_slots: [PinSlot<'d>; 8],
+    ckin_slots: [PinSlot<'d>; 8],
+}
+impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
+    fn insert_pin(&mut self, ch: usize, kind: PinKind, flex: Option<Flex<'d>>) {
+        if let Some(p) = flex {
+            let slot = match kind {
+                PinKind::Datin => &mut self.datin_slots[ch],
+                PinKind::Ckin => &mut self.ckin_slots[ch],
+            };
+            critical_section::with(|cs| {
+                *slot.inner.borrow_ref_mut(cs) = Some(p);
+            });
+            slot.rc.store(1, Ordering::Relaxed);
+        }
+    }
+
+    fn get_slot(&self, ch: usize, kind: PinKind) -> &PinSlot<'d> {
+        match kind {
+            PinKind::Datin => &self.datin_slots[ch],
+            PinKind::Ckin => &self.ckin_slots[ch],
+        }
+    }
+
+    pub(crate) fn acquire_pin(&self, ch: usize, kind: PinKind) -> Result<(), Error> {
+        let slot = self.get_slot(ch, kind);
+        loop {
+            let val = slot.rc.load(Ordering::Acquire);
+            if val == 0 {
+                return Err(Error::NeighborPinUnavailable);
+            }
+            if slot
+                .rc
+                .compare_exchange(val, val + 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                return Ok(());
+            }
+        }
+    }
+
+    pub(crate) fn release_pin(&self, ch: usize, kind: PinKind) {
+        let slot = self.get_slot(ch, kind);
+        loop {
+            let val = slot.rc.load(Ordering::Acquire);
+            if val == 0 {
+                return; // Prevent underflow
+            }
+            if slot
+                .rc
+                .compare_exchange(val, val - 1, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok()
+            {
+                if val - 1 == 0 {
+                    critical_section::with(|cs| {
+                        let _ = slot.inner.borrow_ref_mut(cs).take();
+                    });
+                }
+                return;
+            }
+        }
+    }
+
+    pub(crate) fn acquire_pins<S: PinSet>(&self, ch: usize) -> Result<(), Error> {
+        if S::HAS_DATA {
+            self.acquire_pin(ch, PinKind::Datin)?;
+        }
+        if S::HAS_CLK {
+            if let Err(e) = self.acquire_pin(ch, PinKind::Ckin) {
+                if S::HAS_DATA {
+                    self.release_pin(ch, PinKind::Datin);
+                }
+                return Err(e);
+            }
+        }
+        Ok(())
+    }
+
+    fn into_raw_parts(self) -> (Peri<'d, T>, Option<Flex<'d>>, [PinSlot<'d>; 8], [PinSlot<'d>; 8]) {
+        let this = ManuallyDrop::new(self);
+        unsafe {
+            (
+                ptr::read(&this._peri),
+                ptr::read(&this._ckout),
+                ptr::read(&this.datin_slots),
+                ptr::read(&this.ckin_slots),
+            )
+        }
+    }
+
+    /// Enables or disables clock absence interrupts.
+    fn set_clock_absence_interrupt(&mut self, enabled: bool) {
+        T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
+    }
+
+    /// Enables or disables short-circuit detector interrupts.
+    fn set_short_circuit_detector_interrupt(&mut self, enabled: bool) {
+        T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
+    }
+}
+
+impl<'d, T, P> Drop for DfsdmCommon<'d, T, P>
+where
+    T: Instance,
     P: PowerState,
 {
     fn drop(&mut self) {
-        let ch = if MODE::USES_NEIGHBOR_PINS {
-            <M::Next as TransceiverMarker>::CHANNEL.index()
-        } else {
-            M::CHANNEL.index()
-        };
+        rcc::disable::<T>();
+    }
+}
 
-        if S::HAS_DATA {
-            self.common.release_pin(ch, PinKind::Datin);
+impl<'d, T> DfsdmCommon<'d, T, Disabled>
+where
+    T: Instance,
+{
+    pub(crate) fn new(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
+        Self {
+            _peri: peri,
+            _ckout: ckout,
+            _powerstate_marker: PhantomData,
+            datin_slots: [
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+            ],
+            ckin_slots: [
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+                PinSlot::new(),
+            ],
         }
-        if S::HAS_CLK {
-            self.common.release_pin(ch, PinKind::Ckin);
+    }
+
+    /// Enables the peripheral
+    pub fn enable(self) -> DfsdmCommon<'d, T, Enabled> {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(true));
+        let (_peri, _ckout, datin_slots, ckin_slots) = self.into_raw_parts();
+        DfsdmCommon {
+            _peri,
+            _ckout,
+            _powerstate_marker: PhantomData,
+            datin_slots,
+            ckin_slots,
         }
     }
 }
+
+impl<'d, T> DfsdmCommon<'d, T, Enabled>
+where
+    T: Instance,
+{
+    /// Disables the peripheral
+    pub fn disable(self) -> DfsdmCommon<'d, T, Disabled> {
+        T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(false));
+
+        let (_peri, _ckout, datin_slots, ckin_slots) = self.into_raw_parts();
+        DfsdmCommon {
+            _peri,
+            _ckout,
+            _powerstate_marker: PhantomData,
+            datin_slots,
+            ckin_slots,
+        }
+    }
+}
+
+// =============================================================================
+// FilterConfig
+// =============================================================================
 
 /// Confgiguration for Filter
 pub struct FilterConfig {
@@ -139,6 +389,11 @@ impl Default for FilterConfig {
         }
     }
 }
+
+// =============================================================================
+// Filter
+// =============================================================================
+
 pub struct Filter<'a, 'd, 'reg, 'inj, T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
@@ -151,6 +406,17 @@ where
     pub(crate) common: &'a DfsdmCommon<'d, T, Enabled>, // <-- Added!
     regular: Option<&'reg dyn TransceiverTrait<T, Enabled>>,
     injected: [Option<&'inj dyn TransceiverTrait<T, Enabled>>; 8],
+}
+
+impl<'a, 'd, 'reg, 'inj, T, M, P> Drop for Filter<'a, 'd, 'reg, 'inj, T, M, P>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+    P: PowerState,
+{
+    fn drop(&mut self) {
+        Self::set_enabled(false);
+    }
 }
 
 impl<'a, 'd, 'reg, 'inj, T, M> Filter<'a, 'd, 'reg, 'inj, T, M, Disabled>
@@ -167,12 +433,11 @@ where
     where
         [(); N]: NonEmpty,
     {
-        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(true));
-
         let this = self
             .assign_regular_transceiver(reg_transceiver)
             .assign_injected_transceivers(inj_transceivers);
 
+        Self::set_enabled(true);
         Filter {
             _instance_marker: PhantomData,
             _filter_marker: PhantomData,
@@ -246,6 +511,46 @@ where
                 w.set_jextsel(jextsel);
                 w.set_jexten(jexten);
             });
+    }
+}
+
+impl<'a, 'd, 'reg, 'inj, T, M> Filter<'a, 'd, 'reg, 'inj, T, M, Enabled>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+{
+    /// Disable the filter
+    pub fn disable(self) -> Filter<'a, 'd, 'reg, 'inj, T, M, Disabled> {
+        Self::set_enabled(false);
+        Filter {
+            _instance_marker: PhantomData,
+            _filter_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+            common: self.common,
+            regular: self.regular,
+            injected: self.injected,
+        }
+    }
+
+    /// Reassign the provided `Transceiver` as the regular conversion input for this `Filter`
+    pub fn reassign_regular_transceiver<'new_reg>(
+        self,
+        channel: &'new_reg dyn TransceiverTrait<T, Enabled>,
+    ) -> Filter<'a, 'd, 'new_reg, 'inj, T, M, Enabled> {
+        self.assign_regular_transceiver(channel)
+    }
+
+    /// Reassign transceivers to the injected conversion group of this `Filter`
+    ///
+    /// Note: Overwrites all assignments.
+    pub fn reassign_injected_transceivers<'new_inj, const N: usize>(
+        self,
+        transceivers: [&'new_inj dyn TransceiverTrait<T, Enabled>; N],
+    ) -> Filter<'a, 'd, 'reg, 'new_inj, T, M, Enabled>
+    where
+        [(); N]: NonEmpty,
+    {
+        self.assign_injected_transceivers(transceivers)
     }
 }
 
@@ -603,6 +908,12 @@ where
         Self::clear_extremes_detector_channel(channel.index() as u8);
         self
     }
+
+    /// Enable or disable the filter
+    pub(crate) fn set_enabled(enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(enabled));
+    }
+
     /// Enables or disables regular data overrun interrupts.
     pub(crate) fn set_regular_overrun_interrupt(enabled: bool) {
         T::regs()
@@ -646,92 +957,9 @@ fn sign_extend_24(x: u32) -> i32 {
     ((x << 8) as i32) >> 8
 }
 
-impl<'a, 'd, 'reg, 'inj, T, M> Filter<'a, 'd, 'reg, 'inj, T, M, Enabled>
-where
-    T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
-{
-    /// Disable the filter
-    pub fn disable(self) -> Filter<'a, 'd, 'reg, 'inj, T, M, Disabled> {
-        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(false));
-        Filter {
-            _instance_marker: PhantomData,
-            _filter_marker: PhantomData,
-            _powerstate_marker: PhantomData,
-            common: self.common,
-            regular: self.regular,
-            injected: self.injected,
-        }
-    }
-
-    /// Reassign the provided `Transceiver` as the regular conversion input for this `Filter`
-    pub fn reassign_regular_transceiver<'new_reg>(
-        self,
-        channel: &'new_reg dyn TransceiverTrait<T, Enabled>,
-    ) -> Filter<'a, 'd, 'new_reg, 'inj, T, M, Enabled> {
-        self.assign_regular_transceiver(channel)
-    }
-
-    /// Reassign transceivers to the injected conversion group of this `Filter`
-    ///
-    /// Note: Overwrites all assignments.
-    pub fn reassign_injected_transceivers<'new_inj, const N: usize>(
-        self,
-        transceivers: [&'new_inj dyn TransceiverTrait<T, Enabled>; N],
-    ) -> Filter<'a, 'd, 'reg, 'new_inj, T, M, Enabled>
-    where
-        [(); N]: NonEmpty,
-    {
-        self.assign_injected_transceivers(transceivers)
-    }
-}
-
-impl<T, F> interrupt::typelevel::Handler<<T as FilterInterrupt<F>>::Interrupt> for InterruptHandler<T, F>
-where
-    T: Instance + FilterInterrupt<F>,
-    F: FilterMarker,
-{
-    unsafe fn on_interrupt() {
-        if Filter::<T, F, Enabled>::end_of_injected_conversion() {
-            Filter::<T, F, Enabled>::set_injected_end_of_conversion_interrupt(false);
-            <T as FilterInterrupt<F>>::state().injected_waker.wake();
-        }
-        if Filter::<T, F, Enabled>::end_of_regular_conversion() {
-            Filter::<T, F, Enabled>::set_regular_end_of_conversion_interrupt(false);
-            <T as FilterInterrupt<F>>::state().regular_waker.wake();
-        }
-    }
-}
-
-struct DfsdmInner<T>
-where
-    T: Instance,
-{
-    _instance_marker: PhantomData<T>,
-}
-
-/// Only when enabled
-impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE, Enabled>
-where
-    T: Instance,
-    M: TransceiverMarker + NextChannelForInstance<T>,
-    S: PinSet,
-    MODE: ChannelMode,
-{
-    /// Disables the channel
-    pub fn disable(self) -> Transceiver<'a, 'd, T, M, S, MODE, Disabled> {
-        T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(false));
-
-        Transceiver {
-            common: self.common,
-            _instance_marker: PhantomData,
-            _transceiver_marker: PhantomData,
-            _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
-            _powerstate_marker: PhantomData,
-        }
-    }
-}
+// =============================================================================
+// TransceiverConfig
+// =============================================================================
 
 /// Configuration for Transceiver
 pub struct TransceiverConfig {
@@ -772,6 +1000,76 @@ impl Default for TransceiverConfigOnline {
     }
 }
 
+// =============================================================================
+// Transceiver
+// =============================================================================
+
+/// Configured DFSDM data input transceiver.
+pub struct Transceiver<'a, 'd, T, M, S, MODE, P>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    MODE: ChannelMode,
+    P: PowerState,
+{
+    pub(crate) common: &'a DfsdmCommon<'d, T, Enabled>,
+    _instance_marker: PhantomData<T>,
+    _transceiver_marker: PhantomData<M>,
+    _pinset_marker: PhantomData<S>,
+    _datasource_marker: PhantomData<MODE>,
+    _powerstate_marker: PhantomData<P>,
+}
+
+impl<'a, 'd, T, M, S, MODE, P> Drop for Transceiver<'a, 'd, T, M, S, MODE, P>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    MODE: ChannelMode,
+    P: PowerState,
+{
+    fn drop(&mut self) {
+        let ch = if MODE::USES_NEIGHBOR_PINS {
+            <M::Next as TransceiverMarker>::CHANNEL.index()
+        } else {
+            M::CHANNEL.index()
+        };
+
+        if S::HAS_DATA {
+            self.common.release_pin(ch, PinKind::Datin);
+        }
+        if S::HAS_CLK {
+            self.common.release_pin(ch, PinKind::Ckin);
+        }
+
+        Self::set_enabled(false);
+    }
+}
+
+/// Only when enabled
+impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE, Enabled>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    MODE: ChannelMode,
+{
+    /// Disables the channel
+    pub fn disable(self) -> Transceiver<'a, 'd, T, M, S, MODE, Disabled> {
+        Self::set_enabled(false);
+
+        Transceiver {
+            common: self.common,
+            _instance_marker: PhantomData,
+            _transceiver_marker: PhantomData,
+            _pinset_marker: PhantomData,
+            _datasource_marker: PhantomData,
+            _powerstate_marker: PhantomData,
+        }
+    }
+}
+
 /// Only when disabled
 impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE, Disabled>
 where
@@ -782,7 +1080,7 @@ where
 {
     /// Enables the channel
     pub fn enable(self) -> Transceiver<'a, 'd, T, M, S, MODE, Enabled> {
-        T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(true));
+        Self::set_enabled(true);
 
         Transceiver {
             common: self.common,
@@ -892,13 +1190,11 @@ where
         self.set_offset(config.offset);
         self.assign_breakn(config.break_signals);
     }
-    /// TODO REMOVE
-    /// Configures the neighbor channel.
-    /// Notice: No extra arguments! Rust knows `T` from `self`.
-    // pub fn do_something_with_neighbor(&self) {
-    //     // The compiler knows that `M::Next` is valid for this specific instance `T`.
-    //     let next_idx = <M::Next as TransceiverMarker>::CHANNEL.index();
-    // }
+
+    /// Enable/Disable the transceiver
+    pub(crate) fn set_enabled(enabled: bool) {
+        T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(enabled));
+    }
 
     /// Enable/Disable clock-absence-detector
     fn set_clock_absence_detector(&mut self, enabled: bool) {
@@ -963,132 +1259,32 @@ where
     }
 }
 
-// ============================================================
-// Single-use selectors
-// ============================================================
+// =============================================================================
+// InterruptHandler
+// =============================================================================
 
-/// Per-channel pin selector. Cannot be constructed outside this module
-/// (private field); handed out only inside the `configure_pins` closure,
-/// one per channel, **by value**. Every method consumes `self`, so each
-/// channel's pins can be declared exactly once (E0382 otherwise).
-pub struct Sel<T: Instance, M: TransceiverMarker> {
-    _m: PhantomData<(T, M)>,
-}
-
-impl<'d, T, M> Sel<T, M>
+impl<T, F> interrupt::typelevel::Handler<<T as FilterInterrupt<F>>::Interrupt> for InterruptHandler<T, F>
 where
-    T: Instance,
-    M: TransceiverMarker,
+    T: Instance + FilterInterrupt<F>,
+    F: FilterMarker,
 {
-    /// Declare this channel with a DATIN pin (AF set here).
-    pub fn datin(self, datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>) -> DatinCfg<'d, T, M> {
-        DatinCfg {
-            datin: new_pin!(datin, AfType::input(Pull::None)).unwrap(),
-            _m: PhantomData,
+    unsafe fn on_interrupt() {
+        if Filter::<T, F, Enabled>::end_of_injected_conversion() {
+            Filter::<T, F, Enabled>::set_injected_end_of_conversion_interrupt(false);
+            <T as FilterInterrupt<F>>::state().injected_waker.wake();
         }
-    }
-
-    /// Declare this channel with DATIN + CKIN.
-    pub fn datin_ckin(
-        self,
-        datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>,
-        ckin: Peri<'d, if_afio!(impl CkinPin<T, M, A>)>,
-    ) -> DckCfg<'d, T, M> {
-        DckCfg {
-            datin: new_pin!(datin, AfType::input(Pull::None)).unwrap(),
-            ckin: new_pin!(ckin, AfType::input(Pull::None)).unwrap(),
-            _m: PhantomData,
-        }
-    }
-
-    /// Declare this channel as pinless (same as [`NoPinsCfg`]).
-    pub fn none(self) -> NoPinsCfg {
-        NoPinsCfg
-    }
-}
-
-/// Selectors for a 2-channel DFSDM instance.
-///
-/// NOTE: must never gain a `Drop` impl - partial moves out of it must remain legal.
-pub struct ChannelSelectors2<T: Instance> {
-    /// Selector for channel 0
-    pub ch0: Sel<T, Tcv0>,
-    /// Selector for channel 1
-    pub ch1: Sel<T, Tcv1>,
-}
-
-impl<T: Instance> ChannelSelectors2<T> {
-    pub(crate) fn new() -> Self {
-        Self {
-            ch0: Sel { _m: PhantomData },
-            ch1: Sel { _m: PhantomData },
+        if Filter::<T, F, Enabled>::end_of_regular_conversion() {
+            Filter::<T, F, Enabled>::set_regular_end_of_conversion_interrupt(false);
+            <T as FilterInterrupt<F>>::state().regular_waker.wake();
         }
     }
 }
 
-/// Selectors for a 4-channel DFSDM instance.
-///
-/// NOTE: must never gain a `Drop` impl - partial moves out of it must remain legal.
-pub struct ChannelSelectors4<T: Instance> {
-    /// Selector for channel 0
-    pub ch0: Sel<T, Tcv0>,
-    /// Selector for channel 1
-    pub ch1: Sel<T, Tcv1>,
-    /// Selector for channel 2
-    pub ch2: Sel<T, Tcv2>,
-    /// Selector for channel 3
-    pub ch3: Sel<T, Tcv3>,
-}
+// ============================================================
+// Builders
+// ============================================================
 
-impl<T: Instance> ChannelSelectors4<T> {
-    pub(crate) fn new() -> Self {
-        Self {
-            ch0: Sel { _m: PhantomData },
-            ch1: Sel { _m: PhantomData },
-            ch2: Sel { _m: PhantomData },
-            ch3: Sel { _m: PhantomData },
-        }
-    }
-}
-
-/// Selectors for all channels of an 8-channel DFSDM instance.
-///
-/// NOTE: must never gain a `Drop` impl - partial moves out of it
-/// (`s.ch0.datin(..)`) must remain legal.
-pub struct ChannelSelectors8<T: Instance> {
-    /// Selector for channel 0
-    pub ch0: Sel<T, Tcv0>,
-    /// Selector for channel 1
-    pub ch1: Sel<T, Tcv1>,
-    /// Selector for channel 2
-    pub ch2: Sel<T, Tcv2>,
-    /// Selector for channel 3
-    pub ch3: Sel<T, Tcv3>,
-    /// Selector for channel 4
-    pub ch4: Sel<T, Tcv4>,
-    /// Selector for channel 5
-    pub ch5: Sel<T, Tcv5>,
-    /// Selector for channel 6
-    pub ch6: Sel<T, Tcv6>,
-    /// Selector for channel 7
-    pub ch7: Sel<T, Tcv7>,
-}
-
-impl<T: Instance> ChannelSelectors8<T> {
-    pub(crate) fn new() -> Self {
-        Self {
-            ch0: Sel { _m: PhantomData },
-            ch1: Sel { _m: PhantomData },
-            ch2: Sel { _m: PhantomData },
-            ch3: Sel { _m: PhantomData },
-            ch4: Sel { _m: PhantomData },
-            ch5: Sel { _m: PhantomData },
-            ch6: Sel { _m: PhantomData },
-            ch7: Sel { _m: PhantomData },
-        }
-    }
-}
-
+/// Used to build a [`Filter`].
 pub struct FilterBuilder<T, M>
 where
     T: Instance,
@@ -1131,10 +1327,7 @@ where
     }
 }
 
-/// [`TransceiverBuilder`]
-///
-///
-///
+/// Used to build a [`Transceiver`].
 pub struct TransceiverBuilder<T, M, C, S, SN>
 where
     T: Instance,
@@ -1453,190 +1646,135 @@ where
     }
 }
 
+// ============================================================
+// Single-use selectors
+// ============================================================
+
+/// Per-channel pin selector. Cannot be constructed outside this module
+/// (private field); handed out only inside the `configure_pins` closure,
+/// one per channel, **by value**. Every method consumes `self`, so each
+/// channel's pins can be declared exactly once (E0382 otherwise).
+pub struct Sel<T: Instance, M: TransceiverMarker> {
+    _m: PhantomData<(T, M)>,
+}
+
+impl<'d, T, M> Sel<T, M>
+where
+    T: Instance,
+    M: TransceiverMarker,
+{
+    /// Declare this channel with a DATIN pin (AF set here).
+    pub fn datin(self, datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>) -> DatinCfg<'d, T, M> {
+        DatinCfg {
+            datin: new_pin!(datin, AfType::input(Pull::None)).unwrap(),
+            _m: PhantomData,
+        }
+    }
+
+    /// Declare this channel with DATIN + CKIN.
+    pub fn datin_ckin(
+        self,
+        datin: Peri<'d, if_afio!(impl DatinPin<T, M, A>)>,
+        ckin: Peri<'d, if_afio!(impl CkinPin<T, M, A>)>,
+    ) -> DckCfg<'d, T, M> {
+        DckCfg {
+            datin: new_pin!(datin, AfType::input(Pull::None)).unwrap(),
+            ckin: new_pin!(ckin, AfType::input(Pull::None)).unwrap(),
+            _m: PhantomData,
+        }
+    }
+
+    /// Declare this channel as pinless (same as [`NoPinsCfg`]).
+    pub fn none(self) -> NoPinsCfg {
+        NoPinsCfg
+    }
+}
+
+/// Selectors for a 2-channel DFSDM instance.
+///
+/// NOTE: must never gain a `Drop` impl - partial moves out of it must remain legal.
+pub struct ChannelSelectors2<T: Instance> {
+    /// Selector for channel 0
+    pub ch0: Sel<T, Tcv0>,
+    /// Selector for channel 1
+    pub ch1: Sel<T, Tcv1>,
+}
+
+impl<T: Instance> ChannelSelectors2<T> {
+    pub(crate) fn new() -> Self {
+        Self {
+            ch0: Sel { _m: PhantomData },
+            ch1: Sel { _m: PhantomData },
+        }
+    }
+}
+
+/// Selectors for a 4-channel DFSDM instance.
+///
+/// NOTE: must never gain a `Drop` impl - partial moves out of it must remain legal.
+pub struct ChannelSelectors4<T: Instance> {
+    /// Selector for channel 0
+    pub ch0: Sel<T, Tcv0>,
+    /// Selector for channel 1
+    pub ch1: Sel<T, Tcv1>,
+    /// Selector for channel 2
+    pub ch2: Sel<T, Tcv2>,
+    /// Selector for channel 3
+    pub ch3: Sel<T, Tcv3>,
+}
+
+impl<T: Instance> ChannelSelectors4<T> {
+    pub(crate) fn new() -> Self {
+        Self {
+            ch0: Sel { _m: PhantomData },
+            ch1: Sel { _m: PhantomData },
+            ch2: Sel { _m: PhantomData },
+            ch3: Sel { _m: PhantomData },
+        }
+    }
+}
+
+/// Selectors for all channels of an 8-channel DFSDM instance.
+///
+/// NOTE: must never gain a `Drop` impl - partial moves out of it
+/// (`s.ch0.datin(..)`) must remain legal.
+pub struct ChannelSelectors8<T: Instance> {
+    /// Selector for channel 0
+    pub ch0: Sel<T, Tcv0>,
+    /// Selector for channel 1
+    pub ch1: Sel<T, Tcv1>,
+    /// Selector for channel 2
+    pub ch2: Sel<T, Tcv2>,
+    /// Selector for channel 3
+    pub ch3: Sel<T, Tcv3>,
+    /// Selector for channel 4
+    pub ch4: Sel<T, Tcv4>,
+    /// Selector for channel 5
+    pub ch5: Sel<T, Tcv5>,
+    /// Selector for channel 6
+    pub ch6: Sel<T, Tcv6>,
+    /// Selector for channel 7
+    pub ch7: Sel<T, Tcv7>,
+}
+
+impl<T: Instance> ChannelSelectors8<T> {
+    pub(crate) fn new() -> Self {
+        Self {
+            ch0: Sel { _m: PhantomData },
+            ch1: Sel { _m: PhantomData },
+            ch2: Sel { _m: PhantomData },
+            ch3: Sel { _m: PhantomData },
+            ch4: Sel { _m: PhantomData },
+            ch5: Sel { _m: PhantomData },
+            ch6: Sel { _m: PhantomData },
+            ch7: Sel { _m: PhantomData },
+        }
+    }
+}
+
 // =============================================================================
 // Splitting
 // =============================================================================
-
-/// Holds regerences to the peripheral and the optional clock-output. Disables the RCC of the peripheral when dropped.
-pub struct DfsdmCommon<'d, T: Instance, P: PowerState> {
-    _peri: Peri<'d, T>,
-    _ckout: Option<Flex<'d>>,
-    _powerstate_marker: PhantomData<P>,
-    datin_slots: [PinSlot<'d>; 8],
-    ckin_slots: [PinSlot<'d>; 8],
-}
-impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
-    fn insert_pin(&mut self, ch: usize, kind: PinKind, flex: Option<Flex<'d>>) {
-        if let Some(p) = flex {
-            let slot = match kind {
-                PinKind::Datin => &mut self.datin_slots[ch],
-                PinKind::Ckin => &mut self.ckin_slots[ch],
-            };
-            critical_section::with(|cs| {
-                *slot.inner.borrow_ref_mut(cs) = Some(p);
-            });
-            slot.rc.store(1, Ordering::Relaxed);
-        }
-    }
-
-    fn get_slot(&self, ch: usize, kind: PinKind) -> &PinSlot<'d> {
-        match kind {
-            PinKind::Datin => &self.datin_slots[ch],
-            PinKind::Ckin => &self.ckin_slots[ch],
-        }
-    }
-
-    pub(crate) fn acquire_pin(&self, ch: usize, kind: PinKind) -> Result<(), Error> {
-        let slot = self.get_slot(ch, kind);
-        loop {
-            let val = slot.rc.load(Ordering::Acquire);
-            if val == 0 {
-                return Err(Error::NeighborPinUnavailable);
-            }
-            if slot
-                .rc
-                .compare_exchange(val, val + 1, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                return Ok(());
-            }
-        }
-    }
-
-    pub(crate) fn release_pin(&self, ch: usize, kind: PinKind) {
-        let slot = self.get_slot(ch, kind);
-        loop {
-            let val = slot.rc.load(Ordering::Acquire);
-            if val == 0 {
-                return; // Prevent underflow
-            }
-            if slot
-                .rc
-                .compare_exchange(val, val - 1, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                if val - 1 == 0 {
-                    critical_section::with(|cs| {
-                        let _ = slot.inner.borrow_ref_mut(cs).take();
-                    });
-                }
-                return;
-            }
-        }
-    }
-
-    pub(crate) fn acquire_pins<S: PinSet>(&self, ch: usize) -> Result<(), Error> {
-        if S::HAS_DATA {
-            self.acquire_pin(ch, PinKind::Datin)?;
-        }
-        if S::HAS_CLK {
-            if let Err(e) = self.acquire_pin(ch, PinKind::Ckin) {
-                if S::HAS_DATA {
-                    self.release_pin(ch, PinKind::Datin);
-                }
-                return Err(e);
-            }
-        }
-        Ok(())
-    }
-
-    fn into_raw_parts(self) -> (Peri<'d, T>, Option<Flex<'d>>, [PinSlot<'d>; 8], [PinSlot<'d>; 8]) {
-        let this = ManuallyDrop::new(self);
-        unsafe {
-            (
-                ptr::read(&this._peri),
-                ptr::read(&this._ckout),
-                ptr::read(&this.datin_slots),
-                ptr::read(&this.ckin_slots),
-            )
-        }
-    }
-
-    /// Enables or disables clock absence interrupts.
-    fn set_clock_absence_interrupt(&mut self, enabled: bool) {
-        T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
-    }
-
-    /// Enables or disables short-circuit detector interrupts.
-    fn set_short_circuit_detector_interrupt(&mut self, enabled: bool) {
-        T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
-    }
-}
-
-impl<'d, T, P> Drop for DfsdmCommon<'d, T, P>
-where
-    T: Instance,
-    P: PowerState,
-{
-    fn drop(&mut self) {
-        rcc::disable::<T>();
-    }
-}
-
-impl<'d, T> DfsdmCommon<'d, T, Disabled>
-where
-    T: Instance,
-{
-    pub(crate) fn new(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
-        Self {
-            _peri: peri,
-            _ckout: ckout,
-            _powerstate_marker: PhantomData,
-            datin_slots: [
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-            ],
-            ckin_slots: [
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-                PinSlot::new(),
-            ],
-        }
-    }
-
-    /// Enables the peripheral
-    pub fn enable(self) -> DfsdmCommon<'d, T, Enabled> {
-        T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(true));
-        let (_peri, _ckout, datin_slots, ckin_slots) = self.into_raw_parts();
-        DfsdmCommon {
-            _peri,
-            _ckout,
-            _powerstate_marker: PhantomData,
-            datin_slots,
-            ckin_slots,
-        }
-    }
-}
-
-impl<'d, T> DfsdmCommon<'d, T, Enabled>
-where
-    T: Instance,
-{
-    /// Disables the peripheral
-    pub fn disable(self) -> DfsdmCommon<'d, T, Disabled> {
-        T::regs().ch(0).cfgr1().modify(|w| w.set_dfsdmen(false));
-
-        let (_peri, _ckout, datin_slots, ckin_slots) = self.into_raw_parts();
-        DfsdmCommon {
-            _peri,
-            _ckout,
-            _powerstate_marker: PhantomData,
-            datin_slots,
-            ckin_slots,
-        }
-    }
-}
 
 pub struct DfsdmSplit2Ch1Flt<'d, T, C, S0, S1>
 where
@@ -1709,115 +1847,6 @@ where
     pub flt1: FilterBuilder<T, Flt1>,
     pub flt2: FilterBuilder<T, Flt2>,
     pub flt3: FilterBuilder<T, Flt3>,
-}
-
-/// Dfsdm
-///
-///
-
-/// DFSDM driver.
-pub struct Dfsdm<'d, T: Instance, C: ClockOutputMode> {
-    _instance_marker: PhantomData<T>,
-    _clock_mode: PhantomData<C>,
-    peri: Option<Peri<'d, T>>,
-    ckout: Option<Flex<'d>>,
-}
-
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    T: Instance,
-    C: ClockOutputMode,
-{
-}
-
-// impl<'d, T: Instance, C: ClockOutputMode> Dfsdm<'d, T, C> {
-//     pub fn split(self) -> T::Split<C> {
-//         T::split(self)
-//     }
-// }
-
-#[allow(private_bounds)]
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    C: ClockOutputMode,
-    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>,
-{
-}
-
-impl<'d, T> Dfsdm<'d, T, OutputEnabled>
-where
-    T: Instance,
-{
-    /// Configure DFSDM module with a clock output
-    pub fn new_ckout(
-        peri: Peri<'d, T>,
-        ckout: Peri<'d, if_afio!(impl CkoutPin<T, A>)>,
-        ckout_source: config_types::CkoutSource,
-        ckout_div: config_types::CkoutDivider,
-    ) -> Self {
-        let ckout = new_pin!(ckout, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-
-        //         macro_rules! config_pins {
-        //     ($($pin:ident),*) => {
-        //                 critical_section::with(|_| {
-        //             $(
-        //                 set_as_af!($pin, AfType::input(Pull::None));
-        //             )*
-        //         })
-        //     };
-        // }
-        // TODO MAYBE USE CRITICAL SECTION FOR AFS?!
-
-        let mut dfsdm = Self::new_inner(peri, ckout);
-
-        dfsdm.set_ckout_src(ckout_source);
-        dfsdm.set_ckout_div(ckout_div);
-
-        dfsdm
-    }
-}
-
-impl<'d, T> Dfsdm<'d, T, OutputDisabled>
-where
-    T: Instance,
-{
-    /// Configure DFSDM module without a clock output
-    pub fn new(peri: Peri<'d, T>) -> Self {
-        let mut dfsdm = Self::new_inner(peri, None);
-
-        dfsdm.set_ckout_div(config_types::CkoutDivider::DISABLED);
-
-        dfsdm
-    }
-}
-
-impl<'d, T, C> Dfsdm<'d, T, C>
-where
-    T: Instance,
-    C: ClockOutputMode,
-{
-    fn new_inner(peri: Peri<'d, T>, ckout: Option<Flex<'d>>) -> Self {
-        let _ = peri;
-
-        rcc::enable_and_reset::<T>();
-
-        Self {
-            _instance_marker: PhantomData,
-            _clock_mode: PhantomData,
-            ckout: ckout,
-            peri: Some(peri),
-        }
-    }
-
-    // Set's the clock-output clock-divider
-    fn set_ckout_div(&mut self, divider: config_types::CkoutDivider) {
-        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutdiv(divider.into()));
-    }
-
-    /// Set's the clock-output clock-source
-    fn set_ckout_src(&mut self, source: config_types::CkoutSource) {
-        T::regs().ch(0).cfgr1().modify(|w| w.set_ckoutsrc(source.into()));
-    }
 }
 
 /// Implemented for the tuple a `configure_pins` closure returns.
@@ -2152,12 +2181,4 @@ where
         let out = f(<T::Transceivers as Shape>::selectors::<T>());
         out.split_parts(DfsdmCommon::new(self.peri.expect("taken once"), self.ckout.take()).enable())
     }
-}
-
-/// Playground
-pub fn test<T>(f: impl FnOnce(ChannelSelectors8<T>))
-where
-    T: Instance,
-{
-    f(ChannelSelectors8::<T>::new())
 }
