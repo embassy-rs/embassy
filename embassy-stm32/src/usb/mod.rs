@@ -22,10 +22,17 @@ fn common_init<T: Instance>() {
             freq.0
         )
     }
+
+    // On the N6 the OTG core always runs off its integrated High-Speed PHY, whose reference
+    // clock must be 19.2, 20 or 24 MHz (RM0486 Rev 4, USBPHYC_CR.FSEL, p. 3929). Panics
+    // naming the offending frequency; the same mapping programs FSEL in `T::phy_init()`.
+    #[cfg(stm32n6)]
+    let _ = fsel_from_freq(freq);
+
     // Check frequency is within the 0.25% tolerance allowed by the spec.
     // Clock might not be exact 48Mhz due to rounding errors in PLL calculation, or if the user
     // has tight clock restrictions due to something else (like audio).
-    #[cfg(not(any(stm32h7rs, all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs))))]
+    #[cfg(not(any(stm32h7rs, stm32n6, all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs))))]
     if freq.0.abs_diff(48_000_000) > 120_000 {
         panic!(
             "USB clock should be 48Mhz but is {} Hz. Please double-check your RCC settings.",
@@ -127,6 +134,30 @@ fn common_init<T: Instance>() {
             while !crate::pac::PWR.vosr().read().usbboostrdy() {}
         }
     }
+
+    #[cfg(stm32n6)]
+    {
+        use crate::pac::pwr::vals::{Usb33rdy, Usb33sv};
+
+        // "The following sequence must be done before using the USB HS PHYs: 1. If VDD33USB
+        // is independent from VDD: a) Enable the USB33VM by setting USB33VMEN in PWR_SVMCR3.
+        // b) Wait until USB33RDY is set [...] 2. Set USB33SV in PWR_SVMCR3 to remove the
+        // VDD33USB power isolation." — RM0486 Rev 4, §13, p. 365; PWR_SVMCR3, pp. 395-396.
+        // Step 1c (disabling the monitor again to save power) is optional; skipped.
+        critical_section::with(|_| crate::pac::PWR.svmcr3().modify(|w| w.set_usb33vmen(true)));
+
+        // Wait for USB power to stabilize
+        while crate::pac::PWR.svmcr3().read().usb33rdy() != Usb33rdy::B0x1 {}
+
+        critical_section::with(|_| crate::pac::PWR.svmcr3().modify(|w| w.set_usb33sv(Usb33sv::B0x1)));
+    }
+
+    // Bring the PHY up before the core. On the N6 this selects the reference clock
+    // frequency (USBPHYC_CR.FSEL) with the PHY held under reset, the same window the RM
+    // requires for the PHY trims (RM0486 Rev 4, §74.4.4, p. 3928). No-op for every other
+    // OTG instance.
+    #[cfg(otg)]
+    T::phy_init();
 
     T::Interrupt::unpend();
     unsafe { T::Interrupt::enable() };
