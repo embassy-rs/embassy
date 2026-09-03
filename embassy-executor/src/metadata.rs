@@ -54,7 +54,7 @@ impl MetadataRef {
     pub fn set_name(&self, name: &'static str) {
         self.metadata().set_name(name);
         #[cfg(feature = "trace")]
-        crate::raw::trace::task_name_set(self.task, name);
+        crate::raw::trace::TraceImpl::task_name_set(self.task, name);
     }
 
     /// Get this task's priority.
@@ -68,7 +68,7 @@ impl MetadataRef {
     pub fn set_priority(&self, priority: u8) {
         self.metadata().set_priority(priority);
         #[cfg(feature = "trace")]
-        crate::raw::trace::task_priority_set(self.task, priority);
+        crate::raw::trace::TraceImpl::task_priority_set(self.task, priority);
     }
 
     /// Get this task's deadline.
@@ -84,7 +84,7 @@ impl MetadataRef {
     pub fn set_deadline(&self, instant_ticks: u64) {
         self.metadata().set_deadline(instant_ticks);
         #[cfg(feature = "trace")]
-        crate::raw::trace::task_deadline_set(self.task, instant_ticks);
+        crate::raw::trace::TraceImpl::task_deadline_set(self.task, instant_ticks);
     }
 
     /// Remove this task's deadline.

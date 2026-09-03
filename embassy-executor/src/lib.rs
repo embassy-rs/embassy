@@ -74,7 +74,7 @@ pub mod raw;
 #[inline]
 pub fn trace_idle() {
     #[cfg(feature = "trace")]
-    raw::trace::idle();
+    raw::trace::TraceImpl::idle();
 }
 
 mod spawner;

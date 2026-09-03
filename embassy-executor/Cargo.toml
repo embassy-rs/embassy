@@ -106,7 +106,7 @@ log = { version = "0.4.14", optional = true }
 embassy-executor-macros = { version = "0.8.0", path = "../embassy-executor-macros" }
 embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
 embassy-executor-timer-queue = { version = "0.1.1", path = "../embassy-executor-timer-queue" }
-unitrait = "1"
+unitrait = { git = "https://github.com/embassy-rs/unitrait", rev = "b98d69bbf6fa7872c0cc107e5b52f0bc1df03777" }
 critical-section = "1.1"
 
 document-features = "0.2.7"
