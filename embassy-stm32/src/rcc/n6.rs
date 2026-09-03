@@ -1383,6 +1383,10 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: clock_inputs.hsi,
         hsi_div: clock_inputs.hsi_div,
         hse: clock_inputs.hse,
+        // OTGPHYxSEL = 0b11 picks `hse_div2_osc_ck`, a second HSE/2 tap that the RM
+        // lists as its own clock next to `hse_div2_ck` (RM0486 Rev 4, RCC_CCIPR6,
+        // pp. 534-535). Same nominal frequency, separate name, so it needs its own entry.
+        hse_div2_osc: clock_inputs.hse.map(|h| h / 2u8),
         hse_rtc: osc.hse_rtc,
         msi: clock_inputs.msi,
         lsi: osc.lsi,
