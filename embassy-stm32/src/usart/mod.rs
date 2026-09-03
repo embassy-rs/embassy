@@ -2931,11 +2931,7 @@ mod buffered;
 mod ringbuffered;
 pub use ringbuffered::RingBufferedUartRx;
 
-/// The word sizes the USART data register can carry.
-///
-/// Selects the width used to access the data register, so that a 9 bit frame is
-/// read and written as a `u16` while an 8 bit frame stays a `u8`.
-trait UsartWord: Word {
+pub(crate) trait SealedUsartWord {
     /// Transmit data register, accessed at this word's width.
     fn tdr_ptr(r: Regs) -> *mut Self;
 
@@ -2943,7 +2939,16 @@ trait UsartWord: Word {
     fn rdr_ptr(r: Regs) -> *mut Self;
 }
 
-impl UsartWord for u8 {
+/// The word sizes the USART data register can carry.
+///
+/// Selects the width used to access the data register, so that a 9 bit frame is
+/// read and written as a `u16` while an 8 bit frame stays a `u8`.
+///
+/// Implemented for `u8` and `u16`; this trait is sealed.
+#[allow(private_bounds)]
+pub trait UsartWord: Word + SealedUsartWord {}
+
+impl SealedUsartWord for u8 {
     fn tdr_ptr(r: Regs) -> *mut u8 {
         tdr(r)
     }
@@ -2953,7 +2958,9 @@ impl UsartWord for u8 {
     }
 }
 
-impl UsartWord for u16 {
+impl UsartWord for u8 {}
+
+impl SealedUsartWord for u16 {
     fn tdr_ptr(r: Regs) -> *mut u16 {
         tdr(r).cast()
     }
@@ -2962,6 +2969,8 @@ impl UsartWord for u16 {
         rdr(r).cast()
     }
 }
+
+impl UsartWord for u16 {}
 
 #[cfg(any(usart_v1, usart_v2))]
 fn tdr(r: crate::pac::usart::Usart) -> *mut u8 {
