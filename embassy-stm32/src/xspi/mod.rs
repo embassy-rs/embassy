@@ -11,7 +11,7 @@ use embassy_embedded_hal::{GetConfig, SetConfig};
 use embassy_hal_internal::PeripheralType;
 pub use enums::*;
 
-use crate::dma::{ChannelAndRequest, word};
+use crate::dma::{ChannelAndRequest, TransferOptions, word};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::xspi::Xspi as Regs;
@@ -124,6 +124,11 @@ pub struct TransferConfig {
 
     /// DQS Enable
     pub dqse: bool,
+
+    /// Exchange data bytes within each half-word.
+    /// No-op when word size is u8.
+    /// Does nothing in memory mapped mode.
+    pub dexchange_bytes: bool,
 }
 
 impl Default for TransferConfig {
@@ -150,6 +155,8 @@ impl Default for TransferConfig {
             dummy: DummyCycles::_0,
 
             dqse: false,
+
+            dexchange_bytes: false,
         }
     }
 }
@@ -655,7 +662,13 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
 
         for idx in 0..buf.len() {
             while !T::REGS.sr().read().tcf() && !T::REGS.sr().read().ftf() {}
-            buf[idx] = unsafe { (T::REGS.dr().as_ptr() as *mut W).read_volatile() };
+            let mut word = unsafe { (T::REGS.dr().as_ptr() as *mut W).read_volatile() };
+
+            if transaction.dexchange_bytes {
+                word = word.exchange_bytes();
+            }
+
+            buf[idx] = word;
         }
 
         while !T::REGS.sr().read().tcf() {}
@@ -685,8 +698,14 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             .modify(|v| v.set_fmode(Fmode::from_bits(XspiMode::IndirectWrite.into())));
 
         for idx in 0..buf.len() {
+            let word = if transaction.dexchange_bytes {
+                buf[idx].exchange_bytes()
+            } else {
+                buf[idx]
+            };
+
             while !T::REGS.sr().read().ftf() {}
-            unsafe { (T::REGS.dr().as_ptr() as *mut W).write_volatile(buf[idx]) };
+            unsafe { (T::REGS.dr().as_ptr() as *mut W).write_volatile(word) };
         }
 
         while !T::REGS.sr().read().tcf() {}
@@ -1738,10 +1757,14 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
 
         for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
-                self.dma
-                    .as_mut()
-                    .unwrap()
-                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+                self.dma.as_mut().unwrap().read(
+                    T::REGS.dr().as_ptr() as *mut W,
+                    chunk,
+                    TransferOptions {
+                        exchange_dest_bytes: transaction.dexchange_bytes,
+                        ..Default::default()
+                    },
+                )
             };
 
             T::REGS.cr().modify(|w| w.set_dmaen(true));
@@ -1771,10 +1794,14 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
 
         for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
-                self.dma
-                    .as_mut()
-                    .unwrap()
-                    .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
+                self.dma.as_mut().unwrap().write(
+                    chunk,
+                    T::REGS.dr().as_ptr() as *mut W,
+                    TransferOptions {
+                        exchange_dest_bytes: transaction.dexchange_bytes,
+                        ..Default::default()
+                    },
+                )
             };
 
             T::REGS.cr().modify(|w| w.set_dmaen(true));
@@ -1814,10 +1841,14 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
 
         for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
-                self.dma
-                    .as_mut()
-                    .unwrap()
-                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+                self.dma.as_mut().unwrap().read(
+                    T::REGS.dr().as_ptr() as *mut W,
+                    chunk,
+                    TransferOptions {
+                        exchange_dest_bytes: transaction.dexchange_bytes,
+                        ..Default::default()
+                    },
+                )
             };
 
             T::REGS.cr().modify(|w| w.set_dmaen(true));
@@ -1848,10 +1879,14 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
         for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
-                self.dma
-                    .as_mut()
-                    .unwrap()
-                    .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
+                self.dma.as_mut().unwrap().write(
+                    chunk,
+                    T::REGS.dr().as_ptr() as *mut W,
+                    TransferOptions {
+                        exchange_dest_bytes: transaction.dexchange_bytes,
+                        ..Default::default()
+                    },
+                )
             };
 
             T::REGS.cr().modify(|w| w.set_dmaen(true));
@@ -1872,7 +1907,13 @@ impl<'d, T: Instance, M: PeriMode> Drop for Xspi<'d, T, M> {
 }
 
 fn finish_dma(regs: Regs) {
-    while !regs.sr().read().tcf() {}
+    loop {
+        let sr = regs.sr().read();
+
+        if sr.tcf() {
+            break;
+        }
+    }
     regs.fcr().write(|v| v.set_ctcf(true));
 
     regs.cr().modify(|w| {
@@ -1993,14 +2034,27 @@ impl<'d, T: Instance, M: PeriMode> GetConfig for Xspi<'d, T, M> {
 
 /// Word sizes usable for XSPI.
 #[allow(private_bounds)]
-pub trait Word: word::Word {}
-
-macro_rules! impl_word {
-    ($T:ty) => {
-        impl Word for $T {}
-    };
+pub trait Word: word::Word {
+    /// Exchanges bytes in each half-word.
+    /// No-op for u8. Equivalent to a byte swap for u16.
+    /// For u32, 0xAABBCCDD -> 0xBBAADDCC.
+    fn exchange_bytes(self) -> Self;
 }
 
-impl_word!(u8);
-impl_word!(u16);
-impl_word!(u32);
+impl Word for u8 {
+    fn exchange_bytes(self) -> u8 {
+        self
+    }
+}
+
+impl Word for u16 {
+    fn exchange_bytes(self) -> u16 {
+        self.swap_bytes()
+    }
+}
+
+impl Word for u32 {
+    fn exchange_bytes(self) -> u32 {
+        ((self >> 8) & 0x00FF_00FF) | ((self << 8) & 0xFF00_FF00)
+    }
+}
