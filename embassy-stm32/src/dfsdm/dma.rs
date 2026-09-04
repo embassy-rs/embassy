@@ -7,7 +7,7 @@ use crate::rcc::WakeGuard;
 pub struct RingBufferedFilter<'a, 'd, 'reg, 'inj, 'e, T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    M: FilterMarker + InstanceEvents<T>,
     P: PowerState,
 {
     filter: &'e Filter<'a, 'd, 'reg, 'inj, T, M, P>,
@@ -19,7 +19,7 @@ where
 impl<'a, 'd, 'reg, 'inj, 'e, T, M, P> RingBufferedFilter<'a, 'd, 'reg, 'inj, 'e, T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    M: FilterMarker + InstanceEvents<T>,
     P: PowerState,
 {
     pub fn new_regular<D: Dma<T, M>>(

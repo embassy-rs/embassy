@@ -77,6 +77,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Amount of filters in this instance
     type Filters: capability::FilterCount;
 
+    fn instance_state() -> &'static InstanceState;
     // type Split<C: ClockOutputMode>;
 
     // fn split<C: ClockOutputMode>(dfsdm: Dfsdm<Self, C>) -> Self::Split<C>
@@ -390,11 +391,44 @@ pub trait FilterInterrupt<F: FilterMarker> {
     /// Filter-interrupt state
     fn state() -> &'static State;
 }
-
-/// Trait for interrupt handlers
-pub struct InterruptHandler<T: Instance, F: FilterMarker> {
-    _marker: PhantomData<(T, F)>,
+/// Instance-level interrupt-handling
+pub trait InstanceEvents<T: Instance> {
+    unsafe fn handle_instance_events();
 }
+
+// Implements empty InstanceEvents for provided Markers
+macro_rules! impl_noop_instance_events {
+    ($($flt:ident),*) => {
+        $(
+            impl<T: Instance> InstanceEvents<T> for $flt {
+                #[inline(always)]
+                unsafe fn handle_instance_events() {}
+            }
+        )*
+    };
+}
+
+// Implement empty for all non Flt0 as Flt0 Handles instance-level events
+impl_noop_instance_events!(Flt1, Flt2, Flt3, Flt4, Flt5, Flt6, Flt7);
+
+/// Marker trait for filters that are *not* Flt0.
+/// Used to prevent `FilterInterruptHandler` from handling the FLT0 IRQ,
+/// which must be handled by `Flt0InterruptHandler` to process SCD/CKAB events.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` cannot be used with `FilterInterruptHandler`",
+    label = "Filter 0 must use `Flt0InterruptHandler`",
+    note = "DFSDM Filter 0 handles instance-wide Short-Circuit and Clock-Absence interrupts, so it requires the dedicated `Flt0InterruptHandler`."
+)]
+pub trait NotFlt0: sealed::Sealed {}
+
+// Implement NotFlt0 for Flt1 through Flt7. DO NOT implement it for Flt0.
+impl NotFlt0 for Flt1 {}
+impl NotFlt0 for Flt2 {}
+impl NotFlt0 for Flt3 {}
+impl NotFlt0 for Flt4 {}
+impl NotFlt0 for Flt5 {}
+impl NotFlt0 for Flt6 {}
+impl NotFlt0 for Flt7 {}
 
 /// Markers for Interuptpresence
 pub trait Flt8Ready:
@@ -441,11 +475,6 @@ pub struct State {
     pub regular_waker: AtomicWaker,
     /// Waker for analog watchdog events
     pub watchdog_waker: AtomicWaker,
-    /// Waker for short-circuit-detector events
-    pub short_circuit_waker: AtomicWaker,
-    /// Waker for clock-absence events
-    pub clock_absence_waker: AtomicWaker,
-    // Maybe we need some atomics? pub injected_done: core::sync::atomic::AtomicBool,
 }
 
 impl State {
@@ -455,12 +484,26 @@ impl State {
             injected_waker: AtomicWaker::new(),
             regular_waker: AtomicWaker::new(),
             watchdog_waker: AtomicWaker::new(),
+        }
+    }
+}
+
+pub struct InstanceState {
+    /// Waker for short-circuit-detector events
+    pub short_circuit_waker: AtomicWaker,
+    /// Waker for clock-absence events
+    pub clock_absence_waker: AtomicWaker,
+}
+
+impl InstanceState {
+    /// Instantiate fresh State
+    pub const fn new() -> Self {
+        Self {
             short_circuit_waker: AtomicWaker::new(),
             clock_absence_waker: AtomicWaker::new(),
         }
     }
 }
-
 // =============================================================================
 // Indexed channel types
 // =============================================================================

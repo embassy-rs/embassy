@@ -105,6 +105,11 @@ macro_rules! impl_dfsdm_instance {
             type Repr = $repr;
             type Transceivers = $tcv;
             type Filters = $flt;
+            
+            fn instance_state() -> &'static InstanceState {
+                static INSTANCE_STATE: InstanceState = InstanceState::new();
+                &INSTANCE_STATE
+            }
         }
 
         $(impl_dfsdm_instance!(@flag $inst, HasDelay, $delay);)?

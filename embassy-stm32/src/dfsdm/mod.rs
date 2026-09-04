@@ -387,7 +387,7 @@ impl Default for FilterConfig {
 pub struct Filter<'a, 'd, 'reg, 'inj, T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    M: FilterMarker + InstanceEvents<T>,
     P: PowerState,
 {
     _instance_marker: PhantomData<T>,
@@ -401,7 +401,7 @@ where
 impl<'a, 'd, 'reg, 'inj, T, M, P> Drop for Filter<'a, 'd, 'reg, 'inj, T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    M: FilterMarker + InstanceEvents<T>,
     P: PowerState,
 {
     fn drop(&mut self) {
@@ -412,7 +412,7 @@ where
 impl<'a, 'd, 'reg, 'inj, T, M> Filter<'a, 'd, 'reg, 'inj, T, M, Disabled>
 where
     T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    M: FilterMarker + InstanceEvents<T>,
 {
     /// Enable the Filter
     pub fn enable<'new_reg, 'new_inj, const N: usize>(
@@ -507,7 +507,7 @@ where
 impl<'a, 'd, 'reg, 'inj, T, M> Filter<'a, 'd, 'reg, 'inj, T, M, Enabled>
 where
     T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    M: FilterMarker + InstanceEvents<T>,
 {
     /// Disable the filter
     pub fn disable(self) -> Filter<'a, 'd, 'reg, 'inj, T, M, Disabled> {
@@ -547,7 +547,7 @@ where
 impl<'a, 'd, 'reg, 'inj, T, M, P> Filter<'a, 'd, 'reg, 'inj, T, M, P>
 where
     T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    M: FilterMarker + InstanceEvents<T>,
     P: PowerState,
 {
     /// Trigger a regular conversion
@@ -1158,19 +1158,38 @@ where
 // InterruptHandler
 // =============================================================================
 
+// Implement properly only for Flt0 as Flt0 Handles instance-level events
+impl<T> InstanceEvents<T> for Flt0
+where
+    T: Instance + FilterInterrupt<Flt0>,
+{
+    unsafe fn handle_instance_events() {
+        if ShortCircuitDetector::<T>::short_circuit_detector_channel_flags() != 0u8 {
+            ShortCircuitDetector::<T>::set_short_circuit_detector_interrupt(false);
+            T::instance_state().short_circuit_waker.wake();
+        }
+        if ClockAbsenceDetector::<T>::clock_absence_detector_channel_flags() != 0u8 {
+            ClockAbsenceDetector::<T>::set_clock_absence_interrupt(false);
+            T::instance_state().clock_absence_waker.wake();
+        }
+    }
+}
+
+/// InterruptHandler for all DFSDM interrupts
+pub struct InterruptHandler<T, F: FilterMarker>(PhantomData<(T, F)>);
+
 impl<T, F> interrupt::typelevel::Handler<<T as FilterInterrupt<F>>::Interrupt> for InterruptHandler<T, F>
 where
     T: Instance + FilterInterrupt<F>,
-    F: FilterMarker,
+    F: FilterMarker + InstanceEvents<T>,
 {
     unsafe fn on_interrupt() {
+        // Per-filter common logic
         if Filter::<T, F, Enabled>::end_of_injected_conversion() {
-            //|| Filter::<T, F, Enabled>::injected_conversion_overrun() {
             Filter::<T, F, Enabled>::set_injected_end_of_conversion_interrupt(false);
             <T as FilterInterrupt<F>>::state().injected_waker.wake();
         }
         if Filter::<T, F, Enabled>::end_of_regular_conversion() {
-            //|| Filter::<T, F, Enabled>::regular_conversion_overrun(){
             Filter::<T, F, Enabled>::set_regular_end_of_conversion_interrupt(false);
             <T as FilterInterrupt<F>>::state().regular_waker.wake();
         }
@@ -1178,14 +1197,9 @@ where
             AnalogWatchdog::<T, F>::set_analog_watchdog_interrupt(false);
             <T as FilterInterrupt<F>>::state().watchdog_waker.wake();
         }
-        if ShortCircuitDetector::<T, F>::short_circuit_detector_channel_flags() != 0u8 {
-            ShortCircuitDetector::<T, F>::set_short_circuit_detector_interrupt(false);
-            <T as FilterInterrupt<F>>::state().short_circuit_waker.wake();
-        }
-        if ClockAbsenceDetector::<T, F>::clock_absence_detector_channel_flags() != 0u8 {
-            ClockAbsenceDetector::<T, F>::set_clock_absence_interrupt(false);
-            <T as FilterInterrupt<F>>::state().short_circuit_waker.wake();
-        }
+
+        // Instance logic (compiled out for Flt1..7)
+        F::handle_instance_events();
     }
 }
 
@@ -1206,7 +1220,7 @@ where
 impl<T, M> FilterBuilder<T, M>
 where
     T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    M: FilterMarker + InstanceEvents<T>,
 {
     /// Creates a new builder for a filter.
     pub(crate) fn new() -> Self {
@@ -1741,25 +1755,23 @@ where
     }
 }
 
-pub struct ShortCircuitDetector<'a, 'd, T, M>
+pub struct ShortCircuitDetector<'a, 'd, T>
 where
     T: Instance,
-    M: FilterMarker,
 {
-    _instance_marker: PhantomData<(T, M)>,
+    _instance_marker: PhantomData<T>,
     common: &'a DfsdmCommon<'d, T, Enabled>,
 }
 
-impl<'a, 'd, T, M> ShortCircuitDetector<'a, 'd, T, M>
+impl<'a, 'd, T> ShortCircuitDetector<'a, 'd, T>
 where
-    T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    T: Instance + FilterInterrupt<Flt0>,
 {
     /// Wait for a short-circuit-detector event
     pub async fn wait_for_event(&mut self) -> u8 {
         poll_fn(|cx| {
             Self::set_short_circuit_detector_interrupt(false);
-            T::state().short_circuit_waker.register(cx.waker());
+            T::instance_state().short_circuit_waker.register(cx.waker());
 
             let channels = Self::short_circuit_detector_channel_flags();
 
@@ -1790,25 +1802,23 @@ where
     }
 }
 
-pub struct ClockAbsenceDetector<'a, 'd, T, M>
+pub struct ClockAbsenceDetector<'a, 'd, T>
 where
     T: Instance,
-    M: FilterMarker,
 {
-    _instance_marker: PhantomData<(T, M)>,
+    _instance_marker: PhantomData<T>,
     common: &'a DfsdmCommon<'d, T, Enabled>,
 }
 
-impl<'a, 'd, T, M> ClockAbsenceDetector<'a, 'd, T, M>
+impl<'a, 'd, T> ClockAbsenceDetector<'a, 'd, T>
 where
-    T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    T: Instance + FilterInterrupt<Flt0>,
 {
     /// Wait for a short-circuit-detector event
     pub async fn wait_for_event(&mut self) -> u8 {
         poll_fn(|cx| {
             Self::set_clock_absence_interrupt(false);
-            T::state().clock_absence_waker.register(cx.waker());
+            T::instance_state().clock_absence_waker.register(cx.waker());
 
             let channels = Self::clock_absence_detector_channel_flags();
 
