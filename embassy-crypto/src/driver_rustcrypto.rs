@@ -1301,6 +1301,20 @@ impl embassy_crypto_driver::P256Ops for P256OpsDriver {
         let affine = embassy_crypto_driver::mul_affine(&canonical_k, &canonical_p);
         Self::point_from_canonical(&affine)
     }
+
+    fn projective_lincomb(
+        k1: &Self::Scalar,
+        p1: &Self::ProjectivePoint,
+        k2: &Self::Scalar,
+        p2: &Self::ProjectivePoint,
+    ) -> Self::ProjectivePoint {
+        // p256::ProjectivePoint implements LinearCombination via the
+        // elliptic-curve trait default, but we dispatch explicitly to avoid
+        // the generic two-mul-plus-add decomposition when the backend has
+        // a native joint multiplication. For the RustCrypto driver the
+        // generic composition is the best available.
+        p1 * k1 + p2 * k2
+    }
 }
 
 #[cfg(feature = "driver-p256")]

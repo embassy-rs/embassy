@@ -1119,6 +1119,25 @@ unitrait::unitrait! {
         /// be secret: ECDH).
         #[symbol = "_emb_crypto_p256_scalar_mul_projective"]
         fn scalar_mul_projective(k: &Self::Scalar, p: &Self::ProjectivePoint) -> Self::ProjectivePoint;
+
+        /// Simultaneous double-scalar multiplication: `k1 * p1 + k2 * p2`.
+        ///
+        /// Backends with a native joint multiplication SHOULD override this.
+        /// The default composes two generic multiplications plus an add and is
+        /// ~2x slower — it exists so backends without a joint primitive still
+        /// satisfy the trait.
+        ///
+        /// Defined fallbacks (matching the rest of this contract):
+        /// `k_i == 0` contributes nothing (result is the other term);
+        /// identity operands follow the `scalar_mul_projective` contract.
+        /// Constant-time with respect to both scalars.
+        #[symbol = "_emb_crypto_p256_projective_lincomb"]
+        fn projective_lincomb(
+            k1: &Self::Scalar,
+            p1: &Self::ProjectivePoint,
+            k2: &Self::Scalar,
+            p2: &Self::ProjectivePoint,
+        ) -> Self::ProjectivePoint;
     }
 
     /// The global [`P256Ops`] implementation.

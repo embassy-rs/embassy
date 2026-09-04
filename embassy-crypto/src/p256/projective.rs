@@ -362,4 +362,14 @@ impl MulByGenerator for ProjectivePoint {
     }
 }
 
-impl LinearCombination for ProjectivePoint {}
+impl LinearCombination for ProjectivePoint {
+    #[inline]
+    fn lincomb(x: &Self, k: &Self::Scalar, y: &Self, l: &Self::Scalar) -> Self {
+        Self::from_native(drv::P256OpsImpl::projective_lincomb(
+            &k.to_opaque(),
+            &x.to_native(),
+            &l.to_opaque(),
+            &y.to_native(),
+        ))
+    }
+}
