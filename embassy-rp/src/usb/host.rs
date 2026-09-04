@@ -1003,6 +1003,41 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         });
     }
 
+    /// Read one packet from a dedicated interrupt endpoint.
+    async fn interrupt_in_read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
+        self.wait_ready_for_transaction().await;
+        self.set_current();
+        let _interrupt_guard = self.transaction_guard();
+
+        let ctrl = self.buffer_control().read();
+        if ctrl.full(0) {
+            // A packet arrived while nobody was reading. Take it as it stands:
+            // re-arming would clear `full` and discard what the device already sent.
+        } else if ctrl.available(0) {
+            // Already armed, so the controller owns the buffer and may fill it at
+            // any moment. Writing to it here would race that; just wait.
+            trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
+            self.wait_available().await;
+        } else {
+            // Idle: not armed and holding nothing, so the controller cannot be
+            // touching the buffer and it is safe to program.
+            trace!("CHANNEL {} ARM INTERRUPT", self.index);
+            self.interrupt_reload();
+            self.wait_available().await;
+        }
+
+        let rx_len = self.buffer_control().read().length(0) as usize;
+        trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
+        if rx_len > buf.len() {
+            return Err(PipeError::BufferOverflow);
+        }
+
+        self.buf.read(&mut buf[..rx_len]);
+        self.advance_pid();
+        self.interrupt_reload();
+        Ok(rx_len)
+    }
+
     /// Set DATA IN transaction
     ///
     fn set_data_in(&mut self, len: u16, pid: bool) {
@@ -1142,6 +1177,61 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         Ok(len)
     }
 
+    /// Read over EPX until the caller's buffer fills or the device sends a short packet.
+    async fn epx_read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
+        let mut count: usize = 0;
+        let res = loop {
+            trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
+            let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
+            let rx_len = self.transfer_in_packet(packet_len as u16, self.pid).await?;
+            self.advance_pid();
+
+            let free = &mut buf[count..];
+            trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
+
+            if rx_len > free.len() {
+                break Err(PipeError::BufferOverflow);
+            }
+
+            self.buf.read(&mut free[..rx_len]);
+            count += rx_len;
+
+            // If transfer is smaller than max_packet_size, we are done
+            // If we have read buf.len() bytes, we are done
+            if count == buf.len() || rx_len < self.max_packet_size as usize {
+                break Ok(count);
+            }
+        };
+
+        res
+    }
+
+    /// Write over EPX until the caller's buffer is drained.
+    async fn epx_write(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError> {
+        let mut count = 0;
+        let res = loop {
+            trace!("CHANNEL {} START WRITE", self.index);
+            let packet = self.transfer_out_packet(&buf[count..], self.pid).await?;
+            self.advance_pid();
+
+            trace!("WRITE DONE, tx_len = {}", packet);
+
+            count += packet;
+
+            if count == buf.len() {
+                if packet == self.max_packet_size as usize && ensure_transaction_end {
+                    trace!("CHANNEL {} START ZLP WRITE", self.index);
+                    self.transfer_out_packet(&[], self.pid).await?;
+                    self.advance_pid();
+                    trace!("ZLP WRITE DONE");
+                }
+                break Ok(());
+            }
+        };
+
+        res
+    }
+
     /// Send SETUP packet
     ///
     /// WARNING: This flips PID
@@ -1228,98 +1318,18 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     where
         D: pipe::IsIn,
     {
-        // An interrupt pipe owns its endpoint for the whole read.
-        let _interrupt_guard = if Self::is_interrupt_in() {
-            self.wait_ready_for_transaction().await;
-            self.set_current();
-            Some(self.transaction_guard())
+        if Self::is_interrupt_in() {
+            self.interrupt_in_read(buf).await
         } else {
-            None
-        };
-
-        let mut count: usize = 0;
-
-        let res = loop {
-            let rx_len = if Self::is_interrupt_in() {
-                let ctrl = self.buffer_control().read();
-                if ctrl.full(0) {
-                    // A packet arrived while nobody was reading. Take it as it stands:
-                    // re-arming would clear `full` and discard what the device already sent.
-                } else if ctrl.available(0) {
-                    // Already armed, so the controller owns the buffer and may fill it at
-                    // any moment. Writing to it here would race that; just wait.
-                    trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
-                    self.wait_available().await;
-                } else {
-                    // Idle: not armed and holding nothing, so the controller cannot be
-                    // touching the buffer and it is safe to program.
-                    trace!("CHANNEL {} ARM INTERRUPT", self.index);
-                    self.interrupt_reload();
-                    self.wait_available().await;
-                }
-                self.buffer_control().read().length(0) as usize
-            } else {
-                trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
-                let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
-                let rx_len = self.transfer_in_packet(packet_len as u16, self.pid).await?;
-                self.advance_pid();
-
-                rx_len
-            };
-
-            let free = &mut buf[count..];
-            trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
-
-            if rx_len > free.len() {
-                break Err(PipeError::BufferOverflow);
-            }
-
-            self.buf.read(&mut free[..rx_len]);
-            count += rx_len;
-
-            if Self::is_interrupt_in() {
-                self.advance_pid();
-                self.interrupt_reload();
-                break Ok(count);
-            }
-
-            // If transfer is smaller than max_packet_size, we are done
-            // If we have read buf.len() bytes, we are done
-            if count == buf.len() || rx_len < self.max_packet_size as usize {
-                break Ok(count);
-            }
-        };
-
-        res
+            self.epx_read(buf).await
+        }
     }
 
     async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError>
     where
         D: pipe::IsOut,
     {
-        let mut count = 0;
-
-        let res = loop {
-            trace!("CHANNEL {} START WRITE", self.index);
-            let packet = self.transfer_out_packet(&buf[count..], self.pid).await?;
-            self.advance_pid();
-
-            trace!("WRITE DONE, tx_len = {}", packet);
-
-            count += packet;
-
-            if count == buf.len() {
-                if packet == self.max_packet_size as usize && ensure_transaction_end {
-                    trace!("CHANNEL {} START ZLP WRITE", self.index);
-                    self.transfer_out_packet(&[], self.pid).await?;
-                    self.advance_pid();
-                    trace!("ZLP WRITE DONE");
-                }
-                break Ok(());
-            }
-        };
-
-        res
+        self.epx_write(buf, ensure_transaction_end).await
     }
 
     fn set_timeout(&mut self, timeout: TimeoutConfig) {
