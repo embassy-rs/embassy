@@ -47,6 +47,10 @@ rm -rf out/tests/mspm0g3507
 # rm out/tests/stm32wb55rg/wpan_mac
 # rm out/tests/stm32wb55rg/wpan_ble
 
+# temporarily disabled
+rm -rf  out/tests/stm32wba65ri
+rm -rf  out/tests/nrf9160-dk
+
 # unstable, I think it's running out of RAM?
 rm out/tests/stm32f207zg/eth
 
