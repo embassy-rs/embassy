@@ -8,6 +8,9 @@ mod driver_rustcrypto;
 #[cfg(feature = "driver-p256-scalar-mul")]
 mod driver_p256;
 
+#[cfg(feature = "ec")]
+pub mod ec;
+
 #[cfg(feature = "p256")]
 pub mod p256;
 

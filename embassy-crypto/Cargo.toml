@@ -51,6 +51,7 @@ cmac = { version = "0.8", default-features = false, optional = true }
 # P-256: software arithmetic wrapped by the `p256` module (scalar
 # multiplication is delegated to the `P256ScalarMul` driver), and the
 # software fallback driver for that unitrait.
+elliptic-curve = { version = "0.13", default-features = false, features = ["arithmetic", "sec1"], optional = true }
 p256 = { version = "0.13", default-features = false, features = ["arithmetic"], optional = true }
 ecdsa = { version = "0.16", default-features = false, features = ["signing", "verifying", "digest", "hazmat"], optional = true }
 
@@ -83,11 +84,16 @@ driver-rustcrypto = [
     "driver-p256-scalar-mul",
 ]
 
-## RustCrypto `elliptic-curve` trait implementations for P-256 (the `p256` module),
-## with scalar multiplication delegated to the `P256ScalarMul` driver.
-p256 = ["dep:p256"]
+## Generic RustCrypto `elliptic-curve` trait implementations over a driver-accelerated
+## curve backend (the `ec` module).
+ec = ["dep:elliptic-curve"]
+## ECDSA support for the `ec` module.
+ecdsa = ["ec", "dep:ecdsa"]
+## The `ec` module instantiated for P-256 (the `p256` module), with scalar
+## multiplication delegated to the `P256ScalarMul` driver.
+p256 = ["ec", "dep:p256"]
 ## ECDSA signing/verification types for the `p256` module.
-p256-ecdsa = ["p256", "p256/ecdsa", "dep:ecdsa"]
+p256-ecdsa = ["p256", "ecdsa", "p256/ecdsa"]
 ## Route scalar inversion in the `p256` module through the `P256ScalarInvert` driver.
 ## An implementation must be provided at link time.
 p256-scalar-invert = ["p256"]

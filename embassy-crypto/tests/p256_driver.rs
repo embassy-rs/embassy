@@ -139,16 +139,10 @@ fn inversion_calls_the_driver() {
     let k = hw::Scalar::from(987654321u64);
     let sw = p256::Scalar::from(987654321u64);
 
+    assert_eq!(Field::invert(&k).unwrap().into_inner(), Field::invert(&sw).unwrap());
+    assert_eq!(Invert::invert(&k).unwrap().into_inner(), Field::invert(&sw).unwrap());
     assert_eq!(
-        p256::Scalar::from(Field::invert(&k).unwrap()),
-        Field::invert(&sw).unwrap()
-    );
-    assert_eq!(
-        p256::Scalar::from(Invert::invert(&k).unwrap()),
-        Field::invert(&sw).unwrap()
-    );
-    assert_eq!(
-        p256::Scalar::from(Invert::invert_vartime(&k).unwrap()),
+        Invert::invert_vartime(&k).unwrap().into_inner(),
         Field::invert(&sw).unwrap()
     );
     // Zero is never shown to the driver, but still counts as a (masked) call.
@@ -169,10 +163,10 @@ fn lincomb_calls_the_driver() {
     let l = hw::Scalar::from(7654321u64);
     let g = hw::ProjectivePoint::GENERATOR;
     let p = g * l;
-    let sw = |x: &hw::ProjectivePoint| p256::ProjectivePoint::from(p256::AffinePoint::from(x.to_affine()));
+    let sw = |x: &hw::ProjectivePoint| p256::ProjectivePoint::from(x.to_affine().into_inner());
 
     let before = CALLS.with(|calls| calls.get());
-    let expected = sw(&g) * p256::Scalar::from(k) + sw(&p) * p256::Scalar::from(l);
+    let expected = sw(&g) * k.into_inner() + sw(&p) * l.into_inner();
 
     // Regular operands: exactly one driver call, and the result is already affine.
     let r = hw::ProjectivePoint::lincomb(&g, &k, &p, &l);
@@ -182,11 +176,11 @@ fn lincomb_calls_the_driver() {
     // Degenerate operands are fixed up without a second driver call.
     assert_eq!(
         sw(&hw::ProjectivePoint::lincomb(&g, &hw::Scalar::ZERO, &p, &l)),
-        sw(&p) * p256::Scalar::from(l)
+        sw(&p) * l.into_inner()
     );
     assert_eq!(
         sw(&hw::ProjectivePoint::lincomb(&g, &k, &p, &hw::Scalar::ZERO)),
-        sw(&g) * p256::Scalar::from(k)
+        sw(&g) * k.into_inner()
     );
     assert_eq!(
         sw(&hw::ProjectivePoint::lincomb(
@@ -195,7 +189,7 @@ fn lincomb_calls_the_driver() {
             &p,
             &l
         )),
-        sw(&p) * p256::Scalar::from(l)
+        sw(&p) * l.into_inner()
     );
     assert!(bool::from(
         hw::ProjectivePoint::lincomb(&hw::ProjectivePoint::IDENTITY, &hw::Scalar::ZERO, &p, &hw::Scalar::ZERO)

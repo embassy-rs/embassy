@@ -204,7 +204,7 @@ fn scalar_field_matches_p256() {
     assert_eq!(sw_scalar(&(-a)), -sa);
     assert_eq!(sw_scalar(&a.invert().unwrap()), sa.invert().unwrap());
     assert_eq!(sw_scalar(&a.square()), sa.square());
-    assert_eq!(hw::Scalar::from(7u64), hw::Scalar::from(p256::Scalar::from(7u64)));
+    assert_eq!(hw::Scalar::from(7u64), hw::Scalar::from_inner(p256::Scalar::from(7u64)));
 }
 
 #[test]
