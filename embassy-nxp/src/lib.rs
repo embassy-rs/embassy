@@ -14,6 +14,8 @@ pub mod pint;
 #[cfg(lpc55)]
 pub mod pwm;
 #[cfg(lpc55)]
+pub mod rng;
+#[cfg(lpc55)]
 pub mod sct;
 #[cfg(lpc55)]
 pub mod spi;

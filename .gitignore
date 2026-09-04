@@ -16,3 +16,7 @@ out/
 **/.cargo
 !**/tests/**/.cargo
 !**/examples/**/.cargo
+
+# macOS Finder metadata
+.DS_Store
+**/.DS_Store

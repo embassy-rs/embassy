@@ -59,6 +59,14 @@ struct Singleton {
 fn singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
     let mut singletons = Vec::new();
 
+    // RNG is present in the LPC55 PAC but is missing from its metadata.
+    if env::var_os("CARGO_FEATURE_LPC55_CORE0").is_some() || env::var_os("CARGO_FEATURE_LPC55S16").is_some() {
+        singletons.push(Singleton {
+            name: "RNG".into(),
+            cfg: None,
+        });
+    }
+
     for peripheral in METADATA.peripherals {
         // GPIO and DMA are generated in a 2nd pass.
         let skip_singleton = if peripheral.name.starts_with("GPIO") || peripheral.name.starts_with("DMA") {
