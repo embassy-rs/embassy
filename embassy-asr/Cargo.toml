@@ -1,0 +1,67 @@
+[package]
+name = "embassy-asr"
+version = "0.1.0"
+edition = "2024"
+description = "Embassy support for ASR microcontrollers"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-asr"
+
+[package.metadata.embassy]
+build = [
+    { target = "thumbv7em-none-eabihf", features = ["asr6601", "time-driver-rtc"] },
+]
+
+[package.metadata.docs.rs]
+features = ["asr6601", "time-driver-rtc"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[dependencies]
+embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
+embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
+embassy-time-driver = { version = "0.2.2", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.2", path = "../embassy-time-queue-utils", optional = true }
+
+embedded-hal = "1.0"
+embedded-hal-async = "1.0"
+embedded-io = "0.7.1"
+embedded-io-async = "0.7.0"
+embedded-storage = "0.3.1"
+rand_core = "0.9"
+
+defmt = { version = "1.0.1", optional = true }
+cortex-m = "0.7"
+cortex-m-rt = "0.7"
+critical-section = "1.1"
+
+[dependencies.asr6601-pac]
+version = "0.1.0"
+git = "https://github.com/Kezii/ASR6601-PAC.git"
+optional = true
+features = ["critical-section", "rt"]
+
+[features]
+default = ["asr6601", "time-driver-rtc"]
+
+defmt = [
+    "dep:defmt",
+    "embassy-embedded-hal/defmt",
+    "embassy-futures/defmt",
+    "embassy-hal-internal/defmt",
+    "embassy-sync/defmt",
+]
+
+_time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
+
+# RTC is clocked from the always-on XO32K domain. Its calendar provides the
+# monotonic clock and its cyclic counter wakes the processor for deadlines.
+time-driver-rtc = [
+    "_time-driver",
+    "asr6601",
+    "embassy-time-driver?/tick-hz-32_768",
+]
+
+rt = []
+asr6601 = ["dep:asr6601-pac", "rt"]
