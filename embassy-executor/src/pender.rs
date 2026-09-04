@@ -24,8 +24,11 @@ unitrait::unitrait! {
         /// In particular, the implementation must NOT call `poll` directly from within this
         /// function, as this violates the requirement for `poll` to not be called reentrantly.
         #[symbol = "__pender"]
-        pub(crate) fn pend(context: *mut ());
+        fn pend(context: *mut ());
     }
+
+    /// The global [`Pender`] implementation.
+    pub(crate) struct PenderImpl;
 
     /// Register a type as the global [`Pender`] implementation.
     ///
