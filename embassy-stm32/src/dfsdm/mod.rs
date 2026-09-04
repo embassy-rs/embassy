@@ -278,16 +278,6 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
             )
         }
     }
-
-    /// Enables or disables clock absence interrupts.
-    fn set_clock_absence_interrupt(&mut self, enabled: bool) {
-        T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
-    }
-
-    /// Enables or disables short-circuit detector interrupts.
-    fn set_short_circuit_detector_interrupt(&mut self, enabled: bool) {
-        T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
-    }
 }
 
 impl<'d, T, P> Drop for DfsdmCommon<'d, T, P>
@@ -775,65 +765,6 @@ where
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jscan(enabled));
     }
 
-    /// Enables the analog watchdog for the specified channel.
-    pub(crate) fn set_watchdog_channel(ch: u8) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_awdch(w.awdch() | (1 << ch)));
-    }
-
-    /// Disables the analog watchdog for the specified channel.
-    pub(crate) fn clear_watchdog_channel(ch: u8) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_awdch(w.awdch() & !(1 << ch)));
-    }
-
-    /// Assign the provided `Transceiver` to the analog watchdog channel of this `Filter`
-    pub fn assign_watchdog_channel<MT, S, MODE, PT>(mut self, channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>) -> Self
-    where
-        MT: TransceiverMarker + NextChannelForInstance<T>,
-        S: PinSet,
-        MODE: ChannelMode,
-        PT: PowerState,
-    {
-        Self::set_watchdog_channel(channel.index() as u8);
-        self
-    }
-
-    /// Unassign the provided channel from the analog watchdog of this `Filter`
-    pub fn unassign_watchdog_channel<MT, S, MODE, PT>(
-        mut self,
-        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
-    ) -> Self
-    where
-        MT: TransceiverMarker + NextChannelForInstance<T>,
-        S: PinSet,
-        MODE: ChannelMode,
-        PT: PowerState,
-    {
-        Self::clear_watchdog_channel(channel.index() as u8);
-        self
-    }
-
-    /// Enables the extremes detector for the specified channel.
-    pub(crate) fn set_extremes_detector_channel(ch: u8) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_exch(w.exch() | (1 << ch)));
-    }
-
-    /// Disables the extremes detector for the specified channel.
-    pub(crate) fn clear_extremes_detector_channel(ch: u8) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_exch(w.exch() & !(1 << ch)));
-    }
-
     /// Assign the provided `Transceiver` as the regular conversion input for this `Filter`
     pub(crate) fn assign_regular_transceiver<'new_reg>(
         mut self,
@@ -878,36 +809,6 @@ where
         }
     }
 
-    /// Assign the provided `Transceiver` to the extremes detector of this `Filter`.
-    pub fn assign_extremes_detector_channel<MT, S, MODE, PT>(
-        mut self,
-        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
-    ) -> Self
-    where
-        MT: TransceiverMarker + NextChannelForInstance<T>,
-        S: PinSet,
-        MODE: ChannelMode,
-        PT: PowerState,
-    {
-        Self::set_extremes_detector_channel(channel.index() as u8);
-        self
-    }
-
-    /// Unassign the provided channel from the extremes detector of this `Filter`.
-    pub fn unassign_extremes_detector_channel<MT, S, MODE, PT>(
-        mut self,
-        channel: &Transceiver<'_, '_, T, MT, S, MODE, PT>,
-    ) -> Self
-    where
-        MT: TransceiverMarker + NextChannelForInstance<T>,
-        S: PinSet,
-        MODE: ChannelMode,
-        PT: PowerState,
-    {
-        Self::clear_extremes_detector_channel(channel.index() as u8);
-        self
-    }
-
     /// Enable or disable the filter
     pub(crate) fn set_enabled(enabled: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(enabled));
@@ -943,42 +844,6 @@ where
             .flt(M::CHANNEL.index())
             .cr2()
             .modify(|w| w.set_jeocie(enabled));
-    }
-
-    /// Enables or disables analog watchdog interrupts.
-    pub(crate) fn set_analog_watchdog_interrupt(enabled: bool) {
-        T::regs().flt(M::CHANNEL.index()).cr2().modify(|w| w.set_awdie(enabled));
-    }
-
-    /// Returns whether the analog watchdog has been triggerd
-    pub(crate) fn analog_watchdog_triggered() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().awdf()
-    }
-
-    /// Returns bitmap of channels who triggered the high threshold
-    pub(crate) fn analog_watchdog_high_channels() -> u8 {
-        T::regs().flt(M::CHANNEL.index()).awsr().read().awhtf()
-    }
-
-    /// Returns bitmap of channels who triggered the low threshold
-    pub(crate) fn analog_watchdog_low_channels() -> u8 {
-        T::regs().flt(M::CHANNEL.index()).awsr().read().awltf()
-    }
-
-    /// Clears the provided channels' analog watchdog flags
-    pub(crate) fn clear_analog_watchdog_high(channels: u8) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .awsr()
-            .modify(|w| w.set_awhtf(channels));
-    }
-
-    /// Clears the provided channels' analog watchdog flags
-    pub(crate) fn clear_analog_watchdog_low(channels: u8) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .awsr()
-            .modify(|w| w.set_awltf(channels));
     }
 }
 
@@ -1300,16 +1165,26 @@ where
 {
     unsafe fn on_interrupt() {
         if Filter::<T, F, Enabled>::end_of_injected_conversion() {
+            //|| Filter::<T, F, Enabled>::injected_conversion_overrun() {
             Filter::<T, F, Enabled>::set_injected_end_of_conversion_interrupt(false);
             <T as FilterInterrupt<F>>::state().injected_waker.wake();
         }
         if Filter::<T, F, Enabled>::end_of_regular_conversion() {
+            //|| Filter::<T, F, Enabled>::regular_conversion_overrun(){
             Filter::<T, F, Enabled>::set_regular_end_of_conversion_interrupt(false);
             <T as FilterInterrupt<F>>::state().regular_waker.wake();
         }
-        if Filter::<T, F, Enabled>::analog_watchdog_triggered() {
-            Filter::<T, F, Enabled>::set_analog_watchdog_interrupt(false);
+        if AnalogWatchdog::<T, F>::analog_watchdog_triggered() {
+            AnalogWatchdog::<T, F>::set_analog_watchdog_interrupt(false);
             <T as FilterInterrupt<F>>::state().watchdog_waker.wake();
+        }
+        if ShortCircuitDetector::<T, F>::short_circuit_detector_channel_flags() != 0u8 {
+            ShortCircuitDetector::<T, F>::set_short_circuit_detector_interrupt(false);
+            <T as FilterInterrupt<F>>::state().short_circuit_waker.wake();
+        }
+        if ClockAbsenceDetector::<T, F>::clock_absence_detector_channel_flags() != 0u8 {
+            ClockAbsenceDetector::<T, F>::set_clock_absence_interrupt(false);
+            <T as FilterInterrupt<F>>::state().short_circuit_waker.wake();
         }
     }
 }
@@ -1707,25 +1582,23 @@ where
 {
     /// Wait for a analog watchdog event
     pub async fn wait_for_event(&mut self) -> AnalogWatchdogEvent {
-        // self.start_regular_conversion();
-
         poll_fn(|cx| {
-            Filter::<T, M, Enabled>::set_analog_watchdog_interrupt(false);
+            Self::set_analog_watchdog_interrupt(false);
             T::state().watchdog_waker.register(cx.waker());
 
-            let high = Filter::<T, M, Enabled>::analog_watchdog_high_channels();
-            let low = Filter::<T, M, Enabled>::analog_watchdog_low_channels();
+            let high = Self::analog_watchdog_high_channels();
+            let low = Self::analog_watchdog_low_channels();
 
             if high != 0 {
-                Filter::<T, M, Enabled>::clear_analog_watchdog_high(high);
+                Self::clear_analog_watchdog_high(high);
                 return Poll::Ready(AnalogWatchdogEvent::HighThreshold { transceivers: high });
             }
             if low != 0 {
-                Filter::<T, M, Enabled>::clear_analog_watchdog_low(low);
+                Self::clear_analog_watchdog_low(low);
                 return Poll::Ready(AnalogWatchdogEvent::LowThreshold { transceivers: low });
             }
 
-            Filter::<T, M, Enabled>::set_analog_watchdog_interrupt(true);
+            Self::set_analog_watchdog_interrupt(true);
             Poll::Pending
         })
         .await
@@ -1745,13 +1618,227 @@ where
             .modify(|w| w.set_awlt(threshold as u32));
     }
 
-    pub fn assign_to_break_signals(&mut self, break_signals: config_types::BreakSignals) {
+    pub fn assign_high_to_break_signals(&mut self, break_signals: config_types::BreakSignals) {
         T::regs()
-            .ch(M::CHANNEL.index())
-            .awscdr()
-            .modify(|w| w.set_bkscd(break_signals.bits()));
+            .flt(M::CHANNEL.index())
+            .awhtr()
+            .modify(|w| w.set_bkawh(break_signals.bits()));
+    }
+
+    pub fn assign_low_to_break_signals(&mut self, break_signals: config_types::BreakSignals) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .awltr()
+            .modify(|w| w.set_bkawl(break_signals.bits()));
+    }
+
+    /// Assign provided transceivers to this analog watchdog
+    pub fn assign_transceivers<const N: usize>(
+        &mut self,
+        // No borrow lifetime here as watchdog events arent awaited when channel is off.
+        // They're "errors", not results that waiting for might stall your program.
+        transceivers: [&dyn TransceiverTrait<T, Enabled>; N],
+    ) where
+        [(); N]: NonEmpty,
+    {
+        let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
+
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_awdch(filterword));
+    }
+
+    /// Enables or disables analog watchdog interrupts.
+    pub(crate) fn set_analog_watchdog_interrupt(enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr2().modify(|w| w.set_awdie(enabled));
+    }
+
+    /// Returns whether the analog watchdog has been triggerd
+    pub(crate) fn analog_watchdog_triggered() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().awdf()
+    }
+
+    /// Returns bitmap of channels who triggered the high threshold
+    pub(crate) fn analog_watchdog_high_channels() -> u8 {
+        T::regs().flt(M::CHANNEL.index()).awsr().read().awhtf()
+    }
+
+    /// Returns bitmap of channels who triggered the low threshold
+    pub(crate) fn analog_watchdog_low_channels() -> u8 {
+        T::regs().flt(M::CHANNEL.index()).awsr().read().awltf()
+    }
+
+    /// Clears the provided channels' analog watchdog flags
+    pub(crate) fn clear_analog_watchdog_high(channels: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .awsr()
+            .modify(|w| w.set_awhtf(channels));
+    }
+
+    /// Clears the provided channels' analog watchdog flags
+    pub(crate) fn clear_analog_watchdog_low(channels: u8) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .awsr()
+            .modify(|w| w.set_awltf(channels));
     }
 }
+pub struct ExtremesDetector<'a, 'd, T, M>
+where
+    T: Instance,
+    M: FilterMarker,
+{
+    _instance_marker: PhantomData<(T, M)>,
+    common: &'a DfsdmCommon<'d, T, Enabled>,
+}
+
+impl<'a, 'd, T, M> ExtremesDetector<'a, 'd, T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+{
+    /// Assign provided transceivers to this extremes detector
+    pub fn assign_transceivers<const N: usize>(
+        &mut self,
+        // No borrow lifetime here as watchdog events arent awaited when channel is off.
+        // They're "errors", not results that waiting for might stall your program.
+        transceivers: [&dyn TransceiverTrait<T, Enabled>; N],
+    ) where
+        [(); N]: NonEmpty,
+    {
+        let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
+
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_exch(filterword));
+    }
+
+    /// Reads the extremes detector maximum value and its corresponding channel.
+    ///
+    /// Returns a tuple (maximum, channel) containing:
+    /// - `maximum`: The highest value converted by the filter (`EXMAX[23:0]`). Reading this
+    ///   register resets the value to `0x800000`.
+    /// - `channel`: The channel index on which the maximum data was stored (`EXMAXCH[2:0]`).
+    ///   Reading this register clears the bits.
+    pub fn read_maxima(&mut self) -> (u32, u8) {
+        let exmax = T::regs().flt(M::CHANNEL.index()).exmax().read();
+        (exmax.exmax(), exmax.exmaxch())
+    }
+
+    /// Reads the extremes detector minimum value and its corresponding channel.
+    ///
+    /// Returns a tuple (maximum, channel) containing:
+    /// - `minimum`: The highest value converted by the filter (`EXMAX[23:0]`). Reading this
+    ///   register resets the value to `0x7FFFFF`.
+    /// - `channel`: The channel index on which the maximum data was stored (`EXMAXCH[2:0]`).
+    ///   Reading this register clears the bits.
+    pub fn read_minima(&mut self) -> (u32, u8) {
+        let exmin = T::regs().flt(M::CHANNEL.index()).exmin().read();
+        (exmin.exmin(), exmin.exminch())
+    }
+}
+
+pub struct ShortCircuitDetector<'a, 'd, T, M>
+where
+    T: Instance,
+    M: FilterMarker,
+{
+    _instance_marker: PhantomData<(T, M)>,
+    common: &'a DfsdmCommon<'d, T, Enabled>,
+}
+
+impl<'a, 'd, T, M> ShortCircuitDetector<'a, 'd, T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+{
+    /// Wait for a short-circuit-detector event
+    pub async fn wait_for_event(&mut self) -> u8 {
+        poll_fn(|cx| {
+            Self::set_short_circuit_detector_interrupt(false);
+            T::state().short_circuit_waker.register(cx.waker());
+
+            let channels = Self::short_circuit_detector_channel_flags();
+
+            if channels != 0 {
+                Self::clear_short_circuit_detector_channel(channels);
+                return Poll::Ready(channels);
+            }
+
+            Self::set_short_circuit_detector_interrupt(true);
+            Poll::Pending
+        })
+        .await
+    }
+
+    /// Enables or disables short-circuit detector interrupts.
+    pub(crate) fn set_short_circuit_detector_interrupt(enabled: bool) {
+        T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
+    }
+
+    /// Returns bitmap of channels who triggered the short-circuit-detector
+    pub(crate) fn short_circuit_detector_channel_flags() -> u8 {
+        T::regs().flt(0).isr().read().scdf()
+    }
+
+    /// Returns bitmap of channels who triggered the short-circuit-detector
+    pub(crate) fn clear_short_circuit_detector_channel(channels: u8) {
+        T::regs().flt(0).icr().modify(|w| w.set_clrscdf(channels));
+    }
+}
+
+pub struct ClockAbsenceDetector<'a, 'd, T, M>
+where
+    T: Instance,
+    M: FilterMarker,
+{
+    _instance_marker: PhantomData<(T, M)>,
+    common: &'a DfsdmCommon<'d, T, Enabled>,
+}
+
+impl<'a, 'd, T, M> ClockAbsenceDetector<'a, 'd, T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker,
+{
+    /// Wait for a short-circuit-detector event
+    pub async fn wait_for_event(&mut self) -> u8 {
+        poll_fn(|cx| {
+            Self::set_clock_absence_interrupt(false);
+            T::state().clock_absence_waker.register(cx.waker());
+
+            let channels = Self::clock_absence_detector_channel_flags();
+
+            if channels != 0 {
+                Self::clear_clock_absence_detector_channel(channels);
+                return Poll::Ready(channels);
+            }
+
+            Self::set_clock_absence_interrupt(true);
+            Poll::Pending
+        })
+        .await
+    }
+
+    /// Enables or disables clock absence interrupts.
+    pub(crate) fn set_clock_absence_interrupt(enabled: bool) {
+        T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
+    }
+
+    /// Returns bitmap of channels who triggered the short-circuit-detector
+    pub(crate) fn clock_absence_detector_channel_flags() -> u8 {
+        T::regs().flt(0).isr().read().ckabf()
+    }
+
+    /// Returns bitmap of channels who triggered the short-circuit-detector
+    pub(crate) fn clear_clock_absence_detector_channel(channels: u8) {
+        T::regs().flt(0).icr().modify(|w| w.set_clrckabf(channels));
+    }
+}
+
 // ============================================================
 // Single-use selectors
 // ============================================================

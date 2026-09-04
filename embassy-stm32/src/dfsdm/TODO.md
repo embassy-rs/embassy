@@ -37,12 +37,6 @@ Set `DFEN` in `DFSDM_FLTnCR1`.
 * DFSDM_CHnAWSCDR.SCDT      [x] internal [X] pub [X] Config
 * DFSDM_CHnDLYR.PLSSKP      [x] internal [X] pub [X] When Enabled   Not in config, implemented as method.
 
-MAYBE REMOVE ONLINE RECONFIG AND ONLY USE ACCESSORS
-
-WATCHDOG FOR SPLIT!
-
-OTHER INTERRUPT POLLERS!!
-
 ## TIMERS
 * Implement set_break_dfsdm_enable, set_break2_dfsdm_enable reference: set_break_comparator_enable
 * TIM1_AF1
@@ -78,9 +72,9 @@ OTHER INTERRUPT POLLERS!!
 * DFSDM_FLTxCR2.REOCIE  [X] internal [ ] pub [ ] When Enabled
 * DFSDM_FLTxCR2.JEOCIE  [X] internal [ ] pub [ ] When Enabled
 * DFSDM_FLTxJCHGR.JCHG  [X] internal [X] pub [ ] When Enabled
-* DFSDM_FLT0CR2.CKABIE  [X] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0CR2.SCDIE   [X] internal [ ] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0CR2.AWDIE   [X] internal [ ] pub [ ] When Enabled
+* DFSDM_FLT0CR2.CKABIE  [X] internal [X] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0CR2.SCDIE   [X] internal [X] pub [ ] When Enabled (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0CR2.AWDIE   [X] internal [X] pub [ ] When Enabled
 
 NOTE:
 Due to interrupts we should really put the IRQ requirement into the Common? And then the filters? global vs local interrupts etc idk
@@ -105,13 +99,13 @@ Due to interrupts we should really put the IRQ requirement into the Common? And 
 * DFSDM_FLTxRDATAR.RDATACH     [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLTxRDATAR.RPEND       [x] internal [x] pub     Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLTxAWHTR.AWHT         [X] internal [X] pub   [ ] Config
-* DFSDM_FLTxAWHTR.BKAWH        [ ] internal [ ] pub
+* DFSDM_FLTxAWHTR.BKAWH        [X] internal [X] pub   [ ] Config
 * DFSDM_FLTxAWLTR.AWLT         [X] internal [X] pub   [ ] Config
 * DFSDM_FLTxAWLTR.BKAWL        [X] internal [X] pub   [ ] Config
-* DFSDM_FLTxEXMAX.EXMAX        [ ] internal [ ] pub
-* DFSDM_FLTxEXMAX.EXMAXCH      [ ] internal [ ] pub
-* DFSDM_FLTxEXMIN.EXMIN        [ ] internal [ ] pub
-* DFSDM_FLTxEXMIN.EXMINCH      [ ] internal [ ] pub
+* DFSDM_FLTxEXMAX.EXMAX        [x] internal [x] pub   [ ] Config
+* DFSDM_FLTxEXMAX.EXMAXCH      [x] internal [x] pub   [ ] Config
+* DFSDM_FLTxEXMIN.EXMIN        [x] internal [x] pub   [ ] Config
+* DFSDM_FLTxEXMIN.EXMINCH      [x] internal [x] pub   [ ] Config
 * DFSDM_FLTxCNVTIMR.CNVCNT     [ ] internal [ ] pub
 
 # Flags
@@ -123,17 +117,17 @@ Due to interrupts we should really put the IRQ requirement into the Common? And 
 * DFSDM_FLT0ISR.JCIP            [x] internal [x] pub    
 * DFSDM_FLT0ISR.REOCF           [x] internal [x] pub    Readable/Modifiable also when channel disabled, maybe read res after shutdown?
 * DFSDM_FLT0ISR.JEOCF           [x] internal [x] pub    Readable/Modifiable also when channel disabled, maybe read res after shutdown?
-* DFSDM_FLT0ISR.AWDF            [X] internal [ ] pub
+* DFSDM_FLT0ISR.AWDF            [X] internal [X] pub
 * DFSDM_FLT0ISR.ROVRF           [ ] internal [ ] pub
 * DFSDM_FLT0ISR.JOVRF           [ ] internal [ ] pub
-* DFSDM_FLTxAWSR.AWHTF          [X] internal [ ] pub
-* DFSDM_FLTxAWSR.AWLTF          [X] internal [ ] pub
+* DFSDM_FLTxAWSR.AWHTF          [X] internal [X] pub
+* DFSDM_FLTxAWSR.AWLTF          [X] internal [X] pub
 
 ### Clear
 ## Filter
 * DFSDM_FLT0ISR.CLRROVRF    [ ] internal [ ] pub    
 * DFSDM_FLT0ISR.CLRJOVRF    [ ] internal [ ] pub    
-* DFSDM_FLT0ISR.CLRSCDF     [ ] internal [ ] pub    (ONLY IN 0, GLOBAL)
+* DFSDM_FLT0ISR.CLRSCDF     [X] internal [X] pub    (ONLY IN 0, GLOBAL)
 * DFSDM_FLT0ISR.CLRCKABF    [ ] internal [ ] pub    (ONLY IN 0, GLOBAL)
 * DFSDM_FLTxAWCFR.CLRAWHTF  [X] internal [ ] pub    
 * DFSDM_FLTxAWCFR.CLRAWLTF  [X] internal [ ] pub    
@@ -154,7 +148,10 @@ Due to interrupts we should really put the IRQ requirement into the Common? And 
 * When enabled vs pub: COnstructor/config vs accessor I guess?
 * Handle overrun etc in normal handler? Or external, registerable?
 * The enable semantics should really also be linked to channel assignments in filters?
-
+* MAYBE REMOVE ONLINE RECONFIG AND ONLY USE ACCESSORS
+* split filters into inj/reg/common, watchdog?
+* DFSDMCOMMON has SC and CA as seperate struct items?
+* Discuss u32 vs i32 and add signextrension metods publicly?
    
 
 # Interrupts:

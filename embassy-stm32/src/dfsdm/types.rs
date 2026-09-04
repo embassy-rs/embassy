@@ -435,12 +435,16 @@ impl<T> Flt4Ready for T where
 
 /// State shared between interrupt routine and filter object
 pub struct State {
-    /// Waker for the injected interrupt requests
+    /// Waker for the injected requests
     pub injected_waker: AtomicWaker,
-    /// Waker for the regular interrupt requests
+    /// Waker for the regular requests
     pub regular_waker: AtomicWaker,
-    /// Waker for analog interrupt watchdog events
+    /// Waker for analog watchdog events
     pub watchdog_waker: AtomicWaker,
+    /// Waker for short-circuit-detector events
+    pub short_circuit_waker: AtomicWaker,
+    /// Waker for clock-absence events
+    pub clock_absence_waker: AtomicWaker,
     // Maybe we need some atomics? pub injected_done: core::sync::atomic::AtomicBool,
 }
 
@@ -451,6 +455,8 @@ impl State {
             injected_waker: AtomicWaker::new(),
             regular_waker: AtomicWaker::new(),
             watchdog_waker: AtomicWaker::new(),
+            short_circuit_waker: AtomicWaker::new(),
+            clock_absence_waker: AtomicWaker::new(),
         }
     }
 }
