@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
     );
 
     // Create classes on the builder.
-    let mut class = MidiClass::new(&mut builder, 1, 1, 64);
+    let mut class = MidiClass::new(&mut builder, MidiClassConfig::default());
 
     // The `MidiClass` can be split into `Sender` and `Receiver`, to be used in separate tasks.
     // let (sender, receiver) = class.split();
