@@ -2,8 +2,30 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-#[cfg(feature = "driver-rustcrypto")]
+#[cfg(any(
+    feature = "driver-md5",
+    feature = "driver-sha1",
+    feature = "driver-sha2",
+    feature = "driver-hmac-sha1",
+    feature = "driver-hmac-sha2",
+    feature = "driver-aes128",
+    feature = "driver-aes256",
+    feature = "driver-aes128cbc",
+    feature = "driver-aes256cbc",
+    feature = "driver-aes128ctr",
+    feature = "driver-aes256ctr",
+    feature = "driver-aes128gcm",
+    feature = "driver-aes256gcm",
+    feature = "driver-aes128ccm",
+    feature = "driver-aes256ccm",
+    feature = "driver-aes128cmac",
+    feature = "driver-aes256cmac",
+    feature = "driver-p256",
+    feature = "driver-p256-scalar-mul",
+))]
 mod driver_rustcrypto;
+
+pub mod p256;
 
 use aead::common::array::ArraySize;
 use aead::inout::InOutBuf;

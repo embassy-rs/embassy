@@ -880,3 +880,290 @@ unitrait::unitrait! {
 
     macro aes256cmac_impl(path = $crate);
 }
+
+// ===================================================================
+// P-256 Elliptic Curve Traits
+// ===================================================================
+
+/// Canonical P-256 scalar: big-endian, 32 bytes, range [1, n-1].
+///
+/// This is the portable representation that crosses backend boundaries.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct P256Scalar(pub [u8; 32]);
+
+/// Canonical P-256 affine point: big-endian (x, y), uncompressed.
+///
+/// This is the portable representation that crosses backend boundaries.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct P256AffinePoint {
+    /// X coordinate, big-endian, 32 bytes.
+    pub x: [u8; 32],
+    /// Y coordinate, big-endian, 32 bytes.
+    pub y: [u8; 32],
+}
+
+// ------------------------------------------------------------------
+// Tier 1: P256ScalarMul — Hardware accelerator hook
+// ------------------------------------------------------------------
+
+unitrait::unitrait! {
+    /// Scalar multiplication accelerator trait.
+    ///
+    /// Backends that only have hardware for `k * G` or `k * P` implement this.
+    /// Input and output are canonical byte arrays — conversion happens inside
+    /// the implementation, which is fine because scalar multiplication dominates
+    /// the cost by orders of magnitude.
+    pub trait P256ScalarMul {
+        /// Fixed-base scalar multiplication: `k * G`.
+        #[symbol = "_emb_crypto_p256_mul_base"]
+        fn mul_base(k: &P256Scalar) -> P256AffinePoint;
+
+        /// Variable-base scalar multiplication: `k * P`.
+        #[symbol = "_emb_crypto_p256_mul_affine"]
+        fn mul_affine(k: &P256Scalar, p: &P256AffinePoint) -> P256AffinePoint;
+    }
+
+    /// The global [`P256ScalarMul`] implementation.
+    pub struct P256ScalarMulImpl;
+
+    macro embassy_crypto_p256_scalar_mul_impl(path = $crate);
+}
+
+// ------------------------------------------------------------------
+// Tier 2: P256ScalarOps — Full low-level backend
+// ------------------------------------------------------------------
+
+unitrait::unitrait! {
+    /// Full P-256 backend: scalar field arithmetic mod n, and short-Weierstrass
+    /// point arithmetic. One global implementation per program, selected at
+    /// link time via `embassy_crypto_p256_ops_impl!(Backend)`.
+    ///
+    /// ## Global contracts (apply to every function)
+    ///
+    /// - **No panics, no UB.** Functions are total over their documented
+    ///   preconditions; where a precondition is violated, the *result value* is
+    ///   the defined fallback and is always safe to drop or re-convert.
+    /// - **Stateless and reentrant.** No mutable global state; calls may be
+    ///   interleaved freely (interrupt-safe on embedded targets).
+    /// - **Platform independence.** Only `bool`, fixed byte arrays, and the opaque
+    ///   blobs appear in signatures. Backends adapt to C/assembly internally;
+    ///   C `_Bool`/endianness concerns never cross this boundary.
+    /// - **Constant-time (CT)**: execution time and memory access are independent
+    ///   of secret operand *values*. Functions documented as variable-time, or with
+    ///   public-only inputs, must never receive secrets.
+    /// - Scalar inputs are whatever the backend prefers internally (Montgomery,
+    ///   redundant, ...); callers can rely only on the documented conversions.
+    ///
+    /// ## Validity via predicates (the tuple workaround)
+    ///
+    /// - Inverse validity: `scalar_inv(a)` returns `a^-1 mod n`, or **`0` if
+    ///   `a == 0`** (defined fallback). Because `a != 0` exactly when the inverse
+    ///   exists, `!scalar_is_zero(a)` is the complete validity check.
+    /// - Decode validity: `point_from_canonical(p)` returns the point, or the
+    ///   **identity** if `p` is off-curve / out of range (defined fallback). A
+    ///   valid affine input is *never* the identity (the identity has no affine
+    ///   encoding), so `projective_is_identity(point_from_canonical(p))` is false
+    ///   exactly when `p` is valid. One predicate serves both purposes.
+    /// - Encode disambiguation: `point_to_canonical(p)` returns the real affine
+    ///   coordinates, or **`(0, 0)` if `p` is the identity`** (defined fallback).
+    ///   Callers must use `projective_is_identity(p)` to distinguish — never
+    ///   compare coordinates against `(0, 0)`.
+    pub trait P256Ops {
+        /// Opaque scalar (backend-specific representation; must hold values in
+        /// `[0, n-1]`). Any bit pattern of the storage is a valid value.
+        ///
+        /// `Send + Sync + Unpin` in addition to `Copy`: the adapter's field/
+        /// group types (`ff::Field`, `group::Group`) require `Send + Sync`, so
+        /// backends must use plain thread-safe data (the RustCrypto backend
+        /// does; anything with interior mutability must synchronize).
+        #[cfg_attr(target_pointer_width = "64", opaque(size = 64, align = 16))]
+        #[cfg_attr(target_pointer_width = "32", opaque(size = 64, align = 16))]
+        pub type Scalar: Copy + Send + Sync + Unpin;
+
+        /// Opaque projective point (backend-specific representation).
+        /// `Send + Sync + Unpin` alongside `Copy` — same rationale as `Scalar`.
+        #[cfg_attr(target_pointer_width = "64", opaque(size = 128, align = 16))]
+        #[cfg_attr(target_pointer_width = "32", opaque(size = 128, align = 16))]
+        pub type ProjectivePoint: Copy + Send + Sync + Unpin;
+
+        // ------------------------------------------------------------------
+        // Conversions and clones (the only canonical<->opaque crossing points)
+        // ------------------------------------------------------------------
+
+        /// Decode a canonical scalar (big-endian, MUST be in `[0, n-1]`; zero
+        /// is valid and MUST be accepted). Out-of-range input: result is
+        /// unspecified, must not panic. Callers that cannot guarantee the range
+        /// must use `scalar_reduce_32bytes` instead.
+        #[symbol = "_emb_crypto_p256_scalar_from_canonical"]
+        fn scalar_from_canonical(s: &P256Scalar) -> Self::Scalar;
+
+        /// Encode to canonical form (big-endian, always in `[0, n-1]`).
+        /// Constant-time with respect to the scalar.
+        #[symbol = "_emb_crypto_p256_scalar_to_canonical"]
+        fn scalar_to_canonical(s: &Self::Scalar) -> P256Scalar;
+
+        /// Decode a canonical affine point (big-endian x, y).
+        ///
+        /// If `(x, y)` is a valid, on-curve, in-range affine point, returns it.
+        /// Otherwise — off-curve, out of range, or `(0, 0)` — returns the
+        /// **identity** (defined fallback). Validity of the input is queried
+        /// with `projective_is_identity` on the result (see "Validity via
+        /// predicates" above). Not required to be constant-time (inputs are
+        /// public in all intended uses: key parsing, verification).
+        #[symbol = "_emb_crypto_p256_point_from_canonical"]
+        fn point_from_canonical(p: &P256AffinePoint) -> Self::ProjectivePoint;
+
+        /// Encode to canonical affine form.
+        ///
+        /// Non-identity points yield their real coordinates. The identity
+        /// yields `(0, 0)` (defined fallback) — test `projective_is_identity`
+        /// to distinguish, never the coordinates. Constant-time with respect
+        /// to the point.
+        #[symbol = "_emb_crypto_p256_point_to_canonical"]
+        fn point_to_canonical(p: &Self::ProjectivePoint) -> P256AffinePoint;
+
+        // ------------------------------------------------------------------
+        // Scalar predicates
+        // ------------------------------------------------------------------
+
+        /// True iff the scalar is `0 mod n`. Constant-time with respect to the
+        /// scalar. Combined with the defined fallbacks of `scalar_inv` /
+        /// `scalar_inv_vartime`, this is the inverse-validity check.
+        #[symbol = "_emb_crypto_p256_scalar_is_zero"]
+        fn scalar_is_zero(a: &Self::Scalar) -> bool;
+
+        // ------------------------------------------------------------------
+        // Scalar field arithmetic mod n
+        //
+        // Precondition for every operand: a value in `[0, n-1]`, i.e. produced
+        // by any of these functions, by `scalar_from_canonical` with in-range
+        // input, or by `scalar_reduce_32bytes`. All results are in `[0, n-1]`.
+        // ------------------------------------------------------------------
+
+        /// `a + b mod n`. Constant-time with respect to both operands.
+        #[symbol = "_emb_crypto_p256_scalar_add"]
+        fn scalar_add(a: &Self::Scalar, b: &Self::Scalar) -> Self::Scalar;
+
+        /// `a * b mod n`. Constant-time with respect to both operands.
+        #[symbol = "_emb_crypto_p256_scalar_mul"]
+        fn scalar_mul(a: &Self::Scalar, b: &Self::Scalar) -> Self::Scalar;
+
+        /// `-a mod n` (`0` maps to `0`). Constant-time.
+        #[symbol = "_emb_crypto_p256_scalar_neg"]
+        fn scalar_neg(a: &Self::Scalar) -> Self::Scalar;
+
+        /// Constant-time modular inverse: `a^-1 mod n`, or **`0` if `a == 0`**
+        /// (defined fallback — zero has no inverse; test `scalar_is_zero(a)`
+        /// for validity). Constant-time with respect to `a`.
+        #[symbol = "_emb_crypto_p256_scalar_inv"]
+        fn scalar_inv(a: &Self::Scalar) -> Self::Scalar;
+
+        /// Variable-time modular inverse; identical contract to `scalar_inv`.
+        /// MUST NOT be called with secret inputs.
+        #[symbol = "_emb_crypto_p256_scalar_inv_vartime"]
+        fn scalar_inv_vartime(a: &Self::Scalar) -> Self::Scalar;
+
+        /// Reduce an arbitrary 32-byte big-endian integer modulo n.
+        /// Result in `[0, n-1]`. Constant-time.
+        #[symbol = "_emb_crypto_p256_scalar_reduce_32bytes"]
+        fn scalar_reduce_bytes(bytes: &[u8; 32]) -> Self::Scalar;
+
+        // ------------------------------------------------------------------
+        // Projective point predicates
+        // ------------------------------------------------------------------
+
+        /// True iff the point is the identity. Constant-time with respect to
+        /// the point. Doubles as the validity check for `point_from_canonical`
+        /// output (see "Validity via predicates" above) and backs
+        /// `Group::is_identity`.
+        #[symbol = "_emb_crypto_p256_projective_is_identity"]
+        fn projective_is_identity(p: &Self::ProjectivePoint) -> bool;
+
+        // ------------------------------------------------------------------
+        // Projective point arithmetic
+        //
+        // "Complete" means correct for ALL inputs: identity, P == Q, and
+        // P == -Q. Backends whose fastest native formulas are incomplete must
+        // dispatch the exceptional cases (identity/equality tests are cheap;
+        // only the exceptional path is slower).
+        // ------------------------------------------------------------------
+
+        /// The identity (point at infinity).
+        #[symbol = "_emb_crypto_p256_projective_identity"]
+        fn projective_identity() -> Self::ProjectivePoint;
+
+        /// The base point G (SECG secp256r1, FIPS 186-4).
+        #[symbol = "_emb_crypto_p256_projective_generator"]
+        fn projective_generator() -> Self::ProjectivePoint;
+
+        /// COMPLETE addition `a + b`. Constant-time.
+        #[symbol = "_emb_crypto_p256_projective_add"]
+        fn projective_add(a: &Self::ProjectivePoint, b: &Self::ProjectivePoint) -> Self::ProjectivePoint;
+
+        /// COMPLETE subtraction `a - b = a + (-b)`. Constant-time.
+        #[symbol = "_emb_crypto_p256_projective_sub"]
+        fn projective_sub(a: &Self::ProjectivePoint, b: &Self::ProjectivePoint) -> Self::ProjectivePoint;
+
+        /// COMPLETE doubling `2 * p` (`2 * identity == identity`). Constant-time.
+        #[symbol = "_emb_crypto_p256_projective_double"]
+        fn projective_double(p: &Self::ProjectivePoint) -> Self::ProjectivePoint;
+
+        /// Fixed-base scalar multiplication `k * G`, for `k` in `[0, n-1]`;
+        /// `k == 0` yields the identity. Constant-time with respect to `k`.
+        #[symbol = "_emb_crypto_p256_scalar_mul_base"]
+        fn scalar_mul_base(k: &Self::Scalar) -> Self::ProjectivePoint;
+
+        /// Variable-base scalar multiplication `k * P`, for `k` in `[0, n-1]`
+        /// and ANY projective point `P` (including the identity, which yields
+        /// the identity). Constant-time with respect to `k` AND `P` (both may
+        /// be secret: ECDH).
+        #[symbol = "_emb_crypto_p256_scalar_mul_projective"]
+        fn scalar_mul_projective(k: &Self::Scalar, p: &Self::ProjectivePoint) -> Self::ProjectivePoint;
+    }
+
+    /// The global [`P256Ops`] implementation.
+    pub struct P256OpsImpl;
+
+    macro embassy_crypto_p256_ops_impl(path = $crate);
+}
+
+// ------------------------------------------------------------------
+// Tier 3: P256Ecd — High-level protocol operations for TLS/BLE
+// ------------------------------------------------------------------
+
+unitrait::unitrait! {
+    /// High-level ECDSA/ECDH operations for TLS and BLE.
+    ///
+    /// This trait is what TLS/BLE protocol code uses. It can be implemented
+    /// **natively** on a full backend (Cortex-M4 calls `p256_sign` directly)
+    /// or **composed** on a partial backend (ESP32 uses `P256ScalarMul` for
+    /// the expensive `k*G` step + software for the rest).
+    pub trait P256Ecd {
+        /// Derive the public key `Q = d * G` from a private key.
+        #[symbol = "_emb_crypto_p256_public_key_from_private"]
+        fn public_key_from_private(d: &P256Scalar) -> P256AffinePoint;
+
+        /// ECDSA sign a prehashed message.
+        #[symbol = "_emb_crypto_p256_ecdsa_sign"]
+        fn ecdsa_sign(d: &P256Scalar, z: &P256Scalar, k: &P256Scalar)
+        -> (P256Scalar, P256Scalar);
+
+        /// ECDSA verify a signature on a prehashed message.
+        #[symbol = "_emb_crypto_p256_ecdsa_verify"]
+        fn ecdsa_verify(
+            q: &P256AffinePoint,
+            z: &P256Scalar,
+            r: &P256Scalar,
+            s: &P256Scalar,
+        ) -> bool;
+
+        /// ECDH shared secret derivation.
+        #[symbol = "_emb_crypto_p256_ecdh_shared_secret"]
+        fn ecdh_shared_secret(d: &P256Scalar, q: &P256AffinePoint) -> [u8; 32];
+    }
+
+    /// The global [`P256Ops`] implementation.
+    pub struct P256EcdImpl;
+
+    macro embassy_crypto_p256_ecd_impl(path = $crate);
+}

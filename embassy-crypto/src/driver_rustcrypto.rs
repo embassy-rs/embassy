@@ -1084,3 +1084,224 @@ impl embassy_crypto_driver::Aes256Cmac for Aes256CmacDriver {
 
 #[cfg(feature = "driver-aes256cmac")]
 embassy_crypto_driver::aes256cmac_impl!(Aes256CmacDriver);
+
+// ===========================================================================
+// P-256
+// ===========================================================================
+
+#[cfg(feature = "driver-p256")]
+use p256::elliptic_curve::Field;
+#[cfg(any(feature = "driver-p256", feature = "driver-p256-scalar-mul"))]
+use p256::elliptic_curve::{PrimeField, group::Group, sec1::FromEncodedPoint};
+
+#[inline]
+#[cfg(any(feature = "driver-p256", feature = "driver-p256-scalar-mul"))]
+fn fb_to_arr(fb: &p256::FieldBytes) -> [u8; 32] {
+    let mut a = [0u8; 32];
+    a.copy_from_slice(fb);
+    a
+}
+
+// ------------------------------------------------------------------
+// Tier 1: P256ScalarMul — accelerator hook
+// ------------------------------------------------------------------
+
+#[cfg(feature = "driver-p256-scalar-mul")]
+struct P256ScalarMulDriver;
+
+#[cfg(feature = "driver-p256-scalar-mul")]
+impl embassy_crypto_driver::P256ScalarMul for P256ScalarMulDriver {
+    fn mul_base(k: &embassy_crypto_driver::P256Scalar) -> embassy_crypto_driver::P256AffinePoint {
+        use p256::elliptic_curve::sec1::ToEncodedPoint;
+
+        let scalar = p256::Scalar::from_repr(p256::FieldBytes::from(k.0)).unwrap_or(p256::Scalar::ZERO);
+        let ep = (p256::ProjectivePoint::GENERATOR * scalar)
+            .to_affine()
+            .to_encoded_point(false);
+        embassy_crypto_driver::P256AffinePoint {
+            x: fb_to_arr(ep.x().unwrap()),
+            y: fb_to_arr(ep.y().unwrap()),
+        }
+    }
+
+    fn mul_affine(
+        k: &embassy_crypto_driver::P256Scalar,
+        p: &embassy_crypto_driver::P256AffinePoint,
+    ) -> embassy_crypto_driver::P256AffinePoint {
+        use p256::elliptic_curve::sec1::ToEncodedPoint;
+
+        let scalar = p256::Scalar::from_repr(p256::FieldBytes::from(k.0)).unwrap_or(p256::Scalar::ZERO);
+        let affine = p256::AffinePoint::from_encoded_point(&p256::EncodedPoint::from_affine_coordinates(
+            &p256::FieldBytes::from(p.x),
+            &p256::FieldBytes::from(p.y),
+            false,
+        ))
+        .unwrap();
+        let ep = (p256::ProjectivePoint::from(affine) * scalar)
+            .to_affine()
+            .to_encoded_point(false);
+        embassy_crypto_driver::P256AffinePoint {
+            x: fb_to_arr(ep.x().unwrap()),
+            y: fb_to_arr(ep.y().unwrap()),
+        }
+    }
+}
+
+#[cfg(feature = "driver-p256-scalar-mul")]
+embassy_crypto_driver::embassy_crypto_p256_scalar_mul_impl!(P256ScalarMulDriver);
+
+// ------------------------------------------------------------------
+// Tier 2: P256Ops - full low-level backend (driver v2)
+// ------------------------------------------------------------------
+
+#[cfg(feature = "driver-p256")]
+struct P256OpsDriver;
+
+#[cfg(feature = "driver-p256")]
+impl embassy_crypto_driver::P256Ops for P256OpsDriver {
+    type Scalar = p256::Scalar;
+    type ProjectivePoint = p256::ProjectivePoint;
+
+    // --- canonical <-> opaque conversions ---
+
+    fn scalar_from_canonical(s: &embassy_crypto_driver::P256Scalar) -> Self::Scalar {
+        // Contract: zero accepted; out-of-range -> unspecified (maps to zero).
+        p256::Scalar::from_repr(p256::FieldBytes::from(s.0)).unwrap_or(p256::Scalar::ZERO)
+    }
+
+    fn scalar_to_canonical(s: &Self::Scalar) -> embassy_crypto_driver::P256Scalar {
+        embassy_crypto_driver::P256Scalar(fb_to_arr(&s.to_repr()))
+    }
+
+    fn point_from_canonical(p: &embassy_crypto_driver::P256AffinePoint) -> Self::ProjectivePoint {
+        // v2 contract: invalid (off-curve / out-of-range / (0,0)) -> identity.
+        // NOTE: disambiguate both conversions -- core's identity `From<T> for
+        // Option<T>` makes bare `Option::from(ct_option)` ambiguous (E0283), and
+        // primeorder's `From<&AffinePoint>`/`From<PublicKey>` impls make
+        // `ProjectivePoint::from` ambiguous; the match pins `From<AffinePoint>`.
+        match Option::<p256::AffinePoint>::from(p256::AffinePoint::from_encoded_point(
+            &p256::EncodedPoint::from_affine_coordinates(
+                &p256::FieldBytes::from(p.x),
+                &p256::FieldBytes::from(p.y),
+                false,
+            ),
+        )) {
+            Some(a) => p256::ProjectivePoint::from(a),
+            None => p256::ProjectivePoint::IDENTITY,
+        }
+    }
+
+    fn point_to_canonical(p: &Self::ProjectivePoint) -> embassy_crypto_driver::P256AffinePoint {
+        use p256::elliptic_curve::sec1::ToEncodedPoint;
+
+        // v2 contract: identity -> (0, 0) (defined fallback).
+        if bool::from(p.is_identity()) {
+            return embassy_crypto_driver::P256AffinePoint {
+                x: [0u8; 32],
+                y: [0u8; 32],
+            };
+        }
+        let ep = p.to_affine().to_encoded_point(false);
+        embassy_crypto_driver::P256AffinePoint {
+            x: fb_to_arr(ep.x().unwrap()),
+            y: fb_to_arr(ep.y().unwrap()),
+        }
+    }
+
+    // --- scalar predicates ---
+
+    fn scalar_is_zero(a: &Self::Scalar) -> bool {
+        bool::from(a.is_zero())
+    }
+
+    // --- scalar field arithmetic (mod n) ---
+
+    fn scalar_add(a: &Self::Scalar, b: &Self::Scalar) -> Self::Scalar {
+        a + b
+    }
+
+    fn scalar_mul(a: &Self::Scalar, b: &Self::Scalar) -> Self::Scalar {
+        a * b
+    }
+
+    fn scalar_neg(a: &Self::Scalar) -> Self::Scalar {
+        -a
+    }
+
+    fn scalar_inv(a: &Self::Scalar) -> Self::Scalar {
+        // v2 contract: 0 -> 0 (defined fallback); validity is !scalar_is_zero(a).
+        a.invert().unwrap_or(p256::Scalar::ZERO)
+    }
+
+    fn scalar_inv_vartime(a: &Self::Scalar) -> Self::Scalar {
+        // p256::Scalar has NO inherent invert_vartime; it comes from
+        // `elliptic_curve::ops::Invert` (Output = CtOption<Scalar>). Zero maps
+        // to zero per the v2 fallback contract.
+        use p256::elliptic_curve::ops::Invert;
+        Option::<p256::Scalar>::from(a.invert_vartime()).unwrap_or(p256::Scalar::ZERO)
+    }
+
+    fn scalar_reduce_bytes(bytes: &[u8; 32]) -> Self::Scalar {
+        use p256::elliptic_curve::ops::Reduce;
+        p256::Scalar::reduce_bytes(&p256::FieldBytes::from(*bytes))
+    }
+
+    // --- projective point predicates ---
+
+    fn projective_is_identity(p: &Self::ProjectivePoint) -> bool {
+        bool::from(p.is_identity())
+    }
+
+    // --- projective point arithmetic (p256's formulas are complete) ---
+
+    fn projective_identity() -> Self::ProjectivePoint {
+        p256::ProjectivePoint::IDENTITY
+    }
+
+    fn projective_generator() -> Self::ProjectivePoint {
+        p256::ProjectivePoint::GENERATOR
+    }
+
+    fn projective_add(a: &Self::ProjectivePoint, b: &Self::ProjectivePoint) -> Self::ProjectivePoint {
+        a + b
+    }
+
+    fn projective_sub(a: &Self::ProjectivePoint, b: &Self::ProjectivePoint) -> Self::ProjectivePoint {
+        a - b
+    }
+
+    fn projective_double(p: &Self::ProjectivePoint) -> Self::ProjectivePoint {
+        p.double()
+    }
+
+    // --- scalar multiplication ---
+    // Fast path: p256 directly. Delegated path: P256ScalarMul (Tier 1).
+
+    #[cfg(feature = "driver-p256-scalar-mul")]
+    fn scalar_mul_base(k: &Self::Scalar) -> Self::ProjectivePoint {
+        p256::ProjectivePoint::GENERATOR * k
+    }
+
+    #[cfg(not(feature = "driver-p256-scalar-mul"))]
+    fn scalar_mul_base(k: &Self::Scalar) -> Self::ProjectivePoint {
+        let canonical = Self::scalar_to_canonical(k);
+        let affine = embassy_crypto_driver::mul_base(&canonical);
+        Self::point_from_canonical(&affine)
+    }
+
+    #[cfg(feature = "driver-p256-scalar-mul")]
+    fn scalar_mul_projective(k: &Self::Scalar, p: &Self::ProjectivePoint) -> Self::ProjectivePoint {
+        p * k
+    }
+
+    #[cfg(not(feature = "driver-p256-scalar-mul"))]
+    fn scalar_mul_projective(k: &Self::Scalar, p: &Self::ProjectivePoint) -> Self::ProjectivePoint {
+        let canonical_k = Self::scalar_to_canonical(k);
+        let canonical_p = Self::point_to_canonical(p);
+        let affine = embassy_crypto_driver::mul_affine(&canonical_k, &canonical_p);
+        Self::point_from_canonical(&affine)
+    }
+}
+
+#[cfg(feature = "driver-p256")]
+embassy_crypto_driver::embassy_crypto_p256_ops_impl!(P256OpsDriver);
