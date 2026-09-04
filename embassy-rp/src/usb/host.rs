@@ -197,12 +197,47 @@ impl EpxArbiter {
     }
 }
 
+/// Allocation state for the dedicated interrupt endpoints.
+struct InterruptPipeState {
+    /// Bitset indexed by endpoint index (1..EP_COUNT).
+    allocated: AtomicU16,
+}
+
+impl InterruptPipeState {
+    const fn new() -> Self {
+        Self {
+            allocated: AtomicU16::new(0),
+        }
+    }
+
+    fn reset(&self) {
+        self.allocated.store(0, Ordering::Relaxed);
+    }
+
+    fn allocate(&self) -> Result<usize, HostError> {
+        critical_section::with(|_| {
+            let allocated = self.allocated.load(Ordering::Relaxed);
+            let index = (1..EP_COUNT)
+                .find(|index| allocated & (1 << index) == 0)
+                .ok_or(HostError::OutOfPipes)?;
+            self.allocated.store(allocated | (1 << index), Ordering::Relaxed);
+            Ok(index)
+        })
+    }
+
+    fn free(&self, index: usize) {
+        critical_section::with(|_| {
+            let allocated = self.allocated.load(Ordering::Relaxed);
+            self.allocated.store(allocated & !(1 << index), Ordering::Relaxed);
+        });
+    }
+}
+
 /// Per-instance state shared between [`Driver`], [`Allocator`] and [`Channel`].
 pub struct HostState {
     /// Current channel with ongoing non-interrupt transfer. `0` means None.
     current_channel: AtomicUsize,
-    /// Bitset of allocated interrupt pipes.
-    allocated_pipes: AtomicU16,
+    interrupt_pipes: InterruptPipeState,
     /// Bitset of allocated EPX pipes, indexed by `Channel::index - EP_COUNT`.
     allocated_epx: AtomicU16,
     /// One waiter per EPX pipe. Completion is routed to the pipe that owns EPX,
@@ -225,7 +260,7 @@ impl HostState {
     pub const fn new() -> Self {
         Self {
             current_channel: AtomicUsize::new(0),
-            allocated_pipes: AtomicU16::new(0),
+            interrupt_pipes: InterruptPipeState::new(),
             allocated_epx: AtomicU16::new(0),
             epx_wakers: [const { AtomicWaker::new() }; EPX_MAX_PIPES],
             used_blocks: critical_section::Mutex::new(Cell::new(0)),
@@ -235,7 +270,7 @@ impl HostState {
 
     fn reset(&self) {
         self.current_channel.store(0, Ordering::Relaxed);
-        self.allocated_pipes.store(0, Ordering::Relaxed);
+        self.interrupt_pipes.reset();
         self.allocated_epx.store(0, Ordering::Relaxed);
         critical_section::with(|cs| {
             *self.arbiter.borrow(cs).borrow_mut() = EpxArbiter::new();
@@ -1362,11 +1397,7 @@ impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
             dpram.ep_in_buffer_control(self.index).write(|w| w.0 = 0);
             regs.buff_status().write_clear(|w| w.0 = 0b11 << (self.index * 2));
 
-            let state = T::host_state();
-            critical_section::with(|_| {
-                let pipes = &state.allocated_pipes;
-                pipes.store(pipes.load(Ordering::Relaxed) & !(1 << self.index), Ordering::Relaxed);
-            });
+            T::host_state().interrupt_pipes.free(self.index);
         } else {
             let state = T::host_state();
             // Return the EPX buffer and the pipe slot to the pool.
@@ -1457,19 +1488,11 @@ impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
         let state = T::host_state();
         let pre = split_to_pre(split);
         if E::ep_type() == EndpointType::Interrupt {
-            let free_index = critical_section::with(|_| {
-                let alloc = state.allocated_pipes.load(Ordering::Relaxed);
-                if let Some(idx) = (1..EP_COUNT).find(|i| alloc & (1 << i) == 0) {
-                    state.allocated_pipes.store(alloc | (1 << idx), Ordering::Relaxed);
-                    Ok(idx as u8)
-                } else {
-                    Err(HostError::OutOfPipes)
-                }
-            })?;
+            let index = state.interrupt_pipes.allocate()?;
             // Fixed layout: pipe index 1..EP_COUNT maps to block 0..EP_COUNT-1.
-            let addr = DPRAM_DATA_OFFSET + (free_index as u16 - 1) * EPX_BLOCK_SIZE as u16;
+            let addr = DPRAM_DATA_OFFSET + (index as u16 - 1) * EPX_BLOCK_SIZE as u16;
 
-            Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
+            Ok(Channel::new(index, addr, 64, endpoint, dev_addr, pre))
         } else {
             let index = critical_section::with(|_| {
                 let alloc = state.allocated_epx.load(Ordering::Relaxed);
