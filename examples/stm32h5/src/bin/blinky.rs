@@ -2,21 +2,20 @@
 #![no_main]
 
 use core::hint::black_box;
-use defmt_rtt as _;
-use embassy_executor::Spawner;
-// use p256_cortex_m4::embassy_crypto as _;
-use panic_probe as _;
 
 use defmt::{error, info, warn};
-use elliptic_curve::{
-    Curve, CurveArithmetic, FieldBytes, FieldBytesSize, PublicKey, Scalar, SecretKey, ecdh,
-    group::Group,
-    ops::{Invert, LinearCombination, MulByGenerator, Reduce},
-    pkcs8::{AssociatedOid, ObjectIdentifier},
-    sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint},
-    subtle::ConstantTimeEq,
-};
+use defmt_rtt as _;
+use elliptic_curve::group::Group;
+use elliptic_curve::ops::{Invert, LinearCombination, MulByGenerator, Reduce};
+use elliptic_curve::pkcs8::{AssociatedOid, ObjectIdentifier};
+use elliptic_curve::sec1::{FromEncodedPoint, ModulusSize, ToEncodedPoint};
+use elliptic_curve::subtle::ConstantTimeEq;
+use elliptic_curve::{Curve, CurveArithmetic, FieldBytes, FieldBytesSize, PublicKey, Scalar, SecretKey, ecdh};
+use embassy_executor::Spawner;
 use embassy_time::Instant;
+// use p256_cortex_m4::embassy_crypto as _;
+use mcu_crypto_asm as _;
+use panic_probe as _;
 
 // ─── P-256 constants ──────────────────────────────────────────────────────────
 

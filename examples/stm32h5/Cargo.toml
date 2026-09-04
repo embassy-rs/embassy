@@ -14,9 +14,10 @@ embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["de
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "ipv6", "udp", "packetmeta-timestamp", "icmp-ping-reply"] }
 embassy-usb = { version = "0.6.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
-embassy-crypto = { version = "0.1.0", path = "../../embassy-crypto", features = ["driver-p256", "driver-p256-scalar-mul"]}
-# embassy-crypto = { version = "0.1.0", path = "../../embassy-crypto", features = []}
+# embassy-crypto = { version = "0.1.0", path = "../../embassy-crypto", features = ["driver-p256", "driver-p256-scalar-mul"]}
+embassy-crypto = { version = "0.1.0", path = "../../embassy-crypto", features = []}
 # p256-cortex-m4 = { version = "0.1.0-alpha.6", path = "../../../p256-cortex-m4", features = ["embassy-crypto-driver"]}
+mcu-crypto-asm = { version = "0.1.0", path = "../../../mcu-crypto-asm", features = ["embassy-driver"]}
 cyw43 = { version = "0.7.0", path = "../../cyw43", features = ["defmt"] }
 
 defmt = "1.0.1"
