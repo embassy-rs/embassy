@@ -107,609 +107,516 @@ impl<'inp, 'out, T> InOutBuf<'inp, 'out, T> {
 
 unitrait::unitrait! {
     /// Md5 trait
+    #[symbol_prefix = "_embassy_crypto_md5"]
     pub trait Md5 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 128, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-md5")), opaque(size = 128, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-md5"), opaque(size = 256, align = 16))]
-        #[symbol = "_emb_crypto_md5_context"]
-        pub type Context;
+        #[opaque(size = 128, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_md5_init"]
-        pub fn md5_init() -> Self::Context;
-
-        /// Hash init
-        #[symbol = "_emb_crypto_md5_clone"]
-        pub fn md5_clone(ctx: &Self::Context) -> Self::Context;
+        fn init() -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_md5_update"]
-        pub fn md5_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_md5_finalize"]
-        pub fn md5_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
     }
 
-    macro embassy_crypto_md5_impl(path = $crate);
+    /// The global [`Md5`] implementation.
+    pub struct Md5Impl;
+
+    macro md5_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha1 trait
+    #[symbol_prefix = "_embassy_crypto_sha1"]
     pub trait Sha1 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 128, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-sha1")), opaque(size = 128, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-sha1"), opaque(size = 256, align = 16))]
-        #[symbol = "_emb_crypto_sha1_context"]
-        pub type Context;
+        #[opaque(size = 128, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha1_init"]
-        pub fn sha1_init() -> Self::Context;
-
-        /// Hash init
-        #[symbol = "_emb_crypto_sha1_clone"]
-        pub fn sha1_clone(ctx: &Self::Context) -> Self::Context;
+        fn init() -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_sha1_update"]
-        pub fn sha1_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_sha1_finalize"]
-        pub fn sha1_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
     }
 
-    macro embassy_crypto_sha1_impl(path = $crate);
+    /// The global [`Sha1`] implementation.
+    pub struct Sha1Impl;
+
+    macro sha1_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha224 trait
+    #[symbol_prefix = "_embassy_crypto_sha224"]
     pub trait Sha224 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 128, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-sha224")), opaque(size = 128, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-sha224"), opaque(size = 256, align = 16))]
-        #[symbol = "_emb_crypto_sha224_context"]
-        pub type Context;
+        #[opaque(size = 128, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha224_init"]
-        pub fn sha224_init() -> Self::Context;
-
-        /// Hash init
-        #[symbol = "_emb_crypto_sha224_clone"]
-        pub fn sha224_clone(ctx: &Self::Context) -> Self::Context;
+        fn init() -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_sha224_update"]
-        pub fn sha224_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_sha224_finalize"]
-        pub fn sha224_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
     }
 
-    macro embassy_crypto_sha224_impl(path = $crate);
+    /// The global [`Sha224`] implementation.
+    pub struct Sha224Impl;
+
+    macro sha224_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha256 trait
+    #[symbol_prefix = "_embassy_crypto_sha256"]
     pub trait Sha256 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 128, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-sha256")), opaque(size = 128, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-sha256"), opaque(size = 256, align = 16))]
-        #[symbol = "_emb_crypto_sha256_context"]
-        pub type Context;
+        #[opaque(size = 128, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha256_init"]
-        pub fn sha256_init() -> Self::Context;
-
-        /// Hash init
-        #[symbol = "_emb_crypto_sha256_clone"]
-        pub fn sha256_clone(ctx: &Self::Context) -> Self::Context;
+        fn init() -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_sha256_update"]
-        pub fn sha256_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_sha256_finalize"]
-        pub fn sha256_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
     }
 
-    macro embassy_crypto_sha256_impl(path = $crate);
+    /// The global [`Sha256`] implementation.
+    pub struct Sha256Impl;
+
+    macro sha256_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha384 trait
+    #[symbol_prefix = "_embassy_crypto_sha384"]
     pub trait Sha384 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 256, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-sha384")), opaque(size = 256, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-sha384"), opaque(size = 640, align = 16))]
-        #[symbol = "_emb_crypto_sha384_context"]
-        pub type Context;
+        #[opaque(size = 256, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha384_init"]
-        pub fn sha384_init() -> Self::Context;
-
-        /// Hash init
-        #[symbol = "_emb_crypto_sha384_clone"]
-        pub fn sha384_clone(ctx: &Self::Context) -> Self::Context;
+        fn init() -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_sha384_update"]
-        pub fn sha384_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_sha384_finalize"]
-        pub fn sha384_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
     }
 
-    macro embassy_crypto_sha384_impl(path = $crate);
+    /// The global [`Sha384`] implementation.
+    pub struct Sha384Impl;
+
+    macro sha384_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha512_224 trait
+    #[symbol_prefix = "_embassy_crypto_sha512_224"]
     pub trait Sha512_224 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 256, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-sha512-224")), opaque(size = 256, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-sha512-224"), opaque(size = 640, align = 16))]
-        #[symbol = "_emb_crypto_sha512_224_context"]
-        pub type Context;
+        #[opaque(size = 256, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha512_224_init"]
-        pub fn sha512_224_init() -> Self::Context;
-
-        /// Hash init
-        #[symbol = "_emb_crypto_sha512_224_clone"]
-        pub fn sha512_224_clone(ctx: &Self::Context) -> Self::Context;
+        fn init() -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_sha512_224_update"]
-        pub fn sha512_224_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_sha512_224_finalize"]
-        pub fn sha512_224_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
     }
 
-    macro embassy_crypto_sha512_224_impl(path = $crate);
+    /// The global [`Sha512_224`] implementation.
+    pub struct Sha512_224Impl;
+
+    macro sha512_224_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha512_256 trait
+    #[symbol_prefix = "_embassy_crypto_sha512_256"]
     pub trait Sha512_256 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 256, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-sha512-256")), opaque(size = 256, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-sha512-256"), opaque(size = 640, align = 16))]
-        #[symbol = "_emb_crypto_sha512_256_context"]
-        pub type Context;
+        #[opaque(size = 256, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha512_256_init"]
-        pub fn sha512_256_init() -> Self::Context;
-
-        /// Hash init
-        #[symbol = "_emb_crypto_sha512_256_clone"]
-        pub fn sha512_256_clone(ctx: &Self::Context) -> Self::Context;
+        fn init() -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_sha512_256_update"]
-        pub fn sha512_256_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_sha512_256_finalize"]
-        pub fn sha512_256_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
     }
 
-    macro embassy_crypto_sha512_256_impl(path = $crate);
+    /// The global [`Sha512_256`] implementation.
+    pub struct Sha512_256Impl;
+
+    macro sha512_256_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha512 trait
+    #[symbol_prefix = "_embassy_crypto_sha512"]
     pub trait Sha512 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 256, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-sha512")), opaque(size = 256, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-sha512"), opaque(size = 640, align = 16))]
-        #[symbol = "_emb_crypto_sha512_context"]
-        pub type Context;
+        #[opaque(size = 256, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_sha512_init"]
-        pub fn sha512_init() -> Self::Context;
-
-        /// Hash init
-        #[symbol = "_emb_crypto_sha512_clone"]
-        pub fn sha512_clone(ctx: &Self::Context) -> Self::Context;
+        fn init() -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_sha512_update"]
-        pub fn sha512_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_sha512_finalize"]
-        pub fn sha512_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
     }
 
-    macro embassy_crypto_sha512_impl(path = $crate);
+    /// The global [`Sha512`] implementation.
+    pub struct Sha512Impl;
+
+    macro sha512_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha1 trait
+    #[symbol_prefix = "_embassy_crypto_hmac_sha1"]
     pub trait HmacSha1 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 350, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-hmac-sha1")), opaque(size = 350, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-hmac-sha1"), opaque(size = 512, align = 16))]
-        #[symbol = "_emb_crypto_hmac_sha1_context"]
-        pub type Context;
+        #[opaque(size = 350, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_hmac_sha1_init"]
-        pub fn hmac_sha1_init(key: &[u8]) -> Self::Context;
-
-        /// Hash clone
-        #[symbol = "_emb_crypto_hmac_sha1_clone"]
-        pub fn hmac_sha1_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8]) -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_hmac_sha1_update"]
-        pub fn hmac_sha1_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_hmac_sha1_finalize"]
-        pub fn hmac_sha1_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
 
     }
 
-    macro embassy_crypto_hmac_sha1_impl(path = $crate);
+    /// The global [`HmacSha1`] implementation.
+    pub struct HmacSha1Impl;
+
+    macro hmac_sha1_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha224 trait
+    #[symbol_prefix = "_embassy_crypto_hmac_sha224"]
     pub trait HmacSha224 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 350, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-hmac-sha224")), opaque(size = 350, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-hmac-sha224"), opaque(size = 512, align = 16))]
-        #[symbol = "_emb_crypto_hmac_sha224_context"]
-        pub type Context;
+        #[opaque(size = 350, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_hmac_sha224_init"]
-        pub fn hmac_sha224_init(key: &[u8]) -> Self::Context;
-
-        /// Hash clone
-        #[symbol = "_emb_crypto_hmac_sha224_clone"]
-        pub fn hmac_sha224_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8]) -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_hmac_sha224_update"]
-        pub fn hmac_sha224_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_hmac_sha224_finalize"]
-        pub fn hmac_sha224_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
 
     }
 
-    macro embassy_crypto_hmac_sha224_impl(path = $crate);
+    /// The global [`HmacSha224`] implementation.
+    pub struct HmacSha224Impl;
+
+    macro hmac_sha224_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha256 trait
+    #[symbol_prefix = "_embassy_crypto_hmac_sha256"]
     pub trait HmacSha256 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 350, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-hmac-sha256")), opaque(size = 350, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-hmac-sha256"), opaque(size = 512, align = 16))]
-        #[symbol = "_emb_crypto_hmac_sha256_context"]
-        pub type Context;
+        #[opaque(size = 350, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_hmac_sha256_init"]
-        pub fn hmac_sha256_init(key: &[u8]) -> Self::Context;
-
-        /// Hash clone
-        #[symbol = "_emb_crypto_hmac_sha256_clone"]
-        pub fn hmac_sha256_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8]) -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_hmac_sha256_update"]
-        pub fn hmac_sha256_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_hmac_sha256_finalize"]
-        pub fn hmac_sha256_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
 
     }
 
-    macro embassy_crypto_hmac_sha256_impl(path = $crate);
+    /// The global [`HmacSha256`] implementation.
+    pub struct HmacSha256Impl;
+
+    macro hmac_sha256_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha384 trait
+    #[symbol_prefix = "_embassy_crypto_hmac_sha384"]
     pub trait HmacSha384 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 600, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-hmac-sha384")), opaque(size = 600, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-hmac-sha384"), opaque(size = 1024, align = 16))]
-        #[symbol = "_emb_crypto_hmac_sha384_context"]
-        pub type Context;
+        #[opaque(size = 600, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_hmac_sha384_init"]
-        pub fn hmac_sha384_init(key: &[u8]) -> Self::Context;
-
-        /// Hash clone
-        #[symbol = "_emb_crypto_hmac_sha384_clone"]
-        pub fn hmac_sha384_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8]) -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_hmac_sha384_update"]
-        pub fn hmac_sha384_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_hmac_sha384_finalize"]
-        pub fn hmac_sha384_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
 
     }
 
-    macro embassy_crypto_hmac_sha384_impl(path = $crate);
+    /// The global [`HmacSha384`] implementation.
+    pub struct HmacSha384Impl;
+
+    macro hmac_sha384_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha512_224 trait
+    #[symbol_prefix = "_embassy_crypto_hmac_sha512_224"]
     pub trait HmacSha512_224 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 600, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-hmac-sha512-224")), opaque(size = 600, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-hmac-sha512-224"), opaque(size = 1024, align = 16))]
-        #[symbol = "_emb_crypto_hmac_sha512_224_context"]
-        pub type Context;
+        #[opaque(size = 600, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_hmac_sha512_224_init"]
-        pub fn hmac_sha512_224_init(key: &[u8]) -> Self::Context;
-
-        /// Hash clone
-        #[symbol = "_emb_crypto_hmac_sha512_224_clone"]
-        pub fn hmac_sha512_224_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8]) -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_hmac_sha512_224_update"]
-        pub fn hmac_sha512_224_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_hmac_sha512_224_finalize"]
-        pub fn hmac_sha512_224_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
 
     }
 
-    macro embassy_crypto_hmac_sha512_224_impl(path = $crate);
+    /// The global [`HmacSha512_224`] implementation.
+    pub struct HmacSha512_224Impl;
+
+    macro hmac_sha512_224_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha512_256 trait
+    #[symbol_prefix = "_embassy_crypto_hmac_sha512_256"]
     pub trait HmacSha512_256 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 600, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-hmac-sha512-256")), opaque(size = 600, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-hmac-sha512-256"), opaque(size = 1024, align = 16))]
-        #[symbol = "_emb_crypto_hmac_sha512_256_context"]
-        pub type Context;
+        #[opaque(size = 600, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_hmac_sha512_256_init"]
-        pub fn hmac_sha512_256_init(key: &[u8]) -> Self::Context;
-
-        /// Hash clone
-        #[symbol = "_emb_crypto_hmac_sha512_256_clone"]
-        pub fn hmac_sha512_256_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8]) -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_hmac_sha512_256_update"]
-        pub fn hmac_sha512_256_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_hmac_sha512_256_finalize"]
-        pub fn hmac_sha512_256_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
 
     }
 
-    macro embassy_crypto_hmac_sha512_256_impl(path = $crate);
+    /// The global [`HmacSha512_256`] implementation.
+    pub struct HmacSha512_256Impl;
+
+    macro hmac_sha512_256_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// Sha512 trait
+    #[symbol_prefix = "_embassy_crypto_hmac_sha512"]
     pub trait HmacSha512 {
         /// Opaque storage for the implementation's hash state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 600, align = 16))]
-        #[cfg_attr(all(target_pointer_width = "32", not(feature = "large-hmac-sha512")), opaque(size = 600, align = 16))]
         #[cfg_attr(all(target_pointer_width = "32", feature = "large-hmac-sha512"), opaque(size = 1024, align = 16))]
-        #[symbol = "_emb_crypto_hmac_sha512_context"]
-        pub type Context;
+        #[opaque(size = 600, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Hash init
-        #[symbol = "_emb_crypto_hmac_sha512_init"]
-        pub fn hmac_sha512_init(key: &[u8]) -> Self::Context;
-
-        /// Hash clone
-        #[symbol = "_emb_crypto_hmac_sha512_clone"]
-        pub fn hmac_sha512_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8]) -> Self::Context;
 
         /// Hash update
-        #[symbol = "_emb_crypto_hmac_sha512_update"]
-        pub fn hmac_sha512_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Hash finalize
-        #[symbol = "_emb_crypto_hmac_sha512_finalize"]
-        pub fn hmac_sha512_finalize(ctx: Self::Context, data: &mut [u8]);
+        fn finalize(ctx: Self::Context, data: &mut [u8]);
 
     }
 
-    macro embassy_crypto_hmac_sha512_impl(path = $crate);
+    /// The global [`HmacSha512`] implementation.
+    pub struct HmacSha512Impl;
+
+    macro hmac_sha512_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// AES-128 ECB block cipher trait.
+    #[symbol_prefix = "_embassy_crypto_aes128ecb"]
     pub trait Aes128Ecb {
         /// Opaque storage for the implementation's key schedule.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1024, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 384, align = 16))]
-        #[symbol = "_emb_crypto_aes128ecb_context"]
-        pub type Context;
+        #[opaque(size = 1024, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Initialize with a 128-bit key.
-        #[symbol = "_emb_crypto_aes128ecb_init"]
-        pub fn aes128ecb_init(key: &[u8; 16]) -> Self::Context;
-
-        /// Clone the context.
-        #[symbol = "_emb_crypto_aes128ecb_clone"]
-        pub fn aes128ecb_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8; 16]) -> Self::Context;
 
         /// Encrypt 16-byte blocks in-place.
-        #[symbol = "_emb_crypto_aes128ecb_encrypt_block"]
-        pub fn aes128ecb_encrypt_blocks(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
+        fn encrypt_blocks(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
 
         /// Decrypt 16-byte blocks in-place.
-        #[symbol = "_emb_crypto_aes128ecb_decrypt_block"]
-        pub fn aes128ecb_decrypt_blocks(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
+        fn decrypt_blocks(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
     }
 
-    macro embassy_crypto_aes128ecb_impl(path = $crate);
+    /// The global [`Aes128Ecb`] implementation.
+    pub struct Aes128EcbImpl;
+
+    macro aes128ecb_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// AES-256 ECB block cipher trait.
+    #[symbol_prefix = "_embassy_crypto_aes256ecb"]
     pub trait Aes256Ecb {
         /// Opaque storage for the implementation's key schedule.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1024, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 512, align = 16))]
-        #[symbol = "_emb_crypto_aes256ecb_context"]
-        pub type Context;
+        #[opaque(size = 1024, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Initialize with a 256-bit key.
-        #[symbol = "_emb_crypto_aes256ecb_init"]
-        pub fn aes256ecb_init(key: &[u8; 32]) -> Self::Context;
-
-        /// Clone the context.
-        #[symbol = "_emb_crypto_aes256ecb_clone"]
-        pub fn aes256ecb_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8; 32]) -> Self::Context;
 
         /// Encrypt 16-byte blocks in-place.
-        #[symbol = "_emb_crypto_aes256ecb_encrypt_block"]
-        pub fn aes256ecb_encrypt_blocks(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
+        fn encrypt_blocks(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
 
         /// Decrypt 16-byte blocks in-place.
-        #[symbol = "_emb_crypto_aes256ecb_decrypt_block"]
-        pub fn aes256ecb_decrypt_blocks(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
+        fn decrypt_blocks(ctx: &Self::Context, blocks: InOutBuf<'_, '_, u8>);
     }
 
-    macro embassy_crypto_aes256ecb_impl(path = $crate);
+    /// The global [`Aes256Ecb`] implementation.
+    pub struct Aes256EcbImpl;
+
+    macro aes256ecb_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// AES-128 CBC block cipher trait.
+    #[symbol_prefix = "_embassy_crypto_aes128cbc"]
     pub trait Aes128Cbc {
         /// Opaque storage for the encryptor's key schedule and chaining state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1280, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 400, align = 16))]
-        #[symbol = "_emb_crypto_aes128cbc_encrypt_context"]
-        pub type EncryptContext;
+        #[opaque(size = 1280, align = 16)]
+        pub type EncryptContext: Drop;
 
         /// Opaque storage for the decryptor's key schedule and chaining state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1280, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 400, align = 16))]
-        #[symbol = "_emb_crypto_aes128cbc_decrypt_context"]
-        pub type DecryptContext;
+        #[opaque(size = 1280, align = 16)]
+        pub type DecryptContext: Drop;
 
         /// Initialize encryptor with a 128-bit key and 128-bit IV.
-        #[symbol = "_emb_crypto_aes128cbc_encrypt_init"]
-        pub fn aes128cbc_encrypt_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::EncryptContext;
+        fn encrypt_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::EncryptContext;
 
         /// Initialize decryptor with a 128-bit key and 128-bit IV.
-        #[symbol = "_emb_crypto_aes128cbc_decrypt_init"]
-        pub fn aes128cbc_decrypt_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::DecryptContext;
+        fn decrypt_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::DecryptContext;
 
         /// Encrypt 16-byte blocks in-place (updates internal chaining state).
-        #[symbol = "_emb_crypto_aes128cbc_encrypt_block"]
-        pub fn aes128cbc_encrypt_blocks(ctx: &mut Self::EncryptContext, blocks: InOutBuf<'_, '_, u8>);
+        fn encrypt_blocks(ctx: &mut Self::EncryptContext, blocks: InOutBuf<'_, '_, u8>);
 
         /// Decrypt 16-byte blocks in-place (updates internal chaining state).
-        #[symbol = "_emb_crypto_aes128cbc_decrypt_block"]
-        pub fn aes128cbc_decrypt_blocks(ctx: &mut Self::DecryptContext, blocks: InOutBuf<'_, '_, u8>);
+        fn decrypt_blocks(ctx: &mut Self::DecryptContext, blocks: InOutBuf<'_, '_, u8>);
     }
 
-    macro embassy_crypto_aes128cbc_impl(path = $crate);
+    /// The global [`Aes128Cbc`] implementation.
+    pub struct Aes128CbcImpl;
+
+    macro aes128cbc_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// AES-256 CBC block cipher trait.
+    #[symbol_prefix = "_embassy_crypto_aes256cbc"]
     pub trait Aes256Cbc {
         /// Opaque storage for the encryptor's key schedule and chaining state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1280, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 528, align = 16))]
-        #[symbol = "_emb_crypto_aes256cbc_encrypt_context"]
-        pub type EncryptContext;
+        #[opaque(size = 1280, align = 16)]
+        pub type EncryptContext: Drop;
 
         /// Opaque storage for the decryptor's key schedule and chaining state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1280, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 528, align = 16))]
-        #[symbol = "_emb_crypto_aes256cbc_decrypt_context"]
-        pub type DecryptContext;
+        #[opaque(size = 1280, align = 16)]
+        pub type DecryptContext: Drop;
 
         /// Initialize encryptor with a 256-bit key and 128-bit IV.
-        #[symbol = "_emb_crypto_aes256cbc_encrypt_init"]
-        pub fn aes256cbc_encrypt_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::EncryptContext;
+        fn encrypt_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::EncryptContext;
 
         /// Initialize decryptor with a 256-bit key and 128-bit IV.
-        #[symbol = "_emb_crypto_aes256cbc_decrypt_init"]
-        pub fn aes256cbc_decrypt_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::DecryptContext;
+        fn decrypt_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::DecryptContext;
 
         /// Encrypt 16-byte blocks in-place (updates internal chaining state).
-        #[symbol = "_emb_crypto_aes256cbc_encrypt_block"]
-        pub fn aes256cbc_encrypt_blocks(ctx: &mut Self::EncryptContext, blocks: InOutBuf<'_, '_, u8>);
+        fn encrypt_blocks(ctx: &mut Self::EncryptContext, blocks: InOutBuf<'_, '_, u8>);
 
         /// Decrypt 16-byte blocks in-place (updates internal chaining state).
-        #[symbol = "_emb_crypto_aes256cbc_decrypt_block"]
-        pub fn aes256cbc_decrypt_blocks(ctx: &mut Self::DecryptContext, blocks: InOutBuf<'_, '_, u8>);
+        fn decrypt_blocks(ctx: &mut Self::DecryptContext, blocks: InOutBuf<'_, '_, u8>);
     }
 
-    macro embassy_crypto_aes256cbc_impl(path = $crate);
+    /// The global [`Aes256Cbc`] implementation.
+    pub struct Aes256CbcImpl;
+
+    macro aes256cbc_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// AES-128 GCM AEAD trait.
+    #[symbol_prefix = "_embassy_crypto_aes128gcm"]
     pub trait Aes128Gcm {
         /// Opaque storage for the implementation's key schedule.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1280, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 450, align = 16))]
-        #[symbol = "_emb_crypto_aes128gcm_context"]
-        pub type Context;
+        #[opaque(size = 1280, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Initialize with a 128-bit key.
-        #[symbol = "_emb_crypto_aes128gcm_init"]
-        pub fn aes128gcm_init(key: &[u8; 16]) -> Self::Context;
-
-        /// Clone the context.
-        #[symbol = "_emb_crypto_aes128gcm_clone"]
-        pub fn aes128gcm_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8; 16]) -> Self::Context;
 
         /// Encrypt plaintext in-place and produce a 16-byte authentication tag.
-        #[symbol = "_emb_crypto_aes128gcm_encrypt"]
-        pub fn aes128gcm_encrypt(
+        fn encrypt(
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
@@ -718,8 +625,7 @@ unitrait::unitrait! {
         ) -> Result<(), CryptoError>;
 
         /// Decrypt ciphertext in-place and verify a 16-byte authentication tag.
-        #[symbol = "_emb_crypto_aes128gcm_decrypt"]
-        pub fn aes128gcm_decrypt(
+        fn decrypt(
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
@@ -728,29 +634,26 @@ unitrait::unitrait! {
         ) -> Result<(), CryptoError>;
     }
 
-    macro embassy_crypto_aes128gcm_impl(path = $crate);
+    /// The global [`Aes128Gcm`] implementation.
+    pub struct Aes128GcmImpl;
+
+    macro aes128gcm_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// AES-256 GCM AEAD trait.
+    #[symbol_prefix = "_embassy_crypto_aes256gcm"]
     pub trait Aes256Gcm {
         /// Opaque storage for the implementation's key schedule.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1280, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 540, align = 16))]
-        #[symbol = "_emb_crypto_aes256gcm_context"]
-        pub type Context;
+        #[opaque(size = 1280, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Initialize with a 256-bit key.
-        #[symbol = "_emb_crypto_aes256gcm_init"]
-        pub fn aes256gcm_init(key: &[u8; 32]) -> Self::Context;
-
-        /// Clone the context.
-        #[symbol = "_emb_crypto_aes256gcm_clone"]
-        pub fn aes256gcm_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8; 32]) -> Self::Context;
 
         /// Encrypt plaintext in-place and produce a 16-byte authentication tag.
-        #[symbol = "_emb_crypto_aes256gcm_encrypt"]
-        pub fn aes256gcm_encrypt(
+        fn encrypt(
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
@@ -759,8 +662,7 @@ unitrait::unitrait! {
         ) -> Result<(), CryptoError>;
 
         /// Decrypt ciphertext in-place and verify a 16-byte authentication tag.
-        #[symbol = "_emb_crypto_aes256gcm_decrypt"]
-        pub fn aes256gcm_decrypt(
+        fn decrypt(
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
@@ -769,32 +671,29 @@ unitrait::unitrait! {
         ) -> Result<(), CryptoError>;
     }
 
-    macro embassy_crypto_aes256gcm_impl(path = $crate);
+    /// The global [`Aes256Gcm`] implementation.
+    pub struct Aes256GcmImpl;
+
+    macro aes256gcm_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// AES-128 CCM AEAD trait.
     ///
     /// The tag and nonce sizes are validated at runtime by the HAL.
+    #[symbol_prefix = "_embassy_crypto_aes128ccm"]
     pub trait Aes128Ccm {
         /// Opaque storage for the implementation's key schedule.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1024, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 512, align = 16))]
-        #[symbol = "_emb_crypto_aes128ccm_context"]
-        pub type Context;
+        #[opaque(size = 1024, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Initialize with a 128-bit key.
-        #[symbol = "_emb_crypto_aes128ccm_init"]
-        pub fn aes128ccm_init(key: &[u8; 16]) -> Self::Context;
-
-        /// Clone the context.
-        #[symbol = "_emb_crypto_aes128ccm_clone"]
-        pub fn aes128ccm_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8; 16]) -> Self::Context;
 
         /// Encrypt plaintext in-place and produce an authentication tag.
         /// The tag length is determined by the length of the `tag` slice.
-        #[symbol = "_emb_crypto_aes128ccm_encrypt"]
-        pub fn aes128ccm_encrypt(
+        fn encrypt(
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
@@ -804,8 +703,7 @@ unitrait::unitrait! {
 
         /// Decrypt ciphertext in-place and verify an authentication tag.
         /// The tag length is determined by the length of the `tag` slice.
-        #[symbol = "_emb_crypto_aes128ccm_decrypt"]
-        pub fn aes128ccm_decrypt(
+        fn decrypt(
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
@@ -814,32 +712,29 @@ unitrait::unitrait! {
         ) -> Result<(), CryptoError>;
     }
 
-    macro embassy_crypto_aes128ccm_impl(path = $crate);
+    /// The global [`Aes128Ccm`] implementation.
+    pub struct Aes128CcmImpl;
+
+    macro aes128ccm_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// AES-256 CCM AEAD trait.
     ///
     /// The tag and nonce sizes are validated at runtime by the HAL.
+    #[symbol_prefix = "_embassy_crypto_aes256ccm"]
     pub trait Aes256Ccm {
         /// Opaque storage for the implementation's key schedule.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1024, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 512, align = 16))]
-        #[symbol = "_emb_crypto_aes256ccm_context"]
-        pub type Context;
+        #[opaque(size = 1024, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Initialize with a 256-bit key.
-        #[symbol = "_emb_crypto_aes256ccm_init"]
-        pub fn aes256ccm_init(key: &[u8; 32]) -> Self::Context;
-
-        /// Clone the context.
-        #[symbol = "_emb_crypto_aes256ccm_clone"]
-        pub fn aes256ccm_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8; 32]) -> Self::Context;
 
         /// Encrypt plaintext in-place and produce an authentication tag.
         /// The tag length is determined by the length of the `tag` slice.
-        #[symbol = "_emb_crypto_aes256ccm_encrypt"]
-        pub fn aes256ccm_encrypt(
+        fn encrypt(
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
@@ -849,8 +744,7 @@ unitrait::unitrait! {
 
         /// Decrypt ciphertext in-place and verify an authentication tag.
         /// The tag length is determined by the length of the `tag` slice.
-        #[symbol = "_emb_crypto_aes256ccm_decrypt"]
-        pub fn aes256ccm_decrypt(
+        fn decrypt(
             ctx: &Self::Context,
             nonce: &[u8],
             aad: &[u8],
@@ -859,7 +753,10 @@ unitrait::unitrait! {
         ) -> Result<(), CryptoError>;
     }
 
-    macro embassy_crypto_aes256ccm_impl(path = $crate);
+    /// The global [`Aes256Ccm`] implementation.
+    pub struct Aes256CcmImpl;
+
+    macro aes256ccm_impl(path = $crate);
 }
 
 // ===========================================================================
@@ -873,43 +770,45 @@ unitrait::unitrait! {
     /// Encryption and decryption are identical: XOR data with the AES-ECB
     /// encrypted counter keystream. The counter is a 128-bit big-endian integer
     /// incremented after each block, matching NIST SP 800-38A.
+    #[symbol_prefix = "_embassy_crypto_aes128ctr"]
     pub trait Aes128Ctr {
         /// Opaque storage for key schedule, counter state, and partial-block buffer.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1280, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 432, align = 16))]
-        #[symbol = "_emb_crypto_aes128ctr_context"]
-        pub type Context;
+        #[opaque(size = 1280, align = 16)]
+        pub type Context: Drop;
 
         /// Initialize with a 128-bit key and 128-bit initial counter (IV).
-        #[symbol = "_emb_crypto_aes128ctr_init"]
-        pub fn aes128ctr_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context;
+        fn init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context;
 
         /// Apply keystream to `buf` in-place (encrypt == decrypt for CTR).
-        #[symbol = "_emb_crypto_aes128ctr_apply_keystream"]
-        pub fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
+        fn apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
     }
 
-    macro embassy_crypto_aes128ctr_impl(path = $crate);
+    /// The global [`Aes128Ctr`] implementation.
+    pub struct Aes128CtrImpl;
+
+    macro aes128ctr_impl(path = $crate);
 }
 
 unitrait::unitrait! {
     /// AES-256 CTR stream cipher trait.
     ///
     /// See [`Aes128Ctr`] for CTR mode semantics. Uses a 256-bit key.
+    #[symbol_prefix = "_embassy_crypto_aes256ctr"]
     pub trait Aes256Ctr {
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1280, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 560, align = 16))]
-        #[symbol = "_emb_crypto_aes256ctr_context"]
-        pub type Context;
+        #[opaque(size = 1280, align = 16)]
+        pub type Context: Drop;
 
-        #[symbol = "_emb_crypto_aes256ctr_init"]
-        pub fn aes256ctr_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context;
+        fn init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context;
 
-        #[symbol = "_emb_crypto_aes256ctr_apply_keystream"]
-        pub fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
+        fn apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
     }
 
-    macro embassy_crypto_aes256ctr_impl(path = $crate);
+    /// The global [`Aes256Ctr`] implementation.
+    pub struct Aes256CtrImpl;
+
+    macro aes256ctr_impl(path = $crate);
 }
 
 // ===========================================================================
@@ -921,35 +820,30 @@ unitrait::unitrait! {
     ///
     /// Produces a 128-bit authentication tag using AES-128 as the underlying
     /// block cipher (NIST SP 800-38B).
+    #[symbol_prefix = "_embassy_crypto_aes128cmac"]
     pub trait Aes128Cmac {
         /// Opaque storage for the implementation's CMAC state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1280, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 432, align = 16))]
-        #[symbol = "_emb_crypto_aes128cmac_context"]
-        pub type Context;
+        #[opaque(size = 1280, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Initialize with a 128-bit key.
-        #[symbol = "_emb_crypto_aes128cmac_init"]
-        pub fn aes128cmac_init(key: &[u8; 16]) -> Self::Context;
-
-        /// Clone the context.
-        #[symbol = "_emb_crypto_aes128cmac_clone"]
-        pub fn aes128cmac_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8; 16]) -> Self::Context;
 
         /// Update the CMAC state with message data.
-        #[symbol = "_emb_crypto_aes128cmac_update"]
-        pub fn aes128cmac_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Finalize and write the 16-byte tag to `out`.
-        #[symbol = "_emb_crypto_aes128cmac_finalize"]
-        pub fn aes128cmac_finalize(ctx: Self::Context, out: &mut [u8; 16]);
+        fn finalize(ctx: Self::Context, out: &mut [u8; 16]);
 
         /// Reset the context to its post-init, pre-message state.
-        #[symbol = "_emb_crypto_aes128cmac_reset"]
-        pub fn aes128cmac_reset(ctx: &mut Self::Context);
+        fn reset(ctx: &mut Self::Context);
     }
 
-    macro embassy_crypto_aes128cmac_impl(path = $crate);
+    /// The global [`Aes128Cmac`] implementation.
+    pub struct Aes128CmacImpl;
+
+    macro aes128cmac_impl(path = $crate);
 }
 
 // ===========================================================================
@@ -961,33 +855,28 @@ unitrait::unitrait! {
     ///
     /// Produces a 128-bit authentication tag using AES-256 as the underlying
     /// block cipher (NIST SP 800-38B).
+    #[symbol_prefix = "_embassy_crypto_aes256cmac"]
     pub trait Aes256Cmac {
         /// Opaque storage for the implementation's CMAC state.
-        #[cfg_attr(target_pointer_width = "64", opaque(size = 1280, align = 16))]
         #[cfg_attr(target_pointer_width = "32", opaque(size = 560, align = 16))]
-        #[symbol = "_emb_crypto_aes256cmac_context"]
-        pub type Context;
+        #[opaque(size = 1280, align = 16)]
+        pub type Context: Drop + Clone;
 
         /// Initialize with a 256-bit key.
-        #[symbol = "_emb_crypto_aes256cmac_init"]
-        pub fn aes256cmac_init(key: &[u8; 32]) -> Self::Context;
-
-        /// Clone the context.
-        #[symbol = "_emb_crypto_aes256cmac_clone"]
-        pub fn aes256cmac_clone(ctx: &Self::Context) -> Self::Context;
+        fn init(key: &[u8; 32]) -> Self::Context;
 
         /// Update the CMAC state with message data.
-        #[symbol = "_emb_crypto_aes256cmac_update"]
-        pub fn aes256cmac_update(ctx: &mut Self::Context, data: &[u8]);
+        fn update(ctx: &mut Self::Context, data: &[u8]);
 
         /// Finalize and write the 16-byte tag to `out`.
-        #[symbol = "_emb_crypto_aes256cmac_finalize"]
-        pub fn aes256cmac_finalize(ctx: Self::Context, out: &mut [u8; 16]);
+        fn finalize(ctx: Self::Context, out: &mut [u8; 16]);
 
         /// Reset the context to its post-init, pre-message state.
-        #[symbol = "_emb_crypto_aes256cmac_reset"]
-        pub fn aes256cmac_reset(ctx: &mut Self::Context);
+        fn reset(ctx: &mut Self::Context);
     }
 
-    macro embassy_crypto_aes256cmac_impl(path = $crate);
+    /// The global [`Aes256Cmac`] implementation.
+    pub struct Aes256CmacImpl;
+
+    macro aes256cmac_impl(path = $crate);
 }

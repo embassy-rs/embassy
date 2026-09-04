@@ -28,7 +28,7 @@ build = [
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
-unitrait = { git = "https://github.com/embassy-rs/unitrait", rev = "dc36a86" }
+unitrait = { git = "https://github.com/embassy-rs/unitrait", rev = "b98d69bbf6fa7872c0cc107e5b52f0bc1df03777" }
 
 [features]
 defmt = ["dep:defmt"]

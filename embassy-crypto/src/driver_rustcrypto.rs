@@ -29,7 +29,6 @@ macro_rules! impl_digest {
         $driver:ident,
         $trait:path,
         $ctx:ty,
-        [$init:ident, $clone:ident, $update:ident, $finalize:ident],
         $impl_macro:path
     ) => {
         struct $driver;
@@ -37,21 +36,17 @@ macro_rules! impl_digest {
         impl $trait for $driver {
             type Context = $ctx;
 
-            fn $init() -> Self::Context {
+            fn init() -> Self::Context {
                 use digest::Digest;
                 Self::Context::new()
             }
 
-            fn $clone(ctx: &Self::Context) -> Self::Context {
-                ctx.clone()
-            }
-
-            fn $update(ctx: &mut Self::Context, data: &[u8]) {
+            fn update(ctx: &mut Self::Context, data: &[u8]) {
                 use digest::Update;
                 ctx.update(data);
             }
 
-            fn $finalize(ctx: Self::Context, out: &mut [u8]) {
+            fn finalize(ctx: Self::Context, out: &mut [u8]) {
                 use digest::FixedOutput;
                 let result = ctx.finalize_fixed();
                 out.copy_from_slice(result.as_slice());
@@ -67,8 +62,7 @@ impl_digest!(
     Md5Driver,
     embassy_crypto_driver::Md5,
     md5::Md5,
-    [md5_init, md5_clone, md5_update, md5_finalize],
-    embassy_crypto_driver::embassy_crypto_md5_impl
+    embassy_crypto_driver::md5_impl
 );
 
 #[cfg(feature = "driver-sha1")]
@@ -76,8 +70,7 @@ impl_digest!(
     Sha1Driver,
     embassy_crypto_driver::Sha1,
     sha1::Sha1,
-    [sha1_init, sha1_clone, sha1_update, sha1_finalize],
-    embassy_crypto_driver::embassy_crypto_sha1_impl
+    embassy_crypto_driver::sha1_impl
 );
 
 #[cfg(feature = "driver-sha2")]
@@ -85,8 +78,7 @@ impl_digest!(
     Sha224Driver,
     embassy_crypto_driver::Sha224,
     sha2::Sha224,
-    [sha224_init, sha224_clone, sha224_update, sha224_finalize],
-    embassy_crypto_driver::embassy_crypto_sha224_impl
+    embassy_crypto_driver::sha224_impl
 );
 
 #[cfg(feature = "driver-sha2")]
@@ -94,8 +86,7 @@ impl_digest!(
     Sha256Driver,
     embassy_crypto_driver::Sha256,
     sha2::Sha256,
-    [sha256_init, sha256_clone, sha256_update, sha256_finalize],
-    embassy_crypto_driver::embassy_crypto_sha256_impl
+    embassy_crypto_driver::sha256_impl
 );
 
 #[cfg(feature = "driver-sha2")]
@@ -103,8 +94,7 @@ impl_digest!(
     Sha384Driver,
     embassy_crypto_driver::Sha384,
     sha2::Sha384,
-    [sha384_init, sha384_clone, sha384_update, sha384_finalize],
-    embassy_crypto_driver::embassy_crypto_sha384_impl
+    embassy_crypto_driver::sha384_impl
 );
 
 #[cfg(feature = "driver-sha2")]
@@ -112,13 +102,7 @@ impl_digest!(
     Sha512_224Driver,
     embassy_crypto_driver::Sha512_224,
     sha2::Sha512_224,
-    [
-        sha512_224_init,
-        sha512_224_clone,
-        sha512_224_update,
-        sha512_224_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_sha512_224_impl
+    embassy_crypto_driver::sha512_224_impl
 );
 
 #[cfg(feature = "driver-sha2")]
@@ -126,13 +110,7 @@ impl_digest!(
     Sha512_256Driver,
     embassy_crypto_driver::Sha512_256,
     sha2::Sha512_256,
-    [
-        sha512_256_init,
-        sha512_256_clone,
-        sha512_256_update,
-        sha512_256_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_sha512_256_impl
+    embassy_crypto_driver::sha512_256_impl
 );
 
 #[cfg(feature = "driver-sha2")]
@@ -140,8 +118,7 @@ impl_digest!(
     Sha512Driver,
     embassy_crypto_driver::Sha512,
     sha2::Sha512,
-    [sha512_init, sha512_clone, sha512_update, sha512_finalize],
-    embassy_crypto_driver::embassy_crypto_sha512_impl
+    embassy_crypto_driver::sha512_impl
 );
 
 // ===========================================================================
@@ -162,7 +139,6 @@ macro_rules! impl_hmac_fast {
         $trait:path,
         $hash:ty,
         $key_cap:literal,
-        [$init:ident, $clone:ident, $update:ident, $finalize:ident],
         $impl_macro:path
     ) => {
         #[derive(Clone)]
@@ -175,22 +151,18 @@ macro_rules! impl_hmac_fast {
         impl $trait for $driver {
             type Context = $ctx;
 
-            fn $init(key: &[u8]) -> Self::Context {
+            fn init(key: &[u8]) -> Self::Context {
                 use hmac::KeyInit;
                 let inner = hmac::Hmac::new_from_slice(key).expect("key length validated by caller");
                 $ctx { inner }
             }
 
-            fn $clone(ctx: &Self::Context) -> Self::Context {
-                ctx.clone()
-            }
-
-            fn $update(ctx: &mut Self::Context, data: &[u8]) {
+            fn update(ctx: &mut Self::Context, data: &[u8]) {
                 use hmac::Mac;
                 ctx.inner.update(data);
             }
 
-            fn $finalize(ctx: Self::Context, out: &mut [u8]) {
+            fn finalize(ctx: Self::Context, out: &mut [u8]) {
                 use hmac::Mac;
                 let result = ctx.inner.finalize();
                 out.copy_from_slice(result.into_bytes().as_slice());
@@ -209,7 +181,6 @@ macro_rules! impl_hmac_delegated {
         $trait:path,
         $hash:ty,
         $key_cap:literal,
-        [$init:ident, $clone:ident, $update:ident, $finalize:ident],
         $impl_macro:path
     ) => {
         #[derive(Clone)]
@@ -222,22 +193,18 @@ macro_rules! impl_hmac_delegated {
         impl $trait for $driver {
             type Context = $ctx;
 
-            fn $init(key: &[u8]) -> Self::Context {
+            fn init(key: &[u8]) -> Self::Context {
                 use hmac::KeyInit;
                 let inner = hmac::SimpleHmac::new_from_slice(key).expect("key length validated by caller");
                 $ctx { inner }
             }
 
-            fn $clone(ctx: &Self::Context) -> Self::Context {
-                ctx.clone()
-            }
-
-            fn $update(ctx: &mut Self::Context, data: &[u8]) {
+            fn update(ctx: &mut Self::Context, data: &[u8]) {
                 use hmac::Mac;
                 ctx.inner.update(data);
             }
 
-            fn $finalize(ctx: Self::Context, out: &mut [u8]) {
+            fn finalize(ctx: Self::Context, out: &mut [u8]) {
                 use hmac::Mac;
                 let result = ctx.inner.finalize();
                 out.copy_from_slice(result.into_bytes().as_slice());
@@ -256,8 +223,7 @@ impl_hmac_fast!(
     embassy_crypto_driver::HmacSha1,
     sha1::Sha1,
     64,
-    [hmac_sha1_init, hmac_sha1_clone, hmac_sha1_update, hmac_sha1_finalize],
-    embassy_crypto_driver::embassy_crypto_hmac_sha1_impl
+    embassy_crypto_driver::hmac_sha1_impl
 );
 
 #[cfg(all(feature = "driver-hmac-sha1", not(feature = "driver-sha1")))]
@@ -267,8 +233,7 @@ impl_hmac_delegated!(
     embassy_crypto_driver::HmacSha1,
     crate::Sha1,
     64,
-    [hmac_sha1_init, hmac_sha1_clone, hmac_sha1_update, hmac_sha1_finalize],
-    embassy_crypto_driver::embassy_crypto_hmac_sha1_impl
+    embassy_crypto_driver::hmac_sha1_impl
 );
 
 // SHA-224 HMAC
@@ -279,13 +244,7 @@ impl_hmac_fast!(
     embassy_crypto_driver::HmacSha224,
     sha2::Sha224,
     64,
-    [
-        hmac_sha224_init,
-        hmac_sha224_clone,
-        hmac_sha224_update,
-        hmac_sha224_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha224_impl
+    embassy_crypto_driver::hmac_sha224_impl
 );
 
 #[cfg(all(feature = "driver-hmac-sha2", not(feature = "driver-sha2")))]
@@ -295,13 +254,7 @@ impl_hmac_delegated!(
     embassy_crypto_driver::HmacSha224,
     crate::Sha224,
     64,
-    [
-        hmac_sha224_init,
-        hmac_sha224_clone,
-        hmac_sha224_update,
-        hmac_sha224_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha224_impl
+    embassy_crypto_driver::hmac_sha224_impl
 );
 
 // SHA-256 HMAC
@@ -312,13 +265,7 @@ impl_hmac_fast!(
     embassy_crypto_driver::HmacSha256,
     sha2::Sha256,
     64,
-    [
-        hmac_sha256_init,
-        hmac_sha256_clone,
-        hmac_sha256_update,
-        hmac_sha256_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha256_impl
+    embassy_crypto_driver::hmac_sha256_impl
 );
 
 #[cfg(all(feature = "driver-hmac-sha2", not(feature = "driver-sha2")))]
@@ -328,13 +275,7 @@ impl_hmac_delegated!(
     embassy_crypto_driver::HmacSha256,
     crate::Sha256,
     64,
-    [
-        hmac_sha256_init,
-        hmac_sha256_clone,
-        hmac_sha256_update,
-        hmac_sha256_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha256_impl
+    embassy_crypto_driver::hmac_sha256_impl
 );
 
 // SHA-384 HMAC
@@ -345,13 +286,7 @@ impl_hmac_fast!(
     embassy_crypto_driver::HmacSha384,
     sha2::Sha384,
     128,
-    [
-        hmac_sha384_init,
-        hmac_sha384_clone,
-        hmac_sha384_update,
-        hmac_sha384_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha384_impl
+    embassy_crypto_driver::hmac_sha384_impl
 );
 
 #[cfg(all(feature = "driver-hmac-sha2", not(feature = "driver-sha2")))]
@@ -361,13 +296,7 @@ impl_hmac_delegated!(
     embassy_crypto_driver::HmacSha384,
     crate::Sha384,
     128,
-    [
-        hmac_sha384_init,
-        hmac_sha384_clone,
-        hmac_sha384_update,
-        hmac_sha384_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha384_impl
+    embassy_crypto_driver::hmac_sha384_impl
 );
 
 // SHA-512/224 HMAC
@@ -378,13 +307,7 @@ impl_hmac_fast!(
     embassy_crypto_driver::HmacSha512_224,
     sha2::Sha512_224,
     128,
-    [
-        hmac_sha512_224_init,
-        hmac_sha512_224_clone,
-        hmac_sha512_224_update,
-        hmac_sha512_224_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha512_224_impl
+    embassy_crypto_driver::hmac_sha512_224_impl
 );
 
 #[cfg(all(feature = "driver-hmac-sha2", not(feature = "driver-sha2")))]
@@ -394,13 +317,7 @@ impl_hmac_delegated!(
     embassy_crypto_driver::HmacSha512_224,
     crate::Sha512_224,
     128,
-    [
-        hmac_sha512_224_init,
-        hmac_sha512_224_clone,
-        hmac_sha512_224_update,
-        hmac_sha512_224_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha512_224_impl
+    embassy_crypto_driver::hmac_sha512_224_impl
 );
 
 // SHA-512/256 HMAC
@@ -411,13 +328,7 @@ impl_hmac_fast!(
     embassy_crypto_driver::HmacSha512_256,
     sha2::Sha512_256,
     128,
-    [
-        hmac_sha512_256_init,
-        hmac_sha512_256_clone,
-        hmac_sha512_256_update,
-        hmac_sha512_256_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha512_256_impl
+    embassy_crypto_driver::hmac_sha512_256_impl
 );
 
 #[cfg(all(feature = "driver-hmac-sha2", not(feature = "driver-sha2")))]
@@ -427,13 +338,7 @@ impl_hmac_delegated!(
     embassy_crypto_driver::HmacSha512_256,
     crate::Sha512_256,
     128,
-    [
-        hmac_sha512_256_init,
-        hmac_sha512_256_clone,
-        hmac_sha512_256_update,
-        hmac_sha512_256_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha512_256_impl
+    embassy_crypto_driver::hmac_sha512_256_impl
 );
 
 // SHA-512 HMAC
@@ -444,13 +349,7 @@ impl_hmac_fast!(
     embassy_crypto_driver::HmacSha512,
     sha2::Sha512,
     128,
-    [
-        hmac_sha512_init,
-        hmac_sha512_clone,
-        hmac_sha512_update,
-        hmac_sha512_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha512_impl
+    embassy_crypto_driver::hmac_sha512_impl
 );
 
 #[cfg(all(feature = "driver-hmac-sha2", not(feature = "driver-sha2")))]
@@ -460,13 +359,7 @@ impl_hmac_delegated!(
     embassy_crypto_driver::HmacSha512,
     crate::Sha512,
     128,
-    [
-        hmac_sha512_init,
-        hmac_sha512_clone,
-        hmac_sha512_update,
-        hmac_sha512_finalize
-    ],
-    embassy_crypto_driver::embassy_crypto_hmac_sha512_impl
+    embassy_crypto_driver::hmac_sha512_impl
 );
 // ===========================================================================
 // AES ECB
@@ -479,23 +372,19 @@ struct Aes128EcbDriver;
 impl embassy_crypto_driver::Aes128Ecb for Aes128EcbDriver {
     type Context = aes::Aes128;
 
-    fn aes128ecb_init(key: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 16]) -> Self::Context {
         use cipher::KeyInit;
         aes::Aes128::new_from_slice(key.as_slice()).unwrap()
     }
 
-    fn aes128ecb_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn aes128ecb_encrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn encrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherEncrypt;
         let buf = to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
         ctx.encrypt_blocks_inout(chunks);
     }
 
-    fn aes128ecb_decrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn decrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherDecrypt;
         let buf = to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
@@ -504,7 +393,7 @@ impl embassy_crypto_driver::Aes128Ecb for Aes128EcbDriver {
 }
 
 #[cfg(feature = "driver-aes128")]
-embassy_crypto_driver::embassy_crypto_aes128ecb_impl!(Aes128EcbDriver);
+embassy_crypto_driver::aes128ecb_impl!(Aes128EcbDriver);
 
 #[cfg(feature = "driver-aes256")]
 struct Aes256EcbDriver;
@@ -513,23 +402,19 @@ struct Aes256EcbDriver;
 impl embassy_crypto_driver::Aes256Ecb for Aes256EcbDriver {
     type Context = aes::Aes256;
 
-    fn aes256ecb_init(key: &[u8; 32]) -> Self::Context {
+    fn init(key: &[u8; 32]) -> Self::Context {
         use cipher::KeyInit;
         aes::Aes256::new_from_slice(key.as_slice()).unwrap()
     }
 
-    fn aes256ecb_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn aes256ecb_encrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn encrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherEncrypt;
         let buf = to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
         ctx.encrypt_blocks_inout(chunks);
     }
 
-    fn aes256ecb_decrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn decrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherDecrypt;
         let buf = to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
@@ -538,7 +423,7 @@ impl embassy_crypto_driver::Aes256Ecb for Aes256EcbDriver {
 }
 
 #[cfg(feature = "driver-aes256")]
-embassy_crypto_driver::embassy_crypto_aes256ecb_impl!(Aes256EcbDriver);
+embassy_crypto_driver::aes256ecb_impl!(Aes256EcbDriver);
 
 // ===========================================================================
 // AES CBC
@@ -562,21 +447,21 @@ impl embassy_crypto_driver::Aes128Cbc for Aes128CbcDriver {
     type EncryptContext = Aes128CbcEncryptContext;
     type DecryptContext = Aes128CbcDecryptContext;
 
-    fn aes128cbc_encrypt_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::EncryptContext {
+    fn encrypt_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::EncryptContext {
         use cipher::KeyIvInit;
         Aes128CbcEncryptContext {
             inner: cbc::Encryptor::<crate::Aes128>::new_from_slices(key.as_slice(), iv.as_slice()).unwrap(),
         }
     }
 
-    fn aes128cbc_decrypt_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::DecryptContext {
+    fn decrypt_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::DecryptContext {
         use cipher::KeyIvInit;
         Aes128CbcDecryptContext {
             inner: cbc::Decryptor::<crate::Aes128>::new_from_slices(key.as_slice(), iv.as_slice()).unwrap(),
         }
     }
 
-    fn aes128cbc_encrypt_blocks(ctx: &mut Self::EncryptContext, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn encrypt_blocks(ctx: &mut Self::EncryptContext, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockModeEncrypt;
         let out = buf.into_out_with_copied_in();
         let nblocks = out.len() / 16;
@@ -589,7 +474,7 @@ impl embassy_crypto_driver::Aes128Cbc for Aes128CbcDriver {
         ctx.inner.encrypt_blocks(blocks);
     }
 
-    fn aes128cbc_decrypt_blocks(ctx: &mut Self::DecryptContext, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn decrypt_blocks(ctx: &mut Self::DecryptContext, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockModeDecrypt;
         let out = buf.into_out_with_copied_in();
         let nblocks = out.len() / 16;
@@ -604,7 +489,7 @@ impl embassy_crypto_driver::Aes128Cbc for Aes128CbcDriver {
 }
 
 #[cfg(feature = "driver-aes128cbc")]
-embassy_crypto_driver::embassy_crypto_aes128cbc_impl!(Aes128CbcDriver);
+embassy_crypto_driver::aes128cbc_impl!(Aes128CbcDriver);
 
 #[cfg(feature = "driver-aes256cbc")]
 struct Aes256CbcEncryptContext {
@@ -624,21 +509,21 @@ impl embassy_crypto_driver::Aes256Cbc for Aes256CbcDriver {
     type EncryptContext = Aes256CbcEncryptContext;
     type DecryptContext = Aes256CbcDecryptContext;
 
-    fn aes256cbc_encrypt_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::EncryptContext {
+    fn encrypt_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::EncryptContext {
         use cipher::KeyIvInit;
         Aes256CbcEncryptContext {
             inner: cbc::Encryptor::<crate::Aes256>::new_from_slices(key.as_slice(), iv.as_slice()).unwrap(),
         }
     }
 
-    fn aes256cbc_decrypt_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::DecryptContext {
+    fn decrypt_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::DecryptContext {
         use cipher::KeyIvInit;
         Aes256CbcDecryptContext {
             inner: cbc::Decryptor::<crate::Aes256>::new_from_slices(key.as_slice(), iv.as_slice()).unwrap(),
         }
     }
 
-    fn aes256cbc_encrypt_blocks(ctx: &mut Self::EncryptContext, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn encrypt_blocks(ctx: &mut Self::EncryptContext, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockModeEncrypt;
         let out = buf.into_out_with_copied_in();
         let nblocks = out.len() / 16;
@@ -651,7 +536,7 @@ impl embassy_crypto_driver::Aes256Cbc for Aes256CbcDriver {
         ctx.inner.encrypt_blocks(blocks);
     }
 
-    fn aes256cbc_decrypt_blocks(ctx: &mut Self::DecryptContext, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn decrypt_blocks(ctx: &mut Self::DecryptContext, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockModeDecrypt;
         let out = buf.into_out_with_copied_in();
         let nblocks = out.len() / 16;
@@ -666,7 +551,7 @@ impl embassy_crypto_driver::Aes256Cbc for Aes256CbcDriver {
 }
 
 #[cfg(feature = "driver-aes256cbc")]
-embassy_crypto_driver::embassy_crypto_aes256cbc_impl!(Aes256CbcDriver);
+embassy_crypto_driver::aes256cbc_impl!(Aes256CbcDriver);
 
 // ===========================================================================
 // AES GCM
@@ -679,16 +564,12 @@ struct Aes128GcmDriver;
 impl embassy_crypto_driver::Aes128Gcm for Aes128GcmDriver {
     type Context = aes_gcm::AesGcm<crate::Aes128, generic_array::typenum::U12>;
 
-    fn aes128gcm_init(key: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 16]) -> Self::Context {
         use aead::KeyInit;
         aes_gcm::AesGcm::<crate::Aes128, generic_array::typenum::U12>::new_from_slice(key.as_slice()).unwrap()
     }
 
-    fn aes128gcm_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn aes128gcm_encrypt(
+    fn encrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
@@ -704,7 +585,7 @@ impl embassy_crypto_driver::Aes128Gcm for Aes128GcmDriver {
         Ok(())
     }
 
-    fn aes128gcm_decrypt(
+    fn decrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
@@ -720,7 +601,7 @@ impl embassy_crypto_driver::Aes128Gcm for Aes128GcmDriver {
 }
 
 #[cfg(feature = "driver-aes128gcm")]
-embassy_crypto_driver::embassy_crypto_aes128gcm_impl!(Aes128GcmDriver);
+embassy_crypto_driver::aes128gcm_impl!(Aes128GcmDriver);
 
 #[cfg(feature = "driver-aes256gcm")]
 struct Aes256GcmDriver;
@@ -729,16 +610,12 @@ struct Aes256GcmDriver;
 impl embassy_crypto_driver::Aes256Gcm for Aes256GcmDriver {
     type Context = aes_gcm::AesGcm<crate::Aes256, generic_array::typenum::U12>;
 
-    fn aes256gcm_init(key: &[u8; 32]) -> Self::Context {
+    fn init(key: &[u8; 32]) -> Self::Context {
         use aead::KeyInit;
         aes_gcm::AesGcm::<crate::Aes256, generic_array::typenum::U12>::new_from_slice(key.as_slice()).unwrap()
     }
 
-    fn aes256gcm_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn aes256gcm_encrypt(
+    fn encrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
@@ -754,7 +631,7 @@ impl embassy_crypto_driver::Aes256Gcm for Aes256GcmDriver {
         Ok(())
     }
 
-    fn aes256gcm_decrypt(
+    fn decrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
@@ -770,7 +647,7 @@ impl embassy_crypto_driver::Aes256Gcm for Aes256GcmDriver {
 }
 
 #[cfg(feature = "driver-aes256gcm")]
-embassy_crypto_driver::embassy_crypto_aes256gcm_impl!(Aes256GcmDriver);
+embassy_crypto_driver::aes256gcm_impl!(Aes256GcmDriver);
 
 // ===========================================================================
 // AES CCM
@@ -951,18 +828,14 @@ struct Aes128CcmDriver;
 impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
     type Context = Aes128CcmContext;
 
-    fn aes128ccm_init(key: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 16]) -> Self::Context {
         use cipher::KeyInit;
         Aes128CcmContext {
             cipher: crate::Aes128::new_from_slice(key.as_slice()).unwrap(),
         }
     }
 
-    fn aes128ccm_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn aes128ccm_encrypt(
+    fn encrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
@@ -982,7 +855,7 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
         )
     }
 
-    fn aes128ccm_decrypt(
+    fn decrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
@@ -1004,7 +877,7 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
 }
 
 #[cfg(feature = "driver-aes128ccm")]
-embassy_crypto_driver::embassy_crypto_aes128ccm_impl!(Aes128CcmDriver);
+embassy_crypto_driver::aes128ccm_impl!(Aes128CcmDriver);
 
 #[cfg(feature = "driver-aes256ccm")]
 #[derive(Clone)]
@@ -1019,18 +892,14 @@ struct Aes256CcmDriver;
 impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
     type Context = Aes256CcmContext;
 
-    fn aes256ccm_init(key: &[u8; 32]) -> Self::Context {
+    fn init(key: &[u8; 32]) -> Self::Context {
         use cipher::KeyInit;
         Aes256CcmContext {
             cipher: crate::Aes256::new_from_slice(key.as_slice()).unwrap(),
         }
     }
 
-    fn aes256ccm_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn aes256ccm_encrypt(
+    fn encrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
@@ -1050,7 +919,7 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
         )
     }
 
-    fn aes256ccm_decrypt(
+    fn decrypt(
         ctx: &Self::Context,
         nonce: &[u8],
         aad: &[u8],
@@ -1072,7 +941,7 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
 }
 
 #[cfg(feature = "driver-aes256ccm")]
-embassy_crypto_driver::embassy_crypto_aes256ccm_impl!(Aes256CcmDriver);
+embassy_crypto_driver::aes256ccm_impl!(Aes256CcmDriver);
 
 // ===========================================================================
 // AES CTR (software fallback via RustCrypto `ctr` crate)
@@ -1094,7 +963,7 @@ struct Aes128CtrDriver;
 impl embassy_crypto_driver::Aes128Ctr for Aes128CtrDriver {
     type Context = Aes128CtrContext;
 
-    fn aes128ctr_init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 16], iv: &[u8; 16]) -> Self::Context {
         use cipher::{InnerIvInit, KeyInit};
         let cipher = crate::Aes128::new_from_slice(key.as_slice()).unwrap();
         let nonce = cipher::Block::<crate::Aes128>::from(*iv);
@@ -1104,14 +973,14 @@ impl embassy_crypto_driver::Aes128Ctr for Aes128CtrDriver {
         }
     }
 
-    fn aes128ctr_apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::StreamCipher;
         ctx.inner.unchecked_apply_keystream_inout(to_rustcrypto_inout(buf));
     }
 }
 
 #[cfg(feature = "driver-aes128ctr")]
-embassy_crypto_driver::embassy_crypto_aes128ctr_impl!(Aes128CtrDriver);
+embassy_crypto_driver::aes128ctr_impl!(Aes128CtrDriver);
 
 // ---------------------------------------------------------------------------
 // AES-256 CTR
@@ -1129,7 +998,7 @@ struct Aes256CtrDriver;
 impl embassy_crypto_driver::Aes256Ctr for Aes256CtrDriver {
     type Context = Aes256CtrContext;
 
-    fn aes256ctr_init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 32], iv: &[u8; 16]) -> Self::Context {
         use cipher::{InnerIvInit, KeyInit};
         let cipher = crate::Aes256::new_from_slice(key.as_slice()).unwrap();
         let nonce = cipher::Block::<crate::Aes256>::from(*iv);
@@ -1139,14 +1008,14 @@ impl embassy_crypto_driver::Aes256Ctr for Aes256CtrDriver {
         }
     }
 
-    fn aes256ctr_apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
+    fn apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::StreamCipher;
         ctx.inner.unchecked_apply_keystream_inout(to_rustcrypto_inout(buf));
     }
 }
 
 #[cfg(feature = "driver-aes256ctr")]
-embassy_crypto_driver::embassy_crypto_aes256ctr_impl!(Aes256CtrDriver);
+embassy_crypto_driver::aes256ctr_impl!(Aes256CtrDriver);
 
 // ===========================================================================
 // AES CMAC
@@ -1159,34 +1028,30 @@ struct Aes128CmacDriver;
 impl embassy_crypto_driver::Aes128Cmac for Aes128CmacDriver {
     type Context = cmac::Cmac<crate::Aes128>;
 
-    fn aes128cmac_init(key: &[u8; 16]) -> Self::Context {
+    fn init(key: &[u8; 16]) -> Self::Context {
         use cipher::KeyInit;
         cmac::Cmac::<crate::Aes128>::new_from_slice(key.as_slice()).unwrap()
     }
 
-    fn aes128cmac_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn aes128cmac_update(ctx: &mut Self::Context, data: &[u8]) {
+    fn update(ctx: &mut Self::Context, data: &[u8]) {
         use digest::Update;
         ctx.update(data);
     }
 
-    fn aes128cmac_finalize(ctx: Self::Context, out: &mut [u8; 16]) {
+    fn finalize(ctx: Self::Context, out: &mut [u8; 16]) {
         use digest::FixedOutput;
         let result = ctx.finalize_fixed();
         out.copy_from_slice(result.as_slice());
     }
 
-    fn aes128cmac_reset(ctx: &mut Self::Context) {
+    fn reset(ctx: &mut Self::Context) {
         use digest::Reset;
         ctx.reset();
     }
 }
 
 #[cfg(feature = "driver-aes128cmac")]
-embassy_crypto_driver::embassy_crypto_aes128cmac_impl!(Aes128CmacDriver);
+embassy_crypto_driver::aes128cmac_impl!(Aes128CmacDriver);
 
 #[cfg(feature = "driver-aes256cmac")]
 struct Aes256CmacDriver;
@@ -1195,31 +1060,27 @@ struct Aes256CmacDriver;
 impl embassy_crypto_driver::Aes256Cmac for Aes256CmacDriver {
     type Context = cmac::Cmac<crate::Aes256>;
 
-    fn aes256cmac_init(key: &[u8; 32]) -> Self::Context {
+    fn init(key: &[u8; 32]) -> Self::Context {
         use cipher::KeyInit;
         cmac::Cmac::<crate::Aes256>::new_from_slice(key.as_slice()).unwrap()
     }
 
-    fn aes256cmac_clone(ctx: &Self::Context) -> Self::Context {
-        ctx.clone()
-    }
-
-    fn aes256cmac_update(ctx: &mut Self::Context, data: &[u8]) {
+    fn update(ctx: &mut Self::Context, data: &[u8]) {
         use digest::Update;
         ctx.update(data);
     }
 
-    fn aes256cmac_finalize(ctx: Self::Context, out: &mut [u8; 16]) {
+    fn finalize(ctx: Self::Context, out: &mut [u8; 16]) {
         use digest::FixedOutput;
         let result = ctx.finalize_fixed();
         out.copy_from_slice(result.as_slice());
     }
 
-    fn aes256cmac_reset(ctx: &mut Self::Context) {
+    fn reset(ctx: &mut Self::Context) {
         use digest::Reset;
         ctx.reset();
     }
 }
 
 #[cfg(feature = "driver-aes256cmac")]
-embassy_crypto_driver::embassy_crypto_aes256cmac_impl!(Aes256CmacDriver);
+embassy_crypto_driver::aes256cmac_impl!(Aes256CmacDriver);
