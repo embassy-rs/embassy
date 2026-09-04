@@ -7,7 +7,7 @@ use core::cell::Cell;
 
 use embassy_crypto_driver::{P256AffinePoint, P256Scalar, P256ScalarMul};
 use p256::elliptic_curve::ff::PrimeField;
-#[cfg(feature = "p256-lincomb")]
+#[cfg(not(feature = "driver-p256-lincomb"))]
 use p256::elliptic_curve::group::Curve;
 use p256::elliptic_curve::ops::MulByGenerator;
 use p256::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
@@ -37,7 +37,7 @@ impl P256ScalarMul for TestDriver {
 
 embassy_crypto_driver::p256_scalar_mul_impl!(TestDriver);
 
-#[cfg(feature = "p256-scalar-invert")]
+#[cfg(not(feature = "driver-p256-scalar-invert"))]
 impl embassy_crypto_driver::P256ScalarInvert for TestDriver {
     fn invert(k: &P256Scalar) -> P256Scalar {
         CALLS.with(|calls| calls.set(calls.get() + 1));
@@ -60,10 +60,10 @@ impl embassy_crypto_driver::P256ScalarInvert for TestDriver {
     }
 }
 
-#[cfg(feature = "p256-scalar-invert")]
+#[cfg(not(feature = "driver-p256-scalar-invert"))]
 embassy_crypto_driver::p256_scalar_invert_impl!(TestDriver);
 
-#[cfg(feature = "p256-lincomb")]
+#[cfg(not(feature = "driver-p256-lincomb"))]
 impl embassy_crypto_driver::P256Lincomb for TestDriver {
     fn lincomb(
         k1: &P256Scalar,
@@ -79,7 +79,7 @@ impl embassy_crypto_driver::P256Lincomb for TestDriver {
     }
 }
 
-#[cfg(feature = "p256-lincomb")]
+#[cfg(not(feature = "driver-p256-lincomb"))]
 embassy_crypto_driver::p256_lincomb_impl!(TestDriver);
 
 fn scalar(k: &P256Scalar) -> p256::Scalar {
@@ -124,11 +124,15 @@ fn wrappers_call_the_driver() {
     let _ = p * hw::Scalar::ZERO;
 
     // The linear combination is one driver call with the lincomb hook, two without.
-    let expected = if cfg!(feature = "p256-lincomb") { 4 } else { 5 };
+    let expected = if cfg!(not(feature = "driver-p256-lincomb")) {
+        4
+    } else {
+        5
+    };
     assert_eq!(CALLS.with(|calls| calls.get()) - before, expected);
 }
 
-#[cfg(feature = "p256-scalar-invert")]
+#[cfg(not(feature = "driver-p256-scalar-invert"))]
 #[test]
 fn inversion_calls_the_driver() {
     use embassy_crypto::p256 as hw;
@@ -152,7 +156,7 @@ fn inversion_calls_the_driver() {
     assert_eq!(CALLS.with(|calls| calls.get()) - before, 5);
 }
 
-#[cfg(feature = "p256-lincomb")]
+#[cfg(not(feature = "driver-p256-lincomb"))]
 #[test]
 fn lincomb_calls_the_driver() {
     use embassy_crypto::p256 as hw;

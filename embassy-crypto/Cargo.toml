@@ -94,12 +94,6 @@ ecdsa = ["ec", "dep:ecdsa"]
 p256 = ["ec", "dep:p256"]
 ## ECDSA signing/verification types for the `p256` module.
 p256-ecdsa = ["p256", "ecdsa", "p256/ecdsa"]
-## Route scalar inversion in the `p256` module through the `P256ScalarInvert` driver.
-## An implementation must be provided at link time.
-p256-scalar-invert = ["p256"]
-## Route two-term linear combinations (`k1 * P1 + k2 * P2`) in the `p256` module through
-## the `P256Lincomb` driver. An implementation must be provided at link time.
-p256-lincomb = ["p256"]
 
 driver-md5 = ["dep:md-5"]
 driver-sha1 = ["dep:sha1"]
@@ -119,3 +113,5 @@ driver-aes256ccm = ["dep:ccm", "dep:aes"]
 driver-aes128cmac = ["dep:cmac", "dep:aes"]
 driver-aes256cmac = ["dep:cmac", "dep:aes"]
 driver-p256-scalar-mul = ["dep:p256"]
+driver-p256-scalar-invert = ["dep:p256"]
+driver-p256-lincomb = ["dep:p256"]

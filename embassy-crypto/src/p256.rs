@@ -1,13 +1,4 @@
 //! NIST P-256 (secp256r1), accelerated.
-//!
-//! [`NistP256`] is [`ec::Accelerated`]`<p256::NistP256>`: the same curve and
-//! wire formats as the `p256` crate, with scalar multiplication going through
-//! the [`embassy_crypto_driver::P256ScalarMul`] driver, and optionally scalar
-//! inversion ([`embassy_crypto_driver::P256ScalarInvert`], feature
-//! `p256-scalar-invert`) and `k1 * P1 + k2 * P2`
-//! ([`embassy_crypto_driver::P256Lincomb`], feature `p256-lincomb`). With the
-//! `driver-p256-scalar-mul` feature (software fallback) everything runs in
-//! the `p256` crate.
 
 use elliptic_curve::FieldBytesEncoding;
 use elliptic_curve::bigint::U256;
@@ -90,8 +81,8 @@ impl Backend for p256::NistP256 {
     const AFFINE_GENERATOR: p256::AffinePoint = p256::AffinePoint::GENERATOR;
 
     const ACCELERATED_MUL: bool = cfg!(not(feature = "driver-p256-scalar-mul"));
-    const ACCELERATED_INVERT: bool = cfg!(feature = "p256-scalar-invert");
-    const ACCELERATED_LINCOMB: bool = cfg!(feature = "p256-lincomb");
+    const ACCELERATED_INVERT: bool = cfg!(not(feature = "driver-p256-scalar-invert"));
+    const ACCELERATED_LINCOMB: bool = cfg!(not(feature = "driver-p256-lincomb"));
 
     #[cfg(not(feature = "driver-p256-scalar-mul"))]
     fn mul_base(k: &FieldBytes) -> (FieldBytes, FieldBytes) {
@@ -110,21 +101,21 @@ impl Backend for p256::NistP256 {
         ))
     }
 
-    #[cfg(feature = "p256-scalar-invert")]
+    #[cfg(not(feature = "driver-p256-scalar-invert"))]
     fn invert(k: &FieldBytes) -> FieldBytes {
         use embassy_crypto_driver::P256ScalarInvertImpl;
 
         P256ScalarInvertImpl::invert(&scalar_to_driver(k)).0.into()
     }
 
-    #[cfg(feature = "p256-scalar-invert")]
+    #[cfg(not(feature = "driver-p256-scalar-invert"))]
     fn invert_vartime(k: &FieldBytes) -> FieldBytes {
         use embassy_crypto_driver::P256ScalarInvertImpl;
 
         P256ScalarInvertImpl::invert_vartime(&scalar_to_driver(k)).0.into()
     }
 
-    #[cfg(feature = "p256-lincomb")]
+    #[cfg(not(feature = "driver-p256-lincomb"))]
     fn lincomb(
         k1: &FieldBytes,
         x1: &FieldBytes,
@@ -145,7 +136,7 @@ impl Backend for p256::NistP256 {
     }
 }
 
-#[cfg(any(not(feature = "driver-p256-scalar-mul"), feature = "p256-lincomb"))]
+#[cfg(not(any(feature = "driver-p256-scalar-mul", feature = "driver-p256-lincomb")))]
 fn point_to_driver(x: &FieldBytes, y: &FieldBytes) -> embassy_crypto_driver::P256AffinePoint {
     embassy_crypto_driver::P256AffinePoint {
         x: (*x).into(),
@@ -153,16 +144,16 @@ fn point_to_driver(x: &FieldBytes, y: &FieldBytes) -> embassy_crypto_driver::P25
     }
 }
 
-#[cfg(any(not(feature = "driver-p256-scalar-mul"), feature = "p256-lincomb"))]
+#[cfg(not(any(feature = "driver-p256-scalar-mul", feature = "driver-p256-lincomb")))]
 fn point_from_driver(p: embassy_crypto_driver::P256AffinePoint) -> (FieldBytes, FieldBytes) {
     (p.x.into(), p.y.into())
 }
 
-#[cfg(any(
-    not(feature = "driver-p256-scalar-mul"),
-    feature = "p256-scalar-invert",
-    feature = "p256-lincomb"
-))]
+#[cfg(not(any(
+    feature = "driver-p256-scalar-mul",
+    feature = "driver-p256-scalar-invert",
+    feature = "driver-p256-lincomb",
+)))]
 fn scalar_to_driver(k: &FieldBytes) -> embassy_crypto_driver::P256Scalar {
     embassy_crypto_driver::P256Scalar((*k).into())
 }

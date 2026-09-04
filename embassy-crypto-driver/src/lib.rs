@@ -973,8 +973,6 @@ unitrait::unitrait! {
     ///
     /// Computes `k1 * p1 + k2 * p2` in one operation, which is what ECDSA
     /// verification needs; backends can use a combined ladder (Shamir's trick).
-    /// `embassy-crypto` routes to this trait only when its `p256-lincomb`
-    /// feature is enabled, and otherwise computes two multiplications and adds.
     ///
     /// ## Contract
     ///
