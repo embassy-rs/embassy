@@ -2,6 +2,7 @@
 
 use crypto_bigint::U256;
 use elliptic_curve::consts::U32;
+use elliptic_curve::pkcs8::{AssociatedOid, ObjectIdentifier};
 use elliptic_curve::{Curve, CurveArithmetic, FieldBytesEncoding, PrimeCurve, PrimeCurveArithmetic};
 
 use crate::p256::{AffinePoint, ProjectivePoint, Scalar};
@@ -22,6 +23,10 @@ impl Curve for NistP256 {
 }
 
 impl PrimeCurve for NistP256 {}
+
+impl AssociatedOid for NistP256 {
+    const OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7");
+}
 
 /// Big-endian `U256` <-> 32-byte field element encoding.
 ///

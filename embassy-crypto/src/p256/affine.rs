@@ -5,6 +5,7 @@ use core::ops::{Mul, Neg};
 
 use elliptic_curve::FieldBytes;
 use elliptic_curve::point::AffineCoordinates;
+use elliptic_curve::sec1::{Coordinates, EncodedPoint as Sec1EncodedPoint, FromEncodedPoint, ToEncodedPoint};
 use embassy_crypto_driver as drv;
 use group::prime::PrimeCurveAffine;
 use group::{Curve as _, GroupEncoding};
@@ -80,6 +81,15 @@ impl AffinePoint {
             drv::P256OpsImpl::point_from_canonical(&drv::P256AffinePoint { x: self.x, y: self.y })
         }
     }
+
+    fn from_canonical_coords(x: [u8; 32], y: [u8; 32]) -> CtOption<Self> {
+        // v2 contract: invalid input maps to the IDENTITY (defined fallback),
+        // and a valid affine input never decodes to the identity — so
+        // `projective_is_identity` is the complete validity check.
+        let p = drv::P256OpsImpl::point_from_canonical(&drv::P256AffinePoint { x, y });
+        let ok = Choice::from((!drv::P256OpsImpl::projective_is_identity(&p)) as u8);
+        CtOption::new(Self::from_parts(x, y, Choice::from(0)), ok)
+    }
 }
 
 impl Default for AffinePoint {
@@ -141,6 +151,41 @@ impl AffineCoordinates for AffinePoint {
     }
 }
 
+impl FromEncodedPoint<NistP256> for AffinePoint {
+    fn from_encoded_point(encoded_point: &Sec1EncodedPoint<NistP256>) -> CtOption<Self> {
+        match encoded_point.coordinates() {
+            Coordinates::Identity => CtOption::new(Self::identity(), Choice::from(1)),
+            Coordinates::Uncompressed { x, y } => {
+                let mut x_bytes = [0u8; 32];
+                x_bytes.copy_from_slice(x.as_ref());
+                let mut y_bytes = [0u8; 32];
+                y_bytes.copy_from_slice(y.as_ref());
+                Self::from_canonical_coords(x_bytes, y_bytes)
+            }
+            // The P256Ops driver exposes affine decode/encode but no base-field
+            // square-root operation, so x-only SEC1 forms cannot be recovered
+            // without adding a software field backend. Reject them explicitly.
+            Coordinates::Compact { .. } | Coordinates::Compressed { .. } => {
+                CtOption::new(Self::identity(), Choice::from(0))
+            }
+        }
+    }
+}
+
+impl ToEncodedPoint<NistP256> for AffinePoint {
+    fn to_encoded_point(&self, compress: bool) -> Sec1EncodedPoint<NistP256> {
+        if bool::from(self.infinity) {
+            return Sec1EncodedPoint::<NistP256>::identity();
+        }
+
+        let mut x = FieldBytes::<NistP256>::default();
+        x.copy_from_slice(&self.x);
+        let mut y = FieldBytes::<NistP256>::default();
+        y.copy_from_slice(&self.y);
+        Sec1EncodedPoint::<NistP256>::from_affine_coordinates(&x, &y, compress)
+    }
+}
+
 impl GroupEncoding for AffinePoint {
     type Repr = EncodingRepr;
 
@@ -170,19 +215,7 @@ impl GroupEncoding for AffinePoint {
         let x: [u8; 32] = b[1..33].try_into().expect("length checked");
         let y: [u8; 32] = b[33..65].try_into().expect("length checked");
 
-        // v2 contract: invalid input maps to the IDENTITY (defined fallback),
-        // and a valid affine input never decodes to the identity — so
-        // `projective_is_identity` is the complete validity check (no round-trip).
-        let p = drv::P256OpsImpl::point_from_canonical(&drv::P256AffinePoint { x, y });
-        let ok = Choice::from((!drv::P256OpsImpl::projective_is_identity(&p)) as u8);
-        CtOption::new(
-            Self {
-                x,
-                y,
-                infinity: Choice::from(0),
-            },
-            ok,
-        )
+        Self::from_canonical_coords(x, y)
     }
 
     fn from_bytes_unchecked(bytes: &Self::Repr) -> CtOption<Self> {

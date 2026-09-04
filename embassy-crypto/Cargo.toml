@@ -50,7 +50,7 @@ cmac = { version = "0.8", default-features = false, optional = true }
 p256 = { version = "0.13", default-features = false, features = ["arithmetic"], optional = true }
 # Dependencies of the `p256` module (RustCrypto trait bridge over the v2 P256Ops
 # unitrait; always compiled, no_std, like the other driver wrappers).
-elliptic-curve = { version = "0.13.8", default-features = false, features = ["arithmetic"] }
+elliptic-curve = { version = "0.13.8", default-features = false, features = ["arithmetic", "pkcs8"] }
 ff = { version = "0.13", default-features = false }
 group = { version = "0.13", default-features = false }
 subtle = { version = "2.6", default-features = false }
