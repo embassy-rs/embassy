@@ -940,3 +940,64 @@ unitrait::unitrait! {
 
     macro p256_scalar_mul_impl(path = $crate);
 }
+
+unitrait::unitrait! {
+    /// P-256 scalar field inversion accelerator (optional).
+    ///
+    /// ECDSA signing and verification each need one inversion modulo the curve
+    /// order. `embassy-crypto` routes to this trait only when its
+    /// `p256-scalar-invert` feature is enabled.
+    ///
+    /// ## Contract
+    ///
+    /// The caller guarantees `k` is in the range `[1, n-1]`, where `n` is the
+    /// curve order, so the inverse always exists. The result is canonical,
+    /// in the same range.
+    #[symbol_prefix = "_embassy_crypto_p256_scalar_invert"]
+    pub trait P256ScalarInvert {
+        /// `k^-1 mod n`. Must not have secret-dependent timing: `k` may be secret.
+        fn invert(k: &P256Scalar) -> P256Scalar;
+
+        /// `k^-1 mod n`, variable time. Callers only pass public values.
+        fn invert_vartime(k: &P256Scalar) -> P256Scalar;
+    }
+
+    /// The global [`P256ScalarInvert`] implementation.
+    pub struct P256ScalarInvertImpl;
+
+    macro p256_scalar_invert_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// P-256 double-base scalar multiplication accelerator (optional).
+    ///
+    /// Computes `k1 * p1 + k2 * p2` in one operation, which is what ECDSA
+    /// verification needs; backends can use a combined ladder (Shamir's trick).
+    /// `embassy-crypto` routes to this trait only when its `p256-lincomb`
+    /// feature is enabled, and otherwise computes two multiplications and adds.
+    ///
+    /// ## Contract
+    ///
+    /// The caller guarantees `k1` and `k2` are in `[1, n-1]` and `p1`, `p2` are
+    /// valid on-curve affine points. The sum can be the identity (when
+    /// `k1 * p1 == -(k2 * p2)`), which has no affine encoding; the
+    /// implementation returns `None` in that case.
+    ///
+    /// Must not have secret-dependent timing with respect to the scalars and
+    /// points. Whether the result is the identity is not treated as secret.
+    #[symbol_prefix = "_embassy_crypto_p256_lincomb"]
+    pub trait P256Lincomb {
+        /// `k1 * p1 + k2 * p2`, or `None` if the sum is the identity.
+        fn lincomb(
+            k1: &P256Scalar,
+            p1: &P256AffinePoint,
+            k2: &P256Scalar,
+            p2: &P256AffinePoint,
+        ) -> Option<P256AffinePoint>;
+    }
+
+    /// The global [`P256Lincomb`] implementation.
+    pub struct P256LincombImpl;
+
+    macro p256_lincomb_impl(path = $crate);
+}

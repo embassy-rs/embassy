@@ -1,25 +1,28 @@
-//! NIST P-256 (secp256r1) with hardware-accelerated scalar multiplication.
+//! NIST P-256 (secp256r1) over the RustCrypto traits, with the expensive
+//! operations routed to `embassy-crypto-driver` accelerators.
 //!
-//! This module provides the RustCrypto [`elliptic_curve`] trait stack
-//! ([`CurveArithmetic`], [`group::Group`], [`ff::Field`], ...) for P-256 in a way
-//! that lets a hardware backend take over the one operation that matters for
-//! performance: scalar multiplication.
+//! [`NistP256`] implements [`CurveArithmetic`], so the generic
+//! `elliptic-curve` and `ecdsa` machinery (`PublicKey`, `SecretKey`,
+//! `ecdh::diffie_hellman`, `ecdsa::SigningKey`, ...) works with it unchanged.
 //!
-//! The types here are thin newtype wrappers around the `p256` crate's types.
-//! Every trait the wrapped type implements is implemented on the wrapper by
-//! delegation, except for the handful of scalar-multiplication entry points,
-//! which are routed to the [`embassy_crypto_driver::P256ScalarMul`] unitrait
-//! instead (see [`hw`](self)). All other arithmetic (scalar field, point
-//! addition/doubling, encoding) runs in software via the `p256` crate.
+//! The types wrap the `p256` crate's types and delegate every trait to them,
+//! except for these entry points, which go to a driver:
 //!
-//! Because the wrappers implement [`CurveArithmetic`], the generic
-//! `elliptic-curve` / `ecdsa` machinery (`PublicKey`, `SecretKey`,
-//! `NonZeroScalar`, `ecdh::diffie_hellman`, `ecdsa::SigningKey`, ...) works
-//! with [`NistP256`] unchanged, and transparently benefits from the accelerated
-//! scalar multiplication.
+//! - Scalar multiplication: [`embassy_crypto_driver::P256ScalarMul`], always.
+//!   With the `driver-p256-scalar-mul` feature (software fallback) the
+//!   wrappers call `p256` directly instead.
+//! - Scalar inversion: [`embassy_crypto_driver::P256ScalarInvert`], with the
+//!   `p256-scalar-invert` feature.
+//! - `k1 * P1 + k2 * P2` (ECDSA verification): [`embassy_crypto_driver::P256Lincomb`],
+//!   with the `p256-lincomb` feature.
 //!
-//! [`ff::Field`]: elliptic_curve::ff::Field
-//! [`group::Group`]: elliptic_curve::group::Group
+//! The optional features require an implementation at link time. Everything
+//! else (scalar field, point addition and doubling, encoding, validation) runs
+//! in software via `p256`.
+//!
+//! Drivers exchange canonical big-endian bytes and affine points. A
+//! [`ProjectivePoint`] that came from affine input or from a driver keeps its
+//! affine form, so converting it back is free.
 
 mod affine;
 mod projective;
@@ -27,16 +30,31 @@ mod scalar;
 
 use elliptic_curve::bigint::U256;
 use elliptic_curve::consts::U32;
-#[cfg(not(feature = "driver-p256-scalar-mul"))]
+#[cfg(any(
+    not(feature = "driver-p256-scalar-mul"),
+    feature = "p256-scalar-invert",
+    feature = "p256-lincomb"
+))]
 use elliptic_curve::ff::Field as _;
 use elliptic_curve::point::{PointCompaction, PointCompression};
-#[cfg(not(feature = "driver-p256-scalar-mul"))]
+#[cfg(any(not(feature = "driver-p256-scalar-mul"), feature = "p256-lincomb"))]
 use elliptic_curve::sec1::{FromEncodedPoint as _, ToEncodedPoint as _};
-#[cfg(not(feature = "driver-p256-scalar-mul"))]
+#[cfg(any(
+    not(feature = "driver-p256-scalar-mul"),
+    feature = "p256-scalar-invert",
+    feature = "p256-lincomb"
+))]
 use elliptic_curve::subtle::ConditionallySelectable;
+use elliptic_curve::subtle::CtOption;
 use elliptic_curve::{Curve, CurveArithmetic, FieldBytesEncoding, PrimeCurve, PrimeCurveArithmetic};
-#[cfg(not(feature = "driver-p256-scalar-mul"))]
-use embassy_crypto_driver::{P256AffinePoint, P256Scalar};
+#[cfg(any(not(feature = "driver-p256-scalar-mul"), feature = "p256-lincomb"))]
+use embassy_crypto_driver::P256AffinePoint;
+#[cfg(any(
+    not(feature = "driver-p256-scalar-mul"),
+    feature = "p256-scalar-invert",
+    feature = "p256-lincomb"
+))]
+use embassy_crypto_driver::P256Scalar;
 use p256::elliptic_curve;
 
 pub use affine::AffinePoint;
@@ -134,18 +152,23 @@ pub mod ecdsa {
 }
 
 // ===========================================================================
-// Scalar multiplication
+// Driver-backed operations
 //
 // These are the only functions in this module that do anything but delegate.
 //
-// With the `driver-p256-scalar-mul` feature (software fallback, no hardware),
-// they call the `p256` crate directly, so the software path costs exactly what
-// plain `p256` costs: no canonical-encoding round trip and no extra inversion.
+// Scalar multiplication always goes through the `P256ScalarMul` driver,
+// except with the `driver-p256-scalar-mul` feature (software fallback, no
+// hardware), where it calls the `p256` crate directly so the software path
+// costs exactly what plain `p256` costs: no canonical-encoding round trip
+// and no extra inversion.
 //
-// Otherwise they go through the `P256ScalarMul` driver. The driver contract
-// excludes the two degenerate cases (zero scalar, identity point) since neither
-// has a canonical encoding, so they are handled here, without branching on the
-// operands.
+// Scalar inversion and two-term linear combinations go through the
+// `P256ScalarInvert` and `P256Lincomb` drivers only when the corresponding
+// `p256-scalar-invert` / `p256-lincomb` feature is enabled.
+//
+// The driver contracts exclude the degenerate operands (zero scalar, identity
+// point) since neither has a canonical encoding, so they are handled here,
+// without branching on the operands.
 // ===========================================================================
 
 /// `k * G`, in software.
@@ -153,19 +176,19 @@ pub mod ecdsa {
 fn mul_base(k: &Scalar) -> ProjectivePoint {
     use elliptic_curve::ops::MulByGenerator;
 
-    ProjectivePoint(p256::ProjectivePoint::mul_by_generator(&k.0))
+    ProjectivePoint::from_projective(p256::ProjectivePoint::mul_by_generator(&k.0))
 }
 
 /// `k * P`, in software.
 #[cfg(feature = "driver-p256-scalar-mul")]
 fn mul(k: &Scalar, p: &AffinePoint) -> ProjectivePoint {
-    ProjectivePoint(p.0 * k.0)
+    ProjectivePoint::from_projective(p.0 * k.0)
 }
 
 /// `k * P` for a projective `P`, in software.
 #[cfg(feature = "driver-p256-scalar-mul")]
 fn mul_projective(k: &Scalar, p: &ProjectivePoint) -> ProjectivePoint {
-    ProjectivePoint(p.0 * k.0)
+    ProjectivePoint::from_projective(p256::ProjectivePoint::from(*p) * k.0)
 }
 
 /// `k * G` via the driver.
@@ -181,11 +204,7 @@ fn mul_base(k: &Scalar) -> ProjectivePoint {
         &to_canonical_scalar(&k),
     ));
 
-    ProjectivePoint(p256::ProjectivePoint::conditional_select(
-        &result,
-        &p256::ProjectivePoint::IDENTITY,
-        k_is_zero,
-    ))
+    ProjectivePoint::conditional_select(&result, &ProjectivePoint::IDENTITY, k_is_zero)
 }
 
 /// `k * P` via the driver.
@@ -206,26 +225,138 @@ fn mul(k: &Scalar, p: &AffinePoint) -> ProjectivePoint {
         &to_canonical_point(&p),
     ));
 
-    ProjectivePoint(p256::ProjectivePoint::conditional_select(
-        &result,
-        &p256::ProjectivePoint::IDENTITY,
-        degenerate,
-    ))
+    ProjectivePoint::conditional_select(&result, &ProjectivePoint::IDENTITY, degenerate)
 }
 
 /// `k * P` via the driver, for a projective `P`.
+///
+/// Free of an inversion when `P` came from affine input or from the driver.
 #[cfg(not(feature = "driver-p256-scalar-mul"))]
 fn mul_projective(k: &Scalar, p: &ProjectivePoint) -> ProjectivePoint {
-    mul(k, &AffinePoint(p.0.to_affine()))
+    mul(k, &AffinePoint(p.affine()))
 }
 
-#[cfg(not(feature = "driver-p256-scalar-mul"))]
+/// `k^-1`, in software.
+#[cfg(not(feature = "p256-scalar-invert"))]
+fn invert(k: &Scalar) -> CtOption<Scalar> {
+    <p256::Scalar as elliptic_curve::ff::Field>::invert(&k.0).map(Scalar)
+}
+
+/// `k^-1`, variable time, in software.
+#[cfg(not(feature = "p256-scalar-invert"))]
+fn invert_vartime(k: &Scalar) -> CtOption<Scalar> {
+    <p256::Scalar as elliptic_curve::ops::Invert>::invert_vartime(&k.0).map(Scalar)
+}
+
+/// `k^-1` via the driver.
+#[cfg(feature = "p256-scalar-invert")]
+fn invert(k: &Scalar) -> CtOption<Scalar> {
+    let k_is_zero = k.0.is_zero();
+
+    // Feed the driver a scalar that is always invertible; the result is
+    // reported as absent if `k` was zero.
+    let k = p256::Scalar::conditional_select(&k.0, &p256::Scalar::ONE, k_is_zero);
+
+    let result = from_canonical_scalar(&embassy_crypto_driver::P256ScalarInvertImpl::invert(
+        &to_canonical_scalar(&k),
+    ));
+
+    CtOption::new(Scalar(result), !k_is_zero)
+}
+
+/// `k^-1` via the driver, variable time.
+#[cfg(feature = "p256-scalar-invert")]
+fn invert_vartime(k: &Scalar) -> CtOption<Scalar> {
+    let k_is_zero = k.0.is_zero();
+    let k = p256::Scalar::conditional_select(&k.0, &p256::Scalar::ONE, k_is_zero);
+
+    let result = from_canonical_scalar(&embassy_crypto_driver::P256ScalarInvertImpl::invert_vartime(
+        &to_canonical_scalar(&k),
+    ));
+
+    CtOption::new(Scalar(result), !k_is_zero)
+}
+
+/// `k1 * p1 + k2 * p2`: two driver multiplications and a software addition.
+#[cfg(all(not(feature = "p256-lincomb"), not(feature = "driver-p256-scalar-mul")))]
+fn lincomb(p1: &ProjectivePoint, k1: &Scalar, p2: &ProjectivePoint, k2: &Scalar) -> ProjectivePoint {
+    (*p1 * k1) + (*p2 * k2)
+}
+
+/// `k1 * p1 + k2 * p2`, in software.
+#[cfg(all(not(feature = "p256-lincomb"), feature = "driver-p256-scalar-mul"))]
+fn lincomb(p1: &ProjectivePoint, k1: &Scalar, p2: &ProjectivePoint, k2: &Scalar) -> ProjectivePoint {
+    use elliptic_curve::ops::LinearCombination;
+
+    ProjectivePoint::from_projective(p256::ProjectivePoint::lincomb(
+        &p256::ProjectivePoint::from(*p1),
+        &k1.0,
+        &p256::ProjectivePoint::from(*p2),
+        &k2.0,
+    ))
+}
+
+/// `k1 * p1 + k2 * p2` via the driver.
+#[cfg(feature = "p256-lincomb")]
+fn lincomb(p1: &ProjectivePoint, k1: &Scalar, p2: &ProjectivePoint, k2: &Scalar) -> ProjectivePoint {
+    let p1 = p1.affine();
+    let p2 = p2.affine();
+
+    let degenerate1 = k1.0.is_zero() | p1.is_identity();
+    let degenerate2 = k2.0.is_zero() | p2.is_identity();
+    let degenerate = degenerate1 | degenerate2;
+
+    // A degenerate term contributes nothing. Feed the driver `1 * P'` in its
+    // place, where `P'` is the point itself or `G` if that was the identity,
+    // then subtract `P'` again from the sum. The subtraction is always
+    // computed and only selected when needed, so nothing depends on the
+    // operands.
+    let k1 = p256::Scalar::conditional_select(&k1.0, &p256::Scalar::ONE, degenerate1);
+    let k2 = p256::Scalar::conditional_select(&k2.0, &p256::Scalar::ONE, degenerate2);
+    let p1 = p256::AffinePoint::conditional_select(&p1, &p256::AffinePoint::GENERATOR, p1.is_identity());
+    let p2 = p256::AffinePoint::conditional_select(&p2, &p256::AffinePoint::GENERATOR, p2.is_identity());
+
+    let sum = embassy_crypto_driver::P256LincombImpl::lincomb(
+        &to_canonical_scalar(&k1),
+        &to_canonical_point(&p1),
+        &to_canonical_scalar(&k2),
+        &to_canonical_point(&p2),
+    );
+
+    // Whether the sum is the identity is not secret (see the driver contract).
+    let sum = match sum {
+        Some(sum) => from_canonical_point(&sum),
+        None => ProjectivePoint::IDENTITY,
+    };
+
+    let extra1 = p256::AffinePoint::conditional_select(&p256::AffinePoint::IDENTITY, &p1, degenerate1);
+    let extra2 = p256::AffinePoint::conditional_select(&p256::AffinePoint::IDENTITY, &p2, degenerate2);
+    let fixed = sum - AffinePoint(extra1) - AffinePoint(extra2);
+
+    ProjectivePoint::conditional_select(&sum, &fixed, degenerate)
+}
+
+#[cfg(any(
+    not(feature = "driver-p256-scalar-mul"),
+    feature = "p256-scalar-invert",
+    feature = "p256-lincomb"
+))]
 fn to_canonical_scalar(k: &p256::Scalar) -> P256Scalar {
     P256Scalar(k.to_bytes().into())
 }
 
+/// Decode a scalar returned by the driver.
+///
+/// The driver contract guarantees it is in range, so a failure here is a
+/// broken driver.
+#[cfg(feature = "p256-scalar-invert")]
+fn from_canonical_scalar(k: &P256Scalar) -> p256::Scalar {
+    <p256::Scalar as elliptic_curve::ff::PrimeField>::from_repr(k.0.into())
+        .expect("P256ScalarInvert driver returned an out-of-range scalar")
+}
+
 /// `p` must not be the identity.
-#[cfg(not(feature = "driver-p256-scalar-mul"))]
+#[cfg(any(not(feature = "driver-p256-scalar-mul"), feature = "p256-lincomb"))]
 fn to_canonical_point(p: &p256::AffinePoint) -> P256AffinePoint {
     let encoded = p.to_encoded_point(false);
 
@@ -240,18 +371,17 @@ fn to_canonical_point(p: &p256::AffinePoint) -> P256AffinePoint {
     }
 }
 
-/// Decode a point returned by the driver.
+/// Decode a point returned by the driver; the result remembers its affine form.
 ///
 /// The decode validates that the point is on the curve; the driver contract
 /// guarantees it, so a failure here is a broken driver.
-#[cfg(not(feature = "driver-p256-scalar-mul"))]
-fn from_canonical_point(p: &P256AffinePoint) -> p256::ProjectivePoint {
+#[cfg(any(not(feature = "driver-p256-scalar-mul"), feature = "p256-lincomb"))]
+fn from_canonical_point(p: &P256AffinePoint) -> ProjectivePoint {
     let encoded = p256::EncodedPoint::from_affine_coordinates(&p.x.into(), &p.y.into(), false);
 
-    let affine =
-        p256::AffinePoint::from_encoded_point(&encoded).expect("P256ScalarMul driver returned an invalid point");
+    let affine = p256::AffinePoint::from_encoded_point(&encoded).expect("driver returned an invalid point");
 
-    p256::ProjectivePoint::from(affine)
+    ProjectivePoint::from_affine(affine)
 }
 
 // Prove at compile time that the wrappers satisfy every bound the generic

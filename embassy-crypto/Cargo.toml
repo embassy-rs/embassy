@@ -88,6 +88,12 @@ driver-rustcrypto = [
 p256 = ["dep:p256"]
 ## ECDSA signing/verification types for the `p256` module.
 p256-ecdsa = ["p256", "p256/ecdsa", "dep:ecdsa"]
+## Route scalar inversion in the `p256` module through the `P256ScalarInvert` driver.
+## An implementation must be provided at link time.
+p256-scalar-invert = ["p256"]
+## Route two-term linear combinations (`k1 * P1 + k2 * P2`) in the `p256` module through
+## the `P256Lincomb` driver. An implementation must be provided at link time.
+p256-lincomb = ["p256"]
 
 driver-md5 = ["dep:md-5"]
 driver-sha1 = ["dep:sha1"]

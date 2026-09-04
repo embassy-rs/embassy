@@ -107,13 +107,13 @@ impl ToCompactEncodedPoint<NistP256> for AffinePoint {
 
 impl From<ProjectivePoint> for AffinePoint {
     fn from(point: ProjectivePoint) -> Self {
-        Self(p256::AffinePoint::from(point.0))
+        Self(point.affine())
     }
 }
 
 impl From<&ProjectivePoint> for AffinePoint {
     fn from(point: &ProjectivePoint) -> Self {
-        Self(p256::AffinePoint::from(&point.0))
+        Self(point.affine())
     }
 }
 
@@ -168,7 +168,7 @@ impl PrimeCurveAffine for AffinePoint {
     }
 
     fn to_curve(&self) -> ProjectivePoint {
-        ProjectivePoint(PrimeCurveAffine::to_curve(&self.0))
+        ProjectivePoint::from_affine(self.0)
     }
 }
 

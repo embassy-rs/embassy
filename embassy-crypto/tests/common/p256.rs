@@ -139,6 +139,60 @@ fn point_arithmetic_and_encoding() {
 }
 
 #[test]
+fn point_size_stays_close_to_p256() {
+    // Holding either of `p256`'s point types costs a tag, not a second copy.
+    let ours = core::mem::size_of::<hw::ProjectivePoint>();
+    let theirs = core::mem::size_of::<p256::ProjectivePoint>();
+    assert!(ours <= theirs + 16, "{ours} > {theirs} + 16");
+}
+
+#[test]
+fn affine_form_matches_p256() {
+    use p256::elliptic_curve::subtle::{Choice, ConditionallySelectable};
+
+    let k = hw::Scalar::random(&mut OsRng);
+    let sk = sw_scalar(&k);
+
+    // Points whose affine form is cached (driver results, affine input,
+    // constants) and points whose form must be computed (sums, doubles,
+    // software products) all agree with `p256`.
+    let p = hw::ProjectivePoint::GENERATOR * k;
+    let sp = p256::ProjectivePoint::GENERATOR * sk;
+    let cases: [(hw::ProjectivePoint, p256::ProjectivePoint); 8] = [
+        (p, sp),
+        (-p, -sp),
+        (hw::ProjectivePoint::from(p.to_affine()), sp),
+        (p + p, sp + sp),
+        (p.double(), sp.double()),
+        (
+            p - hw::ProjectivePoint::GENERATOR,
+            sp - p256::ProjectivePoint::GENERATOR,
+        ),
+        (
+            hw::ProjectivePoint::conditional_select(&p, &(p + p), Choice::from(1)),
+            sp + sp,
+        ),
+        (
+            hw::ProjectivePoint::conditional_select(&(p + p), &p, Choice::from(1)),
+            sp,
+        ),
+    ];
+
+    for (hw_point, sw_point) in cases {
+        assert_eq!(hw_point_bytes(&hw_point), sw_point_bytes(&sw_point));
+        assert_eq!(hw_point.to_bytes(), sw_point.to_bytes());
+        assert_eq!(
+            hw::AffinePoint::from(hw_point).to_encoded_point(false),
+            sw_point.to_encoded_point(false)
+        );
+    }
+
+    assert!(bool::from(hw::ProjectivePoint::IDENTITY.to_affine().is_identity()));
+    assert!(bool::from((-hw::ProjectivePoint::IDENTITY).to_affine().is_identity()));
+    assert_eq!(hw::ProjectivePoint::GENERATOR.to_affine(), hw::AffinePoint::GENERATOR);
+}
+
+#[test]
 fn scalar_field_matches_p256() {
     let a = hw::Scalar::random(&mut OsRng);
     let b = hw::Scalar::random(&mut OsRng);

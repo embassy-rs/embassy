@@ -84,7 +84,7 @@ impl Field for Scalar {
     }
 
     fn invert(&self) -> CtOption<Self> {
-        Field::invert(&self.0).map(Self)
+        super::invert(self)
     }
 
     fn sqrt_ratio(num: &Self, div: &Self) -> (Choice, Self) {
@@ -166,11 +166,11 @@ impl Invert for Scalar {
     type Output = CtOption<Self>;
 
     fn invert(&self) -> CtOption<Self> {
-        Invert::invert(&self.0).map(Self)
+        super::invert(self)
     }
 
     fn invert_vartime(&self) -> CtOption<Self> {
-        Invert::invert_vartime(&self.0).map(Self)
+        super::invert_vartime(self)
     }
 }
 
