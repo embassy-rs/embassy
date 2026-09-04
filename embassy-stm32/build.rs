@@ -264,6 +264,8 @@ fn main() {
         "peri_ucpd2",
         "peri_usb_otg_fs",
         "peri_usb_otg_hs",
+        "peri_usb1_otg_hs",
+        "peri_usb2_otg_hs",
         "peri_octospi2",
         "peri_xspi2",
     ]);
