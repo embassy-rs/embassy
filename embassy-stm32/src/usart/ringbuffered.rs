@@ -7,8 +7,11 @@ use embassy_embedded_hal::SetConfig;
 use embedded_io_async::ReadReady;
 use futures_util::future::{Either, select};
 
+#[cfg(not(any(usart_v3, usart_v4)))]
+use super::rdr;
 use super::{
-    Config, ConfigError, Error, Info, State, UartRx, clear_interrupt_flags, flush, rdr, reconfigure, set_baudrate, sr,
+    Config, ConfigError, Error, Info, State, UartRx, UsartWord, clear_interrupt_flags, flush, reconfigure,
+    set_baudrate, sr,
 };
 use crate::dma::ReadableRingBuffer;
 use crate::gpio::Flex;
@@ -21,44 +24,44 @@ use crate::usart::Regs;
 ///
 /// Created with [UartRx::into_ring_buffered]
 ///
-/// ### Notes on 'waiting for bytes'
+/// ### Notes on 'waiting for words'
 ///
-/// The `read(buf)` (but not `read()`) and `read_exact(buf)` functions
-/// may need to wait for bytes to arrive, if the ring buffer does not
-/// contain enough bytes to fill the buffer passed by the caller of
-/// the function, or is empty.
+/// The `read(buf)` (but not `read()`) function may need to wait for
+/// words to arrive, if the ring buffer does not contain enough words
+/// to fill the buffer passed by the caller of the function, or is
+/// empty.
 ///
-/// Waiting for bytes operates in one of three modes, depending on
+/// Waiting for words operates in one of three modes, depending on
 /// the behavior of the sender, the size of the buffer passed
 /// to the function, and the configuration:
 ///
 /// - If the sender sends intermittently, the 'idle line'
-/// condition will be detected when the sender stops, and any
-/// bytes in the ring buffer will be returned. If there are no
-/// bytes in the buffer, the check will be repeated each time the
-/// 'idle line' condition is detected, so if the sender sends just
-/// a single byte, it will be returned once the 'idle line'
-/// condition is detected.
+///   condition will be detected when the sender stops, and any
+///   words in the ring buffer will be returned. If there are no
+///   words in the buffer, the check will be repeated each time the
+///   'idle line' condition is detected, so if the sender sends just
+///   a single word, it will be returned once the 'idle line'
+///   condition is detected.
 ///
 /// - If the sender sends continuously, the call will wait until
-/// the DMA controller indicates that it has written to either the
-/// middle byte or last byte of the ring buffer ('half transfer'
-/// or 'transfer complete', respectively). This does not indicate
-/// the buffer is half-full or full, though, because the DMA
-/// controller does not detect those conditions; it sends an
-/// interrupt when those specific buffer addresses have been
-/// written.
+///   the DMA controller indicates that it has written to either the
+///   middle word or last word of the ring buffer ('half transfer'
+///   or 'transfer complete', respectively). This does not indicate
+///   the buffer is half-full or full, though, because the DMA
+///   controller does not detect those conditions; it sends an
+///   interrupt when those specific buffer addresses have been
+///   written.
 ///
 /// - If `eager_reads` is enabled in `config`, the UART interrupt
-/// is enabled on all data reception and the call will only wait
-/// for at least one byte to be available before returning.
+///   is enabled on all data reception and the call will only wait
+///   for at least one word to be available before returning.
 ///
 /// In the first two cases this will result in variable latency due to the
 /// buffering effect. For example, if the baudrate is 2400 bps, and
-/// the configuration is 8 data bits, no parity bit, and one stop bit,
-/// then a byte will be received every ~4.16ms. If the ring buffer is
-/// 32 bytes, then a 'wait for bytes' delay may have to wait for 16
-/// bytes in the worst case, resulting in a delay (latency) of
+/// the configuration is 8 data bits (so each word is one byte), no parity
+/// bit, and one stop bit, then a byte will be received every ~4.16ms. If
+/// the ring buffer is 32 bytes, then a 'wait for bytes' delay may have to
+/// wait for 16 bytes in the worst case, resulting in a delay (latency) of
 /// ~62.46ms for the first byte in the ring buffer. If the sender
 /// sends only 6 bytes and then stops, but the buffer was empty when
 /// the read function was called, then those bytes may not be returned
@@ -76,19 +79,19 @@ use crate::usart::Regs;
 ///
 /// Note: Enabling `eager_reads` with `RingBufferedUartRx` will enable
 /// an UART RXNE interrupt, which will cause an interrupt to occur on
-/// every received data byte. The data is still copied using DMA, but
-/// there is nevertheless additional processing overhead for each byte.
-pub struct RingBufferedUartRx<'d> {
+/// every received word. The data is still copied using DMA, but
+/// there is nevertheless additional processing overhead for each word.
+pub struct RingBufferedUartRx<'d, W: UsartWord = u8> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
     _wake_guard: WakeGuard,
     _rx: Option<Flex<'d>>,
     _rts: Option<Flex<'d>>,
-    ring_buf: ReadableRingBuffer<'d, u8>,
+    ring_buf: ReadableRingBuffer<'d, W>,
 }
 
-impl<'d> SetConfig for RingBufferedUartRx<'d> {
+impl<'d, W: UsartWord> SetConfig for RingBufferedUartRx<'d, W> {
     type Config = Config;
     type ConfigError = ConfigError;
 
@@ -98,10 +101,15 @@ impl<'d> SetConfig for RingBufferedUartRx<'d> {
 }
 
 impl<'d> UartRx<'d, Async> {
-    /// Turn the `UartRx` into a buffered uart which can continously receive in the background
-    /// without the possibility of losing bytes. The `dma_buf` is a buffer registered to the
+    /// Turn the `UartRx` into a buffered uart which can continuously receive in the background
+    /// without the possibility of losing words. The `dma_buf` is a buffer registered to the
     /// DMA controller, and must be large enough to prevent overflows.
-    pub fn into_ring_buffered(mut self, dma_buf: &'d mut [u8]) -> RingBufferedUartRx<'d> {
+    ///
+    /// The word type is taken from `dma_buf`: pass a `[u8]` buffer for 7 or 8 data bits, or a
+    /// `[u16]` buffer for 9 data bits. A `[u16]` buffer requires
+    /// [`DataBits::DataBits9`](crate::usart::DataBits::DataBits9) to be useful;
+    /// with a narrower word size the high-order bits of each received word are zero.
+    pub fn into_ring_buffered<W: UsartWord>(mut self, dma_buf: &'d mut [W]) -> RingBufferedUartRx<'d, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
         let opts = Default::default();
@@ -114,7 +122,7 @@ impl<'d> UartRx<'d, Async> {
         let info = self.info;
         let state = self.state;
         let kernel_clock = self.kernel_clock;
-        let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, rdr(info.regs), dma_buf, opts) };
+        let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, W::rdr_ptr(info.regs), dma_buf, opts) };
         let rx = unsafe { self.rx.as_ref().map(|x| x.clone_unchecked()) };
         let rts = unsafe { self.rts.as_ref().map(|x| x.clone_unchecked()) };
 
@@ -135,7 +143,7 @@ impl<'d> UartRx<'d, Async> {
     }
 }
 
-impl<'d> RingBufferedUartRx<'d> {
+impl<'d, W: UsartWord> RingBufferedUartRx<'d, W> {
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         self.state
@@ -215,8 +223,9 @@ impl<'d> RingBufferedUartRx<'d> {
         Ok(())
     }
 
-    /// Read bytes that are available in the ring buffer, or wait for
-    /// bytes to become available and return them.
+    /// Read words that are available in the ring buffer, or wait for
+    /// words to become available and return them. Returns the number of
+    /// words read into `buf`.
     ///
     /// Background reception is started if necessary (if `start_uart()` had
     /// not previously been called, or if an error was detected which
@@ -225,7 +234,7 @@ impl<'d> RingBufferedUartRx<'d> {
     /// Background reception is terminated when an error is returned.
     /// It must be started again by calling `start_uart()` or by
     /// calling a read function again.
-    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    pub async fn read(&mut self, buf: &mut [W]) -> Result<usize, Error> {
         self.start_dma_or_check_errors()?;
 
         // In half-duplex mode, we need to disable the Transmitter and enable the Receiver
@@ -299,7 +308,7 @@ impl<'d> RingBufferedUartRx<'d> {
 
             let mut dma_init = false;
             // Future which completes when the DMA controller indicates it
-            // has written to the ring buffer's middle byte, or last byte
+            // has written to the ring buffer's middle word, or last word
             let dma = poll_fn(|cx| {
                 self.ring_buf.set_waker(cx.waker());
 
@@ -342,7 +351,7 @@ impl<'d> RingBufferedUartRx<'d> {
     }
 }
 
-impl Drop for RingBufferedUartRx<'_> {
+impl<W: UsartWord> Drop for RingBufferedUartRx<'_, W> {
     fn drop(&mut self) {
         self.stop_uart();
         super::drop_tx_rx(self.info, self.state);
@@ -356,7 +365,9 @@ impl Drop for RingBufferedUartRx<'_> {
 /// flag(s) will gone missing unnoticed. The error flags are checked first, the idle flag last.
 ///
 /// For usart_v1 and usart_v2, all status flags must be handled together anyway because all flags
-/// are cleared by a single read to the RDR register.
+/// are cleared by a single read to the RDR register. That read's value is discarded here, so the
+/// byte-wide access this uses to clear the flags is sufficient even when the peripheral is
+/// configured for 9 bit words.
 fn check_idle_and_errors(r: Regs) -> Result<(bool, bool), Error> {
     // SAFETY: read only and we only use Rx related flags
     let sr = sr(r).read();
@@ -382,17 +393,17 @@ fn check_idle_and_errors(r: Regs) -> Result<(bool, bool), Error> {
     }
 }
 
-impl embedded_io_async::ErrorType for RingBufferedUartRx<'_> {
+impl<W: UsartWord> embedded_io_async::ErrorType for RingBufferedUartRx<'_, W> {
     type Error = Error;
 }
 
-impl embedded_io_async::Read for RingBufferedUartRx<'_> {
+impl embedded_io_async::Read for RingBufferedUartRx<'_, u8> {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.read(buf).await
     }
 }
 
-impl embedded_hal_nb::serial::Read for RingBufferedUartRx<'_> {
+impl embedded_hal_nb::serial::Read for RingBufferedUartRx<'_, u8> {
     fn read(&mut self) -> nb::Result<u8, Self::Error> {
         self.start_dma_or_check_errors()?;
 
@@ -411,11 +422,11 @@ impl embedded_hal_nb::serial::Read for RingBufferedUartRx<'_> {
     }
 }
 
-impl embedded_hal_nb::serial::ErrorType for RingBufferedUartRx<'_> {
+impl<W: UsartWord> embedded_hal_nb::serial::ErrorType for RingBufferedUartRx<'_, W> {
     type Error = Error;
 }
 
-impl ReadReady for RingBufferedUartRx<'_> {
+impl<W: UsartWord> ReadReady for RingBufferedUartRx<'_, W> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
         let len = self.ring_buf.len().map_err(|e| match e {
             crate::dma::ringbuffer::Error::Overrun => Self::Error::Overrun,
