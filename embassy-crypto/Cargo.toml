@@ -48,6 +48,16 @@ ctr = { version = "0.10", default-features = false, optional = true }
 cbc = { version = "0.2", default-features = false, optional = true }
 cmac = { version = "0.8", default-features = false, optional = true }
 
+# P-256: software arithmetic wrapped by the `p256` module (scalar
+# multiplication is delegated to the `P256ScalarMul` driver), and the
+# software fallback driver for that unitrait.
+p256 = { version = "0.13", default-features = false, features = ["arithmetic"], optional = true }
+ecdsa = { version = "0.16", default-features = false, features = ["signing", "verifying", "digest", "hazmat"], optional = true }
+
+[dev-dependencies]
+p256 = { version = "0.13", default-features = false, features = ["arithmetic", "ecdsa", "ecdh"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+
 [features]
 defmt = ["embassy-crypto-driver/defmt"]
 
@@ -70,7 +80,14 @@ driver-rustcrypto = [
     "driver-aes256ccm",
     "driver-aes128cmac",
     "driver-aes256cmac",
+    "driver-p256-scalar-mul",
 ]
+
+## RustCrypto `elliptic-curve` trait implementations for P-256 (the `p256` module),
+## with scalar multiplication delegated to the `P256ScalarMul` driver.
+p256 = ["dep:p256"]
+## ECDSA signing/verification types for the `p256` module.
+p256-ecdsa = ["p256", "p256/ecdsa", "dep:ecdsa"]
 
 driver-md5 = ["dep:md-5"]
 driver-sha1 = ["dep:sha1"]
@@ -89,3 +106,4 @@ driver-aes128ccm = ["dep:ccm", "dep:aes"]
 driver-aes256ccm = ["dep:ccm", "dep:aes"]
 driver-aes128cmac = ["dep:cmac", "dep:aes"]
 driver-aes256cmac = ["dep:cmac", "dep:aes"]
+driver-p256-scalar-mul = ["dep:p256"]

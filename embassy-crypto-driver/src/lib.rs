@@ -880,3 +880,63 @@ unitrait::unitrait! {
 
     macro aes256cmac_impl(path = $crate);
 }
+
+// ===================================================================
+// P-256 scalar multiplication
+// ===================================================================
+
+/// Canonical P-256 scalar: big-endian, 32 bytes.
+///
+/// This is the portable representation that crosses the backend boundary.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct P256Scalar(pub [u8; 32]);
+
+/// Canonical P-256 affine point: big-endian (x, y), uncompressed.
+///
+/// This is the portable representation that crosses the backend boundary.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct P256AffinePoint {
+    /// X coordinate, big-endian, 32 bytes.
+    pub x: [u8; 32],
+    /// Y coordinate, big-endian, 32 bytes.
+    pub y: [u8; 32],
+}
+
+unitrait::unitrait! {
+    /// P-256 scalar multiplication accelerator.
+    ///
+    /// Scalar multiplication dominates the cost of every P-256 protocol
+    /// operation (ECDH, ECDSA sign/verify, key generation) by orders of
+    /// magnitude, so this is the one hook a backend needs to provide for
+    /// hardware acceleration. Everything else (scalar field arithmetic,
+    /// point addition, encoding) stays in software, in `embassy-crypto`.
+    ///
+    /// Input and output are canonical big-endian byte arrays; conversion to
+    /// and from whatever the backend uses internally happens inside the
+    /// implementation.
+    ///
+    /// ## Contract
+    ///
+    /// The caller guarantees:
+    ///
+    /// - `k` is in the range `[1, n-1]`, where `n` is the curve order.
+    /// - `p` is a valid, on-curve affine point (and therefore not the identity,
+    ///   which has no affine encoding).
+    ///
+    /// Given the above, the result is never the identity, since P-256 has
+    /// prime order. The implementation must not be given secret-dependent
+    /// timing: `k` (and, for `mul_affine`, `p`) may be secret.
+    #[symbol_prefix = "_embassy_crypto_p256_scalar_mul"]
+    pub trait P256ScalarMul {
+        /// Fixed-base scalar multiplication: `k * G`.
+        fn mul_base(k: &P256Scalar) -> P256AffinePoint;
+
+        /// Variable-base scalar multiplication: `k * P`.
+        fn mul_affine(k: &P256Scalar, p: &P256AffinePoint) -> P256AffinePoint;
+    }
+
+    /// The global [`P256ScalarMul`] implementation.
+    pub struct P256ScalarMulImpl;
+
+    macro p256_scalar_mul_impl(path = $crate);
+}
