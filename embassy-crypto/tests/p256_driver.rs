@@ -19,6 +19,13 @@ mod suite;
 // the suite tests in parallel.
 thread_local! {
     static CALLS: Cell<usize> = const { Cell::new(0) };
+    static ZERO_SCALARS: Cell<usize> = const { Cell::new(0) };
+}
+
+fn saw_zero(k: &P256Scalar) {
+    if k.0 == [0u8; 32] {
+        ZERO_SCALARS.with(|zeros| zeros.set(zeros.get() + 1));
+    }
 }
 
 struct TestDriver;
@@ -26,12 +33,14 @@ struct TestDriver;
 impl P256ScalarMul for TestDriver {
     fn mul_base(k: &P256Scalar) -> P256AffinePoint {
         CALLS.with(|calls| calls.set(calls.get() + 1));
-        to_canonical(&p256::ProjectivePoint::mul_by_generator(&scalar(k)).to_affine())
+        saw_zero(k);
+        to_canonical_or_identity(&p256::ProjectivePoint::mul_by_generator(&scalar(k)).to_affine())
     }
 
     fn mul_affine(k: &P256Scalar, p: &P256AffinePoint) -> P256AffinePoint {
         CALLS.with(|calls| calls.set(calls.get() + 1));
-        to_canonical(&(point(p) * scalar(k)).to_affine())
+        saw_zero(k);
+        to_canonical_or_identity(&(point(p) * scalar(k)).to_affine())
     }
 }
 
@@ -74,6 +83,8 @@ impl embassy_crypto_driver::P256Lincomb for TestDriver {
         use p256::elliptic_curve::group::Group;
 
         CALLS.with(|calls| calls.set(calls.get() + 1));
+        saw_zero(k1);
+        saw_zero(k2);
         let sum = point(p1) * scalar(k1) + point(p2) * scalar(k2);
         (!bool::from(sum.is_identity())).then(|| to_canonical(&sum.to_affine()))
     }
@@ -83,12 +94,8 @@ impl embassy_crypto_driver::P256Lincomb for TestDriver {
 embassy_crypto_driver::p256_lincomb_impl!(TestDriver);
 
 fn scalar(k: &P256Scalar) -> p256::Scalar {
-    let k = p256::Scalar::from_repr(k.0.into()).expect("scalar in range");
-    assert!(
-        !bool::from(p256::elliptic_curve::ff::Field::is_zero(&k)),
-        "driver got a zero scalar"
-    );
-    k
+    // Zero scalars are within the relaxed driver contract.
+    p256::Scalar::from_repr(k.0.into()).expect("scalar in range")
 }
 
 fn point(p: &P256AffinePoint) -> p256::AffinePoint {
@@ -98,6 +105,16 @@ fn point(p: &P256AffinePoint) -> p256::AffinePoint {
         false,
     ))
     .expect("driver got an off-curve point")
+}
+
+/// The identity result of a zero scalar is reported with the all-zero
+/// sentinel coordinates.
+fn to_canonical_or_identity(p: &p256::AffinePoint) -> P256AffinePoint {
+    if bool::from(p256::elliptic_curve::group::prime::PrimeCurveAffine::is_identity(p)) {
+        P256AffinePoint::default()
+    } else {
+        to_canonical(p)
+    }
 }
 
 fn to_canonical(p: &p256::AffinePoint) -> P256AffinePoint {
@@ -114,14 +131,18 @@ fn wrappers_call_the_driver() {
     use p256::elliptic_curve::ops::LinearCombination;
 
     let before = CALLS.with(|calls| calls.get());
+    let zero_before = ZERO_SCALARS.with(|zeros| zeros.get());
     let k = hw::Scalar::from(12345u64);
 
     let p = hw::ProjectivePoint::mul_by_generator(&k);
     let _ = p * k;
     let _ = hw::ProjectivePoint::lincomb(&p, &k, &hw::ProjectivePoint::GENERATOR, &k);
-    // Degenerate operands are still routed through the driver (constant-time
-    // substitution), so they count too.
+    // Degenerate operands still reach the driver in a single call — a zero
+    // scalar is passed as-is under the relaxed contract — so they count too.
     let _ = p * hw::Scalar::ZERO;
+
+    // The last call must have reached the driver with k = 0.
+    assert_eq!(ZERO_SCALARS.with(|zeros| zeros.get()) - zero_before, 1);
 
     // The linear combination is one driver call with the lincomb hook, two without.
     let expected = if cfg!(not(feature = "driver-p256-lincomb")) {
@@ -170,6 +191,7 @@ fn lincomb_calls_the_driver() {
     let sw = |x: &hw::ProjectivePoint| p256::ProjectivePoint::from(x.to_affine().into_inner());
 
     let before = CALLS.with(|calls| calls.get());
+    let zero_before = ZERO_SCALARS.with(|zeros| zeros.get());
     let expected = sw(&g) * k.into_inner() + sw(&p) * l.into_inner();
 
     // Regular operands: exactly one driver call, and the result is already affine.
@@ -177,7 +199,9 @@ fn lincomb_calls_the_driver() {
     assert_eq!(sw(&r), expected);
     assert_eq!(CALLS.with(|calls| calls.get()) - before, 1);
 
-    // Degenerate operands are fixed up without a second driver call.
+    // Degenerate operands are handled in the same single driver call: zero
+    // scalars are passed as-is and identity points are replaced by the
+    // generator.
     assert_eq!(
         sw(&hw::ProjectivePoint::lincomb(&g, &hw::Scalar::ZERO, &p, &l)),
         sw(&p) * l.into_inner()
@@ -203,4 +227,9 @@ fn lincomb_calls_the_driver() {
     // Cancellation: the driver reports the identity.
     assert!(bool::from(hw::ProjectivePoint::lincomb(&p, &k, &-p, &k).is_identity()));
     assert_eq!(CALLS.with(|calls| calls.get()) - before, 6);
+
+    // Four degenerate calls above, carrying five zero scalars in total: two
+    // explicit `k = 0` terms, one from the identity point, and two in the
+    // all-degenerate call.
+    assert_eq!(ZERO_SCALARS.with(|zeros| zeros.get()) - zero_before, 5);
 }

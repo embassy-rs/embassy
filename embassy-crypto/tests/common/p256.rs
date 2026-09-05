@@ -99,8 +99,9 @@ fn degenerate_operands() {
     let k = hw::Scalar::random(&mut OsRng);
     let p = hw::ProjectivePoint::GENERATOR * k;
 
-    // Zero scalar and the identity point never reach the driver, and yield the
-    // identity, like the software implementation does.
+    // Zero scalars and identity points contribute the identity — through the
+    // driver, when one is hooked up, exactly like the software implementation
+    // does.
     assert!(bool::from((p * hw::Scalar::ZERO).is_identity()));
     assert!(bool::from(
         hw::ProjectivePoint::mul_by_generator(&hw::Scalar::ZERO).is_identity()

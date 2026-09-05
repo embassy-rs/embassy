@@ -919,13 +919,20 @@ unitrait::unitrait! {
     ///
     /// The caller guarantees:
     ///
-    /// - `k` is in the range `[1, n-1]`, where `n` is the curve order.
-    /// - `p` is a valid, on-curve affine point (and therefore not the identity,
-    ///   which has no affine encoding).
+    /// - `k` is in the range `[0, n-1]`, where `n` is the curve order. A
+    ///   zero scalar contributes the identity.
+    /// - `p` is a valid, on-curve affine point (and therefore not the
+    ///   identity, which has no affine encoding).
     ///
-    /// Given the above, the result is never the identity, since P-256 has
-    /// prime order. The implementation must not be given secret-dependent
-    /// timing: `k` (and, for `mul_affine`, `p`) may be secret.
+    /// The result is the identity exactly when `k` is zero. Since the
+    /// identity has no affine encoding, the implementation signals it by
+    /// returning the all-zero sentinel coordinates `P256AffinePoint::default()`
+    /// (which are not a valid curve point); for non-zero `k` the result is
+    /// never the identity, since P-256 has prime order. Whether the result is
+    /// the identity is not treated as secret.
+    ///
+    /// The implementation must not have secret-dependent timing: `k` (and,
+    /// for `mul_affine`, `p`) may be secret.
     #[symbol_prefix = "_embassy_crypto_p256_scalar_mul"]
     pub trait P256ScalarMul {
         /// Fixed-base scalar multiplication: `k * G`.
@@ -976,10 +983,11 @@ unitrait::unitrait! {
     ///
     /// ## Contract
     ///
-    /// The caller guarantees `k1` and `k2` are in `[1, n-1]` and `p1`, `p2` are
-    /// valid on-curve affine points. The sum can be the identity (when
-    /// `k1 * p1 == -(k2 * p2)`), which has no affine encoding; the
-    /// implementation returns `None` in that case.
+    /// The caller guarantees `k1` and `k2` are in `[0, n-1]` and `p1`, `p2`
+    /// are valid on-curve affine points. A zero scalar contributes the
+    /// identity. The sum can be the identity (when the non-zero terms
+    /// cancel), which has no affine encoding; the implementation returns
+    /// `None` in that case.
     ///
     /// Must not have secret-dependent timing with respect to the scalars and
     /// points. Whether the result is the identity is not treated as secret.

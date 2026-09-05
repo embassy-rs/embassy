@@ -82,6 +82,8 @@ driver-rustcrypto = [
     "driver-aes128cmac",
     "driver-aes256cmac",
     "driver-p256-scalar-mul",
+    "driver-p256-scalar-invert",
+    "driver-p256-lincomb",
 ]
 
 ## Generic RustCrypto `elliptic-curve` trait implementations over a driver-accelerated
