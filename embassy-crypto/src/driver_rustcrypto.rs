@@ -9,21 +9,14 @@
 //! benefits from the acceleration.
 //!
 
+#[allow(unused_imports)]
 use embassy_crypto_driver::CryptoError;
-
-#[inline]
-fn to_rustcrypto_inout<'inp, 'out>(
-    buf: embassy_crypto_driver::InOutBuf<'inp, 'out, u8>,
-) -> cipher::inout::InOutBuf<'inp, 'out, u8> {
-    let len = buf.len();
-    let (in_ptr, out_ptr) = buf.into_raw();
-    unsafe { cipher::inout::InOutBuf::from_raw(in_ptr, out_ptr, len) }
-}
 
 // ===========================================================================
 // Digests
 // ===========================================================================
 
+#[allow(unused_macros)]
 macro_rules! impl_digest {
     (
         $driver:ident,
@@ -379,14 +372,14 @@ impl embassy_crypto_driver::Aes128Ecb for Aes128EcbDriver {
 
     fn encrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherEncrypt;
-        let buf = to_rustcrypto_inout(blocks);
+        let buf = crate::to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
         ctx.encrypt_blocks_inout(chunks);
     }
 
     fn decrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherDecrypt;
-        let buf = to_rustcrypto_inout(blocks);
+        let buf = crate::to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
         ctx.decrypt_blocks_inout(chunks);
     }
@@ -409,14 +402,14 @@ impl embassy_crypto_driver::Aes256Ecb for Aes256EcbDriver {
 
     fn encrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherEncrypt;
-        let buf = to_rustcrypto_inout(blocks);
+        let buf = crate::to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
         ctx.encrypt_blocks_inout(chunks);
     }
 
     fn decrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherDecrypt;
-        let buf = to_rustcrypto_inout(blocks);
+        let buf = crate::to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
         ctx.decrypt_blocks_inout(chunks);
     }
@@ -579,7 +572,7 @@ impl embassy_crypto_driver::Aes128Gcm for Aes128GcmDriver {
         use aead::AeadInOut;
         let nonce = aead::Nonce::<aes_gcm::Aes128Gcm>::try_from(nonce).unwrap();
         let computed_tag = ctx
-            .encrypt_inout_detached(&nonce, aad, to_rustcrypto_inout(buffer))
+            .encrypt_inout_detached(&nonce, aad, crate::to_rustcrypto_inout(buffer))
             .map_err(|_| CryptoError::InvalidInput)?;
         tag.copy_from_slice(computed_tag.as_slice());
         Ok(())
@@ -595,7 +588,7 @@ impl embassy_crypto_driver::Aes128Gcm for Aes128GcmDriver {
         use aead::AeadInOut;
         let nonce = aead::Nonce::<aes_gcm::Aes128Gcm>::try_from(nonce).unwrap();
         let tag_ga = aead::Tag::<aes_gcm::Aes128Gcm>::try_from(tag.as_slice()).unwrap();
-        ctx.decrypt_inout_detached(&nonce, aad, to_rustcrypto_inout(buffer), &tag_ga)
+        ctx.decrypt_inout_detached(&nonce, aad, crate::to_rustcrypto_inout(buffer), &tag_ga)
             .map_err(|_| CryptoError::InvalidSignature)
     }
 }
@@ -625,7 +618,7 @@ impl embassy_crypto_driver::Aes256Gcm for Aes256GcmDriver {
         use aead::AeadInOut;
         let nonce = aead::Nonce::<aes_gcm::Aes256Gcm>::try_from(nonce).unwrap();
         let computed_tag = ctx
-            .encrypt_inout_detached(&nonce, aad, to_rustcrypto_inout(buffer))
+            .encrypt_inout_detached(&nonce, aad, crate::to_rustcrypto_inout(buffer))
             .map_err(|_| CryptoError::InvalidInput)?;
         tag.copy_from_slice(computed_tag.as_slice());
         Ok(())
@@ -641,7 +634,7 @@ impl embassy_crypto_driver::Aes256Gcm for Aes256GcmDriver {
         use aead::AeadInOut;
         let nonce = aead::Nonce::<aes_gcm::Aes256Gcm>::try_from(nonce).unwrap();
         let tag_ga = aead::Tag::<aes_gcm::Aes256Gcm>::try_from(tag.as_slice()).unwrap();
-        ctx.decrypt_inout_detached(&nonce, aad, to_rustcrypto_inout(buffer), &tag_ga)
+        ctx.decrypt_inout_detached(&nonce, aad, crate::to_rustcrypto_inout(buffer), &tag_ga)
             .map_err(|_| CryptoError::InvalidSignature)
     }
 }
@@ -850,7 +843,7 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
             &ctx.cipher,
             nonce,
             aad,
-            to_rustcrypto_inout(buffer),
+            crate::to_rustcrypto_inout(buffer),
             tag
         )
     }
@@ -870,7 +863,7 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
             &ctx.cipher,
             nonce,
             aad,
-            to_rustcrypto_inout(buffer),
+            crate::to_rustcrypto_inout(buffer),
             tag
         )
     }
@@ -914,7 +907,7 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
             &ctx.cipher,
             nonce,
             aad,
-            to_rustcrypto_inout(buffer),
+            crate::to_rustcrypto_inout(buffer),
             tag
         )
     }
@@ -934,7 +927,7 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
             &ctx.cipher,
             nonce,
             aad,
-            to_rustcrypto_inout(buffer),
+            crate::to_rustcrypto_inout(buffer),
             tag
         )
     }
@@ -975,7 +968,8 @@ impl embassy_crypto_driver::Aes128Ctr for Aes128CtrDriver {
 
     fn apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::StreamCipher;
-        ctx.inner.unchecked_apply_keystream_inout(to_rustcrypto_inout(buf));
+        ctx.inner
+            .unchecked_apply_keystream_inout(crate::to_rustcrypto_inout(buf));
     }
 }
 
@@ -1010,7 +1004,8 @@ impl embassy_crypto_driver::Aes256Ctr for Aes256CtrDriver {
 
     fn apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::StreamCipher;
-        ctx.inner.unchecked_apply_keystream_inout(to_rustcrypto_inout(buf));
+        ctx.inner
+            .unchecked_apply_keystream_inout(crate::to_rustcrypto_inout(buf));
     }
 }
 
@@ -1084,3 +1079,141 @@ impl embassy_crypto_driver::Aes256Cmac for Aes256CmacDriver {
 
 #[cfg(feature = "driver-aes256cmac")]
 embassy_crypto_driver::aes256cmac_impl!(Aes256CmacDriver);
+
+// ===========================================================================
+// Elliptic curve unitraits (P-256, P-384)
+// ===========================================================================
+//
+// WARNING: the impls below are deliberately NOT software implementations of
+// the unitraits. Read this before "fixing" them.
+//
+// When a `driver-p256-*` / `driver-p384-*` feature is enabled, `embassy-crypto`
+// runs the corresponding elliptic-curve operation in software *directly on
+// the wrapped curve types* (`ACCELERATED_*` is `false` in the `p256`/`p384`
+// modules) and never calls these unitraits: converting scalars and points to
+// the canonical byte form the unitraits exchange costs more than the
+// operation itself when there is no accelerator behind the driver.
+//
+// These impls exist only to define the unitrait's link-time global:
+//
+// - Feature ON: embassy-crypto stakes the global. If the HAL *also*
+//   registers an implementation of the same unitrait (a misconfiguration:
+//   two "drivers" for one operation), the duplicate definition fails the
+//   link instead of silently leaving the HAL driver unused.
+// - Feature OFF: embassy-crypto defines nothing; the accelerated wrappers
+//   route through the unitrait and the HAL must provide the implementation,
+//   or the link fails with an undefined symbol.
+//
+// The methods are `unreachable!()` because the only way they could ever run
+// is a routing bug: with the feature enabled the wrappers never reach the
+// unitrait. A loud panic beats silently returning wrong results.
+
+#[cfg(feature = "driver-p256-scalar-mul")]
+struct P256ScalarMulDriver;
+
+#[cfg(feature = "driver-p256-scalar-mul")]
+impl embassy_crypto_driver::P256ScalarMul for P256ScalarMulDriver {
+    fn mul_base(_: embassy_crypto_driver::P256Scalar) -> embassy_crypto_driver::P256AffinePoint {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+
+    fn mul_affine(
+        _: embassy_crypto_driver::P256Scalar,
+        _: embassy_crypto_driver::P256AffinePoint,
+    ) -> embassy_crypto_driver::P256AffinePoint {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p256-scalar-mul")]
+embassy_crypto_driver::p256_scalar_mul_impl!(P256ScalarMulDriver);
+
+#[cfg(feature = "driver-p256-scalar-invert")]
+struct P256ScalarInvertDriver;
+
+#[cfg(feature = "driver-p256-scalar-invert")]
+impl embassy_crypto_driver::P256ScalarInvert for P256ScalarInvertDriver {
+    fn invert(_: embassy_crypto_driver::P256Scalar) -> embassy_crypto_driver::P256Scalar {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+
+    fn invert_vartime(_: embassy_crypto_driver::P256Scalar) -> embassy_crypto_driver::P256Scalar {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p256-scalar-invert")]
+embassy_crypto_driver::p256_scalar_invert_impl!(P256ScalarInvertDriver);
+
+#[cfg(feature = "driver-p256-lincomb")]
+struct P256LincombDriver;
+
+#[cfg(feature = "driver-p256-lincomb")]
+impl embassy_crypto_driver::P256Lincomb for P256LincombDriver {
+    fn lincomb(
+        _: embassy_crypto_driver::P256Scalar,
+        _: embassy_crypto_driver::P256AffinePoint,
+        _: embassy_crypto_driver::P256Scalar,
+        _: embassy_crypto_driver::P256AffinePoint,
+    ) -> Option<embassy_crypto_driver::P256AffinePoint> {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p256-lincomb")]
+embassy_crypto_driver::p256_lincomb_impl!(P256LincombDriver);
+
+#[cfg(feature = "driver-p384-scalar-mul")]
+struct P384ScalarMulDriver;
+
+#[cfg(feature = "driver-p384-scalar-mul")]
+impl embassy_crypto_driver::P384ScalarMul for P384ScalarMulDriver {
+    fn mul_base(_: embassy_crypto_driver::P384Scalar) -> embassy_crypto_driver::P384AffinePoint {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+
+    fn mul_affine(
+        _: embassy_crypto_driver::P384Scalar,
+        _: embassy_crypto_driver::P384AffinePoint,
+    ) -> embassy_crypto_driver::P384AffinePoint {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p384-scalar-mul")]
+embassy_crypto_driver::p384_scalar_mul_impl!(P384ScalarMulDriver);
+
+#[cfg(feature = "driver-p384-scalar-invert")]
+struct P384ScalarInvertDriver;
+
+#[cfg(feature = "driver-p384-scalar-invert")]
+impl embassy_crypto_driver::P384ScalarInvert for P384ScalarInvertDriver {
+    fn invert(_: embassy_crypto_driver::P384Scalar) -> embassy_crypto_driver::P384Scalar {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+
+    fn invert_vartime(_: embassy_crypto_driver::P384Scalar) -> embassy_crypto_driver::P384Scalar {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p384-scalar-invert")]
+embassy_crypto_driver::p384_scalar_invert_impl!(P384ScalarInvertDriver);
+
+#[cfg(feature = "driver-p384-lincomb")]
+struct P384LincombDriver;
+
+#[cfg(feature = "driver-p384-lincomb")]
+impl embassy_crypto_driver::P384Lincomb for P384LincombDriver {
+    fn lincomb(
+        _: embassy_crypto_driver::P384Scalar,
+        _: embassy_crypto_driver::P384AffinePoint,
+        _: embassy_crypto_driver::P384Scalar,
+        _: embassy_crypto_driver::P384AffinePoint,
+    ) -> Option<embassy_crypto_driver::P384AffinePoint> {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p384-lincomb")]
+embassy_crypto_driver::p384_lincomb_impl!(P384LincombDriver);

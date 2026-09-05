@@ -80,6 +80,14 @@ impl Backend for p256::NistP256 {
     const AFFINE_IDENTITY: p256::AffinePoint = p256::AffinePoint::IDENTITY;
     const AFFINE_GENERATOR: p256::AffinePoint = p256::AffinePoint::GENERATOR;
 
+    // NOTE: the polarity is intentional, do not "fix" it. With the feature
+    // ON, the wrappers run this operation in software directly (converting
+    // to the canonical byte form the driver unitraits exchange is only worth
+    // paying when an accelerator is behind them), so `ACCELERATED_*` is
+    // false and the unitrait is never called; `driver_rustcrypto` still
+    // registers an `unreachable!()` impl of it so a HAL that also registers
+    // one fails to link. With the feature OFF, the wrappers route through
+    // the unitrait and the HAL must provide the impl.
     const ACCELERATED_MUL: bool = cfg!(not(feature = "driver-p256-scalar-mul"));
     const ACCELERATED_INVERT: bool = cfg!(not(feature = "driver-p256-scalar-invert"));
     const ACCELERATED_LINCOMB: bool = cfg!(not(feature = "driver-p256-lincomb"));
@@ -113,6 +121,21 @@ impl Backend for p256::NistP256 {
         use embassy_crypto_driver::P256ScalarInvertImpl;
 
         P256ScalarInvertImpl::invert_vartime(scalar_to_driver(k)).0.into()
+    }
+
+    // Keep p256's native `ReduceNonZero`: it computes the `(w mod (n-1)) + 1`
+    // bijection onto the nonzero residues, which the `Reduce`-based backend
+    // default (reduce, remapping zero to one) does not reproduce.
+    fn reduce_nonzero(n: U256) -> p256::Scalar {
+        use elliptic_curve::ops::ReduceNonZero;
+
+        <p256::Scalar as ReduceNonZero<U256>>::reduce_nonzero(n)
+    }
+
+    fn reduce_nonzero_bytes(bytes: &FieldBytes) -> p256::Scalar {
+        use elliptic_curve::ops::ReduceNonZero;
+
+        <p256::Scalar as ReduceNonZero<U256>>::reduce_nonzero_bytes(bytes)
     }
 
     #[cfg(not(feature = "driver-p256-lincomb"))]

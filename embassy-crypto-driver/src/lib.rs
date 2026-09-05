@@ -953,7 +953,7 @@ unitrait::unitrait! {
     ///
     /// ECDSA signing and verification each need one inversion modulo the curve
     /// order. `embassy-crypto` routes to this trait only when its
-    /// `p256-scalar-invert` feature is enabled.
+    /// `driver-p256-scalar-invert` feature is NOT enabled.
     ///
     /// ## Contract
     ///
@@ -1006,4 +1006,131 @@ unitrait::unitrait! {
     pub struct P256LincombImpl;
 
     macro p256_lincomb_impl(path = $crate);
+}
+
+// ===================================================================
+// P-384 scalar multiplication
+// ===================================================================
+
+/// Canonical P-384 scalar: big-endian, 48 bytes.
+///
+/// This is the portable representation that crosses the backend boundary.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct P384Scalar(pub [u8; 48]);
+
+/// Canonical P-384 affine point: big-endian (x, y), uncompressed.
+///
+/// This is the portable representation that crosses the backend boundary.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct P384AffinePoint {
+    /// X coordinate, big-endian, 48 bytes.
+    pub x: [u8; 48],
+    /// Y coordinate, big-endian, 48 bytes.
+    pub y: [u8; 48],
+}
+
+unitrait::unitrait! {
+    /// P-384 scalar multiplication accelerator.
+    ///
+    /// Scalar multiplication dominates the cost of every P-384 protocol
+    /// operation (ECDH, ECDSA sign/verify, key generation) by orders of
+    /// magnitude, so this is the one hook a backend needs to provide for
+    /// hardware acceleration. Everything else (scalar field arithmetic,
+    /// point addition, encoding) stays in software, in `embassy-crypto`.
+    ///
+    /// Input and output are canonical big-endian byte arrays; conversion to
+    /// and from whatever the backend uses internally happens inside the
+    /// implementation.
+    ///
+    /// ## Contract
+    ///
+    /// The caller guarantees:
+    ///
+    /// - `k` is in the range `[0, n-1]`, where `n` is the curve order. A
+    ///   zero scalar contributes the identity.
+    /// - `p` is a valid, on-curve affine point (and therefore not the
+    ///   identity, which has no affine encoding).
+    ///
+    /// The result is the identity exactly when `k` is zero. Since the
+    /// identity has no affine encoding, the implementation signals it by
+    /// returning the all-zero sentinel coordinates `P384AffinePoint::default()`
+    /// (which are not a valid curve point); for non-zero `k` the result is
+    /// never the identity, since P-384 has prime order. Whether the result is
+    /// the identity is not treated as secret.
+    ///
+    /// The implementation must not have secret-dependent timing: `k` (and,
+    /// for `mul_affine`, `p`) may be secret.
+    #[symbol_prefix = "_embassy_crypto_p384_scalar_mul"]
+    pub trait P384ScalarMul {
+        /// Fixed-base scalar multiplication: `k * G`.
+        fn mul_base(k: P384Scalar) -> P384AffinePoint;
+
+        /// Variable-base scalar multiplication: `k * P`.
+        fn mul_affine(k: P384Scalar, p: P384AffinePoint) -> P384AffinePoint;
+    }
+
+    /// The global [`P384ScalarMul`] implementation.
+    pub struct P384ScalarMulImpl;
+
+    macro p384_scalar_mul_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// P-384 scalar field inversion accelerator (optional).
+    ///
+    /// ECDSA signing and verification each need one inversion modulo the curve
+    /// order. `embassy-crypto` routes to this trait only when its
+    /// `driver-p384-scalar-invert` feature is NOT enabled.
+    ///
+    /// ## Contract
+    ///
+    /// The caller guarantees `k` is in the range `[1, n-1]`, where `n` is the
+    /// curve order, so the inverse always exists. The result is canonical,
+    /// in the same range.
+    #[symbol_prefix = "_embassy_crypto_p384_scalar_invert"]
+    pub trait P384ScalarInvert {
+        /// `k^-1 mod n`. Must not have secret-dependent timing: `k` may be secret.
+        fn invert(k: P384Scalar) -> P384Scalar;
+
+        /// `k^-1 mod n`, variable time. Callers only pass public values.
+        fn invert_vartime(k: P384Scalar) -> P384Scalar;
+    }
+
+    /// The global [`P384ScalarInvert`] implementation.
+    pub struct P384ScalarInvertImpl;
+
+    macro p384_scalar_invert_impl(path = $crate);
+}
+
+unitrait::unitrait! {
+    /// P-384 double-base scalar multiplication accelerator (optional).
+    ///
+    /// Computes `k1 * p1 + k2 * p2` in one operation, which is what ECDSA
+    /// verification needs; backends can use a combined ladder (Shamir's trick).
+    ///
+    /// ## Contract
+    ///
+    /// The caller guarantees `k1` and `k2` are in `[0, n-1]` and `p1`, `p2`
+    /// are valid on-curve affine points. A zero scalar contributes the
+    /// identity. The sum can be the identity (when the non-zero terms
+    /// cancel), which has no affine encoding; the implementation returns
+    /// `None` in that case.
+    ///
+    /// Must not have secret-dependent timing with respect to the scalars and
+    /// points. Whether the result is the identity is not treated as secret.
+    #[symbol_prefix = "_embassy_crypto_p384_lincomb"]
+    pub trait P384Lincomb {
+        /// `k1 * p1 + k2 * p2`, or `None` if the sum is the identity.
+        fn lincomb(
+            k1: P384Scalar,
+            p1: P384AffinePoint,
+            k2: P384Scalar,
+            p2: P384AffinePoint,
+        ) -> Option<P384AffinePoint>;
+    }
+
+    /// The global [`P384Lincomb`] implementation.
+    pub struct P384LincombImpl;
+
+    macro p384_lincomb_impl(path = $crate);
 }

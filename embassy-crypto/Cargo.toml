@@ -55,8 +55,13 @@ elliptic-curve = { version = "0.13", default-features = false, features = ["arit
 p256 = { version = "0.13", default-features = false, features = ["arithmetic"], optional = true }
 ecdsa = { version = "0.16", default-features = false, features = ["signing", "verifying", "digest", "hazmat"], optional = true }
 
+# P-384: software arithmetic wrapped by the `p384` module. Pure software for
+# now: there are no P-384 driver traits yet.
+p384 = { version = "0.13", default-features = false, features = ["arithmetic"], optional = true }
+
 [dev-dependencies]
 p256 = { version = "0.13", default-features = false, features = ["arithmetic", "ecdsa", "ecdh"] }
+p384 = { version = "0.13", default-features = false, features = ["arithmetic", "ecdsa", "ecdh", "pkcs8"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 
 [features]
@@ -72,6 +77,15 @@ ecdsa = ["ec", "dep:ecdsa"]
 p256 = ["ec", "dep:p256"]
 ## ECDSA signing/verification types for the `p256` module.
 p256-ecdsa = ["p256", "ecdsa", "p256/ecdsa"]
+## The `ec` module instantiated for P-384 (the `p384` module). Pure software
+## for now: there are no P-384 driver traits yet.
+p384 = ["ec", "dep:p384"]
+## ECDSA signing/verification types for the `p384` module.
+p384-ecdsa = ["p384", "ecdsa", "p384/ecdsa"]
+## PKCS#8/SPKI support: `AssociatedOid` impls for the accelerated curve
+## types, unlocking DER encoding of keys. Applies to whichever of `p256`/
+## `p384` is enabled.
+pkcs8 = ["ec", "elliptic-curve/pkcs8", "p256?/pkcs8", "p384?/pkcs8"]
 
 
 ## Use RustCrypto crates as a software fallback driver.
@@ -96,6 +110,9 @@ driver-rustcrypto = [
     "driver-p256-scalar-mul",
     "driver-p256-scalar-invert",
     "driver-p256-lincomb",
+    "driver-p384-scalar-mul",
+    "driver-p384-scalar-invert",
+    "driver-p384-lincomb",
 ]
 
 driver-md5 = ["dep:md-5"]
@@ -118,3 +135,6 @@ driver-aes256cmac = ["dep:cmac", "dep:aes"]
 driver-p256-scalar-mul = ["dep:p256"]
 driver-p256-scalar-invert = ["dep:p256"]
 driver-p256-lincomb = ["dep:p256"]
+driver-p384-scalar-mul = ["dep:p384"]
+driver-p384-scalar-invert = ["dep:p384"]
+driver-p384-lincomb = ["dep:p384"]

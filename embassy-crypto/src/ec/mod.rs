@@ -37,7 +37,9 @@ use elliptic_curve::ff::{Field, PrimeField};
 use elliptic_curve::generic_array::ArrayLength;
 use elliptic_curve::group::prime::PrimeCurveAffine;
 use elliptic_curve::group::{self, GroupEncoding};
-use elliptic_curve::ops::{LinearCombination, MulByGenerator, ReduceNonZero};
+use elliptic_curve::ops::{LinearCombination, MulByGenerator, Reduce};
+#[cfg(feature = "pkcs8")]
+use elliptic_curve::pkcs8::{AssociatedOid, ObjectIdentifier};
 use elliptic_curve::point::{DecompactPoint, DecompressPoint, PointCompaction, PointCompression};
 use elliptic_curve::sec1::{CompressedPoint, FromEncodedPoint, ModulusSize, ToCompactEncodedPoint, ToEncodedPoint};
 use elliptic_curve::subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
@@ -54,7 +56,9 @@ pub type EncodedPoint<C> = elliptic_curve::sec1::EncodedPoint<C>;
 /// [`Accelerated<Self>`] is then the curve type to use with the RustCrypto
 /// generics. The supertrait bounds spell out what the wrapped types must
 /// provide beyond [`CurveArithmetic`]; every `primeorder`-based curve
-/// satisfies them.
+/// satisfies them, plus `Reduce`. `ReduceNonZero` is provided through
+/// [`Backend::reduce_nonzero`] instead of being required of the wrapped
+/// scalar, since some curves (e.g. P-384) do not implement it.
 ///
 /// The `ACCELERATED_*` constants say which operations the driver provides;
 /// the corresponding methods have software defaults and are only called when
@@ -72,7 +76,7 @@ pub trait Backend:
         > + ArrayLength<u8, ArrayType: Copy>,
         Uint: FieldBytesEncoding<Accelerated<Self>> + From<Scalar<Self>> + for<'a> From<&'a Scalar<Self>>,
     > + CurveArithmetic<
-        Scalar: Ord + From<u32> + From<u128> + ReduceNonZero<<Self as Curve>::Uint>,
+        Scalar: Ord + From<u32> + From<u128> + Reduce<<Self as Curve>::Uint>,
         AffinePoint: PrimeCurveAffine<
             Curve = <Self as CurveArithmetic>::ProjectivePoint,
             Scalar = <Self as CurveArithmetic>::Scalar,
@@ -134,6 +138,25 @@ pub trait Backend:
         elliptic_curve::ops::Invert::invert_vartime(&scalar_from_bytes::<Self>(k))
             .unwrap()
             .to_repr()
+    }
+
+    /// Reduce a bigint into a nonzero scalar, per the `ReduceNonZero`
+    /// contract.
+    ///
+    /// The default composes this from [`Reduce`], remapping the zero residue
+    /// to one so the result is never zero. Curves whose scalar implements
+    /// `ReduceNonZero` natively (e.g. P-256, where it is the
+    /// `(w mod (n-1)) + 1` bijection onto the nonzero residues) override this
+    /// to use their native implementation unchanged.
+    fn reduce_nonzero(n: Self::Uint) -> Self::Scalar {
+        let reduced = <Self::Scalar as Reduce<Self::Uint>>::reduce(n);
+        Self::Scalar::conditional_select(&reduced, &<Self::Scalar as Field>::ONE, reduced.is_zero())
+    }
+
+    /// Byte-array form of [`reduce_nonzero`](Self::reduce_nonzero).
+    fn reduce_nonzero_bytes(bytes: &FieldBytes<Self>) -> Self::Scalar {
+        let reduced = <Self::Scalar as Reduce<Self::Uint>>::reduce_bytes(bytes);
+        Self::Scalar::conditional_select(&reduced, &<Self::Scalar as Field>::ONE, reduced.is_zero())
     }
 
     /// `k1 * P1 + k2 * P2`, for scalars in `[0, n-1]` and valid affine
@@ -232,6 +255,14 @@ impl<C: Backend> CurveArithmetic for Accelerated<C> {
 
 impl<C: Backend> PrimeCurveArithmetic for Accelerated<C> {
     type CurveGroup = ProjectivePoint<C>;
+}
+
+/// The accelerated curve *is* the wrapped curve, so it carries the same
+/// object identifier. This makes PKCS#8/SPKI key encoding (which requires
+/// [`AssociatedOid`]) work for the accelerated types unchanged.
+#[cfg(feature = "pkcs8")]
+impl<C: Backend + AssociatedOid> AssociatedOid for Accelerated<C> {
+    const OID: ObjectIdentifier = C::OID;
 }
 
 /// ECDSA over an accelerated curve.

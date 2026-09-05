@@ -22,6 +22,12 @@ use cipher::InOutBuf;
     feature = "driver-aes256ccm",
     feature = "driver-aes128cmac",
     feature = "driver-aes256cmac",
+    feature = "driver-p256-scalar-mul",
+    feature = "driver-p256-scalar-invert",
+    feature = "driver-p256-lincomb",
+    feature = "driver-p384-scalar-mul",
+    feature = "driver-p384-scalar-invert",
+    feature = "driver-p384-lincomb",
 ))]
 mod driver_rustcrypto;
 
@@ -31,15 +37,29 @@ pub mod ec;
 #[cfg(feature = "p256")]
 pub mod p256;
 
+#[cfg(feature = "p384")]
+pub mod p384;
+
 mod aes;
 mod hash;
 
 pub use aes::*;
 pub use hash::*;
 
+#[allow(dead_code)]
 #[inline]
 fn unwrap_inout<'inp, 'out>(buf: InOutBuf<'inp, 'out, u8>) -> embassy_crypto_driver::InOutBuf<'inp, 'out, u8> {
     let len = buf.len();
     let (in_ptr, out_ptr) = buf.into_raw();
     unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr, out_ptr, len) }
+}
+
+#[allow(dead_code)]
+#[inline]
+fn to_rustcrypto_inout<'inp, 'out>(
+    buf: embassy_crypto_driver::InOutBuf<'inp, 'out, u8>,
+) -> cipher::inout::InOutBuf<'inp, 'out, u8> {
+    let len = buf.len();
+    let (in_ptr, out_ptr) = buf.into_raw();
+    unsafe { cipher::inout::InOutBuf::from_raw(in_ptr, out_ptr, len) }
 }
