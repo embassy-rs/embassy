@@ -62,6 +62,18 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 [features]
 defmt = ["embassy-crypto-driver/defmt"]
 
+## Generic RustCrypto `elliptic-curve` trait implementations over a driver-accelerated
+## curve backend (the `ec` module).
+ec = ["dep:elliptic-curve"]
+## ECDSA support for the `ec` module.
+ecdsa = ["ec", "dep:ecdsa"]
+## The `ec` module instantiated for P-256 (the `p256` module), with scalar
+## multiplication delegated to the `P256ScalarMul` driver.
+p256 = ["ec", "dep:p256"]
+## ECDSA signing/verification types for the `p256` module.
+p256-ecdsa = ["p256", "ecdsa", "p256/ecdsa"]
+
+
 ## Use RustCrypto crates as a software fallback driver.
 driver-rustcrypto = [
     "driver-md5",
@@ -85,17 +97,6 @@ driver-rustcrypto = [
     "driver-p256-scalar-invert",
     "driver-p256-lincomb",
 ]
-
-## Generic RustCrypto `elliptic-curve` trait implementations over a driver-accelerated
-## curve backend (the `ec` module).
-ec = ["dep:elliptic-curve"]
-## ECDSA support for the `ec` module.
-ecdsa = ["ec", "dep:ecdsa"]
-## The `ec` module instantiated for P-256 (the `p256` module), with scalar
-## multiplication delegated to the `P256ScalarMul` driver.
-p256 = ["ec", "dep:p256"]
-## ECDSA signing/verification types for the `p256` module.
-p256-ecdsa = ["p256", "ecdsa", "p256/ecdsa"]
 
 driver-md5 = ["dep:md-5"]
 driver-sha1 = ["dep:sha1"]
