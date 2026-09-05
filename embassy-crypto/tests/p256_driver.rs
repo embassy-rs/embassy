@@ -31,16 +31,16 @@ fn saw_zero(k: &P256Scalar) {
 struct TestDriver;
 
 impl P256ScalarMul for TestDriver {
-    fn mul_base(k: &P256Scalar) -> P256AffinePoint {
+    fn mul_base(k: P256Scalar) -> P256AffinePoint {
         CALLS.with(|calls| calls.set(calls.get() + 1));
-        saw_zero(k);
-        to_canonical_or_identity(&p256::ProjectivePoint::mul_by_generator(&scalar(k)).to_affine())
+        saw_zero(&k);
+        to_canonical_or_identity(&p256::ProjectivePoint::mul_by_generator(&scalar(&k)).to_affine())
     }
 
-    fn mul_affine(k: &P256Scalar, p: &P256AffinePoint) -> P256AffinePoint {
+    fn mul_affine(k: P256Scalar, p: P256AffinePoint) -> P256AffinePoint {
         CALLS.with(|calls| calls.set(calls.get() + 1));
-        saw_zero(k);
-        to_canonical_or_identity(&(point(p) * scalar(k)).to_affine())
+        saw_zero(&k);
+        to_canonical_or_identity(&(point(&p) * scalar(&k)).to_affine())
     }
 }
 
@@ -48,20 +48,20 @@ embassy_crypto_driver::p256_scalar_mul_impl!(TestDriver);
 
 #[cfg(not(feature = "driver-p256-scalar-invert"))]
 impl embassy_crypto_driver::P256ScalarInvert for TestDriver {
-    fn invert(k: &P256Scalar) -> P256Scalar {
+    fn invert(k: P256Scalar) -> P256Scalar {
         CALLS.with(|calls| calls.set(calls.get() + 1));
         P256Scalar(
-            p256::elliptic_curve::ff::Field::invert(&scalar(k))
+            p256::elliptic_curve::ff::Field::invert(&scalar(&k))
                 .unwrap()
                 .to_bytes()
                 .into(),
         )
     }
 
-    fn invert_vartime(k: &P256Scalar) -> P256Scalar {
+    fn invert_vartime(k: P256Scalar) -> P256Scalar {
         CALLS.with(|calls| calls.set(calls.get() + 1));
         P256Scalar(
-            p256::elliptic_curve::ops::Invert::invert_vartime(&scalar(k))
+            p256::elliptic_curve::ops::Invert::invert_vartime(&scalar(&k))
                 .unwrap()
                 .to_bytes()
                 .into(),
@@ -75,17 +75,17 @@ embassy_crypto_driver::p256_scalar_invert_impl!(TestDriver);
 #[cfg(not(feature = "driver-p256-lincomb"))]
 impl embassy_crypto_driver::P256Lincomb for TestDriver {
     fn lincomb(
-        k1: &P256Scalar,
-        p1: &P256AffinePoint,
-        k2: &P256Scalar,
-        p2: &P256AffinePoint,
+        k1: P256Scalar,
+        p1: P256AffinePoint,
+        k2: P256Scalar,
+        p2: P256AffinePoint,
     ) -> Option<P256AffinePoint> {
         use p256::elliptic_curve::group::Group;
 
         CALLS.with(|calls| calls.set(calls.get() + 1));
-        saw_zero(k1);
-        saw_zero(k2);
-        let sum = point(p1) * scalar(k1) + point(p2) * scalar(k2);
+        saw_zero(&k1);
+        saw_zero(&k2);
+        let sum = point(&p1) * scalar(&k1) + point(&p2) * scalar(&k2);
         (!bool::from(sum.is_identity())).then(|| to_canonical(&sum.to_affine()))
     }
 }
