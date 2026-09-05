@@ -5,6 +5,12 @@
 #[cfg(feature = "driver-rustcrypto")]
 mod driver_rustcrypto;
 
+#[cfg(feature = "ec")]
+pub mod ec;
+
+#[cfg(feature = "p256")]
+pub mod p256;
+
 use aead::common::array::ArraySize;
 use aead::inout::InOutBuf;
 use aead::{AeadCore, AeadInOut, TagPosition};
