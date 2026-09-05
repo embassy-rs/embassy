@@ -7,12 +7,8 @@ use crate::pac::pwr::vals::Retention;
 #[cfg(all(stm32h7, backup_sram))]
 use crate::pac::pwr::vals::Retention;
 pub use crate::pac::rcc::vals::Rtcsel as RtcClockSource;
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
-
-#[cfg(any(stm32f0, stm32f1, stm32f3))]
-pub const LSI_FREQ: Hertz = Hertz(40_000);
-#[cfg(not(any(stm32f0, stm32f1, stm32f3)))]
-pub const LSI_FREQ: Hertz = Hertz(32_000);
 
 #[allow(dead_code)]
 #[derive(Clone, Copy)]

@@ -2,7 +2,7 @@ use stm32_metapac::pwr::vals::{
     Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv, Vos,
 };
 use stm32_metapac::rcc::vals::{
-    Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Persel, Pllmodssdis, Syssw, Syssws, Timpre,
+    Cpusw, Cpusws, Hsediv2sel, Hseext, Hsitrim, Msifreqsel, Persel, Pllmodssdis, Syssw, Syssws, Timpre,
 };
 pub use stm32_metapac::rcc::vals::{
     Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel, Plldivm, Pllpdiv, Pllsel,
@@ -872,6 +872,7 @@ struct OscOutput {
     hsi_div: Option<Hertz>,
     hse: Option<Hertz>,
     hse_rtc: Option<Hertz>,
+    hse_div2_osc: Option<Hertz>,
     msi: Option<Hertz>,
     lsi: Option<Hertz>,
     lse: Option<Hertz>,
@@ -952,6 +953,14 @@ fn init_osc(config: Config) -> OscOutput {
     };
     // hse rtc configuration
     let hse_rtc = hse.map(|freq| freq / (RCC.ccipr7().read().rtcpre().to_bits() + 1));
+
+    // hse_div2_osc_ck per RM0486 rev 4 14.10.14 - tapped straight off the oscillator,
+    // before the tempo delay, and halved only when HSEDIV2SEL is set. It feeds the OTG
+    // PHY reference clock mux.
+    let hse_div2_osc = hse.map(|freq| match RCC.hsecfgr().read().hsediv2sel() {
+        Hsediv2sel::Div1 => freq,
+        Hsediv2sel::Div2 => freq / 2u32,
+    });
 
     // hsi configuration
     //
@@ -1117,6 +1126,7 @@ fn init_osc(config: Config) -> OscOutput {
         hsi_div,
         hse,
         hse_rtc,
+        hse_div2_osc,
         msi,
         lsi,
         lse,
@@ -1384,6 +1394,7 @@ pub(crate) unsafe fn init(config: Config) {
         hsi_div: clock_inputs.hsi_div,
         hse: clock_inputs.hse,
         hse_rtc: osc.hse_rtc,
+        hse_div2_osc: osc.hse_div2_osc,
         msi: clock_inputs.msi,
         lsi: osc.lsi,
         lse: None,
