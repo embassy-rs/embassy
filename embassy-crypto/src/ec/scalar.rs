@@ -396,18 +396,19 @@ impl<C: Backend> Reduce<C::Uint> for Scalar<C> {
     }
 }
 
-// NOTE: composed from [`Reduce`] rather than delegated to the wrapped scalar:
-// not every curve implements `ReduceNonZero` on its scalar (P-384 does not),
-// and the bound was dropped from [`Backend`] accordingly. For curves that do
-// implement it (e.g. P-256), a `Reduce` composition is behavior-compatible on
-// the `ReduceNonZero` input range and more forgiving outside it.
+// NOTE: routed through [`Backend::reduce_nonzero`] rather than delegated to
+// the wrapped scalar: not every curve implements `ReduceNonZero` on its
+// scalar (P-384's does not), and the trait's contract is a nonzero result
+// (e.g. P-256's native impl is the `(w mod (n-1)) + 1` bijection, not
+// `Reduce`). Curves with a native impl override the backend method to keep
+// it unchanged.
 impl<C: Backend> ReduceNonZero<C::Uint> for Scalar<C> {
     fn reduce_nonzero(n: C::Uint) -> Self {
-        Self(<C::Scalar as Reduce<C::Uint>>::reduce(n))
+        Self(C::reduce_nonzero(n))
     }
 
     fn reduce_nonzero_bytes(bytes: &FieldBytes<C>) -> Self {
-        Self(<C::Scalar as Reduce<C::Uint>>::reduce_bytes(bytes))
+        Self(C::reduce_nonzero_bytes(bytes))
     }
 }
 
