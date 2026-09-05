@@ -88,7 +88,7 @@ impl Backend for p256::NistP256 {
     fn mul_base(k: &FieldBytes) -> (FieldBytes, FieldBytes) {
         use embassy_crypto_driver::P256ScalarMulImpl;
 
-        point_from_driver(P256ScalarMulImpl::mul_base(&scalar_to_driver(k)))
+        point_from_driver(P256ScalarMulImpl::mul_base(scalar_to_driver(k)))
     }
 
     #[cfg(not(feature = "driver-p256-scalar-mul"))]
@@ -96,8 +96,8 @@ impl Backend for p256::NistP256 {
         use embassy_crypto_driver::P256ScalarMulImpl;
 
         point_from_driver(P256ScalarMulImpl::mul_affine(
-            &scalar_to_driver(k),
-            &point_to_driver(x, y),
+            scalar_to_driver(k),
+            point_to_driver(x, y),
         ))
     }
 
@@ -105,14 +105,14 @@ impl Backend for p256::NistP256 {
     fn invert(k: &FieldBytes) -> FieldBytes {
         use embassy_crypto_driver::P256ScalarInvertImpl;
 
-        P256ScalarInvertImpl::invert(&scalar_to_driver(k)).0.into()
+        P256ScalarInvertImpl::invert(scalar_to_driver(k)).0.into()
     }
 
     #[cfg(not(feature = "driver-p256-scalar-invert"))]
     fn invert_vartime(k: &FieldBytes) -> FieldBytes {
         use embassy_crypto_driver::P256ScalarInvertImpl;
 
-        P256ScalarInvertImpl::invert_vartime(&scalar_to_driver(k)).0.into()
+        P256ScalarInvertImpl::invert_vartime(scalar_to_driver(k)).0.into()
     }
 
     #[cfg(not(feature = "driver-p256-lincomb"))]
@@ -127,10 +127,10 @@ impl Backend for p256::NistP256 {
         use embassy_crypto_driver::P256LincombImpl;
 
         P256LincombImpl::lincomb(
-            &scalar_to_driver(k1),
-            &point_to_driver(x1, y1),
-            &scalar_to_driver(k2),
-            &point_to_driver(x2, y2),
+            scalar_to_driver(k1),
+            point_to_driver(x1, y1),
+            scalar_to_driver(k2),
+            point_to_driver(x2, y2),
         )
         .map(point_from_driver)
     }

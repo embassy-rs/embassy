@@ -929,10 +929,10 @@ unitrait::unitrait! {
     #[symbol_prefix = "_embassy_crypto_p256_scalar_mul"]
     pub trait P256ScalarMul {
         /// Fixed-base scalar multiplication: `k * G`.
-        fn mul_base(k: &P256Scalar) -> P256AffinePoint;
+        fn mul_base(k: P256Scalar) -> P256AffinePoint;
 
         /// Variable-base scalar multiplication: `k * P`.
-        fn mul_affine(k: &P256Scalar, p: &P256AffinePoint) -> P256AffinePoint;
+        fn mul_affine(k: P256Scalar, p: P256AffinePoint) -> P256AffinePoint;
     }
 
     /// The global [`P256ScalarMul`] implementation.
@@ -956,10 +956,10 @@ unitrait::unitrait! {
     #[symbol_prefix = "_embassy_crypto_p256_scalar_invert"]
     pub trait P256ScalarInvert {
         /// `k^-1 mod n`. Must not have secret-dependent timing: `k` may be secret.
-        fn invert(k: &P256Scalar) -> P256Scalar;
+        fn invert(k: P256Scalar) -> P256Scalar;
 
         /// `k^-1 mod n`, variable time. Callers only pass public values.
-        fn invert_vartime(k: &P256Scalar) -> P256Scalar;
+        fn invert_vartime(k: P256Scalar) -> P256Scalar;
     }
 
     /// The global [`P256ScalarInvert`] implementation.
@@ -987,10 +987,10 @@ unitrait::unitrait! {
     pub trait P256Lincomb {
         /// `k1 * p1 + k2 * p2`, or `None` if the sum is the identity.
         fn lincomb(
-            k1: &P256Scalar,
-            p1: &P256AffinePoint,
-            k2: &P256Scalar,
-            p2: &P256AffinePoint,
+            k1: P256Scalar,
+            p1: P256AffinePoint,
+            k2: P256Scalar,
+            p2: P256AffinePoint,
         ) -> Option<P256AffinePoint>;
     }
 
