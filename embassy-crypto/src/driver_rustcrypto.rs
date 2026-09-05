@@ -9,21 +9,14 @@
 //! benefits from the acceleration.
 //!
 
+#[allow(unused_imports)]
 use embassy_crypto_driver::CryptoError;
-
-#[inline]
-fn to_rustcrypto_inout<'inp, 'out>(
-    buf: embassy_crypto_driver::InOutBuf<'inp, 'out, u8>,
-) -> cipher::inout::InOutBuf<'inp, 'out, u8> {
-    let len = buf.len();
-    let (in_ptr, out_ptr) = buf.into_raw();
-    unsafe { cipher::inout::InOutBuf::from_raw(in_ptr, out_ptr, len) }
-}
 
 // ===========================================================================
 // Digests
 // ===========================================================================
 
+#[allow(unused_macros)]
 macro_rules! impl_digest {
     (
         $driver:ident,
@@ -379,14 +372,14 @@ impl embassy_crypto_driver::Aes128Ecb for Aes128EcbDriver {
 
     fn encrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherEncrypt;
-        let buf = to_rustcrypto_inout(blocks);
+        let buf = crate::to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
         ctx.encrypt_blocks_inout(chunks);
     }
 
     fn decrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherDecrypt;
-        let buf = to_rustcrypto_inout(blocks);
+        let buf = crate::to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
         ctx.decrypt_blocks_inout(chunks);
     }
@@ -409,14 +402,14 @@ impl embassy_crypto_driver::Aes256Ecb for Aes256EcbDriver {
 
     fn encrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherEncrypt;
-        let buf = to_rustcrypto_inout(blocks);
+        let buf = crate::to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
         ctx.encrypt_blocks_inout(chunks);
     }
 
     fn decrypt_blocks(ctx: &Self::Context, blocks: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::BlockCipherDecrypt;
-        let buf = to_rustcrypto_inout(blocks);
+        let buf = crate::to_rustcrypto_inout(blocks);
         let (chunks, _tail) = buf.into_chunks();
         ctx.decrypt_blocks_inout(chunks);
     }
@@ -579,7 +572,7 @@ impl embassy_crypto_driver::Aes128Gcm for Aes128GcmDriver {
         use aead::AeadInOut;
         let nonce = aead::Nonce::<aes_gcm::Aes128Gcm>::try_from(nonce).unwrap();
         let computed_tag = ctx
-            .encrypt_inout_detached(&nonce, aad, to_rustcrypto_inout(buffer))
+            .encrypt_inout_detached(&nonce, aad, crate::to_rustcrypto_inout(buffer))
             .map_err(|_| CryptoError::InvalidInput)?;
         tag.copy_from_slice(computed_tag.as_slice());
         Ok(())
@@ -595,7 +588,7 @@ impl embassy_crypto_driver::Aes128Gcm for Aes128GcmDriver {
         use aead::AeadInOut;
         let nonce = aead::Nonce::<aes_gcm::Aes128Gcm>::try_from(nonce).unwrap();
         let tag_ga = aead::Tag::<aes_gcm::Aes128Gcm>::try_from(tag.as_slice()).unwrap();
-        ctx.decrypt_inout_detached(&nonce, aad, to_rustcrypto_inout(buffer), &tag_ga)
+        ctx.decrypt_inout_detached(&nonce, aad, crate::to_rustcrypto_inout(buffer), &tag_ga)
             .map_err(|_| CryptoError::InvalidSignature)
     }
 }
@@ -625,7 +618,7 @@ impl embassy_crypto_driver::Aes256Gcm for Aes256GcmDriver {
         use aead::AeadInOut;
         let nonce = aead::Nonce::<aes_gcm::Aes256Gcm>::try_from(nonce).unwrap();
         let computed_tag = ctx
-            .encrypt_inout_detached(&nonce, aad, to_rustcrypto_inout(buffer))
+            .encrypt_inout_detached(&nonce, aad, crate::to_rustcrypto_inout(buffer))
             .map_err(|_| CryptoError::InvalidInput)?;
         tag.copy_from_slice(computed_tag.as_slice());
         Ok(())
@@ -641,7 +634,7 @@ impl embassy_crypto_driver::Aes256Gcm for Aes256GcmDriver {
         use aead::AeadInOut;
         let nonce = aead::Nonce::<aes_gcm::Aes256Gcm>::try_from(nonce).unwrap();
         let tag_ga = aead::Tag::<aes_gcm::Aes256Gcm>::try_from(tag.as_slice()).unwrap();
-        ctx.decrypt_inout_detached(&nonce, aad, to_rustcrypto_inout(buffer), &tag_ga)
+        ctx.decrypt_inout_detached(&nonce, aad, crate::to_rustcrypto_inout(buffer), &tag_ga)
             .map_err(|_| CryptoError::InvalidSignature)
     }
 }
@@ -850,7 +843,7 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
             &ctx.cipher,
             nonce,
             aad,
-            to_rustcrypto_inout(buffer),
+            crate::to_rustcrypto_inout(buffer),
             tag
         )
     }
@@ -870,7 +863,7 @@ impl embassy_crypto_driver::Aes128Ccm for Aes128CcmDriver {
             &ctx.cipher,
             nonce,
             aad,
-            to_rustcrypto_inout(buffer),
+            crate::to_rustcrypto_inout(buffer),
             tag
         )
     }
@@ -914,7 +907,7 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
             &ctx.cipher,
             nonce,
             aad,
-            to_rustcrypto_inout(buffer),
+            crate::to_rustcrypto_inout(buffer),
             tag
         )
     }
@@ -934,7 +927,7 @@ impl embassy_crypto_driver::Aes256Ccm for Aes256CcmDriver {
             &ctx.cipher,
             nonce,
             aad,
-            to_rustcrypto_inout(buffer),
+            crate::to_rustcrypto_inout(buffer),
             tag
         )
     }
@@ -975,7 +968,8 @@ impl embassy_crypto_driver::Aes128Ctr for Aes128CtrDriver {
 
     fn apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::StreamCipher;
-        ctx.inner.unchecked_apply_keystream_inout(to_rustcrypto_inout(buf));
+        ctx.inner
+            .unchecked_apply_keystream_inout(crate::to_rustcrypto_inout(buf));
     }
 }
 
@@ -1010,7 +1004,8 @@ impl embassy_crypto_driver::Aes256Ctr for Aes256CtrDriver {
 
     fn apply_keystream(ctx: &mut Self::Context, buf: embassy_crypto_driver::InOutBuf<'_, '_, u8>) {
         use cipher::StreamCipher;
-        ctx.inner.unchecked_apply_keystream_inout(to_rustcrypto_inout(buf));
+        ctx.inner
+            .unchecked_apply_keystream_inout(crate::to_rustcrypto_inout(buf));
     }
 }
 

@@ -38,11 +38,11 @@ use elliptic_curve::generic_array::ArrayLength;
 use elliptic_curve::group::prime::PrimeCurveAffine;
 use elliptic_curve::group::{self, GroupEncoding};
 use elliptic_curve::ops::{LinearCombination, MulByGenerator};
+#[cfg(feature = "pkcs8")]
+use elliptic_curve::pkcs8::{AssociatedOid, ObjectIdentifier};
 use elliptic_curve::point::{DecompactPoint, DecompressPoint, PointCompaction, PointCompression};
 use elliptic_curve::sec1::{CompressedPoint, FromEncodedPoint, ModulusSize, ToCompactEncodedPoint, ToEncodedPoint};
 use elliptic_curve::subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
-#[cfg(feature = "pkcs8")]
-use elliptic_curve::pkcs8::{AssociatedOid, ObjectIdentifier};
 use elliptic_curve::{Curve, CurveArithmetic, FieldBytes, FieldBytesEncoding, PrimeCurve, PrimeCurveArithmetic};
 pub use projective::ProjectivePoint;
 pub use scalar::Scalar;

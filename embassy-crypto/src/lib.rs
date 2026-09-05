@@ -46,9 +46,20 @@ mod hash;
 pub use aes::*;
 pub use hash::*;
 
+#[allow(dead_code)]
 #[inline]
 fn unwrap_inout<'inp, 'out>(buf: InOutBuf<'inp, 'out, u8>) -> embassy_crypto_driver::InOutBuf<'inp, 'out, u8> {
     let len = buf.len();
     let (in_ptr, out_ptr) = buf.into_raw();
     unsafe { embassy_crypto_driver::InOutBuf::from_raw(in_ptr, out_ptr, len) }
+}
+
+#[allow(dead_code)]
+#[inline]
+fn to_rustcrypto_inout<'inp, 'out>(
+    buf: embassy_crypto_driver::InOutBuf<'inp, 'out, u8>,
+) -> cipher::inout::InOutBuf<'inp, 'out, u8> {
+    let len = buf.len();
+    let (in_ptr, out_ptr) = buf.into_raw();
+    unsafe { cipher::inout::InOutBuf::from_raw(in_ptr, out_ptr, len) }
 }

@@ -209,7 +209,10 @@ fn associated_oid() {
 
     // The accelerated curve reports the wrapped curve's OID, so PKCS#8/SPKI
     // key encoding works unchanged.
-    assert_eq!(<hw::NistP384 as AssociatedOid>::OID, <p384::NistP384 as AssociatedOid>::OID);
+    assert_eq!(
+        <hw::NistP384 as AssociatedOid>::OID,
+        <p384::NistP384 as AssociatedOid>::OID
+    );
     assert_eq!(
         <hw::NistP384 as AssociatedOid>::OID,
         p384::elliptic_curve::pkcs8::ObjectIdentifier::new_unwrap("1.3.132.0.34")

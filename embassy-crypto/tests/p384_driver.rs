@@ -14,20 +14,16 @@
 //! this file are registered only for the unitraits whose features are off,
 //! so this binary never defines a unitrait global that the crate also
 //! defines.
-#![cfg(all(
-    feature = "p384",
-    feature = "p384-ecdsa",
-    not(feature = "driver-p384-scalar-mul")
-))]
+#![cfg(all(feature = "p384", feature = "p384-ecdsa", not(feature = "driver-p384-scalar-mul")))]
 
 use core::cell::Cell;
 
 use embassy_crypto::p384 as hw;
 use embassy_crypto_driver::{P384AffinePoint, P384Scalar, P384ScalarMul};
 use p384::elliptic_curve::ff::PrimeField;
-use p384::elliptic_curve::group::Group;
 #[cfg(not(feature = "driver-p384-lincomb"))]
 use p384::elliptic_curve::group::Curve;
+use p384::elliptic_curve::group::Group;
 use p384::elliptic_curve::ops::MulByGenerator;
 use p384::elliptic_curve::sec1::{FromEncodedPoint, ToEncodedPoint};
 
@@ -62,9 +58,10 @@ embassy_crypto_driver::p384_scalar_mul_impl!(TestDriver);
 
 #[cfg(not(feature = "driver-p384-scalar-invert"))]
 mod invert {
-    use super::*;
     use p384::elliptic_curve::ff::Field;
     use p384::elliptic_curve::ops::Invert;
+
+    use super::*;
 
     impl embassy_crypto_driver::P384ScalarInvert for TestDriver {
         fn invert(k: P384Scalar) -> P384Scalar {
@@ -173,11 +170,7 @@ fn wrappers_call_the_driver() {
         // reports the identity result with the all-zero sentinel: 1 call.
         let zero_product = p * hw::Scalar::ZERO;
 
-        (
-            zero_product,
-            CALLS.with(|c| c.get()),
-            ZERO_SCALARS.with(|c| c.get()),
-        )
+        (zero_product, CALLS.with(|c| c.get()), ZERO_SCALARS.with(|c| c.get()))
     };
 
     // 4 mul calls + (1 lincomb | 2 mul) + 1 zero-mul.
@@ -265,10 +258,7 @@ fn lincomb_calls_the_driver() {
         let sum = hw::ProjectivePoint::lincomb(&p1, &k1, &p2, &-k1);
         assert!(bool::from(sum.is_identity()));
 
-        (
-            CALLS.with(|c| c.get()),
-            ZERO_SCALARS.with(|c| c.get()),
-        )
+        (CALLS.with(|c| c.get()), ZERO_SCALARS.with(|c| c.get()))
     };
 
     // 3 lincomb calls; the zero scalar of the second reaches the driver
