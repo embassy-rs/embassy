@@ -197,12 +197,70 @@ impl EpxArbiter {
     }
 }
 
+/// Allocation state for the dedicated interrupt endpoints.
+struct InterruptPipeState {
+    /// Bitset indexed by endpoint index (1..EP_COUNT).
+    allocated: AtomicU16,
+    /// Pipes whose cancelled transfer completed before its data toggle was advanced.
+    toggle_owed: AtomicU16,
+}
+
+impl InterruptPipeState {
+    const fn new() -> Self {
+        Self {
+            allocated: AtomicU16::new(0),
+            toggle_owed: AtomicU16::new(0),
+        }
+    }
+
+    fn reset(&self) {
+        self.allocated.store(0, Ordering::Relaxed);
+        self.toggle_owed.store(0, Ordering::Relaxed);
+    }
+
+    fn allocate(&self) -> Result<usize, HostError> {
+        critical_section::with(|_| {
+            let allocated = self.allocated.load(Ordering::Relaxed);
+            let index = (1..EP_COUNT)
+                .find(|index| allocated & (1 << index) == 0)
+                .ok_or(HostError::OutOfPipes)?;
+            self.allocated.store(allocated | (1 << index), Ordering::Relaxed);
+            Ok(index)
+        })
+    }
+
+    fn free(&self, index: usize) {
+        critical_section::with(|_| {
+            let bit = 1 << index;
+            let allocated = self.allocated.load(Ordering::Relaxed);
+            self.allocated.store(allocated & !bit, Ordering::Relaxed);
+            let owed = self.toggle_owed.load(Ordering::Relaxed);
+            self.toggle_owed.store(owed & !bit, Ordering::Relaxed);
+        });
+    }
+
+    fn mark_toggle_owed(&self, index: usize) {
+        critical_section::with(|_| {
+            let owed = self.toggle_owed.load(Ordering::Relaxed);
+            self.toggle_owed.store(owed | (1 << index), Ordering::Relaxed);
+        });
+    }
+
+    fn take_toggle_owed(&self, index: usize) -> bool {
+        critical_section::with(|_| {
+            let bit = 1 << index;
+            let owed = self.toggle_owed.load(Ordering::Relaxed);
+            self.toggle_owed.store(owed & !bit, Ordering::Relaxed);
+            owed & bit != 0
+        })
+    }
+}
+
 /// Per-instance state shared between [`Driver`], [`Allocator`] and [`Channel`].
 pub struct HostState {
     /// Current channel with ongoing non-interrupt transfer. `0` means None.
     current_channel: AtomicUsize,
-    /// Bitset of allocated interrupt pipes.
-    allocated_pipes: AtomicU16,
+    interrupt_pipes: InterruptPipeState,
     /// Bitset of allocated EPX pipes, indexed by `Channel::index - EP_COUNT`.
     allocated_epx: AtomicU16,
     /// One waiter per EPX pipe. Completion is routed to the pipe that owns EPX,
@@ -225,7 +283,7 @@ impl HostState {
     pub const fn new() -> Self {
         Self {
             current_channel: AtomicUsize::new(0),
-            allocated_pipes: AtomicU16::new(0),
+            interrupt_pipes: InterruptPipeState::new(),
             allocated_epx: AtomicU16::new(0),
             epx_wakers: [const { AtomicWaker::new() }; EPX_MAX_PIPES],
             used_blocks: critical_section::Mutex::new(Cell::new(0)),
@@ -235,7 +293,7 @@ impl HostState {
 
     fn reset(&self) {
         self.current_channel.store(0, Ordering::Relaxed);
-        self.allocated_pipes.store(0, Ordering::Relaxed);
+        self.interrupt_pipes.reset();
         self.allocated_epx.store(0, Ordering::Relaxed);
         critical_section::with(|cs| {
             *self.arbiter.borrow(cs).borrow_mut() = EpxArbiter::new();
@@ -463,9 +521,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         assert!(buf_addr + buf_len <= EP_MEMORY_SIZE as u16);
         assert!(ep_info.max_packet_size <= buf_len);
 
-        // TODO: Support interrupt OUT
-        assert!(!(E::ep_type() == EndpointType::Interrupt && D::is_out()));
-
         if ep_info.ep_type == EndpointType::Interrupt {
             assert!(index > 0 && index < EP_COUNT);
         } else {
@@ -482,7 +537,8 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
                 _phantom: PhantomData,
             },
             max_packet_size: ep_info.max_packet_size,
-            ep_addr: ep_info.addr.into(),
+            // The register carries the endpoint number; direction is configured separately.
+            ep_addr: u8::from(ep_info.addr) & 0x0f,
             interval: ep_info.interval_ms,
             pid: false,
             pre,
@@ -620,10 +676,53 @@ enum TransactionStatus {
     Timeout,
 }
 
+/// Stops a dedicated interrupt endpoint if its transfer future is cancelled.
+struct InterruptTransferGuard<T: SealedHostInstance> {
+    index: usize,
+    is_out: bool,
+    buffer_control: BufferControlReg,
+    active: bool,
+    _phantom: PhantomData<T>,
+}
+
+impl<T: SealedHostInstance> InterruptTransferGuard<T> {
+    fn arm(&mut self) {
+        self.active = true;
+    }
+
+    fn disarm(&mut self) {
+        self.active = false;
+    }
+}
+
+impl<T: SealedHostInstance> Drop for InterruptTransferGuard<T> {
+    fn drop(&mut self) {
+        if !self.active {
+            return;
+        }
+
+        let regs = T::regs();
+        regs.int_ep_ctrl().modify(|w| {
+            w.set_int_ep_active(w.int_ep_active() & !(1 << (self.index - 1)));
+        });
+
+        let buffer = self.buffer_control.read();
+        let moved = !buffer.available(0) && if self.is_out { !buffer.full(0) } else { buffer.full(0) };
+        if moved {
+            T::host_state().interrupt_pipes.mark_toggle_owed(self.index);
+        }
+
+        self.buffer_control.modify(|w| {
+            w.set_available(0, false);
+            w.set_full(0, false);
+        });
+        regs.buff_status().write_clear(|w| w.0 = 0b11 << (self.index * 2));
+    }
+}
+
 struct TransactionGuard<T: SealedHostInstance> {
     state: &'static HostState,
     index: usize,
-    interrupt: bool,
     ep_control: EpControlReg,
     buffer_control: BufferControlReg,
     transaction_active: bool,
@@ -644,11 +743,6 @@ impl<T: SealedHostInstance> TransactionGuard<T> {
 
 impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
     fn drop(&mut self) {
-        // Dedicated interrupt endpoints belong to the pipe
-        if self.interrupt {
-            return;
-        }
-
         let selected = self.state.current_channel.load(Ordering::Relaxed);
         if selected == self.index || selected == 0 {
             // Any armed transaction must be stopped before the endpoint registers are
@@ -689,7 +783,7 @@ impl<T: SealedHostInstance> Drop for TransactionGuard<T> {
 impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T, E, D> {
     /// Get channel waker
     fn waker(&self) -> &AtomicWaker {
-        if Self::is_interrupt_in() {
+        if Self::is_interrupt() {
             &EP_IN_WAKERS[self.index]
         } else {
             &T::host_state().epx_wakers[self.epx_slot()]
@@ -703,7 +797,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Get buffer control register
     fn buffer_control(&self) -> BufferControlReg {
-        let index = if Self::is_interrupt_in() {
+        let index = if Self::is_interrupt() {
             // Validated 1-15
             self.index
         } else {
@@ -732,7 +826,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Get endpoint control register
     fn ep_control(&self) -> EpControlReg {
-        if Self::is_interrupt_in() {
+        if Self::is_interrupt() {
             T::dpram().ep_in_control(self.index - 1)
         } else {
             T::dpram_epx_control()
@@ -741,12 +835,12 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Get interrupt endpoint address control
     fn addr_endp_host(&self) -> AddrControlReg {
-        assert!(Self::is_interrupt_in());
+        assert!(Self::is_interrupt());
         T::regs().addr_endp_x(self.index - 1)
     }
 
-    fn is_interrupt_in() -> bool {
-        E::ep_type() == EndpointType::Interrupt && D::is_in()
+    fn is_interrupt() -> bool {
+        E::ep_type() == EndpointType::Interrupt
     }
 
     /// Wait for buffer to be available
@@ -776,7 +870,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     /// Is hardware configured to perform transaction with this buffer
     /// Always true for INTERRUPT channel
     fn is_ready_for_transaction(&self) -> bool {
-        if Self::is_interrupt_in() {
+        if Self::is_interrupt() {
             true
         } else {
             let state = T::host_state();
@@ -801,14 +895,14 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         trace!("CHANNEL {} WAIT READY", self.index);
 
         // Join the queue for EPX. Dropped with this future, cancelled or not.
-        let _ticket = (!Self::is_interrupt_in()).then(|| WaitTicket::<T>::new(self.epx_slot()));
+        let _ticket = (!Self::is_interrupt()).then(|| WaitTicket::<T>::new(self.epx_slot()));
         // Wait for other transaction end
         poll_fn(|cx| {
             self.waker().register(cx.waker());
 
             if self.is_ready_for_transaction() {
                 #[cfg(feature = "_rp235x")]
-                if !Self::is_interrupt_in() {
+                if !Self::is_interrupt() {
                     disarm_epx_yield::<T>();
                 }
 
@@ -829,7 +923,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     // FIXME: RX Timeout with LS device on hub
     /// Start transaction and wait it to be complete
     async fn wait_transaction(&self) -> Result<TransactionStatus, PipeError> {
-        assert!(!Self::is_interrupt_in());
+        assert!(!Self::is_interrupt());
         let regs = T::regs();
 
         // Enable error and cplt interrupts
@@ -897,7 +991,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             self.max_packet_size,
             self.pre
         );
-        if Self::is_interrupt_in() {
+        if Self::is_interrupt() {
             self.ep_control().write(|w| {
                 w.set_endpoint_type(EpControlEndpointType::Interrupt);
                 w.set_interrupt_per_buff(true);
@@ -917,7 +1011,6 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
             self.addr_endp_host().write(|w| {
                 w.set_address(self.dev_addr);
                 w.set_endpoint(self.ep_addr);
-                // FIXME: INTERRUPT OUT?
                 w.set_intep_dir(D::is_out());
                 w.set_intep_preamble(self.pre)
             });
@@ -949,14 +1042,32 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
     }
 
     fn transaction_guard(&self) -> TransactionGuard<T> {
+        debug_assert!(!Self::is_interrupt());
         TransactionGuard {
             state: T::host_state(),
             index: self.index,
-            interrupt: Self::is_interrupt_in(),
             ep_control: self.ep_control(),
             buffer_control: self.buffer_control(),
             transaction_active: false,
             _phantom: PhantomData,
+        }
+    }
+
+    fn interrupt_transfer_guard(&self) -> InterruptTransferGuard<T> {
+        debug_assert!(Self::is_interrupt());
+        InterruptTransferGuard {
+            index: self.index,
+            is_out: D::is_out(),
+            buffer_control: self.buffer_control(),
+            active: false,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Apply a toggle consumed by a packet that completed during cancellation.
+    fn settle_interrupt_toggle(&mut self) {
+        if T::host_state().interrupt_pipes.take_toggle_owed(self.index) {
+            self.advance_pid();
         }
     }
 
@@ -1001,6 +1112,100 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         T::regs().int_ep_ctrl().modify(|w| {
             w.set_int_ep_active(w.int_ep_active() | 1 << (self.index - 1));
         });
+    }
+
+    /// Load an interrupt OUT buffer and arm it for the next poll.
+    fn interrupt_send(&mut self, data: &[u8]) -> usize {
+        assert!(Self::is_interrupt() && D::is_out());
+        let chunk = &data[..data.len().min(self.max_packet_size as usize)];
+        self.buf.write(chunk);
+
+        self.write_buffer_control(|w| {
+            w.set_last(0, chunk.len() == data.len());
+            w.set_pid(0, self.pid);
+            w.set_full(0, true);
+            w.set_reset(true);
+            w.set_length(0, chunk.len() as u16);
+            w.set_available(0, true);
+        });
+
+        cortex_m::asm::delay(USB_CLOCK_DELAY_CYCLES);
+        T::regs().int_ep_ctrl().modify(|w| {
+            w.set_int_ep_active(w.int_ep_active() | 1 << (self.index - 1));
+        });
+
+        chunk.len()
+    }
+
+    /// Read one packet from a dedicated interrupt endpoint.
+    async fn interrupt_in_read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
+        self.wait_ready_for_transaction().await;
+        self.set_current();
+        self.settle_interrupt_toggle();
+        let mut guard = self.interrupt_transfer_guard();
+        guard.arm();
+
+        let ctrl = self.buffer_control().read();
+        if ctrl.full(0) {
+            // A packet arrived while nobody was reading. Take it as it stands:
+            // re-arming would clear `full` and discard what the device already sent.
+        } else if ctrl.available(0) {
+            // Already armed, so the controller owns the buffer and may fill it at
+            // any moment. Writing to it here would race that; just wait.
+            trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
+            self.wait_available().await;
+        } else {
+            // Idle: not armed and holding nothing, so the controller cannot be
+            // touching the buffer and it is safe to program.
+            trace!("CHANNEL {} ARM INTERRUPT", self.index);
+            self.interrupt_reload();
+            self.wait_available().await;
+        }
+
+        let rx_len = self.buffer_control().read().length(0) as usize;
+        trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
+        if rx_len > buf.len() {
+            return Err(PipeError::BufferOverflow);
+        }
+
+        self.buf.read(&mut buf[..rx_len]);
+        self.advance_pid();
+        self.interrupt_reload();
+        guard.disarm();
+        Ok(rx_len)
+    }
+
+    /// Write to a dedicated interrupt endpoint, one packet per poll.
+    async fn interrupt_out_write(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError> {
+        self.wait_ready_for_transaction().await;
+        self.set_current();
+        self.settle_interrupt_toggle();
+        let mut guard = self.interrupt_transfer_guard();
+        guard.arm();
+
+        // Run once so an empty buffer sends a ZLP.
+        let mut count = 0;
+        let mut packet;
+        loop {
+            trace!("CHANNEL {} ARM INTERRUPT OUT", self.index);
+            packet = self.interrupt_send(&buf[count..]);
+            self.wait_available().await;
+            self.advance_pid();
+            count += packet;
+            if count >= buf.len() {
+                break;
+            }
+        }
+
+        if ensure_transaction_end && packet == self.max_packet_size as usize {
+            trace!("CHANNEL {} ARM INTERRUPT OUT ZLP", self.index);
+            self.interrupt_send(&[]);
+            self.wait_available().await;
+            self.advance_pid();
+        }
+
+        guard.disarm();
+        Ok(())
     }
 
     /// Set DATA IN transaction
@@ -1073,7 +1278,7 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
 
     /// Clear buffer interrupt bit
     fn clear_sie_status(&self) {
-        if Self::is_interrupt_in() {
+        if Self::is_interrupt() {
             T::regs().buff_status().write_clear(|w| w.0 = 0b11 << self.index * 2);
         } else {
             T::regs().buff_status().write_clear(|w| w.0 = 0b11);
@@ -1140,6 +1345,61 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> Channel<'d, T
         self.run_transaction(|s| len = s.set_data_out(data, pid)).await?;
 
         Ok(len)
+    }
+
+    /// Read over EPX until the caller's buffer fills or the device sends a short packet.
+    async fn epx_read(&mut self, buf: &mut [u8]) -> Result<usize, PipeError> {
+        let mut count: usize = 0;
+        let res = loop {
+            trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
+            let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
+            let rx_len = self.transfer_in_packet(packet_len as u16, self.pid).await?;
+            self.advance_pid();
+
+            let free = &mut buf[count..];
+            trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
+
+            if rx_len > free.len() {
+                break Err(PipeError::BufferOverflow);
+            }
+
+            self.buf.read(&mut free[..rx_len]);
+            count += rx_len;
+
+            // If transfer is smaller than max_packet_size, we are done
+            // If we have read buf.len() bytes, we are done
+            if count == buf.len() || rx_len < self.max_packet_size as usize {
+                break Ok(count);
+            }
+        };
+
+        res
+    }
+
+    /// Write over EPX until the caller's buffer is drained.
+    async fn epx_write(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError> {
+        let mut count = 0;
+        let res = loop {
+            trace!("CHANNEL {} START WRITE", self.index);
+            let packet = self.transfer_out_packet(&buf[count..], self.pid).await?;
+            self.advance_pid();
+
+            trace!("WRITE DONE, tx_len = {}", packet);
+
+            count += packet;
+
+            if count == buf.len() {
+                if packet == self.max_packet_size as usize && ensure_transaction_end {
+                    trace!("CHANNEL {} START ZLP WRITE", self.index);
+                    self.transfer_out_packet(&[], self.pid).await?;
+                    self.advance_pid();
+                    trace!("ZLP WRITE DONE");
+                }
+                break Ok(());
+            }
+        };
+
+        res
     }
 
     /// Send SETUP packet
@@ -1228,98 +1488,22 @@ impl<'d, T: SealedHostInstance, E: pipe::Type, D: pipe::Direction> UsbPipe<E, D>
     where
         D: pipe::IsIn,
     {
-        // An interrupt pipe owns its endpoint for the whole read.
-        let _interrupt_guard = if Self::is_interrupt_in() {
-            self.wait_ready_for_transaction().await;
-            self.set_current();
-            Some(self.transaction_guard())
+        if Self::is_interrupt() {
+            self.interrupt_in_read(buf).await
         } else {
-            None
-        };
-
-        let mut count: usize = 0;
-
-        let res = loop {
-            let rx_len = if Self::is_interrupt_in() {
-                let ctrl = self.buffer_control().read();
-                if ctrl.full(0) {
-                    // A packet arrived while nobody was reading. Take it as it stands:
-                    // re-arming would clear `full` and discard what the device already sent.
-                } else if ctrl.available(0) {
-                    // Already armed, so the controller owns the buffer and may fill it at
-                    // any moment. Writing to it here would race that; just wait.
-                    trace!("CHANNEL {} WAIT FOR INTERRUPT", self.index);
-                    self.wait_available().await;
-                } else {
-                    // Idle: not armed and holding nothing, so the controller cannot be
-                    // touching the buffer and it is safe to program.
-                    trace!("CHANNEL {} ARM INTERRUPT", self.index);
-                    self.interrupt_reload();
-                    self.wait_available().await;
-                }
-                self.buffer_control().read().length(0) as usize
-            } else {
-                trace!("CHANNEL {} START READ, len = {}", self.index, buf.len());
-                let packet_len = core::cmp::min(buf.len() - count, self.max_packet_size as usize);
-                let rx_len = self.transfer_in_packet(packet_len as u16, self.pid).await?;
-                self.advance_pid();
-
-                rx_len
-            };
-
-            let free = &mut buf[count..];
-            trace!("CHANNEL {} READ DONE, rx_len = {}", self.index, rx_len);
-
-            if rx_len > free.len() {
-                break Err(PipeError::BufferOverflow);
-            }
-
-            self.buf.read(&mut free[..rx_len]);
-            count += rx_len;
-
-            if Self::is_interrupt_in() {
-                self.advance_pid();
-                self.interrupt_reload();
-                break Ok(count);
-            }
-
-            // If transfer is smaller than max_packet_size, we are done
-            // If we have read buf.len() bytes, we are done
-            if count == buf.len() || rx_len < self.max_packet_size as usize {
-                break Ok(count);
-            }
-        };
-
-        res
+            self.epx_read(buf).await
+        }
     }
 
     async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), PipeError>
     where
         D: pipe::IsOut,
     {
-        let mut count = 0;
-
-        let res = loop {
-            trace!("CHANNEL {} START WRITE", self.index);
-            let packet = self.transfer_out_packet(&buf[count..], self.pid).await?;
-            self.advance_pid();
-
-            trace!("WRITE DONE, tx_len = {}", packet);
-
-            count += packet;
-
-            if count == buf.len() {
-                if packet == self.max_packet_size as usize && ensure_transaction_end {
-                    trace!("CHANNEL {} START ZLP WRITE", self.index);
-                    self.transfer_out_packet(&[], self.pid).await?;
-                    self.advance_pid();
-                    trace!("ZLP WRITE DONE");
-                }
-                break Ok(());
-            }
-        };
-
-        res
+        if Self::is_interrupt() {
+            self.interrupt_out_write(buf, ensure_transaction_end).await
+        } else {
+            self.epx_write(buf, ensure_transaction_end).await
+        }
     }
 
     fn set_timeout(&mut self, timeout: TimeoutConfig) {
@@ -1352,11 +1536,7 @@ impl<'d, T: SealedHostInstance, E, D> Drop for Channel<'d, T, E, D> {
             dpram.ep_in_buffer_control(self.index).write(|w| w.0 = 0);
             regs.buff_status().write_clear(|w| w.0 = 0b11 << (self.index * 2));
 
-            let state = T::host_state();
-            critical_section::with(|_| {
-                let pipes = &state.allocated_pipes;
-                pipes.store(pipes.load(Ordering::Relaxed) & !(1 << self.index), Ordering::Relaxed);
-            });
+            T::host_state().interrupt_pipes.free(self.index);
         } else {
             let state = T::host_state();
             // Return the EPX buffer and the pipe slot to the pool.
@@ -1447,19 +1627,21 @@ impl<'d, T: SealedHostInstance> UsbHostAllocator<'d> for Allocator<'d, T> {
         let state = T::host_state();
         let pre = split_to_pre(split);
         if E::ep_type() == EndpointType::Interrupt {
-            let free_index = critical_section::with(|_| {
-                let alloc = state.allocated_pipes.load(Ordering::Relaxed);
-                if let Some(idx) = (1..EP_COUNT).find(|i| alloc & (1 << i) == 0) {
-                    state.allocated_pipes.store(alloc | (1 << idx), Ordering::Relaxed);
-                    Ok(idx as u8)
-                } else {
-                    Err(HostError::OutOfPipes)
-                }
-            })?;
+            if endpoint.max_packet_size == 0 || endpoint.max_packet_size as usize > EPX_BLOCK_SIZE {
+                return Err(HostError::InvalidDescriptor);
+            }
+            let index = state.interrupt_pipes.allocate()?;
             // Fixed layout: pipe index 1..EP_COUNT maps to block 0..EP_COUNT-1.
-            let addr = DPRAM_DATA_OFFSET + (free_index as u16 - 1) * EPX_BLOCK_SIZE as u16;
+            let addr = DPRAM_DATA_OFFSET + (index as u16 - 1) * EPX_BLOCK_SIZE as u16;
 
-            Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
+            Ok(Channel::new(
+                index,
+                addr,
+                EPX_BLOCK_SIZE as u16,
+                endpoint,
+                dev_addr,
+                pre,
+            ))
         } else {
             let index = critical_section::with(|_| {
                 let alloc = state.allocated_epx.load(Ordering::Relaxed);
@@ -1682,8 +1864,8 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
             } else if ints.buff_status() {
                 let status = regs.buff_status().read().0;
                 // Bits 0 and 1 are EPX's IN/OUT pair; from bit 2 up they are the
-                // dedicated interrupt endpoints, two bits per endpoint. Only interrupt IN
-                // gets a dedicated endpoint, so of each pair only the IN bit is ever armed.
+                // dedicated interrupt endpoints, two bits per endpoint. Either direction
+                // can signal, so clear both bits in the pair.
                 if status & 0b11 != 0 {
                     regs.buff_status().write_clear(|w| w.0 = status & 0b11);
                     trace!("USB IRQ: EPx");
@@ -1691,7 +1873,7 @@ impl<T: SealedHostInstance> interrupt::typelevel::Handler<T::Interrupt> for Inte
                 }
 
                 for n in 1..EP_COUNT {
-                    if status & (1 << (n * 2)) != 0 {
+                    if status & (0b11 << (n * 2)) != 0 {
                         regs.buff_status().write_clear(|w| w.0 = 0b11 << (n * 2));
                         trace!("USB IRQ: Interrupt EP {}", n);
                         EP_IN_WAKERS[n].wake();
