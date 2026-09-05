@@ -74,12 +74,7 @@ embassy_crypto_driver::p256_scalar_invert_impl!(TestDriver);
 
 #[cfg(not(feature = "driver-p256-lincomb"))]
 impl embassy_crypto_driver::P256Lincomb for TestDriver {
-    fn lincomb(
-        k1: P256Scalar,
-        p1: P256AffinePoint,
-        k2: P256Scalar,
-        p2: P256AffinePoint,
-    ) -> Option<P256AffinePoint> {
+    fn lincomb(k1: P256Scalar, p1: P256AffinePoint, k2: P256Scalar, p2: P256AffinePoint) -> Option<P256AffinePoint> {
         use p256::elliptic_curve::group::Group;
 
         CALLS.with(|calls| calls.set(calls.get() + 1));
