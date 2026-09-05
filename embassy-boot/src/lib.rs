@@ -34,10 +34,13 @@ pub(crate) const REVERT_MAGIC: u8 = 0xC0;
 pub(crate) const BOOT_MAGIC: u8 = 0xD0;
 pub(crate) const SWAP_MAGIC: u8 = 0xF0;
 pub(crate) const DFU_DETACH_MAGIC: u8 = 0xE0;
+// Incomparable with the other magic values under either flash polarity, so a torn write cannot authorize a swap.
+pub(crate) const VERIFY_MAGIC: u8 = 0xB1;
 
 /// The state of the bootloader after running prepare.
 #[derive(PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum State {
     /// Bootloader is ready to boot the active partition.
     Boot,
@@ -47,6 +50,8 @@ pub enum State {
     Revert,
     /// Application has received a request to reboot into DFU mode to apply an update.
     DfuDetach,
+    /// An update is staged in the DFU partition but must be verified before it can be swapped.
+    Verify,
 }
 
 impl<T> From<T> for State
@@ -57,6 +62,8 @@ where
         let magic = magic.as_ref();
         if !magic.iter().any(|&b| b != SWAP_MAGIC) {
             State::Swap
+        } else if !magic.iter().any(|&b| b != VERIFY_MAGIC) {
+            State::Verify
         } else if !magic.iter().any(|&b| b != REVERT_MAGIC) {
             State::Revert
         } else if !magic.iter().any(|&b| b != DFU_DETACH_MAGIC) {
@@ -115,6 +122,14 @@ mod tests {
     */
 
     #[test]
+    fn test_verify_magic_cannot_tear_into_another_state() {
+        for magic in [BOOT_MAGIC, SWAP_MAGIC, REVERT_MAGIC, DFU_DETACH_MAGIC] {
+            assert_ne!(magic & VERIFY_MAGIC, magic);
+            assert_ne!(magic & VERIFY_MAGIC, VERIFY_MAGIC);
+        }
+    }
+
+    #[test]
     fn test_boot_state() {
         let flash = BlockingTestFlash::new(BootLoaderConfig {
             active: MemFlash::<57344, 4096, 4>::default(),
@@ -132,6 +147,24 @@ mod tests {
 
         let mut page = [0; 4096];
         assert_eq!(State::Boot, bootloader.prepare_boot(&mut page).unwrap());
+    }
+
+    #[test]
+    fn test_verify_state() {
+        let flash = BlockingTestFlash::new(BootLoaderConfig {
+            active: MemFlash::<4096, 4096, 4>::default(),
+            dfu: MemFlash::<8192, 4096, 4>::default(),
+            state: MemFlash::<4096, 4096, 4>::default(),
+        });
+        flash.state().write(0, &[VERIFY_MAGIC; 4]).unwrap();
+
+        let mut bootloader = BootLoader::new(BootLoaderConfig {
+            active: flash.active(),
+            dfu: flash.dfu(),
+            state: flash.state(),
+        });
+        let mut page = [0; 4096];
+        assert_eq!(State::Verify, bootloader.prepare_boot(&mut page).unwrap());
     }
 
     #[test]
@@ -359,6 +392,11 @@ mod tests {
             &mut aligned,
         );
 
+        block_on(updater.mark_verify()).unwrap();
+        assert_eq!(block_on(updater.get_state()).unwrap(), State::Verify);
+        block_on(updater.reject_update()).unwrap();
+        assert_eq!(block_on(updater.get_state()).unwrap(), State::Boot);
+        block_on(updater.mark_verify()).unwrap();
         assert!(
             block_on(updater.verify_and_mark_updated(
                 &public_key.to_bytes(),
@@ -367,5 +405,6 @@ mod tests {
             ))
             .is_ok()
         );
+        assert_eq!(block_on(updater.get_state()).unwrap(), State::Swap);
     }
 }

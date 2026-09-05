@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage_async::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
-use crate::{BOOT_MAGIC, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, State};
+use crate::{BOOT_MAGIC, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, State, VERIFY_MAGIC};
 
 /// FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
@@ -70,6 +70,16 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
         self.state.get_state().await
     }
 
+    /// Mark a fully staged update as pending verification.
+    pub async fn mark_verify(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.mark_verify().await
+    }
+
+    /// Reject a pending update without modifying the staged bytes.
+    pub async fn reject_update(&mut self) -> Result<(), FirmwareUpdaterError> {
+        self.state.reject_update().await
+    }
+
     /// Verify the DFU given a public key. If there is an error then DO NOT
     /// proceed with updating the firmware as it must be signed with a
     /// corresponding private key (otherwise it could be malicious firmware).
@@ -90,7 +100,12 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> FirmwareUpdater<'d, DFU, STATE> {
     ) -> Result<(), FirmwareUpdaterError> {
         assert!(_update_len <= self.dfu.capacity() as u32);
 
-        self.state.verify_booted().await?;
+        if !matches!(
+            self.state.get_state().await?,
+            State::Verify | State::Boot | State::DfuDetach | State::Revert
+        ) {
+            return Err(FirmwareUpdaterError::BadState);
+        }
 
         #[cfg(feature = "ed25519-dalek")]
         {
@@ -332,6 +347,24 @@ impl<'d, STATE: NorFlash> FirmwareState<'d, STATE> {
     /// Mark to trigger firmware swap on next boot.
     pub async fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {
         self.set_magic(SWAP_MAGIC).await
+    }
+
+    /// Mark a fully staged update as pending verification.
+    pub async fn mark_verify(&mut self) -> Result<(), FirmwareUpdaterError> {
+        match self.get_state().await? {
+            State::Verify => Ok(()),
+            State::Boot | State::DfuDetach | State::Revert => self.set_magic(VERIFY_MAGIC).await,
+            State::Swap => Err(FirmwareUpdaterError::BadState),
+        }
+    }
+
+    /// Reject a pending update and return to normal boot state.
+    pub async fn reject_update(&mut self) -> Result<(), FirmwareUpdaterError> {
+        if self.get_state().await? != State::Verify {
+            return Err(FirmwareUpdaterError::BadState);
+        }
+        self.state.erase(0, self.state.capacity() as u32).await?;
+        Ok(())
     }
 
     /// Mark to trigger USB DFU on next boot.
