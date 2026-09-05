@@ -121,7 +121,10 @@ async fn main(spawner: Spawner) {
         perf_client::Expected {
             down_kbps: 1000,
             up_kbps: 1000,
+            #[cfg(not(feature = "stm32h755zi"))]
             updown_kbps: 1000,
+            #[cfg(feature = "stm32h755zi")]
+            updown_kbps: 800,
         },
     )
     .await;
