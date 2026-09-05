@@ -11,10 +11,7 @@ use cipher::{
 };
 use crypto_common::KeySizeUser;
 pub use digest;
-use digest::{
-    FixedOutput, FixedOutputReset, Key, KeyInit, MacMarker, Output, OutputSizeUser, Reset,
-    Update,
-};
+use digest::{FixedOutput, FixedOutputReset, Key, KeyInit, MacMarker, Output, OutputSizeUser, Reset, Update};
 use generic_array::typenum::{U1, U12, U16, U32};
 
 use crate::unwrap_inout;
