@@ -41,6 +41,8 @@ use elliptic_curve::ops::{LinearCombination, MulByGenerator, ReduceNonZero};
 use elliptic_curve::point::{DecompactPoint, DecompressPoint, PointCompaction, PointCompression};
 use elliptic_curve::sec1::{CompressedPoint, FromEncodedPoint, ModulusSize, ToCompactEncodedPoint, ToEncodedPoint};
 use elliptic_curve::subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
+#[cfg(feature = "pkcs8")]
+use elliptic_curve::pkcs8::{AssociatedOid, ObjectIdentifier};
 use elliptic_curve::{Curve, CurveArithmetic, FieldBytes, FieldBytesEncoding, PrimeCurve, PrimeCurveArithmetic};
 pub use projective::ProjectivePoint;
 pub use scalar::Scalar;
@@ -232,6 +234,14 @@ impl<C: Backend> CurveArithmetic for Accelerated<C> {
 
 impl<C: Backend> PrimeCurveArithmetic for Accelerated<C> {
     type CurveGroup = ProjectivePoint<C>;
+}
+
+/// The accelerated curve *is* the wrapped curve, so it carries the same
+/// object identifier. This makes PKCS#8/SPKI key encoding (which requires
+/// [`AssociatedOid`]) work for the accelerated types unchanged.
+#[cfg(feature = "pkcs8")]
+impl<C: Backend + AssociatedOid> AssociatedOid for Accelerated<C> {
+    const OID: ObjectIdentifier = C::OID;
 }
 
 /// ECDSA over an accelerated curve.

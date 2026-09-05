@@ -31,6 +31,9 @@ pub mod ec;
 #[cfg(feature = "p256")]
 pub mod p256;
 
+#[cfg(feature = "p384")]
+pub mod p384;
+
 mod aes;
 mod hash;
 

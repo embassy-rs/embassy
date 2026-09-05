@@ -12,7 +12,9 @@ embassy-registered crypto drivers without modification.
   must have a very good reason that can be clearly explained.
 - Aside from RNG, every operation must have a backing rustcrypto driver that serves as
   the reference implementation. *embassy-crypto* should function as a thin layer that calls
-  into rustcrypto with the `driver-rustcrypto` feature enabled.
+  into rustcrypto with the `driver-rustcrypto` feature enabled (this means that if the `driver-x`
+  feature is not enabled when an *embassy-crypto* type is used and no other crate provides an 
+  implementation, then the binary will fail to link).
 - Given that hardware takes some time to setup, the *embassy-crypto* types should batch
   operations with calls into the unitrait that operate on large buffers where possible.
   At least, the implemented traits or methods should allow the user the possibility of this.
