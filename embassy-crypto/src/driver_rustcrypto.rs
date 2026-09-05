@@ -1084,3 +1084,141 @@ impl embassy_crypto_driver::Aes256Cmac for Aes256CmacDriver {
 
 #[cfg(feature = "driver-aes256cmac")]
 embassy_crypto_driver::aes256cmac_impl!(Aes256CmacDriver);
+
+// ===========================================================================
+// Elliptic curve unitraits (P-256, P-384)
+// ===========================================================================
+//
+// WARNING: the impls below are deliberately NOT software implementations of
+// the unitraits. Read this before "fixing" them.
+//
+// When a `driver-p256-*` / `driver-p384-*` feature is enabled, `embassy-crypto`
+// runs the corresponding elliptic-curve operation in software *directly on
+// the wrapped curve types* (`ACCELERATED_*` is `false` in the `p256`/`p384`
+// modules) and never calls these unitraits: converting scalars and points to
+// the canonical byte form the unitraits exchange costs more than the
+// operation itself when there is no accelerator behind the driver.
+//
+// These impls exist only to define the unitrait's link-time global:
+//
+// - Feature ON: embassy-crypto stakes the global. If the HAL *also*
+//   registers an implementation of the same unitrait (a misconfiguration:
+//   two "drivers" for one operation), the duplicate definition fails the
+//   link instead of silently leaving the HAL driver unused.
+// - Feature OFF: embassy-crypto defines nothing; the accelerated wrappers
+//   route through the unitrait and the HAL must provide the implementation,
+//   or the link fails with an undefined symbol.
+//
+// The methods are `unreachable!()` because the only way they could ever run
+// is a routing bug: with the feature enabled the wrappers never reach the
+// unitrait. A loud panic beats silently returning wrong results.
+
+#[cfg(feature = "driver-p256-scalar-mul")]
+struct P256ScalarMulDriver;
+
+#[cfg(feature = "driver-p256-scalar-mul")]
+impl embassy_crypto_driver::P256ScalarMul for P256ScalarMulDriver {
+    fn mul_base(_: embassy_crypto_driver::P256Scalar) -> embassy_crypto_driver::P256AffinePoint {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+
+    fn mul_affine(
+        _: embassy_crypto_driver::P256Scalar,
+        _: embassy_crypto_driver::P256AffinePoint,
+    ) -> embassy_crypto_driver::P256AffinePoint {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p256-scalar-mul")]
+embassy_crypto_driver::p256_scalar_mul_impl!(P256ScalarMulDriver);
+
+#[cfg(feature = "driver-p256-scalar-invert")]
+struct P256ScalarInvertDriver;
+
+#[cfg(feature = "driver-p256-scalar-invert")]
+impl embassy_crypto_driver::P256ScalarInvert for P256ScalarInvertDriver {
+    fn invert(_: embassy_crypto_driver::P256Scalar) -> embassy_crypto_driver::P256Scalar {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+
+    fn invert_vartime(_: embassy_crypto_driver::P256Scalar) -> embassy_crypto_driver::P256Scalar {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p256-scalar-invert")]
+embassy_crypto_driver::p256_scalar_invert_impl!(P256ScalarInvertDriver);
+
+#[cfg(feature = "driver-p256-lincomb")]
+struct P256LincombDriver;
+
+#[cfg(feature = "driver-p256-lincomb")]
+impl embassy_crypto_driver::P256Lincomb for P256LincombDriver {
+    fn lincomb(
+        _: embassy_crypto_driver::P256Scalar,
+        _: embassy_crypto_driver::P256AffinePoint,
+        _: embassy_crypto_driver::P256Scalar,
+        _: embassy_crypto_driver::P256AffinePoint,
+    ) -> Option<embassy_crypto_driver::P256AffinePoint> {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p256-lincomb")]
+embassy_crypto_driver::p256_lincomb_impl!(P256LincombDriver);
+
+#[cfg(feature = "driver-p384-scalar-mul")]
+struct P384ScalarMulDriver;
+
+#[cfg(feature = "driver-p384-scalar-mul")]
+impl embassy_crypto_driver::P384ScalarMul for P384ScalarMulDriver {
+    fn mul_base(_: embassy_crypto_driver::P384Scalar) -> embassy_crypto_driver::P384AffinePoint {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+
+    fn mul_affine(
+        _: embassy_crypto_driver::P384Scalar,
+        _: embassy_crypto_driver::P384AffinePoint,
+    ) -> embassy_crypto_driver::P384AffinePoint {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p384-scalar-mul")]
+embassy_crypto_driver::p384_scalar_mul_impl!(P384ScalarMulDriver);
+
+#[cfg(feature = "driver-p384-scalar-invert")]
+struct P384ScalarInvertDriver;
+
+#[cfg(feature = "driver-p384-scalar-invert")]
+impl embassy_crypto_driver::P384ScalarInvert for P384ScalarInvertDriver {
+    fn invert(_: embassy_crypto_driver::P384Scalar) -> embassy_crypto_driver::P384Scalar {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+
+    fn invert_vartime(_: embassy_crypto_driver::P384Scalar) -> embassy_crypto_driver::P384Scalar {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p384-scalar-invert")]
+embassy_crypto_driver::p384_scalar_invert_impl!(P384ScalarInvertDriver);
+
+#[cfg(feature = "driver-p384-lincomb")]
+struct P384LincombDriver;
+
+#[cfg(feature = "driver-p384-lincomb")]
+impl embassy_crypto_driver::P384Lincomb for P384LincombDriver {
+    fn lincomb(
+        _: embassy_crypto_driver::P384Scalar,
+        _: embassy_crypto_driver::P384AffinePoint,
+        _: embassy_crypto_driver::P384Scalar,
+        _: embassy_crypto_driver::P384AffinePoint,
+    ) -> Option<embassy_crypto_driver::P384AffinePoint> {
+        unreachable!("staked unitrait global, never called; see the comment above")
+    }
+}
+
+#[cfg(feature = "driver-p384-lincomb")]
+embassy_crypto_driver::p384_lincomb_impl!(P384LincombDriver);

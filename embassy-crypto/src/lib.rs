@@ -22,6 +22,12 @@ use cipher::InOutBuf;
     feature = "driver-aes256ccm",
     feature = "driver-aes128cmac",
     feature = "driver-aes256cmac",
+    feature = "driver-p256-scalar-mul",
+    feature = "driver-p256-scalar-invert",
+    feature = "driver-p256-lincomb",
+    feature = "driver-p384-scalar-mul",
+    feature = "driver-p384-scalar-invert",
+    feature = "driver-p384-lincomb",
 ))]
 mod driver_rustcrypto;
 

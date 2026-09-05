@@ -110,6 +110,9 @@ driver-rustcrypto = [
     "driver-p256-scalar-mul",
     "driver-p256-scalar-invert",
     "driver-p256-lincomb",
+    "driver-p384-scalar-mul",
+    "driver-p384-scalar-invert",
+    "driver-p384-lincomb",
 ]
 
 driver-md5 = ["dep:md-5"]
@@ -132,3 +135,6 @@ driver-aes256cmac = ["dep:cmac", "dep:aes"]
 driver-p256-scalar-mul = ["dep:p256"]
 driver-p256-scalar-invert = ["dep:p256"]
 driver-p256-lincomb = ["dep:p256"]
+driver-p384-scalar-mul = ["dep:p384"]
+driver-p384-scalar-invert = ["dep:p384"]
+driver-p384-lincomb = ["dep:p384"]

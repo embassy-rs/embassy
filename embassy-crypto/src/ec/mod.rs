@@ -37,7 +37,7 @@ use elliptic_curve::ff::{Field, PrimeField};
 use elliptic_curve::generic_array::ArrayLength;
 use elliptic_curve::group::prime::PrimeCurveAffine;
 use elliptic_curve::group::{self, GroupEncoding};
-use elliptic_curve::ops::{LinearCombination, MulByGenerator, ReduceNonZero};
+use elliptic_curve::ops::{LinearCombination, MulByGenerator};
 use elliptic_curve::point::{DecompactPoint, DecompressPoint, PointCompaction, PointCompression};
 use elliptic_curve::sec1::{CompressedPoint, FromEncodedPoint, ModulusSize, ToCompactEncodedPoint, ToEncodedPoint};
 use elliptic_curve::subtle::{Choice, ConditionallySelectable, ConstantTimeEq, CtOption};
@@ -56,7 +56,9 @@ pub type EncodedPoint<C> = elliptic_curve::sec1::EncodedPoint<C>;
 /// [`Accelerated<Self>`] is then the curve type to use with the RustCrypto
 /// generics. The supertrait bounds spell out what the wrapped types must
 /// provide beyond [`CurveArithmetic`]; every `primeorder`-based curve
-/// satisfies them.
+/// satisfies them. `ReduceNonZero` is composed from [`Reduce`] instead of being
+/// required of the wrapped scalar, since some curves (e.g. P-384) do not
+/// implement it.
 ///
 /// The `ACCELERATED_*` constants say which operations the driver provides;
 /// the corresponding methods have software defaults and are only called when
@@ -74,7 +76,7 @@ pub trait Backend:
         > + ArrayLength<u8, ArrayType: Copy>,
         Uint: FieldBytesEncoding<Accelerated<Self>> + From<Scalar<Self>> + for<'a> From<&'a Scalar<Self>>,
     > + CurveArithmetic<
-        Scalar: Ord + From<u32> + From<u128> + ReduceNonZero<<Self as Curve>::Uint>,
+        Scalar: Ord + From<u32> + From<u128>,
         AffinePoint: PrimeCurveAffine<
             Curve = <Self as CurveArithmetic>::ProjectivePoint,
             Scalar = <Self as CurveArithmetic>::Scalar,

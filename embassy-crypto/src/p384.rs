@@ -1,9 +1,9 @@
-//! NIST P-384 (secp384r1).
+//! NIST P-384 (secp384r1), accelerated.
 //!
-//! Pure software backend: `embassy-crypto-driver` has no P-384 driver traits
-//! yet, so every [`Backend`] operation runs through the `p384` crate's
-//! arithmetic. The module exists so generic code over [`NistP384`] can be
-//! written now, and transparently picks up a driver if one is added later.
+//! Scalar multiplication and inversion are delegated to the
+//! [`P384ScalarMul`], [`P384ScalarInvert`] and [`P384Lincomb`] driver
+//! unitraits when the corresponding `driver-*` features are off; with them
+//! on, the same operations run in software via the `p384` crate.
 
 use elliptic_curve::FieldBytesEncoding;
 use elliptic_curve::bigint::U384;
@@ -11,7 +11,7 @@ use p384::elliptic_curve;
 
 use crate::ec::{self, Accelerated, Backend};
 
-/// NIST P-384 elliptic curve.
+/// NIST P-384 elliptic curve, accelerated.
 pub type NistP384 = Accelerated<p384::NistP384>;
 
 /// Scalar field element modulo the P-384 curve order.
@@ -85,9 +85,92 @@ impl Backend for p384::NistP384 {
     const AFFINE_IDENTITY: p384::AffinePoint = p384::AffinePoint::IDENTITY;
     const AFFINE_GENERATOR: p384::AffinePoint = p384::AffinePoint::GENERATOR;
 
-    // No P-384 driver traits exist yet; the default (software) `Backend`
-    // methods handle everything.
-    const ACCELERATED_MUL: bool = false;
-    const ACCELERATED_INVERT: bool = false;
-    const ACCELERATED_LINCOMB: bool = false;
+    // NOTE: the polarity is intentional, do not "fix" it. With the feature
+    // ON, the wrappers run this operation in software directly (converting
+    // to the canonical byte form the driver unitraits exchange is only worth
+    // paying when an accelerator is behind them), so `ACCELERATED_*` is
+    // false and the unitrait is never called; `driver_rustcrypto` still
+    // registers an `unreachable!()` impl of it so a HAL that also registers
+    // one fails to link. With the feature OFF, the wrappers route through
+    // the unitrait and the HAL must provide the impl.
+    const ACCELERATED_MUL: bool = cfg!(not(feature = "driver-p384-scalar-mul"));
+    const ACCELERATED_INVERT: bool = cfg!(not(feature = "driver-p384-scalar-invert"));
+    const ACCELERATED_LINCOMB: bool = cfg!(not(feature = "driver-p384-lincomb"));
+
+    #[cfg(not(feature = "driver-p384-scalar-mul"))]
+    fn mul_base(k: &FieldBytes) -> (FieldBytes, FieldBytes) {
+        use embassy_crypto_driver::P384ScalarMulImpl;
+
+        point_from_driver(P384ScalarMulImpl::mul_base(scalar_to_driver(k)))
+    }
+
+    #[cfg(not(feature = "driver-p384-scalar-mul"))]
+    fn mul_affine(k: &FieldBytes, x: &FieldBytes, y: &FieldBytes) -> (FieldBytes, FieldBytes) {
+        use embassy_crypto_driver::P384ScalarMulImpl;
+
+        point_from_driver(P384ScalarMulImpl::mul_affine(
+            scalar_to_driver(k),
+            point_to_driver(x, y),
+        ))
+    }
+
+    #[cfg(not(feature = "driver-p384-scalar-invert"))]
+    fn invert(k: &FieldBytes) -> FieldBytes {
+        use embassy_crypto_driver::P384ScalarInvertImpl;
+
+        P384ScalarInvertImpl::invert(scalar_to_driver(k)).0.into()
+    }
+
+    #[cfg(not(feature = "driver-p384-scalar-invert"))]
+    fn invert_vartime(k: &FieldBytes) -> FieldBytes {
+        use embassy_crypto_driver::P384ScalarInvertImpl;
+
+        P384ScalarInvertImpl::invert_vartime(scalar_to_driver(k)).0.into()
+    }
+
+    #[cfg(not(feature = "driver-p384-lincomb"))]
+    fn lincomb(
+        k1: &FieldBytes,
+        x1: &FieldBytes,
+        y1: &FieldBytes,
+        k2: &FieldBytes,
+        x2: &FieldBytes,
+        y2: &FieldBytes,
+    ) -> Option<(FieldBytes, FieldBytes)> {
+        use embassy_crypto_driver::P384LincombImpl;
+
+        P384LincombImpl::lincomb(
+            scalar_to_driver(k1),
+            point_to_driver(x1, y1),
+            scalar_to_driver(k2),
+            point_to_driver(x2, y2),
+        )
+        .map(point_from_driver)
+    }
+}
+
+// NOTE: unlike `p256.rs`, the cfgs below use `not(all(..))` rather than
+// `not(any(..))`, so every combination of the three `driver-p384-*` features
+// compiles (for example a backend with hardware scalar multiplication but
+// software lincomb).
+#[cfg(not(all(feature = "driver-p384-scalar-mul", feature = "driver-p384-lincomb")))]
+fn point_to_driver(x: &FieldBytes, y: &FieldBytes) -> embassy_crypto_driver::P384AffinePoint {
+    embassy_crypto_driver::P384AffinePoint {
+        x: (*x).into(),
+        y: (*y).into(),
+    }
+}
+
+#[cfg(not(all(feature = "driver-p384-scalar-mul", feature = "driver-p384-lincomb")))]
+fn point_from_driver(p: embassy_crypto_driver::P384AffinePoint) -> (FieldBytes, FieldBytes) {
+    (p.x.into(), p.y.into())
+}
+
+#[cfg(not(all(
+    feature = "driver-p384-scalar-mul",
+    feature = "driver-p384-scalar-invert",
+    feature = "driver-p384-lincomb",
+)))]
+fn scalar_to_driver(k: &FieldBytes) -> embassy_crypto_driver::P384Scalar {
+    embassy_crypto_driver::P384Scalar((*k).into())
 }
