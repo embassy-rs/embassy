@@ -2255,9 +2255,9 @@ fn main() {
         }
 
         for trigger in p.triggers {
-            if trigger_expr.captures(trigger.signal).is_none(){
-                    eprintln!("Expression: {:?}", trigger_expr);
-                    eprintln!("Trigger: {:?}", trigger);
+            if trigger_expr.captures(trigger.signal).is_none() {
+                eprintln!("Expression: {:?}", trigger_expr);
+                eprintln!("Trigger: {:?}", trigger);
             }
             let matches = trigger_expr.captures(trigger.signal).unwrap();
             let signal = &matches[1];

@@ -7,6 +7,7 @@ pub mod associations;
 pub mod dma;
 /// Type-system
 pub mod types;
+mod typetest;
 
 use core::cell::RefCell;
 use core::future::poll_fn;
@@ -550,6 +551,11 @@ where
     M: FilterMarker + InstanceEvents<T>,
     P: PowerState,
 {
+    /// 28-bit timer counting conversion time t = CNVCNT[27:0] / fDFSDMCLK
+    pub fn get_cnv_cnt(&self) -> u32 {
+        T::regs().flt(M::CHANNEL.index()).cnvtimr().read().cnvcnt()
+    }
+
     /// Trigger a regular conversion
     pub fn start_regular_conversion(&mut self) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rswstart(true));
@@ -1594,6 +1600,13 @@ where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker,
 {
+    pub(crate) fn new(common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
+        Self {
+            _instance_marker: PhantomData,
+            common,
+        }
+    }
+
     /// Wait for a analog watchdog event
     pub async fn wait_for_event(&mut self) -> AnalogWatchdogEvent {
         poll_fn(|cx| {

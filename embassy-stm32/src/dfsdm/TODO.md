@@ -196,3 +196,127 @@ spawner.spawn(ckab_task(ckab)).unwrap();
 
 let (reg, inj, mut watchdog, common) = Filter::new(Irqs).split();
 ```
+
+
+Filter-Functions:
+* common
+  * enable
+  * configure
+  * disable
+  * reassign_regular_transceiver
+  * reassign_injected_transceivers
+  * 
+* watchdog
+  * wait_for_event
+  * set_high_threshold
+  * set_low_threshold
+  * assign_high_to_break_signals
+  * assign_low_to_break_signals
+  * assign_transceivers
+* regular
+  * start_regular_conversion
+  * read_regular -> read_regular_it
+  * try_get_regular_result
+  * get_regular_result_unchecked
+  * is_end_of_regular_conversion
+  * regular_conversion_in_progress
+* injected
+  * start_injected_conversion
+  * read_injected -> read_injected_it
+  * try_get_injected_result
+  * try_get_injected_result_unchecked
+  * is_end_of_injected_conversion
+  * injected_conversion_in_progress
+
+Dfsdm:
+* common
+  * enable
+  * disable
+  * 
+* monitoring
+  * SCD
+    * wait_for_event
+  * CAD
+    * wait_for_event
+
+
+Features
+[X] DFSDMEN:  Enable DFSMD
+[X] CHEN: enable transceiver
+[X] DFEN: filter enable
+[X] CKOUTSRC: CKOUT source
+[X] CKOUTDIV[7:0]: ckout divider
+[X] DATPACK[1:0]: packing mode
+[X] DATMPX[1:0]: parallel data source
+[X] CHINSEL: neighbor/own pins
+[X] CKABEN: enable CAD
+[X] SCDEN: enable SCD
+[X] SPICKSEL[1:0]: spi clock select
+[X] SITP[1:0]: serial type
+[X] OFFSET[23:0]: offset
+[X] DTRBS[4:0]: right shift
+[X] AWFORD[1:0]: watchog filter order
+[X] AWFOSR[4:0]: OSR 
+[X] BKSCD[3:0]: SCD break assignment
+[X] SCDT[7:0]: SCD threshold
+[ ] WDATA[15:0]: watchdog data R/O
+[X] INDAT1[15:0]: Input data
+[X] INDAT0[15:0]: Input data
+[X] PLSSKP[5:0]: skip n pulses
+[ ] AWFSEL: AW fastmode
+[X] FAST: fastmode
+[X] RCH[2:0]: regular channel selection
+[ ] RDMAEN: DMA REG enable
+[ ] JDMAEN: DMA INJ enable
+[ ] RSYNC: sync reg to ch0
+[ ] RCONT: continuous reg
+[X] RSWSTART: start manually reg
+[X] JSWSTART: start manually inj
+[ ] JEXTEN[1:0]: injected trigger edge/enable
+[ ] JEXTSEL[4:0]: trigger selection
+[ ] JSCAN: scnaning injected
+[ ] JSYNC: sync to ch0
+[X] AWDCH[7:0]: AW channel sel
+[ ] EXCH[7:0]: extremes channel detector
+[X] CKABIE: Clock absence interrupt enable
+[X] SCDIE: Short-circuit detector interrupt enable
+[X] AWDIE: Analog watchdog interrupt enable
+[ ] ROVRIE: Regular data overrun interrupt enable
+[ ] JOVRIE: Injected data overrun interrupt enable
+[X] REOCIE: Regular end of conversion interrupt enable
+[X] JEOCIE: Injected end of conversion interrupt enable
+[X] SCDF[7:0]: short-circuit detector flag
+[X] CKABF[7:0]: Clock absence flag
+[X] RCIP: Regular conversion in progress status
+[X] JCIP: Injected conversion in progress status
+[X] AWDF: Analog watchdog event occured
+[ ] ROVRF: Regular conversion overrun flag
+[ ] JOVRF: Injected conversion overrun flag
+[X] REOCF: End of regular conversion flag
+[X] JEOCF: End of injected conversion flag
+[X] CLRSCDF[7:0]: Clear the short-circuit detector flag
+[X] CLRCKABF[7:0]: Clear the clock absence flag
+[ ] CLRROVRF: Clear the regular conversion overrun flag
+[ ] CLRJOVRF: Clear the injected conversion overrun flag
+[X] JCHG[7:0]: Injected channel group selection
+[X] FORD[2:0]: Sinc filter order
+[X] FOSR[9:0]: Sinc filter oversampling ratio (decimation rate)
+[X] IOSR[7:0]: Integrator oversampling ratio (averaging length)
+[X] JDATA[23:0]: Injected group conversion data
+[X] JDATACH[2:0]: Injected channel most recently converted
+[X] RDATA[23:0]: Regular channel conversion data
+[X] RPEND: Regular channel pending data
+[X] RDATACH[2:0]: Regular channel most recently converted
+[X] AWHT[23:0]: Analog watchdog high threshold
+[X] BKAWH[3:0]: Break signal assignment to analog watchdog high threshold event
+[X] AWLT[23:0]: Analog watchdog low threshold
+[X] BKAWL[3:0]: Break signal assignment to analog watchdog low threshold event
+[X] AWHTF[7:0]: Analog watchdog high threshold flag
+[X] AWLTF[7:0]: Analog watchdog low threshold flag
+[X] CLRAWHTF[7:0]: Clear the analog watchdog high threshold flag
+[X] CLRAWLTF[7:0]: Clear the analog watchdog low threshold flag
+[X] EXMAX[23:0]: Extremes detector maximum value
+[X] EXMAXCH[2:0]: Extremes detector maximum data channel
+[X] EXMIN[23:0]: Extremes detector minimum value
+[X] EXMINCH[2:0]: Extremes detector minimum data channel
+[Y] CNVCNT[27:0]: 28-bit timer counting conversion time t = CNVCNT[27:0] / fDFSDMCLK
