@@ -429,6 +429,13 @@ impl<const N: usize> FairSemaphoreState<N> {
     fn cancel(&mut self, ticket: Option<usize>) {
         if let Some(ticket) = ticket {
             self.set_waker(ticket, None);
+
+            // If the canceled waiter was at the head of the queue, it was holding back everyone
+            // behind it. Wake the new head so it can retry, otherwise it stays pending until some
+            // unrelated `release` happens to wake it.
+            if let Some(None) = self.wakers.front() {
+                self.wake();
+            }
         }
     }
 
@@ -613,9 +620,11 @@ mod tests {
 
     mod fair {
         use core::pin::pin;
+        use core::task::Context;
         use core::time::Duration;
 
         use futures_executor::ThreadPool;
+        use futures_test::task::new_count_waker;
         use futures_timer::Delay;
         use futures_util::poll;
         use futures_util::task::SpawnExt;
@@ -743,6 +752,32 @@ mod tests {
 
             let c = poll!(c_fut.as_mut());
             assert!(c.is_ready());
+        }
+
+        #[test]
+        fn cancel_wakes_next_waiter() {
+            let semaphore = FairSemaphore::<NoopRawMutex, 2>::new(1);
+
+            let (c_waker, c_count) = new_count_waker();
+            let mut c_fut = pin!(semaphore.acquire(1));
+
+            {
+                // `b` wants more permits than the semaphore has, so it waits at the head of the queue.
+                let (b_waker, _b_count) = new_count_waker();
+                let mut b_fut = pin!(semaphore.acquire(2));
+                assert!(b_fut.as_mut().poll(&mut Context::from_waker(&b_waker)).is_pending());
+
+                // `c` only wants the permit that is already free, but fairness queues it behind `b`.
+                assert!(c_fut.as_mut().poll(&mut Context::from_waker(&c_waker)).is_pending());
+                assert_eq!(c_count.get(), 0);
+            }
+
+            // `b` was canceled when it went out of scope, so nothing holds `c` back anymore.
+            assert_eq!(c_count.get(), 1);
+            assert!(matches!(
+                c_fut.as_mut().poll(&mut Context::from_waker(&c_waker)),
+                Poll::Ready(Ok(_))
+            ));
         }
 
         #[futures_test::test]
