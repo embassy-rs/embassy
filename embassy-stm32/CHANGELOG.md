@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+Crypto:
+- feat: stm32/hash, stm32/aes, stm32/cryp: the `embassy-crypto` drivers are now registered per operation behind `embassy-crypto-<operation>` features (`embassy-crypto-sha256`, `embassy-crypto-aes128-gcm`, ...) instead of unconditionally.
+- feat: stm32/rng: `Rng` implements `embassy_crypto::Rng`.
+- fix: stm32/hash: blocking `update_blocking` hung when a call fed more than one block after a context save, or when several contexts were interleaved: the driver now tracks the word left pending in the input FIFO across context saves.
+- fix: stm32/hash: a cloned `Context` produced a wrong digest when finalized after its clone.
+- fix: stm32/cryp: blocking AES-CCM hung during the init phase.
+
 CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
 

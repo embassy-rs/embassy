@@ -806,10 +806,14 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
         p.cr().modify(|w| w.set_algomode3(true));
     }
 
-    fn init_phase_blocking<T: Instance, M: Mode>(&self, p: pac::cryp::Cryp, cryp: &Cryp<T, M>) {
+    fn init_phase_blocking<T: Instance, M: Mode>(&self, p: pac::cryp::Cryp, _cryp: &Cryp<T, M>) {
         p.cr().modify(|w| w.set_gcm_ccmph(0));
 
-        cryp.write_bytes_blocking(Self::BLOCK_SIZE, &self.block0[..]);
+        // B0 is loaded while the peripheral is disabled, so the input FIFO does
+        // not drain until CRYPEN is set below: write it without waiting on IFEM.
+        for word in self.block0.chunks_exact(4) {
+            p.din().write_value(u32::from_ne_bytes(word.try_into().unwrap()));
+        }
 
         p.cr().modify(|w| w.set_crypen(true));
         while p.cr().read().crypen() {}
@@ -1979,4 +1983,16 @@ foreach_interrupt!(
 dma_trait!(DmaIn, Instance);
 dma_trait!(DmaOut, Instance);
 
+#[cfg(any(
+    feature = "embassy-crypto-aes128-ecb",
+    feature = "embassy-crypto-aes128-cbc",
+    feature = "embassy-crypto-aes128-ctr",
+    feature = "embassy-crypto-aes128-gcm",
+    feature = "embassy-crypto-aes128-ccm",
+    feature = "embassy-crypto-aes256-ecb",
+    feature = "embassy-crypto-aes256-cbc",
+    feature = "embassy-crypto-aes256-ctr",
+    feature = "embassy-crypto-aes256-gcm",
+    feature = "embassy-crypto-aes256-ccm",
+))]
 mod driver;

@@ -1,132 +1,105 @@
 # embassy-crypto
 
-RustCrypto trait implementations backed by `embassy-crypto-driver` unitraits.
+Cryptography for embedded systems: one API, pluggable software and hardware drivers.
 
-This crate wraps the hardware-agnostic unitraits from `embassy-crypto-driver`
-with the standard RustCrypto traits, so existing RustCrypto code can use
-embassy-registered crypto drivers without modification.
+This crate provides the API an application uses (`Sha256`, `HmacSha256`,
+`Aes128Gcm`, `p256::SecretKey`, ...) and the driver interface that serves
+it (`embassy_crypto::driver`). It contains no implementations: every operation
+is dispatched at link time to the *driver* registered for it by some crate in
+the dependency tree. Drivers are registered one operation at a time, so an
+application can take SHA-256 from its HAL's hardware accelerator and AES-GCM
+from a software implementation.
 
-# Crate design
+- `embassy-crypto-rustcrypto` provides software drivers built on the
+  RustCrypto crates.
+- HALs such as `embassy-stm32` provide drivers for their hardware accelerators.
 
-- The crate must match closely to the existing rustcrypto API. Deviations from this API
-  must have a very good reason that can be clearly explained.
-- If a `driver-x` feature is enabled, the corresponding operation is performed by calling
-  the RustCrypto crate *directly* — no driver unitrait is involved and no link-time driver
-  is registered. If the `driver-x` feature is not enabled, the *embassy-crypto* type is a
-  thin layer over the `embassy-crypto-driver` unitrait: any crate (a HAL, an asm backend,
-  another software crate) can register the driver, and if none does the binary fails to link.
-- The reason for calling RustCrypto directly instead of registering a RustCrypto-backed
-  driver for the unitrait (as an earlier design did with a `driver-rustcrypto` module):
-  it lets multiple versions of *embassy-crypto* — and therefore multiple versions of the
-  RustCrypto trait crates — be used in the same binary with a single version of
-  *embassy-crypto-driver*. Registering a driver stakes a link-time global defined in
-  *embassy-crypto-driver*; two versions of *embassy-crypto* would both try to define it
-  and fail to link. Direct calls stake nothing.
-- Composite operations keep layering: e.g. with `driver-aes128cbc` enabled but
-  `driver-aes128` disabled, `Aes128CbcEncrypt` is the RustCrypto CBC mode built on
-  `Aes128`, which still routes through the accelerated ECB unitrait — so hardware
-  acceleration of a lower layer benefits all modes built on top of it. Same for
-  `HmacSha256` = `SimpleHmac<Sha256>` when `driver-hmac-sha2` is on but `driver-sha2` is off.
-- Given that hardware takes some time to setup, the *embassy-crypto* types should batch
-  operations with calls into the unitrait that operate on large buffers where possible.
-  At least, the implemented traits or methods should allow the user the possibility of this.
+# Selecting drivers
 
-# Supported Operations
+Each driver crate exposes one Cargo feature per operation, named
+`embassy-crypto-<operation>`. Enable, for each operation the application uses,
+exactly one such feature across all driver crates:
 
-## Digests
-- `Md5`, `Sha1`, `Sha224`, `Sha256`, `Sha384`, `Sha512`, `Sha512_224`, `Sha512_256`
-
-## HMAC
-- `HmacSha1`, `HmacSha224`, `HmacSha256`, `HmacSha384`, `HmacSha512`, `HmacSha512_224`, `HmacSha512_256`
-
-## Block Ciphers
-- `Aes128Ecb`, `Aes256Ecb` — ECB mode
-- `Aes128Cbc`, `Aes256Cbc` — CBC mode
-
-## Stream Ciphers
-- `Aes128Ctr`, `Aes256Ctr` — CTR mode
-
-## AEAD
-- `Aes128Gcm`, `Aes256Gcm` — GCM mode
-- `Aes128Ccm<TagSize, NonceSize>`, `Aes256Ccm<TagSize, NonceSize>` — CCM mode
-
-## MAC
-- `Aes128Cmac`, `Aes256Cmac` — CMAC
-
-## Asymmetric
-- `asymmetric` — P-256 ECDH and ECDSA (SecretKey / PublicKey / Signature / SharedSecret)
-- `asymmetric::p384` — P-384 ECDH and ECDSA
-- `asymmetric::x25519` — X25519 (Curve25519) ECDH
-
-## Elliptic-curve arithmetic
-- `ec`, `p256`, `p384` modules — RustCrypto curve trait implementations over driver-accelerated backends
-
-# Digest Usage
-```rust,ignore
-use embassy_crypto::Sha256;
-use digest::Digest;
-
-let mut hasher = Sha256::new();
-hasher.update(b"hello world");
-let result = hasher.finalize();
+```toml
+[dependencies]
+embassy-crypto = "0.1"
+# Hardware SHA-256 and HMAC-SHA-256 from the STM32 HASH peripheral...
+embassy-stm32 = { version = "0.6", features = ["stm32h563zi", "embassy-crypto-sha256", "embassy-crypto-hmac-sha256"] }
+# ...and everything else in software.
+embassy-crypto-rustcrypto = { version = "0.1", features = ["embassy-crypto-aes128-gcm", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa"] }
 ```
 
-# HMAC Usage
-```rust,ignore
-use embassy_crypto::HmacSha256;
-use digest::Mac;
+If the application uses an operation no crate provides a driver for, or two
+crates provide one for, linking fails, with an undefined or duplicate
+`_embassy_crypto_<operation>_*` symbol. The symbol names the operation and
+therefore the feature to enable or disable. Note that Rust only links crates
+the code names: a driver crate the application never otherwise mentions needs
+a `use embassy_crypto_rustcrypto as _;` (a HAL is always named already).
 
-let mut mac = HmacSha256::new_from_slice(b"my key").unwrap();
+Applications should not hard-code driver features themselves when they can
+avoid it: a library crate using `embassy-crypto` only depends on
+`embassy-crypto`, and leaves the choice of drivers to the final application.
+
+# Operations
+
+| Category   | Types |
+|------------|-------|
+| Digests    | `Md5`, `Sha1`, `Sha224`, `Sha256`, `Sha384`, `Sha512`, `Sha512_224`, `Sha512_256` |
+| HMAC       | `HmacSha1`, `HmacSha224`, `HmacSha256`, `HmacSha384`, `HmacSha512`, `HmacSha512_224`, `HmacSha512_256` |
+| AES        | `Aes128`, `Aes256` (block cipher); `Aes128CbcEncrypt`/`Aes128CbcDecrypt`, `Aes128Ctr`, `Aes128Gcm`, `Aes128Ccm`, `Aes128Cmac` and the AES-256 equivalents |
+| P-256      | `p256::{Scalar, Point}` (arithmetic), `p256::{SecretKey, PublicKey, SharedSecret}` (ECDH), `p256::{SigningKey, VerifyingKey, Signature}` (ECDSA) |
+| P-384      | `p384::*`, same as P-256 |
+| X25519     | `x25519::{SecretKey, PublicKey, SharedSecret}` |
+
+# Usage
+
+```rust,ignore
+use embassy_crypto::{Sha256, HmacSha256, Aes128Gcm};
+
+let digest = Sha256::digest(b"hello world");
+
+let mut mac = HmacSha256::new(b"key");
 mac.update(b"hello world");
-let result = mac.finalize();
+let tag = mac.finalize();
+
+let cipher = Aes128Gcm::new(&key);
+let tag = cipher.encrypt(&nonce, b"aad", &mut buffer)?;
+cipher.decrypt(&nonce, b"aad", &mut buffer, &tag)?;
 ```
 
-# Block Cipher Usage
+Operations that need randomness (key generation, ECDSA signing) take an
+`embassy_crypto::Rng`, implemented by the HALs' random number generators.
+
+# Writing a driver
+
+See the `driver` module. A driver implements the trait of an operation and
+registers itself with the matching `*_impl!` macro, behind a Cargo feature
+named `embassy-crypto-<operation>`:
+
 ```rust,ignore
-use embassy_crypto::Aes128Cbc;
-use cipher::{BlockEncryptMut, KeyIvInit};
+#[cfg(feature = "embassy-crypto-sha256")]
+mod sha256 {
+    struct Driver;
 
-let mut cipher = Aes128Cbc::new_from_slices(b"my secret key!!!", b"my iv!!!").unwrap();
-let mut block = [0u8; 16];
-cipher.encrypt_block_mut((&mut block).into());
+    impl embassy_crypto::driver::Sha256 for Driver {
+        type Context = MyHashState;
+        fn init() -> MyHashState { .. }
+        fn update(ctx: &mut MyHashState, data: &[u8]) { .. }
+        fn finalize(ctx: MyHashState, out: &mut [u8; 32]) { .. }
+    }
+
+    embassy_crypto::sha256_impl!(Driver);
+}
 ```
 
-# AEAD Usage
-```rust,ignore
-use embassy_crypto::Aes128Gcm;
-use aead::{Aead, KeyInit, Nonce};
+Hardware drivers whose state does not fit the default opaque context size of an
+operation enable the corresponding `large-<operation>` feature of this crate.
 
-let cipher = Aes128Gcm::new_from_slice(b"my secret key!!!").unwrap();
-let nonce = Nonce::from_slice(b"unique nonce");
-let ciphertext = cipher.encrypt(nonce, b"plaintext message".as_ref()).unwrap();
-```
+# Not yet covered
 
-# Linkage
-At link time exactly one crate in the dependency tree must register a driver
-using the `embassy_crypto_*_impl!` macros from `embassy-crypto-driver`.
-If zero or multiple drivers are registered, linking will fail.
-
-Enabling a `driver-x` feature removes the corresponding unitrait from the link
-entirely (RustCrypto is called directly), so no driver needs to be registered
-for it.
-
-# `Hkdf` compatibility
-When the corresponding `driver-*` feature is enabled, the hash types are the
-RustCrypto types themselves, which implement the block-level core that `Hmac`
-requires, so `hkdf::Hkdf<Sha256>` works.  With the feature off, the wrapper
-only exposes `Update`/`FixedOutput`/`BlockSizeUser` and `Hkdf` will not compile;
-only `hkdf::SimpleHkdf<Sha256>` (which uses `SimpleHmac`) is available.
-
-# TODO
-
-- RNG, backed by the MCU peripheral (`embassy-nrf`, `embassy-stm32`, `embassy-rp`, `embassy-mspm0` and `embassy-imxrt` all have one)
-- Ed25519 (`ed25519-dalek`), needed by `embassy-boot`; not RustCrypto, so the reference driver rule needs a decision first
-- ChaCha20-Poly1305 (`chacha20poly1305`), accelerated by CryptoCell 312
-- SHA-3 and SHAKE (`sha3`)
-- AES key wrap (`aes-kw`), for moving keys in and out of hardware key stores
-- ML-KEM and ML-DSA (`ml-kem`, `ml-dsa`)
-
-HKDF, PBKDF2 and similar constructions are deliberately absent: they are HMAC plus
-glue, so `hkdf::SimpleHkdf<Sha256>` over the types here is already accelerated. Note
-that `Hkdf<Sha256>` will not compile, only `SimpleHkdf` — `Hmac` requires a block-level
-core that these types do not implement.
+- ChaCha20-Poly1305
+- Ed25519
+- SHA-3 and SHAKE
+- AES key wrap
+- ML-KEM and ML-DSA
+- Asynchronous (DMA-driven) operation: all drivers are blocking.

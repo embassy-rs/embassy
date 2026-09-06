@@ -1,166 +1,41 @@
-//! NIST P-256 (secp256r1), accelerated.
+//! NIST P-256 (secp256r1, prime256v1).
+//!
+//! Three groups of types, each served by its own driver:
+//!
+//! - [`Scalar`] and [`Point`]: arithmetic, via [`driver::P256Arith`].
+//! - [`SecretKey`], [`PublicKey`] and [`SharedSecret`]: ECDH, via [`driver::P256Ecdh`].
+//! - [`SigningKey`], [`VerifyingKey`] and [`Signature`]: ECDSA over SHA-256
+//!   digests, via [`driver::P256Ecdsa`].
+//!
+//! # Example
+//!
+//! ```ignore
+//! use embassy_crypto::p256::{SecretKey, PublicKey};
+//!
+//! let mine = SecretKey::generate(&mut rng)?;
+//! let peer = PublicKey::from_sec1(&peer_bytes)?;
+//! let shared = mine.diffie_hellman(&peer)?;
+//! // feed shared.as_bytes() to a KDF
+//! ```
 
-use elliptic_curve::bigint::U256;
-use p256::elliptic_curve;
-
-use crate::ec::{self, Accelerated, Backend};
-
-/// NIST P-256 elliptic curve, accelerated.
-pub type NistP256 = Accelerated<p256::NistP256>;
-
-/// Scalar field element modulo the P-256 curve order.
-pub type Scalar = ec::Scalar<p256::NistP256>;
-
-/// Point on the P-256 curve in affine coordinates.
-pub type AffinePoint = ec::AffinePoint<p256::NistP256>;
-
-/// Point on the P-256 curve in projective coordinates.
-pub type ProjectivePoint = ec::ProjectivePoint<p256::NistP256>;
-
-/// Blinded scalar.
-pub type BlindedScalar = elliptic_curve::scalar::BlindedScalar<NistP256>;
-
-/// Compressed SEC1-encoded P-256 curve point.
-pub type CompressedPoint = elliptic_curve::sec1::CompressedPoint<NistP256>;
-
-/// SEC1-encoded P-256 curve point.
-pub type Sec1Point = elliptic_curve::sec1::Sec1Point<NistP256>;
-
-/// Byte array containing a serialized field element value (base field or scalar).
-pub type FieldBytes = elliptic_curve::FieldBytes<NistP256>;
-
-/// Non-zero P-256 scalar field element.
-pub type NonZeroScalar = elliptic_curve::NonZeroScalar<NistP256>;
-
-/// P-256 public key.
-pub type PublicKey = elliptic_curve::PublicKey<NistP256>;
-
-/// P-256 secret key.
-pub type SecretKey = elliptic_curve::SecretKey<NistP256>;
-
-/// ECDSA over P-256.
-#[cfg(feature = "p256-ecdsa")]
-pub mod ecdsa {
-    use super::NistP256;
-
-    /// ECDSA/P-256 signature (fixed-size).
-    pub type Signature = ecdsa::Signature<NistP256>;
-
-    /// ECDSA/P-256 signing key.
-    pub type SigningKey = ecdsa::SigningKey<NistP256>;
-
-    /// ECDSA/P-256 verification key (i.e. public key).
-    pub type VerifyingKey = ecdsa::VerifyingKey<NistP256>;
-}
-
-impl From<Scalar> for U256 {
-    fn from(scalar: Scalar) -> Self {
-        U256::from(scalar.into_inner())
-    }
-}
-
-impl From<&Scalar> for U256 {
-    fn from(scalar: &Scalar) -> Self {
-        U256::from(scalar.into_inner())
-    }
-}
-
-impl Backend for p256::NistP256 {
-    const AFFINE_IDENTITY: p256::AffinePoint = p256::AffinePoint::IDENTITY;
-    const AFFINE_GENERATOR: p256::AffinePoint = p256::AffinePoint::GENERATOR;
-
-    // NOTE: the polarity is intentional, do not "fix" it. With the feature
-    // ON, the wrappers run this operation in software directly (converting
-    // to the canonical byte form the driver unitraits exchange is only worth
-    // paying when an accelerator is behind them), so `ACCELERATED_*` is
-    // false and the unitrait is never called; nothing registers it, so no
-    // link-time global is staked — that is what allows multiple versions of
-    // `embassy-crypto` (and of the RustCrypto traits) against a single
-    // `embassy-crypto-driver`. With the feature OFF, the wrappers route
-    // through the unitrait and the HAL must provide the impl.
-    const ACCELERATED_MUL: bool = cfg!(not(feature = "driver-p256-scalar-mul"));
-    const ACCELERATED_INVERT: bool = cfg!(not(feature = "driver-p256-scalar-invert"));
-    const ACCELERATED_LINCOMB: bool = cfg!(not(feature = "driver-p256-lincomb"));
-
-    #[cfg(not(feature = "driver-p256-scalar-mul"))]
-    fn mul_base(k: &FieldBytes) -> (FieldBytes, FieldBytes) {
-        use embassy_crypto_driver::P256ScalarMulImpl;
-
-        point_from_driver(P256ScalarMulImpl::mul_base(scalar_to_driver(k)))
-    }
-
-    #[cfg(not(feature = "driver-p256-scalar-mul"))]
-    fn mul_affine(k: &FieldBytes, x: &FieldBytes, y: &FieldBytes) -> (FieldBytes, FieldBytes) {
-        use embassy_crypto_driver::P256ScalarMulImpl;
-
-        point_from_driver(P256ScalarMulImpl::mul_affine(
-            scalar_to_driver(k),
-            point_to_driver(x, y),
-        ))
-    }
-
-    #[cfg(not(feature = "driver-p256-scalar-invert"))]
-    fn invert(k: &FieldBytes) -> FieldBytes {
-        use embassy_crypto_driver::P256ScalarInvertImpl;
-
-        P256ScalarInvertImpl::invert(scalar_to_driver(k)).0.into()
-    }
-
-    #[cfg(not(feature = "driver-p256-scalar-invert"))]
-    fn invert_vartime(k: &FieldBytes) -> FieldBytes {
-        use embassy_crypto_driver::P256ScalarInvertImpl;
-
-        P256ScalarInvertImpl::invert_vartime(scalar_to_driver(k)).0.into()
-    }
-
-    // Keep p256's native `ReduceNonZero`: it computes the `(w mod (n-1)) + 1`
-    // bijection onto the nonzero residues, which the `Reduce`-based backend
-    // default (reduce, remapping zero to one) does not reproduce.
-    fn reduce_nonzero(n: &U256) -> p256::Scalar {
-        use elliptic_curve::ops::ReduceNonZero;
-
-        <p256::Scalar as ReduceNonZero<U256>>::reduce_nonzero(n)
-    }
-
-    #[cfg(not(feature = "driver-p256-lincomb"))]
-    fn lincomb(
-        k1: &FieldBytes,
-        x1: &FieldBytes,
-        y1: &FieldBytes,
-        k2: &FieldBytes,
-        x2: &FieldBytes,
-        y2: &FieldBytes,
-    ) -> Option<(FieldBytes, FieldBytes)> {
-        use embassy_crypto_driver::P256LincombImpl;
-
-        P256LincombImpl::lincomb(
-            scalar_to_driver(k1),
-            point_to_driver(x1, y1),
-            scalar_to_driver(k2),
-            point_to_driver(x2, y2),
-        )
-        .map(point_from_driver)
-    }
-}
-
-#[cfg(not(any(feature = "driver-p256-scalar-mul", feature = "driver-p256-lincomb")))]
-fn point_to_driver(x: &FieldBytes, y: &FieldBytes) -> embassy_crypto_driver::P256AffinePoint {
-    embassy_crypto_driver::P256AffinePoint {
-        x: (*x).into(),
-        y: (*y).into(),
-    }
-}
-
-#[cfg(not(any(feature = "driver-p256-scalar-mul", feature = "driver-p256-lincomb")))]
-fn point_from_driver(p: embassy_crypto_driver::P256AffinePoint) -> (FieldBytes, FieldBytes) {
-    (p.x.into(), p.y.into())
-}
-
-#[cfg(not(any(
-    feature = "driver-p256-scalar-mul",
-    feature = "driver-p256-scalar-invert",
-    feature = "driver-p256-lincomb",
-)))]
-fn scalar_to_driver(k: &FieldBytes) -> embassy_crypto_driver::P256Scalar {
-    embassy_crypto_driver::P256Scalar((*k).into())
+crate::ec::curve_api! {
+    n = 32,
+    order = [
+        0xff, 0xff, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xbc, 0xe6, 0xfa, 0xad, 0xa7, 0x17, 0x9e, 0x84, 0xf3, 0xb9, 0xca, 0xc2, 0xfc, 0x63, 0x25, 0x51,
+    ],
+    gx = [
+        0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2,
+        0x77, 0x03, 0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2, 0x96,
+    ],
+    gy = [
+        0x4f, 0xe3, 0x42, 0xe2, 0xfe, 0x1a, 0x7f, 0x9b, 0x8e, 0xe7, 0xeb, 0x4a, 0x7c, 0x0f, 0x9e, 0x16,
+        0x2b, 0xce, 0x33, 0x57, 0x6b, 0x31, 0x5e, 0xce, 0xcb, 0xb6, 0x40, 0x68, 0x37, 0xbf, 0x51, 0xf5,
+    ],
+    scalar = P256Scalar,
+    point = P256Point,
+    signature = P256Signature,
+    arith = P256ArithImpl,
+    ecdh = P256EcdhImpl,
+    ecdsa = P256EcdsaImpl,
 }

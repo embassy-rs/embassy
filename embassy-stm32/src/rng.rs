@@ -491,6 +491,13 @@ impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Rng<'d, T>
     }
 }
 
+impl<'d, T: Instance> embassy_crypto::Rng for Rng<'d, T> {
+    fn fill_bytes(&mut self, buf: &mut [u8]) -> Result<(), embassy_crypto::Error> {
+        self.fill_bytes(buf);
+        Ok(())
+    }
+}
+
 impl<'d, T: Instance> rand_core_06::RngCore for Rng<'d, T> {
     fn next_u32(&mut self) -> u32 {
         self.next_u32()

@@ -1,40 +1,22 @@
+//! Benchmark of the P-256 operations behind TLS 1.3 and BLE Secure Connections.
+//!
+//! Runs against whichever `embassy-crypto` drivers the binary links: the
+//! software ones from `embassy-crypto-rustcrypto` as configured in
+//! `Cargo.toml`, or a hardware accelerator's if one is enabled instead.
+
 #![no_std]
 #![no_main]
 
 use core::hint::black_box;
 
-use defmt::{error, info, warn};
+use defmt::{info, warn};
 use defmt_rtt as _;
-use elliptic_curve::group::Group;
-use elliptic_curve::ops::{Invert, LinearCombination, Reduce};
-use elliptic_curve::pkcs8::{AssociatedOid, ObjectIdentifier};
-use elliptic_curve::sec1::{FromSec1Point, ModulusSize, ToSec1Point};
-use elliptic_curve::subtle::ConstantTimeEq;
-use elliptic_curve::{CurveArithmetic, FieldBytes, FieldBytesSize, PublicKey, Scalar, SecretKey, ecdh};
+use embassy_crypto::p256::{Point, Scalar, SecretKey};
+// Link the software drivers selected in Cargo.toml.
+use embassy_crypto_rustcrypto as _;
 use embassy_executor::Spawner;
 use embassy_time::Instant;
 use panic_probe as _;
-
-// ─── P-256 constants ──────────────────────────────────────────────────────────
-
-/// OID for NIST P-256 / secp256r1 / prime256v1.
-pub const P256_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.2.840.10045.3.1.7");
-
-/// SEC1 uncompressed encoding of the P-256 base point: `0x04 || X || Y`.
-pub const P256_G_UNCOMPRESSED: [u8; 65] = [
-    0x04, 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2, 0x77, 0x03,
-    0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2, 0x96, 0x4f, 0xe3, 0x42, 0xe2, 0xfe,
-    0x1a, 0x7f, 0x9b, 0x8e, 0xe7, 0xeb, 0x4a, 0x7c, 0x0f, 0x9e, 0x16, 0x2b, 0xce, 0x33, 0x57, 0x6b, 0x31, 0x5e, 0xce,
-    0xcb, 0xb6, 0x40, 0x68, 0x37, 0xbf, 0x51, 0xf5,
-];
-
-/// SEC1 compressed encoding of the P-256 base point: `0x02 || X`.
-pub const P256_G_COMPRESSED: [u8; 33] = [
-    0x02, 0x6b, 0x17, 0xd1, 0xf2, 0xe1, 0x2c, 0x42, 0x47, 0xf8, 0xbc, 0xe6, 0xe5, 0x63, 0xa4, 0x40, 0xf2, 0x77, 0x03,
-    0x7d, 0x81, 0x2d, 0xeb, 0x33, 0xa0, 0xf4, 0xa1, 0x39, 0x45, 0xd8, 0x98, 0xc2, 0x96,
-];
-
-// ─── Result types ─────────────────────────────────────────────────────────────
 
 /// Per-operation cost in microseconds.
 #[derive(Clone, Copy, Debug, defmt::Format)]
@@ -65,15 +47,12 @@ impl Timings {
 /// Adaptive benchmark configuration.
 ///
 /// Instead of fixed round counts, each micro-benchmark runs for
-/// `target_us` wall time. The total is at least ~6 × `target_us` (the
-/// accuracy floor) and capped by `budget_us` (the deadline).
+/// `target_us` wall time, within a hard `budget_us` for the whole run.
 #[derive(Clone, Copy, Debug)]
 pub struct BenchConfig {
     /// Wall-time target for each of the 6 micro-benchmarks.
-    /// Default 250_000 µs → ~1.5 s of measured work.
     pub target_us: u64,
     /// Hard wall-clock budget for the whole benchmark (including calibration).
-    /// Remaining micro-benchmarks share whatever budget is left.
     pub budget_us: u64,
     /// Iterations used to estimate per-op cost before choosing round counts.
     pub calib_rounds: u32,
@@ -92,38 +71,19 @@ impl BenchConfig {
         min_rounds: 3,
         max_rounds: 10_000,
     };
-
-    /// Shorter run for CI: ~1.1 s of measured work.
-    pub const QUICK: Self = Self {
-        target_us: 180_000,
-        budget_us: 9_000_000,
-        calib_rounds: 4,
-        min_rounds: 3,
-        max_rounds: 10_000,
-    };
 }
 
-impl Default for BenchConfig {
-    fn default() -> Self {
-        Self::DEFAULT
-    }
-}
-
-// ─── Internal helpers ─────────────────────────────────────────────────────────
-
-/// Deterministically derive a valid secret key from a tag byte.
-/// No RNG, no alloc: scans a few candidates until one is in `[1, n)`.
-fn derive_secret<C: CurveArithmetic>(tag: u8) -> SecretKey<C> {
-    let mut bytes = FieldBytes::<C>::default();
+/// Deterministically derive a valid secret key from a tag byte: no RNG needed.
+fn derive_secret(tag: u8) -> SecretKey {
+    let mut bytes = [0u8; 32];
     for (i, b) in bytes.iter_mut().enumerate() {
         *b = tag ^ (i as u8).wrapping_mul(37) ^ 0xA5;
     }
     loop {
-        if let Ok(sk) = SecretKey::<C>::from_slice(&bytes) {
+        if let Ok(sk) = SecretKey::from_bytes(&bytes) {
             return sk;
         }
-        let last = bytes.len() - 1;
-        bytes[last] = bytes[last].wrapping_add(1);
+        bytes[31] = bytes[31].wrapping_add(1);
     }
 }
 
@@ -132,9 +92,6 @@ fn avg_us(elapsed_us: u64, rounds: u32) -> u64 {
     if rounds == 0 { 0 } else { elapsed_us / u64::from(rounds) }
 }
 
-/// Estimate the per-op cost of `op_kind` relative to a measured base-mul cost,
-/// as a fraction (numerator/denominator) of `base_us`. Used only for *planning*
-/// round counts; actual results come from measurement.
 #[inline]
 fn plan_rounds(op_us_est: u64, target_us: u64, cfg: &BenchConfig) -> u32 {
     let est = op_us_est.max(1);
@@ -142,104 +99,32 @@ fn plan_rounds(op_us_est: u64, target_us: u64, cfg: &BenchConfig) -> u32 {
     r.clamp(u64::from(cfg.min_rounds), u64::from(cfg.max_rounds)) as u32
 }
 
-// ─── Verification ─────────────────────────────────────────────────────────────
-
-/// Verify that `C`'s `CurveArithmetic` really is NIST P-256.
-///
-/// Checks, in order:
-/// 1. OID is secp256r1.
-/// 2. Field elements are 32 bytes.
-/// 3. The known SEC1 base point parses and re-encodes (compressed +
-///    uncompressed) to the known forms. This pins the curve equation, field
-///    modulus, and generator simultaneously.
-/// 4. `[n]G == O` for the declared group order.
-/// 5. ECDH symmetry: `DH(a, bG) == DH(b, aG)`.
-pub fn verify_p256<C>() -> Result<(), &'static str>
-where
-    C: CurveArithmetic + AssociatedOid,
-    FieldBytesSize<C>: ModulusSize,
-    C::AffinePoint: FromSec1Point<C> + ToSec1Point<C>,
-{
-    if <C as AssociatedOid>::OID != P256_OID {
-        return Err("OID mismatch: not secp256r1");
-    }
-
-    if FieldBytes::<C>::default().len() != 32 {
-        return Err("field element size != 32 bytes");
-    }
-
-    let g = PublicKey::<C>::from_sec1_bytes(&P256_G_UNCOMPRESSED).map_err(|_| "P-256 base point encoding rejected")?;
-    if g.to_sec1_point(true).as_bytes() != P256_G_COMPRESSED {
-        return Err("base point does not match P-256 generator (compressed)");
-    }
-    if g.to_sec1_point(false).as_bytes() != P256_G_UNCOMPRESSED {
-        return Err("base point does not match P-256 generator (uncompressed)");
-    }
-
-    let n = <C::Scalar as Reduce<C::Uint>>::reduce(C::ORDER.as_ref());
-    let generator: C::ProjectivePoint = Group::generator();
-    let identity: C::ProjectivePoint = Group::identity();
-    if !bool::from((generator * n).ct_eq(&identity)) {
-        return Err("[n]G != identity: wrong group order");
-    }
-
-    let a = derive_secret::<C>(0xA1);
-    let b = derive_secret::<C>(0xB2);
-    let s_ab = ecdh::diffie_hellman(a.to_nonzero_scalar(), b.public_key().as_affine());
-    let s_ba = ecdh::diffie_hellman(b.to_nonzero_scalar(), a.public_key().as_affine());
-    if s_ab.raw_secret_bytes() != s_ba.raw_secret_bytes() {
-        return Err("ECDH symmetry check failed");
-    }
-
-    info!("P-256 CurveArithmetic verified: OID + generator KAT + group order + ECDH");
-    Ok(())
-}
-
-// ─── Benchmark ────────────────────────────────────────────────────────────────
-
 /// Number of micro-benchmarks (used for dynamic budget splitting).
 const N_BENCHES: u64 = 6;
 
 /// Benchmark the P-256 primitives behind TLS/BLE operations.
-///
-/// Calibration first measures the base-mul cost, then each micro-benchmark
-/// runs an adaptively chosen number of rounds to fill `cfg.target_us` of
-/// wall time. The total wall time is kept within `cfg.budget_us` by giving
-/// each remaining micro-benchmark an equal share of the leftover budget.
-///
-/// Timing uses [`embassy_time::Instant`]; the embassy time driver must be
-/// initialized before calling.
-pub fn benchmark_p256<C>(cfg: BenchConfig, tag: &str) -> Timings
-where
-    C: CurveArithmetic,
-    FieldBytesSize<C>: ModulusSize,
-    C::AffinePoint: FromSec1Point<C> + ToSec1Point<C>,
-{
+pub fn benchmark_p256(cfg: BenchConfig, tag: &str) -> Timings {
     let bench_start = Instant::now();
 
-    let ephemeral = derive_secret::<C>(0xE1);
-    let peer = derive_secret::<C>(0x5C);
-    let peer_pk = peer.public_key();
-    let peer_point = C::ProjectivePoint::from(*peer_pk.as_affine());
+    let ephemeral = derive_secret(0xE1);
+    let peer = derive_secret(0x5C);
+    let peer_pk = peer.public_key().unwrap();
+    let peer_point = Point::try_from(peer_pk).unwrap();
 
-    let scalars: [Scalar<C>; 8] = core::array::from_fn(|i| *derive_secret::<C>(0x40 | (i as u8)).to_nonzero_scalar());
+    let scalars: [Scalar; 8] = core::array::from_fn(|i| derive_secret(0x40 | (i as u8)).to_scalar());
 
-    let generator: C::ProjectivePoint = Group::generator();
-    let identity: C::ProjectivePoint = Group::identity();
-
-    // ── Calibration: measure base-mul cost ──────────────────────────────────
-    let mut acc = identity;
+    // Calibration: measure the base-mul cost.
+    let mut acc = Point::GENERATOR;
     let start = Instant::now();
     for i in 0..cfg.calib_rounds {
-        let r = C::ProjectivePoint::mul_by_generator(black_box(&scalars[(i as usize) & 7]));
-        acc = black_box(acc + r);
+        let r = Point::mul_base(black_box(&scalars[(i as usize) & 7])).unwrap();
+        acc = black_box(acc.add(&r).unwrap_or(Point::GENERATOR));
     }
     black_box(&acc);
     let base_us = avg_us(start.elapsed().as_micros(), cfg.calib_rounds);
     info!("[{=str}] calibration: base-mul ≈ {=u64} us", tag, base_us);
 
     // Conservative planning estimates relative to the measured base-mul cost.
-    // (5/4 etc. leave headroom so a misestimate can't blow the budget.)
     let var_mul_est = base_us.saturating_mul(5) / 4;
     let point_add_est = (base_us / 8).max(1);
     let invert_est = base_us.saturating_mul(3);
@@ -253,72 +138,77 @@ where
         cfg.target_us.min(share)
     };
 
-    // ── Base-point mul (ephemeral keygen, ECDSA signing) ────────────────────
+    // Base-point mul (ephemeral keygen, ECDSA signing).
     let rounds = plan_rounds(base_us, target_for(0), &cfg);
-    let mut acc = identity;
+    let mut acc = Point::GENERATOR;
     let start = Instant::now();
     for i in 0..rounds {
-        let r = C::ProjectivePoint::mul_by_generator(black_box(&scalars[(i as usize) & 7]));
-        acc = black_box(acc + r);
+        let r = Point::mul_base(black_box(&scalars[(i as usize) & 7])).unwrap();
+        acc = black_box(acc.add(&r).unwrap_or(Point::GENERATOR));
     }
     black_box(&acc);
     let base_mul_us = avg_us(start.elapsed().as_micros(), rounds);
 
-    // ── Variable-base mul (peer public-key multiply) ────────────────────────
+    // Variable-base mul (peer public-key multiply).
     let rounds = plan_rounds(var_mul_est, target_for(1), &cfg);
-    let mut acc = identity;
+    let mut acc = Point::GENERATOR;
     let start = Instant::now();
     for i in 0..rounds {
-        let r = *black_box(&peer_point) * *black_box(&scalars[(i as usize) & 7]);
-        acc = acc + r;
+        let r = black_box(&peer_point)
+            .mul(black_box(&scalars[(i as usize) & 7]))
+            .unwrap();
+        acc = acc.add(&r).unwrap_or(Point::GENERATOR);
     }
     black_box(&acc);
     let var_mul_us = avg_us(start.elapsed().as_micros(), rounds);
 
-    // ── Point add + double (field arithmetic throughput) ────────────────────
+    // Point add + double (field arithmetic throughput).
     let rounds = plan_rounds(point_add_est, target_for(2), &cfg);
     let mut acc = peer_point;
     let start = Instant::now();
     for _ in 0..rounds {
-        acc = black_box(acc) + black_box(peer_point);
-        acc = black_box(acc) + black_box(acc);
+        acc = black_box(acc).add(black_box(&peer_point)).unwrap_or(Point::GENERATOR);
+        acc = black_box(acc).add(black_box(&acc)).unwrap_or(Point::GENERATOR);
     }
     black_box(&acc);
     let point_add_us = avg_us(start.elapsed().as_micros(), rounds.saturating_mul(2));
 
-    // ── Scalar inversion (ECDSA signing cost driver) ────────────────────────
+    // Scalar inversion (ECDSA signing cost driver).
     let rounds = plan_rounds(invert_est, target_for(3), &cfg);
     let mut parity = 0u8;
     let start = Instant::now();
     for i in 0..rounds {
         let inv = black_box(&scalars[(i as usize) & 7]).invert();
-        parity ^= black_box(inv.is_some().unwrap_u8());
+        parity ^= black_box(inv.is_some() as u8);
     }
     black_box(parity);
     let scalar_invert_us = avg_us(start.elapsed().as_micros(), rounds);
 
-    // ── Double-scalar mul via lincomb (Shamir when available) ───────────────
+    // Double-scalar mul via lincomb (Shamir when available).
     let rounds = plan_rounds(lincomb_est, target_for(4), &cfg);
-    let mut acc = identity;
+    let mut acc = Point::GENERATOR;
     let start = Instant::now();
     for i in 0..rounds {
         let j = (i as usize) & 7;
-        let r = C::ProjectivePoint::lincomb(&[
-            (generator, *black_box(&scalars[j])),
-            (peer_point, *black_box(&scalars[(j + 3) & 7])),
-        ]);
-        acc = acc + r;
+        let r = Point::lincomb(
+            black_box(&scalars[j]),
+            &Point::GENERATOR,
+            black_box(&scalars[(j + 3) & 7]),
+            &peer_point,
+        )
+        .unwrap();
+        acc = acc.add(&r).unwrap_or(Point::GENERATOR);
     }
     black_box(&acc);
     let lincomb_us = avg_us(start.elapsed().as_micros(), rounds);
 
-    // ── Full ECDH (BLE LESC DH, TLS static-ECDH) ────────────────────────────
+    // Full ECDH (BLE LESC DH, TLS static-ECDH).
     let rounds = plan_rounds(ecdh_est, target_for(5), &cfg);
-    let mut check = FieldBytes::<C>::default();
+    let mut check = [0u8; 32];
     let start = Instant::now();
     for _ in 0..rounds {
-        let s = ecdh::diffie_hellman(black_box(ephemeral.to_nonzero_scalar()), black_box(peer_pk.as_affine()));
-        check = s.raw_secret_bytes().clone();
+        let s = black_box(&ephemeral).diffie_hellman(black_box(&peer_pk)).unwrap();
+        check = *s.as_bytes();
     }
     black_box(&check);
     let ecdh_us = avg_us(start.elapsed().as_micros(), rounds);
@@ -360,28 +250,19 @@ where
     timings
 }
 
-/// Verify first, then benchmark. Returns `None` if verification fails.
-pub fn verify_and_benchmark<C>(cfg: BenchConfig, tag: &str) -> Option<Timings>
-where
-    C: CurveArithmetic + AssociatedOid,
-    FieldBytesSize<C>: ModulusSize,
-    C::AffinePoint: FromSec1Point<C> + ToSec1Point<C>,
-{
-    match verify_p256::<C>() {
-        Ok(()) => Some(benchmark_p256::<C>(cfg, tag)),
-        Err(e) => {
-            error!("[{=str}] P-256 verification FAILED: {=str}", tag, e);
-            None
-        }
-    }
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let _p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    benchmark_p256::<embassy_crypto::p256::NistP256>(BenchConfig::DEFAULT, "default bench");
+    // Sanity check: ECDH agrees from both sides.
+    let a = derive_secret(0xA1);
+    let b = derive_secret(0xB2);
+    let s_ab = a.diffie_hellman(&b.public_key().unwrap()).unwrap();
+    let s_ba = b.diffie_hellman(&a.public_key().unwrap()).unwrap();
+    defmt::assert_eq!(s_ab.as_bytes(), s_ba.as_bytes());
+
+    benchmark_p256(BenchConfig::DEFAULT, "default bench");
 
     cortex_m::asm::bkpt();
 }
