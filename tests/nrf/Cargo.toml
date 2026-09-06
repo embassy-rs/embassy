@@ -31,10 +31,7 @@ cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 portable-atomic = { version = "1.6.0" }
-embassy-crypto = { version = "0.1.0", path = "../../embassy-crypto" }
-digest = { version = "0.11", default-features = false, features = ["mac"] }
-cipher = { version = "0.5", default-features = false }
-aead = { version = "0.6", default-features = false }
+embassy-crypto = { version = "0.1.0", path = "../../embassy-crypto", features = ["defmt"] }
 
 [features]
 nrf51422 = ["embassy-nrf/nrf51",         "embassy-nrf/time-driver-rtc1", "portable-atomic/unsafe-assume-single-core"]
@@ -47,7 +44,17 @@ nrf54l15 = ["embassy-nrf/nrf54l15-app-s", "embassy-nrf/time-driver-grtc", "easyd
 
 easydma = []
 two-uarts = []
-crypto = []
+crypto = [
+    "embassy-nrf/embassy-crypto-sha1",
+    "embassy-nrf/embassy-crypto-sha256",
+    "embassy-nrf/embassy-crypto-hmac-sha256",
+    "embassy-nrf/embassy-crypto-aes128-ecb",
+    "embassy-nrf/embassy-crypto-aes128-cbc",
+    "embassy-nrf/embassy-crypto-aes128-ctr",
+    "embassy-nrf/embassy-crypto-aes128-cmac",
+    "embassy-nrf/embassy-crypto-aes128-ccm",
+    "embassy-nrf/embassy-crypto-aes128-gcm",
+]
 # AES-256 and AES-GCM, which the CryptoCell only has in its 312 version.
 aes256 = []
 # The SHA-512 family.

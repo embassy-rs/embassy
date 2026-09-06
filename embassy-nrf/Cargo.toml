@@ -79,7 +79,9 @@ rt = ["nrf-pac/rt"]
 time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
 ## Enable defmt
-defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-usb-synopsys-otg/defmt", "embassy-embedded-hal/defmt"]
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-usb-synopsys-otg/defmt", "embassy-embedded-hal/defmt",
+    "embassy-crypto/defmt",
+]
 ## Enable log
 log = ["dep:log"]
 
@@ -115,6 +117,37 @@ lfxo-pins-as-gpio = []
 ## Implements the MultiwriteNorFlash trait for QSPI. Should only be enabled if your external
 ## flash supports the semantics described [here](https://docs.rs/embedded-storage/0.3.1/embedded_storage/nor_flash/trait.MultiwriteNorFlash.html)
 qspi-multiwrite-flash = []
+
+## Register the hardware driver for one `embassy-crypto` operation, served by
+## the CryptoCell or CRACEN accelerator. See the `embassy-crypto` documentation.
+## Nothing is registered for chips that lack the accelerator or the algorithm.
+embassy-crypto-md5 = []
+embassy-crypto-sha1 = []
+embassy-crypto-sha224 = []
+embassy-crypto-sha256 = []
+embassy-crypto-sha384 = []
+embassy-crypto-sha512 = []
+embassy-crypto-sha512-224 = []
+embassy-crypto-sha512-256 = []
+embassy-crypto-hmac-sha1 = []
+embassy-crypto-hmac-sha224 = []
+embassy-crypto-hmac-sha256 = []
+embassy-crypto-hmac-sha384 = []
+embassy-crypto-hmac-sha512 = []
+embassy-crypto-hmac-sha512-224 = []
+embassy-crypto-hmac-sha512-256 = []
+embassy-crypto-aes128-ecb = []
+embassy-crypto-aes128-cbc = []
+embassy-crypto-aes128-ctr = []
+embassy-crypto-aes128-gcm = []
+embassy-crypto-aes128-ccm = []
+embassy-crypto-aes128-cmac = []
+embassy-crypto-aes256-ecb = []
+embassy-crypto-aes256-cbc = []
+embassy-crypto-aes256-ctr = []
+embassy-crypto-aes256-gcm = []
+embassy-crypto-aes256-ccm = []
+embassy-crypto-aes256-cmac = []
 
 #! ### Chip selection features
 ## nRF51
@@ -228,7 +261,7 @@ embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg", optional = true }
 embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-channel", optional = true}
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
-embassy-crypto-driver = { version = "0.1.0", path = "../embassy-crypto-driver" }
+embassy-crypto = { version = "0.1.0", path = "../embassy-crypto" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }

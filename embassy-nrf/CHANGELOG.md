@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - bugfix: enforce each peripheral's own EasyDMA `MAXCNT` limit in uarte, buffered_uarte, spim, spis, twim, twis, i2s, pdm, pwm and saadc instead of the chip-wide `DMA_SIZE`.
 - added: per-peripheral `DMA_SIZE` constants in the `uarte`, `spim`, `spis`, `twim`, `twis`, `i2s`, `pdm` and `saadc` modules, and `pwm::MAX_SEQUENCE_LEN`.
 - removed: the crate-level `DMA_SIZE` constant. It was wrong because the max DMA size changes per peripheral.
-- added: AES (ECB, CBC, CTR, CMAC, CCM, and GCM on nRF5340 and nRF54L), SHA-1/SHA-2 hash and HMAC, and ChaCha20 drivers using the CryptoCell (nRF52840, nRF91, nRF5340) and CRACEN (nRF54L) accelerators, with `embassy-crypto-driver` implementations.
+- added: AES (ECB, CBC, CTR, CMAC, CCM, and GCM on nRF5340 and nRF54L), SHA-1/SHA-2 hash and HMAC, and ChaCha20 drivers using the CryptoCell (nRF52840, nRF91, nRF5340) and CRACEN (nRF54L) accelerators, registered as `embassy-crypto` drivers behind one `embassy-crypto-<operation>` feature each.
 - added: ChaCha20-Poly1305 to the ChaCha driver on the CryptoCell (nRF52840, nRF91, nRF5340), where Poly1305 runs on the PKA engine.
 - added: PKA driver for ECDSA, ECDH and RSA, using the CryptoCell PKA (nRF52840, nRF91, nRF5340) and the CRACEN public key engine (nRF54L), with NIST P-192/P-224/P-256/P-384/P-521 and secp256k1 curve parameters.
 - added: `AES`, `HASH`, `CHACHA` and `PKA` peripheral singletons.
