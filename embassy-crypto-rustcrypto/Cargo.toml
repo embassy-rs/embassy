@@ -52,15 +52,7 @@ p384 = { version = "0.14", default-features = false, features = ["arithmetic", "
 x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"], optional = true }
 
 [dev-dependencies]
-hex-literal = "1"
-# Reference implementations the tests cross-check against.
-aes = "0.9"
-cmac = "0.8"
-digest = "0.11"
-hmac = "0.13"
-sha2 = "0.11"
-p256 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdh", "ecdsa"] }
-p384 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdh", "ecdsa"] }
+embassy-crypto-tests = { version = "0.1.0", path = "../embassy-crypto-tests" }
 
 [features]
 ## Register every driver this crate can provide.

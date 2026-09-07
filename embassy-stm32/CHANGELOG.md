@@ -14,6 +14,9 @@ Crypto:
 - fix: stm32/hash: blocking `update_blocking` hung when a call fed more than one block after a context save, or when several contexts were interleaved: the driver now tracks the word left pending in the input FIFO across context saves.
 - fix: stm32/hash: a cloned `Context` produced a wrong digest when finalized after its clone.
 - fix: stm32/cryp: blocking AES-CCM hung during the init phase.
+- fix: stm32/aes, stm32/cryp: the `embassy-crypto` AES-CTR drivers produced a wrong keystream when the 32-bit counter word wrapped within one call, since the peripherals only increment the low 32 bits; runs are now split at the wrap. The AES driver also failed to advance the counter after a partial final block.
+- fix: stm32/aes: AES-CCM fed the associated data without its length prefix, producing wrong tags whenever associated data was present.
+- fix: stm32/cryp: AES-CCM produced wrong tags: the associated-data length prefix was mis-padded, B0 and the final counter block were fed in the wrong byte order (cryp_v3/v4) and the final phase fed the GCM lengths block instead of the counter block. Saving a context right after the init phase also hung on cryp_v4.
 
 CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.

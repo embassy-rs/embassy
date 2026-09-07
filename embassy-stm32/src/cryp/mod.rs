@@ -96,6 +96,12 @@ pub trait Cipher<'c> {
     fn get_header_block(&self) -> &[u8] {
         return [0; 0].as_slice();
     }
+
+    /// CCM only: the counter block with the counter at zero, which the final
+    /// phase feeds to the core instead of the GCM lengths block.
+    fn ccm_ctr0(&self) -> Option<[u8; 16]> {
+        None
+    }
 }
 
 /// This trait enables restriction of ciphers to specific key sizes.
@@ -746,14 +752,7 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Aes
                 aad_header_len = 6;
             }
         }
-        let total_aad_len = aad_header_len + aad_len;
-        let mut aad_padding_len = 16 - (total_aad_len % 16);
-        if aad_padding_len == 16 {
-            aad_padding_len = 0;
-        }
-        aad_header_len += aad_padding_len;
-        let total_aad_len_padded = aad_header_len + aad_len;
-        if total_aad_len_padded > 0 {
+        if aad_len > 0 {
             block0[0] = 0x40;
         }
         block0[0] |= ((((TAG_SIZE as u8) - 2) >> 1) & 0x07) << 3;
@@ -809,27 +808,33 @@ impl<'c, const KEY_SIZE: usize, const TAG_SIZE: usize, const IV_SIZE: usize> Cip
     fn init_phase_blocking<T: Instance, M: Mode>(&self, p: pac::cryp::Cryp, _cryp: &Cryp<T, M>) {
         p.cr().modify(|w| w.set_gcm_ccmph(0));
 
-        // B0 is loaded while the peripheral is disabled, so the input FIFO does
-        // not drain until CRYPEN is set below: write it without waiting on IFEM.
-        for word in self.block0.chunks_exact(4) {
-            p.din().write_value(u32::from_ne_bytes(word.try_into().unwrap()));
-        }
-
+        // The core consumes B0 and clears CRYPEN itself once done, so it is
+        // enabled before B0 is written (as the ST HAL does); waiting on IFEM
+        // here would never return.
         p.cr().modify(|w| w.set_crypen(true));
+        for word in Cryp::<T, M>::phase_block_words(&self.block0) {
+            p.din().write_value(word);
+        }
         while p.cr().read().crypen() {}
     }
 
     async fn init_phase<T: Instance>(&self, p: pac::cryp::Cryp, cryp: &mut Cryp<'_, T, Async>) {
         p.cr().modify(|w| w.set_gcm_ccmph(0));
 
-        Cryp::<T, Async>::write_bytes(cryp.indma.as_mut().unwrap(), Self::BLOCK_SIZE, &self.block0[..]).await;
-
+        let words = Cryp::<T, Async>::phase_block_words(&self.block0);
         p.cr().modify(|w| w.set_crypen(true));
+        Cryp::<T, Async>::write_words(cryp.indma.as_mut().unwrap(), Self::BLOCK_SIZE, &words).await;
         while p.cr().read().crypen() {}
     }
 
     fn get_header_block(&self) -> &[u8] {
         return &self.aad_header[0..self.aad_header_len];
+    }
+
+    fn ccm_ctr0(&self) -> Option<[u8; 16]> {
+        let mut ctr0 = self.ctr;
+        ctr0[15] = 0;
+        Some(ctr0)
     }
 
     #[cfg(cryp_v2)]
@@ -1350,7 +1355,11 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         #[cfg(any(cryp_v3, cryp_v4))]
         let footer: [u32; 4] = [headerlen1, headerlen2, payloadlen1, payloadlen2];
 
-        self.write_words_blocking(C::BLOCK_SIZE, &footer);
+        if let Some(ctr0) = ctx.cipher.ccm_ctr0() {
+            self.write_words_blocking(C::BLOCK_SIZE, &Self::phase_block_words(&ctr0));
+        } else {
+            self.write_words_blocking(C::BLOCK_SIZE, &footer);
+        }
 
         while !T::regs().sr().read().ofne() {}
 
@@ -1362,6 +1371,27 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         T::regs().cr().modify(|w| w.set_crypen(false));
 
         tag
+    }
+
+    /// Words of a 16-byte block fed in the CCM init or final phase (B0, CTR0).
+    ///
+    /// These blocks are not data: from cryp_v3 on they are taken as big-endian
+    /// words regardless of DATATYPE, while cryp_v2 byte-swaps them like data
+    /// (the ST HAL's rev.A path applies `__REV` for the 8-bit data type).
+    pub(crate) fn phase_block_words(block: &[u8; 16]) -> [u32; 4] {
+        let mut words = [0u32; 4];
+        for (word, chunk) in words.iter_mut().zip(block.chunks_exact(4)) {
+            let chunk: [u8; 4] = chunk.try_into().unwrap();
+            #[cfg(cryp_v2)]
+            {
+                *word = u32::from_ne_bytes(chunk);
+            }
+            #[cfg(any(cryp_v3, cryp_v4))]
+            {
+                *word = u32::from_be_bytes(chunk);
+            }
+        }
+        words
     }
 
     fn load_key(&self, key: &[u8]) {
@@ -1402,10 +1432,15 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
     }
 
     fn store_context<'c, C: Cipher<'c> + CipherSized>(&self, ctx: &mut Context<'c, C>) {
-        // Wait for data block processing to finish.
-        while !T::regs().sr().read().ifem() {}
-        while T::regs().sr().read().ofne() {}
-        while T::regs().sr().read().busy() {}
+        // Wait for data block processing to finish. Once the core has disabled
+        // itself (as it does at the end of the CCM init phase) nothing more
+        // will happen; cryp_v4 then even reports a non-empty input FIFO, so
+        // waiting would never return.
+        if T::regs().cr().read().crypen() {
+            while !T::regs().sr().read().ifem() {}
+            while T::regs().sr().read().ofne() {}
+            while T::regs().sr().read().busy() {}
+        }
 
         // Disable crypto processor.
         T::regs().cr().modify(|w| w.set_crypen(false));
@@ -1857,7 +1892,9 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         #[cfg(any(cryp_v3, cryp_v4))]
         let footer: [u32; 4] = [headerlen1, headerlen2, payloadlen1, payloadlen2];
 
-        let write = Self::write_words(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, &footer);
+        let ccm_ctr0 = ctx.cipher.ccm_ctr0().map(|ctr0| Self::phase_block_words(&ctr0));
+        let block = ccm_ctr0.as_ref().unwrap_or(&footer);
+        let write = Self::write_words(self.indma.as_mut().unwrap(), C::BLOCK_SIZE, block);
 
         let mut full_tag: Aligned<A4, [u8; 16]> = Aligned([0; 16]);
         let read = Self::read_bytes(self.outdma.as_mut().unwrap(), C::BLOCK_SIZE, &mut *full_tag);

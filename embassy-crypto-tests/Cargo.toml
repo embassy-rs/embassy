@@ -1,0 +1,35 @@
+[package]
+name = "embassy-crypto-tests"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Known-answer test suites for `embassy-crypto` drivers, from Wycheproof and generated vectors."
+repository = "https://github.com/embassy-rs/embassy"
+publish = false
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = []},
+    {target = "thumbv7em-none-eabi", features = ["defmt"]},
+]
+
+[dependencies]
+embassy-crypto = { version = "0.1.0", path = "../embassy-crypto" }
+defmt = { version = "1.0.1", optional = true }
+
+[build-dependencies]
+serde_json = "1"
+# Reference implementations for the vectors Wycheproof does not cover.
+md-5 = "0.11"
+sha1 = "0.11"
+sha2 = "0.11"
+aes = "0.9"
+ctr = "0.10"
+cipher = "0.5"
+p256 = { version = "0.14", default-features = false, features = ["arithmetic"] }
+p384 = { version = "0.14", default-features = false, features = ["arithmetic"] }
+elliptic-curve = { version = "0.14", default-features = false, features = ["arithmetic", "sec1"] }
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"] }
+
+[features]
+defmt = ["dep:defmt", "embassy-crypto/defmt"]

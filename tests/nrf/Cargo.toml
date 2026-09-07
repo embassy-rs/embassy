@@ -32,6 +32,7 @@ cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 portable-atomic = { version = "1.6.0" }
 embassy-crypto = { version = "0.1.0", path = "../../embassy-crypto", features = ["defmt"] }
+embassy-crypto-tests = { version = "0.1.0", path = "../../embassy-crypto-tests", features = ["defmt"] }
 
 [features]
 nrf51422 = ["embassy-nrf/nrf51",         "embassy-nrf/time-driver-rtc1", "portable-atomic/unsafe-assume-single-core"]
@@ -46,7 +47,10 @@ easydma = []
 two-uarts = []
 crypto = [
     "embassy-nrf/embassy-crypto-sha1",
+    "embassy-nrf/embassy-crypto-sha224",
     "embassy-nrf/embassy-crypto-sha256",
+    "embassy-nrf/embassy-crypto-hmac-sha1",
+    "embassy-nrf/embassy-crypto-hmac-sha224",
     "embassy-nrf/embassy-crypto-hmac-sha256",
     "embassy-nrf/embassy-crypto-aes128-ecb",
     "embassy-nrf/embassy-crypto-aes128-cbc",
@@ -56,9 +60,26 @@ crypto = [
     "embassy-nrf/embassy-crypto-aes128-gcm",
 ]
 # AES-256 and AES-GCM, which the CryptoCell only has in its 312 version.
-aes256 = []
+aes256 = [
+    "embassy-nrf/embassy-crypto-aes128-gcm",
+    "embassy-nrf/embassy-crypto-aes256-ecb",
+    "embassy-nrf/embassy-crypto-aes256-cbc",
+    "embassy-nrf/embassy-crypto-aes256-ctr",
+    "embassy-nrf/embassy-crypto-aes256-cmac",
+    "embassy-nrf/embassy-crypto-aes256-ccm",
+    "embassy-nrf/embassy-crypto-aes256-gcm",
+]
 # The SHA-512 family.
-sha512 = []
+sha512 = [
+    "embassy-nrf/embassy-crypto-sha384",
+    "embassy-nrf/embassy-crypto-sha512",
+    "embassy-nrf/embassy-crypto-sha512-224",
+    "embassy-nrf/embassy-crypto-sha512-256",
+    "embassy-nrf/embassy-crypto-hmac-sha384",
+    "embassy-nrf/embassy-crypto-hmac-sha512",
+    "embassy-nrf/embassy-crypto-hmac-sha512-224",
+    "embassy-nrf/embassy-crypto-hmac-sha512-256",
+]
 # The accelerator is CRACEN rather than a CryptoCell.
 cracen = []
 
@@ -104,8 +125,18 @@ path = "src/bin/chacha.rs"
 required-features = [ "crypto",]
 
 [[bin]]
-name = "crypto"
-path = "src/bin/crypto.rs"
+name = "crypto_aes"
+path = "src/bin/crypto_aes.rs"
+required-features = [ "crypto",]
+
+[[bin]]
+name = "crypto_aes256"
+path = "src/bin/crypto_aes256.rs"
+required-features = [ "aes256",]
+
+[[bin]]
+name = "crypto_hash"
+path = "src/bin/crypto_hash.rs"
 required-features = [ "crypto",]
 
 [[bin]]
