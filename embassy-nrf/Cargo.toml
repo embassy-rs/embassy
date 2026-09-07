@@ -95,8 +95,35 @@ gpiote = []
 ## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
 time-driver-rtc1 = ["_time-driver", "embassy-time-driver?/tick-hz-32_768"]
 
-## Use GRTC (CC n=1, GRTC_1 irq) as the time driver for `embassy-time`, with a tick rate of 1 MHz
+## Use GRTC as the time driver for `embassy-time`, with a tick rate of 1 MHz.
+## Defaults to CC11. Select at most one `time-driver-grtc-ccN` feature to choose a channel.
+## The interrupt follows the security domain: GRTC_1 for non-secure, GRTC_2 for secure.
 time-driver-grtc = ["_time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
+
+## Use GRTC CC0 for the time driver.
+time-driver-grtc-cc0 = ["time-driver-grtc"]
+## Use GRTC CC1 for the time driver.
+time-driver-grtc-cc1 = ["time-driver-grtc"]
+## Use GRTC CC2 for the time driver.
+time-driver-grtc-cc2 = ["time-driver-grtc"]
+## Use GRTC CC3 for the time driver.
+time-driver-grtc-cc3 = ["time-driver-grtc"]
+## Use GRTC CC4 for the time driver.
+time-driver-grtc-cc4 = ["time-driver-grtc"]
+## Use GRTC CC5 for the time driver.
+time-driver-grtc-cc5 = ["time-driver-grtc"]
+## Use GRTC CC6 for the time driver.
+time-driver-grtc-cc6 = ["time-driver-grtc"]
+## Use GRTC CC7 for the time driver.
+time-driver-grtc-cc7 = ["time-driver-grtc"]
+## Use GRTC CC8 for the time driver.
+time-driver-grtc-cc8 = ["time-driver-grtc"]
+## Use GRTC CC9 for the time driver.
+time-driver-grtc-cc9 = ["time-driver-grtc"]
+## Use GRTC CC10 for the time driver.
+time-driver-grtc-cc10 = ["time-driver-grtc"]
+## Use GRTC CC11 for the time driver.
+time-driver-grtc-cc11 = ["time-driver-grtc"]
 
 ## Enable embassy-net 802.15.4 driver
 net-driver = ["_net-driver"]
