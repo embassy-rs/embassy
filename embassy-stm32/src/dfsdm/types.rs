@@ -145,11 +145,7 @@ pub trait Shape: sealed::Sealed {
     fn selectors<T: Instance>() -> Self::Selectors<T>;
 }
 
-impl_sealed! {
-    capability::Tcv2,
-    capability::Tcv4,
-    capability::Tcv8,
-}
+impl_sealed!(capability::Tcv2, capability::Tcv4, capability::Tcv8);
 
 impl Shape for capability::Tcv2 {
     type Selectors<T: Instance> = ChannelSelectors2<T>;
@@ -257,11 +253,7 @@ pub struct DataOnly;
 
 pub struct DataClk;
 
-impl_sealed! {
-    NoPins,
-    DataOnly,
-    DataClk,
-}
+impl_sealed!(NoPins, DataOnly, DataClk);
 
 impl PinSet for NoPins {
     const HAS_DATA: bool = false;
@@ -684,11 +676,7 @@ impl_sealed_and! {
     ParallelAdcMode,
 }
 
-impl_sealed! {
-    SpiExtNeighborMode,
-    SpiCkoutNeighborMode,
-    ManchesterNeighborMode,
-}
+impl_sealed!(SpiExtNeighborMode, SpiCkoutNeighborMode, ManchesterNeighborMode);
 
 impl ChannelMode for SpiExtNeighborMode {
     const USES_NEIGHBOR_PINS: bool = true;
@@ -777,6 +765,38 @@ impl_next_channel!(capability::Tcv8,
 // =============================================================================
 
 dma_trait!(Dma, Instance, FilterMarker); //TODO
+
+pub struct NoDma;
+pub struct RegDma;
+pub struct InjDma;
+
+pub trait DmaMode: sealed::Sealed {
+    const REG_ENABLED: bool;
+    const INJ_ENABLED: bool;
+}
+
+impl_sealed!(NoDma, RegDma, InjDma);
+
+impl DmaMode for NoDma {
+    const REG_ENABLED: bool = false;
+    const INJ_ENABLED: bool = false;
+}
+impl DmaMode for RegDma {
+    const REG_ENABLED: bool = true;
+    const INJ_ENABLED: bool = false;
+}
+impl DmaMode for InjDma {
+    const REG_ENABLED: bool = false;
+    const INJ_ENABLED: bool = true;
+}
+
+pub trait FilterDma<T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    fn data_register(&self) -> *mut u32;
+}
 
 // =============================================================================
 // Generification traits

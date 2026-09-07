@@ -88,8 +88,6 @@ async fn main(_spawner: Spawner) {
 
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Disabled, 32).expect("This is inside the bounds"),
-        enable_injected_dma: true,
-        enable_regular_dma: true,
         enable_continuous_regular: true,
         enable_fast_regular: false,
     };
