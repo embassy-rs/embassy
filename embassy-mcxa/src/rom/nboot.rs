@@ -79,14 +79,41 @@ pub union NbootMemCryptRegionConfig {
 
 #[repr(C)]
 pub struct NbootRotAuthParms {
-    pub soc_root_key_revocation: [u32; 4],
+    pub soc_root_key_revocation: [NbootRootKeyRevocation; 4],
     pub soc_image_key_revocation: u32,
     pub soc_rkh: [u32; 12],
     pub soc_rkh_1: [u32; 12], // PQC_ROTKH (hash of hashes)
     pub soc_number_of_root_keys: u32,
-    pub soc_root_key_usage: [u32; 4],
-    pub soc_root_key_type_and_length: u32,
+    pub soc_root_key_usage: [NbootRootKeyUsage; 4],
+    pub soc_root_key_type_and_length: NbootRootKeyType,
     pub soc_lifecycle: u32,
+}
+
+// Root key configuration constants for NBOOT
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NbootRootKeyRevocation {
+    Enabled = 0xAA,
+    Revoked = 0xBB,
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NbootRootKeyUsage {
+    All = 0x0,
+    DebugCa = 0x1,
+    ImageCaFwCa = 0x2,
+    DebugCaImageCaFwCa = 0x3,
+    ImageKeyFwKey = 0x4,
+    ImageKey = 0x5,
+    FwKey = 0x6,
+    Unused = 0x7,
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NbootRootKeyType {
+    EcdsaP384Mldsa87 = 0x0000_FD04, // Hybrid root key type: ECDSA P-384 + ML-DSA-87
 }
 
 #[repr(C)]
