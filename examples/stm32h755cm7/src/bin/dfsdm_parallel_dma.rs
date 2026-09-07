@@ -62,7 +62,7 @@ async fn main(_spawner: Spawner) {
     // Start driver instantiation using DFSDM1 with a CKOUT pin on pin C2
     let dfsdm1 = dfsdm::Dfsdm::new(p.DFSDM1);
 
-    let split = dfsdm1.configure_pins(|creator| {
+    let (common, split) = dfsdm1.configure_pins(|creator| {
         (
             creator.ch0.none(),
             creator.ch1.none(),
@@ -78,7 +78,7 @@ async fn main(_spawner: Spawner) {
     let tcv_cfg_online = TransceiverConfigOnline::default();
     let ch_test = split
         .ch0
-        .build_parallel_dma(&split.common, dfsdm::config_types::DataPackingModeReduced::Standard)
+        .build_parallel_dma(&common, dfsdm::config_types::DataPackingModeReduced::Standard)
         .configure(&tcv_cfg, &tcv_cfg_online)
         .enable();
 
@@ -88,10 +88,7 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split
-        .flt0
-        .build(&split.common)
-        .enable_no_dma(&ch_test, [&ch_test], &flt_cfg);
+    let mut flt0 = split.flt0.build(&common).enable_no_dma(&ch_test, [&ch_test], &flt_cfg);
 
     flt0.reg.start_regular_conversion(); // Waiting for data now
 

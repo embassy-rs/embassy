@@ -744,6 +744,29 @@ where
 // Builders
 // ============================================================
 
+/// Used to build a [`Detector`].
+pub struct DetectorsBuilder<T>
+where
+    T: Instance + FilterInterrupt<Flt0>,
+{
+    _marker: PhantomData<T>,
+}
+
+impl<T> DetectorsBuilder<T>
+where
+    T: Instance + FilterInterrupt<Flt0>,
+{
+    /// Creates a new builder for a filter.
+    pub(crate) fn new() -> Self {
+        Self { _marker: PhantomData }
+    }
+    /// Build the actual Filter, binding it to the DfsdmCommon peripheral.
+    /// This prevents DfsdmCommon from being dropped while the Filter exists.
+    pub fn build<'a, 'd>(self, common: &'a DfsdmCommon<'d, T, Enabled>) -> Detectors<'a, 'd, T> {
+        Detectors::new(common)
+    }
+}
+
 /// Used to build a [`Filter`].
 pub struct FilterBuilder<T, M>
 where
@@ -1097,7 +1120,7 @@ where
 }
 
 // ============================================================
-// Interrupt/Event accessors
+// Interrupt/Event accessors filter
 // ============================================================
 
 //TODO DOCSTRINGS, BITMAP TYPE, SPLIT
@@ -1238,15 +1261,18 @@ where
     T: Instance,
     M: FilterMarker,
 {
-    _instance_marker: PhantomData<(T, M)>,
-    common: &'a DfsdmCommon<'d, T, Enabled>,
+    _common: PhantomData<(&'a DfsdmCommon<'d, T, Enabled>, M)>,
 }
 
 impl<'a, 'd, T, M> ExtremesDetector<'a, 'd, T, M>
 where
-    T: Instance + FilterInterrupt<M>,
+    T: Instance,
     M: FilterMarker,
 {
+    pub(crate) fn new(_common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
+        Self { _common: PhantomData }
+    }
+
     /// Assign provided transceivers to this extremes detector
     pub fn assign_transceivers<const N: usize>(
         &mut self,
@@ -1289,18 +1315,45 @@ where
     }
 }
 
+// ============================================================
+// Interrupt/Event accessors instance
+// ============================================================
+
+pub struct Detectors<'a, 'd, T>
+where
+    T: Instance + FilterInterrupt<Flt0>,
+{
+    pub short_circuit: ShortCircuitDetector<'a, 'd, T>,
+    pub clock_absence: ClockAbsenceDetector<'a, 'd, T>,
+}
+
+impl<'a, 'd, T> Detectors<'a, 'd, T>
+where
+    T: Instance + FilterInterrupt<Flt0>,
+{
+    pub(crate) fn new(common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
+        Self {
+            short_circuit: ShortCircuitDetector::new(common),
+            clock_absence: ClockAbsenceDetector::new(common),
+        }
+    }
+}
+
 pub struct ShortCircuitDetector<'a, 'd, T>
 where
     T: Instance,
 {
-    _instance_marker: PhantomData<T>,
-    common: &'a DfsdmCommon<'d, T, Enabled>,
+    _common: PhantomData<&'a DfsdmCommon<'d, T, Enabled>>,
 }
 
 impl<'a, 'd, T> ShortCircuitDetector<'a, 'd, T>
 where
     T: Instance + FilterInterrupt<Flt0>,
 {
+    pub(crate) fn new(_common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
+        Self { _common: PhantomData }
+    }
+
     /// Wait for a short-circuit-detector event
     pub async fn wait_for_event(&mut self) -> u8 {
         poll_fn(|cx| {
@@ -1338,16 +1391,19 @@ where
 
 pub struct ClockAbsenceDetector<'a, 'd, T>
 where
-    T: Instance,
+    T: Instance + FilterInterrupt<Flt0>,
 {
-    _instance_marker: PhantomData<T>,
-    common: &'a DfsdmCommon<'d, T, Enabled>,
+    _common: PhantomData<&'a DfsdmCommon<'d, T, Enabled>>,
 }
 
 impl<'a, 'd, T> ClockAbsenceDetector<'a, 'd, T>
 where
     T: Instance + FilterInterrupt<Flt0>,
 {
+    pub(crate) fn new(_common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
+        Self { _common: PhantomData }
+    }
+
     /// Wait for a short-circuit-detector event
     pub async fn wait_for_event(&mut self) -> u8 {
         poll_fn(|cx| {
@@ -1513,20 +1569,20 @@ impl<T: Instance> ChannelSelectors8<T> {
 // Splitting
 // =============================================================================
 
-pub struct DfsdmSplit2Ch1Flt<'d, T, C, S0, S1>
+pub struct DfsdmSplit2Ch1Flt<T, C, S0, S1>
 where
     T: Instance + FilterInterrupt<Flt0>,
     C: ClockOutputMode,
     S0: PinSet,
     S1: PinSet,
 {
-    pub common: DfsdmCommon<'d, T, Enabled>,
+    pub detectors: DetectorsBuilder<T>,
     pub ch0: TransceiverBuilder<T, Tcv0, C, S0, S1>, // neighbor = ch1
     pub ch1: TransceiverBuilder<T, Tcv1, C, S1, S0>, // neighbor = ch0 (wrap!)
     pub flt0: FilterBuilder<T, Flt0>,
 }
 
-pub struct DfsdmSplit8Ch8Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
+pub struct DfsdmSplit8Ch8Flt<T, C, S0, S1, S2, S3, S4, S5, S6, S7>
 where
     T: Instance + Flt8Ready,
     C: ClockOutputMode,
@@ -1539,7 +1595,7 @@ where
     S6: PinSet,
     S7: PinSet,
 {
-    pub common: DfsdmCommon<'d, T, Enabled>,
+    pub detectors: DetectorsBuilder<T>,
     pub ch0: TransceiverBuilder<T, Tcv0, C, S0, S1>,
     pub ch1: TransceiverBuilder<T, Tcv1, C, S1, S2>,
     pub ch2: TransceiverBuilder<T, Tcv2, C, S2, S3>,
@@ -1558,7 +1614,7 @@ where
     pub flt7: FilterBuilder<T, Flt7>,
 }
 
-pub struct DfsdmSplit8Ch4Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
+pub struct DfsdmSplit8Ch4Flt<T, C, S0, S1, S2, S3, S4, S5, S6, S7>
 where
     T: Instance + Flt4Ready,
     C: ClockOutputMode,
@@ -1571,7 +1627,7 @@ where
     S6: PinSet,
     S7: PinSet,
 {
-    pub common: DfsdmCommon<'d, T, Enabled>,
+    pub detectors: DetectorsBuilder<T>,
     pub ch0: TransceiverBuilder<T, Tcv0, C, S0, S1>,
     pub ch1: TransceiverBuilder<T, Tcv1, C, S1, S2>,
     pub ch2: TransceiverBuilder<T, Tcv2, C, S2, S3>,
@@ -1599,7 +1655,7 @@ pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
     type Split;
 
     /// Split helper-function
-    fn split_parts(self, common: DfsdmCommon<'d, T, Enabled>) -> Self::Split;
+    fn split_parts(self, common: &mut DfsdmCommon<'d, T, Enabled>) -> Self::Split;
 }
 
 impl<'d, T, C, C0, C1> ChannelCfgTuple<'d, T, C> for (C0, C1)
@@ -1609,15 +1665,10 @@ where
     C0: ChannelCfg<'d, T, Tcv0>,
     C1: ChannelCfg<'d, T, Tcv1>,
 {
-    type Split = DfsdmSplit2Ch1Flt<
-        'd,
-        T,
-        C,
-        <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
-        <C1 as ChannelCfg<'d, T, Tcv1>>::Presence,
-    >;
+    type Split =
+        DfsdmSplit2Ch1Flt<T, C, <C0 as ChannelCfg<'d, T, Tcv0>>::Presence, <C1 as ChannelCfg<'d, T, Tcv1>>::Presence>;
 
-    fn split_parts(self, mut common: DfsdmCommon<'d, T, Enabled>) -> Self::Split {
+    fn split_parts(self, common: &mut DfsdmCommon<'d, T, Enabled>) -> Self::Split {
         let (d0, k0) = self.0.into_parts();
         let (d1, k1) = self.1.into_parts();
 
@@ -1627,7 +1678,7 @@ where
         common.insert_pin(1, PinKind::Ckin, C1::Presence::extract_ckin(k1));
 
         DfsdmSplit2Ch1Flt {
-            common,
+            detectors: DetectorsBuilder::new(),
             ch0: TransceiverBuilder::new(),
             ch1: TransceiverBuilder::new(),
             flt0: FilterBuilder::new(),
@@ -1638,7 +1689,6 @@ where
 /// Builds the actual split struct from 8 already-extracted pin pairs.
 /// Implemented separately for each filter-count capability.
 pub trait Flt8SplitBuild<
-    'd,
     T: Instance,
     C: ClockOutputMode,
     S0: PinSet,
@@ -1652,8 +1702,8 @@ pub trait Flt8SplitBuild<
 >
 {
     type Out;
-    fn build(
-        common: DfsdmCommon<'d, T, Enabled>,
+    fn build<'d>(
+        common: &mut DfsdmCommon<'d, T, Enabled>,
         d0: S0::Datin<'d>,
         k0: S0::Ckin<'d>,
         d1: S1::Datin<'d>,
@@ -1673,8 +1723,7 @@ pub trait Flt8SplitBuild<
     ) -> Self::Out;
 }
 
-impl<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
-    for capability::Flt8
+impl<T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<T, C, S0, S1, S2, S3, S4, S5, S6, S7> for capability::Flt8
 where
     T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>
         + FilterInterrupt<Flt0>
@@ -1695,10 +1744,10 @@ where
     S6: PinSet,
     S7: PinSet,
 {
-    type Out = DfsdmSplit8Ch8Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
+    type Out = DfsdmSplit8Ch8Flt<T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
 
-    fn build(
-        mut common: DfsdmCommon<'d, T, Enabled>,
+    fn build<'d>(
+        common: &mut DfsdmCommon<'d, T, Enabled>,
         d0: S0::Datin<'d>,
         k0: S0::Ckin<'d>,
         d1: S1::Datin<'d>,
@@ -1734,7 +1783,7 @@ where
         common.insert_pin(7, PinKind::Ckin, S7::extract_ckin(k7));
 
         DfsdmSplit8Ch8Flt {
-            common,
+            detectors: DetectorsBuilder::new(),
             ch0: TransceiverBuilder::new(),
             ch1: TransceiverBuilder::new(),
             ch2: TransceiverBuilder::new(),
@@ -1755,8 +1804,7 @@ where
     }
 }
 
-impl<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>
-    for capability::Flt4
+impl<T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<T, C, S0, S1, S2, S3, S4, S5, S6, S7> for capability::Flt4
 where
     T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt4>
         + FilterInterrupt<Flt0>
@@ -1773,10 +1821,10 @@ where
     S6: PinSet,
     S7: PinSet,
 {
-    type Out = DfsdmSplit8Ch4Flt<'d, T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
+    type Out = DfsdmSplit8Ch4Flt<T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
 
-    fn build(
-        common: DfsdmCommon<'d, T, Enabled>,
+    fn build<'d>(
+        common: &mut DfsdmCommon<'d, T, Enabled>,
         d0: S0::Datin<'d>,
         k0: S0::Ckin<'d>,
         d1: S1::Datin<'d>,
@@ -1795,7 +1843,7 @@ where
         k7: S7::Ckin<'d>,
     ) -> Self::Out {
         DfsdmSplit8Ch4Flt {
-            common,
+            detectors: DetectorsBuilder::new(),
             ch0: TransceiverBuilder::new(),
             ch1: TransceiverBuilder::new(),
             ch2: TransceiverBuilder::new(),
@@ -1825,7 +1873,6 @@ where
     C6: ChannelCfg<'d, T, Tcv6>,
     C7: ChannelCfg<'d, T, Tcv7>,
     T::Filters: Flt8SplitBuild<
-            'd,
             T,
             C,
             <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
@@ -1839,7 +1886,6 @@ where
         >,
 {
     type Split = <T::Filters as Flt8SplitBuild<
-        'd,
         T,
         C,
         <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
@@ -1852,7 +1898,7 @@ where
         <C7 as ChannelCfg<'d, T, Tcv7>>::Presence,
     >>::Out;
 
-    fn split_parts(self, common: DfsdmCommon<'d, T, Enabled>) -> Self::Split {
+    fn split_parts(self, common: &mut DfsdmCommon<'d, T, Enabled>) -> Self::Split {
         let (d0, k0) = self.0.into_parts();
         let (d1, k1) = self.1.into_parts();
         let (d2, k2) = self.2.into_parts();
@@ -1862,7 +1908,6 @@ where
         let (d6, k6) = self.6.into_parts();
         let (d7, k7) = self.7.into_parts();
         <T::Filters as Flt8SplitBuild<
-            'd,
             T,
             C,
             <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
@@ -1910,12 +1955,19 @@ where
     ///     )
     /// });
     /// ```
-    pub fn configure_pins<F, OUT>(mut self, f: F) -> <OUT as ChannelCfgTuple<'d, T, C>>::Split
+    pub fn configure_pins<F, OUT>(
+        mut self,
+        f: F,
+    ) -> (DfsdmCommon<'d, T, Enabled>, <OUT as ChannelCfgTuple<'d, T, C>>::Split)
     where
         F: FnOnce(<T::Transceivers as Shape>::Selectors<T>) -> OUT,
         OUT: ChannelCfgTuple<'d, T, C>,
     {
         let out = f(<T::Transceivers as Shape>::selectors::<T>());
-        out.split_parts(DfsdmCommon::new(self.peri.expect("taken once"), self.ckout.take()).enable())
+
+        let mut common = DfsdmCommon::new(self.peri.expect("taken once"), self.ckout.take()).enable();
+        let split = out.split_parts(&mut common);
+
+        (common, split)
     }
 }

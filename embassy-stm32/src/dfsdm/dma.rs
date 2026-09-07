@@ -20,8 +20,8 @@ where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
 {
-    pub fn new_regular<'t, D: Dma<T, M>>(
-        filter: &'e FilterRegular<'t, T, M, RegDma>,
+    pub fn new_regular<'a, 'd, 't, D: Dma<T, M>>(
+        filter: &'e FilterRegular<'a, 'd, 't, T, M, RegDma>,
         dma: Peri<'e, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
@@ -45,8 +45,8 @@ where
         }
     }
 
-    pub fn new_injected<'t, D: Dma<T, M>>(
-        filter: &'e FilterRegular<'t, T, M, RegDma>,
+    pub fn new_injected<'a, 'd, 't, D: Dma<T, M>>(
+        filter: &'e FilterRegular<'a, 'd, 't, T, M, RegDma>,
         dma: Peri<'e, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],

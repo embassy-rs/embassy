@@ -10,7 +10,7 @@ where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
 {
-    marker: PhantomData<(T, M)>,
+    _marker: PhantomData<M>,
     common: &'a DfsdmCommon<'d, T, Enabled>,
 }
 
@@ -20,28 +20,30 @@ where
     M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
-    pub reg: FilterRegular<'tr, T, M, D>,
-    pub inj: FilterInjected<'ti, T, M, D>,
+    common: &'a DfsdmCommon<'d, T, Enabled>,
+    pub reg: FilterRegular<'a, 'd, 'tr, T, M, D>,
+    pub inj: FilterInjected<'a, 'd, 'ti, T, M, D>,
     pub awd: AnalogWatchdog<'a, 'd, T, M>,
+    pub extremes: ExtremesDetector<'a, 'd, T, M>,
 }
 
-pub struct FilterRegular<'t, T, M, D>
+pub struct FilterRegular<'a, 'd, 't, T, M, D>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
-    marker: PhantomData<(T, M, D)>,
+    _common: PhantomData<(&'a DfsdmCommon<'d, T, Enabled>, M, D)>,
     regular: &'t dyn TransceiverTrait<T, Enabled>,
 }
 
-pub struct FilterInjected<'t, T, M, D>
+pub struct FilterInjected<'a, 'd, 't, T, M, D>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
-    marker: PhantomData<(T, M, D)>,
+    _common: PhantomData<(&'a DfsdmCommon<'d, T, Enabled>, M, D)>,
     injected: [Option<&'t dyn TransceiverTrait<T, Enabled>>; 8],
 }
 
@@ -91,7 +93,7 @@ where
 {
     pub(crate) fn new(common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
         Self {
-            marker: PhantomData,
+            _marker: PhantomData,
             common,
         }
     }
@@ -145,9 +147,11 @@ where
         [(); N]: NonEmpty,
     {
         let filter = Filter {
-            reg: FilterRegular::new(regular),
-            inj: FilterInjected::new(injected),
+            common: self.common,
+            reg: FilterRegular::new(self.common, regular),
+            inj: FilterInjected::new(self.common, injected),
             awd: AnalogWatchdog::new(self.common),
+            extremes: ExtremesDetector::new(self.common),
         };
 
         // Enable appropriate DMA request
@@ -205,13 +209,13 @@ where
     M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
+    /// Disable the Filter
     pub fn disable(self) -> FilterDisabled<'a, 'd, T, M> {
         FilterRegs::<T, M>::set_enabled(false);
-        let common = self.awd.common;
 
         FilterDisabled {
-            marker: PhantomData,
-            common,
+            _marker: PhantomData,
+            common: self.common,
         }
     }
     // Normal stuff,
@@ -231,15 +235,14 @@ where
         self,
         transceiver: &'new_reg dyn TransceiverTrait<T, Enabled>,
     ) -> Filter<'new_reg, 'ti, 'a, 'd, T, M, D> {
-        FilterRegular::<'ti, T, M, D>::set_regular_transceiver(transceiver.index());
+        FilterRegular::<'a, 'd, 'ti, T, M, D>::set_regular_transceiver(transceiver.index());
 
         Filter {
             reg: FilterRegular {
+                _common: PhantomData,
                 regular: transceiver,
-                marker: PhantomData,
             },
-            inj: self.inj,
-            awd: self.awd,
+            ..self
         }
     }
 
@@ -256,30 +259,32 @@ where
     where
         [(); N]: NonEmpty,
     {
-        let (slots, filterword) = FilterInjected::<'ti, T, M, D>::build_injected_slots(transceivers);
-        FilterInjected::<'ti, T, M, D>::set_injected_channels(filterword);
+        let (slots, filterword) = FilterInjected::<'a, 'd, 'ti, T, M, D>::build_injected_slots(transceivers);
+        FilterInjected::<'a, 'd, 'ti, T, M, D>::set_injected_channels(filterword);
 
         Filter {
-            reg: self.reg,
             inj: FilterInjected {
                 injected: slots,
-                marker: PhantomData,
+                _common: PhantomData,
             },
-            awd: self.awd,
+            ..self
         }
     }
 }
 
-impl<'t, T, M, D> FilterRegular<'t, T, M, D>
+impl<'a, 'd, 't, T, M, D> FilterRegular<'a, 'd, 't, T, M, D>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
-    pub(crate) fn new(transceiver: &'t dyn TransceiverTrait<T, Enabled>) -> Self {
+    pub(crate) fn new(
+        _common: &'a DfsdmCommon<'d, T, Enabled>,
+        transceiver: &'t dyn TransceiverTrait<T, Enabled>,
+    ) -> Self {
         Self::set_regular_transceiver(transceiver.index());
         Self {
-            marker: PhantomData,
+            _common: PhantomData,
             regular: transceiver,
         }
     }
@@ -381,13 +386,16 @@ where
     }
 }
 
-impl<'t, T, M, D> FilterInjected<'t, T, M, D>
+impl<'a, 'd, 't, T, M, D> FilterInjected<'a, 'd, 't, T, M, D>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
-    pub(crate) fn new<const N: usize>(transceivers: [&'t dyn TransceiverTrait<T, Enabled>; N]) -> Self
+    pub(crate) fn new<const N: usize>(
+        _common: &'a DfsdmCommon<'d, T, Enabled>,
+        transceivers: [&'t dyn TransceiverTrait<T, Enabled>; N],
+    ) -> Self
     where
         [(); N]: NonEmpty,
     {
@@ -395,7 +403,7 @@ where
         Self::set_injected_channels(filterword);
 
         Self {
-            marker: PhantomData,
+            _common: PhantomData,
             injected: slots,
         }
     }
@@ -516,7 +524,7 @@ where
     }
 }
 
-impl<'t, T, M> FilterRegular<'t, T, M, RegDma>
+impl<'a, 'd, 't, T, M> FilterRegular<'a, 'd, 't, T, M, RegDma>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
@@ -524,7 +532,7 @@ where
     // DMA read function
 }
 
-impl<'t, T, M> FilterInjected<'t, T, M, InjDma>
+impl<'a, 'd, 't, T, M> FilterInjected<'a, 'd, 't, T, M, InjDma>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
@@ -532,7 +540,7 @@ where
     // DMA read function
 }
 
-impl<'t, T, M> FilterDma<T, M> for FilterRegular<'t, T, M, RegDma>
+impl<'a, 'd, 't, T, M> FilterDma<T, M> for FilterRegular<'a, 'd, 't, T, M, RegDma>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
@@ -542,7 +550,7 @@ where
     }
 }
 
-impl<'t, T, M> FilterDma<T, M> for FilterInjected<'t, T, M, InjDma>
+impl<'a, 'd, 't, T, M> FilterDma<T, M> for FilterInjected<'a, 'd, 't, T, M, InjDma>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
@@ -550,10 +558,6 @@ where
     fn data_register(&self) -> *mut u32 {
         T::regs().flt(M::CHANNEL.index()).jdatar().as_ptr() as *mut u32
     }
-}
-
-mod filter_functions {
-    use crate::dfsdm::{FilterMarker, Instance, InstanceEvents};
 }
 
 impl<T, M> FilterRegs<T, M>

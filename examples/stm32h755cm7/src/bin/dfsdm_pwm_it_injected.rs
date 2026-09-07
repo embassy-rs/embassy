@@ -94,7 +94,7 @@ async fn main(_spawner: Spawner) {
     );
     println!("Running with prescaler={}", prescaler);
 
-    let split = dfsdm1.configure_pins(|creator| {
+    let (common, split) = dfsdm1.configure_pins(|creator| {
         (
             creator.ch0.none(),
             creator.ch1.datin(p.PC3),
@@ -120,7 +120,7 @@ async fn main(_spawner: Spawner) {
     let tcv_cfg_online = TransceiverConfigOnline::default();
     let channel_mic = split
         .ch1
-        .build_spi_int(&split.common, InternalSpiMode::SpiRising)
+        .build_spi_int(&common, InternalSpiMode::SpiRising)
         .configure(&tcv_cfg, &tcv_cfg_online)
         .enable();
 
@@ -130,7 +130,7 @@ async fn main(_spawner: Spawner) {
     };
     let mut flt0 = split
         .flt0
-        .build(&split.common)
+        .build(&common)
         .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
 
     let mut dc_offset: i32 = 0;
