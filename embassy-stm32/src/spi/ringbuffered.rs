@@ -58,7 +58,6 @@ pub struct RingBufferedSpiRx<'d, W: Word> {
     _mosi: Option<Flex<'d>>,
     _miso: Option<Flex<'d>>,
     nss: CsPinType<'d>,
-    nss_polarity: SlaveSelectPolarity,
     ring_buf: ReadableRingBuffer<'d, W>,
 }
 
@@ -103,16 +102,6 @@ impl<'d> Spi<'d, Async, Slave> {
 
         let wake_guard = self.info.rcc.wake_guard();
 
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        let nss_polarity = if self.info.regs.cfg2().read().ssiop() == super::vals::Ssiop::ActiveLow {
-            SlaveSelectPolarity::ActiveLow
-        } else {
-            SlaveSelectPolarity::ActiveHigh
-        };
-
-        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
-        let nss_polarity = SlaveSelectPolarity::ActiveLow;
-
         // Don't disable the clock
         mem::forget(self);
 
@@ -128,7 +117,6 @@ impl<'d> Spi<'d, Async, Slave> {
             _mosi: mosi,
             _miso: miso,
             nss,
-            nss_polarity,
             ring_buf,
         }
     }
@@ -137,10 +125,6 @@ impl<'d> Spi<'d, Async, Slave> {
 impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ()> {
-        #[cfg(any(spi_v4, spi_v5, spi_v6))]
-        {
-            self.nss_polarity = config.nss_polarity;
-        }
         #[cfg(gpio_v2)]
         super::set_speed(&self._sck, &self._mosi, config.gpio_speed);
         reconfigure(self.info, self.kernel_clock, config)
@@ -246,7 +230,7 @@ impl<'d, W: Word> RingBufferedSpiRx<'d, W> {
         });
 
         // Future which completes when NSS deselect edge is detected
-        let exti = pin!(self.nss.wait_for_edge(self.nss_polarity));
+        let exti = pin!(self.nss.wait_for_edge(SlaveSelectPolarity::from_regs(self.info.regs)));
 
         select(exti, dma).await;
     }
