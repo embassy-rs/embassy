@@ -6,7 +6,8 @@ use nxp_pac::syscon::{ClrLpcac, DisDataSpec, DisFlashSpec, DisLpcac, DisMbeccErr
 use super::{StandardVersion, Status};
 
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlashFfrConfig {
     /// FFR block base address.
     pub ffr_block_base: u32,
@@ -24,6 +25,7 @@ pub struct FlashFfrConfig {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlashReadEccOption {
     On = 0,
     Off = 1,
@@ -31,6 +33,7 @@ pub enum FlashReadEccOption {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlashReadMarginOption {
     Normal = 0,
     VsProgram = 1,
@@ -40,6 +43,7 @@ pub enum FlashReadMarginOption {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlashReadDmaccOption {
     Disabled = 0,
     Enabled = 1,
@@ -47,6 +51,7 @@ pub enum FlashReadDmaccOption {
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlashRampControlOption {
     #[default]
     Reserved = 0,
@@ -57,7 +62,8 @@ pub enum FlashRampControlOption {
 
 #[cfg(feature = "mcxa5xx")]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlashReadSingleWordConfig {
     pub packed_options: u8,
     pub reserved1: [u8; 3],
@@ -75,7 +81,8 @@ impl FlashReadSingleWordConfig {
 
 #[cfg(feature = "mcxa5xx")]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlashSetWriteModeConfig {
     pub program_ramp_control: FlashRampControlOption,
     pub erase_ramp_control: FlashRampControlOption,
@@ -84,7 +91,8 @@ pub struct FlashSetWriteModeConfig {
 
 #[cfg(feature = "mcxa5xx")]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlashSetReadModeConfig {
     pub read_interface_timing_trim: u16,
     pub read_controller_timing_trim: u16,
@@ -94,7 +102,8 @@ pub struct FlashSetReadModeConfig {
 
 #[cfg(feature = "mcxa5xx")]
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlashModeConfig {
     pub sys_freq_in_m_hz: u32,
     pub read_single_word: FlashReadSingleWordConfig,
@@ -103,7 +112,8 @@ pub struct FlashModeConfig {
 }
 
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlashConfig {
     /// P-Flash block base address.
     pub pflash_block_base: u32,
@@ -130,6 +140,7 @@ pub struct FlashConfig {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlashProperty {
     PflashSectorSize = 0x00,
     PflashTotalSize = 0x01,

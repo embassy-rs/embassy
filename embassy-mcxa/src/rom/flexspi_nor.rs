@@ -4,12 +4,14 @@ use super::Status;
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum SerialNorOptionTag {
     Config = 0x0C, // SDK vs. RM mismatch; TODO: confirm correct value and semantics.
 }
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SerialNorOptionSize {
     Option0Only = 0,
     Option0AndOption1 = 1,
@@ -17,6 +19,7 @@ pub enum SerialNorOptionSize {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SerialNorDeviceType {
     ReadSfdpSdr = 0,
     ReadSfdpDdr = 1,
@@ -32,6 +35,7 @@ pub enum SerialNorDeviceType {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SerialNorOptionPadEncoding {
     // Encoded values for option0.query_pads / option0.cmd_pads.
     // These match the ROM option field encoding, not the literal kSerialFlash_*Pad values.
@@ -42,6 +46,7 @@ pub enum SerialNorOptionPadEncoding {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SerialNorQuadModeSetting {
     NotConfigured = 0,
     StatusReg1Bit6 = 1,
@@ -52,6 +57,7 @@ pub enum SerialNorQuadModeSetting {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SerialNorMiscMode {
     Disabled = 0,
     Mode0_4_4 = 1,
@@ -65,6 +71,7 @@ pub enum SerialNorMiscMode {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlexspiSerialClockFrequency {
     NoChange = 0,
     MHz30 = 1,
@@ -79,6 +86,7 @@ pub enum FlexspiSerialClockFrequency {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SerialNorFlashConnection {
     SinglePortA = 0,
     Parallel = 1,
@@ -88,6 +96,7 @@ pub enum SerialNorFlashConnection {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlexspiClockSource {
     // Table 60 selector values for the ROM set_clock_source API.
     NoClock = 0,
@@ -99,6 +108,7 @@ pub enum FlexspiClockSource {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlexspiClockConfigFrequency {
     // Table 61 values for the ROM config_clock API.
     MHz30 = 1,
@@ -110,6 +120,7 @@ pub enum FlexspiClockConfigFrequency {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlexspiClockConfigMode {
     Sdr = 0,
     Ddr = 1,
@@ -149,7 +160,8 @@ pub const fn pack_serial_nor_option1(
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SerialNorConfigOption {
     // Packed ROM ABI input for `flexspiNorDriver->get_config(...)`.
     //
@@ -171,6 +183,7 @@ pub struct SerialNorConfigOption {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FlexspiOperationType {
     Command = 0,
     Config = 1,
@@ -179,7 +192,8 @@ pub enum FlexspiOperationType {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct FlashRunContextFields {
     por_mode: u8,
     current_mode: u8,
@@ -195,7 +209,8 @@ pub union FlashRunContext {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlexspiLutSeq {
     pub seq_num: u8,
     pub seq_id: u8,
@@ -203,13 +218,16 @@ pub struct FlexspiLutSeq {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlexspiDllTime {
     pub time_100ps: u8,
     pub delay_cells: u8,
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlexspiMemConfig {
     pub tag: u32,
     pub version: u32,
@@ -274,6 +292,8 @@ pub struct FlexspiNorConfig {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct FlexspiXfer {
     pub operation: FlexspiOperationType,
     pub base_address: u32,

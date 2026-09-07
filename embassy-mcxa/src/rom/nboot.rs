@@ -8,6 +8,7 @@ struct NbootCtx {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NbootMemCryptRegion {
     Region0 = 0,
     Region1 = 1,
@@ -23,6 +24,7 @@ type NbootMemCryptOperation = u32; // Need to confirm exact typed values.
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NbootMemCryptIpedModeSelect {
     Rounds12 = 0x3C5A_C33C,
     Rounds22 = 0x5AA5_5AA5,
@@ -32,13 +34,15 @@ pub enum NbootMemCryptIpedModeSelect {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NbootMemCryptEngineType {
     Npx = 0x5959_5959,
     Iped = 0x9595_9595,
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NbootNpxRegionConfig {
     /// Must be NbootMemCryptEngineType::Npx.
     pub config_id: NbootMemCryptEngineType,
@@ -55,7 +59,8 @@ pub struct NbootNpxRegionConfig {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NbootIpedRegionConfig {
     /// Must be NbootMemCryptEngineType::Iped.
     pub config_id: NbootMemCryptEngineType,
@@ -78,6 +83,8 @@ pub union NbootMemCryptRegionConfig {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NbootRotAuthParms {
     pub soc_root_key_revocation: [NbootRootKeyRevocation; 4],
     pub soc_image_key_revocation: u32,
@@ -92,6 +99,7 @@ pub struct NbootRotAuthParms {
 // Root key configuration constants for NBOOT
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NbootRootKeyRevocation {
     Enabled = 0xAA,
     Revoked = 0xBB,
@@ -99,6 +107,7 @@ pub enum NbootRootKeyRevocation {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NbootRootKeyUsage {
     All = 0x0,
     DebugCa = 0x1,
@@ -112,17 +121,22 @@ pub enum NbootRootKeyUsage {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum NbootRootKeyType {
     EcdsaP384Mldsa87 = 0x0000_FD04, // Hybrid root key type: ECDSA P-384 + ML-DSA-87
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NbootImgAuthParms {
     pub soc_ro_tnvm: NbootRotAuthParms,
     pub soc_trusted_firmware_version: u32,
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NbootSb4LoadManifestParms {
     /// Returned RoTNVM/auth parameters.
     pub soc_ro_tnvm: NbootRotAuthParms,

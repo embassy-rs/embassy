@@ -5,6 +5,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use super::Status;
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct KbRegion {
     /// Region base address.
     pub address: u32,
@@ -14,6 +16,7 @@ pub struct KbRegion {
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum KbOperation {
     /// Verify/authenticate image.
     AuthenticateImage = 1,
@@ -24,7 +27,8 @@ pub enum KbOperation {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct KbLoadSb {
     /// Profile selector (meaning per ROM header / implementation).
     pub profile: u32,
@@ -41,7 +45,8 @@ pub struct KbLoadSb {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct KbAuthenticate {
     /// Profile selector (meaning per ROM header / implementation).
     pub profile: u32,
@@ -54,12 +59,14 @@ pub struct KbAuthenticate {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub union KbOptionsParams {
     pub authenticate: KbAuthenticate,
     pub load_sb: KbLoadSb,
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct KbOptions {
     /// Must be KB_API_VERSION.
     pub version: u32,
@@ -74,6 +81,8 @@ pub struct KbOptions {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct KbBufferDesc {
     /// Buffer pointer.
     buf: *mut u8,
@@ -84,6 +93,7 @@ struct KbBufferDesc {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 struct KbSessionRef {
     /// Options used to create the session.
     options: KbOptions,

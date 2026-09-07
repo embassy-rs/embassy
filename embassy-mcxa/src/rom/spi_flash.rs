@@ -4,7 +4,8 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use super::Status;
 
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SpiFlashConfig {
     /// - `tag [31:28]`: Must be 0x0C (kSpiMem_ConfigOption_Tag)
     /// - `option_size [27:24]`: Option size in terms of uint32_t, actual size = (option_size + 1) × 4 bytes
