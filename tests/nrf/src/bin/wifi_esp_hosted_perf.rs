@@ -73,7 +73,7 @@ async fn main(spawner: Spawner) {
         net_device,
         mut control,
         runner,
-    } = embassy_net_esp_hosted::new(STATE.init(embassy_net_esp_hosted::State::new()), iface, reset).await;
+    } = embassy_net_esp_hosted::new(STATE.init(embassy_net_esp_hosted::State::new()), iface, reset);
 
     spawner.spawn(unwrap!(wifi_task(runner)));
 
