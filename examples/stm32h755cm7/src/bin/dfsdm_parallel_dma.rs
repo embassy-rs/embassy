@@ -88,9 +88,12 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split.flt0.build(&split.common).enable(&ch_test, [&ch_test]);
+    let mut flt0 = split
+        .flt0
+        .build(&split.common)
+        .enable_no_dma(&ch_test, [&ch_test], &flt_cfg);
 
-    flt0.start_regular_conversion(); // Waiting for data now
+    flt0.reg.start_regular_conversion(); // Waiting for data now
 
     // Generate a 32-element array with a distinct pattern for each index
     // This ensures we aren't accidentally transferring the same word 32 times
@@ -116,7 +119,7 @@ async fn main(_spawner: Spawner) {
     println!("Manual integration: {}", integral);
     loop {
         // ch_test.write_sample_standard(10);
-        if let Some((data, channel, rpend)) = flt0.try_get_regular_result() {
+        if let Some((data, channel, rpend)) = flt0.reg.try_get_regular_result() {
             println!("New regular 0: ");
             println!("Channel: {}", channel);
             println!("Value: {}", data);

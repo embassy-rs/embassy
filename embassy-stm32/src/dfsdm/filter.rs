@@ -1,6 +1,11 @@
 use super::*;
 
-struct FilterDisabled<'a, 'd, T, M>
+// =============================================================================
+// Filter
+// =============================================================================
+
+pub(crate) struct FilterRegs<T, M>(PhantomData<(T, M)>);
+pub struct FilterDisabled<'a, 'd, T, M>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
@@ -9,7 +14,7 @@ where
     common: &'a DfsdmCommon<'d, T, Enabled>,
 }
 
-struct Filter<'tr, 'ti, 'a, 'd, T, M, D>
+pub struct Filter<'tr, 'ti, 'a, 'd, T, M, D>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
@@ -20,7 +25,7 @@ where
     pub awd: AnalogWatchdog<'a, 'd, T, M>,
 }
 
-struct FilterRegular<'t, T, M, D>
+pub struct FilterRegular<'t, T, M, D>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
@@ -30,7 +35,7 @@ where
     regular: &'t dyn TransceiverTrait<T, Enabled>,
 }
 
-struct FilterInjected<'t, T, M, D>
+pub struct FilterInjected<'t, T, M, D>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
@@ -40,9 +45,9 @@ where
     injected: [Option<&'t dyn TransceiverTrait<T, Enabled>>; 8],
 }
 
-struct NoDma;
-struct RegDma;
-struct InjDma;
+pub struct NoDma;
+pub struct RegDma;
+pub struct InjDma;
 
 mod sealed {
     pub trait Sealed {}
@@ -70,49 +75,70 @@ impl DmaMode for InjDma {
     const INJ_ENABLED: bool = true;
 }
 
+pub trait FilterDma<T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    fn data_register(&self) -> *mut u32;
+}
+
 //filter is "on", "off" version needs own off struct/"DIsabledFilter" because of members
 impl<'a, 'd, T, M> FilterDisabled<'a, 'd, T, M>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
 {
-    pub fn new_no_dma<'tr, 'ti, const N: usize>(
+    pub(crate) fn new(common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
+        Self {
+            marker: PhantomData,
+            common,
+        }
+    }
+    /// Activate filter with no DMA enabled.
+    pub fn enable_no_dma<'tr, 'ti, const N: usize>(
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
+        config: &FilterConfig,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, NoDma>
     where
         [(); N]: NonEmpty,
     {
-        self.new_int(regular, injected)
+        self.enable_int(regular, injected, config)
     }
 
-    pub fn new_reg_dma<'tr, 'ti, const N: usize>(
+    /// Activate Filter with DMA enabled for regular conversions
+    pub fn enable_reg_dma<'tr, 'ti, const N: usize>(
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
+        config: &FilterConfig,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, RegDma>
     where
         [(); N]: NonEmpty,
     {
-        self.new_int(regular, injected)
+        self.enable_int(regular, injected, config)
     }
 
-    pub fn new_inj_dma<'tr, 'ti, const N: usize>(
+    /// Activate Filter with DMA enabled for injected conversions
+    pub fn enable_inj_dma<'tr, 'ti, const N: usize>(
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
+        config: &FilterConfig,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, InjDma>
     where
         [(); N]: NonEmpty,
     {
-        self.new_int(regular, injected)
+        self.enable_int(regular, injected, config)
     }
 
-    fn new_int<'tr, 'ti, const N: usize, D>(
+    fn enable_int<'tr, 'ti, const N: usize, D>(
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
+        config: &FilterConfig,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, D>
     where
         D: DmaMode,
@@ -124,27 +150,52 @@ where
             awd: AnalogWatchdog::new(self.common),
         };
 
-        Self::set_regular_dma_en(D::REG_ENABLED);
-        Self::set_injected_dma_en(D::INJ_ENABLED);
-        filter_functions::set_enabled::<T, M>(true);
+        // Enable appropriate DMA request
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| {
+            w.set_rdmaen(D::REG_ENABLED);
+            w.set_jdmaen(D::INJ_ENABLED);
+        });
+
+        Self::configure(config);
+
+        FilterRegs::<T, M>::set_enabled(true);
 
         filter
     }
 
-    /// Enables or disables DMA transfers for regular conversions.
-    fn set_regular_dma_en(dma_enable: bool) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr1()
-            .modify(|w| w.set_rdmaen(dma_enable));
+    fn configure(config: &FilterConfig) {
+        Self::set_filter_parameters(config.filter_params);
+        Self::set_continuous(config.enable_continuous_regular);
+        Self::set_fastmode(config.enable_fast_regular);
     }
 
-    /// Enables or disables DMA transfers for injected conversions.
-    fn set_injected_dma_en(dma_enable: bool) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr1()
-            .modify(|w| w.set_jdmaen(dma_enable));
+    /// Writes the filterparameters
+    fn set_filter_parameters(params: config_types::FilterParameters) {
+        let (order, fosr, iosr) = params.register_values();
+        T::regs().flt(M::CHANNEL.index()).fcr().modify(|w| {
+            w.set_ford(order);
+            w.set_fosr(fosr);
+            w.set_iosr(iosr);
+        });
+    }
+
+    /// Enables or disables fast conversion mode.
+    ///
+    /// In continuous mode, fast mode reduces the conversion time after the first
+    /// conversion because the filter is already filled and does not need to be
+    /// filled again. Subsequent conversions therefore take only `FOSR * IOSR / fCKIN`
+    /// instead of the normal filter fill time. Has no effect outside continuous mode.
+    fn set_fastmode(enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_fast(enabled));
+    }
+
+    /// Enables or disables continuous conversion mode.
+    ///
+    /// When enabled, the regular channel is converted repeatedly after each
+    /// conversion request. Disabling it while a continuous conversion is in
+    /// progress stops the conversion immediately.
+    fn set_continuous(enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rcont(enabled));
     }
 }
 
@@ -155,7 +206,7 @@ where
     D: DmaMode,
 {
     pub fn disable(self) -> FilterDisabled<'a, 'd, T, M> {
-        filter_functions::set_enabled::<T, M>(false);
+        FilterRegs::<T, M>::set_enabled(false);
         let common = self.awd.common;
 
         FilterDisabled {
@@ -262,13 +313,13 @@ where
         self.start_regular_conversion();
 
         poll_fn(|cx| {
-            Self::set_regular_end_of_conversion_interrupt(false);
+            FilterRegs::<T, M>::set_regular_end_of_conversion_interrupt(false);
             T::state().regular_waker.register(cx.waker());
 
             if let Some(result) = self.try_get_regular_result() {
                 Poll::Ready(result)
             } else {
-                Self::set_regular_end_of_conversion_interrupt(true);
+                FilterRegs::<T, M>::set_regular_end_of_conversion_interrupt(true);
                 Poll::Pending
             }
         })
@@ -315,13 +366,8 @@ where
     }
 
     /// Returns whether a regular conversion result is available.
-    pub(crate) fn end_of_regular_conversion() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().reocf()
-    }
-
-    /// Returns whether a regular conversion result is available.
     pub fn is_end_of_regular_conversion(&mut self) -> bool {
-        Self::end_of_regular_conversion()
+        FilterRegs::<T, M>::end_of_regular_conversion()
     }
 
     /// Returns whether a regular conversion is currently in progress or pendiong.
@@ -332,14 +378,6 @@ where
     /// Returns whether a regular conversion is currently in progress or pendiong.
     pub fn is_regular_conversion_in_progress(&mut self) -> bool {
         Self::regular_conversion_in_progress()
-    }
-
-    /// Enables or disables regular end-of-conversion interrupts.
-    pub(crate) fn set_regular_end_of_conversion_interrupt(enabled: bool) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_reocie(enabled));
     }
 }
 
@@ -361,7 +399,6 @@ where
             injected: slots,
         }
     }
-    // Normal stuff
 
     /// Reassigns the transceivers for injected conversions in-place.
     ///
@@ -417,13 +454,13 @@ where
         self.start_injected_conversion();
 
         poll_fn(|cx| {
-            Self::set_injected_end_of_conversion_interrupt(false);
+            FilterRegs::<T, M>::set_injected_end_of_conversion_interrupt(false);
             T::state().injected_waker.register(cx.waker());
 
             if let Some(result) = self.try_get_injected_result() {
                 Poll::Ready(result)
             } else {
-                Self::set_injected_end_of_conversion_interrupt(true);
+                FilterRegs::<T, M>::set_injected_end_of_conversion_interrupt(true);
                 Poll::Pending
             }
         })
@@ -464,13 +501,8 @@ where
     }
 
     /// Returns whether an injected conversion result is available.
-    pub(crate) fn end_of_injected_conversion() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().jeocf()
-    }
-
-    /// Returns whether an injected conversion result is available.
     pub fn is_end_of_injected_conversion(&mut self) -> bool {
-        Self::end_of_injected_conversion()
+        FilterRegs::<T, M>::end_of_injected_conversion()
     }
 
     /// Returns whether an injected conversion is currently in progress or pendiong.
@@ -481,14 +513,6 @@ where
     /// Returns whether an injected conversion is currently in progress or pendiong.
     pub fn is_injected_conversion_in_progress(&mut self) -> bool {
         Self::injected_conversion_in_progress()
-    }
-
-    /// Enables or disables injected end-of-conversion interrupts.
-    pub(crate) fn set_injected_end_of_conversion_interrupt(enabled: bool) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_jeocie(enabled));
     }
 }
 
@@ -508,15 +532,63 @@ where
     // DMA read function
 }
 
+impl<'t, T, M> FilterDma<T, M> for FilterRegular<'t, T, M, RegDma>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    fn data_register(&self) -> *mut u32 {
+        T::regs().flt(M::CHANNEL.index()).rdatar().as_ptr() as *mut u32
+    }
+}
+
+impl<'t, T, M> FilterDma<T, M> for FilterInjected<'t, T, M, InjDma>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    fn data_register(&self) -> *mut u32 {
+        T::regs().flt(M::CHANNEL.index()).jdatar().as_ptr() as *mut u32
+    }
+}
+
 mod filter_functions {
     use crate::dfsdm::{FilterMarker, Instance, InstanceEvents};
+}
 
+impl<T, M> FilterRegs<T, M>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
     /// Enable or disable the filter
-    pub fn set_enabled<T, M>(enabled: bool)
-    where
-        T: Instance,
-        M: FilterMarker + InstanceEvents<T>,
-    {
+    pub fn set_enabled(enabled: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(enabled));
+    }
+
+    /// Returns whether a regular conversion result is available.
+    pub(crate) fn end_of_regular_conversion() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().reocf()
+    }
+
+    /// Returns whether an injected conversion result is available.
+    pub(crate) fn end_of_injected_conversion() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jeocf()
+    }
+
+    /// Enables or disables regular end-of-conversion interrupts.
+    pub(crate) fn set_regular_end_of_conversion_interrupt(enabled: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_reocie(enabled));
+    }
+
+    /// Enables or disables injected end-of-conversion interrupts.
+    pub(crate) fn set_injected_end_of_conversion_interrupt(enabled: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr2()
+            .modify(|w| w.set_jeocie(enabled));
     }
 }

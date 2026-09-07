@@ -127,10 +127,9 @@ async fn main(_spawner: Spawner) {
     let mut flt0 = split
         .flt0
         .build(&split.common)
-        .configure(&flt_cfg)
-        .enable(&channel_mic, [&channel_mic]);
+        .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
 
-    flt0.start_regular_conversion();
+    flt0.reg.start_regular_conversion();
 
     let mut dc_offset: i32 = 0;
     let mut bass_signal: i32 = 0;
@@ -202,7 +201,7 @@ async fn main(_spawner: Spawner) {
 
     loop {
         // ch_test.write_sample_standard(10);
-        if let Some((data, _channel, _rpend)) = flt0.try_get_regular_result() {
+        if let Some((data, _channel, _rpend)) = flt0.reg.try_get_regular_result() {
             let result_ready_at = Instant::now();
             let wait_dur = result_ready_at - wait_start;
 
@@ -256,7 +255,7 @@ async fn main(_spawner: Spawner) {
             let duty = scaled.min(max_duty);
             pwm_ld2.set_duty_cycle(duty);
 
-            flt0.start_regular_conversion();
+            flt0.reg.start_regular_conversion();
 
             let processing_done_at = Instant::now();
             let busy_dur = processing_done_at - result_ready_at;

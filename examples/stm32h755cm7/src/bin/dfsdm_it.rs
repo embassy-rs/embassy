@@ -130,12 +130,11 @@ async fn main(_spawner: Spawner) {
     let mut flt0 = split
         .flt0
         .build(&split.common)
-        .configure(&flt_cfg)
-        .enable(&channel_mic, [&channel_mic]);
+        .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
 
     println!("Go?");
     loop {
-        let result = flt0.read_regular(Irqs).await;
+        let result = flt0.reg.read_regular(Irqs).await;
         println!("There we go! {}", result);
     }
 }

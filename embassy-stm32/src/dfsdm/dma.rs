@@ -4,26 +4,24 @@ use super::*;
 use crate::dma::{Channel, ReadableRingBuffer};
 use crate::rcc::WakeGuard;
 
-pub struct RingBufferedFilter<'a, 'd, 'reg, 'inj, 'e, T, M, P>
+pub struct RingBufferedFilter<'e, T, M>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
-    P: PowerState,
 {
-    filter: &'e Filter<'a, 'd, 'reg, 'inj, T, M, P>,
+    filter: &'e dyn FilterDma<T, M>,
     ring_buf: ReadableRingBuffer<'e, u32>,
     _wake_guard: WakeGuard,
 }
 
 #[allow(private_bounds)]
-impl<'a, 'd, 'reg, 'inj, 'e, T, M, P> RingBufferedFilter<'a, 'd, 'reg, 'inj, 'e, T, M, P>
+impl<'e, T, M> RingBufferedFilter<'e, T, M>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
-    P: PowerState,
 {
-    pub fn new_regular<D: Dma<T, M>>(
-        filter: &'e Filter<'a, 'd, 'reg, 'inj, T, M, P>,
+    pub fn new_regular<'t, D: Dma<T, M>>(
+        filter: &'e FilterRegular<'t, T, M, RegDma>,
         dma: Peri<'e, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
@@ -33,15 +31,8 @@ where
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
 
-        let mut ring_buf = unsafe {
-            ReadableRingBuffer::new(
-                Channel::new(dma, irq),
-                request,
-                T::regs().flt(M::CHANNEL.index()).rdatar().as_ptr() as *mut u32,
-                dma_buf,
-                opts,
-            )
-        };
+        let mut ring_buf =
+            unsafe { ReadableRingBuffer::new(Channel::new(dma, irq), request, filter.data_register(), dma_buf, opts) };
 
         // Align reads to the scan sequence boundary so that channel assignments
         // never shift after an overrun recovery.
@@ -54,10 +45,10 @@ where
         }
     }
 
-    pub fn new_injected<D: Dma<T, M>>(
-        filter: &'e Filter<'a, 'd, 'reg, 'inj, T, M, P>,
+    pub fn new_injected<'t, D: Dma<T, M>>(
+        filter: &'e FilterRegular<'t, T, M, RegDma>,
         dma: Peri<'e, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
     ) -> Self {
         let opts = Default::default();
@@ -65,15 +56,8 @@ where
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
 
-        let mut ring_buf = unsafe {
-            ReadableRingBuffer::new(
-                Channel::new(dma, irq),
-                request,
-                T::regs().flt(M::CHANNEL.index()).jdatar().as_ptr() as *mut u32,
-                dma_buf,
-                opts,
-            )
-        };
+        let mut ring_buf =
+            unsafe { ReadableRingBuffer::new(Channel::new(dma, irq), request, filter.data_register(), dma_buf, opts) };
 
         // Align reads to the scan sequence boundary so that channel assignments
         // never shift after an overrun recovery.
