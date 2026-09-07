@@ -2,8 +2,8 @@ use super::*;
 
 struct FilterDisabled<'a, 'd, T, M>
 where
-    T: Instance,
-    M: FilterMarker,
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
 {
     marker: PhantomData<(T, M)>,
     common: &'a DfsdmCommon<'d, T, Enabled>,
@@ -11,8 +11,8 @@ where
 
 struct Filter<'tr, 'ti, 'a, 'd, T, M, D>
 where
-    T: Instance,
-    M: FilterMarker,
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
     pub reg: FilterRegular<'tr, T, M, D>,
@@ -22,8 +22,8 @@ where
 
 struct FilterRegular<'t, T, M, D>
 where
-    T: Instance,
-    M: FilterMarker,
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
     marker: PhantomData<(T, M, D)>,
@@ -32,8 +32,8 @@ where
 
 struct FilterInjected<'t, T, M, D>
 where
-    T: Instance,
-    M: FilterMarker,
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
     marker: PhantomData<(T, M, D)>,
@@ -69,38 +69,66 @@ impl DmaMode for InjDma {
     const REG_ENABLED: bool = false;
     const INJ_ENABLED: bool = true;
 }
-// TODO: add transceiver lifetimmes etc, into FIlter itself, so it survives enable/disable?
 
 //filter is "on", "off" version needs own off struct/"DIsabledFilter" because of members
 impl<'a, 'd, T, M> FilterDisabled<'a, 'd, T, M>
 where
     T: Instance + FilterInterrupt<M>,
-    M: FilterMarker,
+    M: FilterMarker + InstanceEvents<T>,
 {
-    pub fn new_no_dma<'tr, 'ti>(self) -> Filter<'tr, 'ti, 'a, 'd, T, M, NoDma> {
-        self.new_int()
+    pub fn new_no_dma<'tr, 'ti, const N: usize>(
+        self,
+        regular: &'tr dyn TransceiverTrait<T, Enabled>,
+        injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
+    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, NoDma>
+    where
+        [(); N]: NonEmpty,
+    {
+        self.new_int(regular, injected)
     }
 
-    pub fn new_reg_dma<'tr, 'ti>(self) -> Filter<'tr, 'ti, 'a, 'd, T, M, RegDma> {
-        self.new_int()
+    pub fn new_reg_dma<'tr, 'ti, const N: usize>(
+        self,
+        regular: &'tr dyn TransceiverTrait<T, Enabled>,
+        injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
+    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, RegDma>
+    where
+        [(); N]: NonEmpty,
+    {
+        self.new_int(regular, injected)
     }
 
-    pub fn new_inj_dma<'tr, 'ti>(self) -> Filter<'tr, 'ti, 'a, 'd, T, M, InjDma> {
-        self.new_int()
+    pub fn new_inj_dma<'tr, 'ti, const N: usize>(
+        self,
+        regular: &'tr dyn TransceiverTrait<T, Enabled>,
+        injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
+    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, InjDma>
+    where
+        [(); N]: NonEmpty,
+    {
+        self.new_int(regular, injected)
     }
 
-    fn new_int<'tr, 'ti, D>(self) -> Filter<'tr, 'ti, 'a, 'd, T, M, D>
+    fn new_int<'tr, 'ti, const N: usize, D>(
+        self,
+        regular: &'tr dyn TransceiverTrait<T, Enabled>,
+        injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
+    ) -> Filter<'tr, 'ti, 'a, 'd, T, M, D>
     where
         D: DmaMode,
+        [(); N]: NonEmpty,
     {
+        let filter = Filter {
+            reg: FilterRegular::new(regular),
+            inj: FilterInjected::new(injected),
+            awd: AnalogWatchdog::new(self.common),
+        };
+
         Self::set_regular_dma_en(D::REG_ENABLED);
         Self::set_injected_dma_en(D::INJ_ENABLED);
         filter_functions::set_enabled::<T, M>(true);
-        Filter {
-            reg: todo!(),
-            inj: todo!(),
-            awd: AnalogWatchdog::new(self.common),
-        }
+
+        filter
     }
 
     /// Enables or disables DMA transfers for regular conversions.
@@ -152,7 +180,7 @@ where
         self,
         transceiver: &'new_reg dyn TransceiverTrait<T, Enabled>,
     ) -> Filter<'new_reg, 'ti, 'a, 'd, T, M, D> {
-        FilterRegular::<'ti, T, M, D>::set_regular_transceiver(transceiver.index() as u8);
+        FilterRegular::<'ti, T, M, D>::set_regular_transceiver(transceiver.index());
 
         Filter {
             reg: FilterRegular {
@@ -197,6 +225,13 @@ where
     M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
+    pub(crate) fn new(transceiver: &'t dyn TransceiverTrait<T, Enabled>) -> Self {
+        Self::set_regular_transceiver(transceiver.index());
+        Self {
+            marker: PhantomData,
+            regular: transceiver,
+        }
+    }
     // Normal stuff
     /// Reassigns the transceiver for regular conversions in-place.
     ///
@@ -205,13 +240,13 @@ where
     /// Use [`Filter::replace_regular_transceiver`] if you need to assign a
     /// transceiver with a shorter/different lifetime and get the old one back
     /// for further mutation.
-    pub fn assign_transceiver(&mut self, channel: &'t dyn TransceiverTrait<T, Enabled>) {
-        Self::set_regular_transceiver(channel.index() as u8);
-        self.regular = channel;
+    pub fn assign_transceiver(&mut self, transceiver: &'t dyn TransceiverTrait<T, Enabled>) {
+        Self::set_regular_transceiver(transceiver.index());
+        self.regular = transceiver;
     }
 
-    fn set_regular_transceiver(ch: u8) {
-        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rch(ch));
+    fn set_regular_transceiver(ch: usize) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rch(ch as u8));
     }
 
     /// Trigger a regular conversion
@@ -314,6 +349,18 @@ where
     M: FilterMarker + InstanceEvents<T>,
     D: DmaMode,
 {
+    pub(crate) fn new<const N: usize>(transceivers: [&'t dyn TransceiverTrait<T, Enabled>; N]) -> Self
+    where
+        [(); N]: NonEmpty,
+    {
+        let (slots, filterword) = Self::build_injected_slots(transceivers);
+        Self::set_injected_channels(filterword);
+
+        Self {
+            marker: PhantomData,
+            injected: slots,
+        }
+    }
     // Normal stuff
 
     /// Reassigns the transceivers for injected conversions in-place.
@@ -462,13 +509,13 @@ where
 }
 
 mod filter_functions {
-    use crate::dfsdm::{FilterMarker, Instance};
+    use crate::dfsdm::{FilterMarker, Instance, InstanceEvents};
 
     /// Enable or disable the filter
     pub fn set_enabled<T, M>(enabled: bool)
     where
         T: Instance,
-        M: FilterMarker,
+        M: FilterMarker + InstanceEvents<T>,
     {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(enabled));
     }
