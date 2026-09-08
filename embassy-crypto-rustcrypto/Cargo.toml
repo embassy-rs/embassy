@@ -1,0 +1,105 @@
+[package]
+name = "embassy-crypto-rustcrypto"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Software drivers for `embassy-crypto`, built on the RustCrypto crates."
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-crypto-rustcrypto"
+categories = [
+    "embedded",
+    "no-std",
+    "cryptography",
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-crypto-rustcrypto-v$VERSION/embassy-crypto-rustcrypto/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-crypto-rustcrypto/src/"
+features = ["all"]
+target = "thumbv7em-none-eabi"
+
+[package.metadata.docs.rs]
+features = ["all"]
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["all"]},
+    {target = "thumbv7em-none-eabi", features = ["embassy-crypto-sha256", "embassy-crypto-aes128-gcm", "embassy-crypto-p256-ecdh"]},
+    {target = "thumbv6m-none-eabi", features = ["all"]},
+]
+
+[dependencies]
+embassy-crypto = { version = "0.1.0", path = "../embassy-crypto" }
+
+digest = { version = "0.11", default-features = false, optional = true }
+cipher = { version = "0.5", default-features = false, optional = true }
+aead = { version = "0.6", default-features = false, optional = true }
+
+md-5 = { version = "0.11", default-features = false, optional = true }
+sha1 = { version = "0.11", default-features = false, optional = true }
+sha2 = { version = "0.11", default-features = false, optional = true }
+hmac = { version = "0.13", default-features = false, optional = true }
+aes = { version = "0.9", default-features = false, optional = true }
+cbc = { version = "0.2", default-features = false, optional = true }
+ctr = { version = "0.10", default-features = false, optional = true }
+aes-gcm = { version = "0.11", default-features = false, features = ["aes"], optional = true }
+cmac = { version = "0.8", default-features = false, optional = true }
+
+elliptic-curve = { version = "0.14", default-features = false, features = ["arithmetic", "sec1", "ecdh"], optional = true }
+ecdsa = { version = "0.17", default-features = false, features = ["digest", "algorithm"], optional = true }
+p256 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdh", "ecdsa"], optional = true }
+p384 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdh", "ecdsa"], optional = true }
+x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"], optional = true }
+
+[features]
+## Register every driver this crate can provide.
+all = [
+    "embassy-crypto-md5", "embassy-crypto-sha1", "embassy-crypto-sha224", "embassy-crypto-sha256",
+    "embassy-crypto-sha384", "embassy-crypto-sha512", "embassy-crypto-sha512-224", "embassy-crypto-sha512-256",
+    "embassy-crypto-hmac-sha1", "embassy-crypto-hmac-sha224", "embassy-crypto-hmac-sha256", "embassy-crypto-hmac-sha384",
+    "embassy-crypto-hmac-sha512", "embassy-crypto-hmac-sha512-224", "embassy-crypto-hmac-sha512-256",
+    "embassy-crypto-aes128-ecb", "embassy-crypto-aes128-cbc", "embassy-crypto-aes128-ctr",
+    "embassy-crypto-aes128-gcm", "embassy-crypto-aes128-ccm", "embassy-crypto-aes128-cmac",
+    "embassy-crypto-aes256-ecb", "embassy-crypto-aes256-cbc", "embassy-crypto-aes256-ctr",
+    "embassy-crypto-aes256-gcm", "embassy-crypto-aes256-ccm", "embassy-crypto-aes256-cmac",
+    "embassy-crypto-p256-arith", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa",
+    "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa",
+    "embassy-crypto-x25519",
+]
+
+## One feature per `embassy-crypto` driver. Enabling it registers this crate's
+## implementation as the global driver for that operation.
+embassy-crypto-md5 = ["dep:md-5", "dep:digest"]
+embassy-crypto-sha1 = ["dep:sha1", "dep:digest"]
+embassy-crypto-sha224 = ["dep:sha2", "dep:digest"]
+embassy-crypto-sha256 = ["dep:sha2", "dep:digest"]
+embassy-crypto-sha384 = ["dep:sha2", "dep:digest"]
+embassy-crypto-sha512 = ["dep:sha2", "dep:digest"]
+embassy-crypto-sha512-224 = ["dep:sha2", "dep:digest"]
+embassy-crypto-sha512-256 = ["dep:sha2", "dep:digest"]
+embassy-crypto-hmac-sha1 = ["dep:hmac", "dep:sha1", "dep:digest"]
+embassy-crypto-hmac-sha224 = ["dep:hmac", "dep:sha2", "dep:digest"]
+embassy-crypto-hmac-sha256 = ["dep:hmac", "dep:sha2", "dep:digest"]
+embassy-crypto-hmac-sha384 = ["dep:hmac", "dep:sha2", "dep:digest"]
+embassy-crypto-hmac-sha512 = ["dep:hmac", "dep:sha2", "dep:digest"]
+embassy-crypto-hmac-sha512-224 = ["dep:hmac", "dep:sha2", "dep:digest"]
+embassy-crypto-hmac-sha512-256 = ["dep:hmac", "dep:sha2", "dep:digest"]
+embassy-crypto-aes128-ecb = ["dep:aes", "dep:cipher"]
+embassy-crypto-aes128-cbc = ["dep:aes", "dep:cbc", "dep:cipher"]
+embassy-crypto-aes128-ctr = ["dep:aes", "dep:ctr", "dep:cipher"]
+embassy-crypto-aes128-gcm = ["dep:aes", "dep:aes-gcm", "dep:aead", "dep:cipher"]
+embassy-crypto-aes128-ccm = ["dep:aes", "dep:cipher"]
+embassy-crypto-aes128-cmac = ["dep:aes", "dep:cmac", "dep:cipher", "dep:digest"]
+embassy-crypto-aes256-ecb = ["dep:aes", "dep:cipher"]
+embassy-crypto-aes256-cbc = ["dep:aes", "dep:cbc", "dep:cipher"]
+embassy-crypto-aes256-ctr = ["dep:aes", "dep:ctr", "dep:cipher"]
+embassy-crypto-aes256-gcm = ["dep:aes", "dep:aes-gcm", "dep:aead", "dep:cipher"]
+embassy-crypto-aes256-ccm = ["dep:aes", "dep:cipher"]
+embassy-crypto-aes256-cmac = ["dep:aes", "dep:cmac", "dep:cipher", "dep:digest"]
+embassy-crypto-p256-arith = ["dep:p256", "dep:elliptic-curve"]
+embassy-crypto-p256-ecdh = ["dep:p256", "dep:elliptic-curve"]
+embassy-crypto-p256-ecdsa = ["dep:p256", "dep:elliptic-curve", "dep:ecdsa"]
+embassy-crypto-p384-arith = ["dep:p384", "dep:elliptic-curve"]
+embassy-crypto-p384-ecdh = ["dep:p384", "dep:elliptic-curve"]
+embassy-crypto-p384-ecdsa = ["dep:p384", "dep:elliptic-curve", "dep:ecdsa"]
+embassy-crypto-x25519 = ["dep:x25519-dalek"]

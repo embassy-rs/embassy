@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+Crypto:
+- feat: stm32/hash, stm32/aes, stm32/cryp: the `embassy-crypto` drivers are now registered per operation behind `embassy-crypto-<operation>` features (`embassy-crypto-sha256`, `embassy-crypto-aes128-gcm`, ...) instead of unconditionally.
+
 CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
 

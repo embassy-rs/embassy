@@ -990,7 +990,30 @@ impl<'d> SealedSuspendablePeripheral for Hash<'d, HASH, Blocking> {
     }
 }
 
+#[cfg(any(
+    feature = "embassy-crypto-md5",
+    feature = "embassy-crypto-sha1",
+    feature = "embassy-crypto-sha224",
+    feature = "embassy-crypto-sha256",
+    feature = "embassy-crypto-sha384",
+    feature = "embassy-crypto-sha512",
+    feature = "embassy-crypto-sha512-224",
+    feature = "embassy-crypto-sha512-256",
+    feature = "embassy-crypto-hmac-sha1",
+    feature = "embassy-crypto-hmac-sha224",
+    feature = "embassy-crypto-hmac-sha256",
+    feature = "embassy-crypto-hmac-sha384",
+    feature = "embassy-crypto-hmac-sha512",
+    feature = "embassy-crypto-hmac-sha512-224",
+    feature = "embassy-crypto-hmac-sha512-256",
+))]
 mod driver {
+    //! `embassy-crypto` drivers served by the HASH peripheral, one per
+    //! `embassy-crypto-*` feature. Nothing is registered for algorithms the
+    //! peripheral revision does not implement.
+
+    #![allow(unused_imports, dead_code)]
+
     use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
     use embassy_sync::mutex::Mutex;
 
@@ -1006,18 +1029,15 @@ mod driver {
     static DRIVER: Mutex<CriticalSectionRawMutex, ResumablePeripheral<Hash<'static, HASH, Blocking>>> =
         Mutex::new(ResumablePeripheral::new_suspended((None, 0)));
 
-    // =====================================================================
-    // Digest driver macro
-    // =====================================================================
-
     macro_rules! impl_digest_driver {
         (
             $(#[$meta:meta])*
-            $driver:ident, $trait:path, $algo:ty,
+            $driver:ident, $trait:path, $algo:ty, $size:literal,
             $impl_macro:path
         ) => {
             $(#[$meta])*
             struct $driver;
+            $(#[$meta])*
             impl $trait for $driver {
                 type Context = Context<$algo, Blocking, NonHmac>;
 
@@ -1029,10 +1049,11 @@ mod driver {
                     DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
                 }
 
-                fn finalize(ctx: Self::Context, data: &mut [u8]) {
-                    DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+                fn finalize(ctx: Self::Context, out: &mut [u8; $size]) {
+                    DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, out);
                 }
             }
+            $(#[$meta])*
             $impl_macro!($driver);
         };
     }
@@ -1044,11 +1065,12 @@ mod driver {
     macro_rules! impl_hmac_driver {
         (
             $(#[$meta:meta])*
-            $driver:ident, $trait:path, $algo:ty,
+            $driver:ident, $trait:path, $algo:ty, $size:literal,
             $impl_macro:path
         ) => {
             $(#[$meta])*
             struct $driver;
+            $(#[$meta])*
             impl $trait for $driver {
                 type Context = Context<$algo, Blocking, Hmac>;
 
@@ -1060,134 +1082,135 @@ mod driver {
                     DRIVER.try_lock().unwrap().borrow().update_blocking(ctx, data)
                 }
 
-                fn finalize(ctx: Self::Context, data: &mut [u8]) {
-                    DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, data);
+                fn finalize(ctx: Self::Context, out: &mut [u8; $size]) {
+                    DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, out);
                 }
-
             }
+            $(#[$meta])*
             $impl_macro!($driver);
         };
     }
 
-    // =====================================================================
-    // Digest drivers
-    // =====================================================================
-    #[cfg(any(hash_v1, hash_v2, hash_v4))]
     impl_digest_driver!(
+        #[cfg(all(feature = "embassy-crypto-md5", any(hash_v1, hash_v2, hash_v4)))]
         Md5Driver,
-        embassy_crypto_driver::Md5,
+        embassy_crypto::driver::Md5,
         Md5,
-        embassy_crypto_driver::md5_impl
+        16,
+        embassy_crypto::md5_impl
     );
-
     impl_digest_driver!(
+        #[cfg(feature = "embassy-crypto-sha1")]
         Sha1Driver,
-        embassy_crypto_driver::Sha1,
+        embassy_crypto::driver::Sha1,
         Sha1,
-        embassy_crypto_driver::sha1_impl
+        20,
+        embassy_crypto::sha1_impl
     );
-
     impl_digest_driver!(
+        #[cfg(feature = "embassy-crypto-sha224")]
         Sha224Driver,
-        embassy_crypto_driver::Sha224,
+        embassy_crypto::driver::Sha224,
         Sha224,
-        embassy_crypto_driver::sha224_impl
+        28,
+        embassy_crypto::sha224_impl
     );
-
     impl_digest_driver!(
+        #[cfg(feature = "embassy-crypto-sha256")]
         Sha256Driver,
-        embassy_crypto_driver::Sha256,
+        embassy_crypto::driver::Sha256,
         Sha256,
-        embassy_crypto_driver::sha256_impl
+        32,
+        embassy_crypto::sha256_impl
     );
-
-    #[cfg(hash_v3)]
     impl_digest_driver!(
+        #[cfg(all(feature = "embassy-crypto-sha384", hash_v3))]
         Sha384Driver,
-        embassy_crypto_driver::Sha384,
+        embassy_crypto::driver::Sha384,
         Sha384,
-        embassy_crypto_driver::sha384_impl
+        48,
+        embassy_crypto::sha384_impl
     );
-
-    #[cfg(hash_v3)]
     impl_digest_driver!(
+        #[cfg(all(feature = "embassy-crypto-sha512-224", hash_v3))]
         Sha512_224Driver,
-        embassy_crypto_driver::Sha512_224,
+        embassy_crypto::driver::Sha512_224,
         Sha512_224,
-        embassy_crypto_driver::sha512_224_impl
+        28,
+        embassy_crypto::sha512_224_impl
     );
-
-    #[cfg(hash_v3)]
     impl_digest_driver!(
+        #[cfg(all(feature = "embassy-crypto-sha512-256", hash_v3))]
         Sha512_256Driver,
-        embassy_crypto_driver::Sha512_256,
+        embassy_crypto::driver::Sha512_256,
         Sha512_256,
-        embassy_crypto_driver::sha512_256_impl
+        32,
+        embassy_crypto::sha512_256_impl
     );
-
-    #[cfg(hash_v3)]
     impl_digest_driver!(
+        #[cfg(all(feature = "embassy-crypto-sha512", hash_v3))]
         Sha512Driver,
-        embassy_crypto_driver::Sha512,
+        embassy_crypto::driver::Sha512,
         Sha512,
-        embassy_crypto_driver::sha512_impl
+        64,
+        embassy_crypto::sha512_impl
     );
 
-    // =====================================================================
-    // HMAC drivers
-    // =====================================================================
-
     impl_hmac_driver!(
+        #[cfg(feature = "embassy-crypto-hmac-sha1")]
         HmacSha1Driver,
-        embassy_crypto_driver::HmacSha1,
+        embassy_crypto::driver::HmacSha1,
         Sha1,
-        embassy_crypto_driver::hmac_sha1_impl
+        20,
+        embassy_crypto::hmac_sha1_impl
     );
-
     impl_hmac_driver!(
+        #[cfg(feature = "embassy-crypto-hmac-sha224")]
         HmacSha224Driver,
-        embassy_crypto_driver::HmacSha224,
+        embassy_crypto::driver::HmacSha224,
         Sha224,
-        embassy_crypto_driver::hmac_sha224_impl
+        28,
+        embassy_crypto::hmac_sha224_impl
     );
-
     impl_hmac_driver!(
+        #[cfg(feature = "embassy-crypto-hmac-sha256")]
         HmacSha256Driver,
-        embassy_crypto_driver::HmacSha256,
+        embassy_crypto::driver::HmacSha256,
         Sha256,
-        embassy_crypto_driver::hmac_sha256_impl
+        32,
+        embassy_crypto::hmac_sha256_impl
     );
-
-    #[cfg(hash_v3)]
     impl_hmac_driver!(
+        #[cfg(all(feature = "embassy-crypto-hmac-sha384", hash_v3))]
         HmacSha384Driver,
-        embassy_crypto_driver::HmacSha384,
+        embassy_crypto::driver::HmacSha384,
         Sha384,
-        embassy_crypto_driver::hmac_sha384_impl
+        48,
+        embassy_crypto::hmac_sha384_impl
     );
-
-    #[cfg(hash_v3)]
     impl_hmac_driver!(
+        #[cfg(all(feature = "embassy-crypto-hmac-sha512-224", hash_v3))]
         HmacSha512_224Driver,
-        embassy_crypto_driver::HmacSha512_224,
+        embassy_crypto::driver::HmacSha512_224,
         Sha512_224,
-        embassy_crypto_driver::hmac_sha512_224_impl
+        28,
+        embassy_crypto::hmac_sha512_224_impl
     );
-
-    #[cfg(hash_v3)]
     impl_hmac_driver!(
+        #[cfg(all(feature = "embassy-crypto-hmac-sha512-256", hash_v3))]
         HmacSha512_256Driver,
-        embassy_crypto_driver::HmacSha512_256,
+        embassy_crypto::driver::HmacSha512_256,
         Sha512_256,
-        embassy_crypto_driver::hmac_sha512_256_impl
+        32,
+        embassy_crypto::hmac_sha512_256_impl
     );
-
-    #[cfg(hash_v3)]
     impl_hmac_driver!(
+        #[cfg(all(feature = "embassy-crypto-hmac-sha512", hash_v3))]
         HmacSha512Driver,
-        embassy_crypto_driver::HmacSha512,
+        embassy_crypto::driver::HmacSha512,
         Sha512,
-        embassy_crypto_driver::hmac_sha512_impl
+        64,
+        embassy_crypto::hmac_sha512_impl
     );
 }
 
