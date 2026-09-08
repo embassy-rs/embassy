@@ -270,6 +270,10 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
 
     fn into_raw_parts(self) -> (Peri<'d, T>, Option<Flex<'d>>, [PinSlot<'d>; 8], [PinSlot<'d>; 8]) {
         let this = ManuallyDrop::new(self);
+        // SAFETY: `this` is wrapped in `ManuallyDrop`, so its destructor will not
+        // run. We use `ptr::read` to bitwise-copy the fields out, transferring
+        // ownership to the caller. Since we never drop `this` and immediately
+        // return the extracted values, no double-free or use-after-free can occur.
         unsafe {
             (
                 ptr::read(&this._peri),
@@ -652,6 +656,11 @@ where
         FilterRegular::<'a, 'd, 'ti, T, M, D>::set_regular_transceiver(transceiver.index());
 
         let this = ManuallyDrop::new(self);
+        // SAFETY: `this` is wrapped in `ManuallyDrop` to prevent the destructor from
+        // running. We extract each field with `ptr::read`, which performs a bitwise
+        // copy without invoking drop. The original `Filter` is never dropped, and all
+        // extracted fields are moved into the new `Filter` instance, maintaining
+        // ownership invariants.
         let common = unsafe { ptr::read(&this.common) };
         let inj = unsafe { ptr::read(&this.inj) };
         let awd = unsafe { ptr::read(&this.awd) };
@@ -686,6 +695,11 @@ where
         FilterInjected::<'a, 'd, 'ti, T, M, D>::set_injected_channels(filterword);
 
         let this = ManuallyDrop::new(self);
+        // SAFETY: `this` is wrapped in `ManuallyDrop` to prevent the destructor from
+        // running. We extract each field with `ptr::read`, which performs a bitwise
+        // copy without invoking drop. The original `Filter` is never dropped, and all
+        // extracted fields are moved into the new `Filter` instance, maintaining
+        // ownership invariants.
         let common = unsafe { ptr::read(&this.common) };
         let reg = unsafe { ptr::read(&this.reg) };
         let awd = unsafe { ptr::read(&this.awd) };
@@ -1444,6 +1458,10 @@ where
     /// Build the actual Filter, binding it to the DfsdmCommon peripheral.
     /// This prevents DfsdmCommon from being dropped while the Filter exists.
     pub fn build<'a, 'd>(self, common: &'a DfsdmCommon<'d, T, Enabled>) -> FilterDisabled<'a, 'd, T, M> {
+        // SAFETY: Enabling the interrupt is safe here because:
+        // 1. The interrupt handler is registered via `bind_interrupts!` at compile time
+        // 2. The waker is initialized in `State::new()` before any interrupt can fire
+        // 3. The filter is not yet active, so no spurious interrupts will occur
         unsafe {
             T::Interrupt::enable();
         }
@@ -2044,6 +2062,8 @@ where
     T: Instance + FilterInterrupt<Flt0>,
 {
     pub(crate) fn new(_common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
+        // SAFETY: Same reasoning as `FilterBuilder::build` - the interrupt handler
+        // is registered and the waker is initialized before enabling.
         unsafe {
             T::Interrupt::enable();
         }
@@ -2100,6 +2120,8 @@ where
     T: Instance + FilterInterrupt<Flt0>,
 {
     pub(crate) fn new(_common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
+        // SAFETY: Same reasoning as `FilterBuilder::build` - the interrupt handler
+        // is registered and the waker is initialized before enabling.
         unsafe {
             T::Interrupt::enable();
         }
