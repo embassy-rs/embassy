@@ -52,3 +52,6 @@ mod ec;
 
 #[cfg(feature = "embassy-crypto-x25519")]
 mod x25519;
+
+#[cfg(feature = "embassy-crypto-ed25519")]
+mod ed25519;
