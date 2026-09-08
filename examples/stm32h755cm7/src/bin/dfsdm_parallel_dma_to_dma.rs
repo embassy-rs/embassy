@@ -7,10 +7,10 @@ use core::ops::Div;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
+use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode, TriggerEdge};
 use embassy_stm32::dfsdm::{
-    Dfsdm, FilterConfig, Flt0, Flt1, InjectedTrigger, RingBufferedFilter, TransceiverConfig, TransceiverConfigOnline,
-    TransceiverTrait,
+    Dfsdm, FilterConfig, Flt0, Flt1, InjectedDfsdmTrigger, InjectedTrigger, RingBufferedFilter, TransceiverConfig,
+    TransceiverConfigOnline, TransceiverTrait,
 };
 use embassy_stm32::dma::{self, Channel, Request, Transfer, TransferOptions};
 use embassy_stm32::gpio::{Level, Output, Speed};
@@ -19,6 +19,7 @@ use embassy_stm32::peripherals::{self, DFSDM1, MDMA};
 use embassy_stm32::rcc::{self, Sysclk};
 use embassy_stm32::spi::Spi;
 use embassy_stm32::time::Hertz;
+use embassy_stm32::triggers::TIM1_TRGO;
 use embassy_stm32::{SharedData, bind_interrupts, dfsdm, pac};
 use embassy_time::Timer;
 use panic_probe as _;
@@ -90,6 +91,7 @@ async fn main(_spawner: Spawner) {
         filter_params: FilterParameters::try_new(FilterOrder::Disabled, 32).expect("This is inside the bounds"),
         enable_continuous_regular: true,
         enable_fast_regular: false,
+        ..Default::default()
     };
 
     let mut flt0 = split.flt0.build(&common).enable_reg_dma(&ch_test, [&ch_test], &flt_cfg);

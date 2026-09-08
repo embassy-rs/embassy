@@ -106,7 +106,7 @@ Due to interrupts we should really put the IRQ requirement into the Common? And 
 * DFSDM_FLTxEXMAX.EXMAXCH      [x] internal [x] pub   [ ] Config
 * DFSDM_FLTxEXMIN.EXMIN        [x] internal [x] pub   [ ] Config
 * DFSDM_FLTxEXMIN.EXMINCH      [x] internal [x] pub   [ ] Config
-* DFSDM_FLTxCNVTIMR.CNVCNT     [ ] internal [ ] pub
+* DFSDM_FLTxCNVTIMR.CNVCNT     [X] internal [X] pub
 
 # Flags
 ## Filter
@@ -127,10 +127,10 @@ Due to interrupts we should really put the IRQ requirement into the Common? And 
 ## Filter
 * DFSDM_FLT0ISR.CLRROVRF    [ ] internal [ ] pub    
 * DFSDM_FLT0ISR.CLRJOVRF    [ ] internal [ ] pub    
-* DFSDM_FLT0ISR.CLRSCDF     [X] internal [X] pub    (ONLY IN 0, GLOBAL)
-* DFSDM_FLT0ISR.CLRCKABF    [ ] internal [ ] pub    (ONLY IN 0, GLOBAL)
-* DFSDM_FLTxAWCFR.CLRAWHTF  [X] internal [ ] pub    
-* DFSDM_FLTxAWCFR.CLRAWLTF  [X] internal [ ] pub    
+* DFSDM_FLT0ISR.CLRSCDF     [X]
+* DFSDM_FLT0ISR.CLRCKABF    [X]
+* DFSDM_FLTxAWCFR.CLRAWHTF  [X]   
+* DFSDM_FLTxAWCFR.CLRAWLTF  [X]
 
 
 # General ToDos:
@@ -259,30 +259,28 @@ Features
 [X] AWFOSR[4:0]: OSR 
 [X] BKSCD[3:0]: SCD break assignment
 [X] SCDT[7:0]: SCD threshold
-[ ] WDATA[15:0]: watchdog data R/O
+[X] WDATA[15:0]: watchdog data R/O
 [X] INDAT1[15:0]: Input data
 [X] INDAT0[15:0]: Input data
 [X] PLSSKP[5:0]: skip n pulses
-[ ] AWFSEL: AW fastmode
+[X] AWFSEL: AW fastmode
 [X] FAST: fastmode
 [X] RCH[2:0]: regular channel selection
-[ ] RDMAEN: DMA REG enable
-[ ] JDMAEN: DMA INJ enable
-[ ] RSYNC: sync reg to ch0
-[ ] RCONT: continuous reg
+[X] RDMAEN: DMA REG enable
+[X] JDMAEN: DMA INJ enable
+[X] RSYNC: sync reg to ch0
+[X] RCONT: continuous reg
 [X] RSWSTART: start manually reg
 [X] JSWSTART: start manually inj
-[ ] JEXTEN[1:0]: injected trigger edge/enable
-[ ] JEXTSEL[4:0]: trigger selection
-[ ] JSCAN: scnaning injected
-[ ] JSYNC: sync to ch0
+[X] JEXTEN[1:0]: injected trigger edge/enable
+[X] JEXTSEL[4:0]: trigger selection
+[X] JSCAN: scnaning injected
+[X] JSYNC: sync to ch0
 [X] AWDCH[7:0]: AW channel sel
-[ ] EXCH[7:0]: extremes channel detector
+[X] EXCH[7:0]: extremes channel detector
 [X] CKABIE: Clock absence interrupt enable
 [X] SCDIE: Short-circuit detector interrupt enable
 [X] AWDIE: Analog watchdog interrupt enable
-[ ] ROVRIE: Regular data overrun interrupt enable
-[ ] JOVRIE: Injected data overrun interrupt enable
 [X] REOCIE: Regular end of conversion interrupt enable
 [X] JEOCIE: Injected end of conversion interrupt enable
 [X] SCDF[7:0]: short-circuit detector flag
@@ -290,14 +288,10 @@ Features
 [X] RCIP: Regular conversion in progress status
 [X] JCIP: Injected conversion in progress status
 [X] AWDF: Analog watchdog event occured
-[ ] ROVRF: Regular conversion overrun flag
-[ ] JOVRF: Injected conversion overrun flag
 [X] REOCF: End of regular conversion flag
 [X] JEOCF: End of injected conversion flag
 [X] CLRSCDF[7:0]: Clear the short-circuit detector flag
 [X] CLRCKABF[7:0]: Clear the clock absence flag
-[ ] CLRROVRF: Clear the regular conversion overrun flag
-[ ] CLRJOVRF: Clear the injected conversion overrun flag
 [X] JCHG[7:0]: Injected channel group selection
 [X] FORD[2:0]: Sinc filter order
 [X] FOSR[9:0]: Sinc filter oversampling ratio (decimation rate)
@@ -319,4 +313,10 @@ Features
 [X] EXMAXCH[2:0]: Extremes detector maximum data channel
 [X] EXMIN[23:0]: Extremes detector minimum value
 [X] EXMINCH[2:0]: Extremes detector minimum data channel
-[Y] CNVCNT[27:0]: 28-bit timer counting conversion time t = CNVCNT[27:0] / fDFSDMCLK
+[X] CNVCNT[27:0]: 28-bit timer counting conversion time t = CNVCNT[27:0] / fDFSDMCLK
+[ ] ROVRIE: Regular data overrun interrupt enable
+[ ] JOVRIE: Injected data overrun interrupt enable
+[ ] ROVRF: Regular conversion overrun flag
+[ ] JOVRF: Injected conversion overrun flag
+[ ] CLRROVRF: Clear the regular conversion overrun flag
+[ ] CLRJOVRF: Clear the injected conversion overrun flag

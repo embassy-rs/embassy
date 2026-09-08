@@ -586,21 +586,24 @@ define_indexed_channels!(
 
 trigger_trait!(InjectedTrigger, Instance);
 
+#[derive(Copy, Clone)]
 pub struct InjectedDfsdmTrigger<T: Instance> {
-    _trigger: u8,
+    pub(crate) trigger: u8,
+    pub(crate) edge: config_types::TriggerEdge,
     _marker: PhantomData<T>,
 }
 
 impl<T: Instance> InjectedDfsdmTrigger<T> {
-    pub fn from(trigger: impl InjectedTrigger<T>) -> Self {
+    pub fn new(trigger: impl InjectedTrigger<T>, edge: config_types::TriggerEdge) -> Self {
         Self {
-            _trigger: trigger.signal(),
+            trigger: trigger.signal(),
+            edge,
             _marker: PhantomData,
         }
     }
 
     pub fn id(&self) -> u8 {
-        self._trigger
+        self.trigger
     }
 }
 

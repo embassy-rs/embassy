@@ -24,7 +24,7 @@ use interrupt::typelevel::Interrupt;
 pub use types::*;
 
 use crate::dfsdm::capability::HasDelay;
-use crate::dfsdm::config_types::FilterParameters;
+use crate::dfsdm::config_types::{BreakSignals, FilterParameters};
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::{Peri, interrupt, rcc};
 
@@ -361,18 +361,31 @@ where
 // =============================================================================
 
 /// Confgiguration for Filter
-pub struct FilterConfig {
+pub struct FilterConfig<T: Instance> {
     pub filter_params: FilterParameters,
     pub enable_continuous_regular: bool,
     pub enable_fast_regular: bool,
+    pub enable_regular_sync: bool,
+    pub enable_injected_sync: bool,
+    pub enable_injected_scanning: bool,
+
+    /// Configures the trigger for injected conversions.
+    ///
+    /// `Some` enables the trigger with the specified trigger source and edge.
+    /// `None` disables the trigger.
+    pub trigger: Option<InjectedDfsdmTrigger<T>>,
 }
 
-impl Default for FilterConfig {
+impl<T: Instance> Default for FilterConfig<T> {
     fn default() -> Self {
         Self {
             filter_params: FilterParameters::new(config_types::FilterOrder::Disabled, 1),
             enable_continuous_regular: false,
             enable_fast_regular: false,
+            enable_injected_sync: false,
+            enable_regular_sync: false,
+            enable_injected_scanning: false,
+            trigger: None,
         }
     }
 }
@@ -446,7 +459,7 @@ where
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
-        config: &FilterConfig,
+        config: &FilterConfig<T>,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, NoDma>
     where
         [(); N]: NonEmpty,
@@ -459,7 +472,7 @@ where
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
-        config: &FilterConfig,
+        config: &FilterConfig<T>,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, RegDma>
     where
         [(); N]: NonEmpty,
@@ -472,7 +485,7 @@ where
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
-        config: &FilterConfig,
+        config: &FilterConfig<T>,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, InjDma>
     where
         [(); N]: NonEmpty,
@@ -484,7 +497,7 @@ where
         self,
         regular: &'tr dyn TransceiverTrait<T, Enabled>,
         injected: [&'ti dyn TransceiverTrait<T, Enabled>; N],
-        config: &FilterConfig,
+        config: &FilterConfig<T>,
     ) -> Filter<'tr, 'ti, 'a, 'd, T, M, D>
     where
         D: DmaMode,
@@ -511,10 +524,14 @@ where
         filter
     }
 
-    fn configure(config: &FilterConfig) {
+    fn configure(config: &FilterConfig<T>) {
         Self::set_filter_parameters(config.filter_params);
         Self::set_continuous(config.enable_continuous_regular);
         Self::set_fastmode(config.enable_fast_regular);
+        Self::set_regular_synchronization(config.enable_regular_sync);
+        Self::set_injected_synchronization(config.enable_injected_sync);
+        Self::set_injected_scanning(config.enable_injected_scanning);
+        Self::configure_injected_trigger(config.trigger);
     }
 
     /// Writes the filterparameters
@@ -544,6 +561,58 @@ where
     /// progress stops the conversion immediately.
     fn set_continuous(enabled: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rcont(enabled));
+    }
+
+    /// Configures the trigger for injected conversions.
+    ///
+    /// `Some` enables the trigger with the specified trigger source and edge.
+    /// `None` disables the trigger.
+    fn configure_injected_trigger(trigger: Option<InjectedDfsdmTrigger<T>>) {
+        let (jextsel, jexten) = match trigger {
+            Some(InjectedDfsdmTrigger { trigger, edge, .. }) => (trigger, edge as u8),
+            None => (0, 0), // Disable
+        };
+
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr1()
+            .modify(|w: &mut stm32_metapac::dfsdm::regs::Cr1| {
+                w.set_jextsel(jextsel);
+                w.set_jexten(jexten);
+            });
+    }
+
+    /// Enables or disables synchronization for regular conversions.
+    fn set_regular_synchronization(enable: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_rsync(enable));
+    }
+
+    /// Enables or disables synchronization for injected conversions.
+    fn set_injected_synchronization(enable: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jsync(enable));
+    }
+
+    /// Enables or disables scanning mode for injected conversions.
+    ///
+    /// When enabled, injected conversions cycle through all selected channels,
+    /// starting again at the lowest selected channel. When disabled, each
+    /// conversion advances to the next selected channel.
+    ///
+    /// Changing the injected channel group while scanning is disabled resets the
+    /// channel selection to the lowest selected channel.
+    fn set_injected_scanning(enabled: bool) {
+        T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_jscan(enabled));
+    }
+}
+
+impl<'tr, 'ti, 'a, 'd, T, M, D> Drop for Filter<'tr, 'ti, 'a, 'd, T, M, D>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+    D: DmaMode,
+{
+    fn drop(&mut self) {
+        FilterRegs::<T, M>::set_enabled(false);
     }
 }
 
@@ -575,18 +644,28 @@ where
     /// rather than mutating in place. This is pure borrow-checker bookkeeping,
     /// not a hardware requirement — see [`FilterRegular::assign_transceiver`]
     /// for the in-place alternative when the lifetime doesn't need to change.
+
     pub fn replace_regular_transceiver<'new_reg>(
         self,
         transceiver: &'new_reg dyn TransceiverTrait<T, Enabled>,
     ) -> Filter<'new_reg, 'ti, 'a, 'd, T, M, D> {
         FilterRegular::<'a, 'd, 'ti, T, M, D>::set_regular_transceiver(transceiver.index());
 
+        let this = ManuallyDrop::new(self);
+        let common = unsafe { ptr::read(&this.common) };
+        let inj = unsafe { ptr::read(&this.inj) };
+        let awd = unsafe { ptr::read(&this.awd) };
+        let extremes = unsafe { ptr::read(&this.extremes) };
+
         Filter {
+            common,
             reg: FilterRegular {
                 _common: PhantomData,
                 regular: transceiver,
             },
-            ..self
+            inj,
+            awd,
+            extremes,
         }
     }
 
@@ -606,12 +685,21 @@ where
         let (slots, filterword) = FilterInjected::<'a, 'd, 'ti, T, M, D>::build_injected_slots(transceivers);
         FilterInjected::<'a, 'd, 'ti, T, M, D>::set_injected_channels(filterword);
 
+        let this = ManuallyDrop::new(self);
+        let common = unsafe { ptr::read(&this.common) };
+        let reg = unsafe { ptr::read(&this.reg) };
+        let awd = unsafe { ptr::read(&this.awd) };
+        let extremes = unsafe { ptr::read(&this.extremes) };
+
         Filter {
+            common,
+            reg,
             inj: FilterInjected {
                 injected: slots,
                 _common: PhantomData,
             },
-            ..self
+            awd,
+            extremes,
         }
     }
 }
@@ -687,7 +775,7 @@ where
     ///
     /// Reading the result clears the corresponding data register.
     pub fn try_get_regular_result(&mut self) -> Option<(i32, u8, bool)> {
-        if self.is_end_of_regular_conversion() {
+        if self.end_of_regular_conversion() {
             let result = T::regs().flt(M::CHANNEL.index()).rdatar().read();
             let data = sign_extend_24(result.rdata());
             let channel = result.rdatach();
@@ -715,7 +803,7 @@ where
     }
 
     /// Returns whether a regular conversion result is available.
-    pub fn is_end_of_regular_conversion(&mut self) -> bool {
+    pub fn end_of_regular_conversion(&mut self) -> bool {
         FilterRegs::<T, M>::end_of_regular_conversion()
     }
 
@@ -724,9 +812,13 @@ where
         T::regs().flt(M::CHANNEL.index()).isr().read().rcip()
     }
 
-    /// Returns whether a regular conversion is currently in progress or pendiong.
-    pub fn is_regular_conversion_in_progress(&mut self) -> bool {
-        Self::regular_conversion_in_progress()
+    /// Enables or disables continuous conversion mode.
+    ///
+    /// When enabled, the regular channel is converted repeatedly after each
+    /// conversion request. Disabling it while a continuous conversion is in
+    /// progress stops the conversion immediately.
+    pub fn set_continuous(&mut self, enabled: bool) {
+        FilterDisabled::<T, M>::set_continuous(enabled);
     }
 }
 
@@ -828,7 +920,7 @@ where
     ///
     /// Reading the result clears the corresponding data register.
     pub fn try_get_injected_result(&mut self) -> Option<(i32, u8)> {
-        if self.is_end_of_injected_conversion() {
+        if self.end_of_injected_conversion() {
             let result = T::regs().flt(M::CHANNEL.index()).jdatar().read();
             let data = sign_extend_24(result.jdata());
             let channel = result.jdatach();
@@ -853,18 +945,13 @@ where
     }
 
     /// Returns whether an injected conversion result is available.
-    pub fn is_end_of_injected_conversion(&mut self) -> bool {
+    pub fn end_of_injected_conversion(&mut self) -> bool {
         FilterRegs::<T, M>::end_of_injected_conversion()
     }
 
     /// Returns whether an injected conversion is currently in progress or pendiong.
     pub fn injected_conversion_in_progress() -> bool {
         T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
-    }
-
-    /// Returns whether an injected conversion is currently in progress or pendiong.
-    pub fn is_injected_conversion_in_progress(&mut self) -> bool {
-        Self::injected_conversion_in_progress()
     }
 }
 
@@ -1218,6 +1305,14 @@ where
             .ch(M::CHANNEL.index())
             .awscdr()
             .modify(|w| w.set_scdt(threshold));
+    }
+
+    /// Read input channel watchdog data.
+    /// Data converted by the analog watchdog filter for input channel y.
+    /// This data is continuously converted (no trigger) for this channel,
+    /// with a limited resolution (OSR=1..32/sinc order = 1..3).
+    pub fn get_analog_watchdog_data(&self) -> u16 {
+        T::regs().ch(M::CHANNEL.index()).wdatr().read().wdata()
     }
 }
 
@@ -1675,6 +1770,26 @@ where
 // Interrupt/Event accessors filter
 // ============================================================
 
+pub struct AnalogWatchdogConfig {
+    pub fastmode: bool,
+    pub low_break_signals: config_types::BreakSignals,
+    pub high_break_signals: config_types::BreakSignals,
+    pub low_threshold: i32,
+    pub high_threshold: i32,
+}
+
+impl Default for AnalogWatchdogConfig {
+    fn default() -> Self {
+        Self {
+            fastmode: false,
+            low_break_signals: BreakSignals::empty(),
+            high_break_signals: BreakSignals::empty(),
+            low_threshold: i32::MAX,
+            high_threshold: i32::MIN,
+        }
+    }
+}
+
 //TODO DOCSTRINGS, BITMAP TYPE, SPLIT
 pub enum AnalogWatchdogEvent {
     /// AnalogWatchdog high threshold trigerred.
@@ -1697,10 +1812,13 @@ where
     M: FilterMarker + InstanceEvents<T>,
 {
     pub(crate) fn new(common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
-        Self {
+        let mut new = Self {
             _instance_marker: PhantomData,
             common,
-        }
+        };
+
+        new.configure(AnalogWatchdogConfig::default());
+        new
     }
 
     /// Wait for a analog watchdog event
@@ -1730,6 +1848,14 @@ where
         .await
     }
 
+    pub fn configure(&mut self, config: AnalogWatchdogConfig) {
+        self.enable_analog_watchdog_fastmode(config.fastmode);
+        self.assign_low_to_break_signals(config.low_break_signals);
+        self.assign_high_to_break_signals(config.high_break_signals);
+        self.set_low_threshold(config.low_threshold);
+        self.set_high_threshold(config.high_threshold);
+    }
+
     pub fn set_high_threshold(&mut self, threshold: i32) {
         T::regs()
             .flt(M::CHANNEL.index())
@@ -1756,6 +1882,13 @@ where
             .flt(M::CHANNEL.index())
             .awltr()
             .modify(|w| w.set_bkawl(break_signals.bits()));
+    }
+
+    pub fn enable_analog_watchdog_fastmode(&mut self, enabled: bool) {
+        T::regs()
+            .flt(M::CHANNEL.index())
+            .cr1()
+            .modify(|w| w.set_awfsel(enabled));
     }
 
     /// Assign provided transceivers to this analog watchdog
