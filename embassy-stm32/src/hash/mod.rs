@@ -564,6 +564,10 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
     where
         A: ContextBufferType<Blocking>,
     {
+        if H::HMAC && !ctx.staged && ctx.buflen == 0 {
+            return self.finish_hmac_empty_blocking(&ctx, digest);
+        }
+
         // Restore the peripheral state.
         self.load_context(&ctx);
 
@@ -580,7 +584,10 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         self.accumulate_blocking::<A>(&ctx.buffer()[0..ctx.buflen]);
         ctx.buflen = 0;
 
-        // Start the digest calculation.
+        // Start the digest calculation. With an empty HMAC message this DCAL
+        // directly follows the key phase's, and is ignored while the core is
+        // still busy with the key block.
+        while T::regs().sr().read().busy() {}
         T::regs().str().write(|w| w.set_dcal(true));
 
         // For HMAC, after message digest the peripheral waits for the outer key.
@@ -591,6 +598,10 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         }
         // Block until digest computation is complete.
         while !T::regs().sr().read().dcis() {}
+
+        // The hardware no longer holds a resumable context. Clones of `ctx`
+        // share its id, so they must not skip the restore in `load_context`.
+        self.current_id = None;
 
         // Return the digest.
         let digest_words = A::DIGEST_WORDS;
@@ -609,6 +620,68 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             digest[(i * 4)..((i * 4) + 4)].copy_from_slice(word.to_be_bytes().as_slice());
         }
 
+        digest_len_bytes
+    }
+
+    /// HMAC of an empty message.
+    ///
+    /// The core ignores the message-phase DCAL when no data was written after
+    /// the key phase, so it cannot compute this on its own (the ST HAL rejects
+    /// a zero-length HMAC input for the same reason). Compute it from the
+    /// definition instead, `H((K ^ opad) || H(K ^ ipad))`, with `K` the
+    /// normalized, block-sized key, as two plain hashes.
+    fn finish_hmac_empty_blocking<A: AlgorithmSpec, CM: Mode, H: HmacMode<A>>(
+        &mut self,
+        ctx: &Context<A, CM, H>,
+        digest: &mut [u8],
+    ) -> usize
+    where
+        A: ContextBufferType<CM>,
+    {
+        let key = H::key_ref(&ctx.key).unwrap();
+        let bs = A::BLOCK_SIZE;
+        let digest_len_bytes = A::DIGEST_WORDS * 4;
+        if digest.len() < digest_len_bytes {
+            panic!("Digest buffer must be at least {} bytes long.", digest_len_bytes);
+        }
+
+        // Same algorithm and data type as the context, but a plain hash.
+        let mut cr = Cr(ctx.cr);
+        cr.set_mode(false);
+        cr.set_init(true);
+
+        // One block of padded key, followed by the inner digest.
+        let mut buf = [0u8; 128 + 64];
+
+        // Inner: H(K ^ ipad).
+        buf[..bs].fill(0x36);
+        for (b, k) in buf[..bs].iter_mut().zip(key) {
+            *b ^= k;
+        }
+        T::regs().cr().write_value(cr);
+        self.accumulate_blocking::<A>(&buf[..bs]);
+        T::regs().str().write(|w| w.set_dcal(true));
+        while !T::regs().sr().read().dcis() {}
+        for i in 0..A::DIGEST_WORDS {
+            buf[bs + i * 4..bs + i * 4 + 4].copy_from_slice(&T::regs().hr(i).read().to_be_bytes());
+        }
+
+        // Outer: H((K ^ opad) || inner).
+        buf[..bs].fill(0x5c);
+        for (b, k) in buf[..bs].iter_mut().zip(key) {
+            *b ^= k;
+        }
+        T::regs().cr().write_value(cr);
+        self.accumulate_blocking::<A>(&buf[..bs + digest_len_bytes]);
+        T::regs().str().write(|w| w.set_dcal(true));
+        while !T::regs().sr().read().dcis() {}
+
+        // The hardware no longer holds any context.
+        self.current_id = None;
+
+        for i in 0..A::DIGEST_WORDS {
+            digest[i * 4..i * 4 + 4].copy_from_slice(&T::regs().hr(i).read().to_be_bytes());
+        }
         digest_len_bytes
     }
 
@@ -877,6 +950,10 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
     where
         A: ContextBufferType<Async>,
     {
+        if H::HMAC && !ctx.staged && ctx.buflen == 0 {
+            return self.finish_hmac_empty_blocking(&ctx, digest);
+        }
+
         // Restore the peripheral state.
         self.load_context(&ctx);
 
@@ -897,6 +974,8 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         if ctx.buflen > 0 {
             self.accumulate(&ctx.buffer()[0..ctx.buflen]).await;
         }
+        // See finish_blocking: never issue DCAL while the core is busy.
+        while T::regs().sr().read().busy() {}
         T::regs().str().write(|w| w.set_dcal(true));
         ctx.buflen = 0;
 
@@ -921,6 +1000,10 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
             if bits.dcis() { Poll::Ready(()) } else { Poll::Pending }
         })
         .await;
+
+        // The hardware no longer holds a resumable context. Clones of `ctx`
+        // share its id, so they must not skip the restore in `load_context`.
+        self.current_id = None;
 
         // Return the digest.
         let digest_words = A::DIGEST_WORDS;
