@@ -206,7 +206,7 @@ pub mod npu;
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
-#[cfg(any(pka_v1a, pka_n6))]
+#[cfg(pka)]
 pub mod pka;
 #[cfg(pssi)]
 pub mod pssi;

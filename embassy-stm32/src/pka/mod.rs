@@ -21,6 +21,14 @@
 //! | ECDSA Verify | 0x26 | Verify ECDSA signatures |
 //! | Point Check | 0x28 | Validate point is on curve |
 //!
+//! Three hardware revisions are supported: `pka_v1a` (STM32H5, H7RS, WBA),
+//! `pka_v1b` (STM32U3, U5) and `pka_v1c` (STM32L4+, L5, WB, WL). The older
+//! `pka_v1c` has a different RAM layout, no RAM initialization from the RNG
+//! and no operation error flag, and lacks the protected exponentiation, the
+//! complete point addition, the double base ladder and the projective to
+//! affine conversion, so those methods do not exist there. Its scalar
+//! multiplication also does not report the point at infinity.
+//!
 //! # Example - ECDSA Signature Verification (async)
 //!
 //! ```no_run
@@ -64,6 +72,26 @@
 //! - Validate all public keys before use (call `point_check`).
 //! - Call [`Pka::scrub`] between operations that touch sensitive material.
 //! - Clear sensitive data from caller-owned buffers after use.
+//!
+//! # RNG dependency
+//!
+//! On `pka_v1a` and `pka_v1b`, the PKA initializes its RAM with random data
+//! whenever it is enabled, and the initialization does not complete unless the
+//! RNG is running: create an [`Rng`](crate::rng::Rng) before the [`Pka`], and
+//! keep it alive for as long as the PKA is in use. On STM32WBA6 the driver
+//! enables the RNG itself. `pka_v1c` has no such dependency.
+//!
+//! # `embassy-crypto`
+//!
+//! With the `embassy-crypto-p256-arith`, `embassy-crypto-p256-ecdh` and
+//! `embassy-crypto-p256-ecdsa` features, and their `p384` counterparts, the PKA
+//! serves the curve arithmetic, ECDH and ECDSA of the `embassy-crypto` crate:
+//! its `p256` and `p384` modules, and everything built on them. The drivers
+//! take the peripheral over, so the `Pka` must not be constructed by the
+//! application. They need a running RNG too: with the `embassy-crypto-rng`
+//! feature they start it themselves, otherwise keep an
+//! [`Rng`](crate::rng::Rng) alive. ECDSA signing draws its nonces from the
+//! `embassy-crypto` random number driver, whichever one is registered.
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -75,6 +103,16 @@ use embassy_sync::waitqueue::AtomicWaker;
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::{interrupt, pac, peripherals, rcc};
+
+#[cfg(any(
+    feature = "embassy-crypto-p256-arith",
+    feature = "embassy-crypto-p256-ecdh",
+    feature = "embassy-crypto-p256-ecdsa",
+    feature = "embassy-crypto-p384-arith",
+    feature = "embassy-crypto-p384-ecdh",
+    feature = "embassy-crypto-p384-ecdsa",
+))]
+mod driver;
 
 static PKA_WAKER: AtomicWaker = AtomicWaker::new();
 const MAX_ECC_BYTES: usize = 80; // 640-bit ECC operand support
@@ -95,6 +133,7 @@ pub enum PkaMode {
     /// Modular exponentiation fast mode
     ModularExpFast = 0x02,
     /// Modular exponentiation with protection
+    #[cfg(not(pka_v1c))]
     ModularExpProtect = 0x03,
     /// RSA CRT exponentiation
     RsaCrtExp = 0x07,
@@ -119,16 +158,19 @@ pub enum PkaMode {
     /// ECC scalar multiplication
     EccMul = 0x20,
     /// ECC complete addition
+    #[cfg(not(pka_v1c))]
     EccCompleteAdd = 0x23,
     /// ECDSA signature generation
     EcdsaSign = 0x24,
     /// ECDSA signature verification
     EcdsaVerify = 0x26,
     /// Double base ladder
+    #[cfg(not(pka_v1c))]
     DoubleBaseLadder = 0x27,
     /// Point check (validate point on curve)
     PointCheck = 0x28,
     /// ECC projective to affine
+    #[cfg(not(pka_v1c))]
     EccProjectiveToAffine = 0x2F,
 }
 
@@ -137,6 +179,129 @@ pub enum PkaMode {
 // Derived from CMSIS headers: offset = raw_address - 0x0400
 // ============================================================================
 
+// The older `pka_v1c` layout (STM32WB55 CMSIS header).
+#[cfg(pka_v1c)]
+mod offsets {
+    // Montgomery parameter computation
+    pub mod montgomery_param {
+        pub const IN_MOD_NB_BITS: usize = 0x04;
+        pub const IN_MODULUS: usize = 0x95C;
+        pub const OUT_PARAMETER: usize = 0x194;
+    }
+
+    // Modular exponentiation (RSA)
+    pub mod modular_exp {
+        pub const IN_EXP_NB_BITS: usize = 0x00;
+        pub const IN_OP_NB_BITS: usize = 0x04;
+        pub const IN_MONTGOMERY_PARAM: usize = 0x194;
+        pub const IN_EXPONENT_BASE: usize = 0x644;
+        pub const IN_EXPONENT: usize = 0x7D0;
+        pub const IN_MODULUS: usize = 0x95C;
+        pub const OUT_RESULT: usize = 0x324;
+    }
+
+    // RSA CRT exponentiation
+    pub mod rsa_crt {
+        pub const IN_MOD_NB_BITS: usize = 0x04;
+        pub const IN_DP_CRT: usize = 0x25C;
+        pub const IN_DQ_CRT: usize = 0x7D0;
+        pub const IN_QINV_CRT: usize = 0x3EC;
+        pub const IN_PRIME_P: usize = 0x57C;
+        pub const IN_PRIME_Q: usize = 0x95C;
+        pub const IN_EXPONENT_BASE: usize = 0xAEC;
+        pub const OUT_RESULT: usize = 0x324;
+    }
+
+    // ECC scalar multiplication: no curve coefficient b, no order, no error word.
+    pub mod ecc_mul {
+        pub const IN_EXP_NB_BITS: usize = 0x00;
+        pub const IN_OP_NB_BITS: usize = 0x04;
+        pub const IN_A_COEFF_SIGN: usize = 0x08;
+        pub const IN_A_COEFF: usize = 0x0C;
+        pub const IN_MOD_GF: usize = 0x60;
+        pub const IN_K: usize = 0x108;
+        pub const IN_INITIAL_POINT_X: usize = 0x15C;
+        pub const IN_INITIAL_POINT_Y: usize = 0x1B0;
+        pub const OUT_RESULT_X: usize = 0x15C;
+        pub const OUT_RESULT_Y: usize = 0x1B0;
+    }
+
+    // ECDSA signature generation: no curve coefficient b.
+    pub mod ecdsa_sign {
+        pub const IN_ORDER_NB_BITS: usize = 0x00;
+        pub const IN_MOD_NB_BITS: usize = 0x04;
+        pub const IN_A_COEFF_SIGN: usize = 0x08;
+        pub const IN_A_COEFF: usize = 0x0C;
+        pub const IN_MOD_GF: usize = 0x60;
+        pub const IN_K: usize = 0x108;
+        pub const IN_INITIAL_POINT_X: usize = 0x15C;
+        pub const IN_INITIAL_POINT_Y: usize = 0x1B0;
+        pub const IN_HASH_E: usize = 0x9E8;
+        pub const IN_PRIVATE_KEY_D: usize = 0xA3C;
+        pub const IN_ORDER_N: usize = 0xA94;
+        pub const OUT_ERROR: usize = 0xAE8;
+        pub const OUT_SIGNATURE_R: usize = 0x300;
+        pub const OUT_SIGNATURE_S: usize = 0x354;
+    }
+
+    // ECDSA signature verification
+    pub mod ecdsa_verif {
+        pub const IN_ORDER_NB_BITS: usize = 0x04;
+        pub const IN_MOD_NB_BITS: usize = 0xB4;
+        pub const IN_A_COEFF_SIGN: usize = 0x5C;
+        pub const IN_A_COEFF: usize = 0x60;
+        pub const IN_MOD_GF: usize = 0xB8;
+        pub const IN_INITIAL_POINT_X: usize = 0x1E8;
+        pub const IN_INITIAL_POINT_Y: usize = 0x23C;
+        pub const IN_PUBLIC_KEY_POINT_X: usize = 0xB40;
+        pub const IN_PUBLIC_KEY_POINT_Y: usize = 0xB94;
+        pub const IN_SIGNATURE_R: usize = 0xC98;
+        pub const IN_SIGNATURE_S: usize = 0x644;
+        pub const IN_HASH_E: usize = 0xBE8;
+        pub const IN_ORDER_N: usize = 0x95C;
+        pub const OUT_RESULT: usize = 0x1B0;
+    }
+
+    // Point check: no Montgomery parameter.
+    pub mod point_check {
+        pub const IN_MOD_NB_BITS: usize = 0x04;
+        pub const IN_A_COEFF_SIGN: usize = 0x08;
+        pub const IN_A_COEFF: usize = 0x0C;
+        pub const IN_B_COEFF: usize = 0x3FC;
+        pub const IN_MOD_GF: usize = 0x60;
+        pub const IN_INITIAL_POINT_X: usize = 0x15C;
+        pub const IN_INITIAL_POINT_Y: usize = 0x1B0;
+        pub const OUT_ERROR: usize = 0x00;
+    }
+
+    // Modular inversion
+    pub mod modular_inv {
+        pub const IN_NB_BITS: usize = 0x04;
+        pub const IN_OP1: usize = 0x4B4;
+        pub const IN_OP2_MOD: usize = 0x644;
+        pub const OUT_RESULT: usize = 0x7D0;
+    }
+
+    // Generic arithmetic operations (add, sub, mul, comparison, modular add/sub, montgomery mul)
+    pub mod arithmetic {
+        pub const IN_NB_BITS: usize = 0x04;
+        pub const IN_OP1: usize = 0x4B4;
+        pub const IN_OP2: usize = 0x644;
+        pub const IN_OP3_MOD: usize = 0x95C;
+        pub const OUT_RESULT: usize = 0x7D0;
+    }
+
+    // Modular reduction
+    pub mod modular_red {
+        pub const IN_OP_LENGTH: usize = 0x00;
+        pub const IN_MOD_LENGTH: usize = 0x04;
+        pub const IN_OPERAND: usize = 0x4B4;
+        pub const IN_MODULUS: usize = 0x644;
+        pub const OUT_RESULT: usize = 0x7D0;
+    }
+}
+
+#[cfg(not(pka_v1c))]
 mod offsets {
     // Montgomery parameter computation
     pub mod montgomery_param {
@@ -248,7 +413,6 @@ mod offsets {
         pub const IN_MOD_GF: usize = 0x70;
         pub const IN_INITIAL_POINT_X: usize = 0x178;
         pub const IN_INITIAL_POINT_Y: usize = 0x1D0;
-        #[allow(dead_code)]
         pub const IN_MONTGOMERY_PARAM: usize = 0xC8;
         pub const OUT_ERROR: usize = 0x280;
     }
@@ -342,14 +506,19 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let sr = T::regs().sr().read();
+        #[cfg(pka_v1c)]
+        let operrf = false;
+        #[cfg(not(pka_v1c))]
+        let operrf = sr.operrf();
 
         // Disable the IE bits so the IRQ doesn't refire while the future is waking.
         // The poll_fn loop in `start_and_wait_async` reads SR and clears the flags itself.
-        if sr.procendf() || sr.ramerrf() || sr.addrerrf() || sr.operrf() {
+        if sr.procendf() || sr.ramerrf() || sr.addrerrf() || operrf {
             T::regs().cr().modify(|w| {
                 w.set_procendie(false);
                 w.set_ramerrie(false);
                 w.set_addrerrie(false);
+                #[cfg(not(pka_v1c))]
                 w.set_operrie(false);
             });
             PKA_WAKER.wake();
@@ -416,6 +585,20 @@ impl EcdsaCurveParams {
             order: &P256_N,
         }
     }
+
+    /// NIST P-384 (secp384r1) curve parameters
+    pub const fn nist_p384() -> Self {
+        Self {
+            p_modulus: &P384_P,
+            // For P-384, a = -3 (mod p), so we use |a| = 3 with sign = 1 (negative)
+            a_coefficient: &P384_A,
+            a_coefficient_sign: 1, // negative
+            b_coefficient: &P384_B,
+            generator_x: &P384_GX,
+            generator_y: &P384_GY,
+            order: &P384_N,
+        }
+    }
 }
 
 // NIST P-256 curve parameters (big-endian)
@@ -443,6 +626,39 @@ const P256_GY: [u8; 32] = [
 const P256_N: [u8; 32] = [
     0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xBC, 0xE6, 0xFA,
     0xAD, 0xA7, 0x17, 0x9E, 0x84, 0xF3, 0xB9, 0xCA, 0xC2, 0xFC, 0x63, 0x25, 0x51,
+];
+
+// NIST P-384 curve parameters (big-endian)
+const P384_P: [u8; 48] = [
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF,
+];
+// |a| = 3 (absolute value of -3)
+const P384_A: [u8; 48] = [
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03,
+];
+const P384_B: [u8; 48] = [
+    0xB3, 0x31, 0x2F, 0xA7, 0xE2, 0x3E, 0xE7, 0xE4, 0x98, 0x8E, 0x05, 0x6B, 0xE3, 0xF8, 0x2D, 0x19, 0x18, 0x1D, 0x9C,
+    0x6E, 0xFE, 0x81, 0x41, 0x12, 0x03, 0x14, 0x08, 0x8F, 0x50, 0x13, 0x87, 0x5A, 0xC6, 0x56, 0x39, 0x8D, 0x8A, 0x2E,
+    0xD1, 0x9D, 0x2A, 0x85, 0xC8, 0xED, 0xD3, 0xEC, 0x2A, 0xEF,
+];
+const P384_GX: [u8; 48] = [
+    0xAA, 0x87, 0xCA, 0x22, 0xBE, 0x8B, 0x05, 0x37, 0x8E, 0xB1, 0xC7, 0x1E, 0xF3, 0x20, 0xAD, 0x74, 0x6E, 0x1D, 0x3B,
+    0x62, 0x8B, 0xA7, 0x9B, 0x98, 0x59, 0xF7, 0x41, 0xE0, 0x82, 0x54, 0x2A, 0x38, 0x55, 0x02, 0xF2, 0x5D, 0xBF, 0x55,
+    0x29, 0x6C, 0x3A, 0x54, 0x5E, 0x38, 0x72, 0x76, 0x0A, 0xB7,
+];
+const P384_GY: [u8; 48] = [
+    0x36, 0x17, 0xDE, 0x4A, 0x96, 0x26, 0x2C, 0x6F, 0x5D, 0x9E, 0x98, 0xBF, 0x92, 0x92, 0xDC, 0x29, 0xF8, 0xF4, 0x1D,
+    0xBD, 0x28, 0x9A, 0x14, 0x7C, 0xE9, 0xDA, 0x31, 0x13, 0xB5, 0xF0, 0xB8, 0xC0, 0x0A, 0x60, 0xB1, 0xCE, 0x1D, 0x7E,
+    0x81, 0x9D, 0x7A, 0x43, 0x1D, 0x7C, 0x90, 0xEA, 0x0E, 0x5F,
+];
+const P384_N: [u8; 48] = [
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+    0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xC7, 0x63, 0x4D, 0x81, 0xF4, 0x37, 0x2D, 0xDF, 0x58, 0x1A, 0x0D, 0xB2, 0x48, 0xB0,
+    0xA7, 0x7A, 0xEC, 0xEC, 0x19, 0x6A, 0xCC, 0xC5, 0x29, 0x73,
 ];
 
 /// ECDSA public key
@@ -602,7 +818,14 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
 }
 
 impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
+    #[cfg(not(pka_v1c))]
     const RAM_ERASE_TIMEOUT: u32 = 100_000;
+
+    /// The value the engine leaves in a result or error word to report success.
+    #[cfg(not(pka_v1c))]
+    const SUCCESS: u32 = 0xD60D;
+    #[cfg(pka_v1c)]
+    const SUCCESS: u32 = 0;
 
     fn new_inner(peripheral: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
@@ -678,7 +901,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
 
     fn read_ecdsa_verify(&mut self) -> Result<bool, Error> {
         let result = self.read_ram_word(offsets::ecdsa_verif::OUT_RESULT);
-        Ok(result == 0xD60D)
+        Ok(result == Self::SUCCESS)
     }
 
     fn prepare_ecdsa_sign(
@@ -715,6 +938,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
 
         // Write curve parameters
         self.write_operand(offsets::ecdsa_sign::IN_A_COEFF, curve.a_coefficient);
+        #[cfg(not(pka_v1c))]
         self.write_operand(offsets::ecdsa_sign::IN_B_COEFF, curve.b_coefficient);
         self.write_operand(offsets::ecdsa_sign::IN_MOD_GF, curve.p_modulus);
         self.write_operand(offsets::ecdsa_sign::IN_INITIAL_POINT_X, curve.generator_x);
@@ -735,9 +959,8 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         signature_r: &mut [u8],
         signature_s: &mut [u8],
     ) -> Result<(), Error> {
-        // Check for errors - 0xD60D indicates success
         let result = self.read_ram_word(offsets::ecdsa_sign::OUT_ERROR);
-        if result != 0xD60D {
+        if result != Self::SUCCESS {
             return Err(Error::OperationError);
         }
 
@@ -782,8 +1005,10 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
 
         // Write curve parameters
         self.write_operand(offsets::ecc_mul::IN_A_COEFF, curve.a_coefficient);
+        #[cfg(not(pka_v1c))]
         self.write_operand(offsets::ecc_mul::IN_B_COEFF, curve.b_coefficient);
         self.write_operand(offsets::ecc_mul::IN_MOD_GF, curve.p_modulus);
+        #[cfg(not(pka_v1c))]
         self.write_operand(offsets::ecc_mul::IN_N_PRIME_ORDER, curve.order);
 
         // Write scalar and point
@@ -797,10 +1022,13 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
     }
 
     fn read_ecc_mul(&mut self, modulus_size: usize, result: &mut EccPoint) -> Result<(), Error> {
-        // Check for errors - 0xD60D indicates success
-        let status = self.read_ram_word(offsets::ecc_mul::OUT_ERROR);
-        if status != 0xD60D {
-            return Err(Error::OperationError);
+        // pka_v1c reports nothing: the point at infinity comes out as garbage.
+        #[cfg(not(pka_v1c))]
+        {
+            let status = self.read_ram_word(offsets::ecc_mul::OUT_ERROR);
+            if status != Self::SUCCESS {
+                return Err(Error::OperationError);
+            }
         }
 
         // Read result
@@ -810,10 +1038,20 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         Ok(())
     }
 
-    fn prepare_point_check(&mut self, curve: &EcdsaCurveParams, point_x: &[u8], point_y: &[u8]) -> Result<(), Error> {
+    fn prepare_point_check(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        point_x: &[u8],
+        point_y: &[u8],
+        montgomery_param: &[u32],
+    ) -> Result<(), Error> {
         let modulus_size = curve.p_modulus.len();
 
         if point_x.len() != modulus_size || point_y.len() != modulus_size {
+            return Err(Error::InvalidSize);
+        }
+        #[cfg(not(pka_v1c))]
+        if montgomery_param.len() < modulus_size.div_ceil(4) {
             return Err(Error::InvalidSize);
         }
 
@@ -828,6 +1066,13 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         self.write_operand(offsets::point_check::IN_INITIAL_POINT_X, point_x);
         self.write_operand(offsets::point_check::IN_INITIAL_POINT_Y, point_y);
 
+        // The check works in Montgomery form and needs R^2 mod p, which this
+        // operation does not compute itself, except on pka_v1c.
+        #[cfg(not(pka_v1c))]
+        self.write_montgomery_param(offsets::point_check::IN_MONTGOMERY_PARAM, montgomery_param);
+        #[cfg(pka_v1c)]
+        let _ = montgomery_param;
+
         // Set mode right before start (matching ST HAL order)
         self.set_mode(PkaMode::PointCheck);
         Ok(())
@@ -835,9 +1080,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
 
     fn read_point_check(&mut self) -> Result<bool, Error> {
         let result = self.read_ram_word(offsets::point_check::OUT_ERROR);
-
-        // 0xD60D means point is on curve
-        Ok(result == 0xD60D)
+        Ok(result == Self::SUCCESS)
     }
 
     // ========================================================================
@@ -1048,10 +1291,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         self.write_ram_word(offsets::modular_exp::IN_EXP_NB_BITS, exp_nb_bits);
         self.write_ram_word(offsets::modular_exp::IN_OP_NB_BITS, mod_nb_bits);
 
-        // Write Montgomery parameter (u32 words)
-        for (i, &word) in montgomery_param.iter().enumerate() {
-            self.write_ram_word(offsets::modular_exp::IN_MONTGOMERY_PARAM + i * 4, word);
-        }
+        self.write_montgomery_param(offsets::modular_exp::IN_MONTGOMERY_PARAM, montgomery_param);
 
         self.write_operand(offsets::modular_exp::IN_EXPONENT_BASE, base);
         self.write_operand(offsets::modular_exp::IN_EXPONENT, exponent);
@@ -1067,6 +1307,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         Ok(())
     }
 
+    #[cfg(not(pka_v1c))]
     fn prepare_modular_exp_protect(&mut self, params: &ModExpProtectParams, result_len: usize) -> Result<(), Error> {
         let mod_size = params.modulus.len();
         let exp_size = params.exponent.len();
@@ -1092,6 +1333,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         Ok(())
     }
 
+    #[cfg(not(pka_v1c))]
     fn read_modular_exp_protect(&mut self, mod_size: usize, result: &mut [u8]) -> Result<(), Error> {
         // Modular exponentiation (protected mode) doesn't write to OUT_ERROR
         // Errors are indicated by SR flags which are checked in the wait helper
@@ -1211,6 +1453,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
     // Advanced ECC Operations
     // ========================================================================
 
+    #[cfg(not(pka_v1c))]
     fn prepare_ecc_complete_add(
         &mut self,
         curve: &EcdsaCurveParams,
@@ -1246,6 +1489,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         Ok(())
     }
 
+    #[cfg(not(pka_v1c))]
     fn read_ecc_complete_add(&mut self, modulus_size: usize, result: &mut EccProjectivePoint) -> Result<(), Error> {
         // Read result
         self.read_operand(offsets::ecc_complete_add::OUT_RESULT_X, &mut result.x[..modulus_size]);
@@ -1255,6 +1499,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         Ok(())
     }
 
+    #[cfg(not(pka_v1c))]
     fn prepare_double_base_ladder(
         &mut self,
         curve: &EcdsaCurveParams,
@@ -1304,10 +1549,11 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         Ok(())
     }
 
+    #[cfg(not(pka_v1c))]
     fn read_double_base_ladder(&mut self, modulus_size: usize, result: &mut EccPoint) -> Result<(), Error> {
         // Check for errors
         let status = self.read_ram_word(offsets::double_base_ladder::OUT_ERROR);
-        if status != 0xD60D {
+        if status != Self::SUCCESS {
             return Err(Error::OperationError);
         }
 
@@ -1318,6 +1564,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         Ok(())
     }
 
+    #[cfg(not(pka_v1c))]
     fn prepare_projective_to_affine(
         &mut self,
         modulus: &[u8],
@@ -1336,10 +1583,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         self.write_ram_word(offsets::projective_to_affine::IN_MOD_NB_BITS, mod_nb_bits);
         self.write_operand(offsets::projective_to_affine::IN_MOD_P, modulus);
 
-        // Write Montgomery parameter
-        for (i, &word) in montgomery_param.iter().enumerate() {
-            self.write_ram_word(offsets::projective_to_affine::IN_MONTGOMERY_PARAM + i * 4, word);
-        }
+        self.write_montgomery_param(offsets::projective_to_affine::IN_MONTGOMERY_PARAM, montgomery_param);
 
         // Write projective point
         self.write_operand(offsets::projective_to_affine::IN_POINT_X, &point.x[..modulus_size]);
@@ -1350,10 +1594,11 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         Ok(())
     }
 
+    #[cfg(not(pka_v1c))]
     fn read_projective_to_affine(&mut self, modulus_size: usize, result: &mut EccPoint) -> Result<(), Error> {
         // Check for errors
         let status = self.read_ram_word(offsets::projective_to_affine::OUT_ERROR);
-        if status != 0xD60D {
+        if status != Self::SUCCESS {
             return Err(Error::OperationError);
         }
 
@@ -1374,6 +1619,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
     // Internal Helper Functions
     // ========================================================================
 
+    #[cfg(not(pka_v1c))]
     fn begin_init(&mut self) -> Result<bool, Error> {
         let p = T::regs();
         let sr_ptr = p.sr().as_ptr() as *const u32;
@@ -1439,11 +1685,13 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
             w.set_procendfc(true);
             w.set_ramerrfc(true);
             w.set_addrerrfc(true);
+            #[cfg(not(pka_v1c))]
             w.set_operrfc(true);
         });
     }
 
     // Wait for INITOK (bit 0 of SR) - indicated RAM initialization complete
+    #[cfg(not(pka_v1c))]
     fn wait_initok_blocking(&mut self) -> Result<(), Error> {
         let p = T::regs();
         let sr_ptr = p.sr().as_ptr() as *const u32;
@@ -1460,12 +1708,38 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
         }
     }
 
+    #[cfg(not(pka_v1c))]
     fn ensure_init_blocking(&mut self) -> Result<(), Error> {
         if self.begin_init()? {
             self.wait_initok_blocking()?;
         }
         self.finish_init();
         Ok(())
+    }
+
+    // pka_v1c has no RAM initialization to wait for: enabling is all there is to it.
+    #[cfg(pka_v1c)]
+    fn ensure_init_blocking(&mut self) -> Result<(), Error> {
+        let p = T::regs();
+        if !p.cr().read().en() {
+            p.cr().write(|w| w.set_en(true));
+        }
+        self.finish_init();
+        Ok(())
+    }
+
+    /// Whether the PKA runs in limited mode, in which only ECDSA signature
+    /// verification is available and every other operation fails with
+    /// [`Error::OperationError`].
+    ///
+    /// Some parts have such a PKA, meant for secure boot: the STM32H56x, as
+    /// opposed to the STM32H57x.
+    #[cfg(any(pka_v1a, pka_n6))]
+    pub fn is_limited(&self) -> bool {
+        let lmf = T::regs().sr().read().lmf();
+        #[cfg(pka_v1a)]
+        let lmf = lmf == pac::pka::vals::Lmf::Limited;
+        lmf
     }
 
     /// Zero out the PKA RAM (basic hygiene scrub).
@@ -1497,6 +1771,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
             w.set_procendie(false);
             w.set_ramerrie(false);
             w.set_addrerrie(false);
+            #[cfg(not(pka_v1c))]
             w.set_operrie(false);
         });
     }
@@ -1518,6 +1793,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
                 p.clrfr().write(|w| w.set_addrerrfc(true));
                 return Err(Error::AddressError);
             }
+            #[cfg(not(pka_v1c))]
             if sr.operrf() {
                 p.clrfr().write(|w| w.set_operrfc(true));
                 return Err(Error::OperationError);
@@ -1546,6 +1822,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
             w.set_procendie(true);
             w.set_ramerrie(true);
             w.set_addrerrie(true);
+            #[cfg(not(pka_v1c))]
             w.set_operrie(true);
             w.set_start(true);
         });
@@ -1570,6 +1847,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
             w.set_procendie(false);
             w.set_ramerrie(false);
             w.set_addrerrie(false);
+            #[cfg(not(pka_v1c))]
             w.set_operrie(false);
         });
 
@@ -1588,6 +1866,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
             p.clrfr().write(|w| w.set_addrerrfc(true));
             return Some(Err(Error::AddressError));
         }
+        #[cfg(not(pka_v1c))]
         if sr.operrf() {
             p.clrfr().write(|w| w.set_operrfc(true));
             return Some(Err(Error::OperationError));
@@ -1664,6 +1943,16 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
                 _ => {}
             }
         }
+    }
+
+    /// Writes a Montgomery parameter as the little-endian words the hardware
+    /// produced it in, terminated like any other operand.
+    fn write_montgomery_param(&mut self, offset: usize, words: &[u32]) {
+        for (i, &word) in words.iter().enumerate() {
+            self.write_ram_word(offset + i * 4, word);
+        }
+        self.write_ram_word(offset + words.len() * 4, 0);
+        self.write_ram_word(offset + (words.len() + 1) * 4, 0);
     }
 
     fn write_ram_word(&mut self, offset: usize, value: u32) {
@@ -1778,7 +2067,12 @@ impl<'d, T: Instance> Pka<'d, T, Blocking> {
         point_x: &[u8],
         point_y: &[u8],
     ) -> Result<bool, Error> {
-        self.prepare_point_check(curve, point_x, point_y)?;
+        #[cfg_attr(pka_v1c, allow(unused_mut))]
+        let mut r2 = [0u32; MAX_ECC_BYTES / 4];
+        let words = curve.p_modulus.len().div_ceil(4);
+        #[cfg(not(pka_v1c))]
+        self.montgomery_param_blocking(curve.p_modulus, &mut r2[..words])?;
+        self.prepare_point_check(curve, point_x, point_y, &r2[..words])?;
         self.start_and_wait_blocking()?;
         self.read_point_check()
     }
@@ -1911,6 +2205,7 @@ impl<'d, T: Instance> Pka<'d, T, Blocking> {
     /// # Arguments
     /// * `params` -- Protected-mode parameters including `phi(n)`.
     /// * `result` -- Output buffer (must be at least the size of `params.modulus`).
+    #[cfg(not(pka_v1c))]
     pub fn modular_exp_protect_blocking(
         &mut self,
         params: &ModExpProtectParams,
@@ -1991,6 +2286,7 @@ impl<'d, T: Instance> Pka<'d, T, Blocking> {
     /// * `p` -- First point in projective coordinates.
     /// * `q` -- Second point in projective coordinates.
     /// * `result` -- Output point in Jacobian projective coordinates.
+    #[cfg(not(pka_v1c))]
     pub fn ecc_complete_add_blocking(
         &mut self,
         curve: &EcdsaCurveParams,
@@ -2016,6 +2312,7 @@ impl<'d, T: Instance> Pka<'d, T, Blocking> {
     /// * `m` -- Scalar for point `Q`.
     /// * `q` -- Second point in projective coordinates.
     /// * `result` -- Output point in affine coordinates.
+    #[cfg(not(pka_v1c))]
     pub fn double_base_ladder_blocking(
         &mut self,
         curve: &EcdsaCurveParams,
@@ -2038,6 +2335,7 @@ impl<'d, T: Instance> Pka<'d, T, Blocking> {
     /// * `montgomery_param` -- Pre-computed Montgomery parameter `R^2 mod p`.
     /// * `point` -- Point in projective coordinates.
     /// * `result` -- Output point in affine coordinates.
+    #[cfg(not(pka_v1c))]
     pub fn projective_to_affine_blocking(
         &mut self,
         modulus: &[u8],
@@ -2200,7 +2498,12 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
         point_x: &[u8],
         point_y: &[u8],
     ) -> Result<bool, Error> {
-        self.prepare_point_check(curve, point_x, point_y)?;
+        #[cfg_attr(pka_v1c, allow(unused_mut))]
+        let mut r2 = [0u32; MAX_ECC_BYTES / 4];
+        let words = curve.p_modulus.len().div_ceil(4);
+        #[cfg(not(pka_v1c))]
+        self.montgomery_param(curve.p_modulus, &mut r2[..words]).await?;
+        self.prepare_point_check(curve, point_x, point_y, &r2[..words])?;
         self.start_and_wait_async().await?;
         self.read_point_check()
     }
@@ -2333,6 +2636,7 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
     /// # Arguments
     /// * `params` -- Protected-mode parameters including `phi(n)`.
     /// * `result` -- Output buffer (must be at least the size of `params.modulus`).
+    #[cfg(not(pka_v1c))]
     pub async fn modular_exp_protect(
         &mut self,
         params: &ModExpProtectParams<'_>,
@@ -2406,6 +2710,7 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
     /// * `p` -- First point in projective coordinates.
     /// * `q` -- Second point in projective coordinates.
     /// * `result` -- Output point in Jacobian projective coordinates.
+    #[cfg(not(pka_v1c))]
     pub async fn ecc_complete_add(
         &mut self,
         curve: &EcdsaCurveParams,
@@ -2431,6 +2736,7 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
     /// * `m` -- Scalar for point `Q`.
     /// * `q` -- Second point in projective coordinates.
     /// * `result` -- Output point in affine coordinates.
+    #[cfg(not(pka_v1c))]
     pub async fn double_base_ladder(
         &mut self,
         curve: &EcdsaCurveParams,
@@ -2453,6 +2759,7 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
     /// * `montgomery_param` -- Pre-computed Montgomery parameter `R^2 mod p`.
     /// * `point` -- Point in projective coordinates.
     /// * `result` -- Output point in affine coordinates.
+    #[cfg(not(pka_v1c))]
     pub async fn projective_to_affine(
         &mut self,
         modulus: &[u8],
