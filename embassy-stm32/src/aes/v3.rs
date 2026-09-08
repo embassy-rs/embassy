@@ -1,4 +1,4 @@
-//! Driver shell for the `aes_v3b` hardware revision (STM32H5, WBA).
+//! Driver shell for the `aes_v3a`/`aes_v3b` hardware revisions (STM32U5, H5, WBA).
 //!
 //! The cipher types and the GCM/CCM state machine live in [`super::common`];
 //! this module provides the [`Aes`] driver, its interrupt handler, instance

@@ -104,12 +104,12 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 pub use crate::aes::{
     AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, Cipher, CipherAuthenticated, CipherSized, Context, Direction, Error,
     IVSized, KeySize,
 };
-#[cfg(all(saes_n6, not(aes_v3b)))]
+#[cfg(all(saes_n6, not(any(aes_v3a, aes_v3b))))]
 pub use crate::crypto::{
     AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, AesGmac, Cipher, CipherAuthenticated, CipherSized, Context, Direction,
     Error, IVSized, KeySize,

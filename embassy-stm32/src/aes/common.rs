@@ -1,11 +1,11 @@
-//! Register-agnostic AES layer shared by the `aes_v2` and `aes_v3b` drivers.
+//! Register-agnostic AES layer shared by the `aes_v2` and `aes_v3` drivers.
 //!
 //! This module holds the cipher-mode types, the [`Cipher`] trait and its cipher
 //! implementations, the operation [`Context`], and the GCM/CCM state machine
 //! ([`op_start`], [`op_aad`], [`op_payload`], [`op_finish`]). The two hardware
 //! revisions are identical at this level; they differ only in a handful of
 //! register primitives, which are selected with `#[cfg(aes_v2)]` /
-//! `#[cfg(aes_v3b)]` below. The version modules (`v2`, `v3b`) provide the
+//! `#[cfg(any(aes_v3a, aes_v3b))]` below. The version modules (`v2`, `v3b`) provide the
 //! `Aes` driver shell, instance wiring, and constructors, and delegate the
 //! algorithm here. The types `saes` also needs (`Error`, `Direction`,
 //! `KeySize`, and the marker traits) come from [`crate::crypto`] and are
@@ -20,7 +20,7 @@ use crate::{pac, peripherals};
 /// AES block size in bytes (128 bits).
 pub(crate) const AES_BLOCK_SIZE: usize = 16;
 
-// Register primitives — the only points where aes_v2 and aes_v3b diverge.
+// Register primitives — the only points where aes_v2 and aes_v3a/aes_v3b diverge.
 
 /// Clear the computation-complete flag (CCF).
 #[cfg(aes_v2)]
@@ -29,7 +29,7 @@ pub(crate) fn clear_ccf(p: pac::aes::Aes) {
     // aes_v2 has no ICR; CCF is cleared through the CCFC bit of CR.
     p.cr().modify(|w| w.set_ccfc(true));
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 pub(crate) fn clear_ccf(p: pac::aes::Aes) {
     p.icr().write(|w| w.0 = 0xFFFF_FFFF);
@@ -44,7 +44,7 @@ pub(crate) fn clear_flags(p: pac::aes::Aes) {
         w.set_errc(true);
     });
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 pub(crate) fn clear_flags(p: pac::aes::Aes) {
     p.icr().write(|w| w.0 = 0xFFFF_FFFF);
@@ -56,7 +56,7 @@ pub(crate) fn clear_flags(p: pac::aes::Aes) {
 pub(crate) fn write_din(p: pac::aes::Aes, word: u32) {
     p.dinr().write_value(Dinr(word));
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 pub(crate) fn write_din(p: pac::aes::Aes, word: u32) {
     p.dinr().write_value(word);
@@ -68,7 +68,7 @@ pub(crate) fn write_din(p: pac::aes::Aes, word: u32) {
 pub(crate) fn read_dout(p: pac::aes::Aes) -> u32 {
     p.doutr().read().0
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 pub(crate) fn read_dout(p: pac::aes::Aes) -> u32 {
     p.doutr().read()
@@ -80,7 +80,7 @@ pub(crate) fn read_dout(p: pac::aes::Aes) -> u32 {
 fn read_ivr(p: pac::aes::Aes, i: usize) -> u32 {
     p.ivr(i).read().0
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 fn read_ivr(p: pac::aes::Aes, i: usize) -> u32 {
     p.ivr(i).read()
@@ -92,7 +92,7 @@ fn read_ivr(p: pac::aes::Aes, i: usize) -> u32 {
 fn write_keyr(p: pac::aes::Aes, i: usize, word: u32) {
     p.keyr(i).write_value(Keyr(word));
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 fn write_keyr(p: pac::aes::Aes, i: usize, word: u32) {
     p.keyr(i).write_value(word);
@@ -104,7 +104,7 @@ fn write_keyr(p: pac::aes::Aes, i: usize, word: u32) {
 fn write_ivr(p: pac::aes::Aes, i: usize, word: u32) {
     p.ivr(i).write_value(Ivr(word));
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 fn write_ivr(p: pac::aes::Aes, i: usize, word: u32) {
     p.ivr(i).write_value(word);
@@ -120,7 +120,7 @@ fn set_chmod(p: pac::aes::Aes, bits: u8) {
         w.set_chmod2((bits & 0b100) != 0);
     });
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 fn set_chmod(p: pac::aes::Aes, bits: u8) {
     p.cr().modify(|w| w.set_chmod(pac::aes::vals::Chmod::from_bits(bits)));

@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Crypto:
 - feat: stm32/hash, stm32/aes, stm32/cryp: the `embassy-crypto` drivers are now registered per operation behind `embassy-crypto-<operation>` features (`embassy-crypto-sha256`, `embassy-crypto-aes128-gcm`, ...) instead of unconditionally.
+- feat: stm32/aes: enable the driver on STM32U3 and STM32U5
 
 CAN:
 - fix: stm32/can/fdcan: write `FilterType::Range` bounds in the correct order (`from`→SFID1/EFID1, `to`→SFID2/EFID2). The swapped order prevented normal multi-ID ranges from matching, breaking both accepting and rejecting range filters.
@@ -59,6 +60,11 @@ QEI:
 
 PKA:
 - feat: stm32/pka: extend ECC point buffer support to 640-bit operands (80-byte coordinates) in public point types and Jacobian conversion paths
+- feat: stm32/pka: register `embassy-crypto` P-256 and P-384 arithmetic drivers behind the `embassy-crypto-p256-arith` and `embassy-crypto-p384-arith` features
+- feat: stm32/pka: add `EcdsaCurveParams::nist_p384()`
+- feat: stm32/pka: add `Pka::is_limited()`, reporting a PKA that only verifies ECDSA signatures
+- feat: stm32/pka: enable the driver on STM32U3 and STM32U5
+- fix: stm32/pka: `point_check` writes the Montgomery parameter the operation needs, and no longer reports points off the curve as on it
 
 CRYP:
 - feat: stm32/cryp: batch full-block DMA in payload and use 4-beat bursts on GPDMA

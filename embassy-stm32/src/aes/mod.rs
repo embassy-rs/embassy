@@ -7,8 +7,9 @@
 //!   the AES engine either shares its interrupt line with another peripheral
 //!   (e.g. RNG) or has no dedicated line at all, so only a polling/blocking API
 //!   is offered.
-//! - **`aes_v3b`** (STM32H5, WBA) — blocking driver plus an interrupt/DMA-backed
-//!   async API.
+//! - **`aes_v3a`** (STM32U5) and **`aes_v3b`** (STM32H5, WBA) — blocking driver
+//!   plus an interrupt/DMA-backed async API. The two revisions have the same
+//!   register map.
 //!
 //! Both revisions expose the same cipher types and the same
 //! [`start`](Aes::start) / [`aad_blocking`](Aes::aad_blocking) /
@@ -46,12 +47,12 @@ mod common;
 pub use common::*;
 
 #[cfg_attr(aes_v2, path = "v2.rs")]
-#[cfg_attr(aes_v3b, path = "v3b.rs")]
+#[cfg_attr(any(aes_v3a, aes_v3b), path = "v3.rs")]
 mod _version;
 
 pub use _version::*;
 
-#[cfg(any(aes_v2, aes_v3b))]
+#[cfg(any(aes_v2, aes_v3a, aes_v3b))]
 #[cfg(any(
     feature = "embassy-crypto-aes128-ecb",
     feature = "embassy-crypto-aes128-cbc",

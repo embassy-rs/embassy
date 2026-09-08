@@ -47,9 +47,9 @@ pub trait CipherAuthenticated<const TAG_SIZE: usize> {
 }
 
 // The cipher-mode types below are only reachable through `crate::saes`'s N6
-// re-export (this module is private, and `aes_v3b` chips use `crate::aes`'s
+// re-export (this module is private, and `aes_v3` chips use `crate::aes`'s
 // copy instead), so they only need to exist for that configuration.
-#[cfg(all(saes_n6, not(aes_v3b)))]
+#[cfg(all(saes_n6, not(any(aes_v3a, aes_v3b))))]
 mod ciphers {
     use super::{CipherAuthenticated, CipherSized, Direction, IVSized, KeySize};
 
@@ -461,5 +461,5 @@ mod ciphers {
     }
 }
 
-#[cfg(all(saes_n6, not(aes_v3b)))]
+#[cfg(all(saes_n6, not(any(aes_v3a, aes_v3b))))]
 pub use ciphers::{AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, AesGmac, Cipher, Context};

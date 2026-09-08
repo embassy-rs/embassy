@@ -3,7 +3,7 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
 use super::{Aes, AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, Direction};
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 use crate::mode::Blocking;
 use crate::suspend::ResumablePeripheral;
 
@@ -11,7 +11,7 @@ foreach_peripheral!(
     (aes, $inst:ident) => {
         #[cfg(aes_v2)]
         type BlockingAes = Aes<'static, crate::peripherals::$inst>;
-        #[cfg(aes_v3b)]
+        #[cfg(any(aes_v3a, aes_v3b))]
         type BlockingAes = Aes<'static, crate::peripherals::$inst, Blocking>;
 
         static DRIVER: Mutex<CriticalSectionRawMutex, ResumablePeripheral<BlockingAes>> =
@@ -841,6 +841,7 @@ impl embassy_crypto::driver::Aes256Cbc for AesDriver {
 /// CTR mode as exposed by `embassy_crypto` uses a 128-bit big-endian counter
 /// (NIST SP 800-38A). A run therefore stops where the low word would wrap, and
 /// the carry into the upper bits is applied by software before the next run.
+#[cfg(any(feature = "embassy-crypto-aes128-ctr", feature = "embassy-crypto-aes256-ctr"))]
 fn ctr_run_blocks(iv: &[u8; 16], blocks: usize) -> usize {
     let low = u32::from_be_bytes(iv[12..].try_into().unwrap());
     let until_wrap = u64::from(u32::MAX - low) + 1;
@@ -852,10 +853,12 @@ fn ctr_run_blocks(iv: &[u8; 16], blocks: usize) -> usize {
 }
 
 /// Advance the 128-bit big-endian counter block by `blocks`.
+#[cfg(any(feature = "embassy-crypto-aes128-ctr", feature = "embassy-crypto-aes256-ctr"))]
 fn ctr_advance(iv: &mut [u8; 16], blocks: usize) {
     *iv = u128::from_be_bytes(*iv).wrapping_add(blocks as u128).to_be_bytes();
 }
 
+#[cfg(feature = "embassy-crypto-aes128-ctr")]
 fn ctr_block_in_place_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16], buffer: &mut [u8]) {
     let mut buffer = buffer;
     while buffer.len() >= 16 {
@@ -876,6 +879,7 @@ fn ctr_block_in_place_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16
     }
 }
 
+#[cfg(feature = "embassy-crypto-aes128-ctr")]
 fn ctr_block_separate_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16], input: &[u8], output: &mut [u8]) {
     assert_eq!(input.len(), output.len());
     let mut input = input;
@@ -896,6 +900,7 @@ fn ctr_block_separate_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16
     }
 }
 
+#[cfg(feature = "embassy-crypto-aes256-ctr")]
 fn ctr_block_in_place_32(aes: &mut BlockingAes, key: &[u8; 32], iv: &mut [u8; 16], buffer: &mut [u8]) {
     let mut buffer = buffer;
     while buffer.len() >= 16 {
@@ -916,6 +921,7 @@ fn ctr_block_in_place_32(aes: &mut BlockingAes, key: &[u8; 32], iv: &mut [u8; 16
     }
 }
 
+#[cfg(feature = "embassy-crypto-aes256-ctr")]
 fn ctr_block_separate_32(aes: &mut BlockingAes, key: &[u8; 32], iv: &mut [u8; 16], input: &[u8], output: &mut [u8]) {
     assert_eq!(input.len(), output.len());
     let mut input = input;
