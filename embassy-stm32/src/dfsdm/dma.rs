@@ -46,7 +46,7 @@ where
     }
 
     pub fn new_injected<'a, 'd, 't, D: Dma<T, M>>(
-        filter: &'e FilterRegular<'a, 'd, 't, T, M, RegDma>,
+        filter: &'e FilterInjected<'a, 'd, 't, T, M, InjDma>,
         dma: Peri<'e, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
