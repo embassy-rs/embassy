@@ -1130,8 +1130,10 @@ where
     pub fn disable(self) -> Transceiver<'a, 'd, T, M, S, MODE, Disabled> {
         Self::set_enabled(false);
 
+        let common = self.common;
+        core::mem::forget(self);
         Transceiver {
-            common: self.common,
+            common,
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
@@ -1153,8 +1155,11 @@ where
     pub fn enable(self) -> Transceiver<'a, 'd, T, M, S, MODE, Enabled> {
         Self::set_enabled(true);
 
+        let common = self.common;
+        core::mem::forget(self);
+
         Transceiver {
-            common: self.common,
+            common,
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
@@ -2039,6 +2044,9 @@ where
     T: Instance + FilterInterrupt<Flt0>,
 {
     pub(crate) fn new(_common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
+        unsafe {
+            T::Interrupt::enable();
+        }
         Self { _common: PhantomData }
     }
 
@@ -2092,6 +2100,9 @@ where
     T: Instance + FilterInterrupt<Flt0>,
 {
     pub(crate) fn new(_common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
+        unsafe {
+            T::Interrupt::enable();
+        }
         Self { _common: PhantomData }
     }
 
@@ -2536,6 +2547,23 @@ where
         d7: S7::Datin<'d>,
         k7: S7::Ckin<'d>,
     ) -> Self::Out {
+        common.insert_pin(0, PinKind::Datin, S0::extract_datin(d0));
+        common.insert_pin(0, PinKind::Ckin, S0::extract_ckin(k0));
+        common.insert_pin(1, PinKind::Datin, S1::extract_datin(d1));
+        common.insert_pin(1, PinKind::Ckin, S1::extract_ckin(k1));
+        common.insert_pin(2, PinKind::Datin, S2::extract_datin(d2));
+        common.insert_pin(2, PinKind::Ckin, S2::extract_ckin(k2));
+        common.insert_pin(3, PinKind::Datin, S3::extract_datin(d3));
+        common.insert_pin(3, PinKind::Ckin, S3::extract_ckin(k3));
+        common.insert_pin(4, PinKind::Datin, S4::extract_datin(d4));
+        common.insert_pin(4, PinKind::Ckin, S4::extract_ckin(k4));
+        common.insert_pin(5, PinKind::Datin, S5::extract_datin(d5));
+        common.insert_pin(5, PinKind::Ckin, S5::extract_ckin(k5));
+        common.insert_pin(6, PinKind::Datin, S6::extract_datin(d6));
+        common.insert_pin(6, PinKind::Ckin, S6::extract_ckin(k6));
+        common.insert_pin(7, PinKind::Datin, S7::extract_datin(d7));
+        common.insert_pin(7, PinKind::Ckin, S7::extract_ckin(k7));
+
         DfsdmSplit8Ch4Flt {
             detectors: DetectorsBuilder::new(),
             ch0: TransceiverBuilder::new(),
