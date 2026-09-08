@@ -859,6 +859,8 @@ impl<'a> Drop for BufferedUarteRx<'a> {
         let r = self.r;
 
         self.timer.stop();
+        // workaround errata 78
+        self.timer.shutdown();
 
         r.intenclr().write(|w| {
             w.set_rxdrdy(true);
