@@ -162,18 +162,14 @@ const SD_INIT_FREQ: Hertz = Hertz(400_000);
 #[allow(missing_docs)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Default)]
 pub enum Signalling {
+    #[default]
     SDR12,
     SDR25,
     SDR50,
     SDR104,
     DDR50,
-}
-
-impl Default for Signalling {
-    fn default() -> Self {
-        Signalling::SDR12
-    }
 }
 
 const fn aligned_mut(x: &mut [u32]) -> &mut Aligned<A4, [u8]> {
@@ -188,7 +184,7 @@ const fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
 
 #[allow(unused)]
 const fn slice32_mut(x: &mut Aligned<A4, [u8]>) -> &mut [u32] {
-    let len = (size_of_val(x) + 4 - 1) / 4;
+    let len = size_of_val(x).div_ceil(4);
     unsafe { slice::from_raw_parts_mut(x as *mut Aligned<A4, [u8]> as *mut u32, len) }
 }
 
@@ -204,7 +200,7 @@ const fn slice8_ref(x: &[u32]) -> &[u8] {
 
 #[allow(unused)]
 const fn slice32_ref(x: &Aligned<A4, [u8]>) -> &[u32] {
-    let len = (size_of_val(x) + 4 - 1) / 4;
+    let len = size_of_val(x).div_ceil(4);
     unsafe { slice::from_raw_parts(x as *const Aligned<A4, [u8]> as *const u32, len) }
 }
 
@@ -1276,7 +1272,7 @@ impl<'d> Sdmmc<'d> {
 
         regs.dctrl().modify(|w| {
             w.set_dtmode(byte_mode);
-            w.set_dblocksize(block_size as u8);
+            w.set_dblocksize(block_size);
             w.set_dtdir(true);
             #[cfg(sdmmc_v1)]
             {
@@ -1290,7 +1286,7 @@ impl<'d> Sdmmc<'d> {
 
         self.enable_interrupts();
 
-        WrappedTransfer::new(transfer, &self)
+        WrappedTransfer::new(transfer, self)
     }
 
     /// # Safety
@@ -1347,7 +1343,7 @@ impl<'d> Sdmmc<'d> {
 
         regs.dctrl().modify(|w| {
             w.set_dtmode(byte_mode);
-            w.set_dblocksize(block_size as u8);
+            w.set_dblocksize(block_size);
             w.set_dtdir(false);
             #[cfg(sdmmc_v1)]
             {
@@ -1361,7 +1357,7 @@ impl<'d> Sdmmc<'d> {
 
         self.enable_interrupts();
 
-        WrappedTransfer::new(transfer, &self)
+        WrappedTransfer::new(transfer, self)
     }
 
     /// Stops the DMA datapath
@@ -1585,7 +1581,7 @@ impl<'d> Sdmmc<'d> {
     /// _Stand-by State_
     fn select_card(&self, rca: Option<u16>) -> Result<(), Error> {
         match self.cmd(common_cmd::select_card(rca.unwrap_or(0)), true, false) {
-            Err(Error::Timeout) if rca == None => Ok(()),
+            Err(Error::Timeout) if rca.is_none() => Ok(()),
             result => result.map(|_| ()),
         }
     }

@@ -51,7 +51,7 @@ impl Config {
     ) -> Result<Self, ConfigError> {
         // As Per RM0091 (DocID018940 Rev 9), Even polynomials are not supported.
         #[cfg(crc_v3)]
-        if crc_poly % 2 == 0 {
+        if crc_poly.is_multiple_of(2) {
             return Err(ConfigError::InvalidPolynomial);
         }
         Ok(Config {
@@ -160,13 +160,13 @@ impl<'d> Crc<'d> {
 
     /// Feeds a word into the CRC peripheral.
     pub fn feed_word(&mut self, word: u32) {
-        PAC_CRC.dr32().write_value(word as u32);
+        PAC_CRC.dr32().write_value(word);
     }
 
     /// Feeds a slice of words into the CRC peripheral.
     pub fn feed_words(&mut self, words: &[u32]) {
         for word in words {
-            PAC_CRC.dr32().write_value(*word as u32);
+            PAC_CRC.dr32().write_value(*word);
         }
     }
 }

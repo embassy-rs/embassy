@@ -49,7 +49,7 @@ pub(crate) fn init_hsi48(config: Hsi48Config) -> Hertz {
     let r = RCC.cr2();
 
     r.modify(|w| w.set_hsi48on(true));
-    while r.read().hsi48rdy() == false {}
+    while !r.read().hsi48rdy() {}
 
     if config.sync_from_usb {
         rcc::enable_and_reset::<crate::peripherals::CRS>();

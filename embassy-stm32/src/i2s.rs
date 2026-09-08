@@ -615,7 +615,7 @@ impl<'d, W: Word> I2S<'d, W> {
     pub fn write_immediate(&mut self, data: &[W]) -> Result<(usize, usize), Error> {
         match &mut self.tx_ring_buffer {
             Some(ring) => Ok(ring.write_immediate(data)?),
-            _ => return Err(Error::NotATransmitter),
+            _ => Err(Error::NotATransmitter),
         }
     }
 
@@ -797,11 +797,11 @@ impl<'d, W: Word> I2S<'d, W> {
             spi,
             #[cfg(spi_v2_i2s)]
             regs_ext: regs_ext,
-            _txsd: txsd.map(|w| w.into()),
-            _rxsd: rxsd.map(|w| w.into()),
+            _txsd: txsd.map(|w| w),
+            _rxsd: rxsd.map(|w| w),
             _ws: new_pin!(ws, AfType::output(OutputType::PushPull, config.gpio_speed)),
             _ck: new_pin!(ck, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            _mck: mck.map(|w| w.into()),
+            _mck: mck.map(|w| w),
             tx_ring_buffer: txdma.map(|(ch, buf)| unsafe {
                 WritableRingBuffer::new(ch.channel, ch.request, regs.tx_ptr() as *mut W, buf, opts)
             }),

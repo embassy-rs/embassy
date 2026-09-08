@@ -734,7 +734,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             });
         } else {
             T::REGS.dlr().write(|v| {
-                v.set_dl((0) as u32);
+                v.set_dl(0_u32);
             });
         }
 

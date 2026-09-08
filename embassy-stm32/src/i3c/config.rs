@@ -48,6 +48,7 @@ impl Default for BusTiming {
 /// Controller-specific options written to `TIMINGR2` and `CFGR`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Default)]
 pub struct ControllerOptions {
     /// Dynamic address used when the controller acts as a target (0 = none).
     pub dynamic_addr: u8,
@@ -57,17 +58,6 @@ pub struct ControllerOptions {
     pub hot_join_allowed: bool,
     /// Enable SDA high-keeper.
     pub high_keeper_sda: bool,
-}
-
-impl Default for ControllerOptions {
-    fn default() -> Self {
-        Self {
-            dynamic_addr: 0,
-            stall_time: 0,
-            hot_join_allowed: false,
-            high_keeper_sda: false,
-        }
-    }
 }
 
 /// I3C controller configuration.

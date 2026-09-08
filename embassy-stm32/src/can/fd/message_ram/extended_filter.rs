@@ -32,7 +32,7 @@ impl<'a> EFID2_W<'a> {
     #[doc = r"Writes raw bits to the field"]
     #[inline(always)]
     pub unsafe fn bits(self, value: u32) -> &'a mut W {
-        self.w.bits[1] = (self.w.bits[1] & !(0x1FFFFFFF)) | ((value as u32) & 0x1FFFFFFF);
+        self.w.bits[1] = (self.w.bits[1] & !(0x1FFFFFFF)) | (value & 0x1FFFFFFF);
         self.w
     }
 }
@@ -47,7 +47,7 @@ impl<'a> EFID1_W<'a> {
     #[doc = r"Writes raw bits to the field"]
     #[inline(always)]
     pub unsafe fn bits(self, value: u32) -> &'a mut W {
-        self.w.bits[0] = (self.w.bits[0] & !(0x1FFFFFFF)) | ((value as u32) & 0x1FFFFFFF);
+        self.w.bits[0] = (self.w.bits[0] & !(0x1FFFFFFF)) | (value & 0x1FFFFFFF);
         self.w
     }
 }
@@ -94,7 +94,7 @@ impl R {
     #[doc = "Byte 0 - Bits 0:28 - EFID1"]
     #[inline(always)]
     pub fn sfid1(&self) -> EFID1_R {
-        EFID1_R::new(((self.bits[0]) & 0x1FFFFFFF) as u32)
+        EFID1_R::new(((self.bits[0]) & 0x1FFFFFFF))
     }
     #[doc = "Byte 0 - Bits 29:31 - EFEC"]
     #[inline(always)]
@@ -104,7 +104,7 @@ impl R {
     #[doc = "Byte 1 - Bits 0:28 - EFID2"]
     #[inline(always)]
     pub fn sfid2(&self) -> EFID2_R {
-        EFID2_R::new(((self.bits[1]) & 0x1FFFFFFF) as u32)
+        EFID2_R::new(((self.bits[1]) & 0x1FFFFFFF))
     }
     #[doc = "Byte 1 - Bits 30:31 - EFT"]
     #[inline(always)]

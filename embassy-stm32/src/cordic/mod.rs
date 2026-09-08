@@ -429,7 +429,7 @@ impl<'d, 'a, T: Instance> Cordic32<'d, 'a, T> {
         arg1_only: bool,
         res1_only: bool,
     ) -> Result<usize, CordicError> {
-        if !arg1_only && arg_len % 2 != 0 {
+        if !arg1_only && !arg_len.is_multiple_of(2) {
             return Err(CordicError::ArgumentLengthIncorrect);
         }
 

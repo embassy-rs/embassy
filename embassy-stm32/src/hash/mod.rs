@@ -355,16 +355,15 @@ impl<'d, T: Instance> Hash<'d, T, Blocking> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<HASH>();
-        let instance = Self {
+
+        Self {
             _peripheral: peripheral,
             _marker: PhantomData,
             current_id: None,
             #[cfg(any(hash_v2, hash_v3, hash_v4))]
             dma: None,
             next_id: 1,
-        };
-
-        instance
+        }
     }
 }
 
@@ -631,7 +630,7 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         T::regs().str().modify(|w| w.set_nblw(num_valid_bits));
 
         let quantum = A::BLOCK_SIZE / 4 + 1;
-        let total_words = input.len() / 4 + usize::from(input.len() % 4 != 0);
+        let total_words = input.len() / 4 + usize::from(!input.len().is_multiple_of(4));
         let mut word = 0;
         while word < total_words {
             if word % quantum == 0 {
@@ -725,9 +724,9 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             H::HMAC
         );
         // Restore the peripheral state from the context.
-        T::regs().imr().write_value(Imr { 0: ctx.imr });
-        T::regs().str().write_value(Str { 0: ctx.str });
-        T::regs().cr().write_value(Cr { 0: ctx.cr });
+        T::regs().imr().write_value(Imr(ctx.imr));
+        T::regs().str().write_value(Str(ctx.str));
+        T::regs().cr().write_value(Cr(ctx.cr));
         T::regs().cr().modify(|w| w.set_init(true));
         if ctx.peripheral_initialized {
             for i in 0..count {
@@ -796,7 +795,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         }
 
         // Restore the peripheral state.
-        self.load_context(&ctx);
+        self.load_context(ctx);
 
         if !ctx.hmac_key_processed
             && let Some(key) = H::key_ref(&ctx.key)
@@ -945,7 +944,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
     /// Push data into the hash core.
     async fn accumulate(&mut self, input: &[u8]) {
         // Ignore an input length of 0.
-        if input.len() == 0 {
+        if input.is_empty() {
             return;
         }
 
@@ -956,7 +955,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         // Configure DMA to transfer input to hash core.
         let dst_ptr: *mut u32 = T::regs().din().as_ptr();
         let mut num_words = input.len() / 4;
-        if input.len() % 4 > 0 {
+        if !input.len().is_multiple_of(4) {
             num_words += 1;
         }
         let src_ptr: *const [u8] = ptr::slice_from_raw_parts(input.as_ptr().cast(), num_words * 4);
@@ -974,7 +973,7 @@ impl<'d> SealedSuspendablePeripheral for Hash<'d, HASH, Blocking> {
     type InternalState = (Option<u32>, u32);
 
     fn resume(state: Self::InternalState) -> Self {
-        critical_section::with(|cs| rcc::enable_and_reset_with_cs_no_refcount::<HASH>(cs));
+        critical_section::with(rcc::enable_and_reset_with_cs_no_refcount::<HASH>);
 
         Self {
             _peripheral: unsafe { core::mem::transmute(()) },

@@ -721,8 +721,8 @@ impl<'d> Dac<'d, Async> {
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
-        pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
@@ -758,8 +758,8 @@ impl<'d> Dac<'d, Async> {
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
-        pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
@@ -806,8 +806,8 @@ impl<'d> Dac<'d, Async> {
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
-        pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
@@ -843,8 +843,8 @@ impl<'d> Dac<'d, Async> {
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
-        pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
@@ -944,8 +944,8 @@ impl<'d> Dac<'d, Blocking> {
     /// method on the underlying channels.
     pub fn new_blocking<T: Instance>(
         peri: Peri<'d, T>,
-        pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
-        pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();

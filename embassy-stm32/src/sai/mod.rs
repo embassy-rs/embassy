@@ -444,7 +444,7 @@ impl Default for Config {
 impl Config {
     /// Create a new config with all default values.
     pub fn new() -> Self {
-        return Default::default();
+        Default::default()
     }
 }
 
@@ -698,7 +698,7 @@ impl<'d, W: word::Word> Sai<'d, W> {
 
         ch.cr1().modify(|w| w.set_saien(true));
 
-        if ch.cr1().read().saien() == false {
+        if !ch.cr1().read().saien() {
             panic!("SAI failed to enable. Check that config is valid (frame length, slot count, etc)");
         }
 
@@ -767,7 +767,7 @@ impl<'d, W: word::Word> Sai<'d, W> {
                 buffer.wait_write_error().await?;
                 Ok(())
             }
-            _ => return Err(Error::NotATransmitter),
+            _ => Err(Error::NotATransmitter),
         }
     }
 
@@ -791,7 +791,7 @@ impl<'d, W: word::Word> Sai<'d, W> {
                 }
                 Ok(())
             }
-            _ => return Err(Error::NotATransmitter),
+            _ => Err(Error::NotATransmitter),
         }
     }
 

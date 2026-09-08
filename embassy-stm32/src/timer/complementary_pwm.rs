@@ -815,16 +815,16 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
 
         let target = value / outdiv;
         let (these_bits, result) = match target {
-            0..127 | 127 => (target as u8, target),
-            128..254 | 254..256 => {
+            0..=127 => (target as u8, target),
+            128..256 => {
                 let tmp = div_round(value, outdiv * 2);
                 ((tmp as u8 - 64) | 0b100_00000, tmp * 2)
             }
-            256..504 | 504..508 => {
+            256..508 => {
                 let tmp = div_round(value, outdiv * 8);
                 ((tmp as u8 - 32) | 0b110_00000, tmp * 8)
             }
-            508..512 | 512..1008 => {
+            508..1008 => {
                 let tmp = div_round(value, outdiv * 16);
                 ((tmp as u8 - 32) | 0b111_00000, tmp * 16)
             }

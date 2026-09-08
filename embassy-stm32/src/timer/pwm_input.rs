@@ -143,19 +143,16 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
     /// Asynchronously wait until the pin sees a rising edge (period measurement).
     pub async fn wait_for_period(&self) -> u32 {
-        self.new_future(self.channel.into()).await
+        self.new_future(self.channel).await
     }
 
     /// Asynchronously wait until the pin sees a falling edge (width measurement).
     pub async fn wait_for_width(&self) -> u32 {
-        self.new_future(
-            match self.channel {
-                Channel::Ch1 => Channel::Ch2,
-                Channel::Ch2 => Channel::Ch1,
-                _ => panic!("Invalid channel for PWM input"),
-            }
-            .into(),
-        )
+        self.new_future(match self.channel {
+            Channel::Ch1 => Channel::Ch2,
+            Channel::Ch2 => Channel::Ch1,
+            _ => panic!("Invalid channel for PWM input"),
+        })
         .await
     }
 }

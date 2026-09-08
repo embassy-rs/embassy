@@ -59,21 +59,15 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
                 TxMode::NonBuffered(waker) => waker.wake(),
                 TxMode::ClassicBuffered(buf) => {
                     if !T::registers().tx_queue_is_full() {
-                        match buf.tx_receiver.try_receive() {
-                            Ok(frame) => {
-                                _ = T::registers().write(&frame);
-                            }
-                            Err(_) => {}
+                        if let Ok(frame) = buf.tx_receiver.try_receive() {
+                            _ = T::registers().write(&frame);
                         }
                     }
                 }
                 TxMode::FdBuffered(buf) => {
                     if !T::registers().tx_queue_is_full() {
-                        match buf.tx_receiver.try_receive() {
-                            Ok(frame) => {
-                                _ = T::registers().write(&frame);
-                            }
-                            Err(_) => {}
+                        if let Ok(frame) = buf.tx_receiver.try_receive() {
+                            _ = T::registers().write(&frame);
                         }
                     }
                 }
@@ -159,7 +153,7 @@ fn calc_ns_per_timer_tick(
         crate::can::fd::config::FrameTransmissionConfig::ClassicCanOnly => {
             let prescale: u64 = ({ info.regs.regs.nbtp().read().nbrp() } + 1) as u64
                 * ({ info.regs.regs.tscc().read().tcp() } + 1) as u64;
-            1_000_000_000 as u64 / (freq.0 as u64 * prescale)
+            1_000_000_000_u64 / (freq.0 as u64 * prescale)
         }
         // For VBR this is too hard because the FDCAN timer switches clock rate you need to configure to use
         // timer3 instead which is too hard to do from this module.
@@ -225,7 +219,7 @@ impl<'d> CanConfigurator<'d> {
 
     /// Get configuration
     pub fn config(&self) -> crate::can::fd::config::FdCanConfig {
-        return self.config;
+        self.config
     }
 
     /// Set configuration
@@ -905,11 +899,8 @@ impl RxMode {
         } else if let Some((frame, ts)) = T::registers().read(1) {
             let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok(Envelope { ts, frame }))
-        } else if let Some(err) = T::registers().curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
         } else {
-            None
+            T::registers().curr_error().map(Err)
         }
     }
 
@@ -920,11 +911,8 @@ impl RxMode {
         } else if let Some((frame, ts)) = T::registers().read(1) {
             let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok(FdEnvelope { ts, frame }))
-        } else if let Some(err) = T::registers().curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
         } else {
-            None
+            T::registers().curr_error().map(Err)
         }
     }
 
@@ -935,11 +923,8 @@ impl RxMode {
         } else if let Some((msg, ts)) = info.regs.read(1) {
             let ts = info.regs.calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok((msg, ts)))
-        } else if let Some(err) = info.regs.curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
         } else {
-            None
+            info.regs.curr_error().map(Err)
         }
     }
 
@@ -1152,7 +1137,7 @@ impl Info {
                 RefCountOp::NotifySenderDestroyed => {
                     mut_state.sender_instance_count -= 1;
                     if 0 == mut_state.sender_instance_count {
-                        (*mut_state).tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+                        mut_state.tx_mode = TxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
                     }
                 }
                 RefCountOp::NotifyReceiverCreated => {
@@ -1161,7 +1146,7 @@ impl Info {
                 RefCountOp::NotifyReceiverDestroyed => {
                     mut_state.receiver_instance_count -= 1;
                     if 0 == mut_state.receiver_instance_count {
-                        (*mut_state).rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
+                        mut_state.rx_mode = RxMode::NonBuffered(embassy_sync::waitqueue::AtomicWaker::new());
                     }
                 }
             }

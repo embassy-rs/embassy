@@ -658,7 +658,7 @@ impl<'d> UartTx<'d, Async> {
             // first so the last byte(s) have actually left the shift register
             // before RE comes back, otherwise the tail of this transmission
             // gets read back as incoming data.
-            flush(&self.info, &self.state).await?;
+            flush(self.info, self.state).await?;
             r.cr1().modify(|reg| {
                 reg.set_re(true);
                 reg.set_te(false);
@@ -672,7 +672,7 @@ impl<'d> UartTx<'d, Async> {
     pub async fn flush(&mut self) -> Result<(), Error> {
         let _scoped_wake_guard = self.info.rcc.wake_guard();
 
-        flush(&self.info, &self.state).await
+        flush(self.info, self.state).await
     }
 }
 
@@ -1062,7 +1062,7 @@ impl<'d> UartRx<'d, Async> {
         // Call flush for Half-Duplex mode if some bytes were written and flush was not called.
         // It prevents reading of bytes which have just been written.
         if r.cr3().read().hdsel() && r.cr1().read().te() {
-            flush(&self.info, &self.state).await?;
+            flush(self.info, self.state).await?;
 
             // Disable Transmitter and enable Receiver after flush
             r.cr1().set_bits(|reg| {
@@ -1394,7 +1394,7 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
         configure(
             info,
             self.kernel_clock,
-            &config,
+            config,
             self._ck.is_some(),
             true,
             false,

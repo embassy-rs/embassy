@@ -921,7 +921,7 @@ fn main() {
                 PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
             };
 
-            let bus_clock_frequency = clock_gen.gen_clock(p.name, &rcc.bus_clock);
+            let bus_clock_frequency = clock_gen.gen_clock(p.name, rcc.bus_clock);
 
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
@@ -1922,10 +1922,8 @@ fn main() {
                 // Many families have USB as an additional function, not an
                 // alternate function, where the pin must be left in analog
                 // mode and enabling AF will break USB.
-                if p.name.starts_with("USB") && (pin.signal == "DM" || pin.signal == "DP") {
-                    if pin.af.is_some() {
-                        cfgs.enable("usb_alternate_function");
-                    }
+                if p.name.starts_with("USB") && (pin.signal == "DM" || pin.signal == "DP") && pin.af.is_some() {
+                    cfgs.enable("usb_alternate_function");
                 }
 
                 let pin_trait_impl = if let Some(afio) = &p.afio {
@@ -2133,6 +2131,7 @@ fn main() {
         (("adc", "ADC1"), quote!(crate::adc::RxDma)),
         (("adc", "ADC2"), quote!(crate::adc::RxDma)),
         (("adc", "ADC3"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC4"), quote!(crate::adc::RxDma)),
         (("ucpd", "RX"), quote!(crate::ucpd::RxDma)),
         (("ucpd", "TX"), quote!(crate::ucpd::TxDma)),
         (("usart", "RX"), quote!(crate::usart::RxDma)),
@@ -2202,16 +2201,6 @@ fn main() {
 
     let trigger_expr = Regex::new(r"(?m)(.+?)(\d+)$").unwrap();
 
-    if chip_name.starts_with("stm32u5") {
-        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
-    } else {
-        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
-    }
-
-    if chip_name.starts_with("stm32wba") {
-        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
-    }
-
     // JPEG HAL: emit dma_trait impls on chips that use RX/TX DMA signal names.
     // ST naming: jpeg_rx_dma = mem→peri (input), jpeg_tx_dma = peri→mem (output).
     if chip_name.starts_with("stm32n6") || chip_name.starts_with("stm32u5f9") || chip_name.starts_with("stm32u5g9") {
@@ -2220,7 +2209,7 @@ fn main() {
     }
 
     if chip_name.starts_with("stm32g4") {
-        let line_number = chip_name.chars().skip(8).next().unwrap();
+        let line_number = chip_name.chars().nth(8).unwrap();
         if line_number == '3' || line_number == '4' {
             signals.insert(("adc", "ADC5"), quote!(crate::adc::RxDma));
         }
@@ -2236,7 +2225,7 @@ fn main() {
         for trigger in p.triggers {
             let matches = trigger_expr.captures(trigger.signal).unwrap();
             let signal = &matches[1];
-            let idx: u8 = (&matches[2]).parse().unwrap();
+            let idx: u8 = matches[2].parse().unwrap();
 
             trigger_list.insert(trigger.source);
 
@@ -2322,7 +2311,7 @@ fn main() {
                         let register = format_ident!("{}", remap_info.register.to_lowercase());
                         let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
 
-                        let value = if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field) {
+                        let value = if is_bool_field("SYSCFG", remap_info.register, remap_info.field) {
                             let bool_value = format_ident!("{}", remap_info.value > 0);
                             quote!(#bool_value)
                         } else {
@@ -2374,10 +2363,7 @@ fn main() {
     }) {
         for e in psc_enums.iter() {
             fn is_adc_name(e: &str) -> bool {
-                match e {
-                    "Presc" | "Adc4Presc" | "Adcpre" => true,
-                    _ => false,
-                }
+                matches!(e, "Presc" | "Adc4Presc" | "Adcpre")
             }
 
             fn is_rcc_name(e: &str) -> bool {
@@ -2471,11 +2457,12 @@ fn main() {
             let sname = format_ident!("{}", irq.signal);
             pt.extend(quote!(pub type #sname = crate::interrupt::typelevel::#iname;));
         }
-        if let Some(regs) = &p.registers {
-            if regs.kind == "spdifrx" && p.interrupts.is_empty() {
-                let iname = format_ident!("{}", p.name);
-                pt.extend(quote!(pub type GLOBAL = crate::interrupt::typelevel::#iname;));
-            }
+        if let Some(regs) = &p.registers
+            && regs.kind == "spdifrx"
+            && p.interrupts.is_empty()
+        {
+            let iname = format_ident!("{}", p.name);
+            pt.extend(quote!(pub type GLOBAL = crate::interrupt::typelevel::#iname;));
         }
 
         let pname = format_ident!("{}", p.name);
@@ -2568,10 +2555,10 @@ fn main() {
             let adc_num = p.name.strip_prefix("ADC").unwrap();
             let mut adc_common = None;
             for p2 in METADATA.peripherals {
-                if let Some(common_nums) = p2.name.strip_prefix("ADC").and_then(|s| s.strip_suffix("_COMMON")) {
-                    if common_nums.contains(adc_num) {
-                        adc_common = Some(p2);
-                    }
+                if let Some(common_nums) = p2.name.strip_prefix("ADC").and_then(|s| s.strip_suffix("_COMMON"))
+                    && common_nums.contains(adc_num)
+                {
+                    adc_common = Some(p2);
                 }
             }
             let adc_common = adc_common.map(|p| p.name).unwrap_or("none");
@@ -2806,7 +2793,7 @@ fn main() {
     // Generate gpio_block() function
 
     let gpio_base = peripheral_map.get("GPIOA").unwrap().0.address as usize;
-    let gpio_stride = 0x400 as usize;
+    let gpio_stride = 0x400_usize;
 
     for (p, bi) in &peripheral_list {
         if bi.kind == "gpio" {
@@ -3188,7 +3175,7 @@ fn get_memory_range(memory: &[MemoryRegion], kind: MemoryRegionKind) -> (u32, u3
     let mut names = Vec::new();
     let mut best: Option<(u32, u32, String)> = None;
     for m in mems {
-        if !mem_filter(&METADATA.name, &m.name) {
+        if !mem_filter(METADATA.name, m.name) {
             continue;
         }
 

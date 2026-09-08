@@ -71,7 +71,7 @@ impl<T: Instance> RegularAdcTrigger<T> {
     pub fn from(trigger: impl RegularTrigger<T>, edge: Exten) -> Option<Self> {
         Some(Self {
             trigger: trigger.signal(),
-            edge: edge,
+            edge,
             _marker: PhantomData,
         })
     }
@@ -103,6 +103,13 @@ pub struct Adc<'d, T: Instance> {
 pub struct State {
     pub waker: AtomicWaker,
     pub injected_done: core::sync::atomic::AtomicBool,
+}
+
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_h5, adc_v2, adc_g4))]
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2, adc_h5, adc_v2, adc_g4))]
@@ -804,7 +811,7 @@ impl<'d, T: Instance> Drop for Adc<'d, T> {
     }
 }
 
-pub(self) trait SpecialChannel {}
+trait SpecialChannel {}
 
 /// Implemented for ADCs that have a special channel
 trait ConverterFor<T: SpecialChannel + Sized> {
