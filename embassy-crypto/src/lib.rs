@@ -9,10 +9,10 @@ mod ct;
 mod ec;
 mod hash;
 
+pub mod ed25519;
 pub mod p256;
 pub mod p384;
 pub mod x25519;
-pub mod ed25519;
 
 pub use aes::*;
 pub use driver::Error;
