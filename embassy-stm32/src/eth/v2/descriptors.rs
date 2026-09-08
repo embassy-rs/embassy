@@ -121,7 +121,7 @@ pub(crate) struct TDesRing<'a> {
 impl<'a> TDesRing<'a> {
     /// Initialise this TDesRing. Assume TDesRing is corrupt.
     pub fn new(descriptors: &'a mut [TDes], buffers: &'a mut [Option<PacketBuf>]) -> Self {
-        assert!(descriptors.len() > 0);
+        assert!(!descriptors.is_empty());
         assert!(descriptors.len() == buffers.len());
 
         for td in descriptors.iter_mut() {

@@ -91,8 +91,10 @@ pub enum SlaveSelectPolarity {
 /// CRC configuration.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Default)]
 pub enum CrcConfig {
     /// Hardware CRC disabled.
+    #[default]
     Disabled,
     /// Hardware CRC enabled with 8-bit polynomial.
     Crc8 {
@@ -104,12 +106,6 @@ pub enum CrcConfig {
         /// The polynomial
         polynomial: u16,
     },
-}
-
-impl Default for CrcConfig {
-    fn default() -> Self {
-        CrcConfig::Disabled
-    }
 }
 
 /// SPI configuration.
@@ -1326,17 +1322,12 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
         let rx_src = regs.rx_ptr();
 
-        for mut chunk in data.chunks_mut(u16::MAX.into()) {
+        for chunk in data.chunks_mut(u16::MAX.into()) {
             set_rxdmaen(regs, true);
 
             let tsize = chunk.len();
 
-            let transfer = unsafe {
-                self.rx_dma
-                    .as_mut()
-                    .unwrap()
-                    .read(rx_src, &mut chunk, Default::default())
-            };
+            let transfer = unsafe { self.rx_dma.as_mut().unwrap().read(rx_src, chunk, Default::default()) };
 
             regs.cr2().modify(|w| {
                 w.set_tsize(tsize as u16);

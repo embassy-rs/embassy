@@ -68,7 +68,7 @@ impl<'d, T: Instance> Timer<'d, T> {
             #[cfg(lptim_n6)]
             r.set_presc(presc.to_bits());
         });
-        T::regs().arr().modify(|r| r.set_arr(arr.into()));
+        T::regs().arr().modify(|r| r.set_arr(arr));
     }
 
     /// Get the timer frequency.

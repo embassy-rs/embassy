@@ -144,7 +144,7 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
                     });
                 }
 
-                tdr(r).write_volatile(byte.into());
+                tdr(r).write_volatile(byte);
             }
         }
 
@@ -537,7 +537,7 @@ impl<'d> BufferedUart<'d> {
         configure(
             info,
             self.rx.kernel_clock,
-            &config,
+            config,
             false,
             true,
             true,
@@ -876,7 +876,7 @@ impl<'d> Drop for BufferedUartRx<'d> {
 
                 // TX is inactive if the buffer is not available.
                 // We can now unregister the interrupt handler
-                if state.tx_buf.len() == 0 {
+                if state.tx_buf.is_empty() {
                     self.info.interrupt.disable();
                 }
             }
@@ -898,7 +898,7 @@ impl<'d> Drop for BufferedUartTx<'d> {
 
                 // RX is inactive if the buffer is not available.
                 // We can now unregister the interrupt handler
-                if state.rx_buf.len() == 0 {
+                if state.rx_buf.is_empty() {
                     self.info.interrupt.disable();
                 }
             }

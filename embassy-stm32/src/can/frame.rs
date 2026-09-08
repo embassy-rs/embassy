@@ -165,7 +165,7 @@ impl Frame {
     /// Create a new CAN classic Frame
     pub fn new(can_header: Header, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         let data = ClassicData::new(raw_data)?;
-        Ok(Frame { can_header, data: data })
+        Ok(Frame { can_header, data })
     }
 
     /// Creates a new data frame.
@@ -241,18 +241,12 @@ impl Frame {
 impl embedded_can::Frame for Frame {
     fn new(id: impl Into<embedded_can::Id>, raw_data: &[u8]) -> Option<Self> {
         let frameopt = Frame::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data);
-        match frameopt {
-            Ok(frame) => Some(frame),
-            Err(_) => None,
-        }
+        frameopt.ok()
     }
     fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Option<Self> {
         if len <= 8 {
             let frameopt = Frame::new(Header::new(id.into(), len as u8, true), &[0; 8]);
-            match frameopt {
-                Ok(frame) => Some(frame),
-                Err(_) => None,
-            }
+            frameopt.ok()
         } else {
             None
         }
@@ -273,7 +267,7 @@ impl embedded_can::Frame for Frame {
         self.can_header.len as usize
     }
     fn data(&self) -> &[u8] {
-        &self.data()
+        self.data()
     }
 }
 
@@ -429,17 +423,11 @@ impl FdFrame {
 
 impl embedded_can::Frame for FdFrame {
     fn new(id: impl Into<embedded_can::Id>, raw_data: &[u8]) -> Option<Self> {
-        match FdFrame::new(Header::new_fd(id.into(), raw_data.len() as u8, false, true), raw_data) {
-            Ok(frame) => Some(frame),
-            Err(_) => None,
-        }
+        FdFrame::new(Header::new_fd(id.into(), raw_data.len() as u8, false, true), raw_data).ok()
     }
     fn new_remote(id: impl Into<embedded_can::Id>, len: usize) -> Option<Self> {
         if len <= 8 {
-            match FdFrame::new(Header::new_fd(id.into(), len as u8, true, true), &[0; 64]) {
-                Ok(frame) => Some(frame),
-                Err(_) => None,
-            }
+            FdFrame::new(Header::new_fd(id.into(), len as u8, true, true), &[0; 64]).ok()
         } else {
             None
         }
@@ -461,7 +449,7 @@ impl embedded_can::Frame for FdFrame {
         self.can_header.len as usize
     }
     fn data(&self) -> &[u8] {
-        &self.data()
+        self.data()
     }
 }
 

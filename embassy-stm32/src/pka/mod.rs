@@ -990,7 +990,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
 
     fn prepare_montgomery_param(&mut self, modulus: &[u8], result_len: usize) -> Result<(), Error> {
         let size = modulus.len();
-        let word_count = (size + 3) / 4;
+        let word_count = size.div_ceil(4);
 
         if result_len < word_count {
             return Err(Error::InvalidSize);
@@ -1606,7 +1606,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
 
     fn write_operand(&mut self, offset: usize, data: &[u8]) {
         let n = data.len();
-        let word_count = (n + 3) / 4;
+        let word_count = n.div_ceil(4);
 
         for index in 0..(n / 4) {
             let i = n - (index * 4);
@@ -1870,7 +1870,7 @@ impl<'d, T: Instance> Pka<'d, T, Blocking> {
     /// * `result` -- Output buffer for `R^2 mod n` (must be at least
     ///   `ceil(modulus.len() / 4)` `u32` words).
     pub fn montgomery_param_blocking(&mut self, modulus: &[u8], result: &mut [u32]) -> Result<(), Error> {
-        let word_count = (modulus.len() + 3) / 4;
+        let word_count = modulus.len().div_ceil(4);
         self.prepare_montgomery_param(modulus, result.len())?;
         self.start_and_wait_blocking()?;
         self.read_montgomery_param(word_count, result)
@@ -2292,7 +2292,7 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
     /// * `result` -- Output buffer for `R^2 mod n` (must be at least
     ///   `ceil(modulus.len() / 4)` `u32` words).
     pub async fn montgomery_param(&mut self, modulus: &[u8], result: &mut [u32]) -> Result<(), Error> {
-        let word_count = (modulus.len() + 3) / 4;
+        let word_count = modulus.len().div_ceil(4);
         self.prepare_montgomery_param(modulus, result.len())?;
         self.start_and_wait_async().await?;
         self.read_montgomery_param(word_count, result)

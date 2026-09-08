@@ -284,21 +284,12 @@ pub enum RoundTo {
 #[cfg(timer_v2)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Default)]
 pub struct DitheringConfig {
     /// Enable/disable hardware dithering mode.
     pub enabled: bool,
     /// Fractional ARR nibble (`ARR_DITHER.DITHER`).
     pub arr_dither: u8,
-}
-
-#[cfg(timer_v2)]
-impl Default for DitheringConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            arr_dither: 0,
-        }
-    }
 }
 
 /// Result of PSC/ARR calculation for timer configuration.

@@ -97,7 +97,7 @@ impl super::Rtc {
                     // the absolute offset is masked, i.e. for the minimum
                     // offset (-511), 511 pulses are masked.
                     w.set_calp(Calp::NoChange);
-                    w.set_calm((clock_drift * -1.0) as u16);
+                    w.set_calm(-clock_drift as u16);
                 }
             });
         })

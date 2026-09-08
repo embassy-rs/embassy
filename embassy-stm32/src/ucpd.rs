@@ -165,7 +165,7 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             w.set_ifrgap(17 - 1);
 
             // UNDOCUMENTED: This register can only be written while UCPDEN=0 (found by testing).
-            let rxordset = (config.sop as u16) << 0
+            let rxordset = (config.sop as u16)
                 | (config.sop_prime as u16) << 1
                 | (config.sop_double_prime as u16) << 2
                 // Hard reset
@@ -565,10 +565,10 @@ impl<'d, T: Instance> PdPhy<'d, T> {
         // When a previous transmission was dropped before it had finished it
         // might still be running because there is no way to abort an ongoing
         // message transmission. Wait for it to finish but ignore errors.
-        if r.cr().read().txsend() {
-            if let Err(TxError::HardReset) = Self::wait_tx_done().await {
-                return Err(TxError::HardReset);
-            }
+        if r.cr().read().txsend()
+            && let Err(TxError::HardReset) = Self::wait_tx_done().await
+        {
+            return Err(TxError::HardReset);
         }
 
         // Clear the TX interrupt flags.

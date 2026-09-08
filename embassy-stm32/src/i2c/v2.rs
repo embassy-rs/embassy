@@ -137,7 +137,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             reg.set_anfoff(false);
         });
 
-        let timings = Timings::new(self.kernel_clock, config.frequency.into());
+        let timings = Timings::new(self.kernel_clock, config.frequency);
 
         self.info.regs.timingr().write(|reg| {
             reg.set_presc(timings.prescale);
@@ -310,7 +310,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             self.info.regs.icr().modify(|reg| reg.set_ovrcf(true));
             return Err(Error::Overrun);
         }
-        return Ok(());
+        Ok(())
     }
 
     fn wait_txis(&self, timeout: Timeout) -> Result<(), Error> {
@@ -862,35 +862,35 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             };
             let last_chunk_idx = total_chunks.saturating_sub(1);
 
-            if idx != 0 {
-                if let Err(err) = Self::reload(
+            if idx != 0
+                && let Err(err) = Self::reload(
                     self.info,
                     slice_len.min(255),
                     (idx != last_slice_index) || (slice_len > 255),
                     Stop::Software,
                     timeout,
-                ) {
-                    if err != Error::Nack {
-                        self.master_stop();
-                    }
-                    return Err(err);
+                )
+            {
+                if err != Error::Nack {
+                    self.master_stop();
                 }
+                return Err(err);
             }
 
             for (number, chunk) in slice.chunks(255).enumerate() {
-                if number != 0 {
-                    if let Err(err) = Self::reload(
+                if number != 0
+                    && let Err(err) = Self::reload(
                         self.info,
                         chunk.len(),
                         (number != last_chunk_idx) || (idx != last_slice_index),
                         Stop::Software,
                         timeout,
-                    ) {
-                        if err != Error::Nack {
-                            self.master_stop();
-                        }
-                        return Err(err);
+                    )
+                {
+                    if err != Error::Nack {
+                        self.master_stop();
                     }
+                    return Err(err);
                 }
 
                 for byte in chunk {
@@ -1347,10 +1347,10 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         // Collect all write buffers
         let mut write_buffers: heapless::Vec<&[u8], 16> = heapless::Vec::new();
         for operation in operations {
-            if let Operation::Write(buffer) = operation {
-                if !buffer.is_empty() {
-                    let _ = write_buffers.push(buffer);
-                }
+            if let Operation::Write(buffer) = operation
+                && !buffer.is_empty()
+            {
+                let _ = write_buffers.push(buffer);
             }
         }
 
@@ -2344,7 +2344,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 });
                 if remaining_len > 0 {
                     dma_transfer.request_pause();
-                    Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len as usize)))
+                    Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len)))
                 } else {
                     Poll::Ready(Ok(SendStatus::Done))
                 }
