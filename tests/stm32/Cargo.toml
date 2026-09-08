@@ -43,8 +43,15 @@ stm32u083rc = ["embassy-stm32/stm32u083rc", "not-stop", "cm0", "rng", "chrono"]
 i2s_f4 = []
 spi-v1 = []
 spi-v345 = []
-cryp = []
-hash = []
+cryp = [
+    "embassy-stm32/embassy-crypto-aes128-ecb",
+    "embassy-stm32/embassy-crypto-aes128-cbc",
+    "embassy-stm32/embassy-crypto-aes128-ctr",
+    "embassy-stm32/embassy-crypto-aes128-gcm",
+    "embassy-stm32/embassy-crypto-aes128-ccm",
+    "embassy-stm32/embassy-crypto-aes256-gcm",
+]
+hash = ["embassy-stm32/embassy-crypto-sha1", "embassy-stm32/embassy-crypto-sha256", "embassy-stm32/embassy-crypto-hmac-sha256"]
 hash-v34 = ["hash"]
 eth = []
 rng = []
@@ -81,6 +88,8 @@ embassy-executor = { version = "0.10.0", path = "../../embassy-executor", featur
 embassy-time = { version = "0.5.1", path = "../../embassy-time", features = ["defmt", "tick-hz-131_072", "defmt-timestamp-uptime"] }
 embassy-stm32 = { version = "0.6.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "memory-x", "time-driver-any"]  }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+embassy-crypto = { version = "0.1.0", path = "../../embassy-crypto", features = ["defmt"] }
+embassy-crypto-test = { version = "0.1.0", path = "../../embassy-crypto-test", features = ["defmt"] }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt"] }
 embassy-net = { version = "0.9.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
@@ -112,6 +121,7 @@ aligned = "0.4.3"
 
 chrono = { version = "^0.4", default-features = false, optional = true}
 sha2 = { version = "0.11.0", default-features = false }
+sha1 = { version = "0.11.0", default-features = false }
 hmac = "0.13.0"
 aes-gcm = { version = "0.11.0", default-features = false, features = ["aes"] }
 num-traits = { version="0.2", default-features = false,features = ["libm"], optional = true}
@@ -143,6 +153,16 @@ required-features = [ "rng", "cordic",]
 name = "cryp"
 path = "src/bin/cryp.rs"
 required-features = [ "cryp",]
+
+[[bin]]
+name = "crypto_aes"
+path = "src/bin/crypto_aes.rs"
+required-features = [ "cryp",]
+
+[[bin]]
+name = "crypto_hash"
+path = "src/bin/crypto_hash.rs"
+required-features = [ "hash",]
 
 [[bin]]
 name = "dac"

@@ -185,6 +185,13 @@ pub trait Cipher<'c> {
     fn is_ccm_mode(&self) -> bool {
         false
     }
+
+    /// CCM only: the encoded associated-data length that precedes the
+    /// associated data in the first header block (NIST SP 800-38C A.2.2), and
+    /// its size. Empty for other modes and when there is no associated data.
+    fn ccm_aad_header(&self) -> ([u8; 10], usize) {
+        ([0; 10], 0)
+    }
 }
 
 /// AES-ECB Cipher Mode
@@ -411,6 +418,7 @@ impl<'c, const KEY_SIZE: usize> CipherAuthenticated<16> for AesGmac<'c, KEY_SIZE
 pub struct AesCcm<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> {
     key: &'c [u8; KEY_SIZE],
     iv: [u8; 16],
+    aad_len: usize,
 }
 
 impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> AesCcm<'c, KEY_SIZE, IV_SIZE, TAG_SIZE> {
@@ -439,7 +447,11 @@ impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> Aes
         let offset = 16 - l;
         iv_full[offset..].copy_from_slice(&payload_bytes[8 - l..]);
 
-        Self { key, iv: iv_full }
+        Self {
+            key,
+            iv: iv_full,
+            aad_len,
+        }
     }
 }
 
@@ -472,6 +484,25 @@ impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> Cip
 
     fn is_ccm_mode(&self) -> bool {
         true
+    }
+
+    fn ccm_aad_header(&self) -> ([u8; 10], usize) {
+        let mut header = [0u8; 10];
+        let len = if self.aad_len == 0 {
+            0
+        } else if self.aad_len < (1 << 16) - (1 << 8) {
+            header[..2].copy_from_slice(&(self.aad_len as u16).to_be_bytes());
+            2
+        } else if (self.aad_len as u64) < (1u64 << 32) {
+            header[..2].copy_from_slice(&[0xff, 0xfe]);
+            header[2..6].copy_from_slice(&(self.aad_len as u32).to_be_bytes());
+            6
+        } else {
+            header[..2].copy_from_slice(&[0xff, 0xff]);
+            header[2..10].copy_from_slice(&(self.aad_len as u64).to_be_bytes());
+            10
+        };
+        (header, len)
     }
 }
 
@@ -709,6 +740,13 @@ where
     // Header phase (GCMPH = 1).
     p.cr().modify(|w| w.set_gcmph(Gcmph::from_bits(1)));
     p.cr().modify(|w| w.set_en(true));
+
+    // CCM's first header block starts with the encoded associated-data length.
+    if ctx.header_len == 0 && ctx.aad_buffer_len == 0 {
+        let (header, len) = ctx.cipher.ccm_aad_header();
+        ctx.aad_buffer[..len].copy_from_slice(&header[..len]);
+        ctx.aad_buffer_len = len;
+    }
 
     let mut aad_remaining = aad.len();
     let mut aad_index = 0;

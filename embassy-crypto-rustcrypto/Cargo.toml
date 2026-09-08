@@ -50,6 +50,10 @@ ecdsa = { version = "0.17", default-features = false, features = ["digest", "alg
 p256 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdh", "ecdsa"], optional = true }
 p384 = { version = "0.14", default-features = false, features = ["arithmetic", "ecdh", "ecdsa"], optional = true }
 x25519-dalek = { version = "2", default-features = false, features = ["static_secrets"], optional = true }
+ed25519-dalek = { version = "2", default-features = false, features = ["zeroize"], optional = true }
+
+[dev-dependencies]
+embassy-crypto-test = { version = "0.1.0", path = "../embassy-crypto-test" }
 
 [features]
 ## Register every driver this crate can provide.
@@ -64,7 +68,7 @@ all = [
     "embassy-crypto-aes256-gcm", "embassy-crypto-aes256-ccm", "embassy-crypto-aes256-cmac",
     "embassy-crypto-p256-arith", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa",
     "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa",
-    "embassy-crypto-x25519",
+    "embassy-crypto-x25519", "embassy-crypto-ed25519",
 ]
 
 ## One feature per `embassy-crypto` driver. Enabling it registers this crate's
@@ -103,3 +107,4 @@ embassy-crypto-p384-arith = ["dep:p384", "dep:elliptic-curve"]
 embassy-crypto-p384-ecdh = ["dep:p384", "dep:elliptic-curve"]
 embassy-crypto-p384-ecdsa = ["dep:p384", "dep:elliptic-curve", "dep:ecdsa"]
 embassy-crypto-x25519 = ["dep:x25519-dalek"]
+embassy-crypto-ed25519 = ["dep:ed25519-dalek"]

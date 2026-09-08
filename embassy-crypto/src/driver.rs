@@ -1411,3 +1411,64 @@ unitrait::unitrait! {
     /// Register the global [`X25519`] implementation.
     macro x25519_impl(path = $crate::driver);
 }
+
+// ===========================================================================
+// Ed25519
+// ===========================================================================
+
+/// Ed25519 private key: the 32-byte seed of RFC 8032 section 5.1.5.
+///
+/// The scalar and the prefix are derived from it by hashing, so any 32-byte
+/// string is a valid key.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Ed25519SecretKey(pub [u8; 32]);
+
+/// Ed25519 public key: a compressed edwards25519 point, 32 bytes little-endian (RFC 8032 section 5.1.2).
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Ed25519PublicKey(pub [u8; 32]);
+
+/// Ed25519 signature: `R || S`, a compressed point and a little-endian scalar (RFC 8032 section 5.1.6).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Ed25519Signature(pub [u8; 64]);
+
+unitrait::unitrait! {
+    /// Ed25519 (EdDSA over edwards25519, RFC 8032) driver.
+    ///
+    /// Pure Ed25519: the message is signed directly, not pre-hashed, and there is no context string.
+    ///
+    /// ## Contract
+    ///
+    /// - No secret-dependent timing with respect to the private key.
+    /// - Implementations wipe copies of secrets they materialize in RAM.
+    #[symbol_prefix = "_embassy_crypto_ed25519"]
+    pub trait Ed25519 {
+        /// The public key `A = s * B` of the seed `k`, as in RFC 8032 section 5.1.5.
+        fn public_key(k: &Ed25519SecretKey) -> Result<Ed25519PublicKey, Error>;
+
+        /// Sign `msg` with the seed `k`, as in RFC 8032 section 5.1.6.
+        ///
+        /// Ed25519 signatures are deterministic: the nonce is derived from the
+        /// key and the message, so no random source is used.
+        fn sign(k: &Ed25519SecretKey, msg: &[u8]) -> Result<Ed25519Signature, Error>;
+
+        /// Verify the signature of `msg` with the public key `a`, as in RFC 8032 section 5.1.7.
+        ///
+        /// `a` and `sig` are untrusted. Implementations decode `a` and `R`,
+        /// rejecting encodings that are not points on the curve, and reject
+        /// `S` outside `[0, L)`, where `L` is the group order, so that signatures
+        /// are not malleable (RFC 8032 section 8.4). Failure of any kind is
+        /// reported as [`Error::InvalidSignature`], except an undecodable `a`,
+        /// which is [`Error::InvalidKey`]. Only public data is handled, so this
+        /// may be variable-time.
+        fn verify(a: &Ed25519PublicKey, msg: &[u8], sig: &Ed25519Signature) -> Result<(), Error>;
+    }
+
+    /// The global [`Ed25519`] implementation.
+    pub(crate) struct Ed25519Impl;
+
+    /// Register the global [`Ed25519`] implementation.
+    macro ed25519_impl(path = $crate::driver);
+}
