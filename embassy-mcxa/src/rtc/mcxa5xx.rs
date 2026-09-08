@@ -125,6 +125,26 @@ impl From<Month> for u8 {
     }
 }
 
+impl Month {
+    const fn from_register(value: u8) -> Result<Self, RtcError> {
+        match value {
+            1 => Ok(Self::January),
+            2 => Ok(Self::February),
+            3 => Ok(Self::March),
+            4 => Ok(Self::April),
+            5 => Ok(Self::May),
+            6 => Ok(Self::June),
+            7 => Ok(Self::July),
+            8 => Ok(Self::August),
+            9 => Ok(Self::September),
+            10 => Ok(Self::October),
+            11 => Ok(Self::November),
+            12 => Ok(Self::December),
+            _ => Err(RtcError::InvalidDateTime),
+        }
+    }
+}
+
 /// Day of the week
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -164,6 +184,21 @@ impl From<u8> for Weekday {
 impl From<Weekday> for u8 {
     fn from(value: Weekday) -> Self {
         value as u8
+    }
+}
+
+impl Weekday {
+    const fn from_register(value: u8) -> Result<Self, RtcError> {
+        match value {
+            0 => Ok(Self::Sunday),
+            1 => Ok(Self::Monday),
+            2 => Ok(Self::Tuesday),
+            3 => Ok(Self::Wednesday),
+            4 => Ok(Self::Thursday),
+            5 => Ok(Self::Friday),
+            6 => Ok(Self::Saturday),
+            _ => Err(RtcError::InvalidDateTime),
+        }
     }
 }
 
@@ -332,6 +367,16 @@ pub enum RtcError {
     Other,
 }
 
+const _: () = {
+    assert!(matches!(Month::from_register(1), Ok(Month::January)));
+    assert!(matches!(Month::from_register(12), Ok(Month::December)));
+    assert!(matches!(Month::from_register(0), Err(RtcError::InvalidDateTime)));
+    assert!(matches!(Month::from_register(13), Err(RtcError::InvalidDateTime)));
+    assert!(matches!(Weekday::from_register(0), Ok(Weekday::Sunday)));
+    assert!(matches!(Weekday::from_register(6), Ok(Weekday::Saturday)));
+    assert!(matches!(Weekday::from_register(7), Err(RtcError::InvalidDateTime)));
+};
+
 /// RTC driver.
 pub struct Rtc<'a> {
     _inst: core::marker::PhantomData<&'a mut ()>,
@@ -456,6 +501,7 @@ impl<'a> Rtc<'a> {
 
     fn is_valid_datetime(&self, t: DateTime) -> Result<(), RtcError> {
         if (t.year < (Self::BASE_YEAR - 128) || t.year > (Self::BASE_YEAR + 127))
+            || t.day == 0
             || t.day > 31
             || t.hour > 23
             || t.minute > 59
@@ -480,6 +526,11 @@ impl<'a> Rtc<'a> {
     /// Return the current datetime.
     ///
     /// Will block until we can access Datetime registers.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RtcError::InvalidDateTime`] if the RTC registers contain an invalid
+    /// calendar or time field, such as while the peripheral is being reset.
     pub fn now(&self) -> Result<DateTime, RtcError> {
         let ym = self.info.regs().yearmon().read();
         let d = self.info.regs().days().read();
@@ -487,13 +538,13 @@ impl<'a> Rtc<'a> {
         let second = self.info.regs().seconds().read().sec_cnt();
 
         let year = i16::from(ym.yrofst() as i8) + Self::BASE_YEAR;
-        let month = ym.mon_cnt().into();
-        let dow = d.dow().into();
+        let month = Month::from_register(ym.mon_cnt())?;
+        let dow = Weekday::from_register(d.dow())?;
         let day = d.day_cnt();
         let hour = hm.hour_cnt();
         let minute = hm.min_cnt();
 
-        Ok(DateTime {
+        let datetime = DateTime {
             year,
             month,
             day,
@@ -501,7 +552,10 @@ impl<'a> Rtc<'a> {
             hour,
             minute,
             second,
-        })
+        };
+
+        self.is_valid_datetime(datetime)?;
+        Ok(datetime)
     }
 
     /// Set the datetime to a new value.
