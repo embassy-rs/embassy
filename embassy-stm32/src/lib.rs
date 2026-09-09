@@ -160,7 +160,7 @@ pub mod fmc;
 pub mod gfxmmu;
 #[cfg(gfxtim)]
 pub mod gfxtim;
-#[cfg(all(gpu2d, stm32u5))]
+#[cfg(gpu2d)]
 pub mod gpu2d;
 #[cfg(all(hash, not(stm32c5)))]
 pub mod hash;

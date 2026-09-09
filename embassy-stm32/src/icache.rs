@@ -115,11 +115,7 @@ impl<'d> Icache<'d> {
     ///
     /// Can be called whether the cache is enabled or disabled.
     pub fn invalidate(&mut self) {
-        if !regs().sr().read().busyf() {
-            regs().cr().modify(|w| w.set_cacheinv(true));
-        }
-        while regs().sr().read().busyf() {}
-        regs().fcr().write(|w| w.set_cbsyendf(true));
+        invalidate();
     }
 
     /// Start the given performance counter(s). Use [`Self::reset_monitors()`] first if you want
@@ -186,6 +182,18 @@ impl<'d> Icache<'d> {
         }
         err
     }
+}
+
+/// Invalidate the entire instruction cache, blocking until complete.
+///
+/// Equivalent to ST's `HAL_ICACHE_Invalidate()`. Can be called without holding
+/// an [`Icache`] driver instance, and whether the cache is enabled or disabled.
+pub fn invalidate() {
+    if !regs().sr().read().busyf() {
+        regs().cr().modify(|w| w.set_cacheinv(true));
+    }
+    while regs().sr().read().busyf() {}
+    regs().fcr().write(|w| w.set_cbsyendf(true));
 }
 
 #[cfg(any(icache_v1_3crr, icache_v1_4crr))]
