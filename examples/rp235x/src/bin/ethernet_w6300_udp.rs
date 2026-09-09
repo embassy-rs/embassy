@@ -14,10 +14,12 @@ use embassy_net_wiznet::chip::W6300;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::mode::Async;
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::spi::Spi;
-use embassy_rp::spi::{Async, Config as SpiConfig};
+use embassy_rp::spi::Config as SpiConfig;
+use embassy_rp::time::Hertz;
 use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -53,7 +55,7 @@ async fn main(spawner: Spawner) {
 
     let mut rng = RoscRng;
     let mut spi_cfg = SpiConfig::default();
-    spi_cfg.frequency = 15_000_000;
+    spi_cfg.frequency = Hertz(15_000_000);
 
     let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
 

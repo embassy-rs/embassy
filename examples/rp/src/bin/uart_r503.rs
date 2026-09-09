@@ -69,7 +69,7 @@ async fn main(_spawner: Spawner) {
     config.parity = Parity::ParityNone;
 
     let (uart, tx_pin, tx_dma, rx_pin, rx_dma) = (p.UART0, p.PIN_16, p.DMA_CH0, p.PIN_17, p.DMA_CH1);
-    let uart = Uart::new(uart, tx_pin, rx_pin, Irqs, tx_dma, rx_dma, config);
+    let uart = Uart::new(uart, tx_pin, rx_pin, tx_dma, rx_dma, Irqs, config);
     let (mut tx, mut rx) = uart.split();
 
     let mut vec_buf: Vec<u8, 32> = heapless::Vec::new();

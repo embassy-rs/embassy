@@ -8,6 +8,8 @@ pub use embedded_hal_02::spi::{Phase, Polarity};
 
 use crate::dma::{Channel, ChannelInstance};
 use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
+use crate::mode::{Async, Blocking, Mode};
+use crate::time::Hertz;
 use crate::{dma, interrupt, mode, pac, peripherals};
 
 /// SPI errors.
@@ -18,12 +20,34 @@ pub enum Error {
     // No errors for now
 }
 
+/// SPI config error.
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum ConfigError {
+    /// The requested frequency is too low to be represented by the hardware.
+    FrequencyTooLow,
+    /// The requested frequency is too high to be represented by the hardware.
+    FrequencyTooHigh,
+}
+
+impl core::fmt::Display for ConfigError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::FrequencyTooLow => write!(f, "frequency too low"),
+            Self::FrequencyTooHigh => write!(f, "frequency too high"),
+        }
+    }
+}
+
+impl core::error::Error for ConfigError {}
+
 /// SPI configuration.
 #[non_exhaustive]
-#[derive(Clone)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Config {
     /// Frequency.
-    pub frequency: u32,
+    pub frequency: Hertz,
     /// Phase.
     pub phase: Phase,
     /// Polarity.
@@ -33,7 +57,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            frequency: 1_000_000,
+            frequency: Hertz(1_000_000),
             phase: Phase::CaptureOnFirstTransition,
             polarity: Polarity::IdleLow,
         }
@@ -60,7 +84,7 @@ impl defmt::Format for Config {
         defmt::write!(
             f,
             "Config {{ frequency: {=u32}, phase: {=istr}, polarity: {=istr} }}",
-            self.frequency,
+            self.frequency.0,
             phase,
             polarity,
         );
@@ -79,23 +103,30 @@ fn div_roundup(a: u32, b: u32) -> u32 {
     (a + b - 1) / b
 }
 
-fn calc_prescs(freq: u32) -> (u8, u8) {
+fn calc_prescs(freq: Hertz) -> Result<(u8, u8), ConfigError> {
     let clk_peri = crate::clocks::clk_peri_freq();
+
+    if freq.0 == 0 {
+        return Err(ConfigError::FrequencyTooLow);
+    }
 
     // final SPI frequency: spi_freq = clk_peri / presc / postdiv
     // presc must be in 2..=254, and must be even
     // postdiv must be in 1..=256
 
     // divide extra by 2, so we get rid of the "presc must be even" requirement
-    let ratio = div_roundup(clk_peri, freq * 2);
+    let ratio = div_roundup(clk_peri, freq.0 * 2);
     if ratio > 127 * 256 {
-        panic!("Requested too low SPI frequency");
+        return Err(ConfigError::FrequencyTooLow);
+    }
+    if ratio == 0 {
+        return Err(ConfigError::FrequencyTooHigh);
     }
 
     let presc = div_roundup(ratio, 256);
     let postdiv = if presc == 1 { ratio } else { div_roundup(ratio, presc) };
 
-    ((presc * 2) as u8, (postdiv - 1) as u8)
+    Ok(((presc * 2) as u8, (postdiv - 1) as u8))
 }
 
 impl<'d, M: Mode> Spi<'d, M> {
@@ -108,8 +139,8 @@ impl<'d, M: Mode> Spi<'d, M> {
         tx_dma: Option<Channel<'d, mode::Async>>,
         rx_dma: Option<Channel<'d, mode::Async>>,
         config: Config,
-    ) -> Self {
-        Self::apply_config(T::info(), &config);
+    ) -> Result<Self, ConfigError> {
+        Self::apply_config(T::info(), &config)?;
 
         let p = T::info().regs;
 
@@ -174,21 +205,21 @@ impl<'d, M: Mode> Spi<'d, M> {
                 w.set_pde(false);
             });
         }
-        Self {
+        Ok(Self {
             info: T::info(),
             tx_dma,
             rx_dma,
             phantom: PhantomData,
-        }
+        })
     }
 
     /// Private function to apply SPI configuration (phase, polarity, frequency) settings.
     ///
     /// Driver should be disabled before making changes and re-enabled after the modifications
     /// are applied.
-    fn apply_config(info: &Info, config: &Config) {
+    fn apply_config(info: &Info, config: &Config) -> Result<(), ConfigError> {
         let p = info.regs;
-        let (presc, postdiv) = calc_prescs(config.frequency);
+        let (presc, postdiv) = calc_prescs(config.frequency)?;
 
         p.cpsr().write(|w| w.set_cpsdvsr(presc));
         p.cr0().write(|w| {
@@ -197,6 +228,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             w.set_sph(config.phase == Phase::CaptureOnSecondTransition);
             w.set_scr(postdiv);
         });
+        Ok(())
     }
 
     /// Write data to SPI blocking execution until done.
@@ -208,7 +240,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             while !p.sr().read().rne() {}
             let _ = p.dr().read();
         }
-        self.flush()?;
+        self.blocking_flush()?;
         Ok(())
     }
 
@@ -221,7 +253,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             while !p.sr().read().rne() {}
             *b = p.dr().read().data() as u8;
         }
-        self.flush()?;
+        self.blocking_flush()?;
         Ok(())
     }
 
@@ -234,7 +266,7 @@ impl<'d, M: Mode> Spi<'d, M> {
             while !p.sr().read().rne() {}
             *b = p.dr().read().data() as u8;
         }
-        self.flush()?;
+        self.blocking_flush()?;
         Ok(())
     }
 
@@ -252,20 +284,20 @@ impl<'d, M: Mode> Spi<'d, M> {
                 *r = rb;
             }
         }
-        self.flush()?;
+        self.blocking_flush()?;
         Ok(())
     }
 
     /// Block execution until SPI is done.
-    pub fn flush(&mut self) -> Result<(), Error> {
+    pub fn blocking_flush(&mut self) -> Result<(), Error> {
         let p = self.info.regs;
         while p.sr().read().bsy() {}
         Ok(())
     }
 
     /// Set SPI frequency.
-    pub fn set_frequency(&mut self, freq: u32) {
-        let (presc, postdiv) = calc_prescs(freq);
+    pub fn set_frequency(&mut self, freq: Hertz) -> Result<(), ConfigError> {
+        let (presc, postdiv) = calc_prescs(freq)?;
         let p = self.info.regs;
         // disable
         p.cr1().write(|w| w.set_sse(false));
@@ -278,20 +310,22 @@ impl<'d, M: Mode> Spi<'d, M> {
 
         // enable
         p.cr1().write(|w| w.set_sse(true));
+        Ok(())
     }
 
     /// Set SPI config.
-    pub fn set_config(&mut self, config: &Config) {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         let p = self.info.regs;
 
         // disable
         p.cr1().write(|w| w.set_sse(false));
 
         // change stuff
-        Self::apply_config(self.info, config);
+        let res = Self::apply_config(self.info, config);
 
         // enable
         p.cr1().write(|w| w.set_sse(true));
+        res
     }
 }
 
@@ -303,7 +337,7 @@ impl<'d> Spi<'d, Blocking> {
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
         miso: Peri<'d, impl MisoPin<T> + 'd>,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         Self::new_inner(
             spi,
             Some(clk.into()),
@@ -322,7 +356,7 @@ impl<'d> Spi<'d, Blocking> {
         clk: Peri<'d, impl ClkPin<T> + 'd>,
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         Self::new_inner(spi, Some(clk.into()), Some(mosi.into()), None, None, None, None, config)
     }
 
@@ -331,7 +365,7 @@ impl<'d> Spi<'d, Blocking> {
         spi: Peri<'d, T>,
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         Self::new_inner(spi, None, Some(mosi.into()), None, None, None, None, config)
     }
 
@@ -341,7 +375,7 @@ impl<'d> Spi<'d, Blocking> {
         clk: Peri<'d, impl ClkPin<T> + 'd>,
         miso: Peri<'d, impl MisoPin<T> + 'd>,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         Self::new_inner(spi, Some(clk.into()), None, Some(miso.into()), None, None, None, config)
     }
 }
@@ -359,7 +393,7 @@ impl<'d> Spi<'d, Async> {
         + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
         + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         let rx_dma_ch = dma::Channel::new(rx_dma, irq);
         Self::new_inner(
@@ -382,7 +416,7 @@ impl<'d> Spi<'d, Async> {
         tx_dma: Peri<'d, TxDma>,
         irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         Self::new_inner(
             spi,
@@ -404,7 +438,7 @@ impl<'d> Spi<'d, Async> {
         tx_dma: Peri<'d, TxDma>,
         irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>> + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         Self::new_inner(spi, None, Some(mosi.into()), None, None, Some(tx_dma_ch), None, config)
     }
@@ -420,7 +454,7 @@ impl<'d> Spi<'d, Async> {
         + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
         + 'd,
         config: Config,
-    ) -> Self {
+    ) -> Result<Self, ConfigError> {
         let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         let rx_dma_ch = dma::Channel::new(rx_dma, irq);
         Self::new_inner(
@@ -557,15 +591,9 @@ struct Info {
     rx_dreq: pac::dma::vals::TreqSel,
 }
 
-trait SealedMode {}
-
 trait SealedInstance {
     fn info() -> &'static Info;
 }
-
-/// Mode.
-#[allow(private_bounds)]
-pub trait Mode: SealedMode {}
 
 /// SPI instance trait.
 #[allow(private_bounds)]
@@ -672,21 +700,6 @@ impl_pin!(PIN_46, SPI1, ClkPin);
 #[cfg(feature = "rp235xb")]
 impl_pin!(PIN_47, SPI1, MosiPin);
 
-macro_rules! impl_mode {
-    ($name:ident) => {
-        impl SealedMode for $name {}
-        impl Mode for $name {}
-    };
-}
-
-/// Blocking mode.
-pub struct Blocking;
-/// Async mode.
-pub struct Async;
-
-impl_mode!(Blocking);
-impl_mode!(Async);
-
 // ====================
 
 impl<'d, M: Mode> embedded_hal_02::blocking::spi::Transfer<u8> for Spi<'d, M> {
@@ -761,10 +774,8 @@ impl<'d> embedded_hal_async::spi::SpiBus<u8> for Spi<'d, Async> {
 
 impl<'d, M: Mode> SetConfig for Spi<'d, M> {
     type Config = Config;
-    type ConfigError = ();
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
-        self.set_config(config);
-
-        Ok(())
+    type ConfigError = ConfigError;
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), ConfigError> {
+        self.set_config(config)
     }
 }

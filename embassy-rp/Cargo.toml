@@ -179,7 +179,6 @@ embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional 
 embassy-executor-macros = { version = "0.8.0", path = "../embassy-executor-macros", optional = true }
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
-nb = "1.1.0"
 cfg-if = "1.0.0"
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
@@ -196,7 +195,6 @@ rp-pac = { git = "https://github.com/embassy-rs/rp-pac", rev = "c2e27609b021c444
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
-embedded-hal-nb = { version = "1.0" }
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }

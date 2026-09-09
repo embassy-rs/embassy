@@ -10,6 +10,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::spi::Spi;
+use embassy_rp::time::Hertz;
 use embassy_rp::{gpio, spi};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_sdmmc::sdcard::{DummyCsPin, SdCard};
@@ -37,8 +38,8 @@ async fn main(_spawner: Spawner) {
 
     // SPI clock needs to be running at <= 400kHz during initialization
     let mut config = spi::Config::default();
-    config.frequency = 400_000;
-    let spi = Spi::new_blocking(p.SPI1, p.PIN_10, p.PIN_11, p.PIN_12, config);
+    config.frequency = Hertz(400_000);
+    let spi = Spi::new_blocking(p.SPI1, p.PIN_10, p.PIN_11, p.PIN_12, config).unwrap();
     // Use a dummy cs pin here, for embedded-hal SpiDevice compatibility reasons
     let spi_dev = ExclusiveDevice::new_no_delay(spi, DummyCsPin);
     // Real cs pin
@@ -49,8 +50,8 @@ async fn main(_spawner: Spawner) {
 
     // Now that the card is initialized, the SPI clock can go faster
     let mut config = spi::Config::default();
-    config.frequency = 16_000_000;
-    sdcard.spi(|dev| dev.bus_mut().set_config(&config));
+    config.frequency = Hertz(16_000_000);
+    sdcard.spi(|dev| dev.bus_mut().set_config(&config)).unwrap();
 
     // Now let's look for volumes (also known as partitions) on our block device.
     // To do this we need a Volume Manager. It will take ownership of the block device.

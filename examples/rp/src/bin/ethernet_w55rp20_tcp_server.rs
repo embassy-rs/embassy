@@ -17,9 +17,11 @@ use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
+use embassy_rp::mode::Async;
 use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio_programs::spi::Spi;
-use embassy_rp::spi::{Async, Config as SpiConfig};
+use embassy_rp::spi::Config as SpiConfig;
+use embassy_rp::time::Hertz;
 use embassy_rp::{bind_interrupts, pio};
 use embassy_time::{Delay, Duration};
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -66,7 +68,7 @@ async fn main(spawner: Spawner) {
 
     // Construct an SPI driver backed by a PIO state machine
     let mut spi_cfg = SpiConfig::default();
-    spi_cfg.frequency = 12_500_000; // The PIO SPI program is much less stable than the actual SPI
+    spi_cfg.frequency = Hertz(12_500_000); // The PIO SPI program is much less stable than the actual SPI
     // peripheral, use higher speeds at your peril
     let spi = Spi::new(&mut common, sm0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, spi_cfg);
 

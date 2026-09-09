@@ -6,9 +6,9 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::{I2C0, I2C1};
-use embassy_rp::{bind_interrupts, i2c, i2c_slave};
+use embassy_rp::time::Hertz;
+use embassy_rp::{bind_interrupts, i2c, i2c_slave, mode};
 use embassy_time::Timer;
-use embedded_hal_async::i2c::I2c;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -19,7 +19,7 @@ bind_interrupts!(struct Irqs {
 const DEV_ADDR: u8 = 0x42;
 
 #[embassy_executor::task]
-async fn device_task(mut dev: i2c_slave::I2cSlave<'static>) -> ! {
+async fn device_task(mut dev: i2c_slave::I2cSlave<'static, mode::Async>) -> ! {
     info!("Device start");
 
     let mut state = 0;
@@ -70,7 +70,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn controller_task(mut con: i2c::I2c<'static, i2c::Async>) {
+async fn controller_task(mut con: i2c::I2c<'static, mode::Async>) {
     info!("Controller start");
 
     loop {
@@ -111,8 +111,8 @@ async fn main(spawner: Spawner) {
     let c_sda = p.PIN_0;
     let c_scl = p.PIN_1;
     let mut config = i2c::Config::default();
-    config.frequency = 1_000_000;
-    let controller = i2c::I2c::new_async(p.I2C0, c_scl, c_sda, Irqs, config);
+    config.frequency = Hertz(1_000_000);
+    let controller = i2c::I2c::new(p.I2C0, c_scl, c_sda, Irqs, config);
 
     spawner.spawn(unwrap!(controller_task(controller)));
 }

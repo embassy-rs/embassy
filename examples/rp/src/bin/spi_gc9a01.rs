@@ -15,8 +15,10 @@ use embassy_embedded_hal::shared_bus::blocking::spi::SpiDeviceWithConfig;
 use embassy_executor::Spawner;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
+use embassy_rp::mode::Blocking;
 use embassy_rp::spi;
-use embassy_rp::spi::{Blocking, Spi};
+use embassy_rp::spi::Spi;
+use embassy_rp::time::Hertz;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::{Delay, Duration, Timer};
@@ -51,11 +53,11 @@ async fn main(_spawner: Spawner) {
 
     // create SPI
     let mut display_config = spi::Config::default();
-    display_config.frequency = DISPLAY_FREQ;
+    display_config.frequency = Hertz(DISPLAY_FREQ);
     display_config.phase = spi::Phase::CaptureOnSecondTransition;
     display_config.polarity = spi::Polarity::IdleHigh;
 
-    let spi: Spi<'_, Blocking> = Spi::new_blocking_txonly(p.SPI1, clk, mosi, display_config.clone());
+    let spi: Spi<'_, Blocking> = Spi::new_blocking_txonly(p.SPI1, clk, mosi, display_config.clone()).unwrap();
     let spi_bus: Mutex<NoopRawMutex, _> = Mutex::new(RefCell::new(spi));
 
     let display_spi = SpiDeviceWithConfig::new(&spi_bus, Output::new(display_cs, Level::High), display_config);

@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     } = Pio::new(p.PIO0, Irqs);
 
     let prg = PioStepperProgram::new(&mut common);
-    let mut stepper = PioStepper::new(&mut common, sm0, irq0, p.PIN_4, p.PIN_5, p.PIN_6, p.PIN_7, &prg);
+    let mut stepper = PioStepper::new(&mut common, sm0, p.PIN_4, p.PIN_5, p.PIN_6, p.PIN_7, irq0, &prg);
     stepper.set_frequency(120);
     loop {
         info!("CW full steps");
