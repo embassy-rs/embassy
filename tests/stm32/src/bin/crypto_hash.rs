@@ -11,6 +11,9 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use panic_probe as _;
 
+// The known-answer blobs take a while to load.
+teleprobe_meta::timeout!(60);
+
 /// Run every suite, logging each result, and fail at the end if any failed.
 macro_rules! suites {
     ($($name:ident),* $(,)?) => {{

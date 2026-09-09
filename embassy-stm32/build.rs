@@ -66,6 +66,11 @@ fn main() {
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
+            // The AES driver enables the peripheral's clock, which the metadata does not
+            // know for the AES of some chips (STM32L0, L1, F423): no driver there.
+            if r.kind == "aes" && p.rcc.is_none() {
+                continue;
+            }
             cfgs.enable(r.kind);
             foreach_version_cfg(&mut cfgs, r.kind, r.version, |cfgs, cfg_name| {
                 cfgs.enable(cfg_name);

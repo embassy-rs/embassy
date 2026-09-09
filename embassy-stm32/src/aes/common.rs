@@ -1,42 +1,44 @@
-//! Register-agnostic AES layer shared by the `aes_v2` and `aes_v3b` drivers.
+//! Register-agnostic AES layer shared by the `aes_v1`, `aes_v2` and `aes_v3` drivers.
 //!
-//! This module holds the cipher-mode types, the [`Cipher`] trait and its cipher
-//! implementations, the operation [`Context`], and the GCM/CCM state machine
-//! ([`op_start`], [`op_aad`], [`op_payload`], [`op_finish`]). The two hardware
+//! This module holds the register primitives, the key/IV/block data movement,
+//! and the GCM/CCM state machine ([`op_start`], [`op_aad`], [`op_payload`],
+//! [`op_finish`]). The hardware
 //! revisions are identical at this level; they differ only in a handful of
-//! register primitives, which are selected with `#[cfg(aes_v2)]` /
-//! `#[cfg(aes_v3b)]` below. The version modules (`v2`, `v3b`) provide the
-//! `Aes` driver shell, instance wiring, and constructors, and delegate the
-//! algorithm here. The types `saes` also needs (`Error`, `Direction`,
-//! `KeySize`, and the marker traits) come from [`crate::crypto`] and are
-//! re-exported.
+//! register primitives, which are selected with `#[cfg(any(aes_v1, aes_v2, aes_f7))]` /
+//! `#[cfg(any(aes_v3a, aes_v3b))]` below, and in `aes_v1` lacking the GCM/CCM
+//! phases, the 256-bit key size and the `BUSY` flag altogether, so that
+//! everything authenticated is compiled out there. The version modules (`v2`,
+//! `v3`) provide the `Aes` driver shell, instance wiring, and constructors, and
+//! delegate the algorithm here. The cipher-mode types themselves (`Cipher`,
+//! the `Aes*` modes, `Context`, `Error`, `Direction`, `KeySize` and the marker
+//! traits) are register-agnostic and live in [`crate::crypto`], shared with
+//! `saes`; they are re-exported here.
 
-pub use crate::crypto::{CipherAuthenticated, CipherSized, Direction, Error, IVSized, KeySize};
-#[cfg(aes_v2)]
+pub use crate::crypto::*;
+#[cfg(any(aes_v1, aes_v2, aes_f7))]
 use crate::pac::aes::regs::{Dinr, Ivr, Keyr};
-use crate::pac::aes::vals::{Datatype, Gcmph, Mode};
+#[cfg(not(aes_v1))]
+use crate::pac::aes::vals::Gcmph;
+use crate::pac::aes::vals::{Datatype, Mode};
 use crate::{pac, peripherals};
 
-/// AES block size in bytes (128 bits).
-pub(crate) const AES_BLOCK_SIZE: usize = 16;
-
-// Register primitives — the only points where aes_v2 and aes_v3b diverge.
+// Register primitives — the only points where aes_v2 and aes_v3a/aes_v3b diverge.
 
 /// Clear the computation-complete flag (CCF).
-#[cfg(aes_v2)]
+#[cfg(any(aes_v1, aes_v2, aes_f7))]
 #[inline]
 pub(crate) fn clear_ccf(p: pac::aes::Aes) {
     // aes_v2 has no ICR; CCF is cleared through the CCFC bit of CR.
     p.cr().modify(|w| w.set_ccfc(true));
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 pub(crate) fn clear_ccf(p: pac::aes::Aes) {
     p.icr().write(|w| w.0 = 0xFFFF_FFFF);
 }
 
 /// Clear the computation-complete and read/write error flags together.
-#[cfg(aes_v2)]
+#[cfg(any(aes_v1, aes_v2, aes_f7))]
 #[inline]
 pub(crate) fn clear_flags(p: pac::aes::Aes) {
     p.cr().modify(|w| {
@@ -44,74 +46,81 @@ pub(crate) fn clear_flags(p: pac::aes::Aes) {
         w.set_errc(true);
     });
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 pub(crate) fn clear_flags(p: pac::aes::Aes) {
     p.icr().write(|w| w.0 = 0xFFFF_FFFF);
 }
 
 /// Write a 32-bit word to the data input register.
-#[cfg(aes_v2)]
+#[cfg(any(aes_v1, aes_v2, aes_f7))]
 #[inline]
 pub(crate) fn write_din(p: pac::aes::Aes, word: u32) {
     p.dinr().write_value(Dinr(word));
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 pub(crate) fn write_din(p: pac::aes::Aes, word: u32) {
     p.dinr().write_value(word);
 }
 
 /// Read a 32-bit word from the data output register.
-#[cfg(aes_v2)]
+#[cfg(any(aes_v1, aes_v2, aes_f7))]
 #[inline]
 pub(crate) fn read_dout(p: pac::aes::Aes) -> u32 {
     p.doutr().read().0
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 pub(crate) fn read_dout(p: pac::aes::Aes) -> u32 {
     p.doutr().read()
 }
 
 /// Read a 32-bit word from an initialization-vector register.
-#[cfg(aes_v2)]
+#[cfg(any(aes_v1, aes_v2, aes_f7))]
 #[inline]
 fn read_ivr(p: pac::aes::Aes, i: usize) -> u32 {
     p.ivr(i).read().0
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 fn read_ivr(p: pac::aes::Aes, i: usize) -> u32 {
     p.ivr(i).read()
 }
 
 /// Write a 32-bit word to a key register.
-#[cfg(aes_v2)]
+#[cfg(any(aes_v1, aes_v2, aes_f7))]
 #[inline]
 fn write_keyr(p: pac::aes::Aes, i: usize, word: u32) {
     p.keyr(i).write_value(Keyr(word));
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 fn write_keyr(p: pac::aes::Aes, i: usize, word: u32) {
     p.keyr(i).write_value(word);
 }
 
 /// Write a 32-bit word to an initialization-vector register.
-#[cfg(aes_v2)]
+#[cfg(any(aes_v1, aes_v2, aes_f7))]
 #[inline]
 fn write_ivr(p: pac::aes::Aes, i: usize, word: u32) {
     p.ivr(i).write_value(Ivr(word));
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 fn write_ivr(p: pac::aes::Aes, i: usize, word: u32) {
     p.ivr(i).write_value(word);
 }
 
 /// Set the cipher mode (`CHMOD`).
-#[cfg(aes_v2)]
+#[cfg(aes_v1)]
+#[inline]
+fn set_chmod(p: pac::aes::Aes, bits: u8) {
+    // aes_v1 only has the ECB, CBC and CTR modes, in CHMOD[1:0].
+    debug_assert!(bits < 0b100);
+    p.cr().modify(|w| w.set_chmod10(bits & 0b11));
+}
+#[cfg(any(aes_v2, aes_f7))]
 #[inline]
 fn set_chmod(p: pac::aes::Aes, bits: u8) {
     // aes_v2 splits CHMOD into CHMOD[1:0] and CHMOD[2].
@@ -120,430 +129,10 @@ fn set_chmod(p: pac::aes::Aes, bits: u8) {
         w.set_chmod2((bits & 0b100) != 0);
     });
 }
-#[cfg(aes_v3b)]
+#[cfg(any(aes_v3a, aes_v3b))]
 #[inline]
 fn set_chmod(p: pac::aes::Aes, bits: u8) {
     p.cr().modify(|w| w.set_chmod(pac::aes::vals::Chmod::from_bits(bits)));
-}
-
-// Public types
-
-/// This trait encapsulates all cipher-specific behavior.
-pub trait Cipher<'c> {
-    /// Processing block size (always 16 bytes for AES).
-    const BLOCK_SIZE: usize = AES_BLOCK_SIZE;
-
-    /// Indicates whether the cipher requires the application to provide padding.
-    const REQUIRES_PADDING: bool = false;
-
-    /// Returns the symmetric key.
-    fn key(&self) -> &[u8];
-
-    /// Returns the initialization vector.
-    fn iv(&self) -> &[u8];
-
-    /// Returns the key size.
-    fn key_size(&self) -> KeySize {
-        match self.key().len() {
-            16 => KeySize::Bits128,
-            32 => KeySize::Bits256,
-            _ => panic!("Invalid key size"),
-        }
-    }
-
-    /// Returns the data type setting for this cipher mode.
-    ///
-    /// This driver uses NO_SWAP (0) consistently with big-endian byte
-    /// conversion (`from_be_bytes`/`to_be_bytes`) for direct NIST test-vector
-    /// compatibility.
-    fn datatype(&self) -> u8 {
-        0
-    }
-
-    /// Returns the raw `CHMOD` field value for this cipher mode.
-    fn chmod_bits(&self) -> u8 {
-        0 // ECB default
-    }
-
-    /// Sets the cipher mode (`CHMOD` field).
-    fn set_mode(&self, p: pac::aes::Aes) {
-        set_chmod(p, self.chmod_bits());
-    }
-
-    /// Performs any key preparation within the processor, if necessary.
-    fn prepare_key(&self, _p: pac::aes::Aes, _dir: Direction) {}
-
-    /// Performs any cipher-specific initialization (blocking).
-    fn init_phase_blocking(&self, _p: pac::aes::Aes) {}
-
-    /// Indicates whether this cipher mode uses GCM/CCM phases (init, header, payload, final).
-    fn uses_gcm_phases(&self) -> bool {
-        false
-    }
-
-    /// Indicates whether this is CCM mode (which has different final phase handling).
-    fn is_ccm_mode(&self) -> bool {
-        false
-    }
-
-    /// CCM only: the encoded associated-data length that precedes the
-    /// associated data in the first header block (NIST SP 800-38C A.2.2), and
-    /// its size. Empty for other modes and when there is no associated data.
-    fn ccm_aad_header(&self) -> ([u8; 10], usize) {
-        ([0; 10], 0)
-    }
-}
-
-/// AES-ECB Cipher Mode
-pub struct AesEcb<'c, const KEY_SIZE: usize> {
-    iv: &'c [u8; 0],
-    key: &'c [u8; KEY_SIZE],
-}
-
-impl<'c, const KEY_SIZE: usize> AesEcb<'c, KEY_SIZE> {
-    /// Constructs a new AES-ECB cipher for a cryptographic operation.
-    pub fn new(key: &'c [u8; KEY_SIZE]) -> Self {
-        Self { key, iv: &[0; 0] }
-    }
-}
-
-impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesEcb<'c, KEY_SIZE> {
-    const REQUIRES_PADDING: bool = true;
-
-    fn key(&self) -> &[u8] {
-        self.key
-    }
-
-    fn iv(&self) -> &[u8] {
-        self.iv
-    }
-
-    fn chmod_bits(&self) -> u8 {
-        0
-    }
-
-    fn prepare_key(&self, p: pac::aes::Aes, dir: Direction) {
-        // For ECB decryption, derive the decryption key first (RM key-derivation sequence).
-        if dir == Direction::Decrypt {
-            p.cr().modify(|w| w.set_mode(Mode::from_bits(1)));
-            p.cr().modify(|w| w.set_en(true));
-            while !p.sr().read().ccf() {}
-            clear_ccf(p);
-        }
-    }
-}
-
-impl<'c> CipherSized for AesEcb<'c, { 128 / 8 }> {}
-impl<'c> CipherSized for AesEcb<'c, { 256 / 8 }> {}
-impl<'c, const KEY_SIZE: usize> IVSized for AesEcb<'c, KEY_SIZE> {}
-
-/// AES-CBC Cipher Mode
-pub struct AesCbc<'c, const KEY_SIZE: usize> {
-    iv: &'c [u8; 16],
-    key: &'c [u8; KEY_SIZE],
-}
-
-impl<'c, const KEY_SIZE: usize> AesCbc<'c, KEY_SIZE> {
-    /// Constructs a new AES-CBC cipher for a cryptographic operation.
-    pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; 16]) -> Self {
-        Self { key, iv }
-    }
-}
-
-impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCbc<'c, KEY_SIZE> {
-    const REQUIRES_PADDING: bool = true;
-
-    fn key(&self) -> &[u8] {
-        self.key
-    }
-
-    fn iv(&self) -> &[u8] {
-        self.iv
-    }
-
-    fn chmod_bits(&self) -> u8 {
-        1
-    }
-
-    fn prepare_key(&self, p: pac::aes::Aes, dir: Direction) {
-        if dir == Direction::Decrypt {
-            p.cr().modify(|w| w.set_mode(Mode::from_bits(1)));
-            p.cr().modify(|w| w.set_en(true));
-            while !p.sr().read().ccf() {}
-            clear_ccf(p);
-        }
-    }
-}
-
-impl<'c> CipherSized for AesCbc<'c, { 128 / 8 }> {}
-impl<'c> CipherSized for AesCbc<'c, { 256 / 8 }> {}
-impl<'c, const KEY_SIZE: usize> IVSized for AesCbc<'c, KEY_SIZE> {}
-
-/// AES-CTR Cipher Mode
-pub struct AesCtr<'c, const KEY_SIZE: usize> {
-    iv: &'c [u8; 16],
-    key: &'c [u8; KEY_SIZE],
-}
-
-impl<'c, const KEY_SIZE: usize> AesCtr<'c, KEY_SIZE> {
-    /// Constructs a new AES-CTR cipher for a cryptographic operation.
-    pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; 16]) -> Self {
-        Self { key, iv }
-    }
-}
-
-impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCtr<'c, KEY_SIZE> {
-    const REQUIRES_PADDING: bool = false;
-
-    fn key(&self) -> &[u8] {
-        self.key
-    }
-
-    fn iv(&self) -> &[u8] {
-        self.iv
-    }
-
-    fn chmod_bits(&self) -> u8 {
-        2
-    }
-}
-
-impl<'c> CipherSized for AesCtr<'c, { 128 / 8 }> {}
-impl<'c> CipherSized for AesCtr<'c, { 256 / 8 }> {}
-impl<'c, const KEY_SIZE: usize> IVSized for AesCtr<'c, KEY_SIZE> {}
-
-/// AES-GCM Cipher Mode
-pub struct AesGcm<'c, const KEY_SIZE: usize> {
-    key: &'c [u8; KEY_SIZE],
-    iv: [u8; 16],
-}
-
-impl<'c, const KEY_SIZE: usize> AesGcm<'c, KEY_SIZE> {
-    /// Constructs a new AES-GCM cipher for a cryptographic operation.
-    /// The IV should be 12 bytes long (96 bits).
-    pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; 12]) -> Self {
-        let mut iv_full = [0u8; 16];
-        iv_full[..12].copy_from_slice(iv);
-        iv_full[15] = 2; // Initial counter value
-        Self { key, iv: iv_full }
-    }
-}
-
-impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGcm<'c, KEY_SIZE> {
-    const REQUIRES_PADDING: bool = false;
-
-    fn key(&self) -> &[u8] {
-        self.key
-    }
-
-    fn iv(&self) -> &[u8] {
-        &self.iv
-    }
-
-    fn chmod_bits(&self) -> u8 {
-        3
-    }
-
-    fn init_phase_blocking(&self, p: pac::aes::Aes) {
-        // GCMPH was set to init in op_start() before key loading. Enable EN to
-        // start the hash-key (H) calculation, then wait and clear.
-        p.cr().modify(|w| w.set_en(true));
-        while !p.sr().read().ccf() {}
-        clear_ccf(p);
-    }
-
-    fn uses_gcm_phases(&self) -> bool {
-        true
-    }
-}
-
-impl<'c> CipherSized for AesGcm<'c, { 128 / 8 }> {}
-impl<'c> CipherSized for AesGcm<'c, { 256 / 8 }> {}
-impl<'c, const KEY_SIZE: usize> IVSized for AesGcm<'c, KEY_SIZE> {}
-impl<'c, const KEY_SIZE: usize> CipherAuthenticated<16> for AesGcm<'c, KEY_SIZE> {}
-
-/// AES-GMAC Cipher Mode (Galois Message Authentication Code)
-///
-/// GMAC provides message authentication without encryption. The data remains
-/// in plaintext but any tampering is detected via the authentication tag.
-pub struct AesGmac<'c, const KEY_SIZE: usize> {
-    key: &'c [u8; KEY_SIZE],
-    iv: [u8; 16],
-}
-
-impl<'c, const KEY_SIZE: usize> AesGmac<'c, KEY_SIZE> {
-    /// Constructs a new AES-GMAC cipher for message authentication.
-    /// The IV should be 12 bytes long (96 bits) and unique per message.
-    pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; 12]) -> Self {
-        let mut iv_full = [0u8; 16];
-        iv_full[..12].copy_from_slice(iv);
-        iv_full[15] = 2; // Initial counter value (same as GCM)
-        Self { key, iv: iv_full }
-    }
-}
-
-impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesGmac<'c, KEY_SIZE> {
-    const REQUIRES_PADDING: bool = false;
-
-    fn key(&self) -> &[u8] {
-        self.key
-    }
-
-    fn iv(&self) -> &[u8] {
-        &self.iv
-    }
-
-    fn chmod_bits(&self) -> u8 {
-        // GMAC uses the same hardware mode as GCM.
-        3
-    }
-
-    fn init_phase_blocking(&self, p: pac::aes::Aes) {
-        p.cr().modify(|w| w.set_en(true));
-        while !p.sr().read().ccf() {}
-        clear_ccf(p);
-    }
-
-    fn uses_gcm_phases(&self) -> bool {
-        true
-    }
-}
-
-impl<'c> CipherSized for AesGmac<'c, { 128 / 8 }> {}
-impl<'c> CipherSized for AesGmac<'c, { 256 / 8 }> {}
-impl<'c, const KEY_SIZE: usize> IVSized for AesGmac<'c, KEY_SIZE> {}
-impl<'c, const KEY_SIZE: usize> CipherAuthenticated<16> for AesGmac<'c, KEY_SIZE> {}
-
-/// AES-CCM Cipher Mode (Counter with CBC-MAC)
-pub struct AesCcm<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> {
-    key: &'c [u8; KEY_SIZE],
-    iv: [u8; 16],
-    aad_len: usize,
-}
-
-impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> AesCcm<'c, KEY_SIZE, IV_SIZE, TAG_SIZE> {
-    /// Constructs a new AES-CCM cipher for a cryptographic operation.
-    /// - `key`: The encryption key (16 or 32 bytes)
-    /// - `iv`: The nonce/IV (7-13 bytes)
-    /// - `aad_len`: Length of additional authenticated data (known in advance)
-    /// - `payload_len`: Length of payload data (known in advance)
-    pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; IV_SIZE], aad_len: usize, payload_len: usize) -> Self {
-        assert!(IV_SIZE >= 7 && IV_SIZE <= 13, "CCM IV must be 7-13 bytes");
-        assert!(
-            TAG_SIZE >= 4 && TAG_SIZE <= 16 && TAG_SIZE % 2 == 0,
-            "CCM tag must be 4-16 bytes and even"
-        );
-
-        // Format the B0 block for CCM.
-        let mut iv_full = [0u8; 16];
-        let l = 15 - IV_SIZE; // size of the length field
-        iv_full[0] = ((l - 1) as u8) | ((((TAG_SIZE - 2) / 2) as u8) << 3);
-        if aad_len > 0 {
-            iv_full[0] |= 0x40; // Adata flag
-        }
-        iv_full[1..1 + IV_SIZE].copy_from_slice(iv);
-
-        let payload_bytes = (payload_len as u64).to_be_bytes();
-        let offset = 16 - l;
-        iv_full[offset..].copy_from_slice(&payload_bytes[8 - l..]);
-
-        Self {
-            key,
-            iv: iv_full,
-            aad_len,
-        }
-    }
-}
-
-impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> Cipher<'c>
-    for AesCcm<'c, KEY_SIZE, IV_SIZE, TAG_SIZE>
-{
-    const REQUIRES_PADDING: bool = false;
-
-    fn key(&self) -> &[u8] {
-        self.key
-    }
-
-    fn iv(&self) -> &[u8] {
-        &self.iv
-    }
-
-    fn chmod_bits(&self) -> u8 {
-        4
-    }
-
-    fn init_phase_blocking(&self, p: pac::aes::Aes) {
-        p.cr().modify(|w| w.set_en(true));
-        while !p.sr().read().ccf() {}
-        clear_ccf(p);
-    }
-
-    fn uses_gcm_phases(&self) -> bool {
-        true
-    }
-
-    fn is_ccm_mode(&self) -> bool {
-        true
-    }
-
-    fn ccm_aad_header(&self) -> ([u8; 10], usize) {
-        let mut header = [0u8; 10];
-        let len = if self.aad_len == 0 {
-            0
-        } else if self.aad_len < (1 << 16) - (1 << 8) {
-            header[..2].copy_from_slice(&(self.aad_len as u16).to_be_bytes());
-            2
-        } else if (self.aad_len as u64) < (1u64 << 32) {
-            header[..2].copy_from_slice(&[0xff, 0xfe]);
-            header[2..6].copy_from_slice(&(self.aad_len as u32).to_be_bytes());
-            6
-        } else {
-            header[..2].copy_from_slice(&[0xff, 0xff]);
-            header[2..10].copy_from_slice(&(self.aad_len as u64).to_be_bytes());
-            10
-        };
-        (header, len)
-    }
-}
-
-impl<'c, const IV_SIZE: usize, const TAG_SIZE: usize> CipherSized for AesCcm<'c, { 128 / 8 }, IV_SIZE, TAG_SIZE> {}
-impl<'c, const IV_SIZE: usize, const TAG_SIZE: usize> CipherSized for AesCcm<'c, { 256 / 8 }, IV_SIZE, TAG_SIZE> {}
-impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> IVSized
-    for AesCcm<'c, KEY_SIZE, IV_SIZE, TAG_SIZE>
-{
-}
-impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> CipherAuthenticated<TAG_SIZE>
-    for AesCcm<'c, KEY_SIZE, IV_SIZE, TAG_SIZE>
-{
-}
-
-/// Stores the state of the AES peripheral for a cipher operation.
-#[derive(Clone)]
-pub struct Context<'c, C: Cipher<'c>> {
-    /// The cipher configuration
-    pub cipher: &'c C,
-    /// Encryption or decryption direction
-    pub dir: Direction,
-    /// Whether the last block has been processed
-    pub last_block_processed: bool,
-    /// Whether this is a GCM/CCM authenticated mode
-    pub is_gcm_ccm: bool,
-    /// Whether the header (AAD) has been processed
-    pub header_processed: bool,
-    /// Total length of additional authenticated data
-    pub header_len: u64,
-    /// Total length of payload data
-    pub payload_len: u64,
-    /// Buffer for partial AAD blocks
-    pub aad_buffer: [u8; 16],
-    /// Number of bytes in the AAD buffer
-    pub aad_buffer_len: usize,
-    /// Control register state
-    pub cr: u32,
-    /// Initialization vector state
-    pub iv: [u32; 4],
-    /// Suspend registers for GCM/CCM
-    pub suspr: [u32; 8],
 }
 
 // Instance plumbing (register access, shared by all AES peripherals)
@@ -618,6 +207,15 @@ pub(crate) fn read_out_block(p: pac::aes::Aes, block: &mut [u8]) {
     }
 }
 
+/// Run the ECB/CBC decryption-key derivation (RM key-derivation sequence),
+/// blocking until it completes. The key must already be loaded.
+pub(crate) fn derive_key(p: pac::aes::Aes) {
+    p.cr().modify(|w| w.set_mode(Mode::from_bits(1)));
+    p.cr().modify(|w| w.set_en(true));
+    while !p.sr().read().ccf() {}
+    clear_ccf(p);
+}
+
 // State machine (shared). The blocking init-phase wait is the only hardware
 // wait these entry points perform; async drivers reuse `setup`/`make_context`
 // and the low-level helpers above with their own wait strategy.
@@ -633,23 +231,28 @@ where
     // Clear the padding length. NPBLB is only written when a final partial
     // block needs it, but the hardware keeps the last value, so a leftover
     // count from an earlier operation would corrupt this one's tag.
+    #[cfg(not(any(aes_v1, aes_f7)))]
     p.cr().modify(|w| w.set_npblb(0));
 
     // Data type (NO_SWAP) and key size.
     p.cr()
         .modify(|w| w.set_datatype(Datatype::from_bits(cipher.datatype())));
     let keysize = cipher.key_size();
+    #[cfg(not(aes_v1))]
     p.cr().modify(|w| w.set_keysize(keysize == KeySize::Bits256));
+    #[cfg(aes_v1)]
+    assert!(keysize == KeySize::Bits128, "aes_v1 only takes 128-bit keys");
 
     // Direction.
     p.cr().modify(|w| w.set_mode(Mode::from_bits(dir as u8)));
 
     // Cipher mode (CHMOD).
-    cipher.set_mode(p);
+    set_chmod(p, cipher.chmod_bits());
 
     let is_gcm_ccm = cipher.uses_gcm_phases();
 
     // For GCM/CCM, select the init phase BEFORE loading the key.
+    #[cfg(not(aes_v1))]
     if is_gcm_ccm {
         p.cr().modify(|w| w.set_gcmph(Gcmph::from_bits(0)));
     }
@@ -663,13 +266,16 @@ where
             load_iv(p, cipher.iv());
         }
     } else if needs_key_prep {
-        // ECB/CBC decryption: key preparation, then IV. Key derivation is a
-        // one-shot hardware step; it is polled even on the async path.
+        // ECB/CBC decryption: key derivation, then IV. Key derivation is a
+        // one-shot hardware step; it is polled even on the async path. CTR
+        // does not need it.
         load_key(p, cipher.key());
-        cipher.prepare_key(p, dir);
+        if matches!(cipher.chmod_bits(), 0 | 1) {
+            derive_key(p);
+        }
 
         p.cr().modify(|w| w.set_mode(Mode::from_bits(dir as u8)));
-        cipher.set_mode(p);
+        set_chmod(p, cipher.chmod_bits());
 
         if !cipher.iv().is_empty() {
             load_iv(p, cipher.iv());
@@ -714,16 +320,19 @@ where
     let is_gcm_ccm = setup(p, cipher, dir);
 
     // Init phase for GCM/CCM (computes the hash key H); otherwise just enable.
+    // GCMPH was set to init in `setup` before key loading, so enabling starts
+    // the H calculation; wait for it and clear the flag.
+    p.cr().modify(|w| w.set_en(true));
     if is_gcm_ccm {
-        cipher.init_phase_blocking(p);
-    } else {
-        p.cr().modify(|w| w.set_en(true));
+        while !p.sr().read().ccf() {}
+        clear_ccf(p);
     }
 
     make_context(p, cipher, dir, is_gcm_ccm)
 }
 
 /// Process authenticated additional data (AAD) for GCM/CCM modes (blocking).
+#[cfg(not(aes_v1))]
 pub(crate) fn op_aad<'c, C, const TAG_SIZE: usize>(
     p: pac::aes::Aes,
     ctx: &mut Context<'c, C>,
@@ -804,6 +413,7 @@ where
 }
 
 /// Switch to the payload phase for GCM/CCM (shared by blocking and async).
+#[cfg(not(aes_v1))]
 pub(crate) fn begin_payload<'c, C>(p: pac::aes::Aes, ctx: &mut Context<'c, C>)
 where
     C: Cipher<'c>,
@@ -814,6 +424,7 @@ where
             ctx.header_processed = true;
         }
         p.cr().modify(|w| w.set_gcmph(Gcmph::from_bits(2)));
+        #[cfg(not(aes_f7))]
         p.cr().modify(|w| w.set_npblb(0));
         if header_was_skipped {
             p.cr().modify(|w| w.set_en(true));
@@ -822,7 +433,8 @@ where
 }
 
 /// Set `NPBLB` for a final partial payload block, per GCM/CCM rules.
-pub(crate) fn set_final_npblb<'c, C>(p: pac::aes::Aes, ctx: &Context<'c, C>, remaining: usize)
+#[cfg(not(aes_v1))]
+pub(crate) fn set_final_npblb<'c, C>(p: pac::aes::Aes, ctx: &Context<'c, C>, remaining: usize) -> Result<(), Error>
 where
     C: Cipher<'c>,
 {
@@ -833,8 +445,35 @@ where
         true
     };
     if should_set_npblb {
+        // aes_f7 has the GCM/CCM phases but no NPBLB field, so the hardware
+        // always authenticates the whole padded block. The cases that need the
+        // padding masked out are rejected instead of returning a wrong tag.
+        #[cfg(aes_f7)]
+        {
+            let _ = remaining;
+            return Err(Error::ConfigError);
+        }
+        #[cfg(not(aes_f7))]
         p.cr().modify(|w| w.set_npblb((16 - remaining) as u8));
     }
+    let _ = p;
+    Ok(())
+}
+
+// aes_v1 has neither the GCM/CCM phases nor NPBLB: a final partial block is
+// only ever a CTR one, which the zero padding of the caller takes care of.
+#[cfg(aes_v1)]
+pub(crate) fn begin_payload<'c, C>(_p: pac::aes::Aes, _ctx: &mut Context<'c, C>)
+where
+    C: Cipher<'c>,
+{
+}
+#[cfg(aes_v1)]
+pub(crate) fn set_final_npblb<'c, C>(_p: pac::aes::Aes, _ctx: &Context<'c, C>, _remaining: usize) -> Result<(), Error>
+where
+    C: Cipher<'c>,
+{
+    Ok(())
 }
 
 /// Process payload data (blocking).
@@ -883,7 +522,7 @@ where
         let mut partial_block = [0u8; 16];
         partial_block[..remaining].copy_from_slice(&input[processed..]);
 
-        set_final_npblb(p, ctx, remaining);
+        set_final_npblb(p, ctx, remaining)?;
 
         write_block(p, &partial_block)?;
         read_block_blocking(p, &mut partial_block)?;
@@ -901,6 +540,7 @@ where
 
 /// Write the GCM length block (AAD bits || payload bits, big-endian) or, for
 /// CCM, enable the peripheral to trigger the final tag computation.
+#[cfg(not(aes_v1))]
 pub(crate) fn begin_final<'c, C>(p: pac::aes::Aes, ctx: &Context<'c, C>)
 where
     C: Cipher<'c>,
@@ -928,6 +568,9 @@ pub(crate) fn op_finish<'c, C>(p: pac::aes::Aes, ctx: Context<'c, C>) -> Result<
 where
     C: Cipher<'c>,
 {
+    #[cfg(aes_v1)]
+    let _ = &ctx;
+    #[cfg(not(aes_v1))]
     if ctx.is_gcm_ccm {
         begin_final(p, &ctx);
 
@@ -939,9 +582,9 @@ where
         clear_ccf(p);
         p.cr().modify(|w| w.set_en(false));
 
-        Ok(Some(tag))
-    } else {
-        p.cr().modify(|w| w.set_en(false));
-        Ok(None)
+        return Ok(Some(tag));
     }
+
+    p.cr().modify(|w| w.set_en(false));
+    Ok(None)
 }

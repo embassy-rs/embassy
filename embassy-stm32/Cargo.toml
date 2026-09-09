@@ -165,6 +165,7 @@ embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", fe
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal", default-features = false }
 xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", features = ["async", "packet-buf-align-8"] }
 embassy-crypto = { version = "0.1.0", path = "../embassy-crypto", features = ["large-contexts"] }
+crypto-bigint = { version = "0.7.5", default-features = false, optional = true }
 embassy-ptp-driver = { version = "0.1.0", path = "../embassy-ptp-driver", optional = true }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg" }
@@ -295,6 +296,33 @@ embassy-crypto-aes256-cbc = []
 embassy-crypto-aes256-ctr = []
 embassy-crypto-aes256-gcm = []
 embassy-crypto-aes256-ccm = []
+## Serve the `embassy-crypto-aes*` operations with the SAES peripheral instead of
+## the AES one, on chips that have both. The SAES needs the RNG running: with
+## `embassy-crypto-rng` the driver starts it, otherwise keep an
+## [`Rng`](crate::rng::Rng) alive. See [`saes`](crate::saes).
+embassy-crypto-saes = []
+## Register the hardware driver for random numbers, served by the RNG. See the
+## `embassy-crypto` documentation. The driver takes the peripheral over and keeps
+## it running.
+embassy-crypto-rng = []
+## Register the hardware driver for P-256 arithmetic, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p256-arith = ["dep:crypto-bigint"]
+## Register the hardware driver for P-256 ECDH, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p256-ecdh = ["dep:crypto-bigint"]
+## Register the hardware driver for P-256 ECDSA, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p256-ecdsa = ["dep:crypto-bigint"]
+## Register the hardware driver for P-384 arithmetic, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p384-arith = ["dep:crypto-bigint"]
+## Register the hardware driver for P-384 ECDH, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p384-ecdh = ["dep:crypto-bigint"]
+## Register the hardware driver for P-384 ECDSA, served by the PKA. See the
+## `embassy-crypto` documentation and [`pka`](crate::pka) for the RNG dependency.
+embassy-crypto-p384-ecdsa = ["dep:crypto-bigint"]
 
 exti = []
 low-power = [ "time" ]

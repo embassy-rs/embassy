@@ -84,7 +84,7 @@ pub(crate) mod dflt;
 pub mod adc;
 #[cfg(adf)]
 pub mod adf;
-#[cfg(any(aes_v2, aes_v3b))]
+#[cfg(aes)]
 pub mod aes;
 #[cfg(backup_sram)]
 pub mod backup_sram;
@@ -94,7 +94,7 @@ pub mod can;
 pub mod comp;
 #[cfg(all(cordic, not(stm32c5)))]
 pub mod cordic;
-#[cfg(any(aes_v2, aes_v3b, saes_n6))]
+#[cfg(any(aes, saes))]
 mod crypto;
 
 #[cfg(not(any(comp_u5, comp_v1, comp_v2, comp_u0)))]
@@ -206,7 +206,7 @@ pub mod npu;
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
-#[cfg(any(pka_v1a, pka_n6))]
+#[cfg(pka)]
 pub mod pka;
 #[cfg(pssi)]
 pub mod pssi;
@@ -220,7 +220,7 @@ pub mod rif;
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
 pub mod rtc;
-#[cfg(any(saes_v1a, saes_n6))]
+#[cfg(saes)]
 pub mod saes;
 #[cfg(sai)]
 pub mod sai;
