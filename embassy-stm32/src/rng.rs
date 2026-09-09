@@ -572,3 +572,77 @@ foreach_interrupt!(
         }
     };
 );
+
+/// `embassy-crypto` random number driver served by the RNG, behind the
+/// `embassy-crypto-rng` feature.
+///
+/// The driver takes the peripheral over on first use and keeps it running:
+/// the PKA needs the RNG for its own initialization, and restarting the RNG
+/// for every draw would discard its conditioning.
+#[cfg(feature = "embassy-crypto-rng")]
+pub(crate) mod driver {
+    use embassy_crypto::Error as CryptoError;
+    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+    use embassy_sync::mutex::Mutex;
+
+    use super::{MAX_RESET_RETRIES, Rng};
+
+    foreach_peripheral!(
+        (rng, $inst:ident) => {
+            type Instance = crate::peripherals::$inst;
+        };
+    );
+
+    static DRIVER: Mutex<CriticalSectionRawMutex, Option<Rng<'static, Instance>>> = Mutex::new(None);
+
+    /// Runs `f` on the RNG, starting it first if needed.
+    pub(crate) fn with_rng<R>(f: impl FnOnce(&mut Rng<'static, Instance>) -> R) -> R {
+        let mut driver = DRIVER.try_lock().expect("the RNG is in use");
+        let rng = driver.get_or_insert_with(|| {
+            let peri = unsafe { Instance::steal() };
+            #[cfg(rng_v1)]
+            {
+                Rng::new_inner(peri)
+            }
+            #[cfg(not(rng_v1))]
+            {
+                Rng::new_inner(peri, super::RngConfig::default())
+            }
+        });
+        f(rng)
+    }
+
+    /// Starts the RNG if it is not running yet.
+    pub(crate) fn ensure_running() {
+        with_rng(|_| ());
+    }
+
+    struct Driver;
+
+    impl embassy_crypto::driver::Rng for Driver {
+        fn fill_bytes(buf: &mut [u8]) -> Result<(), CryptoError> {
+            with_rng(|rng| {
+                let mut retries = 0;
+                for chunk in buf.chunks_mut(4) {
+                    let word = loop {
+                        if let Some(word) = rng.poll_word() {
+                            // The reference manual asks for a zero word to be treated as an error.
+                            if word != 0 {
+                                break word;
+                            }
+                        }
+                        if retries >= MAX_RESET_RETRIES {
+                            return Err(CryptoError::HardwareError);
+                        }
+                        retries += 1;
+                        rng.reset();
+                    };
+                    chunk.copy_from_slice(&word.to_ne_bytes()[..chunk.len()]);
+                }
+                Ok(())
+            })
+        }
+    }
+
+    embassy_crypto::rng_impl!(Driver);
+}
