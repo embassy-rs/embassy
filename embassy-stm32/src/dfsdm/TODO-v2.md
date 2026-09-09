@@ -97,7 +97,7 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   `extremes` usable while the regular ring lives). Delete the `FilterDma` trait
   (types.rs:796) and the free `new_regular/new_injected` constructors;
   `data_register()` becomes an inherent fn per half.
-- [ ] **F5 — TODO.md break section correction.** Break-enable bits span
+- [ ] **F5 — Break-enable bit map.** Break-enable bits span
   TIM1_AF1 (BKDF1BK0E→BRK1←break0), TIM1_AF2 (BK2DF1BK1E→BRK2←break1),
   TIM8_AF1 (BKDF1BK2E→BRK1←break2), TIM8_AF2 (BK2DF1BK3E→BRK2←break3),
   TIM15/16/17_AF1 (BKDF1BKE→BRK←break0/1/2 per timer). DFSDM2 break[0] →
@@ -164,7 +164,8 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   `FilterParameters::recommended_shift()` (derive-by-default, raw override);
   rename `read_maxima`/`read_minima` → read-and-clear variants (or a combined
   `Extremes` snapshot); consider `regular`/`injected` over `reg`/`inj`;
-  `get_cnv_cnt` → `conversion_time()` with liveness doc. Goal: no TRM needed for
+  `get_cnv_cnt` → `conversion_time()` with liveness doc; expose public i32
+  sign-extension (u32-vs-i32 + typed value accessors). Goal: no TRM needed for
   the common paths.
 - [ ] **FT16 — Newtype audit.** Dedicated unit newtypes (`CkoutDivider`,
   `AnalogWatchdogOsr`→`AwdFilterOsr`) are good and stay — they hide the
@@ -195,8 +196,7 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   - Ring reads: `Err(Overrun)` on ring lapping (auto-reset inside ring core)
     AND on ROVRF/JOVRF pre-check (catches filter-side starvation the lapping
     check cannot see). Map ring `DmaUnsynced` → `Error::PeripheralError`.
-  - Tick TODO.md register list items: ROVRIE, JOVRIE, ROVRF, JOVRF, CLRROVRF,
-    CLRJOVRF.
+  - Add ROVRIE/JOVRIE/ROVRF/JOVRF/CLRROVRF/CLRJOVRF accessors + handling.
 - [ ] **FT2 — Ring read API on RingBufferedFilter** (mirrors
   `adc/ringbuffered.rs`, wake = DMA HTIF/TCIF via `set_waker`):
   - `read(&mut buf) -> Result<usize, Error>` async (`read_exact`-based; ring
@@ -332,7 +332,8 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 - [ ] **D6 — Continuous-mode restart quirk**: writing CR1 with RCONT=1 while a
   continuous conversion runs restarts it from the next conversion cycle.
 - [ ] **D7 — Filter disable semantics**: DFEN=0 immediately stops conversions
-  and resets ISR + AWSR (all flags cleared).
+  and resets ISR + AWSR (all flags cleared). Doc whether RDATAR/JDATAR retain
+  their last value for a post-shutdown read.
 - [ ] **D8 — Ring data layout doc**: one u32 word per sample =
   `RDATA[23:8] | RPEND | RDATACH` (JDATA analog); channel byte is load-bearing
   for scan demux; DFSDM reads are 32-bit only (no DMA field extraction).
@@ -388,6 +389,11 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 12. types.rs:1389 `total_gain().unwrap()` — invariant documented; verify
     try_new covers it once.
 13. Copy-paste docstrings on CKAB fns — fix with FT12.
+14. Reflect: rename `read_regular`/`read_injected` → `read_regular_it`/
+    `read_injected_it`? (distinguishes the interrupt-based async read from
+    ring/blocking reads; decide during FT1/FT15, not a directive).
+15. Reflect: `DFSDMEN` (peripheral enable) currently lives on `DfsdmCommon` —
+    consider whether the global enable belongs on the `Dfsdm` wrapper instead.
 
 ---
 
@@ -405,7 +411,8 @@ Summary (each blocks DFSDM availability for whole chip groups):
   ADC); L47x/48x (`dfsdm1_v1_0_Cube`) → `DFSDM_8CH_4FLT_TRG3`.
 - [ ] `trigger.rs`: `H7(A|B)3` → `H7(A|B)` (H7B0); fix F413 JTRG signal names
   (orphaned footnote digits — resolved mapping in stm32-data TODO SD5;
-  RM0430 has no MMS2).
+  RM0430 has no MMS2); renumber 3-bit-JEXTSEL chips' trigger suffixes to the
+  compact 0-7 encoding (F412/F413/L4 classic — stm32-data TODO SD10).
 - [ ] Regenerate data + metapac; after this, the variants exist for
   F777-779, L451/452/462, L471/475/476/485/486, L552/562, H7B0.
 
@@ -446,7 +453,8 @@ Summary (each blocks DFSDM availability for whole chip groups):
 
 ## HOUSEKEEPING
 
-- [ ] This file replaces the old register checklist (old TODO.md content).
+- [x] Old register-checklist scratchpad (`TODO.md`) removed — content subsumed
+  into this file.
 - [x] `TODO refactoring.md` / `liveness_and_shutdown.md` removed —
   keep-alive items absorbed above (ownership F3/F4, overrun FT1, liveness
   FT3/FT8/D1); the rest (SplitFilter type layer, software latch atomics, CAS
