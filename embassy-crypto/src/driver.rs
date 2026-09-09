@@ -157,11 +157,11 @@ unitrait::unitrait! {
     #[symbol_prefix = "_embassy_crypto_rng"]
     pub trait Rng {
         /// Fill `buf` with cryptographically secure random bytes.
-        fn fill_bytes(buf: &mut [u8]) -> Result<(), Error>;
+        fn fill_bytes(buf: &mut [u8]);
     }
 
     /// The global [`Rng`] implementation.
-    pub struct RngImpl;
+    pub(crate) struct RngImpl;
 
     /// Register the global [`Rng`] implementation.
     macro rng_impl(path = $crate::driver);

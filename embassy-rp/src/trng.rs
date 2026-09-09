@@ -509,7 +509,7 @@ mod driver {
     struct Driver;
 
     impl embassy_crypto::driver::Rng for Driver {
-        fn fill_bytes(buf: &mut [u8]) -> Result<(), embassy_crypto::Error> {
+        fn fill_bytes(buf: &mut [u8]) {
             // Same as `Trng::new`, without the interrupt binding the blocking path does not need.
             let mut trng: Trng<'static, TRNG> = Trng {
                 phantom: PhantomData,
@@ -517,7 +517,6 @@ mod driver {
             };
             trng.reset_rng();
             trng.blocking_fill_bytes(buf);
-            Ok(())
         }
     }
 

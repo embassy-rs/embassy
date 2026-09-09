@@ -372,7 +372,7 @@ fn sign<const N: usize, const L: usize>(
         for _ in 0..SIGN_ATTEMPTS {
             // Rejection sampling into `1..n`.
             loop {
-                embassy_crypto::driver::RngImpl::fill_bytes(&mut nonce)?;
+                embassy_crypto::rng_fill_bytes(&mut nonce);
                 if ct_in_range(&nonce, curve.order) {
                     break;
                 }
