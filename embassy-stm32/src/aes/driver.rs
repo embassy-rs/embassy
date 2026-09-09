@@ -1,23 +1,57 @@
+//! `embassy-crypto` AES drivers, one per `embassy-crypto-aes*` feature, served by the AES
+//! peripheral or, with the `embassy-crypto-saes` feature, by the SAES one.
+//!
+//! Both peripherals expose the same blocking cipher flow, so the drivers are written once
+//! against whichever of the two is selected. Nothing is registered for what the selected
+//! peripheral cannot do: the 256-bit key size and the authenticated modes on `aes_v1`, CTR
+//! and the authenticated modes on `saes_v1b`.
+
 use embassy_crypto::Error as CryptoError;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::Mutex;
+use embassy_sync::mutex::{Mutex, MutexGuard};
 
-use super::{Aes, AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, Direction};
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
+use super::AesCtr;
+use super::{AesCbc, AesEcb, Direction};
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
+use super::{AesCcm, AesGcm};
 #[cfg(any(aes_v3a, aes_v3b))]
 use crate::mode::Blocking;
 use crate::suspend::ResumablePeripheral;
 
+#[cfg(all(feature = "embassy-crypto-saes", not(saes)))]
+compile_error!("the `embassy-crypto-saes` feature needs a chip with a SAES peripheral");
+
+#[cfg(not(feature = "embassy-crypto-saes"))]
 foreach_peripheral!(
     (aes, $inst:ident) => {
-        #[cfg(aes_v2)]
-        type BlockingAes = Aes<'static, crate::peripherals::$inst>;
+        #[cfg(any(aes_v1, aes_v2, aes_f7))]
+        type BlockingAes = super::Aes<'static, crate::peripherals::$inst>;
         #[cfg(any(aes_v3a, aes_v3b))]
-        type BlockingAes = Aes<'static, crate::peripherals::$inst, Blocking>;
+        type BlockingAes = super::Aes<'static, crate::peripherals::$inst, Blocking>;
 
         static DRIVER: Mutex<CriticalSectionRawMutex, ResumablePeripheral<BlockingAes>> =
             Mutex::new(ResumablePeripheral::new_suspended(unsafe { crate::peripherals::$inst::steal() }));
     };
 );
+
+#[cfg(feature = "embassy-crypto-saes")]
+foreach_peripheral!(
+    (saes, $inst:ident) => {
+        type BlockingAes = crate::saes::Saes<'static, crate::peripherals::$inst, Blocking>;
+
+        static DRIVER: Mutex<CriticalSectionRawMutex, ResumablePeripheral<BlockingAes>> =
+            Mutex::new(ResumablePeripheral::new_suspended(unsafe { crate::peripherals::$inst::steal() }));
+    };
+);
+
+/// Takes the peripheral, which is clocked for as long as the guard's borrow lives.
+fn lock() -> MutexGuard<'static, CriticalSectionRawMutex, ResumablePeripheral<BlockingAes>> {
+    // The SAES fetches random numbers from the RNG whenever it is reset.
+    #[cfg(all(feature = "embassy-crypto-saes", feature = "embassy-crypto-rng"))]
+    crate::rng::driver::ensure_running();
+    DRIVER.try_lock().expect("the AES is in use")
+}
 
 fn map_error(error: super::Error) -> CryptoError {
     match error {
@@ -66,6 +100,7 @@ where
     aes.finish_blocking(context).map(|_| ()).map_err(map_error)
 }
 
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 fn run_authenticated<'c, C, const TAG_SIZE: usize>(
     aes: &mut BlockingAes,
     cipher: &'c C,
@@ -101,6 +136,7 @@ where
     Ok(())
 }
 
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 macro_rules! define_gcm_runner {
     ($name:ident, $key_size:expr) => {
         fn $name(
@@ -120,9 +156,12 @@ macro_rules! define_gcm_runner {
     };
 }
 
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 define_gcm_runner!(run_gcm128, 16);
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 define_gcm_runner!(run_gcm256, 32);
 
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 macro_rules! run_ccm {
     ($key_size:expr, $tag_size:expr, $aes:expr, $key:expr, $nonce:expr, $aad:expr, $input:expr, $output:expr, $tag:expr, $tag_output:expr, $direction:expr $(,)?) => {{
         match $nonce.len() {
@@ -166,6 +205,7 @@ macro_rules! run_ccm {
     }};
 }
 
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 macro_rules! aes_ccm_dispatch {
     ($key_size:literal, $aes:expr, $ctx:expr, $nonce:expr, $aad:expr, $input:expr, $output:expr, $tag:expr, $direction:expr, encrypt) => {
         match $tag.len() {
@@ -417,7 +457,7 @@ impl embassy_crypto::driver::Aes128Ecb for AesDriver {
         if blocks.is_empty() {
             return;
         }
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let cipher = AesEcb::new(ctx);
         let len = blocks.len();
@@ -436,7 +476,7 @@ impl embassy_crypto::driver::Aes128Ecb for AesDriver {
         if blocks.is_empty() {
             return;
         }
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let cipher = AesEcb::new(ctx);
         let len = blocks.len();
@@ -453,6 +493,7 @@ impl embassy_crypto::driver::Aes128Ecb for AesDriver {
 }
 
 #[cfg(feature = "embassy-crypto-aes256-ecb")]
+#[cfg(not(aes_v1))]
 impl embassy_crypto::driver::Aes256Ecb for AesDriver {
     type Context = [u8; 32];
 
@@ -464,7 +505,7 @@ impl embassy_crypto::driver::Aes256Ecb for AesDriver {
         if blocks.is_empty() {
             return;
         }
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let cipher = AesEcb::new(ctx);
         let len = blocks.len();
@@ -483,7 +524,7 @@ impl embassy_crypto::driver::Aes256Ecb for AesDriver {
         if blocks.is_empty() {
             return;
         }
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let cipher = AesEcb::new(ctx);
         let len = blocks.len();
@@ -500,6 +541,7 @@ impl embassy_crypto::driver::Aes256Ecb for AesDriver {
 }
 
 #[cfg(feature = "embassy-crypto-aes128-gcm")]
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 impl embassy_crypto::driver::Aes128Gcm for AesDriver {
     type Context = [u8; 16];
 
@@ -514,7 +556,7 @@ impl embassy_crypto::driver::Aes128Gcm for AesDriver {
         buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &mut [u8; 16],
     ) -> Result<(), CryptoError> {
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let len = buffer.len();
         let (in_ptr, out_ptr) = buffer.into_raw();
@@ -530,7 +572,7 @@ impl embassy_crypto::driver::Aes128Gcm for AesDriver {
         buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &[u8; 16],
     ) -> Result<(), CryptoError> {
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let len = buffer.len();
         let (in_ptr, out_ptr) = buffer.into_raw();
@@ -541,6 +583,7 @@ impl embassy_crypto::driver::Aes128Gcm for AesDriver {
 }
 
 #[cfg(feature = "embassy-crypto-aes256-gcm")]
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 impl embassy_crypto::driver::Aes256Gcm for AesDriver {
     type Context = [u8; 32];
 
@@ -555,7 +598,7 @@ impl embassy_crypto::driver::Aes256Gcm for AesDriver {
         buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &mut [u8; 16],
     ) -> Result<(), CryptoError> {
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let len = buffer.len();
         let (in_ptr, out_ptr) = buffer.into_raw();
@@ -571,7 +614,7 @@ impl embassy_crypto::driver::Aes256Gcm for AesDriver {
         buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &[u8; 16],
     ) -> Result<(), CryptoError> {
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let len = buffer.len();
         let (in_ptr, out_ptr) = buffer.into_raw();
@@ -582,6 +625,7 @@ impl embassy_crypto::driver::Aes256Gcm for AesDriver {
 }
 
 #[cfg(feature = "embassy-crypto-aes128-ccm")]
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 impl embassy_crypto::driver::Aes128Ccm for AesDriver {
     type Context = [u8; 16];
 
@@ -596,7 +640,7 @@ impl embassy_crypto::driver::Aes128Ccm for AesDriver {
         buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &mut [u8],
     ) -> Result<(), CryptoError> {
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let len = buffer.len();
         let (in_ptr, out_ptr) = buffer.into_raw();
@@ -623,7 +667,7 @@ impl embassy_crypto::driver::Aes128Ccm for AesDriver {
         buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &[u8],
     ) -> Result<(), CryptoError> {
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let len = buffer.len();
         let (in_ptr, out_ptr) = buffer.into_raw();
@@ -645,6 +689,7 @@ impl embassy_crypto::driver::Aes128Ccm for AesDriver {
 }
 
 #[cfg(feature = "embassy-crypto-aes256-ccm")]
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 impl embassy_crypto::driver::Aes256Ccm for AesDriver {
     type Context = [u8; 32];
 
@@ -659,7 +704,7 @@ impl embassy_crypto::driver::Aes256Ccm for AesDriver {
         buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &mut [u8],
     ) -> Result<(), CryptoError> {
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let len = buffer.len();
         let (in_ptr, out_ptr) = buffer.into_raw();
@@ -686,7 +731,7 @@ impl embassy_crypto::driver::Aes256Ccm for AesDriver {
         buffer: embassy_crypto::driver::InOutBuf<'_, '_, u8>,
         tag: &[u8],
     ) -> Result<(), CryptoError> {
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let len = buffer.len();
         let (in_ptr, out_ptr) = buffer.into_raw();
@@ -724,7 +769,7 @@ impl embassy_crypto::driver::Aes128Cbc for AesDriver {
         if blocks.is_empty() {
             return;
         }
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let (key, iv) = ctx;
         let cipher = AesCbc::new(key, iv);
@@ -748,7 +793,7 @@ impl embassy_crypto::driver::Aes128Cbc for AesDriver {
         if blocks.is_empty() {
             return;
         }
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let (key, iv) = ctx;
         let cipher = AesCbc::new(key, iv);
@@ -770,6 +815,7 @@ impl embassy_crypto::driver::Aes128Cbc for AesDriver {
 }
 
 #[cfg(feature = "embassy-crypto-aes256-cbc")]
+#[cfg(not(aes_v1))]
 impl embassy_crypto::driver::Aes256Cbc for AesDriver {
     type EncryptContext = ([u8; 32], [u8; 16]);
     type DecryptContext = ([u8; 32], [u8; 16]);
@@ -786,7 +832,7 @@ impl embassy_crypto::driver::Aes256Cbc for AesDriver {
         if blocks.is_empty() {
             return;
         }
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let (key, iv) = ctx;
         let cipher = AesCbc::new(key, iv);
@@ -810,7 +856,7 @@ impl embassy_crypto::driver::Aes256Cbc for AesDriver {
         if blocks.is_empty() {
             return;
         }
-        let mut driver = DRIVER.try_lock().unwrap();
+        let mut driver = lock();
         let aes = &mut driver.borrow();
         let (key, iv) = ctx;
         let cipher = AesCbc::new(key, iv);
@@ -842,6 +888,7 @@ impl embassy_crypto::driver::Aes256Cbc for AesDriver {
 /// (NIST SP 800-38A). A run therefore stops where the low word would wrap, and
 /// the carry into the upper bits is applied by software before the next run.
 #[cfg(any(feature = "embassy-crypto-aes128-ctr", feature = "embassy-crypto-aes256-ctr"))]
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
 fn ctr_run_blocks(iv: &[u8; 16], blocks: usize) -> usize {
     let low = u32::from_be_bytes(iv[12..].try_into().unwrap());
     let until_wrap = u64::from(u32::MAX - low) + 1;
@@ -854,11 +901,13 @@ fn ctr_run_blocks(iv: &[u8; 16], blocks: usize) -> usize {
 
 /// Advance the 128-bit big-endian counter block by `blocks`.
 #[cfg(any(feature = "embassy-crypto-aes128-ctr", feature = "embassy-crypto-aes256-ctr"))]
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
 fn ctr_advance(iv: &mut [u8; 16], blocks: usize) {
     *iv = u128::from_be_bytes(*iv).wrapping_add(blocks as u128).to_be_bytes();
 }
 
 #[cfg(feature = "embassy-crypto-aes128-ctr")]
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
 fn ctr_block_in_place_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16], buffer: &mut [u8]) {
     let mut buffer = buffer;
     while buffer.len() >= 16 {
@@ -880,6 +929,7 @@ fn ctr_block_in_place_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16
 }
 
 #[cfg(feature = "embassy-crypto-aes128-ctr")]
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
 fn ctr_block_separate_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16], input: &[u8], output: &mut [u8]) {
     assert_eq!(input.len(), output.len());
     let mut input = input;
@@ -901,6 +951,8 @@ fn ctr_block_separate_16(aes: &mut BlockingAes, key: &[u8; 16], iv: &mut [u8; 16
 }
 
 #[cfg(feature = "embassy-crypto-aes256-ctr")]
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
+#[cfg(not(aes_v1))]
 fn ctr_block_in_place_32(aes: &mut BlockingAes, key: &[u8; 32], iv: &mut [u8; 16], buffer: &mut [u8]) {
     let mut buffer = buffer;
     while buffer.len() >= 16 {
@@ -922,6 +974,8 @@ fn ctr_block_in_place_32(aes: &mut BlockingAes, key: &[u8; 32], iv: &mut [u8; 16
 }
 
 #[cfg(feature = "embassy-crypto-aes256-ctr")]
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
+#[cfg(not(aes_v1))]
 fn ctr_block_separate_32(aes: &mut BlockingAes, key: &[u8; 32], iv: &mut [u8; 16], input: &[u8], output: &mut [u8]) {
     assert_eq!(input.len(), output.len());
     let mut input = input;
@@ -943,6 +997,7 @@ fn ctr_block_separate_32(aes: &mut BlockingAes, key: &[u8; 32], iv: &mut [u8; 16
 }
 
 #[cfg(feature = "embassy-crypto-aes128-ctr")]
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
 impl embassy_crypto::driver::Aes128Ctr for AesDriver {
     type Context = ([u8; 16], [u8; 16], [u8; 16], u8);
     // (key, iv/counter, partial_keystream_buffer, partial_len)
@@ -972,7 +1027,7 @@ impl embassy_crypto::driver::Aes128Ctr for AesDriver {
             // 2. Process full 16-byte blocks via hardware.
             let full_len = (buf.len() / 16) * 16;
             if full_len > 0 {
-                let mut driver = DRIVER.try_lock().unwrap();
+                let mut driver = lock();
                 let aes = &mut driver.borrow();
                 ctr_block_in_place_16(aes, key, iv, &mut buf[..full_len]);
             }
@@ -980,7 +1035,7 @@ impl embassy_crypto::driver::Aes128Ctr for AesDriver {
             // 3. Generate one extra keystream block for any trailing partial data.
             let tail = &mut buf[full_len..];
             if !tail.is_empty() {
-                let mut driver = DRIVER.try_lock().unwrap();
+                let mut driver = lock();
                 let aes = &mut driver.borrow();
                 let mut keystream = [0u8; 16];
                 // Advances the counter, unlike a bare hardware run would.
@@ -1011,7 +1066,7 @@ impl embassy_crypto::driver::Aes128Ctr for AesDriver {
             // 2. Process full 16-byte blocks via hardware.
             let full_len = (input.len() / 16) * 16;
             if full_len > 0 {
-                let mut driver = DRIVER.try_lock().unwrap();
+                let mut driver = lock();
                 let aes = &mut driver.borrow();
                 ctr_block_separate_16(aes, key, iv, &input[..full_len], &mut output[..full_len]);
             }
@@ -1020,7 +1075,7 @@ impl embassy_crypto::driver::Aes128Ctr for AesDriver {
             let tail_in = &input[full_len..];
             let tail_out = &mut output[full_len..];
             if !tail_in.is_empty() {
-                let mut driver = DRIVER.try_lock().unwrap();
+                let mut driver = lock();
                 let aes = &mut driver.borrow();
                 let mut keystream = [0u8; 16];
                 // Advances the counter, unlike a bare hardware run would.
@@ -1037,6 +1092,8 @@ impl embassy_crypto::driver::Aes128Ctr for AesDriver {
 }
 
 #[cfg(feature = "embassy-crypto-aes256-ctr")]
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
+#[cfg(not(aes_v1))]
 impl embassy_crypto::driver::Aes256Ctr for AesDriver {
     type Context = ([u8; 32], [u8; 16], [u8; 16], u8);
 
@@ -1063,14 +1120,14 @@ impl embassy_crypto::driver::Aes256Ctr for AesDriver {
 
             let full_len = (buf.len() / 16) * 16;
             if full_len > 0 {
-                let mut driver = DRIVER.try_lock().unwrap();
+                let mut driver = lock();
                 let aes = &mut driver.borrow();
                 ctr_block_in_place_32(aes, key, iv, &mut buf[..full_len]);
             }
 
             let tail = &mut buf[full_len..];
             if !tail.is_empty() {
-                let mut driver = DRIVER.try_lock().unwrap();
+                let mut driver = lock();
                 let aes = &mut driver.borrow();
                 let mut keystream = [0u8; 16];
                 // Advances the counter, unlike a bare hardware run would.
@@ -1099,7 +1156,7 @@ impl embassy_crypto::driver::Aes256Ctr for AesDriver {
 
             let full_len = (input.len() / 16) * 16;
             if full_len > 0 {
-                let mut driver = DRIVER.try_lock().unwrap();
+                let mut driver = lock();
                 let aes = &mut driver.borrow();
                 ctr_block_separate_32(aes, key, iv, &input[..full_len], &mut output[..full_len]);
             }
@@ -1107,7 +1164,7 @@ impl embassy_crypto::driver::Aes256Ctr for AesDriver {
             let tail_in = &input[full_len..];
             let tail_out = &mut output[full_len..];
             if !tail_in.is_empty() {
-                let mut driver = DRIVER.try_lock().unwrap();
+                let mut driver = lock();
                 let aes = &mut driver.borrow();
                 let mut keystream = [0u8; 16];
                 // Advances the counter, unlike a bare hardware run would.
@@ -1125,20 +1182,29 @@ impl embassy_crypto::driver::Aes256Ctr for AesDriver {
 #[cfg(feature = "embassy-crypto-aes128-ecb")]
 embassy_crypto::aes128_ecb_impl!(AesDriver);
 #[cfg(feature = "embassy-crypto-aes256-ecb")]
+#[cfg(not(aes_v1))]
 embassy_crypto::aes256_ecb_impl!(AesDriver);
 #[cfg(feature = "embassy-crypto-aes128-cbc")]
 embassy_crypto::aes128_cbc_impl!(AesDriver);
 #[cfg(feature = "embassy-crypto-aes256-cbc")]
+#[cfg(not(aes_v1))]
 embassy_crypto::aes256_cbc_impl!(AesDriver);
 #[cfg(feature = "embassy-crypto-aes128-gcm")]
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 embassy_crypto::aes128_gcm_impl!(AesDriver);
 #[cfg(feature = "embassy-crypto-aes256-gcm")]
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 embassy_crypto::aes256_gcm_impl!(AesDriver);
 #[cfg(feature = "embassy-crypto-aes128-ccm")]
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 embassy_crypto::aes128_ccm_impl!(AesDriver);
 #[cfg(feature = "embassy-crypto-aes256-ccm")]
+#[cfg(not(any(aes_v1, all(feature = "embassy-crypto-saes", saes_v1b))))]
 embassy_crypto::aes256_ccm_impl!(AesDriver);
 #[cfg(feature = "embassy-crypto-aes128-ctr")]
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
 embassy_crypto::aes128_ctr_impl!(AesDriver);
 #[cfg(feature = "embassy-crypto-aes256-ctr")]
+#[cfg(not(all(feature = "embassy-crypto-saes", saes_v1b)))]
+#[cfg(not(aes_v1))]
 embassy_crypto::aes256_ctr_impl!(AesDriver);

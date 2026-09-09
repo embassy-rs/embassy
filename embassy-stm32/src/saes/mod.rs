@@ -77,39 +77,43 @@
 //! - **Key Wrapping**: Import encrypted keys securely
 //! - **Peripheral Isolation**: Keys can be shared without software access
 //!
-//! # Availability
+//! # Hardware revisions
 //!
-//! **Important**: SAES is only available on:
-//! - STM32WBA52 and higher
-//! - STM32WBA55
-//! - STM32WBA6x
-//! - NOT available on STM32WBA50
+//! - **`saes_v1a`** (STM32H5, WBA5x/WBA6x, C5): ECB, CBC, CTR, GCM, GMAC and CCM.
+//! - **`saes_v1b`** (STM32U3, U5): ECB and CBC only. CTR is accepted by the
+//!   hardware but behaves as ECB, and the authenticated modes do not exist, so
+//!   [`start`](Saes::start) panics if given anything else.
+//! - **`saes_n6`** (STM32N6).
 //!
-//! # Use Cases
+//! # RNG dependency
 //!
-//! - Secure boot key management
-//! - Device-unique encryption (uses DHUK based on chip UID)
-//! - Key provisioning and wrapping
-//! - Multi-peripheral cryptographic workflows
-//! - High-security applications requiring hardware root of trust
+//! The SAES fetches random numbers from the RNG for its countermeasures every
+//! time it is reset or its key size changes, and never leaves its busy state if
+//! the RNG is not running: create an [`Rng`](crate::rng::Rng) before the
+//! [`Saes`] and keep it alive. On STM32WBA6 and C5 the constructors take it as
+//! a parameter.
+//!
+//! On STM32U5 the SAES also runs off a kernel clock of its own, the SHSI
+//! oscillator, which the driver turns on. Stop mode turns it off again, so a
+//! `Saes` must not be used across a stop.
+//!
+//! # `embassy-crypto`
+//!
+//! With the `embassy-crypto-saes` feature, the SAES serves the
+//! `embassy-crypto-aes*` operations instead of the AES peripheral. See
+//! [`aes`](crate::aes).
 //!
 //! # See Also
 //!
-//! - [`aes`](crate::aes) - Standard AES implementation (all WBA chips)
+//! - [`aes`](crate::aes) - Standard AES implementation
 //! - [`pka`](crate::pka) - Public Key Accelerator
 
-// Re-export cipher types from AES (WBA) or the shared crypto module (N6).
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-#[cfg(any(aes_v3a, aes_v3b))]
-pub use crate::aes::{
-    AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, Cipher, CipherAuthenticated, CipherSized, Context, Direction, Error,
-    IVSized, KeySize,
-};
-#[cfg(all(saes_n6, not(any(aes_v3a, aes_v3b))))]
+// The cipher-mode types are shared with `aes` and live in `crate::crypto`.
 pub use crate::crypto::{
     AesCbc, AesCcm, AesCtr, AesEcb, AesGcm, AesGmac, Cipher, CipherAuthenticated, CipherSized, Context, Direction,
     Error, IVSized, KeySize,
@@ -180,6 +184,8 @@ fn set_kmod(p: pac::saes::Saes, key_mode: KeyMode) {
     });
 }
 
+/// Select a GCM/CCM phase. `saes_v1b` has no such phases.
+#[cfg(not(saes_v1b))]
 #[inline]
 fn set_gcmph(p: pac::saes::Saes, phase: u8) {
     p.cr().modify(|w| {
@@ -210,6 +216,49 @@ fn set_kshareid(p: pac::saes::Saes, target: KeyShareTarget) {
     });
 }
 
+/// Clear every interrupt flag.
+#[inline]
+fn clear_flags(p: pac::saes::Saes) {
+    p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+}
+
+/// Wait for the computation-complete flag, then clear it.
+///
+/// The flag lives in `ISR`, not `SR` as on the AES. `BUSY` is not a completion
+/// signal: it also clears after the random number fetches and key transfers.
+#[inline]
+fn wait_ccf_blocking(p: pac::saes::Saes) {
+    while !p.isr().read().ccf() {}
+    clear_flags(p);
+}
+
+/// Wait for the random number fetch that follows a reset or a key size change.
+///
+/// The fetch never completes without the RNG running; see the module docs.
+fn wait_ready(p: pac::saes::Saes) {
+    // Some parts (seen on STM32U5A5) come out of the peripheral reset with the
+    // software reset asserted, and stay busy until it is released.
+    if p.cr().read().iprst() {
+        p.cr().modify(|w| w.set_iprst(false));
+    }
+    while p.sr().read().busy() {}
+    assert!(!p.isr().read().rngeif(), "SAES: RNG error during initialization");
+}
+
+/// Enable the peripheral, with its clocks.
+///
+/// On STM32U5 the SAES has a kernel clock of its own, the SHSI (secure HSI)
+/// oscillator that nothing else uses, and stays busy forever without it.
+fn enable_and_reset<T: Instance>() {
+    #[cfg(rcc_u5)]
+    {
+        let rcc = crate::pac::RCC;
+        rcc.cr().modify(|w| w.set_shsion(true));
+        while !rcc.cr().read().shsirdy() {}
+    }
+    rcc::enable_and_reset::<T>();
+}
+
 /// SAES interrupt handler.
 pub struct InterruptHandler<T: Instance> {
     _marker: PhantomData<T>,
@@ -219,17 +268,15 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         // Wake on computation complete flag (CCF) from ISR, not on BUSY clearing.
         // BUSY also clears during init/RNG-fetch/key-transfer which must not wake tasks.
-        // Note: CCF is in SAES_ISR, not SAES_SR (unlike AES which has CCF in SR).
         let isr = T::regs().isr().read();
         if isr.ccf() {
-            // Clear all interrupt flags
-            T::regs().icr().write(|w| w.0 = 0xFFFF_FFFF);
+            clear_flags(T::regs());
             SAES_WAKER.wake();
         }
 
         // Clear error flags
         if isr.rweif() {
-            T::regs().icr().write(|w| w.0 = 0xFFFF_FFFF);
+            clear_flags(T::regs());
         }
     }
 }
@@ -283,14 +330,11 @@ impl<'d, T: Instance> Saes<'d, T, Blocking> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         #[cfg(any(rng_wba6, rng_v4))] _rng: &crate::rng::Rng<'rng, RNG>, // On WBA6 and C5, SAES fetches a random seed from the RNG on every reset/enable.
     ) -> Self {
-        rcc::enable_and_reset::<T>();
+        enable_and_reset::<T>();
 
-        let p = T::regs();
         // After reset, SAES sets BUSY while it fetches a random number from the internal RNG.
         // Writing CR before BUSY clears is forbidden (HAL: CRYP_FLAG_BUSY check at init).
-        while p.sr().read().busy() {}
-        // Panic on RNG error - the peripheral is unusable without a working RNG.
-        assert!(!p.isr().read().rngeif(), "SAES: RNG error during initialization");
+        wait_ready(T::regs());
 
         let instance = Self {
             _peripheral: peripheral,
@@ -303,6 +347,32 @@ impl<'d, T: Instance> Saes<'d, T, Blocking> {
         unsafe { T::Interrupt::enable() };
 
         instance
+    }
+}
+
+impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Saes<'d, T, Blocking> {
+    type InternalState = Peri<'d, T>;
+
+    fn resume(state: Self::InternalState) -> Self {
+        #[cfg(rcc_u5)]
+        {
+            let rcc = crate::pac::RCC;
+            rcc.cr().modify(|w| w.set_shsion(true));
+            while !rcc.cr().read().shsirdy() {}
+        }
+        critical_section::with(|cs| rcc::enable_and_reset_with_cs_no_refcount::<T>(cs));
+        wait_ready(T::regs());
+
+        Self {
+            _peripheral: state,
+            _marker: PhantomData,
+            dma_in: None,
+            dma_out: None,
+        }
+    }
+
+    fn suspend(self) -> Self::InternalState {
+        unsafe { self._peripheral.clone_unchecked() }
     }
 }
 
@@ -323,14 +393,11 @@ impl<'d, T: Instance> Saes<'d, T, Async> {
         + 'd,
         #[cfg(any(rng_wba6, rng_v4))] _rng: &crate::rng::Rng<'rng, RNG>, // On WBA6 and C5, SAES fetches a random seed from the RNG on every reset/enable.
     ) -> Self {
-        rcc::enable_and_reset::<T>();
+        enable_and_reset::<T>();
 
-        let p = T::regs();
         // After reset, SAES sets BUSY while it fetches a random number from the internal RNG.
         // Writing CR before BUSY clears is forbidden (HAL: CRYP_FLAG_BUSY check at init).
-        while p.sr().read().busy() {}
-        // Panic on RNG error - the peripheral is unusable without a working RNG.
-        assert!(!p.isr().read().rngeif(), "SAES: RNG error during initialization");
+        wait_ready(T::regs());
 
         let instance = Self {
             _peripheral: peripheral,
@@ -414,6 +481,10 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
     {
         let p = T::regs();
 
+        let is_gcm_ccm = cipher.uses_gcm_phases();
+        #[cfg(saes_v1b)]
+        assert!(cipher.chmod_bits() < 2, "this SAES only does ECB and CBC");
+
         // Disable the peripheral, then wait for BUSY to clear before touching CR.
         // The HAL checks BUSY before every CR write (SetConfig, Encrypt, Decrypt).
         p.cr().modify(|w| w.set_en(false));
@@ -429,7 +500,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
 
         // Clear all pending flags — in particular KEIF, which if left set will permanently
         // block KEYVALID from being asserted, making the key load silently fail.
-        p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+        clear_flags(p);
 
         // Configure data type based on cipher mode (NO_SWAP, BYTE_SWAP, or BIT_SWAP)
         set_datatype(p, cipher.datatype());
@@ -442,8 +513,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         while p.sr().read().busy() {}
 
         // Set cipher mode using SAES-compatible method
-        self.set_cipher_mode(p, cipher);
-        let is_gcm_ccm = cipher.uses_gcm_phases();
+        set_chmod(p, cipher.chmod_bits());
 
         // Set direction
         set_mode(p, dir as u8);
@@ -452,8 +522,11 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         set_kmod(p, key_mode);
 
         // For GCM/CCM (authenticated) modes, set GCMPH=0 (init phase) BEFORE loading the key.
+        #[cfg(not(saes_v1b))]
         if is_gcm_ccm {
             set_gcmph(p, 0);
+            // Like NPBLB, which the hardware keeps from one operation to the next.
+            p.cr().modify(|w| w.set_npblb(0));
         }
 
         // Configure and load the key (after GCMPH is set).
@@ -476,10 +549,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         if needs_key_derivation {
             set_mode(p, 1);
             p.cr().modify(|w| w.set_en(true));
-            // Wait for CCF (computation complete), not BUSY
-            while !p.isr().read().ccf() {}
-            // Clear CCF via ICR
-            p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+            wait_ccf_blocking(p);
             // Restore decrypt mode for the actual operation
             set_mode(p, dir as u8);
         }
@@ -487,20 +557,16 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         // Load IV
         self.load_iv(cipher.iv());
 
-        // Perform init phase for GCM/CCM (hash-key H calculation, phase 0).
-        // MODE is already ENCRYPTION here (set above) — correct for H = AES_ENCRYPT(K, 0).
         if is_gcm_ccm {
+            // Perform init phase for GCM/CCM (hash-key H calculation, phase 0).
+            // MODE is already ENCRYPTION here (set above) — correct for H = AES_ENCRYPT(K, 0).
             p.cr().modify(|w| w.set_en(true));
-            // Wait for CCF (init phase complete)
-            while !p.isr().read().ccf() {}
-            // Clear flags
-            p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+            wait_ccf_blocking(p);
         } else {
-            // For non-GCM/CCM modes, enable the peripheral then wait for BUSY to clear.
-            // SAES may assert BUSY after EN=1 to apply the per-key-size RNG mask
-            // (observed with 256-bit keys: the upper-half mask is applied here).
+            // For non-GCM/CCM modes, just enable the peripheral. BUSY is not waited
+            // for here: in CTR mode it stays set while the engine holds a keystream
+            // block ready, and the data writes below are what it is waiting for.
             p.cr().modify(|w| w.set_en(true));
-            while p.sr().read().busy() {}
         }
 
         // Create context (peripheral is now enabled)
@@ -526,20 +592,19 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         set_kshareid(T::regs(), target);
     }
 
-    /// Set cipher mode for SAES peripheral using the cipher's CHMOD bits.
-    fn set_cipher_mode<'c, C>(&mut self, p: pac::saes::Saes, cipher: &C)
-    where
-        C: Cipher<'c>,
-    {
-        set_chmod(p, cipher.chmod_bits());
-    }
-
     /// Process authenticated additional data (AAD) for GCM/CCM modes.
-    pub fn aad_blocking<'c, C>(&mut self, ctx: &mut Context<'c, C>, aad: &[u8], last: bool) -> Result<(), Error>
+    /// Must be called after `start` and before `payload_blocking`.
+    /// Set `last` to true for the final AAD block.
+    #[cfg(not(saes_v1b))]
+    pub fn aad_blocking<'c, C, const TAG_SIZE: usize>(
+        &mut self,
+        ctx: &mut Context<'c, C>,
+        aad: &[u8],
+        last: bool,
+    ) -> Result<(), Error>
     where
-        C: Cipher<'c> + CipherAuthenticated<16>,
+        C: Cipher<'c> + CipherAuthenticated<TAG_SIZE>,
     {
-        // Reuse AES implementation logic
         let p = T::regs();
 
         if ctx.header_processed && last {
@@ -550,6 +615,13 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         // After the init phase SAES auto-clears EN, so we must set EN=1 here.
         set_gcmph(p, 1);
         p.cr().modify(|w| w.set_en(true));
+
+        // CCM's first header block starts with the encoded associated-data length.
+        if ctx.header_len == 0 && ctx.aad_buffer_len == 0 {
+            let (header, len) = ctx.cipher.ccm_aad_header();
+            ctx.aad_buffer[..len].copy_from_slice(&header[..len]);
+            ctx.aad_buffer_len = len;
+        }
 
         let mut aad_remaining = aad.len();
         let mut aad_index = 0;
@@ -564,11 +636,9 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
             aad_remaining -= to_copy;
 
             if ctx.aad_buffer_len == 16 {
+                // No output is read in the header phase.
                 self.write_block_blocking(&ctx.aad_buffer)?;
-                // Wait for CCF (header block processed) — no output read in header phase.
-                // SAES CCF is in ISR, not SR (unlike plain AES).
-                while !p.isr().read().ccf() {}
-                p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+                wait_ccf_blocking(p);
                 ctx.header_len += 16;
                 ctx.aad_buffer_len = 0;
             }
@@ -577,9 +647,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         // Process complete blocks
         while aad_remaining >= 16 {
             self.write_block_blocking(&aad[aad_index..aad_index + 16])?;
-            // Wait for CCF after each header block
-            while !p.isr().read().ccf() {}
-            p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+            wait_ccf_blocking(p);
             ctx.header_len += 16;
             aad_index += 16;
             aad_remaining -= 16;
@@ -599,9 +667,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
                     ctx.aad_buffer[i] = 0;
                 }
                 self.write_block_blocking(&ctx.aad_buffer)?;
-                // Wait for CCF after last header block
-                while !p.isr().read().ccf() {}
-                p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+                wait_ccf_blocking(p);
                 ctx.header_len += ctx.aad_buffer_len as u64;
                 ctx.aad_buffer_len = 0;
             }
@@ -612,6 +678,9 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
     }
 
     /// Process payload data in blocking mode.
+    ///
+    /// Set `last` to true for the final block. Intermediate chunks (`last=false`)
+    /// must be block-aligned (16 bytes); only the final chunk can be partial.
     pub fn payload_blocking<'c, C>(
         &mut self,
         ctx: &mut Context<'c, C>,
@@ -623,6 +692,8 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         C: Cipher<'c>,
     {
         let p = T::regs();
+        #[cfg(saes_v1b)]
+        let _ = p;
 
         if output.len() < input.len() {
             return Err(Error::ConfigError);
@@ -632,6 +703,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         // SAES requires EN=0→1 at every GCMPH transition; without re-enabling here,
         // the GHASH state from the header phase is not properly transferred and the
         // encrypt/decrypt tags diverge (observed on SAES v1a / WBA65RI with AAD).
+        #[cfg(not(saes_v1b))]
         if ctx.is_gcm_ccm {
             if !ctx.header_processed {
                 ctx.header_processed = true;
@@ -644,17 +716,12 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         let block_size = C::BLOCK_SIZE;
         let mut processed = 0;
 
-        // Ensure proper block alignment for modes that require padding
-        if C::REQUIRES_PADDING && !last && input.len() % block_size != 0 {
+        // Intermediate chunks must be block-aligned (all modes).
+        if !last && input.len() % block_size != 0 {
             return Err(Error::ConfigError);
         }
 
-        // Process complete blocks
-        let complete_blocks = if last {
-            input.len() / block_size
-        } else {
-            input.len() / block_size
-        };
+        let complete_blocks = input.len() / block_size;
 
         for _ in 0..complete_blocks {
             let block = &input[processed..processed + block_size];
@@ -675,10 +742,19 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
             let mut partial_block = [0u8; 16];
             partial_block[..remaining].copy_from_slice(&input[processed..]);
 
-            // NPBLB = Number of Padding Bytes in Last Block.
-            // For `remaining` valid bytes, there are (16 - remaining) padding bytes.
-            let padding_bytes = (16 - remaining) as u8;
-            p.cr().modify(|w| w.set_npblb(padding_bytes));
+            // NPBLB, the number of padding bytes in the last block: GCM sets it
+            // for both directions, CCM only for decryption.
+            #[cfg(not(saes_v1b))]
+            {
+                let should_set_npblb = if ctx.cipher.is_ccm_mode() {
+                    ctx.dir == Direction::Decrypt
+                } else {
+                    ctx.is_gcm_ccm
+                };
+                if should_set_npblb {
+                    p.cr().modify(|w| w.set_npblb((16 - remaining) as u8));
+                }
+            }
 
             self.write_block_blocking(&partial_block)?;
             self.read_block_blocking(&mut partial_block)?;
@@ -701,7 +777,9 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
     {
         let p = T::regs();
 
-        // For GCM, perform final phase to get tag
+        #[cfg(saes_v1b)]
+        let _ = &ctx;
+        #[cfg(not(saes_v1b))]
         if ctx.is_gcm_ccm {
             // SAES may set BUSY during GCM payload encryption. The PAC document states:
             // "When GCM encryption is selected, the flag must be at zero before selecting
@@ -712,15 +790,20 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
             // Set GCM phase to final (phase 3)
             set_gcmph(p, 3);
 
-            // Write lengths (in bits) as final block
-            let header_bits = (ctx.header_len * 8) as u64;
-            let payload_bits = (ctx.payload_len * 8) as u64;
+            if ctx.cipher.is_ccm_mode() {
+                // CCM computes the tag from the state it holds: enabling starts it.
+                p.cr().modify(|w| w.set_en(true));
+            } else {
+                // Write lengths (in bits) as final block
+                let header_bits = ctx.header_len * 8;
+                let payload_bits = ctx.payload_len * 8;
 
-            let mut length_block = [0u8; 16];
-            length_block[0..8].copy_from_slice(&header_bits.to_be_bytes());
-            length_block[8..16].copy_from_slice(&payload_bits.to_be_bytes());
+                let mut length_block = [0u8; 16];
+                length_block[0..8].copy_from_slice(&header_bits.to_be_bytes());
+                length_block[8..16].copy_from_slice(&payload_bits.to_be_bytes());
 
-            self.write_block_blocking(&length_block)?;
+                self.write_block_blocking(&length_block)?;
+            }
 
             // Read the authentication tag
             let mut tag = [0u8; 16];
@@ -729,12 +812,12 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
             // Disable peripheral
             p.cr().modify(|w| w.set_en(false));
 
-            Ok(Some(tag))
-        } else {
-            // For non-authenticated modes, just disable
-            p.cr().modify(|w| w.set_en(false));
-            Ok(None)
+            return Ok(Some(tag));
         }
+
+        // For non-authenticated modes, just disable
+        p.cr().modify(|w| w.set_en(false));
+        Ok(None)
     }
 
     /// Load key into SAES peripheral.
@@ -759,21 +842,12 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
 
         let p = T::regs();
 
-        // IV is loaded as 32-bit words (big-endian byte order)
+        // Like the key, the IV goes in as big-endian words, high register first:
+        // IVR3 = iv[0..4], IVR0 = iv[12..16] (HAL CRYP_SetIV).
         let iv_words = core::cmp::min(iv.len(), 16) / 4;
         for i in 0..iv_words {
             let word = u32::from_be_bytes([iv[i * 4], iv[i * 4 + 1], iv[i * 4 + 2], iv[i * 4 + 3]]);
-            p.ivr(i).write_value(word);
-        }
-
-        // Handle partial IV words
-        let remaining = core::cmp::min(iv.len(), 16) % 4;
-        if remaining > 0 {
-            let i = iv_words * 4;
-            let mut bytes = [0u8; 4];
-            bytes[..remaining].copy_from_slice(&iv[i..i + remaining]);
-            let word = u32::from_be_bytes(bytes);
-            p.ivr(iv_words).write_value(word);
+            p.ivr(iv_words - 1 - i).write_value(word);
         }
     }
 
@@ -810,7 +884,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
 
         // Check for read/write error flag in ISR before reading output
         if p.isr().read().rweif() {
-            p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+            clear_flags(p);
             return Err(Error::ReadError);
         }
 
@@ -822,7 +896,7 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         }
 
         // Clear flags after successful read
-        p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+        clear_flags(p);
 
         Ok(())
     }
@@ -830,9 +904,15 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
 
 impl<'d, T: Instance> Saes<'d, T, Async> {
     /// Process authenticated additional data (AAD) for GCM/CCM modes (async facade).
-    pub async fn aad<'c, C>(&mut self, ctx: &mut Context<'c, C>, aad: &[u8], last: bool) -> Result<(), Error>
+    #[cfg(not(saes_v1b))]
+    pub async fn aad<'c, C, const TAG_SIZE: usize>(
+        &mut self,
+        ctx: &mut Context<'c, C>,
+        aad: &[u8],
+        last: bool,
+    ) -> Result<(), Error>
     where
-        C: Cipher<'c> + CipherAuthenticated<16>,
+        C: Cipher<'c> + CipherAuthenticated<TAG_SIZE>,
     {
         self.aad_blocking(ctx, aad, last)
     }

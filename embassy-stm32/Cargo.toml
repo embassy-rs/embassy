@@ -296,6 +296,11 @@ embassy-crypto-aes256-cbc = []
 embassy-crypto-aes256-ctr = []
 embassy-crypto-aes256-gcm = []
 embassy-crypto-aes256-ccm = []
+## Serve the `embassy-crypto-aes*` operations with the SAES peripheral instead of
+## the AES one, on chips that have both. The SAES needs the RNG running: with
+## `embassy-crypto-rng` the driver starts it, otherwise keep an
+## [`Rng`](crate::rng::Rng) alive. See [`saes`](crate::saes).
+embassy-crypto-saes = []
 ## Register the hardware driver for random numbers, served by the RNG. See the
 ## `embassy-crypto` documentation. The driver takes the peripheral over and keeps
 ## it running.
