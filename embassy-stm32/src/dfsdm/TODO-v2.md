@@ -23,10 +23,10 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 
 ---
 
-## EMPIRICAL — TRM divergences (silicon contradicts RM; TRM not authoritative here)
+## EMPIRICAL — silicon-verified findings (TRM contradicts where noted)
 
 - [ ] **E1 — Gain limit = `i32::MAX` (2^31−1), confirmed by derivation and
-  on-silicon test.** Enforced at `FilterParameters::MAX_GAIN`
+  on-silicon test (TRM divergence — RM is wrong twice).** Enforced at `config_types::MAX_GAIN`
   (types.rs:1300). The TRM is wrong twice, identically in all 15 revisions:
   - §33.4.13 states the inclusive condition `FOSR^FORD·IOSR ≤ 2^31` — off by
     one: a 32-bit signed accumulator tops out at +2^31−1, so gain exactly
@@ -41,15 +41,16 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   - [ ] Boundary test: `FilterParameters::try_new(Sinc3, fosr=1024, iosr=2)`
     (gain = 2^31) must be rejected; the largest config ≤ 2^31−1 must be
     accepted.
-- [x] **E2 — Disabled channels hold their clock-absence flag set.**
-  rm0455 §"Clock absence detection" (identical wording in all 15 TRMs):
+- [x] **E2 — Disabled channels hold their clock-absence flag set.** (TRM-correct,
+  not a divergence — the driver misread it.) rm0455 §"Clock absence detection"
+  (identical wording in all 15 TRMs):
   "CKABF[y] is set also by hardware when corresponding channel y is disabled
   (if CHEN[y] = 0 then CKABF[y] is held in set state)". Corroborated on
   silicon during bring-up (flags on unused channels while the enabled channel
   with a clock stayed clean). The detector itself is per-channel opt-in
   (CKABEN, CHyCFGR1 bit 6, reset 0) — not default-on. Consequence: raw
   CKABF[7:0] reads are meaningless unless masked to channels with
-  CKABEN=1 && CHEN=1. Handled by F7 / FT11 / FT3.
+  CKABEN=1 && CHEN=1. Handled by FT12 / FT11 / FT3.
 
 ---
 
@@ -63,6 +64,8 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   `ShortCircuitDetector::set_short_circuit_detector_interrupt` (mod.rs:2096),
   `ClockAbsenceDetector::set_clock_absence_interrupt` (mod.rs:2154), and the new
   ROVRIE/JOVRIE setters. CR1 is never touched by the ISR → no guard needed.
+  The AF-assignment path (mod.rs:130, currently commented/experimental) gets the
+  same `critical_section` discipline if it becomes a runtime RMW.
 - [ ] **F2 — Delete `get_datinr_as_ref`** (mod.rs:1239). `&self -> &mut u32` is
   unsound. Keep `get_datinr_as_ptr` (MDMA loopback only, raw pointer, doc'd).
 - [ ] **F3 — Register ownership via implicit `&mut` gating (TRM-mandated).**
@@ -99,37 +102,85 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   TIM8_AF1 (BKDF1BK2E→BRK1←break2), TIM8_AF2 (BK2DF1BK3E→BRK2←break3),
   TIM15/16/17_AF1 (BKDF1BKE→BRK←break0/1/2 per timer). DFSDM2 break[0] →
   LPTIM3_ETR (no TIM register involved; document only).
-- [ ] **F6 — One ring per filter.** One DMA request line per filter
-  (rm0455 §33.6; serves JDATAR or RDATAR) — a filter runs an injected ring
-  OR a regular ring, never both; F3's disjoint borrows don't prevent both.
-  Guard: per-instance owner slot in driver `State`
-  (`RingOwner {None, Regular, Injected}`), set on ring creation, cleared on
-  Drop, panic/debug_assert on contention. Doc on both `ring_buffered` fns:
-  "use two filters for both".
-- [ ] **F7 — Clock-absence flag masking + CKABEN lifecycle.** Reader chain
-  is raw today: `clock_absence_detector_channel_flags()` (mod.rs:2159) reads
-  bare `CKABF[7:0]`; `wait_for_event` (mod.rs:2132) and the IRQ handler
-  (mod.rs:1374) treat `!= 0` as "event" → with any CHEN=0 channel (held-set,
-  E2) they fire spuriously, return garbage masks, and the whole-mask
-  CLRCKABF write swallows real flags mixed into the same read. Fix:
-  - Derive the armed mask at call time from hardware truth: read
-    CKABEN[y] & CHEN[y] from all 8 CHyCFGR1s (no driver state to maintain).
-  - Mask the flag read, the `!= 0` checks (wait_for_event + IRQ handler)
-    and the CLRCKABF write with it; return only armed-channel bits.
-  - CKABEN lifecycle: clear CKABEN when the channel is disabled
-    (CKABEN=1 while CHEN=0 → held-set flag + IRQ spam). CKABIE itself is a
-    single global bit (FLTCR2 bit 6; superset yaml bit_size 1 is
-    TRM-correct); hardware gates the IRQ per channel by CKABEN (rm0455:
-    "on channels selected by CKABEN").
-  - Same armed-mask treatment for the SCD sibling
-    (`short_circuit_detector_channel_flags`, mod.rs:2101; no held-set rule
-    there, keep the discipline consistent).
-  - Fix copy-paste docstrings ("short-circuit-detector" on CKAB fns).
+- [x] **F6 — One ring per filter (already enforced by typestate, no code).**
+  One DMA request line per filter (rm0455 §33.6; serves JDATAR or RDATAR), so
+  a filter can't DMA both halves. Already guaranteed at compile time: `Filter`
+  carries a single per-filter `D` (mod.rs:416-424), and the ring constructors
+  are gated on `FilterRegular<.., RegDma>` / `FilterInjected<.., InjDma>`, so
+  a second ring on the same filter is unconstructable. Doc only (D11).
 
 ---
 
 ## FEATURE
 
+- [ ] **FT12 — Detector API redesign: AWD-style objects for SCD & CKAB
+  (PRIORITY 1, absorbs F7).** SCD/CKAB are a hardware hybrid — per-channel
+  *enable* (CHyCFGR1 SCDEN/CKABEN), instance-level *flags/IRQ* (FLT0 ISR/CR2).
+  The current API leaks the split: detector bools in a `TransceiverConfigOnline`
+  grab-bag + an orphaned `Detectors` object, and raw (unmasked) readers — see
+  E2 (disabled channels hold CKABF set). Rework to mirror
+  `flt.awd`/`flt.extremes`: one self-contained object that both configures and
+  polls, hiding the split.
+  - `ShortCircuitDetector` (instance-level, Flt0 — keep):
+    - `assign_transceivers(&[&dyn TransceiverTrait])` → SCDEN per channel.
+    - `set_threshold(u8)` → AWSCDR.SCDT; `assign_break_signals(BreakSignals)` → AWSCDR.BKSCD.
+    - `wait_for_event()` (exists), `flags() -> u8`, `clear_flags(u8)`.
+  - `ClockAbsenceDetector` (instance-level, Flt0 — keep):
+    - `assign_transceivers(&[&dyn TransceiverTrait])` → CKABEN per channel.
+    - `wait_for_event()`, `flags() -> u8`, `clear_flags(u8)`.
+  - **Armed-mask tracking (from F7)**: each detector keeps its own armed channel
+    mask internally (from `assign_transceivers` + CHEN transitions) — no separate
+    `AtomicU8` in instance `State`; `flags()`/`wait_for_event` mask CKABF/SCDF
+    with it directly (E2). CKABEN lifecycle: clear CKABEN on channel disable
+    (CKABEN=1 & CHEN=0 → held-set flag + IRQ spam; CKABIE is a single global bit,
+    hardware gates the IRQ by CKABEN). Fix the copy-paste docstrings
+    ("short-circuit-detector" on the CKAB fns).
+  - Remove `enable_clock_absence_detection`, `short_circuit_detection_config`,
+    `break_signals` from `TransceiverConfigOnline` (leaves `offset`); drop
+    `configure_online` for a plain `Transceiver::set_offset()`. Move
+    `set_clock_absence_detector` / `set_short_circuit_detector` /
+    `set_shortcircuit_threshold` / `assign_break_short_circuit` off `Transceiver`.
+  - Build `Detectors` from `DfsdmCommon` (`common.detectors()`), drop `DetectorsBuilder`.
+  - Symmetry target: AWD/SCD/CKAB/extremes each expose `assign_transceivers` +
+    `wait_for_event` + `flags`/`clear_flags` where hardware allows.
+- [ ] **FT13 — Input-width-aware gain ceiling (serial vs parallel).** E1's
+  `MAX_GAIN = 2^31−1` assumes 1-bit serial input; parallel (DATMPX ADC /
+  CPU-DMA DATINR) is 16-bit, so the safe FOSR/IOSR ceiling is far lower (~`MAX_GAIN
+  >> 16`). Two needs:
+  - override/force escape hatch for users who know their headroom;
+  - input-aware ceiling — EITHER an input marker typestate (serial / parallel +
+    bit width) on `FilterParameters`, OR a separate method/constructor taking the
+    input width (pick whichever is simpler).
+  Verify the parallel-input gain model in the TRM first (§33.4.5–33.4.6).
+- [ ] **FT14 (optional) — AWD-filter gain ceiling.** The AWD fast filter
+  (`AWFORD`/`AWFOSR`, → `AwdFilterOrder`/`AwdFilterOsr` per D14) input is
+  always 1-bit serial (no parallel case), so no input-width ceiling is needed;
+  but the fast filter's own gain (FOSR^FORD, max 32³) vs 16-bit WDATR is
+  undocumented in the TRM — investigate only if a fast-mode AWD overflow is
+  observed on silicon (symmetric with E1).
+- [ ] **FT15 — API self-documentation polish.** Replace tuple returns with named
+  result structs (`RegularResult { data, channel, pending }`, `InjectedResult`,
+  `Extremum { value, channel }`); connect `data_right_shift` to
+  `FilterParameters::recommended_shift()` (derive-by-default, raw override);
+  rename `read_maxima`/`read_minima` → read-and-clear variants (or a combined
+  `Extremes` snapshot); consider `regular`/`injected` over `reg`/`inj`;
+  `get_cnv_cnt` → `conversion_time()` with liveness doc. Goal: no TRM needed for
+  the common paths.
+- [ ] **FT16 — Newtype audit.** Dedicated unit newtypes (`CkoutDivider`,
+  `AnalogWatchdogOsr`→`AwdFilterOsr`) are good and stay — they hide the
+  register value+1 offset and range in `new()`. The generic `UInt<BITS, T>`
+  (types.rs:1089) is broken and anti-self-documenting: phantom `T` (impls
+  hardcode u8 while the doc claims u32), nonsense `BITS==32`→`u8::MAX` branch,
+  and a bit-width-only check that admits semantically invalid values (e.g.
+  `UInt<5>` = 31 as a data shift). Replace both uses with named types and
+  delete `UInt`:
+  - `data_right_shift: UInt<5, u8>` → `DataRightShift` (semantic range, and
+    derive-from-gain per FT13/FT15).
+  - `skip_pulses: UInt<6, u8>` → `PulsesToSkip` (0..=63, full width, but named
+    + chained-skip helper per FT7).
+  Carry the const-assert pattern: `core::assert!` (not `assert!`) in const fns —
+  the fmt-routed `assert!` forwards to `defmt::assert!` under "defmt", which
+  isn't const-evaluable (precedent: adc/can/hsem/ipcc; lib.rs:14 `mod fmt`).
 - [ ] **FT1 — Overrun, propagated everywhere** (RM0455 §33.5, Table 254:
   "data not read and overwritten by a new conversion"; JOVRF/ROVRF cleared via
   ICR write-1, enabled by JOVRIE/ROVRIE):
@@ -171,15 +222,19 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   Doc: CKAB is valid only with CKOUTSRC=0 (system clock).
   Masking rule (E2): only read/clear `CKABF[y]` for channels with
   CKABEN=1 && CHEN=1 — disabled channels hold their flags set; the sync wait
-  must never inspect the raw 8-bit mask (F7).
+  must never inspect the raw 8-bit mask (FT12).
 - [ ] **FT4 — Detector `clear_flags()`** on `ShortCircuitDetector` /
   `ClockAbsenceDetector` (FLT0 ICR). Explicit "arm" primitive so an app can
   clear startup residue after its own settle delay; complements FT3 (SCD is
   not expected spurious at startup, but symmetric API is cheap).
-- [ ] **FT5 — TIM break enables, `#[cfg(dfsdm)]`.** Fields exist only in
+- [ ] **FT5 — TIM break enables,
+  `#[cfg(all(dfsdm, any(timer_v1, timer_v3)))]`.** Fields exist only in
   metapac `timer_v1`/`timer_v3`; every DFSDM chip uses one of those (F4/F7/L4/L5
-  → v1, H7 → v3); timer_v2 families (G4/H5/N6/U5/WBA) have no DFSDM → cfg is
-  both compile-safe and semantically correct. See F5 for the bit map.
+  → v1, H7 → v3); timer_v2 families (G4/H5/N6/U5/WBA) have no DFSDM. Gate with
+  the build.rs-emitted `dfsdm` cfg (precedent: `lib.rs:139` `#[cfg(dfsdm)] pub
+  mod dfsdm`) **and** the timer-version cfg in conjunction: `dfsdm` alone
+  relies on the v1/v3 invariant, while the version cfg alone would expose dead
+  API on non-DFSDM v1 chips (F407/F446…). See F5 for the bit map.
   - `timer/low_level.rs`, `impl<T: AdvancedInstance1Channel>` (TIM1/TIM8):
     `set_break_dfsdm_enable` → `af1().set_bkdf1bke`, `set_break2_dfsdm_enable`
     → `af2().set_bk2df1bk1e`, + getters. Style reference:
@@ -233,7 +288,8 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   - Doc: write starts skipping immediately; updating mid-skip is allowed;
     ≤63 pulses per write, skip more by repeated writes; cumulative skipped
     count is the app's job.
-- [ ] **FT8 — CNVTIMR liveness probe doc**: `get_cnv_cnt` (mod.rs:641) —
+- [ ] **FT8 — CNVTIMR liveness probe doc**: `get_cnv_cnt` (mod.rs:641, →
+  `conversion_time()` per FT15) —
   document "measures filter activity, not consumer progress" + the
   app-level starvation recipe (timeout + two Δt reads: frozen = starved,
   advancing = alive-but-slow). Universal liveness probe (works for parallel
@@ -251,7 +307,7 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 - [ ] **FT11 — ISR accessor completeness** (extends FT4). Generic
   `get_flags()` / `clear_flags(mask)` over ROVRF/JOVRF/REOCF/JEOCF/AWDF/
   SCDF/CKABF (+ per-channel clears via AWCFR/CLRCKABF/CLRSCDF). CKABF bits
-  masked by the armed set (E2/F7) and documented as meaningless for disabled
+  masked by the armed set (E2/FT12) and documented as meaningless for disabled
   channels. ADC-parity "read all status" layer.
 
 ---
@@ -290,7 +346,21 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   `ReadableRingBuffer`); one-ring-per-filter (F6, "use two filters for
   both"). Document on the ring fns.
 - [ ] **D12 — CKAB held-set doc** (E2): "CKAB flags on disabled channels are
-  meaningless"; raw 8-bit mask reads need the armed mask (F7).
+  meaningless"; raw 8-bit mask reads need the armed mask (FT12).
+- [ ] **D13 — Extremes read-to-clear doc**: `read_maxima`/`read_minima` reset
+  EXMAX/EXMIN on read (and clear EXMAXCH/EXMINCH); document the semantics.
+- [ ] **D14 — AWD naming + doc.** One feature, two layers (§33.4.10):
+  per-channel *fast filter* (AWFORD/AWFOSR + WDATR) feeding the per-filter
+  *comparator* (AWDCH/AWHT/AWLT/…AWHTF/AWLTF/BKAWH/BKAWL), mode-selected by
+  AWFSEL (0 = final main-filter output, 1 = fast filter — the overcurrent path).
+  Rename the per-channel cluster to `AwdFilter*` so "AnalogWatchdog" is
+  unambiguous: `AnalogWatchdogFilterConfiguration`→`AwdFilterConfig`,
+  `AnalogWatchdogFilterOrder`→`AwdFilterOrder`, `AnalogWatchdogOsr`→`AwdFilterOsr`
+  (fix the "AWFORD"→"AWFOSR" docstring), field `analog_watchdog_filter_config`→
+  `awd_filter_config`, `get_analog_watchdog_data`→`awd_filter_data`, private
+  `select_analog_watchdog_*`→`select_awd_filter_*`. Keep `AnalogWatchdog`,
+  `AnalogWatchdogConfig`, `AnalogWatchdogEvent`, `flt.awd` unchanged. Doc the
+  AWFSEL coupling (the per-channel filter is only meaningful in fastmode).
 
 ---
 
@@ -300,12 +370,14 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 2. Receiver inconsistency: `end_of_*_conversion(&mut self)` delegate to
    statics (mod.rs:1019/1024); `*_conversion_in_progress()` statics
    (mod.rs:825/967 — valid, but inconsistent); `set_enabled()` static
-   (mod.rs:1014). Unify shape (public = `&mut self`, statics internal).
+   (mod.rs:1014); `set_continuous` duplicated (static mod.rs:566 + `&mut self`
+   mod.rs:834). Unify shape (public = `&mut self`, statics internal).
 3. `Config` struct empty with `//TODO` (mod.rs:44-48) — populate or remove.
 4. `Error` enum stray `//TODO` (mod.rs:36) — resolve with FT1.
 5. mod.rs:130 AFS critical-section question — fold into F1 (one
    critical_section strategy for all RMW: CR2 + AF assignment).
-6. mod.rs:1074 — merge `break_signals` into short-circuit config.
+6. mod.rs:1074 — `break_signals` in `TransceiverConfigOnline` → superseded by
+   FT12 (`assign_break_signals` on `ShortCircuitDetector`).
 7. mod.rs:1639/1742 — missing docstrings `build_spi_ext`/`build_spi_int`.
 8. mod.rs:1816 — config-types module: docstrings, bitmap type, split.
 9. types.rs:770 `dma_trait!` TODO — resolved by F4 rewrite.
@@ -315,7 +387,7 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     conventions.
 12. types.rs:1389 `total_gain().unwrap()` — invariant documented; verify
     try_new covers it once.
-13. Copy-paste docstrings on CKAB fns — fix with F7.
+13. Copy-paste docstrings on CKAB fns — fix with FT12.
 
 ---
 
@@ -327,7 +399,8 @@ Summary (each blocks DFSDM availability for whole chip groups):
 - [ ] `header.rs` ALT_PERI_DEFINES: `DFSDM1 → DFSDM1_BASE / DFSDM1_BASE_NS`
   (unlocks L552/562; L5 headers define only the `_NS` alias — TrustZone
   attribution, `DFSDM1SEC`).
-- [ ] `perimap.rs`: `F7[6]` → `F7[67]` (F777/778/779); L4x1
+- [ ] `perimap.rs`: `F7[6]` → `F7[67]` (F777/778/779); replace the three dead
+  L4 patterns (`L4[9]2`/`L4[10]`/`L4[11]`) with: L4x1
   (`dfsdm1_v1_0_4ch_L4x1`) → `DFSDM_4CH_2FLT_TRG3` (plain — rm0394 says no
   ADC); L47x/48x (`dfsdm1_v1_0_Cube`) → `DFSDM_8CH_4FLT_TRG3`.
 - [ ] `trigger.rs`: `H7(A|B)3` → `H7(A|B)` (H7B0); fix F413 JTRG signal names
@@ -351,7 +424,7 @@ Summary (each blocks DFSDM availability for whole chip groups):
   PWM-center ISR; regular continuous + manual latest reads (ignore overrun,
   D10); AWD fast-mode high threshold → break0 → TIMx BRK (hardware
   overcurrent break) on one filter/channel, AWD IRQ-only on others (graceful
-  shutdown); CKAB via FT3/F7.
+  shutdown); CKAB via FT3/FT12.
 
 ---
 
