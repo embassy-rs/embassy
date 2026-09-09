@@ -106,7 +106,8 @@ pub enum FlashBank {
 compile_error!("The 'eeprom' cfg is enabled for a non-L0/L1 chip family. This is an unsupported configuration.");
 #[cfg_attr(any(flash_l0, flash_l1, flash_l4, flash_l5, flash_wl, flash_wb), path = "l.rs")]
 #[cfg_attr(flash_f0, path = "f0.rs")]
-#[cfg_attr(any(flash_f1, flash_f3), path = "f1f3.rs")]
+#[cfg_attr(all(any(flash_f1, flash_f3), not(flash_f1_xl)), path = "f1f3.rs")]
+#[cfg_attr(flash_f1_xl, path = "f1_xl.rs")]
 #[cfg_attr(flash_f2, path = "f2.rs")]
 #[cfg_attr(flash_f4, path = "f4.rs")]
 #[cfg_attr(flash_f7, path = "f7.rs")]
@@ -124,7 +125,7 @@ compile_error!("The 'eeprom' cfg is enabled for a non-L0/L1 chip family. This is
     not(any(
         flash_l0, flash_l1, flash_l4, flash_l5, flash_wl, flash_wb, flash_f0, flash_f1, flash_f2, flash_f3, flash_f4,
         flash_f7, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_c0, flash_c5, flash_h7, flash_h7ab,
-        flash_u5, flash_wba, flash_h50, flash_u0, flash_h5, flash_u3,
+        flash_u5, flash_wba, flash_h50, flash_u0, flash_h5, flash_u3, flash_f1_xl,
     )),
     path = "other.rs"
 )]
