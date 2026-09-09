@@ -108,6 +108,20 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   carries a single per-filter `D` (mod.rs:416-424), and the ring constructors
   are gated on `FilterRegular<.., RegDma>` / `FilterInjected<.., InjDma>`, so
   a second ring on the same filter is unconstructable. Doc only (D11).
+- [ ] **F7 — 2FLT/6FLT capability gap.** `capability::Flt2`/`Flt6` are referenced
+  in associations.rs (4CH_2FLT variants, `filters: Flt2`; 8CH_6FLT `filters:
+  Flt6`) but `capability` only defines `Flt1/Flt4/Flt8` (types.rs:97-102) and
+  `FilterCount` has no impls for them. 2FLT is broken three ways (L451/452/462 =
+  `DFSDM_4CH_2FLT_TRG3`, real hardware): missing `capability::Flt2` +
+  `FilterCount`; missing `FLT1 => Flt1` in the "single-channel IRQs" list
+  (associations.rs:332-343 lists only `FLT0 => Flt0`); missing split struct +
+  `Flt2Ready`. 6FLT (`DFSDM_8CH_6FLT_DLY_TRG5_ADC_HWID`, MP13-only) has IRQ
+  impls FLT0..5 but missing `capability::Flt6` + `FilterCount` + split +
+  `Flt6Ready`.
+  - Verify per-variant first: 2FLT must be fixed (L4x1 chips exist); 6FLT is
+    MP13-only with no chip in the db yet — fix for completeness or prune (ties
+    into HOUSEKEEPING "chip-less variants" and FT10, which adds a different
+    2CH_1FLT block).
 
 ---
 
@@ -182,6 +196,51 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   Carry the const-assert pattern: `core::assert!` (not `assert!`) in const fns —
   the fmt-routed `assert!` forwards to `defmt::assert!` under "defmt", which
   isn't const-evaluable (precedent: adc/can/hsem/ipcc; lib.rs:14 `mod fmt`).
+- [ ] **FT17 — Type-system consolidation (marker axes + where-clause bundles).**
+  - TS1 — Dedicated `Neighbor` axis: `trait Neighbor { const IS_NEIGHBOR: bool }`
+    (`Own`/`Next`). Delete `SpiExtNeighborMode`/`SpiCkoutNeighborMode`/
+    `ManchesterNeighborMode` (types.rs:667-692) and drop
+    `ChannelMode::USES_NEIGHBOR_PINS` (only used at mod.rs:1118). Thread `N`
+    through `Transceiver` and the 3 `build_*_neighbor` (mod.rs:1619/1667/1770)
+    + 3 base constructors; `Drop` uses `N::IS_NEIGHBOR`.
+  - TS2 — Bundle `FilterInstance<M>` supertrait (wraps `Instance +
+    FilterInterrupt<M>` + `M: InstanceEvents<T>`) replacing the cluster on
+    `Filter`/`FilterDisabled`/`FilterRegular`/`FilterInjected`/`AnalogWatchdog`.
+  - TS3 — Bundle `TransceiverInstance<M>` (wraps `Instance` + `M:
+    TransceiverMarker + NextChannelForInstance<T>`) replacing the cluster on
+    `Transceiver`.
+  - TS4 — `#[diagnostic::on_unimplemented]` on both bundles.
+  - TS5 (note) — do NOT merge `FilterInterrupt` + `InstanceEvents` (different
+    impl-carrying axes); bundle only. The `FilterMarker` bound is redundant
+    (implied by `FilterInterrupt<M>`).
+  - TS6 (deferred, low priority) — collapse `'a`/`'d` → single `'d`
+    (`&'d DfsdmCommon<'d, …>`) across the ~8 types.
+  - TS7 — SAFETY review of `DfsdmCommon::into_raw_parts` (mod.rs:271-285) and
+    `Filter::replace_{regular,injected}_transceivers` (mod.rs:658-718)
+    (`ManuallyDrop` + `ptr::read`); TS6 shrinks these.
+- [ ] **FT18 — Interrupt binding + NVIC enable hygiene** (coordinate: detector
+  side with FT12; ISR side with FT11). `Binding<I,H>` is a compile-time proof
+  (Copy ZST); `InterruptExt::enable()` is a runtime NVIC unmask — keep them
+  orthogonal: gate at construction, enable idempotently once.
+  - IR1 — `build(irqs: impl Binding<…>)`: require-and-discard at construction
+    (`_irq`), no storage (the binding is a proof marker, never used at runtime).
+    `FilterBuilder::build(irqs: impl Binding<T::Interrupt, InterruptHandler<T, M>>)`
+    and `common.detectors(irqs: impl Binding<T::Interrupt,
+    InterruptHandler<T, Flt0>>)` (per FT12, `DetectorsBuilder` is dropped).
+  - IR2 — drop `_irq` from `read_regular` (mod.rs:760), `read_injected` (:908),
+    `AnalogWatchdog::wait_for_event` (:1848), `ShortCircuitDetector::wait_for_event`
+    (:2074), `ClockAbsenceDetector::wait_for_event` (:2132) — construction already
+    proved the binding.
+  - IR3 — single idempotent enable: remove `enable()` from
+    `ShortCircuitDetector::new` (:2067) and `ClockAbsenceDetector::new` (:2125);
+    enable once in `Detectors::new` + once in `FilterBuilder::build`. Document
+    Flt0 line sharing (Flt0 filter + detectors share FLT0 IRQ; `NVIC::unmask` is
+    idempotent).
+  - IR4 — write `<T as FilterInterrupt<M>>::Interrupt::enable()` explicitly —
+    `T::Interrupt` is unambiguous today only because `Instance` has no `Interrupt`
+    associated type.
+  - IR5 — `unpend()` before `enable()` (ADC hygiene, adc/mod.rs:697-700) so a
+    stale pending flag doesn't fire immediately.
 - [ ] **FT1 — Overrun, propagated everywhere** (RM0455 §33.5, Table 254:
   "data not read and overwritten by a new conversion"; JOVRF/ROVRF cleared via
   ICR write-1, enabled by JOVRIE/ROVRIE):
@@ -382,8 +441,12 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 7. mod.rs:1639/1742 — missing docstrings `build_spi_ext`/`build_spi_int`.
 8. mod.rs:1816 — config-types module: docstrings, bitmap type, split.
 9. types.rs:770 `dma_trait!` TODO — resolved by F4 rewrite.
-10. types.rs:808 `FilterTrait` "generify for TODO?" — delete or define
-    during F4.
+10. types.rs:808 `FilterTrait` "generify for TODO?" — delete during F4.
+    Reflect: no filter slice-collection use case exists — filters are top-level
+    drivers and nothing collects many filters into one consumer (unlike
+    transceivers, which ARE sliced because one filter reads many channels). If a
+    use case emerges, design a minimal non-generic `AnyFilter` (index +
+    object-safe ops), not a generic-over-`M` trait.
 11. `new_pin!(...).unwrap()` ×3 (mod.rs:2189/2201/2202) — verify vs embassy
     conventions.
 12. types.rs:1389 `total_gain().unwrap()` — invariant documented; verify
@@ -394,6 +457,12 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     ring/blocking reads; decide during FT1/FT15, not a directive).
 15. Reflect: `DFSDMEN` (peripheral enable) currently lives on `DfsdmCommon` —
     consider whether the global enable belongs on the `Dfsdm` wrapper instead.
+16. Dead-code + naming cleanup (type-system review): delete `DataSource` +
+    `ExternalSource`/`InternalSource` (types.rs:694-705, zero uses); delete
+    `NotFlt0` (types.rs:409-423, zero uses; doc references a nonexistent
+    `Flt0InterruptHandler`); rename `_datasource_marker: PhantomData<MODE>` →
+    `_channel_mode_marker` (mod.rs:1105 — it holds `ChannelMode`, not
+    `DataSource`).
 
 ---
 
