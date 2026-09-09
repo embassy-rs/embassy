@@ -30,7 +30,7 @@ macro_rules! suites {
 pub(crate) use suites;
 
 /// Initializes the chip and starts the RNG, which the PKA initializes its RAM from.
-pub fn init() -> Rng<'static, peripherals::RNG> {
+pub fn init() -> Rng<'static, embassy_stm32::mode::Async> {
     #[allow(unused_mut)]
     let mut config = crate::common::config();
 

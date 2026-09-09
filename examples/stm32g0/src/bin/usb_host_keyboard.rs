@@ -76,7 +76,7 @@ async fn main(_spawner: Spawner) {
     debug!("TCPP03-M20 reg 1: {:02X}", read_buf[0]);
 
     // Create the USB host driver
-    let mut usbhost = usb::UsbHost::new(p.USB, Irqs, p.PA12, p.PA11);
+    let mut usbhost = usb::UsbHost::new(p.USB, p.PA12, p.PA11, Irqs);
     usbhost.start();
 
     static BUS_STATE: BusState = BusState::new();

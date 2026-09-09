@@ -577,14 +577,14 @@ impl<'d, W: word::Word> Sai<'d, W> {
         fs: Peri<'d, impl FsPin<T, S>>,
         mclk: Peri<'d, impl MclkPin<T, S>>,
         dma: Peri<'d, D>,
-        dma_buf: &'d mut [W],
         _irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
+        dma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         let (_sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
         set_as_af!(mclk, ck_af_type);
 
-        Self::new_asynchronous(peri, sck, sd, fs, dma, dma_buf, _irq, config)
+        Self::new_asynchronous(peri, sck, sd, fs, dma, _irq, dma_buf, config)
     }
 
     /// Create a new SAI driver in asynchronous mode without MCLK.
@@ -596,8 +596,8 @@ impl<'d, W: word::Word> Sai<'d, W> {
         sd: Peri<'d, impl SdPin<T, S>>,
         fs: Peri<'d, impl FsPin<T, S>>,
         dma: Peri<'d, D>,
-        dma_buf: &'d mut [W],
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
+        dma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         let peri = peri.take();
@@ -626,8 +626,8 @@ impl<'d, W: word::Word> Sai<'d, W> {
         peri: SubBlock<'d, T, S>,
         sd: Peri<'d, impl SdPin<T, S>>,
         dma: Peri<'d, D>,
-        dma_buf: &'d mut [W],
         irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
+        dma_buf: &'d mut [W],
         mut config: Config,
     ) -> Self {
         update_synchronous_config(&mut config);

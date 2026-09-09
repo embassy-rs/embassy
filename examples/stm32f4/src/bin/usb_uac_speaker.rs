@@ -305,7 +305,7 @@ async fn main(spawner: Spawner) {
     // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
     usb_config.vbus_detection = false;
 
-    let usb_driver = usb::Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, ep_out_buffer, usb_config);
+    let usb_driver = usb::Driver::new_fs(p.USB_OTG_FS, p.PA12, p.PA11, Irqs, ep_out_buffer, usb_config);
 
     // Basic USB device configuration
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

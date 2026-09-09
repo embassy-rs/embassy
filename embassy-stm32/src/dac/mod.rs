@@ -178,8 +178,8 @@ impl<'d> DacChannel<'d, Async> {
     pub fn new<T: Instance, C: Channel, D: Dma<T, C>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         pin: Peri<'d, impl DacPin<T, C>>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> Self {
         pin.set_as_analog();
         Self::new_inner::<T, C>(
@@ -204,8 +204,8 @@ impl<'d> DacChannel<'d, Async> {
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
         trigger: impl ChannelTrigger<T>,
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         pin: Peri<'d, impl DacPin<T, C>>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> Self {
         pin.set_as_analog();
         Self::new_inner::<T, C>(
@@ -257,8 +257,8 @@ impl<'d> DacChannel<'d, Async> {
     pub fn new_triggered_internal<T: Instance, C: Channel, D: Dma<T, C>>(
         peri: Peri<'d, T>,
         dma: Peri<'d, D>,
-        trigger: impl ChannelTrigger<T>,
         _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        trigger: impl ChannelTrigger<T>,
     ) -> Self {
         Self::new_inner::<T, C>(
             Some(peri),
@@ -718,11 +718,11 @@ impl<'d> Dac<'d, Async> {
         peri: Peri<'d, T>,
         dma_ch1: Peri<'d, D1>,
         dma_ch2: Peri<'d, D2>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
-        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
@@ -755,11 +755,11 @@ impl<'d> Dac<'d, Async> {
         dma_ch2: Peri<'d, D2>,
         trigger_ch1: impl ChannelTrigger<T>,
         trigger_ch2: impl ChannelTrigger<T>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
-        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
@@ -803,11 +803,11 @@ impl<'d> Dac<'d, Async> {
         peri: Peri<'d, T>,
         dma_ch1: Peri<'d, D1>,
         dma_ch2: Peri<'d, D2>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
-        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();
@@ -840,11 +840,11 @@ impl<'d> Dac<'d, Async> {
         dma_ch2: Peri<'d, D2>,
         trigger_ch1: impl ChannelTrigger<T>,
         trigger_ch2: impl ChannelTrigger<T>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        pin_ch1: Peri<'d, impl DacPin<T, Ch1>>,
-        pin_ch2: Peri<'d, impl DacPin<T, Ch2>>,
     ) -> Self {
         pin_ch1.set_as_analog();
         pin_ch2.set_as_analog();

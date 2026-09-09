@@ -49,7 +49,7 @@ async fn main(spawner: Spawner) {
     // Generate random seed.
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
-    rng.fill_bytes(&mut seed);
+    rng.blocking_fill_bytes(&mut seed);
     let seed = u64::from_le_bytes(seed);
 
     // Ensure different boards get different MAC
@@ -80,7 +80,6 @@ async fn main(spawner: Spawner) {
     let device = Ethernet::new(
         PACKETS.init(PacketQueue::<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>::new()),
         p.ETH,
-        Irqs,
         p.PA1,
         p.PA7,
         p.PC4,
@@ -95,6 +94,7 @@ async fn main(spawner: Spawner) {
         p.ETH_SMA,
         p.PA2,
         p.PC1,
+        Irqs,
     );
 
     // Init network stack

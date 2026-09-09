@@ -61,7 +61,7 @@ async fn main(spawner: Spawner) -> ! {
     // Generate random seed.
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
-    rng.fill_bytes(&mut seed);
+    rng.blocking_fill_bytes(&mut seed);
     let seed = u64::from_le_bytes(seed);
 
     let mac_addr = [0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
@@ -71,7 +71,6 @@ async fn main(spawner: Spawner) -> ! {
     let device = Ethernet::new_mii(
         PACKETS.init(PacketQueue::<4, 4>::new()),
         p.ETH,
-        Irqs,
         p.PA1,
         p.PC3,
         p.PA7,
@@ -88,6 +87,7 @@ async fn main(spawner: Spawner) -> ! {
         p.ETH_SMA,
         p.PA2,
         p.PC1,
+        Irqs,
     );
     info!("Device created");
 

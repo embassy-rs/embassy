@@ -256,8 +256,8 @@ impl<'d, W: Word> I2S<'d, W> {
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
         mck: Peri<'d, if_afio!(impl MckPin<T, A>)>,
         txdma: Peri<'d, D1>,
-        txdma_buf: &'d mut [W],
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>> + 'd,
+        txdma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -283,8 +283,8 @@ impl<'d, W: Word> I2S<'d, W> {
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
         txdma: Peri<'d, D1>,
-        txdma_buf: &'d mut [W],
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>> + 'd,
+        txdma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -311,8 +311,8 @@ impl<'d, W: Word> I2S<'d, W> {
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
         mck: Peri<'d, if_afio!(impl MckPin<T, A>)>,
         rxdma: Peri<'d, D1>,
-        rxdma_buf: &'d mut [W],
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>> + 'd,
+        rxdma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -338,8 +338,8 @@ impl<'d, W: Word> I2S<'d, W> {
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
         rxdma: Peri<'d, D1>,
-        rxdma_buf: &'d mut [W],
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>> + 'd,
+        rxdma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -370,10 +370,10 @@ impl<'d, W: Word> I2S<'d, W> {
         txdma: Peri<'d, D1>,
         txdma_buf: &'d mut [W],
         rxdma: Peri<'d, D2>,
-        rxdma_buf: &'d mut [W],
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
+        rxdma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -403,10 +403,10 @@ impl<'d, W: Word> I2S<'d, W> {
         txdma: Peri<'d, D1>,
         txdma_buf: &'d mut [W],
         rxdma: Peri<'d, D2>,
-        rxdma_buf: &'d mut [W],
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
+        rxdma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -434,10 +434,10 @@ impl<'d, W: Word> I2S<'d, W> {
         txdma: Peri<'d, D1>,
         txdma_buf: &'d mut [W],
         rxdma: Peri<'d, D2>,
-        rxdma_buf: &'d mut [W],
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
+        rxdma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         Self::new_inner(

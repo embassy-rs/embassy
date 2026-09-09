@@ -305,7 +305,7 @@ async fn main(spawner: Spawner) {
     static STATE: StaticCell<speaker::State> = StaticCell::new();
     let state = STATE.init(speaker::State::new());
 
-    let usb_driver = usb::Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let usb_driver = usb::Driver::new(p.USB, p.PA12, p.PA11, Irqs);
 
     // Basic USB device configuration
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);

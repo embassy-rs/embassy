@@ -325,10 +325,10 @@ pub struct Saes<'d, T: Instance, M: Mode> {
 
 impl<'d, T: Instance> Saes<'d, T, Blocking> {
     /// Instantiates, resets, and enables the SAES peripheral.
-    pub fn new_blocking<#[cfg(any(rng_wba6, rng_v4))] 'rng, #[cfg(any(rng_wba6, rng_v4))] RNG: crate::rng::Instance>(
+    pub fn new_blocking<#[cfg(any(rng_wba6, rng_v4))] 'rng, #[cfg(any(rng_wba6, rng_v4))] RM: crate::mode::Mode>(
         peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        #[cfg(any(rng_wba6, rng_v4))] _rng: &crate::rng::Rng<'rng, RNG>, // On WBA6 and C5, SAES fetches a random seed from the RNG on every reset/enable.
+        #[cfg(any(rng_wba6, rng_v4))] _rng: &crate::rng::Rng<'rng, RM>, // On WBA6 and C5, SAES fetches a random seed from the RNG on every reset/enable.
     ) -> Self {
         enable_and_reset::<T>();
 
@@ -382,7 +382,7 @@ impl<'d, T: Instance> Saes<'d, T, Async> {
         #[cfg(any(rng_wba6, rng_v4))] 'rng,
         D1: DmaIn<T>,
         D2: DmaOut<T>,
-        #[cfg(any(rng_wba6, rng_v4))] RNG: crate::rng::Instance,
+        #[cfg(any(rng_wba6, rng_v4))] RM: crate::mode::Mode,
     >(
         peripheral: Peri<'d, T>,
         dma_in: Peri<'d, D1>,
@@ -391,7 +391,7 @@ impl<'d, T: Instance> Saes<'d, T, Async> {
         + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        #[cfg(any(rng_wba6, rng_v4))] _rng: &crate::rng::Rng<'rng, RNG>, // On WBA6 and C5, SAES fetches a random seed from the RNG on every reset/enable.
+        #[cfg(any(rng_wba6, rng_v4))] _rng: &crate::rng::Rng<'rng, RM>, // On WBA6 and C5, SAES fetches a random seed from the RNG on every reset/enable.
     ) -> Self {
         enable_and_reset::<T>();
 

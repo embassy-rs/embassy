@@ -541,12 +541,12 @@ impl<'d> Sdmmc<'d> {
     pub fn new_1bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -576,15 +576,15 @@ impl<'d> Sdmmc<'d> {
     pub fn new_4bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -617,9 +617,6 @@ impl<'d> Sdmmc<'d> {
     pub fn new_8bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
         dma: Peri<'d, D>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -630,6 +627,9 @@ impl<'d> Sdmmc<'d> {
         d5: Peri<'d, impl D5Pin<T>>,
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -661,10 +661,10 @@ impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 1 data lane.
     pub fn new_1bit<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -692,13 +692,13 @@ impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 4 data lanes.
     pub fn new_4bit<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -729,7 +729,6 @@ impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 8 data lanes.
     pub fn new_8bit<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -740,6 +739,7 @@ impl<'d> Sdmmc<'d> {
         d5: Peri<'d, impl D5Pin<T>>,
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -783,10 +783,10 @@ impl<'d> Sdmmc<'d> {
     /// card accepts the S18A request on ACMD41.
     pub fn new_1bit_with_vswitch<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         vswitch: Output<'d>,
         config: Config,
     ) -> Self {
@@ -813,13 +813,13 @@ impl<'d> Sdmmc<'d> {
     /// 4 data lanes; see [`Self::new_1bit_with_vswitch`].
     pub fn new_4bit_with_vswitch<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         vswitch: Output<'d>,
         config: Config,
     ) -> Self {
@@ -852,12 +852,12 @@ impl<'d> Sdmmc<'d> {
     /// without it, `acquire()` caps at SDR25.
     pub fn new_1bit_with_vswitch_ckin<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         vswitch: Output<'d>,
         ckin: Peri<'d, impl CkinPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -883,7 +883,6 @@ impl<'d> Sdmmc<'d> {
     /// 4 data lanes; see [`Self::new_1bit_with_vswitch_ckin`].
     pub fn new_4bit_with_vswitch_ckin<T: Instance>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -892,6 +891,7 @@ impl<'d> Sdmmc<'d> {
         d3: Peri<'d, impl D3Pin<T>>,
         vswitch: Output<'d>,
         ckin: Peri<'d, impl CkinPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -921,7 +921,6 @@ impl<'d> Sdmmc<'d> {
     /// Use on instances where CKIN is not routed (e.g. STM32N6 SDMMC2).
     pub fn new_4bit_with_vswitch_dlyb<T: Instance, D: DlybInstance<T>>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -930,6 +929,7 @@ impl<'d> Sdmmc<'d> {
         d3: Peri<'d, impl D3Pin<T>>,
         vswitch: Output<'d>,
         _dlyb: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         // DLL is held in reset out of POR; release it so the DLYB can

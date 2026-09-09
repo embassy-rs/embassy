@@ -34,6 +34,6 @@ async fn main(_spawner: Spawner) {
     let mut rng = Rng::new(p.RNG, Irqs);
 
     let mut buf = [0u8; 16];
-    unwrap!(rng.async_fill_bytes(&mut buf).await);
+    unwrap!(rng.fill_bytes(&mut buf).await);
     info!("random bytes: {:02x}", buf);
 }

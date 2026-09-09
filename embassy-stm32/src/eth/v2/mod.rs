@@ -115,7 +115,6 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     pub fn new<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ref_clk: Peri<'d, impl RefClkPin<T>>,
         crs: Peri<'d, impl CRSPin<T>>,
         rx_d0: Peri<'d, impl RXD0Pin<T>>,
@@ -127,12 +126,13 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
         sma: Peri<'d, SMA>,
         mdio: Peri<'d, impl MDIOPin<SMA>>,
         mdc: Peri<'d, impl MDCPin<SMA>>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         let sma = Sma::new(sma, mdio, mdc);
         let phy = GenericPhy::new_auto(sma);
 
         Self::new_with_phy(
-            queue, peri, irq, ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en, mac_addr, phy,
+            queue, peri, ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en, irq, mac_addr, phy,
         )
     }
 
@@ -147,7 +147,6 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     pub fn new_mii<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx_clk: Peri<'d, impl RXClkPin<T>>,
         tx_clk: Peri<'d, impl TXClkPin<T>>,
         rxdv: Peri<'d, impl RXDVPin<T>>,
@@ -164,12 +163,13 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
         sma: Peri<'d, SMA>,
         mdio: Peri<'d, impl MDIOPin<SMA>>,
         mdc: Peri<'d, impl MDCPin<SMA>>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         let sma = Sma::new(sma, mdio, mdc);
         let phy = GenericPhy::new_auto(sma);
 
         Self::new_mii_with_phy(
-            queue, peri, irq, rx_clk, tx_clk, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en,
+            queue, peri, rx_clk, tx_clk, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en, irq,
             mac_addr, phy,
         )
     }
@@ -191,7 +191,6 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
     pub fn new_rgmii<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         gtx_clk: Peri<'d, impl RGMIIGTXClkPin<T>>,
         tx_ctl: Peri<'d, impl RGMIITXCtlPin<T>>,
         tx_d0: Peri<'d, impl RGMIITXD0Pin<T>>,
@@ -209,13 +208,14 @@ impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA
         sma: Peri<'d, SMA>,
         mdio: Peri<'d, impl MDIOPin<SMA>>,
         mdc: Peri<'d, impl MDCPin<SMA>>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         let sma = Sma::new(sma, mdio, mdc);
         let phy = GenericPhy::new_auto(sma);
 
         Self::new_rgmii_with_phy(
-            queue, peri, irq, gtx_clk, tx_ctl, tx_d0, tx_d1, tx_d2, tx_d3, rx_clk, rx_ctl, rx_d0, rx_d1, rx_d2, rx_d3,
-            clk125, mac_addr, phy,
+            queue, peri, gtx_clk, tx_ctl, tx_d0, tx_d1, tx_d2, tx_d3, rx_clk, rx_ctl, rx_d0, rx_d1, rx_d2, rx_d3,
+            clk125, irq, mac_addr, phy,
         )
     }
 }
@@ -225,7 +225,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     pub fn new_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ref_clk: Peri<'d, impl RefClkPin<T>>,
         crs: Peri<'d, impl CRSPin<T>>,
         rx_d0: Peri<'d, impl RXD0Pin<T>>,
@@ -233,6 +232,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         tx_d0: Peri<'d, impl TXD0Pin<T>>,
         tx_d1: Peri<'d, impl TXD1Pin<T>>,
         tx_en: Peri<'d, impl TXEnPin<T>>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mac_addr: [u8; 6],
         phy: P,
     ) -> Self {
@@ -265,7 +265,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     pub fn new_mii_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rx_clk: Peri<'d, impl RXClkPin<T>>,
         tx_clk: Peri<'d, impl TXClkPin<T>>,
         rxdv: Peri<'d, impl RXDVPin<T>>,
@@ -278,6 +277,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         tx_d2: Peri<'d, impl TXD2Pin<T>>,
         tx_d3: Peri<'d, impl TXD3Pin<T>>,
         tx_en: Peri<'d, impl TXEnPin<T>>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mac_addr: [u8; 6],
         phy: P,
     ) -> Self {
@@ -309,7 +309,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     pub fn new_rgmii_with_phy<const TX: usize, const RX: usize>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         gtx_clk: Peri<'d, impl RGMIIGTXClkPin<T>>,
         tx_ctl: Peri<'d, impl RGMIITXCtlPin<T>>,
         tx_d0: Peri<'d, impl RGMIITXD0Pin<T>>,
@@ -323,6 +322,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         rx_d2: Peri<'d, impl RGMIIRXD2Pin<T>>,
         rx_d3: Peri<'d, impl RGMIIRXD3Pin<T>>,
         clk125: Peri<'d, impl RGMIICLK125Pin<T>>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         mac_addr: [u8; 6],
         phy: P,
     ) -> Self {

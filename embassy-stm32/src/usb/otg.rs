@@ -59,9 +59,9 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Endpoint allocation will fail if it is too small.
     pub fn new_fs(
         _peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: Peri<'d, impl DpPin<T>>,
         dm: Peri<'d, impl DmPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -100,9 +100,9 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Endpoint allocation will fail if it is too small.
     pub fn new_hs(
         _peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         dp: Peri<'d, impl DpPin<T>>,
         dm: Peri<'d, impl DmPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -177,7 +177,6 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Endpoint allocation will fail if it is too small.
     pub fn new_fs_ulpi(
         _peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ulpi_clk: Peri<'d, impl UlpiClkPin<T>>,
         ulpi_dir: Peri<'d, impl UlpiDirPin<T>>,
         ulpi_nxt: Peri<'d, impl UlpiNxtPin<T>>,
@@ -190,6 +189,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         ulpi_d5: Peri<'d, impl UlpiD5Pin<T>>,
         ulpi_d6: Peri<'d, impl UlpiD6Pin<T>>,
         ulpi_d7: Peri<'d, impl UlpiD7Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -223,7 +223,6 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Endpoint allocation will fail if it is too small.
     pub fn new_hs_ulpi(
         _peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ulpi_clk: Peri<'d, impl UlpiClkPin<T>>,
         ulpi_dir: Peri<'d, impl UlpiDirPin<T>>,
         ulpi_nxt: Peri<'d, impl UlpiNxtPin<T>>,
@@ -236,6 +235,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         ulpi_d5: Peri<'d, impl UlpiD5Pin<T>>,
         ulpi_d6: Peri<'d, impl UlpiD6Pin<T>>,
         ulpi_d7: Peri<'d, impl UlpiD7Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -920,9 +920,9 @@ mod host_impl {
         /// Initializes USB OTG peripheral in host mode with internal Full-Speed PHY.
         pub fn new_fs_host(
             _peri: crate::Peri<'d, T>,
-            _irq: impl interrupt::typelevel::Binding<T::Interrupt, HostInterruptHandler<T>> + 'd,
             dp: crate::Peri<'d, impl DpPin<T>>,
             dm: crate::Peri<'d, impl DmPin<T>>,
+            _irq: impl interrupt::typelevel::Binding<T::Interrupt, HostInterruptHandler<T>> + 'd,
         ) -> Self {
             #[cfg(usb_alternate_function)]
             {
@@ -965,9 +965,9 @@ mod host_impl {
         /// Initializes USB OTG peripheral in host mode with internal High-Speed PHY.
         pub fn new_hs_host(
             _peri: crate::Peri<'d, T>,
-            _irq: impl interrupt::typelevel::Binding<T::Interrupt, HostInterruptHandler<T>> + 'd,
             dp: crate::Peri<'d, impl DpPin<T>>,
             dm: crate::Peri<'d, impl DmPin<T>>,
+            _irq: impl interrupt::typelevel::Binding<T::Interrupt, HostInterruptHandler<T>> + 'd,
         ) -> Self {
             #[cfg(usb_alternate_function)]
             {

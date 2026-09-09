@@ -62,7 +62,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     // Create the driver, from the HAL.
-    let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+    let driver = Driver::new(p.USB, p.PA12, p.PA11, Irqs);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
@@ -105,7 +105,7 @@ async fn main(spawner: Spawner) {
 
     // Generate random seed
     let mut rng = Rng::new(p.RNG, Irqs);
-    let seed = rng.next_u64();
+    let seed = rng.blocking_next_u64();
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();

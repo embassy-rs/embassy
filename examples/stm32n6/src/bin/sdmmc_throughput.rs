@@ -56,7 +56,6 @@ async fn main(_spawner: Spawner) {
 
     let mut sd = Sdmmc::new_4bit_with_vswitch_dlyb(
         p.SDMMC2,
-        Irqs,
         p.PC2,
         p.PC3,
         p.PC4,
@@ -65,6 +64,7 @@ async fn main(_spawner: Spawner) {
         p.PE4,
         vswitch,
         p.DLYB_SDMMC2,
+        Irqs,
         sd_cfg,
     );
 

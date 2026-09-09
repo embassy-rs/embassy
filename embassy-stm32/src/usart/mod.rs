@@ -15,7 +15,7 @@ pub use embedded_hal_02::spi::{Phase, Polarity};
 use futures_util::future::{Either, select};
 
 use crate::Peri;
-use crate::atomic::{AtomicClear, AtomicDecrement, AtomicModify};
+use crate::atomic::{AtomicClear, AtomicDecrement, AtomicIncrement, AtomicModify};
 use crate::dma::ChannelAndRequest;
 use crate::dma::word::Word;
 use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
@@ -828,20 +828,6 @@ impl<'d, M: PeriMode> UartTx<'d, M> {
         reconfigure(self.info, self.kernel_clock, config)
     }
 
-    /// Write a single u8 if there is tx empty, otherwise return WouldBlock
-    pub(crate) fn nb_write(&mut self, byte: u8) -> Result<(), nb::Error<Error>> {
-        let r = self.info.regs;
-        let sr = sr(r).read();
-        if sr.txe() {
-            unsafe {
-                tdr(r).write_volatile(byte);
-            }
-            Ok(())
-        } else {
-            Err(nb::Error::WouldBlock)
-        }
-    }
-
     fn blocking_write_helper<W: UsartWord>(&mut self, buffer: &[W]) -> Result<(), Error> {
         let r = self.info.regs;
         let half_duplex = r.cr3().read().hdsel();
@@ -1525,16 +1511,6 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
         Ok(sr.rxne())
     }
 
-    /// Read a single u8 if there is one available, otherwise return WouldBlock
-    pub(crate) fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
-        let r = self.info.regs;
-        if self.check_rx_flags()? {
-            Ok(unsafe { rdr(r).read_volatile() })
-        } else {
-            Err(nb::Error::WouldBlock)
-        }
-    }
-
     fn blocking_read_helper<W: UsartWord>(&mut self, buffer: &mut [W]) -> Result<(), Error> {
         let r = self.info.regs;
 
@@ -1579,6 +1555,51 @@ impl<'d, M: PeriMode> UartRx<'d, M> {
     }
 }
 
+impl<'d, M: PeriMode> UartTx<'d, M> {
+    /// Borrow the transmitter, yielding an owned half valid for the borrow.
+    ///
+    /// The pins stay with `self`; the borrowed half only needs the register
+    /// block, the shared state and the DMA channel.
+    fn reborrow(&mut self) -> UartTx<'_, M> {
+        self.state.tx_rx_refcount.increment();
+        UartTx {
+            info: self.info,
+            state: self.state,
+            kernel_clock: self.kernel_clock,
+            _ck: None,
+            _tx: None,
+            cts: None,
+            _de: None,
+            tx_dma: self.tx_dma.as_mut().map(|dma| dma.reborrow()),
+            duplex: self.duplex,
+            _marker: PhantomData,
+        }
+    }
+}
+
+impl<'d, M: PeriMode> UartRx<'d, M> {
+    /// Borrow the receiver, yielding an owned half valid for the borrow.
+    ///
+    /// The pins stay with `self`; the borrowed half only needs the register
+    /// block, the shared state and the DMA channel.
+    fn reborrow(&mut self) -> UartRx<'_, M> {
+        self.state.tx_rx_refcount.increment();
+        UartRx {
+            info: self.info,
+            state: self.state,
+            kernel_clock: self.kernel_clock,
+            _ck: None,
+            rx: None,
+            rts: None,
+            rx_dma: self.rx_dma.as_mut().map(|dma| dma.reborrow()),
+            detect_previous_overrun: self.detect_previous_overrun,
+            #[cfg(any(usart_v1, usart_v2))]
+            buffered_sr: self.buffered_sr,
+            _marker: PhantomData,
+        }
+    }
+}
+
 impl<'d, M: PeriMode> Drop for UartTx<'d, M> {
     fn drop(&mut self) {
         drop_tx_rx(self.info, self.state);
@@ -1601,8 +1622,8 @@ impl<'d> Uart<'d, Async> {
     /// Create a new bidirectional UART
     pub fn new<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
@@ -1630,8 +1651,8 @@ impl<'d> Uart<'d, Async> {
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
     pub fn new_with_rtscts<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
@@ -1662,8 +1683,8 @@ impl<'d> Uart<'d, Async> {
     /// Create a new bidirectional UART with a driver-enable pin
     pub fn new_with_de<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
@@ -1781,8 +1802,8 @@ impl<'d> Uart<'d, Async> {
     pub fn new_master<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
@@ -1811,8 +1832,8 @@ impl<'d> Uart<'d, Async> {
     pub fn new_master_with_rtscts<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
@@ -1844,8 +1865,8 @@ impl<'d> Uart<'d, Async> {
     pub fn new_master_with_de<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
@@ -1876,8 +1897,8 @@ impl<'d> Uart<'d, Async> {
     pub fn new_slave<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
@@ -1906,8 +1927,8 @@ impl<'d> Uart<'d, Async> {
     pub fn new_slave_with_rtscts<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         tx_dma: Peri<'d, D1>,
@@ -1988,8 +2009,8 @@ impl<'d> Uart<'d, Blocking> {
     /// Create a new blocking bidirectional UART.
     pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -2011,8 +2032,8 @@ impl<'d> Uart<'d, Blocking> {
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
     pub fn new_blocking_with_rtscts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         config: Config,
@@ -2037,8 +2058,8 @@ impl<'d> Uart<'d, Blocking> {
     /// Create a new bidirectional UART with a driver-enable pin
     pub fn new_blocking_with_de<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -2137,8 +2158,8 @@ impl<'d> Uart<'d, Blocking> {
     pub fn new_blocking_master<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -2161,8 +2182,8 @@ impl<'d> Uart<'d, Blocking> {
     pub fn new_blocking_master_with_rtscts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         config: Config,
@@ -2188,8 +2209,8 @@ impl<'d> Uart<'d, Blocking> {
     pub fn new_blocking_master_with_de<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -2214,8 +2235,8 @@ impl<'d> Uart<'d, Blocking> {
     pub fn new_blocking_slave<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -2238,8 +2259,8 @@ impl<'d> Uart<'d, Blocking> {
     pub fn new_blocking_slave_with_rtscts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         config: Config,
@@ -2371,11 +2392,6 @@ impl<'d, M: PeriMode> Uart<'d, M> {
         self.tx.blocking_flush()
     }
 
-    /// Read a single `u8` or return `WouldBlock`
-    pub(crate) fn nb_read(&mut self) -> Result<u8, nb::Error<Error>> {
-        self.rx.nb_read()
-    }
-
     /// Perform a blocking read into `buffer`
     pub fn blocking_read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.rx.blocking_read(buffer)
@@ -2399,8 +2415,8 @@ impl<'d, M: PeriMode> Uart<'d, M> {
     /// Split the Uart into a transmitter and receiver by mutable reference,
     /// which is particularly useful when having two tasks correlating to
     /// transmitting and receiving.
-    pub fn split_ref(&mut self) -> (&mut UartTx<'d, M>, &mut UartRx<'d, M>) {
-        (&mut self.tx, &mut self.rx)
+    pub fn split_ref(&mut self) -> (UartTx<'_, M>, UartRx<'_, M>) {
+        (self.tx.reborrow(), self.rx.reborrow())
     }
 
     /// Send break character
@@ -2775,13 +2791,6 @@ fn configure(
     Ok(())
 }
 
-impl<'d, M: PeriMode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
-    type Error = Error;
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        self.nb_read()
-    }
-}
-
 impl<'d, M: PeriMode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d, M> {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -2792,13 +2801,6 @@ impl<'d, M: PeriMode> embedded_hal_02::blocking::serial::Write<u8> for UartTx<'d
     }
 }
 
-impl<'d, M: PeriMode> embedded_hal_02::serial::Read<u8> for Uart<'d, M> {
-    type Error = Error;
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        self.nb_read()
-    }
-}
-
 impl<'d, M: PeriMode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, M> {
     type Error = Error;
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -2806,62 +2808,6 @@ impl<'d, M: PeriMode> embedded_hal_02::blocking::serial::Write<u8> for Uart<'d, 
     }
     fn bflush(&mut self) -> Result<(), Self::Error> {
         self.blocking_flush()
-    }
-}
-
-impl embedded_hal_nb::serial::Error for Error {
-    fn kind(&self) -> embedded_hal_nb::serial::ErrorKind {
-        match *self {
-            Self::Framing => embedded_hal_nb::serial::ErrorKind::FrameFormat,
-            Self::Noise => embedded_hal_nb::serial::ErrorKind::Noise,
-            Self::Overrun => embedded_hal_nb::serial::ErrorKind::Overrun,
-            Self::Parity => embedded_hal_nb::serial::ErrorKind::Parity,
-            Self::BufferTooLong => embedded_hal_nb::serial::ErrorKind::Other,
-        }
-    }
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::ErrorType for Uart<'d, M> {
-    type Error = Error;
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::ErrorType for UartTx<'d, M> {
-    type Error = Error;
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::ErrorType for UartRx<'d, M> {
-    type Error = Error;
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::Read for UartRx<'d, M> {
-    fn read(&mut self) -> nb::Result<u8, Self::Error> {
-        self.nb_read()
-    }
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::Write for UartTx<'d, M> {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.nb_write(char)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
-    }
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::Read for Uart<'d, M> {
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        self.nb_read()
-    }
-}
-
-impl<'d, M: PeriMode> embedded_hal_nb::serial::Write for Uart<'d, M> {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.blocking_write(&[char]).map_err(nb::Error::Other)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
     }
 }
 

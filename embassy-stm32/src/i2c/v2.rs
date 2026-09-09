@@ -121,14 +121,8 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
     /// Calculate total bytes in a group of operations
     #[inline]
-    fn total_operation_bytes(operations: &[Operation<'_>]) -> usize {
-        operations
-            .iter()
-            .map(|op| match op {
-                Operation::Write(buf) => buf.len(),
-                Operation::Read(buf) => buf.len(),
-            })
-            .sum()
+    fn total_operation_bytes<O: TransactionOp>(operations: &[O]) -> usize {
+        operations.iter().map(|op| op.len()).sum()
     }
 
     pub(crate) fn init(&mut self, config: Config) {
@@ -617,6 +611,14 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         addr: impl Into<Address>,
         operations: &mut [Operation<'_>],
     ) -> Result<(), Error> {
+        self.blocking_transaction_inner(addr, operations)
+    }
+
+    pub(crate) fn blocking_transaction_inner<O: TransactionOp>(
+        &mut self,
+        addr: impl Into<Address>,
+        operations: &mut [O],
+    ) -> Result<(), Error> {
         let address = addr.into();
         let timeout = self.timeout();
 
@@ -626,11 +628,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         while op_idx < operations.len() {
             // Determine the type of current group and find all consecutive operations of same type
-            let is_read = matches!(operations[op_idx], Operation::Read(_));
+            let is_read = operations[op_idx].is_read();
             let group_start = op_idx;
 
             // Find end of this group (consecutive operations of same type)
-            while op_idx < operations.len() && matches!(operations[op_idx], Operation::Read(_)) == is_read {
+            while op_idx < operations.len() && operations[op_idx].is_read() == is_read {
                 op_idx += 1;
             }
             let group_end = op_idx;
@@ -661,10 +663,10 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(())
     }
 
-    fn execute_write_group(
+    fn execute_write_group<O: TransactionOp>(
         &mut self,
         address: Address,
-        operations: &[Operation<'_>],
+        operations: &[O],
         is_first_group: bool,
         is_last_group: bool,
         timeout: Timeout,
@@ -689,7 +691,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         let mut first_chunk = true;
 
         for operation in operations {
-            if let Operation::Write(buffer) = operation {
+            if let Some(buffer) = operation.write_buf() {
                 for chunk in buffer.chunks(255) {
                     let chunk_len = chunk.len();
                     total_remaining -= chunk_len;
@@ -737,10 +739,10 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(())
     }
 
-    fn execute_read_group(
+    fn execute_read_group<O: TransactionOp>(
         &mut self,
         address: Address,
-        operations: &mut [Operation<'_>],
+        operations: &mut [O],
         is_first_group: bool,
         is_last_group: bool,
         timeout: Timeout,
@@ -771,7 +773,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         let mut first_chunk = true;
 
         for operation in operations {
-            if let Operation::Read(buffer) = operation {
+            if let Some(buffer) = operation.read_buf() {
                 for chunk in buffer.chunks_mut(255) {
                     let chunk_len = chunk.len();
                     total_remaining -= chunk_len;

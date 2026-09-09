@@ -101,7 +101,7 @@ async fn main(spawner: Spawner) {
     // Generate random seed.
     // let mut rng = Rng::new(p.RNG, Irqs);
     let seed = [0; 8];
-    // let _ = rng.async_fill_bytes(&mut seed).await;
+    // let _ = rng.fill_bytes(&mut seed).await;
     let seed = u64::from_le_bytes(seed);
 
     info!("seed generated");

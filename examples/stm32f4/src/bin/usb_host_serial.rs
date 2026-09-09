@@ -45,7 +45,7 @@ async fn main(_spawner: Spawner) {
     info!("Initializing USB host...");
 
     // Create the host driver (FS mode)
-    let driver = HostDriver::new_fs_host(p.USB_OTG_FS, Irqs, p.PA12, p.PA11);
+    let driver = HostDriver::new_fs_host(p.USB_OTG_FS, p.PA12, p.PA11, Irqs);
 
     static BUS_STATE: BusState = BusState::new();
     let (mut bus_ctrl, bus) = embassy_usb_host::bus(driver, &BUS_STATE);

@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+Align to API guidelines:
+- change: stm32/gpio: rename `get_level()` to `level()` and `get_output_level()` to `output_level()` on `Input`, `Output`, `OutputOpenDrain`, `Flex` and `ExtiInput`. `lpgpio::LpGpio::get_level()` is now `level()`.
+- change: stm32/rng: `Rng` is now `Rng<'d, M: Mode>` with the instance type erased. Added `Rng::new_blocking` and `Rng::new_blocking_with_config`. The async `async_fill_bytes` is now `fill_bytes`; the blocking `fill_bytes`, `next_u32` and `next_u64` are now `blocking_fill_bytes`, `blocking_next_u32` and `blocking_next_u64`.
+- change: stm32/usart: `Uart` and `BufferedUart` constructors take pins as `tx, rx` instead of `rx, tx`.
+- change: stm32/usart: `BufferedUart::new` takes the interrupt binding before the buffers.
+- change: stm32/usart: `Uart::split_ref` returns owned `(UartTx<'_, M>, UartRx<'_, M>)` halves instead of `&mut` references.
+- change: stm32/usart: removed the `nb`-based `embedded_hal_02::serial::Read` and `embedded_hal_nb::serial::{Read, Write}` implementations.
+- change: stm32/adc: the interrupt-driven `irq_read` is now `read`; the DMA method previously named `read` is now `read_sequence`.
+- change: stm32/spi: `set_config` returns `Result<(), spi::ConfigError>` instead of `Result<(), ()>`.
+- feat: stm32/i2c: implement `embedded_hal_02::blocking::i2c::Transactional` for `I2c`.
+- change: stm32: the interrupt binding argument now comes after all peripheral arguments in `eth`, `usb`, `sdmmc`, `ltdc`, `ucpd`, `dac`, `dcmi`, `adf`, `mdf`, `spdifrx`, `i2s`, `sai`, `spi` and `tsc` constructors.
+
 Crypto:
 - feat: stm32/hash, stm32/aes, stm32/cryp: the `embassy-crypto` drivers are now registered per operation behind `embassy-crypto-<operation>` features (`embassy-crypto-sha256`, `embassy-crypto-aes128-gcm`, ...) instead of unconditionally.
 - feat: stm32/aes: enable the driver on STM32U3 and STM32U5

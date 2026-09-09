@@ -19,7 +19,7 @@ fn main() -> ! {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new_blocking(p.USART3, p.PD9, p.PD8, config).unwrap();
+    let mut usart = Uart::new_blocking(p.USART3, p.PD8, p.PD9, config).unwrap();
 
     unwrap!(usart.blocking_write(b"Hello Embassy World!\r\n"));
     info!("wrote Hello, starting echo");

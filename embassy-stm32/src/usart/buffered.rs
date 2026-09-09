@@ -251,11 +251,11 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver
     pub fn new<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -274,8 +274,8 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver with request-to-send and clear-to-send pins
     pub fn new_with_rtscts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
@@ -299,8 +299,8 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver with only the RTS pin as the DE pin
     pub fn new_with_rts_as_de<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
@@ -323,8 +323,8 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver with only the request-to-send pin
     pub fn new_with_rts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
@@ -348,8 +348,8 @@ impl<'d> BufferedUart<'d> {
     #[cfg(not(any(usart_v1, usart_v2)))]
     pub fn new_with_de<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
@@ -1044,25 +1044,6 @@ impl<'d> embedded_io::WriteReady for BufferedUartTx<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::serial::Read<u8> for BufferedUartRx<'d> {
-    type Error = Error;
-
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        let state = self.state;
-        let mut rx_reader = unsafe { state.rx_buf.reader() };
-
-        let do_pend = state.rx_buf.is_full();
-        if let Some(data) = rx_reader.pop_one() {
-            if do_pend {
-                self.info.interrupt.pend();
-            }
-            Ok(data)
-        } else {
-            Err(nb::Error::WouldBlock)
-        }
-    }
-}
-
 impl<'d> embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx<'d> {
     type Error = Error;
 
@@ -1082,14 +1063,6 @@ impl<'d> embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::serial::Read<u8> for BufferedUart<'d> {
-    type Error = Error;
-
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        embedded_hal_02::serial::Read::read(&mut self.rx)
-    }
-}
-
 impl<'d> embedded_hal_02::blocking::serial::Write<u8> for BufferedUart<'d> {
     type Error = Error;
 
@@ -1106,49 +1079,5 @@ impl<'d> embedded_hal_02::blocking::serial::Write<u8> for BufferedUart<'d> {
 
     fn bflush(&mut self) -> Result<(), Self::Error> {
         self.tx.blocking_flush()
-    }
-}
-
-impl<'d> embedded_hal_nb::serial::ErrorType for BufferedUart<'d> {
-    type Error = Error;
-}
-
-impl<'d> embedded_hal_nb::serial::ErrorType for BufferedUartTx<'d> {
-    type Error = Error;
-}
-
-impl<'d> embedded_hal_nb::serial::ErrorType for BufferedUartRx<'d> {
-    type Error = Error;
-}
-
-impl<'d> embedded_hal_nb::serial::Read for BufferedUartRx<'d> {
-    fn read(&mut self) -> nb::Result<u8, Self::Error> {
-        embedded_hal_02::serial::Read::read(self)
-    }
-}
-
-impl<'d> embedded_hal_nb::serial::Write for BufferedUartTx<'d> {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
-    }
-}
-
-impl<'d> embedded_hal_nb::serial::Read for BufferedUart<'d> {
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        embedded_hal_02::serial::Read::read(&mut self.rx)
-    }
-}
-
-impl<'d> embedded_hal_nb::serial::Write for BufferedUart<'d> {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.tx.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.tx.blocking_flush().map_err(nb::Error::Other)
     }
 }

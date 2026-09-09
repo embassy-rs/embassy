@@ -47,13 +47,13 @@ async fn main(_spawner: Spawner) -> ! {
     let mut temperature = adc.enable_temperature();
 
     loop {
-        let vref = adc.irq_read(&mut vrefint, SampleTime::Cycles6015).await;
+        let vref = adc.read(&mut vrefint, SampleTime::Cycles6015).await;
         info!("read vref: {} (should be {})", vref, vrefint.calibrated_value());
 
-        let temp = adc.irq_read(&mut temperature, SampleTime::Cycles6015).await;
+        let temp = adc.read(&mut temperature, SampleTime::Cycles6015).await;
         info!("read temperature: {}", temp);
 
-        let pin = adc.irq_read(&mut p.PA0, SampleTime::Cycles6015).await;
+        let pin = adc.read(&mut p.PA0, SampleTime::Cycles6015).await;
         info!("read pin: {}", pin);
 
         let pin_mv = (pin as u32 * vrefint.calibrated_value() as u32 / vref as u32) * 3300 / 4095;

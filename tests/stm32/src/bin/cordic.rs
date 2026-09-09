@@ -43,7 +43,7 @@ async fn main(_spawner: Spawner) {
     let mut rng = rng::Rng::new(dp.RNG, irq);
 
     let mut input_buf_u8 = [0u8; INPUT_U8_COUNT];
-    defmt::unwrap!(rng.async_fill_bytes(&mut input_buf_u8).await);
+    defmt::unwrap!(rng.fill_bytes(&mut input_buf_u8).await);
 
     // convert every [u8; 4] to a u32, for a Q1.31 value
     let mut input_q1_31 =
