@@ -98,6 +98,83 @@ fn calc_prescs(freq: u32) -> (u8, u8) {
     ((presc * 2) as u8, (postdiv - 1) as u8)
 }
 
+pub(crate) fn blocking_write_inner(info: &Info, data: &[u8]) {
+    let p = info.regs;
+    for &b in data {
+        while !p.sr().read().tnf() {}
+        p.dr().write(|w| w.set_data(b as _));
+        while !p.sr().read().rne() {}
+        let _ = p.dr().read();
+    }
+    flush_inner(info);
+}
+
+pub(crate) fn blocking_transfer_in_place_inner(info: &Info, data: &mut [u8]) {
+    let p = info.regs;
+    for b in data {
+        while !p.sr().read().tnf() {}
+        p.dr().write(|w| w.set_data(*b as _));
+        while !p.sr().read().rne() {}
+        *b = p.dr().read().data() as u8;
+    }
+    flush_inner(info);
+}
+
+pub(crate) fn blocking_read_inner(info: &Info, data: &mut [u8]) {
+    let p = info.regs;
+    for b in data {
+        while !p.sr().read().tnf() {}
+        p.dr().write(|w| w.set_data(0));
+        while !p.sr().read().rne() {}
+        *b = p.dr().read().data() as u8;
+    }
+    flush_inner(info);
+}
+
+pub(crate) fn flush_inner(info: &Info) {
+    let p = info.regs;
+    while p.sr().read().bsy() {}
+}
+
+pub(crate) async fn dma_read_inner<'d>(
+    info: &Info,
+    tx_dma: &mut Channel<'d, mode::Async>,
+    rx_dma: &mut Channel<'d, mode::Async>,
+    buffer: &mut [u8],
+) {
+    // Start RX first. Transfer starts when TX starts, if RX
+    // is not started yet we might lose bytes.
+    let rx_transfer = unsafe {
+        // If we don't assign future to a variable, the data register pointer
+        // is held across an await and makes the future non-Send.
+        rx_dma.read(info.regs.dr().as_ptr() as *const _, buffer, info.rx_dreq, false)
+    };
+
+    let tx_transfer = unsafe {
+        // If we don't assign future to a variable, the data register pointer
+        // is held across an await and makes the future non-Send.
+        tx_dma.write_zeros(buffer.len(), info.regs.dr().as_ptr() as *mut u8, info.tx_dreq)
+    };
+
+    join(tx_transfer, rx_transfer).await;
+}
+
+pub(crate) fn configure_pins(pins: &[Option<&Peri<'_, AnyPin>>]) {
+    for pin in pins.iter().flatten() {
+        pin.gpio().ctrl().write(|w| w.set_funcsel(1));
+        pin.pad_ctrl().write(|w| {
+            #[cfg(feature = "_rp235x")]
+            w.set_iso(false);
+            w.set_schmitt(true);
+            w.set_slewfast(false);
+            w.set_ie(true);
+            w.set_od(false);
+            w.set_pue(false);
+            w.set_pde(false);
+        });
+    }
+}
+
 impl<'d, M: Mode> Spi<'d, M> {
     fn new_inner<T: Instance>(
         _spi: Peri<'d, T>,
@@ -109,9 +186,12 @@ impl<'d, M: Mode> Spi<'d, M> {
         rx_dma: Option<Channel<'d, mode::Async>>,
         config: Config,
     ) -> Self {
-        Self::apply_config(T::info(), &config);
-
         let p = T::info().regs;
+
+        // disable (to ensure setting of spi master)
+        p.cr1().write(|w| w.set_sse(false));
+
+        Self::apply_config(T::info(), &config);
 
         // Always enable DREQ signals -- harmless if DMA is not listening
         p.dmacr().write(|reg| {
@@ -122,58 +202,8 @@ impl<'d, M: Mode> Spi<'d, M> {
         // finally, enable.
         p.cr1().write(|w| w.set_sse(true));
 
-        if let Some(pin) = &clk {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
-        }
-        if let Some(pin) = &mosi {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
-        }
-        if let Some(pin) = &miso {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
-        }
-        if let Some(pin) = &cs {
-            pin.gpio().ctrl().write(|w| w.set_funcsel(1));
-            pin.pad_ctrl().write(|w| {
-                #[cfg(feature = "_rp235x")]
-                w.set_iso(false);
-                w.set_schmitt(true);
-                w.set_slewfast(false);
-                w.set_ie(true);
-                w.set_od(false);
-                w.set_pue(false);
-                w.set_pde(false);
-            });
-        }
+        configure_pins(&[clk.as_ref(), mosi.as_ref(), miso.as_ref(), cs.as_ref()]);
+
         Self {
             info: T::info(),
             tx_dma,
@@ -201,40 +231,19 @@ impl<'d, M: Mode> Spi<'d, M> {
 
     /// Write data to SPI blocking execution until done.
     pub fn blocking_write(&mut self, data: &[u8]) -> Result<(), Error> {
-        let p = self.info.regs;
-        for &b in data {
-            while !p.sr().read().tnf() {}
-            p.dr().write(|w| w.set_data(b as _));
-            while !p.sr().read().rne() {}
-            let _ = p.dr().read();
-        }
-        self.flush()?;
+        blocking_write_inner(self.info, data);
         Ok(())
     }
 
     /// Transfer data in place to SPI blocking execution until done.
     pub fn blocking_transfer_in_place(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        let p = self.info.regs;
-        for b in data {
-            while !p.sr().read().tnf() {}
-            p.dr().write(|w| w.set_data(*b as _));
-            while !p.sr().read().rne() {}
-            *b = p.dr().read().data() as u8;
-        }
-        self.flush()?;
+        blocking_transfer_in_place_inner(self.info, data);
         Ok(())
     }
 
     /// Read data from SPI blocking execution until done.
     pub fn blocking_read(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        let p = self.info.regs;
-        for b in data {
-            while !p.sr().read().tnf() {}
-            p.dr().write(|w| w.set_data(0));
-            while !p.sr().read().rne() {}
-            *b = p.dr().read().data() as u8;
-        }
-        self.flush()?;
+        blocking_read_inner(self.info, data);
         Ok(())
     }
 
@@ -258,8 +267,7 @@ impl<'d, M: Mode> Spi<'d, M> {
 
     /// Block execution until SPI is done.
     pub fn flush(&mut self) -> Result<(), Error> {
-        let p = self.info.regs;
-        while p.sr().read().bsy() {}
+        flush_inner(self.info);
         Ok(())
     }
 
@@ -464,29 +472,13 @@ impl<'d> Spi<'d, Async> {
 
     /// Read data from SPI using DMA.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        // Start RX first. Transfer starts when TX starts, if RX
-        // is not started yet we might lose bytes.
-        let rx_transfer = unsafe {
-            // If we don't assign future to a variable, the data register pointer
-            // is held across an await and makes the future non-Send.
-            self.rx_dma.as_mut().unwrap().read(
-                self.info.regs.dr().as_ptr() as *const _,
-                buffer,
-                self.info.rx_dreq,
-                false,
-            )
-        };
-
-        let tx_transfer = unsafe {
-            // If we don't assign future to a variable, the data register pointer
-            // is held across an await and makes the future non-Send.
-            self.tx_dma.as_mut().unwrap().write_zeros(
-                buffer.len(),
-                self.info.regs.dr().as_ptr() as *mut u8,
-                self.info.tx_dreq,
-            )
-        };
-        join(tx_transfer, rx_transfer).await;
+        dma_read_inner(
+            self.info,
+            self.tx_dma.as_mut().unwrap(),
+            self.rx_dma.as_mut().unwrap(),
+            buffer,
+        )
+        .await;
         Ok(())
     }
 
@@ -551,10 +543,10 @@ impl<'d> Spi<'d, Async> {
     }
 }
 
-struct Info {
-    regs: pac::spi::Spi,
-    tx_dreq: pac::dma::vals::TreqSel,
-    rx_dreq: pac::dma::vals::TreqSel,
+pub(crate) struct Info {
+    pub(crate) regs: pac::spi::Spi,
+    pub(crate) tx_dreq: pac::dma::vals::TreqSel,
+    pub(crate) rx_dreq: pac::dma::vals::TreqSel,
 }
 
 trait SealedMode {}
@@ -570,6 +562,10 @@ pub trait Mode: SealedMode {}
 /// SPI instance trait.
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType {}
+
+pub(crate) fn instance_info<T: Instance>() -> &'static Info {
+    T::info()
+}
 
 macro_rules! impl_instance {
     ($inst:ident, $tx_dreq:expr, $rx_dreq:expr) => {
