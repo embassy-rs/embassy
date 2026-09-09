@@ -22,6 +22,7 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["chrono", "defmt", "rp235xa", "time-driver"]},
     {target = "thumbv8m.main-none-eabihf", features = ["log", "rp235xa", "time-driver"]},
     {target = "thumbv8m.main-none-eabihf", features = ["binary-info", "rp235xa", "time-driver"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "rp235xa", "time-driver", "embassy-crypto-rng"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -48,7 +49,7 @@ default = [ "rt" ]
 rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
-defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt", "chrono?/defmt", "fixed/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt", "chrono?/defmt", "fixed/defmt", "embassy-crypto?/defmt"]
 ## Enable log support
 log = ["dep:log"]
 ## Enable chrono support
@@ -85,6 +86,10 @@ rom-v2-intrinsics = []
 ## Allow using QSPI pins as GPIO pins. This is mostly not what you want (because your flash is attached via QSPI pins)
 ## and adds code and memory overhead when this feature is enabled.
 qspi-as-gpio = []
+
+## Register the hardware driver for random numbers with `embassy-crypto`, served by
+## the TRNG. See the `embassy-crypto` documentation. RP235x only.
+embassy-crypto-rng = ["dep:embassy-crypto"]
 
 ## Indicate code is running from RAM.
 ## Set this if all code is in RAM, and the cores never access memory-mapped flash memory through XIP.
@@ -169,6 +174,7 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.5.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
 embassy-embedded-hal = { version = "0.6.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
+embassy-crypto = { version = "0.1.0", path = "../embassy-crypto", optional = true }
 embassy-executor = { version = "0.10.0", path = "../embassy-executor", optional = true }
 embassy-executor-macros = { version = "0.8.0", path = "../embassy-executor-macros", optional = true }
 defmt = { version = "1.0.1", optional = true }
