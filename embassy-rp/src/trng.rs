@@ -495,3 +495,31 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         }
     }
 }
+
+/// `embassy-crypto` random number driver served by the TRNG, behind the
+/// `embassy-crypto-rng` feature.
+///
+/// Every call configures the block with [`Config::default()`], draws the bytes and stops it again.
+#[cfg(feature = "embassy-crypto-rng")]
+mod driver {
+    use core::marker::PhantomData;
+
+    use super::{Config, TRNG, Trng};
+
+    struct Driver;
+
+    impl embassy_crypto::driver::Rng for Driver {
+        fn fill_bytes(buf: &mut [u8]) -> Result<(), embassy_crypto::Error> {
+            // Same as `Trng::new`, without the interrupt binding the blocking path does not need.
+            let mut trng: Trng<'static, TRNG> = Trng {
+                phantom: PhantomData,
+                config: Config::default(),
+            };
+            trng.reset_rng();
+            trng.blocking_fill_bytes(buf);
+            Ok(())
+        }
+    }
+
+    embassy_crypto::rng_impl!(Driver);
+}
