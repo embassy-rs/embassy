@@ -1097,7 +1097,8 @@ mod driver {
 
     #![allow(unused_imports, dead_code)]
 
-    use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+    use embassy_crypto::driver;
+    use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, PanicRawMutex};
     use embassy_sync::mutex::Mutex;
 
     #[cfg(any(hash_v1, hash_v2, hash_v4))]
@@ -1109,19 +1110,18 @@ mod driver {
     use crate::peripherals::HASH;
     use crate::suspend::ResumablePeripheral;
 
-    static DRIVER: Mutex<CriticalSectionRawMutex, ResumablePeripheral<Hash<'static, HASH, Blocking>>> =
+    static DRIVER: Mutex<PanicRawMutex, ResumablePeripheral<Hash<'static, HASH, Blocking>>> =
         Mutex::new(ResumablePeripheral::new_suspended((None, 0)));
 
+    struct HashDriver;
+
+    #[allow(unused_macros)]
     macro_rules! impl_digest_driver {
         (
-            $(#[$meta:meta])*
-            $driver:ident, $trait:path, $algo:ty, $size:literal,
+            $trait:path, $algo:ty, $size:literal,
             $impl_macro:path
         ) => {
-            $(#[$meta])*
-            struct $driver;
-            $(#[$meta])*
-            impl $trait for $driver {
+            impl $trait for HashDriver {
                 type Context = Context<$algo, Blocking, NonHmac>;
 
                 fn init() -> Self::Context {
@@ -1136,8 +1136,7 @@ mod driver {
                     DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, out);
                 }
             }
-            $(#[$meta])*
-            $impl_macro!($driver);
+            $impl_macro!(HashDriver);
         };
     }
 
@@ -1145,20 +1144,21 @@ mod driver {
     // HMAC driver macro
     // =====================================================================
 
+    #[allow(unused_macros)]
     macro_rules! impl_hmac_driver {
         (
-            $(#[$meta:meta])*
-            $driver:ident, $trait:path, $algo:ty, $size:literal,
+            $trait:path, $algo:ty, $size:literal,
             $impl_macro:path
         ) => {
-            $(#[$meta])*
-            struct $driver;
-            $(#[$meta])*
-            impl $trait for $driver {
+            impl $trait for HashDriver {
                 type Context = Context<$algo, Blocking, Hmac>;
 
                 fn init(key: &[u8]) -> Self::Context {
-                    DRIVER.try_lock().unwrap().borrow().start(DataType::Width8, Some(key))
+                    DRIVER
+                        .try_lock()
+                        .unwrap()
+                        .borrow()
+                        .start(DataType::Width8, Some(key))
                 }
 
                 fn update(ctx: &mut Self::Context, data: &[u8]) {
@@ -1169,132 +1169,51 @@ mod driver {
                     DRIVER.try_lock().unwrap().borrow().finish_blocking(ctx, out);
                 }
             }
-            $(#[$meta])*
-            $impl_macro!($driver);
+            $impl_macro!(HashDriver);
         };
     }
 
-    impl_digest_driver!(
-        #[cfg(all(feature = "embassy-crypto-md5", any(hash_v1, hash_v2, hash_v4)))]
-        Md5Driver,
-        embassy_crypto::driver::Md5,
-        Md5,
-        16,
-        embassy_crypto::md5_impl
-    );
-    impl_digest_driver!(
-        #[cfg(feature = "embassy-crypto-sha1")]
-        Sha1Driver,
-        embassy_crypto::driver::Sha1,
-        Sha1,
-        20,
-        embassy_crypto::sha1_impl
-    );
-    impl_digest_driver!(
-        #[cfg(feature = "embassy-crypto-sha224")]
-        Sha224Driver,
-        embassy_crypto::driver::Sha224,
-        Sha224,
-        28,
-        embassy_crypto::sha224_impl
-    );
-    impl_digest_driver!(
-        #[cfg(feature = "embassy-crypto-sha256")]
-        Sha256Driver,
-        embassy_crypto::driver::Sha256,
-        Sha256,
-        32,
-        embassy_crypto::sha256_impl
-    );
-    impl_digest_driver!(
-        #[cfg(all(feature = "embassy-crypto-sha384", hash_v3))]
-        Sha384Driver,
-        embassy_crypto::driver::Sha384,
-        Sha384,
-        48,
-        embassy_crypto::sha384_impl
-    );
-    impl_digest_driver!(
-        #[cfg(all(feature = "embassy-crypto-sha512-224", hash_v3))]
-        Sha512_224Driver,
-        embassy_crypto::driver::Sha512_224,
-        Sha512_224,
-        28,
-        embassy_crypto::sha512_224_impl
-    );
-    impl_digest_driver!(
-        #[cfg(all(feature = "embassy-crypto-sha512-256", hash_v3))]
-        Sha512_256Driver,
-        embassy_crypto::driver::Sha512_256,
-        Sha512_256,
-        32,
-        embassy_crypto::sha512_256_impl
-    );
-    impl_digest_driver!(
-        #[cfg(all(feature = "embassy-crypto-sha512", hash_v3))]
-        Sha512Driver,
-        embassy_crypto::driver::Sha512,
-        Sha512,
-        64,
-        embassy_crypto::sha512_impl
-    );
+    #[cfg(all(feature = "embassy-crypto-md5", any(hash_v1, hash_v2, hash_v4)))]
+    impl_digest_driver!(driver::Md5, Md5, 16, embassy_crypto::md5_impl);
+    #[cfg(feature = "embassy-crypto-sha1")]
+    impl_digest_driver!(driver::Sha1, Sha1, 20, embassy_crypto::sha1_impl);
+    #[cfg(feature = "embassy-crypto-sha224")]
+    impl_digest_driver!(driver::Sha224, Sha224, 28, embassy_crypto::sha224_impl);
+    #[cfg(feature = "embassy-crypto-sha256")]
+    impl_digest_driver!(driver::Sha256, Sha256, 32, embassy_crypto::sha256_impl);
+    #[cfg(all(feature = "embassy-crypto-sha384", hash_v3))]
+    impl_digest_driver!(driver::Sha384, Sha384, 48, embassy_crypto::sha384_impl);
+    #[cfg(all(feature = "embassy-crypto-sha512-224", hash_v3))]
+    impl_digest_driver!(driver::Sha512_224, Sha512_224, 28, embassy_crypto::sha512_224_impl);
+    #[cfg(all(feature = "embassy-crypto-sha512-256", hash_v3))]
+    impl_digest_driver!(driver::Sha512_256, Sha512_256, 32, embassy_crypto::sha512_256_impl);
+    #[cfg(all(feature = "embassy-crypto-sha512", hash_v3))]
+    impl_digest_driver!(driver::Sha512, Sha512, 64, embassy_crypto::sha512_impl);
 
+    #[cfg(feature = "embassy-crypto-hmac-sha1")]
+    impl_hmac_driver!(driver::HmacSha1, Sha1, 20, embassy_crypto::hmac_sha1_impl);
+    #[cfg(feature = "embassy-crypto-hmac-sha224")]
+    impl_hmac_driver!(driver::HmacSha224, Sha224, 28, embassy_crypto::hmac_sha224_impl);
+    #[cfg(feature = "embassy-crypto-hmac-sha256")]
+    impl_hmac_driver!(driver::HmacSha256, Sha256, 32, embassy_crypto::hmac_sha256_impl);
+    #[cfg(all(feature = "embassy-crypto-hmac-sha384", hash_v3))]
+    impl_hmac_driver!(driver::HmacSha384, Sha384, 48, embassy_crypto::hmac_sha384_impl);
+    #[cfg(all(feature = "embassy-crypto-hmac-sha512-224", hash_v3))]
     impl_hmac_driver!(
-        #[cfg(feature = "embassy-crypto-hmac-sha1")]
-        HmacSha1Driver,
-        embassy_crypto::driver::HmacSha1,
-        Sha1,
-        20,
-        embassy_crypto::hmac_sha1_impl
-    );
-    impl_hmac_driver!(
-        #[cfg(feature = "embassy-crypto-hmac-sha224")]
-        HmacSha224Driver,
-        embassy_crypto::driver::HmacSha224,
-        Sha224,
-        28,
-        embassy_crypto::hmac_sha224_impl
-    );
-    impl_hmac_driver!(
-        #[cfg(feature = "embassy-crypto-hmac-sha256")]
-        HmacSha256Driver,
-        embassy_crypto::driver::HmacSha256,
-        Sha256,
-        32,
-        embassy_crypto::hmac_sha256_impl
-    );
-    impl_hmac_driver!(
-        #[cfg(all(feature = "embassy-crypto-hmac-sha384", hash_v3))]
-        HmacSha384Driver,
-        embassy_crypto::driver::HmacSha384,
-        Sha384,
-        48,
-        embassy_crypto::hmac_sha384_impl
-    );
-    impl_hmac_driver!(
-        #[cfg(all(feature = "embassy-crypto-hmac-sha512-224", hash_v3))]
-        HmacSha512_224Driver,
-        embassy_crypto::driver::HmacSha512_224,
+        driver::HmacSha512_224,
         Sha512_224,
         28,
         embassy_crypto::hmac_sha512_224_impl
     );
+    #[cfg(all(feature = "embassy-crypto-hmac-sha512-256", hash_v3))]
     impl_hmac_driver!(
-        #[cfg(all(feature = "embassy-crypto-hmac-sha512-256", hash_v3))]
-        HmacSha512_256Driver,
-        embassy_crypto::driver::HmacSha512_256,
+        driver::HmacSha512_256,
         Sha512_256,
         32,
         embassy_crypto::hmac_sha512_256_impl
     );
-    impl_hmac_driver!(
-        #[cfg(all(feature = "embassy-crypto-hmac-sha512", hash_v3))]
-        HmacSha512Driver,
-        embassy_crypto::driver::HmacSha512,
-        Sha512,
-        64,
-        embassy_crypto::hmac_sha512_impl
-    );
+    #[cfg(all(feature = "embassy-crypto-hmac-sha512", hash_v3))]
+    impl_hmac_driver!(driver::HmacSha512, Sha512, 64, embassy_crypto::hmac_sha512_impl);
 }
 
 trait SealedInstance {
