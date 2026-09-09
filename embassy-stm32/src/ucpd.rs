@@ -123,9 +123,9 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     /// Creates a new UCPD driver instance.
     pub fn new(
         _peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         cc1: Peri<'d, impl Cc1Pin<T>>,
         cc2: Peri<'d, impl Cc2Pin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Self {
         cc1.set_as_analog();

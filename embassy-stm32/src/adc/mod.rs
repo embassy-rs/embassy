@@ -298,8 +298,8 @@ pub struct ConfiguredTransfer<'adc, R: AdcRegs> {
 #[cfg(not(adc_f3v3))]
 impl<'d, T: Instance> Adc<'d, T> {
     #[cfg(any(adc_v1, adc_l0, adc_f1, adc_f3v1, adc_f3v2))]
-    /// Read an ADC pin async using the irq handler.
-    pub async fn irq_read<'a>(
+    /// Read an ADC pin, waiting for the end-of-conversion interrupt.
+    pub async fn read<'a>(
         &mut self,
         channel: impl BorrowedChannel<'a, T>,
         sample_time: <T::Regs as BasicAdcRegs>::SampleTime,
@@ -382,7 +382,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// let mut adc_pin1 = p.PA1.into();
     /// let mut measurements = [0u16; 2];
     ///
-    /// adc.read(
+    /// adc.read_sequence(
     ///     p.DMA1_CH2.reborrow(),
     ///     Irqs,
     ///     [
@@ -404,7 +404,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
     #[inline]
-    pub async fn read<'a, 'ch: 'a, D: RxDma<T>>(
+    pub async fn read_sequence<'a, 'ch: 'a, D: RxDma<T>>(
         &mut self,
         rx_dma: embassy_hal_internal::Peri<'a, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,

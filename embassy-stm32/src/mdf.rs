@@ -167,13 +167,13 @@ impl<'d, T: Instance, F: Filter> Mdf<'d, T, F> {
     /// serial interface with the same index as the filter.
     pub fn new<D>(
         peri: Peri<'d, T>,
-        irq: impl interrupt::typelevel::Binding<F::Interrupt, FilterInterruptHandler<T, F>>
-        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-        + 'd,
         config: Config,
         cck: Peri<'d, impl CckPin<T>>,
         sdi: Peri<'d, impl SdiPin<T>>,
         dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<F::Interrupt, FilterInterruptHandler<T, F>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         dma_buf: &'d mut [u32],
     ) -> Self
     where

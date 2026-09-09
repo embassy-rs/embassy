@@ -38,8 +38,8 @@ async fn main(_spawner: Spawner) {
         p.PB13, // ck
         p.PC6,
         p.DMA1_CH1,
-        &mut dma_buffer,
         Irqs,
+        &mut dma_buffer,
         i2s_config,
     );
     i2s.start();

@@ -50,7 +50,7 @@ fn main() -> ! {
     let active_offset = config.active.offset();
     let bl = BootLoader::prepare::<_, _, _, 2048>(config);
     if bl.state == State::DfuDetach {
-        let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
+        let driver = Driver::new(p.USB, p.PA12, p.PA11, Irqs);
         let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
         config.manufacturer = Some("Embassy");
         config.product = Some("USB-DFU Bootloader example");

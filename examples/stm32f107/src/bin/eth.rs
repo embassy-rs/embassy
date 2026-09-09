@@ -54,7 +54,6 @@ async fn main(spawner: Spawner) -> ! {
     let device = Ethernet::new(
         PACKETS.init(PacketQueue::<4, 4>::new()),
         p.ETH,
-        Irqs,
         p.PA1,
         p.PA7,
         p.PC4,
@@ -66,6 +65,7 @@ async fn main(spawner: Spawner) -> ! {
         p.ETH_SMA,
         p.PA2,
         p.PC1,
+        Irqs,
     );
 
     static STACK: StaticCell<StackStorage> = StaticCell::new();

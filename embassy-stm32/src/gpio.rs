@@ -184,7 +184,7 @@ impl<'d> Flex<'d> {
 
     /// Get the current pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
+    pub fn level(&self) -> Level {
         self.is_high().into()
     }
 
@@ -203,7 +203,7 @@ impl<'d> Flex<'d> {
 
     /// Get the current output level.
     #[inline]
-    pub fn get_output_level(&self) -> Level {
+    pub fn output_level(&self) -> Level {
         self.is_set_high().into()
     }
 
@@ -354,8 +354,8 @@ impl<'d> Input<'d> {
 
     /// Get the current pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
-        self.pin.get_level()
+    pub fn level(&self) -> Level {
+        self.pin.level()
     }
 }
 
@@ -441,8 +441,8 @@ impl<'d> Output<'d> {
 
     /// What level output is set to
     #[inline]
-    pub fn get_output_level(&self) -> Level {
-        self.pin.get_output_level()
+    pub fn output_level(&self) -> Level {
+        self.pin.output_level()
     }
 
     /// Toggle pin output
@@ -502,8 +502,8 @@ impl<'d> OutputOpenDrain<'d> {
 
     /// Get the current pin input level.
     #[inline]
-    pub fn get_level(&self) -> Level {
-        self.pin.get_level()
+    pub fn level(&self) -> Level {
+        self.pin.level()
     }
 
     /// Set the output as high.
@@ -538,8 +538,8 @@ impl<'d> OutputOpenDrain<'d> {
 
     /// Get the current output level.
     #[inline]
-    pub fn get_output_level(&self) -> Level {
-        self.pin.get_output_level()
+    pub fn output_level(&self) -> Level {
+        self.pin.output_level()
     }
 
     /// Toggle pin output

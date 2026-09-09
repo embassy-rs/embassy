@@ -40,7 +40,7 @@ async fn main(_spawner: Spawner) {
     info!("Initializing USB host...");
 
     // Create the host driver (HS mode, internal PHY)
-    let driver = HostDriver::new_hs_host(p.USB_OTG_HS, Irqs, p.PD6, p.PD7);
+    let driver = HostDriver::new_hs_host(p.USB_OTG_HS, p.PD6, p.PD7, Irqs);
 
     static BUS_STATE: BusState = BusState::new();
     let (mut bus_ctrl, bus) = embassy_usb_host::bus(driver, &BUS_STATE);

@@ -440,13 +440,22 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         address: impl Into<Address>,
         operations: &mut [Operation<'_>],
     ) -> Result<(), Error> {
+        self.blocking_transaction_inner(address, operations)
+    }
+
+    pub(crate) fn blocking_transaction_inner<O: TransactionOp>(
+        &mut self,
+        address: impl Into<Address>,
+        operations: &mut [O],
+    ) -> Result<(), Error> {
         let timeout = self.timeout();
         let address: Address = address.into();
 
         for (op, frame) in operation_frames(operations)? {
-            match op {
-                Operation::Read(read_buffer) => self.blocking_read_timeout(address, read_buffer, timeout, frame)?,
-                Operation::Write(write_buffer) => self.write_bytes(address, write_buffer, timeout, frame)?,
+            if let Some(read_buffer) = op.read_buf() {
+                self.blocking_read_timeout(address, read_buffer, timeout, frame)?;
+            } else if let Some(write_buffer) = op.write_buf() {
+                self.write_bytes(address, write_buffer, timeout, frame)?;
             }
         }
 

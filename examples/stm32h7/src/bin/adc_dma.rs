@@ -63,7 +63,7 @@ async fn main(_spawner: Spawner) {
     let mut pc1 = p.PC1.degrade_adc();
 
     loop {
-        adc.read(
+        adc.read_sequence(
             dma.reborrow(),
             Irqs,
             [

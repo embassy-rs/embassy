@@ -24,6 +24,15 @@ use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{Spi as Regs, regs, vals};
 use crate::time::Hertz;
 
+/// SPI configuration error.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum ConfigError {
+    /// The requested frequency is higher than the peripheral's kernel clock can divide down to.
+    FrequencyTooHigh,
+}
+
 /// SPI error.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -263,12 +272,12 @@ impl<'d> CsPinType<'d> {
         #[cfg(afio)] A,
     >(
         pin: Peri<'d, C>,
-        exti: Option<Peri<'d, C::ExtiChannel>>,
-        af_type: AfType,
         irq: impl crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
             exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
         >,
+        exti: Option<Peri<'d, C::ExtiChannel>>,
+        af_type: AfType,
     ) -> Self {
         set_as_af!(pin, af_type);
 
@@ -357,7 +366,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     }
 
     fn enable_and_init(&mut self, config: Config) {
-        let br = compute_baud_rate(self.kernel_clock, config.frequency);
+        let br = unwrap!(compute_baud_rate(self.kernel_clock, config.frequency));
         let cpha = config.raw_phase();
         let cpol = config.raw_polarity();
         let lsbfirst = config.raw_byte_order();
@@ -496,7 +505,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     }
 
     /// Reconfigures it with the supplied config.
-    pub fn set_config(&mut self, config: &Config) -> Result<(), ()> {
+    pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         self.gpio_speed = config.gpio_speed;
         self.crc_enabled = !matches!(config.crc, CrcConfig::Disabled);
         #[cfg(gpio_v2)]
@@ -1012,13 +1021,13 @@ impl<'d> Spi<'d, Async, Slave> {
         cs: Peri<'d, C>,
         tx_dma: Peri<'d, D1>,
         rx_dma: Peri<'d, D2>,
-        exti: Option<Peri<'d, C::ExtiChannel>>,
         irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
             exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
         > + 'd,
+        exti: Option<Peri<'d, C::ExtiChannel>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1026,7 +1035,7 @@ impl<'d> Spi<'d, Async, Slave> {
             new_pin!(sck, config.sck_af()),
             new_pin!(mosi, AfType::input(config.input_pull)),
             new_pin!(miso, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            CsPinType::new_with_exti(cs, exti, AfType::input(config.nss_pull), irq),
+            CsPinType::new_with_exti(cs, irq, exti, AfType::input(config.nss_pull)),
             new_dma!(tx_dma, irq),
             new_dma!(rx_dma, irq),
             config,
@@ -1046,12 +1055,12 @@ impl<'d> Spi<'d, Async, Slave> {
         mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
         cs: Peri<'d, C>,
         rx_dma: Peri<'d, D1>,
-        exti: Option<Peri<'d, C::ExtiChannel>>,
         irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<
             <<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ,
             exti::InterruptHandler<<<C as ExtiPin>::ExtiChannel as exti::Channel>::IRQ>,
         > + 'd,
+        exti: Option<Peri<'d, C::ExtiChannel>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1059,7 +1068,7 @@ impl<'d> Spi<'d, Async, Slave> {
             new_pin!(sck, config.sck_af()),
             new_pin!(mosi, AfType::input(config.input_pull)),
             None,
-            CsPinType::new_with_exti(cs, exti, AfType::input(config.nss_pull), irq),
+            CsPinType::new_with_exti(cs, irq, exti, AfType::input(config.nss_pull)),
             None,
             new_dma!(rx_dma, irq),
             config,
@@ -1529,9 +1538,9 @@ use vals::Br;
 #[cfg(any(spi_v4, spi_v5, spi_v6))]
 use vals::Mbr as Br;
 
-fn compute_baud_rate(kernel_clock: Hertz, freq: Hertz) -> Br {
+fn compute_baud_rate(kernel_clock: Hertz, freq: Hertz) -> Result<Br, ConfigError> {
     let val = match kernel_clock.0 / freq.0 {
-        0 => panic!("You are trying to reach a frequency higher than the clock"),
+        0 => return Err(ConfigError::FrequencyTooHigh),
         1..=2 => 0b000,
         3..=5 => 0b001,
         6..=11 => 0b010,
@@ -1542,7 +1551,7 @@ fn compute_baud_rate(kernel_clock: Hertz, freq: Hertz) -> Br {
         _ => 0b111,
     };
 
-    Br::from_bits(val)
+    Ok(Br::from_bits(val))
 }
 
 fn compute_frequency(kernel_clock: Hertz, br: Br) -> Hertz {
@@ -1572,13 +1581,13 @@ fn set_speed(sck: &Option<Flex<'_>>, mosi: &Option<Flex<'_>>, gpio_speed: Speed)
     }
 }
 
-fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), ()> {
+fn reconfigure(info: &Info, kernel_clock: Hertz, config: &Config) -> Result<(), ConfigError> {
     let cpha = config.raw_phase();
     let cpol = config.raw_polarity();
 
     let lsbfirst = config.raw_byte_order();
 
-    let br = compute_baud_rate(kernel_clock, config.frequency);
+    let br = compute_baud_rate(kernel_clock, config.frequency)?;
 
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     {
@@ -2114,8 +2123,8 @@ foreach_peripheral!(
 
 impl<'d, M: PeriMode, CM: CommunicationMode> SetConfig for Spi<'d, M, CM> {
     type Config = Config;
-    type ConfigError = ();
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
+    type ConfigError = ConfigError;
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         self.set_config(config)
     }
 }

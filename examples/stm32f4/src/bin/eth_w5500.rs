@@ -70,7 +70,7 @@ async fn main(spawner: Spawner) -> ! {
     // Generate random seed
     let mut rng = Rng::new(p.RNG, Irqs);
     let mut seed = [0; 8];
-    unwrap!(rng.async_fill_bytes(&mut seed).await);
+    unwrap!(rng.fill_bytes(&mut seed).await);
     let seed = u64::from_le_bytes(seed);
 
     let mut spi_cfg = spi::Config::default();

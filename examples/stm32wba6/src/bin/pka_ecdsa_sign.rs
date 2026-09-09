@@ -81,7 +81,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Generate random k value using hardware RNG
     // CRITICAL: k must be random and unique for every signature!
     let mut k = [0u8; 32];
-    if let Err(e) = rng.async_fill_bytes(&mut k).await {
+    if let Err(e) = rng.fill_bytes(&mut k).await {
         error!("Failed to generate random k: {:?}", e);
         loop {
             cortex_m::asm::wfi();

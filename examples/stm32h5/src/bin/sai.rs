@@ -68,8 +68,8 @@ async fn main(_spawner: Spawner) {
         p.PE4, // FS_A — LRCLK
         p.PE2, // MCLK_A — master clock
         p.GPDMA1_CH1,
-        &mut write_buffer,
         Irqs,
+        &mut write_buffer,
         sai_config,
     );
 

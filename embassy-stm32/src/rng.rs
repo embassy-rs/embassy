@@ -10,11 +10,12 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Interrupt;
+use crate::mode::{Async, Blocking, Mode};
 use crate::{Peri, interrupt, pac, peripherals, rcc};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
-/// How many times [`next_u32`](Rng::next_u32) resets the RNG to clear a seed or
+/// How many times [`blocking_next_u32`](Rng::blocking_next_u32) resets the RNG to clear a seed or
 /// clock error before giving up. A transient error clears on the first reset; an
 /// error that never clears (typically a misconfigured RNG clock) is a hard fault
 /// the infallible API surfaces by panicking, rather than spinning or recursing.
@@ -141,16 +142,20 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// RNG driver.
-pub struct Rng<'d, T: Instance> {
-    _inner: Peri<'d, T>,
+pub struct Rng<'d, M: Mode> {
+    info: &'static Info,
+    _phantom: PhantomData<(&'d mut (), M)>,
 }
 
-impl<'d, T: Instance> Rng<'d, T> {
+impl<'d> Rng<'d, Async> {
     /// Create a new RNG driver.
-    pub fn new(
+    pub fn new<T: Instance>(
         inner: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
         #[cfg(rng_v1)]
         {
             Self::new_inner(inner)
@@ -163,42 +168,98 @@ impl<'d, T: Instance> Rng<'d, T> {
 
     #[cfg(not(rng_v1))]
     /// Create a new RNG driver with explicit configuration policy.
-    pub fn new_with_config(
+    pub fn new_with_config<T: Instance>(
         inner: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: RngConfig,
     ) -> Self {
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
         Self::new_inner(inner, config)
+    }
+}
+
+impl<'d> Rng<'d, Blocking> {
+    /// Create a new blocking RNG driver.
+    pub fn new_blocking<T: Instance>(inner: Peri<'d, T>) -> Self {
+        #[cfg(rng_v1)]
+        {
+            Self::new_inner(inner)
+        }
+        #[cfg(not(rng_v1))]
+        {
+            Self::new_inner(inner, RngConfig::default())
+        }
+    }
+
+    #[cfg(not(rng_v1))]
+    /// Create a new blocking RNG driver with explicit configuration policy.
+    pub fn new_blocking_with_config<T: Instance>(inner: Peri<'d, T>, config: RngConfig) -> Self {
+        Self::new_inner(inner, config)
+    }
+}
+
+impl<'d, M: Mode> Rng<'d, M> {
+    #[inline]
+    fn regs(&self) -> pac::rng::Rng {
+        self.info.regs
     }
 
     #[cfg(rng_v1)]
-    fn new_inner(inner: Peri<'d, T>) -> Self {
+    fn new_inner<T: Instance>(_inner: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         // Verify clock is available
         T::frequency();
 
-        let mut random = Self { _inner: inner };
+        let mut random = Self {
+            info: T::info(),
+            _phantom: PhantomData,
+        };
         random.reset();
-
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
 
         random
     }
 
     #[cfg(not(rng_v1))]
-    fn new_inner(inner: Peri<'d, T>, config: RngConfig) -> Self {
+    fn new_inner<T: Instance>(_inner: Peri<'d, T>, config: RngConfig) -> Self {
         rcc::enable_and_reset::<T>();
 
         // Verify clock is available
         T::frequency();
 
-        let mut random = Self { _inner: inner };
+        let mut random = Self {
+            info: T::info(),
+            _phantom: PhantomData,
+        };
         random.reset_with_config(config);
 
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
+        random
+    }
+
+    #[cfg(rng_v1)]
+    fn resume_inner(info: &'static Info) -> Self {
+        info.rcc.enable_and_reset();
+
+        let mut random = Self {
+            info,
+            _phantom: PhantomData,
+        };
+        random.reset();
+
+        random
+    }
+
+    #[cfg(not(rng_v1))]
+    fn resume_inner(info: &'static Info, config: RngConfig) -> Self {
+        info.rcc.enable_and_reset();
+
+        let mut random = Self {
+            info,
+            _phantom: PhantomData,
+        };
+        random.reset_with_config(config);
 
         random
     }
@@ -206,14 +267,14 @@ impl<'d, T: Instance> Rng<'d, T> {
     /// Reset the RNG.
     #[cfg(rng_v1)]
     pub fn reset(&mut self) {
-        T::regs().cr().write(|reg| {
+        self.regs().cr().write(|reg| {
             reg.set_rngen(false);
         });
-        T::regs().sr().modify(|reg| {
+        self.regs().sr().modify(|reg| {
             reg.set_seis(false);
             reg.set_ceis(false);
         });
-        T::regs().cr().modify(|reg| {
+        self.regs().cr().modify(|reg| {
             reg.set_rngen(true);
         });
         // Reference manual says to discard the first word. Wait for it
@@ -232,7 +293,7 @@ impl<'d, T: Instance> Rng<'d, T> {
     #[cfg(not(rng_v1))]
     /// Reset the RNG with a caller-provided configuration policy.
     pub fn reset_with_config(&mut self, config: RngConfig) {
-        T::regs().cr().write(|reg| {
+        self.regs().cr().write(|reg| {
             reg.set_condrst(true);
             reg.set_nistc(config.nistc);
             // set RNG config "A" according to reference manual
@@ -249,7 +310,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         });
 
         // wait for CONDRST to be set
-        while !T::regs().cr().read().condrst() {}
+        while !self.regs().cr().read().condrst() {}
 
         // Set health test configuration values
         match config.health_test_config {
@@ -257,10 +318,10 @@ impl<'d, T: Instance> Rng<'d, T> {
                 #[cfg(not(any(rng_wba6, rng_v4)))]
                 {
                     // magic number must be written immediately before every read or write access to HTCR
-                    T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Magic));
+                    self.regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Magic));
                     // write recommended value according to reference manual
                     // note: HTCR can only be written during conditioning
-                    T::regs()
+                    self.regs()
                         .htcr()
                         .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Recommended));
                 }
@@ -268,11 +329,11 @@ impl<'d, T: Instance> Rng<'d, T> {
                 {
                     // For WBA6, set RNG_HTCR0 to the recommended value for configurations A, B, and C
                     // This value corresponds to the health test thresholds specified in the reference manual
-                    T::regs().htcr(0).write(|w| w.0 = Htcfg::WbaRecommended.value());
+                    self.regs().htcr(0).write(|w| w.0 = Htcfg::WbaRecommended.value());
                 }
                 #[cfg(rng_v4)]
                 {
-                    T::regs()
+                    self.regs()
                         .htcr(0)
                         .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::Recommended));
                 }
@@ -281,7 +342,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         }
 
         // finish conditioning
-        T::regs().cr().modify(|reg| {
+        self.regs().cr().modify(|reg| {
             reg.set_rngen(true);
             reg.set_condrst(false);
             reg.set_configlock(config.config_lock);
@@ -289,7 +350,7 @@ impl<'d, T: Instance> Rng<'d, T> {
 
         // According to reference manual for RNGv3: SEIS must be cleared manually.
         // RNGv2 does not say anything about SEIS clearing, but ST Cube HAL clears it.
-        T::regs().sr().modify(|reg| {
+        self.regs().sr().modify(|reg| {
             reg.set_seis(false);
         });
 
@@ -304,69 +365,12 @@ impl<'d, T: Instance> Rng<'d, T> {
     pub fn recover_seed_error(&mut self) {
         self.reset();
         // reset should also clear the SEIS flag
-        if T::regs().sr().read().seis() {
+        if self.regs().sr().read().seis() {
             warn!("recovering from seed error failed");
             return;
         }
         // wait for SECS to be cleared by RNG
-        while T::regs().sr().read().secs() {}
-    }
-
-    /// Fill the given slice with random values.
-    pub async fn async_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
-        for chunk in dest.chunks_mut(4) {
-            let mut bits = T::regs().sr().read();
-            if !bits.seis() && !bits.ceis() && !bits.drdy() {
-                // wait for interrupt
-                poll_fn(|cx| {
-                    // quick check to avoid registration if already done.
-                    let bits = T::regs().sr().read();
-                    if bits.drdy() || bits.seis() || bits.ceis() {
-                        return Poll::Ready(());
-                    }
-                    RNG_WAKER.register(cx.waker());
-                    T::regs().cr().modify(|reg| reg.set_ie(true));
-                    // Need to check condition **after** `register` to avoid a race
-                    // condition that would result in lost notifications.
-                    let bits = T::regs().sr().read();
-                    if bits.drdy() || bits.seis() || bits.ceis() {
-                        Poll::Ready(())
-                    } else {
-                        Poll::Pending
-                    }
-                })
-                .await;
-
-                // Re-read the status register after wait.
-                bits = T::regs().sr().read()
-            }
-            if bits.seis() {
-                // in case of noise-source or seed error we try to recover here
-                // but we must not use the data in DR and we return an error
-                // to leave retry-logic to the application
-                self.recover_seed_error();
-                return Err(Error::SeedError);
-            } else if bits.ceis() {
-                // clock error detected, DR could still be used but keep it safe,
-                // clear the error and abort
-                T::regs().sr().modify(|sr| sr.set_ceis(false));
-                return Err(Error::ClockError);
-            } else if bits.drdy() {
-                // DR can be read up to four times until the output buffer is empty
-                // DRDY is cleared automatically when that happens
-                let random_word = T::regs().dr().read();
-                // reference manual: always check if DR is zero
-                if random_word == 0 {
-                    return Err(Error::SeedError);
-                }
-                // write bytes to chunk
-                for (dest, src) in chunk.iter_mut().zip(random_word.to_ne_bytes().iter()) {
-                    *dest = *src
-                }
-            }
-        }
-
-        Ok(())
+        while self.regs().sr().read().secs() {}
     }
 
     /// Spin until the RNG has a word ready or raises an error flag. Returns the
@@ -377,11 +381,11 @@ impl<'d, T: Instance> Rng<'d, T> {
     /// through this: recovering here would call back into reset() and recurse.
     fn poll_word(&mut self) -> Option<u32> {
         loop {
-            let sr = T::regs().sr().read();
+            let sr = self.regs().sr().read();
             if sr.seis() | sr.ceis() {
                 return None;
             } else if sr.drdy() {
-                return Some(T::regs().dr().read());
+                return Some(self.regs().dr().read());
             }
         }
     }
@@ -389,7 +393,7 @@ impl<'d, T: Instance> Rng<'d, T> {
     /// Wait for the first random word after a reset and discard it, as the
     /// reference manual requires. If the reset did not take (an error flag is
     /// still set) the word is simply absent; leave the flag for the next
-    /// `next_u32`/`async_fill_bytes` call to observe and act on.
+    /// `blocking_next_u32`/`fill_bytes` call to observe and act on.
     fn discard_first_word(&mut self) {
         let _ = self.poll_word();
     }
@@ -399,9 +403,9 @@ impl<'d, T: Instance> Rng<'d, T> {
     /// This call is infallible: a seed or clock error is recovered by resetting
     /// the RNG. If the error persists after `MAX_RESET_RETRIES` resets (almost
     /// always a misconfigured RNG clock) it panics, since an infallible API has
-    /// no other way to surface the fault. Use [`async_fill_bytes`](Self::async_fill_bytes)
+    /// no other way to surface the fault. Use [`fill_bytes`](Rng::<Async>::fill_bytes)
     /// for a fallible path that returns [`Error`] instead.
-    pub fn next_u32(&mut self) -> u32 {
+    pub fn blocking_next_u32(&mut self) -> u32 {
         // Only resets are bounded, not poll iterations: a healthy RNG may take
         // many reads to produce the first word, and that must not count as a
         // failure.
@@ -419,16 +423,16 @@ impl<'d, T: Instance> Rng<'d, T> {
     }
 
     /// Get a random u64
-    pub fn next_u64(&mut self) -> u64 {
-        let mut rand = self.next_u32() as u64;
-        rand |= (self.next_u32() as u64) << 32;
+    pub fn blocking_next_u64(&mut self) -> u64 {
+        let mut rand = self.blocking_next_u32() as u64;
+        rand |= (self.blocking_next_u32() as u64) << 32;
         rand
     }
 
     /// Fill a slice with random bytes
-    pub fn fill_bytes(&mut self, dest: &mut [u8]) {
+    pub fn blocking_fill_bytes(&mut self, dest: &mut [u8]) {
         for chunk in dest.chunks_mut(4) {
-            let rand = self.next_u32();
+            let rand = self.blocking_next_u32();
             for (slot, num) in chunk.iter_mut().zip(rand.to_ne_bytes().iter()) {
                 *slot = *num
             }
@@ -436,26 +440,85 @@ impl<'d, T: Instance> Rng<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for Rng<'d, T> {
-    fn drop(&mut self) {
-        T::regs().cr().modify(|reg| {
-            reg.set_rngen(false);
-        });
-        rcc::disable::<T>();
+impl<'d> Rng<'d, Async> {
+    /// Fill the given slice with random values.
+    pub async fn fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Error> {
+        for chunk in dest.chunks_mut(4) {
+            let mut bits = self.regs().sr().read();
+            if !bits.seis() && !bits.ceis() && !bits.drdy() {
+                // wait for interrupt
+                poll_fn(|cx| {
+                    // quick check to avoid registration if already done.
+                    let bits = self.regs().sr().read();
+                    if bits.drdy() || bits.seis() || bits.ceis() {
+                        return Poll::Ready(());
+                    }
+                    RNG_WAKER.register(cx.waker());
+                    self.regs().cr().modify(|reg| reg.set_ie(true));
+                    // Need to check condition **after** `register` to avoid a race
+                    // condition that would result in lost notifications.
+                    let bits = self.regs().sr().read();
+                    if bits.drdy() || bits.seis() || bits.ceis() {
+                        Poll::Ready(())
+                    } else {
+                        Poll::Pending
+                    }
+                })
+                .await;
+
+                // Re-read the status register after wait.
+                bits = self.regs().sr().read()
+            }
+            if bits.seis() {
+                // in case of noise-source or seed error we try to recover here
+                // but we must not use the data in DR and we return an error
+                // to leave retry-logic to the application
+                self.recover_seed_error();
+                return Err(Error::SeedError);
+            } else if bits.ceis() {
+                // clock error detected, DR could still be used but keep it safe,
+                // clear the error and abort
+                self.regs().sr().modify(|sr| sr.set_ceis(false));
+                return Err(Error::ClockError);
+            } else if bits.drdy() {
+                // DR can be read up to four times until the output buffer is empty
+                // DRDY is cleared automatically when that happens
+                let random_word = self.regs().dr().read();
+                // reference manual: always check if DR is zero
+                if random_word == 0 {
+                    return Err(Error::SeedError);
+                }
+                // write bytes to chunk
+                for (dest, src) in chunk.iter_mut().zip(random_word.to_ne_bytes().iter()) {
+                    *dest = *src
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
-impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Rng<'d, T> {
+impl<'d, M: Mode> Drop for Rng<'d, M> {
+    fn drop(&mut self) {
+        self.regs().cr().modify(|reg| {
+            reg.set_rngen(false);
+        });
+        self.info.rcc.disable();
+    }
+}
+
+impl<'d, M: Mode> crate::suspend::SealedSuspendablePeripheral for Rng<'d, M> {
     #[cfg(rng_v1)]
-    type InternalState = Peri<'d, T>;
+    type InternalState = &'static Info;
 
     #[cfg(not(rng_v1))]
-    type InternalState = (Peri<'d, T>, RngConfig);
+    type InternalState = (&'static Info, RngConfig);
 
     fn suspend(self) -> Self::InternalState {
         #[cfg(not(rng_v1))]
         {
-            let cr = T::regs().cr().read();
+            let cr = self.regs().cr().read();
 
             let config = RngConfig {
                 nistc: cr.nistc(),
@@ -469,87 +532,96 @@ impl<'d, T: Instance> crate::suspend::SealedSuspendablePeripheral for Rng<'d, T>
                 ..Default::default()
             };
 
-            unsafe { (self._inner.clone_unchecked(), config) }
+            (self.info, config)
         }
 
         #[cfg(rng_v1)]
         {
-            unsafe { self._inner.clone_unchecked() }
+            self.info
         }
     }
 
     fn resume(state: Self::InternalState) -> Self {
         #[cfg(not(rng_v1))]
         {
-            Self::new_inner(state.0, state.1)
+            Self::resume_inner(state.0, state.1)
         }
 
         #[cfg(rng_v1)]
         {
-            Self::new_inner(state)
+            Self::resume_inner(state)
         }
     }
 }
 
-impl<'d, T: Instance> rand_core_06::RngCore for Rng<'d, T> {
+impl<'d, M: Mode> rand_core_06::RngCore for Rng<'d, M> {
     fn next_u32(&mut self) -> u32 {
-        self.next_u32()
+        self.blocking_next_u32()
     }
 
     fn next_u64(&mut self) -> u64 {
-        self.next_u64()
+        self.blocking_next_u64()
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.fill_bytes(dest);
+        self.blocking_fill_bytes(dest);
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
-        self.fill_bytes(dest);
+        self.blocking_fill_bytes(dest);
         Ok(())
     }
 }
 
-impl<'d, T: Instance> rand_core_06::CryptoRng for Rng<'d, T> {}
+impl<'d, M: Mode> rand_core_06::CryptoRng for Rng<'d, M> {}
 
-impl<'d, T: Instance> rand_core_09::RngCore for Rng<'d, T> {
+impl<'d, M: Mode> rand_core_09::RngCore for Rng<'d, M> {
     fn next_u32(&mut self) -> u32 {
-        self.next_u32()
+        self.blocking_next_u32()
     }
 
     fn next_u64(&mut self) -> u64 {
-        self.next_u64()
+        self.blocking_next_u64()
     }
 
     fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.fill_bytes(dest);
+        self.blocking_fill_bytes(dest);
     }
 }
 
-impl<'d, T: Instance> rand_core_09::CryptoRng for Rng<'d, T> {}
+impl<'d, M: Mode> rand_core_09::CryptoRng for Rng<'d, M> {}
 
-impl<'d, T: Instance> rand_core_10::TryRng for Rng<'d, T> {
+impl<'d, M: Mode> rand_core_10::TryRng for Rng<'d, M> {
     type Error = Infallible;
 
     fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
-        Ok(self.next_u32())
+        Ok(self.blocking_next_u32())
     }
 
     fn try_next_u64(&mut self) -> Result<u64, Self::Error> {
-        Ok(self.next_u64())
+        Ok(self.blocking_next_u64())
     }
 
     fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Self::Error> {
-        self.fill_bytes(dest);
+        self.blocking_fill_bytes(dest);
 
         Ok(())
     }
 }
 
-impl<'d, T: Instance> rand_core_10::TryCryptoRng for Rng<'d, T> {}
+impl<'d, M: Mode> rand_core_10::TryCryptoRng for Rng<'d, M> {}
 
+pub(crate) struct Info {
+    pub(crate) regs: pac::rng::Rng,
+    pub(crate) rcc: crate::rcc::RccInfo,
+}
+
+#[allow(private_interfaces)]
 trait SealedInstance {
-    fn regs() -> pac::rng::Rng;
+    fn info() -> &'static Info;
+    fn regs() -> pac::rng::Rng {
+        Self::info().regs
+    }
 }
 
 /// RNG instance trait.
@@ -565,9 +637,14 @@ foreach_interrupt!(
             type Interrupt = crate::interrupt::typelevel::$irq;
         }
 
+        #[allow(private_interfaces)]
         impl SealedInstance for peripherals::$inst {
-            fn regs() -> crate::pac::rng::Rng {
-                crate::pac::$inst
+            fn info() -> &'static Info {
+                static INFO: Info = Info {
+                    regs: crate::pac::$inst,
+                    rcc: <crate::peripherals::$inst as crate::rcc::SealedRccPeripheral>::RCC_INFO,
+                };
+                &INFO
             }
         }
     };
@@ -586,6 +663,7 @@ pub(crate) mod driver {
     use embassy_sync::mutex::Mutex;
 
     use super::{MAX_RESET_RETRIES, Rng};
+    use crate::mode::Blocking;
 
     foreach_peripheral!(
         (rng, $inst:ident) => {
@@ -593,10 +671,10 @@ pub(crate) mod driver {
         };
     );
 
-    static DRIVER: Mutex<CriticalSectionRawMutex, Option<Rng<'static, Instance>>> = Mutex::new(None);
+    static DRIVER: Mutex<CriticalSectionRawMutex, Option<Rng<'static, Blocking>>> = Mutex::new(None);
 
     /// Runs `f` on the RNG, starting it first if needed.
-    pub(crate) fn with_rng<R>(f: impl FnOnce(&mut Rng<'static, Instance>) -> R) -> R {
+    pub(crate) fn with_rng<R>(f: impl FnOnce(&mut Rng<'static, Blocking>) -> R) -> R {
         let mut driver = DRIVER.try_lock().expect("the RNG is in use");
         let rng = driver.get_or_insert_with(|| {
             let peri = unsafe { Instance::steal() };

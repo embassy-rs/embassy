@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner) {
             blocking_vref, blocking_temp, blocing_pin0
         );
 
-        adc.read(
+        adc.read_sequence(
             dma.reborrow(),
             Irqs,
             [

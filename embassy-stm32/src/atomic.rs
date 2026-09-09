@@ -129,6 +129,23 @@ pub trait AtomicIncrement<T> {
     fn increment(&self) -> T;
 }
 
+impl AtomicIncrement<u8> for AtomicU8 {
+    #[cfg(not(target_has_atomic = "8"))]
+    fn increment(&self) -> u8 {
+        critical_section::with(|_| {
+            let refcount = self.load(Ordering::Relaxed);
+            self.store(refcount.wrapping_add(1), Ordering::Relaxed);
+
+            refcount
+        })
+    }
+
+    #[cfg(target_has_atomic = "8")]
+    fn increment(&self) -> u8 {
+        self.fetch_add(1, Ordering::Acquire)
+    }
+}
+
 impl AtomicIncrement<u32> for AtomicU32 {
     #[cfg(not(target_has_atomic = "32"))]
     fn increment(&self) -> u32 {

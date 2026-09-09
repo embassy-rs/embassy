@@ -89,8 +89,8 @@ async fn main(spawner: Spawner) {
 
     info!("init ltdc");
     let mut ltdc = Ltdc::<_, ltdc::Rgb888>::new_with_pins(
-        p.LTDC, Irqs, p.PI14, p.PI12, p.PI9, p.PK7, p.PJ12, p.PJ13, p.PJ14, p.PJ15, p.PK3, p.PK4, p.PK5, p.PK6, p.PJ7,
-        p.PJ8, p.PJ9, p.PJ10, p.PJ11, p.PI0, p.PI1, p.PK2, p.PI15, p.PJ0, p.PJ1, p.PH9, p.PJ3, p.PJ4, p.PJ5, p.PJ6,
+        p.LTDC, p.PI14, p.PI12, p.PI9, p.PK7, p.PJ12, p.PJ13, p.PJ14, p.PJ15, p.PK3, p.PK4, p.PK5, p.PK6, p.PJ7, p.PJ8,
+        p.PJ9, p.PJ10, p.PJ11, p.PI0, p.PI1, p.PK2, p.PI15, p.PJ0, p.PJ1, p.PH9, p.PJ3, p.PJ4, p.PJ5, p.PJ6, Irqs,
     );
     ltdc.init(&ltdc_config);
 

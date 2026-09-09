@@ -187,7 +187,7 @@ async fn main(spawner: Spawner) {
     let tx_buf = TX_BUF.init([0u8; 256]);
     let rx_buf = RX_BUF.init([0u8; 256]);
 
-    let uart = BufferedUart::new(p.USART1, p.PA8, p.PB12, tx_buf, rx_buf, Irqs, uart_config)
+    let uart = BufferedUart::new(p.USART1, p.PB12, p.PA8, Irqs, tx_buf, rx_buf, uart_config)
         .expect("Failed to initialize USART1");
 
     let (uart_tx, uart_rx) = uart.split();

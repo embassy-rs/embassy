@@ -93,7 +93,7 @@ async fn adc_task<'a, T, D, I>(
     loop {
         // This is not a true continuous read as there is downtime between each
         // call to `Adc::read` where the ADC is sitting idle.
-        adc.read(
+        adc.read_sequence(
             dma.reborrow(),
             irq,
             [

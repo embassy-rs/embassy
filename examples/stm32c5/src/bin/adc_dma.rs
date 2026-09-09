@@ -30,7 +30,7 @@ async fn main(_spawner: Spawner) {
     let mut adc1_channel = p.PA0.degrade_adc();
     let mut readings = [0u16; 1];
 
-    adc1.read(
+    adc1.read_sequence(
         p.LPDMA1_CH0,
         Irqs,
         [(adc1_channel.reborrow_adc(), SampleTime::Cycles289)].into_iter(),

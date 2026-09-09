@@ -214,7 +214,6 @@ async fn main(spawner: Spawner) -> ! {
     let device = Ethernet::new_rgmii(
         &mut packets.0,
         p.ETH1,
-        Irqs,
         p.PF0,  // RGMII_GTX_CLK
         p.PF11, // RGMII_TX_CTL
         p.PF12, // RGMII_TXD0
@@ -232,6 +231,7 @@ async fn main(spawner: Spawner) -> ! {
         p.ETH_SMA,
         p.PD12, // MDIO
         p.PD1,  // MDC
+        Irqs,
     );
 
     static STACK: StaticCell<StackStorage> = StaticCell::new();

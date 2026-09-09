@@ -66,11 +66,12 @@ async fn main(_spawner: Spawner) {
 
     let mut mdf = Mdf::new(
         p.MDF1,
-        Irqs,
         config,
-        p.PE9,  // CCK0
+        p.PE9,
+        // CCK0
         p.PE10, // SDI0
         p.GPDMA1_CH0,
+        Irqs,
         &mut dma_buf,
     );
 

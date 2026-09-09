@@ -238,7 +238,7 @@ async fn main(spawner: Spawner) {
 
     let mut rng = Rng::new(dp.RNG, Irqs);
     // Generate random seed
-    let seed = rng.next_u64();
+    let seed = rng.blocking_next_u64();
 
     // Init network stack
     static STACK: StaticCell<StackStorage> = StaticCell::new();

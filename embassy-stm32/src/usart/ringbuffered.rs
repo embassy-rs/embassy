@@ -403,29 +403,6 @@ impl embedded_io_async::Read for RingBufferedUartRx<'_, u8> {
     }
 }
 
-impl embedded_hal_nb::serial::Read for RingBufferedUartRx<'_, u8> {
-    fn read(&mut self) -> nb::Result<u8, Self::Error> {
-        self.start_dma_or_check_errors()?;
-
-        let mut buf = [0u8; 1];
-        match self.ring_buf.read(&mut buf) {
-            Ok((0, _)) => Err(nb::Error::WouldBlock),
-            Ok((len, _)) => {
-                assert!(len == 1);
-                Ok(buf[0])
-            }
-            Err(_) => {
-                self.stop_uart();
-                Err(nb::Error::Other(Error::Overrun))
-            }
-        }
-    }
-}
-
-impl<W: UsartWord> embedded_hal_nb::serial::ErrorType for RingBufferedUartRx<'_, W> {
-    type Error = Error;
-}
-
 impl<W: UsartWord> ReadReady for RingBufferedUartRx<'_, W> {
     fn read_ready(&mut self) -> Result<bool, Self::Error> {
         let len = self.ring_buf.len().map_err(|e| match e {

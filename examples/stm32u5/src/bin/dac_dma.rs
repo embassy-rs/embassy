@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner) {
     info!("Board connected!");
 
     // Any timer that supports the hardware TRGO can be selected here
-    let mut dac = DacChannel::new_triggered(p.DAC1, p.GPDMA1_CH0, TIM6_TRGO, Irqs, p.PA4);
+    let mut dac = DacChannel::new_triggered(p.DAC1, p.GPDMA1_CH0, TIM6_TRGO, p.PA4, Irqs);
 
     enable_and_reset::<embassy_stm32::peripherals::TIM6>();
 

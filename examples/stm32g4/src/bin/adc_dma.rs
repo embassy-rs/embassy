@@ -44,7 +44,7 @@ async fn main(_spawner: Spawner) {
     let mut vrefint = adc.enable_vrefint();
 
     for _ in 0..5 {
-        adc.read(
+        adc.read_sequence(
             dma.reborrow(),
             Irqs,
             [

@@ -19,7 +19,7 @@ fn main() -> ! {
     let p = embassy_stm32::init(Default::default());
 
     let config = Config::default();
-    let mut usart = Uart::new_blocking(p.USART2, p.PA3, p.PA2, config).unwrap();
+    let mut usart = Uart::new_blocking(p.USART2, p.PA2, p.PA3, config).unwrap();
     let desired_baudrate = 9600; // Default is 115200 and 9600 is used as example
 
     match usart.set_baudrate(desired_baudrate) {

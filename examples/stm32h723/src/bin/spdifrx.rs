@@ -153,7 +153,7 @@ fn new_spdif_receiver<'d>(
     dma: Peri<'d, peripherals::DMA2_CH7>,
     buf: &'d mut [u32],
 ) -> Spdifrx<'d, peripherals::SPDIFRX1> {
-    Spdifrx::new(spdifrx, Irqs, spdifrx::Config::default(), input_pin, dma, buf)
+    Spdifrx::new(spdifrx, spdifrx::Config::default(), input_pin, dma, Irqs, buf)
 }
 
 /// Creates a new SAI4 instance for transmitting sample data.
@@ -174,5 +174,5 @@ fn new_sai_transmitter<'d>(
     sai_config.frame_length = (CHANNEL_COUNT * 32) as u16;
 
     let (sub_block_tx, _) = hal::sai::split_subblocks(sai);
-    Sai::new_asynchronous(sub_block_tx, sck, sd, fs, dma, buf, Irqs, sai_config)
+    Sai::new_asynchronous(sub_block_tx, sck, sd, fs, dma, Irqs, buf, sai_config)
 }
