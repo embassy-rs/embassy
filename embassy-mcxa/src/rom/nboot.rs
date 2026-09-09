@@ -130,7 +130,7 @@ pub enum NbootRootKeyType {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NbootImgAuthParms {
-    pub soc_ro_tnvm: NbootRotAuthParms,
+    pub soc_rot_nvm: NbootRotAuthParms,
     pub soc_trusted_firmware_version: u32,
 }
 
@@ -139,7 +139,7 @@ pub struct NbootImgAuthParms {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct NbootSb4LoadManifestParms {
     /// Returned RoTNVM/auth parameters.
-    pub soc_ro_tnvm: NbootRotAuthParms,
+    pub soc_rot_nvm: NbootRotAuthParms,
     /// Returned trusted firmware version.
     pub soc_trusted_firmware_version: u32,
     /// Returned maximum SB block size.
