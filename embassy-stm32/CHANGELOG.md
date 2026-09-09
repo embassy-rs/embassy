@@ -49,6 +49,9 @@ COMP:
 - feat: stm32/comp: add support for comp_v1 (used on G0)
 
 Timer:
+- feat: stm32/time-driver: 32-bit timers now run the time driver with their full counter width instead of as 16-bit.
+- feat: stm32/time-driver: `time-driver-any` prefers 32-bit timers over 16-bit timers.
+- feat: stm32/time-driver: add `time-driver-tim19`, `time-driver-lptim4`, `time-driver-lptim5` and `time-driver-lptim6` features.
 - feat: stm32/timer/input_capture: add per-channel split API for concurrent multi-channel capture
 - feat: stm32/timer: add timer_v2 dithering APIs (`DitheringConfig`, ARR/CCR fractional nibble setters) in low-level, simple PWM, and complementary PWM drivers
 - feat: stm32/timer: add low-level timer status helpers for UIF remap control and counting direction (`is_counting_up`/`is_counting_down`)

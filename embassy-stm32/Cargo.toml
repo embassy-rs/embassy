@@ -335,7 +335,7 @@ time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 _time-driver = ["dep:embassy-time-driver", "time", "dep:embassy-time-queue-utils"]
 _lp-time-driver = ["_time-driver"]
 
-## Use any time driver
+## Pick any TIMx timer for the time driver. Prefers 32-bit timers, if available.
 time-driver-any = ["_time-driver"]
 ## Use TIM1 as time driver
 time-driver-tim1 = ["_time-driver"]
@@ -355,6 +355,8 @@ time-driver-tim9 = ["_time-driver"]
 time-driver-tim12 = ["_time-driver"]
 ## Use TIM15 as time driver
 time-driver-tim15 = ["_time-driver"]
+## Use TIM19 as time driver
+time-driver-tim19 = ["_time-driver"]
 ## Use TIM20 as time driver
 time-driver-tim20 = ["_time-driver"]
 ## Use TIM21 as time driver
@@ -371,6 +373,12 @@ time-driver-lptim1 = ["_lp-time-driver"]
 time-driver-lptim2 = ["_lp-time-driver"]
 ## Use LPTIM3 as time driver
 time-driver-lptim3 = ["_lp-time-driver"]
+## Use LPTIM4 as time driver
+time-driver-lptim4 = ["_lp-time-driver"]
+## Use LPTIM5 as time driver
+time-driver-lptim5 = ["_lp-time-driver"]
+## Use LPTIM6 as time driver
+time-driver-lptim6 = ["_lp-time-driver"]
 
 #! ## Analog Switch Pins (Pxy_C) on STM32H7 series
 #! Get `PXY` and `PXY_C` singletons. Digital impls are on `PXY`, Analog impls are on `PXY_C`
