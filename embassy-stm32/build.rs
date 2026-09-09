@@ -357,48 +357,57 @@ fn main() {
         Err(GetOneError::Multiple) => panic!("Multiple time-driver-xxx Cargo features enabled"),
     };
 
-    let time_driver_singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
-        None => "",
-        Some("tim1") => "TIM1",
-        Some("tim2") => "TIM2",
-        Some("tim3") => "TIM3",
-        Some("tim4") => "TIM4",
-        Some("tim5") => "TIM5",
-        Some("tim8") => "TIM8",
-        Some("tim9") => "TIM9",
-        Some("tim12") => "TIM12",
-        Some("tim15") => "TIM15",
-        Some("tim20") => "TIM20",
-        Some("tim21") => "TIM21",
-        Some("tim22") => "TIM22",
-        Some("tim23") => "TIM23",
-        Some("tim24") => "TIM24",
-        Some("lptim1") => "LPTIM1",
-        Some("lptim2") => "LPTIM2",
-        Some("lptim3") => "LPTIM3",
+    let time_driver_singleton: String = match time_driver.as_deref() {
+        None => String::new(),
         Some("any") => {
-            // Order of TIM candidators:
-            // 1. 2CH -> 2CH_CMP -> GP16 -> GP32 -> ADV
-            // 2. In same catagory: larger TIM number first
-            [
-                "TIM22", "TIM21", "TIM12", "TIM9",  // 2CH
-                "TIM15", // 2CH_CMP
-                "TIM19", "TIM4", "TIM3", // GP16
-                "TIM24", "TIM23", "TIM5", "TIM2", // GP32
-                "TIM20", "TIM8", "TIM1", //ADV
-            ]
-            .iter()
-            .find(|tim| singletons.contains(&tim.to_string())).expect("time-driver-any requested, but the chip doesn't have TIM1, TIM2, TIM3, TIM4, TIM5, TIM8, TIM9, TIM12, TIM15, TIM20, TIM21, TIM22, TIM23 or TIM24.")
+            // The driver uses CC1 for the halfway-point interrupt and CC2 for the alarm,
+            // so basic and 1-channel timers are out. Rank the rest:
+            // 1. 32-bit timers first: the counter overflows far less often, so the driver
+            //    takes far fewer interrupts. Then less-featured first, to leave the more
+            //    capable timers to the user.
+            // 2. Within a category, larger TIM number first.
+            METADATA
+                .peripherals
+                .iter()
+                .filter(|p| singletons.contains(&p.name.to_string()))
+                .filter_map(|p| {
+                    let regs = p.registers.as_ref()?;
+                    if regs.kind != "timer" {
+                        return None;
+                    }
+                    let category = match regs.block {
+                        "TIM_GP32" => 0,
+                        "TIM_2CH" => 1,
+                        "TIM_2CH_CMP" => 2,
+                        "TIM_GP16" => 3,
+                        "TIM_ADV" => 4,
+                        _ => return None,
+                    };
+                    let number: u32 = p.name.strip_prefix("TIM")?.parse().ok()?;
+                    Some(((category, std::cmp::Reverse(number)), p.name))
+                })
+                .min_by_key(|(rank, _)| *rank)
+                .map(|(_, name)| name.to_string())
+                .expect("time-driver-any requested, but the chip doesn't have a TIM with at least 2 capture/compare channels.")
         }
-        _ => panic!("unknown time_driver {:?}", time_driver),
+        Some(x) => x.to_ascii_uppercase(),
     };
 
     let time_driver_irq_decl = if !time_driver_singleton.is_empty() {
-        cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
+        cfgs.set(format!("time_driver_{}", time_driver_singleton.to_lowercase()), true);
 
-        let Some((p, regs)) = peripheral_map.get(time_driver_singleton) else {
+        let Some((p, regs)) = peripheral_map.get(time_driver_singleton.as_str()) else {
             panic!("Tried to select {time_driver_singleton}, which is not available on this device");
         };
+
+        // Tell the time driver how wide the timer's counter is.
+        if regs.kind == "timer" {
+            cfgs.enable(if regs.block == "TIM_GP32" {
+                "time_driver_32bit"
+            } else {
+                "time_driver_16bit"
+            });
+        }
 
         if regs.kind == "lptim" && regs.version == "n6" {
             panic!(
@@ -432,11 +441,12 @@ fn main() {
     };
 
     for tim in [
-        "lptim1", "lptim2", "lptim3", "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15",
-        "tim20", "tim21", "tim22", "tim23", "tim24",
+        "lptim1", "lptim2", "lptim3", "lptim4", "lptim5", "lptim6", "tim1", "tim2", "tim3", "tim4", "tim5", "tim8",
+        "tim9", "tim12", "tim15", "tim19", "tim20", "tim21", "tim22", "tim23", "tim24",
     ] {
         cfgs.declare(format!("time_driver_{}", tim));
     }
+    cfgs.declare_all(&["time_driver_16bit", "time_driver_32bit"]);
 
     // ========
     // Write singletons
@@ -451,7 +461,7 @@ fn main() {
 
     let singleton_tokens: Vec<_> = singletons
         .iter()
-        .filter(|s| *s != &time_driver_singleton.to_string())
+        .filter(|s| **s != time_driver_singleton)
         .map(|s| format_ident!("{}", s))
         .collect();
 
@@ -481,6 +491,14 @@ fn main() {
     });
 
     g.extend(time_driver_irq_decl);
+
+    if !time_driver_singleton.is_empty() {
+        let ident = format_ident!("{}", time_driver_singleton);
+        g.extend(quote! {
+            /// The peripheral used by the time driver.
+            pub(crate) type TimeDriverPeripheral = crate::peripherals::#ident;
+        });
+    }
 
     // ========
     // Generate FLASH regions
