@@ -26,33 +26,57 @@ stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "not-stop", "spi-v345", "not-gpdma",
 stm32l073rz = ["embassy-stm32/stm32l073rz", "not-stop", "cm0", "not-gpdma", "rng", "eeprom"]
 stm32l152re = ["embassy-stm32/stm32l152re", "not-stop", "spi-v1", "chrono", "not-gpdma", "eeprom"]
 stm32l496zg = ["embassy-stm32/stm32l496zg", "not-stop", "not-gpdma", "rng"]
-stm32l4a6zg = ["embassy-stm32/stm32l4a6zg", "not-stop", "chrono", "not-gpdma", "rng", "hash"]
+stm32l4a6zg = ["embassy-stm32/stm32l4a6zg", "not-stop", "chrono", "not-gpdma", "rng", "hash", "aes-basic"]
 stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "not-stop", "chrono", "not-gpdma", "rng", "dual-bank"]
 stm32l552ze = ["embassy-stm32/stm32l552ze", "not-stop", "not-gpdma", "rng", "hash", "dual-bank"]
-stm32u585ai = ["embassy-stm32/stm32u585ai", "not-stop", "spi-v345", "chrono", "rng", "hash", "cordic"]
-stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "not-stop", "spi-v345", "chrono", "rng", "hash", "cordic"]
-stm32wb55rg = ["embassy-stm32/stm32wb55rg", "embassy-stm32-wpan?/stm32wb55rg", "fake-stop", "chrono", "not-gpdma", "ble", "mac" , "rng", "hsem"]
-stm32wba52cg = ["embassy-stm32/stm32wba52cg", "not-stop", "spi-v345", "chrono", "rng", "hash", "adc"]
-stm32wba65ri = ["embassy-stm32/stm32wba65ri", "not-stop", "spi-v345", "chrono", "rng", "hash", "adc"]
-stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "fake-stop", "not-gpdma", "rng", "chrono", "hsem"]
+stm32u585ai = ["embassy-stm32/stm32u585ai", "not-stop", "spi-v345", "chrono", "rng", "hash", "cordic", "pka", "aes-via-saes", "saes"]
+stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "not-stop", "spi-v345", "chrono", "rng", "hash", "cordic", "pka", "aes"] # the SAES of this board never leaves its busy state
+stm32wb55rg = ["embassy-stm32/stm32wb55rg", "embassy-stm32-wpan?/stm32wb55rg", "fake-stop", "chrono", "not-gpdma", "ble", "mac" , "rng", "hsem", "pka"]
+stm32wba52cg = ["embassy-stm32/stm32wba52cg", "not-stop", "spi-v345", "chrono", "rng", "hash", "adc", "pka", "aes", "saes-full"]
+stm32wba65ri = ["embassy-stm32/stm32wba65ri", "not-stop", "spi-v345", "chrono", "rng", "hash", "adc", "aes"]
+stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "fake-stop", "not-gpdma", "rng", "chrono", "hsem", "aes", "pka"]
 stm32f091rc = ["embassy-stm32/stm32f091rc", "not-stop", "cm0", "not-gpdma", "chrono"]
-stm32h503rb = ["embassy-stm32/stm32h503rb", "stop", "spi-v345", "rng"]
-stm32h7s3l8 = ["embassy-stm32/stm32h7s3l8", "not-stop", "spi-v345", "rng", "cordic", "hash-v34", "cryp"] # TODO: fdcan crashes.
-stm32u083rc = ["embassy-stm32/stm32u083rc", "not-stop", "cm0", "rng", "chrono"]
+stm32h503rb = ["embassy-stm32/stm32h503rb", "stop", "spi-v345", "rng", "hash-v34"]
+stm32h7s3l8 = ["embassy-stm32/stm32h7s3l8", "not-stop", "spi-v345", "rng", "cordic", "hash-v34", "cryp", "pka"] # TODO: fdcan crashes.
+stm32u083rc = ["embassy-stm32/stm32u083rc", "not-stop", "cm0", "rng", "chrono", "aes"]
 
 i2s_f4 = []
 spi-v1 = []
 spi-v345 = []
-cryp = [
+# The `embassy-crypto` AES drivers, served by the AES or the CRYP peripheral:
+# `aes-ecb-cbc` is what every revision does, `aes-basic` adds CTR and `aes` the
+# authenticated modes.
+aes-ecb-cbc = [
     "embassy-stm32/embassy-crypto-aes128-ecb",
     "embassy-stm32/embassy-crypto-aes128-cbc",
-    "embassy-stm32/embassy-crypto-aes128-ctr",
+]
+aes-basic = ["aes-ecb-cbc", "embassy-stm32/embassy-crypto-aes128-ctr"]
+aes = [
+    "aes-basic",
     "embassy-stm32/embassy-crypto-aes128-gcm",
     "embassy-stm32/embassy-crypto-aes128-ccm",
     "embassy-stm32/embassy-crypto-aes256-gcm",
 ]
+# The same drivers served by the SAES peripheral, which on STM32U5 only does ECB
+# and CBC.
+aes-via-saes = ["aes-ecb-cbc", "embassy-stm32/embassy-crypto-saes"]
+# The CRYP peripheral itself, on top of the drivers it serves.
+cryp = ["aes"]
+# The SAES peripheral itself, through its own API; `saes-full` where it has CTR
+# and the authenticated modes (not on STM32U5).
+saes = []
+saes-full = ["saes"]
 hash = ["embassy-stm32/embassy-crypto-sha1", "embassy-stm32/embassy-crypto-sha256", "embassy-stm32/embassy-crypto-hmac-sha256"]
 hash-v34 = ["hash"]
+# The RNG driver is not enabled: `embassy-crypto-test` registers its own.
+pka = [
+    "embassy-stm32/embassy-crypto-p256-arith",
+    "embassy-stm32/embassy-crypto-p256-ecdh",
+    "embassy-stm32/embassy-crypto-p256-ecdsa",
+    "embassy-stm32/embassy-crypto-p384-arith",
+    "embassy-stm32/embassy-crypto-p384-ecdh",
+    "embassy-stm32/embassy-crypto-p384-ecdsa",
+]
 eth = []
 rng = []
 sdmmc = []
@@ -157,7 +181,22 @@ required-features = [ "cryp",]
 [[bin]]
 name = "crypto_aes"
 path = "src/bin/crypto_aes.rs"
-required-features = [ "cryp",]
+required-features = [ "aes-ecb-cbc",]
+
+[[bin]]
+name = "crypto_ec"
+path = "src/bin/crypto_ec.rs"
+required-features = [ "pka",]
+
+[[bin]]
+name = "crypto_ecdh"
+path = "src/bin/crypto_ecdh.rs"
+required-features = [ "pka",]
+
+[[bin]]
+name = "crypto_ecdsa"
+path = "src/bin/crypto_ecdsa.rs"
+required-features = [ "pka",]
 
 [[bin]]
 name = "crypto_hash"
@@ -223,6 +262,11 @@ required-features = [ "rng",]
 name = "rtc"
 path = "src/bin/rtc.rs"
 required-features = [ "chrono",]
+
+[[bin]]
+name = "saes"
+path = "src/bin/saes.rs"
+required-features = [ "saes",]
 
 [[bin]]
 name = "sdmmc"
