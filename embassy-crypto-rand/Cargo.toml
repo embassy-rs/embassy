@@ -3,7 +3,7 @@ name = "embassy-crypto-rand"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-description = "Random number generator driver for `embassy-crypto`, backed by the operating system through the `rand` crate."
+description = "Random number generator driver for `embassy-crypto`, backed by the operating system through the `getrandom` crate."
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-crypto-rand"
 categories = [
@@ -18,4 +18,4 @@ target = "x86_64-unknown-linux-gnu"
 
 [dependencies]
 embassy-crypto = { version = "0.1.0", path = "../embassy-crypto" }
-rand = { version = "0.9", default-features = false, features = ["os_rng"] }
+getrandom = "0.4"

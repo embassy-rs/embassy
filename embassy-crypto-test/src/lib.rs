@@ -103,7 +103,7 @@ static RNG_LO: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::ne
 static RNG_HI: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0x9E37_79B9);
 
 impl embassy_crypto::driver::Rng for TestRng {
-    fn fill_bytes(buf: &mut [u8]) -> Result<(), Error> {
+    fn fill_bytes(buf: &mut [u8]) {
         use core::sync::atomic::Ordering;
         let mut x = (u64::from(RNG_HI.load(Ordering::Relaxed)) << 32) | u64::from(RNG_LO.load(Ordering::Relaxed));
         for b in buf {
@@ -114,7 +114,6 @@ impl embassy_crypto::driver::Rng for TestRng {
         }
         RNG_LO.store(x as u32, Ordering::Relaxed);
         RNG_HI.store((x >> 32) as u32, Ordering::Relaxed);
-        Ok(())
     }
 }
 

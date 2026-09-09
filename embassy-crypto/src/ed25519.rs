@@ -27,7 +27,7 @@ impl SigningKey {
     /// Generate a random signing key from [`driver::RngImpl`].
     pub fn generate() -> Result<Self, Error> {
         let mut k = Ed25519SecretKey([0u8; 32]);
-        RngImpl::fill_bytes(&mut k.0)?;
+        RngImpl::fill_bytes(&mut k.0);
         Ok(Self(k))
     }
 

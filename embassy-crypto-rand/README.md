@@ -2,9 +2,9 @@
 
 Random number generator driver for [`embassy-crypto`](https://crates.io/crates/embassy-crypto),
 backed by the operating system's secure random source through
-[`rand::rngs::OsRng`](https://docs.rs/rand/latest/rand/rngs/struct.OsRng.html).
+[`getrandom`](https://docs.rs/getrandom).
 
-Depending on this crate registers `OsRng` as the global
+Depending on this crate registers `getrandom` as the global
 [`embassy_crypto::driver::Rng`](https://docs.embassy.dev/embassy-crypto/git/default/driver/trait.Rng.html).
 
 ```toml

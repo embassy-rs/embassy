@@ -17,3 +17,8 @@ pub mod x25519;
 pub use aes::*;
 pub use driver::Error;
 pub use hash::*;
+
+/// Fill `buf` with cryptographically secure random bytes.
+pub fn rng_fill_bytes(buf: &mut [u8]) {
+    driver::RngImpl::fill_bytes(buf)
+}

@@ -31,7 +31,7 @@ macro_rules! curve_api {
         fn random_nonzero_scalar() -> Result<$dscalar, Error> {
             let mut k = $dscalar([0u8; $n]);
             loop {
-                RngImpl::fill_bytes(&mut k.0)?;
+                RngImpl::fill_bytes(&mut k.0);
                 if !ct::is_zero(&k.0) && ct::lt(&k.0, &ORDER) {
                     return Ok(k);
                 }

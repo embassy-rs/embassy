@@ -27,7 +27,7 @@ impl SecretKey {
     /// Generate a random private key from [`driver::RngImpl`].
     pub fn generate() -> Result<Self, Error> {
         let mut k = X25519SecretKey([0u8; 32]);
-        RngImpl::fill_bytes(&mut k.0)?;
+        RngImpl::fill_bytes(&mut k.0);
         Ok(Self(k))
     }
 

@@ -620,7 +620,7 @@ pub(crate) mod driver {
     struct Driver;
 
     impl embassy_crypto::driver::Rng for Driver {
-        fn fill_bytes(buf: &mut [u8]) -> Result<(), CryptoError> {
+        fn fill_bytes(buf: &mut [u8]) {
             with_rng(|rng| {
                 let mut retries = 0;
                 for chunk in buf.chunks_mut(4) {
@@ -639,7 +639,6 @@ pub(crate) mod driver {
                     };
                     chunk.copy_from_slice(&word.to_ne_bytes()[..chunk.len()]);
                 }
-                Ok(())
             })
         }
     }

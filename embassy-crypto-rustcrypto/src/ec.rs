@@ -187,8 +187,8 @@ macro_rules! curve_drivers {
             mod ecdsa_driver {
                 use ecdsa::signature::hazmat::PrehashVerifier;
                 use elliptic_curve::group::Group;
-                use embassy_crypto::Error;
-                use embassy_crypto::driver::{RngImpl, $dpoint, $dscalar, $dsig};
+                use embassy_crypto::driver::{$dpoint, $dscalar, $dsig};
+                use embassy_crypto::{Error, rng_fill_bytes};
                 use $curve::{FieldBytes, ProjectivePoint};
 
                 use super::{nonzero_scalar, point, point_bytes};
@@ -205,7 +205,7 @@ macro_rules! curve_drivers {
                         let d = nonzero_scalar(k)?;
                         let mut nonce_bytes = $dscalar([0u8; $n]);
                         let nonce = loop {
-                            RngImpl::fill_bytes(&mut nonce_bytes.0)?;
+                            rng_fill_bytes(&mut nonce_bytes.0);
                             if let Ok(n) = nonzero_scalar(&nonce_bytes) {
                                 break n;
                             }
