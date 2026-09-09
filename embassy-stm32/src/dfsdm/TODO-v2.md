@@ -128,7 +128,8 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 ## FEATURE
 
 - [ ] **FT12 — Detector API redesign: AWD-style objects for SCD & CKAB
-  (PRIORITY 1, absorbs F7).** SCD/CKAB are a hardware hybrid — per-channel
+  (PRIORITY 1; absorbs the old clock-absence-masking item).** SCD/CKAB are a
+  hardware hybrid — per-channel
   *enable* (CHyCFGR1 SCDEN/CKABEN), instance-level *flags/IRQ* (FLT0 ISR/CR2).
   The current API leaks the split: detector bools in a `TransceiverConfigOnline`
   grab-bag + an orphaned `Detectors` object, and raw (unmasked) readers — see
@@ -142,7 +143,7 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   - `ClockAbsenceDetector` (instance-level, Flt0 — keep):
     - `assign_transceivers(&[&dyn TransceiverTrait])` → CKABEN per channel.
     - `wait_for_event()`, `flags() -> u8`, `clear_flags(u8)`.
-  - **Armed-mask tracking (from F7)**: each detector keeps its own armed channel
+  - **Armed-mask tracking**: each detector keeps its own armed channel
     mask internally (from `assign_transceivers` + CHEN transitions) — no separate
     `AtomicU8` in instance `State`; `flags()`/`wait_for_event` mask CKABF/SCDF
     with it directly (E2). CKABEN lifecycle: clear CKABEN on channel disable
@@ -463,6 +464,18 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     `Flt0InterruptHandler`); rename `_datasource_marker: PhantomData<MODE>` →
     `_channel_mode_marker` (mod.rs:1105 — it holds `ChannelMode`, not
     `DataSource`).
+17. `FilterConfig::default()` (mod.rs:386) calls `FilterParameters::new(Disabled, 1)`
+    — its `.expect` is provably unreachable (`Disabled` → fosr=1, gain=1, total
+    gain=1 ≤ MAX_GAIN; iosr=1 in 1..=256), so the default can never panic. Add a
+    comment documenting that invariant (or an infallible const default path).
+18. Packing-mode DATINR write restriction: `write_sample_standard` (INDAT0) and
+    `write_indat1` (INDAT0+INDAT1) are both exposed on every `ParallelDmaMode`
+    transceiver regardless of DATPACK — `write_indat1` on a Standard-packed
+    channel is a silent wrong write. Typemark the packing mode (or document
+    which writer matches which `DataPackingModeReduced`).
+19. Deferred hardening: `#[diagnostic::on_unimplemented]` on the DMA-channel
+    binding ("DMAx_CHy cannot service DFSDM filter M {regular|injected}"); and a
+    dual-core `!Send` note (CR1 RMW is safe single-core only). Low priority.
 
 ---
 
@@ -471,19 +484,35 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 Full detail lives in the stm32-data repo: `in_progress/DFSDMx/TODO.md`.
 Summary (each blocks DFSDM availability for whole chip groups):
 
-- [ ] `header.rs` ALT_PERI_DEFINES: `DFSDM1 → DFSDM1_BASE / DFSDM1_BASE_NS`
-  (unlocks L552/562; L5 headers define only the `_NS` alias — TrustZone
-  attribution, `DFSDM1SEC`).
-- [ ] `perimap.rs`: `F7[6]` → `F7[67]` (F777/778/779); replace the three dead
-  L4 patterns (`L4[9]2`/`L4[10]`/`L4[11]`) with: L4x1
-  (`dfsdm1_v1_0_4ch_L4x1`) → `DFSDM_4CH_2FLT_TRG3` (plain — rm0394 says no
-  ADC); L47x/48x (`dfsdm1_v1_0_Cube`) → `DFSDM_8CH_4FLT_TRG3`.
-- [ ] `trigger.rs`: `H7(A|B)3` → `H7(A|B)` (H7B0); fix F413 JTRG signal names
-  (orphaned footnote digits — resolved mapping in stm32-data TODO SD5;
-  RM0430 has no MMS2); renumber 3-bit-JEXTSEL chips' trigger suffixes to the
-  compact 0-7 encoding (F412/F413/L4 classic — stm32-data TODO SD10).
-- [ ] Regenerate data + metapac; after this, the variants exist for
-  F777-779, L451/452/462, L471/475/476/485/486, L552/562, H7B0.
+- [ ] **SD10 (PRIORITY 1) — `trigger.rs` 3-bit-JEXTSEL suffix renumbering.**
+  F412/F413/L4-classic compact encodings (0x00-0x07 →
+  jtrg{0,1,2,3,5,7,9,10}); the suffix written verbatim as JEXTSEL is wrong for
+  3-bit chips. Renumber to compact 0-7; verify each chip's encoding from the
+  PDF (esp. F413 DFSDM2's garbled 4-column table). Pure data rename; no
+  embassy driver change.
+- [ ] **SD1 — `header.rs` ALT_PERI_DEFINES:** `DFSDM1 → DFSDM1_BASE /
+  DFSDM1_BASE_NS` (unlocks L552/562; L5 headers define only the `_NS` alias —
+  TrustZone `DFSDM1SEC`).
+- [ ] **SD2 — `perimap.rs`:** `F7[6]` → `F7[67]` (F777/778/779).
+- [ ] **SD3 — `perimap.rs`:** replace the three dead L4 patterns
+  (`L4[9]2`/`L4[10]`/`L4[11]`) with L4x1 (`dfsdm1_v1_0_4ch_L4x1`) →
+  `DFSDM_4CH_2FLT_TRG3` (plain — rm0394 says no ADC) and L47x/48x
+  (`dfsdm1_v1_0_Cube`) → `DFSDM_8CH_4FLT_TRG3`.
+- [ ] **SD4 — `trigger.rs`:** `H7(A|B)3` → `H7(A|B)` (H7B0).
+- [ ] **SD5 — `trigger.rs`:** fix F413 JTRG signal names (orphaned footnote
+  digits — resolved mapping in stm32-data TODO SD5; RM0430 has no MMS2);
+  DFSDM1 jtrg4/6/8 stay reserved.
+- [ ] **SD6 (dormant) — LPTIM3_ETR ← DFSDM2_BREAK0 (H7A/B).** Blocked on
+  unmodeled LPTIM ETR input signal; not blocking anything else.
+- [ ] **SD7 (minor) — MP1 RCC `ADFSDMEN`/`ADFSDMLPEN`.** Needed for CKOUTSRC=
+  audio on MP1; MP1 not embassy-supported.
+- [ ] **SD8 (minor) — H7A/B DFSDM2 kernel clock mux.** Wire `DFSDM2SEL` when
+  DFSDM2 support lands in embassy.
+- [ ] **SD9 (info, no action) — MP13 chips absent.** Perimap regex correct but
+  dormant.
+- [ ] Regenerate data + metapac (after SD1-SD5, SD10); after this, the
+  variants exist for F777-779, L451/452/462, L471/475/476/485/486, L552/562,
+  H7B0.
 
 ---
 
@@ -495,6 +524,8 @@ Summary (each blocks DFSDM availability for whole chip groups):
 - [ ] `dfsdm_it.rs` → `read_regular(..)?`/Result handling.
 - [ ] New (stretch): AWD + SCD/CKAB guard example incl. `wait_for_sync()` arm
   sequence.
+- [ ] New: parallel-ADC example (`build_parallel_adc`) — internal-ADC input,
+  complementing the existing `dfsdm_parallel_dma_to_dma.rs` CPU/DMA path.
 - [ ] `dfsdm_3phase_motor.rs` (stretch): 3-phase PWM + DFSDM — injected
   conversions TRGO-triggered → injected ring (circular), controller reads in
   PWM-center ISR; regular continuous + manual latest reads (ignore overrun,
@@ -514,6 +545,8 @@ Summary (each blocks DFSDM availability for whole chip groups):
     stm32mp157
   - need stm32-data fixes first: stm32f777 (F7[67]), stm32l476 + stm32l452
     (L4 regex), stm32l552 (header NS alias), stm32h7b0 (trigger H7(A|B))
+  - SD6–SD9 (dormant/minor/info) are non-blocking — excluded from the
+    regen-gate.
 - [ ] `cargo fmt` per repo config.
 - [ ] FT5 gate: the same matrix doubles as the gate for the optional
   TIM15/16/17 break impl.
