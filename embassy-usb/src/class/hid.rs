@@ -424,6 +424,9 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
 
 /// Handler for HID-related control requests.
 pub trait RequestHandler {
+    /// Called after a USB reset after the bus reset sequence is complete.
+    fn reset(&mut self) {}
+
     /// Reads the value of report `id` into `buf` returning the size.
     ///
     /// Returns `None` if `id` is invalid or no data is available.
@@ -519,6 +522,10 @@ impl<'d> Control<'d> {
 impl<'d> Handler for Control<'d> {
     fn reset(&mut self) {
         self.out_report_offset.store(0, Ordering::Release);
+
+        if let Some(handler) = self.request_handler.as_mut() {
+            RequestHandler::reset(&mut **handler);
+        }
     }
 
     fn control_out(&mut self, req: Request, data: &[u8]) -> Option<OutResponse> {
@@ -621,5 +628,54 @@ impl<'d> Handler for Control<'d> {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct StatefulRequestHandler {
+        reset_count: usize,
+        protocol: HidProtocolMode,
+        idle_ms: Option<u32>,
+    }
+
+    impl RequestHandler for StatefulRequestHandler {
+        fn reset(&mut self) {
+            self.reset_count += 1;
+            self.protocol = HidProtocolMode::Report;
+            self.idle_ms = None;
+        }
+    }
+
+    #[test]
+    fn reset_notifies_request_handler_and_clears_report_offset() {
+        let offset = AtomicUsize::new(7);
+        let mut request_handler = StatefulRequestHandler {
+            reset_count: 0,
+            protocol: HidProtocolMode::Boot,
+            idle_ms: Some(20),
+        };
+
+        {
+            let mut control = Control::new(InterfaceNumber(0), &[], Some(&mut request_handler), &offset);
+            Handler::reset(&mut control);
+        }
+
+        assert_eq!(offset.load(Ordering::Acquire), 0);
+        assert_eq!(request_handler.reset_count, 1);
+        assert_eq!(request_handler.protocol, HidProtocolMode::Report);
+        assert_eq!(request_handler.idle_ms, None);
+    }
+
+    #[test]
+    fn reset_without_request_handler_clears_report_offset() {
+        let offset = AtomicUsize::new(7);
+        let mut control = Control::new(InterfaceNumber(0), &[], None, &offset);
+
+        Handler::reset(&mut control);
+
+        assert_eq!(offset.load(Ordering::Acquire), 0);
     }
 }
