@@ -655,8 +655,10 @@ pub trait PinSource: sealed::Sealed {
     /// Consume the next channel's pins instead of this channel's own.
     const FROM_NEIGHBOR: bool;
 }
-pub struct OwnPins; // CHINSEL = 0
-pub struct NeighborPins; // CHINSEL = 1, pins live on M::Next's slot
+/// CHINSEL = 0
+pub struct OwnPins;
+/// CHINSEL = 1, pins live on M::Next's slot
+pub struct NeighborPins;
 
 impl_sealed!(OwnPins, NeighborPins);
 

@@ -1245,7 +1245,7 @@ where
     P: PowerState,
     PS: PinSource,
 {
-    /// Get direct pointer tothe DATINR register for dma mem2mem use
+    /// Get direct pointer to the DATINR register for DMA mem2mem use
     pub fn get_datinr_as_ptr(&self) -> *mut u32 {
         T::regs().ch(M::CHANNEL.index()).datinr().as_ptr() as *mut u32
     }
@@ -1351,12 +1351,12 @@ where
     P: PowerState,
     PS: PinSource,
 {
-    /// Configure to skip the next [`skips`] pulses
+    /// Configure to skip the next `skips` pulses
     pub fn skip_pulses(&mut self, skips: config_types::PulsesToSkip) {
         self.set_pulseskips(skips);
     }
 
-    /// Set pulse skips
+    /// Set pulse `skips`
     fn set_pulseskips(&mut self, skips: config_types::PulsesToSkip) {
         T::regs()
             .ch(M::CHANNEL.index())
@@ -1447,10 +1447,15 @@ where
         //    `InterruptHandler<T, Flt0>::on_interrupt` is wired to this IRQ line.
         // 2. The waker is initialized in `State::new()` (const, in a static) before
         //    any interrupt can fire.
-        // 3. No filter-level interrupt-enable bit (REOCIE/JEOCIE/AWDIE/…) is set yet;
-        //    a pending instance-level detector event, if any, is handled safely by the
-        //    handler (flag clear + no-op wake). The stale-NVIC pending case is already
-        //    cleared by `unpend()` above.
+        // 3. The NVIC unmask here is independent of the peripheral IE bits:
+        //    no filter-level IE (REOCIE/JEOCIE/AWDIE/…) is set at this call site
+        //    (they are armed lazily by read_*/wait_for_event); if instance-level
+        //    detector IEs (SCDIE/CKABIE) are already armed by waiting tasks, any
+        //    pending event is handled safely by the same handler (flag clear +
+        //    no-op wake). The stale-NVIC pending case was cleared by `unpend()`
+        //    above — unpend discards only orphaned pending state; live sources
+        //    re-pend because DFSDM's lines are level-asserted while `flag && IE`
+        //    hold, and their events live in the ISR flags, not the pending bit.
         unsafe {
             <T as FilterInterrupt<Flt0>>::Interrupt::enable();
         }
@@ -1493,10 +1498,15 @@ where
         //    `InterruptHandler<T, M>::on_interrupt` is wired to this IRQ line.
         // 2. The waker is initialized in `State::new()` (const, in a static) before
         //    any interrupt can fire.
-        // 3. No filter-level interrupt-enable bit (REOCIE/JEOCIE/AWDIE/…) is set yet;
-        //    a pending instance-level detector event, if any, is handled safely by the
-        //    handler (flag clear + no-op wake). The stale-NVIC pending case is already
-        //    cleared by `unpend()` above.
+        // 3. The NVIC unmask here is independent of the peripheral IE bits:
+        //    no filter-level IE (REOCIE/JEOCIE/AWDIE/…) is set at this call site
+        //    (they are armed lazily by read_*/wait_for_event); if instance-level
+        //    detector IEs (SCDIE/CKABIE) are already armed by waiting tasks, any
+        //    pending event is handled safely by the same handler (flag clear +
+        //    no-op wake). The stale-NVIC pending case was cleared by `unpend()`
+        //    above — unpend discards only orphaned pending state; live sources
+        //    re-pend because DFSDM's lines are level-asserted while `flag && IE`
+        //    hold, and their events live in the ISR flags, not the pending bit.
         unsafe {
             <T as FilterInterrupt<M>>::Interrupt::enable();
         }
@@ -1530,7 +1540,7 @@ where
         Self { _m: PhantomData }
     }
 
-    /// Parallel input from ADC writes to CHyDATINR (DATMPX=2).
+    /// Parallel input from ADC writes to CHyDATINR (DATMPX=1).
     /// No CKOUT, no pins needed. Serial pins declared on this channel
     /// are disconnected (the builder's Flexes drop here - they're unused
     /// in this mode).
@@ -1625,10 +1635,10 @@ where
         )
     }
 
-    /// Parallel input from ADC writes to CHyDATINR (DATMPX=2).
-    /// No CKOUT, no pins needed. Serial pins declared on this channel
-    /// are disconnected (the builder's Flexes drop here - they're unused
-    /// in this mode).
+    /// Manchester-coded input over this channel's own DATIN pin (SITP = 2/3,
+    /// DATMPX = 0). The clock is recovered from the data line, so CKOUT/CKIN
+    /// are not needed; the declared DATIN pin carries data *and* clock.
+    /// `mode` chooses the Manchester polarity (rising edge = 0 or 1).
     pub fn build_manchester<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
@@ -1677,7 +1687,9 @@ where
         })
     }
 
-    ///TODO build_spi_ext description
+    /// SPI input over this channel's own pins (DATMPX=0, SPICKSEL=0): sampling
+    /// clock comes from the *external* CKIN pin; requires a `DataClk` pinset
+    /// (both lines). `mode` chooses rising/falling-edge sampling (SITP 0/1).
     pub fn build_spi_ext<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
@@ -1782,7 +1794,9 @@ where
     S: PinSet,
     SN: PinSet,
 {
-    ///TODO build_spi_int description
+    /// SPI input over this channel's own DATIN pin (DATMPX=0), clock supplied
+    /// by our own CKOUT — only meaningful with `OutputEnabled`
+    /// (`InternalSpiMode` picks rising/falling or the half-rate edges).
     pub fn build_spi_int<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,

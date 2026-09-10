@@ -435,7 +435,8 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
    critical_section strategy for all RMW: CR2 + AF assignment).
 6. mod.rs:1074 — `break_signals` in `TransceiverConfigOnline` → superseded by
    FT12 (`assign_break_signals` on `ShortCircuitDetector`).
-7. mod.rs:1639/1742 — missing docstrings `build_spi_ext`/`build_spi_int`.
+7. [x] mod.rs:1639/1742 — missing docstrings `build_spi_ext`/`build_spi_int`
+   (done; also fixed `skips` intra-doc link + `tothe` typos in the same sweep).
 8. mod.rs:1816 — config-types module: docstrings, bitmap type, split.
 9. types.rs:770 `dma_trait!` TODO — resolved by F4 rewrite.
 11. `new_pin!(...).unwrap()` ×3 (mod.rs:2189/2201/2202) — verify vs embassy
@@ -465,6 +466,12 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     (mod.rs:834) delegates back into the Disabled-scoped static, while the other
     six config statics (FAST/FORD/FOSR/IOSR/RSYNC/JSYNC/JSCAN/JEXTEN/JEXTSEL) are
     DFEN=0-gated only. Harmless (thin delegate); just the known exception.
+21. `set_data_packing_mode` design musing (mod.rs:1749-1753, "// could make that
+    explicit with a semantic constructor … idk"): consider a semantic dual-pair
+    constructor — `new_parallel_dma_dual()` on the even channel meaning "this
+    channel and its paired successor are configured as a dual-input pair" —
+    folding the comment's intent into the API or deleting the comment. Decide
+    during the FT7/FT18 API pass.
 
 ---
 
