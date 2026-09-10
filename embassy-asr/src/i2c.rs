@@ -208,19 +208,15 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let info = T::info();
         let regs = info.regs();
-        let sr = regs.sr().read().bits();
 
         // Mask level/event enables; the waiter re-enables as needed.
         let cr = regs.cr().read().bits() & !CR_INTR_MASK;
         regs.cr().write_with_zero(|w| unsafe { w.bits(cr) });
 
-        // Clear only the error flags in the ISR so a cancelled waiter cannot
-        // leave sticky bus errors latched forever. Completion flags stay for
-        // the waiter.
-        let errors = sr & SR_ERROR_MASK;
-        if errors != 0 {
-            regs.sr().write_with_zero(|w| unsafe { w.bits(errors) });
-        }
+        // Error flags are NOT cleared here: the waiter (async or blocking
+        // poll loop) has to observe them through `check_errors`. A latched
+        // flag left behind by a cancelled waiter is reported (and cleared)
+        // by the next transaction's first status check.
 
         info.state.waker.wake();
     }

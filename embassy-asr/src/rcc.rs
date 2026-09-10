@@ -237,6 +237,7 @@ impl Clocks {
 
 /// Hardware transition whose status did not become ready.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WaitTarget {
     /// Internal 48 MHz RC oscillator.
     Rco48m,
@@ -250,6 +251,7 @@ pub enum WaitTarget {
 
 /// RCC configuration or peripheral-control error.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// A bounded readiness wait expired.
     Timeout(WaitTarget),
@@ -461,6 +463,7 @@ fn enable_oscillator(oscillator: Oscillator, xo32m_uses_tcxo: bool, poll_limit: 
 
 /// RCC-controlled peripheral clock/reset identifier.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Peripheral {
     Sac,
     Sec,
