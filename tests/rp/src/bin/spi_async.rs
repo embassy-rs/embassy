@@ -29,7 +29,7 @@ async fn main(_spawner: Spawner) {
     let mosi = p.PIN_3;
     let miso = p.PIN_4;
 
-    let mut spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, Config::default());
+    let mut spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, Config::default()).unwrap();
 
     // equal rx & tx buffers
     {

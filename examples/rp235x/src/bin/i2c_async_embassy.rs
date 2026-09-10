@@ -8,7 +8,7 @@
 
 use defmt::*;
 use defmt_rtt as _;
-use embassy_rp::i2c::InterruptHandler;
+use embassy_rp::i2c::{Address, InterruptHandler};
 use panic_probe as _;
 
 // Our anonymous hypotetical temperature sensor could be:
@@ -29,17 +29,17 @@ enum UncomplicatedSensorU16 {
     Other = 0x0049,
 }
 
-impl Into<u16> for UncomplicatedSensorU16 {
-    fn into(self) -> u16 {
-        self as u16
+impl From<UncomplicatedSensorU16> for Address {
+    fn from(t: UncomplicatedSensorU16) -> Self {
+        Address::SevenBit(t as u8)
     }
 }
-impl Into<u16> for UncomplicatedSensorU8 {
-    fn into(self) -> u16 {
-        0x48
+impl From<UncomplicatedSensorU8> for Address {
+    fn from(_: UncomplicatedSensorU8) -> Self {
+        Address::SevenBit(0x48)
     }
 }
-impl From<UncomplicatedSensorId> for u16 {
+impl From<UncomplicatedSensorId> for Address {
     fn from(t: UncomplicatedSensorId) -> Self {
         match t {
             UncomplicatedSensorId::A(x) => x.into(),
@@ -58,18 +58,16 @@ async fn main(_task_spawner: embassy_executor::Spawner) {
     let sda = p.PIN_14;
     let scl = p.PIN_15;
     let config = embassy_rp::i2c::Config::default();
-    let mut bus = embassy_rp::i2c::I2c::new_async(p.I2C1, scl, sda, Irqs, config);
+    let mut bus = embassy_rp::i2c::I2c::new(p.I2C1, scl, sda, Irqs, config);
 
     const WAKEYWAKEY: u16 = 0xBABE;
     let mut result: [u8; 2] = [0, 0];
     // wait for sensors to initialize
     embassy_time::Timer::after(embassy_time::Duration::from_millis(100)).await;
 
-    let _res_1 = bus
-        .write_async(UncomplicatedSensorU8::First, WAKEYWAKEY.to_be_bytes())
-        .await;
+    let _res_1 = bus.write(UncomplicatedSensorU8::First, &WAKEYWAKEY.to_be_bytes()).await;
     let _res_2 = bus
-        .write_async(UncomplicatedSensorU16::Other, WAKEYWAKEY.to_be_bytes())
+        .write(UncomplicatedSensorU16::Other, &WAKEYWAKEY.to_be_bytes())
         .await;
 
     loop {
@@ -77,7 +75,7 @@ async fn main(_task_spawner: embassy_executor::Spawner) {
         let s2 = UncomplicatedSensorId::B(UncomplicatedSensorU16::Other);
         let sensors = [s1, s2];
         for sensor in sensors {
-            if bus.read_async(sensor, &mut result).await.is_ok() {
+            if bus.read(sensor, &mut result).await.is_ok() {
                 info!("Result {}", u16::from_be_bytes(result.into()));
             }
         }

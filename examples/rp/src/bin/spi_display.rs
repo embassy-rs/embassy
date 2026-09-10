@@ -16,6 +16,7 @@ use embassy_executor::Spawner;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::spi;
 use embassy_rp::spi::Spi;
+use embassy_rp::time::Hertz;
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::Delay;
@@ -53,15 +54,15 @@ async fn main(_spawner: Spawner) {
 
     // create SPI
     let mut display_config = spi::Config::default();
-    display_config.frequency = DISPLAY_FREQ;
+    display_config.frequency = Hertz(DISPLAY_FREQ);
     display_config.phase = spi::Phase::CaptureOnSecondTransition;
     display_config.polarity = spi::Polarity::IdleHigh;
     let mut touch_config = spi::Config::default();
-    touch_config.frequency = TOUCH_FREQ;
+    touch_config.frequency = Hertz(TOUCH_FREQ);
     touch_config.phase = spi::Phase::CaptureOnSecondTransition;
     touch_config.polarity = spi::Polarity::IdleHigh;
 
-    let spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, touch_config.clone());
+    let spi = Spi::new_blocking(p.SPI1, clk, mosi, miso, touch_config.clone()).unwrap();
     let spi_bus: Mutex<NoopRawMutex, _> = Mutex::new(RefCell::new(spi));
 
     let display_spi = SpiDeviceWithConfig::new(&spi_bus, Output::new(display_cs, Level::High), display_config);

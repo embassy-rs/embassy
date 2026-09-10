@@ -162,9 +162,9 @@ impl<'d, T: Instance, const SM: usize> PioStepDir<'d, T, SM> {
     pub fn new(
         pio: &mut Common<'d, T>,
         mut sm: StateMachine<'d, T, SM>,
-        irq: Irq<'d, T, SM>,
         step_pin: Peri<'d, impl PioPin>,
         dir_pin: Peri<'d, impl GpioPin>,
+        irq: Irq<'d, T, SM>,
         program: &PioStepDirProgram<'d, T>,
     ) -> Self {
         let step = pio.make_pio_pin(step_pin);

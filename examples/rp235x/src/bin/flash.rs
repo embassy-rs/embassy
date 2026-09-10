@@ -7,8 +7,9 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::flash::{Async, ERASE_SIZE, FLASH_BASE};
-use embassy_rp::peripherals::{DMA_CH0, FLASH};
+use embassy_rp::flash::{ERASE_SIZE, FLASH_BASE};
+use embassy_rp::mode::Async;
+use embassy_rp::peripherals::DMA_CH0;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
@@ -23,7 +24,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Hello World!");
 
-    let mut flash = embassy_rp::flash::Flash::<_, Async, FLASH_SIZE>::new(p.FLASH, p.DMA_CH0, Irqs);
+    let mut flash = embassy_rp::flash::Flash::<Async, FLASH_SIZE>::new(p.FLASH, p.DMA_CH0, Irqs);
 
     erase_write_sector(&mut flash, 0x00);
 
@@ -34,7 +35,7 @@ async fn main(_spawner: Spawner) {
     info!("Flash Works!");
 }
 
-fn multiwrite_bytes(flash: &mut embassy_rp::flash::Flash<'_, FLASH, Async, FLASH_SIZE>, offset: u32) {
+fn multiwrite_bytes(flash: &mut embassy_rp::flash::Flash<'_, Async, FLASH_SIZE>, offset: u32) {
     info!(">>>> [multiwrite_bytes]");
     let mut read_buf = [0u8; ERASE_SIZE];
     defmt::unwrap!(flash.blocking_read(ADDR_OFFSET + offset, &mut read_buf));
@@ -62,7 +63,7 @@ fn multiwrite_bytes(flash: &mut embassy_rp::flash::Flash<'_, FLASH, Async, FLASH
     }
 }
 
-fn erase_write_sector(flash: &mut embassy_rp::flash::Flash<'_, FLASH, Async, FLASH_SIZE>, offset: u32) {
+fn erase_write_sector(flash: &mut embassy_rp::flash::Flash<'_, Async, FLASH_SIZE>, offset: u32) {
     info!(">>>> [erase_write_sector]");
     let mut buf = [0u8; ERASE_SIZE];
     defmt::unwrap!(flash.blocking_read(ADDR_OFFSET + offset, &mut buf));
@@ -91,7 +92,7 @@ fn erase_write_sector(flash: &mut embassy_rp::flash::Flash<'_, FLASH, Async, FLA
     }
 }
 
-async fn background_read(flash: &mut embassy_rp::flash::Flash<'_, FLASH, Async, FLASH_SIZE>, offset: u32) {
+async fn background_read(flash: &mut embassy_rp::flash::Flash<'_, Async, FLASH_SIZE>, offset: u32) {
     info!(">>>> [background_read]");
 
     let mut buf = [0u32; 8];

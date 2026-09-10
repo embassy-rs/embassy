@@ -51,7 +51,7 @@ async fn main(_spawner: Spawner) {
     // Thing plus: 8
     // Adafruit Feather: 16;  Adafruit Feather+RFM95: 4
     let program = PioWs2812Program::new(&mut common);
-    let mut ws2812 = PioWs2812::new(&mut common, sm0, p.DMA_CH0, Irqs, p.PIN_16, &program);
+    let mut ws2812 = PioWs2812::new(&mut common, sm0, p.PIN_16, p.DMA_CH0, Irqs, &program);
 
     // Loop forever making RGB values and pushing them out to the WS2812.
     let mut ticker = Ticker::every(Duration::from_millis(10));

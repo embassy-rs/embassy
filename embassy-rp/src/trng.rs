@@ -9,13 +9,15 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
+use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::{Binding, Interrupt};
+use crate::mode::{Async, Blocking, Mode};
 use crate::peripherals::TRNG;
 use crate::{interrupt, pac};
 
 trait SealedInstance {
-    fn regs() -> pac::trng::Trng;
-    fn waker() -> &'static AtomicWaker;
+    fn info() -> &'static Info;
+    fn state() -> &'static State;
 }
 
 /// TRNG peripheral instance.
@@ -26,14 +28,31 @@ pub trait Instance: SealedInstance + PeripheralType {
 }
 
 impl SealedInstance for TRNG {
-    fn regs() -> rp_pac::trng::Trng {
-        pac::TRNG
+    fn info() -> &'static Info {
+        static INFO: Info = Info {
+            regs: pac::TRNG,
+            interrupt: crate::interrupt::TRNG_IRQ,
+        };
+        &INFO
     }
 
-    fn waker() -> &'static AtomicWaker {
-        static WAKER: AtomicWaker = AtomicWaker::new();
-        &WAKER
+    fn state() -> &'static State {
+        static STATE: State = State {
+            waker: AtomicWaker::new(),
+        };
+        &STATE
     }
+}
+
+/// Read-only per-instance data.
+struct Info {
+    regs: pac::trng::Trng,
+    interrupt: crate::interrupt::Interrupt,
+}
+
+/// Mutable per-instance data.
+struct State {
+    waker: AtomicWaker,
 }
 
 impl Instance for TRNG {
@@ -153,8 +172,10 @@ impl Default for Config {
 ///     }
 ///}
 /// ```
-pub struct Trng<'d, T: Instance> {
-    phantom: PhantomData<&'d mut T>,
+pub struct Trng<'d, M: Mode> {
+    info: &'static Info,
+    state: &'static State,
+    phantom: PhantomData<(&'d mut (), M)>,
     config: Config,
 }
 
@@ -171,10 +192,29 @@ const TRNG_BLOCK_SIZE_BYTES: usize = TRNG_BLOCK_SIZE_BITS / 8;
 /// current [`Config`].
 const MAX_HEALTH_CHECK_RETRIES: u32 = 1000;
 
-impl<'d, T: Instance> Trng<'d, T> {
-    /// Create a new TRNG driver.
-    pub fn new(_trng: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd, config: Config) -> Self {
+impl<'d> Trng<'d, Async> {
+    /// Create a new TRNG driver in async mode.
+    pub fn new<T: Instance>(
+        _trng: Peri<'d, T>,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(T::info(), T::state(), config)
+    }
+}
+
+impl<'d> Trng<'d, Blocking> {
+    /// Create a new TRNG driver in blocking mode.
+    pub fn new_blocking<T: Instance>(_trng: Peri<'d, T>, config: Config) -> Self {
+        Self::new_inner(T::info(), T::state(), config)
+    }
+}
+
+impl<'d, M: Mode> Trng<'d, M> {
+    fn new_inner(info: &'static Info, state: &'static State, config: Config) -> Self {
         let trng = Trng {
+            info,
+            state,
             phantom: PhantomData,
             config,
         };
@@ -187,7 +227,7 @@ impl<'d, T: Instance> Trng<'d, T> {
     /// Clearing the status first means a stale bit from an earlier run cannot be
     /// mistaken for a failure of the run being started.
     fn start_rng(&self) {
-        let regs = T::regs();
+        let regs = self.info.regs;
         regs.rng_icr().write(|w| {
             w.set_ehr_valid(true);
             w.set_autocorr_err(true);
@@ -199,7 +239,7 @@ impl<'d, T: Instance> Trng<'d, T> {
     }
 
     fn stop_rng(&self) {
-        let regs = T::regs();
+        let regs = self.info.regs;
         regs.rnd_source_enable().write(|w| w.set_rnd_src_en(false));
         regs.rst_bits_counter().write(|w| w.set_rst_bits_counter(true));
     }
@@ -211,7 +251,7 @@ impl<'d, T: Instance> Trng<'d, T> {
     /// keep writing the sample count until it reads back before configuring the
     /// rest.
     fn reset_rng(&self) {
-        let regs = T::regs();
+        let regs = self.info.regs;
         regs.trng_sw_reset().write(|w| w.set_trng_sw_reset(true));
         loop {
             regs.sample_cnt1().write(|w| *w = self.config.sample_count);
@@ -223,7 +263,7 @@ impl<'d, T: Instance> Trng<'d, T> {
     }
 
     fn initialize_rng(&self) {
-        let regs = T::regs();
+        let regs = self.info.regs;
 
         regs.trng_config().write(|w| {
             w.set_rnd_src_sel(self.config.inverter_chain_length.into());
@@ -243,8 +283,8 @@ impl<'d, T: Instance> Trng<'d, T> {
     fn enable_irq(&self) {
         // A pending interrupt left over from a blocking call would otherwise
         // fire immediately and mask the interrupt before the real one.
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() }
+        self.info.interrupt.unpend();
+        unsafe { self.info.interrupt.enable() }
     }
 
     /// Handle health check status bits. Returns true if generation had to be restarted.
@@ -254,7 +294,7 @@ impl<'d, T: Instance> Trng<'d, T> {
     /// autocorrelation error stops the block, and only a reset clears its status
     /// bit, so generation is reset and restarted.
     fn handle_health_check_status(&self) -> bool {
-        let regs = T::regs();
+        let regs = self.info.regs;
         let isr = regs.rng_isr().read();
         if isr.autocorr_err() {
             self.reset_rng();
@@ -272,7 +312,7 @@ impl<'d, T: Instance> Trng<'d, T> {
 
     /// Unmask all interrupt sources. The interrupt handler masks them when it fires.
     fn unmask_irq(&self) {
-        T::regs().rng_imr().write(|w| {
+        self.info.regs.rng_imr().write(|w| {
             w.set_ehr_valid_int_mask(false);
             w.set_autocorr_err_int_mask(false);
             w.set_crngt_err_int_mask(false);
@@ -281,7 +321,7 @@ impl<'d, T: Instance> Trng<'d, T> {
     }
 
     fn blocking_wait_for_successful_generation(&self) {
-        let regs = T::regs();
+        let regs = self.info.regs;
         let mut failures = 0;
         while regs.trng_valid().read().ehr_valid().not() {
             if self.handle_health_check_status() {
@@ -299,7 +339,7 @@ impl<'d, T: Instance> Trng<'d, T> {
     /// Read out a completed block. Reading `EHR_DATA5` clears the result registers
     /// and starts the next generation.
     fn read_ehr_registers_into_array(&mut self, buffer: &mut [u8; TRNG_BLOCK_SIZE_BYTES]) {
-        let regs = T::regs();
+        let regs = self.info.regs;
         let ehr_data_regs = [
             regs.ehr_data0(),
             regs.ehr_data1(),
@@ -313,8 +353,10 @@ impl<'d, T: Instance> Trng<'d, T> {
             buffer[i * 4..i * 4 + 4].copy_from_slice(&reg.read().to_ne_bytes());
         }
     }
+}
 
-    /// Fill the buffer with random bytes, async version.
+impl<'d> Trng<'d, Async> {
+    /// Fill the buffer with random bytes.
     pub async fn fill_bytes(&mut self, destination: &mut [u8]) {
         if destination.is_empty() {
             return; // Nothing to fill
@@ -324,19 +366,20 @@ impl<'d, T: Instance> Trng<'d, T> {
         self.enable_irq();
 
         // Stop the block and the interrupt on completion and on cancellation.
-        let _guard = OnDrop::new(|| {
-            let regs = T::regs();
+        let info = self.info;
+        let _guard = OnDrop::new(move || {
+            let regs = info.regs;
             regs.rnd_source_enable().write(|w| w.set_rnd_src_en(false));
             regs.rst_bits_counter().write(|w| w.set_rst_bits_counter(true));
-            T::Interrupt::disable();
+            info.interrupt.disable();
         });
 
         let mut bytes_transferred = 0usize;
         let mut failures = 0;
         let mut buffer = [0u8; TRNG_BLOCK_SIZE_BYTES];
 
-        let regs = T::regs();
-        let waker = T::waker();
+        let regs = self.info.regs;
+        let waker = &self.state.waker;
         let destination_length = destination.len();
 
         poll_fn(|context| {
@@ -371,7 +414,9 @@ impl<'d, T: Instance> Trng<'d, T> {
         })
         .await
     }
+}
 
+impl<'d, M: Mode> Trng<'d, M> {
     /// Fill the buffer with random bytes, blocking version.
     pub fn blocking_fill_bytes(&mut self, destination: &mut [u8]) {
         if destination.is_empty() {
@@ -391,7 +436,7 @@ impl<'d, T: Instance> Trng<'d, T> {
 
     /// Return a random u32, blocking.
     pub fn blocking_next_u32(&mut self) -> u32 {
-        let regs = T::regs();
+        let regs = self.info.regs;
         self.start_rng();
         self.blocking_wait_for_successful_generation();
         // 12.12.3 After successful generation, read the last result register, EHR_DATA[5] to
@@ -403,7 +448,7 @@ impl<'d, T: Instance> Trng<'d, T> {
 
     /// Return a random u64, blocking.
     pub fn blocking_next_u64(&mut self) -> u64 {
-        let regs = T::regs();
+        let regs = self.info.regs;
         self.start_rng();
         self.blocking_wait_for_successful_generation();
 
@@ -416,7 +461,7 @@ impl<'d, T: Instance> Trng<'d, T> {
     }
 }
 
-impl<'d, T: Instance> rand_core_06::RngCore for Trng<'d, T> {
+impl<'d, M: Mode> rand_core_06::RngCore for Trng<'d, M> {
     fn next_u32(&mut self) -> u32 {
         self.blocking_next_u32()
     }
@@ -435,9 +480,9 @@ impl<'d, T: Instance> rand_core_06::RngCore for Trng<'d, T> {
     }
 }
 
-impl<'d, T: Instance> rand_core_06::CryptoRng for Trng<'d, T> {}
+impl<'d, M: Mode> rand_core_06::CryptoRng for Trng<'d, M> {}
 
-impl<'d, T: Instance> rand_core_09::RngCore for Trng<'d, T> {
+impl<'d, M: Mode> rand_core_09::RngCore for Trng<'d, M> {
     fn next_u32(&mut self) -> u32 {
         self.blocking_next_u32()
     }
@@ -451,9 +496,9 @@ impl<'d, T: Instance> rand_core_09::RngCore for Trng<'d, T> {
     }
 }
 
-impl<'d, T: Instance> rand_core_09::CryptoRng for Trng<'d, T> {}
+impl<'d, M: Mode> rand_core_09::CryptoRng for Trng<'d, M> {}
 
-impl<'d, T: Instance> rand_core_10::TryRng for Trng<'d, T> {
+impl<'d, M: Mode> rand_core_10::TryRng for Trng<'d, M> {
     type Error = core::convert::Infallible;
 
     fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
@@ -470,7 +515,7 @@ impl<'d, T: Instance> rand_core_10::TryRng for Trng<'d, T> {
     }
 }
 
-impl<'d, T: Instance> rand_core_10::TryCryptoRng for Trng<'d, T> {}
+impl<'d, M: Mode> rand_core_10::TryCryptoRng for Trng<'d, M> {}
 
 /// TRNG interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -479,7 +524,7 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let regs = T::regs();
+        let regs = T::info().regs;
         let isr = regs.rng_isr().read();
         if isr.ehr_valid() || isr.autocorr_err() || isr.crngt_err() || isr.vn_err() {
             // The interrupt is level triggered from the status bits, and the
@@ -491,7 +536,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                 w.set_crngt_err_int_mask(true);
                 w.set_vn_err_int_mask(true);
             });
-            T::waker().wake();
+            T::state().waker.wake();
         }
     }
 }
@@ -504,14 +549,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 mod driver {
     use core::marker::PhantomData;
 
-    use super::{Config, TRNG, Trng};
+    use super::{Blocking, Config, TRNG, Trng};
 
     struct Driver;
 
     impl embassy_crypto::driver::Rng for Driver {
         fn fill_bytes(buf: &mut [u8]) {
             // Same as `Trng::new`, without the interrupt binding the blocking path does not need.
-            let mut trng: Trng<'static, TRNG> = Trng {
+            let mut trng: Trng<'static, Blocking> = Trng {
+                info: <TRNG as super::SealedInstance>::info(),
+                state: <TRNG as super::SealedInstance>::state(),
                 phantom: PhantomData,
                 config: Config::default(),
             };

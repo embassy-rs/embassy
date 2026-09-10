@@ -44,6 +44,9 @@ pub struct BufferedUart<'d> {
 pub struct BufferedUartRx<'d> {
     pub(super) info: &'static Info,
     pub(super) state: &'static State,
+    /// True for a handle produced by `split_ref`, which borrows the buffers rather than owning
+    /// them and so must not tear the peripheral down when it goes out of scope.
+    pub(super) is_borrowed: bool,
     pub(super) _phantom: PhantomData<&'d mut [u8]>,
 }
 
@@ -51,6 +54,8 @@ pub struct BufferedUartRx<'d> {
 pub struct BufferedUartTx<'d> {
     pub(super) info: &'static Info,
     pub(super) state: &'static State,
+    /// See [`BufferedUartRx::is_borrowed`].
+    pub(super) is_borrowed: bool,
     pub(super) _phantom: PhantomData<&'d mut [u8]>,
 }
 
@@ -108,11 +113,13 @@ impl<'d> BufferedUart<'d> {
             rx: BufferedUartRx {
                 info: T::info(),
                 state: T::buffered_state(),
+                is_borrowed: false,
                 _phantom: PhantomData,
             },
             tx: BufferedUartTx {
                 info: T::info(),
                 state: T::buffered_state(),
+                is_borrowed: false,
                 _phantom: PhantomData,
             },
         }
@@ -144,11 +151,13 @@ impl<'d> BufferedUart<'d> {
             rx: BufferedUartRx {
                 info: T::info(),
                 state: T::buffered_state(),
+                is_borrowed: false,
                 _phantom: PhantomData,
             },
             tx: BufferedUartTx {
                 info: T::info(),
                 state: T::buffered_state(),
+                is_borrowed: false,
                 _phantom: PhantomData,
             },
         }
@@ -197,8 +206,8 @@ impl<'d> BufferedUart<'d> {
     /// Split the Uart into a transmitter and receiver by mutable reference,
     /// which is particularly useful when having two tasks correlating to
     /// transmitting and receiving.
-    pub fn split_ref(&mut self) -> (&mut BufferedUartTx<'d>, &mut BufferedUartRx<'d>) {
-        (&mut self.tx, &mut self.rx)
+    pub fn split_ref(&mut self) -> (BufferedUartTx<'_>, BufferedUartRx<'_>) {
+        (self.tx.reborrow(), self.rx.reborrow())
     }
 }
 
@@ -206,8 +215,8 @@ impl<'d> BufferedUartRx<'d> {
     /// Create a new buffered UART RX.
     pub fn new<T: Instance>(
         _uart: Peri<'d, T>,
-        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx: Peri<'d, impl RxPin<T>>,
+        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -217,6 +226,7 @@ impl<'d> BufferedUartRx<'d> {
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            is_borrowed: false,
             _phantom: PhantomData,
         }
     }
@@ -224,9 +234,9 @@ impl<'d> BufferedUartRx<'d> {
     /// Create a new buffered UART RX with flow control.
     pub fn new_with_rts<T: Instance>(
         _uart: Peri<'d, T>,
-        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx: Peri<'d, impl RxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
+        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -236,6 +246,7 @@ impl<'d> BufferedUartRx<'d> {
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            is_borrowed: false,
             _phantom: PhantomData,
         }
     }
@@ -357,8 +368,8 @@ impl<'d> BufferedUartTx<'d> {
     /// Create a new buffered UART TX.
     pub fn new<T: Instance>(
         _uart: Peri<'d, T>,
-        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx: Peri<'d, impl TxPin<T>>,
+        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -368,6 +379,7 @@ impl<'d> BufferedUartTx<'d> {
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            is_borrowed: false,
             _phantom: PhantomData,
         }
     }
@@ -375,9 +387,9 @@ impl<'d> BufferedUartTx<'d> {
     /// Create a new buffered UART TX with flow control.
     pub fn new_with_cts<T: Instance>(
         _uart: Peri<'d, T>,
-        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         cts: Peri<'d, impl CtsPin<T>>,
+        _irq: impl Binding<T::Interrupt, BufferedInterruptHandler<T>>,
         tx_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -387,6 +399,7 @@ impl<'d> BufferedUartTx<'d> {
         Self {
             info: T::info(),
             state: T::buffered_state(),
+            is_borrowed: false,
             _phantom: PhantomData,
         }
     }
@@ -510,8 +523,34 @@ impl<'d> BufferedUartTx<'d> {
     }
 }
 
+impl<'d> BufferedUartRx<'d> {
+    fn reborrow(&mut self) -> BufferedUartRx<'_> {
+        BufferedUartRx {
+            info: self.info,
+            state: self.state,
+            is_borrowed: true,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d> BufferedUartTx<'d> {
+    fn reborrow(&mut self) -> BufferedUartTx<'_> {
+        BufferedUartTx {
+            info: self.info,
+            state: self.state,
+            is_borrowed: true,
+            _phantom: PhantomData,
+        }
+    }
+}
+
 impl<'d> Drop for BufferedUartRx<'d> {
     fn drop(&mut self) {
+        if self.is_borrowed {
+            return;
+        }
+
         unsafe { self.state.rx_buf.deinit() }
 
         // TX is inactive if the buffer is not available.
@@ -524,6 +563,10 @@ impl<'d> Drop for BufferedUartRx<'d> {
 
 impl<'d> Drop for BufferedUartTx<'d> {
     fn drop(&mut self) {
+        if self.is_borrowed {
+            return;
+        }
+
         unsafe { self.state.tx_buf.deinit() }
 
         // RX is inactive if the buffer is not available.
@@ -756,31 +799,6 @@ impl<'d> embedded_io::Write for BufferedUartTx<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::serial::Read<u8> for BufferedUartRx<'d> {
-    type Error = Error;
-
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        let r = self.info.regs;
-        if r.uartfr().read().rxfe() {
-            return Err(nb::Error::WouldBlock);
-        }
-
-        let dr = r.uartdr().read();
-
-        if dr.oe() {
-            Err(nb::Error::Other(Error::Overrun))
-        } else if dr.be() {
-            Err(nb::Error::Other(Error::Break))
-        } else if dr.pe() {
-            Err(nb::Error::Other(Error::Parity))
-        } else if dr.fe() {
-            Err(nb::Error::Other(Error::Framing))
-        } else {
-            Ok(dr.data())
-        }
-    }
-}
-
 impl<'d> embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx<'d> {
     type Error = Error;
 
@@ -800,14 +818,6 @@ impl<'d> embedded_hal_02::blocking::serial::Write<u8> for BufferedUartTx<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::serial::Read<u8> for BufferedUart<'d> {
-    type Error = Error;
-
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        embedded_hal_02::serial::Read::read(&mut self.rx)
-    }
-}
-
 impl<'d> embedded_hal_02::blocking::serial::Write<u8> for BufferedUart<'d> {
     type Error = Error;
 
@@ -824,49 +834,5 @@ impl<'d> embedded_hal_02::blocking::serial::Write<u8> for BufferedUart<'d> {
 
     fn bflush(&mut self) -> Result<(), Self::Error> {
         self.blocking_flush()
-    }
-}
-
-impl<'d> embedded_hal_nb::serial::ErrorType for BufferedUartRx<'d> {
-    type Error = Error;
-}
-
-impl<'d> embedded_hal_nb::serial::ErrorType for BufferedUartTx<'d> {
-    type Error = Error;
-}
-
-impl<'d> embedded_hal_nb::serial::ErrorType for BufferedUart<'d> {
-    type Error = Error;
-}
-
-impl<'d> embedded_hal_nb::serial::Read for BufferedUartRx<'d> {
-    fn read(&mut self) -> nb::Result<u8, Self::Error> {
-        embedded_hal_02::serial::Read::read(self)
-    }
-}
-
-impl<'d> embedded_hal_nb::serial::Write for BufferedUartTx<'d> {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
-    }
-}
-
-impl<'d> embedded_hal_nb::serial::Read for BufferedUart<'d> {
-    fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        embedded_hal_02::serial::Read::read(&mut self.rx)
-    }
-}
-
-impl<'d> embedded_hal_nb::serial::Write for BufferedUart<'d> {
-    fn write(&mut self, char: u8) -> nb::Result<(), Self::Error> {
-        self.blocking_write(&[char]).map(drop).map_err(nb::Error::Other)
-    }
-
-    fn flush(&mut self) -> nb::Result<(), Self::Error> {
-        self.blocking_flush().map_err(nb::Error::Other)
     }
 }
