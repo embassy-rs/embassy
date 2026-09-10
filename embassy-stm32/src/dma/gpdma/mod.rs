@@ -425,6 +425,9 @@ pub struct TransferOptions {
     pub transfer_complete_mode: TransferCompleteMode,
     /// Optional trigger-gated transfer configuration.
     pub trigger: Option<TriggerConfig>,
+    /// Exchange the two bytes of each destination half-word.
+    /// No-op when word size is u8.
+    pub exchange_dest_bytes: bool,
 }
 
 impl Default for TransferOptions {
@@ -442,6 +445,8 @@ impl Default for TransferOptions {
             request_mode: RequestMode::Burst,
             transfer_complete_mode: TransferCompleteMode::EachBlock,
             trigger: None,
+
+            exchange_dest_bytes: false,
         }
     }
 }
@@ -690,6 +695,7 @@ impl<'d> Channel<'d> {
                     w.set_ddw(dst_size.into());
                     w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
                     w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+                    w.set_dbx(options.exchange_dest_bytes);
                     // Pack/unpack through the channel FIFO when source and destination
                     // widths differ. The default (zero-extend / left-truncate) sends
                     // one source beat per destination beat, which silently corrupts
