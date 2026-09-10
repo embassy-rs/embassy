@@ -6,17 +6,15 @@ use core::mem::MaybeUninit;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{Detectors, FilterConfig, Flt0, TransceiverConfig, TransceiverConfigOnline};
-use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
-use embassy_stm32::pac::dfsdm::DfsdmSuperset;
+use embassy_stm32::dfsdm::config_types::{
+    CkoutDivider, DataRightShift, FilterOrder, FilterParameters, InternalSpiMode,
+};
+use embassy_stm32::dfsdm::{Detectors, FilterConfig, Flt0, ShortCircuitAssignment};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
-use embassy_stm32::time::{Hertz, khz};
-use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::{SharedData, bind_interrupts, dfsdm, pac};
-use embassy_time::{Delay, Duration, Timer};
-use embedded_hal::blocking::delay::DelayMs;
+use embassy_stm32::time::Hertz;
+use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
 use panic_probe as _;
 
 #[unsafe(link_section = ".ram_d3.shared_data")]
@@ -93,16 +91,10 @@ async fn main(_spawner: Spawner) {
         )
     });
 
-    let tcv_cfg = TransceiverConfig { ..Default::default() };
-    let tcv_cfg_online = TransceiverConfigOnline {
-        short_circuit_detection_config: dfsdm::config_types::ShortCircuitDetectionConfig::Enabled(12u8),
-        ..Default::default()
-    };
-
     let channel_mic = split
         .ch1
         .build_spi_int(&common, InternalSpiMode::SpiRising)
-        .configure(&tcv_cfg, &tcv_cfg_online)
+        .set_data_right_shift(DataRightShift::new(0))
         .enable();
 
     let filter_params =
@@ -122,9 +114,10 @@ async fn main(_spawner: Spawner) {
     println!("Go?");
     let Detectors {
         mut short_circuit,
-        mut clock_absence,
+        clock_absence: _,
     } = split.detectors.build(&common, Irqs);
 
+    short_circuit.assign_transceivers([ShortCircuitAssignment::new(&channel_mic, 12)]);
     loop {
         _flt0.reg.start_regular_conversion();
         let event = short_circuit.wait_for_event().await;

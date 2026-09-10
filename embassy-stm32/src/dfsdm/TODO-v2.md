@@ -51,6 +51,29 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   (CKABEN, CHyCFGR1 bit 6, reset 0) — not default-on. Consequence: raw
   CKABF[7:0] reads are meaningless unless masked to channels with
   CKABEN=1 && CHEN=1. Handled by FT12 / FT11 / FT3.
+- [x] **E3 — SCD semantics + detector startup latches (RM0399 §31.4.11 +
+  §"Manchester/SPI code synchronization"; silicon-verified on the H755 bench
+  during FT12 bring-up).**
+  - SCD is a **saturation detector**: per-channel up-counter of consecutive
+    identical bits on the **data** stream (channel transceiver outputs, not
+    CKIN), restarted on every 1↔0 transition; SCDF fires when it reaches SCDT.
+    It catches stuck/open-circuit analog inputs; clock faults are CKAB's job.
+  - **SCDT=0 fires constantly** — the counter starts at 0 and trivially
+    "reaches" 0. Hit on silicon when the threshold write was lost in the FT12
+    migration; now structural (FT12 writes SCDT before SCDEN; a validated
+    threshold newtype was declined — consider a `debug_assert!(threshold != 0)`).
+  - **SCDF is hardware-cleared when CHEN=0** (RM0399 §31.4.11) — the exact
+    opposite of CKABF (E2). Drop-time de-arm + disable self-cleans stale SCD
+    flags; only CKAB needs the E2 masking discipline.
+  - **CKABF startup latch**: while the transceiver is unsynchronized, CKABF is
+    held set and `CLRCKABF` writes are ignored; after sync it stays set until
+    software clears it. Observed as a one-shot event at the first
+    `wait_for_event` — expected hardware behavior; motivating case for FT3
+    (poll CKABF=0 as the sync-done indicator) and FT4 (`clear_flags` startup
+    residue).
+  - SCD **cannot** be used in parallel input mode (DATMPX≠0, §31.4.11) — not
+    enforced yet; candidate doc note or `debug_assert` on
+    `ShortCircuitDetector::assign_transceivers`.
 
 ---
 
@@ -115,37 +138,7 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 
 ## FEATURE
 
-- [ ] **FT12 — Detector API redesign: AWD-style objects for SCD & CKAB
-  (PRIORITY 1; absorbs the old clock-absence-masking item).** SCD/CKAB are a
-  hardware hybrid — per-channel
-  *enable* (CHyCFGR1 SCDEN/CKABEN), instance-level *flags/IRQ* (FLT0 ISR/CR2).
-  The current API leaks the split: detector bools in a `TransceiverConfigOnline`
-  grab-bag + an orphaned `Detectors` object, and raw (unmasked) readers — see
-  E2 (disabled channels hold CKABF set). Rework to mirror
-  `flt.awd`/`flt.extremes`: one self-contained object that both configures and
-  polls, hiding the split.
-  - `ShortCircuitDetector` (instance-level, Flt0 — keep):
-    - `assign_transceivers(&[&dyn TransceiverTrait])` → SCDEN per channel.
-    - `set_threshold(u8)` → AWSCDR.SCDT; `assign_break_signals(BreakSignals)` → AWSCDR.BKSCD.
-    - `wait_for_event()` (exists), `flags() -> u8`, `clear_flags(u8)`.
-  - `ClockAbsenceDetector` (instance-level, Flt0 — keep):
-    - `assign_transceivers(&[&dyn TransceiverTrait])` → CKABEN per channel.
-    - `wait_for_event()`, `flags() -> u8`, `clear_flags(u8)`.
-  - **Armed-mask tracking**: each detector keeps its own armed channel
-    mask internally (from `assign_transceivers` + CHEN transitions) — no separate
-    `AtomicU8` in instance `State`; `flags()`/`wait_for_event` mask CKABF/SCDF
-    with it directly (E2). CKABEN lifecycle: clear CKABEN on channel disable
-    (CKABEN=1 & CHEN=0 → held-set flag + IRQ spam; CKABIE is a single global bit,
-    hardware gates the IRQ by CKABEN). Fix the copy-paste docstrings
-    ("short-circuit-detector" on the CKAB fns).
-  - Remove `enable_clock_absence_detection`, `short_circuit_detection_config`,
-    `break_signals` from `TransceiverConfigOnline` (leaves `offset`); drop
-    `configure_online` for a plain `Transceiver::set_offset()`. Move
-    `set_clock_absence_detector` / `set_short_circuit_detector` /
-    `set_shortcircuit_threshold` / `assign_break_short_circuit` off `Transceiver`.
-  - Build `Detectors` from `DfsdmCommon` (`common.detectors()`), drop `DetectorsBuilder`.
-  - Symmetry target: AWD/SCD/CKAB/extremes each expose `assign_transceivers` +
-    `wait_for_event` + `flags`/`clear_flags` where hardware allows.
+
 - [ ] **FT13 — Input-width-aware gain ceiling (serial vs parallel).** E1's
   `MAX_GAIN = 2^31−1` assumes 1-bit serial input; parallel (DATMPX ADC /
   CPU-DMA DATINR) is 16-bit, so the safe FOSR/IOSR ceiling is far lower (~`MAX_GAIN
@@ -271,6 +264,8 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   `CHEN=1`, repeatedly write `CLRCKABF[y]` until `CKABF[y]` reads 0 — the flag
   is held set (and un-clearable) until the transceiver is synchronized; only
   then enable CKABEN=1 (+CKABIE). Non-blocking-sleep poll, no embassy-time dep.
+  Silicon-observed (E3): without this wait, the unsynced latch surfaces as a
+  one-shot event at the first `wait_for_event`.
   Doc: CKAB is valid only with CKOUTSRC=0 (system clock).
   Masking rule (E2): only read/clear `CKABF[y]` for channels with
   CKABEN=1 && CHEN=1 — disabled channels hold their flags set; the sync wait
@@ -278,7 +273,10 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 - [ ] **FT4 — Detector `clear_flags()`** on `ShortCircuitDetector` /
   `ClockAbsenceDetector` (FLT0 ICR). Explicit "arm" primitive so an app can
   clear startup residue after its own settle delay; complements FT3 (SCD is
-  not expected spurious at startup, but symmetric API is cheap).
+  not expected spurious at startup, but symmetric API is cheap). Motivating
+  case observed on silicon (E3): the CKABF startup latch wakes the first
+  `wait_for_event` exactly once — `clear_flags` after assign is the interim
+  remedy until FT3 lands.
 - [ ] **FT5 — TIM break enables,
   `#[cfg(all(dfsdm, any(timer_v1, timer_v3)))]`.** Fields exist only in
   metapac `timer_v1`/`timer_v3`; every DFSDM chip uses one of those (F4/F7/L4/L5
@@ -409,9 +407,12 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   Rename the per-channel cluster to `AwdFilter*` so "AnalogWatchdog" is
   unambiguous: `AnalogWatchdogFilterConfiguration`→`AwdFilterConfig`,
   `AnalogWatchdogFilterOrder`→`AwdFilterOrder`, `AnalogWatchdogOsr`→`AwdFilterOsr`
-  (fix the "AWFORD"→"AWFOSR" docstring), field `analog_watchdog_filter_config`→
-  `awd_filter_config`, `get_analog_watchdog_data`→`awd_filter_data`, private
-  `select_analog_watchdog_*`→`select_awd_filter_*`. Keep `AnalogWatchdog`,
+  (fix the "AWFORD"→"AWFOSR" docstring), `get_analog_watchdog_data`→
+  `awd_filter_data`, and the pub consuming builders
+  `select_analog_watchdog_*`→`set_awd_filter_*` (made pub when
+  `TransceiverConfig`/`configure` were deleted in FT12 — the old
+  `analog_watchdog_filter_config` field no longer exists; see NITS #22 for the
+  voluntary-vs-mandatory question). Keep `AnalogWatchdog`,
   `AnalogWatchdogConfig`, `AnalogWatchdogEvent`, `flt.awd` unchanged. Doc the
   AWFSEL coupling (the per-channel filter is only meaningful in fastmode).
 
@@ -423,8 +424,9 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 4. `Error` enum stray `//TODO` (mod.rs:36) — resolve with FT1.
 5. mod.rs:130 AFS critical-section question — fold into F1 (one
    critical_section strategy for all RMW: CR2 + AF assignment).
-6. mod.rs:1074 — `break_signals` in `TransceiverConfigOnline` → superseded by
-   FT12 (`assign_break_signals` on `ShortCircuitDetector`).
+6. [x] mod.rs:1074 — `break_signals` in `TransceiverConfigOnline` → superseded by
+   FT12 (`assign_break_signals` on `ShortCircuitDetector`). Executed with FT12:
+   the whole `TransceiverConfigOnline` struct was deleted.
 7. [x] mod.rs:1639/1742 — missing docstrings `build_spi_ext`/`build_spi_int`
    (done; also fixed `skips` intra-doc link + `tothe` typos in the same sweep).
 8. mod.rs:1816 — config-types module: docstrings, bitmap type, split.
@@ -460,8 +462,15 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     explicit with a semantic constructor … idk"): consider a semantic dual-pair
     constructor — `new_parallel_dma_dual()` on the even channel meaning "this
     channel and its paired successor are configured as a dual-input pair" —
-    folding the comment's intent into the API or deleting the comment. Decide
-    during the FT7/FT18 API pass.
+     folding the comment's intent into the API or deleting the comment. Decide
+     during the FT7/FT18 API pass.
+22. `select_analog_watchdog_filter_order`/`select_analog_watchdog_osr` are now
+    pub consuming builders (voluntary — AWFORD/AWFOSR stay at reset if
+    untouched). Think about whether the AWD fast-mode input-stage config
+    should be **mandatory** at build time instead (required constructor param
+    or configure step), so it can't be forgotten when AWFSEL fastmode is
+    intended. Voluntary by decision for now; coordinate with D14 (renames +
+    AWFSEL coupling doc) when revisiting.
 
 ---
 
@@ -504,6 +513,9 @@ Summary (each blocks DFSDM availability for whole chip groups):
 
 ## EXAMPLES
 
+- [x] `dfsdm_short_circuit.rs` + `dfsdm_clock_absence.rs` — migrated to the
+  FT12 detector API (`ShortCircuitAssignment` pair, masked waits; see E3 for
+  the CKAB startup-latch note).
 - [ ] `dfsdm_parallel_dma_to_dma.rs` → method-built ring (`flt0.reg
   .ring_buffered(..)`) + async `read()` / `blocking_read` with `Err(Overrun)`
   handling.
@@ -587,3 +599,51 @@ Summary (each blocks DFSDM availability for whole chip groups):
   ROVRIE/JOVRIE setters. CR1 is never touched by the ISR → no guard needed.
   The AF-assignment path (mod.rs:130, currently commented/experimental) gets the
   same `critical_section` discipline if it becomes a runtime RMW.
+  - [X] **FT12 — Detector API redesign: AWD-style objects for SCD & CKAB
+  (PRIORITY 1; absorbs the old clock-absence-masking item).** DONE — record
+  below is as-built (deviations from the original spec noted inline). SCD/CKAB
+  are a hardware hybrid — per-channel *enable* (CHyCFGR1 SCDEN/CKABEN),
+  instance-level *flags/IRQ* (FLT0 ISR/CR2) — now hidden behind two
+  self-contained objects mirroring `flt.awd`/`flt.extremes`:
+  - `ShortCircuitDetector` (instance-level, Flt0):
+    - `assign_transceivers([ShortCircuitAssignment<'_, T>; N])` — each
+      assignment pairs transceiver + threshold (plain `u8`; a validated
+      newtype was declined by decision). The fold writes AWSCDR.SCDT **before**
+      raising SCDEN (RM order): the SCDEN=1 ∧ SCDT=0 window that latches a
+      spurious SCDF (E3) is structurally impossible.
+    - `set_threshold(&tcv, u8)` (runtime re-tune), `assign_break_signals(&tcv,
+      BreakSignals)` → BKSCD, `unassign_transceivers([&dyn; N])`,
+      `wait_for_event()`.
+    - Public `flags()`/`clear_flags()` renames still pending → FT4/FT11
+      (today: `pub(crate) *_channel_flags[_masked]` / `clear_*`).
+  - `ClockAbsenceDetector` (instance-level, Flt0): `assign_transceivers
+    ([&dyn; N])` → CKABEN, `unassign_transceivers`, `wait_for_event()`. **No
+    threshold/break counterpart** — CKAB has no SCDT/BKSCD hardware (its
+    absence threshold is CKOUTDIV, fixed at construction); nothing to pair.
+  - **Armed-mask tracking (decision A, as built)**: `short_circuit_armed` /
+    `clock_absence_armed` `AtomicU8` in `InstanceState` beside the wakers.
+    Sole-writer invariant via the `set_*_channels(mask)` authority helpers —
+    plain, no `critical_section` (CFGR1 is thread-only per the F1 audit;
+    supersedes the original "under critical_section" wording). Registers are
+    the authority: unassign/drop compute `channel_word() & …` fresh from
+    CFGR1, the helpers write all COUNT channels and refresh the mirror
+    (Relaxed) after every write. ISR + `wait_for_event` read flags ∧ mirror —
+    E2 handled, no raw full-mask reads anywhere.
+    Implicit de-arm in `Transceiver::drop` for both detectors
+    (`drop_transceiver(M::CHANNEL)` — detectors cover the transceiver's own
+    channel; the FROM_NEIGHBOR adjustment is pin-links-only, see TS1/CHINSEL).
+    `enable()` does NOT re-arm (FT3's sequencing decision).
+  - Config removal went **further than specced**: `TransceiverConfig`,
+    `TransceiverConfigOnline` and `configure`/`configure_online` were deleted
+    entirely (not "leaves offset" — `set_offset(u32)` is the public runtime
+    method; `set_data_right_shift` and `select_analog_watchdog_*` became pub
+    consuming builder steps, see NITS #22). The four detector setters moved
+    off `Transceiver` as planned; the dead `ShortCircuitDetectionConfig` enum
+    was deleted (along with the stale cm4 `dfsdm_pwm` example — the cm4 set
+    may be revisited later).
+  - `common.detectors()` / drop `DetectorsBuilder` — **superseded (closed)**:
+    `split.detectors.build(&common, Irqs)` satisfies binding-at-construction
+    (FT18 IR1) with `DetectorsBuilder` retained.
+  - Symmetry target stands: AWD/SCD/CKAB/extremes each expose
+    `assign_transceivers` + `wait_for_event` (+ `flags`/`clear_flags` where
+    hardware allows — pending FT4/FT11).

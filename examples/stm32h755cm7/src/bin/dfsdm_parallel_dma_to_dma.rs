@@ -2,26 +2,16 @@
 #![no_main]
 
 use core::mem::MaybeUninit;
-use core::ops::Div;
 
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode, TriggerEdge};
-use embassy_stm32::dfsdm::{
-    Dfsdm, FilterConfig, Flt0, Flt1, InjectedDfsdmTrigger, InjectedTrigger, RingBufferedFilter, TransceiverConfig,
-    TransceiverConfigOnline, TransceiverTrait,
-};
-use embassy_stm32::dma::{self, Channel, Request, Transfer, TransferOptions};
-use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::pac::dfsdm::regs::{Datinr, Rdatar};
-use embassy_stm32::peripherals::{self, DFSDM1, MDMA};
-use embassy_stm32::rcc::{self, Sysclk};
-use embassy_stm32::spi::Spi;
-use embassy_stm32::time::Hertz;
-use embassy_stm32::triggers::TIM1_TRGO;
+use embassy_stm32::dfsdm::config_types::{DataRightShift, FilterOrder, FilterParameters};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, RingBufferedFilter};
+use embassy_stm32::dma::{self, Channel, Transfer, TransferOptions};
+use embassy_stm32::pac::dfsdm::regs::Rdatar;
+use embassy_stm32::peripherals::{self, DFSDM1};
 use embassy_stm32::{SharedData, bind_interrupts, dfsdm, pac};
-use embassy_time::Timer;
 use panic_probe as _;
 
 #[unsafe(link_section = ".ram_d3.shared_data")]
@@ -80,12 +70,11 @@ async fn main(_spawner: Spawner) {
             creator.ch7.none(),
         )
     });
-    let tcv_cfg = TransceiverConfig::default();
-    let tcv_cfg_online = TransceiverConfigOnline::default();
+
     let ch_test = split
         .ch0
         .build_parallel_dma(&common, dfsdm::config_types::DataPackingModeReduced::Standard)
-        .configure(&tcv_cfg, &tcv_cfg_online)
+        .set_data_right_shift(DataRightShift::new(0))
         .enable();
 
     let flt_cfg = FilterConfig {

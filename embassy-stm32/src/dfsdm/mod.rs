@@ -1057,49 +1057,6 @@ where
 }
 
 // =============================================================================
-// TransceiverConfig
-// =============================================================================
-
-/// Configuration for Transceiver
-pub struct TransceiverConfig {
-    /// Amount of right-shifts the data shall experience
-    pub data_right_shift: config_types::DataRightShift,
-    pub analog_watchdog_filter_config: config_types::AnalogWatchdogFilterConfiguration,
-}
-
-impl Default for TransceiverConfig {
-    fn default() -> Self {
-        Self {
-            data_right_shift: config_types::DataRightShift::NONE,
-            analog_watchdog_filter_config: config_types::AnalogWatchdogFilterConfiguration::Bypass,
-        }
-    }
-}
-
-/// Configuration for Transceiver, also changable when enables
-pub struct TransceiverConfigOnline {
-    /// Clock absende detection
-    pub enable_clock_absence_detection: bool,
-    /// Short-circuit detection + threshold
-    pub short_circuit_detection_config: config_types::ShortCircuitDetectionConfig,
-    /// Offset
-    pub offset: u32,
-    /// Breaksignal assignment for short-circuit detector
-    pub break_signals: config_types::BreakSignals, //TODO maybe merge with shortcircuit config
-}
-
-impl Default for TransceiverConfigOnline {
-    fn default() -> Self {
-        Self {
-            enable_clock_absence_detection: false,
-            short_circuit_detection_config: config_types::ShortCircuitDetectionConfig::Disabled,
-            offset: 0,
-            break_signals: config_types::BreakSignals::empty(),
-        }
-    }
-}
-
-// =============================================================================
 // Transceiver
 // =============================================================================
 
@@ -1132,6 +1089,7 @@ where
     P: PowerState,
 {
     fn drop(&mut self) {
+        // "Drop pin references" as we "manually" reference count
         let ch = if PS::FROM_NEIGHBOR {
             <M::Next as TransceiverMarker>::CHANNEL.index()
         } else {
@@ -1144,6 +1102,11 @@ where
         if S::HAS_CLK {
             self.common.release_pin(ch, PinKind::Ckin);
         }
+
+        // Disabling will deactivate the detector flags,
+        // so we need to remove them from the cached version
+        ShortCircuitDetector::<T>::drop_transceiver(M::CHANNEL);
+        ClockAbsenceDetector::<T>::drop_transceiver(M::CHANNEL);
 
         Self::set_enabled(false);
     }
@@ -1203,43 +1166,31 @@ where
         }
     }
 
-    /// Configure the transceiver
-    pub fn configure(
-        mut self,
-        config: &TransceiverConfig,
-        online_config: &TransceiverConfigOnline,
-    ) -> Transceiver<'a, 'd, T, M, S, MODE, PS, Disabled> {
-        self.set_data_right_shift(config.data_right_shift);
-
-        self.select_analog_watchdog_filter_order(config.analog_watchdog_filter_config.into());
-        self.select_analog_watchdog_osr(config.analog_watchdog_filter_config.into());
-
-        self.configure_online(online_config);
-        self
-    }
-
     /// Set channel right shift factor
-    fn set_data_right_shift(&mut self, shift: config_types::DataRightShift) {
+    pub fn set_data_right_shift(self, shift: config_types::DataRightShift) -> Self {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr2()
             .modify(|w| w.set_dtrbs(shift.into()));
+        self
     }
 
     /// Set the filterorder of the analog watchdog
-    fn select_analog_watchdog_filter_order(&mut self, filter_order: config_types::AnalogWatchdogFilterOrder) {
+    pub fn select_analog_watchdog_filter_order(self, filter_order: config_types::AnalogWatchdogFilterOrder) -> Self {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
             .modify(|w| w.set_awford(filter_order as u8));
+        self
     }
 
     /// Set the oversampling ratio of the analog watchdog filter
-    fn select_analog_watchdog_osr(&mut self, osr: config_types::AnalogWatchdogOsr) {
+    pub fn select_analog_watchdog_osr(self, osr: config_types::AnalogWatchdogOsr) -> Self {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
             .modify(|w| w.set_awfosr(osr.into()));
+        self
     }
 }
 
@@ -1279,40 +1230,9 @@ where
     P: PowerState,
     PS: PinSource,
 {
-    /// Configure parameters changable in Enabled mode. May be used to reconfigure while running.
-    pub fn configure_online(&mut self, config: &TransceiverConfigOnline) {
-        self.set_clock_absence_detector(config.enable_clock_absence_detection);
-
-        let (scd_en, scd_ths) = match config.short_circuit_detection_config {
-            config_types::ShortCircuitDetectionConfig::Disabled => (false, 0),
-            config_types::ShortCircuitDetectionConfig::Enabled(threshold) => (true, threshold),
-        };
-
-        self.set_short_circuit_detector(scd_en);
-        self.set_shortcircuit_threshold(scd_ths);
-        self.set_offset(config.offset);
-        self.assign_break_short_circuit(config.break_signals);
-    }
-
     /// Enable/Disable the transceiver
     pub(crate) fn set_enabled(enabled: bool) {
         T::regs().ch(M::CHANNEL.index()).cfgr1().modify(|w| w.set_chen(enabled));
-    }
-
-    /// Enable/Disable clock-absence-detector
-    fn set_clock_absence_detector(&mut self, enabled: bool) {
-        T::regs()
-            .ch(M::CHANNEL.index())
-            .cfgr1()
-            .modify(|w| w.set_ckaben(enabled));
-    }
-
-    /// Enable/Disable short-circuit-detector
-    fn set_short_circuit_detector(&mut self, enabled: bool) {
-        T::regs()
-            .ch(M::CHANNEL.index())
-            .cfgr1()
-            .modify(|w| w.set_scden(enabled));
     }
 
     /// Set channel offset
@@ -1321,22 +1241,6 @@ where
             .ch(M::CHANNEL.index())
             .cfgr2()
             .modify(|w| w.set_offset(offset));
-    }
-
-    /// Assign short-circuit detector of transceiver to break-signals
-    pub fn assign_break_short_circuit(&mut self, signals: config_types::BreakSignals) {
-        T::regs()
-            .ch(M::CHANNEL.index())
-            .awscdr()
-            .modify(|w| w.set_bkscd(signals.bits()));
-    }
-
-    /// Set short-circuit-detector-threshold
-    pub fn set_shortcircuit_threshold(&mut self, threshold: u8) {
-        T::regs()
-            .ch(M::CHANNEL.index())
-            .awscdr()
-            .modify(|w| w.set_scdt(threshold));
     }
 
     /// Read input channel watchdog data.
@@ -1381,11 +1285,11 @@ where
     T: Instance + FilterInterrupt<Flt0>,
 {
     unsafe fn handle_instance_events() {
-        if ShortCircuitDetector::<T>::short_circuit_detector_channel_flags() != 0u8 {
+        if ShortCircuitDetector::<T>::short_circuit_detector_channel_flags_masked() != 0u8 {
             ShortCircuitDetector::<T>::set_short_circuit_detector_interrupt(false);
             T::instance_state().short_circuit_waker.wake();
         }
-        if ClockAbsenceDetector::<T>::clock_absence_detector_channel_flags() != 0u8 {
+        if ClockAbsenceDetector::<T>::clock_absence_detector_channel_flags_masked() != 0u8 {
             ClockAbsenceDetector::<T>::set_clock_absence_interrupt(false);
             T::instance_state().clock_absence_waker.wake();
         }
@@ -2121,6 +2025,20 @@ where
     }
 }
 
+/// One channel's short-circuit assignment: the transceiver to guard,
+/// and the saturation threshold to guard it with.
+#[derive(Copy, Clone)]
+pub struct ShortCircuitAssignment<'t, T: Instance> {
+    transceiver: &'t dyn TransceiverTrait<T, Enabled>,
+    threshold: u8,
+}
+
+impl<'t, T: Instance> ShortCircuitAssignment<'t, T> {
+    pub const fn new(transceiver: &'t dyn TransceiverTrait<T, Enabled>, threshold: u8) -> Self {
+        Self { transceiver, threshold }
+    }
+}
+
 pub struct ShortCircuitDetector<'a, 'd, T>
 where
     T: Instance,
@@ -2142,8 +2060,7 @@ where
             Self::set_short_circuit_detector_interrupt(false);
             T::instance_state().short_circuit_waker.register(cx.waker());
 
-            let channels = Self::short_circuit_detector_channel_flags();
-
+            let channels = Self::short_circuit_detector_channel_flags_masked();
             if channels != 0 {
                 Self::clear_short_circuit_detector_channel(channels);
                 return Poll::Ready(channels);
@@ -2153,6 +2070,78 @@ where
             Poll::Pending
         })
         .await
+    }
+}
+
+impl<'a, 'd, T> ShortCircuitDetector<'a, 'd, T>
+where
+    T: Instance,
+{
+    /// Assigns the transceivers to the short-circuit-detector (overwrites assignments)
+    pub fn assign_transceivers<const N: usize>(&mut self, assignments: [ShortCircuitAssignment<T>; N])
+    where
+        [(); N]: NonEmpty,
+    {
+        for assignment in assignments {
+            self.set_threshold(assignment.transceiver, assignment.threshold);
+        }
+        let tcv: [&dyn TransceiverTrait<T, Enabled>; N] = assignments.map(|a| a.transceiver);
+
+        Self::set_short_circuit_channels(detector_common::filterword_of(&tcv));
+    }
+
+    /// Unassigns the transceivers from the short-circuit-detector
+    pub fn unassign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N])
+    where
+        [(); N]: NonEmpty,
+    {
+        Self::set_short_circuit_channels(
+            Self::short_circuit_channel_word() & !detector_common::filterword_of(&transceivers),
+        );
+    }
+
+    /// Assign break-signals for short-circuit-event of transceiver
+    pub fn assign_break_signals(
+        &mut self,
+        transceiver: &dyn TransceiverTrait<T, Enabled>,
+        signals: config_types::BreakSignals,
+    ) {
+        T::regs()
+            .ch(transceiver.index())
+            .awscdr()
+            .modify(|w| w.set_bkscd(signals.bits()));
+    }
+
+    /// Set short-circuit-detector-threshold for transceiver
+    pub fn set_threshold(&mut self, transceiver: &dyn TransceiverTrait<T, Enabled>, threshold: u8) {
+        T::regs()
+            .ch(transceiver.index())
+            .awscdr()
+            .modify(|w| w.set_scdt(threshold));
+    }
+
+    pub(crate) fn drop_transceiver(channel: TransceiverChannel) {
+        let ch = channel.index();
+        Self::set_short_circuit_channels(Self::short_circuit_channel_word() & !(1 << ch));
+    }
+
+    /// Aggregate CFGR1 bit-word for one detector kind, over the channels this
+    /// instance actually has.
+    fn short_circuit_channel_word() -> u8 {
+        let count = <T::Transceivers as capability::TransceiverCount>::COUNT;
+        (0..count).fold(0u8, |acc, y| {
+            acc | ((T::regs().ch(y as usize).cfgr1().read().scden() as u8) << y)
+        })
+    }
+
+    /// Authority: make the registers match `mask` exactly, then refresh the armed cache.
+    fn set_short_circuit_channels(mask: u8) {
+        let mask = mask & detector_common::channel_count_mask::<T>();
+        for y in 0..<T::Transceivers as capability::TransceiverCount>::COUNT {
+            let want = (mask >> y) & 1 == 1;
+            T::regs().ch(y as usize).cfgr1().modify(|w| w.set_scden(want));
+        }
+        T::instance_state().short_circuit_armed.store(mask, Ordering::Relaxed);
     }
 
     /// Enables or disables short-circuit detector interrupts.
@@ -2168,6 +2157,11 @@ where
         T::regs().flt(0).isr().read().scdf()
     }
 
+    /// Returns bitmap of channels who triggered the short-circuit-detector and are armed
+    pub(crate) fn short_circuit_detector_channel_flags_masked() -> u8 {
+        Self::short_circuit_detector_channel_flags() & T::instance_state().short_circuit_armed.load(Ordering::Relaxed)
+    }
+
     /// Clears the provided channel flags in the short-circuit-detector
     pub(crate) fn clear_short_circuit_detector_channel(channels: u8) {
         T::regs().flt(0).icr().modify(|w| w.set_clrscdf(channels));
@@ -2176,7 +2170,7 @@ where
 
 pub struct ClockAbsenceDetector<'a, 'd, T>
 where
-    T: Instance + FilterInterrupt<Flt0>,
+    T: Instance,
 {
     _common: PhantomData<&'a DfsdmCommon<'d, T, Enabled>>,
 }
@@ -2195,7 +2189,7 @@ where
             Self::set_clock_absence_interrupt(false);
             T::instance_state().clock_absence_waker.register(cx.waker());
 
-            let channels = Self::clock_absence_detector_channel_flags();
+            let channels = Self::clock_absence_detector_channel_flags_masked();
 
             if channels != 0 {
                 Self::clear_clock_absence_detector_channel(channels);
@@ -2206,6 +2200,53 @@ where
             Poll::Pending
         })
         .await
+    }
+}
+
+impl<'a, 'd, T> ClockAbsenceDetector<'a, 'd, T>
+where
+    T: Instance,
+{
+    /// Assigns the transceivers to the clock-absence-detector (overwrites assignments)
+    pub fn assign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N])
+    where
+        [(); N]: NonEmpty,
+    {
+        Self::set_clock_absence_channels(detector_common::filterword_of(&transceivers));
+    }
+
+    /// Unassigns the transceivers from the clock-absence-detector
+    pub fn unassign_transceivers<const N: usize>(&mut self, transceivers: [&dyn TransceiverTrait<T, Enabled>; N])
+    where
+        [(); N]: NonEmpty,
+    {
+        Self::set_clock_absence_channels(
+            Self::clock_absence_channel_word() & !detector_common::filterword_of(&transceivers),
+        );
+    }
+
+    pub(crate) fn drop_transceiver(channel: TransceiverChannel) {
+        let ch = channel.index();
+        Self::set_clock_absence_channels(Self::clock_absence_channel_word() & !(1 << ch));
+    }
+
+    /// Aggregate CFGR1 bit-word for one detector kind, over the channels this
+    /// instance actually has.
+    fn clock_absence_channel_word() -> u8 {
+        let count = <T::Transceivers as capability::TransceiverCount>::COUNT;
+        (0..count).fold(0u8, |acc, y| {
+            acc | ((T::regs().ch(y as usize).cfgr1().read().ckaben() as u8) << y)
+        })
+    }
+
+    /// Authority: make the registers match `mask` exactly, then refresh the armed cache.
+    fn set_clock_absence_channels(mask: u8) {
+        let mask = mask & detector_common::channel_count_mask::<T>();
+        for y in 0..<T::Transceivers as capability::TransceiverCount>::COUNT {
+            let want = (mask >> y) & 1 == 1;
+            T::regs().ch(y as usize).cfgr1().modify(|w| w.set_ckaben(want));
+        }
+        T::instance_state().clock_absence_armed.store(mask, Ordering::Relaxed);
     }
 
     /// Enables or disables clock absence interrupts.
@@ -2221,9 +2262,29 @@ where
         T::regs().flt(0).isr().read().ckabf()
     }
 
+    /// Returns bitmap of channels who triggered the clock-absence-detector and are armed
+    pub(crate) fn clock_absence_detector_channel_flags_masked() -> u8 {
+        Self::clock_absence_detector_channel_flags() & T::instance_state().clock_absence_armed.load(Ordering::Relaxed)
+    }
+
     /// Clears the provided channel flags in the clock-absence-detector
     pub(crate) fn clear_clock_absence_detector_channel(channels: u8) {
         T::regs().flt(0).icr().modify(|w| w.set_clrckabf(channels));
+    }
+}
+
+mod detector_common {
+    use super::*;
+
+    /// filterword fold over a transceiver slice
+    pub(crate) fn filterword_of<T: Instance>(transceivers: &[&dyn TransceiverTrait<T, Enabled>]) -> u8 {
+        transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()))
+    }
+
+    /// Valid-bits mask for this shape; every mask user passes gets intersected with it.
+    pub(crate) const fn channel_count_mask<T: Instance>() -> u8 {
+        let count = <T::Transceivers as capability::TransceiverCount>::COUNT as u8;
+        ((1u16 << count) - 1) as u8
     }
 }
 

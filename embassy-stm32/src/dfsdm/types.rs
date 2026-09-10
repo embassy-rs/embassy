@@ -440,7 +440,7 @@ impl<T> Flt4Ready for T where
 // Interrupt/FilterChannel state
 // =============================================================================
 
-/// State shared between interrupt routine and filter object
+/// State shared between interrupt filter-subroutine and filter object
 pub struct State {
     /// Waker for the injected requests
     pub injected_waker: AtomicWaker,
@@ -461,10 +461,20 @@ impl State {
     }
 }
 
+/// State shared between interrupt instance-subroutine and filter object
 pub struct InstanceState {
+    /// Bitmask of transceivers whose short-circuit detector the driver has armed
+    /// (aggregate SCDEN mirror; driver is the sole writer).
+    pub short_circuit_armed: AtomicU8,
+
     /// Waker for short-circuit-detector events
     pub short_circuit_waker: AtomicWaker,
-    /// Waker for clock-absence events
+
+    /// Bitmask of transceivers whose clock-absence detector the driver has armed
+    /// (aggregate CKABEN mirror; driver is the sole writer).
+    pub clock_absence_armed: AtomicU8,
+
+    /// Waker for clock-absence-detector events
     pub clock_absence_waker: AtomicWaker,
 }
 
@@ -472,7 +482,9 @@ impl InstanceState {
     /// Instantiate fresh State
     pub const fn new() -> Self {
         Self {
+            short_circuit_armed: AtomicU8::new(0),
             short_circuit_waker: AtomicWaker::new(),
+            clock_absence_armed: AtomicU8::new(0),
             clock_absence_waker: AtomicWaker::new(),
         }
     }
@@ -1241,15 +1253,6 @@ pub mod config_types {
                 | AnalogWatchdogFilterConfiguration::Sinc3(osr) => osr,
             }
         }
-    }
-
-    /// Configuration enum for the short-circuit-detection
-    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum ShortCircuitDetectionConfig {
-        /// Detection is disabled
-        Disabled,
-        /// Detection is enabled, with threshold value
-        Enabled(u8),
     }
 
     /// Filter order and filter oversampling ratio (FOSR).

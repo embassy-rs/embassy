@@ -6,13 +6,14 @@ use core::mem::MaybeUninit;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{Detectors, FilterConfig, Flt0, TransceiverConfig, TransceiverConfigOnline};
-use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
+use embassy_stm32::dfsdm::config_types::{
+    CkoutDivider, DataRightShift, FilterOrder, FilterParameters, InternalSpiMode,
+};
+use embassy_stm32::dfsdm::{Detectors, FilterConfig, Flt0};
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
-use embassy_stm32::time::{Hertz, khz};
-use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::time::Hertz;
 use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
 use panic_probe as _;
 
@@ -92,15 +93,10 @@ async fn main(_spawner: Spawner) {
         )
     });
 
-    let tcv_cfg = TransceiverConfig { ..Default::default() };
-    let tcv_cfg_online = TransceiverConfigOnline {
-        enable_clock_absence_detection: true,
-        ..Default::default()
-    };
     let channel_mic = split
         .ch1
         .build_spi_int(&common, InternalSpiMode::SpiRising)
-        .configure(&tcv_cfg, &tcv_cfg_online)
+        .set_data_right_shift(DataRightShift::new(0))
         .enable();
 
     let filter_params =
@@ -112,17 +108,18 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split
+    let _flt0 = split
         .flt0
         .build(&common, Irqs)
         .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
 
     println!("Go?");
     let Detectors {
-        mut short_circuit,
+        short_circuit: _,
         mut clock_absence,
     } = split.detectors.build(&common, Irqs);
 
+    clock_absence.assign_transceivers([&channel_mic]);
     loop {
         let event = clock_absence.wait_for_event().await;
         println!("Clock absence! Channels: {:#08b}", event);

@@ -6,8 +6,10 @@ use core::mem::MaybeUninit;
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, TransceiverConfig, TransceiverConfigOnline};
+use embassy_stm32::dfsdm::config_types::{
+    CkoutDivider, DataRightShift, FilterOrder, FilterParameters, InternalSpiMode,
+};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0};
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
@@ -106,12 +108,10 @@ async fn main(_spawner: Spawner) {
         )
     });
 
-    let tcv_cfg = TransceiverConfig::default();
-    let tcv_cfg_online = TransceiverConfigOnline::default();
     let channel_mic = split
         .ch1
         .build_spi_int(&common, InternalSpiMode::SpiRising)
-        .configure(&tcv_cfg, &tcv_cfg_online)
+        .set_data_right_shift(DataRightShift::new(0))
         .enable();
 
     //TODO the enable semantics should really also be linked to channel assignments in filters?
