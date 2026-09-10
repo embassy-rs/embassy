@@ -56,16 +56,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 
 ## FIX
 
-- [ ] **F1 — CR2 RMW race.** CR2 is the only register RMW'd by both ISR and
-  thread. All interrupt-enable `modify()`s must run inside
-  `critical_section::with` (lost-update hazard today):
-  `FilterRegs::set_{regular,injected}_end_of_conversion_interrupt` (mod.rs:1029),
-  `AnalogWatchdog::set_analog_watchdog_interrupt` (mod.rs:1935),
-  `ShortCircuitDetector::set_short_circuit_detector_interrupt` (mod.rs:2096),
-  `ClockAbsenceDetector::set_clock_absence_interrupt` (mod.rs:2154), and the new
-  ROVRIE/JOVRIE setters. CR1 is never touched by the ISR → no guard needed.
-  The AF-assignment path (mod.rs:130, currently commented/experimental) gets the
-  same `critical_section` discipline if it becomes a runtime RMW.
 - [ ] **F3 — Register ownership via implicit `&mut` gating (TRM-mandated).**
   RM0455 §33.8.7/33.8.8: "firmware must not read JDATAR/RDATAR if DMA is
   activated to read it". Enforce with the borrow, not typestate:
@@ -587,3 +577,13 @@ Summary (each blocks DFSDM availability for whole chip groups):
   (read-only queries → `&self`, mutators → `&mut self`, statics internal);
   CKAB copy-paste docstrings.
 - [x] **TS7** — SAFETY review (see FT17).
+- [X] **F1 — CR2 RMW race.** CR2 is the only register RMW'd by both ISR and
+  thread. All interrupt-enable `modify()`s must run inside
+  `critical_section::with` (lost-update hazard today):
+  `FilterRegs::set_{regular,injected}_end_of_conversion_interrupt` (mod.rs:1029),
+  `AnalogWatchdog::set_analog_watchdog_interrupt` (mod.rs:1935),
+  `ShortCircuitDetector::set_short_circuit_detector_interrupt` (mod.rs:2096),
+  `ClockAbsenceDetector::set_clock_absence_interrupt` (mod.rs:2154), and the new
+  ROVRIE/JOVRIE setters. CR1 is never touched by the ISR → no guard needed.
+  The AF-assignment path (mod.rs:130, currently commented/experimental) gets the
+  same `critical_section` discipline if it becomes a runtime RMW.

@@ -1027,18 +1027,24 @@ where
 
     /// Enables or disables regular end-of-conversion interrupts.
     pub(crate) fn set_regular_end_of_conversion_interrupt(enabled: bool) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_reocie(enabled));
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) — cs is load-bearing.
+        critical_section::with(|_cs| {
+            T::regs()
+                .flt(M::CHANNEL.index())
+                .cr2()
+                .modify(|w| w.set_reocie(enabled));
+        });
     }
 
     /// Enables or disables injected end-of-conversion interrupts.
     pub(crate) fn set_injected_end_of_conversion_interrupt(enabled: bool) {
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_jeocie(enabled));
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) — cs is load-bearing.
+        critical_section::with(|_cs| {
+            T::regs()
+                .flt(M::CHANNEL.index())
+                .cr2()
+                .modify(|w| w.set_jeocie(enabled));
+        });
     }
 
     pub(crate) fn injected_conversion_in_progress() -> bool {
@@ -1981,15 +1987,21 @@ where
     {
         let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
 
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_awdch(filterword));
+        // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW — same cs discipline.
+        critical_section::with(|_cs| {
+            T::regs()
+                .flt(M::CHANNEL.index())
+                .cr2()
+                .modify(|w| w.set_awdch(filterword));
+        });
     }
 
     /// Enables or disables analog watchdog interrupts.
     pub(crate) fn set_analog_watchdog_interrupt(enabled: bool) {
-        T::regs().flt(M::CHANNEL.index()).cr2().modify(|w| w.set_awdie(enabled));
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) — cs is load-bearing.
+        critical_section::with(|_cs| {
+            T::regs().flt(M::CHANNEL.index()).cr2().modify(|w| w.set_awdie(enabled));
+        });
     }
 
     /// Returns whether the analog watchdog has been triggerd
@@ -2051,10 +2063,13 @@ where
     {
         let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
 
-        T::regs()
-            .flt(M::CHANNEL.index())
-            .cr2()
-            .modify(|w| w.set_exch(filterword));
+        // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW — same cs discipline.
+        critical_section::with(|_cs| {
+            T::regs()
+                .flt(M::CHANNEL.index())
+                .cr2()
+                .modify(|w| w.set_exch(filterword));
+        });
     }
 
     /// Reads the extremes detector maximum value and its corresponding channel.
@@ -2142,7 +2157,10 @@ where
 
     /// Enables or disables short-circuit detector interrupts.
     pub(crate) fn set_short_circuit_detector_interrupt(enabled: bool) {
-        T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) — cs is load-bearing.
+        critical_section::with(|_cs| {
+            T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
+        });
     }
 
     /// Returns bitmap of channels who triggered the short-circuit-detector
@@ -2192,7 +2210,10 @@ where
 
     /// Enables or disables clock absence interrupts.
     pub(crate) fn set_clock_absence_interrupt(enabled: bool) {
-        T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) — cs is load-bearing.
+        critical_section::with(|_cs| {
+            T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
+        });
     }
 
     /// Returns bitmap of channels who triggered the clock-absence-detector
