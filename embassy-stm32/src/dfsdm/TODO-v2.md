@@ -180,50 +180,69 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   `get_cnv_cnt` → `conversion_time()` with liveness doc; expose public i32
   sign-extension (u32-vs-i32 + typed value accessors). Goal: no TRM needed for
   the common paths.
-- [ ] **FT17 — Type-system consolidation (marker axes + where-clause bundles).**
-  - TS1 — Dedicated `Neighbor` axis: `trait Neighbor { const IS_NEIGHBOR: bool }`
-    (`Own`/`Next`). Delete `SpiExtNeighborMode`/`SpiCkoutNeighborMode`/
-    `ManchesterNeighborMode` (types.rs:667-692) and drop
-    `ChannelMode::USES_NEIGHBOR_PINS` (only used at mod.rs:1118). Thread `N`
-    through `Transceiver` and the 3 `build_*_neighbor` (mod.rs:1619/1667/1770)
-    + 3 base constructors; `Drop` uses `N::IS_NEIGHBOR`.
-  - TS2 — Bundle `FilterInstance<M>` supertrait (wraps `Instance +
+- [x] **FT17 — Type-system consolidation (marker axes + where-clause bundles).**
+  - TS1 → moved to DONE (PinSource axis, implemented).
+  - [DECLINED]TS2 — Bundle `FilterInstance<M>` supertrait (wraps `Instance +
     FilterInterrupt<M>` + `M: InstanceEvents<T>`) replacing the cluster on
     `Filter`/`FilterDisabled`/`FilterRegular`/`FilterInjected`/`AnalogWatchdog`.
-  - TS3 — Bundle `TransceiverInstance<M>` (wraps `Instance` + `M:
+  - [DECLINED]TS3 — Bundle `TransceiverInstance<M>` (wraps `Instance` + `M:
     TransceiverMarker + NextChannelForInstance<T>`) replacing the cluster on
     `Transceiver`.
-  - TS4 — `#[diagnostic::on_unimplemented]` on both bundles.
-  - TS5 (note) — do NOT merge `FilterInterrupt` + `InstanceEvents` (different
+  - [DECLINED]TS4 — `#[diagnostic::on_unimplemented]` on both bundles.
+  - [Redundant]TS5 (note) — do NOT merge `FilterInterrupt` + `InstanceEvents` (different
     impl-carrying axes); bundle only. The `FilterMarker` bound is redundant
     (implied by `FilterInterrupt<M>`).
-  - TS6 (deferred, low priority) — collapse `'a`/`'d` → single `'d`
-    (`&'d DfsdmCommon<'d, …>`) across the ~8 types.
-  - TS7 — SAFETY review of `DfsdmCommon::into_raw_parts` (mod.rs:271-285) and
+  - [DECLINEDBYEMPIRICISM] TS6 — collapse `'a`/`'d` → single `'d`
+    (`&'d DfsdmCommon<'d, …>`). Reverted: unifying forces `&'d` borrows of
+    locals whose `Peri<'d>` contents outlive the binding, and immobilizes
+    `common` under the object borrows (kills typestate `disable(self)` moves).
+    The two-lifetime design is load-bearing.
+  - [x] TS7 — SAFETY review of `DfsdmCommon::into_raw_parts` (mod.rs:271-285) and
     `Filter::replace_{regular,injected}_transceivers` (mod.rs:658-718)
-    (`ManuallyDrop` + `ptr::read`); TS6 shrinks these.
-- [ ] **FT18 — Interrupt binding + NVIC enable hygiene** (coordinate: detector
+    (`ManuallyDrop` + `ptr::read`). **Reviewed & sound.** Invariants: MD
+    suppresses the source drop (single owner per field, no double-drop); nothing
+    between the reads and struct construction can unwind (worst case = leak, not
+    UB); `Peri` is a ghost type (no real `&mut` aliasing); `Filter`'s Drop is
+    skipped intentionally and re-acquired by the returned value. Comments
+    tightened ("bitwise-move") + `replace_regular` docstring fixed ("injected"→
+    "regular").
+- [ ] **FT19 (low priority) — Bundle ergonomics, re-approach.** Decide later
+  between two idioms for condensing the per-item `where` cluster
+  (`T: Instance + FilterInterrupt<M>, M: FilterMarker + InstanceEvents<T>`):
+  - **Mini-merge**: fold `InstanceEvents` into `FilterInterrupt` as an assoc fn
+    `handle_instance_events()` (Flt0 real / Flt1..7 noop, emitted in
+    `impl_dfsdm_filter_irq!`); deletes the sibling trait and the
+    `impl_noop_instance_events!` macro; header becomes
+    `T: FilterInstance<M>`-friendly. Overturns TS5's "don't merge" note.
+  - **Marker-side bundle (optional alternative)**: keep `InstanceEvents`, but
+    `trait FilterFlow<T>: FilterMarker + InstanceEvents<T> {}` + blanket impl,
+    so `M: FilterFlow<T>` elaborates both via supertraits (rust#20671 behavior);
+    headers read `T: Instance + FilterInterrupt<M>, M: FilterFlow<T>`.
+  - Either is cosmetic; default to leaving the cluster as-is if neither earns
+    its churn. Verify empirically (playground + chip matrix) before committing.
+- [X] **FT18 — Interrupt binding + NVIC enable hygiene** (coordinate: detector
   side with FT12; ISR side with FT11). `Binding<I,H>` is a compile-time proof
   (Copy ZST); `InterruptExt::enable()` is a runtime NVIC unmask — keep them
   orthogonal: gate at construction, enable idempotently once.
-  - IR1 — `build(irqs: impl Binding<…>)`: require-and-discard at construction
+  - [X] IR1 — `build(irqs: impl Binding<…>)`: require-and-discard at construction
     (`_irq`), no storage (the binding is a proof marker, never used at runtime).
     `FilterBuilder::build(irqs: impl Binding<T::Interrupt, InterruptHandler<T, M>>)`
     and `common.detectors(irqs: impl Binding<T::Interrupt,
     InterruptHandler<T, Flt0>>)` (per FT12, `DetectorsBuilder` is dropped).
-  - IR2 — drop `_irq` from `read_regular` (mod.rs:760), `read_injected` (:908),
+  - [X] IR2 — drop `_irq` from `read_regular` (mod.rs:760), `read_injected` (:908),
     `AnalogWatchdog::wait_for_event` (:1848), `ShortCircuitDetector::wait_for_event`
     (:2074), `ClockAbsenceDetector::wait_for_event` (:2132) — construction already
     proved the binding.
-  - IR3 — single idempotent enable: remove `enable()` from
-    `ShortCircuitDetector::new` (:2067) and `ClockAbsenceDetector::new` (:2125);
-    enable once in `Detectors::new` + once in `FilterBuilder::build`. Document
-    Flt0 line sharing (Flt0 filter + detectors share FLT0 IRQ; `NVIC::unmask` is
-    idempotent).
-  - IR4 — write `<T as FilterInterrupt<M>>::Interrupt::enable()` explicitly —
+  - [X] IR3 — host the enable at construction of each IRQ-using object: once in
+    `DetectorsBuilder::build` (FLT0 line) and once in `FilterBuilder::build`
+    (that filter's line). The enable is idempotent (`NVIC::unmask`), so the old
+    `SCD::new`/`CKAB::new` enables were redundant, not dangerous — the removal is
+    ownership/clarity cleanup only. Document that Flt0's filter and the detectors
+    share the FLT0 IRQ line.
+  - [X]IR4 — write `<T as FilterInterrupt<M>>::Interrupt::enable()` explicitly —
     `T::Interrupt` is unambiguous today only because `Instance` has no `Interrupt`
     associated type.
-  - IR5 — `unpend()` before `enable()` (ADC hygiene, adc/mod.rs:697-700) so a
+  - [X] IR5 — `unpend()` before `enable()` (ADC hygiene, adc/mod.rs:697-700) so a
     stale pending flag doesn't fire immediately.
 - [ ] **FT1 — Overrun, propagated everywhere** (RM0455 §33.5, Table 254:
   "data not read and overwritten by a new conversion"; JOVRF/ROVRF cleared via
@@ -440,6 +459,12 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 19. Deferred hardening: `#[diagnostic::on_unimplemented]` on the DMA-channel
     binding ("DMAx_CHy cannot service DFSDM filter M {regular|injected}"); and a
     dual-core `!Send` note (CR1 RMW is safe single-core only). Low priority.
+20. `set_continuous` straddles the config/runtime split: it's the one
+    `FilterDisabled` static (mod.rs:566) that is also runtime-reachable, since
+    RCONT is runtime-writable — `FilterRegular::set_continuous(&mut self)`
+    (mod.rs:834) delegates back into the Disabled-scoped static, while the other
+    six config statics (FAST/FORD/FOSR/IOSR/RSYNC/JSYNC/JSCAN/JEXTEN/JEXTSEL) are
+    DFEN=0-gated only. Harmless (thin delegate); just the known exception.
 
 ---
 
@@ -532,42 +557,26 @@ Summary (each blocks DFSDM availability for whole chip groups):
   `DFSDM_4CH_2FLT_DLY_TRG5_ADC_HWID` is MP13-only (no MP13 chips in the chip
   db). Revisit later.
 
+---
 
-# DONE
-#16. Dead-code + naming cleanup (type-system review): delete `DataSource` +
-    `ExternalSource`/`InternalSource` (types.rs:694-705, zero uses); delete
-    `NotFlt0` (types.rs:409-423, zero uses; doc references a nonexistent
-    `Flt0InterruptHandler`); rename `_datasource_marker: PhantomData<MODE>` →
-    `_channel_mode_marker` (mod.rs:1105 — it holds `ChannelMode`, not
-    `DataSource`).
-- [ ] **F2 — Delete `get_datinr_as_ref`** (mod.rs:1239). `&self -> &mut u32` is
-  unsound. Keep `get_datinr_as_ptr` (MDMA loopback only, raw pointer, doc'd).
-10. types.rs:808 `FilterTrait` "generify for TODO?" — delete during F4.
-    Reflect: no filter slice-collection use case exists — filters are top-level
-    drivers and nothing collects many filters into one consumer (unlike
-    transceivers, which ARE sliced because one filter reads many channels). If a
-    use case emerges, design a minimal non-generic `AnyFilter` (index +
-    object-safe ops), not a generic-over-`M` trait.
-- [ ] **FT16 — Newtype audit.** Dedicated unit newtypes (`CkoutDivider`,
-  `AnalogWatchdogOsr`→`AwdFilterOsr`) are good and stay — they hide the
-  register value+1 offset and range in `new()`. The generic `UInt<BITS, T>`
-  (types.rs:1089) is broken and anti-self-documenting: phantom `T` (impls
-  hardcode u8 while the doc claims u32), nonsense `BITS==32`→`u8::MAX` branch,
-  and a bit-width-only check that admits semantically invalid values (e.g.
-  `UInt<5>` = 31 as a data shift). Replace both uses with named types and
-  delete `UInt`:
-  - `data_right_shift: UInt<5, u8>` → `DataRightShift` (semantic range, and
-    derive-from-gain per FT13/FT15).
-  - `skip_pulses: UInt<6, u8>` → `PulsesToSkip` (0..=63, full width, but named
-    + chained-skip helper per FT7).
-  Carry the const-assert pattern: `core::assert!` (not `assert!`) in const fns —
-  the fmt-routed `assert!` forwards to `defmt::assert!` under "defmt", which
-  isn't const-evaluable (precedent: adc/can/hsem/ipcc; lib.rs:14 `mod fmt`).
+## DONE
 
-1. Doc typo "pendiong" ×2 (mod.rs:824, 966).
-2. Receiver inconsistency: `end_of_*_conversion(&mut self)` delegate to
-   statics (mod.rs:1019/1024); `*_conversion_in_progress()` statics
-   (mod.rs:825/967 — valid, but inconsistent); `set_enabled()` static
-   (mod.rs:1014); `set_continuous` duplicated (static mod.rs:566 + `&mut self`
-   mod.rs:834). Unify shape (public = `&mut self`, statics internal).
-13. Copy-paste docstrings on CKAB fns — fix with FT12.
+- [x] **TS1 — `PinSource` axis (ex-FT17).** Dedicated `trait PinSource { const
+  FROM_NEIGHBOR: bool }` with `OwnPins`/`NeighborPins`; deleted
+  `SpiExtNeighborMode`/`SpiCkoutNeighborMode`/`ManchesterNeighborMode` and
+  `ChannelMode::USES_NEIGHBOR_PINS`. `Transceiver<'a,'d,T,M,S,MODE,PINSOURCE,P>`
+  threads the new param; `Drop` releases pins on `<M::Next>`'s slot when
+  `FROM_NEIGHBOR`; the three `build_*_neighbor` constructors acquire on the next
+  channel's slot. (types.rs:672-687, mod.rs:1129.)
+- [x] **NITS #16** — delete `DataSource`/`ExternalSource`/`InternalSource`,
+  delete `NotFlt0`, rename `_datasource_marker` → `_channel_mode_marker`.
+- [x] **F2** — delete `get_datinr_as_ref` (unsound `&self -> &mut u32`);
+  `get_datinr_as_ptr` kept.
+- [x] **NITS #10** — delete `FilterTrait`. (Reflect note retained: a filter
+  slice-collection use case would want a non-generic `AnyFilter`, not this.)
+- [x] **FT16** — replace `UInt<BITS,T>` with `DataRightShift` + `PulsesToSkip`;
+  `UInt` deleted.
+- [x] **NITS #1/#2/#13** — doc typo "pendiong"; receiver-consistency sweep
+  (read-only queries → `&self`, mutators → `&mut self`, statics internal);
+  CKAB copy-paste docstrings.
+- [x] **TS7** — SAFETY review (see FT17).

@@ -130,7 +130,7 @@ async fn main(_spawner: Spawner) {
     };
     let mut flt0 = split
         .flt0
-        .build(&common)
+        .build(&common, Irqs)
         .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
 
     let mut dc_offset: i32 = 0;
@@ -202,7 +202,7 @@ async fn main(_spawner: Spawner) {
     const STATS_INTERVAL_US: u64 = 1_000_000; // report every 1s
 
     loop {
-        let (data, _channel) = flt0.inj.read_injected(Irqs).await;
+        let (data, _channel) = flt0.inj.read_injected().await;
 
         let result_ready_at = Instant::now();
         let wait_dur = result_ready_at - wait_start;

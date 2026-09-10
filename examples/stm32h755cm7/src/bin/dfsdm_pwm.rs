@@ -7,18 +7,22 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{FilterConfig, TransceiverConfig, TransceiverConfigOnline};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, TransceiverConfig, TransceiverConfigOnline};
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
 use embassy_stm32::time::{Hertz, khz};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::{SharedData, dfsdm};
+use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
 use embassy_time::Instant;
 use panic_probe as _;
 
 #[unsafe(link_section = ".ram_d3.shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
+
+bind_interrupts! (struct Irqs{
+    DFSDM1_FLT0 => dfsdm::InterruptHandler<DFSDM1, Flt0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -126,7 +130,7 @@ async fn main(_spawner: Spawner) {
     };
     let mut flt0 = split
         .flt0
-        .build(&common)
+        .build(&common, Irqs)
         .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
 
     flt0.reg.start_regular_conversion();

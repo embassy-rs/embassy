@@ -75,7 +75,7 @@ where
 
         // self.regs.start(); DFSDM doesnt need start
     }
-    
+
     /// Reads the latest measurements from the DMA ring buffer.
     ///
     /// If the buffer is not yet running, it will be started automatically.

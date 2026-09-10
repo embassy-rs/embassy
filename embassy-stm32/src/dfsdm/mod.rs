@@ -271,9 +271,13 @@ impl<'d, T: Instance, P: PowerState> DfsdmCommon<'d, T, P> {
     fn into_raw_parts(self) -> (Peri<'d, T>, Option<Flex<'d>>, [PinSlot<'d>; 8], [PinSlot<'d>; 8]) {
         let this = ManuallyDrop::new(self);
         // SAFETY: `this` is wrapped in `ManuallyDrop`, so its destructor will not
-        // run. We use `ptr::read` to bitwise-copy the fields out, transferring
-        // ownership to the caller. Since we never drop `this` and immediately
-        // return the extracted values, no double-free or use-after-free can occur.
+        // run. We use `ptr::read` to bitwise-move each field out, transferring
+        // ownership to the caller exactly once per field (the source value is
+        // consumed and intentionally never dropped). Since we never drop `this`,
+        // immediately return the extracted values, and nothing between the reads
+        // can unwind, no double-free, use-after-free or leak of `Flex` drop-glue
+        // can occur. (`Peri` is a ghost type carrying no real `&mut`, so copying
+        // it cannot alias.)
         unsafe {
             (
                 ptr::read(&this._peri),
@@ -642,8 +646,8 @@ where
         T::regs().flt(M::CHANNEL.index()).cnvtimr().read().cnvcnt()
     }
 
-    /// Replaces the injected transceivers, releasing the old borrows so the
-    /// previous transceivers can be mutated afterwards. Since this may change
+    /// Replaces the regular transceiver, releasing the old borrow so the
+    /// previous transceiver can be mutated afterwards. Since this may change
     /// the lifetime of the borrows, it consumes and returns a new `Filter`
     /// rather than mutating in place. This is pure borrow-checker bookkeeping,
     /// not a hardware requirement — see [`FilterRegular::assign_transceiver`]
@@ -658,9 +662,10 @@ where
         let this = ManuallyDrop::new(self);
         // SAFETY: `this` is wrapped in `ManuallyDrop` to prevent the destructor from
         // running. We extract each field with `ptr::read`, which performs a bitwise
-        // copy without invoking drop. The original `Filter` is never dropped, and all
-        // extracted fields are moved into the new `Filter` instance, maintaining
-        // ownership invariants.
+        // move without invoking drop. The original `Filter` is never dropped and all
+        // extracted fields are moved into the new `Filter`, maintaining ownership
+        // invariants. Skipping the original `Filter`'s Drop is intentional: it would
+        // clear DFEN, but the returned `Filter` re-acquires that teardown obligation.
         let common = unsafe { ptr::read(&this.common) };
         let inj = unsafe { ptr::read(&this.inj) };
         let awd = unsafe { ptr::read(&this.awd) };
@@ -697,9 +702,10 @@ where
         let this = ManuallyDrop::new(self);
         // SAFETY: `this` is wrapped in `ManuallyDrop` to prevent the destructor from
         // running. We extract each field with `ptr::read`, which performs a bitwise
-        // copy without invoking drop. The original `Filter` is never dropped, and all
-        // extracted fields are moved into the new `Filter` instance, maintaining
-        // ownership invariants.
+        // move without invoking drop. The original `Filter` is never dropped and all
+        // extracted fields are moved into the new `Filter`, maintaining ownership
+        // invariants. Skipping the original `Filter`'s Drop is intentional: it would
+        // clear DFEN, but the returned `Filter` re-acquires that teardown obligation.
         let common = unsafe { ptr::read(&this.common) };
         let reg = unsafe { ptr::read(&this.reg) };
         let awd = unsafe { ptr::read(&this.awd) };
@@ -757,10 +763,7 @@ where
     }
 
     /// Trigger a regular conversion and read it asynchronously using interrupts
-    pub async fn read_regular(
-        &mut self,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T, M>>,
-    ) -> (i32, u8, bool) {
+    pub async fn read_regular(&mut self) -> (i32, u8, bool) {
         self.start_regular_conversion();
 
         poll_fn(|cx| {
@@ -905,10 +908,7 @@ where
     }
 
     /// Trigger a injected conversion and read it asynchronously using interrupts
-    pub async fn read_injected(
-        &mut self,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T, M>>,
-    ) -> (i32, u8) {
+    pub async fn read_injected(&mut self) -> (i32, u8) {
         self.start_injected_conversion();
 
         poll_fn(|cx| {
@@ -1098,12 +1098,13 @@ impl Default for TransceiverConfigOnline {
 // =============================================================================
 
 /// Configured DFSDM data input transceiver.
-pub struct Transceiver<'a, 'd, T, M, S, MODE, P>
+pub struct Transceiver<'a, 'd, T, M, S, MODE, PS, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
+    PS: PinSource,
     P: PowerState,
 {
     pub(crate) common: &'a DfsdmCommon<'d, T, Enabled>,
@@ -1111,19 +1112,21 @@ where
     _transceiver_marker: PhantomData<M>,
     _pinset_marker: PhantomData<S>,
     _channel_mode_marker: PhantomData<MODE>,
+    _pin_source_marker: PhantomData<PS>,
     _powerstate_marker: PhantomData<P>,
 }
 
-impl<'a, 'd, T, M, S, MODE, P> Drop for Transceiver<'a, 'd, T, M, S, MODE, P>
+impl<'a, 'd, T, M, S, MODE, PS, P> Drop for Transceiver<'a, 'd, T, M, S, MODE, PS, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
+    PS: PinSource,
     P: PowerState,
 {
     fn drop(&mut self) {
-        let ch = if MODE::USES_NEIGHBOR_PINS {
+        let ch = if PS::FROM_NEIGHBOR {
             <M::Next as TransceiverMarker>::CHANNEL.index()
         } else {
             M::CHANNEL.index()
@@ -1141,15 +1144,16 @@ where
 }
 
 /// Only when enabled
-impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE, Enabled>
+impl<'a, 'd, T, M, S, MODE, PS> Transceiver<'a, 'd, T, M, S, MODE, PS, Enabled>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
+    PS: PinSource,
 {
     /// Disables the channel
-    pub fn disable(self) -> Transceiver<'a, 'd, T, M, S, MODE, Disabled> {
+    pub fn disable(self) -> Transceiver<'a, 'd, T, M, S, MODE, PS, Disabled> {
         Self::set_enabled(false);
 
         let common = self.common;
@@ -1160,21 +1164,23 @@ where
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
             _channel_mode_marker: PhantomData,
+            _pin_source_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
 }
 
 /// Only when disabled
-impl<'a, 'd, T, M, S, MODE> Transceiver<'a, 'd, T, M, S, MODE, Disabled>
+impl<'a, 'd, T, M, S, MODE, PS> Transceiver<'a, 'd, T, M, S, MODE, PS, Disabled>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
+    PS: PinSource,
 {
     /// Enables the channel
-    pub fn enable(self) -> Transceiver<'a, 'd, T, M, S, MODE, Enabled> {
+    pub fn enable(self) -> Transceiver<'a, 'd, T, M, S, MODE, PS, Enabled> {
         Self::set_enabled(true);
 
         let common = self.common;
@@ -1186,6 +1192,7 @@ where
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
             _channel_mode_marker: PhantomData,
+            _pin_source_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1195,7 +1202,7 @@ where
         mut self,
         config: &TransceiverConfig,
         online_config: &TransceiverConfigOnline,
-    ) -> Transceiver<'a, 'd, T, M, S, MODE, Disabled> {
+    ) -> Transceiver<'a, 'd, T, M, S, MODE, PS, Disabled> {
         self.set_data_right_shift(config.data_right_shift);
 
         self.select_analog_watchdog_filter_order(config.analog_watchdog_filter_config.into());
@@ -1230,12 +1237,13 @@ where
     }
 }
 
-impl<'a, 'd, T, M, S, P> Transceiver<'a, 'd, T, M, S, ParallelDmaMode, P>
+impl<'a, 'd, T, M, S, PS, P> Transceiver<'a, 'd, T, M, S, ParallelDmaMode, PS, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     P: PowerState,
+    PS: PinSource,
 {
     /// Get direct pointer tothe DATINR register for dma mem2mem use
     pub fn get_datinr_as_ptr(&self) -> *mut u32 {
@@ -1256,13 +1264,14 @@ where
     }
 }
 /// Any powerstate
-impl<'a, 'd, T, M, S, MODE, P> Transceiver<'a, 'd, T, M, S, MODE, P>
+impl<'a, 'd, T, M, S, MODE, PS, P> Transceiver<'a, 'd, T, M, S, MODE, PS, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
     P: PowerState,
+    PS: PinSource,
 {
     /// Configure parameters changable in Enabled mode. May be used to reconfigure while running.
     pub fn configure_online(&mut self, config: &TransceiverConfigOnline) {
@@ -1333,13 +1342,14 @@ where
     }
 }
 
-impl<'a, 'd, T, M, S, MODE, P> Transceiver<'a, 'd, T, M, S, MODE, P>
+impl<'a, 'd, T, M, S, MODE, PS, P> Transceiver<'a, 'd, T, M, S, MODE, PS, P>
 where
     T: Instance + HasDelay,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
     P: PowerState,
+    PS: PinSource,
 {
     /// Configure to skip the next [`skips`] pulses
     pub fn skip_pulses(&mut self, skips: config_types::PulsesToSkip) {
@@ -1426,7 +1436,24 @@ where
     }
     /// Build the actual Filter, binding it to the DfsdmCommon peripheral.
     /// This prevents DfsdmCommon from being dropped while the Filter exists.
-    pub fn build<'a, 'd>(self, common: &'a DfsdmCommon<'d, T, Enabled>) -> Detectors<'a, 'd, T> {
+    pub fn build<'a, 'd>(
+        self,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
+        _irqs: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T, Flt0>>,
+    ) -> Detectors<'a, 'd, T> {
+        <T as FilterInterrupt<Flt0>>::Interrupt::unpend();
+        // SAFETY: Enabling the interrupt is safe here because:
+        // 1. The `_irqs: impl Binding<…>` argument proves (at compile time) that
+        //    `InterruptHandler<T, Flt0>::on_interrupt` is wired to this IRQ line.
+        // 2. The waker is initialized in `State::new()` (const, in a static) before
+        //    any interrupt can fire.
+        // 3. No filter-level interrupt-enable bit (REOCIE/JEOCIE/AWDIE/…) is set yet;
+        //    a pending instance-level detector event, if any, is handled safely by the
+        //    handler (flag clear + no-op wake). The stale-NVIC pending case is already
+        //    cleared by `unpend()` above.
+        unsafe {
+            <T as FilterInterrupt<Flt0>>::Interrupt::enable();
+        }
         Detectors::new(common)
     }
 }
@@ -1455,13 +1482,23 @@ where
     }
     /// Build the actual Filter, binding it to the DfsdmCommon peripheral.
     /// This prevents DfsdmCommon from being dropped while the Filter exists.
-    pub fn build<'a, 'd>(self, common: &'a DfsdmCommon<'d, T, Enabled>) -> FilterDisabled<'a, 'd, T, M> {
+    pub fn build<'a, 'd>(
+        self,
+        common: &'a DfsdmCommon<'d, T, Enabled>,
+        _irqs: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T, M>>,
+    ) -> FilterDisabled<'a, 'd, T, M> {
+        <T as FilterInterrupt<M>>::Interrupt::unpend();
         // SAFETY: Enabling the interrupt is safe here because:
-        // 1. The interrupt handler is registered via `bind_interrupts!` at compile time
-        // 2. The waker is initialized in `State::new()` before any interrupt can fire
-        // 3. The filter is not yet active, so no spurious interrupts will occur
+        // 1. The `_irqs: impl Binding<…>` argument proves (at compile time) that
+        //    `InterruptHandler<T, M>::on_interrupt` is wired to this IRQ line.
+        // 2. The waker is initialized in `State::new()` (const, in a static) before
+        //    any interrupt can fire.
+        // 3. No filter-level interrupt-enable bit (REOCIE/JEOCIE/AWDIE/…) is set yet;
+        //    a pending instance-level detector event, if any, is handled safely by the
+        //    handler (flag clear + no-op wake). The stale-NVIC pending case is already
+        //    cleared by `unpend()` above.
         unsafe {
-            T::Interrupt::enable();
+            <T as FilterInterrupt<M>>::Interrupt::enable();
         }
 
         FilterDisabled::new(common)
@@ -1500,7 +1537,7 @@ where
     pub fn build_parallel_adc<'a, 'd>(
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
-    ) -> Transceiver<'a, 'd, T, M, S, ParallelAdcMode, Disabled>
+    ) -> Transceiver<'a, 'd, T, M, S, ParallelAdcMode, OwnPins, Disabled>
     where
         T: capability::AdcInput,
     {
@@ -1512,6 +1549,7 @@ where
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
             _channel_mode_marker: PhantomData,
+            _pin_source_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1524,7 +1562,7 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         packing_mode: config_types::DataPackingModeReduced,
-    ) -> Transceiver<'a, 'd, T, M, S, ParallelDmaMode, Disabled> {
+    ) -> Transceiver<'a, 'd, T, M, S, ParallelDmaMode, OwnPins, Disabled> {
         self.select_channel_input(config_types::ChannelInput::Same);
         self.select_data_mux_input(config_types::InputDataMux::InternalRegisterWrite);
         self.set_data_packing_mode(packing_mode.into());
@@ -1534,6 +1572,7 @@ where
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
             _channel_mode_marker: PhantomData,
+            _pin_source_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1550,8 +1589,8 @@ where
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mut neighbor: TransceiverBuilder<T, MN, C, SN, SNN>,
     ) -> (
-        Transceiver<'a, 'd, T, M, S, ParallelDmaMode, Disabled>,
-        Transceiver<'a, 'd, T, MN, SN, ParallelDmaMode, Disabled>,
+        Transceiver<'a, 'd, T, M, S, ParallelDmaMode, OwnPins, Disabled>,
+        Transceiver<'a, 'd, T, MN, SN, ParallelDmaMode, OwnPins, Disabled>,
     )
     where
         M: DualPackingAllowed + NextChannelForInstance<T, Next = MN>,
@@ -1571,6 +1610,7 @@ where
                 _transceiver_marker: PhantomData,
                 _pinset_marker: PhantomData,
                 _channel_mode_marker: PhantomData,
+                _pin_source_marker: PhantomData,
                 _powerstate_marker: PhantomData,
             },
             Transceiver {
@@ -1579,6 +1619,7 @@ where
                 _transceiver_marker: PhantomData,
                 _pinset_marker: PhantomData,
                 _channel_mode_marker: PhantomData,
+                _pin_source_marker: PhantomData,
                 _powerstate_marker: PhantomData,
             },
         )
@@ -1592,7 +1633,7 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::ManchesterMode,
-    ) -> Transceiver<'a, 'd, T, M, S, ManchesterMode, Disabled>
+    ) -> Transceiver<'a, 'd, T, M, S, ManchesterMode, OwnPins, Disabled>
     where
         S: HasData,
     {
@@ -1605,6 +1646,7 @@ where
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
             _channel_mode_marker: PhantomData,
+            _pin_source_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1614,7 +1656,7 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::ManchesterMode,
-    ) -> Result<Transceiver<'a, 'd, T, M, DataOnly, ManchesterNeighborMode, Disabled>, Error>
+    ) -> Result<Transceiver<'a, 'd, T, M, DataOnly, ManchesterMode, NeighborPins, Disabled>, Error>
     where
         SN: HasData,
     {
@@ -1630,6 +1672,7 @@ where
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
             _channel_mode_marker: PhantomData,
+            _pin_source_marker: PhantomData,
             _powerstate_marker: PhantomData,
         })
     }
@@ -1639,7 +1682,7 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::SpiMode,
-    ) -> Transceiver<'a, 'd, T, M, S, SpiExtMode, Disabled>
+    ) -> Transceiver<'a, 'd, T, M, S, SpiExtMode, OwnPins, Disabled>
     where
         S: HasDataAndClk,
     {
@@ -1653,6 +1696,7 @@ where
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
             _channel_mode_marker: PhantomData,
+            _pin_source_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1662,7 +1706,7 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::SpiMode,
-    ) -> Result<Transceiver<'a, 'd, T, M, DataClk, SpiExtNeighborMode, Disabled>, Error>
+    ) -> Result<Transceiver<'a, 'd, T, M, DataClk, SpiExtMode, NeighborPins, Disabled>, Error>
     where
         SN: HasDataAndClk,
     {
@@ -1679,6 +1723,7 @@ where
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
             _channel_mode_marker: PhantomData,
+            _pin_source_marker: PhantomData,
             _powerstate_marker: PhantomData,
         })
     }
@@ -1742,7 +1787,7 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::InternalSpiMode,
-    ) -> Transceiver<'a, 'd, T, M, S, SpiCkoutMode, Disabled>
+    ) -> Transceiver<'a, 'd, T, M, S, SpiCkoutMode, OwnPins, Disabled>
     where
         S: HasData,
     {
@@ -1756,6 +1801,7 @@ where
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
             _channel_mode_marker: PhantomData,
+            _pin_source_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1765,7 +1811,7 @@ where
         mut self,
         common: &'a DfsdmCommon<'d, T, Enabled>,
         mode: config_types::InternalSpiMode,
-    ) -> Result<Transceiver<'a, 'd, T, M, DataOnly, SpiCkoutNeighborMode, Disabled>, Error>
+    ) -> Result<Transceiver<'a, 'd, T, M, DataOnly, SpiCkoutMode, NeighborPins, Disabled>, Error>
     where
         SN: HasData,
     {
@@ -1782,6 +1828,7 @@ where
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
             _channel_mode_marker: PhantomData,
+            _pin_source_marker: PhantomData,
             _powerstate_marker: PhantomData,
         })
     }
@@ -1843,10 +1890,7 @@ where
     }
 
     /// Wait for a analog watchdog event
-    pub async fn wait_for_event(
-        &mut self,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T, M>>,
-    ) -> AnalogWatchdogEvent {
+    pub async fn wait_for_event(&mut self) -> AnalogWatchdogEvent {
         poll_fn(|cx| {
             Self::set_analog_watchdog_interrupt(false);
             T::state().watchdog_waker.register(cx.waker());
@@ -2060,19 +2104,11 @@ where
     T: Instance + FilterInterrupt<Flt0>,
 {
     pub(crate) fn new(_common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
-        // SAFETY: Same reasoning as `FilterBuilder::build` - the interrupt handler
-        // is registered and the waker is initialized before enabling.
-        unsafe {
-            T::Interrupt::enable();
-        }
         Self { _common: PhantomData }
     }
 
     /// Wait for a short-circuit-detector event
-    pub async fn wait_for_event(
-        &mut self,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T, Flt0>>,
-    ) -> u8 {
+    pub async fn wait_for_event(&mut self) -> u8 {
         poll_fn(|cx| {
             Self::set_short_circuit_detector_interrupt(false);
             T::instance_state().short_circuit_waker.register(cx.waker());
@@ -2118,19 +2154,11 @@ where
     T: Instance + FilterInterrupt<Flt0>,
 {
     pub(crate) fn new(_common: &'a DfsdmCommon<'d, T, Enabled>) -> Self {
-        // SAFETY: Same reasoning as `FilterBuilder::build` - the interrupt handler
-        // is registered and the waker is initialized before enabling.
-        unsafe {
-            T::Interrupt::enable();
-        }
         Self { _common: PhantomData }
     }
 
     /// Wait for a clock-absence-detector event
-    pub async fn wait_for_event(
-        &mut self,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T, Flt0>>,
-    ) -> u8 {
+    pub async fn wait_for_event(&mut self) -> u8 {
         poll_fn(|cx| {
             Self::set_clock_absence_interrupt(false);
             T::instance_state().clock_absence_waker.register(cx.waker());

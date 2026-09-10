@@ -403,25 +403,6 @@ macro_rules! impl_noop_instance_events {
 // Implement empty for all non Flt0 as Flt0 Handles instance-level events
 impl_noop_instance_events!(Flt1, Flt2, Flt3, Flt4, Flt5, Flt6, Flt7);
 
-/// Marker trait for filters that are *not* Flt0.
-/// Used to prevent `FilterInterruptHandler` from handling the FLT0 IRQ,
-/// which must be handled by `Flt0InterruptHandler` to process SCD/CKAB events.
-#[diagnostic::on_unimplemented(
-    message = "`{Self}` cannot be used with `FilterInterruptHandler`",
-    label = "Filter 0 must use `Flt0InterruptHandler`",
-    note = "DFSDM Filter 0 handles instance-wide Short-Circuit and Clock-Absence interrupts, so it requires the dedicated `Flt0InterruptHandler`."
-)]
-pub trait NotFlt0: sealed::Sealed {}
-
-// Implement NotFlt0 for Flt1 through Flt7. DO NOT implement it for Flt0.
-impl NotFlt0 for Flt1 {}
-impl NotFlt0 for Flt2 {}
-impl NotFlt0 for Flt3 {}
-impl NotFlt0 for Flt4 {}
-impl NotFlt0 for Flt5 {}
-impl NotFlt0 for Flt6 {}
-impl NotFlt0 for Flt7 {}
-
 /// Markers for Interuptpresence
 pub trait Flt8Ready:
     FilterInterrupt<Flt0>
@@ -645,11 +626,8 @@ impl_trait! {
 }
 
 /// Operational mode of a built [`Transceiver`]. Determined by which builder
-/// constructor was used; encodes the SITP/SPICKSEL/CHINSEL/DATMPX semantics.
-pub trait ChannelMode: sealed::Sealed {
-    /// True if this mode sources its serial pins from the next channel.
-    const USES_NEIGHBOR_PINS: bool = false;
-}
+/// constructor was used; encodes the SITP/SPICKSEL/DATMPX semantics.
+pub trait ChannelMode: sealed::Sealed {}
 /// SPI input, clock from own CKIN pin (SPICKSEL = 0).
 pub struct SpiExtMode;
 /// SPI input, clock derived from CKOUT (SPICKSEL = 1..3).
@@ -661,15 +639,6 @@ pub struct ParallelDmaMode;
 /// 16-bit parallel input from ADC writes (DATMPX = 1).
 pub struct ParallelAdcMode;
 
-// Neighbor Mode Types
-
-/// SPI input from neighbor, clock from own CKIN pin (SPICKSEL = 0).
-pub struct SpiExtNeighborMode;
-/// SPI input from neighbor, clock derived from CKOUT (SPICKSEL = 1..3).
-pub struct SpiCkoutNeighborMode;
-/// Manchester-coded input from neighbor, clock recovered from the data line (SITP = 2/3).
-pub struct ManchesterNeighborMode;
-
 impl_sealed_and! {
     ChannelMode =>
     SpiExtMode,
@@ -679,18 +648,25 @@ impl_sealed_and! {
     ParallelAdcMode,
 }
 
-impl_sealed!(SpiExtNeighborMode, SpiCkoutNeighborMode, ManchesterNeighborMode);
+/// Which transceiver's serial pins this channel's interface consumes
+/// (CFGR1.CHINSEL). Pins are borrowed from that channel's slot, so
+/// acquire/release live there too (see `Drop`).
+pub trait PinSource: sealed::Sealed {
+    /// Consume the next channel's pins instead of this channel's own.
+    const FROM_NEIGHBOR: bool;
+}
+pub struct OwnPins; // CHINSEL = 0
+pub struct NeighborPins; // CHINSEL = 1, pins live on M::Next's slot
 
-impl ChannelMode for SpiExtNeighborMode {
-    const USES_NEIGHBOR_PINS: bool = true;
-}
-impl ChannelMode for SpiCkoutNeighborMode {
-    const USES_NEIGHBOR_PINS: bool = true;
-}
-impl ChannelMode for ManchesterNeighborMode {
-    const USES_NEIGHBOR_PINS: bool = true;
+impl_sealed!(OwnPins, NeighborPins);
+
+impl PinSource for OwnPins {
+    const FROM_NEIGHBOR: bool = false;
 }
 
+impl PinSource for NeighborPins {
+    const FROM_NEIGHBOR: bool = true;
+}
 /// Per‑instance "successor" channel.
 ///
 /// `C` is the instance's transceiver‑capability (`<T as Instance>::Transceivers`),
@@ -803,21 +779,23 @@ where
     fn index(&self) -> usize;
 }
 
-impl<'a, 'd, T, M, S, MODE, P> sealed::Sealed for Transceiver<'a, 'd, T, M, S, MODE, P>
+impl<'a, 'd, T, M, S, MODE, PS, P> sealed::Sealed for Transceiver<'a, 'd, T, M, S, MODE, PS, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
+    PS: PinSource,
     P: PowerState,
 {
 }
-impl<'a, 'd, T, M, S, MODE, P> TransceiverTrait<T, P> for Transceiver<'a, 'd, T, M, S, MODE, P>
+impl<'a, 'd, T, M, S, MODE, PS, P> TransceiverTrait<T, P> for Transceiver<'a, 'd, T, M, S, MODE, PS, P>
 where
     T: Instance,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
     MODE: ChannelMode,
+    PS: PinSource,
     P: PowerState,
 {
     fn index(&self) -> usize {

@@ -116,18 +116,18 @@ async fn main(_spawner: Spawner) {
 
     let mut _flt0 = split
         .flt0
-        .build(&common)
+        .build(&common, Irqs)
         .enable_no_dma(&channel_mic, [&channel_mic], &flt_cfg);
 
     println!("Go?");
     let Detectors {
         mut short_circuit,
         mut clock_absence,
-    } = split.detectors.build(&common);
+    } = split.detectors.build(&common, Irqs);
 
     loop {
         _flt0.reg.start_regular_conversion();
-        let event = short_circuit.wait_for_event(Irqs).await;
+        let event = short_circuit.wait_for_event().await;
         println!("Short Circuit! Channels: {:#08b}", event);
     }
 }

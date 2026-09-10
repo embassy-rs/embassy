@@ -28,6 +28,7 @@ use panic_probe as _;
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 bind_interrupts! (struct Irqs{
+    DFSDM1_FLT0 => dfsdm::InterruptHandler<DFSDM1, Flt0>;
     MDMA => dma::InterruptHandler<peripherals::MDMA_CH0>;
     DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
     DMA1_STREAM1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
@@ -94,7 +95,10 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    let mut flt0 = split.flt0.build(&common).enable_reg_dma(&ch_test, [&ch_test], &flt_cfg);
+    let mut flt0 = split
+        .flt0
+        .build(&common, Irqs)
+        .enable_reg_dma(&ch_test, [&ch_test], &flt_cfg);
 
     let mut buffer_regular = [0u32; 32];
 
