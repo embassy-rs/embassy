@@ -317,36 +317,68 @@ mod authenticated {
         /// - `aad_len`: Length of additional authenticated data (known in advance)
         /// - `payload_len`: Length of payload data (known in advance)
         pub fn new(key: &'c [u8; KEY_SIZE], iv: &'c [u8; IV_SIZE], aad_len: usize, payload_len: usize) -> Self {
-            assert!(IV_SIZE >= 7 && IV_SIZE <= 13, "CCM IV must be 7-13 bytes");
-            assert!(
-                TAG_SIZE >= 4 && TAG_SIZE <= 16 && TAG_SIZE % 2 == 0,
-                "CCM tag must be 4-16 bytes and even"
-            );
-
-            // Format the B0 block for CCM.
-            let mut iv_full = [0u8; 16];
-            let l = 15 - IV_SIZE; // size of the length field
-            iv_full[0] = ((l - 1) as u8) | ((((TAG_SIZE - 2) / 2) as u8) << 3);
-            if aad_len > 0 {
-                iv_full[0] |= 0x40; // Adata flag
-            }
-            iv_full[1..1 + IV_SIZE].copy_from_slice(iv);
-
-            let payload_bytes = (payload_len as u64).to_be_bytes();
-            let offset = 16 - l;
-            iv_full[offset..].copy_from_slice(&payload_bytes[8 - l..]);
-
             Self {
                 key,
-                iv: iv_full,
+                iv: build_ccm_iv(iv, TAG_SIZE, aad_len, payload_len),
+                aad_len,
+            }
+        }
+
+        /// View the precomputed state as a type-erased [`CcmOp`].
+        fn op(&self) -> CcmOp<'c> {
+            CcmOp {
+                key: self.key,
+                iv: self.iv,
+                aad_len: self.aad_len,
+            }
+        }
+    }
+
+    /// Format the B0 block for CCM, shared by [`AesCcm::new`] and the
+    /// type-erased [`CcmOp`] constructor.
+    fn build_ccm_iv(iv: &[u8], tag_size: usize, aad_len: usize, payload_len: usize) -> [u8; 16] {
+        let mut iv_full = [0u8; 16];
+        let l = 15 - iv.len(); // size of the length field
+        iv_full[0] = ((l - 1) as u8) | ((((tag_size - 2) / 2) as u8) << 3);
+        if aad_len > 0 {
+            iv_full[0] |= 0x40; // Adata flag
+        }
+        iv_full[1..1 + iv.len()].copy_from_slice(iv);
+
+        let payload_bytes = (payload_len as u64).to_be_bytes();
+        let offset = 16 - l;
+        iv_full[offset..].copy_from_slice(&payload_bytes[8 - l..]);
+
+        iv_full
+    }
+
+    /// Type-erased AES-CCM operation.
+    pub(crate) struct CcmOp<'c> {
+        key: &'c [u8],
+        iv: [u8; 16],
+        aad_len: usize,
+    }
+
+    impl<'c> CcmOp<'c> {
+        /// Constructs a type-erased CCM operation, validating the nonce and tag
+        /// sizes at runtime (the const-generic [`AesCcm`] validates them at
+        /// compile time instead).
+        #[allow(dead_code)] // Only used by the optional `embassy-crypto` driver (`aes/driver.rs`).
+        pub(crate) fn new(key: &'c [u8], iv: &[u8], tag_size: usize, aad_len: usize, payload_len: usize) -> Self {
+            assert!((7..=13).contains(&iv.len()), "CCM IV must be 7-13 bytes");
+            assert!(
+                tag_size >= 4 && tag_size <= 16 && tag_size % 2 == 0,
+                "CCM tag must be 4-16 bytes and even"
+            );
+            Self {
+                key,
+                iv: build_ccm_iv(iv, tag_size, aad_len, payload_len),
                 aad_len,
             }
         }
     }
 
-    impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> Cipher<'c>
-        for AesCcm<'c, KEY_SIZE, IV_SIZE, TAG_SIZE>
-    {
+    impl<'c> Cipher<'c> for CcmOp<'c> {
         const REQUIRES_PADDING: bool = false;
 
         fn key(&self) -> &[u8] {
@@ -386,6 +418,48 @@ mod authenticated {
                 10
             };
             (header, len)
+        }
+    }
+
+    impl<'c> CipherSized for CcmOp<'c> {}
+    impl<'c> IVSized for CcmOp<'c> {}
+    // `finish` always returns the full 16-byte block; the const parameter only
+    // exists so the type system can size the return value and the driver
+    // truncates it to the runtime tag length.
+    impl<'c> CipherAuthenticated<16> for CcmOp<'c> {}
+
+    /// `Cipher` implementation for [`AesCcm`], forwarding to the shared
+    /// type-erased [`CcmOp`] implementation so the hardware logic exists only
+    /// once.
+    impl<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> Cipher<'c>
+        for AesCcm<'c, KEY_SIZE, IV_SIZE, TAG_SIZE>
+    {
+        const REQUIRES_PADDING: bool = false;
+
+        fn key(&self) -> &[u8] {
+            // Direct field access: the returned slice borrows `self`, so this
+            // cannot forward through a temporary `CcmOp`.
+            self.key
+        }
+
+        fn iv(&self) -> &[u8] {
+            &self.iv
+        }
+
+        fn chmod_bits(&self) -> u8 {
+            self.op().chmod_bits()
+        }
+
+        fn uses_gcm_phases(&self) -> bool {
+            self.op().uses_gcm_phases()
+        }
+
+        fn is_ccm_mode(&self) -> bool {
+            self.op().is_ccm_mode()
+        }
+
+        fn ccm_aad_header(&self) -> ([u8; 10], usize) {
+            self.op().ccm_aad_header()
         }
     }
 
