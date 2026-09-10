@@ -104,6 +104,8 @@ impl<'d, T: Instance, P: Phy> Driver for Ethernet<'d, T, P> {
             caps.checksum.ipv4 = ChecksumOffload::BOTH;
             caps.checksum.tcp = ChecksumOffload::BOTH;
             caps.checksum.udp = ChecksumOffload::BOTH;
+            caps.checksum.icmpv4 = ChecksumOffload::BOTH;
+            caps.checksum.icmpv6 = ChecksumOffload::BOTH;
         }
         caps
     }
