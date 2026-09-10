@@ -66,8 +66,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   ROVRIE/JOVRIE setters. CR1 is never touched by the ISR → no guard needed.
   The AF-assignment path (mod.rs:130, currently commented/experimental) gets the
   same `critical_section` discipline if it becomes a runtime RMW.
-- [ ] **F2 — Delete `get_datinr_as_ref`** (mod.rs:1239). `&self -> &mut u32` is
-  unsound. Keep `get_datinr_as_ptr` (MDMA loopback only, raw pointer, doc'd).
 - [ ] **F3 — Register ownership via implicit `&mut` gating (TRM-mandated).**
   RM0455 §33.8.7/33.8.8: "firmware must not read JDATAR/RDATAR if DMA is
   activated to read it". Enforce with the borrow, not typestate:
@@ -182,21 +180,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   `get_cnv_cnt` → `conversion_time()` with liveness doc; expose public i32
   sign-extension (u32-vs-i32 + typed value accessors). Goal: no TRM needed for
   the common paths.
-- [ ] **FT16 — Newtype audit.** Dedicated unit newtypes (`CkoutDivider`,
-  `AnalogWatchdogOsr`→`AwdFilterOsr`) are good and stay — they hide the
-  register value+1 offset and range in `new()`. The generic `UInt<BITS, T>`
-  (types.rs:1089) is broken and anti-self-documenting: phantom `T` (impls
-  hardcode u8 while the doc claims u32), nonsense `BITS==32`→`u8::MAX` branch,
-  and a bit-width-only check that admits semantically invalid values (e.g.
-  `UInt<5>` = 31 as a data shift). Replace both uses with named types and
-  delete `UInt`:
-  - `data_right_shift: UInt<5, u8>` → `DataRightShift` (semantic range, and
-    derive-from-gain per FT13/FT15).
-  - `skip_pulses: UInt<6, u8>` → `PulsesToSkip` (0..=63, full width, but named
-    + chained-skip helper per FT7).
-  Carry the const-assert pattern: `core::assert!` (not `assert!`) in const fns —
-  the fmt-routed `assert!` forwards to `defmt::assert!` under "defmt", which
-  isn't const-evaluable (precedent: adc/can/hsem/ipcc; lib.rs:14 `mod fmt`).
 - [ ] **FT17 — Type-system consolidation (marker axes + where-clause bundles).**
   - TS1 — Dedicated `Neighbor` axis: `trait Neighbor { const IS_NEIGHBOR: bool }`
     (`Own`/`Next`). Delete `SpiExtNeighborMode`/`SpiCkoutNeighborMode`/
@@ -427,12 +410,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 
 ## NITS
 
-1. Doc typo "pendiong" ×2 (mod.rs:824, 966).
-2. Receiver inconsistency: `end_of_*_conversion(&mut self)` delegate to
-   statics (mod.rs:1019/1024); `*_conversion_in_progress()` statics
-   (mod.rs:825/967 — valid, but inconsistent); `set_enabled()` static
-   (mod.rs:1014); `set_continuous` duplicated (static mod.rs:566 + `&mut self`
-   mod.rs:834). Unify shape (public = `&mut self`, statics internal).
 3. `Config` struct empty with `//TODO` (mod.rs:44-48) — populate or remove.
 4. `Error` enum stray `//TODO` (mod.rs:36) — resolve with FT1.
 5. mod.rs:130 AFS critical-section question — fold into F1 (one
@@ -442,28 +419,15 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 7. mod.rs:1639/1742 — missing docstrings `build_spi_ext`/`build_spi_int`.
 8. mod.rs:1816 — config-types module: docstrings, bitmap type, split.
 9. types.rs:770 `dma_trait!` TODO — resolved by F4 rewrite.
-10. types.rs:808 `FilterTrait` "generify for TODO?" — delete during F4.
-    Reflect: no filter slice-collection use case exists — filters are top-level
-    drivers and nothing collects many filters into one consumer (unlike
-    transceivers, which ARE sliced because one filter reads many channels). If a
-    use case emerges, design a minimal non-generic `AnyFilter` (index +
-    object-safe ops), not a generic-over-`M` trait.
 11. `new_pin!(...).unwrap()` ×3 (mod.rs:2189/2201/2202) — verify vs embassy
     conventions.
 12. types.rs:1389 `total_gain().unwrap()` — invariant documented; verify
     try_new covers it once.
-13. Copy-paste docstrings on CKAB fns — fix with FT12.
 14. Reflect: rename `read_regular`/`read_injected` → `read_regular_it`/
     `read_injected_it`? (distinguishes the interrupt-based async read from
     ring/blocking reads; decide during FT1/FT15, not a directive).
 15. Reflect: `DFSDMEN` (peripheral enable) currently lives on `DfsdmCommon` —
     consider whether the global enable belongs on the `Dfsdm` wrapper instead.
-16. Dead-code + naming cleanup (type-system review): delete `DataSource` +
-    `ExternalSource`/`InternalSource` (types.rs:694-705, zero uses); delete
-    `NotFlt0` (types.rs:409-423, zero uses; doc references a nonexistent
-    `Flt0InterruptHandler`); rename `_datasource_marker: PhantomData<MODE>` →
-    `_channel_mode_marker` (mod.rs:1105 — it holds `ChannelMode`, not
-    `DataSource`).
 17. `FilterConfig::default()` (mod.rs:386) calls `FilterParameters::new(Disabled, 1)`
     — its `.expect` is provably unreachable (`Disabled` → fosr=1, gain=1, total
     gain=1 ≤ MAX_GAIN; iosr=1 in 1..=256), so the default can never panic. Add a
@@ -567,3 +531,43 @@ Summary (each blocks DFSDM availability for whole chip groups):
   `DFSDM_4CH_2FLT_TRG3_ADC` (L451/452/462 are plain TRG3 per rm0394);
   `DFSDM_4CH_2FLT_DLY_TRG5_ADC_HWID` is MP13-only (no MP13 chips in the chip
   db). Revisit later.
+
+
+# DONE
+#16. Dead-code + naming cleanup (type-system review): delete `DataSource` +
+    `ExternalSource`/`InternalSource` (types.rs:694-705, zero uses); delete
+    `NotFlt0` (types.rs:409-423, zero uses; doc references a nonexistent
+    `Flt0InterruptHandler`); rename `_datasource_marker: PhantomData<MODE>` →
+    `_channel_mode_marker` (mod.rs:1105 — it holds `ChannelMode`, not
+    `DataSource`).
+- [ ] **F2 — Delete `get_datinr_as_ref`** (mod.rs:1239). `&self -> &mut u32` is
+  unsound. Keep `get_datinr_as_ptr` (MDMA loopback only, raw pointer, doc'd).
+10. types.rs:808 `FilterTrait` "generify for TODO?" — delete during F4.
+    Reflect: no filter slice-collection use case exists — filters are top-level
+    drivers and nothing collects many filters into one consumer (unlike
+    transceivers, which ARE sliced because one filter reads many channels). If a
+    use case emerges, design a minimal non-generic `AnyFilter` (index +
+    object-safe ops), not a generic-over-`M` trait.
+- [ ] **FT16 — Newtype audit.** Dedicated unit newtypes (`CkoutDivider`,
+  `AnalogWatchdogOsr`→`AwdFilterOsr`) are good and stay — they hide the
+  register value+1 offset and range in `new()`. The generic `UInt<BITS, T>`
+  (types.rs:1089) is broken and anti-self-documenting: phantom `T` (impls
+  hardcode u8 while the doc claims u32), nonsense `BITS==32`→`u8::MAX` branch,
+  and a bit-width-only check that admits semantically invalid values (e.g.
+  `UInt<5>` = 31 as a data shift). Replace both uses with named types and
+  delete `UInt`:
+  - `data_right_shift: UInt<5, u8>` → `DataRightShift` (semantic range, and
+    derive-from-gain per FT13/FT15).
+  - `skip_pulses: UInt<6, u8>` → `PulsesToSkip` (0..=63, full width, but named
+    + chained-skip helper per FT7).
+  Carry the const-assert pattern: `core::assert!` (not `assert!`) in const fns —
+  the fmt-routed `assert!` forwards to `defmt::assert!` under "defmt", which
+  isn't const-evaluable (precedent: adc/can/hsem/ipcc; lib.rs:14 `mod fmt`).
+
+1. Doc typo "pendiong" ×2 (mod.rs:824, 966).
+2. Receiver inconsistency: `end_of_*_conversion(&mut self)` delegate to
+   statics (mod.rs:1019/1024); `*_conversion_in_progress()` statics
+   (mod.rs:825/967 — valid, but inconsistent); `set_enabled()` static
+   (mod.rs:1014); `set_continuous` duplicated (static mod.rs:566 + `&mut self`
+   mod.rs:834). Unify shape (public = `&mut self`, statics internal).
+13. Copy-paste docstrings on CKAB fns — fix with FT12.

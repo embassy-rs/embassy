@@ -817,13 +817,13 @@ where
     }
 
     /// Returns whether a regular conversion result is available.
-    pub fn end_of_regular_conversion(&mut self) -> bool {
+    pub fn end_of_regular_conversion(&self) -> bool {
         FilterRegs::<T, M>::end_of_regular_conversion()
     }
 
-    /// Returns whether a regular conversion is currently in progress or pendiong.
-    pub fn regular_conversion_in_progress() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().rcip()
+    /// Returns whether a regular conversion is currently in progress or pending.
+    pub fn regular_conversion_in_progress(&self) -> bool {
+        FilterRegs::<T, M>::regular_conversion_in_progress()
     }
 
     /// Enables or disables continuous conversion mode.
@@ -959,13 +959,13 @@ where
     }
 
     /// Returns whether an injected conversion result is available.
-    pub fn end_of_injected_conversion(&mut self) -> bool {
+    pub fn end_of_injected_conversion(&self) -> bool {
         FilterRegs::<T, M>::end_of_injected_conversion()
     }
 
-    /// Returns whether an injected conversion is currently in progress or pendiong.
-    pub fn injected_conversion_in_progress() -> bool {
-        T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
+    /// Returns whether an injected conversion is currently in progress or pending.
+    pub fn injected_conversion_in_progress(&self) -> bool {
+        FilterRegs::<T, M>::injected_conversion_in_progress()
     }
 }
 
@@ -1011,7 +1011,7 @@ where
     M: FilterMarker + InstanceEvents<T>,
 {
     /// Enable or disable the filter
-    pub fn set_enabled(enabled: bool) {
+    pub(crate) fn set_enabled(enabled: bool) {
         T::regs().flt(M::CHANNEL.index()).cr1().modify(|w| w.set_dfen(enabled));
     }
 
@@ -1040,6 +1040,14 @@ where
             .cr2()
             .modify(|w| w.set_jeocie(enabled));
     }
+
+    pub(crate) fn injected_conversion_in_progress() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().jcip()
+    }
+
+    pub(crate) fn regular_conversion_in_progress() -> bool {
+        T::regs().flt(M::CHANNEL.index()).isr().read().rcip()
+    }
 }
 
 // =============================================================================
@@ -1049,14 +1057,14 @@ where
 /// Configuration for Transceiver
 pub struct TransceiverConfig {
     /// Amount of right-shifts the data shall experience
-    pub data_right_shift: config_types::UInt<5, u8>,
+    pub data_right_shift: config_types::DataRightShift,
     pub analog_watchdog_filter_config: config_types::AnalogWatchdogFilterConfiguration,
 }
 
 impl Default for TransceiverConfig {
     fn default() -> Self {
         Self {
-            data_right_shift: config_types::UInt::new(0),
+            data_right_shift: config_types::DataRightShift::NONE,
             analog_watchdog_filter_config: config_types::AnalogWatchdogFilterConfiguration::Bypass,
         }
     }
@@ -1102,7 +1110,7 @@ where
     _instance_marker: PhantomData<T>,
     _transceiver_marker: PhantomData<M>,
     _pinset_marker: PhantomData<S>,
-    _datasource_marker: PhantomData<MODE>,
+    _channel_mode_marker: PhantomData<MODE>,
     _powerstate_marker: PhantomData<P>,
 }
 
@@ -1151,7 +1159,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
+            _channel_mode_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1177,7 +1185,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
+            _channel_mode_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1198,7 +1206,7 @@ where
     }
 
     /// Set channel right shift factor
-    fn set_data_right_shift(&mut self, shift: config_types::UInt<5, u8>) {
+    fn set_data_right_shift(&mut self, shift: config_types::DataRightShift) {
         T::regs()
             .ch(M::CHANNEL.index())
             .cfgr2()
@@ -1234,16 +1242,6 @@ where
         T::regs().ch(M::CHANNEL.index()).datinr().as_ptr() as *mut u32
     }
 
-    //TODO REF SOURCE ME MTUABLE TO TO ACCESS RULES ISNT YET
-    /// Get reference tothe DATINR register for dma mem2mem use
-    pub fn get_datinr_as_ref(&self) -> &mut u32 {
-        let ptr = T::regs().ch(M::CHANNEL.index()).datinr().as_ptr() as *mut u32;
-
-        // Safety: The pointer points to a valid memory-mapped register
-        // address, and we hold a &mut self, guaranteeing exclusive access
-        // for the lifetime of the returned reference.
-        unsafe { &mut *ptr }
-    }
     /// Manually write one sample into the DATINR register, used for standard mode
     pub fn write_sample_standard(&self, data: u16) {
         T::regs().ch(M::CHANNEL.index()).datinr().write(|w| w.set_indat0(data));
@@ -1344,12 +1342,12 @@ where
     P: PowerState,
 {
     /// Configure to skip the next [`skips`] pulses
-    pub fn skip_pulses(&mut self, skips: config_types::UInt<6, u8>) {
+    pub fn skip_pulses(&mut self, skips: config_types::PulsesToSkip) {
         self.set_pulseskips(skips);
     }
 
     /// Set pulse skips
-    fn set_pulseskips(&mut self, skips: config_types::UInt<6, u8>) {
+    fn set_pulseskips(&mut self, skips: config_types::PulsesToSkip) {
         T::regs()
             .ch(M::CHANNEL.index())
             .dlyr()
@@ -1513,7 +1511,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
+            _channel_mode_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1535,7 +1533,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
+            _channel_mode_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1572,7 +1570,7 @@ where
                 _instance_marker: PhantomData,
                 _transceiver_marker: PhantomData,
                 _pinset_marker: PhantomData,
-                _datasource_marker: PhantomData,
+                _channel_mode_marker: PhantomData,
                 _powerstate_marker: PhantomData,
             },
             Transceiver {
@@ -1580,7 +1578,7 @@ where
                 _instance_marker: PhantomData,
                 _transceiver_marker: PhantomData,
                 _pinset_marker: PhantomData,
-                _datasource_marker: PhantomData,
+                _channel_mode_marker: PhantomData,
                 _powerstate_marker: PhantomData,
             },
         )
@@ -1606,7 +1604,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
+            _channel_mode_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1631,7 +1629,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
+            _channel_mode_marker: PhantomData,
             _powerstate_marker: PhantomData,
         })
     }
@@ -1654,7 +1652,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
+            _channel_mode_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1680,7 +1678,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
+            _channel_mode_marker: PhantomData,
             _powerstate_marker: PhantomData,
         })
     }
@@ -1757,7 +1755,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
+            _channel_mode_marker: PhantomData,
             _powerstate_marker: PhantomData,
         }
     }
@@ -1783,7 +1781,7 @@ where
             _instance_marker: PhantomData,
             _transceiver_marker: PhantomData,
             _pinset_marker: PhantomData,
-            _datasource_marker: PhantomData,
+            _channel_mode_marker: PhantomData,
             _powerstate_marker: PhantomData,
         })
     }
@@ -2102,7 +2100,7 @@ where
         T::regs().flt(0).isr().read().scdf()
     }
 
-    /// Returns bitmap of channels who triggered the short-circuit-detector
+    /// Clears the provided channel flags in the short-circuit-detector
     pub(crate) fn clear_short_circuit_detector_channel(channels: u8) {
         T::regs().flt(0).icr().modify(|w| w.set_clrscdf(channels));
     }
@@ -2128,7 +2126,7 @@ where
         Self { _common: PhantomData }
     }
 
-    /// Wait for a short-circuit-detector event
+    /// Wait for a clock-absence-detector event
     pub async fn wait_for_event(
         &mut self,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T, Flt0>>,
@@ -2155,12 +2153,12 @@ where
         T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
     }
 
-    /// Returns bitmap of channels who triggered the short-circuit-detector
+    /// Returns bitmap of channels who triggered the clock-absence-detector
     pub(crate) fn clock_absence_detector_channel_flags() -> u8 {
         T::regs().flt(0).isr().read().ckabf()
     }
 
-    /// Returns bitmap of channels who triggered the short-circuit-detector
+    /// Clears the provided channel flags in the clock-absence-detector
     pub(crate) fn clear_clock_absence_detector_channel(channels: u8) {
         T::regs().flt(0).icr().modify(|w| w.set_clrckabf(channels));
     }

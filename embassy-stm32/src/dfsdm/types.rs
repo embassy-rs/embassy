@@ -691,19 +691,6 @@ impl ChannelMode for ManchesterNeighborMode {
     const USES_NEIGHBOR_PINS: bool = true;
 }
 
-/// Marker trait for Transceiver channels data source
-pub trait DataSource: sealed::Sealed {}
-/// Transceiver get's data clock from outside
-pub struct ExternalSource;
-/// Transceiver get's data clock from inside
-pub struct InternalSource;
-
-impl_sealed_and! {
-    DataSource =>
-    ExternalSource,
-    InternalSource,
-}
-
 /// Per‑instance "successor" channel.
 ///
 /// `C` is the instance's transceiver‑capability (`<T as Instance>::Transceivers`),
@@ -804,12 +791,6 @@ where
 // =============================================================================
 // Generification traits
 // =============================================================================
-
-/// Trait for filters to generify them for TODO?
-pub trait FilterTrait<M: FilterMarker>: sealed::Sealed {
-    /// Get filter index
-    fn index(&self) -> usize;
-}
 
 /// Trait for transceivers to generify all transceivers
 /// over one instance for Filterconfiguration
@@ -1086,44 +1067,70 @@ pub mod config_types {
         }
     }
 
-    /// Unsigned integer constrained to `BITS` bits, backed by a `u32`.
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct UInt<const BITS: u8, T>(T);
+    /// Data right bit-shift for channel results (CFGR2.DTRBS).
+    ///
+    /// 0..=31 bits, applied before offset correction; 0 = no shift.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub struct DataRightShift(u8);
 
-    impl<const BITS: u8> UInt<BITS, u8> {
-        const MAX: u8 = {
-            core::assert!(BITS > 0 && BITS <= 32, "invalid bit width");
-            if BITS == 32 { u8::MAX } else { (1 << BITS) - 1 }
-        };
-
-        /// Create new sized uint, asserts correctness at runtime.
-        /// For a runtime-stabler variant try [`UInt::try_from`]
-        pub const fn new(value: u8) -> Self {
-            core::assert!(value <= Self::MAX as u8, "value exceeds bit width");
-            Self(value)
+    impl DataRightShift {
+        /// Create from the shift amount in bits (0..=31). Panics if out of range.
+        /// For a runtime-stabler variant try [`DataRightShift::try_from`].
+        pub fn new(shift: u8) -> Self {
+            assert!(shift <= 31, "data right shift must be 0..=31");
+            Self(shift)
         }
 
-        /// Unterlying value
-        pub const fn value(self) -> u8 {
+        /// No shift (register value 0).
+        pub(crate) const NONE: Self = Self(0);
+
+        /// Raw register value.
+        pub const fn raw(self) -> u8 {
             self.0
         }
     }
 
-    impl<const BITS: u8> TryFrom<u8> for UInt<BITS, u8> {
+    impl TryFrom<u8> for DataRightShift {
         type Error = ();
-
-        /// Try to create new sized uint.
-        fn try_from(value: u8) -> Result<Self, Self::Error> {
-            if value <= Self::MAX {
-                Ok(Self(value as u8))
-            } else {
-                Err(())
-            }
+        fn try_from(shift: u8) -> Result<Self, Self::Error> {
+            if shift <= 31 { Ok(Self(shift)) } else { Err(()) }
         }
     }
 
-    impl<const BITS: u8> From<UInt<BITS, u8>> for u8 {
-        fn from(value: UInt<BITS, u8>) -> Self {
+    impl From<DataRightShift> for u8 {
+        fn from(value: DataRightShift) -> Self {
+            value.0
+        }
+    }
+    /// Pulses to skip in the delay block (DLYR.PLSSKP).
+    ///
+    /// 0..=63 serial samples skipped immediately after the write.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub struct PulsesToSkip(u8);
+
+    impl PulsesToSkip {
+        /// Create from the number of samples to skip (0..=63). Panics if out of range.
+        /// For a runtime-stabler variant try [`PulsesToSkip::try_from`].
+        pub fn new(pulses: u8) -> Self {
+            assert!(pulses <= 63, "pulses to skip must be 0..=63");
+            Self(pulses)
+        }
+
+        /// Raw register value.
+        pub const fn raw(self) -> u8 {
+            self.0
+        }
+    }
+
+    impl TryFrom<u8> for PulsesToSkip {
+        type Error = ();
+        fn try_from(pulses: u8) -> Result<Self, Self::Error> {
+            if pulses <= 63 { Ok(Self(pulses)) } else { Err(()) }
+        }
+    }
+
+    impl From<PulsesToSkip> for u8 {
+        fn from(value: PulsesToSkip) -> Self {
             value.0
         }
     }
