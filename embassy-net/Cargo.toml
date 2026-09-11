@@ -136,13 +136,17 @@ defmt = ["dep:defmt", "xarxa/defmt", "embassy-time/defmt", "heapless/defmt", "de
 ## Needs `log` or `defmt` to print anything.
 packet-log = ["xarxa/packet-log"]
 
+#! ### Serialization
+## Support (de)serializing some types using `serde`.
+serde = ["xarxa/serde"]
+
 [dependencies]
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", default-features = false, features = ["async"] }
-xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "14c369bbcbe8ee7167488ac9c9e18be059d83555", default-features = false, features = ["async"] }
+xarxa = { git = "https://github.com/embassy-rs/xarxa", rev = "3e4cae1cc576d375d52513822cdcb4a6a0f6e382", default-features = false, features = ["async"] }
+xarxa-driver = { git = "https://github.com/embassy-rs/xarxa", rev = "3e4cae1cc576d375d52513822cdcb4a6a0f6e382", default-features = false, features = ["async"] }
 embassy-time = { version = "0.5.1", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-sync = { version = "0.8.0", path = "../embassy-sync" }
