@@ -332,6 +332,16 @@ pub(crate) const CHANNEL_COUNT: usize = 12;
 pub(crate) const CHANNEL_COUNT: usize = 16;
 static CHANNEL_WAKERS: [AtomicWaker; CHANNEL_COUNT] = [const { AtomicWaker::new() }; CHANNEL_COUNT];
 
+/// Waker woken by [`InterruptHandler`] when the given channel completes a transfer.
+///
+/// Drivers that drive a channel through the raw registers rather than through [`Transfer`]
+/// (for example a continuously chained ring) can register on this to be woken on completion.
+/// The channel must be configured with `irq_quiet = false` and have its `INTE` bit set, which
+/// [`Channel::new`] does.
+pub(crate) fn channel_waker(number: u8) -> &'static AtomicWaker {
+    &CHANNEL_WAKERS[number as usize]
+}
+
 trait SealedChannelInstance {}
 trait SealedWord {}
 
