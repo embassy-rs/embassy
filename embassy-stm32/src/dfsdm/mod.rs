@@ -972,22 +972,6 @@ where
     }
 }
 
-impl<'a, 'd, 't, T, M> FilterRegular<'a, 'd, 't, T, M, RegDma>
-where
-    T: Instance + FilterInterrupt<M>,
-    M: FilterMarker + InstanceEvents<T>,
-{
-    // DMA read function
-}
-
-impl<'a, 'd, 't, T, M> FilterInjected<'a, 'd, 't, T, M, InjDma>
-where
-    T: Instance + FilterInterrupt<M>,
-    M: FilterMarker + InstanceEvents<T>,
-{
-    // DMA read function
-}
-
 impl<'a, 'd, 't, T, M> FilterDma<T, M> for FilterRegular<'a, 'd, 't, T, M, RegDma>
 where
     T: Instance + FilterInterrupt<M>,

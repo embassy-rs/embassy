@@ -41,106 +41,16 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   - [ ] Boundary test: `FilterParameters::try_new(Sinc3, fosr=1024, iosr=2)`
     (gain = 2^31) must be rejected; the largest config ≤ 2^31−1 must be
     accepted.
-- [x] **E2 — Disabled channels hold their clock-absence flag set.** (TRM-correct,
-  not a divergence — the driver misread it.) rm0455 §"Clock absence detection"
-  (identical wording in all 15 TRMs):
-  "CKABF[y] is set also by hardware when corresponding channel y is disabled
-  (if CHEN[y] = 0 then CKABF[y] is held in set state)". Corroborated on
-  silicon during bring-up (flags on unused channels while the enabled channel
-  with a clock stayed clean). The detector itself is per-channel opt-in
-  (CKABEN, CHyCFGR1 bit 6, reset 0) — not default-on. Consequence: raw
-  CKABF[7:0] reads are meaningless unless masked to channels with
-  CKABEN=1 && CHEN=1. Handled by FT12 / FT11 / FT3.
-- [x] **E3 — SCD semantics + detector startup latches (RM0399 §31.4.11 +
-  §"Manchester/SPI code synchronization"; silicon-verified on the H755 bench
-  during FT12 bring-up).**
-  - SCD is a **saturation detector**: per-channel up-counter of consecutive
-    identical bits on the **data** stream (channel transceiver outputs, not
-    CKIN), restarted on every 1↔0 transition; SCDF fires when it reaches SCDT.
-    It catches stuck/open-circuit analog inputs; clock faults are CKAB's job.
-  - **SCDT=0 fires constantly** — the counter starts at 0 and trivially
-    "reaches" 0. Hit on silicon when the threshold write was lost in the FT12
-    migration; now structural (FT12 writes SCDT before SCDEN; a validated
-    threshold newtype was declined — consider a `debug_assert!(threshold != 0)`).
-  - **SCDF is hardware-cleared when CHEN=0** (RM0399 §31.4.11) — the exact
-    opposite of CKABF (E2). Drop-time de-arm + disable self-cleans stale SCD
-    flags; only CKAB needs the E2 masking discipline.
-  - **CKABF startup latch**: while the transceiver is unsynchronized, CKABF is
-    held set and `CLRCKABF` writes are ignored; after sync it stays set until
-    software clears it. Observed as a one-shot event at the first
-    `wait_for_event` — expected hardware behavior; motivating case for FT3
-    (poll CKABF=0 as the sync-done indicator) and FT4 (`clear_flags` startup
-    residue).
-  - SCD **cannot** be used in parallel input mode (DATMPX≠0, §31.4.11) — not
-    enforced yet; candidate doc note or `debug_assert` on
-    `ShortCircuitDetector::assign_transceivers`.
 
 ---
 
 ## FIX
 
-- [ ] **F3 — Register ownership via implicit `&mut` gating (TRM-mandated).**
-  RM0455 §33.8.7/33.8.8: "firmware must not read JDATAR/RDATAR if DMA is
-  activated to read it". Enforce with the borrow, not typestate:
-  - Manual data-read methods (`read_regular`, `try_get_regular_result`,
-    `get_regular_result_unchecked`, mod.rs:755-827; injected equivalents,
-    mod.rs:903-969) stay available on **all** DmaMode halves — the user can
-    always manually read whenever no ring exists.
-  - `ring_buffered(dma, irq, buf)` takes `&mut self` of the half; while the
-    ring object lives, every `&mut self` path on that half is compile-time
-    blocked — including paused/stopped rings. "Read what's there" goes through
-    the ring's `read`/`read_latest`/`blocking_read`. Dropping the ring releases
-    the borrow (and the DMA channel) and manual reads return.
-  - NoDma halves cannot create a ring — manual reads are the only path.
-  - CR1 touchers (`start_*_conversion`, `set_continuous`, transceiver
-    reassignment) go through the ring (ring `start()` covers conversion start)
-    or happen before ring creation.
-  - `DmaMode` typestate remains only as the RDMAEN/JDMAEN config carrier
-    (hardware quirk: only one of the two enable bits is ever set).
-  - No SplitFilter type — a filter half is DMA or not; DMA and CPU-data
-    functions never coexist in time, enforced by the exclusive borrow.
-  Field-level disjoint borrows keep `flt.inj`/`awd`/`extremes` usable while
-  the regular ring borrows `flt.reg`.
-- [ ] **F4 — RingBufferedFilter ownership.** Replace `filter: &'e dyn
-  FilterDma<T, M>` (dma.rs:12) with `&'e mut` of the concrete half. Ring is built
-  by methods on the halves: `flt.reg.ring_buffered(dma, irq, buf)` /
-  `flt.inj.ring_buffered(..)` (field-level reborrow keeps `flt.inj`/`awd`/
-  `extremes` usable while the regular ring lives). Delete the `FilterDma` trait
-  (types.rs:796) and the free `new_regular/new_injected` constructors;
-  `data_register()` becomes an inherent fn per half.
 - [ ] **F5 — Break-enable bit map.** Break-enable bits span
   TIM1_AF1 (BKDF1BK0E→BRK1←break0), TIM1_AF2 (BK2DF1BK1E→BRK2←break1),
   TIM8_AF1 (BKDF1BK2E→BRK1←break2), TIM8_AF2 (BK2DF1BK3E→BRK2←break3),
   TIM15/16/17_AF1 (BKDF1BKE→BRK←break0/1/2 per timer). DFSDM2 break[0] →
   LPTIM3_ETR (no TIM register involved; document only).
-- [x] **F6 — One ring per filter (already enforced by typestate, no code).**
-  One DMA request line per filter (rm0455 §33.6; serves JDATAR or RDATAR), so
-  a filter can't DMA both halves. Already guaranteed at compile time: `Filter`
-  carries a single per-filter `D` (mod.rs:416-424), and the ring constructors
-  are gated on `FilterRegular<.., RegDma>` / `FilterInjected<.., InjDma>`, so
-  a second ring on the same filter is unconstructable. Doc only (D11).
-- [x] **F7 — 2FLT/6FLT capability gap.** DONE (2026-09, with the splits.rs
-  shape-table work, see FT20). The original three-way break (L451/452/462 =
-  `DFSDM_4CH_2FLT_TRG3`, real hardware) is fixed:
-  - `capability::Flt2` + `Flt6` + `FilterCount` impls for both (types.rs
-    capability mod).
-  - IRQ sets: the old per-variant manual lists (including the "missing
-    `FLT1 => Flt1`" symptom, associations.rs:332-343 back then) are
-    **superseded** — the new `dfsdm_flt_irqs!` in associations.rs derives the
-    per-variant IRQ set from a per-capability template (literal arms
-    Flt1/2/4/6/8 + loud catch-all) keyed on the variant's `filters:` token,
-    driven from `mark_dfsdm_instances!`.
-  - `Flt1/2/4/6/8Ready` bundles emitted by `define_dfsdm_ready!` (types.rs
-    ~:411) replacing the handwritten trait pairs.
-  - All six split structs (2Ch1Flt / 4Ch2Flt / 4Ch4Flt / 8Ch4Flt / 8Ch6Flt /
-    8Ch8Flt) + `Tcv2/4/8SplitBuild` traits + the NEW 4-tuple
-    `ChannelCfgTuple` impl are generated in the new splits.rs — the old
-    hand-written split section in mod.rs (~374 lines, only 3 shapes) is gone.
-  - Verified: stm32f412zg / stm32f413zh compile (the FT12 matrix run's E0425
-    is gone; perimap :858-:864 maps F412/F413 to `DFSDM_4CH_2FLT_TRG3`).
-  - 6FLT residue: fully defined but chip-less (MP13-only, no chip in the db
-    yet; per-chip dead-code warnings for `Flt6` stand as with any unused
-    shape). Chip availability rides the Phase 6 regen (PLAN item 19).
 
 ---
 
@@ -171,32 +81,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   `get_cnv_cnt` → `conversion_time()` with liveness doc; expose public i32
   sign-extension (u32-vs-i32 + typed value accessors). Goal: no TRM needed for
   the common paths.
-- [x] **FT17 — Type-system consolidation (marker axes + where-clause bundles).**
-  - TS1 → moved to DONE (PinSource axis, implemented).
-  - [DECLINED]TS2 — Bundle `FilterInstance<M>` supertrait (wraps `Instance +
-    FilterInterrupt<M>` + `M: InstanceEvents<T>`) replacing the cluster on
-    `Filter`/`FilterDisabled`/`FilterRegular`/`FilterInjected`/`AnalogWatchdog`.
-  - [DECLINED]TS3 — Bundle `TransceiverInstance<M>` (wraps `Instance` + `M:
-    TransceiverMarker + NextChannelForInstance<T>`) replacing the cluster on
-    `Transceiver`.
-  - [DECLINED]TS4 — `#[diagnostic::on_unimplemented]` on both bundles.
-  - [Redundant]TS5 (note) — do NOT merge `FilterInterrupt` + `InstanceEvents` (different
-    impl-carrying axes); bundle only. The `FilterMarker` bound is redundant
-    (implied by `FilterInterrupt<M>`).
-  - [DECLINEDBYEMPIRICISM] TS6 — collapse `'a`/`'d` → single `'d`
-    (`&'d DfsdmCommon<'d, …>`). Reverted: unifying forces `&'d` borrows of
-    locals whose `Peri<'d>` contents outlive the binding, and immobilizes
-    `common` under the object borrows (kills typestate `disable(self)` moves).
-    The two-lifetime design is load-bearing.
-  - [x] TS7 — SAFETY review of `DfsdmCommon::into_raw_parts` (mod.rs:271-285) and
-    `Filter::replace_{regular,injected}_transceivers` (mod.rs:658-718)
-    (`ManuallyDrop` + `ptr::read`). **Reviewed & sound.** Invariants: MD
-    suppresses the source drop (single owner per field, no double-drop); nothing
-    between the reads and struct construction can unwind (worst case = leak, not
-    UB); `Peri` is a ghost type (no real `&mut` aliasing); `Filter`'s Drop is
-    skipped intentionally and re-acquired by the returned value. Comments
-    tightened ("bitwise-move") + `replace_regular` docstring fixed ("injected"→
-    "regular").
 - [ ] **FT19 (low priority) — Bundle ergonomics, re-approach.** Decide later
   between two idioms for condensing the per-item `where` cluster
   (`T: Instance + FilterInterrupt<M>, M: FilterMarker + InstanceEvents<T>`):
@@ -211,68 +95,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     headers read `T: Instance + FilterInterrupt<M>, M: FilterFlow<T>`.
   - Either is cosmetic; default to leaving the cluster as-is if neither earns
     its churn. Verify empirically (playground + chip matrix) before committing.
-- [x] **FT20 — Shape-table generated types: split + select bundles** (new
-  module `dfsdm/splits.rs`; done alongside the F7 2FLT slice, PLAN item 13).
-  The hand-written split structs (only 3 shapes, ~374 lines in mod.rs) and the
-  `ChannelSelectors2/4/8` trio + `Shape` impls (types.rs) are replaced by ONE
-  master implementation per product, instantiated from tables:
-  - Split products — `dfsdm_split_shape_body!` (single master: struct +
-    `Tcv*SplitBuild` impl) instantiated per shape by `dfsdm_split_shapes!`
-    through the `dfsdm_split_shape!` per-arity dispatch arms (the S-list and
-    neighbor pin-set pairing — last channel wraps to `S0` — live there, once
-    per arity). `build()` now takes per-channel `(Datin, Ckin)` tuples instead
-    of indexed `dN`/`kN` lists. All six shapes generated, incl. the three
-    2FLT-era newcomers (4Ch2Flt, 4Ch4Flt, 8Ch6Flt). The NEW 4-tuple
-    `ChannelCfgTuple` impl joins the 2-/8-tuple ones (moved into splits.rs,
-    where the trait now lives too).
-  - Selector products — the `dfsdm_selectors!` arity-keyed table + master
-    `dfsdm_selector_shape!` emit `ChannelSelectors{2,4,8}` + `new()` + the
-    `Shape` impls (the latter deleted from types.rs). Per-channel docs via
-    `#[doc = concat!(… stringify!($idx) …)]`. Channel count + `chN: TcvN`
-    mapping is duplicated here (a `Sel` needs no S-pairing) — kept as a
-    separate table rather than one mega-table (see findings below).
-  - `Sel<T, M>` remains hand-written in mod.rs (single generic struct, no
-    shape data) — decision taken deliberately.
-  - Where-clause bundles: `define_dfsdm_ready!` emits `Flt1/2/4/6/8Ready` with
-    blanket impls; consumed by the table's generated structs. Distinct from
-    the declined TS2 supertrait bundle (that one fails on per-site
-    where-clause echo across the actor surface); this one is table-internal
-    sugar. Not related to FT19/FilterFlow either.
-  - Macro_rules findings recorded for the next table author: `+` is not a
-    legal repetition separator — joined bounds use the trailing-plus idiom
-    `$(X +)*`; a free `$(,)?` after a repetition group that may be followed by
-    another repetition = "ambiguity: multiple successful parses" (use a
-    required `;` terminator per group instead); a per-shape loop cannot
-    re-loop its arity's metas (capture depth must mirror the matcher's
-    nesting) — hence the split table is shape-keyed with a dispatch, and the
-    selector table is its own arity-keyed one.
-  - Net LOC ≈ neutral (368 vs 374) but the coverage grew (6 shapes, 3 tuple
-    impls, selectors, capability tokens, docs). Zero API change — h755
-    examples compile verbatim; f412zg/f413zh (F7) + h755/l496/l4a6 green.
-- [X] **FT18 — Interrupt binding + NVIC enable hygiene** (coordinate: detector
-  side with FT12; ISR side with FT11). `Binding<I,H>` is a compile-time proof
-  (Copy ZST); `InterruptExt::enable()` is a runtime NVIC unmask — keep them
-  orthogonal: gate at construction, enable idempotently once.
-  - [X] IR1 — `build(irqs: impl Binding<…>)`: require-and-discard at construction
-    (`_irq`), no storage (the binding is a proof marker, never used at runtime).
-    `FilterBuilder::build(irqs: impl Binding<T::Interrupt, InterruptHandler<T, M>>)`
-    and `common.detectors(irqs: impl Binding<T::Interrupt,
-    InterruptHandler<T, Flt0>>)` (per FT12, `DetectorsBuilder` is dropped).
-  - [X] IR2 — drop `_irq` from `read_regular` (mod.rs:760), `read_injected` (:908),
-    `AnalogWatchdog::wait_for_event` (:1848), `ShortCircuitDetector::wait_for_event`
-    (:2074), `ClockAbsenceDetector::wait_for_event` (:2132) — construction already
-    proved the binding.
-  - [X] IR3 — host the enable at construction of each IRQ-using object: once in
-    `DetectorsBuilder::build` (FLT0 line) and once in `FilterBuilder::build`
-    (that filter's line). The enable is idempotent (`NVIC::unmask`), so the old
-    `SCD::new`/`CKAB::new` enables were redundant, not dangerous — the removal is
-    ownership/clarity cleanup only. Document that Flt0's filter and the detectors
-    share the FLT0 IRQ line.
-  - [X]IR4 — write `<T as FilterInterrupt<M>>::Interrupt::enable()` explicitly —
-    `T::Interrupt` is unambiguous today only because `Instance` has no `Interrupt`
-    associated type.
-  - [X] IR5 — `unpend()` before `enable()` (ADC hygiene, adc/mod.rs:697-700) so a
-    stale pending flag doesn't fire immediately.
 - [ ] **FT1 — Overrun, propagated everywhere** (RM0455 §33.5, Table 254:
   "data not read and overwritten by a new conversion"; JOVRF/ROVRF cleared via
   ICR write-1, enabled by JOVRIE/ROVRIE):
@@ -470,11 +292,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 4. `Error` enum stray `//TODO` (mod.rs:36) — resolve with FT1.
 5. mod.rs:130 AFS critical-section question — fold into F1 (one
    critical_section strategy for all RMW: CR2 + AF assignment).
-6. [x] mod.rs:1074 — `break_signals` in `TransceiverConfigOnline` → superseded by
-   FT12 (`assign_break_signals` on `ShortCircuitDetector`). Executed with FT12:
-   the whole `TransceiverConfigOnline` struct was deleted.
-7. [x] mod.rs:1639/1742 — missing docstrings `build_spi_ext`/`build_spi_int`
-   (done; also fixed `skips` intra-doc link + `tothe` typos in the same sweep).
 8. mod.rs:1816 — config-types module: docstrings, bitmap type, split.
 9. types.rs:770 `dma_trait!` TODO — resolved by F4 rewrite.
 11. `new_pin!(...).unwrap()` ×3 (mod.rs:2189/2201/2202) — verify vs embassy
@@ -559,9 +376,6 @@ Summary (each blocks DFSDM availability for whole chip groups):
 
 ## EXAMPLES
 
-- [x] `dfsdm_short_circuit.rs` + `dfsdm_clock_absence.rs` — migrated to the
-  FT12 detector API (`ShortCircuitAssignment` pair, masked waits; see E3 for
-  the CKAB startup-latch note).
 - [ ] `dfsdm_parallel_dma_to_dma.rs` → method-built ring (`flt0.reg
   .ring_buffered(..)`) + async `read()` / `blocking_read` with `Err(Overrun)`
   handling.
@@ -605,12 +419,6 @@ Summary (each blocks DFSDM availability for whole chip groups):
 
 ## HOUSEKEEPING
 
-- [x] Old register-checklist scratchpad (`TODO.md`) removed — content subsumed
-  into this file.
-- [x] `TODO refactoring.md` / `liveness_and_shutdown.md` removed —
-  keep-alive items absorbed above (ownership F3/F4, overrun FT1, liveness
-  FT3/FT8/D1); the rest (SplitFilter type layer, software latch atomics, CAS
-  guard slots) was rejected by design review.
 - [ ] Chip-less embassy variants stay for now — decision: **no pruning yet**.
   After the stm32-data fixes, these still have no owning chip:
   `DFSDM_2CH_1FLT_TRG3_ADC`, `DFSDM_2CH_1FLT_DLY_TRG5_ADC`,
@@ -699,3 +507,224 @@ Summary (each blocks DFSDM availability for whole chip groups):
   - Symmetry target stands: AWD/SCD/CKAB/extremes each expose
     `assign_transceivers` + `wait_for_event` (+ `flags`/`clear_flags` where
     hardware allows — pending FT4/FT11).
+- [x] **E2 — Disabled channels hold their clock-absence flag set.** (TRM-correct,
+  not a divergence — the driver misread it.) rm0455 §"Clock absence detection"
+  (identical wording in all 15 TRMs):
+  "CKABF[y] is set also by hardware when corresponding channel y is disabled
+  (if CHEN[y] = 0 then CKABF[y] is held in set state)". Corroborated on
+  silicon during bring-up (flags on unused channels while the enabled channel
+  with a clock stayed clean). The detector itself is per-channel opt-in
+  (CKABEN, CHyCFGR1 bit 6, reset 0) — not default-on. Consequence: raw
+  CKABF[7:0] reads are meaningless unless masked to channels with
+  CKABEN=1 && CHEN=1. Handled by FT12 / FT11 / FT3.
+- [x] **E3 — SCD semantics + detector startup latches (RM0399 §31.4.11 +
+  §"Manchester/SPI code synchronization"; silicon-verified on the H755 bench
+  during FT12 bring-up).**
+  - SCD is a **saturation detector**: per-channel up-counter of consecutive
+    identical bits on the **data** stream (channel transceiver outputs, not
+    CKIN), restarted on every 1↔0 transition; SCDF fires when it reaches SCDT.
+    It catches stuck/open-circuit analog inputs; clock faults are CKAB's job.
+  - **SCDT=0 fires constantly** — the counter starts at 0 and trivially
+    "reaches" 0. Hit on silicon when the threshold write was lost in the FT12
+    migration; now structural (FT12 writes SCDT before SCDEN; a validated
+    threshold newtype was declined — consider a `debug_assert!(threshold != 0)`).
+  - **SCDF is hardware-cleared when CHEN=0** (RM0399 §31.4.11) — the exact
+    opposite of CKABF (E2). Drop-time de-arm + disable self-cleans stale SCD
+    flags; only CKAB needs the E2 masking discipline.
+  - **CKABF startup latch**: while the transceiver is unsynchronized, CKABF is
+    held set and `CLRCKABF` writes are ignored; after sync it stays set until
+    software clears it. Observed as a one-shot event at the first
+    `wait_for_event` — expected hardware behavior; motivating case for FT3
+    (poll CKABF=0 as the sync-done indicator) and FT4 (`clear_flags` startup
+    residue).
+  - SCD **cannot** be used in parallel input mode (DATMPX≠0, §31.4.11) — not
+    enforced yet; candidate doc note or `debug_assert` on
+    `ShortCircuitDetector::assign_transceivers`.
+- [x] **F3 — Register ownership via implicit `&mut` gating (TRM-mandated).**
+  RM0455 §33.8.7/33.8.8: "firmware must not read JDATAR/RDATAR if DMA is
+  activated to read it". DONE (2026-09, landed with F4 — the gating is F4's
+  restructure, nothing separate). All five semantics hold structurally, zero
+  new gating code:
+  - Manual data-read methods (`read_regular`, `try_get_regular_result`,
+    `get_regular_result_unchecked`, mod.rs:769-819; injected equivalents,
+    mod.rs:914-961) stay available on **all** DmaMode halves — the user can
+    always manually read whenever no ring exists.
+  - `ring_buffered(dma, irq, buf)` takes `&mut self` of the half (the ring
+    stores `&'e mut dyn FilterDma`, which is exclusive: **stronger than the
+    stated minimum — `&self` paths on the borrowed half are blocked too**),
+    including paused/stopped rings. "Read what's there" goes through the
+    ring's methods. Dropping the ring releases the borrow (and the DMA
+    channel) and manual reads return (NLL confirmed empirically in
+    `dfsdm_parallel_dma_to_dma.rs`).
+  - NoDma halves cannot create a ring — `ring_buffered` lives on the
+    `RegDma`/`InjDma` halves only; manual reads are the only path.
+  - CR1 touchers: nothing new needed — conversion starters are `&mut self`
+    methods on the half, so the borrow alone blocks them while a ring lives;
+    `start_regular_conversion` before ring creation remains the working
+    pattern (example `dfsdm_parallel_dma_to_dma.rs`:94-95).
+  - `DmaMode` typestate upgraded beyond the record's wording: it remains the
+    RDMAEN/JDMAEN config carrier (hardware quirk: only one of the two
+    enable bits is ever set) AND gained the ring-side discriminator role
+    (`RingBufferedFilter<'e, T, M, DM>` — regular vs injected rings stay
+    distinct types for FT2's per-side methods).
+  - No SplitFilter type — enforced by the exclusive borrow. Field-level
+    disjoint borrows keep `flt.inj`/`awd`/`extremes` usable while the
+    regular ring borrows `flt.reg`.
+- [x] **F4 — RingBufferedFilter ownership.** DONE (2026-09), as-built with two
+  deliberate deviations from the original record:
+  - Ring construction moved onto the halves: `flt.reg.ring_buffered(dma, irq,
+    buf)` / `flt.inj.ring_buffered(..)` (dma.rs:19-47); the free
+    `new_regular`/`new_injected` constructors are deleted. The ring is
+    `RingBufferedFilter<'e, T, M, DM: DmaMode>` with one shared `new_int`
+    (dma.rs:55). Name kept as `ring_buffered` (not the repo-wide
+    `into_ring_buffered` convention): the construction BORROWS, nothing is
+    consumed — deliberate divergence.
+  - **Deviation 1 — `FilterDma` trait retained** (types.rs:753; impls
+    mod.rs:993-1010), superseding "delete the trait". Field is
+    `&'e mut dyn FilterDma<T, M>`: exclusive per half (F3's gate), the
+    concrete halves' internal lifetimes are erased, and the ring type stays
+    `<'e, T, M, DM>` without leaking `'a/'d/'t`. Rationale on record for the
+    next reader: with plain `&'e mut FilterRegular<'a,'d,'t,…>` users would
+    carry three extra lifetime params for no gain.
+  - **Deviation 2 — `data_register()` stays a trait method**, superseding
+    "becomes an inherent fn per half": it must be reachable through the
+    erased `&'e mut dyn` in the shared constructor.
+  - `Drop` + `set_alignment` + fence-in-`start` deferred to the FT2 queue
+    (dma.rs hooks sit commented at :63/:77/:88).
+  - FT2 divergences (injected trigger coupling etc.) land as inherent impls
+    pinned to `DM = RegDma`/`InjDma` — no specialization needed.
+  - Stale anchors refreshed post-FT20: `FilterDma` now at types.rs:748;
+    read-method positions in the FT18-IR2 record (mod.rs:760/:908) are stale
+    — actual mod.rs:769/:914.
+- [x] **F6 — One ring per filter (already enforced by typestate, no code).**
+  One DMA request line per filter (rm0455 §33.6; serves JDATAR or RDATAR), so
+  a filter can't DMA both halves. Already guaranteed at compile time: `Filter`
+  carries a single per-filter `D` (mod.rs:416-424), and the ring constructors
+  are gated on `FilterRegular<.., RegDma>` / `FilterInjected<.., InjDma>`, so
+  a second ring on the same filter is unconstructable. Doc only (D11).
+- [x] **F7 — 2FLT/6FLT capability gap.** DONE (2026-09, with the splits.rs
+  shape-table work, see FT20). The original three-way break (L451/452/462 =
+  `DFSDM_4CH_2FLT_TRG3`, real hardware) is fixed:
+  - `capability::Flt2` + `Flt6` + `FilterCount` impls for both (types.rs
+    capability mod).
+  - IRQ sets: the old per-variant manual lists (including the "missing
+    `FLT1 => Flt1`" symptom, associations.rs:332-343 back then) are
+    **superseded** — the new `dfsdm_flt_irqs!` in associations.rs derives the
+    per-variant IRQ set from a per-capability template (literal arms
+    Flt1/2/4/6/8 + loud catch-all) keyed on the variant's `filters:` token,
+    driven from `mark_dfsdm_instances!`.
+  - `Flt1/2/4/6/8Ready` bundles emitted by `define_dfsdm_ready!` (types.rs
+    ~:411) replacing the handwritten trait pairs.
+  - All six split structs (2Ch1Flt / 4Ch2Flt / 4Ch4Flt / 8Ch4Flt / 8Ch6Flt /
+    8Ch8Flt) + `Tcv2/4/8SplitBuild` traits + the NEW 4-tuple
+    `ChannelCfgTuple` impl are generated in the new splits.rs — the old
+    hand-written split section in mod.rs (~374 lines, only 3 shapes) is gone.
+  - Verified: stm32f412zg / stm32f413zh compile (the FT12 matrix run's E0425
+    is gone; perimap :858-:864 maps F412/F413 to `DFSDM_4CH_2FLT_TRG3`).
+  - 6FLT residue: fully defined but chip-less (MP13-only, no chip in the db
+    yet; per-chip dead-code warnings for `Flt6` stand as with any unused
+    shape). Chip availability rides the Phase 6 regen (PLAN item 19).
+- [x] **FT17 — Type-system consolidation (marker axes + where-clause bundles).**
+  - TS1 → moved to DONE (PinSource axis, implemented).
+  - [DECLINED]TS2 — Bundle `FilterInstance<M>` supertrait (wraps `Instance +
+    FilterInterrupt<M>` + `M: InstanceEvents<T>`) replacing the cluster on
+    `Filter`/`FilterDisabled`/`FilterRegular`/`FilterInjected`/`AnalogWatchdog`.
+  - [DECLINED]TS3 — Bundle `TransceiverInstance<M>` (wraps `Instance` + `M:
+    TransceiverMarker + NextChannelForInstance<T>`) replacing the cluster on
+    `Transceiver`.
+  - [DECLINED]TS4 — `#[diagnostic::on_unimplemented]` on both bundles.
+  - [Redundant]TS5 (note) — do NOT merge `FilterInterrupt` + `InstanceEvents` (different
+    impl-carrying axes); bundle only. The `FilterMarker` bound is redundant
+    (implied by `FilterInterrupt<M>`).
+  - [DECLINEDBYEMPIRICISM] TS6 — collapse `'a`/`'d` → single `'d`
+    (`&'d DfsdmCommon<'d, …>`). Reverted: unifying forces `&'d` borrows of
+    locals whose `Peri<'d>` contents outlive the binding, and immobilizes
+    `common` under the object borrows (kills typestate `disable(self)` moves).
+    The two-lifetime design is load-bearing.
+  - [x] TS7 — SAFETY review of `DfsdmCommon::into_raw_parts` (mod.rs:271-285) and
+    `Filter::replace_{regular,injected}_transceivers` (mod.rs:658-718)
+    (`ManuallyDrop` + `ptr::read`). **Reviewed & sound.** Invariants: MD
+    suppresses the source drop (single owner per field, no double-drop); nothing
+    between the reads and struct construction can unwind (worst case = leak, not
+    UB); `Peri` is a ghost type (no real `&mut` aliasing); `Filter`'s Drop is
+    skipped intentionally and re-acquired by the returned value. Comments
+    tightened ("bitwise-move") + `replace_regular` docstring fixed ("injected"→
+    "regular").
+- [X] **FT18 — Interrupt binding + NVIC enable hygiene** (coordinate: detector
+  side with FT12; ISR side with FT11). `Binding<I,H>` is a compile-time proof
+  (Copy ZST); `InterruptExt::enable()` is a runtime NVIC unmask — keep them
+  orthogonal: gate at construction, enable idempotently once.
+  - [X] IR1 — `build(irqs: impl Binding<…>)`: require-and-discard at construction
+    (`_irq`), no storage (the binding is a proof marker, never used at runtime).
+    `FilterBuilder::build(irqs: impl Binding<T::Interrupt, InterruptHandler<T, M>>)`
+    and `common.detectors(irqs: impl Binding<T::Interrupt,
+    InterruptHandler<T, Flt0>>)` (per FT12, `DetectorsBuilder` is dropped).
+  - [X] IR2 — drop `_irq` from `read_regular` (mod.rs:769 post-FT20),
+    `read_injected` (:914),
+    `AnalogWatchdog::wait_for_event` (:1848), `ShortCircuitDetector::wait_for_event`
+    (:2074), `ClockAbsenceDetector::wait_for_event` (:2132) — construction already
+    proved the binding.
+  - [X] IR3 — host the enable at construction of each IRQ-using object: once in
+    `DetectorsBuilder::build` (FLT0 line) and once in `FilterBuilder::build`
+    (that filter's line). The enable is idempotent (`NVIC::unmask`), so the old
+    `SCD::new`/`CKAB::new` enables were redundant, not dangerous — the removal is
+    ownership/clarity cleanup only. Document that Flt0's filter and the detectors
+    share the FLT0 IRQ line.
+  - [X]IR4 — write `<T as FilterInterrupt<M>>::Interrupt::enable()` explicitly —
+    `T::Interrupt` is unambiguous today only because `Instance` has no `Interrupt`
+    associated type.
+  - [X] IR5 — `unpend()` before `enable()` (ADC hygiene, adc/mod.rs:697-700) so a
+    stale pending flag doesn't fire immediately.
+- [x] **FT20 — Shape-table generated types: split + select bundles** (new
+  module `dfsdm/splits.rs`; done alongside the F7 2FLT slice, PLAN item 13).
+  The hand-written split structs (only 3 shapes, ~374 lines in mod.rs) and the
+  `ChannelSelectors2/4/8` trio + `Shape` impls (types.rs) are replaced by ONE
+  master implementation per product, instantiated from tables:
+  - Split products — `dfsdm_split_shape_body!` (single master: struct +
+    `Tcv*SplitBuild` impl) instantiated per shape by `dfsdm_split_shapes!`
+    through the `dfsdm_split_shape!` per-arity dispatch arms (the S-list and
+    neighbor pin-set pairing — last channel wraps to `S0` — live there, once
+    per arity). `build()` now takes per-channel `(Datin, Ckin)` tuples instead
+    of indexed `dN`/`kN` lists. All six shapes generated, incl. the three
+    2FLT-era newcomers (4Ch2Flt, 4Ch4Flt, 8Ch6Flt). The NEW 4-tuple
+    `ChannelCfgTuple` impl joins the 2-/8-tuple ones (moved into splits.rs,
+    where the trait now lives too).
+  - Selector products — the `dfsdm_selectors!` arity-keyed table + master
+    `dfsdm_selector_shape!` emit `ChannelSelectors{2,4,8}` + `new()` + the
+    `Shape` impls (the latter deleted from types.rs). Per-channel docs via
+    `#[doc = concat!(… stringify!($idx) …)]`. Channel count + `chN: TcvN`
+    mapping is duplicated here (a `Sel` needs no S-pairing) — kept as a
+    separate table rather than one mega-table (see findings below).
+  - `Sel<T, M>` remains hand-written in mod.rs (single generic struct, no
+    shape data) — decision taken deliberately.
+  - Where-clause bundles: `define_dfsdm_ready!` emits `Flt1/2/4/6/8Ready` with
+    blanket impls; consumed by the table's generated structs. Distinct from
+    the declined TS2 supertrait bundle (that one fails on per-site
+    where-clause echo across the actor surface); this one is table-internal
+    sugar. Not related to FT19/FilterFlow either.
+  - Macro_rules findings recorded for the next table author: `+` is not a
+    legal repetition separator — joined bounds use the trailing-plus idiom
+    `$(X +)*`; a free `$(,)?` after a repetition group that may be followed by
+    another repetition = "ambiguity: multiple successful parses" (use a
+    required `;` terminator per group instead); a per-shape loop cannot
+    re-loop its arity's metas (capture depth must mirror the matcher's
+    nesting) — hence the split table is shape-keyed with a dispatch, and the
+    selector table is its own arity-keyed one.
+  - Net LOC ≈ neutral (368 vs 374) but the coverage grew (6 shapes, 3 tuple
+    impls, selectors, capability tokens, docs). Zero API change — h755
+    examples compile verbatim; f412zg/f413zh (F7) + h755/l496/l4a6 green.
+- [x] `dfsdm_short_circuit.rs` + `dfsdm_clock_absence.rs` — migrated to the
+  FT12 detector API (`ShortCircuitAssignment` pair, masked waits; see E3 for
+  the CKAB startup-latch note).
+- [x] Old register-checklist scratchpad (`TODO.md`) removed — content subsumed
+  into this file.
+- [x] `TODO refactoring.md` / `liveness_and_shutdown.md` removed —
+  keep-alive items absorbed above (ownership F3/F4, overrun FT1, liveness
+  FT3/FT8/D1); the rest (SplitFilter type layer, software latch atomics, CAS
+  guard slots) was rejected by design review.
+- [x] **NITS #6** — `TransceiverConfigOnline::break_signals` superseded by
+  FT12 (`assign_break_signals` on `ShortCircuitDetector`); executed with
+  FT12: the whole `TransceiverConfigOnline` struct was deleted. (mod.rs:1074)
+- [x] **NITS #7** — missing docstrings `build_spi_ext`/`build_spi_int`
+  (mod.rs:1639/1742; also fixed the `skips` intra-doc link + `tothe` typos
+  in the same sweep).

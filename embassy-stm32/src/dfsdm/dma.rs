@@ -2,48 +2,62 @@ use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::*;
 use crate::dma::{Channel, ReadableRingBuffer};
+use crate::interrupt::typelevel::Binding;
 use crate::rcc::WakeGuard;
 
-pub struct RingBufferedFilter<'e, T, M>
+pub struct RingBufferedFilter<'e, T, M, DM: DmaMode>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
 {
-    filter: &'e dyn FilterDma<T, M>,
+    _dma_marker: PhantomData<DM>,
+    filter: &'e mut dyn FilterDma<T, M>,
     ring_buf: ReadableRingBuffer<'e, u32>,
     _wake_guard: WakeGuard,
 }
 
-#[allow(private_bounds)]
-impl<'e, T, M> RingBufferedFilter<'e, T, M>
+impl<'a, 'd, 't, T, M> FilterRegular<'a, 'd, 't, T, M, RegDma>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
 {
-    pub fn new_regular<'a, 'd, 't, D: Dma<T, M>>(
-        filter: &'e FilterRegular<'a, 'd, 't, T, M, RegDma>,
+    pub fn ring_buffered<'e, D: Dma<T, M>>(
+        self: &'e mut Self,
         dma: Peri<'e, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
+        irq: impl Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
-    ) -> Self {
-        Self::new_int(filter, dma, irq, dma_buf)
+    ) -> RingBufferedFilter<'e, T, M, RegDma> {
+        RingBufferedFilter::<T, M, RegDma>::new_int(self, dma, irq, dma_buf)
     }
+}
 
-    pub fn new_injected<'a, 'd, 't, D: Dma<T, M>>(
-        filter: &'e FilterInjected<'a, 'd, 't, T, M, InjDma>,
+impl<'a, 'd, 't, T, M> FilterInjected<'a, 'd, 't, T, M, InjDma>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    pub fn ring_buffered<'e, D: Dma<T, M>>(
+        self: &'e mut Self,
         dma: Peri<'e, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
+        irq: impl Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
-    ) -> Self {
-        Self::new_int(filter, dma, irq, dma_buf)
+    ) -> RingBufferedFilter<'e, T, M, InjDma> {
+        RingBufferedFilter::<T, M, InjDma>::new_int(self, dma, irq, dma_buf)
     }
+}
 
-    fn new_int<D: Dma<T, M>>(
-        filter: &'e dyn FilterDma<T, M>,
+#[allow(private_bounds)]
+impl<'e, T, M, DM: DmaMode> RingBufferedFilter<'e, T, M, DM>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    fn new_int<D: Dma<T, M>, DMODE: DmaMode>(
+        filter: &'e mut dyn FilterDma<T, M>,
         dma: Peri<'e, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
+        irq: impl Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
-    ) -> Self {
+    ) -> RingBufferedFilter<'e, T, M, DMODE> {
         let opts = Default::default();
 
         // SAFETY: `ReadableRingBuffer::new` requires:
@@ -62,7 +76,8 @@ where
         // never shift after an overrun recovery.
         // ring_buf.set_alignment(dma_buf.len() / 2); // TODO  USE LATER FOR PING PONG
 
-        Self {
+        RingBufferedFilter {
+            _dma_marker: PhantomData,
             filter,
             _wake_guard: T::RCC_INFO.wake_guard(),
             ring_buf,

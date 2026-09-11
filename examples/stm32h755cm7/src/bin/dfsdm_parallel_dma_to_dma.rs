@@ -92,8 +92,7 @@ async fn main(_spawner: Spawner) {
     let mut buffer_regular = [0u32; 32];
 
     flt0.reg.start_regular_conversion(); // Waiting for data now
-    let mut ring_buffered_filter_regular =
-        RingBufferedFilter::new_regular(&flt0.reg, p.DMA1_CH0, Irqs, &mut buffer_regular);
+    let mut ring_buffered_filter_regular = flt0.reg.ring_buffered(p.DMA1_CH0, Irqs, &mut buffer_regular);
 
     ring_buffered_filter_regular.start();
 
