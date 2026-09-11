@@ -62,10 +62,10 @@ impl<'d> CasperDriver<'d> {
         // 2. Reset the CASPER block in PRESETCTRL2 register (bit 24 in LPC55S6xLPC55S2xLPC552x User manual)
         syscon
             .presetctrl2()
-            .modify(|w| w.set_casper_rst(pac::syscon::vals::CasperRst::ASSERTED)); // Activate reset
+            .modify(|w| w.set_casper_rst(pac::syscon::vals::CasperRst::Asserted)); // Activate reset
         syscon
             .presetctrl2()
-            .modify(|w| w.set_casper_rst(pac::syscon::vals::CasperRst::RELEASED)); // Release reset
+            .modify(|w| w.set_casper_rst(pac::syscon::vals::CasperRst::Released)); // Release reset
 
         Self { _peri: peri }
     }
@@ -198,7 +198,7 @@ impl<'d> CasperDriver<'d> {
 
     /// Check if CASPER hardware accelerator is currently busy.
     pub fn is_busy(&self) -> bool {
-        pac::CASPER.status().read().busy() == pac::casper::vals::Busy::BUSY
+        pac::CASPER.status().read().busy() == pac::casper::vals::Busy::Busy
     }
 
     /// Synchronous execution of a CASPER AHB operation
