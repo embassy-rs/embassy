@@ -90,7 +90,7 @@ define_peris!(
 
 #[cfg(feature = "nrf52840")]
 define_peris!(
-    RNG = CC_RNG,
+    RNG = CRYPTO_RNG,
     PIN_A = P1_02, PIN_B = P1_03,
     PIN_X = P1_04,
     UART0 = UARTE0,
@@ -107,7 +107,7 @@ define_peris!(
 
 #[cfg(feature = "nrf5340")]
 define_peris!(
-    RNG = CC_RNG,
+    RNG = CRYPTO_RNG,
     PIN_A = P1_08, PIN_B = P1_09,
     PIN_X = P1_10,
     UART0 = SERIAL0,
@@ -124,7 +124,7 @@ define_peris!(
 
 #[cfg(feature = "nrf9160")]
 define_peris!(
-    RNG = CC_RNG,
+    RNG = CRYPTO_RNG,
     PIN_A = P0_00, PIN_B = P0_01,
     PIN_X = P0_02,
     UART0 = SERIAL0,
@@ -142,7 +142,7 @@ define_peris!(
 // PIN_A and PIN_B must be wired together on the board.
 #[cfg(feature = "nrf54l15")]
 define_peris!(
-    RNG = CRACEN,
+    RNG = CRYPTO_RNG,
     PIN_A = P1_11, PIN_B = P1_12,
     PIN_X = P1_13,
     UART0 = SERIAL21,

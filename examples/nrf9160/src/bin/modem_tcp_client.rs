@@ -16,7 +16,7 @@ use embassy_net::wire::{IpCidr, Ipv4Cidr};
 use embassy_net_nrf91::context::Status;
 use embassy_net_nrf91::{Runner, State, TraceBuffer, TraceReader, context};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
-use embassy_nrf::cryptocell::rng::CcRng;
+use embassy_nrf::crypto::rng::Rng;
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_nrf::uarte::Baudrate;
 use embassy_nrf::{Peri, bind_interrupts, interrupt, peripherals, uarte};
@@ -138,7 +138,7 @@ async fn main(spawner: Spawner) {
     spawner.spawn(unwrap!(trace_task(uart, tracer)));
 
     // Generate random seed.
-    let mut rng = CcRng::new_blocking(p.CC_RNG);
+    let mut rng = Rng::new_blocking(p.CRYPTO_RNG);
     let seed = rng.blocking_next_u64();
 
     // Init network stack

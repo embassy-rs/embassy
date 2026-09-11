@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - bugfix: enforce each peripheral's own EasyDMA `MAXCNT` limit in uarte, buffered_uarte, spim, spis, twim, twis, i2s, pdm, pwm and saadc instead of the chip-wide `DMA_SIZE`.
 - added: per-peripheral `DMA_SIZE` constants in the `uarte`, `spim`, `spis`, `twim`, `twis`, `i2s`, `pdm` and `saadc` modules, and `pwm::MAX_SEQUENCE_LEN`.
 - removed: the crate-level `DMA_SIZE` constant. It was wrong because the max DMA size changes per peripheral.
+- added: `crypto` module for the CryptoCell (nRF52840, nRF91, nRF5340) and CRACEN (nRF54L) accelerators, with the same API on both:
+  - `crypto::symmetric::Symmetric`: AES in ECB, CBC, CTR, CMAC, CCM and, on nRF5340 and nRF54L, GCM; SHA-1/SHA-2 hash and HMAC; ChaCha20 and ChaCha20-Poly1305, plus ChaCha8/ChaCha12 and their Poly1305 AEADs on the CryptoCell
+  - `crypto::pka::Pka`: ECDSA, ECDH and RSA, with NIST P-192/P-224/P-256/P-384/P-521 and secp256k1 curve parameters
+  - `crypto::rng::Rng`
+- changed: renamed crypto RNG drivers:
+  - the CryptoCell RNG driver `cryptocell::rng::CcRng` is now `crypto::rng::Rng`.
+  - The CRACEN RNG driver `cracen::Cracen` is now `crypto::rng::Rng`.
+- removed: `cryptocell::activate`. The accelerator is powered while any `crypto` driver exists.
+- added: `embassy-crypto` drivers behind one `embassy-crypto-<operation>` feature each: hash, HMAC, AES, ChaCha8/12/20 and ChaCha8/12/20-Poly1305, P-256 and P-384 arithmetic, ECDH and ECDSA, RNG.
+  - Enabling any of these features takes over the peripheral, so the singleton disappears from `Peripherals`.
 - added: System OFF support for the nRF54L series.
 - bugfix: buffered_uarte: nRF54: reset the RX state when creating a `BufferedUarteRx`, so recreating one after dropping it receives data again.
 - bugfix: buffered_uarte: nRF54: stop the RX DMA and resume it on `consume()` when the RX buffer fills up, instead of panicking.

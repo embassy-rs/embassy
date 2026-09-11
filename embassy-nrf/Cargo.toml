@@ -79,7 +79,15 @@ rt = ["nrf-pac/rt"]
 time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
 ## Enable defmt
-defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-usb-synopsys-otg/defmt", "embassy-embedded-hal/defmt"]
+defmt = [
+    "dep:defmt",
+    "embassy-hal-internal/defmt",
+    "embassy-sync/defmt",
+    "embassy-usb-driver/defmt",
+    "embassy-usb-synopsys-otg/defmt",
+    "embassy-embedded-hal/defmt",
+    "embassy-crypto/defmt",
+]
 ## Enable log
 log = ["dep:log"]
 
@@ -143,6 +151,76 @@ lfxo-pins-as-gpio = []
 ## flash supports the semantics described [here](https://docs.rs/embedded-storage/0.3.1/embedded_storage/nor_flash/trait.MultiwriteNorFlash.html)
 qspi-multiwrite-flash = []
 
+## Register the hardware driver for one `embassy-crypto` operation, served by
+## the CryptoCell or CRACEN accelerator. See the `embassy-crypto` documentation.
+## Nothing is registered for chips that lack the accelerator or the algorithm.
+##
+## Enabling any of these takes the symmetric engines over for `embassy-crypto`:
+## the `CRYPTO_SYMMETRIC` peripheral singleton is removed from `Peripherals`, so
+## the engines cannot also be driven through `crypto::symmetric::Symmetric`.
+embassy-crypto-md5 = []
+embassy-crypto-sha1 = ["_embassy-crypto-symmetric"]
+embassy-crypto-sha224 = ["_embassy-crypto-symmetric"]
+embassy-crypto-sha256 = ["_embassy-crypto-symmetric"]
+embassy-crypto-sha384 = ["_embassy-crypto-symmetric"]
+embassy-crypto-sha512 = ["_embassy-crypto-symmetric"]
+embassy-crypto-sha512-224 = ["_embassy-crypto-symmetric"]
+embassy-crypto-sha512-256 = ["_embassy-crypto-symmetric"]
+embassy-crypto-hmac-sha1 = ["_embassy-crypto-symmetric"]
+embassy-crypto-hmac-sha224 = ["_embassy-crypto-symmetric"]
+embassy-crypto-hmac-sha256 = ["_embassy-crypto-symmetric"]
+embassy-crypto-hmac-sha384 = ["_embassy-crypto-symmetric"]
+embassy-crypto-hmac-sha512 = ["_embassy-crypto-symmetric"]
+embassy-crypto-hmac-sha512-224 = ["_embassy-crypto-symmetric"]
+embassy-crypto-hmac-sha512-256 = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes128-ecb = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes128-cbc = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes128-ctr = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes128-gcm = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes128-ccm = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes128-cmac = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes256-ecb = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes256-cbc = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes256-ctr = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes256-gcm = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes256-ccm = ["_embassy-crypto-symmetric"]
+embassy-crypto-aes256-cmac = ["_embassy-crypto-symmetric"]
+## ChaCha8, ChaCha12 and their Poly1305 AEADs are only served on the CryptoCell.
+embassy-crypto-chacha8 = ["_embassy-crypto-symmetric"]
+embassy-crypto-chacha12 = ["_embassy-crypto-symmetric"]
+embassy-crypto-chacha20 = ["_embassy-crypto-symmetric"]
+embassy-crypto-chacha8-poly1305 = ["_embassy-crypto-symmetric"]
+embassy-crypto-chacha12-poly1305 = ["_embassy-crypto-symmetric"]
+embassy-crypto-chacha20-poly1305 = ["_embassy-crypto-symmetric"]
+## Register the hardware driver for random numbers, served by the CRACEN TRNG on
+## nRF54L, the CryptoCell TRNG on nRF52840, nRF5340 and nRF91, and the RNG
+## peripheral elsewhere. See the `embassy-crypto` documentation. The driver takes
+## the generator over: the `CRYPTO_RNG` (or, without an accelerator, `RNG`)
+## peripheral singleton is removed from `Peripherals`. Nothing is registered in Non-Secure builds of the
+## nRF5340, nRF54L and nRF91, which cannot reach the entropy source.
+embassy-crypto-rng = []
+## Register the hardware driver for P-256 arithmetic, served by the public key
+## engine. The driver takes the engine over: the `CRYPTO_PKA` peripheral singleton
+## is removed from `Peripherals`. On CRACEN the engine's microcode must be
+## registered with `crypto::pka::set_microcode`.
+embassy-crypto-p256-arith = ["_embassy-crypto-pka"]
+## Register the hardware driver for P-256 ECDH, served by the public key engine.
+## See `embassy-crypto-p256-arith`.
+embassy-crypto-p256-ecdh = ["_embassy-crypto-pka"]
+## Register the hardware driver for P-256 ECDSA, served by the public key engine.
+## Signing draws the nonce from the `embassy-crypto` RNG driver. See
+## `embassy-crypto-p256-arith`.
+embassy-crypto-p256-ecdsa = ["_embassy-crypto-pka"]
+## Register the hardware driver for P-384 arithmetic, served by the public key
+## engine. See `embassy-crypto-p256-arith`.
+embassy-crypto-p384-arith = ["_embassy-crypto-pka"]
+## Register the hardware driver for P-384 ECDH, served by the public key engine.
+## See `embassy-crypto-p256-arith`.
+embassy-crypto-p384-ecdh = ["_embassy-crypto-pka"]
+## Register the hardware driver for P-384 ECDSA, served by the public key engine.
+## See `embassy-crypto-p256-ecdsa`.
+embassy-crypto-p384-ecdsa = ["_embassy-crypto-pka"]
+
 #! ### Chip selection features
 ## nRF51
 nrf51 = ["nrf-pac/nrf51", "_nrf51", "_spi-v1"]
@@ -159,35 +237,35 @@ nrf52832 = ["nrf-pac/nrf52832", "_nrf52", "_nrf52832_anomaly_109", "_spi-v1"]
 ## nRF52833
 nrf52833 = ["nrf-pac/nrf52833", "_nrf52", "_gpio-p1"]
 ## nRF52840
-nrf52840 = ["nrf-pac/nrf52840", "_nrf52", "_gpio-p1"]
+nrf52840 = ["nrf-pac/nrf52840", "_nrf52", "_gpio-p1", "_cryptocell"]
 ## nRF5340 application core in Secure mode
-nrf5340-app-s = ["_nrf5340-app", "_s"]
+nrf5340-app-s = ["_nrf5340-app", "_s", "_cryptocell", "_cryptocell-312"]
 ## nRF5340 application core in Non-Secure mode
 nrf5340-app-ns = ["_nrf5340-app", "_ns"]
 ## nRF5340 network core
 nrf5340-net = ["_nrf5340-net"]
 ## nRF54L15 application core in Secure mode
-nrf54l15-app-s = ["_nrf54l15-app", "_s", "_multi_wdt"]
+nrf54l15-app-s = ["_nrf54l15-app", "_s", "_multi_wdt", "_cracen"]
 ## nRF54L15 application core in Non-Secure mode
 nrf54l15-app-ns = ["_nrf54l15-app", "_ns"]
 ## nRF54L10 application core in Secure mode
-nrf54l10-app-s = ["_nrf54l10-app", "_s", "_multi_wdt"]
+nrf54l10-app-s = ["_nrf54l10-app", "_s", "_multi_wdt", "_cracen"]
 ## nRF54L10 application core in Non-Secure mode
 nrf54l10-app-ns = ["_nrf54l10-app", "_ns"]
 ## nRF54L05 application core in Secure mode
-nrf54l05-app-s = ["_nrf54l05-app", "_s", "_multi_wdt"]
+nrf54l05-app-s = ["_nrf54l05-app", "_s", "_multi_wdt", "_cracen"]
 ## nRF54L05 application core in Non-Secure mode
 nrf54l05-app-ns = ["_nrf54l05-app", "_ns"]
 ## nRF54LM20 application core in Secure mode
-nrf54lm20-app-s = ["_nrf54lm20-app", "_s", "_multi_wdt"]
+nrf54lm20-app-s = ["_nrf54lm20-app", "_s", "_multi_wdt", "_cracen"]
 
 ## nRF9160 in Secure mode
-nrf9160-s = ["_nrf9160", "_s", "_nrf91"]
+nrf9160-s = ["_nrf9160", "_s", "_nrf91", "_cryptocell"]
 ## nRF9160 in Non-Secure mode
 nrf9160-ns = ["_nrf9160", "_ns", "_nrf91"]
 ## The nRF9120 is the internal part number for the nRF9161 and nRF9151.
 ## nRF9120 in Secure mode
-nrf9120-s = ["_nrf9120", "_s", "_nrf91"]
+nrf9120-s = ["_nrf9120", "_s", "_nrf91", "_cryptocell"]
 nrf9151-s = ["nrf9120-s"]
 nrf9161-s = ["nrf9120-s"]
 ## nRF9120 in Non-Secure mode
@@ -216,6 +294,13 @@ _nrf9120 = ["nrf-pac/nrf9120", "_dppi", "_spi-v1"]
 _nrf52 = ["_ppi"]
 _nrf51 = ["_ppi", "_spi-v1"]
 _nrf91 = []
+
+# Crypto accelerators
+_cryptocell = []
+_cryptocell-312 = []
+_cracen = []
+_embassy-crypto-symmetric = []
+_embassy-crypto-pka = ["dep:crypto-bigint"]
 
 _time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
 
@@ -250,6 +335,8 @@ embassy-usb-driver = { version = "0.2.2", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.4.0", path = "../embassy-usb-synopsys-otg", optional = true }
 embassy-net-driver-channel = { version = "0.4.0", path = "../embassy-net-driver-channel", optional = true}
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
+embassy-crypto = { version = "0.1.0", path = "../embassy-crypto" }
+crypto-bigint = { version = "0.7.5", default-features = false, optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }

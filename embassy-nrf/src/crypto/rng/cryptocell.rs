@@ -1,6 +1,4 @@
-//! Random Number Generator (RNG) driver.
-
-#![macro_use]
+//! CryptoCell true random number generator.
 
 use core::cell::{RefCell, RefMut};
 use core::future::poll_fn;
@@ -12,21 +10,22 @@ use critical_section::{CriticalSection, Mutex};
 #[cfg(feature = "_nrf5340-app")]
 use embassy_futures::{select::select, yield_now};
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::WakerRegistration;
 
-use crate::interrupt::typelevel::Interrupt;
-use crate::mode::{Async, Blocking, Mode};
+use crate::crypto::cryptocell::{ActivationHandle, activate};
+use crate::mode::{Async, Mode};
 use crate::{interrupt, pac};
 
-/// Interrupt handler.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
+static STATE: State = State::new();
+
+/// Interrupt handler for the `CRYPTOCELL` interrupt, used by the async API.
+pub struct InterruptHandler {
+    _private: (),
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl interrupt::typelevel::Handler<interrupt::typelevel::CRYPTOCELL> for InterruptHandler {
     unsafe fn on_interrupt() {
-        let r = T::regs();
+        let r = pac::CC_RNG;
 
         // Clear the event.
         r.rng_icr().write(|w| w.set_ehr_valid_clear(true));
@@ -35,13 +34,13 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         // Mutate the slice within a critical section,
         // so that the future isn't dropped in between us loading the pointer and actually dereferencing it.
         critical_section::with(|cs| {
-            let mut state = T::state().borrow_mut(cs);
+            let mut state = STATE.borrow_mut(cs);
             // We need to make sure we haven't already filled the whole slice,
             // in case the interrupt fired again before the executor got back to the future.
             if !state.ptr.is_null() && state.ptr != state.end {
                 // If the future was dropped, the pointer would have been set to null,
                 // so we're still good to mutate the slice.
-                // The safety contract of `CcRng::new` means that the future can't have been dropped
+                // The safety contract of `Rng::new` means that the future can't have been dropped
                 // without calling its destructor.
 
                 for i in 0..6 {
@@ -63,26 +62,29 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-/// A wrapper around an nRF CryptoCell RNG peripheral.
+/// Driver for the true random number generator.
 ///
-/// It has a non-blocking API, and a blocking api through `rand`.
-pub struct CcRng<'d, M: Mode> {
+/// Create it with [`Rng::new_blocking`] for the blocking API, or with [`Rng::new`] for the
+/// async API. The blocking methods are available either way.
+pub struct Rng<'d, M: Mode> {
     r: pac::cc_rng::CcRng,
     state: &'static State,
     _phantom: PhantomData<(&'d (), M)>,
 }
 
-impl<'d> CcRng<'d, Blocking> {
-    /// Creates a new RNG driver from the `CC_RNG` peripheral and interrupt.
-    ///
-    /// SAFETY: The future returned from `fill_bytes` must not have its lifetime end without running its destructor,
-    /// e.g. using `mem::forget`.
-    ///
-    /// The synchronous API is safe.
-    pub fn new_blocking<T: Instance>(_rng: Peri<'d, T>) -> Self {
+#[cfg(not(feature = "embassy-crypto-rng"))]
+impl<'d> Rng<'d, crate::mode::Blocking> {
+    /// Creates a new blocking RNG driver.
+    pub fn new_blocking(_rng: crate::Peri<'d, crate::peripherals::CRYPTO_RNG>) -> Self {
+        Self::new_inner()
+    }
+}
+
+impl<'d, M: Mode> Rng<'d, M> {
+    pub(crate) fn new_inner() -> Self {
         let this = Self {
-            r: T::regs(),
-            state: T::state(),
+            r: pac::CC_RNG,
+            state: &STATE,
             _phantom: PhantomData,
         };
 
@@ -92,33 +94,31 @@ impl<'d> CcRng<'d, Blocking> {
     }
 }
 
-impl<'d> CcRng<'d, Async> {
-    /// Creates a new RNG driver from the `CC_RNG` peripheral and interrupt.
+#[cfg(not(feature = "embassy-crypto-rng"))]
+impl<'d> Rng<'d, Async> {
+    /// Creates a new async RNG driver.
     ///
-    /// SAFETY: The future returned from `fill_bytes` must not have its lifetime end without running its destructor,
-    /// e.g. using `mem::forget`.
-    ///
-    /// The synchronous API is safe.
-    pub fn new<T: Instance>(
-        _rng: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    /// The future returned by [`Rng::fill_bytes`] must not be leaked, for example with
+    /// `mem::forget`. It must be either polled to completion or dropped.
+    pub fn new(
+        _rng: crate::Peri<'d, crate::peripherals::CRYPTO_RNG>,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::CRYPTOCELL, InterruptHandler> + 'd,
     ) -> Self {
-        let this = Self {
-            r: T::regs(),
-            state: T::state(),
-            _phantom: PhantomData,
-        };
+        use crate::interrupt::typelevel::Interrupt;
+
+        let this = Self::new_inner();
 
         this.disable_irq();
-        this.stop();
 
-        T::Interrupt::unpend();
+        interrupt::typelevel::CRYPTOCELL::unpend();
 
-        unsafe { T::Interrupt::enable() };
+        unsafe { interrupt::typelevel::CRYPTOCELL::enable() };
 
         this
     }
+}
 
+impl<'d> Rng<'d, Async> {
     fn enable_irq(&self) {
         pac::CC_HOST_RGF
             .imr()
@@ -139,7 +139,7 @@ impl<'d> CcRng<'d, Async> {
             .modify(|w| w.set_rng_mask(pac::cc_host_rgf::vals::RngMask::IrqDisable));
     }
 
-    /// Fill the buffer with random bytes.
+    /// Fills the buffer with random bytes.
     pub async fn fill_bytes(&mut self, dest: &mut [u8]) {
         if dest.is_empty() {
             return; // Nothing to fill
@@ -203,9 +203,9 @@ impl<'d> CcRng<'d, Async> {
     }
 }
 
-impl<'d, M: Mode> CcRng<'d, M> {
-    fn start(&self) -> super::CryptoCellActivationHandle {
-        let handle = super::activate();
+impl<'d, M: Mode> Rng<'d, M> {
+    fn start(&self) -> ActivationHandle {
+        let handle = activate();
 
         self.r.rng_clk().write(|w| w.set_enable(true));
         self.r.rng_sw_reset().write(|w| w.set_reset(true));
@@ -232,7 +232,7 @@ impl<'d, M: Mode> CcRng<'d, M> {
         self.r.rng_clk().write(|w| w.set_enable(false));
     }
 
-    /// Fill the buffer with random bytes, blocking version.
+    /// Fills the buffer with random bytes.
     pub fn blocking_fill_bytes(&mut self, dest: &mut [u8]) {
         let _handle = self.start();
         self.inner_fill_bytes(dest);
@@ -260,7 +260,7 @@ impl<'d, M: Mode> CcRng<'d, M> {
         }
     }
 
-    /// Generate a random u32
+    /// Returns a random `u32`.
     pub fn blocking_next_u32(&mut self) -> u32 {
         let mut bytes = [0; 4];
         self.blocking_fill_bytes(&mut bytes);
@@ -268,7 +268,7 @@ impl<'d, M: Mode> CcRng<'d, M> {
         u32::from_ne_bytes(bytes)
     }
 
-    /// Generate a random u64
+    /// Returns a random `u64`.
     pub fn blocking_next_u64(&mut self) -> u64 {
         let mut bytes = [0; 8];
         self.blocking_fill_bytes(&mut bytes);
@@ -276,7 +276,7 @@ impl<'d, M: Mode> CcRng<'d, M> {
     }
 }
 
-impl<'d, M: Mode> Drop for CcRng<'d, M> {
+impl<'d, M: Mode> Drop for Rng<'d, M> {
     fn drop(&mut self) {
         self.stop();
         critical_section::with(|cs| {
@@ -287,7 +287,7 @@ impl<'d, M: Mode> Drop for CcRng<'d, M> {
     }
 }
 
-impl<'d, M: Mode> rand_core_06::RngCore for CcRng<'d, M> {
+impl<'d, M: Mode> rand_core_06::RngCore for Rng<'d, M> {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         self.blocking_fill_bytes(dest);
     }
@@ -303,9 +303,9 @@ impl<'d, M: Mode> rand_core_06::RngCore for CcRng<'d, M> {
     }
 }
 
-impl<'d, M: Mode> rand_core_06::CryptoRng for CcRng<'d, M> {}
+impl<'d, M: Mode> rand_core_06::CryptoRng for Rng<'d, M> {}
 
-impl<'d, M: Mode> rand_core_09::RngCore for CcRng<'d, M> {
+impl<'d, M: Mode> rand_core_09::RngCore for Rng<'d, M> {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         self.blocking_fill_bytes(dest);
     }
@@ -317,9 +317,9 @@ impl<'d, M: Mode> rand_core_09::RngCore for CcRng<'d, M> {
     }
 }
 
-impl<'d, M: Mode> rand_core_09::CryptoRng for CcRng<'d, M> {}
+impl<'d, M: Mode> rand_core_09::CryptoRng for Rng<'d, M> {}
 
-impl<'d, M: Mode> rand_core_10::TryRng for CcRng<'d, M> {
+impl<'d, M: Mode> rand_core_10::TryRng for Rng<'d, M> {
     type Error = core::convert::Infallible;
 
     fn try_next_u32(&mut self) -> Result<u32, Self::Error> {
@@ -336,10 +336,10 @@ impl<'d, M: Mode> rand_core_10::TryRng for CcRng<'d, M> {
     }
 }
 
-impl<'d, M: Mode> rand_core_10::TryCryptoRng for CcRng<'d, M> {}
+impl<'d, M: Mode> rand_core_10::TryCryptoRng for Rng<'d, M> {}
 
-/// Peripheral static state
-pub(crate) struct State {
+// Peripheral static state.
+struct State {
     inner: Mutex<RefCell<InnerState>>,
 }
 
@@ -352,7 +352,7 @@ struct InnerState {
 unsafe impl Send for InnerState {}
 
 impl State {
-    pub(crate) const fn new() -> Self {
+    const fn new() -> Self {
         Self {
             inner: Mutex::new(RefCell::new(InnerState::new())),
         }
@@ -371,33 +371,4 @@ impl InnerState {
             waker: WakerRegistration::new(),
         }
     }
-}
-
-pub(crate) trait SealedInstance {
-    fn regs() -> pac::cc_rng::CcRng;
-    fn state() -> &'static State;
-}
-
-/// RNG peripheral instance.
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
-    /// Interrupt for this peripheral.
-    type Interrupt: interrupt::typelevel::Interrupt;
-}
-
-macro_rules! impl_ccrng {
-    ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::cryptocell::rng::SealedInstance for peripherals::$type {
-            fn regs() -> pac::cc_rng::CcRng {
-                pac::$pac_type
-            }
-            fn state() -> &'static crate::cryptocell::rng::State {
-                static STATE: crate::cryptocell::rng::State = crate::cryptocell::rng::State::new();
-                &STATE
-            }
-        }
-        impl crate::cryptocell::rng::Instance for peripherals::$type {
-            type Interrupt = crate::interrupt::typelevel::$irq;
-        }
-    };
 }

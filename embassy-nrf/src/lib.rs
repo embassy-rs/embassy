@@ -171,8 +171,6 @@ pub mod radio;
 #[cfg(feature = "_net-driver")]
 pub mod embassy_net_802154_driver;
 
-#[cfg(all(feature = "_nrf54l", feature = "_s"))]
-pub mod cracen;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "_nrf5340")]
 pub mod reset;
@@ -180,12 +178,8 @@ pub mod reset;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
 
-// Currently supported chips
-#[cfg(any(
-    feature = "nrf52840",
-    all(any(feature = "_nrf91", feature = "_nrf5340-app"), feature = "_s"),
-))]
-pub mod cryptocell;
+#[cfg(any(feature = "_cryptocell", feature = "_cracen"))]
+pub mod crypto;
 
 #[cfg(not(feature = "_nrf54l"))]
 pub mod rtc;
