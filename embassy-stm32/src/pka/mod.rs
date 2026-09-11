@@ -68,7 +68,8 @@
 //!
 //! # Security Notes
 //!
-//! - Always use cryptographically secure random numbers for ECDSA `k` values.
+//! - Sign with [`Pka::ecdsa_sign`], which draws the nonce from the RNG. The
+//!   `_with_nonce` forms take it from the caller, for RFC 6979 and known-answer tests only.
 //! - Validate all public keys before use (call `point_check`).
 //! - Call [`Pka::scrub`] between operations that touch sensitive material.
 //! - Clear sensitive data from caller-owned buffers after use.
@@ -546,6 +547,47 @@ pub enum Error {
     Timeout,
     /// Point is not on the curve
     PointNotOnCurve,
+}
+
+/// Largest curve order the driver signs with, in bytes (P-521).
+const MAX_ORDER_SIZE: usize = 66;
+
+/// Nonces tried before signing gives up. Each attempt fails with probability about
+/// `2^-order_bits`, so more than one is never expected.
+const SIGN_ATTEMPTS: usize = 8;
+
+/// Fills `out` (the size of the order) with a uniformly random scalar in `1..n` from `rng`.
+///
+/// Rejection sampling: the bits above the order are masked off, so at most half the draws are
+/// rejected, and a draw that is zero or not below the order is thrown away.
+fn random_nonce<M: Mode>(curve: &EcdsaCurveParams, rng: &mut crate::rng::Rng<'_, M>, out: &mut [u8]) {
+    let n = curve.order;
+    let unused_bits = n.len() * 8 - opt_bit_size(n.len(), n[0]) as usize;
+    loop {
+        rng.blocking_fill_bytes(out);
+        let full = unused_bits / 8;
+        out[..full].fill(0);
+        if unused_bits % 8 != 0 {
+            out[full] &= 0xff >> (unused_bits % 8);
+        }
+        if out.iter().any(|&b| b != 0) && &*out < n {
+            return;
+        }
+    }
+}
+
+/// Number of significant bits of a big-endian integer of `byte_count` bytes whose first byte is
+/// `msb`.
+fn opt_bit_size(byte_count: usize, msb: u8) -> u32 {
+    let position = if msb == 0 { 0 } else { 8 - msb.leading_zeros() };
+    ((byte_count as u32 - 1) * 8) + position
+}
+
+fn zeroize(buf: &mut [u8]) {
+    for b in buf {
+        // Volatile so that the write is not optimized away.
+        unsafe { core::ptr::write_volatile(b, 0) };
+    }
 }
 
 // ============================================================================
@@ -1879,8 +1921,7 @@ impl<'d, T: Instance, M: Mode> Pka<'d, T, M> {
     }
 
     fn get_opt_bit_size(byte_count: usize, msb: u8) -> u32 {
-        let position = if msb == 0 { 0 } else { 8 - msb.leading_zeros() };
-        ((byte_count as u32 - 1) * 8) + position
+        opt_bit_size(byte_count, msb)
     }
 
     fn write_operand(&mut self, offset: usize, data: &[u8]) {
@@ -2003,21 +2044,62 @@ impl<'d, T: Instance> Pka<'d, T, Blocking> {
 
     /// Generate an ECDSA signature.
     ///
+    /// The nonce is drawn from `rng`, uniformly in `1..n` by rejection sampling, and
+    /// never leaves the driver.
+    ///
     /// # Arguments
     /// * `curve` -- Curve parameters.
     /// * `private_key` -- Private key `d`.
-    /// * `k` -- Random nonce (MUST be cryptographically random and unique per signature!).
+    /// * `message_hash` -- Hash of the message to sign.
+    /// * `rng` -- The random number generator the nonce comes from.
+    /// * `signature_r`, `signature_s` -- Output buffers for the `(r, s)` signature.
+    pub fn ecdsa_sign_blocking<RM: Mode>(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        private_key: &[u8],
+        message_hash: &[u8],
+        rng: &mut crate::rng::Rng<'_, RM>,
+        signature_r: &mut [u8],
+        signature_s: &mut [u8],
+    ) -> Result<(), Error> {
+        let mut k = [0u8; MAX_ORDER_SIZE];
+        let k = &mut k[..curve.order.len()];
+        let result = (|| {
+            for _ in 0..SIGN_ATTEMPTS {
+                random_nonce(curve, rng, k);
+                match self.ecdsa_sign_with_nonce_blocking(curve, private_key, k, message_hash, signature_r, signature_s)
+                {
+                    // A zero signature component, which another nonce fixes.
+                    Err(Error::OperationError) => continue,
+                    result => return result,
+                }
+            }
+            Err(Error::OperationError)
+        })();
+        zeroize(k);
+        result
+    }
+
+    /// Generate an ECDSA signature with a caller-supplied nonce.
+    ///
+    /// Prefer [`Self::ecdsa_sign_blocking`], which draws the nonce itself. This is for
+    /// deterministic signatures (RFC 6979) and known-answer tests.
+    ///
+    /// # Arguments
+    /// * `curve` -- Curve parameters.
+    /// * `private_key` -- Private key `d`.
+    /// * `k` -- Ephemeral key.
     /// * `message_hash` -- Hash of the message to sign.
     /// * `signature_r`, `signature_s` -- Output buffers for the `(r, s)` signature.
     ///
     /// # Security Warning
     /// The `k` value MUST be:
-    /// - Cryptographically random
+    /// - Uniformly random in `1..n`, or derived as RFC 6979 prescribes
     /// - Unique for every signature
-    /// - Never reused or predictable
+    /// - Never reused, predictable or biased
     ///
     /// Failure to ensure this will compromise the private key.
-    pub fn ecdsa_sign_blocking(
+    pub fn ecdsa_sign_with_nonce_blocking(
         &mut self,
         curve: &EcdsaCurveParams,
         private_key: &[u8],
@@ -2434,21 +2516,39 @@ impl<'d, T: Instance> Pka<'d, T, Async> {
 
     /// Generate an ECDSA signature.
     ///
-    /// # Arguments
-    /// * `curve` -- Curve parameters.
-    /// * `private_key` -- Private key `d`.
-    /// * `k` -- Random nonce (MUST be cryptographically random and unique per signature!).
-    /// * `message_hash` -- Hash of the message to sign.
-    /// * `signature_r`, `signature_s` -- Output buffers for the `(r, s)` signature.
+    /// The nonce is drawn from `rng`, uniformly in `1..n` by rejection sampling, and
+    /// never leaves the driver. See [`Pka::ecdsa_sign_blocking`].
+    pub async fn ecdsa_sign<RM: Mode>(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        private_key: &[u8],
+        message_hash: &[u8],
+        rng: &mut crate::rng::Rng<'_, RM>,
+        signature_r: &mut [u8],
+        signature_s: &mut [u8],
+    ) -> Result<(), Error> {
+        let mut k = [0u8; MAX_ORDER_SIZE];
+        let k = &mut k[..curve.order.len()];
+        let mut result = Err(Error::OperationError);
+        for _ in 0..SIGN_ATTEMPTS {
+            random_nonce(curve, rng, k);
+            result = self
+                .ecdsa_sign_with_nonce(curve, private_key, k, message_hash, signature_r, signature_s)
+                .await;
+            // A zero signature component, which another nonce fixes.
+            if !matches!(result, Err(Error::OperationError)) {
+                break;
+            }
+        }
+        zeroize(k);
+        result
+    }
+
+    /// Generate an ECDSA signature with a caller-supplied nonce.
     ///
-    /// # Security Warning
-    /// The `k` value MUST be:
-    /// - Cryptographically random
-    /// - Unique for every signature
-    /// - Never reused or predictable
-    ///
-    /// Failure to ensure this will compromise the private key.
-    pub async fn ecdsa_sign(
+    /// Prefer [`Self::ecdsa_sign`], which draws the nonce itself. See
+    /// [`Pka::ecdsa_sign_with_nonce_blocking`] for the requirements on `k`.
+    pub async fn ecdsa_sign_with_nonce(
         &mut self,
         curve: &EcdsaCurveParams,
         private_key: &[u8],

@@ -74,6 +74,7 @@ QEI:
 - fix: stm32/qei: `count()`, `reset()`, and `auto_reload` always used the 16-bit register view, so on 32-bit timers `reset()` only cleared the lower 16 bits of the counter (leaving the upper bits stale) and `auto_reload`/`count()` were truncated to `u16`; `Config`/`AdvancedConfig` are now generic over the timer instance and `auto_reload` uses `T::Word`, while `count()` returns `u32` so 32-bit timers work correctly across their full range (breaking change)
 
 PKA:
+- changed: stm32/pka: `Pka::ecdsa_sign` and `Pka::ecdsa_sign_blocking` draw the nonce from an `Rng` passed in; the forms taking it from the caller are `ecdsa_sign_with_nonce` and `ecdsa_sign_with_nonce_blocking`
 - feat: stm32/pka: extend ECC point buffer support to 640-bit operands (80-byte coordinates) in public point types and Jacobian conversion paths
 - feat: stm32/pka: register `embassy-crypto` P-256 and P-384 arithmetic drivers behind the `embassy-crypto-p256-arith` and `embassy-crypto-p384-arith` features
 - feat: stm32/pka: add `EcdsaCurveParams::nist_p384()`

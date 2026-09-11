@@ -377,7 +377,7 @@ fn sign<const N: usize, const L: usize>(
                     break;
                 }
             }
-            match pka.ecdsa_sign_blocking(curve, k, &nonce, digest, &mut r, &mut s) {
+            match pka.ecdsa_sign_with_nonce_blocking(curve, k, &nonce, digest, &mut r, &mut s) {
                 Ok(()) => return Ok(()),
                 // The engine reports a zero `r` or `s`, which another nonce fixes, the same
                 // way as an operation error.
