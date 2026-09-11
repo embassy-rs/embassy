@@ -360,10 +360,11 @@ pub fn aes_ecb<C: BlockCipher>(suite: &Suite<Ecb>) -> Outcome {
         |case| {
             let aes = C::new(case.key).ok_or("key rejected")?;
             let pt = &MESSAGE[..case.pt_len];
-            let mut buf = [0u8; MAX_MSG];
-            let buf = &mut buf[..case.pt_len];
-            let mut out = [0u8; MAX_MSG];
-            let out = &mut out[..case.pt_len];
+            // Offset by one byte: a DMA driver must cope with unaligned buffers.
+            let mut buf = [0u8; MAX_MSG + 1];
+            let buf = &mut buf[1..1 + case.pt_len];
+            let mut out = [0u8; MAX_MSG + 3];
+            let out = &mut out[3..3 + case.pt_len];
 
             buf.copy_from_slice(pt);
             aes.encrypt_blocks(buf).map_err(|_| "encrypt failed")?;
@@ -573,8 +574,9 @@ pub fn aes_ctr<C: Ctr>(suite: &Suite<vectors::Ctr>) -> Outcome {
         |case| {
             let iv: &[u8; 16] = case.iv.try_into().map_err(|_| "bad iv length")?;
             let pt = &MESSAGE[..case.pt_len];
-            let mut buf = [0u8; MAX_MSG];
-            let buf = &mut buf[..case.pt_len];
+            // Offset by one byte: a DMA driver must cope with unaligned buffers.
+            let mut buf = [0u8; MAX_MSG + 1];
+            let buf = &mut buf[1..1 + case.pt_len];
 
             buf.copy_from_slice(pt);
             let mut ctr = C::new(case.key, iv).ok_or("key rejected")?;
@@ -595,8 +597,8 @@ pub fn aes_ctr<C: Ctr>(suite: &Suite<vectors::Ctr>) -> Outcome {
                 return Err("decrypted plaintext mismatch");
             }
 
-            let mut out = [0u8; MAX_MSG];
-            let out = &mut out[..case.pt_len];
+            let mut out = [0u8; MAX_MSG + 3];
+            let out = &mut out[3..3 + case.pt_len];
             let mut ctr = C::new(case.key, iv).unwrap();
             ctr.apply_keystream_to(&pt[..5], &mut out[..5])
                 .map_err(|_| "apply_keystream_to failed")?;
@@ -674,8 +676,8 @@ pub fn chacha<C: ChaChaStream>(suite: &Suite<vectors::ChaCha>) -> Outcome {
                 return Err("decrypted plaintext mismatch");
             }
 
-            let mut out = [0u8; MAX_MSG];
-            let out = &mut out[..case.pt_len];
+            let mut out = [0u8; MAX_MSG + 3];
+            let out = &mut out[3..3 + case.pt_len];
             let mut c = C::with_counter(key, nonce, case.counter);
             let split = case.pt_len.min(5);
             c.apply_keystream_to(&pt[..split], &mut out[..split])
