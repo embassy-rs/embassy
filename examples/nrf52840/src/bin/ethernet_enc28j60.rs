@@ -8,6 +8,7 @@ use embassy_net::StackStorage;
 use embassy_net::tcp::{TcpListener, TcpSocket};
 use embassy_net_enc28j60::Enc28j60;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_nrf::mode::Async;
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::Spim;
 use embassy_nrf::{bind_interrupts, peripherals, spim};
@@ -41,7 +42,7 @@ async fn main(spawner: Spawner) {
 
     let mut config = spim::Config::default();
     config.frequency = spim::Frequency::M16;
-    let spi = spim::Spim::new(p.SPI3, Irqs, eth_sck, eth_miso, eth_mosi, config);
+    let spi = spim::Spim::new(p.SPI3, eth_sck, eth_mosi, eth_miso, Irqs, config);
     let cs = Output::new(eth_cs, Level::High, OutputDrive::Standard);
     let spi = ExclusiveDevice::new(spi, cs, Delay);
 
@@ -60,8 +61,9 @@ async fn main(spawner: Spawner) {
     let (stack, runner) = embassy_net::Stack::new(STACK.init(StackStorage::new()), seed);
 
     // Add the network interface to the stack.
-    static DEVICE: StaticCell<Enc28j60<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Output<'static>>> =
-        StaticCell::new();
+    static DEVICE: StaticCell<
+        Enc28j60<ExclusiveDevice<Spim<'static, Async>, Output<'static>, Delay>, Output<'static>>,
+    > = StaticCell::new();
     let iface = unwrap!(stack.add_iface(DEVICE.init(device)));
     iface.set_dhcpv4(Some(Default::default()));
 

@@ -126,8 +126,8 @@ async fn main(spawner: Spawner) {
         unsafe { peripherals::P0_01::steal() },
         Irqs,
         //unsafe { peripherals::P0_14::steal() },
-        config,
         unsafe { &mut *addr_of_mut!(TRACE_BUF) },
+        config,
     );
 
     static STATE: StaticCell<State> = StaticCell::new();

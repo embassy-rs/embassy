@@ -596,6 +596,9 @@ Rules:
   also expose an inherent `set_config(&mut self, config: &Config) -> Result<(), ConfigError>`.
 - Frequently-changed single settings may get a dedicated setter in addition
   (`set_baudrate(&mut self, baudrate: u32) -> Result<(), ConfigError>`).
+- Frequency fields are `Hertz`, unless the hardware only supports a fixed set of frequencies. In
+  that case use an enum of the supported values, so the setting can't fail and the user can see
+  what the hardware actually does (e.g. `spim::Config::frequency` on nRF).
 
 #### Checking Errors
 

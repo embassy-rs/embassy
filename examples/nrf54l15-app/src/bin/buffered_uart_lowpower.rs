@@ -32,12 +32,12 @@ async fn main(_spawner: Spawner) {
     loop {
         let mut u = BufferedUarte::new(
             p.SERIAL30.reborrow(),
-            p.P0_01.reborrow(),
             p.P0_00.reborrow(),
+            p.P0_01.reborrow(),
             Irqs,
-            config.clone(),
-            &mut rx_buffer,
             &mut tx_buffer,
+            &mut rx_buffer,
+            config,
         );
 
         info!("uarte initialized!");

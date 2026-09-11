@@ -13,11 +13,12 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
-use embedded_hal_1::i2c::Operation;
+pub use embedded_hal_1::i2c::Operation;
 pub use pac::twim::vals::Frequency;
 
 use crate::gpio::Pin as GpioPin;
 use crate::interrupt::typelevel::Interrupt;
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::twim::regs::RxMaxcnt;
 use crate::pac::twim::vals;
@@ -29,6 +30,7 @@ pub const DMA_SIZE: usize = crate::util::easy_dma_max!(RxMaxcnt, set_maxcnt, max
 
 /// TWIM config.
 #[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Config {
     /// Frequency
     pub frequency: Frequency,
@@ -134,31 +136,169 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
+/// Something that can be turned into an [`Operation`] for the duration of a transaction step.
+///
+/// This lets the `embedded-hal` 1.0 and 0.2 operation types share the transaction machinery.
+trait TransactionOp {
+    fn op(&mut self) -> Operation<'_>;
+}
+
+impl TransactionOp for Operation<'_> {
+    fn op(&mut self) -> Operation<'_> {
+        match self {
+            Operation::Read(buf) => Operation::Read(buf),
+            Operation::Write(buf) => Operation::Write(buf),
+        }
+    }
+}
+
+impl TransactionOp for embedded_hal_02::blocking::i2c::Operation<'_> {
+    fn op(&mut self) -> Operation<'_> {
+        match self {
+            embedded_hal_02::blocking::i2c::Operation::Read(buf) => Operation::Read(buf),
+            embedded_hal_02::blocking::i2c::Operation::Write(buf) => Operation::Write(buf),
+        }
+    }
+}
+
 /// TWI driver.
-pub struct Twim<'d> {
+pub struct Twim<'d, M: PeriMode> {
     r: pac::twim::Twim,
     state: &'static State,
     tx_ram_buffer: &'d mut [u8],
-    _p: PhantomData<&'d ()>,
+    _p: PhantomData<(&'d (), M)>,
 }
 
-impl<'d> Twim<'d> {
+impl<'d> Twim<'d, Async> {
     /// Create a new TWI driver.
     ///
     /// `tx_ram_buffer` is required if any write operations will be performed with data that is not in RAM.
     /// Usually this is static data that the compiler locates in flash instead of RAM. The `tx_ram_buffer`
     /// needs to be at least as large as the largest write operation that will be executed with a buffer
-    /// that is not in RAM. If all write operations will be performed from RAM, an empty buffer (`&[]`) may
+    /// that is not in RAM. If all write operations will be performed from RAM, an empty buffer (`&mut []`) may
     /// be used.
     pub fn new<T: Instance>(
-        _twim: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        sda: Peri<'d, impl GpioPin>,
+        twim: Peri<'d, T>,
         scl: Peri<'d, impl GpioPin>,
-        config: Config,
+        sda: Peri<'d, impl GpioPin>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_ram_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        let this = Self::new_inner(twim, scl, sda, tx_ram_buffer, config);
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
+        this
+    }
+
+    /// Wait for suspend or stop
+    async fn async_wait(&mut self) {
+        poll_fn(|cx| {
+            let r = self.r;
+            let s = self.state;
+
+            s.end_waker.register(cx.waker());
+            if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
+                // Events are cleared when setting up the next operation.
+                return Poll::Ready(());
+            }
+
+            Poll::Pending
+        })
+        .await
+    }
+
+    /// Execute the provided operations on the I2C bus.
+    ///
+    /// Each buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
+    ///
+    /// Consecutive `Operation::Read`s are not supported due to hardware
+    /// limitations.
+    ///
+    /// An `Operation::Write` following an `Operation::Read` must have a
+    /// non-empty buffer.
+    pub async fn transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        let mut first = true;
+        while !operations.is_empty() {
+            let remaining = operations.len();
+            let (window, _) = operations.split_at_mut(remaining.min(2));
+            let n = self.setup_operations(address, window, remaining, first, true)?;
+            self.async_wait().await;
+            self.check_operations(&window[..n])?;
+            first = false;
+            operations = &mut operations[n..];
+        }
+        Ok(())
+    }
+
+    /// Read from an I2C slave.
+    ///
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
+    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        self.transaction(address, &mut [Operation::Read(buffer)]).await
+    }
+
+    /// Write to an I2C slave.
+    ///
+    /// The buffer must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
+    pub async fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
+        self.transaction(address, &mut [Operation::Write(buffer)]).await
+    }
+
+    /// Write data to an I2C slave, then read data from the slave without
+    /// triggering a stop condition between the two.
+    ///
+    /// The buffers must have a length of at most 255 bytes on the nRF52832
+    /// and at most 65535 bytes on the nRF52840.
+    pub async fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Error> {
+        self.transaction(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
+            .await
+    }
+}
+
+impl<'d> Twim<'d, Blocking> {
+    /// Create a new blocking TWI driver.
+    ///
+    /// `tx_ram_buffer` is required if any write operations will be performed with data that is not in RAM.
+    /// Usually this is static data that the compiler locates in flash instead of RAM. The `tx_ram_buffer`
+    /// needs to be at least as large as the largest write operation that will be executed with a buffer
+    /// that is not in RAM. If all write operations will be performed from RAM, an empty buffer (`&mut []`) may
+    /// be used.
+    pub fn new_blocking<T: Instance>(
+        twim: Peri<'d, T>,
+        scl: Peri<'d, impl GpioPin>,
+        sda: Peri<'d, impl GpioPin>,
+        tx_ram_buffer: &'d mut [u8],
+        config: Config,
+    ) -> Self {
+        Self::new_inner(twim, scl, sda, tx_ram_buffer, config)
+    }
+}
+
+impl<'d, M: PeriMode> Twim<'d, M> {
+    fn new_inner<T: Instance>(
+        _twim: Peri<'d, T>,
+        scl: Peri<'d, impl GpioPin>,
+        sda: Peri<'d, impl GpioPin>,
+        tx_ram_buffer: &'d mut [u8],
+        config: Config,
     ) -> Self {
         let r = T::regs();
+
+        let mut twim = Self {
+            r,
+            state: T::state(),
+            tx_ram_buffer,
+            _p: PhantomData,
+        };
+
+        // Apply (and validate) the runtime peripheral configuration before touching any pins.
+        twim.set_config(&config);
 
         // Configure pins
         sda.set_high();
@@ -211,23 +351,15 @@ impl<'d> Twim<'d> {
         // Enable TWIM instance.
         r.enable().write(|w| w.set_enable(vals::Enable::Enabled));
 
-        let mut twim = Self {
-            r: T::regs(),
-            state: T::state(),
-            tx_ram_buffer,
-            _p: PhantomData {},
-        };
-
-        // Apply runtime peripheral configuration
-        Self::set_config(&mut twim, &config).unwrap();
-
         // Disable all events interrupts
         r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
 
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
-
         twim
+    }
+
+    /// Reconfigure the driver at runtime.
+    pub fn set_config(&mut self, config: &Config) {
+        self.r.frequency().write(|w| w.set_frequency(config.frequency));
     }
 
     /// Set TX buffer, checking that it is in RAM and has suitable length.
@@ -379,28 +511,18 @@ impl<'d> Twim<'d> {
         Ok(())
     }
 
-    /// Wait for suspend or stop
-    async fn async_wait(&mut self) {
-        poll_fn(|cx| {
-            let r = self.r;
-            let s = self.state;
-
-            s.end_waker.register(cx.waker());
-            if r.events_suspended().read() != 0 || r.events_stopped().read() != 0 {
-                // Events are cleared when setting up the next operation.
-                return Poll::Ready(());
-            }
-
-            Poll::Pending
-        })
-        .await
-    }
-
+    /// Set up and start the next one or two operations of a transaction.
+    ///
+    /// `operations` is a window over the first `min(remaining, 2)` operations still to be
+    /// executed, and `remaining` is the total number of operations still to be executed
+    /// (including the ones in the window). `first` is whether this is the first step of the
+    /// transaction. Returns how many operations were started.
     fn setup_operations(
         &mut self,
         address: u8,
         operations: &mut [Operation<'_>],
-        last_op: Option<&Operation<'_>>,
+        remaining: usize,
+        first: bool,
         inten: bool,
     ) -> Result<usize, Error> {
         let r = self.r;
@@ -430,11 +552,11 @@ impl<'d> Twim<'d> {
 
         assert!(!operations.is_empty());
         match operations {
-            [Operation::Read(_), Operation::Read(_), ..] => {
+            [Operation::Read(_), Operation::Read(_)] => {
                 panic!("Consecutive read operations are not supported!")
             }
-            [Operation::Read(rd_buffer), Operation::Write(wr_buffer), rest @ ..] => {
-                let stop = rest.is_empty();
+            [Operation::Read(rd_buffer), Operation::Write(wr_buffer)] => {
+                let stop = remaining == 2;
 
                 // Set up DMA buffers.
                 unsafe {
@@ -453,7 +575,7 @@ impl<'d> Twim<'d> {
 
                 // Start read+write operation.
                 r.tasks_dma().rx().start().write_value(1);
-                if last_op.is_some() {
+                if !first {
                     r.tasks_resume().write_value(1);
                 }
 
@@ -475,7 +597,7 @@ impl<'d> Twim<'d> {
 
                 // Start read operation.
                 r.tasks_dma().rx().start().write_value(1);
-                if last_op.is_some() {
+                if !first {
                     r.tasks_resume().write_value(1);
                 }
 
@@ -487,7 +609,7 @@ impl<'d> Twim<'d> {
                 Ok(1)
             }
             [Operation::Write(wr_buffer), Operation::Read(rd_buffer)]
-                if !wr_buffer.is_empty() && !rd_buffer.is_empty() =>
+                if remaining == 2 && !wr_buffer.is_empty() && !rd_buffer.is_empty() =>
             {
                 // Set up DMA buffers.
                 unsafe {
@@ -502,14 +624,14 @@ impl<'d> Twim<'d> {
                 });
 
                 r.tasks_dma().tx().start().write_value(1);
-                if last_op.is_some() {
+                if !first {
                     r.tasks_resume().write_value(1);
                 }
 
                 Ok(2)
             }
-            [Operation::Write(buffer), rest @ ..] => {
-                let stop = rest.is_empty();
+            [Operation::Write(buffer), ..] => {
+                let stop = remaining == 1;
 
                 // Set up DMA buffers.
                 unsafe {
@@ -526,7 +648,7 @@ impl<'d> Twim<'d> {
                 });
 
                 r.tasks_dma().tx().start().write_value(1);
-                if last_op.is_some() {
+                if !first {
                     r.tasks_resume().write_value(1);
                 }
 
@@ -541,7 +663,7 @@ impl<'d> Twim<'d> {
 
                 Ok(1)
             }
-            [] => unreachable!(),
+            _ => unreachable!(),
         }
     }
 
@@ -567,6 +689,47 @@ impl<'d> Twim<'d> {
         Ok(())
     }
 
+    /// Run a blocking transaction, using `wait` to wait for each step to complete.
+    fn blocking_transaction_inner<O: TransactionOp>(
+        &mut self,
+        address: u8,
+        mut operations: &mut [O],
+        mut wait: impl FnMut(&mut Self) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let mut first = true;
+        while !operations.is_empty() {
+            let remaining = operations.len();
+            let n = match operations {
+                [a] => {
+                    let mut window = [a.op()];
+                    self.blocking_step(address, &mut window, remaining, first, &mut wait)?
+                }
+                [a, b, ..] => {
+                    let mut window = [a.op(), b.op()];
+                    self.blocking_step(address, &mut window, remaining, first, &mut wait)?
+                }
+                [] => unreachable!(),
+            };
+            first = false;
+            operations = &mut operations[n..];
+        }
+        Ok(())
+    }
+
+    fn blocking_step(
+        &mut self,
+        address: u8,
+        window: &mut [Operation<'_>],
+        remaining: usize,
+        first: bool,
+        wait: &mut impl FnMut(&mut Self) -> Result<(), Error>,
+    ) -> Result<usize, Error> {
+        let n = self.setup_operations(address, window, remaining, first, false)?;
+        wait(self)?;
+        self.check_operations(&window[..n])?;
+        Ok(n)
+    }
+
     // ===========================================
 
     /// Execute the provided operations on the I2C bus.
@@ -579,17 +742,11 @@ impl<'d> Twim<'d> {
     ///
     /// An `Operation::Write` following an `Operation::Read` must have a
     /// non-empty buffer.
-    pub fn blocking_transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let mut last_op = None;
-        while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, last_op, false)?;
-            let (in_progress, rest) = operations.split_at_mut(ops);
-            self.blocking_wait();
-            self.check_operations(in_progress)?;
-            last_op = in_progress.last();
-            operations = rest;
-        }
-        Ok(())
+    pub fn blocking_transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        self.blocking_transaction_inner(address, operations, |this| {
+            this.blocking_wait();
+            Ok(())
+        })
     }
 
     /// Execute the provided operations on the I2C bus with timeout.
@@ -599,42 +756,10 @@ impl<'d> Twim<'d> {
     pub fn blocking_transaction_timeout(
         &mut self,
         address: u8,
-        mut operations: &mut [Operation<'_>],
+        operations: &mut [Operation<'_>],
         timeout: Duration,
     ) -> Result<(), Error> {
-        let mut last_op = None;
-        while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, last_op, false)?;
-            let (in_progress, rest) = operations.split_at_mut(ops);
-            self.blocking_wait_timeout(timeout)?;
-            self.check_operations(in_progress)?;
-            last_op = in_progress.last();
-            operations = rest;
-        }
-        Ok(())
-    }
-
-    /// Execute the provided operations on the I2C bus.
-    ///
-    /// Each buffer must have a length of at most 255 bytes on the nRF52832
-    /// and at most 65535 bytes on the nRF52840.
-    ///
-    /// Consecutive `Operation::Read`s are not supported due to hardware
-    /// limitations.
-    ///
-    /// An `Operation::Write` following an `Operation::Read` must have a
-    /// non-empty buffer.
-    pub async fn transaction(&mut self, address: u8, mut operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let mut last_op = None;
-        while !operations.is_empty() {
-            let ops = self.setup_operations(address, operations, last_op, true)?;
-            let (in_progress, rest) = operations.split_at_mut(ops);
-            self.async_wait().await;
-            self.check_operations(in_progress)?;
-            last_op = in_progress.last();
-            operations = rest;
-        }
-        Ok(())
+        self.blocking_transaction_inner(address, operations, |this| this.blocking_wait_timeout(timeout))
     }
 
     // ===========================================
@@ -674,20 +799,18 @@ impl<'d> Twim<'d> {
         self.blocking_transaction_timeout(address, &mut [Operation::Write(buffer)], timeout)
     }
 
-    /// Read from an I2C slave.
+    /// Read from an I2C slave with timeout.
     ///
-    /// The buffer must have a length of at most 255 bytes on the nRF52832
-    /// and at most 65535 bytes on the nRF52840.
+    /// See [Self::blocking_read].
     #[cfg(feature = "time")]
     pub fn blocking_read_timeout(&mut self, address: u8, buffer: &mut [u8], timeout: Duration) -> Result<(), Error> {
         self.blocking_transaction_timeout(address, &mut [Operation::Read(buffer)], timeout)
     }
 
     /// Write data to an I2C slave, then read data from the slave without
-    /// triggering a stop condition between the two.
+    /// triggering a stop condition between the two, with timeout.
     ///
-    /// The buffers must have a length of at most 255 bytes on the nRF52832
-    /// and at most 65535 bytes on the nRF52840.
+    /// See [Self::blocking_write_read].
     #[cfg(feature = "time")]
     pub fn blocking_write_read_timeout(
         &mut self,
@@ -702,37 +825,9 @@ impl<'d> Twim<'d> {
             timeout,
         )
     }
-
-    // ===========================================
-
-    /// Read from an I2C slave.
-    ///
-    /// The buffer must have a length of at most 255 bytes on the nRF52832
-    /// and at most 65535 bytes on the nRF52840.
-    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.transaction(address, &mut [Operation::Read(buffer)]).await
-    }
-
-    /// Write to an I2C slave.
-    ///
-    /// The buffer must have a length of at most 255 bytes on the nRF52832
-    /// and at most 65535 bytes on the nRF52840.
-    pub async fn write(&mut self, address: u8, buffer: &[u8]) -> Result<(), Error> {
-        self.transaction(address, &mut [Operation::Write(buffer)]).await
-    }
-
-    /// Write data to an I2C slave, then read data from the slave without
-    /// triggering a stop condition between the two.
-    ///
-    /// The buffers must have a length of at most 255 bytes on the nRF52832
-    /// and at most 65535 bytes on the nRF52840.
-    pub async fn write_read(&mut self, address: u8, wr_buffer: &[u8], rd_buffer: &mut [u8]) -> Result<(), Error> {
-        self.transaction(address, &mut [Operation::Write(wr_buffer), Operation::Read(rd_buffer)])
-            .await
-    }
 }
 
-impl<'a> Drop for Twim<'a> {
+impl<'d, M: PeriMode> Drop for Twim<'d, M> {
     fn drop(&mut self) {
         trace!("twim drop");
 
@@ -795,7 +890,7 @@ macro_rules! impl_twim {
 mod eh02 {
     use super::*;
 
-    impl<'a> embedded_hal_02::blocking::i2c::Write for Twim<'a> {
+    impl<'d, M: PeriMode> embedded_hal_02::blocking::i2c::Write for Twim<'d, M> {
         type Error = Error;
 
         fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Error> {
@@ -803,7 +898,7 @@ mod eh02 {
         }
     }
 
-    impl<'a> embedded_hal_02::blocking::i2c::Read for Twim<'a> {
+    impl<'d, M: PeriMode> embedded_hal_02::blocking::i2c::Read for Twim<'d, M> {
         type Error = Error;
 
         fn read(&mut self, addr: u8, bytes: &mut [u8]) -> Result<(), Error> {
@@ -811,11 +906,26 @@ mod eh02 {
         }
     }
 
-    impl<'a> embedded_hal_02::blocking::i2c::WriteRead for Twim<'a> {
+    impl<'d, M: PeriMode> embedded_hal_02::blocking::i2c::WriteRead for Twim<'d, M> {
         type Error = Error;
 
         fn write_read<'w>(&mut self, addr: u8, bytes: &'w [u8], buffer: &'w mut [u8]) -> Result<(), Error> {
             self.blocking_write_read(addr, bytes, buffer)
+        }
+    }
+
+    impl<'d, M: PeriMode> embedded_hal_02::blocking::i2c::Transactional for Twim<'d, M> {
+        type Error = Error;
+
+        fn exec(
+            &mut self,
+            address: u8,
+            operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
+        ) -> Result<(), Self::Error> {
+            self.blocking_transaction_inner(address, operations, |this| {
+                this.blocking_wait();
+                Ok(())
+            })
         }
     }
 }
@@ -840,29 +950,26 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<'d> embedded_hal_1::i2c::ErrorType for Twim<'d> {
+impl<'d, M: PeriMode> embedded_hal_1::i2c::ErrorType for Twim<'d, M> {
     type Error = Error;
 }
 
-impl<'d> embedded_hal_1::i2c::I2c for Twim<'d> {
+impl<'d, M: PeriMode> embedded_hal_1::i2c::I2c for Twim<'d, M> {
     fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
         self.blocking_transaction(address, operations)
     }
 }
 
-impl<'d> embedded_hal_async::i2c::I2c for Twim<'d> {
+impl<'d> embedded_hal_async::i2c::I2c for Twim<'d, Async> {
     async fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Self::Error> {
         self.transaction(address, operations).await
     }
 }
 
-impl<'d> SetConfig for Twim<'d> {
+impl<'d, M: PeriMode> SetConfig for Twim<'d, M> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = core::convert::Infallible;
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
-        let r = self.r;
-        r.frequency().write(|w| w.set_frequency(config.frequency));
-
-        Ok(())
+        Ok(self.set_config(config))
     }
 }

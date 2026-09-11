@@ -8,7 +8,9 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Flex, Input, Level, Output, OutputDrive, Pin as GpioPin, Pull, SealedPin as _};
+use crate::gpio::{
+    AnyPin, Flex, Input, Level, Output, OutputDrive, OutputOpenDrain, Pin as GpioPin, Pull, SealedPin as _,
+};
 use crate::interrupt::InterruptExt;
 #[cfg(not(feature = "_nrf51"))]
 use crate::pac::gpio::vals::Detectmode;
@@ -644,6 +646,33 @@ impl<'d> Input<'d> {
     }
 }
 
+impl<'d> OutputOpenDrain<'d> {
+    /// Wait until the pin is high. If it is already high, return immediately.
+    pub async fn wait_for_high(&mut self) {
+        self.pin.wait_for_high().await
+    }
+
+    /// Wait until the pin is low. If it is already low, return immediately.
+    pub async fn wait_for_low(&mut self) {
+        self.pin.wait_for_low().await
+    }
+
+    /// Wait for the pin to undergo a transition from low to high.
+    pub async fn wait_for_rising_edge(&mut self) {
+        self.pin.wait_for_rising_edge().await
+    }
+
+    /// Wait for the pin to undergo a transition from high to low.
+    pub async fn wait_for_falling_edge(&mut self) {
+        self.pin.wait_for_falling_edge().await
+    }
+
+    /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
+    pub async fn wait_for_any_edge(&mut self) {
+        self.pin.wait_for_any_edge().await
+    }
+}
+
 impl<'d> Flex<'d> {
     /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
@@ -877,6 +906,28 @@ impl<'d> embedded_hal_1::digital::InputPin for InputChannel<'d> {
 }
 
 impl<'d> embedded_hal_async::digital::Wait for Input<'d> {
+    async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_high().await)
+    }
+
+    async fn wait_for_low(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_low().await)
+    }
+
+    async fn wait_for_rising_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_rising_edge().await)
+    }
+
+    async fn wait_for_falling_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_falling_edge().await)
+    }
+
+    async fn wait_for_any_edge(&mut self) -> Result<(), Self::Error> {
+        Ok(self.wait_for_any_edge().await)
+    }
+}
+
+impl<'d> embedded_hal_async::digital::Wait for OutputOpenDrain<'d> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         Ok(self.wait_for_high().await)
     }

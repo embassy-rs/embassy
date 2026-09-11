@@ -10,6 +10,7 @@ use embassy_executor::Spawner;
 use embassy_net::StackStorage;
 use embassy_net_enc28j60::Enc28j60;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
+use embassy_nrf::mode::Async;
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};
 use embassy_nrf::{bind_interrupts, peripherals};
@@ -23,7 +24,7 @@ bind_interrupts!(struct Irqs {
     RNG => embassy_nrf::rng::InterruptHandler<peripherals::RNG>;
 });
 
-type MyDriver = Enc28j60<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Output<'static>>;
+type MyDriver = Enc28j60<ExclusiveDevice<Spim<'static, Async>, Output<'static>, Delay>, Output<'static>>;
 
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static>) -> ! {
@@ -44,7 +45,7 @@ async fn main(spawner: Spawner) {
 
     let mut config = spim::Config::default();
     config.frequency = spim::Frequency::M16;
-    let spi = spim::Spim::new(p.SPI3, Irqs, eth_sck, eth_miso, eth_mosi, config);
+    let spi = spim::Spim::new(p.SPI3, eth_sck, eth_mosi, eth_miso, Irqs, config);
     let cs = Output::new(eth_cs, Level::High, OutputDrive::Standard);
     let spi = ExclusiveDevice::new(spi, cs, Delay);
 

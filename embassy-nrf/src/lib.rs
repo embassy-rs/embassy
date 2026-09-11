@@ -201,6 +201,7 @@ pub mod spis;
 pub mod sqspi;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
+pub mod time;
 pub mod timer;
 #[cfg(not(feature = "_nrf51"))]
 pub mod twim;

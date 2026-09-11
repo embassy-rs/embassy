@@ -105,7 +105,7 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     }
 }
 
-/// A flash implementation that wraps any flash and will pet a watchdog when touching flash.
+/// A flash implementation that wraps any flash and will feed a watchdog when touching flash.
 pub struct WatchdogFlash<FLASH> {
     flash: FLASH,
     wdt: wdt::WatchdogHandle,
@@ -137,11 +137,11 @@ impl<FLASH: NorFlash> NorFlash for WatchdogFlash<FLASH> {
     const ERASE_SIZE: usize = FLASH::ERASE_SIZE;
 
     fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.wdt.pet();
+        self.wdt.feed();
         self.flash.erase(from, to)
     }
     fn write(&mut self, offset: u32, data: &[u8]) -> Result<(), Self::Error> {
-        self.wdt.pet();
+        self.wdt.feed();
         self.flash.write(offset, data)
     }
 }
@@ -149,7 +149,7 @@ impl<FLASH: NorFlash> NorFlash for WatchdogFlash<FLASH> {
 impl<FLASH: ReadNorFlash> ReadNorFlash for WatchdogFlash<FLASH> {
     const READ_SIZE: usize = FLASH::READ_SIZE;
     fn read(&mut self, offset: u32, data: &mut [u8]) -> Result<(), Self::Error> {
-        self.wdt.pet();
+        self.wdt.feed();
         self.flash.read(offset, data)
     }
     fn capacity(&self) -> usize {

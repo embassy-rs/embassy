@@ -10,6 +10,7 @@ use embassy_executor::Spawner;
 use embassy_net::StackStorage;
 use embassy_net_esp_hosted as hosted;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::mode::Async;
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};
 use embassy_nrf::{bind_interrupts, peripherals};
@@ -32,7 +33,7 @@ const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 async fn wifi_task(
     runner: hosted::Runner<
         'static,
-        SpiInterface<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Input<'static>>,
+        SpiInterface<ExclusiveDevice<Spim<'static, Async>, Output<'static>, Delay>, Input<'static>>,
         Output<'static>,
     >,
 ) -> ! {
@@ -63,7 +64,7 @@ async fn main(spawner: Spawner) {
     let mut config = spim::Config::default();
     config.frequency = spim::Frequency::M32;
     config.mode = spim::MODE_2; // !!!
-    let spi = spim::Spim::new(p.SPI3, Irqs, sck, miso, mosi, config);
+    let spi = spim::Spim::new(p.SPI3, sck, mosi, miso, Irqs, config);
     let spi = ExclusiveDevice::new(spi, cs, Delay);
 
     let iface = SpiInterface::new(spi, handshake, ready);

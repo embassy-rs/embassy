@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Running!");
 
-    let mut spis = Spis::new(p.SPI2, Irqs, p.P0_31, p.P0_29, p.P0_28, p.P0_30, Config::default());
+    let mut spis = Spis::new(p.SPI2, p.P0_29, p.P0_30, p.P0_28, p.P0_31, Irqs, Config::default());
 
     loop {
         let mut rx_buf = [0_u8; 64];

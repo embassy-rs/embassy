@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
     config.capacity = 8 * 1024 * 1024;
 
     let mut q = unwrap!(sqspi::Sqspi::new(
-        p.VPR, Irqs, FW, ram, p.P2_01, p.P2_05, p.P2_02, p.P2_04, p.P2_03, p.P2_00, config,
+        p.VPR, p.P2_01, p.P2_05, p.P2_02, p.P2_04, p.P2_03, p.P2_00, Irqs, FW, ram, config,
     ));
     info!("driver ready");
 
