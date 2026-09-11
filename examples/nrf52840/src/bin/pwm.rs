@@ -72,7 +72,7 @@ static DUTY: [u16; 1024] = [
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
-    let mut pwm = SimplePwm::new_4ch(p.PWM0, p.P0_13, p.P0_14, p.P0_16, p.P0_15, &Default::default());
+    let mut pwm = SimplePwm::new_4ch(p.PWM0, p.P0_13, p.P0_14, p.P0_16, p.P0_15, Default::default());
     pwm.set_prescaler(Prescaler::Div1);
     pwm.set_max_duty(32767);
     info!("pwm initialized!");

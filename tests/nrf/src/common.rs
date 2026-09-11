@@ -165,16 +165,16 @@ macro_rules! buffered_uarte_new {
     ($p:ident, $config:expr, $rx_buffer:expr, $tx_buffer:expr) => {
         BufferedUarte::new(
             peri!($p, UART0).reborrow(),
+            peri!($p, PIN_B).reborrow(),
+            peri!($p, PIN_A).reborrow(),
             $p.TIMER0.reborrow(),
             $p.PPI_CH0.reborrow(),
             $p.PPI_CH1.reborrow(),
             $p.PPI_GROUP0.reborrow(),
-            peri!($p, PIN_A).reborrow(),
-            peri!($p, PIN_B).reborrow(),
             irqs!(UART0_BUFFERED),
-            $config,
-            $rx_buffer,
             $tx_buffer,
+            $rx_buffer,
+            $config,
         )
     };
 }
@@ -185,12 +185,12 @@ macro_rules! buffered_uarte_new {
     ($p:ident, $config:expr, $rx_buffer:expr, $tx_buffer:expr) => {
         BufferedUarte::new(
             peri!($p, UART0).reborrow(),
-            peri!($p, PIN_A).reborrow(),
             peri!($p, PIN_B).reborrow(),
+            peri!($p, PIN_A).reborrow(),
             irqs!(UART0_BUFFERED),
-            $config,
-            $rx_buffer,
             $tx_buffer,
+            $rx_buffer,
+            $config,
         )
     };
 }
@@ -201,14 +201,14 @@ macro_rules! buffered_uarte_rx_new {
     ($p:ident, $rxd:expr, $config:expr, $rx_buffer:expr) => {
         BufferedUarteRx::new(
             peri!($p, UART0).reborrow(),
+            $rxd,
             $p.TIMER0.reborrow(),
             $p.PPI_CH0.reborrow(),
             $p.PPI_CH1.reborrow(),
             $p.PPI_GROUP0.reborrow(),
             irqs!(UART0_BUFFERED),
-            $rxd,
-            $config,
             $rx_buffer,
+            $config,
         )
     };
 }
@@ -219,10 +219,10 @@ macro_rules! buffered_uarte_rx_new {
     ($p:ident, $rxd:expr, $config:expr, $rx_buffer:expr) => {
         BufferedUarteRx::new(
             peri!($p, UART0).reborrow(),
-            irqs!(UART0_BUFFERED),
             $rxd,
-            $config,
+            irqs!(UART0_BUFFERED),
             $rx_buffer,
+            $config,
         )
     };
 }

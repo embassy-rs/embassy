@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner) {
     let mut config = spim::Config::default();
     config.frequency = spim::Frequency::M16;
 
-    let mut spim = spim::Spim::new(p.SPI3, Irqs, p.P0_29, p.P0_28, p.P0_30, config);
+    let mut spim = spim::Spim::new(p.SPI3, p.P0_29, p.P0_30, p.P0_28, Irqs, config);
 
     let mut ncs = Output::new(p.P0_31, Level::High, OutputDrive::Standard);
 

@@ -37,7 +37,7 @@ async fn main(_spawner: Spawner) {
     for wait in 1..=TIMEOUT_S {
         info!("Waiting {} seconds ...", wait);
         Timer::after_secs(wait as u64).await;
-        handle.pet();
+        handle.feed();
         info!("Pet watchdog");
     }
 }
