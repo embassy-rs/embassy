@@ -6,6 +6,8 @@
 pub mod associations;
 /// DMA functions
 pub mod dma;
+/// Channel/filter splits - generated from a per-shape table
+pub mod splits;
 /// Type-system
 pub mod types;
 
@@ -21,6 +23,7 @@ pub use dma::*;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use interrupt::typelevel::Interrupt;
+pub use splits::*;
 pub use types::*;
 
 use crate::dfsdm::capability::HasDelay;
@@ -650,7 +653,7 @@ where
     /// previous transceiver can be mutated afterwards. Since this may change
     /// the lifetime of the borrows, it consumes and returns a new `Filter`
     /// rather than mutating in place. This is pure borrow-checker bookkeeping,
-    /// not a hardware requirement — see [`FilterRegular::assign_transceiver`]
+    /// not a hardware requirement - see [`FilterRegular::assign_transceiver`]
     /// for the in-place alternative when the lifetime doesn't need to change.
 
     pub fn replace_regular_transceiver<'new_reg>(
@@ -687,7 +690,7 @@ where
     /// previous transceivers can be mutated afterwards. Since this may change
     /// the lifetime of the borrows, it consumes and returns a new `Filter`
     /// rather than mutating in place. This is pure borrow-checker bookkeeping,
-    /// not a hardware requirement — see [`FilterInjected::assign_transceivers`]
+    /// not a hardware requirement - see [`FilterInjected::assign_transceivers`]
     /// for the in-place alternative when the lifetime doesn't need to change.
     pub fn replace_injected_transceivers<'new_inj, const N: usize>(
         self,
@@ -1027,7 +1030,7 @@ where
 
     /// Enables or disables regular end-of-conversion interrupts.
     pub(crate) fn set_regular_end_of_conversion_interrupt(enabled: bool) {
-        // RMW'd from both ISR and thread (the ISR clears its own IE here) — cs is load-bearing.
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs()
                 .flt(M::CHANNEL.index())
@@ -1038,7 +1041,7 @@ where
 
     /// Enables or disables injected end-of-conversion interrupts.
     pub(crate) fn set_injected_end_of_conversion_interrupt(enabled: bool) {
-        // RMW'd from both ISR and thread (the ISR clears its own IE here) — cs is load-bearing.
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs()
                 .flt(M::CHANNEL.index())
@@ -1363,7 +1366,7 @@ where
         //    detector IEs (SCDIE/CKABIE) are already armed by waiting tasks, any
         //    pending event is handled safely by the same handler (flag clear +
         //    no-op wake). The stale-NVIC pending case was cleared by `unpend()`
-        //    above — unpend discards only orphaned pending state; live sources
+        //    above - unpend discards only orphaned pending state; live sources
         //    re-pend because DFSDM's lines are level-asserted while `flag && IE`
         //    hold, and their events live in the ISR flags, not the pending bit.
         unsafe {
@@ -1414,7 +1417,7 @@ where
         //    detector IEs (SCDIE/CKABIE) are already armed by waiting tasks, any
         //    pending event is handled safely by the same handler (flag clear +
         //    no-op wake). The stale-NVIC pending case was cleared by `unpend()`
-        //    above — unpend discards only orphaned pending state; live sources
+        //    above - unpend discards only orphaned pending state; live sources
         //    re-pend because DFSDM's lines are level-asserted while `flag && IE`
         //    hold, and their events live in the ISR flags, not the pending bit.
         unsafe {
@@ -1705,7 +1708,7 @@ where
     SN: PinSet,
 {
     /// SPI input over this channel's own DATIN pin (DATMPX=0), clock supplied
-    /// by our own CKOUT — only meaningful with `OutputEnabled`
+    /// by our own CKOUT - only meaningful with `OutputEnabled`
     /// (`InternalSpiMode` picks rising/falling or the half-rate edges).
     pub fn build_spi_int<'a, 'd>(
         mut self,
@@ -1891,7 +1894,7 @@ where
     {
         let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
 
-        // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW — same cs discipline.
+        // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW - same cs discipline.
         critical_section::with(|_cs| {
             T::regs()
                 .flt(M::CHANNEL.index())
@@ -1902,7 +1905,7 @@ where
 
     /// Enables or disables analog watchdog interrupts.
     pub(crate) fn set_analog_watchdog_interrupt(enabled: bool) {
-        // RMW'd from both ISR and thread (the ISR clears its own IE here) — cs is load-bearing.
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs().flt(M::CHANNEL.index()).cr2().modify(|w| w.set_awdie(enabled));
         });
@@ -1967,7 +1970,7 @@ where
     {
         let filterword = transceivers.iter().fold(0u8, |acc, tcv| acc | (1 << tcv.index()));
 
-        // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW — same cs discipline.
+        // thread-only writes, but full-register RMW on CR2 competes with the ISR's IE RMW - same cs discipline.
         critical_section::with(|_cs| {
             T::regs()
                 .flt(M::CHANNEL.index())
@@ -2146,7 +2149,7 @@ where
 
     /// Enables or disables short-circuit detector interrupts.
     pub(crate) fn set_short_circuit_detector_interrupt(enabled: bool) {
-        // RMW'd from both ISR and thread (the ISR clears its own IE here) — cs is load-bearing.
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs().flt(0).cr2().modify(|w| w.set_scdie(enabled));
         });
@@ -2251,7 +2254,7 @@ where
 
     /// Enables or disables clock absence interrupts.
     pub(crate) fn set_clock_absence_interrupt(enabled: bool) {
-        // RMW'd from both ISR and thread (the ISR clears its own IE here) — cs is load-bearing.
+        // RMW'd from both ISR and thread (the ISR clears its own IE here) - cs is load-bearing.
         critical_section::with(|_cs| {
             T::regs().flt(0).cr2().modify(|w| w.set_ckabie(enabled));
         });
@@ -2329,462 +2332,6 @@ where
     /// Declare this channel as pinless (same as [`NoPinsCfg`]).
     pub fn none(self) -> NoPinsCfg {
         NoPinsCfg
-    }
-}
-
-/// Selectors for a 2-channel DFSDM instance.
-///
-/// NOTE: must never gain a `Drop` impl - partial moves out of it must remain legal.
-pub struct ChannelSelectors2<T: Instance> {
-    /// Selector for channel 0
-    pub ch0: Sel<T, Tcv0>,
-    /// Selector for channel 1
-    pub ch1: Sel<T, Tcv1>,
-}
-
-impl<T: Instance> ChannelSelectors2<T> {
-    pub(crate) fn new() -> Self {
-        Self {
-            ch0: Sel { _m: PhantomData },
-            ch1: Sel { _m: PhantomData },
-        }
-    }
-}
-
-/// Selectors for a 4-channel DFSDM instance.
-///
-/// NOTE: must never gain a `Drop` impl - partial moves out of it must remain legal.
-pub struct ChannelSelectors4<T: Instance> {
-    /// Selector for channel 0
-    pub ch0: Sel<T, Tcv0>,
-    /// Selector for channel 1
-    pub ch1: Sel<T, Tcv1>,
-    /// Selector for channel 2
-    pub ch2: Sel<T, Tcv2>,
-    /// Selector for channel 3
-    pub ch3: Sel<T, Tcv3>,
-}
-
-impl<T: Instance> ChannelSelectors4<T> {
-    pub(crate) fn new() -> Self {
-        Self {
-            ch0: Sel { _m: PhantomData },
-            ch1: Sel { _m: PhantomData },
-            ch2: Sel { _m: PhantomData },
-            ch3: Sel { _m: PhantomData },
-        }
-    }
-}
-
-/// Selectors for all channels of an 8-channel DFSDM instance.
-///
-/// NOTE: must never gain a `Drop` impl - partial moves out of it
-/// (`s.ch0.datin(..)`) must remain legal.
-pub struct ChannelSelectors8<T: Instance> {
-    /// Selector for channel 0
-    pub ch0: Sel<T, Tcv0>,
-    /// Selector for channel 1
-    pub ch1: Sel<T, Tcv1>,
-    /// Selector for channel 2
-    pub ch2: Sel<T, Tcv2>,
-    /// Selector for channel 3
-    pub ch3: Sel<T, Tcv3>,
-    /// Selector for channel 4
-    pub ch4: Sel<T, Tcv4>,
-    /// Selector for channel 5
-    pub ch5: Sel<T, Tcv5>,
-    /// Selector for channel 6
-    pub ch6: Sel<T, Tcv6>,
-    /// Selector for channel 7
-    pub ch7: Sel<T, Tcv7>,
-}
-
-impl<T: Instance> ChannelSelectors8<T> {
-    pub(crate) fn new() -> Self {
-        Self {
-            ch0: Sel { _m: PhantomData },
-            ch1: Sel { _m: PhantomData },
-            ch2: Sel { _m: PhantomData },
-            ch3: Sel { _m: PhantomData },
-            ch4: Sel { _m: PhantomData },
-            ch5: Sel { _m: PhantomData },
-            ch6: Sel { _m: PhantomData },
-            ch7: Sel { _m: PhantomData },
-        }
-    }
-}
-
-// =============================================================================
-// Splitting
-// =============================================================================
-
-pub struct DfsdmSplit2Ch1Flt<T, C, S0, S1>
-where
-    T: Instance + FilterInterrupt<Flt0>,
-    C: ClockOutputMode,
-    S0: PinSet,
-    S1: PinSet,
-{
-    pub detectors: DetectorsBuilder<T>,
-    pub ch0: TransceiverBuilder<T, Tcv0, C, S0, S1>, // neighbor = ch1
-    pub ch1: TransceiverBuilder<T, Tcv1, C, S1, S0>, // neighbor = ch0 (wrap!)
-    pub flt0: FilterBuilder<T, Flt0>,
-}
-
-pub struct DfsdmSplit8Ch8Flt<T, C, S0, S1, S2, S3, S4, S5, S6, S7>
-where
-    T: Instance + Flt8Ready,
-    C: ClockOutputMode,
-    S0: PinSet,
-    S1: PinSet,
-    S2: PinSet,
-    S3: PinSet,
-    S4: PinSet,
-    S5: PinSet,
-    S6: PinSet,
-    S7: PinSet,
-{
-    pub detectors: DetectorsBuilder<T>,
-    pub ch0: TransceiverBuilder<T, Tcv0, C, S0, S1>,
-    pub ch1: TransceiverBuilder<T, Tcv1, C, S1, S2>,
-    pub ch2: TransceiverBuilder<T, Tcv2, C, S2, S3>,
-    pub ch3: TransceiverBuilder<T, Tcv3, C, S3, S4>,
-    pub ch4: TransceiverBuilder<T, Tcv4, C, S4, S5>,
-    pub ch5: TransceiverBuilder<T, Tcv5, C, S5, S6>,
-    pub ch6: TransceiverBuilder<T, Tcv6, C, S6, S7>,
-    pub ch7: TransceiverBuilder<T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
-    pub flt0: FilterBuilder<T, Flt0>,
-    pub flt1: FilterBuilder<T, Flt1>,
-    pub flt2: FilterBuilder<T, Flt2>,
-    pub flt3: FilterBuilder<T, Flt3>,
-    pub flt4: FilterBuilder<T, Flt4>,
-    pub flt5: FilterBuilder<T, Flt5>,
-    pub flt6: FilterBuilder<T, Flt6>,
-    pub flt7: FilterBuilder<T, Flt7>,
-}
-
-pub struct DfsdmSplit8Ch4Flt<T, C, S0, S1, S2, S3, S4, S5, S6, S7>
-where
-    T: Instance + Flt4Ready,
-    C: ClockOutputMode,
-    S0: PinSet,
-    S1: PinSet,
-    S2: PinSet,
-    S3: PinSet,
-    S4: PinSet,
-    S5: PinSet,
-    S6: PinSet,
-    S7: PinSet,
-{
-    pub detectors: DetectorsBuilder<T>,
-    pub ch0: TransceiverBuilder<T, Tcv0, C, S0, S1>,
-    pub ch1: TransceiverBuilder<T, Tcv1, C, S1, S2>,
-    pub ch2: TransceiverBuilder<T, Tcv2, C, S2, S3>,
-    pub ch3: TransceiverBuilder<T, Tcv3, C, S3, S4>,
-    pub ch4: TransceiverBuilder<T, Tcv4, C, S4, S5>,
-    pub ch5: TransceiverBuilder<T, Tcv5, C, S5, S6>,
-    pub ch6: TransceiverBuilder<T, Tcv6, C, S6, S7>,
-    pub ch7: TransceiverBuilder<T, Tcv7, C, S7, S0>, // neighbor = ch0 (wrap!)
-    pub flt0: FilterBuilder<T, Flt0>,
-    pub flt1: FilterBuilder<T, Flt1>,
-    pub flt2: FilterBuilder<T, Flt2>,
-    pub flt3: FilterBuilder<T, Flt3>,
-}
-
-/// Implemented for the tuple a `configure_pins` closure returns.
-/// The arity *is* the channel-count check: `(C0, C1)` only impls for
-/// `Tcv2` instances, the 8-tuple only for `Tcv8`.
-#[diagnostic::on_unimplemented(
-    message = "the closure must return one pin token per channel of `{T}`",
-    label = "tuple length doesn't match `{T}`'s transceiver count",
-    note = "check `{T}`'s channel count and return a tuple of that length, one token per `creator.chN`"
-)]
-pub trait ChannelCfgTuple<'d, T: Instance, C: ClockOutputMode> {
-    /// The fully-wired split (neighbor pin-sets already correct).
-    type Split;
-
-    /// Split helper-function
-    fn split_parts(self, common: &mut DfsdmCommon<'d, T, Enabled>) -> Self::Split;
-}
-
-impl<'d, T, C, C0, C1> ChannelCfgTuple<'d, T, C> for (C0, C1)
-where
-    T: Instance<Transceivers = capability::Tcv2, Filters = capability::Flt1> + FilterInterrupt<Flt0>,
-    C: ClockOutputMode,
-    C0: ChannelCfg<'d, T, Tcv0>,
-    C1: ChannelCfg<'d, T, Tcv1>,
-{
-    type Split =
-        DfsdmSplit2Ch1Flt<T, C, <C0 as ChannelCfg<'d, T, Tcv0>>::Presence, <C1 as ChannelCfg<'d, T, Tcv1>>::Presence>;
-
-    fn split_parts(self, common: &mut DfsdmCommon<'d, T, Enabled>) -> Self::Split {
-        let (d0, k0) = self.0.into_parts();
-        let (d1, k1) = self.1.into_parts();
-
-        common.insert_pin(0, PinKind::Datin, C0::Presence::extract_datin(d0));
-        common.insert_pin(0, PinKind::Ckin, C0::Presence::extract_ckin(k0));
-        common.insert_pin(1, PinKind::Datin, C1::Presence::extract_datin(d1));
-        common.insert_pin(1, PinKind::Ckin, C1::Presence::extract_ckin(k1));
-
-        DfsdmSplit2Ch1Flt {
-            detectors: DetectorsBuilder::new(),
-            ch0: TransceiverBuilder::new(),
-            ch1: TransceiverBuilder::new(),
-            flt0: FilterBuilder::new(),
-        }
-    }
-}
-
-/// Builds the actual split struct from 8 already-extracted pin pairs.
-/// Implemented separately for each filter-count capability.
-pub trait Flt8SplitBuild<
-    T: Instance,
-    C: ClockOutputMode,
-    S0: PinSet,
-    S1: PinSet,
-    S2: PinSet,
-    S3: PinSet,
-    S4: PinSet,
-    S5: PinSet,
-    S6: PinSet,
-    S7: PinSet,
->
-{
-    type Out;
-    fn build<'d>(
-        common: &mut DfsdmCommon<'d, T, Enabled>,
-        d0: S0::Datin<'d>,
-        k0: S0::Ckin<'d>,
-        d1: S1::Datin<'d>,
-        k1: S1::Ckin<'d>,
-        d2: S2::Datin<'d>,
-        k2: S2::Ckin<'d>,
-        d3: S3::Datin<'d>,
-        k3: S3::Ckin<'d>,
-        d4: S4::Datin<'d>,
-        k4: S4::Ckin<'d>,
-        d5: S5::Datin<'d>,
-        k5: S5::Ckin<'d>,
-        d6: S6::Datin<'d>,
-        k6: S6::Ckin<'d>,
-        d7: S7::Datin<'d>,
-        k7: S7::Ckin<'d>,
-    ) -> Self::Out;
-}
-
-impl<T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<T, C, S0, S1, S2, S3, S4, S5, S6, S7> for capability::Flt8
-where
-    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt8>
-        + FilterInterrupt<Flt0>
-        + FilterInterrupt<Flt1>
-        + FilterInterrupt<Flt2>
-        + FilterInterrupt<Flt3>
-        + FilterInterrupt<Flt4>
-        + FilterInterrupt<Flt5>
-        + FilterInterrupt<Flt6>
-        + FilterInterrupt<Flt7>,
-    C: ClockOutputMode,
-    S0: PinSet,
-    S1: PinSet,
-    S2: PinSet,
-    S3: PinSet,
-    S4: PinSet,
-    S5: PinSet,
-    S6: PinSet,
-    S7: PinSet,
-{
-    type Out = DfsdmSplit8Ch8Flt<T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
-
-    fn build<'d>(
-        common: &mut DfsdmCommon<'d, T, Enabled>,
-        d0: S0::Datin<'d>,
-        k0: S0::Ckin<'d>,
-        d1: S1::Datin<'d>,
-        k1: S1::Ckin<'d>,
-        d2: S2::Datin<'d>,
-        k2: S2::Ckin<'d>,
-        d3: S3::Datin<'d>,
-        k3: S3::Ckin<'d>,
-        d4: S4::Datin<'d>,
-        k4: S4::Ckin<'d>,
-        d5: S5::Datin<'d>,
-        k5: S5::Ckin<'d>,
-        d6: S6::Datin<'d>,
-        k6: S6::Ckin<'d>,
-        d7: S7::Datin<'d>,
-        k7: S7::Ckin<'d>,
-    ) -> Self::Out {
-        common.insert_pin(0, PinKind::Datin, S0::extract_datin(d0));
-        common.insert_pin(0, PinKind::Ckin, S0::extract_ckin(k0));
-        common.insert_pin(1, PinKind::Datin, S1::extract_datin(d1));
-        common.insert_pin(1, PinKind::Ckin, S1::extract_ckin(k1));
-        common.insert_pin(2, PinKind::Datin, S2::extract_datin(d2));
-        common.insert_pin(2, PinKind::Ckin, S2::extract_ckin(k2));
-        common.insert_pin(3, PinKind::Datin, S3::extract_datin(d3));
-        common.insert_pin(3, PinKind::Ckin, S3::extract_ckin(k3));
-        common.insert_pin(4, PinKind::Datin, S4::extract_datin(d4));
-        common.insert_pin(4, PinKind::Ckin, S4::extract_ckin(k4));
-        common.insert_pin(5, PinKind::Datin, S5::extract_datin(d5));
-        common.insert_pin(5, PinKind::Ckin, S5::extract_ckin(k5));
-        common.insert_pin(6, PinKind::Datin, S6::extract_datin(d6));
-        common.insert_pin(6, PinKind::Ckin, S6::extract_ckin(k6));
-        common.insert_pin(7, PinKind::Datin, S7::extract_datin(d7));
-        common.insert_pin(7, PinKind::Ckin, S7::extract_ckin(k7));
-
-        DfsdmSplit8Ch8Flt {
-            detectors: DetectorsBuilder::new(),
-            ch0: TransceiverBuilder::new(),
-            ch1: TransceiverBuilder::new(),
-            ch2: TransceiverBuilder::new(),
-            ch3: TransceiverBuilder::new(),
-            ch4: TransceiverBuilder::new(),
-            ch5: TransceiverBuilder::new(),
-            ch6: TransceiverBuilder::new(),
-            ch7: TransceiverBuilder::new(),
-            flt0: FilterBuilder::new(),
-            flt1: FilterBuilder::new(),
-            flt2: FilterBuilder::new(),
-            flt3: FilterBuilder::new(),
-            flt4: FilterBuilder::new(),
-            flt5: FilterBuilder::new(),
-            flt6: FilterBuilder::new(),
-            flt7: FilterBuilder::new(),
-        }
-    }
-}
-
-impl<T, C, S0, S1, S2, S3, S4, S5, S6, S7> Flt8SplitBuild<T, C, S0, S1, S2, S3, S4, S5, S6, S7> for capability::Flt4
-where
-    T: Instance<Transceivers = capability::Tcv8, Filters = capability::Flt4>
-        + FilterInterrupt<Flt0>
-        + FilterInterrupt<Flt1>
-        + FilterInterrupt<Flt2>
-        + FilterInterrupt<Flt3>,
-    C: ClockOutputMode,
-    S0: PinSet,
-    S1: PinSet,
-    S2: PinSet,
-    S3: PinSet,
-    S4: PinSet,
-    S5: PinSet,
-    S6: PinSet,
-    S7: PinSet,
-{
-    type Out = DfsdmSplit8Ch4Flt<T, C, S0, S1, S2, S3, S4, S5, S6, S7>;
-
-    fn build<'d>(
-        common: &mut DfsdmCommon<'d, T, Enabled>,
-        d0: S0::Datin<'d>,
-        k0: S0::Ckin<'d>,
-        d1: S1::Datin<'d>,
-        k1: S1::Ckin<'d>,
-        d2: S2::Datin<'d>,
-        k2: S2::Ckin<'d>,
-        d3: S3::Datin<'d>,
-        k3: S3::Ckin<'d>,
-        d4: S4::Datin<'d>,
-        k4: S4::Ckin<'d>,
-        d5: S5::Datin<'d>,
-        k5: S5::Ckin<'d>,
-        d6: S6::Datin<'d>,
-        k6: S6::Ckin<'d>,
-        d7: S7::Datin<'d>,
-        k7: S7::Ckin<'d>,
-    ) -> Self::Out {
-        common.insert_pin(0, PinKind::Datin, S0::extract_datin(d0));
-        common.insert_pin(0, PinKind::Ckin, S0::extract_ckin(k0));
-        common.insert_pin(1, PinKind::Datin, S1::extract_datin(d1));
-        common.insert_pin(1, PinKind::Ckin, S1::extract_ckin(k1));
-        common.insert_pin(2, PinKind::Datin, S2::extract_datin(d2));
-        common.insert_pin(2, PinKind::Ckin, S2::extract_ckin(k2));
-        common.insert_pin(3, PinKind::Datin, S3::extract_datin(d3));
-        common.insert_pin(3, PinKind::Ckin, S3::extract_ckin(k3));
-        common.insert_pin(4, PinKind::Datin, S4::extract_datin(d4));
-        common.insert_pin(4, PinKind::Ckin, S4::extract_ckin(k4));
-        common.insert_pin(5, PinKind::Datin, S5::extract_datin(d5));
-        common.insert_pin(5, PinKind::Ckin, S5::extract_ckin(k5));
-        common.insert_pin(6, PinKind::Datin, S6::extract_datin(d6));
-        common.insert_pin(6, PinKind::Ckin, S6::extract_ckin(k6));
-        common.insert_pin(7, PinKind::Datin, S7::extract_datin(d7));
-        common.insert_pin(7, PinKind::Ckin, S7::extract_ckin(k7));
-
-        DfsdmSplit8Ch4Flt {
-            detectors: DetectorsBuilder::new(),
-            ch0: TransceiverBuilder::new(),
-            ch1: TransceiverBuilder::new(),
-            ch2: TransceiverBuilder::new(),
-            ch3: TransceiverBuilder::new(),
-            ch4: TransceiverBuilder::new(),
-            ch5: TransceiverBuilder::new(),
-            ch6: TransceiverBuilder::new(),
-            ch7: TransceiverBuilder::new(),
-            flt0: FilterBuilder::new(),
-            flt1: FilterBuilder::new(),
-            flt2: FilterBuilder::new(),
-            flt3: FilterBuilder::new(),
-        }
-    }
-}
-
-impl<'d, T, C, C0, C1, C2, C3, C4, C5, C6, C7> ChannelCfgTuple<'d, T, C> for (C0, C1, C2, C3, C4, C5, C6, C7)
-where
-    T: Instance<Transceivers = capability::Tcv8>,
-    C: ClockOutputMode,
-    C0: ChannelCfg<'d, T, Tcv0>,
-    C1: ChannelCfg<'d, T, Tcv1>,
-    C2: ChannelCfg<'d, T, Tcv2>,
-    C3: ChannelCfg<'d, T, Tcv3>,
-    C4: ChannelCfg<'d, T, Tcv4>,
-    C5: ChannelCfg<'d, T, Tcv5>,
-    C6: ChannelCfg<'d, T, Tcv6>,
-    C7: ChannelCfg<'d, T, Tcv7>,
-    T::Filters: Flt8SplitBuild<
-            T,
-            C,
-            <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
-            <C1 as ChannelCfg<'d, T, Tcv1>>::Presence,
-            <C2 as ChannelCfg<'d, T, Tcv2>>::Presence,
-            <C3 as ChannelCfg<'d, T, Tcv3>>::Presence,
-            <C4 as ChannelCfg<'d, T, Tcv4>>::Presence,
-            <C5 as ChannelCfg<'d, T, Tcv5>>::Presence,
-            <C6 as ChannelCfg<'d, T, Tcv6>>::Presence,
-            <C7 as ChannelCfg<'d, T, Tcv7>>::Presence,
-        >,
-{
-    type Split = <T::Filters as Flt8SplitBuild<
-        T,
-        C,
-        <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
-        <C1 as ChannelCfg<'d, T, Tcv1>>::Presence,
-        <C2 as ChannelCfg<'d, T, Tcv2>>::Presence,
-        <C3 as ChannelCfg<'d, T, Tcv3>>::Presence,
-        <C4 as ChannelCfg<'d, T, Tcv4>>::Presence,
-        <C5 as ChannelCfg<'d, T, Tcv5>>::Presence,
-        <C6 as ChannelCfg<'d, T, Tcv6>>::Presence,
-        <C7 as ChannelCfg<'d, T, Tcv7>>::Presence,
-    >>::Out;
-
-    fn split_parts(self, common: &mut DfsdmCommon<'d, T, Enabled>) -> Self::Split {
-        let (d0, k0) = self.0.into_parts();
-        let (d1, k1) = self.1.into_parts();
-        let (d2, k2) = self.2.into_parts();
-        let (d3, k3) = self.3.into_parts();
-        let (d4, k4) = self.4.into_parts();
-        let (d5, k5) = self.5.into_parts();
-        let (d6, k6) = self.6.into_parts();
-        let (d7, k7) = self.7.into_parts();
-        <T::Filters as Flt8SplitBuild<
-            T,
-            C,
-            <C0 as ChannelCfg<'d, T, Tcv0>>::Presence,
-            <C1 as ChannelCfg<'d, T, Tcv1>>::Presence,
-            <C2 as ChannelCfg<'d, T, Tcv2>>::Presence,
-            <C3 as ChannelCfg<'d, T, Tcv3>>::Presence,
-            <C4 as ChannelCfg<'d, T, Tcv4>>::Presence,
-            <C5 as ChannelCfg<'d, T, Tcv5>>::Presence,
-            <C6 as ChannelCfg<'d, T, Tcv6>>::Presence,
-            <C7 as ChannelCfg<'d, T, Tcv7>>::Presence,
-        >>::build(common, d0, k0, d1, k1, d2, k2, d3, k3, d4, k4, d5, k5, d6, k6, d7, k7)
     }
 }
 

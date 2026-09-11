@@ -96,8 +96,12 @@ pub(crate) mod capability {
 
     /// 1 filter.
     pub struct Flt1;
+    /// 2 filter.
+    pub struct Flt2;
     /// 4 filters.
     pub struct Flt4;
+    /// 6 filters.
+    pub struct Flt6;
     /// 8 filters.
     pub struct Flt8;
 
@@ -128,8 +132,14 @@ pub(crate) mod capability {
     impl FilterCount for Flt1 {
         const COUNT: u8 = 1;
     }
+    impl FilterCount for Flt2 {
+        const COUNT: u8 = 2;
+    }
     impl FilterCount for Flt4 {
         const COUNT: u8 = 4;
+    }
+    impl FilterCount for Flt6 {
+        const COUNT: u8 = 6;
     }
     impl FilterCount for Flt8 {
         const COUNT: u8 = 8;
@@ -146,27 +156,6 @@ pub trait Shape: sealed::Sealed {
 }
 
 impl_sealed!(capability::Tcv2, capability::Tcv4, capability::Tcv8);
-
-impl Shape for capability::Tcv2 {
-    type Selectors<T: Instance> = ChannelSelectors2<T>;
-    fn selectors<T: Instance>() -> Self::Selectors<T> {
-        ChannelSelectors2::new()
-    }
-}
-
-impl Shape for capability::Tcv4 {
-    type Selectors<T: Instance> = ChannelSelectors4<T>;
-    fn selectors<T: Instance>() -> Self::Selectors<T> {
-        ChannelSelectors4::new()
-    }
-}
-
-impl Shape for capability::Tcv8 {
-    type Selectors<T: Instance> = ChannelSelectors8<T>;
-    fn selectors<T: Instance>() -> Self::Selectors<T> {
-        ChannelSelectors8::new()
-    }
-}
 
 /// Marker trait for DFSDM clockmodes
 pub trait ClockOutputMode: sealed::Sealed {}
@@ -403,38 +392,24 @@ macro_rules! impl_noop_instance_events {
 // Implement empty for all non Flt0 as Flt0 Handles instance-level events
 impl_noop_instance_events!(Flt1, Flt2, Flt3, Flt4, Flt5, Flt6, Flt7);
 
-/// Markers for Interuptpresence
-pub trait Flt8Ready:
-    FilterInterrupt<Flt0>
-    + FilterInterrupt<Flt1>
-    + FilterInterrupt<Flt2>
-    + FilterInterrupt<Flt3>
-    + FilterInterrupt<Flt4>
-    + FilterInterrupt<Flt5>
-    + FilterInterrupt<Flt6>
-    + FilterInterrupt<Flt7>
-{
-}
-impl<T> Flt8Ready for T where
-    T: FilterInterrupt<Flt0>
-        + FilterInterrupt<Flt1>
-        + FilterInterrupt<Flt2>
-        + FilterInterrupt<Flt3>
-        + FilterInterrupt<Flt4>
-        + FilterInterrupt<Flt5>
-        + FilterInterrupt<Flt6>
-        + FilterInterrupt<Flt7>
-{
+// Ready bundles: one per filter-count capability, bundling the
+// `FilterInterrupt<FltN>` chain for all filters the shape has. The chain
+// matches the IRQ template (`dfsdm_flt_irqs!`) in associations.rs.
+macro_rules! define_dfsdm_ready {
+    ($name:ident, [$($flt:ident),+ $(,)?]) => {
+        /// IRQ readiness bundle: all the `FilterInterrupt`s a filter-count
+        /// capability implies. Blanket-implemented for every `T` meeting
+        /// the chain.
+        pub trait $name: $(FilterInterrupt<$flt> +)* {}
+        impl<T> $name for T where T: $(FilterInterrupt<$flt> +)* {}
+    };
 }
 
-pub trait Flt4Ready:
-    FilterInterrupt<Flt0> + FilterInterrupt<Flt1> + FilterInterrupt<Flt2> + FilterInterrupt<Flt3>
-{
-}
-impl<T> Flt4Ready for T where
-    T: FilterInterrupt<Flt0> + FilterInterrupt<Flt1> + FilterInterrupt<Flt2> + FilterInterrupt<Flt3>
-{
-}
+define_dfsdm_ready!(Flt1Ready, [Flt0]);
+define_dfsdm_ready!(Flt2Ready, [Flt0, Flt1]);
+define_dfsdm_ready!(Flt4Ready, [Flt0, Flt1, Flt2, Flt3]);
+define_dfsdm_ready!(Flt6Ready, [Flt0, Flt1, Flt2, Flt3, Flt4, Flt5]);
+define_dfsdm_ready!(Flt8Ready, [Flt0, Flt1, Flt2, Flt3, Flt4, Flt5, Flt6, Flt7]);
 
 // =============================================================================
 // Interrupt/FilterChannel state
@@ -624,7 +599,7 @@ impl_sealed_and! {
 /// Marks a Transceiverchannel as being allowed to set Datapacking dual-mode.
 #[diagnostic::on_unimplemented(
     message = "Dual packing mode is only available on even channels (0, 2, 4, 6)",
-    label = "`{Self}` is odd — dual mode requires an even channel",
+    label = "`{Self}` is odd - dual mode requires an even channel",
     note = "call `new_parallel_dma_dual` on the even channel instead"
 )]
 pub trait DualPackingAllowed: sealed::Sealed {}

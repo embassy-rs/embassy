@@ -119,20 +119,28 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   carries a single per-filter `D` (mod.rs:416-424), and the ring constructors
   are gated on `FilterRegular<.., RegDma>` / `FilterInjected<.., InjDma>`, so
   a second ring on the same filter is unconstructable. Doc only (D11).
-- [ ] **F7 — 2FLT/6FLT capability gap.** `capability::Flt2`/`Flt6` are referenced
-  in associations.rs (4CH_2FLT variants, `filters: Flt2`; 8CH_6FLT `filters:
-  Flt6`) but `capability` only defines `Flt1/Flt4/Flt8` (types.rs:97-102) and
-  `FilterCount` has no impls for them. 2FLT is broken three ways (L451/452/462 =
-  `DFSDM_4CH_2FLT_TRG3`, real hardware): missing `capability::Flt2` +
-  `FilterCount`; missing `FLT1 => Flt1` in the "single-channel IRQs" list
-  (associations.rs:332-343 lists only `FLT0 => Flt0`); missing split struct +
-  `Flt2Ready`. 6FLT (`DFSDM_8CH_6FLT_DLY_TRG5_ADC_HWID`, MP13-only) has IRQ
-  impls FLT0..5 but missing `capability::Flt6` + `FilterCount` + split +
-  `Flt6Ready`.
-  - Verify per-variant first: 2FLT must be fixed (L4x1 chips exist); 6FLT is
-    MP13-only with no chip in the db yet — fix for completeness or prune (ties
-    into HOUSEKEEPING "chip-less variants" and FT10, which adds a different
-    2CH_1FLT block).
+- [x] **F7 — 2FLT/6FLT capability gap.** DONE (2026-09, with the splits.rs
+  shape-table work, see FT20). The original three-way break (L451/452/462 =
+  `DFSDM_4CH_2FLT_TRG3`, real hardware) is fixed:
+  - `capability::Flt2` + `Flt6` + `FilterCount` impls for both (types.rs
+    capability mod).
+  - IRQ sets: the old per-variant manual lists (including the "missing
+    `FLT1 => Flt1`" symptom, associations.rs:332-343 back then) are
+    **superseded** — the new `dfsdm_flt_irqs!` in associations.rs derives the
+    per-variant IRQ set from a per-capability template (literal arms
+    Flt1/2/4/6/8 + loud catch-all) keyed on the variant's `filters:` token,
+    driven from `mark_dfsdm_instances!`.
+  - `Flt1/2/4/6/8Ready` bundles emitted by `define_dfsdm_ready!` (types.rs
+    ~:411) replacing the handwritten trait pairs.
+  - All six split structs (2Ch1Flt / 4Ch2Flt / 4Ch4Flt / 8Ch4Flt / 8Ch6Flt /
+    8Ch8Flt) + `Tcv2/4/8SplitBuild` traits + the NEW 4-tuple
+    `ChannelCfgTuple` impl are generated in the new splits.rs — the old
+    hand-written split section in mod.rs (~374 lines, only 3 shapes) is gone.
+  - Verified: stm32f412zg / stm32f413zh compile (the FT12 matrix run's E0425
+    is gone; perimap :858-:864 maps F412/F413 to `DFSDM_4CH_2FLT_TRG3`).
+  - 6FLT residue: fully defined but chip-less (MP13-only, no chip in the db
+    yet; per-chip dead-code warnings for `Flt6` stand as with any unused
+    shape). Chip availability rides the Phase 6 regen (PLAN item 19).
 
 ---
 
@@ -203,6 +211,44 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     headers read `T: Instance + FilterInterrupt<M>, M: FilterFlow<T>`.
   - Either is cosmetic; default to leaving the cluster as-is if neither earns
     its churn. Verify empirically (playground + chip matrix) before committing.
+- [x] **FT20 — Shape-table generated types: split + select bundles** (new
+  module `dfsdm/splits.rs`; done alongside the F7 2FLT slice, PLAN item 13).
+  The hand-written split structs (only 3 shapes, ~374 lines in mod.rs) and the
+  `ChannelSelectors2/4/8` trio + `Shape` impls (types.rs) are replaced by ONE
+  master implementation per product, instantiated from tables:
+  - Split products — `dfsdm_split_shape_body!` (single master: struct +
+    `Tcv*SplitBuild` impl) instantiated per shape by `dfsdm_split_shapes!`
+    through the `dfsdm_split_shape!` per-arity dispatch arms (the S-list and
+    neighbor pin-set pairing — last channel wraps to `S0` — live there, once
+    per arity). `build()` now takes per-channel `(Datin, Ckin)` tuples instead
+    of indexed `dN`/`kN` lists. All six shapes generated, incl. the three
+    2FLT-era newcomers (4Ch2Flt, 4Ch4Flt, 8Ch6Flt). The NEW 4-tuple
+    `ChannelCfgTuple` impl joins the 2-/8-tuple ones (moved into splits.rs,
+    where the trait now lives too).
+  - Selector products — the `dfsdm_selectors!` arity-keyed table + master
+    `dfsdm_selector_shape!` emit `ChannelSelectors{2,4,8}` + `new()` + the
+    `Shape` impls (the latter deleted from types.rs). Per-channel docs via
+    `#[doc = concat!(… stringify!($idx) …)]`. Channel count + `chN: TcvN`
+    mapping is duplicated here (a `Sel` needs no S-pairing) — kept as a
+    separate table rather than one mega-table (see findings below).
+  - `Sel<T, M>` remains hand-written in mod.rs (single generic struct, no
+    shape data) — decision taken deliberately.
+  - Where-clause bundles: `define_dfsdm_ready!` emits `Flt1/2/4/6/8Ready` with
+    blanket impls; consumed by the table's generated structs. Distinct from
+    the declined TS2 supertrait bundle (that one fails on per-site
+    where-clause echo across the actor surface); this one is table-internal
+    sugar. Not related to FT19/FilterFlow either.
+  - Macro_rules findings recorded for the next table author: `+` is not a
+    legal repetition separator — joined bounds use the trailing-plus idiom
+    `$(X +)*`; a free `$(,)?` after a repetition group that may be followed by
+    another repetition = "ambiguity: multiple successful parses" (use a
+    required `;` terminator per group instead); a per-shape loop cannot
+    re-loop its arity's metas (capture depth must mirror the matcher's
+    nesting) — hence the split table is shape-keyed with a dispatch, and the
+    selector table is its own arity-keyed one.
+  - Net LOC ≈ neutral (368 vs 374) but the coverage grew (6 shapes, 3 tuple
+    impls, selectors, capability tokens, docs). Zero API change — h755
+    examples compile verbatim; f412zg/f413zh (F7) + h755/l496/l4a6 green.
 - [X] **FT18 — Interrupt binding + NVIC enable hygiene** (coordinate: detector
   side with FT12; ISR side with FT11). `Binding<I,H>` is a compile-time proof
   (Copy ZST); `InterruptExt::enable()` is a runtime NVIC unmask — keep them
@@ -536,11 +582,17 @@ Summary (each blocks DFSDM availability for whole chip groups):
 ## VERIFY
 
 - [ ] `cargo check` + clippy on the DFSDM chip matrix (expanded after the
-  stm32-data fixes + regeneration):
-  - already working: stm32h755cm7 (8ch/4flt), stm32h7a3 (8ch/8flt + 2ch
-    DFSDM2), stm32h7b3, stm32f412, stm32f413 (incl. DFSDM2), stm32f767,
-    stm32l496, stm32l4a6, stm32l4p5, stm32l4q5, stm32l4r5, stm32l4s9,
-    stm32mp157
+  stm32-data fixes + regeneration). Loop with `set -o pipefail` — a bare
+  `cargo check | tail` masks the exit code:
+  - passing (FT12 matrix run): stm32h755zi-cm7, stm32l496zg, stm32l4a6zg
+  - passing (F7 2FLT fix, 2026-09-11): stm32f412zg, stm32f413zh —
+    previously E0425 (`capability::Flt2` undefined, see F7)
+  - known-stale (no `Instance` impl for DFSDM2; no test hardware yet):
+    stm32h7a3zi, stm32h7b3zi — E0277 ×24, macros.rs:78
+  - pending bank-flag rerun (`build.rs:116` panics without one):
+    stm32f767zi, stm32l4p5zg, stm32l4q5zg, stm32l4r5zi, stm32l4s9zi
+  - stm32mp157: no feature in this crate's Cargo.toml yet — revisit after
+    the stm32-data regen (PLAN Phase 6)
   - need stm32-data fixes first: stm32f777 (F7[67]), stm32l476 + stm32l452
     (L4 regex), stm32l552 (header NS alias), stm32h7b0 (trigger H7(A|B))
   - SD6–SD9 (dormant/minor/info) are non-blocking — excluded from the

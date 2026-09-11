@@ -72,6 +72,37 @@ impl_datin_bridge!(Tcv6, Datin6Pin);
 impl_datin_bridge!(Tcv7, Datin7Pin);
 
 // =============================================================================
+// Associate interrupts
+// =============================================================================
+
+// Implement single IRQ for a single variants
+macro_rules! impl_dfsdm_filter_irq {
+    ($inst:ident, $filter:ty, $irq:ident) => {
+        impl FilterInterrupt<$filter> for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+
+            fn state() -> &'static State {
+                static STATE: State = State::new();
+                &STATE
+            }
+        }
+    };
+}
+
+// Implement IRQs in list for a single variant
+macro_rules! impl_dfsdm_filter_irqs_variant {
+    ($variant:ident, $( $flt:ident => $filter:ty ),+ $(,)?) => {
+        foreach_interrupt! {
+            $(
+                ($inst:ident, dfsdm, $variant, $flt, $irq:ident) => {
+                    impl_dfsdm_filter_irq!($inst, $filter, $irq);
+                };
+            )+
+        }
+    };
+}
+
+// =============================================================================
 // Associate capabilities
 // =============================================================================
 
@@ -123,6 +154,36 @@ macro_rules! impl_dfsdm_instance {
     (@flag $inst:ident, $trait_name:ident, false) => {};
 }
 
+// Derive a variant's filter-IRQ set from its `filters:` capability token.
+// Arm selectors are capability markers (types.rs capability::Flt1/2/4/6/8);
+// the `Flt0..Flt7` in the bodies are the per-filter channel markers (types::*).
+macro_rules! dfsdm_flt_irqs {
+    (Flt1, $v:ident) => {
+        impl_dfsdm_filter_irqs_variant!($v, FLT0 => Flt0);
+    };
+    (Flt2, $v:ident) => {
+        impl_dfsdm_filter_irqs_variant!($v, FLT0 => Flt0, FLT1 => Flt1);
+    };
+    (Flt4, $v:ident) => {
+        impl_dfsdm_filter_irqs_variant!($v,
+            FLT0 => Flt0, FLT1 => Flt1, FLT2 => Flt2, FLT3 => Flt3);
+    };
+    (Flt6, $v:ident) => {
+        impl_dfsdm_filter_irqs_variant!($v,
+            FLT0 => Flt0, FLT1 => Flt1, FLT2 => Flt2, FLT3 => Flt3,
+            FLT4 => Flt4, FLT5 => Flt5);
+    };
+    (Flt8, $v:ident) => {
+        impl_dfsdm_filter_irqs_variant!($v,
+            FLT0 => Flt0, FLT1 => Flt1, FLT2 => Flt2, FLT3 => Flt3,
+            FLT4 => Flt4, FLT5 => Flt5, FLT6 => Flt6, FLT7 => Flt7);
+    };
+    // Loud guard: keep literal arms ABOVE this catch-all.
+    ($other:ident, $v:ident) => {
+        compile_error!(concat!("dfsdm_flt_irqs: no IRQ template for capability ", stringify!($other)));
+    };
+}
+
 // Mark specified variants with specified attributes
 macro_rules! mark_dfsdm_instances {
     (
@@ -152,6 +213,7 @@ macro_rules! mark_dfsdm_instances {
                 };
             )*
         }
+        $( dfsdm_flt_irqs!($filters, $peripheral); )*
     };
 }
 
@@ -284,100 +346,4 @@ mark_dfsdm_instances! {
         hwid: false,
         adc_input: true,
     },
-}
-
-// =============================================================================
-// Associate interrupts
-// =============================================================================
-
-// Implement single IRQ for a single variants
-macro_rules! impl_dfsdm_filter_irq {
-    ($inst:ident, $filter:ty, $irq:ident) => {
-        impl FilterInterrupt<$filter> for crate::peripherals::$inst {
-            type Interrupt = crate::interrupt::typelevel::$irq;
-
-            fn state() -> &'static State {
-                static STATE: State = State::new();
-                &STATE
-            }
-        }
-    };
-}
-
-// Implement IRQs in list for a single variant
-macro_rules! impl_dfsdm_filter_irqs_variant {
-    ($variant:ident, $( $flt:ident => $filter:ty ),+ $(,)?) => {
-        foreach_interrupt! {
-            $(
-                ($inst:ident, dfsdm, $variant, $flt, $irq:ident) => {
-                    impl_dfsdm_filter_irq!($inst, $filter, $irq);
-                };
-            )+
-        }
-    };
-}
-
-// Implement IRQs in list for a list of variants
-macro_rules! impl_dfsdm_filter_irqs {
-    (
-        [ $variant:ident $(, $rest:ident )* $(,)? ],
-        $( $flt:ident => $filter:ty ),+ $(,)?
-    ) => {
-        impl_dfsdm_filter_irqs_variant!($variant, $( $flt => $filter ),+);
-        impl_dfsdm_filter_irqs!([ $( $rest ),* ], $( $flt => $filter ),+);
-    };
-    ([], $( $flt:ident => $filter:ty ),+ $(,)?) => {};
-}
-
-// Implement all single-channel IRQs
-impl_dfsdm_filter_irqs! {
-    [
-        DFSDM_2CH_1FLT_DLY_TRG5_ADC,
-        DFSDM_2CH_1FLT_TRG3_ADC,
-        DFSDM_4CH_2FLT_TRG3,
-        DFSDM_4CH_2FLT_TRG3_ADC,
-        DFSDM_4CH_2FLT_DLY_TRG5_ADC,
-        DFSDM_4CH_2FLT_DLY_TRG5_ADC_HWID,
-    ],
-    FLT0 => Flt0,
-}
-
-// Implement all four-channel IRQs
-impl_dfsdm_filter_irqs! {
-    [
-        DFSDM_4CH_4FLT_DLY_TRG5_ADC,
-        DFSDM_8CH_4FLT_TRG3,
-        DFSDM_8CH_4FLT_TRG5,
-        DFSDM_8CH_4FLT_TRG3_ADC,
-        DFSDM_8CH_4FLT_TRG5_ADC,
-        DFSDM_8CH_4FLT_DLY_TRG5_ADC,
-    ],
-    FLT0 => Flt0,
-    FLT1 => Flt1,
-    FLT2 => Flt2,
-    FLT3 => Flt3,
-}
-
-// Implement all six-channel IRQs
-impl_dfsdm_filter_irqs! {
-    [DFSDM_8CH_6FLT_DLY_TRG5_ADC_HWID],
-    FLT0 => Flt0,
-    FLT1 => Flt1,
-    FLT2 => Flt2,
-    FLT3 => Flt3,
-    FLT4 => Flt4,
-    FLT5 => Flt5,
-}
-
-// Implement all eight-channel IRQs
-impl_dfsdm_filter_irqs! {
-    [DFSDM_8CH_8FLT_DLY_TRG5_ADC],
-    FLT0 => Flt0,
-    FLT1 => Flt1,
-    FLT2 => Flt2,
-    FLT3 => Flt3,
-    FLT4 => Flt4,
-    FLT5 => Flt5,
-    FLT6 => Flt6,
-    FLT7 => Flt7,
 }
