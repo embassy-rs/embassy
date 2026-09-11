@@ -20,6 +20,7 @@ embassy_hal_internal::peripherals! {
     NVMC,
 
     // RNG
+    #[cfg(any(not(feature = "embassy-crypto-rng"), feature = "_cryptocell"))]
     RNG,
 
     // UARTE
@@ -149,6 +150,7 @@ impl_twis!(TWI0, TWIS0, TWI0);
 
 impl_qdec!(QDEC, QDEC, QDEC);
 
+#[cfg(any(not(feature = "embassy-crypto-rng"), feature = "_cryptocell"))]
 impl_rng!(RNG, RNG, RNG);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);

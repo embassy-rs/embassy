@@ -362,7 +362,7 @@ struct Gcm<const K: usize>([u8; K]);
 #[cfg(feature = "saes-full")]
 macro_rules! impl_gcm {
     ($k:literal) => {
-        impl embassy_crypto_test::Gcm for Gcm<$k> {
+        impl embassy_crypto_test::Aead for Gcm<$k> {
             fn new(key: &[u8]) -> Option<Self> {
                 Some(Self(key.try_into().ok()?))
             }
@@ -573,8 +573,8 @@ async fn main(_spawner: Spawner) {
     suites!(
         aes128_ctr = embassy_crypto_test::aes_ctr::<Ctr<16>>(&vectors::AES_CTR_128),
         aes256_ctr = embassy_crypto_test::aes_ctr::<Ctr<32>>(&vectors::AES_CTR_256),
-        aes128_gcm = embassy_crypto_test::aes_gcm::<Gcm<16>>(&vectors::AES_GCM_128),
-        aes256_gcm = embassy_crypto_test::aes_gcm::<Gcm<32>>(&vectors::AES_GCM_256),
+        aes128_gcm = embassy_crypto_test::aead::<Gcm<16>>(&vectors::AES_GCM_128),
+        aes256_gcm = embassy_crypto_test::aead::<Gcm<32>>(&vectors::AES_GCM_256),
         aes128_ccm = embassy_crypto_test::aes_ccm::<Ccm<16>>(&vectors::AES_CCM_128),
         aes256_ccm = embassy_crypto_test::aes_ccm::<Ccm<32>>(&vectors::AES_CCM_256),
     );

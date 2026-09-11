@@ -15,6 +15,7 @@ pub struct Suite<T: 'static> {
 
 /// What Wycheproof expects of a case.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Expected {
     /// The operation must succeed with the listed output.
     Valid,
@@ -39,7 +40,7 @@ pub struct Mac {
     pub result: Expected,
 }
 
-/// A GCM or CCM case.
+/// A GCM, CCM or ChaCha-Poly1305 case.
 pub struct Aead {
     pub tc_id: u32,
     pub key: &'static [u8],
@@ -74,6 +75,58 @@ pub struct Ctr {
     pub iv: &'static [u8],
     pub pt_len: usize,
     pub ct: &'static [u8],
+}
+
+/// A ChaCha case: `ct` is the encryption of the first `pt_len` bytes of
+/// [`MESSAGE`] with the keystream starting at block `counter`.
+pub struct ChaCha {
+    pub key: &'static [u8],
+    pub nonce: &'static [u8],
+    pub counter: u32,
+    pub pt_len: usize,
+    pub ct: &'static [u8],
+}
+
+/// An RSA key and one raw (unpadded) operation under it. Every integer is
+/// big-endian; `n`, `d`, `m` and `c` have the size of the modulus, the CRT
+/// values half of it, `e` is as short as it gets.
+pub struct Rsa {
+    pub n: &'static [u8],
+    pub e: &'static [u8],
+    pub d: &'static [u8],
+    pub p: &'static [u8],
+    pub q: &'static [u8],
+    /// `d mod (p - 1)`
+    pub dp: &'static [u8],
+    /// `d mod (q - 1)`
+    pub dq: &'static [u8],
+    /// `q^-1 mod p`
+    pub qinv: &'static [u8],
+    /// A plaintext representative, smaller than `n`.
+    pub m: &'static [u8],
+    /// `m^e mod n`
+    pub c: &'static [u8],
+}
+
+/// Known answers on a short Weierstrass curve: two key pairs, their shared
+/// point, and an ECDSA signature made with a given nonce. Scalars have
+/// the size of the curve, points are uncompressed SEC1, `sig` is `r || s`.
+pub struct EcKat {
+    pub private: &'static [u8],
+    /// `private * G`
+    pub public: &'static [u8],
+    pub private2: &'static [u8],
+    /// `private2 * G`
+    pub public2: &'static [u8],
+    /// `private * private2 * G`
+    pub shared: &'static [u8],
+    /// The nonce of `sig`.
+    pub k: &'static [u8],
+    /// The (already hashed) message `sig` signs. Its length varies: longer
+    /// than the order, shorter, or equal.
+    pub digest: &'static [u8],
+    /// The signature of `digest` by `private` with `k`.
+    pub sig: &'static [u8],
 }
 
 /// A Diffie-Hellman case. For ECDH, `public` is a SEC1 point of whatever

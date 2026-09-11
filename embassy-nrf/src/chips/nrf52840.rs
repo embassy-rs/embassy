@@ -24,6 +24,7 @@ embassy_hal_internal::peripherals! {
     NVMC,
 
     // RNG
+    #[cfg(any(not(feature = "embassy-crypto-rng"), feature = "_cryptocell"))]
     RNG,
 
     // QSPI
@@ -187,8 +188,13 @@ embassy_hal_internal::peripherals! {
     // NFC
     NFCT,
 
-    // CryptoCell RNG
-    CC_RNG
+    // CryptoCell
+    #[cfg(not(feature = "embassy-crypto-rng"))]
+    CRYPTO_RNG,
+    #[cfg(not(feature = "_embassy-crypto-symmetric"))]
+    CRYPTO_SYMMETRIC,
+    #[cfg(not(feature = "_embassy-crypto-pka"))]
+    CRYPTO_PKA,
 }
 
 impl_usb!(USBD, USBD, USBD);
@@ -216,8 +222,6 @@ impl_pwm!(PWM1, PWM1, PWM1);
 impl_pwm!(PWM2, PWM2, PWM2);
 impl_pwm!(PWM3, PWM3, PWM3);
 
-impl_ccrng!(CC_RNG, CC_RNG, CRYPTOCELL);
-
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
@@ -235,6 +239,7 @@ impl_pdm!(PDM, PDM, PDM);
 
 impl_qdec!(QDEC, QDEC, QDEC);
 
+#[cfg(any(not(feature = "embassy-crypto-rng"), feature = "_cryptocell"))]
 impl_rng!(RNG, RNG, RNG);
 
 impl_pin!(P0_00, 0, 0);

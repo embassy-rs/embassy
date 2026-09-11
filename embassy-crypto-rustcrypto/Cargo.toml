@@ -44,6 +44,8 @@ cbc = { version = "0.2", default-features = false, optional = true }
 ctr = { version = "0.10", default-features = false, optional = true }
 aes-gcm = { version = "0.11", default-features = false, features = ["aes"], optional = true }
 cmac = { version = "0.8", default-features = false, optional = true }
+chacha20 = { version = "0.10", default-features = false, features = ["cipher"], optional = true }
+chacha20poly1305 = { version = "0.11", default-features = false, optional = true }
 
 elliptic-curve = { version = "0.14", default-features = false, features = ["arithmetic", "sec1", "ecdh"], optional = true }
 ecdsa = { version = "0.17", default-features = false, features = ["digest", "algorithm"], optional = true }
@@ -68,6 +70,8 @@ all = [
     "embassy-crypto-aes256-gcm", "embassy-crypto-aes256-ccm", "embassy-crypto-aes256-cmac",
     "embassy-crypto-p256-arith", "embassy-crypto-p256-ecdh", "embassy-crypto-p256-ecdsa",
     "embassy-crypto-p384-arith", "embassy-crypto-p384-ecdh", "embassy-crypto-p384-ecdsa",
+    "embassy-crypto-chacha8", "embassy-crypto-chacha12", "embassy-crypto-chacha20",
+    "embassy-crypto-chacha8-poly1305", "embassy-crypto-chacha12-poly1305", "embassy-crypto-chacha20-poly1305",
     "embassy-crypto-x25519", "embassy-crypto-ed25519",
 ]
 
@@ -100,6 +104,12 @@ embassy-crypto-aes256-ctr = ["dep:aes", "dep:ctr", "dep:cipher"]
 embassy-crypto-aes256-gcm = ["dep:aes", "dep:aes-gcm", "dep:aead", "dep:cipher"]
 embassy-crypto-aes256-ccm = ["dep:aes", "dep:cipher"]
 embassy-crypto-aes256-cmac = ["dep:aes", "dep:cmac", "dep:cipher", "dep:digest"]
+embassy-crypto-chacha8 = ["dep:chacha20", "dep:cipher"]
+embassy-crypto-chacha12 = ["dep:chacha20", "dep:cipher"]
+embassy-crypto-chacha20 = ["dep:chacha20", "dep:cipher"]
+embassy-crypto-chacha8-poly1305 = ["dep:chacha20poly1305", "chacha20poly1305/reduced-round", "dep:aead"]
+embassy-crypto-chacha12-poly1305 = ["dep:chacha20poly1305", "chacha20poly1305/reduced-round", "dep:aead"]
+embassy-crypto-chacha20-poly1305 = ["dep:chacha20poly1305", "dep:aead"]
 embassy-crypto-p256-arith = ["dep:p256", "dep:elliptic-curve"]
 embassy-crypto-p256-ecdh = ["dep:p256", "dep:elliptic-curve"]
 embassy-crypto-p256-ecdsa = ["dep:p256", "dep:elliptic-curve", "dep:ecdsa"]

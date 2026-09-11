@@ -50,6 +50,16 @@ mod ccm;
 ))]
 mod ec;
 
+#[cfg(any(
+    feature = "embassy-crypto-chacha8",
+    feature = "embassy-crypto-chacha12",
+    feature = "embassy-crypto-chacha20",
+    feature = "embassy-crypto-chacha8-poly1305",
+    feature = "embassy-crypto-chacha12-poly1305",
+    feature = "embassy-crypto-chacha20-poly1305",
+))]
+mod chacha;
+
 #[cfg(feature = "embassy-crypto-x25519")]
 mod x25519;
 

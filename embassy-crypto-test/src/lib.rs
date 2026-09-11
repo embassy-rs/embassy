@@ -6,8 +6,9 @@
 //!
 //! The vectors come from [Wycheproof](https://github.com/C2SP/wycheproof)
 //! where it has a file for the algorithm, and are generated at build time with
-//! the RustCrypto crates otherwise (plain digests, AES-ECB, AES-CTR, curve
-//! arithmetic, X25519 key generation, Ed25519 signing). See `build.rs`.
+//! the RustCrypto crates otherwise (plain digests, AES-ECB, AES-CTR, ChaCha,
+//! ChaCha-Poly1305, curve arithmetic, X25519 key generation, Ed25519
+//! signing). See `build.rs`.
 //!
 //! Each suite returns an [`Outcome`]: the number of cases that passed and were
 //! skipped, or the first failure with the Wycheproof `tcId` (or the index into
@@ -359,10 +360,11 @@ pub fn aes_ecb<C: BlockCipher>(suite: &Suite<Ecb>) -> Outcome {
         |case| {
             let aes = C::new(case.key).ok_or("key rejected")?;
             let pt = &MESSAGE[..case.pt_len];
-            let mut buf = [0u8; MAX_MSG];
-            let buf = &mut buf[..case.pt_len];
-            let mut out = [0u8; MAX_MSG];
-            let out = &mut out[..case.pt_len];
+            // Offset by one byte: a DMA driver must cope with unaligned buffers.
+            let mut buf = [0u8; MAX_MSG + 1];
+            let buf = &mut buf[1..1 + case.pt_len];
+            let mut out = [0u8; MAX_MSG + 3];
+            let out = &mut out[3..3 + case.pt_len];
 
             buf.copy_from_slice(pt);
             aes.encrypt_blocks(buf).map_err(|_| "encrypt failed")?;
@@ -572,8 +574,9 @@ pub fn aes_ctr<C: Ctr>(suite: &Suite<vectors::Ctr>) -> Outcome {
         |case| {
             let iv: &[u8; 16] = case.iv.try_into().map_err(|_| "bad iv length")?;
             let pt = &MESSAGE[..case.pt_len];
-            let mut buf = [0u8; MAX_MSG];
-            let buf = &mut buf[..case.pt_len];
+            // Offset by one byte: a DMA driver must cope with unaligned buffers.
+            let mut buf = [0u8; MAX_MSG + 1];
+            let buf = &mut buf[1..1 + case.pt_len];
 
             buf.copy_from_slice(pt);
             let mut ctr = C::new(case.key, iv).ok_or("key rejected")?;
@@ -594,8 +597,8 @@ pub fn aes_ctr<C: Ctr>(suite: &Suite<vectors::Ctr>) -> Outcome {
                 return Err("decrypted plaintext mismatch");
             }
 
-            let mut out = [0u8; MAX_MSG];
-            let out = &mut out[..case.pt_len];
+            let mut out = [0u8; MAX_MSG + 3];
+            let out = &mut out[3..3 + case.pt_len];
             let mut ctr = C::new(case.key, iv).unwrap();
             ctr.apply_keystream_to(&pt[..5], &mut out[..5])
                 .map_err(|_| "apply_keystream_to failed")?;
@@ -612,8 +615,89 @@ pub fn aes_ctr<C: Ctr>(suite: &Suite<vectors::Ctr>) -> Outcome {
     )
 }
 
-/// A GCM type of `embassy_crypto`.
-pub trait Gcm {
+/// A ChaCha stream cipher type of `embassy_crypto`.
+pub trait ChaChaStream {
+    /// See `embassy_crypto::ChaCha20::with_counter`.
+    fn with_counter(key: &[u8; 32], nonce: &[u8; 12], counter: u32) -> Self
+    where
+        Self: Sized;
+    /// See `embassy_crypto::ChaCha20::apply_keystream`.
+    fn apply_keystream(&mut self, buf: &mut [u8]);
+    /// See `embassy_crypto::ChaCha20::apply_keystream_to`.
+    fn apply_keystream_to(&mut self, input: &[u8], output: &mut [u8]) -> Result<(), Error>;
+}
+
+macro_rules! impl_chacha {
+    ($($t:ident),* $(,)?) => {$(
+        impl ChaChaStream for embassy_crypto::$t {
+            fn with_counter(key: &[u8; 32], nonce: &[u8; 12], counter: u32) -> Self {
+                embassy_crypto::$t::with_counter(key, nonce, counter)
+            }
+            fn apply_keystream(&mut self, buf: &mut [u8]) {
+                embassy_crypto::$t::apply_keystream(self, buf)
+            }
+            fn apply_keystream_to(&mut self, input: &[u8], output: &mut [u8]) -> Result<(), Error> {
+                embassy_crypto::$t::apply_keystream_to(self, input, output)
+            }
+        }
+    )*};
+}
+impl_chacha!(ChaCha8, ChaCha12, ChaCha20);
+
+/// Run a ChaCha suite: the keystream applied in odd-sized chunks and in one go,
+/// in place and to a separate buffer, on buffers that are not word aligned.
+pub fn chacha<C: ChaChaStream>(suite: &Suite<vectors::ChaCha>) -> Outcome {
+    run(
+        suite,
+        |i, _| i as u32,
+        |case| {
+            let key: &[u8; 32] = case.key.try_into().map_err(|_| "bad key length")?;
+            let nonce: &[u8; 12] = case.nonce.try_into().map_err(|_| "bad nonce length")?;
+            let pt = &MESSAGE[..case.pt_len];
+            let mut buf = [0u8; MAX_MSG + 1];
+            let buf = &mut buf[1..1 + case.pt_len];
+
+            buf.copy_from_slice(pt);
+            let mut c = C::with_counter(key, nonce, case.counter);
+            let mut pos = 0;
+            for len in [1usize, 7, 63, 64, 65, 3, 100, 33] {
+                if pos + len > buf.len() {
+                    break;
+                }
+                c.apply_keystream(&mut buf[pos..pos + len]);
+                pos += len;
+            }
+            c.apply_keystream(&mut buf[pos..]);
+            if buf != case.ct {
+                return Err("ciphertext mismatch (chunked)");
+            }
+            C::with_counter(key, nonce, case.counter).apply_keystream(buf);
+            if buf != pt {
+                return Err("decrypted plaintext mismatch");
+            }
+
+            let mut out = [0u8; MAX_MSG + 3];
+            let out = &mut out[3..3 + case.pt_len];
+            let mut c = C::with_counter(key, nonce, case.counter);
+            let split = case.pt_len.min(5);
+            c.apply_keystream_to(&pt[..split], &mut out[..split])
+                .map_err(|_| "apply_keystream_to failed")?;
+            c.apply_keystream_to(&pt[split..], &mut out[split..])
+                .map_err(|_| "apply_keystream_to failed")?;
+            if out != case.ct {
+                return Err("ciphertext mismatch (separate buffers)");
+            }
+            if c.apply_keystream_to(&pt[..1], &mut []) != Err(Error::InvalidInput) {
+                return Err("mismatched buffer lengths accepted");
+            }
+            Ok(Verdict::Pass)
+        },
+    )
+}
+
+/// An AEAD type of `embassy_crypto` with a 12-byte nonce and a 16-byte tag:
+/// AES-GCM or ChaCha-Poly1305.
+pub trait Aead {
     /// See `embassy_crypto::Aes128Gcm::new`. `None` if the key size is not accepted.
     fn new(key: &[u8]) -> Option<Self>
     where
@@ -635,9 +719,9 @@ pub trait Gcm {
     ) -> Result<(), Error>;
 }
 
-macro_rules! impl_gcm {
+macro_rules! impl_aead {
     ($($t:ident),* $(,)?) => {$(
-        impl Gcm for embassy_crypto::$t {
+        impl Aead for embassy_crypto::$t {
             fn new(key: &[u8]) -> Option<Self> {
                 Some(embassy_crypto::$t::new(key.try_into().ok()?))
             }
@@ -656,16 +740,24 @@ macro_rules! impl_gcm {
         }
     )*};
 }
-impl_gcm!(Aes128Gcm, Aes256Gcm);
+impl_aead!(
+    Aes128Gcm,
+    Aes256Gcm,
+    ChaCha8Poly1305,
+    ChaCha12Poly1305,
+    ChaCha20Poly1305
+);
 
-/// Run a GCM suite. Cases with a nonce that is not 12 bytes are skipped.
-pub fn aes_gcm<G: Gcm>(suite: &Suite<Aead>) -> Outcome {
+/// Run a GCM or ChaCha-Poly1305 suite, in place and to a separate buffer,
+/// on buffers that are not word aligned. Cases with a nonce that is not 12
+/// bytes are skipped.
+pub fn aead<A: Aead>(suite: &Suite<vectors::Aead>) -> Outcome {
     const MAX: usize = 1024;
     run(
         suite,
         |_, c| c.tc_id,
         |case| {
-            let gcm = G::new(case.key).ok_or("key rejected")?;
+            let aead = A::new(case.key).ok_or("key rejected")?;
             let Ok(nonce) = <&[u8; 12]>::try_from(case.nonce) else {
                 return Ok(Verdict::Skip);
             };
@@ -675,15 +767,16 @@ pub fn aes_gcm<G: Gcm>(suite: &Suite<Aead>) -> Outcome {
             if case.msg.len() > MAX {
                 return Ok(Verdict::Skip);
             }
-            let mut buf = [0u8; MAX];
-            let buf = &mut buf[..case.ct.len()];
+            // Offset by one byte: a DMA driver must cope with unaligned buffers.
+            let mut buf = [0u8; MAX + 1];
+            let buf = &mut buf[1..1 + case.ct.len()];
+            let mut out = [0u8; MAX + 3];
+            let out = &mut out[3..3 + case.ct.len()];
 
             // Every case: decrypt, in place and to a separate buffer.
             buf.copy_from_slice(case.ct);
-            let accepted = gcm.decrypt(nonce, case.aad, buf, tag).is_ok() && buf == case.msg;
-            let mut out = [0u8; MAX];
-            let out = &mut out[..case.ct.len()];
-            let accepted_to = gcm.decrypt_to(nonce, case.aad, case.ct, out, tag).is_ok() && out == case.msg;
+            let accepted = aead.decrypt(nonce, case.aad, buf, tag).is_ok() && buf == case.msg;
+            let accepted_to = aead.decrypt_to(nonce, case.aad, case.ct, out, tag).is_ok() && out == case.msg;
             if accepted != accepted_to {
                 return Err("in-place and separate-buffer decrypt disagree");
             }
@@ -696,11 +789,11 @@ pub fn aes_gcm<G: Gcm>(suite: &Suite<Aead>) -> Outcome {
 
             // Valid cases: encrypt too.
             buf.copy_from_slice(case.msg);
-            let t = gcm.encrypt(nonce, case.aad, buf).map_err(|_| "encrypt failed")?;
+            let t = aead.encrypt(nonce, case.aad, buf).map_err(|_| "encrypt failed")?;
             if buf != case.ct || t != *tag {
                 return Err("ciphertext or tag mismatch");
             }
-            let t = gcm
+            let t = aead
                 .encrypt_to(nonce, case.aad, case.msg, out)
                 .map_err(|_| "encrypt_to failed")?;
             if out != case.ct || t != *tag {
@@ -709,7 +802,7 @@ pub fn aes_gcm<G: Gcm>(suite: &Suite<Aead>) -> Outcome {
             let mut bad = *tag;
             bad[0] ^= 1;
             buf.copy_from_slice(case.ct);
-            if gcm.decrypt(nonce, case.aad, buf, &bad) != Err(Error::InvalidSignature) {
+            if aead.decrypt(nonce, case.aad, buf, &bad) != Err(Error::InvalidSignature) {
                 return Err("modified tag accepted");
             }
             Ok(Verdict::Pass)
@@ -763,9 +856,10 @@ macro_rules! impl_ccm {
 }
 impl_ccm!(Aes128Ccm, Aes256Ccm);
 
-/// Run a CCM suite. Invalid nonce and tag sizes are part of the vectors: the
+/// Run a CCM suite, in place and to a separate buffer, on buffers that are
+/// not word aligned. Invalid nonce and tag sizes are part of the vectors: the
 /// driver must reject them.
-pub fn aes_ccm<C: Ccm>(suite: &Suite<Aead>) -> Outcome {
+pub fn aes_ccm<C: Ccm>(suite: &Suite<vectors::Aead>) -> Outcome {
     const MAX: usize = 1024;
     run(
         suite,
@@ -775,10 +869,11 @@ pub fn aes_ccm<C: Ccm>(suite: &Suite<Aead>) -> Outcome {
             if case.msg.len() > MAX || case.tag.len() > 16 {
                 return Ok(Verdict::Skip);
             }
-            let mut buf = [0u8; MAX];
-            let buf = &mut buf[..case.ct.len()];
-            let mut out = [0u8; MAX];
-            let out = &mut out[..case.ct.len()];
+            // Offset by one byte: a DMA driver must cope with unaligned buffers.
+            let mut buf = [0u8; MAX + 1];
+            let buf = &mut buf[1..1 + case.ct.len()];
+            let mut out = [0u8; MAX + 3];
+            let out = &mut out[3..3 + case.ct.len()];
 
             buf.copy_from_slice(case.ct);
             let accepted = ccm.decrypt(case.nonce, case.aad, buf, case.tag).is_ok() && buf == case.msg;
@@ -1411,10 +1506,22 @@ named! {
     /// AES-256 CTR (generated).
     aes256_ctr => aes_ctr::<embassy_crypto::Aes256Ctr>(&AES_CTR_256);
     /// AES-128 GCM (Wycheproof `aes_gcm_test`).
-    aes128_gcm => aes_gcm::<embassy_crypto::Aes128Gcm>(&AES_GCM_128);
+    aes128_gcm => aead::<embassy_crypto::Aes128Gcm>(&AES_GCM_128);
     /// AES-256 GCM (Wycheproof `aes_gcm_test`).
-    aes256_gcm => aes_gcm::<embassy_crypto::Aes256Gcm>(&AES_GCM_256);
-    /// AES-128 CCM (Wycheproof `aes_ccm_test`).
+    aes256_gcm => aead::<embassy_crypto::Aes256Gcm>(&AES_GCM_256);
+    /// ChaCha8 (generated).
+    chacha8 => chacha::<embassy_crypto::ChaCha8>(&CHACHA8);
+    /// ChaCha12 (generated).
+    chacha12 => chacha::<embassy_crypto::ChaCha12>(&CHACHA12);
+    /// ChaCha20 (generated).
+    chacha20 => chacha::<embassy_crypto::ChaCha20>(&CHACHA20);
+    /// ChaCha8-Poly1305 (generated).
+    chacha8_poly1305 => aead::<embassy_crypto::ChaCha8Poly1305>(&CHACHA8_POLY1305);
+    /// ChaCha12-Poly1305 (generated).
+    chacha12_poly1305 => aead::<embassy_crypto::ChaCha12Poly1305>(&CHACHA12_POLY1305);
+    /// ChaCha20-Poly1305 (Wycheproof `chacha20_poly1305_test`).
+    chacha20_poly1305 => aead::<embassy_crypto::ChaCha20Poly1305>(&CHACHA20_POLY1305);
+    /// AES-128 CCM (Wycheproof `aes_ccm_test`, plus generated cases with a long AAD).
     aes128_ccm => aes_ccm::<embassy_crypto::Aes128Ccm>(&AES_CCM_128);
     /// AES-256 CCM (Wycheproof `aes_ccm_test`).
     aes256_ccm => aes_ccm::<embassy_crypto::Aes256Ccm>(&AES_CCM_256);

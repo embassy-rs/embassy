@@ -96,30 +96,13 @@ async fn main(_spawner: embassy_executor::Spawner) {
     info!("Curve: NIST P-256 (secp256r1)");
     info!("Message Hash: {:02x}", message_hash);
 
-    // Generate random k value using hardware RNG
-    // CRITICAL: k must be random and unique for every signature!
-    let mut k = [0u8; 32];
-    if let Err(e) = rng.fill_bytes(&mut k).await {
-        error!("Failed to generate random k: {:?}", e);
-        loop {
-            cortex_m::asm::wfi();
-        }
-    }
-
-    // Ensure k is in valid range (1 < k < n)
-    // For simplicity, we set the MSB to ensure it's less than n
-    k[0] &= 0x7F;
-    // Ensure k is not zero
-    k[31] |= 0x01;
-
-    info!("Random k:     {:02x}", k);
-
     // Generate signature
     let mut sig_r = [0u8; 32];
     let mut sig_s = [0u8; 32];
 
     info!("Signing message...");
-    match pka.ecdsa_sign_blocking(&curve, &private_key, &k, &message_hash, &mut sig_r, &mut sig_s) {
+    // The driver draws the nonce from the RNG.
+    match pka.ecdsa_sign_blocking(&curve, &private_key, &message_hash, &mut rng, &mut sig_r, &mut sig_s) {
         Ok(()) => {
             info!("Signature generated successfully!");
             info!("Signature R: {:02x}", sig_r);

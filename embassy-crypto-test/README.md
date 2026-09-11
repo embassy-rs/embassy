@@ -15,7 +15,9 @@ embassy_crypto_test::aes128_gcm().unwrap();
 ## Vectors
 
 - [Wycheproof](https://github.com/C2SP/wycheproof) for HMAC, AES-CBC, GCM,
-  CCM, CMAC, ECDH, ECDSA verification, X25519 and Ed25519 verification. `build.rs` clones the
+  CCM, CMAC, ChaCha20-Poly1305, ECDH, ECDSA verification, X25519 and Ed25519 verification. `build.rs` clones the
   repository at a pinned commit into `OUT_DIR`. Set `WYCHEPROOF_DIR` to an
   existing checkout to build offline.
-- Generated at build time with the RustCrypto crates: plain digests, AES-ECB, AES-CTR, curve arithmetic, X25519 key generation and Ed25519 signing.
+- Generated at build time with the RustCrypto crates: plain digests, AES-ECB, AES-CTR, ChaCha8/12/20, ChaCha8/12-Poly1305, CCM with a long AAD, curve arithmetic, X25519 key generation and Ed25519 signing.
+- Vectors are included for some algorithms not covered by embassy-crypto, to
+  help HALs test: raw RSA, P-192, P-224, P-521 and secp256k1.
