@@ -197,6 +197,7 @@ impl<'d> CasperDriver<'d> {
     }
 
     /// Copy a sequence of 64-bit values from one SRAMX location to another.
+    /// The slice `values` uses litte-endian word order: the least significant 64-bit word is at index 0.
     ///
     /// # Panics
     /// Panics if the source or destination offsets plus the total size of values exceed SRAMX boundaries (8 KB), or if the source or destination offsets are not aligned to 8 bytes.
@@ -235,6 +236,7 @@ impl<'d> CasperDriver<'d> {
     }
 
     /// Perform a bitwise XOR operation on pairs of 64-bit values (dwords - double words) in SRAMX memory.
+    /// The slices `operands` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
     /// 
     /// # Panics
     /// Panics if the result buffer is not large enough to hold the results of the XOR operation.
@@ -258,6 +260,7 @@ impl<'d> CasperDriver<'d> {
     }
 
     /// Perform a doubling operation on a sequence of 64-bit values (dwords - double words) in SRAMX memory.
+    /// The slices `values` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
     /// 
     /// # Panics
     /// Panics if the result buffer is not large enough to hold the results of the doubling operation.
@@ -280,6 +283,7 @@ impl<'d> CasperDriver<'d> {
     }
 
     /// Perform an addition operation on pairs of 64-bit values (dwords - double words) in SRAMX memory.
+    /// The slices `operands` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
     /// 
     /// # Panics
     /// Panics if the result buffer is not large enough to hold the results of the addition operation.
@@ -306,6 +310,7 @@ impl<'d> CasperDriver<'d> {
     /// Perform a subtraction operation on pairs of 64-bit values (dwords - double words) in SRAMX memory.
     /// CASPER supports subtraction with borrow, and the carry flag indicates whether a borrow occurred during the operation.
     /// Uses forward subtraction (R - A) where R is the minuend and A is the subtrahend. R is the first operand and A is the second operand in each pair.
+    /// The slices `operands` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
     /// 
     /// # Panics
     /// Panics if the result buffer is not large enough to hold the results of the subtraction operation.
@@ -332,6 +337,7 @@ impl<'d> CasperDriver<'d> {
     /// Perform a reverse subtraction operation on pairs of 64-bit values (dwords - double words) in SRAMX memory.
     /// CASPER supports subtraction with borrow, and the carry flag indicates whether a borrow occurred during the operation.
     /// Uses reverse subtraction (A - R) where A is the minuend and R is the subtrahend. A is the first operand and R is the second operand in each pair.
+    /// The slices `operands` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
     /// 
     /// # Panics
     /// Panics if the result buffer is not large enough to hold the results of the reverse subtraction operation.
@@ -358,6 +364,7 @@ impl<'d> CasperDriver<'d> {
     /// Perform a 64-bit multiplication without accumulating the result into the existing RES contents.
     /// The 64-bit value `ab` is multiplied by the sequence of 64-bit values in `cd`.
     /// The resulting multi-word value is written to RES and returned through `result`.
+    /// The slices `cd` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
     /// 
     /// # Panics
     /// Panics if the `cd` slice is empty or contains more than 256 elements, or if the result buffer is not large enough to hold the `cd.len() + 1` output values.
@@ -381,6 +388,7 @@ impl<'d> CasperDriver<'d> {
     /// The operation performs the CASPER MUL64_SUM operation, which reads the existing RES contents, 
     /// adds the corresponding product, and writes the accumulated result back to RES.
     /// The `w` slice provides the initial RES values. It may contain more elements than `cd`; only the RES words reached by the CASPER operation are modified.
+    /// The slices `cd`, `w` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
     /// 
     /// # Panics
     /// Panics if `cd` or `w` is empty, if `cd` contains more elements than `w`, 
@@ -410,6 +418,7 @@ impl<'d> CasperDriver<'d> {
     /// This operation performs the CASPER MUL64_FULLSUM operation, which reads the existing RES contents, 
     /// adds the corresponding products, and propagates the carry through the full result.
     /// The `w` slice provides the initial RES values.
+    /// The slices `cd`, `w` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
     /// Returns the carry flag reported by the last CASPER operation.
     /// 
     /// # Panics
@@ -443,6 +452,7 @@ impl<'d> CasperDriver<'d> {
     /// The `w` slice provides the initial RES values and must contain the same number of elements as `cd`.
     /// The `m` value is expected to be the precomputed Montgomery reduction factor; CASPER does not calculate this value itself.
     /// The RES workspace is cleared before the operation to prevent stale SRAMX contents from affecting the reduction.
+    /// The slices `cd`, `w` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
     /// 
     /// # Panics
     /// Panics if `cd` or `w` is empty, if `cd` and `w` have different lengths,
