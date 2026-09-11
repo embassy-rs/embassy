@@ -1,3 +1,4 @@
+#![cfg(lpc55)]
 //! Cryptographic Accelerator and Signaling Processing Engine (CASPER)
 //!
 //! This module provides hardware acceleration for asymmetric cryptography (RSA).
