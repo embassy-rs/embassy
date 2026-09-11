@@ -11,6 +11,8 @@
 //! - ChaCha-Poly1305
 //! - CCM with a long AAD
 //! - curve arithmetic
+//! - known answers on more curves
+//! - raw RSA
 //! - X25519 key generation
 //! - Ed25519 signing
 
@@ -297,8 +299,10 @@ fn ecdsa(out: &mut Out, w: &Wycheproof, file: &str, suite: &str) {
             let public = hex(g["publicKey"]["uncompressed"].as_str().unwrap());
             let msg = field(t, "msg");
             let digest = match g["sha"].as_str().unwrap() {
+                "SHA-224" => sha2::Sha224::digest(&msg).to_vec(),
                 "SHA-256" => sha2::Sha256::digest(&msg).to_vec(),
                 "SHA-384" => sha2::Sha384::digest(&msg).to_vec(),
+                "SHA-512" => sha2::Sha512::digest(&msg).to_vec(),
                 other => panic!("unsupported hash {other}"),
             };
             let public = out.bytes(&public);
@@ -740,6 +744,298 @@ fn ccm_long_aad(out: &mut Out, key_len: usize, msg: &[u8]) -> Vec<String> {
         .collect()
 }
 
+/// Raw RSA under the private keys of the Wycheproof PKCS#1 files, one suite per
+/// key size.
+fn rsa(out: &mut Out, w: &Wycheproof) {
+    use num_bigint_dig::BigUint;
+    for bits in [2048usize, 3072, 4096] {
+        let file = w.load(&format!("rsa_pkcs1_{bits}"));
+        let key = &file["testGroups"][0]["privateKey"];
+        let int = |name: &str| BigUint::from_bytes_be(&hex(key[name].as_str().unwrap()));
+        let n = int("modulus");
+        let e = int("publicExponent");
+        let d = int("privateExponent");
+        let (p, q) = (int("prime1"), int("prime2"));
+        let (dp, dq, qinv) = (int("exponent1"), int("exponent2"), int("coefficient"));
+        let size = bits / 8;
+        assert_eq!(n.bits(), bits);
+        assert_eq!(&p * &q, n);
+        let fixed = |x: &BigUint, len: usize| -> Vec<u8> {
+            let b = x.to_bytes_be();
+            assert!(b.len() <= len);
+            let mut v = vec![0u8; len - b.len()];
+            v.extend_from_slice(&b);
+            v
+        };
+        let cases: Vec<String> = (0..2u8)
+            .map(|i| {
+                let m = BigUint::from_bytes_be(&pattern(0xe0 + i, size)) % &n;
+                let c = m.modpow(&e, &n);
+                assert_eq!(c.modpow(&d, &n), m);
+                format!(
+                    "Rsa {{ n: {}, e: {}, d: {}, p: {}, q: {}, dp: {}, dq: {}, qinv: {}, m: {}, c: {} }}",
+                    out.bytes(&fixed(&n, size)),
+                    out.bytes(&e.to_bytes_be()),
+                    out.bytes(&fixed(&d, size)),
+                    out.bytes(&fixed(&p, size / 2)),
+                    out.bytes(&fixed(&q, size / 2)),
+                    out.bytes(&fixed(&dp, size / 2)),
+                    out.bytes(&fixed(&dq, size / 2)),
+                    out.bytes(&fixed(&qinv, size / 2)),
+                    out.bytes(&fixed(&m, size)),
+                    out.bytes(&fixed(&c, size)),
+                )
+            })
+            .collect();
+        out.suite(&format!("rsa_{bits}"), "Rsa", cases);
+    }
+}
+
+/// A short Weierstrass curve `y² = x³ + a·x + b` over `GF(p)`, with generic
+/// (slow, non-constant-time) arithmetic: it computes reference values only.
+struct Weierstrass {
+    name: &'static str,
+    p: num_bigint_dig::BigUint,
+    a: num_bigint_dig::BigUint,
+    b: num_bigint_dig::BigUint,
+    g: (num_bigint_dig::BigUint, num_bigint_dig::BigUint),
+    n: num_bigint_dig::BigUint,
+    /// Size of a coordinate or scalar, in bytes.
+    size: usize,
+}
+
+type Affine = Option<(num_bigint_dig::BigUint, num_bigint_dig::BigUint)>;
+
+impl Weierstrass {
+    fn new(name: &'static str, p: &str, a: &str, b: &str, gx: &str, gy: &str, n: &str) -> Self {
+        use num_bigint_dig::BigUint;
+        let int = |s: &str| BigUint::from_bytes_be(&hex(s));
+        let c = Self {
+            name,
+            p: int(p),
+            a: int(a),
+            b: int(b),
+            g: (int(gx), int(gy)),
+            n: int(n),
+            size: hex(p).len(),
+        };
+        // The parameters are typed in by hand: check that they agree with each other.
+        let (gx, gy) = &c.g;
+        let lhs = (gy * gy) % &c.p;
+        let rhs = (gx * gx * gx + &c.a * gx + &c.b) % &c.p;
+        assert_eq!(lhs, rhs, "{name}: generator not on curve");
+        assert!(c.mul(&c.n, &Some(c.g.clone())).is_none(), "{name}: order wrong");
+        c
+    }
+
+    fn inv(x: &num_bigint_dig::BigUint, m: &num_bigint_dig::BigUint) -> num_bigint_dig::BigUint {
+        use num_bigint_dig::BigUint;
+        // `m` is prime.
+        x.modpow(&(m - BigUint::from(2u8)), m)
+    }
+
+    fn add(&self, p: &Affine, q: &Affine) -> Affine {
+        let (Some((x1, y1)), Some((x2, y2))) = (p, q) else {
+            return p.clone().or_else(|| q.clone());
+        };
+        let m = &self.p;
+        let lambda = if x1 == x2 {
+            if (y1 + y2) % m == num_bigint_dig::BigUint::default() {
+                return None;
+            }
+            let num = (num_bigint_dig::BigUint::from(3u8) * x1 * x1 + &self.a) % m;
+            let den = Self::inv(&((num_bigint_dig::BigUint::from(2u8) * y1) % m), m);
+            (num * den) % m
+        } else {
+            let num = (y2 + m - y1) % m;
+            let den = Self::inv(&((x2 + m - x1) % m), m);
+            (num * den) % m
+        };
+        let x3 = (&lambda * &lambda + m + m - x1 - x2) % m;
+        let y3 = (lambda * ((x1 + m - &x3) % m) + m - y1) % m;
+        Some((x3, y3))
+    }
+
+    fn mul(&self, k: &num_bigint_dig::BigUint, p: &Affine) -> Affine {
+        let mut r: Affine = None;
+        let mut q = p.clone();
+        let bits = k.to_radix_le(2);
+        for &bit in &bits {
+            if bit == 1 {
+                r = self.add(&r, &q);
+            }
+            q = self.add(&q, &q);
+        }
+        r
+    }
+
+    fn scalar_bytes(&self, s: &num_bigint_dig::BigUint) -> Vec<u8> {
+        let b = s.to_bytes_be();
+        let mut v = vec![0u8; self.size - b.len()];
+        v.extend_from_slice(&b);
+        v
+    }
+
+    /// Uncompressed SEC1.
+    fn point_bytes(&self, p: &Affine) -> Vec<u8> {
+        let (x, y) = p.as_ref().expect("point at infinity");
+        let mut v = vec![4u8];
+        v.extend_from_slice(&self.scalar_bytes(x));
+        v.extend_from_slice(&self.scalar_bytes(y));
+        v
+    }
+
+    /// A scalar in `1..n` from `seed`.
+    fn scalar(&self, seed: u8) -> num_bigint_dig::BigUint {
+        use num_bigint_dig::BigUint;
+        BigUint::from_bytes_be(&pattern(seed, self.size)) % (&self.n - BigUint::from(1u8)) + BigUint::from(1u8)
+    }
+
+    /// The leftmost `bits(n)` bits of `digest`, as an integer (FIPS 186-4).
+    fn truncate(&self, digest: &[u8]) -> num_bigint_dig::BigUint {
+        let z = num_bigint_dig::BigUint::from_bytes_be(digest);
+        let extra = (digest.len() * 8).saturating_sub(self.n.bits());
+        z >> extra
+    }
+}
+
+/// Known answers on every curve the hardware drivers support: key pairs, a
+/// shared point, and a signature with a fixed nonce over digests of
+/// various lengths.
+fn ec_kat(out: &mut Out, msg: &[u8]) {
+    use num_bigint_dig::BigUint;
+    use sha2::Digest;
+
+    let curves = [
+        Weierstrass::new(
+            "p192",
+            "fffffffffffffffffffffffffffffffeffffffffffffffff",
+            "fffffffffffffffffffffffffffffffefffffffffffffffc",
+            "64210519e59c80e70fa7e9ab72243049feb8deecc146b9b1",
+            "188da80eb03090f67cbf20eb43a18800f4ff0afd82ff1012",
+            "07192b95ffc8da78631011ed6b24cdd573f977a11e794811",
+            "ffffffffffffffffffffffff99def836146bc9b1b4d22831",
+        ),
+        Weierstrass::new(
+            "p224",
+            "ffffffffffffffffffffffffffffffff000000000000000000000001",
+            "fffffffffffffffffffffffffffffffefffffffffffffffffffffffe",
+            "b4050a850c04b3abf54132565044b0b7d7bfd8ba270b39432355ffb4",
+            "b70e0cbd6bb4bf7f321390b94a03c1d356c21122343280d6115c1d21",
+            "bd376388b5f723fb4c22dfe6cd4375a05a07476444d5819985007e34",
+            "ffffffffffffffffffffffffffff16a2e0b8f03e13dd29455c5c2a3d",
+        ),
+        Weierstrass::new(
+            "p256",
+            "ffffffff00000001000000000000000000000000ffffffffffffffffffffffff",
+            "ffffffff00000001000000000000000000000000fffffffffffffffffffffffc",
+            "5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b",
+            "6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296",
+            "4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+            "ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551",
+        ),
+        Weierstrass::new(
+            "p384",
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000ffffffff",
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffeffffffff0000000000000000fffffffc",
+            "b3312fa7e23ee7e4988e056be3f82d19181d9c6efe8141120314088f5013875ac656398d8a2ed19d2a85c8edd3ec2aef",
+            "aa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7",
+            "3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f",
+            "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973",
+        ),
+        Weierstrass::new(
+            "p521",
+            "01ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "01fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffc",
+            "0051953eb9618e1c9a1f929a21a0b68540eea2da725b99b315f3b8b489918ef109e156193951ec7e937b1652c0bd3bb1bf073573df883d2c34f1ef451fd46b503f00",
+            "00c6858e06b70404e9cd9e3ecb662395b4429c648139053fb521f828af606b4d3dbaa14b5e77efe75928fe1dc127a2ffa8de3348b3c1856a429bf97e7e31c2e5bd66",
+            "011839296a789a3bc0045c8a5fb42c7d1bd998f54449579b446817afbd17273e662c97ee72995ef42640c550b9013fad0761353c7086a272c24088be94769fd16650",
+            "01fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409",
+        ),
+        Weierstrass::new(
+            "secp256k1",
+            "fffffffffffffffffffffffffffffffffffffffffffffffffffffffefffffc2f",
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "0000000000000000000000000000000000000000000000000000000000000007",
+            "79be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
+            "483ada7726a3c4655da4fbfc0e1108a8fd17b448a68554199c47d08ffb10d4b8",
+            "fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141",
+        ),
+    ];
+
+    for (ci, c) in curves.iter().enumerate() {
+        let one = BigUint::from(1u8);
+        let g: Affine = Some(c.g.clone());
+        // Digests: a SHA-256 (32 bytes), one the size of the curve, a SHA-512
+        // (64 bytes, longer than every order) and a SHA-1 (20 bytes, shorter).
+        let digests: [Vec<u8>; 4] = [
+            sha2::Sha256::digest(&msg[..100]).to_vec(),
+            pattern(0xf0 + ci as u8, c.size),
+            sha2::Sha512::digest(&msg[..200]).to_vec(),
+            sha1::Sha1::digest(&msg[..300]).to_vec(),
+        ];
+        let cases: Vec<String> = (0..4usize)
+            .map(|i| {
+                let seed = |k: u8| 0x10 * ci as u8 + 4 * i as u8 + k;
+                let d = match i {
+                    0 => one.clone(),
+                    3 => &c.n - &one,
+                    _ => c.scalar(seed(0)),
+                };
+                let d2 = c.scalar(seed(1));
+                let k = c.scalar(seed(2));
+                let q = c.mul(&d, &g);
+                let q2 = c.mul(&d2, &g);
+                let shared = c.mul(&d, &q2);
+                assert_eq!(shared, c.mul(&d2, &q), "{}: key agreement", c.name);
+
+                // ECDSA (FIPS 186-4 section 6.4.1).
+                let digest = &digests[i];
+                let z = c.truncate(digest) % &c.n;
+                let (rx, _) = c.mul(&k, &g).unwrap();
+                let r = rx % &c.n;
+                let s = (Weierstrass::inv(&k, &c.n) * ((&z + &r * &d) % &c.n)) % &c.n;
+                assert!(r != BigUint::default() && s != BigUint::default());
+                // Check it verifies: (z s⁻¹) G + (r s⁻¹) Q has x = r.
+                let s_inv = Weierstrass::inv(&s, &c.n);
+                let u1 = (&z * &s_inv) % &c.n;
+                let u2 = (&r * &s_inv) % &c.n;
+                let (vx, _) = c.add(&c.mul(&u1, &g), &c.mul(&u2, &q)).unwrap();
+                assert_eq!(vx % &c.n, r, "{}: signature does not verify", c.name);
+
+                let mut sig = c.scalar_bytes(&r);
+                sig.extend_from_slice(&c.scalar_bytes(&s));
+                format!(
+                    "EcKat {{ private: {}, public: {}, private2: {}, public2: {}, shared: {}, k: {}, digest: {}, sig: {} }}",
+                    out.bytes(&c.scalar_bytes(&d)),
+                    out.bytes(&c.point_bytes(&q)),
+                    out.bytes(&c.scalar_bytes(&d2)),
+                    out.bytes(&c.point_bytes(&q2)),
+                    out.bytes(&c.point_bytes(&shared)),
+                    out.bytes(&c.scalar_bytes(&k)),
+                    out.bytes(digest),
+                    out.bytes(&sig),
+                )
+            })
+            .collect();
+        out.suite(&format!("{}_kat", c.name), "EcKat", cases);
+    }
+
+    // The generic arithmetic against an independent implementation.
+    {
+        use elliptic_curve::sec1::ToSec1Point;
+        let c = &curves[2];
+        let d = c.scalar(0x77);
+        let reference = p256::ProjectivePoint::GENERATOR
+            * Option::<p256::Scalar>::from(<p256::Scalar as elliptic_curve::ff::PrimeField>::from_repr(
+                c.scalar_bytes(&d).as_slice().try_into().unwrap(),
+            ))
+            .unwrap();
+        let reference = p256::AffinePoint::from(reference).to_sec1_point(false);
+        assert_eq!(c.point_bytes(&c.mul(&d, &Some(c.g.clone()))), reference.as_bytes());
+    }
+}
+
 /// Curve arithmetic: scalar field operations and point operations on random
 /// inputs, plus the edge cases around the group order.
 fn ec_arith(out: &mut Out) {
@@ -924,11 +1220,20 @@ fn main() {
     }
     aead_suite(&mut out, &w, "chacha20_poly1305", "chacha20_poly1305", |_| true, &[]);
 
+    rsa(&mut out, &w);
+
     ec_arith(&mut out);
+    ec_kat(&mut out, &msg);
+    dh(&mut out, &w, "ecdh_secp224r1_ecpoint", "p224_ecdh");
     dh(&mut out, &w, "ecdh_secp256r1_ecpoint", "p256_ecdh");
     dh(&mut out, &w, "ecdh_secp384r1_ecpoint", "p384_ecdh");
+    dh(&mut out, &w, "ecdh_secp521r1_ecpoint", "p521_ecdh");
+    ecdsa(&mut out, &w, "ecdsa_secp192r1_sha256_p1363", "p192_ecdsa");
+    ecdsa(&mut out, &w, "ecdsa_secp224r1_sha256_p1363", "p224_ecdsa");
     ecdsa(&mut out, &w, "ecdsa_secp256r1_sha256_p1363", "p256_ecdsa");
     ecdsa(&mut out, &w, "ecdsa_secp384r1_sha384_p1363", "p384_ecdsa");
+    ecdsa(&mut out, &w, "ecdsa_secp521r1_sha512_p1363", "p521_ecdsa");
+    ecdsa(&mut out, &w, "ecdsa_secp256k1_sha256_p1363", "secp256k1_ecdsa");
     dh(&mut out, &w, "x25519", "x25519");
     x25519_keygen(&mut out);
     eddsa(&mut out, &w, "ed25519", "ed25519");

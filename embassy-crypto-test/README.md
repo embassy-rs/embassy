@@ -19,3 +19,5 @@ embassy_crypto_test::aes128_gcm().unwrap();
   repository at a pinned commit into `OUT_DIR`. Set `WYCHEPROOF_DIR` to an
   existing checkout to build offline.
 - Generated at build time with the RustCrypto crates: plain digests, AES-ECB, AES-CTR, ChaCha8/12/20, ChaCha8/12-Poly1305, CCM with a long AAD, curve arithmetic, X25519 key generation and Ed25519 signing.
+- Vectors are included for some algorithms not covered by embassy-crypto, to
+  help HALs test: raw RSA, P-192, P-224, P-521 and secp256k1.
