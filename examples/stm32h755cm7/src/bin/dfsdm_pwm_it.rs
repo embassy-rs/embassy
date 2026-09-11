@@ -202,7 +202,7 @@ async fn main(_spawner: Spawner) {
     const STATS_INTERVAL_US: u64 = 1_000_000; // report every 1s
 
     loop {
-        let (data, _channel, _rpend) = flt0.reg.read_regular().await;
+        let (data, _channel, _rpend) = flt0.reg.read_regular().await.expect("Error");
 
         let result_ready_at = Instant::now();
         let wait_dur = result_ready_at - wait_start;

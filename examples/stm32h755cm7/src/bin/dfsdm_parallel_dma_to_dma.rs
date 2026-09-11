@@ -123,7 +123,9 @@ async fn main(_spawner: Spawner) {
     let mut result_buffer_regular = [0u32; 32];
 
     loop {
-        let amount_regular = ring_buffered_filter_regular.read_latest(&mut result_buffer_regular);
+        let amount_regular = ring_buffered_filter_regular
+            .read_latest(&mut result_buffer_regular)
+            .unwrap();
         if amount_regular > 0 {
             let a: Rdatar = pac::dfsdm::regs::Rdatar(result_buffer_regular[0]);
 

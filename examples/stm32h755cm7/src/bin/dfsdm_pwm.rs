@@ -202,7 +202,7 @@ async fn main(_spawner: Spawner) {
 
     loop {
         // ch_test.write_sample_standard(10);
-        if let Some((data, _channel, _rpend)) = flt0.reg.try_get_regular_result() {
+        if let Ok((data, _channel, _rpend)) = flt0.reg.try_get_regular_result() {
             let result_ready_at = Instant::now();
             let wait_dur = result_ready_at - wait_start;
 

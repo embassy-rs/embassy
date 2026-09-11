@@ -95,21 +95,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     headers read `T: Instance + FilterInterrupt<M>, M: FilterFlow<T>`.
   - Either is cosmetic; default to leaving the cluster as-is if neither earns
     its churn. Verify empirically (playground + chip matrix) before committing.
-- [ ] **FT1 — Overrun, propagated everywhere** (RM0455 §33.5, Table 254:
-  "data not read and overwritten by a new conversion"; JOVRF/ROVRF cleared via
-  ICR write-1, enabled by JOVRIE/ROVRIE):
-  - `try_get_regular_result` → `Option<Result<(i32, u8, bool), Error>>`;
-    `try_get_injected_result` → `Option<Result<(i32, u8), Error>>`. ROVRF/JOVRF
-    checked first, cleared via `CLRROVRF`/`CLRJOVRF` before the read attempt.
-  - `read_regular`/`read_injected` → `Result<.., Error>`.
-  - ROVRIE/JOVRIE enabled while a read is armed; ISR overrun branch: flag && IE
-    → ICR clear → wake regular/injected waker → waiting future resolves
-    `Err(Overrun)`.
-  - `get_*_unchecked` stay raw (documented).
-  - Ring reads: `Err(Overrun)` on ring lapping (auto-reset inside ring core)
-    AND on ROVRF/JOVRF pre-check (catches filter-side starvation the lapping
-    check cannot see). Map ring `DmaUnsynced` → `Error::PeripheralError`.
-  - Add ROVRIE/JOVRIE/ROVRF/JOVRF/CLRROVRF/CLRJOVRF accessors + handling.
 - [ ] **FT3 — `wait_for_sync()` / `synchronized()` on Transceiver** (replaces
   time-based "blanking"; RM0455 §33.4.4 Clock absence sequence): after
   `CHEN=1`, repeatedly write `CLRCKABF[y]` until `CKABF[y]` reads 0 — the flag
@@ -763,3 +748,31 @@ Summary (each blocks DFSDM availability for whole chip groups):
 - [x] `dfsdm_parallel_dma_to_dma.rs` → method-built ring (`flt0.reg
   .ring_buffered(..)`): uses `start()` + `start_conversion()` +
   `read_latest` loop (2026-09).
+- [x] **FT1 — Overrun, propagated everywhere** (RM0455 §33.5, Table 254:
+  "data not read and overwritten by a new conversion"; JOVRF/ROVRF cleared via
+  ICR write-1, enabled by JOVRIE/ROVRIE). DONE (2026-01).
+  - `try_get_regular_result` → `Result<(i32, u8, bool), Error>`;
+    `try_get_injected_result` → `Result<(i32, u8), Error>`. ROVRF/JOVRF
+    checked first via `get_and_clear_overrun()`, cleared via `CLRROVRF`/`CLRJOVRF`
+    before the read attempt. Returns `Err(Error::Overrun)` if overrun detected,
+    `Err(Error::NotReady)` if no conversion complete, `Ok(data)` otherwise.
+  - `read_regular`/`read_injected` → `Result<.., Error>`. Async methods using
+    `poll_fn` with interrupt-driven completion. ISR checks both conversion
+    completion and overrun flags, wakes appropriate waker.
+  - ROVRIE/JOVRIE enabled while a read is armed; ISR overrun branch: flag && IE
+    → ICR clear → wake regular/injected waker → waiting future resolves
+    `Err(Overrun)`.
+  - `get_*_unchecked` stay raw (documented) — read data register without checking
+    REOCF/JEOCF or overrun flags.
+  - Ring reads: `Err(Overrun)` on ring lapping (auto-reset inside ring core)
+    AND on ROVRF/JOVRF pre-check in `autostart()` (catches filter-side starvation
+    the lapping check cannot see). Map ring `DmaUnsynced` → `Error::PeripheralError`
+    via `remap_dma_error()`.
+  - `FilterDma` trait extended with `get_and_clear_overrun(&self) -> bool` method,
+    implemented by both `FilterRegular` and `FilterInjected` to check and clear
+    their respective overrun flags.
+  - Accessors added: `regular_overrun()`, `injected_overrun()`, `clear_regular_overrun()`,
+    `clear_injected_overrun()`, `set_regular_overrun_interrupt()`, `set_injected_overrun_interrupt()`.
+- [x] **FT1 — Overrun, propagated everywhere** (RM0455 §33.5, Table 254:
+  "data not read and overwritten by a new conversion"; JOVRF/ROVRF cleared via
+  ICR write-1, enabled by JOVRIE/ROVRIE). DONE (2026-01).

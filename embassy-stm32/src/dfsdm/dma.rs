@@ -117,23 +117,20 @@ where
         self.ring_buf.capacity()
     }
 
-    pub fn read_latest(&mut self, buf: &mut [u32]) -> usize {
-        self.autostart();
-        self.ring_buf.read_latest(buf)
+    pub fn read_latest(&mut self, buf: &mut [u32]) -> Result<usize, Error> {
+        self.autostart()?;
+
+        Ok(self.ring_buf.read_latest(buf))
     }
 
     pub async fn read(&mut self, buf: &mut [u32]) -> Result<usize, Error> {
-        self.autostart();
-
-        //TODO clear overrun flag???
+        self.autostart()?;
 
         self.ring_buf.read_exact(buf).await.map_err(remap_dma_error)
     }
 
     pub fn blocking_read(&mut self, buf: &mut [u32]) -> Result<usize, Error> {
-        self.autostart();
-
-        //TODO clear overrun flag???
+        self.autostart()?;
 
         loop {
             match self.ring_buf.read(buf) {
@@ -150,10 +147,16 @@ where
         }
     }
 
-    fn autostart(&mut self) {
+    fn autostart(&mut self) -> Result<(), Error> {
+        if self.filter.get_and_clear_overrun() {
+            return Err(Error::Overrun);
+        }
+
         if !self.ring_buf.is_running() {
             self.start();
         }
+
+        Ok(())
     }
 }
 
