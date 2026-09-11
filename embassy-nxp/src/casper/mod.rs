@@ -2,8 +2,9 @@
 //!
 //! This module provides hardware acceleration for asymmetric cryptography (RSA).
 
+use embassy_hal_internal::{Peri, impl_peripheral};
+
 use crate::pac;
-use embassy_hal_internal::{impl_peripheral, Peri};
 
 /// Base address of CASPER SRAMX dedicated memory (non-secure mode)
 pub const SRAMX_BASE: usize = 0x0400_0000;
@@ -59,8 +60,12 @@ impl<'d> CasperDriver<'d> {
         syscon.ahbclkctrl2().modify(|w| w.set_casper(true));
 
         // 2. Reset the CASPER block in PRESETCTRL2 register (bit 24 in LPC55S6xLPC55S2xLPC552x User manual)
-        syscon.presetctrl2().modify(|w| w.set_casper_rst(pac::syscon::vals::CasperRst::ASSERTED));   // Activate reset
-        syscon.presetctrl2().modify(|w| w.set_casper_rst(pac::syscon::vals::CasperRst::RELEASED));  // Release reset
+        syscon
+            .presetctrl2()
+            .modify(|w| w.set_casper_rst(pac::syscon::vals::CasperRst::ASSERTED)); // Activate reset
+        syscon
+            .presetctrl2()
+            .modify(|w| w.set_casper_rst(pac::syscon::vals::CasperRst::RELEASED)); // Release reset
 
         Self { _peri: peri }
     }
@@ -80,35 +85,49 @@ impl<'d> CasperDriver<'d> {
     pub fn regs(&self) -> pac::casper::Casper {
         pac::CASPER
     }
-    
+
     /// Write a 32-bit value (word) into SRAMX memory at the specified offset.
     ///
     /// # Panics
     /// Panics if the write operation exceeds SRAMX boundaries (8 KB).
     /// Also, panics if the offset is not aligned to 4 bytes.
     pub fn write_word(&mut self, offset: usize, value: u32) {
-        assert!(offset <= SRAMX_SIZE - 4, "CASPER SRAMX write_word overflow, offset {:#x} + 4B exceeds {:#x} (8KB)", offset, SRAMX_SIZE);
-        assert!(offset % 4 == 0, "CASPER SRAMX write_word offset must be aligned to 4 bytes");
+        assert!(
+            offset <= SRAMX_SIZE - 4,
+            "CASPER SRAMX write_word overflow, offset {:#x} + 4B exceeds {:#x} (8KB)",
+            offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            offset % 4 == 0,
+            "CASPER SRAMX write_word offset must be aligned to 4 bytes"
+        );
 
         let ptr = Self::interleave(SRAMX_BASE + offset) as *mut u32;
         unsafe {
             core::ptr::write_volatile(ptr, value);
         }
     }
-    
+
     /// Read a 32-bit value (word) from SRAMX memory at the specified offset.
     ///
     /// # Panics
-    /// Panics if the read operation exceeds SRAMX boundaries (8 KB). 
+    /// Panics if the read operation exceeds SRAMX boundaries (8 KB).
     /// Also, panics if the offset is not aligned to 4 bytes.
     pub fn read_word(&self, offset: usize) -> u32 {
-        assert!(offset <= SRAMX_SIZE - 4, "CASPER SRAMX read_word overflow, offset {:#x} + 4B exceeds {:#x} (8KB)", offset, SRAMX_SIZE);
-        assert!(offset % 4 == 0, "CASPER SRAMX read_word offset must be aligned to 4 bytes");
+        assert!(
+            offset <= SRAMX_SIZE - 4,
+            "CASPER SRAMX read_word overflow, offset {:#x} + 4B exceeds {:#x} (8KB)",
+            offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            offset % 4 == 0,
+            "CASPER SRAMX read_word offset must be aligned to 4 bytes"
+        );
 
         let ptr = Self::interleave(SRAMX_BASE + offset) as *const u32;
-        unsafe {
-            core::ptr::read_volatile(ptr)
-        }
+        unsafe { core::ptr::read_volatile(ptr) }
     }
 
     /// Write a 64-bit value (dword - double word) into SRAMX memory at the specified offset.
@@ -117,8 +136,16 @@ impl<'d> CasperDriver<'d> {
     /// Panics if the write operation exceeds SRAMX boundaries (8 KB).
     /// Also, panics if the offset is not aligned to 8 bytes.
     pub fn write_dword(&mut self, offset: usize, value: u64) {
-        assert!(offset <= SRAMX_SIZE - 8, "CASPER SRAMX write_dword overflow, offset {:#x} + 8B exceeds {:#x} (8KB)", offset, SRAMX_SIZE);
-        assert!(offset % 8 == 0, "CASPER SRAMX write_dword offset must be aligned to 8 bytes");
+        assert!(
+            offset <= SRAMX_SIZE - 8,
+            "CASPER SRAMX write_dword overflow, offset {:#x} + 8B exceeds {:#x} (8KB)",
+            offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            offset % 8 == 0,
+            "CASPER SRAMX write_dword offset must be aligned to 8 bytes"
+        );
 
         self.write_word(offset, value as u32);
         self.write_word(offset + 4, (value >> 32) as u32);
@@ -130,8 +157,16 @@ impl<'d> CasperDriver<'d> {
     /// Panics if the read operation exceeds SRAMX boundaries (8 KB).
     /// Also, panics if the offset is not aligned to 8 bytes.
     pub fn read_dword(&self, offset: usize) -> u64 {
-        assert!(offset <= SRAMX_SIZE - 8, "CASPER SRAMX read_dword overflow, offset {:#x} + 8B exceeds {:#x} (8KB)", offset, SRAMX_SIZE);
-        assert!(offset % 8 == 0, "CASPER SRAMX read_dword offset must be aligned to 8 bytes");
+        assert!(
+            offset <= SRAMX_SIZE - 8,
+            "CASPER SRAMX read_dword overflow, offset {:#x} + 8B exceeds {:#x} (8KB)",
+            offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            offset % 8 == 0,
+            "CASPER SRAMX read_dword offset must be aligned to 8 bytes"
+        );
 
         let low = self.read_word(offset) as u64;
         let high = self.read_word(offset + 4) as u64;
@@ -140,14 +175,25 @@ impl<'d> CasperDriver<'d> {
     }
 
     /// Zero-out a section of SRAMX memory.
-    /// 
+    ///
     /// # Panics
     /// Panics if the clear operation exceeds SRAMX boundaries (8 KB).
     /// Also, panics if the offset or length is not aligned to 4 bytes.
     pub fn clear(&mut self, offset: usize, len: usize) {
-        assert!(offset <= SRAMX_SIZE, "CASPER SRAMX clear overflow, offset {:#x} exceeds {:#x} (8KB)", offset, SRAMX_SIZE);
-        assert!(len <= SRAMX_SIZE - offset, "CASPER SRAMX clear overflow, offset {:#x} + len ({}B) exceeds {:#x} (8KB)", offset, len, SRAMX_SIZE);
-        assert!(len % 4 == 0,"clear length must be multiple of 4 bytes");
+        assert!(
+            offset <= SRAMX_SIZE,
+            "CASPER SRAMX clear overflow, offset {:#x} exceeds {:#x} (8KB)",
+            offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            len <= SRAMX_SIZE - offset,
+            "CASPER SRAMX clear overflow, offset {:#x} + len ({}B) exceeds {:#x} (8KB)",
+            offset,
+            len,
+            SRAMX_SIZE
+        );
+        assert!(len % 4 == 0, "clear length must be multiple of 4 bytes");
         assert!(offset % 4 == 0, "CASPER SRAMX clear offset must be aligned to 4 bytes");
 
         for word_offset in (0..len).step_by(4) {
@@ -162,12 +208,36 @@ impl<'d> CasperDriver<'d> {
 
     /// Synchronous execution of a CASPER AHB operation
     pub fn execute_op_sync(&mut self, opcode: Opcode, iter: u8, a_offset: usize, c_offset: usize, res_offset: usize) {
-        assert!(a_offset <= SRAMX_SIZE, "CASPER SRAMX execute_op_sync overflow: a_offset {:#x} exceeds {:#x} (8KB)", a_offset, SRAMX_SIZE);
-        assert!(c_offset <= SRAMX_SIZE, "CASPER SRAMX execute_op_sync overflow: c_offset {:#x} exceeds {:#x} (8KB)", c_offset, SRAMX_SIZE);
-        assert!(res_offset <= SRAMX_SIZE, "CASPER SRAMX execute_op_sync overflow: res_offset {:#x} exceeds {:#x} (8KB)", res_offset, SRAMX_SIZE);
-        assert!(a_offset % 4 == 0, "CASPER execute_op_sync a_offset must be aligned to 4 bytes");
-        assert!(c_offset % 4 == 0, "CASPER execute_op_sync c_offset must be aligned to 4 bytes");
-        assert!(res_offset % 4 == 0, "CASPER execute_op_sync res_offset must be aligned to 4 bytes");
+        assert!(
+            a_offset <= SRAMX_SIZE,
+            "CASPER SRAMX execute_op_sync overflow: a_offset {:#x} exceeds {:#x} (8KB)",
+            a_offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            c_offset <= SRAMX_SIZE,
+            "CASPER SRAMX execute_op_sync overflow: c_offset {:#x} exceeds {:#x} (8KB)",
+            c_offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            res_offset <= SRAMX_SIZE,
+            "CASPER SRAMX execute_op_sync overflow: res_offset {:#x} exceeds {:#x} (8KB)",
+            res_offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            a_offset % 4 == 0,
+            "CASPER execute_op_sync a_offset must be aligned to 4 bytes"
+        );
+        assert!(
+            c_offset % 4 == 0,
+            "CASPER execute_op_sync c_offset must be aligned to 4 bytes"
+        );
+        assert!(
+            res_offset % 4 == 0,
+            "CASPER execute_op_sync res_offset must be aligned to 4 bytes"
+        );
 
         let casper = pac::CASPER;
 
@@ -203,17 +273,53 @@ impl<'d> CasperDriver<'d> {
     /// Panics if the source or destination offsets plus the total size of values exceed SRAMX boundaries (8 KB), or if the source or destination offsets are not aligned to 8 bytes.
     /// Also, panics if the values slice is empty or contains more than 256 elements as CASPER supports a maximum of 255 iterations (256 values).
     pub fn copy_values(&mut self, src_offset: usize, dst_offset: usize, values: &[u64]) {
-        assert!(!values.is_empty(), "CASPER COPY operation requires at least one value to be copied");
-        assert!(values.len() <= 256, "CASPER copy operation supports a maximum of 256 values");
+        assert!(
+            !values.is_empty(),
+            "CASPER COPY operation requires at least one value to be copied"
+        );
+        assert!(
+            values.len() <= 256,
+            "CASPER copy operation supports a maximum of 256 values"
+        );
 
         let n: usize = values.len();
-        assert!(src_offset <= SRAMX_SIZE, "CASPER SRAMX copy overflow, src_offset {:#x} exceeds {:#x} (8KB)", src_offset, SRAMX_SIZE);
-        assert!(dst_offset <= SRAMX_SIZE, "CASPER SRAMX copy overflow, dst_offset {:#x} exceeds {:#x} (8KB)", dst_offset, SRAMX_SIZE);
-        assert!(n * 8 <= SRAMX_SIZE - src_offset, "CASPER copy overflow, src_offset {:#x} + {} values ({}B) exceeds {:#x} (8KB)", src_offset, n, n * 8, SRAMX_SIZE);
-        assert!(n * 8 <= SRAMX_SIZE - dst_offset, "CASPER copy overflow, dst_offset {:#x} + {} values ({}B) exceeds {:#x} (8KB)", dst_offset, n, n * 8, SRAMX_SIZE);
-        assert!(src_offset % 8 == 0, "CASPER copy source offset must be aligned to 8 bytes");
-        assert!(dst_offset % 8 == 0, "CASPER copy destination offset must be aligned to 8 bytes");
-        
+        assert!(
+            src_offset <= SRAMX_SIZE,
+            "CASPER SRAMX copy overflow, src_offset {:#x} exceeds {:#x} (8KB)",
+            src_offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            dst_offset <= SRAMX_SIZE,
+            "CASPER SRAMX copy overflow, dst_offset {:#x} exceeds {:#x} (8KB)",
+            dst_offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            n * 8 <= SRAMX_SIZE - src_offset,
+            "CASPER copy overflow, src_offset {:#x} + {} values ({}B) exceeds {:#x} (8KB)",
+            src_offset,
+            n,
+            n * 8,
+            SRAMX_SIZE
+        );
+        assert!(
+            n * 8 <= SRAMX_SIZE - dst_offset,
+            "CASPER copy overflow, dst_offset {:#x} + {} values ({}B) exceeds {:#x} (8KB)",
+            dst_offset,
+            n,
+            n * 8,
+            SRAMX_SIZE
+        );
+        assert!(
+            src_offset % 8 == 0,
+            "CASPER copy source offset must be aligned to 8 bytes"
+        );
+        assert!(
+            dst_offset % 8 == 0,
+            "CASPER copy destination offset must be aligned to 8 bytes"
+        );
+
         for i in 0..n {
             self.write_dword(src_offset + i * 8, values[i]);
         }
@@ -221,31 +327,59 @@ impl<'d> CasperDriver<'d> {
     }
 
     /// Zero-out a sequence of 64-bit values (dwords - double words) in SRAMX memory.
-    /// 
+    ///
     /// # Panics
     /// Panics if the destination offset plus the total size of values to be zeroed exceeds SRAMX boundaries (8 KB), or if the destination offset is not aligned to 8 bytes.
     /// Also, panics if the number of `dwords` to be zeroed is zero or exceeds 256, as CASPER supports a maximum of 255 iterations (256 values).
     pub fn zero(&mut self, res_offset: usize, dwords: usize) {
-        assert!(res_offset <= SRAMX_SIZE, "CASPER SRAMX zero overflow, res_offset {:#x} exceeds {:#x} (8KB)", res_offset, SRAMX_SIZE);
-        assert!(dwords > 0, "CASPER ZERO operation requires at least one value to be zeroed");
+        assert!(
+            res_offset <= SRAMX_SIZE,
+            "CASPER SRAMX zero overflow, res_offset {:#x} exceeds {:#x} (8KB)",
+            res_offset,
+            SRAMX_SIZE
+        );
+        assert!(
+            dwords > 0,
+            "CASPER ZERO operation requires at least one value to be zeroed"
+        );
         assert!(dwords <= 256, "CASPER ZERO operation supports a maximum of 256 values");
-        assert!(dwords * 8 <= SRAMX_SIZE - res_offset, "CASPER ZERO destination overflow, res_offset {:#x} + {} values ({}B) exceeds {:#x} (8KB)", res_offset, dwords, dwords * 8, SRAMX_SIZE);
-        assert!(res_offset % 8 == 0, "CASPER ZERO destination offset must be aligned to 8 bytes");
+        assert!(
+            dwords * 8 <= SRAMX_SIZE - res_offset,
+            "CASPER ZERO destination overflow, res_offset {:#x} + {} values ({}B) exceeds {:#x} (8KB)",
+            res_offset,
+            dwords,
+            dwords * 8,
+            SRAMX_SIZE
+        );
+        assert!(
+            res_offset % 8 == 0,
+            "CASPER ZERO destination offset must be aligned to 8 bytes"
+        );
 
         self.execute_op_sync(Opcode::Zero, (dwords - 1) as u8, 0, 0, res_offset);
     }
 
     /// Perform a bitwise XOR operation on pairs of 64-bit values (dwords - double words) in SRAMX memory.
     /// The slices `operands` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
-    /// 
+    ///
     /// # Panics
     /// Panics if the result buffer is not large enough to hold the results of the XOR operation.
     /// Also, panics if the operands slice is empty or contains more than 256 pairs of values, as CASPER supports a maximum of 255 iterations (256 pairs).
     pub fn xor(&mut self, operands: &[(u64, u64)], result: &mut [u64]) {
         let n = operands.len();
-        assert!(!operands.is_empty(), "CASPER XOR operation requires at least one pair of operands");
-        assert!(n <= 256, "CASPER XOR operation supports a maximum of 256 pairs of operands");
-        assert!(result.len() >= n, "CASPER XOR operation requires a result buffer of at least {} elements", n);
+        assert!(
+            !operands.is_empty(),
+            "CASPER XOR operation requires at least one pair of operands"
+        );
+        assert!(
+            n <= 256,
+            "CASPER XOR operation supports a maximum of 256 pairs of operands"
+        );
+        assert!(
+            result.len() >= n,
+            "CASPER XOR operation requires a result buffer of at least {} elements",
+            n
+        );
 
         for i in 0..n {
             let (r, a) = operands[i];
@@ -261,20 +395,27 @@ impl<'d> CasperDriver<'d> {
 
     /// Perform a doubling operation on a sequence of 64-bit values (dwords - double words) in SRAMX memory.
     /// The slices `values` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
-    /// 
+    ///
     /// # Panics
     /// Panics if the result buffer is not large enough to hold the results of the doubling operation.
     /// Also, panics if the values slice is empty or contains more than 256 values, as CASPER supports a maximum of 255 iterations (256 values).
     pub fn double(&mut self, values: &[u64], result: &mut [u64]) -> bool {
         let n = values.len();
-        assert!(!values.is_empty(), "CASPER DOUBLE operation requires at least one value");
+        assert!(
+            !values.is_empty(),
+            "CASPER DOUBLE operation requires at least one value"
+        );
         assert!(n <= 256, "CASPER DOUBLE operation supports a maximum of 256 values");
-        assert!(result.len() >= n, "CASPER DOUBLE operation requires a result buffer of at least {} elements", n);
+        assert!(
+            result.len() >= n,
+            "CASPER DOUBLE operation requires a result buffer of at least {} elements",
+            n
+        );
 
         for i in 0..n {
             self.write_dword(offset::RES + i * 8, values[i]);
         }
-        self.execute_op_sync(Opcode::Double64, (n-1) as u8, 0, 0, offset::RES);
+        self.execute_op_sync(Opcode::Double64, (n - 1) as u8, 0, 0, offset::RES);
 
         for i in 0..n {
             result[i] = self.read_dword(offset::RES + i * 8);
@@ -284,22 +425,32 @@ impl<'d> CasperDriver<'d> {
 
     /// Perform an addition operation on pairs of 64-bit values (dwords - double words) in SRAMX memory.
     /// The slices `operands` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
-    /// 
+    ///
     /// # Panics
     /// Panics if the result buffer is not large enough to hold the results of the addition operation.
     /// Also, panics if the operands slice is empty or contains more than 256 pairs of values, as CASPER supports a maximum of 255 iterations (256 pairs).
     pub fn add(&mut self, operands: &[(u64, u64)], result: &mut [u64]) -> bool {
         let n = operands.len();
-        assert!(!operands.is_empty(), "CASPER ADD operation requires at least one pair of operands");
-        assert!(n <= 256, "CASPER ADD operation supports a maximum of 256 pairs of operands");
-        assert!(result.len() >= n, "CASPER ADD operation requires a result buffer of at least {} elements", n);
+        assert!(
+            !operands.is_empty(),
+            "CASPER ADD operation requires at least one pair of operands"
+        );
+        assert!(
+            n <= 256,
+            "CASPER ADD operation supports a maximum of 256 pairs of operands"
+        );
+        assert!(
+            result.len() >= n,
+            "CASPER ADD operation requires a result buffer of at least {} elements",
+            n
+        );
 
         for i in 0..n {
             let (r, a) = operands[i];
             self.write_dword(offset::AB + i * 8, a);
             self.write_dword(offset::RES + i * 8, r);
         }
-        self.execute_op_sync(Opcode::Add64, (n-1) as u8, offset::AB, 0, offset::RES);
+        self.execute_op_sync(Opcode::Add64, (n - 1) as u8, offset::AB, 0, offset::RES);
 
         for i in 0..n {
             result[i] = self.read_dword(offset::RES + i * 8);
@@ -311,22 +462,32 @@ impl<'d> CasperDriver<'d> {
     /// CASPER supports subtraction with borrow, and the carry flag indicates whether a borrow occurred during the operation.
     /// Uses forward subtraction (R - A) where R is the minuend and A is the subtrahend. R is the first operand and A is the second operand in each pair.
     /// The slices `operands` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
-    /// 
+    ///
     /// # Panics
     /// Panics if the result buffer is not large enough to hold the results of the subtraction operation.
     /// Also, panics if the operands slice is empty or contains more than 256 pairs of values, as CASPER supports a maximum of 255 iterations (256 pairs).
     pub fn sub(&mut self, operands: &[(u64, u64)], result: &mut [u64]) -> bool {
         let n = operands.len();
-        assert!(!operands.is_empty(), "CASPER SUB operation requires at least one pair of operands");
-        assert!(n <= 256, "CASPER SUB operation supports a maximum of 256 pairs of operands");
-        assert!(result.len() >= n, "CASPER SUB operation requires a result buffer of at least {} elements", n);
+        assert!(
+            !operands.is_empty(),
+            "CASPER SUB operation requires at least one pair of operands"
+        );
+        assert!(
+            n <= 256,
+            "CASPER SUB operation supports a maximum of 256 pairs of operands"
+        );
+        assert!(
+            result.len() >= n,
+            "CASPER SUB operation requires a result buffer of at least {} elements",
+            n
+        );
 
         for i in 0..n {
             let (r, a) = operands[i];
             self.write_dword(offset::AB + i * 8, a);
             self.write_dword(offset::RES + i * 8, r);
         }
-        self.execute_op_sync(Opcode::Sub64, (n-1) as u8, offset::AB, 0, offset::RES);
+        self.execute_op_sync(Opcode::Sub64, (n - 1) as u8, offset::AB, 0, offset::RES);
 
         for i in 0..n {
             result[i] = self.read_dword(offset::RES + i * 8);
@@ -338,22 +499,32 @@ impl<'d> CasperDriver<'d> {
     /// CASPER supports subtraction with borrow, and the carry flag indicates whether a borrow occurred during the operation.
     /// Uses reverse subtraction (A - R) where A is the minuend and R is the subtrahend. A is the first operand and R is the second operand in each pair.
     /// The slices `operands` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
-    /// 
+    ///
     /// # Panics
     /// Panics if the result buffer is not large enough to hold the results of the reverse subtraction operation.
     /// Also, panics if the operands slice is empty or contains more than 256 pairs of values, as CASPER supports a maximum of 255 iterations (256 pairs).
     pub fn rsub(&mut self, operands: &[(u64, u64)], result: &mut [u64]) -> bool {
         let n = operands.len();
-        assert!(!operands.is_empty(), "CASPER RSUB operation requires at least one pair of operands");
-        assert!(n <= 256, "CASPER RSUB operation supports a maximum of 256 pairs of operands");
-        assert!(result.len() >= n, "CASPER RSUB operation requires a result buffer of at least {} elements", n);
+        assert!(
+            !operands.is_empty(),
+            "CASPER RSUB operation requires at least one pair of operands"
+        );
+        assert!(
+            n <= 256,
+            "CASPER RSUB operation supports a maximum of 256 pairs of operands"
+        );
+        assert!(
+            result.len() >= n,
+            "CASPER RSUB operation requires a result buffer of at least {} elements",
+            n
+        );
 
         for i in 0..n {
             let (a, r) = operands[i];
             self.write_dword(offset::AB + i * 8, a);
             self.write_dword(offset::RES + i * 8, r);
         }
-        self.execute_op_sync(Opcode::Rsub64, (n-1) as u8, offset::AB, 0, offset::RES);
+        self.execute_op_sync(Opcode::Rsub64, (n - 1) as u8, offset::AB, 0, offset::RES);
 
         for i in 0..n {
             result[i] = self.read_dword(offset::RES + i * 8);
@@ -365,41 +536,67 @@ impl<'d> CasperDriver<'d> {
     /// The 64-bit value `ab` is multiplied by the sequence of 64-bit values in `cd`.
     /// The resulting multi-word value is written to RES and returned through `result`.
     /// The slices `cd` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
-    /// 
+    ///
     /// # Panics
     /// Panics if the `cd` slice is empty or contains more than 256 elements, or if the result buffer is not large enough to hold the `cd.len() + 1` output values.
     pub fn mul_nosum(&mut self, ab: u64, cd: &[u64], result: &mut [u64]) {
         let n = cd.len();
-        assert!(!cd.is_empty(), "CASPER MUL_NOSUM operation requires at least one CD operand");
-        assert!(n <= 256, "CASPER MUL_NOSUM operation supports a maximum of 256 CD operands");
-        assert!(result.len() > n, "CASPER MUL_NOSUM operation requires a result buffer of at least {} elements", n + 1);
+        assert!(
+            !cd.is_empty(),
+            "CASPER MUL_NOSUM operation requires at least one CD operand"
+        );
+        assert!(
+            n <= 256,
+            "CASPER MUL_NOSUM operation supports a maximum of 256 CD operands"
+        );
+        assert!(
+            result.len() > n,
+            "CASPER MUL_NOSUM operation requires a result buffer of at least {} elements",
+            n + 1
+        );
 
         self.write_dword(offset::AB, ab);
         for i in 0..n {
             self.write_dword(offset::CD + i * 8, cd[i]);
         }
-        self.execute_op_sync(Opcode::Mul64Nosum, (n-1) as u8, offset::AB, offset::CD, offset::RES);
+        self.execute_op_sync(Opcode::Mul64Nosum, (n - 1) as u8, offset::AB, offset::CD, offset::RES);
         for i in 0..=n {
             result[i] = self.read_dword(offset::RES + i * 8);
         }
     }
 
     /// Multiply a 64-bit value by a sequence of 64-bit values and accumulate each product into the existing RES values.
-    /// The operation performs the CASPER MUL64_SUM operation, which reads the existing RES contents, 
+    /// The operation performs the CASPER MUL64_SUM operation, which reads the existing RES contents,
     /// adds the corresponding product, and writes the accumulated result back to RES.
     /// The `w` slice provides the initial RES values. It may contain more elements than `cd`; only the RES words reached by the CASPER operation are modified.
     /// The slices `cd`, `w` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
-    /// 
+    ///
     /// # Panics
-    /// Panics if `cd` or `w` is empty, if `cd` contains more elements than `w`, 
+    /// Panics if `cd` or `w` is empty, if `cd` contains more elements than `w`,
     /// if either slice contains more than 256 elements, or if the result is not large enough to hold the output.
     pub fn mul_sum(&mut self, ab: u64, cd: &[u64], w: &[u64], result: &mut [u64]) {
-        assert!(!cd.is_empty(), "CASPER MUL_SUM operation requires at least one CD operand");
-        assert!(!w.is_empty(), "CASPER MUL_SUM operation requires at least one W operand");
-        assert!(cd.len() <= w.len(), "CASPER MUL_SUM operation requires CD to have no more elements than W");
-        assert!(cd.len() <= 256 && w.len() <= 256, "CASPER MUL_SUM operation supports a maximum of 256 CD and 256 W operands");
+        assert!(
+            !cd.is_empty(),
+            "CASPER MUL_SUM operation requires at least one CD operand"
+        );
+        assert!(
+            !w.is_empty(),
+            "CASPER MUL_SUM operation requires at least one W operand"
+        );
+        assert!(
+            cd.len() <= w.len(),
+            "CASPER MUL_SUM operation requires CD to have no more elements than W"
+        );
+        assert!(
+            cd.len() <= 256 && w.len() <= 256,
+            "CASPER MUL_SUM operation supports a maximum of 256 CD and 256 W operands"
+        );
         let n = cd.len();
-        assert!(result.len() > n, "CASPER MUL_SUM operation requires a result buffer of at least {} elements", n + 1);
+        assert!(
+            result.len() > n,
+            "CASPER MUL_SUM operation requires a result buffer of at least {} elements",
+            n + 1
+        );
 
         self.write_dword(offset::AB, ab);
         for i in 0..n {
@@ -408,29 +605,45 @@ impl<'d> CasperDriver<'d> {
         for i in 0..w.len() {
             self.write_dword(offset::RES + i * 8, w[i]);
         }
-        self.execute_op_sync(Opcode::Mul64Sum, (n-1) as u8, offset::AB, offset::CD, offset::RES);
+        self.execute_op_sync(Opcode::Mul64Sum, (n - 1) as u8, offset::AB, offset::CD, offset::RES);
         for i in 0..=n {
             result[i] = self.read_dword(offset::RES + i * 8);
         }
     }
 
     /// Multiply a 64-bit value by a sequence of 64-bit values and accumulate the products into the existing RES values, including the most significant RES words.
-    /// This operation performs the CASPER MUL64_FULLSUM operation, which reads the existing RES contents, 
+    /// This operation performs the CASPER MUL64_FULLSUM operation, which reads the existing RES contents,
     /// adds the corresponding products, and propagates the carry through the full result.
     /// The `w` slice provides the initial RES values.
     /// The slices `cd`, `w` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
     /// Returns the carry flag reported by the last CASPER operation.
-    /// 
+    ///
     /// # Panics
-    /// Panics if `cd` or `w` is empty, if `cd` contains more elements than `w`, 
+    /// Panics if `cd` or `w` is empty, if `cd` contains more elements than `w`,
     /// if either slice contains more than 256 elements, or if the result buffer is not large enough to hold the output.
     pub fn mul_fullsum(&mut self, ab: u64, cd: &[u64], w: &[u64], result: &mut [u64]) -> bool {
-        assert!(!cd.is_empty(), "CASPER MUL_FULLSUM operation requires at least one CD operand");
-        assert!(!w.is_empty(), "CASPER MUL_FULLSUM operation requires at least one W operand");
-        assert!(cd.len() <= w.len(), "CASPER MUL_FULLSUM operation requires CD to have no more elements than W");
-        assert!(cd.len() <= 256 && w.len() <= 256, "CASPER MUL_FULLSUM operation supports a maximum of 256 CD and 256 W operands");
+        assert!(
+            !cd.is_empty(),
+            "CASPER MUL_FULLSUM operation requires at least one CD operand"
+        );
+        assert!(
+            !w.is_empty(),
+            "CASPER MUL_FULLSUM operation requires at least one W operand"
+        );
+        assert!(
+            cd.len() <= w.len(),
+            "CASPER MUL_FULLSUM operation requires CD to have no more elements than W"
+        );
+        assert!(
+            cd.len() <= 256 && w.len() <= 256,
+            "CASPER MUL_FULLSUM operation supports a maximum of 256 CD and 256 W operands"
+        );
         let n = cd.len();
-        assert!(result.len() > n, "CASPER MUL_FULLSUM operation requires a result buffer of at least {} elements", n + 1);
+        assert!(
+            result.len() > n,
+            "CASPER MUL_FULLSUM operation requires a result buffer of at least {} elements",
+            n + 1
+        );
 
         self.write_dword(offset::AB, ab);
         for i in 0..n {
@@ -439,7 +652,7 @@ impl<'d> CasperDriver<'d> {
         for i in 0..w.len() {
             self.write_dword(offset::RES + i * 8, w[i]);
         }
-        self.execute_op_sync(Opcode::Mul64Fullsum, (n-1) as u8, offset::AB, offset::CD, offset::RES);
+        self.execute_op_sync(Opcode::Mul64Fullsum, (n - 1) as u8, offset::AB, offset::CD, offset::RES);
         for i in 0..=n {
             result[i] = self.read_dword(offset::RES + i * 8);
         }
@@ -447,23 +660,39 @@ impl<'d> CasperDriver<'d> {
     }
 
     /// Perform the CASPER MUL64_REDUCE operation, which is used as a step in Montgomery reduction algorithms.
-    /// The 64-bit value `m` is multiplied by the sequence of 64-bit values in `cd` and accumulated into the existing RES values. 
+    /// The 64-bit value `m` is multiplied by the sequence of 64-bit values in `cd` and accumulated into the existing RES values.
     /// The first RES write is skipped and the resulting value is shifted by one 64-bit word, as required by the CASPER reduction operation.
     /// The `w` slice provides the initial RES values and must contain the same number of elements as `cd`.
     /// The `m` value is expected to be the precomputed Montgomery reduction factor; CASPER does not calculate this value itself.
     /// The RES workspace is cleared before the operation to prevent stale SRAMX contents from affecting the reduction.
     /// The slices `cd`, `w` and `result` use litte-endian word order: the least significant 64-bit word is at index 0.
-    /// 
+    ///
     /// # Panics
     /// Panics if `cd` or `w` is empty, if `cd` and `w` have different lengths,
-    /// if either slice contains more than 256 elements, or if the result buffer does not have exactly the same length as `cd`. 
+    /// if either slice contains more than 256 elements, or if the result buffer does not have exactly the same length as `cd`.
     pub fn mul_reduce(&mut self, m: u64, cd: &[u64], w: &[u64], result: &mut [u64]) {
-        assert!(!cd.is_empty(), "CASPER MUL_REDUCE operation requires at least one CD operand");
-        assert!(!w.is_empty(), "CASPER MUL_REDUCE operation requires at least one W operand");
-        assert!(cd.len() <= 256 && w.len() <= 256, "CASPER MUL_REDUCE operation supports a maximum of 256 CD and 256 W operands");
-        assert!(cd.len() == w.len(), "CASPER MUL_REDUCE operation requires CD and W to have the same length");
+        assert!(
+            !cd.is_empty(),
+            "CASPER MUL_REDUCE operation requires at least one CD operand"
+        );
+        assert!(
+            !w.is_empty(),
+            "CASPER MUL_REDUCE operation requires at least one W operand"
+        );
+        assert!(
+            cd.len() <= 256 && w.len() <= 256,
+            "CASPER MUL_REDUCE operation supports a maximum of 256 CD and 256 W operands"
+        );
+        assert!(
+            cd.len() == w.len(),
+            "CASPER MUL_REDUCE operation requires CD and W to have the same length"
+        );
         let n = cd.len();
-        assert!(result.len() == n, "CASPER REDUCE operation requires a result buffer of exactly {} elements", n);
+        assert!(
+            result.len() == n,
+            "CASPER REDUCE operation requires a result buffer of exactly {} elements",
+            n
+        );
 
         self.write_dword(offset::AB, m);
         for i in 0..n {
@@ -476,7 +705,7 @@ impl<'d> CasperDriver<'d> {
         for i in 0..n {
             self.write_dword(offset::RES + i * 8, w[i]);
         }
-        self.execute_op_sync(Opcode::Mul64Reduce, (n-1) as u8, offset::AB, offset::CD, offset::RES);
+        self.execute_op_sync(Opcode::Mul64Reduce, (n - 1) as u8, offset::AB, offset::CD, offset::RES);
         for i in 0..n {
             result[i] = self.read_dword(offset::RES + i * 8);
         }
