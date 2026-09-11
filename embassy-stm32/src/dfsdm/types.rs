@@ -751,6 +751,8 @@ where
     M: FilterMarker + InstanceEvents<T>,
 {
     fn data_register(&self) -> *mut u32;
+
+    fn start_conversion(&mut self);
 }
 
 // =============================================================================

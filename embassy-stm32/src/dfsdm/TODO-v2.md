@@ -67,7 +67,7 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     input width (pick whichever is simpler).
   Verify the parallel-input gain model in the TRM first (§33.4.5–33.4.6).
 - [ ] **FT14 (optional) — AWD-filter gain ceiling.** The AWD fast filter
-  (`AWFORD`/`AWFOSR`, → `AwdFilterOrder`/`AwdFilterOsr` per D14) input is
+  (`AWFORD`/`AWFOSR`, → `AwdFilterOrder`/`AwdFilterOsr` per FT21) input is
   always 1-bit serial (no parallel case), so no input-width ceiling is needed;
   but the fast filter's own gain (FOSR^FORD, max 32³) vs 16-bit WDATR is
   undocumented in the TRM — investigate only if a fast-mode AWD overflow is
@@ -78,9 +78,9 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   `FilterParameters::recommended_shift()` (derive-by-default, raw override);
   rename `read_maxima`/`read_minima` → read-and-clear variants (or a combined
   `Extremes` snapshot); consider `regular`/`injected` over `reg`/`inj`;
-  `get_cnv_cnt` → `conversion_time()` with liveness doc; expose public i32
-  sign-extension (u32-vs-i32 + typed value accessors). Goal: no TRM needed for
-  the common paths.
+  `get_cnv_cnt` → `conversion_time()` (liveness doc rides T-doc, ex-FT8);
+  expose public i32 sign-extension (u32-vs-i32 + typed value accessors).
+  Goal: no TRM needed for the common paths.
 - [ ] **FT19 (low priority) — Bundle ergonomics, re-approach.** Decide later
   between two idioms for condensing the per-item `where` cluster
   (`T: Instance + FilterInterrupt<M>, M: FilterMarker + InstanceEvents<T>`):
@@ -110,23 +110,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     AND on ROVRF/JOVRF pre-check (catches filter-side starvation the lapping
     check cannot see). Map ring `DmaUnsynced` → `Error::PeripheralError`.
   - Add ROVRIE/JOVRIE/ROVRF/JOVRF/CLRROVRF/CLRJOVRF accessors + handling.
-- [ ] **FT2 — Ring read API on RingBufferedFilter** (mirrors
-  `adc/ringbuffered.rs`, wake = DMA HTIF/TCIF via `set_waker`):
-  - `read(&mut buf) -> Result<usize, Error>` async (`read_exact`-based; ring
-    auto-resets after `Err(Overrun)`, next read continues fresh).
-  - `blocking_read(&mut buf) -> Result<usize, Error>` (SPI-style: pause ring on
-    overrun).
-  - keep `read_latest` (never errors, discards stale).
-  - `start`: `compiler_fence(SeqCst)` + ring start + conversion start for
-    regular (continuous mode recommended, like ADC Repeated); injected rings
-    drain JDATAR, trigger via JEXTEN (timer) or `start_injected_conversion()`
-    on the ring.
-  - `stop` = pause ring only (conversions keep running — DFSDM's "start" is the
-    filter); `clear`, `is_running`, `capacity`.
-  - alignment set at construction: default 1, popcount(JCHG) for injected scan
-    rings (keeps scan frames coherent after overrun recovery).
-  - `Drop`: pause ring before filter/RCC teardown (borrow order already
-    enforces).
 - [ ] **FT3 — `wait_for_sync()` / `synchronized()` on Transceiver** (replaces
   time-based "blanking"; RM0455 §33.4.4 Clock absence sequence): after
   `CHEN=1`, repeatedly write `CLRCKABF[y]` until `CKABF[y]` reads 0 — the flag
@@ -205,13 +188,22 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     stream only; excludes ParallelAdcMode/ParallelDmaMode).
   - Doc: write starts skipping immediately; updating mid-skip is allowed;
     ≤63 pulses per write, skip more by repeated writes; cumulative skipped
-    count is the app's job.
-- [ ] **FT8 — CNVTIMR liveness probe doc**: `get_cnv_cnt` (mod.rs:641, →
-  `conversion_time()` per FT15) —
-  document "measures filter activity, not consumer progress" + the
-  app-level starvation recipe (timeout + two Δt reads: frozen = starved,
-  advancing = alive-but-slow). Universal liveness probe (works for parallel
-  inputs too, where CKAB structurally cannot).
+    count is the app's job. (Doc clauses ride T-doc.)
+- [ ] **FT21 — AWD-filter naming (the code half of the old D14).** Per-channel
+  *fast filter* (AWFORD/AWFOSR + WDATR) feeding the per-filter *comparator*
+  (AWDCH/AWHT/AWLT/…AWHTF/AWLTF/BKAWH/BKAWL), mode-selected by AWFSEL
+  (0 = final main-filter output, 1 = fast filter — the overcurrent path).
+  Rename the per-channel cluster to `AwdFilter*` so "AnalogWatchdog" is
+  unambiguous: `AnalogWatchdogFilterConfiguration`→`AwdFilterConfig`,
+  `AnalogWatchdogFilterOrder`→`AwdFilterOrder` (fixes the "AWFORD"→"AWFOSR"
+  docstring slip), `AnalogWatchdogOsr`→`AwdFilterOsr`,
+  `get_analog_watchdog_data`→`awd_filter_data`, and the pub consuming
+  builders `select_analog_watchdog_*`→`set_awd_filter_*` (made pub when
+  `TransceiverConfig`/`configure` were deleted in FT12 — the old
+  `analog_watchdog_filter_config` field no longer exists; see NITS #22 for
+  the voluntary-vs-mandatory question). Keep `AnalogWatchdog`,
+  `AnalogWatchdogConfig`, `AnalogWatchdogEvent`, `flt.awd` unchanged.
+  Docstrings ride T-doc (AWFSEL coupling note is in its D14 clause).
 - [ ] **FT9 (optional) — `CkoutDivider::for_manchester(rate)` helper** from the
   RM0455 Manchester formula:
   `(CKOUTDIV+1)·T_INCKOUT < T_manchester < 2·CKOUTDIV·T_INCKOUT`.
@@ -230,69 +222,66 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 
 ---
 
-## TODO — documentation
+## DOCS — single consolidated pass
 
-- [ ] **D1 — Liveness contract doc** on the filter read paths: "read() hangs
-  silently iff the source is starved" (DFSDM is a passive sink, no input-side
-  underrun detection). Layered detection: prevention (borrow-connected
-  transceivers — compile-error on drop/disable while connected), CKAB
-  (electrical, needs FT3), CNVTIMR+timeout (universal), overrun
-  (consumer-side, FT1).
-- [ ] **D2 — Assign-as-overwrite asymmetry**: JCHGR reassignment is instant and
-  resets scan position; RCH is a shadow register applied at next RSWSTART.
-- [ ] **D3 — start_* semantics**: requests are ignored while RCIP/JCIP; a
-  regular conversion interrupted by injected restarts later, flagged by RPEND.
-- [ ] **D4 — DATINR notes**: data written before the conversion started is
-  lost; 16- and 32-bit accesses both legal (packing-mode dependent).
-- [ ] **D5 — CKOUT sequencing**: wait for CKOUT stopped before changing
-  CKOUTSRC (glitch avoidance); stop timing 4 sysclk (CKOUTSRC=0) / 1 sysclk +
-  3 audio clk (CKOUTSRC=1); CKOUT range 0-20 MHz.
-- [ ] **D6 — Continuous-mode restart quirk**: writing CR1 with RCONT=1 while a
-  continuous conversion runs restarts it from the next conversion cycle.
-- [ ] **D7 — Filter disable semantics**: DFEN=0 immediately stops conversions
-  and resets ISR + AWSR (all flags cleared). Doc whether RDATAR/JDATAR retain
-  their last value for a post-shutdown read.
-- [ ] **D8 — Ring data layout doc**: one u32 word per sample =
-  `RDATA[23:8] | RPEND | RDATACH` (JDATA analog); channel byte is load-bearing
-  for scan demux; DFSDM reads are 32-bit only (no DMA field extraction).
-- [ ] **D9 — Break cross-link doc**: DFSDM = event→wire assignment (BKSCD,
-  BKAWH/BKAWL, `BreakSignals`); TIM = wire→BRK consumption enable (FT5).
-- [ ] **D10 — Ignore-overrun pattern** (regular AND injected):
-  `get_*_result_unchecked` + EOC/JEOC poll is the intended "always-fresh,
-  overruns don't matter" path; FT1's `Err(Overrun)` is for callers who care.
-  Document on both halves.
-- [ ] **D11 — Ring docs**: circular-only (no double-buffer/pingpong in
-  `ReadableRingBuffer`); one-ring-per-filter (F6, "use two filters for
-  both"). Document on the ring fns.
-- [ ] **D12 — CKAB held-set doc** (E2): "CKAB flags on disabled channels are
-  meaningless"; raw 8-bit mask reads need the armed mask (FT12).
-- [ ] **D13 — Extremes read-to-clear doc**: `read_maxima`/`read_minima` reset
-  EXMAX/EXMIN on read (and clear EXMAXCH/EXMINCH); document the semantics.
-- [ ] **D14 — AWD naming + doc.** One feature, two layers (§33.4.10):
-  per-channel *fast filter* (AWFORD/AWFOSR + WDATR) feeding the per-filter
-  *comparator* (AWDCH/AWHT/AWLT/…AWHTF/AWLTF/BKAWH/BKAWL), mode-selected by
-  AWFSEL (0 = final main-filter output, 1 = fast filter — the overcurrent path).
-  Rename the per-channel cluster to `AwdFilter*` so "AnalogWatchdog" is
-  unambiguous: `AnalogWatchdogFilterConfiguration`→`AwdFilterConfig`,
-  `AnalogWatchdogFilterOrder`→`AwdFilterOrder`, `AnalogWatchdogOsr`→`AwdFilterOsr`
-  (fix the "AWFORD"→"AWFOSR" docstring), `get_analog_watchdog_data`→
-  `awd_filter_data`, and the pub consuming builders
-  `select_analog_watchdog_*`→`set_awd_filter_*` (made pub when
-  `TransceiverConfig`/`configure` were deleted in FT12 — the old
-  `analog_watchdog_filter_config` field no longer exists; see NITS #22 for the
-  voluntary-vs-mandatory question). Keep `AnalogWatchdog`,
-  `AnalogWatchdogConfig`, `AnalogWatchdogEvent`, `flt.awd` unchanged. Doc the
-  AWFSEL coupling (the per-channel filter is only meaningful in fastmode).
+- [ ] **T-doc — Full docstring pass (absorbs D1–D13 + D14's doc clauses, FT8,
+  FT15's doc clauses, NITS #3/#8).** Every public item gets a real
+  docstring; workflow is keyword-card prompts (I describe each item +
+  hardware contract + safety caveats; the missing_docs warnings are the
+  inventory, so nothing is skipped) -> author prose -> rustdoc
+  formalization ([`Type`] links, §-refs where the TRM is load-bearing,
+  `# Note`/`# Safety` rubrics; no em dashes). Trailing item: after FT2/FT1,
+  the FT3/FT4/FT11 batch and the FT15/FT21 renames; batched per module
+  (types.rs, splits.rs, detector objects, read paths, dma.rs) with a
+  missing_docs-per-module zero gate. The former D-register notes become
+  the docstrings they annotate, specifically:
+  - D1 — liveness contract on the filter read paths ("read() hangs silently
+    iff the source is starved"; layered detection: borrow-connected
+    transceivers, CKAB (FT3), CNVTIMR+timeout, overrun (FT1)).
+  - D2 — assign-as-overwrite asymmetry: JCHGR instant + scan reset; RCH
+    shadow applied at next RSWSTART.
+  - D3 — `start_*` semantics: requests ignored while RCIP/JCIP; regular
+    interrupted by injected restarts later, flagged by RPEND.
+  - D4 — DATINR: pre-start data lost; 16- and 32-bit accesses both legal
+    (packing-mode dependent).
+  - D5 — CKOUT sequencing: wait for CKOUT stopped before changing CKOUTSRC
+    (glitch); stop timing 4 sysclk / 1 sysclk + 3 audio clk; 0-20 MHz range.
+  - D6 — RCONT restart quirk: CR1 write with RCONT=1 mid-conversion
+    restarts from the next conversion cycle.
+  - D7 — disable semantics: DFEN=0 stops conversions and resets ISR + AWSR;
+    answer whether RDATAR/JDATAR retain their last value (doc).
+  - D8 — ring word layout: one u32 = `RDATA[23:8] | RPEND | RDATACH`
+    (JDATA analog); channel byte load-bearing for scan demux; 32-bit only.
+  - D9 — break cross-link: DFSDM = event→wire (BKSCD, BKAWH/BKAWL,
+    `BreakSignals`); TIM = wire→BRK enable (FT5).
+  - D10 — ignore-overrun pattern on `get_*_unchecked` (both halves):
+    unchecked + EOC/JEOC poll = "always-fresh, overruns don't matter";
+    FT1's `Err(Overrun)` for callers who care.
+  - D11 — ring docs: circular-only, one-ring-per-filter (F6; "use two
+    filters for both").
+  - D12 — CKAB held-set note (E2): raw 8-bit mask reads need the armed mask.
+  - D13 — extremes read-to-clear: `read_maxima`/`read_minima` reset
+    EXMAX/EXMIN (+ CH fields) on read.
+  - D14 (doc clauses) — AWFSEL coupling ("per-channel filter only
+    meaningful in fastmode") + the "AWFORD"→"AWFOSR" docstring fix, under
+    FT21's new names.
+  - FT8 — CNVTIMR "measures filter activity, not consumer progress" +
+    the starvation recipe (timeout + two Δt reads: frozen = starved,
+    advancing = alive-but-slow) as the `conversion_time()` docstring.
+  - NITS #3 — populate `Config` docs (mod.rs:44-48) or remove the struct,
+    decided during the batch.
+  - NITS #8 (docstrings part) — config-types module docstrings
+    (bitmap type/split stay with code work).
 
 ---
 
 ## NITS
 
-3. `Config` struct empty with `//TODO` (mod.rs:44-48) — populate or remove.
 4. `Error` enum stray `//TODO` (mod.rs:36) — resolve with FT1.
 5. mod.rs:130 AFS critical-section question — fold into F1 (one
    critical_section strategy for all RMW: CR2 + AF assignment).
-8. mod.rs:1816 — config-types module: docstrings, bitmap type, split.
+8. mod.rs:1816 — config-types module: bitmap type, split. (Docstrings
+   absorbed into T-doc.)
 9. types.rs:770 `dma_trait!` TODO — resolved by F4 rewrite.
 11. `new_pin!(...).unwrap()` ×3 (mod.rs:2189/2201/2202) — verify vs embassy
     conventions.
@@ -332,7 +321,7 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     untouched). Think about whether the AWD fast-mode input-stage config
     should be **mandatory** at build time instead (required constructor param
     or configure step), so it can't be forgotten when AWFSEL fastmode is
-    intended. Voluntary by decision for now; coordinate with D14 (renames +
+    intended. Voluntary by decision for now; coordinate with FT21 (renames +
     AWFSEL coupling doc) when revisiting.
 
 ---
@@ -376,9 +365,9 @@ Summary (each blocks DFSDM availability for whole chip groups):
 
 ## EXAMPLES
 
-- [ ] `dfsdm_parallel_dma_to_dma.rs` → method-built ring (`flt0.reg
-  .ring_buffered(..)`) + async `read()` / `blocking_read` with `Err(Overrun)`
-  handling.
+- [ ] `dfsdm_parallel_dma_to_dma.rs`: exercise `read` (async) /
+  `blocking_read` with `Err(Overrun)` handling — the API exists (FT2),
+  usage in the example still to be added.
 - [ ] `dfsdm_it.rs` → `read_regular(..)?`/Result handling.
 - [ ] New (stretch): AWD + SCD/CKAB guard example incl. `wait_for_sync()` arm
   sequence.
@@ -728,3 +717,49 @@ Summary (each blocks DFSDM availability for whole chip groups):
 - [x] **NITS #7** — missing docstrings `build_spi_ext`/`build_spi_int`
   (mod.rs:1639/1742; also fixed the `skips` intra-doc link + `tothe` typos
   in the same sweep).
+- [x] **FT2 — Ring read API on RingBufferedFilter.** DONE (2026-09), as-built:
+  Thin semantic wrappers over the crate core's `ReadableRingBuffer`
+  (dma.rs, one shared `DM: DmaMode` impl block):
+  - `read` async — autostart + `read_exact` + error remap; granularity
+    documented as N/2-aligned (up to `N/2` extra elements of wait when the
+    requested chunk doesn't divide the buffer halves — core's own doc).
+    Ring auto-resets after `Err(Overrun)`, next read continues fresh.
+  - `blocking_read` — spin over `read` (busy by design, like ADC's
+    blocking path), pauses the ring and returns `Err(Overrun)` on overrun.
+  - `read_latest` kept (never errors, discards stale, alignment-aware in
+    the core).
+  - `start()` = DMA start ONLY (no fence — a pre-start compiler_fence
+    would order nothing here: the CPU writes no samples, the buffer gets
+    overwritten by DMA, and the MMIO config→enable writes are already
+    volatile-sequenced inside the core). `stop()` = suspend (DMA pause
+    only; CR1 keeps converting). Plus `clear`, `is_running() -> bool`,
+    `capacity() -> usize`.
+  - **`start_conversion()`** — forwards through the ring's field to the
+    half's conversion starter via a new `FilterDma::start_conversion`
+    trait item (regular → `start_regular_conversion`, injected →
+    `start_injected_conversion`). This is the DMA-attach-BEFORE-
+    conversion ordering dance: call `start()` then `start_conversion()`;
+    closes the first-sample-overrun window the old
+    start-then-construct pattern had. One method despite varying
+    semantics (injected: one group OR scan; regular: single OR
+    continuous) — docstring TODO deferred to T-doc.
+  - Alignment set at construction: `1` for regular,
+    `popcount(JCHGR)` for injected scan rings (`popcnt()` reads JCHGR;
+    core clamps 0→1) — keeps scan frames coherent after overrun
+    recovery (alignment via `set_alignment`, not ping-pong).
+  - **No custom `Drop`**: the core's `Drop` owns teardown (request_reset +
+    spin + `compiler_fence`); `_wake_guard` (RCC low-power stop refcount —
+    empty without the feature) releases after. Conversions keep running
+    across ring drop, so manual reads resume fresh (F3's restore story).
+  - Error canonicalization one place, `remap_dma_error` (dma.rs ~:160):
+    core `Overrun` → `Error::Overrun`; core `DmaUnsynced` (a positional
+    bug, not a data-pace condition) → `Error::PeripheralError` — never
+    swallowed into a "recoverable overrun".
+  - Wake path: `read`'s waker is the DMA ISR's (HTIF/TCIF); the RCC
+    guard only matters for low-power STOP.
+  - Open flags (intentional): the two `//TODO clear overrun flag???`
+    comments in `read`/`blocking_read` mark FT1's ROVRF/JOVRF pre-check
+    (deliberately not done here); flag-branching ISR work is FT1 too.
+- [x] `dfsdm_parallel_dma_to_dma.rs` → method-built ring (`flt0.reg
+  .ring_buffered(..)`): uses `start()` + `start_conversion()` +
+  `read_latest` loop (2026-09).

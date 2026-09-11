@@ -1,6 +1,5 @@
-use core::sync::atomic::{Ordering, compiler_fence};
-
 use super::*;
+use crate::dma::ringbuffer::Error as DmaError;
 use crate::dma::{Channel, ReadableRingBuffer};
 use crate::interrupt::typelevel::Binding;
 use crate::rcc::WakeGuard;
@@ -27,7 +26,9 @@ where
         irq: impl Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
     ) -> RingBufferedFilter<'e, T, M, RegDma> {
-        RingBufferedFilter::<T, M, RegDma>::new_int(self, dma, irq, dma_buf)
+        let mut buf = RingBufferedFilter::<T, M, RegDma>::new_int(self, dma, irq, dma_buf);
+        buf.ring_buf.set_alignment(1);
+        buf
     }
 }
 
@@ -42,7 +43,16 @@ where
         irq: impl Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'e,
         dma_buf: &'e mut [u32],
     ) -> RingBufferedFilter<'e, T, M, InjDma> {
-        RingBufferedFilter::<T, M, InjDma>::new_int(self, dma, irq, dma_buf)
+        let alignment = self.popcnt();
+        let mut buf = RingBufferedFilter::<T, M, InjDma>::new_int(self, dma, irq, dma_buf);
+        buf.ring_buf.set_alignment(alignment);
+        buf
+    }
+
+    /// Returns number of assigned channels in channelgroup
+    fn popcnt(&self) -> usize {
+        let bitmask = T::regs().flt(M::CHANNEL.index()).jchgr().read().jchg();
+        bitmask.count_ones() as usize
     }
 }
 
@@ -69,12 +79,8 @@ where
         // data register (RDATAR or JDATAR), which is a valid DMA source. The register
         // is memory-mapped and remains accessible for the lifetime of the filter.
         let request = dma.request();
-        let mut ring_buf =
+        let ring_buf =
             unsafe { ReadableRingBuffer::new(Channel::new(dma, irq), request, filter.data_register(), dma_buf, opts) };
-
-        // Align reads to the scan sequence boundary so that channel assignments
-        // never shift after an overrun recovery.
-        // ring_buf.set_alignment(dma_buf.len() / 2); // TODO  USE LATER FOR PING PONG
 
         RingBufferedFilter {
             _dma_marker: PhantomData,
@@ -84,33 +90,76 @@ where
         }
     }
 
-    pub fn start(&mut self) {
-        // compiler_fence(Ordering::SeqCst);
-        self.ring_buf.start();
-
-        // self.regs.start(); DFSDM doesnt need start
+    //TODO docstring should mention that it just trigges the startconverison,
+    //meaning in injected one group OR scan, in regular one conversion OR continuous
+    //maybe duplicate function for both markers with different docs idk
+    pub fn start_conversion(&mut self) {
+        self.filter.start_conversion();
     }
 
-    /// Reads the latest measurements from the DMA ring buffer.
-    ///
-    /// If the buffer is not yet running, it will be started automatically.
-    ///
-    /// # Arguments
-    /// * `measurements` - Buffer to store the measurements. Must be at least
-    ///   as large as the number of samples to read.
-    ///
-    /// # Returns
-    /// The number of samples actually read. This may be less than
-    /// `measurements.len()` if fewer samples are available.
-    ///
-    /// # Note
-    /// This function reads the most recent samples, discarding older ones
-    /// if the buffer has wrapped around.
-    pub fn read_latest(&mut self, measurements: &mut [u32]) -> usize {
+    pub fn start(&mut self) {
+        self.ring_buf.start();
+    }
+
+    pub fn stop(&mut self) {
+        self.ring_buf.request_pause();
+    }
+
+    pub fn clear(&mut self) {
+        self.ring_buf.clear();
+    }
+
+    pub fn is_running(&mut self) -> bool {
+        self.ring_buf.is_running()
+    }
+
+    pub fn capacity(&self) -> usize {
+        self.ring_buf.capacity()
+    }
+
+    pub fn read_latest(&mut self, buf: &mut [u32]) -> usize {
+        self.autostart();
+        self.ring_buf.read_latest(buf)
+    }
+
+    pub async fn read(&mut self, buf: &mut [u32]) -> Result<usize, Error> {
+        self.autostart();
+
+        //TODO clear overrun flag???
+
+        self.ring_buf.read_exact(buf).await.map_err(remap_dma_error)
+    }
+
+    pub fn blocking_read(&mut self, buf: &mut [u32]) -> Result<usize, Error> {
+        self.autostart();
+
+        //TODO clear overrun flag???
+
+        loop {
+            match self.ring_buf.read(buf) {
+                Ok((0, _)) => {}
+                Ok((len, _)) => {
+                    return Ok(len);
+                }
+                Err(err) => {
+                    self.ring_buf.request_pause();
+
+                    return Err(remap_dma_error(err));
+                }
+            }
+        }
+    }
+
+    fn autostart(&mut self) {
         if !self.ring_buf.is_running() {
             self.start();
         }
+    }
+}
 
-        self.ring_buf.read_latest(measurements)
+fn remap_dma_error(err: DmaError) -> Error {
+    match err {
+        DmaError::Overrun => Error::Overrun,
+        DmaError::DmaUnsynced => Error::PeripheralError,
     }
 }

@@ -980,6 +980,10 @@ where
     fn data_register(&self) -> *mut u32 {
         T::regs().flt(M::CHANNEL.index()).rdatar().as_ptr() as *mut u32
     }
+
+    fn start_conversion(&mut self) {
+        self.start_regular_conversion();
+    }
 }
 
 impl<'a, 'd, 't, T, M> FilterDma<T, M> for FilterInjected<'a, 'd, 't, T, M, InjDma>
@@ -989,6 +993,10 @@ where
 {
     fn data_register(&self) -> *mut u32 {
         T::regs().flt(M::CHANNEL.index()).jdatar().as_ptr() as *mut u32
+    }
+
+    fn start_conversion(&mut self) {
+        self.start_injected_conversion();
     }
 }
 

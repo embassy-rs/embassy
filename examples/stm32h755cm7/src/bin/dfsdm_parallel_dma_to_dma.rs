@@ -80,7 +80,7 @@ async fn main(_spawner: Spawner) {
     let flt_cfg = FilterConfig {
         filter_params: FilterParameters::try_new(FilterOrder::Disabled, 32).expect("This is inside the bounds"),
         enable_continuous_regular: true,
-        enable_fast_regular: false,
+        enable_fast_regular: true,
         ..Default::default()
     };
 
@@ -91,10 +91,10 @@ async fn main(_spawner: Spawner) {
 
     let mut buffer_regular = [0u32; 32];
 
-    flt0.reg.start_regular_conversion(); // Waiting for data now
     let mut ring_buffered_filter_regular = flt0.reg.ring_buffered(p.DMA1_CH0, Irqs, &mut buffer_regular);
 
     ring_buffered_filter_regular.start();
+    ring_buffered_filter_regular.start_conversion();
 
     // Generate a 32-element array with a distinct pattern for each index
     // This ensures we aren't accidentally transferring the same word 32 times
