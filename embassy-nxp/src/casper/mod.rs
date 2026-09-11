@@ -81,11 +81,6 @@ impl<'d> CasperDriver<'d> {
             | SRAMX_BASE // Restore the SRAMX base address.
     }
 
-    #[inline(always)]
-    pub fn regs(&self) -> pac::casper::Casper {
-        pac::CASPER
-    }
-
     /// Write a 32-bit value (word) into SRAMX memory at the specified offset.
     ///
     /// # Panics
