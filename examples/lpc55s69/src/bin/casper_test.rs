@@ -1,10 +1,10 @@
 #![no_std]
 #![no_main]
 
-use defmt::{info, error};
+use defmt::{error, info};
 use embassy_executor::Spawner;
-use embassy_nxp::casper::{CasperDriver, CASPER, Opcode};
 use embassy_nxp::Peri;
+use embassy_nxp::casper::{CASPER, CasperDriver, Opcode};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) {
 
 fn test_sramx_read_write(casper: &mut CasperDriver<'_>) {
     // CASPER SRAMX read/write TEST
-    
+
     // Test with some random data
     let a: u64 = 0x1122334455667788;
     let b: u32 = 0xAABBCCDD;
@@ -86,10 +86,10 @@ fn test_sramx_clear(casper: &mut CasperDriver<'_>) {
     // Clear SRAMX TEST
     let c: u64 = 0xFFFFFFFFFFFFFFFF;
     let d: u32 = 0xFFFFFFFF;
-    
+
     casper.write_dword(0x400usize, c);
     casper.write_word(0x400usize + 8, d);
-    
+
     casper.clear(0x400usize, 12);
     let read_c = casper.read_dword(0x400usize);
     let read_d = casper.read_word(0x400usize + 8);
@@ -112,10 +112,10 @@ fn test_execute_copy(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Copy,
-        1, // iter = 1 (process 2 64-bit words)
+        1,          // iter = 1 (process 2 64-bit words)
         0x000usize, // ab_offset
         0,
-        0x400usize // res_offset
+        0x400usize, // res_offset
     );
 
     let dst0 = casper.read_dword(0x400usize);
@@ -141,7 +141,7 @@ fn test_execute_zero(casper: &mut CasperDriver<'_>) {
         1, // iter = 1 (process 2 64-bit words)
         0,
         0,
-        0x400usize // res_offset
+        0x400usize, // res_offset
     );
 
     let dst0 = casper.read_dword(0x400usize);
@@ -170,10 +170,10 @@ fn test_execute_xor(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Xor64,
-        1, // iter = 1 (2 XOR operations)
+        1,          // iter = 1 (2 XOR operations)
         0x000usize, // A (ab_offset)
         0,
-        0x600usize // R (res_offset)
+        0x600usize, // R (res_offset)
     );
 
     let result = casper.read_dword(0x600usize);
@@ -199,9 +199,9 @@ fn test_execute_double_basic(casper: &mut CasperDriver<'_>) {
         0, // iter = 0 (1 DOUBLE operation)
         0,
         0,
-        0x600usize // R (res_offset)
+        0x600usize, // R (res_offset)
     );
-    
+
     let result = casper.read_dword(0x600usize);
     let carry_bit = casper.carry();
 
@@ -264,12 +264,12 @@ fn test_execute_add_basic(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Add64,
-        0, // iter = 0 (1 ADD operation: a + b)
+        0,          // iter = 0 (1 ADD operation: a + b)
         0x000usize, // ab_offset
         0,
         0x600usize, // res_offset
     );
-    
+
     let result = casper.read_dword(0x600usize);
     let carry_bit = casper.carry();
 
@@ -307,7 +307,7 @@ fn test_execute_add_multiword(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Add64,
-        1, // 2 64-bit cycles
+        1,          // 2 64-bit cycles
         0x000usize, // ab_offset
         0,
         0x600usize, // res_offset
@@ -315,7 +315,7 @@ fn test_execute_add_multiword(casper: &mut CasperDriver<'_>) {
 
     let result0 = casper.read_dword(0x600usize);
     let result1 = casper.read_dword(0x600usize + 8);
-    
+
     //let carry = casper.carry();
     // info!(
     //     "Opcode::Add64 128-bit TEST :\n\
@@ -346,7 +346,7 @@ fn test_execute_sub_basic(casper: &mut CasperDriver<'_>) {
     // let a: u64 = 0x0011223344556677;
 
     // 2nd test to check borrow
-    let r: u64 = 0x0000000000000003; 
+    let r: u64 = 0x0000000000000003;
     let a: u64 = 0x000000000000000A;
 
     let (expected, borrow) = r.overflowing_sub(a);
@@ -355,7 +355,7 @@ fn test_execute_sub_basic(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Sub64,
-        0, // iter = 0 (1 64-bit cycle)
+        0,          // iter = 0 (1 64-bit cycle)
         0x000usize, // A (ab_offset)
         0,
         0x600usize, // R (res_offset)
@@ -411,7 +411,7 @@ fn test_execute_sub_multiword(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Sub64,
-        1, // iter = 1 (2 64-bit cycles)
+        1,          // iter = 1 (2 64-bit cycles)
         0x000usize, // A (ab_offset)
         0,
         0x600usize, // R (res_offset)
@@ -447,7 +447,7 @@ fn test_execute_rsub_basic(casper: &mut CasperDriver<'_>) {
     // 1st test (no borrow)
     let a: u64 = 20;
     let r: u64 = 7;
-    
+
     // 2nd test to check borrow
     // let a: u64 = 11;
     // let r: u64 = 16;
@@ -458,7 +458,7 @@ fn test_execute_rsub_basic(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Rsub64,
-        0, // iter = 0 (1 64-bit cycle)
+        0,          // iter = 0 (1 64-bit cycle)
         0x000usize, // A (ab_offset)
         0,
         0x600usize, // R (res_offset)
@@ -512,7 +512,7 @@ fn test_execute_rsub_multiword(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Rsub64,
-        1, // iter = 1 (2 64-bit cycles)
+        1,          // iter = 1 (2 64-bit cycles)
         0x000usize, // A (ab_offset)
         0,
         0x600usize, // R (res_offset)
@@ -559,7 +559,7 @@ fn test_execute_mul_nosum_basic(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Mul64Nosum,
-        0, // iter = 0 (1 64-bit multiplication)
+        0,          // iter = 0 (1 64-bit multiplication)
         0x000usize, // ab_offset
         0x400usize, // cd_offset
         0x600usize, // res_offset
@@ -602,7 +602,7 @@ fn test_execute_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
     //                             w[2]                w[1]
     // Expected:
     // RES[0] = 0x0000000000000008
-    // RES[1] = 0x0000000000000000 + 0x0000000000000006 = 0x0000000000000006 
+    // RES[1] = 0x0000000000000000 + 0x0000000000000006 = 0x0000000000000006
     // So w[1] from j=0 is added to w[1] from j=1 - this is how CASPER handles the "walking j-loop" when doing multiplication operations
     // RES[2] = 0x0000000000000000
 
@@ -622,7 +622,7 @@ fn test_execute_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
     // RES[0] = 0x0000000000000001
     // RES[1] = 0xFFFFFFFFFFFFFFFE + 0x0000000000000002 = 0x0000000000000000
     // RES[2] = 0xFFFFFFFFFFFFFFFD + 0x0000000000000001 (that carry from RES[1] due to overflow)= 0xFFFFFFFFFFFFFFFE
-    let a: u64  = 0xFFFFFFFFFFFFFFFF;
+    let a: u64 = 0xFFFFFFFFFFFFFFFF;
     let b0: u64 = 0xFFFFFFFFFFFFFFFF;
     let b1: u64 = 0xFFFFFFFFFFFFFFFE;
     let expected0: u64 = 0x0000000000000001;
@@ -635,7 +635,7 @@ fn test_execute_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Mul64Nosum,
-        1, // iter = 1 (2 64-bit multiplications)
+        1,          // iter = 1 (2 64-bit multiplications)
         0x000usize, // ab_offset
         0x200usize, // cd_offset
         0x600usize, // res_offset
@@ -681,7 +681,7 @@ fn test_execute_mul_sum_basic(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Mul64Sum,
-        0, // iter = 0 (1 64-bit multiplication)
+        0,          // iter = 0 (1 64-bit multiplication)
         0x000usize, // ab_offset
         0x200usize, // cd_offset
         0x600usize, // res_offset
@@ -768,8 +768,8 @@ fn test_execute_mul_sum_vs_mul_fullsum(casper: &mut CasperDriver<'_>) {
     // RES+18 = 1
     // The expected result for MUL64_SUM is: RES+00 = 0x0000000000000002, RES+08 = 0xfffffffffffffffe, RES+10 = 0x0000000000000001, RES+18 = 0x0000000000000001.
     // The expected result for MUL64_FULLSUM is: RES+00 = 0x0000000000000002, RES+08 = 0xfffffffffffffffe, RES+10 = 0x0000000000000002, RES+18 = 0x0000000000000001
-    // MUL64_SUM does not read the final 2 32-bit words (1 64-bit word). 
-    // Therefore the 64 bits of RES+10 (of the initial w[2] = 1, as for iter = 1, w[2] is the last 64-bit word) are ignored by the MUL64_SUM operation, 
+    // MUL64_SUM does not read the final 2 32-bit words (1 64-bit word).
+    // Therefore the 64 bits of RES+10 (of the initial w[2] = 1, as for iter = 1, w[2] is the last 64-bit word) are ignored by the MUL64_SUM operation,
     // while the MUL64_FULLSUM operation reads all of w, including the MSWs. (Most Significant Words)
 
     let a: u64 = 0xFFFFFFFFFFFFFFFF;
@@ -795,10 +795,10 @@ fn test_execute_mul_sum_vs_mul_fullsum(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Mul64Sum,
-        1, // iter = 1 (2 64-bit multiplications)
+        1,          // iter = 1 (2 64-bit multiplications)
         0x000usize, // ab_offset
         0x200usize, // cd_offset
-        0x600usize // res_offset
+        0x600usize, // res_offset
     );
     let result0 = casper.read_dword(0x600usize);
     let result1 = casper.read_dword(0x600usize + 8);
@@ -816,7 +816,7 @@ fn test_execute_mul_sum_vs_mul_fullsum(casper: &mut CasperDriver<'_>) {
     //     result2,
     //     result3
     // );
-    
+
     if result0 == expected0 && result1 == expected1 && result2 == expected2 && result3 == expected3 {
         info!("Opcode::Mul64Sum vs Opcode::Mul64Fullsum TEST: PASS");
     } else {
@@ -846,7 +846,7 @@ fn test_execute_mul_fullsum_basic(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Mul64Fullsum,
-        0, // iter = 0 (1 64-bit multiplication)
+        0,          // iter = 0 (1 64-bit multiplication)
         0x000usize, // ab_offset
         0x200usize, // cd_offset
         0x600usize, // res_offset
@@ -892,8 +892,8 @@ fn test_execute_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
     // RES+18 = 1
     // The expected result for MUL64_FULLSUM is: RES+00 = 0x0000000000000002, RES+08 = 0xfffffffffffffffe, RES+10 = 0x0000000000000002, RES+18 = 0x0000000000000001
     // The expected result for MUL64_SUM is: RES+00 = 0x0000000000000002, RES+08 = 0xfffffffffffffffe, RES+10 = 0x0000000000000001, RES+18 = 0x0000000000000001,
-    // since MUL64_SUM does not read the final 2 32-bit words (1 64-bit word). 
-    // Therefore the 64 bits of RES+10 (of the initial w[2] = 1, as for iter = 1 w[2] is the last 64-bit word) are ignored by the MUL64_SUM operation, 
+    // since MUL64_SUM does not read the final 2 32-bit words (1 64-bit word).
+    // Therefore the 64 bits of RES+10 (of the initial w[2] = 1, as for iter = 1 w[2] is the last 64-bit word) are ignored by the MUL64_SUM operation,
     // while the MUL64_FULLSUM operation reads all of w, including the MSWs. (Most Significant Word)
 
     let a: u64 = 0xFFFFFFFFFFFFFFFF;
@@ -919,10 +919,10 @@ fn test_execute_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Mul64Fullsum,
-        1, // iter = 1 (2 64-bit multiplications)
+        1,          // iter = 1 (2 64-bit multiplications)
         0x000usize, // ab_offset
         0x200usize, // cd_offset
-        0x600usize // res_offset
+        0x600usize, // res_offset
     );
     let result0 = casper.read_dword(0x600usize);
     let result1 = casper.read_dword(0x600usize + 8);
@@ -950,7 +950,7 @@ fn test_execute_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
 
 fn test_execute_mul_reduce(casper: &mut CasperDriver<'_>) {
     // MUL64_REDUCE TEST - hardware test (execute_op_sync)
-    let _n: u64 = 3; 
+    let _n: u64 = 3;
     let _modular_multiplicative_inverse: u64 = 0xaaaaaaaaaaaaaaab; // N^-1 mod 2^64 -> N (3) * N^-1 (0xaaaaaaaaaaaaaaab) mod 2^64 = 1
     let np: u64 = 0x5555555555555555; // N' = -N^-1 mod 2^64 -> 2^64 - 0xaaaaaaaaaaaaaaab = 0x5555555555555555
     let n0: u64 = 1;
@@ -978,7 +978,7 @@ fn test_execute_mul_reduce(casper: &mut CasperDriver<'_>) {
 
     casper.execute_op_sync(
         Opcode::Mul64Reduce,
-        2, // 3 64-bit J iterations
+        2,           // 3 64-bit J iterations
         0x0000usize, // ab_offset (m)
         0x0800usize, // cd_offset (N)
         0x1000usize, // res_offset (W)
@@ -1025,7 +1025,7 @@ fn test_copy_values(casper: &mut CasperDriver<'_>) {
 }
 
 fn test_zero(casper: &mut CasperDriver<'_>) {
-    // ZERO TEST - higher-level API test (zero() method) 
+    // ZERO TEST - higher-level API test (zero() method)
     let src0: u64 = 0x1122334455667788;
     let src1: u64 = 0x2211009988776655;
 
@@ -1039,7 +1039,7 @@ fn test_zero(casper: &mut CasperDriver<'_>) {
     let result0 = casper.read_dword(0x400usize);
     let result1 = casper.read_dword(0x400usize + 8);
     // info!("Zero TEST: res0: {:#018x}, res1: {:#018x}", result0, result1);
-    if result0 == 0 && result1 == 0 { 
+    if result0 == 0 && result1 == 0 {
         info!("Zero TEST: PASS");
     } else {
         error!("Zero TEST: FAIL");
@@ -1174,7 +1174,7 @@ fn test_sub(casper: &mut CasperDriver<'_>) {
     let a: u64 = 0x0011223344556677;
 
     // 2nd test to check borrow
-    // let r: u64 = 0x0000000000000003; 
+    // let r: u64 = 0x0000000000000003;
     // let a: u64 = 0x000000000000000A;
 
     let (expected, borrow) = r.overflowing_sub(a);
@@ -1246,7 +1246,7 @@ fn test_rsub(casper: &mut CasperDriver<'_>) {
     // 1st test (no borrow)
     let a: u64 = 20;
     let r: u64 = 7;
-    
+
     // 2nd test to check borrow
     // let a: u64 = 11;
     // let r: u64 = 16;
@@ -1270,7 +1270,7 @@ fn test_rsub(casper: &mut CasperDriver<'_>) {
         info!("RSUB TEST: PASS");
     } else {
         error!("RSUB TEST: FAIL");
-    }   
+    }
 }
 
 fn test_rsub_multiword(casper: &mut CasperDriver<'_>) {
@@ -1364,7 +1364,7 @@ fn test_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
     //                             w[2]                w[1]
     // Expected:
     // RES[0] = 0x0000000000000008
-    // RES[1] = 0x0000000000000000 + 0x0000000000000006 = 0x0000000000000006 
+    // RES[1] = 0x0000000000000000 + 0x0000000000000006 = 0x0000000000000006
     // So w[1] from j=0 is added to w[1] from j=1 - this is how CASPER handles the "walking j-loop" when doing multiplication operations
     // RES[2] = 0x0000000000000000
 
@@ -1385,7 +1385,7 @@ fn test_mul_nosum_multiword(casper: &mut CasperDriver<'_>) {
     // let b0: u64 = 4;
     // let b1: u64 = 3;
 
-    let a: u64  = 0xFFFFFFFFFFFFFFFF;
+    let a: u64 = 0xFFFFFFFFFFFFFFFF;
     let b0: u64 = 0xFFFFFFFFFFFFFFFF;
     let b1: u64 = 0xFFFFFFFFFFFFFFFE;
 
@@ -1539,8 +1539,8 @@ fn test_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
     // RES+10 = 1
     // The expected result for MUL64_FULLSUM is: RES+00 = 0x0000000000000002, RES+08 = 0xfffffffffffffffe, RES+10 = 0x0000000000000002.
     // The expected result for MUL64_SUM is: RES+00 = 0x0000000000000002, RES+08 = 0xfffffffffffffffe, RES+10 = 0x0000000000000001,
-    // since MUL64_SUM does not read the final 2 32-bit words (1 64-bit word). 
-    // Therefore the 64 bits of RES+10 (of the initial w[2] = 1, as for iter = 1 w[2] is the last 64-bit word) are ignored by the MUL64_SUM operation, 
+    // since MUL64_SUM does not read the final 2 32-bit words (1 64-bit word).
+    // Therefore the 64 bits of RES+10 (of the initial w[2] = 1, as for iter = 1 w[2] is the last 64-bit word) are ignored by the MUL64_SUM operation,
     // while the MUL64_FULLSUM operation reads all of w, including the MSWs. (Most Significant Word)
 
     let a: u64 = 0xFFFFFFFFFFFFFFFF;
@@ -1567,7 +1567,7 @@ fn test_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
     //     result[1],
     //     result[2]
     // );
-    
+
     if result[0] == expected0 && result[1] == expected1 && result[2] == expected2 && !carry {
         info!("MUL_FULLSUM WALKING J-LOOP TEST: PASS");
     } else {
@@ -1577,7 +1577,7 @@ fn test_mul_fullsum_multiword(casper: &mut CasperDriver<'_>) {
 
 fn test_mul_reduce(casper: &mut CasperDriver<'_>) {
     // MUL_REDUCE TEST - high-level API test (mul_reduce() method)
-    let _n: u64 = 3; 
+    let _n: u64 = 3;
     let _modular_multiplicative_inverse: u64 = 0xaaaaaaaaaaaaaaab; // N^-1 mod 2^64 -> N (3) * N^-1 (0xaaaaaaaaaaaaaaab) mod 2^64 = 1
     let np: u64 = 0x5555555555555555; // N' = -N^-1 mod 2^64 -> 2^64 - 0xaaaaaaaaaaaaaaab = 0x5555555555555555
     let n0: u64 = 1;
@@ -1587,7 +1587,7 @@ fn test_mul_reduce(casper: &mut CasperDriver<'_>) {
     let w1: u64 = 5;
     let w2: u64 = 6;
     let m: u64 = np.wrapping_mul(w0); // m = N' * W0 mod 2^64 = 0xaaaaaaaaaaaaaaaa
-    
+
     let expected0: u64 = 0x5555555555555559;
     let expected1: u64 = 0x0000000000000005;
     let expected2: u64 = 0x0000000000000002;
