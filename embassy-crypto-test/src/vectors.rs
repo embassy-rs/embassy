@@ -15,6 +15,7 @@ pub struct Suite<T: 'static> {
 
 /// What Wycheproof expects of a case.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Expected {
     /// The operation must succeed with the listed output.
     Valid,
@@ -39,7 +40,7 @@ pub struct Mac {
     pub result: Expected,
 }
 
-/// A GCM or CCM case.
+/// A GCM, CCM or ChaCha-Poly1305 case.
 pub struct Aead {
     pub tc_id: u32,
     pub key: &'static [u8],
@@ -72,6 +73,16 @@ pub struct Ecb {
 pub struct Ctr {
     pub key: &'static [u8],
     pub iv: &'static [u8],
+    pub pt_len: usize,
+    pub ct: &'static [u8],
+}
+
+/// A ChaCha case: `ct` is the encryption of the first `pt_len` bytes of
+/// [`MESSAGE`] with the keystream starting at block `counter`.
+pub struct ChaCha {
+    pub key: &'static [u8],
+    pub nonce: &'static [u8],
+    pub counter: u32,
     pub pt_len: usize,
     pub ct: &'static [u8],
 }

@@ -990,6 +990,205 @@ unitrait::unitrait! {
 }
 
 // ===========================================================================
+// ChaCha and ChaCha-Poly1305
+// ===========================================================================
+
+unitrait::unitrait! {
+    /// ChaCha8 (8 rounds) stream cipher driver.
+    #[symbol_prefix = "_embassy_crypto_chacha8"]
+    pub trait ChaCha8 {
+        /// Opaque storage for the key, nonce, block counter and partial keystream.
+        #[opaque(size = 128, align = 16)]
+        pub type Context: Send + Sync + Clone + Drop;
+
+        /// Initialize with a 256-bit key, a 96-bit nonce and the initial 32-bit block counter.
+        fn init(key: &[u8; 32], nonce: &[u8; 12], counter: u32) -> Self::Context;
+
+        /// XOR the keystream into `buf`.
+        ///
+        /// The counter and any unused keystream are carried in the context, so
+        /// `buf` need not be block-aligned.
+        fn apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
+    }
+
+    /// The global [`ChaCha8`] implementation.
+    pub(crate) struct ChaCha8Impl;
+
+    /// Register the global [`ChaCha8`] implementation.
+    macro chacha8_impl(path = $crate::driver);
+}
+
+unitrait::unitrait! {
+    /// ChaCha12 (12 rounds) stream cipher driver.
+    #[symbol_prefix = "_embassy_crypto_chacha12"]
+    pub trait ChaCha12 {
+        /// Opaque storage for the key, nonce, block counter and partial keystream.
+        #[opaque(size = 128, align = 16)]
+        pub type Context: Send + Sync + Clone + Drop;
+
+        /// Initialize with a 256-bit key, a 96-bit nonce and the initial 32-bit block counter.
+        fn init(key: &[u8; 32], nonce: &[u8; 12], counter: u32) -> Self::Context;
+
+        /// XOR the keystream into `buf`.
+        ///
+        /// The counter and any unused keystream are carried in the context, so
+        /// `buf` need not be block-aligned.
+        fn apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
+    }
+
+    /// The global [`ChaCha12`] implementation.
+    pub(crate) struct ChaCha12Impl;
+
+    /// Register the global [`ChaCha12`] implementation.
+    macro chacha12_impl(path = $crate::driver);
+}
+
+unitrait::unitrait! {
+    /// ChaCha20 (20 rounds, RFC 8439) stream cipher driver.
+    #[symbol_prefix = "_embassy_crypto_chacha20"]
+    pub trait ChaCha20 {
+        /// Opaque storage for the key, nonce, block counter and partial keystream.
+        #[opaque(size = 128, align = 16)]
+        pub type Context: Send + Sync + Clone + Drop;
+
+        /// Initialize with a 256-bit key, a 96-bit nonce and the initial 32-bit block counter.
+        fn init(key: &[u8; 32], nonce: &[u8; 12], counter: u32) -> Self::Context;
+
+        /// XOR the keystream into `buf`.
+        ///
+        /// The counter and any unused keystream are carried in the context, so
+        /// `buf` need not be block-aligned.
+        fn apply_keystream(ctx: &mut Self::Context, buf: InOutBuf<'_, '_, u8>);
+    }
+
+    /// The global [`ChaCha20`] implementation.
+    pub(crate) struct ChaCha20Impl;
+
+    /// Register the global [`ChaCha20`] implementation.
+    macro chacha20_impl(path = $crate::driver);
+}
+
+unitrait::unitrait! {
+    /// ChaCha8-Poly1305 (8 rounds) driver.
+    #[symbol_prefix = "_embassy_crypto_chacha8poly1305"]
+    pub trait ChaCha8Poly1305 {
+        /// Opaque storage for the implementation's key.
+        #[opaque(size = 64, align = 16)]
+        pub type Context: Send + Sync + Clone + Drop;
+
+        /// Initialize with a 256-bit key.
+        fn init(key: &[u8; 32]) -> Self::Context;
+
+        /// Encrypt `buffer` and produce the authentication tag.
+        fn encrypt(
+            ctx: &Self::Context,
+            nonce: &[u8; 12],
+            aad: &[u8],
+            buffer: InOutBuf<'_, '_, u8>,
+            tag: &mut [u8; 16],
+        ) -> Result<(), Error>;
+
+        /// Verify the authentication tag and decrypt `buffer`.
+        ///
+        /// The tag is verified in constant time; on mismatch this returns
+        /// [`Error::InvalidSignature`] and the buffer contents are unspecified.
+        fn decrypt(
+            ctx: &Self::Context,
+            nonce: &[u8; 12],
+            aad: &[u8],
+            buffer: InOutBuf<'_, '_, u8>,
+            tag: &[u8; 16],
+        ) -> Result<(), Error>;
+    }
+
+    /// The global [`ChaCha8Poly1305`] implementation.
+    pub(crate) struct ChaCha8Poly1305Impl;
+
+    /// Register the global [`ChaCha8Poly1305`] implementation.
+    macro chacha8_poly1305_impl(path = $crate::driver);
+}
+
+unitrait::unitrait! {
+    /// ChaCha12-Poly1305 (12 rounds) driver.
+    #[symbol_prefix = "_embassy_crypto_chacha12poly1305"]
+    pub trait ChaCha12Poly1305 {
+        /// Opaque storage for the implementation's key.
+        #[opaque(size = 64, align = 16)]
+        pub type Context: Send + Sync + Clone + Drop;
+
+        /// Initialize with a 256-bit key.
+        fn init(key: &[u8; 32]) -> Self::Context;
+
+        /// Encrypt `buffer` and produce the authentication tag.
+        fn encrypt(
+            ctx: &Self::Context,
+            nonce: &[u8; 12],
+            aad: &[u8],
+            buffer: InOutBuf<'_, '_, u8>,
+            tag: &mut [u8; 16],
+        ) -> Result<(), Error>;
+
+        /// Verify the authentication tag and decrypt `buffer`.
+        ///
+        /// The tag is verified in constant time; on mismatch this returns
+        /// [`Error::InvalidSignature`] and the buffer contents are unspecified.
+        fn decrypt(
+            ctx: &Self::Context,
+            nonce: &[u8; 12],
+            aad: &[u8],
+            buffer: InOutBuf<'_, '_, u8>,
+            tag: &[u8; 16],
+        ) -> Result<(), Error>;
+    }
+
+    /// The global [`ChaCha12Poly1305`] implementation.
+    pub(crate) struct ChaCha12Poly1305Impl;
+
+    /// Register the global [`ChaCha12Poly1305`] implementation.
+    macro chacha12_poly1305_impl(path = $crate::driver);
+}
+
+unitrait::unitrait! {
+    /// ChaCha20-Poly1305 (RFC 8439) driver.
+    #[symbol_prefix = "_embassy_crypto_chacha20poly1305"]
+    pub trait ChaCha20Poly1305 {
+        /// Opaque storage for the implementation's key.
+        #[opaque(size = 64, align = 16)]
+        pub type Context: Send + Sync + Clone + Drop;
+
+        /// Initialize with a 256-bit key.
+        fn init(key: &[u8; 32]) -> Self::Context;
+
+        /// Encrypt `buffer` and produce the authentication tag.
+        fn encrypt(
+            ctx: &Self::Context,
+            nonce: &[u8; 12],
+            aad: &[u8],
+            buffer: InOutBuf<'_, '_, u8>,
+            tag: &mut [u8; 16],
+        ) -> Result<(), Error>;
+
+        /// Verify the authentication tag and decrypt `buffer`.
+        ///
+        /// The tag is verified in constant time; on mismatch this returns
+        /// [`Error::InvalidSignature`] and the buffer contents are unspecified.
+        fn decrypt(
+            ctx: &Self::Context,
+            nonce: &[u8; 12],
+            aad: &[u8],
+            buffer: InOutBuf<'_, '_, u8>,
+            tag: &[u8; 16],
+        ) -> Result<(), Error>;
+    }
+
+    /// The global [`ChaCha20Poly1305`] implementation.
+    pub(crate) struct ChaCha20Poly1305Impl;
+
+    /// Register the global [`ChaCha20Poly1305`] implementation.
+    macro chacha20_poly1305_impl(path = $crate::driver);
+}
+
+// ===========================================================================
 // P-256 (secp256r1)
 // ===========================================================================
 

@@ -5,6 +5,7 @@
 pub mod driver;
 
 mod aes;
+mod chacha;
 mod ct;
 mod ec;
 mod hash;
@@ -15,6 +16,7 @@ pub mod p384;
 pub mod x25519;
 
 pub use aes::*;
+pub use chacha::*;
 pub use driver::Error;
 pub use hash::*;
 

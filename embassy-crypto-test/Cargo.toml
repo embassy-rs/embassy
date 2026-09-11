@@ -26,6 +26,9 @@ sha2 = "0.11"
 aes = "0.9"
 ctr = "0.10"
 cipher = "0.5"
+chacha20 = "0.10"
+chacha20poly1305 = { version = "0.11", default-features = false, features = ["reduced-round", "alloc"] }
+aead = { version = "0.6", default-features = false, features = ["alloc"] }
 p256 = { version = "0.14", default-features = false, features = ["arithmetic"] }
 p384 = { version = "0.14", default-features = false, features = ["arithmetic"] }
 elliptic-curve = { version = "0.14", default-features = false, features = ["arithmetic", "sec1"] }
