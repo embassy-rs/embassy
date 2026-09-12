@@ -215,7 +215,7 @@ where
 // DfsdmCommon
 // =============================================================================
 
-/// Holds regerences to the peripheral and the optional clock-output. Disables the RCC of the peripheral when dropped.
+/// Holds references to the peripheral and the optional clock-output. Disables the RCC of the peripheral when dropped.
 pub struct DfsdmCommon<'d, T: Instance, P: PowerState> {
     _peri: Peri<'d, T>,
     _ckout: Option<Flex<'d>>,
@@ -398,7 +398,7 @@ where
 // FilterConfig
 // =============================================================================
 
-/// Confgiguration for Filter
+/// Configuration for Filter
 pub struct FilterConfig<T: Instance> {
     pub filter_params: FilterParameters,
     pub enable_continuous_regular: bool,
@@ -479,7 +479,7 @@ where
     injected: [Option<&'t dyn TransceiverTrait<T, Enabled>>; 8],
 }
 
-//filter is "on", "off" version needs own off struct/"DIsabledFilter" because of members
+//filter is "on", "off" version needs own off struct/"DisabledFilter" because of members
 impl<'a, 'd, T, M> FilterDisabled<'a, 'd, T, M>
 where
     T: Instance + FilterInterrupt<M>,
@@ -1047,7 +1047,7 @@ where
         FilterRegs::<T, M>::injected_overrun()
     }
 
-    pub fn clear_overun(&self) {
+    pub fn clear_overrun(&self) {
         FilterRegs::<T, M>::clear_injected_overun()
     }
 
@@ -1359,7 +1359,7 @@ where
     }
 
     /// Set the oversampling ratio of the analog watchdog filter
-    pub fn elect_awd_filter_osr(self, osr: config_types::AwdFilterOsr) -> Self {
+    pub fn select_awd_filter_osr(self, osr: config_types::AwdFilterOsr) -> Self {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()

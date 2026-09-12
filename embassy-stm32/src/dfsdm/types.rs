@@ -640,7 +640,7 @@ impl_sealed_and! {
 pub trait SerialMode: ChannelMode {}
 
 /// Marker for serial channel modes relying on an external clock,
-/// used for clock-absence-detection-sync funciton gating
+/// used for clock-absence-detection-sync function gating
 pub trait ExternalSerialMode: SerialMode {}
 
 impl_trait! {

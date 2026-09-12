@@ -1407,6 +1407,18 @@ impl<'d, T: AdvancedInstance1Channel> Timer<'d, T> {
     pub fn get_break_input_pin_enable(&self) -> bool {
         self.regs_1ch_cmp().af1().read().bkine()
     }
+
+    /// Enable/disable routing DFSDM1_BREAK0 to this timer's break input.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn set_break_dfsdm_enable(&self, enable: bool) {
+        self.regs_1ch_cmp().af1().modify(|w| w.set_bkdf1bke(enable));
+    }
+
+    /// Get DFSDM1_BREAK0 break input enable state.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn get_break_dfsdm_enable(&self) -> bool {
+        self.regs_1ch_cmp().af1().read().bkdf1bke()
+    }
 }
 
 #[cfg(not(stm32l0))]
@@ -1600,6 +1612,18 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
     /// Get external BK2IN pin enable state.
     pub fn get_break2_input_pin_enable(&self) -> bool {
         self.regs_advanced().af2().read().bk2ine()
+    }
+
+    /// Enable/disable routing DFSDM1_BREAK1 to this timer's break input 2.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn set_break2_dfsdm_enable(&self, enable: bool) {
+        self.regs_advanced().af2().modify(|w| w.set_bk2df1bk1e(enable));
+    }
+
+    /// Get DFSDM1_BREAK1 break input 2 enable state.
+    #[cfg(all(dfsdm, any(timer_v1, timer_v3)))]
+    pub fn get_break2_dfsdm_enable(&self) -> bool {
+        self.regs_advanced().af2().read().bk2df1bk1e()
     }
 }
 

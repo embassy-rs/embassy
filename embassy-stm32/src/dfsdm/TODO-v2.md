@@ -53,45 +53,7 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
     headers read `T: Instance + FilterInterrupt<M>, M: FilterFlow<T>`.
   - Either is cosmetic; default to leaving the cluster as-is if neither earns
     its churn. Verify empirically (playground + chip matrix) before committing.
-- [ ] **FT5 — TIM break enables,
-  `#[cfg(all(dfsdm, any(timer_v1, timer_v3)))]`.** Fields exist only in
-  metapac `timer_v1`/`timer_v3`; every DFSDM chip uses one of those (F4/F7/L4/L5
-  → v1, H7 → v3); timer_v2 families (G4/H5/N6/U5/WBA) have no DFSDM. Gate with
-  the build.rs-emitted `dfsdm` cfg (precedent: `lib.rs:139` `#[cfg(dfsdm)] pub
-  mod dfsdm`) **and** the timer-version cfg in conjunction: `dfsdm` alone
-  relies on the v1/v3 invariant, while the version cfg alone would expose dead
-  API on non-DFSDM v1 chips (F407/F446…). See F5 for the bit map.
-  - `timer/low_level.rs`, `impl<T: AdvancedInstance1Channel>` (TIM1/TIM8):
-    `set_break_dfsdm_enable` → `af1().set_bkdf1bke`, `set_break2_dfsdm_enable`
-    → `af2().set_bk2df1bk1e`, + getters. Style reference:
-    `set_break_comparator_enable` (timer/low_level.rs:1376).
-  - `timer/complementary_pwm.rs`: user-facing wrappers.
-  - Optional: TIM15/16/17 (`Af11chCmp.bkdf1bke`) on the general-1ch impl; add
-    only if cargo-check passes on the DFSDM chip set (H723's RM0468 confirms
-    the field). F413 has no TIM15/16/17 at all (TIM1-14 only, chip db +
-    rm0430) — the impl applies to other series only; F413 breaks are
-    TIM1/TIM8 (rm0430 Table 90).
-  - DFSDM side (BKSCD/BKAWH/BKAWL assignment) already implemented; cross-link
-    docs only.
-  - **stm32-data side (audited): integrated for all DFSDM timer versions.**
-    `data/registers/timer_v1.yaml` has BKDF1BKE (AF1 fieldset, bit 8) +
-    BK2DF1BK1E (AF2 fieldset); timer_v3.yaml has both; AF1_ADV extends
-    AF1_1CH_CMP so TIM1/TIM8 inherit; TIM15/16/17 use AF1_1CH_CMP directly.
-    timer_v2/timer_l0 lack the fields — correct, no DFSDM chip uses those
-    versions. Nothing lacking at data level.
-  - **Per-series break wiring (stm32-data-gen/src/trigger.rs) verified**
-    against every TRM break-connection table for L4(789A), L4(1-6), F412, F7,
-    F413 (DFSDM1+DFSDM2 on BRK1), L4(PQRS), H7(42/43/53/50), MP1, H7(A/B)3,
-    H7(23/33/25/35/30), L5.
-  - **F4/F7 silicon caveat (empirical)**: F4/F7 TRMs document no AF1 DFSDM
-    bits (0 mentions); F7 headers have AF1 `BKDF1BKE` only (no AF2 `BK2DF`);
-    F4 headers have neither — yet metapac exposes both bits on timer_v1.
-    Break-connection tables (RM0402/RM0430/RM0410) prove the wires, so the
-    enables presumably exist; HW-verify F4 (both bits) and F7 (break2 bit)
-    before relying on them.
-  - Driver side: **zero usage today** — `bkdf` appears in no embassy `.rs`
-    file; the examples' "enable breakinput" comments (dfsdm_pwm*.rs) are
-    exactly the use-case FT5 unlocks.
+
 - [ ] **FT9 (optional) — `CkoutDivider::for_manchester(rate)` helper** from the
   RM0455 Manchester formula:
   `(CKOUTDIV+1)·T_INCKOUT < T_manchester < 2·CKOUTDIV·T_INCKOUT`.
@@ -774,3 +736,50 @@ Summary (each blocks DFSDM availability for whole chip groups):
   but the fast filter's own gain (FOSR^FORD, max 32³) vs 16-bit WDATR is
   undocumented in the TRM — investigate only if a fast-mode AWD overflow is
   observed on silicon (symmetric with E1).
+  - [X] **FT5 — TIM break enables,
+  `#[cfg(all(dfsdm, any(timer_v1, timer_v3)))]`.** Fields exist only in
+  metapac `timer_v1`/`timer_v3`; every DFSDM chip uses one of those (F4/F7/L4/L5
+  → v1, H7 → v3); timer_v2 families (G4/H5/N6/U5/WBA) have no DFSDM. Gate with
+  the build.rs-emitted `dfsdm` cfg (precedent: `lib.rs:139` `#[cfg(dfsdm)] pub
+  mod dfsdm`) **and** the timer-version cfg in conjunction: `dfsdm` alone
+  relies on the v1/v3 invariant, while the version cfg alone would expose dead
+  API on non-DFSDM v1 chips (F407/F446…). See F5 for the bit map.
+  - `timer/low_level.rs`, `impl<T: AdvancedInstance1Channel>` (TIM1/TIM8):
+    `set_break_dfsdm_enable` → `af1().set_bkdf1bke`, `set_break2_dfsdm_enable`
+    → `af2().set_bk2df1bk1e`, + getters. Style reference:
+    `set_break_comparator_enable` (timer/low_level.rs:1376).
+  - `timer/complementary_pwm.rs`: user-facing wrappers.
+  - Optional: TIM15/16/17 (`Af11chCmp.bkdf1bke`) on the general-1ch impl; add
+    only if cargo-check passes on the DFSDM chip set (H723's RM0468 confirms
+    the field). F413 has no TIM15/16/17 at all (TIM1-14 only, chip db +
+    rm0430) — the impl applies to other series only; F413 breaks are
+    TIM1/TIM8 (rm0430 Table 90).
+  - DFSDM side (BKSCD/BKAWH/BKAWL assignment) already implemented; cross-link
+    docs only.
+  - **stm32-data side (audited): integrated for all DFSDM timer versions.**
+    `data/registers/timer_v1.yaml` has BKDF1BKE (AF1 fieldset, bit 8) +
+    BK2DF1BK1E (AF2 fieldset); timer_v3.yaml has both; AF1_ADV extends
+    AF1_1CH_CMP so TIM1/TIM8 inherit; TIM15/16/17 use AF1_1CH_CMP directly.
+    timer_v2/timer_l0 lack the fields — correct, no DFSDM chip uses those
+    versions. Nothing lacking at data level.
+  - **Per-series break wiring (stm32-data-gen/src/trigger.rs) verified**
+    against every TRM break-connection table for L4(789A), L4(1-6), F412, F7,
+    F413 (DFSDM1+DFSDM2 on BRK1), L4(PQRS), H7(42/43/53/50), MP1, H7(A/B)3,
+    H7(23/33/25/35/30), L5.
+  - **F4/F7 silicon caveat (empirical)**: F4/F7 TRMs document no AF1 DFSDM
+    bits (0 mentions); F7 headers have AF1 `BKDF1BKE` only (no AF2 `BK2DF`);
+    F4 headers have neither — yet metapac exposes both bits on timer_v1.
+    Break-connection tables (RM0402/RM0430/RM0410) prove the wires, so the
+    enables presumably exist; HW-verify F4 (both bits) and F7 (break2 bit)
+    before relying on them.
+  - Driver side: **zero usage today** — `bkdf` appears in no embassy `.rs`
+    file; the examples' "enable breakinput" comments (dfsdm_pwm*.rs) are
+    exactly the use-case FT5 unlocks.
+
+
+NOTE
+Following have no bken enable for dfsdm bits in timers. Do research
+rm0394 — STM32L41x/42x/43x/44x/45x/46x
+rm0402 — STM32F412
+rm0410 — STM32F76x/77x
+rm0430 — STM32F413/423
