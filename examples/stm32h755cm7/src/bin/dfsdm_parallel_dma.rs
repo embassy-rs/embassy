@@ -7,7 +7,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{DataRightShift, FilterOrder, FilterParameters};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, ResultRegular};
 use embassy_stm32::dma::{self, Channel, TransferOptions};
 use embassy_stm32::peripherals::{self, DFSDM1};
 use embassy_stm32::{SharedData, bind_interrupts, dfsdm};
@@ -111,11 +111,11 @@ async fn main(_spawner: Spawner) {
     println!("Manual integration: {}", integral);
     loop {
         // ch_test.write_sample_standard(10);
-        if let Ok((data, channel, rpend)) = flt0.regular.try_get_result() {
+        if let Ok(ResultRegular { data, channel, pending }) = flt0.regular.try_get_result() {
             println!("New regular 0: ");
             println!("Channel: {}", channel);
             println!("Value: {}", data);
-            println!("Delayed: {}", rpend);
+            println!("Delayed: {}", pending);
 
             return;
         }

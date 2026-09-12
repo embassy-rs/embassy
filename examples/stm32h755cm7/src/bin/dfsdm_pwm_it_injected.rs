@@ -6,7 +6,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{CkoutDivider, FilterOrder, FilterParameters, InternalSpiMode};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, ResultInjected};
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
@@ -196,7 +196,7 @@ async fn main(_spawner: Spawner) {
     const STATS_INTERVAL_US: u64 = 1_000_000; // report every 1s
 
     loop {
-        let (data, _channel) = flt0.injected.read().await.expect("Error");
+        let ResultInjected { data, .. } = flt0.injected.read().await.expect("Error");
 
         let result_ready_at = Instant::now();
         let wait_dur = result_ready_at - wait_start;

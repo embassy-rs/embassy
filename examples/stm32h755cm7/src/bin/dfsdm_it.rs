@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{
     CkoutDivider, DataRightShift, FilterOrder, FilterParameters, InternalSpiMode,
 };
-use embassy_stm32::dfsdm::{FilterConfig, Flt0};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0, ResultRegular};
 use embassy_stm32::gpio::{Level, Output, OutputType, Speed};
 use embassy_stm32::peripherals::DFSDM1;
 use embassy_stm32::rcc::{self};
@@ -134,7 +134,8 @@ async fn main(_spawner: Spawner) {
 
     println!("Go?");
     loop {
-        let result = flt0.regular.read().await;
-        println!("There we go! {}", result);
+        if let Ok(ResultRegular { data, .. }) = flt0.regular.read().await {
+            println!("There we go! {}", data);
+        }
     }
 }

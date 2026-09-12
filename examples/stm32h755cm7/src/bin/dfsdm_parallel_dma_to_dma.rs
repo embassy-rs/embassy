@@ -7,7 +7,7 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::dfsdm::config_types::{DataRightShift, FilterOrder, FilterParameters};
-use embassy_stm32::dfsdm::{FilterConfig, Flt0, RingBufferedFilter};
+use embassy_stm32::dfsdm::{FilterConfig, Flt0};
 use embassy_stm32::dma::{self, Channel, Transfer, TransferOptions};
 use embassy_stm32::pac::dfsdm::regs::Rdatar;
 use embassy_stm32::peripherals::{self, DFSDM1};

@@ -23,24 +23,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 
 ---
 
-## EMPIRICAL — silicon-verified findings (TRM contradicts where noted)
-
-- [ ] **E1 — Gain limit = `i32::MAX` (2^31−1), confirmed by derivation and
-  on-silicon test (TRM divergence — RM is wrong twice).** Enforced at `config_types::MAX_GAIN`
-  (types.rs:1300). The TRM is wrong twice, identically in all 15 revisions:
-  - §33.4.13 states the inclusive condition `FOSR^FORD·IOSR ≤ 2^31` — off by
-    one: a 32-bit signed accumulator tops out at +2^31−1, so gain exactly
-    2^31 with positive full-scale input wraps to −2^31.
-  - §33.4.9 Table 253 even lists a peak of `±2^32` (FOSR=256, Sinc3,
-    IOSR=256), unrepresentable in the 32-bit signed datapath.
-  - [ ] Rewrite the garbled comment at types.rs:1297-1299 (currently mixes
-    "TRM states <=2^32" with `i32::MIN.unsigned_abs()` = 2^31): state the
-    actual chain — 32-bit signed accumulator → +2^31−1 max; TRM §33.4.13
-    (≤2^31) and §33.4.9 (±2^32) are both disproven; bound is empirical
-    (derived + HW-tested).
-  - [ ] Boundary test: `FilterParameters::try_new(Sinc3, fosr=1024, iosr=2)`
-    (gain = 2^31) must be rejected; the largest config ≤ 2^31−1 must be
-    accepted.
 
 ---
 
@@ -57,30 +39,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
 ## FEATURE
 
 
-- [ ] **FT13 — Input-width-aware gain ceiling (serial vs parallel).** E1's
-  `MAX_GAIN = 2^31−1` assumes 1-bit serial input; parallel (DATMPX ADC /
-  CPU-DMA DATINR) is 16-bit, so the safe FOSR/IOSR ceiling is far lower (~`MAX_GAIN
-  >> 16`). Two needs:
-  - override/force escape hatch for users who know their headroom;
-  - input-aware ceiling — EITHER an input marker typestate (serial / parallel +
-    bit width) on `FilterParameters`, OR a separate method/constructor taking the
-    input width (pick whichever is simpler).
-  Verify the parallel-input gain model in the TRM first (§33.4.5–33.4.6).
-- [ ] **FT14 (optional) — AWD-filter gain ceiling.** The AWD fast filter
-  (`AWFORD`/`AWFOSR`, → `AwdFilterOrder`/`AwdFilterOsr` per FT21) input is
-  always 1-bit serial (no parallel case), so no input-width ceiling is needed;
-  but the fast filter's own gain (FOSR^FORD, max 32³) vs 16-bit WDATR is
-  undocumented in the TRM — investigate only if a fast-mode AWD overflow is
-  observed on silicon (symmetric with E1).
-- [ ] **FT15 — API self-documentation polish.** Replace tuple returns with named
-  result structs (`RegularResult { data, channel, pending }`, `InjectedResult`,
-  `Extremum { value, channel }`); connect `data_right_shift` to
-  `FilterParameters::recommended_shift()` (derive-by-default, raw override);
-  rename `read_maxima`/`read_minima` → read-and-clear variants (or a combined
-  `Extremes` snapshot); consider `regular`/`injected` over `reg`/`inj`;
-  `get_cnv_cnt` → `conversion_time()` (liveness doc rides T-doc, ex-FT8);
-  expose public i32 sign-extension (u32-vs-i32 + typed value accessors).
-  Goal: no TRM needed for the common paths.
 - [ ] **FT19 (low priority) — Bundle ergonomics, re-approach.** Decide later
   between two idioms for condensing the per-item `where` cluster
   (`T: Instance + FilterInterrupt<M>, M: FilterMarker + InstanceEvents<T>`):
@@ -134,21 +92,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   - Driver side: **zero usage today** — `bkdf` appears in no embassy `.rs`
     file; the examples' "enable breakinput" comments (dfsdm_pwm*.rs) are
     exactly the use-case FT5 unlocks.
-- [ ] **FT21 — AWD-filter naming (the code half of the old D14).** Per-channel
-  *fast filter* (AWFORD/AWFOSR + WDATR) feeding the per-filter *comparator*
-  (AWDCH/AWHT/AWLT/…AWHTF/AWLTF/BKAWH/BKAWL), mode-selected by AWFSEL
-  (0 = final main-filter output, 1 = fast filter — the overcurrent path).
-  Rename the per-channel cluster to `AwdFilter*` so "AnalogWatchdog" is
-  unambiguous: `AnalogWatchdogFilterConfiguration`→`AwdFilterConfig`,
-  `AnalogWatchdogFilterOrder`→`AwdFilterOrder` (fixes the "AWFORD"→"AWFOSR"
-  docstring slip), `AnalogWatchdogOsr`→`AwdFilterOsr`,
-  `get_analog_watchdog_data`→`awd_filter_data`, and the pub consuming
-  builders `select_analog_watchdog_*`→`set_awd_filter_*` (made pub when
-  `TransceiverConfig`/`configure` were deleted in FT12 — the old
-  `analog_watchdog_filter_config` field no longer exists; see NITS #22 for
-  the voluntary-vs-mandatory question). Keep `AnalogWatchdog`,
-  `AnalogWatchdogConfig`, `AnalogWatchdogEvent`, `flt.awd` unchanged.
-  Docstrings ride T-doc (AWFSEL coupling note is in its D14 clause).
 - [ ] **FT9 (optional) — `CkoutDivider::for_manchester(rate)` helper** from the
   RM0455 Manchester formula:
   `(CKOUTDIV+1)·T_INCKOUT < T_manchester < 2·CKOUTDIV·T_INCKOUT`.
@@ -776,3 +719,58 @@ Summary (each blocks DFSDM availability for whole chip groups):
   - `DFSDM_VERR` @0x7F4 (reset 0x21 = MAJREV 2 / MINREV 1)
   - `DFSDM_IPIDR` @0x7F8 (reset 0x0011_0031)
   - `DFSDM_SIDR` @0x7FC (reset 0xA3C5DD02 = fixed code 0xA3C5DD + 2 KB)
+- [X] **E1 — Gain limit = `i32::MAX` (2^31−1), confirmed by derivation and
+  on-silicon test (TRM divergence — RM is wrong twice).** Enforced at `config_types::MAX_GAIN`
+  (types.rs:1300). The TRM is wrong twice, identically in all 15 revisions:
+  - §33.4.13 states the inclusive condition `FOSR^FORD·IOSR ≤ 2^31` — off by
+    one: a 32-bit signed accumulator tops out at +2^31−1, so gain exactly
+    2^31 with positive full-scale input wraps to −2^31.
+  - §33.4.9 Table 253 even lists a peak of `±2^32` (FOSR=256, Sinc3,
+    IOSR=256), unrepresentable in the 32-bit signed datapath.
+  - [X] Rewrite the garbled comment at types.rs:1297-1299 (currently mixes
+    "TRM states <=2^32" with `i32::MIN.unsigned_abs()` = 2^31): state the
+    actual chain — 32-bit signed accumulator → +2^31−1 max; TRM §33.4.13
+    (≤2^31) and §33.4.9 (±2^32) are both disproven; bound is empirical
+    (derived + HW-tested).
+  - [X] Boundary test: `FilterParameters::try_new(Sinc3, fosr=1024, iosr=2)`
+    (gain = 2^31) must be rejected; the largest config ≤ 2^31−1 must be
+    accepted.
+- [X] **FT21 — AWD-filter naming (the code half of the old D14).** Per-channel
+  *fast filter* (AWFORD/AWFOSR + WDATR) feeding the per-filter *comparator*
+  (AWDCH/AWHT/AWLT/…AWHTF/AWLTF/BKAWH/BKAWL), mode-selected by AWFSEL
+  (0 = final main-filter output, 1 = fast filter — the overcurrent path).
+  Rename the per-channel cluster to `AwdFilter*` so "AnalogWatchdog" is
+  unambiguous: `AnalogWatchdogFilterConfiguration`→`AwdFilterConfig`,
+  `AnalogWatchdogFilterOrder`→`AwdFilterOrder` (fixes the "AWFORD"→"AWFOSR"
+  docstring slip), `AnalogWatchdogOsr`→`AwdFilterOsr`,
+  `get_analog_watchdog_data`→`awd_filter_data`, and the pub consuming
+  builders `select_analog_watchdog_*`→`set_awd_filter_*` (made pub when
+  `TransceiverConfig`/`configure` were deleted in FT12 — the old
+  `analog_watchdog_filter_config` field no longer exists; see NITS #22 for
+  the voluntary-vs-mandatory question). Keep `AnalogWatchdog`,
+  `AnalogWatchdogConfig`, `AnalogWatchdogEvent`, `flt.awd` unchanged.
+  Docstrings ride T-doc (AWFSEL coupling note is in its D14 clause).
+- [X] **FT15 — API self-documentation polish.** Replace tuple returns with named
+  result structs (`RegularResult { data, channel, pending }`, `InjectedResult`,
+  `Extremum { value, channel }`); connect `data_right_shift` to
+  `FilterParameters::recommended_shift()` (derive-by-default, raw override);
+  rename `read_maxima`/`read_minima` → read-and-clear variants (or a combined
+  `Extremes` snapshot); consider `regular`/`injected` over `reg`/`inj`;
+  `get_cnv_cnt` → `conversion_time()` (liveness doc rides T-doc, ex-FT8);
+  expose public i32 sign-extension (u32-vs-i32 + typed value accessors).
+  Goal: no TRM needed for the common paths.
+- [X] **FT13 — Input-width-aware gain ceiling (serial vs parallel).** E1's
+  `MAX_GAIN = 2^31−1` assumes 1-bit serial input; parallel (DATMPX ADC /
+  CPU-DMA DATINR) is 16-bit, so the safe FOSR/IOSR ceiling is far lower (~`MAX_GAIN
+  >> 16`). Two needs:
+  - override/force escape hatch for users who know their headroom;
+  - input-aware ceiling — EITHER an input marker typestate (serial / parallel +
+    bit width) on `FilterParameters`, OR a separate method/constructor taking the
+    input width (pick whichever is simpler).
+  Verify the parallel-input gain model in the TRM first (§33.4.5–33.4.6).
+- [X] **FT14 (optional) — AWD-filter gain ceiling.** The AWD fast filter
+  (`AWFORD`/`AWFOSR`, → `AwdFilterOrder`/`AwdFilterOsr` per FT21) input is
+  always 1-bit serial (no parallel case), so no input-width ceiling is needed;
+  but the fast filter's own gain (FOSR^FORD, max 32³) vs 16-bit WDATR is
+  undocumented in the TRM — investigate only if a fast-mode AWD overflow is
+  observed on silicon (symmetric with E1).

@@ -671,7 +671,7 @@ where
     // Normal stuff,
 
     /// 28-bit timer counting conversion time t = CNVCNT[27:0] / fDFSDMCLK
-    pub fn get_cnv_cnt(&self) -> u32 {
+    pub fn conversion_timer(&self) -> u32 {
         T::regs().flt(M::CHANNEL.index()).cnvtimr().read().cnvcnt()
     }
 
@@ -753,6 +753,17 @@ where
     }
 }
 
+pub struct ResultRegular {
+    pub data: i32,
+    pub channel: u8,
+    pub pending: bool,
+}
+
+pub struct ResultInjected {
+    pub data: i32,
+    pub channel: u8,
+}
+
 impl<'a, 'd, 't, T, M, D> FilterRegular<'a, 'd, 't, T, M, D>
 where
     T: Instance + FilterInterrupt<M>,
@@ -792,7 +803,7 @@ where
     }
 
     /// Trigger a regular conversion and read it asynchronously using interrupts
-    pub async fn read(&mut self) -> Result<(i32, u8, bool), Error> {
+    pub async fn read(&mut self) -> Result<ResultRegular, Error> {
         self.start_conversion();
 
         poll_fn(|cx| {
@@ -825,7 +836,7 @@ where
     /// conversion.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_get_result(&mut self) -> Result<(i32, u8, bool), Error> {
+    pub fn try_get_result(&mut self) -> Result<ResultRegular, Error> {
         if self.get_and_clear_overrun() {
             return Err(Error::Overrun);
         } else if self.end_of_conversion() {
@@ -845,11 +856,13 @@ where
     /// The returned data is only valid if `REOCF` was set before reading.
     ///
     /// Returns `(data, channel, rpend)`.
-    pub fn get_result_unchecked(&mut self) -> (i32, u8, bool) {
+    pub fn get_result_unchecked(&mut self) -> ResultRegular {
         let result = T::regs().flt(M::CHANNEL.index()).rdatar().read();
-        let data = sign_extend_24(result.rdata());
-        let channel = result.rdatach();
-        (data, channel, result.rpend())
+        ResultRegular {
+            data: sign_extend_24(result.rdata()),
+            channel: result.rdatach(),
+            pending: result.rpend(),
+        }
     }
 
     /// Returns whether a regular conversion result is available.
@@ -969,7 +982,7 @@ where
     }
 
     /// Trigger a injected conversion and read it asynchronously using interrupts
-    pub async fn read(&mut self) -> Result<(i32, u8), Error> {
+    pub async fn read(&mut self) -> Result<ResultInjected, Error> {
         self.start_conversion();
 
         poll_fn(|cx| {
@@ -999,7 +1012,7 @@ where
     /// The conversion result is sign-extended from 24 to 32 bits and is not scaled.
     ///
     /// Reading the result clears the corresponding data register.
-    pub fn try_get_result(&mut self) -> Result<(i32, u8), Error> {
+    pub fn try_get_result(&mut self) -> Result<ResultInjected, Error> {
         if self.get_and_clear_overrun() {
             return Err(Error::Overrun);
         } else if self.end_of_conversion() {
@@ -1016,11 +1029,13 @@ where
     /// The returned data is only valid if `JEOCF` was set before reading.
     ///
     /// Returns `(data, channel)`.
-    pub fn get_result_unchecked(&mut self) -> (i32, u8) {
+    pub fn get_result_unchecked(&mut self) -> ResultInjected {
         let result = T::regs().flt(M::CHANNEL.index()).jdatar().read();
-        let data = sign_extend_24(result.jdata());
-        let channel = result.jdatach();
-        (data, channel)
+
+        ResultInjected {
+            data: sign_extend_24(result.jdata()),
+            channel: result.jdatach(),
+        }
     }
 
     /// Returns whether an injected conversion result is available.
@@ -1335,7 +1350,7 @@ where
     }
 
     /// Set the filterorder of the analog watchdog
-    pub fn select_analog_watchdog_filter_order(self, filter_order: config_types::AnalogWatchdogFilterOrder) -> Self {
+    pub fn select_awd_filter_order(self, filter_order: config_types::AwdFilterOrder) -> Self {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
@@ -1344,7 +1359,7 @@ where
     }
 
     /// Set the oversampling ratio of the analog watchdog filter
-    pub fn select_analog_watchdog_osr(self, osr: config_types::AnalogWatchdogOsr) -> Self {
+    pub fn elect_awd_filter_osr(self, osr: config_types::AwdFilterOsr) -> Self {
         T::regs()
             .ch(M::CHANNEL.index())
             .awscdr()
@@ -1406,7 +1421,7 @@ where
     /// Data converted by the analog watchdog filter for input channel y.
     /// This data is continuously converted (no trigger) for this channel,
     /// with a limited resolution (OSR=1..32/sinc order = 1..3).
-    pub fn get_analog_watchdog_data(&self) -> u16 {
+    pub fn awd_filter_data(&self) -> u16 {
         T::regs().ch(M::CHANNEL.index()).wdatr().read().wdata()
     }
 }
@@ -2141,6 +2156,12 @@ where
             .modify(|w| w.set_awltf(channels));
     }
 }
+
+pub struct ResultExtreme {
+    pub data: i32,
+    pub channel: u8,
+}
+
 pub struct ExtremesDetector<'a, 'd, T, M>
 where
     T: Instance,
@@ -2179,27 +2200,23 @@ where
     }
 
     /// Reads the extremes detector maximum value and its corresponding channel.
-    ///
-    /// Returns a tuple (maximum, channel) containing:
-    /// - `maximum`: The highest value converted by the filter (`EXMAX[23:0]`). Reading this
-    ///   register resets the value to `0x800000`.
-    /// - `channel`: The channel index on which the maximum data was stored (`EXMAXCH[2:0]`).
-    ///   Reading this register clears the bits.
-    pub fn read_maxima(&mut self) -> (u32, u8) {
+    /// Reading this resets the register value to `0x800000`.
+    pub fn read_maxima(&mut self) -> ResultExtreme {
         let exmax = T::regs().flt(M::CHANNEL.index()).exmax().read();
-        (exmax.exmax(), exmax.exmaxch())
+        ResultExtreme {
+            channel: exmax.exmaxch(),
+            data: sign_extend_24(exmax.exmax()),
+        }
     }
 
     /// Reads the extremes detector minimum value and its corresponding channel.
-    ///
-    /// Returns a tuple (maximum, channel) containing:
-    /// - `minimum`: The highest value converted by the filter (`EXMAX[23:0]`). Reading this
-    ///   register resets the value to `0x7FFFFF`.
-    /// - `channel`: The channel index on which the maximum data was stored (`EXMAXCH[2:0]`).
-    ///   Reading this register clears the bits.
-    pub fn read_minima(&mut self) -> (u32, u8) {
+    /// Reading this resets the register value to `0x7FFFFF`.
+    pub fn read_minima(&mut self) -> ResultExtreme {
         let exmin = T::regs().flt(M::CHANNEL.index()).exmin().read();
-        (exmin.exmin(), exmin.exminch())
+        ResultExtreme {
+            channel: exmin.exminch(),
+            data: sign_extend_24(exmin.exmin()),
+        }
     }
 }
 

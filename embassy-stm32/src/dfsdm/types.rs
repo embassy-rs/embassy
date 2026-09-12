@@ -903,9 +903,9 @@ pub mod config_types {
     ///
     /// 0 = AW Filter disabled; 1..=31 = enabled (actual OSR = value + 1, range 2..=32).
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub struct AnalogWatchdogOsr(u8);
+    pub struct AwdFilterOsr(u8);
 
-    impl AnalogWatchdogOsr {
+    impl AwdFilterOsr {
         /// Create from the actual OSR value (2..=32).
         /// Panics if out of range.
         /// For a runtime-stabler variant try [`AnalogWatchdogOsr::try_from`]
@@ -923,7 +923,7 @@ pub mod config_types {
         }
     }
 
-    impl TryFrom<u16> for AnalogWatchdogOsr {
+    impl TryFrom<u16> for AwdFilterOsr {
         type Error = ();
 
         /// Try to create from the actual OSR value (2..=32).
@@ -936,8 +936,8 @@ pub mod config_types {
         }
     }
 
-    impl From<AnalogWatchdogOsr> for u8 {
-        fn from(value: AnalogWatchdogOsr) -> Self {
+    impl From<AwdFilterOsr> for u8 {
+        fn from(value: AwdFilterOsr) -> Self {
             value.0
         }
     }
@@ -1034,7 +1034,7 @@ pub mod config_types {
     /// Filter order of the analog watchdogs Filter
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
     #[repr(u8)]
-    pub enum AnalogWatchdogFilterOrder {
+    pub enum AwdFilterOrder {
         /// FastSinc Filter
         FastSinc = 0,
         /// Sinc1 filter
@@ -1220,40 +1220,84 @@ pub mod config_types {
 
     /// Filter order of the analog watchdogs Filter
     #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-    pub enum AnalogWatchdogFilterConfiguration {
+    pub enum AwdFilterConfig {
         /// Filter bypassed
         Bypass,
         /// FastSinc Filter
-        FastSinc(AnalogWatchdogOsr),
+        FastSinc(AwdFilterOsr),
         /// Sinc1 filter
-        Sinc1(AnalogWatchdogOsr),
+        Sinc1(AwdFilterOsr),
         /// Sinc2 filter
-        Sinc2(AnalogWatchdogOsr),
+        Sinc2(AwdFilterOsr),
         /// Sinc3 filter
-        Sinc3(AnalogWatchdogOsr),
+        Sinc3(AwdFilterOsr),
     }
 
-    impl From<AnalogWatchdogFilterConfiguration> for AnalogWatchdogFilterOrder {
-        fn from(value: AnalogWatchdogFilterConfiguration) -> Self {
+    impl From<AwdFilterConfig> for AwdFilterOrder {
+        fn from(value: AwdFilterConfig) -> Self {
             match value {
-                AnalogWatchdogFilterConfiguration::Bypass => AnalogWatchdogFilterOrder::FastSinc,
-                AnalogWatchdogFilterConfiguration::FastSinc(_) => AnalogWatchdogFilterOrder::FastSinc,
-                AnalogWatchdogFilterConfiguration::Sinc1(_) => AnalogWatchdogFilterOrder::Sinc1,
-                AnalogWatchdogFilterConfiguration::Sinc2(_) => AnalogWatchdogFilterOrder::Sinc2,
-                AnalogWatchdogFilterConfiguration::Sinc3(_) => AnalogWatchdogFilterOrder::Sinc3,
+                AwdFilterConfig::Bypass => AwdFilterOrder::FastSinc,
+                AwdFilterConfig::FastSinc(_) => AwdFilterOrder::FastSinc,
+                AwdFilterConfig::Sinc1(_) => AwdFilterOrder::Sinc1,
+                AwdFilterConfig::Sinc2(_) => AwdFilterOrder::Sinc2,
+                AwdFilterConfig::Sinc3(_) => AwdFilterOrder::Sinc3,
             }
         }
     }
-    impl From<AnalogWatchdogFilterConfiguration> for AnalogWatchdogOsr {
-        fn from(value: AnalogWatchdogFilterConfiguration) -> Self {
+    impl From<AwdFilterConfig> for AwdFilterOsr {
+        fn from(value: AwdFilterConfig) -> Self {
             match value {
-                AnalogWatchdogFilterConfiguration::Bypass => AnalogWatchdogOsr::BYPASSED,
-                AnalogWatchdogFilterConfiguration::FastSinc(osr)
-                | AnalogWatchdogFilterConfiguration::Sinc1(osr)
-                | AnalogWatchdogFilterConfiguration::Sinc2(osr)
-                | AnalogWatchdogFilterConfiguration::Sinc3(osr) => osr,
+                AwdFilterConfig::Bypass => AwdFilterOsr::BYPASSED,
+                AwdFilterConfig::FastSinc(osr)
+                | AwdFilterConfig::Sinc1(osr)
+                | AwdFilterConfig::Sinc2(osr)
+                | AwdFilterConfig::Sinc3(osr) => osr,
             }
         }
+    }
+    /// Effective input bit-width feeding the sinc filter, for gain-ceiling checks.
+    ///
+    /// A wider input sample eats into the 32-bit signed accumulator's headroom,
+    /// so the safe filter-gain ceiling depends on how many bits the input itself
+    /// already occupies.
+    #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+    pub enum InputWidth {
+        /// Serial modes: Manchester, SPI (ext/int) - 1-bit stream.
+        Serial,
+        /// Parallel modes: ADC mux (DATMPX=1), CPU/DMA register writes to
+        /// DATINR (DATMPX=2) - 16-bit samples. Verify the exact gain model
+        /// against the TRM before relying on this ceiling.
+        Parallel,
+    }
+
+    impl InputWidth {
+        const fn bits(self) -> u32 {
+            match self {
+                InputWidth::Serial => 1,
+                InputWidth::Parallel => 16,
+            }
+        }
+    }
+
+    /// Absolute gain limit for the 32-bit signed accumulator, assuming a 1-bit
+    /// (serial) input.
+    ///
+    /// The TRM states a limit of `2^32` (`i32::MIN.unsigned_abs()`), but this
+    /// is one too high. A signed 32-bit value has one less unit of positive
+    /// headroom than negative headroom, so the maximum positive value is
+    /// `2^31 - 1` (`i32::MAX`).
+    const MAX_GAIN_SERIAL: u128 = i32::MAX.unsigned_abs() as u128;
+
+    /// Gain ceiling for a given input width.
+    ///
+    /// Each extra input bit halves the safe filter-gain headroom relative to
+    /// the 1-bit serial case. This linear model is an approximation for the
+    /// parallel (16-bit) case - verify against TRM before
+    /// trusting it in a headroom-critical design; use
+    /// [`FilterParameters::new_ignore_gain_ceiling`] if you've verified your
+    /// own headroom instead.
+    const fn max_gain(width: InputWidth) -> u128 {
+        MAX_GAIN_SERIAL >> (width.bits() - 1)
     }
 
     /// Filter order and filter oversampling ratio (FOSR).
@@ -1285,11 +1329,6 @@ pub mod config_types {
         Sinc5 { fosr: u16 },
     }
 
-    /// absolute gain limit, after that 32bit signed accumulators might overflow
-    /// TRM states <=2^32 (`i32::MIN.unsigned_abs()`) but to that's 1 too much
-    /// as signed ints have 1-less positive headroom than negative
-    const MAX_GAIN: u32 = i32::MAX.unsigned_abs();
-
     impl FilterOrder {
         fn fosr(&self) -> u16 {
             match self {
@@ -1303,23 +1342,37 @@ pub mod config_types {
             }
         }
 
-        /// Returns Some(gain) for valid filter order + OSR combinations
-        /// Returns None for invalid combinations
-        fn gain(&self) -> Option<u32> {
-            let gain = match *self {
+        /// Returns Some(gain) for filter order + OSR combinations that are at
+        /// least arithmetically representable. Computed in `u128` so that
+        /// representability is checked independently of any gain *ceiling* -
+        /// even filter orders whose gain vastly exceeds the accumulator's
+        /// headroom are `Some` here, as long as the exponentiation itself
+        /// doesn't overflow `u128`. Ceiling enforcement happens separately in
+        /// [`FilterParameters::total_gain_checked`].
+        ///
+        /// Returns `None` only for combinations where `FOSR^order` overflows
+        /// `u128` (e.g. `Sinc5` near `fosr = u16::MAX`) - a case that indicates
+        /// a nonsensical configuration, not merely a large one.
+        fn gain(&self) -> Option<u128> {
+            let gain: u128 = match *self {
                 Self::Disabled => 1,
-                Self::FastSinc { fosr } => 2u32.checked_mul((fosr as u32).checked_pow(2)?)?,
-                Self::Sinc1 { fosr } => (fosr as u32).checked_pow(1)?,
-                Self::Sinc2 { fosr } => (fosr as u32).checked_pow(2)?,
-                Self::Sinc3 { fosr } => (fosr as u32).checked_pow(3)?,
-                Self::Sinc4 { fosr } => (fosr as u32).checked_pow(4)?,
-                Self::Sinc5 { fosr } => (fosr as u32).checked_pow(5)?,
+                Self::FastSinc { fosr } => 2u128.checked_mul((fosr as u128).checked_pow(2)?)?,
+                Self::Sinc1 { fosr } => (fosr as u128).checked_pow(1)?,
+                Self::Sinc2 { fosr } => (fosr as u128).checked_pow(2)?,
+                Self::Sinc3 { fosr } => (fosr as u128).checked_pow(3)?,
+                Self::Sinc4 { fosr } => (fosr as u128).checked_pow(4)?,
+                Self::Sinc5 { fosr } => (fosr as u128).checked_pow(5)?,
             };
 
-            (gain <= MAX_GAIN).then_some(gain)
+            Some(gain)
         }
-        /// Tests whether filter order + OSR combinations results
-        /// in sub-i32 measurements
+
+        /// Tests whether the filter order + OSR combination is at least
+        /// arithmetically representable (the gain calculation itself doesn't
+        /// overflow `u128`). Does not check against any input-width gain ceiling
+        /// - a filter can be `valid()` and still be far too high-gain for a
+        /// given accumulator/input-width combination; see
+        /// [`FilterParameters::total_gain_checked`] for that check.
         fn valid(&self) -> bool {
             self.gain().is_some()
         }
@@ -1330,27 +1383,71 @@ pub mod config_types {
     pub struct FilterParameters {
         order: FilterOrder,
         iosr: u16,
+        width: InputWidth,
     }
 
     impl FilterParameters {
-        /// Create from FilterOrder (carrying its FOSR) and the actual IOSR value.
-        /// Panics if out of range.
-        /// For a runtime-stabler variant try [`FilterParameters::try_new`]
+        /// Create from FilterOrder (carrying its FOSR) and the actual IOSR value,
+        /// assuming a 1-bit serial input. Panics if out of range.
+        /// For a runtime-stabler variant try [`FilterParameters::try_new`].
+        /// For parallel (ADC/DMA) inputs use [`FilterParameters::new_for_width`].
         pub fn new(order: FilterOrder, iosr: u16) -> Self {
-            Self::try_new(order, iosr).expect("FilterParameters: fosr or iosr out of range")
+            Self::new_for_width(order, iosr, InputWidth::Serial)
         }
 
-        /// Try to create from the actual OSR value.
-        /// See TRM or [`FilterOrder::max_osr`] for valid OSR and IOSR
-        /// Filter gain and total gain must each <= 2^31
+        /// Try to create from the actual OSR value, assuming a 1-bit serial input.
+        /// See TRM or [`FilterOrder::max_osr`] for valid OSR and IOSR.
+        /// Filter gain and total gain must each <= 2^31.
         pub fn try_new(order: FilterOrder, iosr: u16) -> Result<Self, ()> {
+            Self::try_new_for_width(order, iosr, InputWidth::Serial)
+        }
+
+        /// Create from FilterOrder, IOSR, and the effective input bit-width.
+        /// Use this for parallel (ADC/DMA) inputs, where the gain ceiling is
+        /// lower than for serial inputs. Panics if out of range.
+        pub fn new_for_width(order: FilterOrder, iosr: u16, width: InputWidth) -> Self {
+            Self::try_new_for_width(order, iosr, width)
+                .expect("FilterParameters: fosr or iosr out of range for input width")
+        }
+
+        /// Try to create from the actual OSR value and the effective input
+        /// bit-width. Filter gain and total gain must each fit under
+        /// [`max_gain`] for the given `width`.
+        pub fn try_new_for_width(order: FilterOrder, iosr: u16, width: InputWidth) -> Result<Self, ()> {
             if (1..=256).contains(&iosr) && order.fosr() > 0 {
-                let params = Self { order, iosr };
+                let params = Self { order, iosr, width };
                 if params.total_gain_checked().is_some() {
                     return Ok(params);
                 }
             }
             Err(())
+        }
+
+        /// Skips the input-width gain-ceiling check entirely. For callers who
+        /// have verified their own headroom - e.g. known-small input amplitude,
+        /// or downstream scaling/offset that keeps the accumulator in range
+        /// regardless of the nominal filter gain.
+        ///
+        /// Still validates FOSR/IOSR register range and rejects combinations
+        /// where the gain calculation itself overflows `u128` (garbage in,
+        /// garbage out) - only the "does this fit under the input-width
+        /// ceiling" check is bypassed.
+        ///
+        /// Because the ceiling is skipped, the resulting gain may exceed
+        /// `u32::MAX`. [`FilterParameters::total_gain`] truncates silently in
+        /// that case (`as u32`) - use [`FilterParameters::total_gain_wide`] for
+        /// a lossless `u128` reading, and prefer it when constructing via this
+        /// method.
+        pub fn new_ignore_gain_ceiling(order: FilterOrder, iosr: u16) -> Result<Self, ()> {
+            if (1..=256).contains(&iosr) && order.fosr() > 0 && order.valid() {
+                Ok(Self {
+                    order,
+                    iosr,
+                    width: InputWidth::Serial,
+                })
+            } else {
+                Err(())
+            }
         }
 
         pub(crate) fn register_values(self) -> (u8, u16, u8) {
@@ -1366,23 +1463,55 @@ pub mod config_types {
             (discriminant, self.order.fosr() - 1, (self.iosr - 1) as u8)
         }
 
-        /// Returns the total gain of this filter parametrization
-        fn total_gain_checked(&self) -> Option<u32> {
+        /// Returns the total gain of this filter parametrization, checked
+        /// against the ceiling for this instance's input width. `None` if the
+        /// ceiling is exceeded - cannot happen for instances built via
+        /// `new`/`try_new`/`new_for_width`/`try_new_for_width`, since they
+        /// already require this to succeed at construction. May be `None`'s
+        /// logical inverse (i.e. always computable) for
+        /// `new_ignore_gain_ceiling` instances, since those skip the ceiling -
+        /// this method still reports the ceiling-checked view for them, which
+        /// is why [`total_gain`]/[`total_gain_wide`] exist as the ceiling-free
+        /// accessors.
+        fn total_gain_checked(&self) -> Option<u128> {
             self.order
                 .gain()
-                .and_then(|filter_gain| filter_gain.checked_mul(self.iosr as u32))
-                .filter(|&gain| gain <= MAX_GAIN)
+                .and_then(|filter_gain| filter_gain.checked_mul(self.iosr as u128))
+                .filter(|&gain| gain <= max_gain(self.width))
         }
 
-        /// Returns the total gain of this filter parametrization
+        /// Returns the total gain of this filter parametrization, truncated to
+        /// `u32`.
+        ///
+        /// For instances built via `new`/`try_new`/`new_for_width`/
+        /// `try_new_for_width`, the gain is guaranteed `<= i32::MAX`-derived
+        /// ceiling and this never truncates.
+        ///
+        /// For instances built via [`FilterParameters::new_ignore_gain_ceiling`],
+        /// the true gain may exceed `u32::MAX` and this value silently
+        /// truncates (`as u32`) - use [`FilterParameters::total_gain_wide`]
+        /// instead in that case.
         pub fn total_gain(&self) -> u32 {
-            // Safe to unwrap after successful instantiation: total gain is guaranteed to be valid.
-            self.total_gain_checked().unwrap()
+            self.total_gain_wide() as u32
+        }
+
+        /// Returns the total gain of this filter parametrization as a lossless
+        /// `u128`, regardless of how the instance was constructed. Prefer this
+        /// over [`FilterParameters::total_gain`] for instances built via
+        /// [`FilterParameters::new_ignore_gain_ceiling`].
+        pub fn total_gain_wide(&self) -> u128 {
+            // Safe to unwrap: `order.gain()` only returns `None` on arithmetic
+            // overflow, which both constructor paths already reject at
+            // construction time (`order.valid()` / `total_gain_checked`).
+            self.order
+                .gain()
+                .and_then(|filter_gain| filter_gain.checked_mul(self.iosr as u128))
+                .expect("FilterParameters: gain computation overflowed u128 for a validated instance")
         }
 
         /// Recommended right-shift to achieve i24-fullscale results
         pub fn recommended_shift(&self) -> u8 {
-            let gain = self.total_gain();
+            let gain = self.total_gain_wide();
 
             gain.next_power_of_two().ilog2().saturating_sub(23) as u8
         }
