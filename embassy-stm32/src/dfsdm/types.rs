@@ -635,6 +635,28 @@ impl_sealed_and! {
     ParallelAdcMode,
 }
 
+/// Marker for channel modes that carry a serial stream a delay-block pulse
+/// skipper can act on. Not implemented for ParallelAdcMode/ParallelDmaMode.
+pub trait SerialMode: ChannelMode {}
+
+/// Marker for serial channel modes relying on an external clock,
+/// used for clock-absence-detection-sync funciton gating
+pub trait ExternalSerialMode: SerialMode {}
+
+impl_trait! {
+    SerialMode =>
+    ManchesterMode,
+    SpiExtMode,
+    SpiCkoutMode
+}
+
+impl_trait! {
+    ExternalSerialMode =>
+    ManchesterMode,
+    SpiExtMode
+}
+// ParallelAdcMode, ParallelDmaMode deliberately excluded
+
 /// Which transceiver's serial pins this channel's interface consumes
 /// (CFGR1.CHINSEL). Pins are borrowed from that channel's slot, so
 /// acquire/release live there too (see `Drop`).

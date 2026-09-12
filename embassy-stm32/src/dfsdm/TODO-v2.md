@@ -147,15 +147,6 @@ Supersedes the old AI TODO docs (removed); their still-valid intent is absorbed 
   - `DFSDM_VERR` @0x7F4 (reset 0x21 = MAJREV 2 / MINREV 1)
   - `DFSDM_IPIDR` @0x7F8 (reset 0x0011_0031)
   - `DFSDM_SIDR` @0x7FC (reset 0xA3C5DD02 = fixed code 0xA3C5DD + 2 KB)
-- [ ] **FT7 — Delay block (pulses skipper) polish** (RM0455 §33.4.4 + §33.7.6;
-  DLYR present only on DFSDM1 — `HasDelay` mapping already correct):
-  - `skip_progress() -> u8` — read PLSSKP; read-back = pulses *still to skip*,
-    0 = done.
-  - Gate `skip_pulses` to serial `ChannelMode`s (skipper acts on the serial
-    stream only; excludes ParallelAdcMode/ParallelDmaMode).
-  - Doc: write starts skipping immediately; updating mid-skip is allowed;
-    ≤63 pulses per write, skip more by repeated writes; cumulative skipped
-    count is the app's job. (Doc clauses ride T-doc.)
 - [ ] **FT21 — AWD-filter naming (the code half of the old D14).** Per-channel
   *fast filter* (AWFORD/AWFOSR + WDATR) feeding the per-filter *comparator*
   (AWDCH/AWHT/AWLT/…AWHTF/AWLTF/BKAWH/BKAWL), mode-selected by AWFSEL
@@ -776,3 +767,12 @@ Summary (each blocks DFSDM availability for whole chip groups):
   SCDF/CKABF (+ per-channel clears via AWCFR/CLRCKABF/CLRSCDF). CKABF bits
   masked by the armed set (E2/FT12) and documented as meaningless for disabled
   channels. ADC-parity "read all status" layer.
+- [X] **FT7 — Delay block (pulses skipper) polish** (RM0455 §33.4.4 + §33.7.6;
+  DLYR present only on DFSDM1 — `HasDelay` mapping already correct):
+  - `skip_progress() -> u8` — read PLSSKP; read-back = pulses *still to skip*,
+    0 = done.
+  - Gate `skip_pulses` to serial `ChannelMode`s (skipper acts on the serial
+    stream only; excludes ParallelAdcMode/ParallelDmaMode).
+  - Doc: write starts skipping immediately; updating mid-skip is allowed;
+    ≤63 pulses per write, skip more by repeated writes; cumulative skipped
+    count is the app's job. (Doc clauses ride T-doc.)

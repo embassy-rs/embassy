@@ -1044,15 +1044,15 @@ where
     M: FilterMarker + InstanceEvents<T>,
 {
     fn data_register(&mut self) -> *mut u32 {
-        self.data_register()
+        FilterRegular::data_register(self)
     }
 
     fn start_conversion(&mut self) {
-        self.start_conversion();
+        FilterRegular::start_conversion(self);
     }
 
     fn get_and_clear_overrun(&mut self) -> bool {
-        self.get_and_clear_overrun()
+        FilterRegular::get_and_clear_overrun(self)
     }
 }
 
@@ -1062,15 +1062,15 @@ where
     M: FilterMarker + InstanceEvents<T>,
 {
     fn data_register(&mut self) -> *mut u32 {
-        self.data_register()
+        FilterInjected::data_register(self)
     }
 
     fn start_conversion(&mut self) {
-        self.start_conversion();
+        FilterInjected::start_conversion(self);
     }
 
     fn get_and_clear_overrun(&mut self) -> bool {
-        self.get_and_clear_overrun()
+        FilterInjected::get_and_clear_overrun(self)
     }
 }
 
@@ -1246,7 +1246,16 @@ where
             _powerstate_marker: PhantomData,
         }
     }
+}
 
+impl<'a, 'd, T, M, S, MODE, PS> Transceiver<'a, 'd, T, M, S, MODE, PS, Enabled>
+where
+    T: Instance,
+    M: TransceiverMarker + NextChannelForInstance<T>,
+    S: PinSet,
+    MODE: ChannelMode + ExternalSerialMode,
+    PS: PinSource,
+{
     pub async fn wait_for_sync(&mut self) {
         loop {
             if ClockAbsenceDetector::<T>::try_clear_channel_flag(M::CHANNEL) {
@@ -1383,11 +1392,20 @@ where
     T: Instance + HasDelay,
     M: TransceiverMarker + NextChannelForInstance<T>,
     S: PinSet,
-    MODE: ChannelMode,
+    MODE: ChannelMode + SerialMode,
     P: PowerState,
     PS: PinSource,
 {
-    /// Configure to skip the next `skips` pulses
+    /// Reads back pulses still to skip, 0 = done
+    pub fn skip_progress(&self) -> u8 {
+        T::regs().ch(M::CHANNEL.index()).dlyr().read().plsskp()
+    }
+
+    /// Configure to skip the next `skips` pulses (max 63 per write).
+    ///
+    /// Skipping starts immediately on write; updating mid-skip is allowed.
+    /// To skip more than 63 pulses, issue repeated writes; the peripheral
+    /// doesn't track a cumulative count across writes, so the caller must.
     pub fn skip_pulses(&mut self, skips: config_types::PulsesToSkip) {
         self.set_pulseskips(skips);
     }
