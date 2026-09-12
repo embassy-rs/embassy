@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add a `Verify` state for staged updates. Adding the state is semver-breaking.
+
 ## 0.7.0 - 2026-03-10
 
 - Fixed documentation and assertion of STATE partition size requirements

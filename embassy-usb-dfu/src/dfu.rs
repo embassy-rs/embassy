@@ -19,9 +19,15 @@ pub struct FirmwareHandler<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const
     offset: usize,
     buf: AlignedBuffer<BLOCK_SIZE>,
     reset: RST,
+    completion: Completion,
+}
 
+enum Completion {
+    Deferred,
     #[cfg(feature = "_verify")]
-    public_key: &'static [u8; 32],
+    Verify(&'static [u8; 32]),
+    #[cfg(not(feature = "_verify"))]
+    Update,
 }
 
 impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize>
@@ -38,9 +44,21 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize>
             offset: 0,
             buf: AlignedBuffer([0; BLOCK_SIZE]),
             reset,
-
             #[cfg(feature = "_verify")]
-            public_key,
+            completion: Completion::Verify(public_key),
+            #[cfg(not(feature = "_verify"))]
+            completion: Completion::Update,
+        }
+    }
+
+    /// Create a handler that leaves completed downloads pending bootloader verification.
+    pub fn new_deferred(updater: BlockingFirmwareUpdater<'d, DFU, STATE>, reset: RST) -> Self {
+        Self {
+            updater,
+            offset: 0,
+            buf: AlignedBuffer([0; BLOCK_SIZE]),
+            reset,
+            completion: Completion::Deferred,
         }
     }
 }
@@ -91,21 +109,20 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> df
     fn finish(&mut self) -> Result<(), Status> {
         debug!("Receiving final transfer");
 
-        #[cfg(feature = "_verify")]
-        let update_res: Result<(), FirmwareUpdaterError> = {
-            const SIGNATURE_LEN: usize = 64;
-
-            let mut signature = [0; SIGNATURE_LEN];
-            let update_len = (self.offset - SIGNATURE_LEN) as u32;
-
-            self.updater.read_dfu(update_len, &mut signature).and_then(|_| {
+        let update_res = match self.completion {
+            Completion::Deferred => self.updater.mark_verify(),
+            #[cfg(feature = "_verify")]
+            Completion::Verify(public_key) => {
+                const SIGNATURE_LEN: usize = 64;
+                let mut signature = [0; SIGNATURE_LEN];
+                let update_len = (self.offset - SIGNATURE_LEN) as u32;
                 self.updater
-                    .verify_and_mark_updated(self.public_key, &signature, update_len)
-            })
+                    .read_dfu(update_len, &mut signature)
+                    .and_then(|_| self.updater.verify_and_mark_updated(public_key, &signature, update_len))
+            }
+            #[cfg(not(feature = "_verify"))]
+            Completion::Update => self.updater.mark_updated(),
         };
-
-        #[cfg(not(feature = "_verify"))]
-        let update_res = self.updater.mark_updated();
 
         match update_res {
             Ok(_) => {
@@ -145,6 +162,19 @@ pub fn new_state<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZ
         public_key,
     );
     DfuState::new(handler, attrs)
+}
+
+/// Create a DFU state that stages the complete download and marks it pending verification.
+///
+/// Signature parsing and policy are intentionally left to the bootloader after
+/// USB manifestation, allowing USB and non-USB transports to stage the same
+/// signed image format.
+pub fn new_state_deferred<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize>(
+    updater: BlockingFirmwareUpdater<'d, DFU, STATE>,
+    attrs: DfuAttributes,
+    reset: RST,
+) -> State<'d, DFU, STATE, RST, BLOCK_SIZE> {
+    DfuState::new(FirmwareHandler::new_deferred(updater, reset), attrs)
 }
 
 /// An implementation of the USB DFU 1.1 protocol
