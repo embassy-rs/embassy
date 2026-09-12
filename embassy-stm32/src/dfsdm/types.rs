@@ -750,7 +750,7 @@ where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
 {
-    fn data_register(&self) -> *mut u32;
+    fn data_register(&mut self) -> *mut u32;
 
     fn start_conversion(&mut self);
 

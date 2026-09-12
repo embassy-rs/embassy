@@ -862,6 +862,20 @@ where
     }
 }
 
+impl<'a, 'd, 't, T, M> FilterRegular<'a, 'd, 't, T, M, RegDma>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    /// Pointer to RDATAR, for custom DMA setups instead of `ring_buffered`.
+    ///
+    /// Reading clears the register, hence `&mut self`. Valid as long as the
+    /// underlying `DfsdmCommon` stays enabled; no Rust lifetime ties to it.
+    pub fn data_register(&mut self) -> *mut u32 {
+        T::regs().flt(M::CHANNEL.index()).rdatar().as_ptr() as *mut u32
+    }
+}
+
 impl<'a, 'd, 't, T, M, D> FilterInjected<'a, 'd, 't, T, M, D>
 where
     T: Instance + FilterInterrupt<M>,
@@ -1010,13 +1024,27 @@ where
     }
 }
 
+impl<'a, 'd, 't, T, M> FilterInjected<'a, 'd, 't, T, M, InjDma>
+where
+    T: Instance + FilterInterrupt<M>,
+    M: FilterMarker + InstanceEvents<T>,
+{
+    /// Pointer to JDATAR, for custom DMA setups instead of `ring_buffered`.
+    ///
+    /// Reading clears the register, hence `&mut self`. Valid as long as the
+    /// underlying `DfsdmCommon` stays enabled; no Rust lifetime ties to it.
+    pub fn data_register(&mut self) -> *mut u32 {
+        T::regs().flt(M::CHANNEL.index()).jdatar().as_ptr() as *mut u32
+    }
+}
+
 impl<'a, 'd, 't, T, M> FilterDma<T, M> for FilterRegular<'a, 'd, 't, T, M, RegDma>
 where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
 {
-    fn data_register(&self) -> *mut u32 {
-        T::regs().flt(M::CHANNEL.index()).rdatar().as_ptr() as *mut u32
+    fn data_register(&mut self) -> *mut u32 {
+        self.data_register()
     }
 
     fn start_conversion(&mut self) {
@@ -1033,8 +1061,8 @@ where
     T: Instance + FilterInterrupt<M>,
     M: FilterMarker + InstanceEvents<T>,
 {
-    fn data_register(&self) -> *mut u32 {
-        T::regs().flt(M::CHANNEL.index()).jdatar().as_ptr() as *mut u32
+    fn data_register(&mut self) -> *mut u32 {
+        self.data_register()
     }
 
     fn start_conversion(&mut self) {
