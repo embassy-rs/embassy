@@ -1,0 +1,8 @@
+/* EFR32MG22C224F512IM40: 512 kB flash, 32 kB SRAM.
+   Note: unlike xG24/xG25/xG26 (flash at 0x08000000), xG22 maps main flash
+   at 0x00000000. */
+MEMORY
+{
+  FLASH : ORIGIN = 0x00000000, LENGTH = 512K
+  RAM   : ORIGIN = 0x20000000, LENGTH = 32K
+}
