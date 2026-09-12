@@ -31,13 +31,13 @@ async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
     let p: embassy_stm32::Peripherals = init();
 
-    let adc = peri!(p, ADC);
+    let adc = peri!(p, DAC_ADC);
     let dac = peri!(p, DAC);
     let dac_pin = peri!(p, DAC_PIN);
     let mut adc_pin = unsafe { core::ptr::read(&dac_pin) };
 
     let mut dac = DacChannel::new_blocking(dac, dac_pin);
-    let mut adc = Adc::new(adc, Irqs);
+    let mut adc = Adc::new(adc, Irqs, Default::default());
 
     #[cfg(feature = "stm32h755zi")]
     let normalization_factor = 256;

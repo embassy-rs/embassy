@@ -3,7 +3,9 @@
 
 use defmt::*;
 use defmt_rtt as _;
-use embassy_stm32::adc::{self, Adc, AdcChannel, AdcConfig, SampleTime, adc4};
+use embassy_stm32::adc::{
+    self, Adc, Adc4SampleTime, AdcChannel, Config as AdcConfig, OversamplingRatio, Resolution, SampleTime,
+};
 use embassy_stm32::{bind_interrupts, dma, peripherals};
 use panic_probe as _;
 
@@ -20,54 +22,55 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // **** ADC1 init ****
     let mut config = AdcConfig::default();
-    config.averaging = Some(adc::Averaging::Samples1024);
-    config.resolution = Some(adc::Resolution::Bits14);
-    let mut adc1 = Adc::new_with_config(p.ADC1, config);
+    config.averaging = Some(OversamplingRatio::X1024);
+    config.resolution = Some(Resolution::Bits14);
+    let mut adc1 = Adc::new_blocking(p.ADC1, config);
     let mut adc1_pin1 = p.PA3; // A0 on nucleo u5a5
     let mut adc1_pin2 = p.PA2; // A1
-    let max1 = adc::resolution_to_max_count(adc::Resolution::Bits14);
+    let max1 = adc1.resolution().max_count();
 
     // **** ADC2 init ****
     let mut config = AdcConfig::default();
-    config.averaging = Some(adc::Averaging::Samples1024);
-    config.resolution = Some(adc::Resolution::Bits14);
-    let mut adc2 = Adc::new_with_config(p.ADC2, config);
+    config.averaging = Some(OversamplingRatio::X1024);
+    config.resolution = Some(Resolution::Bits14);
+    let mut adc2 = Adc::new_blocking(p.ADC2, config);
     let mut adc2_pin1 = p.PC3; // A2
     let mut adc2_pin2 = p.PB0; // A3
-    let max2 = adc::resolution_to_max_count(adc::Resolution::Bits14);
+    let max2 = adc2.resolution().max_count();
 
     // **** ADC4 init ****
-    let mut adc4 = Adc::new_adc4(p.ADC4);
+    let mut config = AdcConfig::default();
+    config.resolution = Some(Resolution::Bits12);
+    config.averaging = Some(OversamplingRatio::X256);
+    let mut adc4 = Adc::new_blocking(p.ADC4, config);
     let mut adc4_pin1 = p.PC1; // A4
     let mut adc4_pin2 = p.PC0; // A5
-    adc4.set_resolution_adc4(adc4::Resolution::Bits12);
-    adc4.set_averaging_adc4(adc4::Averaging::Samples256);
-    let max4 = adc4::resolution_to_max_count(adc4::Resolution::Bits12);
+    let max4 = adc4.resolution().max_count();
 
     // **** ADC1 blocking read ****
-    let raw: u16 = adc1.blocking_read(&mut adc1_pin1, SampleTime::Cycles1605);
+    let raw: u16 = adc1.blocking_read(&mut adc1_pin1, SampleTime::Cycles391);
     let volt: f32 = 3.3 * raw as f32 / max1 as f32;
     info!("Read adc1 pin 1 {}", volt);
 
-    let raw: u16 = adc1.blocking_read(&mut adc1_pin2, SampleTime::Cycles1605);
+    let raw: u16 = adc1.blocking_read(&mut adc1_pin2, SampleTime::Cycles391);
     let volt: f32 = 3.3 * raw as f32 / max1 as f32;
     info!("Read adc1 pin 2 {}", volt);
 
     // **** ADC2 blocking read ****
-    let raw: u16 = adc2.blocking_read(&mut adc2_pin1, SampleTime::Cycles1605);
+    let raw: u16 = adc2.blocking_read(&mut adc2_pin1, SampleTime::Cycles391);
     let volt: f32 = 3.3 * raw as f32 / max2 as f32;
     info!("Read adc2 pin 1 {}", volt);
 
-    let raw: u16 = adc2.blocking_read(&mut adc2_pin2, SampleTime::Cycles1605);
+    let raw: u16 = adc2.blocking_read(&mut adc2_pin2, SampleTime::Cycles391);
     let volt: f32 = 3.3 * raw as f32 / max2 as f32;
     info!("Read adc2 pin 2 {}", volt);
 
     // **** ADC4 blocking read ****
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin1, adc4::SampleTime::Cycles15);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin1, Adc4SampleTime::Cycles15);
     let volt: f32 = 3.3 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 1 {}", volt);
 
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin2, adc4::SampleTime::Cycles15);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin2, Adc4SampleTime::Cycles15);
     let volt: f32 = 3.3 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 2 {}", volt);
 
@@ -78,8 +81,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
         p.GPDMA1_CH0.reborrow(),
         Irqs,
         [
-            (adc1_pin1.reborrow_adc(), adc::SampleTime::Cycles1605),
-            (adc1_pin2.reborrow_adc(), adc::SampleTime::Cycles1605),
+            (adc1_pin1.reborrow_adc(), adc::SampleTime::Cycles391),
+            (adc1_pin2.reborrow_adc(), adc::SampleTime::Cycles391),
         ]
         .into_iter(),
         None,
@@ -102,8 +105,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
         p.GPDMA1_CH1.reborrow(),
         Irqs,
         [
-            (adc4_pin1.reborrow_adc(), adc4::SampleTime::Cycles15),
-            (adc4_pin2.reborrow_adc(), adc4::SampleTime::Cycles15),
+            (adc4_pin1.reborrow_adc(), Adc4SampleTime::Cycles15),
+            (adc4_pin2.reborrow_adc(), Adc4SampleTime::Cycles15),
         ]
         .into_iter(),
         None,

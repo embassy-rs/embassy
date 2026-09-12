@@ -9,8 +9,9 @@ use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
 use panic_probe as _;
 
+// One entry per channel in the sequence: vrefint, PC0, PC1.
 #[unsafe(link_section = ".ram_d3")]
-static mut DMA_BUF: [u16; 2] = [0; 2];
+static mut DMA_BUF: [u16; 3] = [0; 3];
 
 bind_interrupts!(struct Irqs {
     DMA1_STREAM1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
@@ -18,7 +19,7 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let mut read_buffer = unsafe { &mut DMA_BUF[..] };
+    let read_buffer = unsafe { &mut DMA_BUF[..] };
 
     let mut config = Config::default();
     {
@@ -56,7 +57,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC3);
+    let mut adc = Adc::new_blocking(p.ADC3, Default::default());
 
     let mut dma = p.DMA1_CH1;
     let mut vrefint = adc.enable_vrefint();
@@ -73,7 +74,7 @@ async fn main(_spawner: Spawner) {
             ]
             .into_iter(),
             None,
-            &mut read_buffer,
+            read_buffer,
         )
         .await;
 

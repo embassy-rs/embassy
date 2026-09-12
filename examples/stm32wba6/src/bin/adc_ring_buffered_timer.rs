@@ -9,7 +9,9 @@
 
 use defmt::{error, info};
 use defmt_rtt as _;
-use embassy_stm32::adc::{Adc, AdcChannel as _, RingBufferedAdc, adc4};
+use embassy_stm32::adc::{
+    Adc, AdcChannel as _, Config as AdcConfig, OversamplingRatio, Resolution, RingBufferedAdc, SampleTime,
+};
 use embassy_stm32::peripherals::GPDMA1_CH1;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
@@ -44,19 +46,20 @@ async fn main(_spawner: embassy_executor::Spawner) {
     pwm.set_master_output_enable(false);
     pwm.set_mms2(Mms2::Update);
 
-    let mut adc = Adc::new_adc4(p.ADC4);
-    adc.set_resolution_adc4(adc4::Resolution::Bits12);
-    adc.set_averaging_adc4(adc4::Averaging::Samples8);
+    let mut adc_config = AdcConfig::default();
+    adc_config.resolution = Some(Resolution::Bits12);
+    adc_config.averaging = Some(OversamplingRatio::X8);
+    let mut adc = Adc::new_blocking(p.ADC4, adc_config);
 
-    let mut vrefint = adc.enable_vrefint_adc4();
-    let mut vcore = adc.enable_vcore_adc4();
-    let mut temperature = adc.enable_temperature_adc4();
+    let mut vrefint = adc.enable_vrefint();
+    let mut vcore = adc.enable_vddcore();
+    let mut temperature = adc.enable_temperature();
 
     // Channel order must be ascending for this ADC4 path.
     let sequence = [
-        (vrefint.reborrow_adc(), adc4::SampleTime::Cycles795),     // CH0
-        (vcore.reborrow_adc(), adc4::SampleTime::Cycles795),       // CH12
-        (temperature.reborrow_adc(), adc4::SampleTime::Cycles795), // CH13
+        (vrefint.reborrow_adc(), SampleTime::Cycles795),     // CH0
+        (vcore.reborrow_adc(), SampleTime::Cycles795),       // CH12
+        (temperature.reborrow_adc(), SampleTime::Cycles795), // CH13
     ]
     .into_iter();
 
@@ -67,7 +70,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
         &mut dma_buf,
         Irqs,
         sequence,
-        // TODO: hook up TIM1_TRGO2 once ADC4 regular-trigger mapping is available for WBA6.
+        // TODO(adc-port): use `RegularAdcTrigger::from(TIM1_TRGO2, Exten::RisingEdge)` once stm32-data
+        // has the ADC4 regular-trigger mapping for WBA6 (`TIM1_TRGO2` does not implement
+        // `RegularTrigger<ADC4>` yet). Until then the ADC runs in continuous mode.
         None,
     );
 

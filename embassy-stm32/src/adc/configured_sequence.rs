@@ -3,8 +3,9 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use embassy_hal_internal::Peri;
 
 use super::AdcRegs;
-use crate::adc::{Instance, RxDma, check_dma_len};
+use crate::adc::{Instance, RxDma};
 use crate::dma::ChannelAndRequest;
+use crate::mode::Mode;
 use crate::rcc::RccInfo;
 
 /// An ADC with a pre-configured channel sequence for repeated DMA reads.
@@ -25,8 +26,8 @@ pub struct ConfiguredSequence<'adc, R: AdcRegs> {
 
 #[allow(private_bounds)]
 impl<'adc, R: AdcRegs> ConfiguredSequence<'adc, R> {
-    pub(crate) fn new<'d, T: Instance<Regs = R>, D: RxDma<T>>(
-        _adc: &'adc mut super::Adc<'d, T>,
+    pub(crate) fn new<'d, T: Instance<Regs = R>, M: Mode, D: RxDma<T>>(
+        _adc: &'adc mut super::Adc<'d, T, M>,
         rx_dma: Peri<'adc, D>,
         len: usize,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'adc,
@@ -52,7 +53,10 @@ impl<'adc, R: AdcRegs> ConfiguredSequence<'adc, R> {
     pub async fn read(&mut self, buf: &mut [u16]) {
         let _scoped_wake_guard = self.info.wake_guard();
 
-        check_dma_len(self.len, Some(buf.len()), true);
+        assert!(
+            buf.len() == self.len,
+            "the buffer must have exactly one entry per channel of the sequence"
+        );
 
         let transfer = unsafe { self.dma.read(self.regs.data(), buf, Default::default()) };
 

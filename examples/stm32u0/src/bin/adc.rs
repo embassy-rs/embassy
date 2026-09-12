@@ -4,7 +4,7 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_stm32::Config;
-use embassy_stm32::adc::{Adc, AdcConfig, Resolution, SampleTime};
+use embassy_stm32::adc::{Adc, Config as AdcConfig, Resolution, SampleTime};
 use embassy_time::Duration;
 use panic_probe as _;
 
@@ -21,7 +21,7 @@ fn main() -> ! {
 
     let mut config = AdcConfig::default();
     config.resolution = Some(Resolution::Bits8);
-    let mut adc = Adc::new_with_config(p.ADC1, config);
+    let mut adc = Adc::new_blocking(p.ADC1, config);
     let mut channel = p.PC0;
 
     loop {

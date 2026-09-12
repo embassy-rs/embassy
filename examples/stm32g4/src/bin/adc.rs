@@ -29,9 +29,9 @@ async fn main(_spawner: Spawner) {
     let mut p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC2, Default::default());
+    let mut adc = Adc::new_blocking(p.ADC2, Default::default());
 
-    let mut adc_temp = Adc::new(p.ADC1, Default::default());
+    let mut adc_temp = Adc::new_blocking(p.ADC1, Default::default());
     let mut temperature = adc_temp.enable_temperature();
 
     loop {

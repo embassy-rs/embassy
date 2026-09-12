@@ -33,11 +33,10 @@ async fn main(_spawner: Spawner) {
     }
     let p = embassy_stm32::init(config);
 
-    let mut adc = Adc::new(p.ADC1, Default::default());
+    let mut adc = Adc::new_blocking(p.ADC1, Default::default());
+    // A (positive pin, negative pin) tuple is a differential channel.
     let mut differential_channel = (p.PA0, p.PA1);
 
-    // can also use
-    // adc.set_differential_channel(1, true);
     info!("adc initialized");
     loop {
         let measured = adc.blocking_read(differential_channel.reborrow_adc(), SampleTime::Cycles2475);
